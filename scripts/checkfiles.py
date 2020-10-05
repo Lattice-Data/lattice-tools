@@ -173,7 +173,6 @@ def process_read_name_line(read_name_line, old_illumina_current_prefix, read_num
                         old_illumina_current_prefix,
                         read_numbers_set,
                         srr_flag)
-
                 else:
                     errors['fastq_format_readname'] = read_name
                     # the only case to skip update content error - due to the changing
