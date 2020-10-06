@@ -506,7 +506,6 @@ def main():
 					attach = attachment(post_json['attachment'])
 					post_json['attachment'] = attach
 				#check for an existing object based on any possible identifier
-				temp = {}
 				if post_json.get('uuid'):
 					url = urljoin(server, post_json['uuid'] + '/?format=json')
 				elif post_json.get('aliases'):
@@ -517,8 +516,15 @@ def main():
 					url = urljoin(server, schema_to_load + '/' + post_json['name'] + '/?format=json')
 				elif post_json.get('term_id'):
 					url = urljoin(server, schema_to_load + '/' + post_json['term_id'].replace(':','_') + '/?format=json')
-				temp = requests.get(url, auth=connection.auth).json()
 				patch_flag = False
+
+				try:
+					url
+				except NameError:
+					temp = {}
+				else:
+					temp = requests.get(url, auth=connection.auth).json()
+
 				if temp.get('uuid'): # if there is an existing corresponding object
 					if args.patchall:
 						patch_flag = True
