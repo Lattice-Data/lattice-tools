@@ -1,12 +1,14 @@
 import argparse
+import boto3
 import datetime
-import os.path
+import h5py
 import json
-import sys
-import subprocess
+import os.path
 import re
 import requests
-import boto3
+import shutil
+import subprocess
+import sys
 from urllib.parse import urljoin
 from shlex import quote
 
@@ -70,8 +72,7 @@ class Connection(object):
 
 
 GZIP_TYPES = [
-    "fastq",
-    "mex"
+    "fastq"
 ]
 
 read_name_prefix = re.compile(
@@ -97,11 +98,7 @@ def is_path_gzipped(path):
         return magic_number == b'\x1f\x8b'
 
 
-def process_illumina_read_name_pattern(read_name,
-                                       read_numbers_set,
-                                       signatures_set,
-                                       signatures_no_barcode_set,
-                                       srr_flag):
+def process_illumina_read_name_pattern(read_name, read_numbers_set, signatures_set, signatures_no_barcode_set, srr_flag):
     read_name_array = re.split(r'[:\s_]', read_name)
     flowcell = read_name_array[2]
     lane_number = read_name_array[3]
@@ -119,11 +116,7 @@ def process_illumina_read_name_pattern(read_name,
         read_number + ':')
 
 
-def process_illumina_prefix(read_name,
-                                signatures_set,
-                                old_illumina_current_prefix,
-                                read_numbers_set,
-                                srr_flag):
+def process_illumina_prefix(read_name, signatures_set, old_illumina_current_prefix, read_numbers_set, srr_flag):
     if srr_flag:
         read_number = list(read_numbers_set)[0]
     else:
@@ -146,13 +139,7 @@ def process_illumina_prefix(read_name,
     return old_illumina_current_prefix
 
 
-def process_read_name_line(read_name_line,
-                           old_illumina_current_prefix,
-                           read_numbers_set,
-                           signatures_no_barcode_set,
-                           signatures_set,
-                           read_lengths_dictionary,
-                           errors, srr_flag,):
+def process_read_name_line(read_name_line, old_illumina_current_prefix, read_numbers_set, signatures_no_barcode_set, signatures_set, read_lengths_dictionary, errors, srr_flag):
     read_name = read_name_line.strip()
     words_array = re.split(r'\s', read_name)
     if read_name_pattern.match(read_name) is None:
@@ -236,13 +223,7 @@ def process_barcodes(signatures_set):
     return set_to_return
 
 
-def process_read_lengths(read_lengths_dict,
-                         lengths_list,
-                         submitted_read_length,
-                         read_count,
-                         threshold_percentage,
-                         errors_to_report,
-                         result):
+def process_read_lengths(read_lengths_dict, lengths_list, submitted_read_length, read_count, threshold_percentage, errors_to_report, result):
     reads_quantity = sum([count for length, count in read_lengths_dict.items()
                           if (submitted_read_length - 2) <= length <= (submitted_read_length + 2)])
     if ((threshold_percentage * read_count) > reads_quantity):
@@ -257,7 +238,8 @@ def process_fastq_file(job):
     errors = job['errors']
     result = job['result']
 
-    download_url = item.get('s3_uri', item.get('file_path'))
+    download_url = item.get('s3_uri')
+    local_path = download_url.split('/')[-1]
 
     read_numbers_set = set()
     signatures_set = set()
@@ -266,6 +248,11 @@ def process_fastq_file(job):
     read_count = 0
     old_illumina_current_prefix = 'empty'
     try:
+        fastq_data_stream = subprocess.Popen(['gunzip --stdout {}'.format(
+                                                        local_path)],
+                                                        shell=True,
+                                                        executable='/bin/bash',
+                                                        stdout=subprocess.PIPE)
         line_index = 0
         for encoded_line in fastq_data_stream.stdout:
             try:
@@ -345,19 +332,41 @@ def process_fastq_file(job):
 
         result['fastq_signature'] = sorted(list(signatures_for_comparison))
 
+    os.remove(local_path)
+
+
+def process_h5matrix_file(job):
+    item = job['item']
+    errors = job['errors']
+    result = job['result']
+
+    download_url = item.get('s3_uri')
+    local_path = download_url.split('/')[-1]
+
+    # https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/h5_matrices
+    # https://docs.h5py.org/en/stable/
+    f = h5py.File(local_path, 'r')
+    for k in list(f.keys()):
+        dset = f[k]
+        result['barcode_count'] = dset['barcodes'].shape[0]
+        result['features'] = dset['features']['id'].shape[0]
+
+    os.remove(local_path)
+
 
 def process_matrix_file(job):
     item = job['item']
     errors = job['errors']
     result = job['result']
 
+    tmp_dir = 'raw_feature_bc_matrix'
     mtx_path = 'matrix.mtx.gz'
     feature_path = 'features.tsv.gz'
     barcode_path = 'barcodes.tsv.gz'
 
     # do the matrix file in the directory
     try:
-        matrix_stream = subprocess.Popen(['gunzip --stdout {}'.format(mtx_path)],
+        matrix_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, mtx_path)],
             shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         errors['matrix_information_extraction'] = 'Failed to extract information from ' + mtx_path
@@ -367,15 +376,16 @@ def process_matrix_file(job):
         for encoded_line in matrix_stream.stdout:
             line_index += 1
             if line_index == 3:
-                result['features_count_frommatrix'] = encoded_line.split(' ')[0]
-                result['barcodes_count_frommatrix'] = encoded_line.split(' ')[1]
+                count_summary = encoded_line.decode('utf-8').strip().split()
+                features_count_frommatrix = int(count_summary[0])
+                barcodes_count_frommatrix = int(count_summary[1])
                 break
     except IOError:
         errors['unzipped_matrix_streaming'] = 'Error occured, while streaming unzipped matrix file.'
 
     # do the features file in the directory
     try:
-        features_stream = subprocess.Popen(['gunzip --stdout {}'.format(feature_path)],
+        features_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, feature_path)],
             shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         errors['features_information_extraction'] = 'Failed to extract information from ' + feature_path
@@ -388,14 +398,18 @@ def process_matrix_file(job):
         errors['unzipped_features_streaming'] = 'Error occured, while streaming unzipped features file.'
     else:
         # read_count update
-        result['features_row_count'] = features_row_count
+        if features_row_count == features_count_frommatrix:
+            result['feature_count'] = features_row_count
+        else:
+            errors['feature_count_discrepancy'] = 'Feature count from matrix ({}) does not match row count in features.tsv ({})'.format(
+                features_count_frommatrix, features_row_count)
 
     # do the barcodes file in the directory
     try:
-        barcodes_stream = subprocess.Popen(['gunzip --stdout {}'.format(barcode_path)],
+        barcodes_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, barcode_path)],
             shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        errors['features_information_extraction'] = 'Failed to extract information from ' + barcode_path
+        errors['barcodes_information_extraction'] = 'Failed to extract information from ' + barcode_path
 
     barcodes_row_count = 0
     try:
@@ -405,7 +419,13 @@ def process_matrix_file(job):
         errors['unzipped_barcodes_streaming'] = 'Error occured, while streaming unzipped barcodes file.'
     else:
         # read_count update
-        result['barcodes_row_count'] = barcodes_row_count
+        if barcodes_row_count == barcodes_count_frommatrix:
+            result['barcode_count'] = barcodes_row_count
+        else:
+            errors['barcode_count_discrepancy'] = 'Barcode count from matrix ({}) does not match row count in barcodes.tsv ({})'.format(
+                barcodes_count_frommatrix, barcodes_row_count)
+
+    shutil.rmtree(tmp_dir)
 
 
 def download_s3_directory(job):
@@ -418,9 +438,11 @@ def download_s3_directory(job):
     dir_path = download_url.replace('s3://{}/'.format(bucket_name), '')
 
     s3client = boto3.client("s3")
+    tmp_dir = 'raw_feature_bc_matrix'
+    os.mkdir(tmp_dir)
     for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
-            s3client.download_file(bucket_name, dir_path + '/' + file_name, file_name)
+            s3client.download_file(bucket_name, dir_path + '/' + file_name, '{}/{}'.format(tmp_dir, file_name))
             '''
             subprocess.Popen(['aws s3 cp {} ./'.format(download_url)],
                 shell=True, executable='/bin/bash', stdout=subprocess.PIPE)'''
@@ -450,10 +472,8 @@ def download_s3_file(job):
     except subprocess.CalledProcessError as e:
         errors['file not found'] = 'Failed to find file on s3'
     else:
-        #once it has successfully downloaded, then go back
-        print(job)
-        quit()
-        return
+            #once it has successfully downloaded, then go back
+            print(file_name + ' downloaded')
 
 
 def check_file(job):
@@ -462,8 +482,7 @@ def check_file(job):
     result = job['result']
 
     download_url = file.get('s3_uri')
-    local_path = download_url.split('/')[:-1]
-
+    local_path = download_url.split('/')[-1]
 
     # check file size & md5sum
     file_stat = os.stat(local_path)
@@ -472,7 +491,7 @@ def check_file(job):
         file_stat.st_mtime).isoformat() + 'Z'
     # Faster than doing it in Python.
     try:
-        output = subprocess.check_output('md5sum-lite {}'.format(download_url),
+        output = subprocess.check_output('md5sum-lite {}'.format(local_path),
             shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         errors['md5sum'] = e.output.decode(errors='replace').rstrip('\n')
@@ -485,10 +504,9 @@ def check_file(job):
         if file.get('md5sum') and result['md5sum'] != file.get('md5sum'):
             errors['md5sum'] = \
                 'checked %s does not match item %s' % (result['md5sum'], file.get('md5sum'))
-
     # check for correct gzip status
     try:
-        is_gzipped = is_path_gzipped(download_url)
+        is_gzipped = is_path_gzipped(local_path)
     except Exception as e:
         return job
     else:
@@ -504,7 +522,7 @@ def check_file(job):
             # if gzipped, unzip, get md5sum
             try:
                 output = subprocess.check_output(
-                    'set -o pipefail; gunzip --stdout {} | md5sum-lite'.format(download_url),
+                    'set -o pipefail; gunzip --stdout {} | md5sum-lite'.format(local_path),
                     shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
                 errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
@@ -514,11 +532,11 @@ def check_file(job):
             # do format-specific validation
             if file.get('file_format') == 'fastq':
                 process_fastq_file(job)
-            elif file.get('file_format') == 'mex':
-                process_matrix_file(job)
-    if errors:
-        errors['gathered information'] = 'Gathered information about the file was: {}.'.format(
-            str(result))
+    if file.get('file_format') == 'mex':
+        process_matrix_file(job)
+    if file.get('file_format') == 'h5':
+        process_h5matrix_file(job)
+
     return job
 
 
@@ -602,18 +620,19 @@ def main():
         version, datetime.datetime.now())
     print(initiating_run)
 
+    out = open('report.txt', 'w')
+    report_headers = '\t'.join([
+        'accession',
+        'errors',
+        'results',
+        's3_uri'
+    ])
+    out.write(report_headers + '\n')
+
     jobs = fetch_files(out, args.mode, args.query, args.accessions, args.s3_file, args.file_format)
 
     if jobs:
         print('CHECKING {} files'.format(len(jobs)))
-
-        out = open('report.txt', 'w')
-        report_headers = '\t'.join([
-            'accession',
-            'errors',
-            's3_uri'
-        ])
-        out.write(report_headers + '\n')
 
         for job in jobs:
             if job['item'].get('file_format') == 'mex':
@@ -625,6 +644,7 @@ def main():
             tab_report = '\t'.join([
                 file_obj.get('accession', 'UNKNOWN'),
                 str(job['errors']),
+                str(job['result']),
                 file_obj.get('s3_uri', '')
             ])
             out.write(tab_report + '\n')
