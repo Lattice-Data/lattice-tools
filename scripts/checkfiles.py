@@ -1,15 +1,12 @@
 import argparse
 import datetime
-import time
 import os.path
 import json
 import sys
 import subprocess
 import re
 import requests
-import copy
-import functools
-import multiprocessing
+import boto3
 from urllib.parse import urljoin
 from shlex import quote
 
@@ -50,8 +47,8 @@ def getArgs():
                         help="one or more file accessions to check, comma separated or a file containing a list of file accessions to check")
     parser.add_argument('--s3-file',
                         help="path to a file at s3 to check")
-    parser.add_argument('--local-file',
-                        help="path to a single local file to check")
+    parser.add_argument('--file-format',
+                        help="the specified file format if an s3-file or local-file is being checked")
     args = parser.parse_args()
     return args
 
@@ -73,16 +70,8 @@ class Connection(object):
 
 
 GZIP_TYPES = [
-    "bam",
-    "bed",
-    "bedpe",
     "fastq",
-    "gff",
-    "gtf",
-    "tar",
-    "txt",
-    "wig",
-    "vcf",
+    "mex"
 ]
 
 read_name_prefix = re.compile(
@@ -99,9 +88,13 @@ srr_read_name_pattern = re.compile(
 )
 
 def is_path_gzipped(path):
-    with open(path, 'rb') as f:
+    try:
+        f = open(path, 'rb')
+    except IsADirectoryError:
+        return 'IsADirectoryError'
+    else:
         magic_number = f.read(2)
-    return magic_number == b'\x1f\x8b'
+        return magic_number == b'\x1f\x8b'
 
 
 def process_illumina_read_name_pattern(read_name,
@@ -159,79 +152,55 @@ def process_read_name_line(read_name_line,
                            signatures_no_barcode_set,
                            signatures_set,
                            read_lengths_dictionary,
-                           errors, srr_flag, read_name_details):
+                           errors, srr_flag,):
     read_name = read_name_line.strip()
-    if read_name_details:
-        #extract fastq signature parts using read_name_detail
-        read_name_array = re.split(r'[:\s]', read_name)
-
-        flowcell = read_name_array[read_name_details['flowcell_id_location']]
-        lane_number = read_name_array[read_name_details['lane_id_location']]
-        if not read_name_details.get('read_number_location'):
-            read_number = "1"
-        else:
-            read_number = read_name_array[read_name_details['read_number_location']]
-        read_numbers_set.add(read_number)
-        
-        if not read_name_details.get('barcode_location'):
-            barcode_index = ''
-        else:
-            barcode_index = read_name_array[read_name_details['barcode_location']]
-        
-        signatures_set.add(
-            flowcell + ':' + lane_number + ':' +
-            read_number + ':' + barcode_index + ':')
-        signatures_no_barcode_set.add(
-            flowcell + ':' + lane_number + ':' +
-            read_number + ':')
-    else:
-        words_array = re.split(r'\s', read_name)
-        if read_name_pattern.match(read_name) is None:
-            if srr_read_name_pattern.match(read_name.split(' ')[0]) is not None:
-                # in case the readname is following SRR format, read number will be
-                # defined using SRR format specifications, and not by the illumina portion of the read name
-                # srr_flag is used to distinguish between srr and "regular" readname formats
-                srr_portion = read_name.split(' ')[0]
-                if srr_portion.count('.') == 2:
-                    read_numbers_set.add(srr_portion[-1])
-                else:
-                    read_numbers_set.add('1')
-                illumina_portion = read_name.split(' ')[1]
-                old_illumina_current_prefix = process_read_name_line('@'+illumina_portion,
-                                                                    old_illumina_current_prefix,
-                                                                    read_numbers_set,
-                                                                    signatures_no_barcode_set,
-                                                                    signatures_set,
-                                                                    read_lengths_dictionary,
-                                                                    errors, True, read_name_details)
+    words_array = re.split(r'\s', read_name)
+    if read_name_pattern.match(read_name) is None:
+        if srr_read_name_pattern.match(read_name.split(' ')[0]) is not None:
+            # in case the readname is following SRR format, read number will be
+            # defined using SRR format specifications, and not by the illumina portion of the read name
+            # srr_flag is used to distinguish between srr and "regular" readname formats
+            srr_portion = read_name.split(' ')[0]
+            if srr_portion.count('.') == 2:
+                read_numbers_set.add(srr_portion[-1])
             else:
-                # unrecognized read_name_format
-                # current convention is to include WHOLE
-                # readname at the end of the signature
-                if len(words_array) == 1:
-                    if read_name_prefix.match(read_name) is not None:
-                        # new illumina without second part
-                        old_illumina_current_prefix = process_illumina_prefix(
-                            read_name,
-                            signatures_set,
-                            old_illumina_current_prefix,
-                            read_numbers_set,
-                            srr_flag)
+                read_numbers_set.add('1')
+            illumina_portion = read_name.split(' ')[1]
+            old_illumina_current_prefix = process_read_name_line('@'+illumina_portion,
+                                                                old_illumina_current_prefix,
+                                                                read_numbers_set,
+                                                                signatures_no_barcode_set,
+                                                                signatures_set,
+                                                                read_lengths_dictionary,
+                                                                errors, True, read_name_details)
+        else:
+            # unrecognized read_name_format
+            # current convention is to include WHOLE
+            # readname at the end of the signature
+            if len(words_array) == 1:
+                if read_name_prefix.match(read_name) is not None:
+                    # new illumina without second part
+                    old_illumina_current_prefix = process_illumina_prefix(
+                        read_name,
+                        signatures_set,
+                        old_illumina_current_prefix,
+                        read_numbers_set,
+                        srr_flag)
 
-                    else:
-                        errors['fastq_format_readname'] = read_name
-                        # the only case to skip update content error - due to the changing
-                        # nature of read names
                 else:
                     errors['fastq_format_readname'] = read_name
+                    # the only case to skip update content error - due to the changing
+                    # nature of read names
+            else:
+                errors['fastq_format_readname'] = read_name
         # found a match to the regex of "almost" illumina read_name
-        else:
-            process_illumina_read_name_pattern(
-                read_name,
-                read_numbers_set,
-                signatures_set,
-                signatures_no_barcode_set,
-                srr_flag)
+    else:
+        process_illumina_read_name_pattern(
+            read_name,
+            read_numbers_set,
+            signatures_set,
+            signatures_no_barcode_set,
+            srr_flag)
 
     return old_illumina_current_prefix
 
@@ -243,12 +212,52 @@ def process_sequence_line(sequence_line, read_lengths_dictionary):
     read_lengths_dictionary[length] += 1
 
 
-def process_fastq_file(job, fastq_data_stream, session, url):
+def process_barcodes(signatures_set):
+    set_to_return = set()
+    flowcells_dict = {}
+    for entry in signatures_set:
+        (f, l, r, b, rest) = entry.split(':')
+        if (f, l, r) not in flowcells_dict:
+            flowcells_dict[(f, l, r)] = {}
+        if b not in flowcells_dict[(f, l, r)]:
+            flowcells_dict[(f, l, r)][b] = 0
+        flowcells_dict[(f, l, r)][b] += 1
+    for key in flowcells_dict.keys():
+        barcodes_dict = flowcells_dict[key]
+        total = 0
+        for b in barcodes_dict.keys():
+            total += barcodes_dict[b]
+        for b in barcodes_dict.keys():
+            if ((float(total)/float(barcodes_dict[b])) < 100):
+                set_to_return.add(key[0] + ':' +
+                                  key[1] + ':' +
+                                  key[2] + ':' +
+                                  b + ':')
+    return set_to_return
+
+
+def process_read_lengths(read_lengths_dict,
+                         lengths_list,
+                         submitted_read_length,
+                         read_count,
+                         threshold_percentage,
+                         errors_to_report,
+                         result):
+    reads_quantity = sum([count for length, count in read_lengths_dict.items()
+                          if (submitted_read_length - 2) <= length <= (submitted_read_length + 2)])
+    if ((threshold_percentage * read_count) > reads_quantity):
+        errors_to_report['read_length'] = \
+            'in file metadata the read_length is {}, '.format(submitted_read_length) + \
+            'however the uploaded fastq file contains reads of following length(s) ' + \
+            '{}. '.format(', '.join(map(str, lengths_list)))
+
+
+def process_fastq_file(job):
     item = job['item']
     errors = job['errors']
     result = job['result']
 
-    read_name_details = get_read_name_details(job.get('@id'), errors, session, url)
+    download_url = item.get('s3_uri', item.get('file_path'))
 
     read_numbers_set = set()
     signatures_set = set()
@@ -277,8 +286,7 @@ def process_fastq_file(job, fastq_data_stream, session, url):
                             signatures_no_barcode_set,
                             signatures_set,
                             read_lengths_dictionary,
-                            errors, False,
-                            read_name_details)
+                            errors, False)
             if line_index == 2:
                 read_count += 1
                 process_sequence_line(line, read_lengths_dictionary)
@@ -338,258 +346,292 @@ def process_fastq_file(job, fastq_data_stream, session, url):
         result['fastq_signature'] = sorted(list(signatures_for_comparison))
 
 
-def process_barcodes(signatures_set):
-    set_to_return = set()
-    flowcells_dict = {}
-    for entry in signatures_set:
-        (f, l, r, b, rest) = entry.split(':')
-        if (f, l, r) not in flowcells_dict:
-            flowcells_dict[(f, l, r)] = {}
-        if b not in flowcells_dict[(f, l, r)]:
-            flowcells_dict[(f, l, r)][b] = 0
-        flowcells_dict[(f, l, r)][b] += 1
-    for key in flowcells_dict.keys():
-        barcodes_dict = flowcells_dict[key]
-        total = 0
-        for b in barcodes_dict.keys():
-            total += barcodes_dict[b]
-        for b in barcodes_dict.keys():
-            if ((float(total)/float(barcodes_dict[b])) < 100):
-                set_to_return.add(key[0] + ':' +
-                                  key[1] + ':' +
-                                  key[2] + ':' +
-                                  b + ':')
-    return set_to_return
+def process_matrix_file(job):
+    item = job['item']
+    errors = job['errors']
+    result = job['result']
 
+    mtx_path = 'matrix.mtx.gz'
+    feature_path = 'features.tsv.gz'
+    barcode_path = 'barcodes.tsv.gz'
 
-def process_read_lengths(read_lengths_dict,
-                         lengths_list,
-                         submitted_read_length,
-                         read_count,
-                         threshold_percentage,
-                         errors_to_report,
-                         result):
-    reads_quantity = sum([count for length, count in read_lengths_dict.items()
-                          if (submitted_read_length - 2) <= length <= (submitted_read_length + 2)])
-    if ((threshold_percentage * read_count) > reads_quantity):
-        errors_to_report['read_length'] = \
-            'in file metadata the read_length is {}, '.format(submitted_read_length) + \
-            'however the uploaded fastq file contains reads of following length(s) ' + \
-            '{}. '.format(', '.join(map(str, lengths_list)))
-
-
-def create_a_list_of_barcodes(details):
-    barcodes = set()
-    for entry in details:
-        barcode = entry.get('barcode')
-        lane = entry.get('lane')
-        if lane and barcode:
-            barcodes.add((lane, barcode))
-    return barcodes
-
-
-def get_read_name_details(job_id, errors, session, url):
-    query = job_id +'?datastore=database&frame=object&format=json'
+    # do the matrix file in the directory
     try:
-        r = session.get(urljoin(url, query))
-    except requests.exceptions.RequestException as e:
-        errors['lookup_for_read_name_detaisl'] = ('Network error occured, while looking for '
-                                                  'file read_name details on the portal. {}').format(str(e))
-    else:
-        details = r.json().get('read_name_details')
-        if details:
-            return details
-
-
-def check_file(connection, file):
-    download_url = file.get('s3_uri', file.get('file_path'))
-    if download_url.startswith('s3:'):
-        local_path = os.path.join('/s3', download_url[len('s3://'):])
-    else:
-        local_path = download_url
-
-    result = {}
-    errors = {}
+        matrix_stream = subprocess.Popen(['gunzip --stdout {}'.format(mtx_path)],
+            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        errors['matrix_information_extraction'] = 'Failed to extract information from ' + mtx_path
 
     try:
-        file_stat = os.stat(local_path)
-    #  When file is not on S3 we are getting FileNotFoundError
-    except FileNotFoundError:
-        errors['file_not_found'] = (
-            'File not found, check the file path, likely in the s3_uri field.'
-        )
-        print(errors)
-    #  Happens when there is S3 connectivity issue: "OSError: [Errno 107] Transport endpoint is not connected"
-    except OSError:
-        errors['file_check_skipped_due_to_s3_connectivity'] = (
-            'File check was skipped due to temporary S3 connectivity issues'
-        )
-        print(errors)
+        line_index = 0
+        for encoded_line in matrix_stream.stdout:
+            line_index += 1
+            if line_index == 3:
+                result['features_count_frommatrix'] = encoded_line.split(' ')[0]
+                result['barcodes_count_frommatrix'] = encoded_line.split(' ')[1]
+                break
+    except IOError:
+        errors['unzipped_matrix_streaming'] = 'Error occured, while streaming unzipped matrix file.'
+
+    # do the features file in the directory
+    try:
+        features_stream = subprocess.Popen(['gunzip --stdout {}'.format(feature_path)],
+            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        errors['features_information_extraction'] = 'Failed to extract information from ' + feature_path
+
+    features_row_count = 0
+    try:
+        for encoded_line in features_stream.stdout:
+            features_row_count += 1
+    except IOError:
+        errors['unzipped_features_streaming'] = 'Error occured, while streaming unzipped features file.'
     else:
-        result['file_size'] = file_stat.st_size
-        result['last_modified'] = datetime.datetime.utcfromtimestamp(
-            file_stat.st_mtime).isoformat() + 'Z'
-        print(result)
-        quit()
-        # Faster than doing it in Python.
+        # read_count update
+        result['features_row_count'] = features_row_count
+
+    # do the barcodes file in the directory
+    try:
+        barcodes_stream = subprocess.Popen(['gunzip --stdout {}'.format(barcode_path)],
+            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        errors['features_information_extraction'] = 'Failed to extract information from ' + barcode_path
+
+    barcodes_row_count = 0
+    try:
+        for encoded_line in barcodes_stream.stdout:
+            barcodes_row_count += 1
+    except IOError:
+        errors['unzipped_barcodes_streaming'] = 'Error occured, while streaming unzipped barcodes file.'
+    else:
+        # read_count update
+        result['barcodes_row_count'] = barcodes_row_count
+
+
+def download_s3_directory(job):
+    item = job['item']
+    errors = job['errors']
+    result = job['result']
+
+    download_url = item.get('s3_uri')
+    bucket_name = download_url.split('/')[2]
+    dir_path = download_url.replace('s3://{}/'.format(bucket_name), '')
+
+    s3client = boto3.client("s3")
+    for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
-            output = subprocess.check_output(
-                ['md5sum', local_path], stderr=subprocess.STDOUT)
+            s3client.download_file(bucket_name, dir_path + '/' + file_name, file_name)
+            '''
+            subprocess.Popen(['aws s3 cp {} ./'.format(download_url)],
+                shell=True, executable='/bin/bash', stdout=subprocess.PIPE)'''
         except subprocess.CalledProcessError as e:
-            errors['md5sum'] = e.output.decode(errors='replace').rstrip('\n')
+            errors['file not found'] = 'Failed to find file on s3'
         else:
-            result['md5sum'] = output[:32].decode(errors='replace')
-            try:
-                int(result['md5sum'], 16)
-            except ValueError:
-                errors['md5sum'] = output.decode(errors='replace').rstrip('\n')
-            if result['md5sum'] != item['md5sum']:
-                errors['md5sum'] = \
-                    'checked %s does not match item %s' % (result['md5sum'], item['md5sum'])
+            #once it has successfully downloaded, then go back
+            print(file_name + ' downloaded')
+
+
+def download_s3_file(job):
+    item = job['item']
+    errors = job['errors']
+    result = job['result']
+
+    download_url = item.get('s3_uri')
+    bucket_name = download_url.split('/')[2]
+    file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
+    file_name = download_url.split('/')[-1]
+
+    s3client = boto3.client("s3")
+    try:
+        s3client.download_file(bucket_name, file_path, file_name)
+        '''
+        subprocess.Popen(['aws s3 cp {} ./'.format(download_url)],
+            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)'''
+    except subprocess.CalledProcessError as e:
+        errors['file not found'] = 'Failed to find file on s3'
+    else:
+        #once it has successfully downloaded, then go back
+        print(job)
+        quit()
+        return
+
+
+def check_file(job):
+    file = job['item']
+    errors = job['errors']
+    result = job['result']
+
+    download_url = file.get('s3_uri')
+    local_path = download_url.split('/')[:-1]
+
+
+    # check file size & md5sum
+    file_stat = os.stat(local_path)
+    result['file_size'] = file_stat.st_size
+    result['last_modified'] = datetime.datetime.utcfromtimestamp(
+        file_stat.st_mtime).isoformat() + 'Z'
+    # Faster than doing it in Python.
+    try:
+        output = subprocess.check_output('md5sum-lite {}'.format(download_url),
+            shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        errors['md5sum'] = e.output.decode(errors='replace').rstrip('\n')
+    else:
+        result['md5sum'] = output[:32].decode(errors='replace')
         try:
-            is_gzipped = is_path_gzipped(local_path)
-        except Exception as e:
-            return job
-        else:
-            if item['file_format'] not in GZIP_TYPES:
-                if is_gzipped:
-                    errors['gzip'] = 'Expected un-gzipped file'
-            elif not is_gzipped:
-                errors['gzip'] = 'Expected gzipped file'
-            else:
-                # May want to replace this with something like:
-                # $ cat $local_path | tee >(md5sum >&2) | gunzip | md5sum
-                # or http://stackoverflow.com/a/15343686/199100
-                try:
-                    output = subprocess.check_output(
-                        'set -o pipefail; gunzip --stdout %s | md5sum' % quote(local_path),
-                        shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
-                except subprocess.CalledProcessError as e:
-                    errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
+            int(result['md5sum'], 16)
+        except ValueError:
+            errors['md5sum'] = output.decode(errors='replace').rstrip('\n')
+        if file.get('md5sum') and result['md5sum'] != file.get('md5sum'):
+            errors['md5sum'] = \
+                'checked %s does not match item %s' % (result['md5sum'], file.get('md5sum'))
 
-                if item['file_format'] == 'fastq':
-                    try:
-                        process_fastq_file(job,
-                                        subprocess.Popen(['gunzip --stdout {}'.format(
-                                                            local_path)],
-                                                            shell=True,
-                                                            executable='/bin/bash',
-                                                            stdout=subprocess.PIPE),
-                                        session, url)
-                    except subprocess.CalledProcessError as e:
-                        errors['fastq_information_extraction'] = 'Failed to extract information from ' + \
-                                                                local_path
-        if errors:
-            errors['gathered information'] = 'Gathered information about the file was: {}.'.format(
-                str(result))
-
+    # check for correct gzip status
+    try:
+        is_gzipped = is_path_gzipped(download_url)
+    except Exception as e:
         return job
-
-
-def fetch_files(connection, out, query=None, accessions=None, s3_file=None, local_file=None):
-    if accessions:
-        # checkfiles using a file with a list of file accessions to be checked
-        if '.' in accessions:
-            r = None
-            if os.path.isfile(accessions):
-                ACCESSIONS = [line.rstrip('\n') for line in open(accessions)]
-        # checkfiles using a list of accessions in the command, comma separated
+    else:
+        if file.get('file_format') not in GZIP_TYPES:
+            if is_gzipped:
+                errors['gzip'] = 'Expected un-gzipped file'
+        elif not is_gzipped:
+            errors['gzip'] = 'Expected gzipped file'
         else:
-            ACCESSIONS = accessions.split(',')
+            # May want to replace this with something like:
+            # $ cat $local_path | tee >(md5sum >&2) | gunzip | md5sum
+            # or http://stackoverflow.com/a/15343686/199100    
+            # if gzipped, unzip, get md5sum
+            try:
+                output = subprocess.check_output(
+                    'set -o pipefail; gunzip --stdout {} | md5sum-lite'.format(download_url),
+                    shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e:
+                errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
+            else:
+                result['content_md5sum'] = output[:32].decode(errors='replace')
 
-    # checkfiles using a query
-    elif query:
-        query_url = urljoin(connection.server, query.replace('report', 'search') + '&format=json&limit=all&field=accession')
-        r = requests.get(query_url, auth=connection.auth)
-        try:
-            r.raise_for_status()
-        except requests.HTTPError:
-            return
+            # do format-specific validation
+            if file.get('file_format') == 'fastq':
+                process_fastq_file(job)
+            elif file.get('file_format') == 'mex':
+                process_matrix_file(job)
+    if errors:
+        errors['gathered information'] = 'Gathered information about the file was: {}.'.format(
+            str(result))
+    return job
+
+
+def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_format=None):
+    if accessions or query:
+        connection = Connection(mode)
+        server = connection.server
+        if accessions:
+            # checkfiles using a file with a list of file accessions to be checked
+            if '.' in accessions:
+                r = None
+                if os.path.isfile(accessions):
+                    ACCESSIONS = [line.rstrip('\n') for line in open(accessions)]
+            # checkfiles using a list of accessions in the command, comma separated
+            else:
+                ACCESSIONS = accessions.split(',')
+
+        # checkfiles using a query
         else:
-            ACCESSIONS = [x['accession'] for x in r.json()['@graph']]
+            query_url = urljoin(connection.server, query.replace('report', 'search') + '&format=json&limit=all&field=accession')
+            r = requests.get(query_url, auth=connection.auth)
+            try:
+                r.raise_for_status()
+            except requests.HTTPError:
+                return
+            else:
+                ACCESSIONS = [x['accession'] for x in r.json()['@graph']]
+
+        jobs = []
+        for acc in ACCESSIONS:
+            item_url = urljoin(connection.server, acc + '/?frame=object')
+            fileObject = requests.get(item_url, auth=connection.auth)
+            if not fileObject.ok:
+                errors['file_HTTPError'] = ('HTTP error: unable to get file object')
+            else:
+                file_json = fileObject.json()
+                if file_json.get('no_file_available') == True:
+                    out.write(acc + '\t' + ' marked as no_file_available' + '\n')
+                elif not file_json.get('s3_uri'):
+                    out.write(acc + '\t' + ' s3_uri not submitted' + '\n')
+                else:
+                    job = {
+                        'item': file_json,
+                        'result': {},
+                        'errors': {}
+                    }
+                    jobs.append(job)
+        return jobs
 
     # checkfiles on a file that is not in the Lattice database but is at s3
     elif s3_file:
         # NEED TO CHECK IF FILE IS ACCESSIBLE
-        file_objects = [
-            {
-            'accession': 'not yet submitted',
-            's3_uri': s3_file
-            }
-        ]
-        return file_objects
-
-    # checkfiles on a file that is not in the Lattice database and is local
-    elif local_file:
-        # NEED TO CHECK IF FILE IS ACCESSIBLE
-        file_objects = [
-            {
-            'accession': 'not yet submitted',
-            'file_path': local_file
-            }
-        ]
-        return file_objects
-
-    file_objects = []
-    for acc in ACCESSIONS:
-        item_url = urljoin(connection.server, acc + '/?frame=object')
-        fileObject = requests.get(item_url, auth=connection.auth)
-        if not fileObject.ok:
-            errors['file_HTTPError'] = ('HTTP error: unable to get file object')
-        else:
-            file_json = fileObject.json()
-            if file_json.get('no_file_available') == True:
-                out.write(acc + '\t' + ' marked as no_file_available' + '\n')
-            elif not file_json.get('s3_uri'):
-                out.write(acc + '\t' + ' s3_uri not submitted' + '\n')
-            else:
-                file_objects.append(file_json)
-    return file_objects
+        jobs = [{
+            'item': {
+                'accession': 'not yet submitted',
+                's3_uri': s3_file
+            },
+            'result': {},
+            'errors': {}
+        }]
+        if file_format:
+            jobs[0]['item']['file_format'] = file_format
+        return jobs
 
 
 def main():
     args = getArgs()
-    if not args.mode:
-        sys.exit('ERROR: --mode is required')
-    connection = Connection(args.mode)
+    if (args.query or args.accessions) and not args.mode:
+        sys.exit('ERROR: --mode is required with --query/--accessions')
 
     arg_count = 0
-    for arg in [args.query, args.accessions, args.s3_file, args.local_file]:
+    for arg in [args.query, args.accessions, args.s3_file]:
         if arg:
             arg_count += 1
     if arg_count != 1:
-        sys.exit('ERROR: exactly one of --query, --accessions, --s3-file --local-file is required, {} given'.format(arg_count))
+        sys.exit('ERROR: exactly one of --query, --accessions, --s3-file is required, {} given'.format(arg_count))
 
     version = '0.9'
 
-    initiating_run = 'STARTING Checkfiles version {} on {} at {}'.format(
-        version, connection.server, datetime.datetime.now())
+    initiating_run = 'STARTING Checkfiles version {} at {}'.format(
+        version, datetime.datetime.now())
     print(initiating_run)
 
-    out = open('report.txt', 'w')
-    report_headers = '\t'.join([
-        'accession',
-        'errors',
-        's3_uri'
-    ])
-    out.write(report_headers + '\n')
+    jobs = fetch_files(out, args.mode, args.query, args.accessions, args.s3_file, args.file_format)
 
-    file_objects = fetch_files(connection, out, args.query, args.accessions, args.s3_file, args.local_file)
-    print(file_objects)
+    if jobs:
+        print('CHECKING {} files'.format(len(jobs)))
 
-    print('CHECKING {} files'.format(len(file_objects)))
-    for file_obj in file_objects:
-        check_file(connection, file_obj)
-        tab_report = '\t'.join([
-            file_obj.get('accession', 'UNKNOWN'),
-            str(job['errors']),
-            file_obj.get('s3_uri', '')
+        out = open('report.txt', 'w')
+        report_headers = '\t'.join([
+            'accession',
+            'errors',
+            's3_uri'
         ])
-        out.write(tab_report + '\n')
+        out.write(report_headers + '\n')
 
-    finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.datetime.now())
-    print(finishing_run)
-    out.close()
+        for job in jobs:
+            if job['item'].get('file_format') == 'mex':
+                download_s3_directory(job)
+            else:
+                download_s3_file(job)
+            check_file(job)
+            file_obj = job.get('item')
+            tab_report = '\t'.join([
+                file_obj.get('accession', 'UNKNOWN'),
+                str(job['errors']),
+                file_obj.get('s3_uri', '')
+            ])
+            out.write(tab_report + '\n')
+
+        finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.datetime.now())
+        print(finishing_run)
+        out.close()
 
 
 if __name__ == '__main__':
