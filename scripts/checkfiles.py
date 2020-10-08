@@ -1,22 +1,14 @@
 import argparse
 import boto3
 import datetime
-<<<<<<< HEAD
 import h5py
-=======
-import os.path
->>>>>>> more trimming, set up boto3 download
 import json
 import os.path
 import re
 import requests
-<<<<<<< HEAD
 import shutil
 import subprocess
 import sys
-=======
-import boto3
->>>>>>> more trimming, set up boto3 download
 from urllib.parse import urljoin
 from shlex import quote
 
@@ -80,12 +72,8 @@ class Connection(object):
 
 
 GZIP_TYPES = [
-<<<<<<< HEAD
-    "fastq"
-=======
     "fastq",
     "mex"
->>>>>>> more trimming, set up boto3 download
 ]
 
 read_name_prefix = re.compile(
@@ -152,17 +140,7 @@ def process_illumina_prefix(read_name, signatures_set, old_illumina_current_pref
     return old_illumina_current_prefix
 
 
-<<<<<<< HEAD
 def process_read_name_line(read_name_line, old_illumina_current_prefix, read_numbers_set, signatures_no_barcode_set, signatures_set, read_lengths_dictionary, errors, srr_flag):
-=======
-def process_read_name_line(read_name_line,
-                           old_illumina_current_prefix,
-                           read_numbers_set,
-                           signatures_no_barcode_set,
-                           signatures_set,
-                           read_lengths_dictionary,
-                           errors, srr_flag,):
->>>>>>> more trimming, set up boto3 download
     read_name = read_name_line.strip()
     words_array = re.split(r'\s', read_name)
     if read_name_pattern.match(read_name) is None:
@@ -196,10 +174,6 @@ def process_read_name_line(read_name_line,
                         old_illumina_current_prefix,
                         read_numbers_set,
                         srr_flag)
-<<<<<<< HEAD
-=======
-
->>>>>>> more trimming, set up boto3 download
                 else:
                     errors['fastq_format_readname'] = read_name
                     # the only case to skip update content error - due to the changing
@@ -249,17 +223,7 @@ def process_barcodes(signatures_set):
     return set_to_return
 
 
-<<<<<<< HEAD
 def process_read_lengths(read_lengths_dict, lengths_list, submitted_read_length, read_count, threshold_percentage, errors_to_report, result):
-=======
-def process_read_lengths(read_lengths_dict,
-                         lengths_list,
-                         submitted_read_length,
-                         read_count,
-                         threshold_percentage,
-                         errors_to_report,
-                         result):
->>>>>>> more trimming, set up boto3 download
     reads_quantity = sum([count for length, count in read_lengths_dict.items()
                           if (submitted_read_length - 2) <= length <= (submitted_read_length + 2)])
     if ((threshold_percentage * read_count) > reads_quantity):
@@ -274,12 +238,8 @@ def process_fastq_file(job):
     errors = job['errors']
     result = job['result']
 
-<<<<<<< HEAD
     download_url = item.get('s3_uri')
     local_path = download_url.split('/')[-1]
-=======
-    download_url = item.get('s3_uri', item.get('file_path'))
->>>>>>> more trimming, set up boto3 download
 
     read_numbers_set = set()
     signatures_set = set()
@@ -374,17 +334,11 @@ def process_fastq_file(job):
 
     os.remove(local_path)
 
-<<<<<<< HEAD
-
 def process_h5matrix_file(job):
-=======
-def process_matrix_file(job):
->>>>>>> more trimming, set up boto3 download
     item = job['item']
     errors = job['errors']
     result = job['result']
 
-<<<<<<< HEAD
     download_url = item.get('s3_uri')
     local_path = download_url.split('/')[-1]
 
@@ -473,14 +427,13 @@ def process_matrix_file(job):
     shutil.rmtree(tmp_dir)
 
 
-=======
     mtx_path = 'matrix.mtx.gz'
     feature_path = 'features.tsv.gz'
     barcode_path = 'barcodes.tsv.gz'
 
     # do the matrix file in the directory
     try:
-        matrix_stream = subprocess.Popen(['gunzip --stdout {}'.format(mtx_path)],
+        matrix_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, mtx_path)],
             shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         errors['matrix_information_extraction'] = 'Failed to extract information from ' + mtx_path
@@ -490,15 +443,16 @@ def process_matrix_file(job):
         for encoded_line in matrix_stream.stdout:
             line_index += 1
             if line_index == 3:
-                result['features_count_frommatrix'] = encoded_line.split(' ')[0]
-                result['barcodes_count_frommatrix'] = encoded_line.split(' ')[1]
+                count_summary = encoded_line.decode('utf-8').strip().split()
+                features_count_frommatrix = int(count_summary[0])
+                barcodes_count_frommatrix = int(count_summary[1])
                 break
     except IOError:
         errors['unzipped_matrix_streaming'] = 'Error occured, while streaming unzipped matrix file.'
 
     # do the features file in the directory
     try:
-        features_stream = subprocess.Popen(['gunzip --stdout {}'.format(feature_path)],
+        features_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, feature_path)],
             shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         errors['features_information_extraction'] = 'Failed to extract information from ' + feature_path
@@ -511,14 +465,18 @@ def process_matrix_file(job):
         errors['unzipped_features_streaming'] = 'Error occured, while streaming unzipped features file.'
     else:
         # read_count update
-        result['features_row_count'] = features_row_count
+        if features_row_count == features_count_frommatrix:
+            result['feature_count'] = features_row_count
+        else:
+            errors['feature_count_discrepancy'] = 'Feature count from matrix ({}) does not match row count in features.tsv ({})'.format(
+                features_count_frommatrix, features_row_count)
 
     # do the barcodes file in the directory
     try:
-        barcodes_stream = subprocess.Popen(['gunzip --stdout {}'.format(barcode_path)],
+        barcodes_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, barcode_path)],
             shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        errors['features_information_extraction'] = 'Failed to extract information from ' + barcode_path
+        errors['barcodes_information_extraction'] = 'Failed to extract information from ' + barcode_path
 
     barcodes_row_count = 0
     try:
@@ -528,7 +486,13 @@ def process_matrix_file(job):
         errors['unzipped_barcodes_streaming'] = 'Error occured, while streaming unzipped barcodes file.'
     else:
         # read_count update
-        result['barcodes_row_count'] = barcodes_row_count
+        if barcodes_row_count == barcodes_count_frommatrix:
+            result['barcode_count'] = barcodes_row_count
+        else:
+            errors['barcode_count_discrepancy'] = 'Barcode count from matrix ({}) does not match row count in barcodes.tsv ({})'.format(
+                barcodes_count_frommatrix, barcodes_row_count)
+
+    shutil.rmtree(tmp_dir)
 
 
 >>>>>>> more trimming, set up boto3 download
@@ -542,17 +506,11 @@ def download_s3_directory(job):
     dir_path = download_url.replace('s3://{}/'.format(bucket_name), '')
 
     s3client = boto3.client("s3")
-<<<<<<< HEAD
     tmp_dir = 'raw_feature_bc_matrix'
     os.mkdir(tmp_dir)
     for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
             s3client.download_file(bucket_name, dir_path + '/' + file_name, '{}/{}'.format(tmp_dir, file_name))
-=======
-    for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
-        try:
-            s3client.download_file(bucket_name, dir_path + '/' + file_name, file_name)
->>>>>>> more trimming, set up boto3 download
             '''
             subprocess.Popen(['aws s3 cp {} ./'.format(download_url)],
                 shell=True, executable='/bin/bash', stdout=subprocess.PIPE)'''
