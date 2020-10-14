@@ -211,7 +211,7 @@ def process_barcodes(signatures_set):
     return set_to_return
 
 
-def process_read_lengths(read_lengths_dict, lengths_list, submitted_read_length, read_count, threshold_percentage, errors_to_report, result):
+def process_read_lengths(read_lengths_dict, lengths_list, submitted_read_length, read_count, threshold_percentage, errors_to_report, results):
     reads_quantity = sum([count for length, count in read_lengths_dict.items()
                           if (submitted_read_length - 2) <= length <= (submitted_read_length + 2)])
     if ((threshold_percentage * read_count) > reads_quantity):
@@ -224,7 +224,7 @@ def process_read_lengths(read_lengths_dict, lengths_list, submitted_read_length,
 def process_fastq_file(job):
     item = job['item']
     errors = job['errors']
-    result = job['result']
+    results = job['results']
 
     download_url = item.get('s3_uri')
     local_path = download_url.split('/')[-1]
@@ -272,7 +272,7 @@ def process_fastq_file(job):
     else:
 
         # read_count update
-        result['read_count'] = read_count
+        results['read_count'] = read_count
 
         # read1/read2
         if len(read_numbers_set) > 1:
@@ -292,7 +292,7 @@ def process_fastq_file(job):
                                  read_count,
                                  0.9,
                                  errors,
-                                 result)
+                                 results)
         else:
             errors['read_length'] = 'no specified read length in the uploaded fastq file, ' + \
                                     'while read length(s) found in the file were {}. '.format(
@@ -318,14 +318,14 @@ def process_fastq_file(job):
             else:
                 signatures_for_comparison = signatures_set
 
-        result['fastq_signature'] = sorted(list(signatures_for_comparison))
+        results['fastq_signature'] = sorted(list(signatures_for_comparison))
 
     os.remove(local_path)
 
 def process_h5matrix_file(job):
     item = job['item']
     errors = job['errors']
-    result = job['result']
+    results = job['results']
 
     download_url = item.get('s3_uri')
     local_path = download_url.split('/')[-1]
@@ -335,8 +335,8 @@ def process_h5matrix_file(job):
     f = h5py.File(local_path, 'r')
     for k in list(f.keys()):
         dset = f[k]
-        result['barcode_count'] = dset['barcodes'].shape[0]
-        result['features'] = dset['features']['id'].shape[0]
+        results['barcode_count'] = dset['barcodes'].shape[0]
+        results['features'] = dset['features']['id'].shape[0]
 
     os.remove(local_path)
 
@@ -344,7 +344,7 @@ def process_h5matrix_file(job):
 def process_matrix_file(job):
     item = job['item']
     errors = job['errors']
-    result = job['result']
+    results = job['results']
 
     tmp_dir = 'raw_feature_bc_matrix'
     mtx_path = 'matrix.mtx.gz'
@@ -386,7 +386,7 @@ def process_matrix_file(job):
     else:
         # read_count update
         if features_row_count == features_count_frommatrix:
-            result['feature_count'] = features_row_count
+            results['feature_count'] = features_row_count
         else:
             errors['feature_count_discrepancy'] = 'Feature count from matrix ({}) does not match row count in features.tsv ({})'.format(
                 features_count_frommatrix, features_row_count)
@@ -407,7 +407,7 @@ def process_matrix_file(job):
     else:
         # read_count update
         if barcodes_row_count == barcodes_count_frommatrix:
-            result['barcode_count'] = barcodes_row_count
+            results['barcode_count'] = barcodes_row_count
         else:
             errors['barcode_count_discrepancy'] = 'Barcode count from matrix ({}) does not match row count in barcodes.tsv ({})'.format(
                 barcodes_count_frommatrix, barcodes_row_count)
@@ -487,7 +487,7 @@ def process_matrix_file(job):
 def download_s3_directory(job):
     item = job['item']
     errors = job['errors']
-    result = job['result']
+    results = job['results']
 
     download_url = item.get('s3_uri')
     bucket_name = download_url.split('/')[2]
@@ -499,20 +499,16 @@ def download_s3_directory(job):
     for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
             s3client.download_file(bucket_name, dir_path + '/' + file_name, '{}/{}'.format(tmp_dir, file_name))
-            '''
-            subprocess.Popen(['aws s3 cp {} ./'.format(download_url)],
-                shell=True, executable='/bin/bash', stdout=subprocess.PIPE)'''
         except subprocess.CalledProcessError as e:
             errors['file not found'] = 'Failed to find file on s3'
         else:
-            #once it has successfully downloaded, then go back
             print(file_name + ' downloaded')
 
 
 def download_s3_file(job):
     item = job['item']
     errors = job['errors']
-    result = job['result']
+    results = job['results']
 
     download_url = item.get('s3_uri')
     bucket_name = download_url.split('/')[2]
@@ -522,28 +518,45 @@ def download_s3_file(job):
     s3client = boto3.client("s3")
     try:
         s3client.download_file(bucket_name, file_path, file_name)
-        '''
-        subprocess.Popen(['aws s3 cp {} ./'.format(download_url)],
-            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)'''
     except subprocess.CalledProcessError as e:
         errors['file not found'] = 'Failed to find file on s3'
     else:
-            #once it has successfully downloaded, then go back
-            print(file_name + ' downloaded')
+        print(file_name + ' downloaded')
+
+
+def compare_with_db(job):
+    file = job['item']
+    errors = job['errors']
+    results = job['results']
+    post_json = {}
+
+    inconsistent_count = 0
+
+    for key in results.key():
+        if key not in file.keys():
+            outcome = results.get(key)
+            post_json[key] = outcome
+        elif results.get(key) == file.get(key):
+            outcome = 'consistent ({})'.format(results.get(key))
+        else:
+            inconsistent_count += 1
+            outcome = 'inconsistent ({}-file, {}-submitted)'.format(results.get(key), file.get(key))
+            errors['metadata_inconsistency'] = errors.get('metadata_inconsistency', []) + '{} inconsistent between file and submitted metadata'.format(key)
+        print('\t'.join(key, outcome))
 
 
 def check_file(job):
     file = job['item']
     errors = job['errors']
-    result = job['result']
+    results = job['results']
 
     download_url = file.get('s3_uri')
     local_path = download_url.split('/')[-1]
 
     # check file size & md5sum
     file_stat = os.stat(local_path)
-    result['file_size'] = file_stat.st_size
-    result['last_modified'] = datetime.datetime.utcfromtimestamp(
+    results['file_size'] = file_stat.st_size
+    results['last_modified'] = datetime.datetime.utcfromtimestamp(
         file_stat.st_mtime).isoformat() + 'Z'
     # Faster than doing it in Python.
     try:
@@ -552,14 +565,14 @@ def check_file(job):
     except subprocess.CalledProcessError as e:
         errors['md5sum'] = e.output.decode(errors='replace').rstrip('\n')
     else:
-        result['md5sum'] = output[:32].decode(errors='replace')
+        results['md5sum'] = output[:32].decode(errors='replace')
         try:
-            int(result['md5sum'], 16)
+            int(results['md5sum'], 16)
         except ValueError:
             errors['md5sum'] = output.decode(errors='replace').rstrip('\n')
-        if file.get('md5sum') and result['md5sum'] != file.get('md5sum'):
+        if file.get('md5sum') and results['md5sum'] != file.get('md5sum'):
             errors['md5sum'] = \
-                'checked %s does not match item %s' % (result['md5sum'], file.get('md5sum'))
+                'checked %s does not match item %s' % (results['md5sum'], file.get('md5sum'))
     # check for correct gzip status
     try:
         is_gzipped = is_path_gzipped(local_path)
@@ -583,7 +596,7 @@ def check_file(job):
             except subprocess.CalledProcessError as e:
                 errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
             else:
-                result['content_md5sum'] = output[:32].decode(errors='replace')
+                results['content_md5sum'] = output[:32].decode(errors='replace')
 
             # do format-specific validation
             if file.get('file_format') == 'fastq':
@@ -633,10 +646,12 @@ def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_
                     out.write(acc + '\t' + ' marked as no_file_available' + '\n')
                 elif not file_json.get('s3_uri'):
                     out.write(acc + '\t' + ' s3_uri not submitted' + '\n')
+                elif file_json.get('validated') == True:
+                    out.write(acc + '\t' + ' already validated' + '\n')
                 else:
                     job = {
                         'item': file_json,
-                        'result': {},
+                        'results': {},
                         'errors': {}
                     }
                     jobs.append(job)
@@ -644,13 +659,12 @@ def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_
 
     # checkfiles on a file that is not in the Lattice database but is at s3
     elif s3_file:
-        # NEED TO CHECK IF FILE IS ACCESSIBLE
         jobs = [{
             'item': {
                 'accession': 'not yet submitted',
                 's3_uri': s3_file
             },
-            'result': {},
+            'results': {},
             'errors': {}
         }]
         if file_format:
@@ -679,9 +693,9 @@ def main():
     out = open('report.txt', 'w')
     report_headers = '\t'.join([
         'accession',
+        's3_uri',
         'errors',
-        'results',
-        's3_uri'
+        'results'
     ])
     out.write(report_headers + '\n')
 
@@ -695,18 +709,21 @@ def main():
             else:
                 download_s3_file(job)
             check_file(job)
+            compare_with_db(job)
             file_obj = job.get('item')
             tab_report = '\t'.join([
                 file_obj.get('accession', 'UNKNOWN'),
+                file_obj.get('s3_uri', ''),
                 str(job['errors']),
-                str(job['result']),
-                file_obj.get('s3_uri', '')
+                str(job['results'])
             ])
             out.write(tab_report + '\n')
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.datetime.now())
         print(finishing_run)
         out.close()
+    else:
+        print('FINISHED No files to check, see report.txt for details')
 
 
 if __name__ == '__main__':
