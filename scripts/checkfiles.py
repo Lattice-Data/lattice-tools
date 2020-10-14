@@ -1,26 +1,27 @@
 import argparse
 import boto3
 import datetime
-import h5py
+import h5py #conda install h5py
 import json
-import os.path
+import lattice
+import os
 import re
 import requests
 import shutil
 import subprocess
 import sys
 from urllib.parse import urljoin
-from shlex import quote
+
 
 EPILOG = '''
 Run sanity checks on files.
 
 Examples:
 
-    %(prog)s --mode production --accessions accessions.txt
-    %(prog)s --mode production --accesssions LATDF101HHH,LATDF102HHH,LATDF100HHH
-    %(prog)s --mode production --query "report/?type=RawSequenceFile&derived_from=/sequencing-runs/2a12eb7b-ed78-466a-9552-7512bdd7f45f/"
-    %(prog)s --s3-file s3://submissions-czi012eye/chen_2020/19D014_NeuNT_2_outs/raw_feature_bc_matrix.h5 --file-format h5
+    python %(prog)s --mode production --accessions accessions.txt
+    python %(prog)s --mode production --accesssions LATDF101HHH,LATDF102HHH,LATDF100HHH
+    python %(prog)s --mode production --query "report/?type=RawSequenceFile&derived_from=/sequencing-runs/2a12eb7b-ed78-466a-9552-7512bdd7f45f/"
+    python %(prog)s --s3-file s3://submissions-czi012eye/chen_2020/19D014_NeuNT_2_outs/raw_feature_bc_matrix.h5 --file-format h5
 
 This relies on local variables to be defined based on the --mode you provide
 to direct the updates to a server and to provide permissions
@@ -30,7 +31,7 @@ PRODUCTION_KEY, PRODUCTION_SECRET, PRODUCTION_SERVER
 
 For more details:
 
-        %(prog)s --help
+        python %(prog)s --help
 '''
 
 
