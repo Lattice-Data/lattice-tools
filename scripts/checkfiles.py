@@ -58,22 +58,6 @@ def getArgs():
     args = parser.parse_args()
     return args
 
-# should turrn this into a shared doc for all scripts to use
-class Connection(object):
-    def __init__(self, mode):
-        if not (os.environ.get(mode.upper() + '_KEY') 
-            and os.environ.get(mode.upper() + '_SECRET') 
-            and os.environ.get(mode.upper() + '_SERVER')):
-            sys.exit('ERROR: ' + mode.upper() + '_KEY, ' + mode.upper() + '_SECRET, ' + mode.upper() + "_SERVER not all defined. Try 'conda env config vars list' to list existing variables")
-        self.authid = os.environ.get(mode.upper() + '_KEY')
-        self.authpw = os.environ.get(mode.upper() + '_SECRET')
-        self.server = os.environ.get(mode.upper() + '_SERVER')
-        if not self.server.endswith('/'):
-            self.server += '/'
-        self.headers = {'content-type': 'application/json',
-                        'accept': 'application/json'}
-        self.auth = (self.authid, self.authpw)
-
 
 GZIP_TYPES = [
     "fastq",
@@ -614,7 +598,7 @@ def check_file(job):
 
 def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_format=None):
     if accessions or query:
-        connection = Connection(mode)
+        connection = lattice.Connection(mode)
         server = connection.server
         if accessions:
             # checkfiles using a file with a list of file accessions to be checked

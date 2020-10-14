@@ -1,12 +1,13 @@
 import argparse
 import os
 import json
+import lattice
 import sys
 import logging
 import mimetypes
 import requests
-from PIL import Image  # install me with 'pip install Pillow'
 import magic  # install me with 'pip install python-magic'
+from PIL import Image  # install me with 'pip install Pillow'
 from openpyxl import load_workbook
 from urllib.parse import urljoin, quote
 from base64 import b64encode
@@ -225,49 +226,6 @@ def cell_value(cell):
 		raise ValueError(repr(cell), '-'.join(['unknown cell type',ctype,cvalue]))
 
 
-def post_object(schema, connection, post_json, row_count):
-	if isinstance(post_json, dict):
-		json_payload = json.dumps(post_json)
-	elif isinstance(post_json, str):
-		json_payload = post_json
-	else:
-		print('ROW ' + str(row_count) + ':Datatype to POST is not string or dict.', file=sys.stderr)
-	url = urljoin(connection.server, schema)
-	logging.debug('POST URL : %s' % (url))
-	logging.debug('POST data: %s' % (json.dumps(post_json,
-												sort_keys=True, indent=4,
-												separators=(',', ': '))))
-	response = requests.post(url, auth=connection.auth,
-							 headers=connection.headers, data=json_payload)
-	logging.debug('POST RESPONSE: %s' % (json.dumps(response.json(),
-													indent=4, separators=(',', ': '))))
-	if not response.status_code == 201:
-		logging.warning('POST failure. Response = %s' % (response.text))
-	logging.debug('Return object: %s' % (json.dumps(response.json(),
-													sort_keys=True, indent=4,
-													separators=(',', ': '))))
-	return response.json()
-
-
-def patch_object(obj_id, connection, patch_input):
-	if isinstance(patch_input, dict):
-		json_payload = json.dumps(patch_input)
-	elif isinstance(patch_input, str):
-		json_payload = patch_input
-	else:
-		print('Datatype to PATCH is not string or dict.', file=sys.stderr)
-	url = urljoin(connection.server, obj_id)
-	logging.debug('PATCH URL : %s' % (url))
-	logging.debug('PATCH data: %s' % (json_payload))
-	response = requests.patch(url, auth=connection.auth, data=json_payload,
-							  headers=connection.headers)
-	logging.debug('PATCH RESPONSE: %s' % (json.dumps(response.json(), indent=4,
-													 separators=(',', ': '))))
-	if not response.status_code == 200:
-		logging.warning('PATCH failure.  Response = %s' % (response.text))
-	return response.json()
-
-
 def properties_validator(keys, schema, schema_properties):
 	flag = False
 	dup_keys = []
@@ -435,28 +393,12 @@ def attachment(path):
 	raise ValueError('Unknown file type for %s' % filename)
 
 
-class Connection(object):
-	def __init__(self, mode):
-		if not (os.environ.get(mode.upper() + '_KEY') 
-			and os.environ.get(mode.upper() + '_SECRET') 
-			and os.environ.get(mode.upper() + '_SERVER')):
-			sys.exit('ERROR: ' + mode.upper() + '_KEY, ' + mode.upper() + '_SECRET, ' + mode.upper() + "_SERVER not all defined. Try 'conda env config vars list' to list existing variables")
-		self.authid = os.environ.get(mode.upper() + '_KEY')
-		self.authpw = os.environ.get(mode.upper() + '_SECRET')
-		self.server = os.environ.get(mode.upper() + '_SERVER')
-		if not self.server.endswith('/'):
-			self.server += '/'
-		self.headers = {'content-type': 'application/json',
-						'accept': 'application/json'}
-		self.auth = (self.authid, self.authpw)
-
-
 def main():
 	summary_report = []
 	args = getArgs()
 	if not args.mode:
 		sys.exit('ERROR: --mode is required')
-	connection = Connection(args.mode)
+	connection = lattice.Connection(args.mode)
 	server = connection.server
 	print('Running on {server}'.format(server=server))
 	if not os.path.isfile(args.infile):
@@ -542,7 +484,7 @@ def main():
 						if i.lower() == 'y':
 							patch_flag = True
 					if patch_flag == True and args.update:
-						e = patch_object(temp['uuid'], connection, post_json)
+						e = lattice.patch_object(temp['uuid'], connection, post_json)
 						if e['status'] == 'error':
 							error += 1
 						elif e['status'] == 'success':
@@ -557,7 +499,7 @@ def main():
 						error += 1
 					elif args.update:
 						print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
-						e = post_object(schema_to_load, connection, post_json)
+						e = lattice.post_object(schema_to_load, connection, post_json)
 						if e['status'] == 'error':
 							error += 1
 							failed_postings.append(schema_to_load.upper() + ' ROW ' + str(row_count) + ':' + str(post_json.get(
