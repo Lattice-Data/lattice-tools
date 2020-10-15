@@ -532,17 +532,26 @@ def compare_with_db(job):
 
     inconsistent_count = 0
 
-    for key in results.key():
+    for key in results.keys():
         if key not in file.keys():
-            outcome = results.get(key)
-            post_json[key] = outcome
+            post_json[key] = results.get(key)
         elif results.get(key) == file.get(key):
-            outcome = 'consistent ({})'.format(results.get(key))
+            outcome = '{} consistent ({})'.format(key, results.get(key))
+            if results.get('metadata_consistency'):
+                results['metadata_consistency'].append(outcome)
+            else:
+                results['metadata_consistency'] = [outcome]
         else:
             inconsistent_count += 1
-            outcome = 'inconsistent ({}-file, {}-submitted)'.format(results.get(key), file.get(key))
-            errors['metadata_inconsistency'] = errors.get('metadata_inconsistency', []) + '{} inconsistent between file and submitted metadata'.format(key)
-        print('\t'.join(key, outcome))
+            outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results.get(key), file.get(key))
+            if errors.get('metadata_inconsistency'):
+                errors['metadata_inconsistency'].append(outcome)
+            else:
+                errors['metadata_inconsistency'] = [outcome]
+    if inconsistent_count == 0:
+        post_json['validated'] = True
+
+    job['post_json'] = post_json
 
 
 def check_file(job):
@@ -556,8 +565,6 @@ def check_file(job):
     # check file size & md5sum
     file_stat = os.stat(local_path)
     results['file_size'] = file_stat.st_size
-    results['last_modified'] = datetime.datetime.utcfromtimestamp(
-        file_stat.st_mtime).isoformat() + 'Z'
     # Faster than doing it in Python.
     try:
         output = subprocess.check_output('md5sum-lite {}'.format(local_path),
@@ -570,9 +577,6 @@ def check_file(job):
             int(results['md5sum'], 16)
         except ValueError:
             errors['md5sum'] = output.decode(errors='replace').rstrip('\n')
-        if file.get('md5sum') and results['md5sum'] != file.get('md5sum'):
-            errors['md5sum'] = \
-                'checked %s does not match item %s' % (results['md5sum'], file.get('md5sum'))
     # check for correct gzip status
     try:
         is_gzipped = is_path_gzipped(local_path)
@@ -641,14 +645,21 @@ def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_
             if not fileObject.ok:
                 errors['file_HTTPError'] = ('HTTP error: unable to get file object')
             else:
+                check_me_flag = True
+                blockers = []
                 file_json = fileObject.json()
                 if file_json.get('no_file_available') == True:
-                    out.write(acc + '\t' + ' marked as no_file_available' + '\n')
-                elif not file_json.get('s3_uri'):
-                    out.write(acc + '\t' + ' s3_uri not submitted' + '\n')
-                elif file_json.get('validated') == True:
-                    out.write(acc + '\t' + ' already validated' + '\n')
-                else:
+                    blockers.append('marked as no_file_available')
+                    check_me_flag = False
+                if not file_json.get('s3_uri'):
+                    blockers.append('s3_uri not submitted')
+                    check_me_flag = False
+                if file_json.get('validated') == True:
+                    blockers.append('already validated')
+                    check_me_flag = False
+                if check_me_flag == False:
+                    out.write(acc + '\t' + file_json.get('s3_uri','') + '\t' + ','.join(blockers) + 3*('\t') + 'n/a' + '\n')
+                elif check_me_flag == True:
                     job = {
                         'item': file_json,
                         'results': {},
@@ -695,7 +706,9 @@ def main():
         'accession',
         's3_uri',
         'errors',
-        'results'
+        'results',
+        'json_patch',
+        'Lattice patched?'
     ])
     out.write(report_headers + '\n')
 
@@ -715,7 +728,9 @@ def main():
                 file_obj.get('accession', 'UNKNOWN'),
                 file_obj.get('s3_uri', ''),
                 str(job['errors']),
-                str(job['results'])
+                str(job['results']),
+                str(job['post_json']),
+                job.get('patch_result', 'n/a')
             ])
             out.write(tab_report + '\n')
 
