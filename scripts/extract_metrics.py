@@ -20,6 +20,24 @@ For more details:
 '''
 
 
+schema_mapping = {
+	"valid_barcodes": "percent_valid_barcodes",
+	"sequencing_saturation": "percent_sequencing_saturation",
+	"q30_bases_in_barcode": "percent_q30_bases_in_barcode",
+	"q30_bases_in_rna_read": "percent_q30_bases_in_rna_read",
+	"q30_bases_in_sample_index": "percent_q30_bases_in_sample_index",
+	"q30_bases_in_umi": "percent_q30_bases_in_umi",
+	"reads_mapped_to_genome": "percent_reads_mapped_to_genome",
+	"reads_mapped_confidently_to_genome": "percent_reads_mapped_confidently_to_genome",
+	"reads_mapped_confidently_to_intergenic_regions": "percent_reads_mapped_confidently_to_intergenic_regions",
+	"reads_mapped_confidently_to_intronic_regions": "percent_reads_mapped_confidently_to_intronic_regions",
+	"reads_mapped_confidently_to_exonic_regions": "percent_reads_mapped_confidently_to_exonic_regions",
+	"reads_mapped_confidently_to_transcriptome": "percent_reads_mapped_confidently_to_transcriptome",
+	"reads_mapped_antisense_to_gene": "percent_reads_mapped_antisense_to_gene",
+	"fraction_reads_in_cells": "percent_reads_in_cells",
+}
+
+
 def getArgs():
     parser = argparse.ArgumentParser(
         description=__doc__, epilog=EPILOG,
@@ -66,8 +84,8 @@ else:
 with open(file_name, newline='') as csvfile:
 	spamreader = csv.reader(csvfile)
 	rows = list(spamreader)
-	headers = rows[0]
-	new_headers = [header.lower().replace(' ','_') for header in headers]
+	headers = [header.lower().replace(' ','_') for header in rows[0]]
+	new_headers = [schema_mapping.get(header, header) for header in headers]
 	values = rows[1]
 	new_values = [value.strip('%') for value in values]
 	post_json = dict(zip(new_headers, new_values))
