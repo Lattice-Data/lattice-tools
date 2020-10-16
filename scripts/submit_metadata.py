@@ -178,7 +178,7 @@ def reader(book, sheetname):
 	for row in sheet.iter_rows():
 		row = ['' if v.value is None else cell_value(v) for v in row]
 		if len(row) != row.count(''):
-			if row[0] != '' and row[0][0] == '#': # avoid rows starting with comments
+			if row[0] != '' and str(row[0])[0] == '#': # avoid rows starting with comments
 				row_count += 1 # but add one row for each, assuming they are above submission rows
 			else:
 				rows.append(list(row))
