@@ -337,9 +337,9 @@ def type_formatter(old_value, schema_properties, key1, key2=None):
 	elif desired_type == 'integer':
 		return int(old_value)
 	elif desired_type == 'string' and linkTo_flag == True:
-		return quote(str(old_value))
+		return quote(str(old_value).strip())
 	elif desired_type == 'string':
-		return str(old_value)
+		return str(old_value).strip()
 	else:
 		return old_value
 
@@ -366,6 +366,13 @@ def dict_patcher(old_dict, schema_properties):
 					else: # I need to make new item in dictionary
 						array_o_objs_dict[path[0]] = {}
 						array_o_objs_dict[path[0]][value[1]] = {value[0]: type_formatter(old_dict[key], schema_properties, path[0], value[0])}
+				elif schema_properties[path[0]]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
+					if array_o_objs_dict.get(path[0]):
+						# this should be that we have started putting in the new object
+						array_o_objs_dict[path[0]]["1"].update({path[1]: type_formatter(old_dict[key], schema_properties, path[0], path[1])})
+					else:
+						array_o_objs_dict[path[0]] = {}
+						array_o_objs_dict[path[0]]["1"] = {path[1]: type_formatter(old_dict[key], schema_properties, path[0], path[1])}
 				else: # there is no number next to it, this is our only object to handle
 					if new_dict.get(path[0]): # I have already added the embedded object to the new dictionary
 						new_dict[path[0]].update({path[1]: type_formatter(old_dict[key], schema_properties, path[0], path[1])})
@@ -394,7 +401,7 @@ def attachment(path):
 	filename = os.path.basename(path)
 	mime_type, encoding = mimetypes.guess_type(path)
 	major, minor = mime_type.split('/')
-	detected_type = magic.from_file(path, mime=True).decode('ascii')
+	detected_type = magic.from_file(path, mime=True)
 
 	# XXX This validation logic should move server-side.
 	if not (detected_type == mime_type or
@@ -550,7 +557,7 @@ def main():
 						error += 1
 					elif args.update:
 						print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
-						e = post_object(schema_to_load, connection, post_json, row_count)
+						e = post_object(schema_to_load, connection, post_json)
 						if e['status'] == 'error':
 							error += 1
 							failed_postings.append(schema_to_load.upper() + ' ROW ' + str(row_count) + ':' + str(post_json.get(
