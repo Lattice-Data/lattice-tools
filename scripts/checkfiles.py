@@ -454,7 +454,7 @@ def process_matrix_file(job):
     else:
         # read_count update
         if features_row_count == features_count_frommatrix:
-            result['feature_count'] = features_row_count
+            results['feature_count'] = features_row_count
         else:
             errors['feature_count_discrepancy'] = 'Feature count from matrix ({}) does not match row count in features.tsv ({})'.format(
                 features_count_frommatrix, features_row_count)
@@ -475,7 +475,7 @@ def process_matrix_file(job):
     else:
         # read_count update
         if barcodes_row_count == barcodes_count_frommatrix:
-            result['barcode_count'] = barcodes_row_count
+            results['barcode_count'] = barcodes_row_count
         else:
             errors['barcode_count_discrepancy'] = 'Barcode count from matrix ({}) does not match row count in barcodes.tsv ({})'.format(
                 barcodes_count_frommatrix, barcodes_row_count)
@@ -483,7 +483,6 @@ def process_matrix_file(job):
     shutil.rmtree(tmp_dir)
 
 
->>>>>>> more trimming, set up boto3 download
 def download_s3_directory(job):
     item = job['item']
     errors = job['errors']
