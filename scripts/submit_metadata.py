@@ -461,6 +461,8 @@ def main():
 					url = urljoin(server, quote(post_json['aliases'][0]) + '/?format=json')
 				elif post_json.get('accession'):
 					url = urljoin(server, post_json['accession'] + '/?format=json')
+				elif post_json.get('external_accession'):
+					url = urljoin(server, post_json['external_accession'] + '/?format=json')
 				elif post_json.get('name'):
 					url = urljoin(server, schema_to_load + '/' + post_json['name'] + '/?format=json')
 				elif post_json.get('term_id'):
@@ -473,6 +475,7 @@ def main():
 					temp = {}
 				else:
 					temp = requests.get(url, auth=connection.auth).json()
+					del url
 
 				if temp.get('uuid'): # if there is an existing corresponding object
 					if args.patchall:
