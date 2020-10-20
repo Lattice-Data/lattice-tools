@@ -1,6 +1,7 @@
 import argparse
 import boto3
 import csv
+import lattice
 import os
 import requests
 import subprocess
@@ -39,18 +40,20 @@ schema_mapping = {
 
 
 def getArgs():
-    parser = argparse.ArgumentParser(
-        description=__doc__, epilog=EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument('--s3-file',
-                        help="path to the matrix file at s3 to check")
-    parser.add_argument('--alias',
-                        help="an identifier to use for the file object")
-    parser.add_argument('--assay',
-                        help="use if pulling metrics from rna data")
-    args = parser.parse_args()
-    return args
+	parser = argparse.ArgumentParser(
+		description=__doc__, epilog=EPILOG,
+		formatter_class=argparse.RawDescriptionHelpFormatter,
+	)
+	parser.add_argument('--s3-file',
+						help="path to the matrix file at s3 to check")
+	parser.add_argument('--alias',
+						help="an identifier to use for the file object")
+	parser.add_argument('--assay',
+						help="use if pulling metrics from rna data")
+	parser.add_argument('--mode', '-m',
+						help='The machine to pull schema from.')
+	args = parser.parse_args()
+	return args
 
 args = getArgs()
 
@@ -61,10 +64,13 @@ elif args.assay == 'rna':
 	file_name = 'metrics_summary.csv'
 	obj_name = 'rna_metrics'
 else:
-	print('ERROR: must use one of --assay rna or atac')
-	quit()
+	sys.exit('ERROR: must use one of --assay rna or atac')
 
-server = 'https://www.lattice-data.org/'
+if not args.mode:
+	sys.exit('ERROR: --mode is required')
+
+connection = lattice.Connection(args.mode)
+server = connection.server
 schema_url = urljoin(server, 'profiles/' + obj_name + '/?format=json')
 schema_props = requests.get(schema_url).json()['properties']
 
@@ -102,7 +108,7 @@ for key in post_json.keys():
 		final_headers.append(key)
 		final_values.append(post_json[key])
 	else:
-		print('{} not in schema'.format(key))
+		print('{}:{} not in schema'.format(key, post_json[key]))
 
 out_file = open('metrics.tsv', 'a')
 out_file.write('\t'.join(final_headers) + '\n')
