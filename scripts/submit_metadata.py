@@ -456,25 +456,27 @@ def main():
 					post_json['attachment'] = attach
 				#check for an existing object based on any possible identifier
 				if post_json.get('uuid'):
-					url = urljoin(server, post_json['uuid'] + '/?format=json')
-				elif post_json.get('aliases'):
-					url = urljoin(server, quote(post_json['aliases'][0]) + '/?format=json')
+					temp_identifier = post_json['uuid']
 				elif post_json.get('accession'):
-					url = urljoin(server, post_json['accession'] + '/?format=json')
+					temp_identifier = post_json['accession']
 				elif post_json.get('external_accession'):
-					url = urljoin(server, post_json['external_accession'] + '/?format=json')
+					temp_identifier = post_json['external_accession']
 				elif post_json.get('name'):
-					url = urljoin(server, schema_to_load + '/' + post_json['name'] + '/?format=json')
+					temp_identifier = schema_to_load + '/' + post_json['name']
 				elif post_json.get('term_id'):
-					url = urljoin(server, schema_to_load + '/' + post_json['term_id'].replace(':','_') + '/?format=json')
+					temp_identifier = schema_to_load + '/' + post_json['term_id'].replace(':','_')
+				elif post_json.get('aliases'):
+					temp_identifier = quote(post_json['aliases'][0])
 				patch_flag = False
 
 				try:
-					url
+					temp_identifier
 				except NameError:
 					temp = {}
 				else:
+					url = urljoin(server, temp_identifier + '/?format=json')
 					temp = requests.get(url, auth=connection.auth).json()
+					del temp_identifier
 					del url
 
 				if temp.get('uuid'): # if there is an existing corresponding object
@@ -482,7 +484,7 @@ def main():
 						patch_flag = True
 					else: # patch wasn't specified, see if the user wants to patch
 						print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(
-							temp['uuid']))
+							temp.get('uuid')))
 						i = input('PATCH? y/n ')
 						if i.lower() == 'y':
 							patch_flag = True
@@ -515,6 +517,9 @@ def main():
 							new_accessions_aliases.append(('ROW ' + str(row_count), new_object.get(
 								'accession', new_object.get('uuid')), new_object.get('aliases', new_object.get('name'))))
 							success += 1
+
+				del temp
+
 			# Print now and later
 			print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
 				sheet=schema_to_load.upper(), success=success, total=total, error=error, patch=patch))
