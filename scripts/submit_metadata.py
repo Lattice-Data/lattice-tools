@@ -276,7 +276,7 @@ def type_formatter(old_value, schema_properties, key1, key2=None):
 		else:
 			if schema_properties[key1]['properties'].get(key2):
 				desired_type = schema_properties[key1]['properties'][key2]['type']
-				if schema_properties[key1]['items']['properties'][key2].get('linkTo'):
+				if schema_properties[key1]['properties'][key2].get('linkTo'):
 					linkTo_flag = True
 	# adjust the value to the specified type
 	if desired_type == 'array' and linkTo_flag == True:
@@ -465,6 +465,8 @@ def main():
 					temp_identifier = schema_to_load + '/' + post_json['name']
 				elif post_json.get('term_id'):
 					temp_identifier = schema_to_load + '/' + post_json['term_id'].replace(':','_')
+				elif post_json.get('gene_id'):
+					temp_identifier = schema_to_load + '/' + post_json['gene_id']
 				elif post_json.get('aliases'):
 					temp_identifier = quote(post_json['aliases'][0])
 				patch_flag = False
