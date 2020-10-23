@@ -204,23 +204,20 @@ def cell_value(cell):
 	ctype = cell.data_type
 	cvalue = cell.value
 
-	if ctype == 'e': # TYPE_ERROR
-		raise ValueError(repr(cell), 'cell error')
+	if ctype in ['s','n']: # TYPE_STRING, TYPE_NUMERIC
+		return cvalue
 
 	elif ctype == 'b': # TYPE_BOOL
 		return str(cvalue).upper()
-
-	elif ctype == 'n': # TYPE_NUMERIC
-		return int(cvalue)
-
-	elif ctype == 's': # TYPE_STRING
-		return cvalue
 
 	elif ctype == 'd': # datetime
 		return cvalue.date()
 
 	elif ctype == 'f': # TYPE_FORMULA
 		raise ValueError(repr(cell), 'formula in cell')
+
+	elif ctype == 'e': # TYPE_ERROR
+		raise ValueError(repr(cell), 'cell error')
 
 	else:
 		raise ValueError(repr(cell), '-'.join(['unknown cell type',ctype,cvalue]))
