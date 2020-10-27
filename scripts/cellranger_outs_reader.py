@@ -24,6 +24,7 @@ schema_mapping = {
 	"sequencing_saturation": "percent_sequencing_saturation",
 	"q30_bases_in_barcode": "percent_q30_bases_in_barcode",
 	"q30_bases_in_rna_read": "percent_q30_bases_in_rna_read",
+	"q30_bases_in_rna_read_2": "percent_q30_bases_in_rna_read_2",
 	"q30_bases_in_sample_index": "percent_q30_bases_in_sample_index",
 	"q30_bases_in_umi": "percent_q30_bases_in_umi",
 	"reads_mapped_to_genome": "percent_reads_mapped_to_genome",
@@ -63,7 +64,7 @@ schema_mapping = {
 	"waste_mitochondrial_fragments": "waste_mito_fragments"
 }
 
-assay_chemistry = {
+value_mapping = {
 	"Single Cell 3' v1": "SC3Pv1",
 	"Single Cell 3' v2": "SC3Pv2",
 	"Single Cell 3' v3": "SC3Pv3",
@@ -79,6 +80,19 @@ should_match = {
 	"waste_cell_mito_fragments": "waste_mito_fragments",
 	"waste_cell_unmapped_fragments": "waste_unmapped_fragments"
 }
+
+system_props = [
+	"status",
+	"uuid",
+	"schema_version",
+	"date_created",
+	"submitted_by",
+	"notes",
+	"documents",
+	"aliases",
+	"@id",
+	"@type"
+]
 
 
 def getArgs():
@@ -120,7 +134,10 @@ if not args.mode:
 connection = lattice.Connection(args.mode)
 server = connection.server
 schema_url = urljoin(server, 'profiles/' + obj_name + '/?format=json')
-schema_props = requests.get(schema_url).json()['properties']
+full_schema = requests.get(schema_url).json()
+schema_props = list(full_schema['properties'].keys())
+for a in system_props:
+	schema_props.remove(a)
 
 full_path = args.dir
 bucket_name = full_path.split('/')[0]
@@ -154,7 +171,7 @@ for file_name in files_to_check:
 							pipeline_info_table = data['summary']['summary_tab']['pipeline_info_table']
 						info_list = pipeline_info_table['rows']
 						for pair in info_list:
-							report_json[pair[0]] = pair[1]
+							report_json[pair[0]] = value_mapping.get(pair[1], pair[1])
 				if match_flag == False:
 					for x in soup.find_all('table', id='sample_table'):
 						for row in x.find_all('tr'):
@@ -166,7 +183,7 @@ for file_name in files_to_check:
 								else:
 									value = column.get_text().strip()
 								col_count += 1
-							report_json[field] = value
+							report_json[field] = value_mapping.get(value, value)
 
 			os.remove(file_name)
 			print(file_name + ' removed')
@@ -200,10 +217,15 @@ for file_name in files_to_check:
 
 			report_json.update(post_json)
 
-extra_headers = ['directory']
-extra_values = [full_path]
-final_headers = ['directory']
-final_values = [full_path]
+report_json['directory'] = full_path
+
+extra_headers = []
+extra_values = []
+final_headers = ['directory'] + schema_props
+final_values = []
+
+for prop in final_headers:
+	final_values.append(str(report_json.get(prop, '')))
 
 for key in report_json.keys():
 	if key not in schema_props:
@@ -214,9 +236,6 @@ for key in report_json.keys():
 				print('WARNING: {} does not match {}'.format(should_match[key], key))
 			else:
 				print('all good: {} does match {}'.format(should_match[key], key))
-	else:
-		final_headers.append(key)
-		final_values.append(str(report_json[key]))
 
 if len(extra_headers) > 1:
 	none_schema_outfile = open('metrics_not_in_schema.tsv', 'a')
