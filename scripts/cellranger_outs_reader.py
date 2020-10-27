@@ -14,6 +14,13 @@ from bs4 import BeautifulSoup
 
 
 EPILOG = '''
+Extract summary info and QC metrics from a cellranger pipeline run.
+
+Examples:
+
+    python %(prog)s -m production -a atac -d submissions-czi009kid/muto_humphreys_2020/Control_5/outs
+    python %(prog)s -m local -a rna -d submissions-czi012eye/chen_2020/19D013_foveaR_outs
+
 For more details:
 
         python %(prog)s --help
