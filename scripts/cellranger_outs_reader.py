@@ -231,8 +231,15 @@ extra_values = []
 final_headers = ['directory'] + schema_props
 final_values = []
 
+full_schema['properties']['directory'] = {'type':'string'}
+
 for prop in final_headers:
-	final_values.append(str(report_json.get(prop, '')))
+	if (full_schema['properties'][prop]['type'] == 'integer') and (str(report_json.get(prop, '')).endswith('.0') == True):
+		final_values.append(str(report_json.get(prop, '')).strip('.0'))
+	elif str(report_json.get(prop, '')) == 'None':
+		final_values.append('')
+	else:
+		final_values.append(str(report_json.get(prop, '')))
 
 for key in report_json.keys():
 	if key not in schema_props:
