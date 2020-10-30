@@ -334,8 +334,8 @@ def process_h5matrix_file(job):
     f = h5py.File(local_path, 'r')
     for k in list(f.keys()):
         dset = f[k]
-        results['barcode_count'] = dset['barcodes'].shape[0]
-        results['features'] = dset['features']['id'].shape[0]
+        results['observation_count'] = dset['barcodes'].shape[0]
+        results['feature_counts'] = dset['features']['id'].shape[0]
 
 
 def process_mexmatrix_file(job):
@@ -752,7 +752,7 @@ def main():
     jobs = fetch_files(out, connection, args.query, args.accessions, args.s3_file, args.file_format)
 
     if jobs:
-        seq_run_jobs = []
+        all_seq_runs = []
         print('CHECKING {} files'.format(len(jobs)))
         for job in jobs:
             file_obj = job.get('item')
@@ -763,7 +763,7 @@ def main():
             check_file(job)
             compare_with_db(job, connection)
             if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
-                seq_run_jobs.append({
+                all_seq_runs.append({
                                     'item': file_obj['derived_from'],
                                     'results': {'flowcell_details': job['results']['flowcell_details']},
                                     'errors': {}
@@ -773,25 +773,25 @@ def main():
                 patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
                 job['patch_result'] = patch['status']
             out.write(report(job))
-        if seq_run_jobs:
-            jobs = []
+        if all_seq_runs:
+            seq_run_jobs = []
             seq_run_uuids = []
-            for job in seq_run_jobs:
+            for job in all_seq_runs:
                 if job not in jobs:
                     seq_run_uuids.append(job['item']['uuid'])
-                    jobs.append(job)
-            print('CHECKING {} sequencing_runs'.format(len(jobs)))
-        for job in jobs:
-            if seq_run_uuids.count(job['item']['uuid']) == 1:
-                compare_with_db(job, connection)
-                if job['post_json'] and not job['errors'] and args.update:
-                    print('PATCHING {}'.format(job['item'].get('uuid')))
-                    patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
-                    job['patch_result'] = patch['status']
-                out.write(report(job))
-            else:
-                job['errors']['internal_conflict'] = 'multiple files derive from this sequencing run with inconsistent metadata'
-                out.write(report(job))
+                    seq_run_jobs.append(job)
+            print('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
+            for job in seq_run_jobs:
+                if seq_run_uuids.count(job['item']['uuid']) == 1:
+                    compare_with_db(job, connection)
+                    if job['post_json'] and not job['errors'] and args.update:
+                        print('PATCHING {}'.format(job['item'].get('uuid')))
+                        patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
+                        job['patch_result'] = patch['status']
+                    out.write(report(job))
+                else:
+                    job['errors']['internal_conflict'] = 'multiple files derive from this sequencing run with inconsistent metadata'
+                    out.write(report(job))
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
         print(finishing_run)
