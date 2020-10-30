@@ -708,7 +708,7 @@ def report(job):
         file_obj.get('s3_uri', ''),
         str(job['errors']),
         str(job['results']),
-        str(job['post_json']),
+        str(job.get('post_json')),
         job.get('patch_result', 'n/a'),
         str(job.get('download_time')),
         str(job.get('check_time'))
@@ -774,15 +774,24 @@ def main():
                 job['patch_result'] = patch['status']
             out.write(report(job))
         if seq_run_jobs:
-            print('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
-        for job in seq_run_jobs:
-            compare_with_db(job, connection)
-            if job['post_json'] and not job['errors'] and args.update:
-                print('PATCHING {}'.format(job['item'].get('uuid')))
-                patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
-                job['patch_result'] = patch['status']
-            out.write(report(job))
-
+            jobs = []
+            seq_run_uuids = []
+            for job in seq_run_jobs:
+                if job not in jobs:
+                    seq_run_uuids.append(job['item']['uuid'])
+                    jobs.append(job)
+            print('CHECKING {} sequencing_runs'.format(len(jobs)))
+        for job in jobs:
+            if seq_run_uuids.count(job['item']['uuid']) == 1:
+                compare_with_db(job, connection)
+                if job['post_json'] and not job['errors'] and args.update:
+                    print('PATCHING {}'.format(job['item'].get('uuid')))
+                    patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
+                    job['patch_result'] = patch['status']
+                out.write(report(job))
+            else:
+                job['errors']['internal_conflict'] = 'multiple files derive from this sequencing run with inconsistent metadata'
+                out.write(report(job))
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
         print(finishing_run)
