@@ -1,6 +1,6 @@
 import argparse
 import boto3
-import datetime
+from datetime import datetime
 import h5py #conda install h5py
 import json
 import lattice
@@ -21,7 +21,7 @@ Examples:
     python %(prog)s --mode production --accessions accessions.txt
     python %(prog)s --mode production --accesssions LATDF101HHH,LATDF102HHH,LATDF100HHH
     python %(prog)s --mode production --query "report/?type=RawSequenceFile&derived_from=/sequencing-runs/2a12eb7b-ed78-466a-9552-7512bdd7f45f/"
-    python %(prog)s --s3-file s3://submissions-czi012eye/chen_2020/19D014_NeuNT_2_outs/raw_feature_bc_matrix.h5 --file-format h5
+    python %(prog)s --s3-file s3://submissions-czi012eye/chen_2020/19D014_NeuNT_2_outs/raw_feature_bc_matrix.h5 --file-format hdf5
 
 This relies on local variables to be defined based on the --mode you provide
 to direct the updates to a server and to provide permissions
@@ -59,23 +59,40 @@ def getArgs():
     return args
 
 
+abstract_file_types = [
+    'Item',
+    'File',
+    'DataFile',
+    'AnalysisFile'
+]
+
 GZIP_TYPES = [
     "fastq",
     "mex"
 ]
 
-read_name_prefix = re.compile(
-    '^(@[a-zA-Z\d]+[a-zA-Z\d_-]*:[a-zA-Z\d-]+:[a-zA-Z\d_-]' +
-    '+:\d+:\d+:\d+:\d+)$')
+machine_pattern = '^(@[a-zA-Z\d]+[a-zA-Z\d_-]*'
+run_id_pattern = '[a-zA-Z\d-]+'
+flowcell_pattern = '[a-zA-Z\d_-]+'
 
-read_name_pattern = re.compile(
-    '^(@[a-zA-Z\d]+[a-zA-Z\d_-]*:[a-zA-Z\d-]+:[a-zA-Z\d_-]' +
-    '+:\d+:\d+:\d+:\d+[\s_][123]:[YXN]:[0-9]+:([ACNTG\+]*|[0-9]*))$'
+read_name_prefix = re.compile(
+    machine_pattern + ':' + run_id_pattern + ':' + flowcell_pattern +
+    ':\d+:\d+:\d+:\d+)$')
+
+illumina_read_name_pattern = re.compile(
+    machine_pattern + ':' + run_id_pattern + ':' + flowcell_pattern +
+    ':\d+:\d+:\d+:\d+[\s_][123]:[YXN]:[0-9]+:([ACNTG\+]*|[0-9]*))$'
+)
+
+illumina_read_name_pattern_no_flowcell = re.compile(
+    machine_pattern +
+    ':\d+:\d+:\d+:\d+[\s_][123]:[YXN]:[0-9]+:([ACNTG\+]*|[0-9]*))$'
 )
 
 srr_read_name_pattern = re.compile(
     '^(@SRR[\d.]+)$'
 )
+
 
 def is_path_gzipped(path):
     try:
@@ -88,29 +105,46 @@ def is_path_gzipped(path):
 
 
 def process_illumina_read_name_pattern(read_name, read_numbers_set, signatures_set, signatures_no_barcode_set, srr_flag):
-    read_name_array = re.split(r'[:\s_]', read_name)
+    read_name_array = re.split(r'[:\s]', read_name)
+    machine = read_name_array[0].replace('@','')
     flowcell = read_name_array[2]
     lane_number = read_name_array[3]
     if srr_flag:
-        read_number = list(read_numbers_set)[0]
+        member_pair = list(read_numbers_set)[0]
     else:
-        read_number = read_name_array[-4]
-        read_numbers_set.add(read_number)
+        member_pair = read_name_array[-4]
+        read_numbers_set.add(member_pair)
     barcode_index = read_name_array[-1]
     signatures_set.add(
-        flowcell + ':' + lane_number + ':' +
-        read_number + ':' + barcode_index + ':')
+        machine + ':' + flowcell + ':' +
+        lane_number + ':' + member_pair + ':' + barcode_index)
     signatures_no_barcode_set.add(
-        flowcell + ':' + lane_number + ':' +
-        read_number + ':')
+        machine + ':' + flowcell + ':' +
+        lane_number + ':' + member_pair)
+
+
+def process_no_flowcell_read_name_pattern(read_name, read_numbers_set, signatures_set, signatures_no_barcode_set, srr_flag):
+    read_name_array = re.split(r'[:\s]', read_name)
+    machine = read_name_array[0].replace('@','')
+    lane_number = read_name_array[1]
+    if srr_flag:
+        member_pair = list(read_numbers_set)[0]
+    else:
+        member_pair = read_name_array[-4]
+        read_numbers_set.add(member_pair)
+    barcode_index = read_name_array[-1]
+    signatures_set.add(
+        machine + ':' + lane_number + ':' + member_pair + ':' + barcode_index)
+    signatures_no_barcode_set.add(
+        machine + ':' + lane_number + ':' + member_pair)
 
 
 def process_illumina_prefix(read_name, signatures_set, old_illumina_current_prefix, read_numbers_set, srr_flag):
     if srr_flag:
-        read_number = list(read_numbers_set)[0]
+        member_pair = list(read_numbers_set)[0]
     else:
         read_number = '1'
-        read_numbers_set.add(read_number)
+        read_numbers_set.add(member_pair)
     read_name_array = re.split(r':', read_name)
 
     if len(read_name_array) > 3:
@@ -123,7 +157,7 @@ def process_illumina_prefix(read_name, signatures_set, old_illumina_current_pref
 
             signatures_set.add(
                 flowcell + ':' + lane_number + ':' +
-                read_number + '::' + read_name)
+                member_pair + '::' + read_name)
 
     return old_illumina_current_prefix
 
@@ -131,94 +165,59 @@ def process_illumina_prefix(read_name, signatures_set, old_illumina_current_pref
 def process_read_name_line(read_name_line, old_illumina_current_prefix, read_numbers_set, signatures_no_barcode_set, signatures_set, read_lengths_dictionary, errors, srr_flag):
     read_name = read_name_line.strip()
     words_array = re.split(r'\s', read_name)
-    if read_name_pattern.match(read_name) is None:
-        if srr_read_name_pattern.match(read_name.split(' ')[0]) is not None:
-            # in case the readname is following SRR format, read number will be
-            # defined using SRR format specifications, and not by the illumina portion of the read name
-            # srr_flag is used to distinguish between srr and "regular" readname formats
-            srr_portion = read_name.split(' ')[0]
-            if srr_portion.count('.') == 2:
-                read_numbers_set.add(srr_portion[-1])
-            else:
-                read_numbers_set.add('1')
-            illumina_portion = read_name.split(' ')[1]
-            old_illumina_current_prefix = process_read_name_line('@'+illumina_portion,
-                                                                old_illumina_current_prefix,
-                                                                read_numbers_set,
-                                                                signatures_no_barcode_set,
-                                                                signatures_set,
-                                                                read_lengths_dictionary,
-                                                                errors, True, read_name_details)
-        else:
-            # unrecognized read_name_format
-            # current convention is to include WHOLE
-            # readname at the end of the signature
-            if len(words_array) == 1:
-                if read_name_prefix.match(read_name) is not None:
-                    # new illumina without second part
-                    old_illumina_current_prefix = process_illumina_prefix(
-                        read_name,
-                        signatures_set,
-                        old_illumina_current_prefix,
-                        read_numbers_set,
-                        srr_flag)
-                else:
-                    errors['fastq_format_readname'] = read_name
-                    # the only case to skip update content error - due to the changing
-                    # nature of read names
-            else:
-                errors['fastq_format_readname'] = read_name
-        # found a match to the regex of "almost" illumina read_name
-    else:
+    if illumina_read_name_pattern.match(read_name) is not None:
         process_illumina_read_name_pattern(
             read_name,
             read_numbers_set,
             signatures_set,
             signatures_no_barcode_set,
             srr_flag)
+    elif illumina_read_name_pattern_no_flowcell.match(read_name) is not None:
+        process_no_flowcell_read_name_pattern(
+            read_name,
+            read_numbers_set,
+            signatures_set,
+            signatures_no_barcode_set,
+            srr_flag)
+    elif srr_read_name_pattern.match(read_name.split(' ')[0]) is not None:
+        # in case the readname is following SRR format, read number will be
+        # defined using SRR format specifications, and not by the illumina portion of the read name
+        # srr_flag is used to distinguish between srr and "regular" readname formats
+        srr_portion = read_name.split(' ')[0]
+        if srr_portion.count('.') == 2:
+            read_numbers_set.add(srr_portion[-1])
+        else:
+            read_numbers_set.add('1')
+        illumina_portion = read_name.split(' ')[1]
+        old_illumina_current_prefix = process_read_name_line('@'+illumina_portion,
+                                                            old_illumina_current_prefix,
+                                                            read_numbers_set,
+                                                            signatures_no_barcode_set,
+                                                            signatures_set,
+                                                            read_lengths_dictionary,
+                                                            errors, True, read_name_details)
+    else:
+        # unrecognized read_name_format
+        # current convention is to include WHOLE
+        # readname at the end of the signature
+        if len(words_array) == 1:
+            if read_name_prefix.match(read_name) is not None:
+                # new illumina without second part
+                old_illumina_current_prefix = process_illumina_prefix(
+                    read_name,
+                    signatures_set,
+                    old_illumina_current_prefix,
+                    read_numbers_set,
+                    srr_flag)
+            else:
+                errors['fastq_format_readname'] = read_name
+                # the only case to skip update content error - due to the changing
+                # nature of read names
+        else:
+            errors['fastq_format_readname'] = read_name
+    # found a match to the regex of "almost" illumina read_name
 
     return old_illumina_current_prefix
-
-
-def process_sequence_line(sequence_line, read_lengths_dictionary):
-    length = len(sequence_line.strip())
-    if length not in read_lengths_dictionary:
-        read_lengths_dictionary[length] = 0
-    read_lengths_dictionary[length] += 1
-
-
-def process_barcodes(signatures_set):
-    set_to_return = set()
-    flowcells_dict = {}
-    for entry in signatures_set:
-        (f, l, r, b, rest) = entry.split(':')
-        if (f, l, r) not in flowcells_dict:
-            flowcells_dict[(f, l, r)] = {}
-        if b not in flowcells_dict[(f, l, r)]:
-            flowcells_dict[(f, l, r)][b] = 0
-        flowcells_dict[(f, l, r)][b] += 1
-    for key in flowcells_dict.keys():
-        barcodes_dict = flowcells_dict[key]
-        total = 0
-        for b in barcodes_dict.keys():
-            total += barcodes_dict[b]
-        for b in barcodes_dict.keys():
-            if ((float(total)/float(barcodes_dict[b])) < 100):
-                set_to_return.add(key[0] + ':' +
-                                  key[1] + ':' +
-                                  key[2] + ':' +
-                                  b + ':')
-    return set_to_return
-
-
-def process_read_lengths(read_lengths_dict, lengths_list, submitted_read_length, read_count, threshold_percentage, errors_to_report, results):
-    reads_quantity = sum([count for length, count in read_lengths_dict.items()
-                          if (submitted_read_length - 2) <= length <= (submitted_read_length + 2)])
-    if ((threshold_percentage * read_count) > reads_quantity):
-        errors_to_report['read_length'] = \
-            'in file metadata the read_length is {}, '.format(submitted_read_length) + \
-            'however the uploaded fastq file contains reads of following length(s) ' + \
-            '{}. '.format(', '.join(map(str, lengths_list)))
 
 
 def process_fastq_file(job):
@@ -252,7 +251,6 @@ def process_fastq_file(job):
                 if line_index == 1:
                     
                     # may be from here deliver a flag about the presence/absence of the readnamedetails
-
                     old_illumina_current_prefix = \
                         process_read_name_line(
                             line,
@@ -264,63 +262,64 @@ def process_fastq_file(job):
                             errors, False)
             if line_index == 2:
                 read_count += 1
-                process_sequence_line(line, read_lengths_dictionary)
+                length = len(line.strip())
+                if length not in read_lengths_dictionary:
+                    read_lengths_dictionary[length] = 0
+                read_lengths_dictionary[length] += 1
 
             line_index = line_index % 4
     except IOError:
         errors['unzipped_fastq_streaming'] = 'Error occured, while streaming unzipped fastq.'
     else:
-
         # read_count update
         results['read_count'] = read_count
 
         # read1/read2
-        if len(read_numbers_set) > 1:
+        if len(read_numbers_set) == 1:
+            read_number = next(iter(read_numbers_set))
+            results['member_pair'] = read_number
+        elif len(read_numbers_set) > 1:
             errors['inconsistent_read_numbers'] = \
                 'fastq file contains mixed read numbers ' + \
                 '{}.'.format(', '.join(sorted(list(read_numbers_set))))
 
         # read_length
+        results['read_length'] = max(read_lengths_dictionary, key=read_lengths_dictionary.get)
+
         read_lengths_list = []
         for k in sorted(read_lengths_dictionary.keys()):
-            read_lengths_list.append((k, read_lengths_dictionary[k]))
+            read_lengths_list.append({'read_length': k, 'read_count': read_lengths_dictionary[k]})
 
-        if 'read_length' in item and item['read_length'] > 2:
-            process_read_lengths(read_lengths_dictionary,
-                                 read_lengths_list,
-                                 item['read_length'],
-                                 read_count,
-                                 0.9,
-                                 errors,
-                                 results)
-        else:
-            errors['read_length'] = 'no specified read length in the uploaded fastq file, ' + \
-                                    'while read length(s) found in the file were {}. '.format(
-                                        ', '.join(map(str, read_lengths_list)))
+        results['read_lengths_list'] = ', '.join(map(str, read_lengths_list))
+
         # signatures
-        signatures_for_comparison = set()
-        is_UMI = False
-        if 'flowcell_details' in item and len(item['flowcell_details']) > 0:
-            for entry in item['flowcell_details']:
-                if 'barcode' in entry and entry['barcode'] == 'UMI':
-                    is_UMI = True
-                    break
-        if old_illumina_current_prefix == 'empty' and is_UMI:
-            for entry in signatures_no_barcode_set:
-                signatures_for_comparison.add(entry + 'UMI:')
-        else:
-            if old_illumina_current_prefix == 'empty' and len(signatures_set) > 100:
-                signatures_for_comparison = process_barcodes(signatures_set)
-                if len(signatures_for_comparison) == 0:
-                    for entry in signatures_no_barcode_set:
-                        signatures_for_comparison.add(entry + 'mixed:')
+        all_flowcells = set()
+        all_barcodes = set()
+        for sign in signatures_set:
+            sign_array = sign.split(':')
+            if len(sign_array) > 4:
+                flowcell = (sign_array[0], sign_array[1], sign_array[2])
+                all_flowcells.add(flowcell)
+                all_barcodes.add(sign_array[4])
 
+                results['barcodes'] = all_barcodes
+
+                flowcell_details = []
+                for flowcell in all_flowcells:
+                    flowcell_details.append({'machine': flowcell[0], 'flowcell': flowcell[1], 'lane': flowcell[2]})
+                results['flowcell_details'] = flowcell_details
             else:
-                signatures_for_comparison = signatures_set
+                flowcell = (sign_array[0], sign_array[1])
+                all_flowcells.add(flowcell)
+                all_barcodes.add(sign_array[3])
 
-        results['fastq_signature'] = sorted(list(signatures_for_comparison))
+                results['barcodes'] = all_barcodes
 
-    os.remove(local_path)
+                flowcell_details = []
+                for flowcell in all_flowcells:
+                    flowcell_details.append({'machine': flowcell[0], 'lane': flowcell[1]})
+                results['flowcell_details'] = flowcell_details
+
 
 def process_h5matrix_file(job):
     item = job['item']
@@ -338,10 +337,8 @@ def process_h5matrix_file(job):
         results['barcode_count'] = dset['barcodes'].shape[0]
         results['features'] = dset['features']['id'].shape[0]
 
-    os.remove(local_path)
 
-
-def process_matrix_file(job):
+def process_mexmatrix_file(job):
     item = job['item']
     errors = job['errors']
     results = job['results']
@@ -479,8 +476,6 @@ def process_matrix_file(job):
         else:
             errors['barcode_count_discrepancy'] = 'Barcode count from matrix ({}) does not match row count in barcodes.tsv ({})'.format(
                 barcodes_count_frommatrix, barcodes_row_count)
-
-    shutil.rmtree(tmp_dir)
 
 
 def download_s3_directory(job):
@@ -514,6 +509,8 @@ def download_s3_file(job):
     file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
     file_name = download_url.split('/')[-1]
 
+    job['download_start'] = datetime.now()
+
     s3client = boto3.client("s3")
     try:
         s3client.download_file(bucket_name, file_path, file_name)
@@ -521,36 +518,43 @@ def download_s3_file(job):
         errors['file not found'] = 'Failed to find file on s3'
     else:
         print(file_name + ' downloaded')
+        job['download_stop'] = datetime.now()
+        job['download_time'] = job['download_stop'] - job['download_start']
 
 
-def compare_with_db(job):
+def compare_with_db(job, connection):
+    server = connection.server
+
     file = job['item']
     errors = job['errors']
     results = job['results']
     post_json = {}
 
-    inconsistent_count = 0
+    metadata_consistency = []
+    metadata_inconsistency = []
+
+    obj_types = file['@type']
+    schema = next(iter(set(obj_types) - set(abstract_file_types)))
+    schema_url = urljoin(server, 'profiles/' + schema + '/?format=json')
+    schema_properties = requests.get(schema_url).json()['properties']
 
     for key in results.keys():
-        if key not in file.keys():
+        if not file.get(key) and schema_properties.get(key):
             post_json[key] = results.get(key)
         elif results.get(key) == file.get(key):
             outcome = '{} consistent ({})'.format(key, results.get(key))
-            if results.get('metadata_consistency'):
-                results['metadata_consistency'].append(outcome)
-            else:
-                results['metadata_consistency'] = [outcome]
-        else:
-            inconsistent_count += 1
+            metadata_consistency.append(outcome)
+        elif file.get(key) != None:
             outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results.get(key), file.get(key))
-            if errors.get('metadata_inconsistency'):
-                errors['metadata_inconsistency'].append(outcome)
-            else:
-                errors['metadata_inconsistency'] = [outcome]
-    if inconsistent_count == 0:
+            metadata_inconsistency.append(outcome)
+    if len(metadata_inconsistency) == 0 and schema_properties.get('validated'):
         post_json['validated'] = True
 
     job['post_json'] = post_json
+    if metadata_consistency:
+        results['metadata_consistency'] = metadata_consistency
+    if metadata_inconsistency:
+        errors['metadata_inconsistency'] = metadata_inconsistency
 
 
 def check_file(job):
@@ -560,6 +564,8 @@ def check_file(job):
 
     download_url = file.get('s3_uri')
     local_path = download_url.split('/')[-1]
+
+    job['check_start'] = datetime.now()
 
     # check file size & md5sum
     file_stat = os.stat(local_path)
@@ -604,17 +610,25 @@ def check_file(job):
             # do format-specific validation
             if file.get('file_format') == 'fastq':
                 process_fastq_file(job)
+                os.remove(local_path)
+                print(local_path + ' removed')
     if file.get('file_format') == 'mex':
-        process_matrix_file(job)
-    if file.get('file_format') == 'h5':
+        process_mexmatrix_file(job)
+        shutil.rmtree(tmp_dir)
+        print(tmp_dir + ' removed')
+    if file.get('file_format') == 'hdf5':
         process_h5matrix_file(job)
+        os.remove(local_path)
+        print(local_path + ' removed')
+
+    job['check_stop'] = datetime.now()
+    job['check_time'] = job['check_stop'] - job['check_start']
 
     return job
 
 
-def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_format=None):
+def fetch_files(out, connection=None, query=None, accessions=None, s3_file=None, file_format=None):
     if accessions or query:
-        connection = lattice.Connection(mode)
         server = connection.server
         if accessions:
             # checkfiles using a file with a list of file accessions to be checked
@@ -628,7 +642,7 @@ def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_
 
         # checkfiles using a query
         else:
-            query_url = urljoin(connection.server, query.replace('report', 'search') + '&format=json&limit=all&field=accession')
+            query_url = urljoin(server, query.replace('report', 'search') + '&format=json&limit=all&field=accession')
             r = requests.get(query_url, auth=connection.auth)
             try:
                 r.raise_for_status()
@@ -639,7 +653,7 @@ def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_
 
         jobs = []
         for acc in ACCESSIONS:
-            item_url = urljoin(connection.server, acc + '/?frame=object')
+            item_url = urljoin(server, acc + '/?frame=object')
             fileObject = requests.get(item_url, auth=connection.auth)
             if not fileObject.ok:
                 errors['file_HTTPError'] = ('HTTP error: unable to get file object')
@@ -647,6 +661,11 @@ def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_
                 check_me_flag = True
                 blockers = []
                 file_json = fileObject.json()
+                if file_json.get('file_format') == 'fastq' and len(file_json.get('derived_from')) == 1:
+                    seq_run = file_json.get('derived_from')[0]
+                    item_url = urljoin(server, seq_run + '/?frame=object')
+                    seqrunObject = requests.get(item_url, auth=connection.auth).json()
+                    file_json['derived_from'] = seqrunObject
                 if file_json.get('no_file_available') == True:
                     blockers.append('marked as no_file_available')
                     check_me_flag = False
@@ -682,6 +701,21 @@ def fetch_files(out, mode=None, query=None, accessions=None, s3_file=None, file_
         return jobs
 
 
+def report(job):
+    file_obj = job.get('item')
+    tab_report = '\t'.join([
+        file_obj.get('accession', file_obj.get('uuid')),
+        file_obj.get('s3_uri', ''),
+        str(job['errors']),
+        str(job['results']),
+        str(job['post_json']),
+        job.get('patch_result', 'n/a'),
+        str(job.get('download_time')),
+        str(job.get('check_time'))
+    ])
+    return tab_report + '\n'
+
+
 def main():
     args = getArgs()
     if (args.query or args.accessions) and not args.mode:
@@ -694,46 +728,63 @@ def main():
     if arg_count != 1:
         sys.exit('ERROR: exactly one of --query, --accessions, --s3-file is required, {} given'.format(arg_count))
 
+
+    connection = lattice.Connection(args.mode)
     version = '0.9'
 
-    initiating_run = 'STARTING Checkfiles version {} at {}'.format(
-        version, datetime.datetime.now())
+    initiating_run = 'STARTING Checkfiles version {}'.format(version)
     print(initiating_run)
 
-    out = open('report.txt', 'w')
+    timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
+    out = open('report_{}.txt'.format(timestr), 'w')
     report_headers = '\t'.join([
-        'accession',
+        'identifier',
         's3_uri',
         'errors',
         'results',
         'json_patch',
-        'Lattice patched?'
+        'Lattice patched?',
+        'download_time',
+        'check_time'
     ])
     out.write(report_headers + '\n')
 
-    jobs = fetch_files(out, args.mode, args.query, args.accessions, args.s3_file, args.file_format)
+    jobs = fetch_files(out, connection, args.query, args.accessions, args.s3_file, args.file_format)
 
     if jobs:
+        seq_run_jobs = []
         print('CHECKING {} files'.format(len(jobs)))
         for job in jobs:
-            if job['item'].get('file_format') == 'mex':
+            file_obj = job.get('item')
+            if file_obj.get('file_format') == 'mex':
                 download_s3_directory(job)
             else:
                 download_s3_file(job)
             check_file(job)
-            compare_with_db(job)
-            file_obj = job.get('item')
-            tab_report = '\t'.join([
-                file_obj.get('accession', 'UNKNOWN'),
-                file_obj.get('s3_uri', ''),
-                str(job['errors']),
-                str(job['results']),
-                str(job['post_json']),
-                job.get('patch_result', 'n/a')
-            ])
-            out.write(tab_report + '\n')
+            compare_with_db(job, connection)
+            if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
+                seq_run_jobs.append({
+                                    'item': file_obj['derived_from'],
+                                    'results': {'flowcell_details': job['results']['flowcell_details']},
+                                    'errors': {}
+                                    })
+            if job['post_json'] and not job['errors'] and args.update:
+                print('PATCHING {}'.format(file_obj.get('accession')))
+                patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
+                job['patch_result'] = patch['status']
+            out.write(report(job))
+        if seq_run_jobs:
+            print('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
+        for job in seq_run_jobs:
+            compare_with_db(job, connection)
+            if job['post_json'] and not job['errors'] and args.update:
+                print('PATCHING {}'.format(job['item'].get('uuid')))
+                patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
+                job['patch_result'] = patch['status']
+            out.write(report(job))
 
-        finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.datetime.now())
+
+        finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
         print(finishing_run)
         out.close()
     else:
