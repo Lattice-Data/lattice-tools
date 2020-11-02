@@ -1,7 +1,7 @@
 import argparse
 import boto3
 from datetime import datetime
-import h5py #conda install h5py
+import tables
 import json
 import lattice
 import os
@@ -322,6 +322,11 @@ def process_fastq_file(job):
 
 
 def process_h5matrix_file(job):
+    feature_type_mapping = {
+        'Gene Expression': 'gene',
+        'Peaks': 'peak'
+    }
+
     item = job['item']
     errors = job['errors']
     results = job['results']
@@ -330,12 +335,31 @@ def process_h5matrix_file(job):
     local_path = download_url.split('/')[-1]
 
     # https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/h5_matrices
-    # https://docs.h5py.org/en/stable/
-    f = h5py.File(local_path, 'r')
-    for k in list(f.keys()):
-        dset = f[k]
-        results['observation_count'] = dset['barcodes'].shape[0]
-        results['feature_counts'] = dset['features']['id'].shape[0]
+    with tables.open_file(local_path, 'r') as f:
+        mat_group = f.get_node(f.root, 'matrix')
+
+        barcodes = f.get_node(mat_group, 'barcodes')
+        results['observation_count'] = int(barcodes.shape[0])
+
+        feature_group = f.get_node(mat_group, 'features')
+        counts = {}
+        for i in list(getattr(feature_group, 'feature_type')):
+            i = feature_type_mapping.get(i.decode("utf-8"), i.decode("utf-8"))
+            if (i in counts):
+                counts[i] += 1
+            else:
+                counts[i] = 1
+
+        genome_list = []
+        genomes = (set(getattr(feature_group, 'genome')))
+        for g in genomes:
+            genome_list.append(g.decode("utf-8"))
+        results['genomes'] = genome_list
+
+    feature_counts = []
+    for feature in counts.keys():
+        feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
+    results['feature_counts'] = feature_counts
 
 
 def process_mexmatrix_file(job):
