@@ -104,7 +104,7 @@ def is_path_gzipped(path):
         return magic_number == b'\x1f\x8b'
 
 
-def process_illumina_read_name_pattern(read_name, read_numbers_set, signatures_set, signatures_no_barcode_set, srr_flag):
+def process_illumina_read_name_pattern(read_name, read_numbers_set, signatures_set, signatures_no_smp_in_set, srr_flag):
     read_name_array = re.split(r'[:\s]', read_name)
     machine = read_name_array[0].replace('@','')
     flowcell = read_name_array[2]
@@ -114,16 +114,16 @@ def process_illumina_read_name_pattern(read_name, read_numbers_set, signatures_s
     else:
         member_pair = read_name_array[-4]
         read_numbers_set.add(member_pair)
-    barcode_index = read_name_array[-1]
+    smp_index = read_name_array[-1]
     signatures_set.add(
         machine + ':' + flowcell + ':' +
-        lane_number + ':' + member_pair + ':' + barcode_index)
-    signatures_no_barcode_set.add(
+        lane_number + ':' + member_pair + ':' + smp_index)
+    signatures_no_smp_in_set.add(
         machine + ':' + flowcell + ':' +
         lane_number + ':' + member_pair)
 
 
-def process_no_flowcell_read_name_pattern(read_name, read_numbers_set, signatures_set, signatures_no_barcode_set, srr_flag):
+def process_no_flowcell_read_name_pattern(read_name, read_numbers_set, signatures_set, signatures_no_smp_in_set, srr_flag):
     read_name_array = re.split(r'[:\s]', read_name)
     machine = read_name_array[0].replace('@','')
     lane_number = read_name_array[1]
@@ -132,10 +132,10 @@ def process_no_flowcell_read_name_pattern(read_name, read_numbers_set, signature
     else:
         member_pair = read_name_array[-4]
         read_numbers_set.add(member_pair)
-    barcode_index = read_name_array[-1]
+    smp_index = read_name_array[-1]
     signatures_set.add(
-        machine + ':' + lane_number + ':' + member_pair + ':' + barcode_index)
-    signatures_no_barcode_set.add(
+        machine + ':' + lane_number + ':' + member_pair + ':' + smp_index)
+    signatures_no_smp_in_set.add(
         machine + ':' + lane_number + ':' + member_pair)
 
 
@@ -162,7 +162,7 @@ def process_illumina_prefix(read_name, signatures_set, old_illumina_current_pref
     return old_illumina_current_prefix
 
 
-def process_read_name_line(read_name_line, old_illumina_current_prefix, read_numbers_set, signatures_no_barcode_set, signatures_set, read_lengths_dictionary, errors, srr_flag):
+def process_read_name_line(read_name_line, old_illumina_current_prefix, read_numbers_set, signatures_no_smp_in_set, signatures_set, read_lengths_dictionary, errors, srr_flag):
     read_name = read_name_line.strip()
     words_array = re.split(r'\s', read_name)
     if illumina_read_name_pattern.match(read_name) is not None:
@@ -170,14 +170,14 @@ def process_read_name_line(read_name_line, old_illumina_current_prefix, read_num
             read_name,
             read_numbers_set,
             signatures_set,
-            signatures_no_barcode_set,
+            signatures_no_smp_in_set,
             srr_flag)
     elif illumina_read_name_pattern_no_flowcell.match(read_name) is not None:
         process_no_flowcell_read_name_pattern(
             read_name,
             read_numbers_set,
             signatures_set,
-            signatures_no_barcode_set,
+            signatures_no_smp_in_set,
             srr_flag)
     elif srr_read_name_pattern.match(read_name.split(' ')[0]) is not None:
         # in case the readname is following SRR format, read number will be
@@ -192,7 +192,7 @@ def process_read_name_line(read_name_line, old_illumina_current_prefix, read_num
         old_illumina_current_prefix = process_read_name_line('@'+illumina_portion,
                                                             old_illumina_current_prefix,
                                                             read_numbers_set,
-                                                            signatures_no_barcode_set,
+                                                            signatures_no_smp_in_set,
                                                             signatures_set,
                                                             read_lengths_dictionary,
                                                             errors, True, read_name_details)
@@ -230,7 +230,7 @@ def process_fastq_file(job):
 
     read_numbers_set = set()
     signatures_set = set()
-    signatures_no_barcode_set = set()
+    signatures_no_smp_in_set = set()
     read_lengths_dictionary = {}
     read_count = 0
     old_illumina_current_prefix = 'empty'
@@ -256,7 +256,7 @@ def process_fastq_file(job):
                             line,
                             old_illumina_current_prefix,
                             read_numbers_set,
-                            signatures_no_barcode_set,
+                            signatures_no_smp_in_set,
                             signatures_set,
                             read_lengths_dictionary,
                             errors, False)
@@ -294,15 +294,15 @@ def process_fastq_file(job):
 
         # signatures
         all_flowcells = set()
-        all_barcodes = set()
+        all_smp_ins = set()
         for sign in signatures_set:
             sign_array = sign.split(':')
             if len(sign_array) > 4:
                 flowcell = (sign_array[0], sign_array[1], sign_array[2])
                 all_flowcells.add(flowcell)
-                all_barcodes.add(sign_array[4])
+                all_smp_ins.add(sign_array[4])
 
-                results['barcodes'] = all_barcodes
+                #results['sample indices'] = all_smp_ins
 
                 flowcell_details = []
                 for flowcell in all_flowcells:
@@ -311,9 +311,9 @@ def process_fastq_file(job):
             else:
                 flowcell = (sign_array[0], sign_array[1])
                 all_flowcells.add(flowcell)
-                all_barcodes.add(sign_array[3])
+                all_smp_ins.add(sign_array[3])
 
-                results['barcodes'] = all_barcodes
+                #results['sample indices'] = all_smp_ins
 
                 flowcell_details = []
                 for flowcell in all_flowcells:
@@ -514,6 +514,7 @@ def download_s3_directory(job):
     s3client = boto3.client("s3")
     tmp_dir = 'raw_feature_bc_matrix'
     os.mkdir(tmp_dir)
+    print(file_name + ' downloading')
     for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
             s3client.download_file(bucket_name, dir_path + '/' + file_name, '{}/{}'.format(tmp_dir, file_name))
@@ -536,6 +537,7 @@ def download_s3_file(job):
     job['download_start'] = datetime.now()
 
     s3client = boto3.client("s3")
+    print(file_name + ' downloading')
     try:
         s3client.download_file(bucket_name, file_path, file_name)
     except subprocess.CalledProcessError as e:
@@ -596,7 +598,7 @@ def check_file(job):
     results['file_size'] = file_stat.st_size
     # Faster than doing it in Python.
     try:
-        output = subprocess.check_output('md5sum-lite {}'.format(local_path),
+        output = subprocess.check_output('md5sum {}'.format(local_path),
             shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
         errors['md5sum'] = e.output.decode(errors='replace').rstrip('\n')
@@ -624,7 +626,7 @@ def check_file(job):
             # if gzipped, unzip, get md5sum
             try:
                 output = subprocess.check_output(
-                    'set -o pipefail; gunzip --stdout {} | md5sum-lite'.format(local_path),
+                    'set -o pipefail; gunzip --stdout {} | md5sum'.format(local_path),
                     shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
             except subprocess.CalledProcessError as e:
                 errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
