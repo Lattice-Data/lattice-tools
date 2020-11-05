@@ -565,14 +565,38 @@ def compare_with_db(job, connection):
     schema_properties = requests.get(schema_url).json()['properties']
 
     for key in results.keys():
+        # if it's a schema property currently absent, prepare to patch it
         if not file.get(key) and schema_properties.get(key):
             post_json[key] = results.get(key)
+        # if the file information matches the current database metadata, log it
         elif results.get(key) == file.get(key):
             outcome = '{} consistent ({})'.format(key, results.get(key))
             metadata_consistency.append(outcome)
         elif file.get(key) != None:
-            outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results.get(key), file.get(key))
-            metadata_inconsistency.append(outcome)
+            #first check for embedded properties, specifically for flowcell_details
+            if isinstance(results.get(key), list) and isinstance(file.get(key), list) \
+                and len(results.get(key)) == 1 and len(file.get(key)) == 1:
+                if schema_properties.get(key) and schema_properties[key].get('items'):
+                    post_flag = True
+                    results_obj = results[key][0]
+                    file_obj = file[key][0]
+                    for subkey in results_obj:
+                        if schema_properties[key]['items']['properties'].get(subkey):
+                            if results_obj.get(subkey) == file_obj.get(subkey):
+                                outcome = '{}.{} consistent ({})'.format(key, subkey, results_obj.get(subkey))
+                                metadata_consistency.append(outcome)
+                            elif file_obj.get(subkey) and results_obj.get(subkey) != file_obj.get(subkey):
+                                post_flag = False
+                                outcome = '{}.{} inconsistent ({}-s3file, {}-submitted)'.format(key, subkey, results_obj.get(subkey), file_obj.get(subkey))
+                                metadata_inconsistency.append(outcome)
+                        else:
+                            del results_obj[subkey]
+                    if post_flag == True:
+                        post_json[key] = [results_obj]
+            # we have an inconsistency to log
+            else:
+                outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results.get(key), file.get(key))
+                metadata_inconsistency.append(outcome)
     if len(metadata_inconsistency) == 0 and schema_properties.get('validated'):
         post_json['validated'] = True
 
