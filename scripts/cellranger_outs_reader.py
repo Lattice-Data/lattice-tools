@@ -146,7 +146,7 @@ schema_props = list(full_schema['properties'].keys())
 for a in system_props:
 	schema_props.remove(a)
 
-full_path = args.dir
+full_path = args.dir.rstrip('/')
 bucket_name = full_path.split('/')[0]
 outs_dir_path = full_path.replace(bucket_name + '/', '')
 
