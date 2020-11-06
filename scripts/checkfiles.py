@@ -703,7 +703,7 @@ def check_file(job):
     return job
 
 
-def fetch_files(out, connection=None, query=None, accessions=None, s3_file=None, file_format=None):
+def fetch_files(report_out, connection=None, query=None, accessions=None, s3_file=None, file_format=None):
     if accessions or query:
         server = connection.server
         if accessions:
@@ -752,7 +752,9 @@ def fetch_files(out, connection=None, query=None, accessions=None, s3_file=None,
                     blockers.append('already validated')
                     check_me_flag = False
                 if check_me_flag == False:
-                    out.write(acc + '\t' + file_json.get('s3_uri','') + '\t' + ','.join(blockers) + 3*('\t') + 'n/a' + '\n')
+                    out = open(report_out, 'a')
+                    out.write(acc + '\t' + file_json.get('s3_uri','') + '\t' + ','.join(blockers) + '\n')
+                    out.close()
                 elif check_me_flag == True:
                     job = {
                         'item': file_json,
@@ -812,7 +814,8 @@ def main():
     print(initiating_run)
 
     timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
-    out = open('report_{}.txt'.format(timestr), 'w')
+    report_out = 'report_{}.txt'.format(timestr)
+    out = open(report_out, 'w')
     report_headers = '\t'.join([
         'identifier',
         's3_uri',
@@ -825,8 +828,9 @@ def main():
         'check_time'
     ])
     out.write(report_headers + '\n')
+    out.close()
 
-    jobs = fetch_files(out, connection, args.query, args.accessions, args.s3_file, args.file_format)
+    jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.file_format)
 
     if jobs:
         all_seq_runs = []
@@ -850,7 +854,9 @@ def main():
                 patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
                 job['patch_result'] = patch['status']
                 set_s3_tags(job)
+            out = open(report_out, 'a')
             out.write(report(job))
+            out.close()
         if all_seq_runs:
             seq_run_jobs = []
             seq_run_uuids = []
@@ -866,14 +872,17 @@ def main():
                         print('PATCHING {}'.format(job['item'].get('uuid')))
                         patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
                         job['patch_result'] = patch['status']
+                    out = open(report_out, 'a')
                     out.write(report(job))
+                    out.close()
                 else:
                     job['errors']['internal_conflict'] = 'multiple files derive from this sequencing run with inconsistent metadata'
+                    out = open(report_out, 'a')
                     out.write(report(job))
+                    out.close()
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
         print(finishing_run)
-        out.close()
     else:
         print('FINISHED No files to check, see report.txt for details')
 
