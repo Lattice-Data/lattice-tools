@@ -59,6 +59,8 @@ def getArgs():
     return args
 
 
+checkfiles_version = '0.9'
+
 abstract_file_types = [
     'Item',
     'File',
@@ -548,6 +550,30 @@ def download_s3_file(job):
         job['download_time'] = job['download_stop'] - job['download_start']
 
 
+def set_s3_tags(job):
+    item = job['item']
+    errors = job['errors']
+    results = job['results']
+
+    download_url = item.get('s3_uri')
+    bucket_name = download_url.split('/')[2]
+    file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
+
+    tagging = {'TagSet': [
+        {
+            'Key': 'validated',
+            'Value': checkfiles_version
+        }
+    ]}
+
+    s3client = boto3.client("s3")
+    response = s3client.put_object_tagging(Bucket=bucket_name, Key=file_path, Tagging=tagging)
+    if response['ResponseMetadata']['HTTPStatusCode'] == 200:
+        job['patch_s3tag'] = 'success'
+    else:
+        job['patch_s3tag'] = 'status code:{}'.format(response['HTTPStatusCode'])
+
+
 def compare_with_db(job, connection):
     server = connection.server
 
@@ -760,6 +786,7 @@ def report(job):
         str(job['results']),
         str(job.get('post_json')),
         job.get('patch_result', 'n/a'),
+        job.get('patch_s3tag', 'n/a'),
         str(job.get('download_time')),
         str(job.get('check_time'))
     ])
@@ -780,9 +807,8 @@ def main():
 
 
     connection = lattice.Connection(args.mode)
-    version = '0.9'
 
-    initiating_run = 'STARTING Checkfiles version {}'.format(version)
+    initiating_run = 'STARTING Checkfiles version {}'.format(checkfiles_version)
     print(initiating_run)
 
     timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
@@ -794,6 +820,7 @@ def main():
         'results',
         'json_patch',
         'Lattice patched?',
+        'S3 tag patched?',
         'download_time',
         'check_time'
     ])
@@ -822,6 +849,7 @@ def main():
                 print('PATCHING {}'.format(file_obj.get('accession')))
                 patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
                 job['patch_result'] = patch['status']
+                set_s3_tags(job)
             out.write(report(job))
         if all_seq_runs:
             seq_run_jobs = []
