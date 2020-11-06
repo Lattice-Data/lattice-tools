@@ -674,6 +674,7 @@ def check_file(job):
             # $ cat $local_path | tee >(md5sum >&2) | gunzip | md5sum
             # or http://stackoverflow.com/a/15343686/199100    
             # if gzipped, unzip, get md5sum
+            job['content_md5sum_start'] = datetime.now()
             try:
                 output = subprocess.check_output(
                     'set -o pipefail; gunzip --stdout {} | md5sum'.format(local_path),
@@ -682,6 +683,8 @@ def check_file(job):
                 errors['content_md5sum'] = e.output.decode(errors='replace').rstrip('\n')
             else:
                 results['content_md5sum'] = output[:32].decode(errors='replace')
+                job['content_md5sum_stop'] = datetime.now()
+                job['content_md5sum_time'] = job['content_md5sum_stop'] - job['content_md5sum_start']
 
             # do format-specific validation
             if file.get('file_format') == 'fastq':
@@ -790,7 +793,8 @@ def report(job):
         job.get('patch_result', 'n/a'),
         job.get('patch_s3tag', 'n/a'),
         str(job.get('download_time')),
-        str(job.get('check_time'))
+        str(job.get('check_time')),
+        str(job.get('content_md5sum_time'))
     ])
     return tab_report + '\n'
 
@@ -825,7 +829,8 @@ def main():
         'Lattice patched?',
         'S3 tag patched?',
         'download_time',
-        'check_time'
+        'check_time',
+        'content_md5sum_time'
     ])
     out.write(report_headers + '\n')
     out.close()
