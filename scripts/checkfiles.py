@@ -829,6 +829,7 @@ def main():
 
     timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
     report_out = 'report_{}.txt'.format(timestr)
+    print('Writing results to {}'.format(report_out))
     out = open(report_out, 'w')
     report_headers = '\t'.join([
         'identifier',
@@ -901,6 +902,7 @@ def main():
     else:
         print('FINISHED No files to check, see report.txt for details')
 
+    print('Results written to {}'.format(report_out))
 
 if __name__ == '__main__':
     main()
