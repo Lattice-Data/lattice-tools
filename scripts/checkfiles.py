@@ -1,7 +1,6 @@
 import argparse
 import boto3
-from datetime import datetime
-import tables
+import h5py
 import json
 import lattice
 import os
@@ -10,6 +9,8 @@ import requests
 import shutil
 import subprocess
 import sys
+import tables
+from datetime import datetime
 from urllib.parse import urljoin
 
 
@@ -339,6 +340,11 @@ def process_h5matrix_file(job):
 
     download_url = item.get('s3_uri')
     local_path = download_url.split('/')[-1]
+
+    hdf5_validate = h5py.is_hdf5(local_path)
+    results['is_hdf5'] = hdf5_validate
+    if hdf5_validate != True:
+        errors['is_hdf5'] = hdf5_validate
 
     # https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/h5_matrices
     with tables.open_file(local_path, 'r') as f:
