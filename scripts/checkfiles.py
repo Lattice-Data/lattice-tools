@@ -50,11 +50,15 @@ def getArgs():
     parser.add_argument('--query', '-q',
                         help="override the file search query, e.g. 'accession=ENCFF000ABC'")
     parser.add_argument('--accessions', '-a',
-                        help="one or more file accessions to check, comma separated or a file containing a list of file accessions to check")
+                        help='one or more file accessions to check, comma separated or a file containing a list of file accessions to check')
+    parser.add_argument('--include-validated',
+                        default=False,
+                        action='store_true',
+                        help='Check all files even if they are validated=True in the Lattice database')
     parser.add_argument('--s3-file',
                         help="path to a file at s3 to check")
     parser.add_argument('--file-format',
-                        help="the specified file format if an s3-file or local-file is being checked")
+                        help='the specified file format if an s3-file or local-file is being checked')
     args = parser.parse_args()
     return args
 
@@ -623,7 +627,7 @@ def compare_with_db(job, connection):
             else:
                 outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results.get(key), file.get(key))
                 metadata_inconsistency.append(outcome)
-    if len(metadata_inconsistency) == 0 and schema_properties.get('validated'):
+    if len(metadata_inconsistency) == 0 and schema_properties.get('validated') and file.get('validated') != True:
         post_json['validated'] = True
 
     job['post_json'] = post_json
@@ -706,7 +710,7 @@ def check_file(job):
     return job
 
 
-def fetch_files(report_out, connection=None, query=None, accessions=None, s3_file=None, file_format=None):
+def fetch_files(report_out, connection=None, query=None, accessions=None, s3_file=None, file_format=None, include_validate=False):
     if accessions or query:
         server = connection.server
         if accessions:
@@ -751,7 +755,7 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
                 if not file_json.get('s3_uri'):
                     blockers.append('s3_uri not submitted')
                     check_me_flag = False
-                if file_json.get('validated') == True:
+                if file_json.get('validated') == True and not include_validate:
                     blockers.append('already validated')
                     check_me_flag = False
                 if check_me_flag == False:
@@ -835,7 +839,7 @@ def main():
     out.write(report_headers + '\n')
     out.close()
 
-    jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.file_format)
+    jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.file_format, args.include_validated)
 
     if jobs:
         all_seq_runs = []
