@@ -1,4 +1,4 @@
-Installation
+Running checkfiles on an EC2 instance
 ---------------- 
 Create a new spot instance from the checkfiles template
 ```
