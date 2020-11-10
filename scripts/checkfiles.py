@@ -822,7 +822,10 @@ def main():
         sys.exit('ERROR: exactly one of --query, --accessions, --s3-file is required, {} given'.format(arg_count))
 
 
-    connection = lattice.Connection(args.mode)
+    if args.mode:
+        connection = lattice.Connection(args.mode)
+    else:
+        connection = ''
 
     initiating_run = 'STARTING Checkfiles version {}'.format(checkfiles_version)
     print(initiating_run)
@@ -858,18 +861,19 @@ def main():
             else:
                 download_s3_file(job)
             check_file(job)
-            compare_with_db(job, connection)
-            if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
-                all_seq_runs.append({
-                                    'item': file_obj['derived_from'],
-                                    'results': {'flowcell_details': job['results']['flowcell_details']},
-                                    'errors': {}
-                                    })
-            if job['post_json'] and not job['errors'] and args.update:
-                print('PATCHING {}'.format(file_obj.get('accession')))
-                patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
-                job['patch_result'] = patch['status']
-                set_s3_tags(job)
+            if not args.s3_file:
+                compare_with_db(job, connection)
+                if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
+                    all_seq_runs.append({
+                                        'item': file_obj['derived_from'],
+                                        'results': {'flowcell_details': job['results']['flowcell_details']},
+                                        'errors': {}
+                                        })
+                if job['post_json'] and not job['errors'] and args.update:
+                    print('PATCHING {}'.format(file_obj.get('accession')))
+                    patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
+                    job['patch_result'] = patch['status']
+                    set_s3_tags(job)
             out = open(report_out, 'a')
             out.write(report(job))
             out.close()
