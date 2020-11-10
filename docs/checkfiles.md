@@ -2,7 +2,7 @@ Running checkfiles on an EC2 instance
 ---------------- 
 Create a new spot instance from the checkfiles template
 ```
-$ aws ec2 run-instances --launch-template LaunchTemplateName=checkfiles --instance-market-options MarketType=spot
+$ aws ec2 run-instances --launch-template LaunchTemplateName=checkfiles
 ```
 If only matrix files are being checked, you can limit the duration of the instance to 1 hour
 ```
