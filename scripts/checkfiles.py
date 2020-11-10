@@ -883,7 +883,7 @@ def main():
             seq_run_jobs = []
             seq_run_uuids = []
             for job in all_seq_runs:
-                if job not in jobs:
+                if job not in seq_run_jobs:
                     seq_run_uuids.append(job['item']['uuid'])
                     seq_run_jobs.append(job)
             print('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
