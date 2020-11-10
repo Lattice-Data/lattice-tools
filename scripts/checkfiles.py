@@ -267,17 +267,19 @@ def process_fastq_file(job):
                             signatures_set,
                             read_lengths_dictionary,
                             errors, False)
-            if line_index == 2:
-                read_count += 1
-                length = len(line.strip())
-                if length not in read_lengths_dictionary:
-                    read_lengths_dictionary[length] = 0
-                read_lengths_dictionary[length] += 1
+                elif line_index == 2:
+                    read_count += 1
+                    length = len(line.strip())
+                    if length not in read_lengths_dictionary:
+                        read_lengths_dictionary[length] = 0
+                    read_lengths_dictionary[length] += 1
 
             line_index = line_index % 4
     except IOError:
         errors['unzipped_fastq_streaming'] = 'Error occured, while streaming unzipped fastq.'
     else:
+        if line_index != 0:
+            errors['incomplete fastq file'] = 'Last line was not a factor of 4, but has a remainder of {}'.format(line_index)
         # read_count update
         results['read_count'] = read_count
 
