@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 
 
 EPILOG = '''
-Get a Dataset from the Lattice database and put into json files by object class.
+Get a Dataset from the Lattice database and put into json files.
 
 Examples:
 
@@ -73,7 +73,7 @@ dataset_id = args.dataset
 whole_dict = {}
 added_uuids = set()
 seen = set()
-remaining = set([dataset_id]
+remaining = set([dataset_id])
 
 while remaining:
     seen.update(remaining)
