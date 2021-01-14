@@ -155,6 +155,7 @@ def gather_metdata(obj_type, values_to_add, mxr_acc, objs):
 def gather_poooled_metadata(obj_type, values_to_add, mxr_acc, objs):
 	for prop in cell_metadata[obj_type]:
 		key = (obj_type + '_' + prop).replace('.', '_')
+		# NEED TO DETERMINE HOW TO REPORT POOLED DATA
 		values_to_add[key] = 'POOLED'
 
 
@@ -247,12 +248,12 @@ def main(mfinal_id):
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
 
-		# CHANGE ENSEMBL IDS TO GENE_SYMBOLS
-		# ADD GATHERED METADATA TO EACH CELL
-		# ADD TO THE NEW ANNDATA OBJ
+		# NEED TO ADD CELL METADATA & VALUES TO THE NEW ANNDATA OBJ
 
-	# ADD A FIELD NAME CONVERSION FOR A HANDFUL OF FIELDS TO MEET CXG REQS
-	# ADD FINAL MX VALUES TO THE NEW ANNDATA OBJ
+	# NEED TO ADD A FIELD NAME CONVERSION FOR A HANDFUL OF FIELDS TO MEET CXG REQS
+	# NEED TO CHANGE ENSEMBL IDS TO GENE_SYMBOLS
+	# NEED TO ADD FINAL MX VALUES TO THE NEW ANNDATA OBJ
+	# NEED TO ADD DATASET-LEVEL METADATAA TO THE NEW ANNDATA OBJ
 
 	# print the fields into a report
 	df.to_csv('temp.csv')

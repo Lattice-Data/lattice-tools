@@ -22,6 +22,12 @@ class Connection(object):
         self.auth = (self.authid, self.authpw)
 
 
+def get_object(obj_id, connection):
+	url = urljoin(connection.server, obj_id)
+	obj = requests.get(url, auth=connection.auth).json()
+	return obj
+
+
 def post_object(schema, connection, post_json):
 	if isinstance(post_json, dict):
 		json_payload = json.dumps(post_json)
