@@ -1,6 +1,7 @@
 import argparse
 import anndata as ad
 import boto3
+import h5py
 import lattice
 import os
 import pandas as pd
@@ -222,7 +223,7 @@ def main(mfinal_id):
 			key = (obj_type + '_' + prop).replace('.', '_')
 			headers.append(key)
 
-	df = pd.DataFrame(columns=headers)
+	cell_metadata_df = pd.DataFrame(columns=headers)
 
 	results = {}
 	tmp_dir = 'matrix_files'
@@ -244,19 +245,28 @@ def main(mfinal_id):
 				gather_metdata(obj_type, values_to_add, mxr_acc, relevant_objects[obj_type])
 			else:
 				gather_pooled_metadata(obj_type, values_to_add, mxr_acc, relevant_objects[obj_type])
-		row_to_add = pd.Series(values_to_add, name=mxr_acc)
-		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
+		local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
+		#https://github.com/broadinstitute/CellBender/issues/57
+		#https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/h5_matrices
+		#https://scanpy.readthedocs.io/en/stable/tutorials.html
+		with h5py.File(local_path, 'r') as f:
+			mx = f['matrix']
+			barcodes = [x.decode('ascii') for x in mx['barcodes']]
+			for i in barcodes:
+				row_to_add = pd.Series(values_to_add, name=i)
+				cell_metadata_df = cell_metadata_df.append(row_to_add)
+			gene_symbols = [x.decode('ascii') for x in mx['features']['name']]
+			raw_data = mx['data']
 
-		# NEED TO ADD CELL METADATA & VALUES TO THE NEW ANNDATA OBJ
-
+	# NEED TO ADD RAW VALUES TO THE NEW ANNDATA OBJ
 	# NEED TO ADD A FIELD NAME CONVERSION FOR A HANDFUL OF FIELDS TO MEET CXG REQS
 	# NEED TO CHANGE ENSEMBL IDS TO GENE_SYMBOLS
 	# NEED TO ADD FINAL MX VALUES TO THE NEW ANNDATA OBJ
 	# NEED TO ADD DATASET-LEVEL METADATAA TO THE NEW ANNDATA OBJ
 
 	# print the fields into a report
-	df.to_csv('temp.csv')
+	cell_metadata_df.to_csv('temp.csv')
 	print(ds_results)
 
 	shutil.rmtree(tmp_dir)
