@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tables
 from datetime import datetime
+from ftplib import error_perm, FTP
 from urllib.parse import urljoin
 
 
@@ -58,6 +59,8 @@ def getArgs():
                         help='Check all files even if they are validated=True in the Lattice database')
     parser.add_argument('--s3-file',
                         help="path to a file at s3 to check")
+    parser.add_argument('--ext-file',
+                        help="path to a file elsewhere to check")
     parser.add_argument('--file-format',
                         help='the specified file format if an s3-file or local-file is being checked')
     args = parser.parse_args()
@@ -232,7 +235,7 @@ def process_fastq_file(job):
     errors = job['errors']
     results = job['results']
 
-    download_url = item.get('s3_uri')
+    download_url = item.get('s3_uri', item.get('external_uri'))
     local_path = download_url.split('/')[-1]
 
     read_numbers_set = set()
@@ -340,7 +343,7 @@ def process_h5matrix_file(job):
     errors = job['errors']
     results = job['results']
 
-    download_url = item.get('s3_uri')
+    download_url = item.get('s3_uri', item.get('external_uri'))
     local_path = download_url.split('/')[-1]
 
     hdf5_validate = h5py.is_hdf5(local_path)
@@ -519,7 +522,6 @@ def process_mexmatrix_file(job):
 def download_s3_directory(job):
     item = job['item']
     errors = job['errors']
-    results = job['results']
 
     download_url = item.get('s3_uri')
     bucket_name = download_url.split('/')[2]
@@ -537,11 +539,12 @@ def download_s3_directory(job):
         else:
             print(file_name + ' downloaded')
 
+    return tmp_dir, job
+
 
 def download_s3_file(job):
     item = job['item']
     errors = job['errors']
-    results = job['results']
 
     download_url = item.get('s3_uri')
     bucket_name = download_url.split('/')[2]
@@ -560,6 +563,37 @@ def download_s3_file(job):
         print(file_name + ' downloaded')
         job['download_stop'] = datetime.now()
         job['download_time'] = job['download_stop'] - job['download_start']
+
+    return file_name, job
+
+
+def download_external(job):
+    item = job['item']
+    errors = job['errors']
+
+    download_url = item.get('external_uri')
+    ftp_server = download_url.split('/')[2]
+    ftp = FTP(ftp_server)
+    ftp.login(user='anonymous', passwd = 'password')
+
+    file_path = download_url.replace('ftp://{}/'.format(ftp_server), '')
+    file_name = download_url.split('/')[-1]
+
+    job['download_start'] = datetime.now()
+
+    print(file_name + ' downloading')
+    try:
+        ftp.retrbinary('RETR ' + file_path, open(file_name, 'wb').write)
+    except error_perm as e:
+        errors['file download error'] = e
+        os.remove(file_name)
+    else:
+        ftp.quit()
+        print(file_name + ' downloaded')
+        job['download_stop'] = datetime.now()
+        job['download_time'] = job['download_stop'] - job['download_start']
+
+    return file_name, job
 
 
 def set_s3_tags(job):
@@ -650,7 +684,7 @@ def check_file(job):
     errors = job['errors']
     results = job['results']
 
-    download_url = file.get('s3_uri')
+    download_url = file.get('s3_uri', file.get('external_uri'))
     local_path = download_url.split('/')[-1]
 
     job['check_start'] = datetime.now()
@@ -718,7 +752,7 @@ def check_file(job):
     return job
 
 
-def fetch_files(report_out, connection=None, query=None, accessions=None, s3_file=None, file_format=None, include_validate=False):
+def fetch_files(report_out, connection=None, query=None, accessions=None, s3_file=None, ext_file=None, file_format=None, include_validate=False):
     if accessions or query:
         server = connection.server
         if accessions:
@@ -760,15 +794,15 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
                 if file_json.get('no_file_available') == True:
                     blockers.append('marked as no_file_available')
                     check_me_flag = False
-                if not file_json.get('s3_uri'):
-                    blockers.append('s3_uri not submitted')
+                if not file_json.get('s3_uri') and not file_json.get('external_uri'):
+                    blockers.append('uri not submitted')
                     check_me_flag = False
                 if file_json.get('validated') == True and not include_validate:
                     blockers.append('already validated')
                     check_me_flag = False
                 if check_me_flag == False:
                     out = open(report_out, 'a')
-                    out.write(acc + '\t' + file_json.get('s3_uri','') + '\t' + ','.join(blockers) + '\n')
+                    out.write(acc + '\t' + file_json.get('s3_uri',file_json.get('external_uri')) + '\t' + ','.join(blockers) + '\n')
                     out.close()
                 elif check_me_flag == True:
                     job = {
@@ -793,12 +827,26 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
             jobs[0]['item']['file_format'] = file_format
         return jobs
 
+    # checkfiles on a file that is not in the Lattice database but is available elsewhere
+    elif ext_file:
+        jobs = [{
+            'item': {
+                'accession': 'not yet submitted',
+                'external_uri': ext_file
+            },
+            'results': {},
+            'errors': {}
+        }]
+        if file_format:
+            jobs[0]['item']['file_format'] = file_format
+        return jobs
+
 
 def report(job):
     file_obj = job.get('item')
     tab_report = '\t'.join([
         file_obj.get('accession', file_obj.get('uuid')),
-        file_obj.get('s3_uri', ''),
+        str(file_obj.get('s3_uri', file_obj.get('external_uri'))),
         str(job['errors']),
         str(job['results']),
         str(job.get('post_json')),
@@ -838,7 +886,7 @@ def main():
     out = open(report_out, 'w')
     report_headers = '\t'.join([
         'identifier',
-        's3_uri',
+        'uri',
         'errors',
         'results',
         'json_patch',
@@ -851,31 +899,35 @@ def main():
     out.write(report_headers + '\n')
     out.close()
 
-    jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.file_format, args.include_validated)
+    jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.ext_file, args.file_format, args.include_validated)
 
     if jobs:
         all_seq_runs = []
         print('CHECKING {} files'.format(len(jobs)))
         for job in jobs:
             file_obj = job.get('item')
-            if file_obj.get('file_format') == 'mex':
-                download_s3_directory(job)
+            if file_obj.get('external_uri'):
+                local_file, job = download_external(job)
+            elif file_obj.get('file_format') == 'mex':
+                local_file, job = download_s3_directory(job)
             else:
-                download_s3_file(job)
-            check_file(job)
-            if not args.s3_file:
-                compare_with_db(job, connection)
-                if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
-                    all_seq_runs.append({
-                                        'item': file_obj['derived_from'],
-                                        'results': {'flowcell_details': job['results']['flowcell_details']},
-                                        'errors': {}
-                                        })
-                if job['post_json'] and not job['errors'] and args.update:
-                    print('PATCHING {}'.format(file_obj.get('accession')))
-                    patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
-                    job['patch_result'] = patch['status']
-                    set_s3_tags(job)
+                local_file, job = download_s3_file(job)
+            if os.path.exists(local_file):
+                check_file(job)
+                if not args.s3_file:
+                    compare_with_db(job, connection)
+                    if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
+                        all_seq_runs.append({
+                                            'item': file_obj['derived_from'],
+                                            'results': {'flowcell_details': job['results']['flowcell_details']},
+                                            'errors': {}
+                                            })
+                    if job['post_json'] and not job['errors'] and args.update:
+                        print('PATCHING {}'.format(file_obj.get('accession')))
+                        patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
+                        job['patch_result'] = patch['status']
+                        if file_obj.get('s3_uri'):
+                            set_s3_tags(job)
             out = open(report_out, 'a')
             out.write(report(job))
             out.close()
