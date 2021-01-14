@@ -51,6 +51,19 @@ dataset_metadata = {
 		]
 	}
 
+prop_map = {
+	'sample_biosample_ontology_term_name': 'tissue',
+	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
+	'library_protocol_title': 'assay',
+	'library_protocol_term_id': 'assay_ontology_term_id',
+	'donor_diseases_term_name': 'disease',
+	'donor_diseases_term_id': 'disease_ontology_term_id',
+	'donor_sex': 'sex',
+	'donor_ethnicity_term_name': 'ethnicity',
+	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
+	'donor_life_stage': 'development_stage',
+	'donor_life_stage_term_id': 'development_stage_ontology_term_id'
+}
 
 EPILOG = '''
 Examples:
@@ -148,7 +161,8 @@ def gather_metdata(obj_type, values_to_add, mxr_acc, objs):
 		value = get_value(obj, prop)
 		if isinstance(value, list):
 			value = ','.join(value)
-		key = (obj_type + '_' + prop).replace('.', '_')
+		latkey = (obj_type + '_' + prop).replace('.', '_')
+		key = prop_map.get(latkey, latkey)
 		values_to_add[key] = value
 
 
@@ -219,7 +233,8 @@ def main(mfinal_id):
 	headers = []
 	for obj_type in cell_metadata.keys():
 		for prop in cell_metadata[obj_type]:
-			key = (obj_type + '_' + prop).replace('.', '_')
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = prop_map.get(latkey, latkey)
 			headers.append(key)
 
 	df = pd.DataFrame(columns=headers)
