@@ -225,6 +225,18 @@ def download_file(file_obj, directory):
 		sys.exit('File {} has no uri defined'.format(file_obj['@id']))
 
 
+def remove_consistent(df, ds_results):
+	# if all values are equal for any metadata field, move those from the cell metadata to the dataset metadata
+	to_drop = []
+	for label, content in df.items():
+		if content.nunique() == 1:
+			ds_results[label] = content[0]
+			to_drop.append(label)
+	df = df.drop(columns=to_drop)
+
+	return df
+
+
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
