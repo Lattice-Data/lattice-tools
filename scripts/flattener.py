@@ -94,6 +94,7 @@ def getArgs():
 
 def gather_rawmatrices(derived_from):
 	my_raw_matrices = []
+	df_ids = []
 	for identifier in derived_from:
 		obj = lattice.get_object(identifier, connection)
 		if obj['@type'][0] == 'MatrixFile' and obj['normalized'] != True and \
@@ -107,38 +108,63 @@ def gather_rawmatrices(derived_from):
 		for identifier in df_ids:
 			obj = lattice.get_object(identifier, connection)
 			if obj['@type'][0] == 'MatrixFile' and obj['normalized'] != True and \
-				obj['value_scale'] == 'linear' and 'cell calling' in obj['derivation_process']:
+				obj['value_scale'] == 'linear' and obj['file_format'] == 'hdf5' and \
+				'cell calling' in obj['derivation_process']:
 				my_raw_matrices.append(obj)
 	return my_raw_matrices
 
 
 def gather_objects(raw_matrix_file):
-	libraries = []
-	suspensions = []
-	samples = []
-	donors = []
-
 	lib_ids = raw_matrix_file['libraries']
+	libraries = []
+	susp_ids = []
+	suspensions = []
+	prep_susp_ids = []
+	prepooled_susps = []
 	sample_ids = []
+	samples = []
+	donor_ids = []
+	donors = []
 
 	for i in lib_ids:
 		obj = lattice.get_object(i, connection)
 		libraries.append(obj)
 		for o in obj['derived_from']:
-			suspensions.append(o)
+			if o.get('uuid') not in susp_ids:
+				suspensions.append(o)
+				susp_ids.append(o.get('uuid'))
 		for o in obj['donors']:
-			donors.append(o)
+			if o.get('uuid') not in donor_ids:
+				donors.append(o)
+				donor_ids.append(o.get('uuid'))
 	for o in suspensions:
 		for i in o['derived_from']:
 			sample_ids.append(i)
-	samples = [lattice.get_object(i, connection) for i in sample_ids]
+	remaining = set(sample_ids)
+	seen = set()
+	while remaining:
+		seen.update(remaining)
+		next_remaining = set()
+		for i in remaining:
+			obj = lattice.get_object(i, connection)
+			if 'Biosample' in obj['@type']:
+				samples.append(obj)
+			else:
+				if 'Suspension' in obj['@type'] and obj['uuid'] not in prep_susp_ids:
+					prepooled_susps.append(obj)
+					next_remaining.update(obj['derived_from'])
+					prep_susp_ids.append(obj['uuid'])
+		remaining = next_remaining - seen
 
-	return {
+	objs = {
 		'donor': donors,
 		'sample': samples,
 		'suspension': suspensions,
 		'library': libraries
 		}
+	if prepooled_susps:
+		objs['prepooled_suspension'] = prepooled_susps
+	return objs
 
 
 def get_value(obj, prop):
@@ -170,11 +196,15 @@ def gather_metdata(obj_type, values_to_add, mxr_acc, objs):
 		values_to_add[key] = value
 
 
-def gather_poooled_metadata(obj_type, values_to_add, mxr_acc, objs):
+def gather_pooled_metadata(obj_type, values_to_add, mxr_acc, objs):
 	for prop in cell_metadata[obj_type]:
-		key = (obj_type + '_' + prop).replace('.', '_')
-		# NEED TO DETERMINE HOW TO REPORT POOLED DATA
-		values_to_add[key] = 'POOLED'
+		value = set()
+		for obj in objs:
+			v = get_value(obj, prop)
+			value.add(v)
+		latkey = (obj_type + '_' + prop).replace('.', '_')
+		key = prop_map.get(latkey, latkey)
+		values_to_add[key] = 'multiple ({})'.format(list(value))
 
 
 def report_dataset(matrix, dataset):
@@ -270,6 +300,8 @@ def main(mfinal_id):
 		# get all of the objects necessary to pull the desired metadata
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
+		if relevant_objects.get('prepooled_suspension'):
+			sys.exit('we have pooled suspensions')
 		for obj_type in cell_metadata.keys():
 			if len(relevant_objects[obj_type]) == 1:
 				gather_metdata(obj_type, values_to_add, mxr_acc, relevant_objects[obj_type])
