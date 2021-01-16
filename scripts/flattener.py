@@ -212,9 +212,13 @@ def report_dataset(matrix, dataset):
 	ds_obj = lattice.get_object(dataset, connection)
 	for prop in dataset_metadata['dataset']:
 		value = get_value(ds_obj, prop)
+		if isinstance(value, list):
+			value = ','.join(value)
 		ds_results['dataset' + '_' + prop.replace('.','_')] = value
 	for prop in dataset_metadata['final_matrix']:
 		value = get_value(matrix, prop)
+		if isinstance(value, list):
+			value = ','.join(value)
 		ds_results['matrix' + '_' + prop.replace('.','_')] = value
 	return ds_results
 
