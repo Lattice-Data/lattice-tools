@@ -18,7 +18,9 @@ cell_metadata = {
 		'life_stage',
 		'life_stage_term_id',
 		'diseases.term_name',
-		'diseases.term_id'
+		'diseases.term_id',
+		'organism.scientific_name',
+		'organism.ncbi_taxon_id'
 		],
 	'sample': [
 		'uuid',
@@ -42,12 +44,12 @@ cell_metadata = {
 dataset_metadata = {
 	'dataset': [
 		'award.title',
-		'uuid'
+		'references.citation',
+		'uuid',
+		'urls'
 		],
 	'final_matrix': [
-		'genome_annotation',
-		'value_scale',
-		'value_units'
+		'genome_annotation'
 		]
 	}
 
@@ -62,7 +64,9 @@ prop_map = {
 	'donor_ethnicity_term_name': 'ethnicity',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_life_stage': 'development_stage',
-	'donor_life_stage_term_id': 'development_stage_ontology_term_id'
+	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
+	'donor_organism_scientific_name': 'organism',
+	'donor_organism_ncbi_taxon_id': 'organism_ontology_term_id'
 }
 
 EPILOG = '''
