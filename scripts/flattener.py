@@ -204,7 +204,7 @@ def gather_pooled_metadata(obj_type, values_to_add, mxr_acc, objs):
 			value.add(v)
 		latkey = (obj_type + '_' + prop).replace('.', '_')
 		key = prop_map.get(latkey, latkey)
-		values_to_add[key] = 'multiple ({})'.format(list(value))
+		values_to_add[key] = 'multiple ({})'.format(','.join(value))
 
 
 def report_dataset(matrix, dataset):
