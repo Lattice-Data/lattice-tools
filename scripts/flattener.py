@@ -32,7 +32,8 @@ cell_metadata = {
 		],
 	'suspension': [
 		'uuid',
-		'suspension_type'
+		'suspension_type',
+		'percent_cell_viability'
 		],
 	'library': [
 		'uuid',
@@ -164,30 +165,32 @@ def gather_objects(raw_matrix_file):
 		}
 	if prepooled_susps:
 		objs['prepooled_suspension'] = prepooled_susps
+		objs['pooled_suspension'] = objs.pop('suspension')
 	return objs
 
 
 def get_value(obj, prop):
+	unreported_value = 'unknown'
 	path = prop.split('.')
 	if len(path) == 1:
-		return obj.get(prop,' ')
+		return obj.get(prop,unreported_value)
 	elif len(path) == 2:
 		key1 = path[0]
 		key2 = path[1]
 		if isinstance(obj.get(key1), list):
-			values = [i.get(key2,' ') for i in obj[key1]]
+			values = [i.get(key2,unreported_value) for i in obj[key1]]
 			return list(set(values))
 		elif obj.get(key1):
 			return obj[key1].get(key2)
 		else:
-			return obj.get(key1,' ')
+			return obj.get(key1,unreported_value)
 	else:
 		return 'unable to traverse more than 1 embedding'
 
 
-def gather_metdata(obj_type, values_to_add, mxr_acc, objs):
+def gather_metdata(obj_type, properties, values_to_add, mxr_acc, objs):
 	obj = objs[0]
-	for prop in cell_metadata[obj_type]:
+	for prop in properties:
 		value = get_value(obj, prop)
 		if isinstance(value, list):
 			value = ','.join(value)
@@ -196,8 +199,8 @@ def gather_metdata(obj_type, values_to_add, mxr_acc, objs):
 		values_to_add[key] = value
 
 
-def gather_pooled_metadata(obj_type, values_to_add, mxr_acc, objs):
-	for prop in cell_metadata[obj_type]:
+def gather_pooled_metadata(obj_type, properties, values_to_add, mxr_acc, objs):
+	for prop in properties:
 		value = set()
 		for obj in objs:
 			v = get_value(obj, prop)
@@ -305,12 +308,18 @@ def main(mfinal_id):
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
 		if relevant_objects.get('prepooled_suspension'):
-			sys.exit('we have pooled suspensions')
+			for obj_type in ['prepooled_suspension', 'pooled_suspension']:
+				objs = relevant_objects.get(obj_type, [])
+				if len(objs) == 1:
+					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
+				elif len(objs) > 1:
+					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
 		for obj_type in cell_metadata.keys():
-			if len(relevant_objects[obj_type]) == 1:
-				gather_metdata(obj_type, values_to_add, mxr_acc, relevant_objects[obj_type])
-			else:
-				gather_pooled_metadata(obj_type, values_to_add, mxr_acc, relevant_objects[obj_type])
+			objs = relevant_objects.get(obj_type, [])
+			if len(objs) == 1:
+				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
+			elif len(objs) > 1:
+				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
 		row_to_add = pd.Series(values_to_add, name=mxr_acc)
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
