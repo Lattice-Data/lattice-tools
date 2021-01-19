@@ -1,5 +1,4 @@
 import argparse
-import anndata as ad
 import boto3
 import h5py
 import lattice
@@ -7,6 +6,7 @@ import os
 import pandas as pd
 import shutil
 import sys
+import scanpy as sc
 
 
 cell_metadata = {
@@ -36,7 +36,8 @@ cell_metadata = {
 	'library': [
 		'uuid',
 		'protocol.title',
-		'protocol.term_id'
+		'protocol.term_id',
+		'cell_mapping_identifier'
 		]
 	}
 
@@ -48,7 +49,11 @@ dataset_metadata = {
 	'final_matrix': [
 		'genome_annotation',
 		'value_scale',
-		'value_units'
+		'value_units',
+		'normalized',
+		'normalization_method',
+		'mapping_column',
+		'cell_mapping'
 		]
 	}
 
@@ -56,7 +61,7 @@ dataset_metadata = {
 EPILOG = '''
 Examples:
 
-    python %(prog)s -m prod -f LATDF119AAA
+    python %(prog)s -m local -f LATDF119AAA
 
 For more details:
 
@@ -208,6 +213,26 @@ def download_file(file_obj, directory):
 		sys.exit('File {} has no uri defined'.format(file_obj['@id']))
 
 
+# Takes ds_results and converts information to cxg fields
+# WILL NEED CORPORA VERSION INFORMATION AS INPUT, CURRENTLY HARDCODED
+def organize_uns_data(ds_results):
+	cxg_uns = {}
+	cxg_uns['version'] = {}
+	cxg_uns['version']['corpora_schema_version'] = '1.1.0'
+	cxg_uns['version']['corpora_encoding_version'] = '0.2.0'
+	cxg_uns['title'] = ds_results['dataset_award_title']
+	cxg_uns['layer_descriptions'] = {}
+
+	# Summarize normalization
+	if ds_results['matrix_normalized']:
+		normalization = "normalized using " + ds_results['matrix_normalization_method']
+	else:
+		normalization = "not normalized"
+	cxg_uns['layer_descriptions']['X'] = ds_results['matrix_value_units'] + " counts; " + ds_results['matrix_value_scale'] + " scaling; " + normalization
+
+	return cxg_uns
+
+
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
@@ -223,15 +248,33 @@ def main(mfinal_id):
 			key = (obj_type + '_' + prop).replace('.', '_')
 			headers.append(key)
 
-	cell_metadata_df = pd.DataFrame(columns=headers)
-
-	results = {}
 	tmp_dir = 'matrix_files'
 	os.mkdir(tmp_dir)
 	download_file(mfinal_obj, tmp_dir)
 
+	# Create initial cell metadata will desired cellIDs and library cell_mapping_identifiers to allow for merging of metadata
+	# Rename column name to match library_cell_mapping_identifiers
+	final_local_path = '{}/{}.h5ad'.format(tmp_dir,mfinal_obj['accession'])
+	final_matrix_adata = sc.read_h5ad(final_local_path)
+	cell_metadata_df = final_matrix_adata.obs[[mfinal_obj['mapping_column']]]
+	cell_metadata_df.columns = ['library_cell_mapping_identifier']
+
+	# Create library metadata dataframe, which will eventually be merged back to cell_metadata_df
+	library_metadata_df = pd.DataFrame(columns=headers)
+
 	# get dataset-level metadata
+	# reorganize cell_mapping_lst
 	ds_results = report_dataset(mfinal_obj, mfinal_obj['dataset'])
+	all_cell_mapping_lst = ds_results['matrix_cell_mapping']
+	all_cell_mapping_dct = {}
+	for mapping_dict in all_cell_mapping_lst:
+		k = mapping_dict['cell_mapping_identifier']
+		v = [mapping_dict['cell_mapping_string'], mapping_dict['cell_mapping_location'], mapping_dict['cell_mapping_connector']]
+		all_cell_mapping_dct[k] = v
+
+	# create list of anndata objects that need to be concatenated
+	final_adata_lst = []
+	final_batch_categories = []
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
@@ -247,27 +290,45 @@ def main(mfinal_id):
 				gather_pooled_metadata(obj_type, values_to_add, mxr_acc, relevant_objects[obj_type])
 		download_file(mxr, tmp_dir)
 		local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
-		#https://github.com/broadinstitute/CellBender/issues/57
-		#https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/h5_matrices
-		#https://scanpy.readthedocs.io/en/stable/tutorials.html
-		with h5py.File(local_path, 'r') as f:
-			mx = f['matrix']
-			barcodes = [x.decode('ascii') for x in mx['barcodes']]
-			for i in barcodes:
-				row_to_add = pd.Series(values_to_add, name=i)
-				cell_metadata_df = cell_metadata_df.append(row_to_add)
-			gene_symbols = [x.decode('ascii') for x in mx['features']['name']]
-			raw_data = mx['data']
 
-	# NEED TO ADD RAW VALUES TO THE NEW ANNDATA OBJ
+		# Add library information intoo library dataframe
+		row_to_add = pd.Series(values_to_add)
+		library_metadata_df = library_metadata_df.append(row_to_add, ignore_index=True)
+
+		# Add new anndata to list of final anndatas
+		# Should add error checking to make sure all matrices have the same number of vars
+		adata_raw = sc.read_10x_h5(local_path)
+		adata_raw.var_names_make_unique()
+		final_adata_lst.append(adata_raw)
+		final_batch_categories.append(all_cell_mapping_dct[values_to_add['library_cell_mapping_identifier']][0])
+
+	# Merge library metadata and cell meta on cell_mapping_identifier
+	merged_cell_df = cell_metadata_df.merge(library_metadata_df, on='library_cell_mapping_identifier', how='left')
+	merged_cell_df.index = cell_metadata_df.index
+
+	# Concatenate all anndata objects in list
+	# Subset according to cellIDs in merged cell metadata
+	if len(final_adata_lst) > 1:
+		final_adata = final_adata_lst[0].concatenate(final_adata_lst[1:], batch_categories = final_batch_categories)
+		final_adata = final_adata[merged_cell_df.index]
+	else:
+		final_adata = final_adata_lst[0]
+		final_adata = final_adata[merged_cell_df.index]
+
 	# NEED TO ADD A FIELD NAME CONVERSION FOR A HANDFUL OF FIELDS TO MEET CXG REQS
+	# Load uns data info final anndata object
+	final_adata.uns = organize_uns_data(ds_results)
+	final_adata.obs = final_adata.obs[[]].merge(merged_cell_df, left_index=True, right_index=True, how='inner')
+
 	# NEED TO CHANGE ENSEMBL IDS TO GENE_SYMBOLS
-	# NEED TO ADD FINAL MX VALUES TO THE NEW ANNDATA OBJ
-	# NEED TO ADD DATASET-LEVEL METADATAA TO THE NEW ANNDATA OBJ
+	# Move matrices into appropriate layer
+	final_adata.raw = final_adata
+	final_adata.X = final_matrix_adata.X
 
 	# print the fields into a report
-	cell_metadata_df.to_csv('temp.csv')
-	print(ds_results)
+	results_file = "final_cxg.h5ad"
+	final_adata.write(results_file)
+	merged_cell_df.to_csv('cell_temp.csv', index=True)
 
 	shutil.rmtree(tmp_dir)
 
