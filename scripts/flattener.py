@@ -18,9 +18,7 @@ cell_metadata = {
 		'life_stage',
 		'life_stage_term_id',
 		'diseases.term_name',
-		'diseases.term_id',
-		'organism.scientific_name',
-		'organism.ncbi_taxon_id'
+		'diseases.term_id'
 		],
 	'sample': [
 		'uuid',
@@ -45,8 +43,8 @@ cell_metadata = {
 dataset_metadata = {
 	'dataset': [
 		'award.title',
-		'references.citation',
-		'uuid',
+		'references.preprint_doi',
+		'references.publication_doi',
 		'urls'
 		],
 	'final_matrix': [
@@ -66,8 +64,9 @@ prop_map = {
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_life_stage': 'development_stage',
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
-	'donor_organism_scientific_name': 'organism',
-	'donor_organism_ncbi_taxon_id': 'organism_ontology_term_id'
+	'matrix_genome_annotation': 'reference_annotation_version',
+	'dataset_references_publication_doi': 'publication_doi',
+	'dataset_references_preprint_doi': 'preprint_doi'
 }
 
 EPILOG = '''
@@ -173,15 +172,15 @@ def get_value(obj, prop):
 	unreported_value = 'unknown'
 	path = prop.split('.')
 	if len(path) == 1:
-		return obj.get(prop,unreported_value)
+		return obj.get(prop, unreported_value)
 	elif len(path) == 2:
 		key1 = path[0]
 		key2 = path[1]
 		if isinstance(obj.get(key1), list):
-			values = [i.get(key2,unreported_value) for i in obj[key1]]
+			values = [i.get(key2, unreported_value) for i in obj[key1]]
 			return list(set(values))
 		elif obj.get(key1):
-			return obj[key1].get(key2)
+			return obj[key1].get(key2, unreported_value)
 		else:
 			return obj.get(key1,unreported_value)
 	else:
@@ -207,22 +206,36 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, mxr_acc, objs):
 			value.add(v)
 		latkey = (obj_type + '_' + prop).replace('.', '_')
 		key = prop_map.get(latkey, latkey)
-		values_to_add[key] = 'multiple ({})'.format(','.join(value))
+		values_to_add[key] = 'multiple {}s ({})'.format(obj_type, ','.join(value))
 
 
-def report_dataset(matrix, dataset):
+def report_dataset(donor_objs, matrix, dataset):
 	ds_results = {}
 	ds_obj = lattice.get_object(dataset, connection)
 	for prop in dataset_metadata['dataset']:
 		value = get_value(ds_obj, prop)
 		if isinstance(value, list):
 			value = ','.join(value)
-		ds_results['dataset' + '_' + prop.replace('.','_')] = value
+		if value != 'unknown':
+			latkey = 'dataset_' + prop.replace('.','_')
+			key = prop_map.get(latkey, latkey)
+			ds_results[key] = value
 	for prop in dataset_metadata['final_matrix']:
 		value = get_value(matrix, prop)
 		if isinstance(value, list):
 			value = ','.join(value)
-		ds_results['matrix' + '_' + prop.replace('.','_')] = value
+		if value != 'unknown':
+			latkey = 'matrix_' + prop.replace('.','_')
+			key = prop_map.get(latkey, latkey)
+			ds_results[key] = value
+
+	org_id = set()
+	for obj in donor_objs:
+		org_id.add(obj['organism']['taxon_id'])
+	ds_results['organism_ontology_term_id'] = ','.join(org_id)
+
+	if ds_results.get('publication_doi') and ds_results.get('preprint_doi'):
+		del ds_results['preprint_doi']
 	return ds_results
 
 
@@ -297,9 +310,6 @@ def main(mfinal_id):
 	os.mkdir(tmp_dir)
 	download_file(mfinal_obj, tmp_dir)
 
-	# get dataset-level metadata
-	ds_results = report_dataset(mfinal_obj, mfinal_obj['dataset'])
-
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
 	for mxr in mxraws:
@@ -307,6 +317,12 @@ def main(mfinal_id):
 		# get all of the objects necessary to pull the desired metadata
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
+		for obj_type in cell_metadata.keys():
+			objs = relevant_objects.get(obj_type, [])
+			if len(objs) == 1:
+				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
+			elif len(objs) > 1:
+				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
 		if relevant_objects.get('prepooled_suspension'):
 			for obj_type in ['prepooled_suspension', 'pooled_suspension']:
 				objs = relevant_objects.get(obj_type, [])
@@ -314,22 +330,13 @@ def main(mfinal_id):
 					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
-		for obj_type in cell_metadata.keys():
-			objs = relevant_objects.get(obj_type, [])
-			if len(objs) == 1:
-				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
-			elif len(objs) > 1:
-				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
 		row_to_add = pd.Series(values_to_add, name=mxr_acc)
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
 
-		# NEED TO ADD CELL METADATA & VALUES TO THE NEW ANNDATA OBJ
 
-	# NEED TO ADD A FIELD NAME CONVERSION FOR A HANDFUL OF FIELDS TO MEET CXG REQS
-	# NEED TO CHANGE ENSEMBL IDS TO GENE_SYMBOLS
-	# NEED TO ADD FINAL MX VALUES TO THE NEW ANNDATA OBJ
-	# NEED TO ADD DATASET-LEVEL METADATAA TO THE NEW ANNDATA OBJ
+	# get dataset-level metadata
+	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 
 	# print the fields into a report
 	df.to_csv('temp.csv')
