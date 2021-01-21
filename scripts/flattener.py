@@ -238,6 +238,13 @@ def report_dataset(donor_objs, matrix, dataset):
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
 
+	pub_doi = set()
+	for pub in ds_obj['references']:
+		for i in pub['identifiers']:
+			if i.startswith('doi:'):
+				pub_doi.add(i.replace('doi:', 'https://doi.org/'))
+	ds_results['doi'] = ','.join(pub_doi)
+
 	org_id = set()
 	org_name = set()
 	for obj in donor_objs:
