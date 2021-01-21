@@ -180,7 +180,16 @@ def get_value(obj, prop):
 			values = [i.get(key2, unreported_value) for i in obj[key1]]
 			return list(set(values))
 		elif obj.get(key1):
-			return obj[key1].get(key2, unreported_value)
+			value = obj[key1].get(key2, unreported_value)
+			if key1 == 'biosample_ontology' and 'Culture' in obj['@type']:
+				obj_type = obj['@type'][0]
+				if obj_type == 'Organoid':
+					obj_type_conv = 'organoid'
+				elif obj_type == 'CellCulture':
+					obj_type_conv = 'cell culture'
+				return  '{} ({})'.format(value, obj_type_conv)
+			else:
+				return value
 		else:
 			return obj.get(key1,unreported_value)
 	else:
@@ -230,9 +239,12 @@ def report_dataset(donor_objs, matrix, dataset):
 			ds_results[key] = value
 
 	org_id = set()
+	org_name = set()
 	for obj in donor_objs:
 		org_id.add(obj['organism']['taxon_id'])
+		org_name.add(obj['organism']['scientific_name'])
 	ds_results['organism_ontology_term_id'] = ','.join(org_id)
+	ds_results['organism'] = ','.join(org_name)
 
 	if ds_results.get('publication_doi') and ds_results.get('preprint_doi'):
 		del ds_results['preprint_doi']
