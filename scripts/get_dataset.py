@@ -24,7 +24,6 @@ def getArgs():
         description=__doc__, epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-
     parser.add_argument('--dataset', '-d',
                         help='Any identifier for the dataset of interest.')
     parser.add_argument('--mode', '-m',
@@ -37,17 +36,15 @@ def get_object_and_links(obj_id):
     temp_obj = requests.get(url, auth=connection.auth).json()
 
     # remove fields with empty values or unnecessary fields
-    my_obj = {k: v for k, v in temp_obj.items() if v and k not in ignore_props}
+    my_obj = {k: v for k, v in temp_obj.items() if k not in ignore_props}
 
     obj_type = my_obj['@type'][0]
 
     # add the object if we haven't already done so
-    if whole_dict.get(obj_type) and my_obj.get('uuid') not in added_uuids:
+    if whole_dict.get(obj_type):
         whole_dict[obj_type].append(my_obj)
-        added_uuids.add(my_obj['uuid'])
-    elif my_obj.get('uuid') not in added_uuids:
+    else:
         whole_dict[obj_type] = [my_obj]
-        added_uuids.add(my_obj['uuid'])
 
     # get identifiers for any object that referenced by this one
     for prop in my_obj.keys():
@@ -59,8 +56,10 @@ def get_object_and_links(obj_id):
 
 ignore_props = [
     'original_files', # these are all captured in files
-    'fileset', # we don't need to grab the ReferenceFileSet objects
-    'submitted_by' # our internal users aren't relevant
+    'submitted_by', # our internal users aren't relevant
+    'aliases',
+    'date_created',
+    'accession'
 ]
 
 args = getArgs()
@@ -73,9 +72,8 @@ schemas = requests.get(schema_url).json()
 dataset_id = args.dataset
 
 whole_dict = {}
-added_uuids = set() # we want to keep track to avoid duplicating objects
 seen = set()
-remaining = set([dataset_id])
+remaining = set(['/datasets/' + dataset_id + '/']) # seed the dataset identifier to start
 
 while remaining:
     seen.update(remaining)

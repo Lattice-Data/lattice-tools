@@ -23,6 +23,7 @@ class Connection(object):
 
 
 def get_object(obj_id, connection):
+	obj_id = obj_id.replace(':','%3A')
 	url = urljoin(connection.server, obj_id)
 	obj = requests.get(url, auth=connection.auth).json()
 	return obj
