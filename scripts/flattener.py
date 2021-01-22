@@ -359,7 +359,6 @@ def main(mfinal_id):
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
 	for mxr in mxraws:
-		mxr_acc = mxr['accession']
 		# get all of the objects necessary to pull the desired metadata
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
@@ -377,7 +376,7 @@ def main(mfinal_id):
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, objs)
 		report_diseases(values_to_add, relevant_objects['donor'], relevant_objects['sample'])
-		row_to_add = pd.Series(values_to_add, name=mxr_acc)
+		row_to_add = pd.Series(values_to_add, name=mxr['@id'])
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
 
