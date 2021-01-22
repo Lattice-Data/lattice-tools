@@ -16,17 +16,13 @@ cell_metadata = {
 		'ethnicity.term_name',
 		'ethnicity.term_id',
 		'life_stage',
-		'life_stage_term_id',
-		'diseases.term_name',
-		'diseases.term_id'
+		'life_stage_term_id'
 		],
 	'sample': [
 		'uuid',
 		'preservation_method',
 		'biosample_ontology.term_name',
-		'biosample_ontology.term_id',
-		'diseases.term_name',
-		'diseases.term_id'
+		'biosample_ontology.term_id'
 		],
 	'suspension': [
 		'uuid',
@@ -42,12 +38,12 @@ cell_metadata = {
 
 dataset_metadata = {
 	'dataset': [
-		'award.title',
 		'references.preprint_doi',
 		'references.publication_doi',
 		'urls'
 		],
 	'final_matrix': [
+		'description',
 		'genome_annotation'
 		]
 	}
@@ -57,14 +53,13 @@ prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
 	'library_protocol_title': 'assay',
 	'library_protocol_term_id': 'assay_ontology_term_id',
-	'donor_diseases_term_name': 'disease',
-	'donor_diseases_term_id': 'disease_ontology_term_id',
 	'donor_sex': 'sex',
 	'donor_ethnicity_term_name': 'ethnicity',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_life_stage': 'development_stage',
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
 	'matrix_genome_annotation': 'reference_annotation_version',
+	'matrix_description': 'title',
 	'dataset_references_publication_doi': 'publication_doi',
 	'dataset_references_preprint_doi': 'preprint_doi'
 }
@@ -196,7 +191,7 @@ def get_value(obj, prop):
 		return 'unable to traverse more than 1 embedding'
 
 
-def gather_metdata(obj_type, properties, values_to_add, mxr_acc, objs):
+def gather_metdata(obj_type, properties, values_to_add, objs):
 	obj = objs[0]
 	for prop in properties:
 		value = get_value(obj, prop)
@@ -207,7 +202,7 @@ def gather_metdata(obj_type, properties, values_to_add, mxr_acc, objs):
 		values_to_add[key] = value
 
 
-def gather_pooled_metadata(obj_type, properties, values_to_add, mxr_acc, objs):
+def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 	for prop in properties:
 		value = set()
 		for obj in objs:
@@ -243,7 +238,8 @@ def report_dataset(donor_objs, matrix, dataset):
 		for i in pub['identifiers']:
 			if i.startswith('doi:'):
 				pub_doi.add(i.replace('doi:', 'https://doi.org/'))
-	ds_results['doi'] = ','.join(pub_doi)
+	if pub_doi:
+		ds_results['doi'] = ','.join(pub_doi)
 
 	org_id = set()
 	org_name = set()
@@ -253,8 +249,6 @@ def report_dataset(donor_objs, matrix, dataset):
 	ds_results['organism_ontology_term_id'] = ','.join(org_id)
 	ds_results['organism'] = ','.join(org_name)
 
-	if ds_results.get('publication_doi') and ds_results.get('preprint_doi'):
-		del ds_results['preprint_doi']
 	return ds_results
 
 
@@ -306,6 +300,39 @@ def remove_consistent(df, ds_results):
 	return df
 
 
+def report_diseases(values_to_add, donor_objs, sample_objs):
+	names = set()
+	ids = set()
+	my_donors = []
+	for o in sample_objs:
+		dis_objs = o.get('diseases')
+		for donor in donor_objs:
+			if donor['@id'] in o.get('donors'):
+				my_donors.append(donor)
+		if dis_objs:
+			for do in dis_objs:
+				ids.add(do.get('term_id'))
+				names.add(do.get('term_name'))
+		for o in my_donors:
+			dis_objs = o.get('diseases')
+			if dis_objs:
+				for do in dis_objs:
+					ids.add(do.get('term_id'))
+					names.add(do.get('term_name'))
+		if not ids:
+			ids.add('unknown')
+		if not names:
+			names.add('unknown')
+
+	if len(sample_objs) > 1:
+		values_to_add['disease'] = 'multiple samples ({})'.format(','.join(names))
+		values_to_add['disease_ontology_term_id'] = 'multiple samples ({})'.format(','.join(ids))
+	else:
+		values_to_add['disease'] = ','.join(names)
+		values_to_add['disease_ontology_term_id'] = ','.join(ids)
+
+
+
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
@@ -322,7 +349,7 @@ def main(mfinal_id):
 			key = prop_map.get(latkey, latkey)
 			headers.append(key)
 
-	df = pd.DataFrame(columns=headers)
+	df = pd.DataFrame()
 
 	results = {}
 	tmp_dir = 'matrix_files'
@@ -339,16 +366,17 @@ def main(mfinal_id):
 		for obj_type in cell_metadata.keys():
 			objs = relevant_objects.get(obj_type, [])
 			if len(objs) == 1:
-				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
+				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 			elif len(objs) > 1:
-				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
+				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 		if relevant_objects.get('prepooled_suspension'):
 			for obj_type in ['prepooled_suspension', 'pooled_suspension']:
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
+					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, objs)
 				elif len(objs) > 1:
-					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
+					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, objs)
+		report_diseases(values_to_add, relevant_objects['donor'], relevant_objects['sample'])
 		row_to_add = pd.Series(values_to_add, name=mxr_acc)
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
