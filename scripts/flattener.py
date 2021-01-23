@@ -92,8 +92,9 @@ def gather_rawmatrices(derived_from):
 	df_ids = []
 	for identifier in derived_from:
 		obj = lattice.get_object(identifier, connection)
-		if obj['@type'][0] == 'MatrixFile' and obj['normalized'] != True and \
-			obj['value_scale'] == 'linear' and 'cell calling' in obj['derivation_process']:
+		if obj['@type'][0] == 'MatrixFile' and obj['layers'][0]['normalized'] != True and \
+				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
+				'cell calling' in obj['derivation_process']:
 			my_raw_matrices.append(obj)
 		else: 
 			# grab the derived_from in case we need to go a layer deeper
@@ -232,6 +233,18 @@ def report_dataset(donor_objs, matrix, dataset):
 			latkey = 'matrix_' + prop.replace('.','_')
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
+
+	layer_descs = {
+		'.raw.X': 'raw'
+	}
+	for layer in matrix.get('layers'):
+		label = layer.get('label')
+		units = layer.get('value_units', 'unknown')
+		scale = layer.get('value_scale', 'unknown')
+		norm_meth = layer.get('normalization_method', 'unknown')
+		desc = '{} counts; {} scaling; normalized using {}'.format(units, scale, norm_meth)
+		layer_descs[label] = desc
+	ds_results['layer_descriptions'] = layer_descs
 
 	pub_doi = set()
 	for pub in ds_obj['references']:
