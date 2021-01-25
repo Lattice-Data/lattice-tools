@@ -38,8 +38,7 @@ cell_metadata = {
 	'library': [
 		'uuid',
 		'protocol.title',
-		'protocol.term_id',
-		'cell_mapping_identifier'
+		'protocol.term_id'
 		]
 	}
 
@@ -313,10 +312,10 @@ def organize_uns_data(ds_results):
 	cxg_uns['title'] = ds_results['dataset_award_title']
 	cxg_uns['layer_descriptions'] = {}
 	# Summarize normalization, making assumption that .X is normalized and .raw.X is raw
-	# ->-> NEED TO CHANGE LOGIC BASED ON WHAT CXG SAYS ON WHAT TO PUT WHERE
+	# ->-> NEED TO CHANGE LOGIC WHEN MERGING CODE
 	cxg_uns['layer_descriptions']['X'] = '{} counts; {} scaling; normalized using {}'.\
 		format(ds_results['matrix_value_units'], ds_results['matrix_value_scale'], ds_results['matrix_normalization_method'])
-	cxg_uns['layer_descriptions']['.raw.X'] = 'raw'
+	cxg_uns['layer_descriptions']['raw.X'] = 'raw'
 	return cxg_uns
 
 
@@ -327,7 +326,6 @@ def concatenate_cell_id(cell_mapping, mxr_acc, raw_obs_names, mfinal_cells):
 	cell_mapping_dct = {}
 	for mapping_dict in cell_mapping['label_mappings']:
 		cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['string']
-
 	for final_id in mfinal_cells:
 		if not re.search('[AGCT]+-1', final_id):
 			flag_removed = True
@@ -379,8 +377,7 @@ def main(mfinal_id):
 	os.mkdir(tmp_dir)
 	download_file(mfinal_obj, tmp_dir)
 
-	# Create initial cell metadata will desired cellIDs and library cell_mapping_identifiers to allow for merging of metadata
-	# Get list of cell identifiers
+	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
 	file_ext = file_url.split('.')[-1]
 	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
@@ -420,7 +417,6 @@ def main(mfinal_id):
 		download_file(mxr, tmp_dir)
 
 		# Add new anndata to list of final anndatas
-		# Should add error checking to make sure all matrices have the same number of vars
 		local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
 		adata_raw = sc.read_10x_h5(local_path)
 		adata_raw.var_names_make_unique()
@@ -436,13 +432,22 @@ def main(mfinal_id):
 	# get dataset-level metadata
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 
+	# Should add error checking to make sure all matrices have the same number of vars
+	feature_lengths = []
+	for adata in cxg_adata_lst:
+		feature_lengths.append(adata.shape[1])
+	if len(set(feature_lengths)) > 1:
+		sys.exit('The number of genes in all raw matrices need to match.')
+
 	# Concatenate all anndata objects in list and load parameters
 	# NEED TO ADD A FIELD NAME CONVERSION FOR A HANDFUL OF FIELDS TO MEET CXG REQS
 	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
+	cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 	if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 		sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
 	cxg_uns = organize_uns_data(ds_results)
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='inner')
+	cxg_obs.drop(columns=['raw_matrix_accession','batch'], inplace=True)
 	cxg_obsm = get_embeddings(mfinal_adata)
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=mfinal_adata.var, uns=cxg_uns)
 	cxg_adata.raw = cxg_adata_raw
