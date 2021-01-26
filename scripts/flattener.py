@@ -6,6 +6,8 @@ import os
 import pandas as pd
 import shutil
 import sys
+import scanpy as sc
+import re
 
 
 cell_metadata = {
@@ -67,7 +69,7 @@ prop_map = {
 EPILOG = '''
 Examples:
 
-    python %(prog)s -m prod -f LATDF119AAA
+    python %(prog)s -m local -f LATDF119AAA
 
 For more details:
 
@@ -96,7 +98,7 @@ def gather_rawmatrices(derived_from):
 				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
 				'cell calling' in obj['derivation_process']:
 			my_raw_matrices.append(obj)
-		else: 
+		else:
 			# grab the derived_from in case we need to go a layer deeper
 			for i in obj['derived_from']:
 				df_ids.append(i)
@@ -313,6 +315,58 @@ def remove_consistent(df, ds_results):
 	return df
 
 
+# Takes ds_results and converts information to cxg fields
+# WILL NEED CORPORA VERSION INFORMATION AS INPUT, CURRENTLY HARDCODED
+def organize_uns_data(ds_results):
+	cxg_uns = {}
+	cxg_uns['version'] = {}
+	cxg_uns['version']['corpora_schema_version'] = '1.1.0'
+	cxg_uns['version']['corpora_encoding_version'] = '0.2.0'
+	cxg_uns['title'] = ds_results['dataset_award_title']
+	cxg_uns['layer_descriptions'] = {}
+	# Summarize normalization, making assumption that .X is normalized and .raw.X is raw
+	# ->-> NEED TO CHANGE LOGIC WHEN MERGING CODE
+	cxg_uns['layer_descriptions']['X'] = '{} counts; {} scaling; normalized using {}'.\
+		format(ds_results['matrix_value_units'], ds_results['matrix_value_scale'], ds_results['matrix_normalization_method'])
+	cxg_uns['layer_descriptions']['raw.X'] = 'raw'
+	return cxg_uns
+
+
+# Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
+def concatenate_cell_id(cell_mapping, mxr_acc, raw_obs_names, mfinal_cells):
+	new_ids = []
+	flag_removed = False
+	cell_mapping_dct = {}
+	for mapping_dict in cell_mapping['label_mappings']:
+		cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['string']
+	for final_id in mfinal_cells:
+		if not re.search('[AGCT]+-1', final_id):
+			flag_removed = True
+	for id in raw_obs_names:
+		if flag_removed:
+			id = id.replace('-1', '')
+		if cell_mapping['location'] == 'prefix':
+			new_ids.append(cell_mapping_dct[mxr_acc]+id)
+		elif cell_mapping['location'] == 'suffix':
+			new_ids.append(id+cell_mapping_dct[mxr_acc])
+	return(new_ids)
+
+
+# Get cell embeddings from final matrix object
+# Skip pca or harmony embeddings, and only transfer umap and tsne embeddings
+def get_embeddings(mfinal_adata):
+	if len(mfinal_adata.obsm_keys()) == 0:
+		sys.exit('At least 1 set of cell embeddings is required in final matrix')
+	final_embeddings = mfinal_adata.obsm.copy()
+	all_embedding_keys = mfinal_adata.obsm_keys()
+	for embedding in all_embedding_keys:
+		if embedding == 'X_pca' or embedding == 'X_harmony':
+			final_embeddings.pop(embedding)
+		elif embedding != 'X_umap' and embedding != 'X_tsne':
+			sys.exit('There is an unrecognized embedding in final matrix: {}'.format(embedding))
+	return final_embeddings
+
+
 def report_diseases(values_to_add, donor_objs, sample_objs):
 	names = set()
 	ids = set()
@@ -345,7 +399,6 @@ def report_diseases(values_to_add, donor_objs, sample_objs):
 		values_to_add['disease_ontology_term_id'] = ','.join(ids)
 
 
-
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
@@ -368,6 +421,23 @@ def main(mfinal_id):
 	tmp_dir = 'matrix_files'
 	os.mkdir(tmp_dir)
 	download_file(mfinal_obj, tmp_dir)
+
+
+	# Get list of unique final cell identifiers
+	file_url = mfinal_obj['s3_uri']
+	file_ext = file_url.split('.')[-1]
+	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
+	mfinal_adata = None
+	if mfinal_obj['file_format'] == 'hdf5' and re.search('h5ad$', mfinal_local_path):
+		mfinal_adata = sc.read_h5ad(mfinal_local_path)
+	elif mfinal_obj['file_format'] == 'rds':
+		sys.exit('Cannot read from rds {}'.format(final_local_path))
+	else:
+		sys.exit('Do not recognize file format or exention {} {}'.format(mfinal_obj['file_format'], mfinal_local_path))
+	mfinal_cell_identifiers = list(mfinal_adata.obs_names)
+
+	cxg_adata_lst = []
+
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
@@ -393,13 +463,46 @@ def main(mfinal_id):
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
 
+		# Add new anndata to list of final anndatas
+		local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
+		adata_raw = sc.read_10x_h5(local_path)
+		adata_raw.var_names_make_unique()
+
+		# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
+		concatenated_ids = concatenate_cell_id(mfinal_obj['cell_mapping'], mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
+		adata_raw.obs_names = concatenated_ids
+		overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+		adata_raw = adata_raw[overlapped_ids]
+		adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
+		cxg_adata_lst.append(adata_raw)
 
 	# get dataset-level metadata
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 
+	# Should add error checking to make sure all matrices have the same number of vars
+	feature_lengths = []
+	for adata in cxg_adata_lst:
+		feature_lengths.append(adata.shape[1])
+	if len(set(feature_lengths)) > 1:
+		sys.exit('The number of genes in all raw matrices need to match.')
+
+	# Concatenate all anndata objects in list and load parameters
+	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
+	cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
+	if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
+		sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
+	cxg_uns = organize_uns_data(ds_results)
+	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='inner')
+	cxg_obs.drop(columns=['raw_matrix_accession','batch'], inplace=True)
+	cxg_obsm = get_embeddings(mfinal_adata)
+	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=mfinal_adata.var, uns=cxg_uns)
+	cxg_adata.raw = cxg_adata_raw
+
 	# print the fields into a report
-	df.to_csv('temp.csv')
+	results_file = "final_cxg.h5ad"
+	cxg_adata.write(results_file)
 	print(ds_results)
+	print(cxg_adata.uns)
 
 	shutil.rmtree(tmp_dir)
 
