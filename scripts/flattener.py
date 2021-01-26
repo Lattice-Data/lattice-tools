@@ -18,17 +18,13 @@ cell_metadata = {
 		'ethnicity.term_name',
 		'ethnicity.term_id',
 		'life_stage',
-		'life_stage_term_id',
-		'diseases.term_name',
-		'diseases.term_id'
+		'life_stage_term_id'
 		],
 	'sample': [
 		'uuid',
 		'preservation_method',
 		'biosample_ontology.term_name',
-		'biosample_ontology.term_id',
-		'diseases.term_name',
-		'diseases.term_id'
+		'biosample_ontology.term_id'
 		],
 	'suspension': [
 		'uuid',
@@ -44,17 +40,13 @@ cell_metadata = {
 
 dataset_metadata = {
 	'dataset': [
-		'award.title',
 		'references.preprint_doi',
 		'references.publication_doi',
 		'urls'
 		],
 	'final_matrix': [
-		'genome_annotation',
-		'value_scale',
-		'value_units',
-		'normalized',
-		'normalization_method'
+		'description',
+		'genome_annotation'
 		]
 	}
 
@@ -63,14 +55,13 @@ prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
 	'library_protocol_title': 'assay',
 	'library_protocol_term_id': 'assay_ontology_term_id',
-	'donor_diseases_term_name': 'disease',
-	'donor_diseases_term_id': 'disease_ontology_term_id',
 	'donor_sex': 'sex',
 	'donor_ethnicity_term_name': 'ethnicity',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_life_stage': 'development_stage',
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
 	'matrix_genome_annotation': 'reference_annotation_version',
+	'matrix_description': 'title',
 	'dataset_references_publication_doi': 'publication_doi',
 	'dataset_references_preprint_doi': 'preprint_doi'
 }
@@ -100,10 +91,12 @@ def getArgs():
 
 def gather_rawmatrices(derived_from):
 	my_raw_matrices = []
+	df_ids = []
 	for identifier in derived_from:
 		obj = lattice.get_object(identifier, connection)
-		if obj['@type'][0] == 'MatrixFile' and obj['normalized'] != True and \
-			obj['value_scale'] == 'linear' and 'cell calling' in obj['derivation_process']:
+		if obj['@type'][0] == 'MatrixFile' and obj['layers'][0]['normalized'] != True and \
+				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
+				'cell calling' in obj['derivation_process']:
 			my_raw_matrices.append(obj)
 		else:
 			# grab the derived_from in case we need to go a layer deeper
@@ -113,7 +106,8 @@ def gather_rawmatrices(derived_from):
 		for identifier in df_ids:
 			obj = lattice.get_object(identifier, connection)
 			if obj['@type'][0] == 'MatrixFile' and obj['normalized'] != True and \
-				obj['value_scale'] == 'linear' and 'cell calling' in obj['derivation_process']:
+				obj['value_scale'] == 'linear' and obj['file_format'] == 'hdf5' and \
+				'cell calling' in obj['derivation_process']:
 				my_raw_matrices.append(obj)
 	return my_raw_matrices
 
@@ -200,7 +194,7 @@ def get_value(obj, prop):
 		return 'unable to traverse more than 1 embedding'
 
 
-def gather_metdata(obj_type, properties, values_to_add, mxr_acc, objs):
+def gather_metdata(obj_type, properties, values_to_add, objs):
 	obj = objs[0]
 	for prop in properties:
 		value = get_value(obj, prop)
@@ -211,7 +205,7 @@ def gather_metdata(obj_type, properties, values_to_add, mxr_acc, objs):
 		values_to_add[key] = value
 
 
-def gather_pooled_metadata(obj_type, properties, values_to_add, mxr_acc, objs):
+def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 	for prop in properties:
 		value = set()
 		for obj in objs:
@@ -242,16 +236,34 @@ def report_dataset(donor_objs, matrix, dataset):
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
 
-	#org_id = set()
-	#org_name = set()
-	#for obj in donor_objs:
-	#	org_id.add(obj['organism']['taxon_id'])
-	#	org_name.add(obj['organism']['scientific_name'])
-	#ds_results['organism_ontology_term_id'] = ','.join(org_id)
-	#ds_results['organism'] = ','.join(org_name)
+	layer_descs = {
+		'.raw.X': 'raw'
+	}
+	for layer in matrix.get('layers'):
+		label = layer.get('label')
+		units = layer.get('value_units', 'unknown')
+		scale = layer.get('value_scale', 'unknown')
+		norm_meth = layer.get('normalization_method', 'unknown')
+		desc = '{} counts; {} scaling; normalized using {}'.format(units, scale, norm_meth)
+		layer_descs[label] = desc
+	ds_results['layer_descriptions'] = layer_descs
 
-	if ds_results.get('publication_doi') and ds_results.get('preprint_doi'):
-		del ds_results['preprint_doi']
+	pub_doi = set()
+	for pub in ds_obj['references']:
+		for i in pub['identifiers']:
+			if i.startswith('doi:'):
+				pub_doi.add(i.replace('doi:', 'https://doi.org/'))
+	if pub_doi:
+		ds_results['doi'] = ','.join(pub_doi)
+
+	org_id = set()
+	org_name = set()
+	for obj in donor_objs:
+		org_id.add(obj['organism']['taxon_id'])
+		org_name.add(obj['organism']['scientific_name'])
+	ds_results['organism_ontology_term_id'] = ','.join(org_id)
+	ds_results['organism'] = ','.join(org_name)
+
 	return ds_results
 
 
@@ -299,6 +311,7 @@ def remove_consistent(df, ds_results):
 			ds_results[label] = content[0]
 			to_drop.append(label)
 	df = df.drop(columns=to_drop)
+
 	return df
 
 
@@ -354,6 +367,38 @@ def get_embeddings(mfinal_adata):
 	return final_embeddings
 
 
+def report_diseases(values_to_add, donor_objs, sample_objs):
+	names = set()
+	ids = set()
+	my_donors = []
+	for o in sample_objs:
+		dis_objs = o.get('diseases')
+		for donor in donor_objs:
+			if donor['@id'] in o.get('donors'):
+				my_donors.append(donor)
+		if dis_objs:
+			for do in dis_objs:
+				ids.add(do.get('term_id'))
+				names.add(do.get('term_name'))
+		for o in my_donors:
+			dis_objs = o.get('diseases')
+			if dis_objs:
+				for do in dis_objs:
+					ids.add(do.get('term_id'))
+					names.add(do.get('term_name'))
+		if not ids:
+			ids.add('unknown')
+		if not names:
+			names.add('unknown')
+
+	if len(sample_objs) > 1:
+		values_to_add['disease'] = 'multiple samples ({})'.format(','.join(names))
+		values_to_add['disease_ontology_term_id'] = 'multiple samples ({})'.format(','.join(ids))
+	else:
+		values_to_add['disease'] = ','.join(names)
+		values_to_add['disease_ontology_term_id'] = ','.join(ids)
+
+
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
@@ -370,12 +415,13 @@ def main(mfinal_id):
 			key = prop_map.get(latkey, latkey)
 			headers.append(key)
 
-	df = pd.DataFrame(columns=headers)
+	df = pd.DataFrame()
 
 	results = {}
 	tmp_dir = 'matrix_files'
 	os.mkdir(tmp_dir)
 	download_file(mfinal_obj, tmp_dir)
+
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -392,26 +438,27 @@ def main(mfinal_id):
 
 	cxg_adata_lst = []
 
+
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
 	for mxr in mxraws:
-		mxr_acc = mxr['accession']
 		# get all of the objects necessary to pull the desired metadata
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
 		for obj_type in cell_metadata.keys():
 			objs = relevant_objects.get(obj_type, [])
 			if len(objs) == 1:
-				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
+				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 			elif len(objs) > 1:
-				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, mxr_acc, objs)
+				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 		if relevant_objects.get('prepooled_suspension'):
 			for obj_type in ['prepooled_suspension', 'pooled_suspension']:
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
+					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, objs)
 				elif len(objs) > 1:
-					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, mxr_acc, objs)
+					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, objs)
+		report_diseases(values_to_add, relevant_objects['donor'], relevant_objects['sample'])
 		row_to_add = pd.Series(values_to_add, name=mxr['@id'])
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
@@ -440,7 +487,6 @@ def main(mfinal_id):
 		sys.exit('The number of genes in all raw matrices need to match.')
 
 	# Concatenate all anndata objects in list and load parameters
-	# NEED TO ADD A FIELD NAME CONVERSION FOR A HANDFUL OF FIELDS TO MEET CXG REQS
 	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
 	cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 	if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
@@ -451,8 +497,6 @@ def main(mfinal_id):
 	cxg_obsm = get_embeddings(mfinal_adata)
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=mfinal_adata.var, uns=cxg_uns)
 	cxg_adata.raw = cxg_adata_raw
-
-	# NEED TO CHANGE ENSEMBL IDS TO GENE_SYMBOLS
 
 	# print the fields into a report
 	results_file = "final_cxg.h5ad"

@@ -96,7 +96,6 @@ system_props = [
 	"submitted_by",
 	"notes",
 	"documents",
-	"aliases",
 	"@id",
 	"@type"
 ]
