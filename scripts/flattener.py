@@ -8,6 +8,7 @@ import shutil
 import sys
 import scanpy as sc
 import re
+import subprocess
 
 
 cell_metadata = {
@@ -50,6 +51,12 @@ dataset_metadata = {
 		]
 	}
 
+annot_fields = [
+	'cell_ontology.term_name',
+	'cell_ontology.term_id',
+	'author_cell_type'
+]
+
 prop_map = {
 	'sample_biosample_ontology_term_name': 'tissue',
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
@@ -63,7 +70,10 @@ prop_map = {
 	'matrix_genome_annotation': 'reference_annotation_version',
 	'matrix_description': 'title',
 	'dataset_references_publication_doi': 'publication_doi',
-	'dataset_references_preprint_doi': 'preprint_doi'
+	'dataset_references_preprint_doi': 'preprint_doi',
+	'cell_annotation_author_cell_type': 'author_cell_type',
+	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
+	'cell_annotation_cell_ontology_term_name': 'cell_type'
 }
 
 EPILOG = '''
@@ -315,39 +325,23 @@ def remove_consistent(df, ds_results):
 	return df
 
 
-# Takes ds_results and converts information to cxg fields
-# WILL NEED CORPORA VERSION INFORMATION AS INPUT, CURRENTLY HARDCODED
-def organize_uns_data(ds_results):
-	cxg_uns = {}
-	cxg_uns['version'] = {}
-	cxg_uns['version']['corpora_schema_version'] = '1.1.0'
-	cxg_uns['version']['corpora_encoding_version'] = '0.2.0'
-	cxg_uns['title'] = ds_results['dataset_award_title']
-	cxg_uns['layer_descriptions'] = {}
-	# Summarize normalization, making assumption that .X is normalized and .raw.X is raw
-	# ->-> NEED TO CHANGE LOGIC WHEN MERGING CODE
-	cxg_uns['layer_descriptions']['X'] = '{} counts; {} scaling; normalized using {}'.\
-		format(ds_results['matrix_value_units'], ds_results['matrix_value_scale'], ds_results['matrix_normalization_method'])
-	cxg_uns['layer_descriptions']['raw.X'] = 'raw'
-	return cxg_uns
-
-
 # Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
-def concatenate_cell_id(cell_mapping, mxr_acc, raw_obs_names, mfinal_cells):
+def concatenate_cell_id(mfinal_obj, mxr_acc, raw_obs_names, mfinal_cells):
 	new_ids = []
 	flag_removed = False
 	cell_mapping_dct = {}
-	for mapping_dict in cell_mapping['label_mappings']:
-		cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['string']
+	cell_location = mfinal_obj['cell_label_location']
+	for mapping_dict in mfinal_obj['cell_label_mappings']:
+		cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
 	for final_id in mfinal_cells:
 		if not re.search('[AGCT]+-1', final_id):
 			flag_removed = True
 	for id in raw_obs_names:
 		if flag_removed:
 			id = id.replace('-1', '')
-		if cell_mapping['location'] == 'prefix':
+		if cell_location == 'prefix':
 			new_ids.append(cell_mapping_dct[mxr_acc]+id)
-		elif cell_mapping['location'] == 'suffix':
+		elif cell_location == 'suffix':
 			new_ids.append(id+cell_mapping_dct[mxr_acc])
 	return(new_ids)
 
@@ -415,6 +409,7 @@ def main(mfinal_id):
 			key = prop_map.get(latkey, latkey)
 			headers.append(key)
 
+	# Dataframe that contains experimental metadata keyed off of raw matrix
 	df = pd.DataFrame()
 
 	results = {}
@@ -431,7 +426,7 @@ def main(mfinal_id):
 	if mfinal_obj['file_format'] == 'hdf5' and re.search('h5ad$', mfinal_local_path):
 		mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	elif mfinal_obj['file_format'] == 'rds':
-		sys.exit('Cannot read from rds {}'.format(final_local_path))
+		sys.exit('Cannot read from rds {}'.format(mfinal_local_path))
 	else:
 		sys.exit('Do not recognize file format or exention {} {}'.format(mfinal_obj['file_format'], mfinal_local_path))
 	mfinal_cell_identifiers = list(mfinal_adata.obs_names)
@@ -443,6 +438,7 @@ def main(mfinal_id):
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
+		mxr_acc = mxr['accession']
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
 		for obj_type in cell_metadata.keys():
@@ -469,7 +465,7 @@ def main(mfinal_id):
 		adata_raw.var_names_make_unique()
 
 		# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
-		concatenated_ids = concatenate_cell_id(mfinal_obj['cell_mapping'], mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
+		concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
 		adata_raw.obs_names = concatenated_ids
 		overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 		adata_raw = adata_raw[overlapped_ids]
@@ -486,15 +482,34 @@ def main(mfinal_id):
 	if len(set(feature_lengths)) > 1:
 		sys.exit('The number of genes in all raw matrices need to match.')
 
+	# Set up dataframe for cell annotations keyed off of author_cell_type
+	annot_df = pd.DataFrame()
+	for annot_obj in mfinal_obj['cell_annotations']:
+		annot_lst = []
+		annot_lst.append(annot_obj)
+		annot_metadata = {}
+		gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst)
+		annot_row = pd.Series(annot_metadata, name=annot_obj['author_cell_type'])
+		annot_df = annot_df.append(annot_row)
+
+	print(annot_df)
+	print(ds_results)
 	# Concatenate all anndata objects in list and load parameters
+	# ->->STILL NEED TO ADD CXG SCHEMA VERSION IN UNS
 	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
 	cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 	if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 		sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
-	cxg_uns = organize_uns_data(ds_results)
-	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='inner')
-	cxg_obs.drop(columns=['raw_matrix_accession','batch'], inplace=True)
+	cxg_uns = ds_results
 	cxg_obsm = get_embeddings(mfinal_adata)
+
+	# Prep obs dataframe
+	celltype_col = mfinal_obj['author_cell_type_column']
+	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
+	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
+	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+	cxg_obs.drop(columns=['raw_matrix_accession','batch', celltype_col], inplace=True)
+
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=mfinal_adata.var, uns=cxg_uns)
 	cxg_adata.raw = cxg_adata_raw
 
