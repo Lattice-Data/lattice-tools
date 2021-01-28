@@ -11,7 +11,7 @@ $ aws ec2 run-instances --launch-template LaunchTemplateName=checkfiles --instan
 Identify the Public DNS for the instance and ssh to instance
 ```
 $ aws ec2 describe-instances --filters Name=image-id,Values=ami-0e4035ae3f70c400f --query Reservations[*].Instances[*].[PublicDnsName] --output text
-$ ssh -i "lattice_ec2.pem" ec2-user@<Public DNS>
+$ ssh -i lattice_ec2.pem ec2-user@<Public DNS>
 ```
 Mount the storage device to the instance
 ```
