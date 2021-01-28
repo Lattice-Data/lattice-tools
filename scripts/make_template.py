@@ -2,7 +2,6 @@ import argparse
 import gspread
 import json
 import lattice
-import os
 import requests
 import string
 import sys
@@ -54,48 +53,84 @@ cell_grid = list(abcs) + ['A' + i for i in abcs]
 connection = lattice.Connection(args.mode)
 server = connection.server
 
+# grab the OntologyTerm term_name & term_id schemas to put in places that linkTo OntologyTerm
+ont_schema_url = urljoin(server, 'profiles/ontology_term/?format=json')
+ont_schema = requests.get(ont_schema_url).json()
+term_id_props = ont_schema['properties']['term_id']
+term_name_props = ont_schema['properties']['term_name']
+
 # grab all of the submittable properties
 props = {}
 schema_url = urljoin(server, 'profiles/' + schema_name + '/?format=json')
 schema = requests.get(schema_url).json()
-for prop in schema['properties'].keys():
-	if not str(schema['properties'][prop].get('comment')).startswith('Do not submit') \
-	and schema['properties'][prop].get('notSubmittable') != True:
-		props[prop] = {}
-		for i in schema['properties'][prop].keys():
-			props[prop][i] = schema['properties'][prop][i]
+for p in schema['properties'].keys():
+	props[p] = schema['properties'][p]
 
 ordered_props = OrderedDict(props)
 
 # grab all of the properties of subobjects
 subprops = {}
 non_submit = [] # collect the base property so we can grey it out in favor of the subproperties
-for prop in props.keys():
-	if props[prop]['type'] == 'object' or \
-	(props[prop]['type'] == 'array' and props[prop]['items']['type'] == 'object'):
-		if props[prop]['type'] == 'array':
-			my_props = props[prop]['items']['properties'] 
+for p in props.keys():
+	if props[p]['type'] == 'object' or \
+	(props[p]['type'] == 'array' and props[p]['items']['type'] == 'object'):
+		subprops[p] = props[p]
+		ordered_props.pop(p)
+		non_submit.append(p)
+		if props[p]['type'] == 'array':
+			for sp in props[p]['items']['properties'].keys():
+				if props[p]['items']['properties'][sp]['type'] == 'object' or \
+				(props[p]['items']['properties'][sp]['type'] == 'array' and props[p]['items']['properties'][sp]['items']['type'] == 'object'):
+					subprops[p + '.' + sp] = props[p]['items']['properties'][sp]
+					non_submit.append(p + '.' + sp)
+					if props[p]['items']['properties'][sp]['type'] == 'array':
+						for ssp in props[p]['items']['properties'][sp]['items']['properties'].keys():
+							subprops[p + '.' + sp + '.' + ssp] = props[p]['items']['properties'][sp]['items']['properties'][ssp]
+					else:
+						for ssp in props[p]['items']['properties'][sp]['items']['properties'].keys():
+							subprops[p + '.' + sp + '.' + ssp] = props[p]['items']['properties'][sp]['properties'][ssp]
+				else:
+					subprops[p + '.' + sp] = props[p]['items']['properties'][sp]
 		else:
-			my_props = props[prop]['properties']
-		ordered_props.pop(prop)
-		subprops[prop] = props[prop]
-		non_submit.append(prop)
-		for sp in my_props.keys():
-			subprops[prop + '.' + sp] = {}
-			for i in my_props[sp].keys():
-				subprops[prop + '.' + sp][i] = my_props[sp][i]
+			my_props = props[p]['properties']
+			for sp in my_props.keys():
+				subprops[p + '.' + sp] = my_props[sp]
 ordered_props.update(subprops)
 
+remove_props = []
+ont_props = []
+for p in ordered_props.keys():
+	if str(ordered_props[p].get('comment')).startswith('Do not submit') \
+	or ordered_props[p].get('notSubmittable') == True:
+		remove_props.append(p)
+		if p in non_submit:
+			non_submit.remove(p)
+	elif ordered_props[p].get('linkTo') == 'OntologyTerm':
+		remove_props.append(p)
+		ont_props.append(p)
+for p in remove_props:
+	del ordered_props[p]
+for p in ont_props:
+	ordered_props[p + '.term_id'] = term_id_props
+	ordered_props[p + '.term_name'] = term_name_props
+
 non_submit_col = []
-for prop in non_submit:
-	non_submit_col.append(cell_grid[list(ordered_props.keys()).index(prop) + 1])
+for p in non_submit:
+	non_submit_col.append(cell_grid[list(ordered_props.keys()).index(p) + 1])
 
 # collect required fields & move fields to the front
 req_props = []
 if schema.get('required'):
+	req_count = 0
 	req_props = schema['required']
 	for i in req_props:
-		ordered_props.move_to_end(i, False)
+		if i in ordered_props:
+			ordered_props.move_to_end(i, False)
+			req_count += 1
+		else:
+			ordered_props.move_to_end(i + '.term_id', False)
+			ordered_props.move_to_end(i + '.term_name', False)
+			req_count += 2
 
 # get the required field columns so we can color them later
 req_columns = []
@@ -103,10 +138,10 @@ if req_props:
 	if 'aliases' in ordered_props.keys():
 		ordered_props.move_to_end('aliases', False)
 		req_start_col = 'C'
-		req_stop_col = cell_grid[len(req_props) + 1]
+		req_stop_col = cell_grid[req_count + 1]
 	else:
 		req_start_col = 'B'
-		req_stop_col = cell_grid[len(req_props)]
+		req_stop_col = cell_grid[req_count]
 	req_columns = ':'.join([req_start_col, req_stop_col])
 
 # list the attributes we want to know about each property
@@ -124,21 +159,21 @@ uber_list = []
 # gather the top row list of schema_version followed by the property names
 schema_version = schema['properties']['schema_version']['default']
 prop_list = ['schema_version=' + schema_version]
-for prop in ordered_props.keys():
-	prop_list.append(prop)
+for p in ordered_props.keys():
+	prop_list.append(p)
 uber_list.append(prop_list)
 
 # gather the attributes of each property
 for descriptor in descriptor_list:
 	this_list = ['#' + descriptor]
-	for prop in ordered_props.keys():
-		if ordered_props[prop]['type'] == 'array' and descriptor in ['type','enum','linkTo']:
-			if ordered_props[prop]['items'].get(descriptor):
-				this_list.append('array of ' + str(ordered_props[prop]['items'].get(descriptor,'')))
+	for p in ordered_props.keys():
+		if ordered_props[p]['type'] == 'array' and descriptor in ['type','enum','linkTo']:
+			if ordered_props[p]['items'].get(descriptor):
+				this_list.append('array of ' + str(ordered_props[p]['items'].get(descriptor,'')))
 			else:
 				this_list.append('')
 		else:
-			this_list.append(str(ordered_props[prop].get(descriptor,'')))
+			this_list.append(str(ordered_props[p].get(descriptor,'')))
 	uber_list.append(this_list)
 
 # write the whole thing to the google sheet
@@ -152,16 +187,14 @@ tab.format('A1:AZ100',{'wrapStrategy': 'CLIP'})
 
 # set cell validation in the first input row for all boolean fields or fields with an enum list
 count = 0
-for prop in ordered_props.keys():			
+for p in ordered_props.keys():			
 	count += 1
-	if ordered_props[prop].get('enum') or ordered_props[prop].get('type') == 'boolean':
+	if ordered_props[p].get('enum') or ordered_props[p].get('type') == 'boolean':
 		col = cell_grid[count] 
 		cell_to_format = col + str(len(descriptor_list) + 2) + ':' + col + '100'
-		validation_rule = DataValidationRule(
-						    BooleanCondition('ONE_OF_LIST',
-						    ordered_props[prop].get('enum', ['TRUE','FALSE'])),
-						    showCustomUi=True
-							)
+		validation_rule = DataValidationRule(BooleanCondition('ONE_OF_LIST',
+							ordered_props[p].get('enum', ['TRUE','FALSE'])),
+							showCustomUi=True)
 		set_data_validation_for_cell_range(tab, cell_to_format, validation_rule)
 
 # aliases should be the first property listed, so freeze that column and the descriptor column
