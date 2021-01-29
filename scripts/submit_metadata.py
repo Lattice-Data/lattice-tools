@@ -253,7 +253,7 @@ def properties_validator(keys, schema, schema_properties):
 	return flag
 
 
-def type_formatter(old_value, schema_properties, key1, key2=None):
+def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
 	# determine the type specified in the schema
 	linkTo_flag = False
 	desired_type = ''
@@ -264,7 +264,7 @@ def type_formatter(old_value, schema_properties, key1, key2=None):
 		if schema_properties[key1].get('items'):
 			if schema_properties[key1]['items'].get('linkTo'):
 				linkTo_flag = True
-	else:
+	elif not key3:
 		if schema_properties[key1].get('items'):
 			if schema_properties[key1]['items']['properties'].get(key2):
 				desired_type = schema_properties[key1]['items']['properties'][key2]['type']
@@ -275,6 +275,29 @@ def type_formatter(old_value, schema_properties, key1, key2=None):
 				desired_type = schema_properties[key1]['properties'][key2]['type']
 				if schema_properties[key1]['properties'][key2].get('linkTo'):
 					linkTo_flag = True
+	else:
+		if schema_properties[key1].get('items'):
+			if schema_properties[key1]['items']['properties'].get(key2):
+				if schema_properties[key1]['items']['properties'][key2].get('items'):
+					if schema_properties[key1]['items']['properties'][key2]['items']['properties'].get(key3):
+						desired_type = schema_properties[key1]['items']['properties'][key2]['items']['properties'][key3]['type']
+						if schema_properties[key1]['items']['properties'][key2]['items']['properties'][key3].get('linkTo'):
+							linkTo_flag = True
+				else:
+					if schema_properties[key1]['items']['properties'][key2]['properties'].get(key3):
+						desired_type = schema_properties[key1]['items']['properties'][key2]['properties'][key3]['type']
+						if schema_properties[key1]['items']['properties'][key2]['properties'][key3].get('linkTo'):
+							linkTo_flag = True
+		else:
+			if schema_properties[key1]['properties'].get(key2):
+				if schema_properties[key1]['properties'][key2].get('items'):
+					desired_type = schema_properties[key1]['properties'][key2]['items']['properties'][key3]['type']
+					if schema_properties[key1]['properties'][key2]['items']['properties'][key3].get('linkTo'):
+						linkTo_flag = True
+				else:
+					desired_type = schema_properties[key1]['properties'][key2]['properties'][key3]['type']
+					if schema_properties[key1]['properties'][key2]['properties'][key3].get('linkTo'):
+						linkTo_flag = True
 	# adjust the value to the specified type
 	if desired_type == 'array' and linkTo_flag == True:
 		return [quote(x.strip()) for x in old_value.split(',')]
@@ -308,37 +331,88 @@ def dict_patcher(old_dict, schema_properties):
 			if len(path) == 1:
 				new_dict[key] = type_formatter(old_dict[key], schema_properties, key)
 			elif len(path) == 2: # embedded object, need to build the mini dictionary to put this in
-				if '-' in key: # this has a number next to it and we expect an array of objects
-					value = path[1].split('-')
-					if array_o_objs_dict.get(path[0]): # I have already added the embedded object to the new dictionary
-						if value[1] not in array_o_objs_dict[path[0]].keys():
-							# this means we have not added any part of new item to the list
-							array_o_objs_dict[path[0]][value[1]] = {}
-							array_o_objs_dict[path[0]][value[1]] = {value[0]: type_formatter(old_dict[key], schema_properties, path[0], value[0])}
-						else:
+				if '-' in path[0]: # this has a number next to it and we expect an array of objects
+					group = path[0].split('-')[1]
+				else:
+					group = '1'
+				propA = path[0].split('-')[0]
+				propB = path[1]
+				if schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
+					if array_o_objs_dict.get(propA): # I have already added the embedded object to the new dictionary
+						if array_o_objs_dict[propA].get(group):
 							# this should be that we have started putting in the new object
-							array_o_objs_dict[path[0]][value[1]].update({value[0]: type_formatter(old_dict[key], schema_properties, path[0], value[0])})
+							array_o_objs_dict[propA][group].update({propB: type_formatter(old_dict[key], schema_properties, propA, propB)})
+						else:
+							# this means we have not added any part of new item to the list
+							array_o_objs_dict[propA][group] = {propB: type_formatter(old_dict[key], schema_properties, propA, propB)}
 					else: # I need to make new item in dictionary
-						array_o_objs_dict[path[0]] = {}
-						array_o_objs_dict[path[0]][value[1]] = {value[0]: type_formatter(old_dict[key], schema_properties, path[0], value[0])}
-				elif schema_properties[path[0]]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
-					if array_o_objs_dict.get(path[0]):
-						# this should be that we have started putting in the new object
-						array_o_objs_dict[path[0]]["1"].update({path[1]: type_formatter(old_dict[key], schema_properties, path[0], path[1])})
-					else:
-						array_o_objs_dict[path[0]] = {}
-						array_o_objs_dict[path[0]]["1"] = {path[1]: type_formatter(old_dict[key], schema_properties, path[0], path[1])}
+						array_o_objs_dict[propA] = {}
+						array_o_objs_dict[propA][group] = {propB: type_formatter(old_dict[key], schema_properties, propA, propB)}
 				else: # there is no number next to it, this is our only object to handle
-					if new_dict.get(path[0]): # I have already added the embedded object to the new dictionary
-						new_dict[path[0]].update({path[1]: type_formatter(old_dict[key], schema_properties, path[0], path[1])})
+					if new_dict.get(propA): # I have already added the embedded object to the new dictionary
+						new_dict[propA].update({propB: type_formatter(old_dict[key], schema_properties, propA, propB)})
 					else: # I need to make new item in dictionary
-						temp_dict = {path[1]: type_formatter(old_dict[key], schema_properties, path[0], path[1])}
-						new_dict[path[0]] = temp_dict
-			elif len(path) > 2:
-				print('ERROR:' + key + ': Not prepared to do double-embedded properties')
+						temp_dict = {propB: type_formatter(old_dict[key], schema_properties, propA, propB)}
+						new_dict[propA] = temp_dict
+			elif len(path) == 3: # we have an object embedded within an embedded object
+				if '-' in path[0]:
+					group = path[0].split('-')[1]
+				else:
+					group = '1'
+				if '-' in path[1]:
+					subgroup = path[1].split('-')[1]
+				else:
+					subgroup = '1'
+				propA = path[0].split('-')[0]
+				propB = path[1].split('-')[0]
+				propC = path[2]
+				if schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
+					if schema_properties[propA]['items']['properties'][propB]['type'] == 'array': # we have an array of objects within an array of objects
+						if array_o_objs_dict.get(propA):
+							if array_o_objs_dict[propA].get(group):
+								if array_o_objs_dict[propA][group].get(propB):
+									if array_o_objs_dict[propA][group][propB].get(subgroup):
+										array_o_objs_dict[propA][group][propB][subgroup].update({propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)})
+									else:
+										array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+								else:
+									array_o_objs_dict[propA][group][propB] = {}
+									array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+							else:
+								array_o_objs_dict[propA][group] = {}
+								array_o_objs_dict[propA][group][propB] = {}
+								array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+						else:
+							array_o_objs_dict[propA] = {}
+							array_o_objs_dict[propA][group] = {}
+							array_o_objs_dict[propA][group][propB] = {}
+							array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+					else: # this is an object within an array of objects
+						print('ATTENTION IS NEEDED HERE')
+				else:
+					if schema_properties[propA][propB]['type'] == 'array': # this is an array of objects within an object
+						print('ATTENTION IS NEEDED HERE')
+					else: # this is an object within an object
+						if new_dict.get(propA): # I have already added the embedded object to the new dictionary
+							if new_dict[propA].get(propB): # I have already added the double-embedded object to the new dictionary
+								new_dict[propA][propB].update({propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)})
+							else: # I need to add the double-embedded object to the new dictionary
+								temp_dict = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+								new_dict[propA].update({propB: temp_dict})
+						else: # I need to make new item in dictionary
+							temp_dict = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+							new_dict[propA] = {propB: temp_dict}
+			elif len(path) > 3:
+				print('ERROR:' + key + ': Not prepared to do triplpe-embedded properties, check for errant period')
 	new_list = []
 	for prop in array_o_objs_dict.keys():
 		for group_id in array_o_objs_dict[prop].keys():
+			for i in array_o_objs_dict[prop][group_id].keys():
+				if isinstance(array_o_objs_dict[prop][group_id][i], dict):
+					nn_list = []
+					for g_id in array_o_objs_dict[prop][group_id][i].keys():
+						nn_list.append(array_o_objs_dict[prop][group_id][i][g_id])
+					array_o_objs_dict[prop][group_id][i] = nn_list
 			new_list.append(array_o_objs_dict[prop][group_id])
 		new_dict[prop] = new_list
 	return new_dict
