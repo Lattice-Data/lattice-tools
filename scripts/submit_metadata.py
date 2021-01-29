@@ -229,27 +229,53 @@ def properties_validator(keys, schema, schema_properties):
 	for key in keys:
 		if key is not None:
 			if keys.count(key) >1 and key not in dup_keys: # check for duplicated headers
-				print('Property {prop} found {count} times in {schema} sheet headers'.format(prop=key, count=keys.count(key), schema=schema))
+				print('Property {} found {} times in {} sheet headers'.format(key, keys.count(key), schema))
 				dup_keys.append(key)
 				flag = True
-			key_no_iter = key.split('-')[0] # remove the '-n' notation to check that each header is a property in the specified schema
-			if '.' in key_no_iter:
-				if key_no_iter.split('.')[0] not in schema_properties.keys():
-					print('Property {prop} not found in schema {schema}'.format(prop=key_no_iter.split('.')[0], schema=schema))
-					flag = True
-				elif schema_properties[key_no_iter.split('.')[0]]['type'] == 'array':
-					if schema_properties[key_no_iter.split('.')[0]]['items'].get('additionalProperties','false') == 'false':
-						if key_no_iter.split('.')[1] not in schema_properties[key_no_iter.split('.')[0]]['items']['properties'].keys():
-							print('Property {prop} not found in schema {schema}'.format(prop=key_no_iter, schema=schema))
+			props = key.split('.')
+			propA = props[0].split('-')[0]
+			if propA not in schema_properties.keys():
+				print('Property {} not found in schema {}'.format(propA, schema))
+				flag = True
+			elif len(props) > 1:
+				propB = props[1].split('-')[0]
+				if schema_properties[propA]['type'] == 'array':
+					if propB not in schema_properties[propA]['items']['properties'].keys():
+						print('Property {} not found in schema {}.{}'.format(propB, schema, propA))
+						flag = True
+					elif len(props) > 2:
+						propC = props[2].split('-')[0]
+						if schema_properties[propA]['items']['properties'][propB]['type'] == 'array':
+							if propC not in schema_properties[propA]['items']['properties'][propB]['items']['properties'].keys():
+								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+								flag = True
+						elif schema_properties[propA]['items']['properties'][propB]['type'] == 'object':
+							if propB not in schema_properties[propA]['items']['properties'][propB]['properties'].keys():
+								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+								flag = True
+						else:
+							print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propB, schema, propC))
+							flag = True
+				elif schema_properties[propA]['type'] == 'object':
+					if propB not in schema_properties[propA]['properties'].keys():
+						print('Property {} not found in schema {}.{}'.format(propB, schema, propA))
+						flag = True
+					elif len(props) > 2:
+						propC = props[2].split('-')[0]
+						if schema_properties[propA]['properties'][propB]['type'] == 'array':
+							if propC not in schema_properties[propA]['properties'][propB]['items']['properties'].keys():
+								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+								flag = True
+						elif schema_properties[propA]['properties'][propB]['type'] == 'object':
+							if propC not in schema_properties[propA]['properties'][propB]['properties'].keys():
+								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+								flag = True
+						else:
+							print('Not expecting subproperties for property {} in schema {}.{} ({} given) '.format(probB, schema, propA, propC))
 							flag = True
 				else:
-					if schema_properties[key_no_iter.split('.')[0]].get('additionalProperties','false') == 'false':
-						if key_no_iter.split('.')[1] not in schema_properties[key_no_iter.split('.')[0]]['properties'].keys():
-							print('Property {prop} not found in schema {schema}'.format(prop=key_no_iter, schema=schema))
-							flag = True
-			elif key_no_iter not in schema_properties.keys():
-				print('Property {prop} not found in schema {schema}'.format(prop=key_no_iter, schema=schema))
-				flag = True
+					print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema, propB))
+					flag = True
 	return flag
 
 
