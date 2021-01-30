@@ -223,7 +223,7 @@ def cell_value(cell):
 		raise ValueError(repr(cell), '-'.join(['unknown cell type',ctype,cvalue]))
 
 
-def properties_validator(keys, schema, schema_properties):
+def properties_validator(keys, schema, schema_properties, ont_props):
 	flag = False
 	dup_keys = []
 	for key in keys:
@@ -257,7 +257,7 @@ def properties_validator(keys, schema, schema_properties):
 							print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propB, schema, propC))
 							flag = True
 				elif schema_properties[propA]['type'] == 'object':
-					if propB not in schema_properties[propA]['properties'].keys():
+					if propB not in schema_properties[propA]['properties'].keys() and schema_properties[propA].get('additionalProperties') != True:
 						print('Property {} not found in schema {}.{}'.format(propB, schema, propA))
 						flag = True
 					elif len(props) > 2:
@@ -273,6 +273,10 @@ def properties_validator(keys, schema, schema_properties):
 						else:
 							print('Not expecting subproperties for property {} in schema {}.{} ({} given) '.format(probB, schema, propA, propC))
 							flag = True
+				elif schema_properties[propA].get('linkTo') == "OntologyTerm":
+					if propB not in ont_props:
+						print('Property {} not found in OntologyTerm schema via schema {}.{}'.format(propB, schema, propA))
+						flag = True
 				else:
 					print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema, propB))
 					flag = True
@@ -363,7 +367,10 @@ def dict_patcher(old_dict, schema_properties):
 					group = '1'
 				propA = path[0].split('-')[0]
 				propB = path[1]
-				if schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
+				if schema_properties[propA].get('linkTo') == 'OntologyTerm':
+					if propB == 'term_id':
+						new_dict[propA] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
+				elif schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
 					if array_o_objs_dict.get(propA): # I have already added the embedded object to the new dictionary
 						if array_o_objs_dict[propA].get(group):
 							# this should be that we have started putting in the new object
@@ -519,6 +526,15 @@ def main():
 		if n not in supported_collections: # check that each sheet name corresponds to an object type
 			print('ERROR: Sheet name {name} not part of supported object types!'.format(
 				name=n), file=sys.stderr)
+
+	ont_schema_url = urljoin(server, 'profiles/ontology_term/?format=json')
+	ont_term_schema = requests.get(ont_schema_url).json()['properties']
+	ontology_props = []
+	for p in ont_term_schema.keys():
+		if not str(ont_term_schema[p].get('comment')).startswith('Do not submit') \
+		and ont_term_schema[p].get('notSubmittable') != True:
+			ontology_props.append(p)
+
 	load_order = ORDER # pull in the order used to load test inserts on a local instance
 	if args.starttype:
 		st_index = load_order.index(args.starttype)
@@ -530,7 +546,7 @@ def main():
 			headers = rows.pop(0)
 			schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
 			schema_properties = requests.get(schema_url).json()['properties']
-			invalid_flag = properties_validator(headers, schema_to_load, schema_properties)
+			invalid_flag = properties_validator(headers, schema_to_load, schema_properties, ontology_props)
 			if invalid_flag == True:
 				print('{sheet}: invalid schema, check the headers'.format(sheet=schema_to_load))
 				summary_report.append('{sheet}: invalid schema, check the headers'.format(sheet=schema_to_load))
