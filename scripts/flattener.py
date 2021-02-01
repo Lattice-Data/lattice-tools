@@ -1,3 +1,7 @@
+import rpy2.robjects.packages as rpackages
+from rpy2.robjects.packages import importr
+from rpy2.robjects.vectors import StrVector
+import rpy2.robjects as robjects
 import argparse
 import anndata as ad
 import boto3
@@ -47,14 +51,17 @@ dataset_metadata = {
 		],
 	'final_matrix': [
 		'description',
-		'genome_annotation'
+		'genome_annotation',
+		'default_field'
 		]
 	}
 
 annot_fields = [
 	'cell_ontology.term_name',
 	'cell_ontology.term_id',
-	'author_cell_type'
+	'author_cell_type',
+	'genes_expressed_high',
+	'cell_ontology.cell_slims'
 ]
 
 prop_map = {
@@ -73,7 +80,8 @@ prop_map = {
 	'dataset_references_preprint_doi': 'preprint_doi',
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
-	'cell_annotation_cell_ontology_term_name': 'cell_type'
+	'cell_annotation_cell_ontology_term_name': 'cell_type',
+	'matrix_default_field': 'default_field'
 }
 
 EPILOG = '''
@@ -247,15 +255,15 @@ def report_dataset(donor_objs, matrix, dataset):
 			ds_results[key] = value
 
 	layer_descs = {
-		'.raw.X': 'raw'
+		'raw.X': 'raw'
 	}
 	for layer in matrix.get('layers'):
-		label = layer.get('label')
+		#label = layer.get('label')
 		units = layer.get('value_units', 'unknown')
 		scale = layer.get('value_scale', 'unknown')
 		norm_meth = layer.get('normalization_method', 'unknown')
 		desc = '{} counts; {} scaling; normalized using {}'.format(units, scale, norm_meth)
-		layer_descs[label] = desc
+		layer_descs['X'] = desc
 	ds_results['layer_descriptions'] = layer_descs
 
 	pub_doi = set()
@@ -361,6 +369,56 @@ def get_embeddings(mfinal_adata):
 	return final_embeddings
 
 
+# From R object, create and return h5ad in temporary drive
+def convert_from_rds(path_rds, assays, temp_dir, cell_col):
+	converted_h5ad = []
+	utils = rpackages.importr('utils')
+	#base = rpackages.importr('base')
+	utils.chooseCRANmirror(ind=1)
+	packnames = ('Seurat', 'reticulate', 'BiocManager', 'devtools')
+	names_to_install = [x for x in packnames if not rpackages.isinstalled(x)]
+	if len(names_to_install) > 0:
+		utils.install_packages(StrVector(names_to_install))
+
+	devtools = rpackages.importr('devtools')
+	github_packages = ('cli', 'crayon', 'hdf5r', 'Matrix', 'R6', 'rlang', 'stringi', 'withr')
+	github_install = [x for x in github_packages if not rpackages.isinstalled(x)]
+	if len(github_install) > 0:
+		devtools.install_github(StrVector(bioc_to_install))
+	seurat = rpackages.importr('Seurat')
+	seuratdisk = rpackages.importr('SeuratDisk')
+	
+	# Load Seurat object into a h5Seurat file, and create h5ad for each assay
+	# If scaled.data is present, data is in raw.X, else data is in X
+	h5s_file = '{}/r_obj.h5Seurat'.format(temp_dir)
+	robjects.r('robj <- readRDS("{}")'.format(path_rds))
+	robjects.r('updated_robj <- Seurat::UpdateSeuratObject(object = robj)')
+	robjects.r('updated_robj@meta.data${} <- as.character(updated_robj@meta.data${})'.format(cell_col, cell_col))
+	robjects.r('SeuratDisk::SaveH5Seurat(updated_robj, filename="{}")'.format(h5s_file))
+	for assay in assays:
+		scaled_matrix = robjects.r('dim(Seurat::GetAssayData(object = updated_robj, assay="{}", slot="scale.data"))'.format(assay))
+		h5ad_file = '{}/{}.h5ad'.format(temp_dir, assay)
+		seuratdisk.Convert(h5s_file, dest="h5ad", assay=assay, overwrite = 'FALSE')
+		os.rename(h5s_file.replace('h5Seurat', 'h5ad'), h5ad_file)
+		print("Converting to h5ad: {}".format(h5ad_file))
+		if scaled_matrix[0] == 0 and scaled_matrix[0] == 0:
+			converted_h5ad.append((h5ad_file, 'X', assay))
+		else:
+			converted_h5ad.append((h5ad_file,'raw.X', assay))
+	return converted_h5ad
+
+
+# Quality check final anndata created for cxg
+def quality_check(adata):
+	if adata.obs.isnull().values.any():
+		sys.exit("There is at least one 'NaN' value in the cxg anndata obs dataframe.")
+	for gene in adata.var.index.tolist():
+		if gene not in adata.raw.var.index.tolist():
+			sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
+	if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
+		sys.exit("There are more genes in normalized genes than in raw matrix.")
+
+
 def report_diseases(values_to_add, donor_objs, sample_objs):
 	names = set()
 	ids = set()
@@ -423,10 +481,15 @@ def main(mfinal_id):
 	file_ext = file_url.split('.')[-1]
 	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
 	mfinal_adata = None
+	assays = []
+	converted_h5ad = []
+	for layer in mfinal_obj['layers']:
+		assays.append(layer['assay'])
 	if mfinal_obj['file_format'] == 'hdf5' and re.search('h5ad$', mfinal_local_path):
 		mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	elif mfinal_obj['file_format'] == 'rds':
-		sys.exit('Cannot read from rds {}'.format(mfinal_local_path))
+		converted_h5ad = convert_from_rds(mfinal_local_path, assays, tmp_dir,mfinal_obj['author_cell_type_column'])
+		mfinal_adata = sc.read_h5ad(converted_h5ad[0][0])
 	else:
 		sys.exit('Do not recognize file format or exention {} {}'.format(mfinal_obj['file_format'], mfinal_local_path))
 	mfinal_cell_identifiers = list(mfinal_adata.obs_names)
@@ -462,7 +525,7 @@ def main(mfinal_id):
 		# Add new anndata to list of final anndatas
 		local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
 		adata_raw = sc.read_10x_h5(local_path)
-		adata_raw.var_names_make_unique()
+		adata_raw.var_names_make_unique(join = '.')
 
 		# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
 		concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
@@ -510,15 +573,34 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
 	cxg_obs.drop(columns=['raw_matrix_accession','batch', celltype_col], inplace=True)
 
-	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=mfinal_adata.var, uns=cxg_uns)
-	cxg_adata.raw = cxg_adata_raw
+	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
+	if converted_h5ad == []:
+		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=mfinal_adata.var, uns=cxg_uns)
+		cxg_adata.raw = cxg_adata_raw
+		quality_check(cxg_adata)
+		results_file = mfinal_obj['accession']+".h5ad"
+		cxg_adata.write(results_file)
+	else:
+		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
+		for h5ad_assay in converted_h5ad:
+			if  h5ad_assay[1] == 'X':
+				matrix_loc = mfinal_adata.X
+				final_var = mfinal_adata.var
+			else:
+				matrix_loc = mfinal_adata.raw.X
+				final_var = mfinal_adata.raw.var
+			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
+			cxg_adata.raw = cxg_adata_raw
+			quality_check(cxg_adata)
+			if len(converted_h5ad) == 1:
+				results_file = mfinal_obj['accession']+".h5ad"
+			else:
+				results_file = mfinal_obj['accession']+h5ad_assay[2]+".h5ad"
+			cxg_adata.write(results_file)
+
 
 	# print the fields into a report
-	results_file = "final_cxg.h5ad"
-	cxg_adata.write(results_file)
 	print(ds_results)
-	print(cxg_adata.uns)
-
 	shutil.rmtree(tmp_dir)
 
 args = getArgs()
