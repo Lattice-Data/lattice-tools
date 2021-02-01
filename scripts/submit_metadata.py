@@ -122,7 +122,6 @@ ORDER = [
     'organoid',
     'suspension',
     'dataset',
-    'reference_file_set',
     'library',
     'reference_file',
     'sequencing_run',
@@ -134,6 +133,7 @@ ORDER = [
     'rna_aggregate_metrics',
     'atac_metrics',
     'atac_aggregate_metrics',
+    'cell_annotation',
     'image',
     'page',
     'access_key'
@@ -539,27 +539,22 @@ def main():
 	if args.starttype:
 		st_index = load_order.index(args.starttype)
 		load_order = load_order[st_index:]
+	all_posts = {}
 	for schema_to_load in load_order: # go in order to try and get objects posted before they are referenced by another object
 		obj_type = schema_to_load.replace('_','')
 		if obj_type in names.keys():
+			obj_posts = []
 			row_count, rows = reader(book, names[obj_type])
 			headers = rows.pop(0)
 			schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
 			schema_properties = requests.get(schema_url).json()['properties']
 			invalid_flag = properties_validator(headers, schema_to_load, schema_properties, ontology_props)
 			if invalid_flag == True:
-				print('{sheet}: invalid schema, check the headers'.format(sheet=schema_to_load))
-				summary_report.append('{sheet}: invalid schema, check the headers'.format(sheet=schema_to_load))
+				print('{}: invalid schema, check the headers'.format(obj_type))
+				summary_report.append('{}: invalid schema, check the headers'.format(obj_type))
 				continue
-			total = 0
-			error = 0
-			success = 0
-			patch = 0
-			new_accessions_aliases = []
-			failed_postings = []
 			for row in rows:
 				row_count += 1
-				total += 1
 				post_json = dict(zip(headers, row))
 				# convert values to the type specified in the schema, including embedded json objects
 				post_json = dict_patcher(post_json,schema_properties)
@@ -567,6 +562,19 @@ def main():
 				if post_json.get('attachment'):
 					attach = attachment(post_json['attachment'])
 					post_json['attachment'] = attach
+				obj_posts.append((row_count, post_json))
+			all_posts[schema_to_load] = obj_posts
+
+	for schema in load_order: # go in order to try and get objects posted before they are referenced by another object
+		if all_posts.get(schema):
+			total = 0
+			error = 0
+			success = 0
+			patch = 0
+			new_accessions_aliases = []
+			failed_postings = []
+			for row_count, post_json in all_posts[schema]:
+				total += 1
 				#check for an existing object based on any possible identifier
 				if post_json.get('uuid'):
 					temp_identifier = post_json['uuid']
@@ -575,11 +583,11 @@ def main():
 				elif post_json.get('external_accession'):
 					temp_identifier = post_json['external_accession']
 				elif post_json.get('name'):
-					temp_identifier = schema_to_load + '/' + post_json['name']
+					temp_identifier = schema + '/' + post_json['name']
 				elif post_json.get('term_id'):
-					temp_identifier = schema_to_load + '/' + post_json['term_id'].replace(':','_')
+					temp_identifier = schema + '/' + post_json['term_id'].replace(':','_')
 				elif post_json.get('gene_id'):
-					temp_identifier = schema_to_load + '/' + post_json['gene_id']
+					temp_identifier = schema + '/' + post_json['gene_id']
 				elif post_json.get('aliases'):
 					temp_identifier = quote(post_json['aliases'][0])
 				patch_flag = False
@@ -598,7 +606,7 @@ def main():
 					if args.patchall:
 						patch_flag = True
 					else: # patch wasn't specified, see if the user wants to patch
-						print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(
+						print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(
 							temp.get('uuid')))
 						i = input('PATCH? y/n ')
 						if i.lower() == 'y':
@@ -610,24 +618,24 @@ def main():
 						elif e['status'] == 'success':
 							new_patched_object = e['@graph'][0]
 							# Print now and later
-							print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
+							print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
 								'accession', new_patched_object.get('uuid')))))
 							patch += 1
 				else: # we have new object to post
 					if args.patchall:
-						print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':Object not found. Check identifier or consider removing --patchall to post a new object')
+						print(schema.upper() + ' ROW ' + str(row_count) + ':Object not found. Check identifier or consider removing --patchall to post a new object')
 						error += 1
 					elif args.update:
-						print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
-						e = lattice.post_object(schema_to_load, connection, post_json)
+						print(schema.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
+						e = lattice.post_object(schema, connection, post_json)
 						if e['status'] == 'error':
 							error += 1
-							failed_postings.append(schema_to_load.upper() + ' ROW ' + str(row_count) + ':' + str(post_json.get(
+							failed_postings.append(schema.upper() + ' ROW ' + str(row_count) + ':' + str(post_json.get(
 								'aliases', 'alias not specified')))
 						elif e['status'] == 'success':
 							new_object = e['@graph'][0]
 							# Print now and later
-							print(schema_to_load.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
+							print(schema.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
 								'accession', new_object.get('uuid')))))
 							new_accessions_aliases.append(('ROW ' + str(row_count), new_object.get(
 								'accession', new_object.get('uuid')), new_object.get('aliases', new_object.get('name'))))
@@ -637,9 +645,9 @@ def main():
 
 			# Print now and later
 			print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-				sheet=schema_to_load.upper(), success=success, total=total, error=error, patch=patch))
+				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
 			summary_report.append('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-				sheet=schema_to_load.upper(), success=success, total=total, error=error, patch=patch))
+				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
 			if new_accessions_aliases:
 				print('New accessions/UUIDs and aliases:')
 				for (row, accession, alias) in new_accessions_aliases:
