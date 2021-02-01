@@ -58,42 +58,41 @@ To upload objects with attachments, have a column titled 'attachment'
 containing the name of the file you wish to attach
 
 FOR EMBEDDED SUBOBJECTS:
-	Embedded objects are considered to be things like:
-	 - flowcell_details in RawSequenceFile
-	 - filtering_cutoffs in MatrixFile
-	 They are assumed to be of the format of dictionary objects or a list of dictionary objects
+	Embedded objects are assumed to be of the format of dictionary objects or a list of dictionary objects
 
 	 If you are submitting just one dictionary object...
 	 Ex:
-	 'filtering_cutoffs': [
+	 'ancestry': [
 			{
-				'cutoff_value': 30,
-				'cutoff_units': 'genes/cell',
-				'cutoff_type': 'minimum'
+				'ancestry_group': 'HANCESTRO_0019',
+				'percentage': 100
 			}
 		]
 	Formatting in the document should be as follows for the above example:
-	filtering_cutoffs.cutoff_value	filtering_cutoffs.cutoff_units
-	30								genes/cell
+	ancestry.ancestry_group		ancestry.percentage
+	HANCESTRO_0019				100
 
 	If you are submitting a list of multiple dictionary objects...
 	Ex:
-	'filtering_cutoffs': [
+	 'ancestry': [
 			{
-				'cutoff_value': 30,
-				'cutoff_units': 'genes/cell',
-				'cutoff_type': 'minimum'
+				'ancestry_group': 'HANCESTRO_0014',
+				'percentage': 75
 			},
 			{
-				'cutoff_value': 25,
-				'cutoff_units': 'cells/gene',
-				'cutoff_type': 'minimum'
+				'ancestry_group': 'HANCESTO_0005',
+				'percentage': 25
 			}
 		]
 
 	An identifier (number or letter) should be appended to the property names w/ '-' in order to group them appropriately
-	filtering_cutoffs.cutoff_value-1	filtering_cutoffs.cutoff_units-1	filtering_cutoffs.cutoff_type-1	filtering_cutoffs.cutoff_value-2	filtering_cutoffs.cutoff_units-2	filtering_cutoffs.cutoff_type-2
-	30									genes/cell							minimum							25					  				cells/genes							minimum
+	ancestry-1.ancestry_group	ancestry-1.percentage	ancestry-2.ancestry_group	ancestry-2.percentage
+	HANCESTRO_0014				75						HANCESTO_0005				25
+
+	For more complex cases of embedded objects within embedded objects, the same logic applies but there will be two properties to append identifiers to
+	For example, these columns would be expected for a MatrixFile that has a layer with 2 filtering_cutoffs and another layer with 1 filter_cutoff
+	layers-1.label, layers-1.filtering_cutoffs-1.cutoff_value, layers-1.filtering_cutoffs-1.cutoff_units, layers-1.filtering_cutoffs-2.cutoff_value, layers-1.filtering_cutoffs-2.cutoff_units, layers-2.label, layers-2.filtering_cutoffs-1.cutoff_value, layers-2.filtering_cutoffs-1.cutoff_units
+
 
 For more details:
 
