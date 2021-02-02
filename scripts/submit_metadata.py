@@ -351,9 +351,10 @@ def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
 		return old_value
 
 
-def dict_patcher(old_dict, schema_properties):
+def dict_patcher(old_dict, schema_properties, ont_schema_properties):
 	new_dict = {}
 	array_o_objs_dict = {}
+	onts = {}
 	for key in sorted(old_dict.keys()):
 		if old_dict[key] != '':  # this removes empty cells
 			path = key.split('.')
@@ -367,6 +368,11 @@ def dict_patcher(old_dict, schema_properties):
 				propA = path[0].split('-')[0]
 				propB = path[1]
 				if schema_properties[propA].get('linkTo') == 'OntologyTerm':
+					if onts.get(propA):
+						onts[propA][propB] = type_formatter(old_dict[key], ont_schema_properties, propB)
+					else:
+						onts[propA] = {}
+						onts[propA][propB] = type_formatter(old_dict[key], ont_schema_properties, propB)
 					if propB == 'term_id':
 						new_dict[propA] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
 				elif schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
@@ -447,7 +453,7 @@ def dict_patcher(old_dict, schema_properties):
 					array_o_objs_dict[prop][group_id][i] = nn_list
 			new_list.append(array_o_objs_dict[prop][group_id])
 		new_dict[prop] = new_list
-	return new_dict
+	return new_dict, onts
 
 
 def attachment(path):
@@ -556,7 +562,9 @@ def main():
 				row_count += 1
 				post_json = dict(zip(headers, row))
 				# convert values to the type specified in the schema, including embedded json objects
-				post_json = dict_patcher(post_json,schema_properties)
+				post_json, post_ont = dict_patcher(post_json,schema_properties, ont_term_schema)
+				for k, v in post_ont.items():
+					all_posts.setdefault('ontology_term', []).append((obj_type + '.' + k, v))
 				# add attchments here
 				if post_json.get('attachment'):
 					attach = attachment(post_json['attachment'])
@@ -564,6 +572,10 @@ def main():
 				obj_posts.append((row_count, post_json))
 			all_posts[schema_to_load] = obj_posts
 
+	if args.patchall:
+		patch_req = True
+	else:
+		patch_req = False
 	for schema in load_order: # go in order to try and get objects posted before they are referenced by another object
 		if all_posts.get(schema):
 			total = 0
@@ -589,28 +601,43 @@ def main():
 					temp_identifier = schema + '/' + post_json['gene_id']
 				elif post_json.get('aliases'):
 					temp_identifier = quote(post_json['aliases'][0])
-				patch_flag = False
 
 				try:
 					temp_identifier
 				except NameError:
 					temp = {}
+					temp_identifier = ''
 				else:
 					url = urljoin(server, temp_identifier + '/?format=json')
 					temp = requests.get(url, auth=connection.auth).json()
-					del temp_identifier
 					del url
 
 				if temp.get('uuid'): # if there is an existing corresponding object
-					if args.patchall:
-						patch_flag = True
-					else: # patch wasn't specified, see if the user wants to patch
-						print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(
-							temp.get('uuid')))
-						i = input('PATCH? y/n ')
+					if schema == 'ontology_term':
+						ont_mismatch = False
+						ont_patch = False
+						for k in post_json.keys():
+							if temp.get(k) and post_json[k] != temp.get(k):
+								print('ERROR: {}:{} {} of {} does not match existing {}'.format(row_count, k, post_json[k], post_json['term_id'], temp.get(k)))
+								ont_mismatch = True
+							elif not temp.get(k):
+								ont_patch = True
+						if ont_mismatch == False and ont_patch == True:
+							print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(temp_identifier))
+							i = input('PATCH? y/n: ')
+							if i.lower() == 'y':
+						 		patch_req = True
+						elif ont_mismatch == True:
+							i = input('EXIT SUBMISSION? y/n: ')
+							if i.lower() == 'y':
+								sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
+									sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
+					if patch_req == False: # patch wasn't specified, see if the user wants to patch
+						print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(temp_identifier))
+						i = input('PATCH? y/n: ')
 						if i.lower() == 'y':
-							patch_flag = True
-					if patch_flag == True and args.update:
+							patch_req = True
+					if patch_req == True and args.update:
 						e = lattice.patch_object(temp['uuid'], connection, post_json)
 						if e['status'] == 'error':
 							error += 1
@@ -641,6 +668,7 @@ def main():
 							success += 1
 
 				del temp
+				del temp_identifier
 
 			# Print now and later
 			print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
