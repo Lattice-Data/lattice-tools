@@ -626,17 +626,18 @@ def main():
 							elif not temp.get(k):
 								ont_patch = True
 						if ont_mismatch == False and ont_patch == True:
-							print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(temp_identifier))
+							print(schema.upper() + ' ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(post_json['term_id']))
 							i = input('PATCH? y/n: ')
 							if i.lower() == 'y':
 						 		patch_req = True
 						elif ont_mismatch == True:
+							print('OntologyTerm {} will not be updated'.format(post_json['term_id']))
 							i = input('EXIT SUBMISSION? y/n: ')
 							if i.lower() == 'y':
 								sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
 									sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-					if patch_req == False: # patch wasn't specified, see if the user wants to patch
-						print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(temp_identifier))
+					elif patch_req == False: # patch wasn't specified, see if the user wants to patch
+						print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(temp_id))
 						i = input('PATCH? y/n: ')
 						if i.lower() == 'y':
 							patch_req = True
