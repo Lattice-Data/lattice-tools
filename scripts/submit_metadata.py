@@ -502,6 +502,32 @@ def attachment(path):
 	raise ValueError('Unknown file type for %s' % filename)
 
 
+def check_existing_obj(post_json, schema, connection):
+	if post_json.get('uuid'):
+		temp_identifier = post_json['uuid']
+	elif post_json.get('accession'):
+		temp_identifier = post_json['accession']
+	elif post_json.get('external_accession'):
+		temp_identifier = post_json['external_accession']
+	elif post_json.get('name'):
+		temp_identifier = schema + '/' + post_json['name']
+	elif post_json.get('term_id'):
+		temp_identifier = schema + '/' + post_json['term_id'].replace(':','_')
+	elif post_json.get('gene_id'):
+		temp_identifier = schema + '/' + post_json['gene_id']
+	elif post_json.get('aliases'):
+		temp_identifier = quote(post_json['aliases'][0])
+	try:
+		temp_identifier
+	except NameError:
+		temp = {}
+		temp_identifier = ''
+	else:
+		url = urljoin(connection.server, temp_identifier + '/?format=json')
+		temp = requests.get(url, auth=connection.auth).json()
+	return temp_identifier, temp
+
+
 def main():
 	summary_report = []
 	args = getArgs()
@@ -587,30 +613,7 @@ def main():
 			for row_count, post_json in all_posts[schema]:
 				total += 1
 				#check for an existing object based on any possible identifier
-				if post_json.get('uuid'):
-					temp_identifier = post_json['uuid']
-				elif post_json.get('accession'):
-					temp_identifier = post_json['accession']
-				elif post_json.get('external_accession'):
-					temp_identifier = post_json['external_accession']
-				elif post_json.get('name'):
-					temp_identifier = schema + '/' + post_json['name']
-				elif post_json.get('term_id'):
-					temp_identifier = schema + '/' + post_json['term_id'].replace(':','_')
-				elif post_json.get('gene_id'):
-					temp_identifier = schema + '/' + post_json['gene_id']
-				elif post_json.get('aliases'):
-					temp_identifier = quote(post_json['aliases'][0])
-
-				try:
-					temp_identifier
-				except NameError:
-					temp = {}
-					temp_identifier = ''
-				else:
-					url = urljoin(server, temp_identifier + '/?format=json')
-					temp = requests.get(url, auth=connection.auth).json()
-					del url
+				temp_id, temp = check_existing_obj(post_json, schema, connection)
 
 				if temp.get('uuid'): # if there is an existing corresponding object
 					if schema == 'ontology_term':
@@ -666,9 +669,6 @@ def main():
 							new_accessions_aliases.append(('ROW ' + str(row_count), new_object.get(
 								'accession', new_object.get('uuid')), new_object.get('aliases', new_object.get('name'))))
 							success += 1
-
-				del temp
-				del temp_identifier
 
 			# Print now and later
 			print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
