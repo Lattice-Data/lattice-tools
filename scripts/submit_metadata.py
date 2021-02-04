@@ -386,8 +386,9 @@ def dict_patcher(old_dict, schema_properties, ont_schema_properties):
 							new_dict[propA] = {propB: temp_dict}
 			elif len(path) > 3:
 				print('ERROR:' + key + ': Not prepared to do triplpe-embedded properties, check for errant period')
-	new_list = []
+
 	for prop in array_o_objs_dict.keys():
+		new_list = []
 		for group_id in array_o_objs_dict[prop].keys():
 			for i in array_o_objs_dict[prop][group_id].keys():
 				if isinstance(array_o_objs_dict[prop][group_id][i], dict):
