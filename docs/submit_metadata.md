@@ -27,7 +27,7 @@ If the first value in a row (column A) begins with `#`, the entire row will be i
 
 If the first cell (A1) is either empty or begins with `schema_version=`, the entire first column (A) will be ignored. This action happens after the above avoidance of rows starting with `#`
 
-Any sheet with the name `Cover Sheet` will be ignored, capitalization does not matter, but the space does.
+Any sheet with the name **Cover Sheet** will be ignored, capitalization does not matter, but the space does.
 
 Objects with attachments (not tested)
 ---------------- 
