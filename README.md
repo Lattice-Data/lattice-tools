@@ -1,7 +1,7 @@
 # lattice-tools
 External scripts used to interact with the Lattice Database
 
-Environemnt configuration
+Environment configuration
 ---------------- 
 Create a new environment and activate it
 ```
@@ -14,7 +14,7 @@ $ conda activate lattice_submit
 
 Install the following packages
 ```
-$ pip install python-magic requests openpyxl Pillow gspread gspread_formatting oauth2client
+$ pip install python-magic requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
 $ conda install anndata -c conda-forge
 $ conda install pandas
 ```
