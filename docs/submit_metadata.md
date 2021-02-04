@@ -68,7 +68,7 @@ Embedded objects
 		]
 	Formatting in the document should be as follows for the above example:
 | plate_barcode_details.barcode | plate_barcode_details.plate_location |
-|:--|:--|:--|:--|
+|:--|:--|
 | ATGCCGCCG | A1 |
 
 	If you are submitting a list of multiple dictionary objects...
