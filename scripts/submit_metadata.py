@@ -252,8 +252,12 @@ def properties_validator(keys, schema, schema_properties, ont_props):
 							if propB not in schema_properties[propA]['items']['properties'][propB]['properties'].keys():
 								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
 								flag = True
+						elif schema_properties[propA]['items']['properties'][propB].get('linkTo') == "OntologyTerm":
+							if propC not in ont_props:
+								print('Property {} not found in OntologyTerm schema via schema {}.{}.{}'.format(propC, schema, propA, propB))
+								flag = True
 						else:
-							print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propB, schema, propC))
+							print('Not expecting subproperties for property {}.{} in schema {} ({} given) '.format(propA, propB, schema, propC))
 							flag = True
 				elif schema_properties[propA]['type'] == 'object':
 					if propB not in schema_properties[propA]['properties'].keys() and schema_properties[propA].get('additionalProperties') != True:
@@ -426,7 +430,25 @@ def dict_patcher(old_dict, schema_properties, ont_schema_properties):
 							array_o_objs_dict[propA][group][propB] = {}
 							array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
 					else: # this is an object within an array of objects
-						print('ATTENTION IS NEEDED HERE')
+						if schema_properties[propA]['items']['properties'][propB].get('linkTo') == 'OntologyTerm':
+							if onts.get(propB):
+								onts[propB][propC] = type_formatter(old_dict[key], ont_schema_properties, propC)
+							else:
+								onts[propB] = {}
+								onts[propB][propC] = type_formatter(old_dict[key], ont_schema_properties, propC)
+							if propC == 'term_id':
+								if array_o_objs_dict.get(propA):
+									if array_o_objs_dict[propA].get(group):
+										array_o_objs_dict[propA][group][propB] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
+									else:
+										array_o_objs_dict[propA][group] = {}
+										array_o_objs_dict[propA][group][propB] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
+								else:
+									array_o_objs_dict[propA] = {}
+									array_o_objs_dict[propA][group] = {}
+									array_o_objs_dict[propA][group][propB] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
+						else:
+							print('ATTENTION IS NEEDED HERE her here her')
 				else:
 					if schema_properties[propA][propB]['type'] == 'array': # this is an array of objects within an object
 						print('ATTENTION IS NEEDED HERE')
