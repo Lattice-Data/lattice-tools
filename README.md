@@ -1,7 +1,7 @@
 # lattice-tools
 External scripts used to interact with the Lattice Database
 
-Environemnt configuration
+Environment configuration
 ---------------- 
 Create a new environment and activate it
 ```
