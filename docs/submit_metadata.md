@@ -67,9 +67,9 @@ Embedded objects
 			}
 		]
 	Formatting in the document should be as follows for the above example:
-	| plate_barcode_details.barcode | plate_barcode_details.plate_location |
-	|:--|:--|:--|:--|
-	| ATGCCGCCG | A1 |
+| plate_barcode_details.barcode | plate_barcode_details.plate_location |
+|:--|:--|:--|:--|
+| ATGCCGCCG | A1 |
 
 	If you are submitting a list of multiple dictionary objects...
 	Ex:
@@ -85,9 +85,9 @@ Embedded objects
 		]
 
 	An identifier (number or letter) should be appended to the property names w/ '-' in order to group them appropriately
-	| plate_barcode_details-1.barcode | plate_barcode_details-1.plate_location | plate_barcode_details-2.barcode | plate_barcode_details-2.plate_location |
-	|:--|:--|:--|:--|
-	| ATGCCGCCG| A1 | TGAAACGAC | A2
+| plate_barcode_details-1.barcode | plate_barcode_details-1.plate_location | plate_barcode_details-2.barcode | plate_barcode_details-2.plate_location |
+|:--|:--|:--|:--|
+| ATGCCGCCG| A1 | TGAAACGAC | A2 |
 
 	For more complex cases of embedded objects within embedded objects, the same logic applies but there will be two properties to append identifiers to
 	For example, these columns would be expected for a MatrixFile that has a layer with 2 filtering_cutoffs and another layer with 1 filter_cutoff
