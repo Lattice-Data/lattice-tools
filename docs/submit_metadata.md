@@ -12,14 +12,16 @@ Name each sheet of the excel file the name of the object type you are using with
 
 The objects will be loaded in the order specified in encoded/src/loadxl.py `ORDER`
 
-Use the `--justtype` argument to only submit one of the object types, even if your file contains more sheets
-	Ex: `python submit_metadata.py -m local mydata.xsls --justtype Experiment`
+Use the `--justtype` argument to only submit one of the object types, even if your file contains more sheets. Example:
+```
+	$ python submit_metadata.py -m local mydata.xsls --justtype Experiment
+```
 
 Use the `--starttype` argument to start at an object type and only submit the sequential objects
 
 Spreadsheet formatting
 ---------------- 
-The top row of each sheet should be the names of the fields specified in the schema. The validity of these fields will be check during a 'dry-run' (i.e. if `--update` is not used)
+The top row of each sheet should be the names of the fields specified in the schema. The validity of these fields will be check during a "dry-run" (i.e. if `--update` is not used)
 
 If the first value in a row (column A) begins with `#`, the entire row will be ignored. This is useful if you want rows with property descriptors (e.g. description, enum, linkTo). These rows to ignore must be above metadata-to-submit rows or the Row number print-outs will be inaccurate
 
@@ -33,7 +35,7 @@ To upload objects with attachments (**Documents**), have a column titled `attach
 
 Patch existing objects
 ---------------- 
-If there is an idenitifying property (e.g. `uuid`, `alias`, `accession`, `name`, or `term_id`) in the sheet, and an existing object is found using that identifier, it will ask if you want to PATCH that object.
+If there is an idenitifying property (e.g. `uuid`, `alias`, `accession`, `name`, or `term_id`) in the sheet, and an existing object is found using that identifier, it will ask if you want to patch that object.
 
 Use `--patchall` if you want to patch ALL objects in your document and ignore that message.
 
