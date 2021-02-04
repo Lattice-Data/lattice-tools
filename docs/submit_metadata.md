@@ -45,13 +45,14 @@ Use '--patchall' if you want to patch ALL objects in your document and ignore th
 
 Ontology terms
 ---------------- 
-In most cases, a file does not need a separate OntologyTerm sheet. Instead, the field that linkTo:OntologyTerm
+In most cases, a file does not need a separate OntologyTerm sheet. Instead, the field in other object that linkTo:OntologyTerm
 can be split into 2 fields: <property>.term_name and <property>.term_id. The submission script will pair these
 together and submit the corresponding OntologyTerm, if it is not already in the DB. If it is in the DB, it will
 confirm that term_name, etc. from the sheet match the DB metadata, and error if there is any mismatch.
-Instead of a column for biosample_ontology with values that linkTo OntologyTerm (UBERON_0002113, CL_0000057),
-you can submit 2 columns biosample_ontology.term_id (UBERON:0002113, CL:0000057) and biosample_ontology.term_name (kidney, fibroblast).
-The above will not work for arrays of linkTo:OntologyTerm, like diseases. For that, a column labeled diseases is
+
+For example, instead of a column for `biosample_ontology` with values that linkTo OntologyTerm (UBERON_0002113, CL_0000057),
+you can submit 2 columns `biosample_ontology.term_id` (UBERON:0002113, CL:0000057) and `biosample_ontology.term_name` (kidney, fibroblast).
+The above will not work for arrays of linkTo:OntologyTerm, like `diseases`. For that, a column labeled `diseases` is
 expected and the values need to be comma-separated in the format to identify the OntologyTerm object to linkTo (MONDO_0005015, MONDO_0005565)
 
 Embedded objects
@@ -59,7 +60,6 @@ Embedded objects
 Embedded objects are assumed to be of the format of dictionary objects or a list of dictionary objects
 
 If you are submitting just one dictionary object...
-Ex:
 
 	 'plate_barcode_details': [
 			{
@@ -73,7 +73,6 @@ Formatting in the document should be as follows for the above example:
 | ATGCCGCCG | A1 |
 
 If you are submitting a list of multiple dictionary objects...
-Ex:
 
 	 'plate_barcode_details': [
 			{
