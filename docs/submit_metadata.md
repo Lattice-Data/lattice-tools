@@ -14,7 +14,7 @@ The objects will be loaded in the order specified in encoded/src/loadxl.py `ORDE
 
 Use the `--justtype` argument to only submit one of the object types, even if your file contains more sheets. Example:
 ```
-	$ python submit_metadata.py -m local mydata.xsls --justtype Experiment
+$ python submit_metadata.py -m local mydata.xsls --justtype Experiment
 ```
 
 Use the `--starttype` argument to start at an object type and only submit the sequential objects
