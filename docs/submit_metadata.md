@@ -60,32 +60,32 @@ Embedded objects
 
 	 If you are submitting just one dictionary object...
 	 Ex:
-	 'ancestry': [
+	 'plate_barcode_details': [
 			{
-				'ancestry_group': 'HANCESTRO_0019',
-				'percentage': 100
+				'barcode': 'ATGCCGCCG',
+				'plate_location': 'A1'
 			}
 		]
 	Formatting in the document should be as follows for the above example:
-	ancestry.ancestry_group		ancestry.percentage
-	HANCESTRO_0019				100
+	plate_barcode_details.barcode	plate_barcode_details.plate_location
+	ATGCCGCCG						A1
 
 	If you are submitting a list of multiple dictionary objects...
 	Ex:
-	 'ancestry': [
+	 'plate_barcode_details': [
 			{
-				'ancestry_group': 'HANCESTRO_0014',
-				'percentage': 75
+				'barcode': 'ATGCCGCCG',
+				'plate_location': 'A1'
 			},
 			{
-				'ancestry_group': 'HANCESTO_0005',
-				'percentage': 25
+				'barcode': 'TGAAACGAC',
+				'plate_location': 'A2'
 			}
 		]
 
 	An identifier (number or letter) should be appended to the property names w/ '-' in order to group them appropriately
-	ancestry-1.ancestry_group	ancestry-1.percentage	ancestry-2.ancestry_group	ancestry-2.percentage
-	HANCESTRO_0014				75						HANCESTO_0005				25
+	plate_barcode_details-1.barcode		plate_barcode_details-1.plate_location	plate_barcode_details-2.barcode		plate_barcode_details-2.plate_location
+	ATGCCGCCG							A1										TGAAACGAC							A2
 
 	For more complex cases of embedded objects within embedded objects, the same logic applies but there will be two properties to append identifiers to
 	For example, these columns would be expected for a MatrixFile that has a layer with 2 filtering_cutoffs and another layer with 1 filter_cutoff
