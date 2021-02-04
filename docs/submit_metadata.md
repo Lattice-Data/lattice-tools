@@ -34,7 +34,8 @@ Spreadsheet formatting
 
 Objects with attachments (not tested)
 ---------------- 
-	To upload objects with attachments (Documents), have a column titled 'attachment' containing the path and name of the file you wish to attach
+	To upload objects with attachments (Documents), have a column titled 'attachment'containing the
+	path and name of the file you wish to attach
 
 Patch existing objects
 ---------------- 
@@ -44,9 +45,14 @@ Patch existing objects
 
 Ontology terms
 ---------------- 
-	In most cases, a file does not need a separate OntologyTerm sheet. Instead, the field that linkTo:OntologyTerm can be split into 2 fields: <property>.term_name and <property>.term_id. The submission script will pair these together and submit the corresponding OntologyTerm, if it is not already in the DB. If it is in the DB, it will confirm that term_name, etc. from the sheet match the DB metadata, and error if there is any mismatch.
-	Instead of a column for biosample_ontology with values that linkTo OntologyTerm (UBERON_0002113, CL_0000057), you can submit 2 columns biosample_ontology.term_id (UBERON:0002113, CL:0000057) and biosample_ontology.term_name (kidney, fibroblast).
-	The above will not work for arrays of linkTo:OntologyTerm, like diseases. For that, a column labeled diseases is expected and the values need to be comma-separated in the format to identify the OntologyTerm object to linkTo (MONDO_0005015, MONDO_0005565)
+	In most cases, a file does not need a separate OntologyTerm sheet. Instead, the field that linkTo:OntologyTerm
+	can be split into 2 fields: <property>.term_name and <property>.term_id. The submission script will pair these
+	together and submit the corresponding OntologyTerm, if it is not already in the DB. If it is in the DB, it will
+	confirm that term_name, etc. from the sheet match the DB metadata, and error if there is any mismatch.
+	Instead of a column for biosample_ontology with values that linkTo OntologyTerm (UBERON_0002113, CL_0000057),
+	you can submit 2 columns biosample_ontology.term_id (UBERON:0002113, CL:0000057) and biosample_ontology.term_name (kidney, fibroblast).
+	The above will not work for arrays of linkTo:OntologyTerm, like diseases. For that, a column labeled diseases is
+	expected and the values need to be comma-separated in the format to identify the OntologyTerm object to linkTo (MONDO_0005015, MONDO_0005565)
 
 Embedded objects
 ---------------- 
@@ -83,4 +89,11 @@ Embedded objects
 
 	For more complex cases of embedded objects within embedded objects, the same logic applies but there will be two properties to append identifiers to
 	For example, these columns would be expected for a MatrixFile that has a layer with 2 filtering_cutoffs and another layer with 1 filter_cutoff
-	layers-1.label, layers-1.filtering_cutoffs-1.cutoff_value, layers-1.filtering_cutoffs-1.cutoff_units, layers-1.filtering_cutoffs-2.cutoff_value, layers-1.filtering_cutoffs-2.cutoff_units, layers-2.label, layers-2.filtering_cutoffs-1.cutoff_value, layers-2.filtering_cutoffs-1.cutoff_units
+	layers-1.label
+	layers-1.filtering_cutoffs-1.cutoff_value
+	layers-1.filtering_cutoffs-1.cutoff_units
+	layers-1.filtering_cutoffs-2.cutoff_value
+	layers-1.filtering_cutoffs-2.cutoff_units
+	layers-2.label
+	layers-2.filtering_cutoffs-1.cutoff_value
+	layers-2.filtering_cutoffs-1.cutoff_units
