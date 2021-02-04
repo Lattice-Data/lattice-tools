@@ -52,16 +52,15 @@ dataset_metadata = {
 	'final_matrix': [
 		'description',
 		'genome_annotation',
-		'default_field'
+		'default_visualization'
+		'default_embedding'
 		]
 	}
 
 annot_fields = [
 	'cell_ontology.term_name',
 	'cell_ontology.term_id',
-	'author_cell_type',
-	'genes_expressed_high',
-	'cell_ontology.cell_slims'
+	'author_cell_type'
 ]
 
 prop_map = {
@@ -81,7 +80,8 @@ prop_map = {
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
-	'matrix_default_field': 'default_field'
+	'matrix_default_visualization': 'default_field',
+	'matrix_default_embedding': 'default_embedding'
 }
 
 EPILOG = '''
@@ -417,6 +417,9 @@ def quality_check(adata):
 			sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 	if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
 		sys.exit("There are more genes in normalized genes than in raw matrix.")
+	if 'default_visualization' in adata.uns:
+		if adata.uns['default_visualization'] not in adata.obs.values:
+			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
 
 
 def report_diseases(values_to_add, donor_objs, sample_objs):
