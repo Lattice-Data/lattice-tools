@@ -257,12 +257,13 @@ def report_dataset(donor_objs, matrix, dataset):
 	layer_descs = {
 		'raw.X': 'raw'
 	}
+	derived_by = matrix.get('derivation_process')
 	for layer in matrix.get('layers'):
 		#label = layer.get('label')
 		units = layer.get('value_units', 'unknown')
 		scale = layer.get('value_scale', 'unknown')
 		norm_meth = layer.get('normalization_method', 'unknown')
-		desc = '{} counts; {} scaling; normalized using {}'.format(units, scale, norm_meth)
+		desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, derived_by)
 		layer_descs['X'] = desc
 	ds_results['layer_descriptions'] = layer_descs
 
@@ -578,7 +579,8 @@ def main(mfinal_id):
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	if converted_h5ad == []:
-		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=mfinal_adata.var, uns=cxg_uns)
+		cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var.var_names),]
+		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 		cxg_adata.raw = cxg_adata_raw
 		quality_check(cxg_adata)
 		results_file = mfinal_obj['accession']+".h5ad"
@@ -588,10 +590,10 @@ def main(mfinal_id):
 		for h5ad_assay in converted_h5ad:
 			if  h5ad_assay[1] == 'X':
 				matrix_loc = mfinal_adata.X
-				final_var = mfinal_adata.var
+				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.var.var_names),]
 			else:
 				matrix_loc = mfinal_adata.raw.X
-				final_var = mfinal_adata.raw.var
+				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var.index),]
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
