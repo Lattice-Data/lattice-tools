@@ -409,18 +409,15 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	return converted_h5ad
 
 
-# Quality check final anndata created for cxg
+# Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
 		sys.exit("There is at least one 'NaN' value in the cxg anndata obs dataframe.")
-	for gene in adata.var.index.tolist():
-		if gene not in adata.raw.var.index.tolist():
-			sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
-	if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
-		sys.exit("There are more genes in normalized genes than in raw matrix.")
-	if 'default_visualization' in adata.uns:
+	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
+	elif len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
+		sys.exit("There are more genes in normalized genes than in raw matrix.")
 
 
 def report_diseases(values_to_add, donor_objs, sample_objs):
@@ -559,8 +556,6 @@ def main(mfinal_id):
 		annot_row = pd.Series(annot_metadata, name=annot_obj['author_cell_type'])
 		annot_df = annot_df.append(annot_row)
 
-	print(annot_df)
-	print(ds_results)
 	# Concatenate all anndata objects in list and load parameters
 	# ->->STILL NEED TO ADD CXG SCHEMA VERSION IN UNS
 	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
@@ -577,9 +572,18 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
 	cxg_obs.drop(columns=['raw_matrix_accession','batch', celltype_col], inplace=True)
 
+	# Make sure gene ids match before using mfinal_data.var for cxg_adata
+	for gene in list(mfinal_adata.var_names):
+		if gene not in list(cxg_adata_raw.var_names):
+			if re.search(r'^[A-Za-z]\S+-[0-9]$', gene):
+				modified_gene = re.sub(r'(^[A-Z]\S+)-([0-9])$', r'\1.\2', gene)
+				mfinal_adata.var.rename(index={gene: modified_gene}, inplace=True)
+			else:
+				sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
+
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	if converted_h5ad == []:
-		cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var.var_names),]
+		cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 		cxg_adata.raw = cxg_adata_raw
 		quality_check(cxg_adata)
@@ -587,25 +591,26 @@ def main(mfinal_id):
 		cxg_adata.write(results_file)
 	else:
 		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
-		for h5ad_assay in converted_h5ad:
-			if  h5ad_assay[1] == 'X':
+		for i in range(len(converted_h5ad)):
+			if  converted_h5ad[i][1] == 'X':
+				if i != 0:
+					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
 				matrix_loc = mfinal_adata.X
-				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.var.var_names),]
+				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 			else:
+				if i != 0:
+					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
 				matrix_loc = mfinal_adata.raw.X
 				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var.index),]
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
 			if len(converted_h5ad) == 1:
-				results_file = mfinal_obj['accession']+".h5ad"
+				results_file = '{}.h5ad'.format(mfinal_obj['accession'])
 			else:
-				results_file = mfinal_obj['accession']+h5ad_assay[2]+".h5ad"
+				results_file = '{}_{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2])
 			cxg_adata.write(results_file)
 
-
-	# print the fields into a report
-	print(ds_results)
 	shutil.rmtree(tmp_dir)
 
 args = getArgs()
