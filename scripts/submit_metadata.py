@@ -6,6 +6,7 @@ import sys
 import logging
 import mimetypes
 import requests
+import ast
 import magic  # install me with 'pip install python-magic'
 from PIL import Image  # install me with 'pip install Pillow'
 from openpyxl import load_workbook
@@ -125,8 +126,11 @@ def cell_value(cell):
 	ctype = cell.data_type
 	cvalue = cell.value
 
-	if ctype in ['s','n']: # TYPE_STRING, TYPE_NUMERIC
-		return cvalue
+        if ctype == 's':  # TYPE_STRING
+                return cvalue
+
+        if ctype == 'n': # TYPE_NUMERIC
+                return ast.literal_eval(cvalue)
 
 	elif ctype == 'b': # TYPE_BOOL
 		return str(cvalue).upper()
