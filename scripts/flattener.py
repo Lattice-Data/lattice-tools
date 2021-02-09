@@ -489,7 +489,7 @@ def main(mfinal_id):
 	if mfinal_obj['file_format'] == 'hdf5' and re.search('h5ad$', mfinal_local_path):
 		mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	elif mfinal_obj['file_format'] == 'rds':
-		converted_h5ad = convert_from_rds(mfinal_local_path, assays, tmp_dir,mfinal_obj['author_cell_type_column'])
+		converted_h5ad = convert_from_rds(mfinal_local_path, assays, tmp_dir, mfinal_obj['author_cell_type_column'])
 		mfinal_adata = sc.read_h5ad(converted_h5ad[0][0])
 	else:
 		sys.exit('Do not recognize file format or exention {} {}'.format(mfinal_obj['file_format'], mfinal_local_path))
@@ -565,11 +565,16 @@ def main(mfinal_id):
 	cxg_uns = ds_results
 	cxg_obsm = get_embeddings(mfinal_adata)
 
-	# Prep obs dataframe
+	# Prep obs dataframe, add cluster assignment if author_cluster_column is in 
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+	if 'author_cluster_column' in mfinal_obj:
+		cluster_col = mfinal_obj['author_cluster_column']
+		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
+		cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
+		cxg_obs['author_cluster'] = cxg_obs['author_cluster'].astype('category')
 	cxg_obs.drop(columns=['raw_matrix_accession','batch', celltype_col], inplace=True)
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
