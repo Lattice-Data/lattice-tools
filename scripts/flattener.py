@@ -60,7 +60,8 @@ dataset_metadata = {
 annot_fields = [
 	'cell_ontology.term_name',
 	'cell_ontology.term_id',
-	'author_cell_type'
+	'author_cell_type',
+	'cell_ontology.cell_slims'
 ]
 
 prop_map = {
@@ -81,7 +82,8 @@ prop_map = {
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'matrix_default_visualization': 'default_field',
-	'matrix_default_embedding': 'default_embedding'
+	'matrix_default_embedding': 'default_embedding',
+	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category'
 }
 
 EPILOG = '''
@@ -263,7 +265,7 @@ def report_dataset(donor_objs, matrix, dataset):
 		units = layer.get('value_units', 'unknown')
 		scale = layer.get('value_scale', 'unknown')
 		norm_meth = layer.get('normalization_method', 'unknown')
-		desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, derived_by)
+		desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 		layer_descs['X'] = desc
 	ds_results['layer_descriptions'] = layer_descs
 
@@ -407,6 +409,22 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 		else:
 			converted_h5ad.append((h5ad_file,'raw.X', assay))
 	return converted_h5ad
+
+
+# If cell slims is a list, narrow down to one ontology
+def trim_cell_slims(df_annot):
+	cell_term_list = df_annot['cell_type_category'].tolist()
+	for i in range(len(cell_term_list)):
+		cell_terms = cell_term_list[i].split(',')
+		if len(cell_terms) > 1:
+			if 'epithelial cell' in cell_terms and 'endothelial cell' in cell_terms:
+				cell_term_list[i] = 'endothelial cell'
+			elif 'hematopoietic cell' in cell_terms and 'leukocyte' in cell_terms:
+				cell_term_list[i] = 'leukocyte'
+			else:
+				print("Warning, there is a cell_slims that is more than a single ontology: {}".format(cell_term_list[i]))
+	df_annot['cell_type_category'] = cell_term_list
+	return df_annot
 
 
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
@@ -555,6 +573,8 @@ def main(mfinal_id):
 		gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst)
 		annot_row = pd.Series(annot_metadata, name=annot_obj['author_cell_type'])
 		annot_df = annot_df.append(annot_row)
+	annot_df = trim_cell_slims(annot_df)
+	print(annot_df)
 
 	# Concatenate all anndata objects in list and load parameters
 	# ->->STILL NEED TO ADD CXG SCHEMA VERSION IN UNS
