@@ -61,7 +61,9 @@ annot_fields = [
 	'cell_ontology.term_name',
 	'cell_ontology.term_id',
 	'author_cell_type',
-	'cell_ontology.cell_slims'
+	'cell_ontology.cell_slims',
+	'enriched_marker_genes',
+	'depleted_marker_genes'
 ]
 
 prop_map = {
@@ -83,7 +85,9 @@ prop_map = {
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'matrix_default_visualization': 'default_field',
 	'matrix_default_embedding': 'default_embedding',
-	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category'
+	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
+	'cell_annotation_enriched_marker_genes': 'enriched_marker_genes',
+	'cell_annotation_depleted_marker_genes': 'depleted_marker_genes'
 }
 
 EPILOG = '''
@@ -187,7 +191,7 @@ def gather_objects(raw_matrix_file):
 
 
 def get_value(obj, prop):
-	unreported_value = 'unknown'
+	unreported_value = ''
 	path = prop.split('.')
 	if len(path) == 1:
 		return obj.get(prop, unreported_value)
@@ -416,13 +420,19 @@ def trim_cell_slims(df_annot):
 	cell_term_list = df_annot['cell_type_category'].tolist()
 	for i in range(len(cell_term_list)):
 		cell_terms = cell_term_list[i].split(',')
-		if len(cell_terms) > 1:
+		if len(cell_terms) == 2:
 			if 'epithelial cell' in cell_terms and 'endothelial cell' in cell_terms:
 				cell_term_list[i] = 'endothelial cell'
 			elif 'hematopoietic cell' in cell_terms and 'leukocyte' in cell_terms:
 				cell_term_list[i] = 'leukocyte'
+			elif 'fibroblast' in cell_terms and 'connective tissue cell' in cell_terms:
+				cell_term_list[i] = 'fibroblast'
+			elif 'pericyte' in cell_terms and 'connective tissue cell' in cell_terms:
+				cell_term_list[i] = 'pericyte'
 			else:
-				print("Warning, there is a cell_slims that is more than a single ontology: {}".format(cell_term_list[i]))
+				print("WARNING, there is a cell_slims that is more than a single ontology: {}".format(cell_term_list[i]))
+		elif len(cell_terms) > 2:
+			print("WARNING, there is a cell_slims that is more than a single ontology: {}".format(cell_term_list[i]))
 	df_annot['cell_type_category'] = cell_term_list
 	return df_annot
 
@@ -494,7 +504,6 @@ def main(mfinal_id):
 	os.mkdir(tmp_dir)
 	download_file(mfinal_obj, tmp_dir)
 
-
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
 	file_ext = file_url.split('.')[-1]
@@ -514,7 +523,6 @@ def main(mfinal_id):
 	mfinal_cell_identifiers = list(mfinal_adata.obs_names)
 
 	cxg_adata_lst = []
-
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
@@ -577,12 +585,14 @@ def main(mfinal_id):
 	print(annot_df)
 
 	# Concatenate all anndata objects in list and load parameters
-	# ->->STILL NEED TO ADD CXG SCHEMA VERSION IN UNS
 	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
 	cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 	if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 		sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
 	cxg_uns = ds_results
+	cxg_uns['version'] = {}
+	cxg_uns['version']['corpora_schema_version'] = 'v1.1.0'
+	cxg_uns['version']['corpora_encoding_version'] = 'v0.2.0'
 	cxg_obsm = get_embeddings(mfinal_adata)
 
 	# Prep obs dataframe, add cluster assignment if author_cluster_column is in 
@@ -590,6 +600,10 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+	if cxg_uns['organism'] == 'Homo sapiens':
+		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
+	else:
+		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'na', regex=True)
 	if 'author_cluster_column' in mfinal_obj:
 		cluster_col = mfinal_obj['author_cluster_column']
 		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
