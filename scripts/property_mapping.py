@@ -53,5 +53,9 @@ lattice_to_dcp = {
 	'RawSequenceFile': {
 		'class': 'sequence_file',
 		'uuid': 'provenance.document_id'
+		},
+	'SequencingRun': {
+		'class': 'sequencing_protcol',
+		'uuid': 'provenance.document_id'
 		}
 }
