@@ -92,7 +92,7 @@ def flatten_obj(obj):
 	return new_obj
 			
 
-def get_derived_from(temp_obj):
+def get_derived_from(temp_obj, next_remaining):
 	uuid = temp_obj['uuid']
 	# get identifiers for any object that referenced by this one
 	if temp_obj.get('derived_from'):
@@ -125,7 +125,7 @@ def get_links(temp_obj, der_fr):
 		links_dict[der_fr] = {'outputs': [outs]}
 
 
-def seq_to_susp(links_dict):
+def seq_to_susp():
 	all_susps = set()
 	for seqruns in list(links_dict.keys()):
 		susps = []
@@ -153,78 +153,80 @@ def seq_to_susp(links_dict):
 		del links_dict[seqruns]
 	return all_susps
 
-args = getArgs()
-if not args.dataset:
-	sys.exit('ERROR: --dataset is required')
-if not args.mode:
-	sys.exit('ERROR: --mode is required')
 
-connection = lattice.Connection(args.mode)
-server = connection.server
+def main():
+	schema_url = urljoin(server, 'profiles/?format=json')
+	schemas = requests.get(schema_url).json()
 
-schema_url = urljoin(server, 'profiles/?format=json')
-schemas = requests.get(schema_url).json()
+	url = urljoin(server, args.dataset + '/?format=json')
+	ds_obj = requests.get(url, auth=connection.auth).json()
+	dataset_id = ds_obj['uuid']
+	get_object(ds_obj)
 
-whole_dict = {}
-not_incl = {}
-links_dict = {}
-url = urljoin(server, args.dataset + '/?format=json')
-ds_obj = requests.get(url, auth=connection.auth).json()
-dataset_id = ds_obj['uuid']
-get_object(ds_obj)
-
-files = [i for i in ds_obj['files']]
-#libs = set()
-for f in files:
-	url = urljoin(server, f + '/?format=json')
-	temp_obj = requests.get(url, auth=connection.auth).json()
-	obj_type = temp_obj['@type'][0]
-	if obj_type == 'RawSequenceFile':
-		get_object(temp_obj)
-		get_links(temp_obj, tuple(temp_obj['derived_from']))
-		#libs.update(temp_obj['libraries'])
-
-susps = seq_to_susp(links_dict)
-
-
-seen = set()
-remaining = susps
-while remaining:
-	seen.update(remaining)
-	next_remaining = set()
-	for identifier in remaining:
-		url = urljoin(server, identifier + '/?format=json')
+	files = [i for i in ds_obj['files']]
+	#libs = set()
+	for f in files:
+		url = urljoin(server, f + '/?format=json')
 		temp_obj = requests.get(url, auth=connection.auth).json()
-		get_object(temp_obj)
-		get_derived_from(temp_obj)
-	remaining = next_remaining - seen
+		obj_type = temp_obj['@type'][0]
+		if obj_type == 'RawSequenceFile':
+			get_object(temp_obj)
+			get_links(temp_obj, tuple(temp_obj['derived_from']))
+			#libs.update(temp_obj['libraries'])
 
-print(not_incl)
+	susps = seq_to_susp()
 
-# make directory named after dataset
-os.mkdir(dataset_id)
-os.mkdir(dataset_id + '/metadata')
+	seen = set()
+	remaining = susps
+	while remaining:
+		seen.update(remaining)
+		next_remaining = set()
+		for identifier in remaining:
+			url = urljoin(server, identifier + '/?format=json')
+			temp_obj = requests.get(url, auth=connection.auth).json()
+			get_object(temp_obj)
+			get_derived_from(temp_obj, next_remaining)
+		remaining = next_remaining - seen
 
-links = []
-for k in links_dict.keys():
-	ins = []
-	for l in k:
-		url = urljoin(server, l + '/?format=json')
-		obj = requests.get(url, auth=connection.auth).json()	
-		lat_type = obj['@type'][0]
-		in_type = lattice_to_dcp[lat_type]['class']
-		ins.append({'input_type': in_type, 'input_id': obj['uuid']})
-	links_dict[k]['inputs'] = ins
-	links.append(links_dict[k])
-os.mkdir(dataset_id + '/links/')
-with open(dataset_id + '/links/links.json', 'w') as outfile:
-	json.dump(links, outfile, indent=4)
-	outfile.close()
+	print(not_incl)
 
-# write json files for each object type in the dataset directory
-for k in whole_dict.keys():
-	os.mkdir(dataset_id + '/metadata/' + k)
-	for o in whole_dict[k]:	
-	    with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '.json', 'w') as outfile:
-	        json.dump(o, outfile, indent=4)
-	        outfile.close()
+	# make directory named after dataset
+	os.mkdir(dataset_id)
+	os.mkdir(dataset_id + '/metadata')
+
+	links = []
+	for k in links_dict.keys():
+		ins = []
+		for l in k:
+			url = urljoin(server, l + '/?format=json')
+			obj = requests.get(url, auth=connection.auth).json()	
+			lat_type = obj['@type'][0]
+			in_type = lattice_to_dcp[lat_type]['class']
+			ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+		links_dict[k]['inputs'] = ins
+		links.append(links_dict[k])
+	os.mkdir(dataset_id + '/links/')
+	with open(dataset_id + '/links/links.json', 'w') as outfile:
+		json.dump(links, outfile, indent=4)
+		outfile.close()
+
+	# write json files for each object type in the dataset directory
+	for k in whole_dict.keys():
+		os.mkdir(dataset_id + '/metadata/' + k)
+		for o in whole_dict[k]:
+		    with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '.json', 'w') as outfile:
+		        json.dump(o, outfile, indent=4)
+		        outfile.close()
+
+if __name__ == '__main__':
+	whole_dict = {}
+	not_incl = {}
+	links_dict = {}
+	args = getArgs()
+	if not args.dataset:
+		sys.exit('ERROR: --dataset is required')
+	if not args.mode:
+		sys.exit('ERROR: --mode is required')
+	connection = lattice.Connection(args.mode)
+	server = connection.server
+	main()
