@@ -40,19 +40,37 @@ def get_object(temp_obj):
 	obj_type = temp_obj['@type'][0]
 
 	# remove fields with empty values or unnecessary fields
+	temp_obj = flatten_obj(temp_obj)
 	my_obj = {}
 	for k,v in temp_obj.items():
 		if lattice_to_dcp[obj_type].get(k):
 			dcp_prop = lattice_to_dcp[obj_type][k]
 			if '.' in dcp_prop:
 				path = dcp_prop.split('.')
-				if my_obj.get(path[0]):
-					my_obj[path[0]][path[1]] = v
-				else:
-					my_obj[path[0]] = {}
-					my_obj[path[0]][path[1]] = v
+				if len(path) == 2:
+					if my_obj.get(path[0]):
+						my_obj[path[0]][path[1]] = v
+					else:
+						my_obj[path[0]] = {}
+						my_obj[path[0]][path[1]] = v
+				elif len(path) == 3:
+					if my_obj.get(path[0]):
+						if my_obj[path[0]].get(path[1]):
+							my_obj[path[0]][path[1]][path[2]] = v
+						else:
+							my_obj[path[0]][path[1]] = {}
+							my_obj[path[0]][path[1]][path[2]] = v
+					else:
+						my_obj[path[0]] = {}
+						my_obj[path[0]][path[1]] = {}
+						my_obj[path[0]][path[1]][path[2]] = v
 			else:
 				my_obj[dcp_prop] = v
+		else:
+			if not_incl.get(obj_type):
+				not_incl[obj_type].add(k)
+			else:
+				not_incl[obj_type] = set(k)
 
 	dcp_obj_type = lattice_to_dcp[obj_type]['class']
 
@@ -62,6 +80,17 @@ def get_object(temp_obj):
 	else:
 		whole_dict[dcp_obj_type] = [my_obj]
 
+
+def flatten_obj(obj):
+	new_obj = {}
+	for k,v in obj.items():
+		if isinstance(v, dict):
+			for x,y in v.items():
+				new_obj[k + '.' + x] = y
+		else:
+			new_obj[k] = v
+	return new_obj
+			
 
 def get_derived_from(temp_obj):
 	uuid = temp_obj['uuid']
@@ -137,6 +166,7 @@ schema_url = urljoin(server, 'profiles/?format=json')
 schemas = requests.get(schema_url).json()
 
 whole_dict = {}
+not_incl = {}
 links_dict = {}
 url = urljoin(server, args.dataset + '/?format=json')
 ds_obj = requests.get(url, auth=connection.auth).json()
@@ -168,6 +198,8 @@ while remaining:
 		get_object(temp_obj)
 		get_derived_from(temp_obj)
 	remaining = next_remaining - seen
+
+print(not_incl)
 
 # make directory named after dataset
 os.mkdir(dataset_id)
