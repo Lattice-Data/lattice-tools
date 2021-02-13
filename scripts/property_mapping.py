@@ -87,6 +87,12 @@ lattice_to_dcp = {
 		},
 	'Library': {
 		'class': 'library_preparation_protocol',
+		'protocol.biological_macromolecule': 'input_nucleic_acid_molecule.text',
+		'protocol.end_bias': 'end_bias',
+		'protocol.library_amplification_method': 'cdna_library_amplification_method.text',
+		'protocol.library_preamplification_method': 'library_preamplification_method.text',
+		'protocol.strand_specificity': 'strand',
+		'protocol.title': 'library_construction_method.text',
 		'uuid': 'provenance.document_id'
 		},
 	'RawSequenceFile': {
@@ -100,6 +106,8 @@ lattice_to_dcp = {
 		},
 	'SequencingRun': {
 		'class': 'sequencing_protocol',
+		'flowcell_details.machine': 'local_machine_name',
+		'platform': 'instrument_manufacturer.text',
 		'uuid': 'provenance.document_id'
 		}
 }
