@@ -32,6 +32,8 @@ def getArgs():
                         help='Any identifier for the dataset of interest.')
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
+    parser.add_argument('--dcp',
+                        help='The directory to find the DCP metadata-schema.')
     args = parser.parse_args()
     return args
 
@@ -154,6 +156,46 @@ def seq_to_susp():
 	return all_susps
 
 
+def get_dcp_schema_ver(directory):
+	vers = {}
+	if not directory.endswith('/'):
+		directory = directory + '/'
+	v_file = directory + 'metadata-schema/json_schema/versions.json'
+	versions = json.load(open(v_file))
+	for v in versions['version_numbers'].values():
+		for k2,v2 in v.items():
+			if isinstance(v2, dict):
+				for k3,v3 in v2.items():
+					if isinstance(v3, dict):
+						for k4,v4 in v3.items():
+							vers[k4] = v4
+					else:
+						vers[k3] = v3
+			else:
+				vers[k2] = v2
+	return vers
+
+
+def format_links(links_dict):
+	links = []
+	for k in links_dict.keys():
+		ins = []
+		for l in k:
+			url = urljoin(server, l + '/?format=json')
+			obj = requests.get(url, auth=connection.auth).json()	
+			lat_type = obj['@type'][0]
+			in_type = lattice_to_dcp[lat_type]['class']
+			ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+		links_dict[k]['inputs'] = ins
+		links.append(links_dict[k])
+	return {
+		'links': links,
+		'schema_type': 'links',
+		'schema_version': dcp_vs['links'],
+		'describedBy': 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_vs['links'])
+		}
+
+
 def main():
 	schema_url = urljoin(server, 'profiles/?format=json')
 	schemas = requests.get(schema_url).json()
@@ -164,7 +206,6 @@ def main():
 	get_object(ds_obj)
 
 	files = [i for i in ds_obj['files']]
-	#libs = set()
 	for f in files:
 		url = urljoin(server, f + '/?format=json')
 		temp_obj = requests.get(url, auth=connection.auth).json()
@@ -172,7 +213,6 @@ def main():
 		if obj_type == 'RawSequenceFile':
 			get_object(temp_obj)
 			get_links(temp_obj, tuple(temp_obj['derived_from']))
-			#libs.update(temp_obj['libraries'])
 
 	susps = seq_to_susp()
 
@@ -188,35 +228,43 @@ def main():
 			get_derived_from(temp_obj, next_remaining)
 		remaining = next_remaining - seen
 
-	print(not_incl)
-
 	# make directory named after dataset
 	os.mkdir(dataset_id)
 	os.mkdir(dataset_id + '/metadata')
 
-	links = []
-	for k in links_dict.keys():
-		ins = []
-		for l in k:
-			url = urljoin(server, l + '/?format=json')
-			obj = requests.get(url, auth=connection.auth).json()	
-			lat_type = obj['@type'][0]
-			in_type = lattice_to_dcp[lat_type]['class']
-			ins.append({'input_type': in_type, 'input_id': obj['uuid']})
-		links_dict[k]['inputs'] = ins
-		links.append(links_dict[k])
+	final_links = format_links(links_dict)
 	os.mkdir(dataset_id + '/links/')
 	with open(dataset_id + '/links/links.json', 'w') as outfile:
-		json.dump(links, outfile, indent=4)
+		json.dump(final_links, outfile, indent=4)
 		outfile.close()
+
+	dcp_types = {
+		'project': 'project',
+		'donor_organism': 'biomaterial',
+		'specimen_from_organism': 'biomaterial',
+		'cell_line': 'biomaterial',
+		'organoid': 'biomaterial',
+		'cell_suspension': 'biomaterial',
+		'sequence_file': 'file',
+		'library_preparation_protocol': 'protocol/sequencing',
+		'sequencing_protocol': 'protocol/sequencing'
+	}
 
 	# write json files for each object type in the dataset directory
 	for k in whole_dict.keys():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
-		    with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '.json', 'w') as outfile:
-		        json.dump(o, outfile, indent=4)
-		        outfile.close()
+			o['schema_type'] = dcp_types[k]
+			o['schema_version'] = dcp_vs[k]
+			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
+			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '.json', 'w') as outfile:
+				json.dump(o, outfile, indent=4)
+				outfile.close()
+
+	for k,v in not_incl.items():
+		not_incl[k] = list(v)
+	with open(dataset_id + '/not_included.json', 'w') as outfile:
+		json.dump(not_incl, outfile, indent=4)
 
 if __name__ == '__main__':
 	whole_dict = {}
@@ -229,4 +277,5 @@ if __name__ == '__main__':
 		sys.exit('ERROR: --mode is required')
 	connection = lattice.Connection(args.mode)
 	server = connection.server
+	dcp_vs = get_dcp_schema_ver(args.dcp)
 	main()
