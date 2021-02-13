@@ -38,41 +38,59 @@ def getArgs():
     return args
 
 
+def test_mapping():
+	schema_url = urljoin(server, 'profiles/?format=json')
+	schemas = requests.get(schema_url).json()
+	for k,v in lattice_to_dcp.items():
+		schema_props = schemas[k]['properties']
+		for prop in v.keys():
+			if prop != 'class':
+				lat_prop = v[prop]['lattice']
+				if '.' in lat_prop:
+					path = lat_prop.split('.')
+					if path[0] not in schema_props:
+						print(k)
+						print(lat_prop)
+						print('--------')
+				elif lat_prop not in schema_props:
+					print(k)
+					print(lat_prop)
+					print('--------')
+	sys.exit()
+
+
 def get_object(temp_obj):
 	obj_type = temp_obj['@type'][0]
-
-	# remove fields with empty values or unnecessary fields
 	temp_obj = flatten_obj(temp_obj)
 	my_obj = {}
-	for k,v in temp_obj.items():
-		if lattice_to_dcp[obj_type].get(k):
-			dcp_prop = lattice_to_dcp[obj_type][k]
-			if '.' in dcp_prop:
-				path = dcp_prop.split('.')
-				if len(path) == 2:
-					if my_obj.get(path[0]):
-						my_obj[path[0]][path[1]] = v
-					else:
-						my_obj[path[0]] = {}
-						my_obj[path[0]][path[1]] = v
-				elif len(path) == 3:
-					if my_obj.get(path[0]):
-						if my_obj[path[0]].get(path[1]):
-							my_obj[path[0]][path[1]][path[2]] = v
+	for prop in lattice_to_dcp[obj_type].keys():
+		if prop != 'class':
+			lat_prop = lattice_to_dcp[obj_type][prop]['lattice']
+			if temp_obj.get(lat_prop):
+				v = temp_obj[lat_prop]
+				if lattice_to_dcp[obj_type][prop].get('value_map'):
+					v = lattice_to_dcp[obj_type][prop]['value_map'].get(v, v)
+				if '.' in prop:
+					path = prop.split('.')
+					if len(path) == 2:
+						if my_obj.get(path[0]):
+							my_obj[path[0]][path[1]] = v
 						else:
+							my_obj[path[0]] = {}
+							my_obj[path[0]][path[1]] = v
+					elif len(path) == 3:
+						if my_obj.get(path[0]):
+							if my_obj[path[0]].get(path[1]):
+								my_obj[path[0]][path[1]][path[2]] = v
+							else:
+								my_obj[path[0]][path[1]] = {}
+								my_obj[path[0]][path[1]][path[2]] = v
+						else:
+							my_obj[path[0]] = {}
 							my_obj[path[0]][path[1]] = {}
 							my_obj[path[0]][path[1]][path[2]] = v
-					else:
-						my_obj[path[0]] = {}
-						my_obj[path[0]][path[1]] = {}
-						my_obj[path[0]][path[1]][path[2]] = v
-			else:
-				my_obj[dcp_prop] = v
-		else:
-			if not_incl.get(obj_type):
-				not_incl[obj_type].add(k)
-			else:
-				not_incl[obj_type] = set(k)
+				else:
+					my_obj[prop] = v
 
 	dcp_obj_type = lattice_to_dcp[obj_type]['class']
 
@@ -197,9 +215,6 @@ def format_links(links_dict):
 
 
 def main():
-	schema_url = urljoin(server, 'profiles/?format=json')
-	schemas = requests.get(schema_url).json()
-
 	url = urljoin(server, args.dataset + '/?format=json')
 	ds_obj = requests.get(url, auth=connection.auth).json()
 	dataset_id = ds_obj['uuid']
