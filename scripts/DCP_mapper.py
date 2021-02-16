@@ -59,42 +59,89 @@ def test_mapping():
 	sys.exit()
 
 
+def split_dbxrefs(my_obj, dbxrefs, dbxref_map):
+	for i in dbxrefs:
+		path = i.split(':')
+		prefix = path[0]
+		v = path[1]
+		if dbxref_map.get(prefix):
+			prop = dbxref_map[prefix]
+			if my_obj.get('prop'):
+				my_obj[prop].append(v)
+			else:
+				my_obj[prop] = [v]
+
+
+def add_value(my_obj, temp_obj, prop_map, prop):
+	lat_prop = prop_map['lattice']
+	v = temp_obj[lat_prop]
+	if prop_map.get('value_map'):
+		v = prop_map['value_map'].get(v, v)
+	# lists of objects need to be mapped each item at a time
+	if isinstance(v, list) and prop_map.get('subprop_map'):
+		new_v = []
+		for i in v:
+			new_i = {}
+			for subprop in prop_map['subprop_map'].keys():
+				lat_subprop = prop_map['subprop_map'][subprop]['lattice']
+				if i.get(lat_subprop):
+					add_value(new_i, i, prop_map['subprop_map'][subprop], subprop)
+			new_v.append(new_i)
+			v = new_v
+	# map and create subobjects
+	if '.' in prop:
+		path = prop.split('.')
+		if len(path) == 2:
+			if my_obj.get(path[0]):
+				my_obj[path[0]][path[1]] = v
+			else:
+				my_obj[path[0]] = {}
+				my_obj[path[0]][path[1]] = v
+		elif len(path) == 3:
+			if my_obj.get(path[0]):
+				if my_obj[path[0]].get(path[1]):
+					my_obj[path[0]][path[1]][path[2]] = v
+				else:
+					my_obj[path[0]][path[1]] = {}
+					my_obj[path[0]][path[1]][path[2]] = v
+			else:
+				my_obj[path[0]] = {}
+				my_obj[path[0]][path[1]] = {}
+				my_obj[path[0]][path[1]][path[2]] = v
+	# Lattice dbxrefs are split into various DCP fields
+	elif prop == 'dbxrefs':
+		split_dbxrefs(my_obj, v, prop_map)
+	# add a mapped property and its value
+	else:
+		my_obj[prop] = v
+
+
 def get_object(temp_obj):
-	obj_type = temp_obj['@type'][0]
+	# drop unneeded properties, flatten subobjects
 	temp_obj = flatten_obj(temp_obj)
+
+	remove = set()
 	my_obj = {}
+	obj_type = temp_obj['@type'][0]
+
 	for prop in lattice_to_dcp[obj_type].keys():
 		if prop != 'class':
 			lat_prop = lattice_to_dcp[obj_type][prop]['lattice']
 			if temp_obj.get(lat_prop):
-				v = temp_obj[lat_prop]
-				if lattice_to_dcp[obj_type][prop].get('value_map'):
-					v = lattice_to_dcp[obj_type][prop]['value_map'].get(v, v)
-				if '.' in prop:
-					path = prop.split('.')
-					if len(path) == 2:
-						if my_obj.get(path[0]):
-							my_obj[path[0]][path[1]] = v
-						else:
-							my_obj[path[0]] = {}
-							my_obj[path[0]][path[1]] = v
-					elif len(path) == 3:
-						if my_obj.get(path[0]):
-							if my_obj[path[0]].get(path[1]):
-								my_obj[path[0]][path[1]][path[2]] = v
-							else:
-								my_obj[path[0]][path[1]] = {}
-								my_obj[path[0]][path[1]][path[2]] = v
-						else:
-							my_obj[path[0]] = {}
-							my_obj[path[0]][path[1]] = {}
-							my_obj[path[0]][path[1]][path[2]] = v
-				else:
-					my_obj[prop] = v
+				remove.add(lat_prop)
+				add_value(my_obj, temp_obj, lattice_to_dcp[obj_type][prop], prop)
 
 	dcp_obj_type = lattice_to_dcp[obj_type]['class']
 
-	# add the object if we haven't already done so
+	# remove mapped properties from the object and stash the rest to report later
+	for p in remove:
+		del temp_obj[p]
+	if not_incl.get(dcp_obj_type):
+		not_incl[dcp_obj_type].append(temp_obj)
+	else:
+		not_incl[dcp_obj_type] = [temp_obj]
+
+	# add the object of mapped properties
 	if whole_dict.get(dcp_obj_type):
 		whole_dict[dcp_obj_type].append(my_obj)
 	else:
@@ -102,13 +149,17 @@ def get_object(temp_obj):
 
 
 def flatten_obj(obj):
+	ignore = ['accession','actions','aliases','audit','contributing_files',
+		'date_created','libraries','original_files','status','submitted_by',
+		'superseded_by','supersedes']
 	new_obj = {}
 	for k,v in obj.items():
-		if isinstance(v, dict):
-			for x,y in v.items():
-				new_obj[k + '.' + x] = y
-		else:
-			new_obj[k] = v
+		if k not in ignore:
+			if isinstance(v, dict):
+				for x,y in v.items():
+					new_obj[k + '.' + x] = y
+			else:
+				new_obj[k] = v
 	return new_obj
 			
 
@@ -205,6 +256,8 @@ def format_links(links_dict):
 			in_type = lattice_to_dcp[lat_type]['class']
 			ins.append({'input_type': in_type, 'input_id': obj['uuid']})
 		links_dict[k]['inputs'] = ins
+		links_dict[k]['link_type'] = 'process_link'
+		links_dict[k]['process_type'] = 'process'
 		links.append(links_dict[k])
 	return {
 		'links': links,
@@ -215,22 +268,28 @@ def format_links(links_dict):
 
 
 def main():
+	# get the dataset, and convert it to a project object
 	url = urljoin(server, args.dataset + '/?format=json')
 	ds_obj = requests.get(url, auth=connection.auth).json()
 	dataset_id = ds_obj['uuid']
 	get_object(ds_obj)
 
+	# get the raw sequence files from that dataset
 	files = [i for i in ds_obj['files']]
 	for f in files:
 		url = urljoin(server, f + '/?format=json')
 		temp_obj = requests.get(url, auth=connection.auth).json()
 		obj_type = temp_obj['@type'][0]
 		if obj_type == 'RawSequenceFile':
+			# convert each to a sequence_file
 			get_object(temp_obj)
+			# pull the derived_from to store for later formation to links
 			get_links(temp_obj, tuple(temp_obj['derived_from']))
 
+	# special walkback of graph until Suspension object
 	susps = seq_to_susp()
 
+	# walkback graph the rest of the way
 	seen = set()
 	remaining = susps
 	while remaining:
@@ -247,6 +306,7 @@ def main():
 	os.mkdir(dataset_id)
 	os.mkdir(dataset_id + '/metadata')
 
+	# reformat links to use uuids and put in required schema
 	final_links = format_links(links_dict)
 	os.mkdir(dataset_id + '/links/')
 	with open(dataset_id + '/links/links.json', 'w') as outfile:
@@ -265,11 +325,11 @@ def main():
 		'sequencing_protocol': 'protocol/sequencing'
 	}
 
-	# write json files for each object type in the dataset directory
+	# write a json file for each object
 	for k in whole_dict.keys():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
-			o['schema_type'] = dcp_types[k]
+			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '.json', 'w') as outfile:
