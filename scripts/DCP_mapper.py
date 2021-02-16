@@ -4,6 +4,7 @@ import lattice
 import os
 import requests
 import sys
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 from property_mapping import (
     lattice_to_dcp
@@ -302,6 +303,9 @@ def main():
 			get_derived_from(temp_obj, next_remaining)
 		remaining = next_remaining - seen
 
+	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
+	dt = str(d_now).replace('+00:00', 'Z')
+
 	# make directory named after dataset
 	os.mkdir(dataset_id)
 	os.mkdir(dataset_id + '/metadata')
@@ -309,7 +313,7 @@ def main():
 	# reformat links to use uuids and put in required schema
 	final_links = format_links(links_dict)
 	os.mkdir(dataset_id + '/links/')
-	with open(dataset_id + '/links/links.json', 'w') as outfile:
+	with open(dataset_id + '/links/links_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
 		json.dump(final_links, outfile, indent=4)
 		outfile.close()
 
@@ -332,7 +336,7 @@ def main():
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
-			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '.json', 'w') as outfile:
+			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
 				json.dump(o, outfile, indent=4)
 				outfile.close()
 
