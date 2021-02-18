@@ -198,36 +198,12 @@ def get_links(temp_obj, der_fr, links_dict):
 		links_dict[der_fr] = {'outputs': [outs]}
 
 
-def add_links(temp_obj, der_fr, links):
-	ins = []
-	for i in der_fr:
-		url = urljoin(server, i + '/?format=json')
-		obj = requests.get(url, auth=connection.auth).json()
-		lat_type = obj['@type'][0]
-		in_type = lattice_to_dcp[lat_type]['class']
-		ins.append({'input_type': in_type, 'input_id': obj['uuid']})
-	lat_type = temp_obj['@type'][0]
-	out_type = lattice_to_dcp[lat_type]['class']
-	outs = [{'output_type': out_type, 'output_id': temp_obj['uuid']}]
-	link = {
-		'outputs': outs,
-		'inputs': ins
-		}
-	link_hash = hashlib.md5(str(link).encode('utf-8')).hexdigest()
-	link['link_type'] = 'process_link'
-	link['process_type'] = 'process'
-	link['process_id'] = link_hash
-	for i in links.copy():
-		index = links.index(i)
-		for i2 in i['links']:
-			for i3 in i2['inputs']:
-				if temp_obj['uuid'] == i3['input_id']:
-					links[index]['links'].append(link)
-
-
 def seq_to_susp(links_dict):
+	links = []
 	all_susps = set()
 	for seqruns in list(links_dict.keys()):
+		l = {}
+		ins = []
 		susps = []
 		protocols = []
 		for sr in seqruns:
@@ -240,6 +216,10 @@ def seq_to_susp(links_dict):
 			get_object(lib_obj)
 			susps.extend([i['uuid'] for i in lib_obj['derived_from']])
 			all_susps.update(susps)
+			for obj in lib_obj['derived_from']:	
+				lat_type = obj['@type'][0]
+				in_type = lattice_to_dcp[lat_type]['class']
+				ins.append({'input_type': in_type, 'input_id': obj['uuid']})
 			lib_type = lib_obj['@type'][0]
 			dcp_type = lattice_to_dcp[lib_type]['class']
 			lib_prot = {'protocol_type': dcp_type, 'protocol_id': lib_obj['uuid']}
@@ -248,31 +228,52 @@ def seq_to_susp(links_dict):
 			dcp_type = lattice_to_dcp[sr_type]['class']
 			seq_prot = {'protocol_type': dcp_type, 'protocol_id': sr_obj['uuid']}
 			protocols.append(seq_prot)
-		links_dict[seqruns]['protocols'] = protocols
-		links_dict[tuple(susps)] = links_dict[seqruns]
-		del links_dict[seqruns]
-	return all_susps
-
-
-def reformat_links(links_dict):
-	links = []
-	for k,v in links_dict.items():
-		link = {}
-		ins = []
-		for uuid in k:
-			url = urljoin(server, uuid + '/?format=json')
-			obj = requests.get(url, auth=connection.auth).json()	
-			lat_type = obj['@type'][0]
-			in_type = lattice_to_dcp[lat_type]['class']
-			ins.append({'input_type': in_type, 'input_id': obj['uuid']})
-		v['inputs'] = ins
-		link_hash = hashlib.md5(str(v).encode('utf-8')).hexdigest()
-		v['link_type'] = 'process_link'
-		v['process_type'] = 'process'
-		v['process_id'] = link_hash
-		link['links'] = [v]
+		l = {
+			'protocols': protocols,
+			'inputs': ins,
+			'outputs': links_dict[seqruns]
+			}
+		link_hash = hashlib.md5(str(l).encode('utf-8')).hexdigest()
+		l['link_type'] = 'process_link'
+		l['process_type'] = 'process'
+		l['process_id'] = link_hash
+		link = {'links': [l]}
 		links.append(link)
-	return links
+	return all_susps, links
+
+
+def create_protocol(der_process):
+	return der_process
+
+
+def add_links(temp_obj, der_fr, links):
+	ins = []
+	for i in der_fr:
+		url = urljoin(server, i + '/?format=json')
+		obj = requests.get(url, auth=connection.auth).json()
+		lat_type = obj['@type'][0]
+		in_type = lattice_to_dcp[lat_type]['class']
+		ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+	lat_type = temp_obj['@type'][0]
+	out_type = lattice_to_dcp[lat_type]['class']
+	outs = [{'output_type': out_type, 'output_id': temp_obj['uuid']}]
+	prots = create_protocol(temp_obj['derivation_process'])
+	link = {
+		'outputs': outs,
+		'inputs': ins,
+		'protocols': prots
+		}
+	link_hash = hashlib.md5(str(link).encode('utf-8')).hexdigest()
+	link['link_type'] = 'process_link'
+	link['process_type'] = 'process'
+	link['process_id'] = link_hash
+	for i in links.copy():
+		index = links.index(i)
+		for i2 in i['links']:
+			for i3 in i2['inputs']:
+				if temp_obj['uuid'] == i3['input_id']:
+					links[index]['links'].append(link)
+
 
 def get_dcp_schema_ver(directory):
 	vers = {}
@@ -315,8 +316,9 @@ def main():
 			get_links(temp_obj, tuple(temp_obj['derived_from']), links_dict)
 
 	# special walkback of graph until Suspension object
-	susps = seq_to_susp(links_dict)
-	links = reformat_links(links_dict)
+	# gather all the Suspension objects to traverse next
+	# set up links between sequence_file and suspension as the start of each subgraph
+	susps, links = seq_to_susp(links_dict)
 
 	# walkback graph the rest of the way
 	seen = set()
