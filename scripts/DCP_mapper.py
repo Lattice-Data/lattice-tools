@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import lattice
 import os
@@ -164,30 +165,30 @@ def flatten_obj(obj):
 	return new_obj
 			
 
-def get_derived_from(temp_obj, next_remaining):
+def get_derived_from(temp_obj, next_remaining, links):
 	uuid = temp_obj['uuid']
 	# get identifiers for any object that referenced by this one
 	if temp_obj.get('derived_from'):
 		if isinstance(temp_obj['derived_from'], str):
 			next_remaining.add(temp_obj['derived_from'])
-			get_links(temp_obj, tuple(temp_obj['derived_from']))
+			add_links(temp_obj, tuple(temp_obj['derived_from']), links)
 		elif isinstance(temp_obj['derived_from'], dict):
 			der_fr = temp_obj['derived_from']['@id']
 			next_remaining.add(der_fr)
-			get_links(temp_obj, tuple(der_fr))
+			add_links(temp_obj, tuple(der_fr), links)
 		elif isinstance(temp_obj['derived_from'], list):
 			if isinstance(temp_obj['derived_from'][0], str):
 				next_remaining.update(temp_obj['derived_from'])
-				get_links(temp_obj, tuple(temp_obj['derived_from']))
+				add_links(temp_obj, tuple(temp_obj['derived_from']), links)
 			elif isinstance(temp_obj['derived_from'][0], dict):
 				der_fr = ()
 				for o in temp_obj['derived_from']:
 					next_remaining.add(o['@id'])
 					der_fr = der_fr + (o['@id'],)
-				get_links(temp_obj, der_fr)
+				add_links(temp_obj, der_fr, links)
 
 
-def get_links(temp_obj, der_fr):
+def get_links(temp_obj, der_fr, links_dict):
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
 	outs = {'output_type': out_type, 'output_id': temp_obj['uuid']}
@@ -197,7 +198,34 @@ def get_links(temp_obj, der_fr):
 		links_dict[der_fr] = {'outputs': [outs]}
 
 
-def seq_to_susp():
+def add_links(temp_obj, der_fr, links):
+	ins = []
+	for i in der_fr:
+		url = urljoin(server, i + '/?format=json')
+		obj = requests.get(url, auth=connection.auth).json()
+		lat_type = obj['@type'][0]
+		in_type = lattice_to_dcp[lat_type]['class']
+		ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+	lat_type = temp_obj['@type'][0]
+	out_type = lattice_to_dcp[lat_type]['class']
+	outs = [{'output_type': out_type, 'output_id': temp_obj['uuid']}]
+	link = {
+		'outputs': outs,
+		'inputs': ins
+		}
+	link_hash = hashlib.md5(str(link).encode('utf-8')).hexdigest()
+	link['link_type'] = 'process_link'
+	link['process_type'] = 'process'
+	link['process_id'] = link_hash
+	for i in links.copy():
+		index = links.index(i)
+		for i2 in i['links']:
+			for i3 in i2['inputs']:
+				if temp_obj['uuid'] == i3['input_id']:
+					links[index]['links'].append(link)
+
+
+def seq_to_susp(links_dict):
 	all_susps = set()
 	for seqruns in list(links_dict.keys()):
 		susps = []
@@ -226,6 +254,26 @@ def seq_to_susp():
 	return all_susps
 
 
+def reformat_links(links_dict):
+	links = []
+	for k,v in links_dict.items():
+		link = {}
+		ins = []
+		for uuid in k:
+			url = urljoin(server, uuid + '/?format=json')
+			obj = requests.get(url, auth=connection.auth).json()	
+			lat_type = obj['@type'][0]
+			in_type = lattice_to_dcp[lat_type]['class']
+			ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+		v['inputs'] = ins
+		link_hash = hashlib.md5(str(v).encode('utf-8')).hexdigest()
+		v['link_type'] = 'process_link'
+		v['process_type'] = 'process'
+		v['process_id'] = link_hash
+		link['links'] = [v]
+		links.append(link)
+	return links
+
 def get_dcp_schema_ver(directory):
 	vers = {}
 	if not directory.endswith('/'):
@@ -246,28 +294,6 @@ def get_dcp_schema_ver(directory):
 	return vers
 
 
-def format_links(links_dict):
-	links = []
-	for k in links_dict.keys():
-		ins = []
-		for l in k:
-			url = urljoin(server, l + '/?format=json')
-			obj = requests.get(url, auth=connection.auth).json()	
-			lat_type = obj['@type'][0]
-			in_type = lattice_to_dcp[lat_type]['class']
-			ins.append({'input_type': in_type, 'input_id': obj['uuid']})
-		links_dict[k]['inputs'] = ins
-		links_dict[k]['link_type'] = 'process_link'
-		links_dict[k]['process_type'] = 'process'
-		links.append(links_dict[k])
-	return {
-		'links': links,
-		'schema_type': 'links',
-		'schema_version': dcp_vs['links'],
-		'describedBy': 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_vs['links'])
-		}
-
-
 def main():
 	# get the dataset, and convert it to a project object
 	url = urljoin(server, args.dataset + '/?format=json')
@@ -276,6 +302,7 @@ def main():
 	get_object(ds_obj)
 
 	# get the raw sequence files from that dataset
+	links_dict = {}
 	files = [i for i in ds_obj['files']]
 	for f in files:
 		url = urljoin(server, f + '/?format=json')
@@ -285,10 +312,11 @@ def main():
 			# convert each to a sequence_file
 			get_object(temp_obj)
 			# pull the derived_from to store for later formation to links
-			get_links(temp_obj, tuple(temp_obj['derived_from']))
+			get_links(temp_obj, tuple(temp_obj['derived_from']), links_dict)
 
 	# special walkback of graph until Suspension object
-	susps = seq_to_susp()
+	susps = seq_to_susp(links_dict)
+	links = reformat_links(links_dict)
 
 	# walkback graph the rest of the way
 	seen = set()
@@ -300,7 +328,7 @@ def main():
 			url = urljoin(server, identifier + '/?format=json')
 			temp_obj = requests.get(url, auth=connection.auth).json()
 			get_object(temp_obj)
-			get_derived_from(temp_obj, next_remaining)
+			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
 
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
@@ -309,13 +337,17 @@ def main():
 	# make directory named after dataset
 	os.mkdir(dataset_id)
 	os.mkdir(dataset_id + '/metadata')
+	os.mkdir(dataset_id + '/links/')
 
 	# reformat links to use uuids and put in required schema
-	final_links = format_links(links_dict)
-	os.mkdir(dataset_id + '/links/')
-	with open(dataset_id + '/links/links_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
-		json.dump(final_links, outfile, indent=4)
-		outfile.close()
+	for i in links:
+		i['schema_type'] = 'links'
+		i['schema_version'] = dcp_vs['links']
+		i['describedBy'] = 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_vs['links'])
+		first_id = i['links'][0]['process_id']
+		with open(dataset_id + '/links/' + first_id + '_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
+			json.dump(i, outfile, indent=4)
+			outfile.close()
 
 	dcp_types = {
 		'project': 'project',
@@ -348,7 +380,6 @@ def main():
 if __name__ == '__main__':
 	whole_dict = {}
 	not_incl = {}
-	links_dict = {}
 	args = getArgs()
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
