@@ -86,44 +86,54 @@ def add_value(my_obj, temp_obj, prop_map, prop):
 	lat_prop = prop_map['lattice']
 	v = temp_obj[lat_prop]
 	if prop_map.get('value_map'):
-		v = prop_map['value_map'].get(v, v)
-	# lists of objects need to be mapped each item at a time
-	if isinstance(v, list) and prop_map.get('subprop_map'):
-		new_v = []
-		for i in v:
-			new_i = {}
-			for subprop in prop_map['subprop_map'].keys():
-				lat_subprop = prop_map['subprop_map'][subprop]['lattice']
-				if i.get(lat_subprop):
-					add_value(new_i, i, prop_map['subprop_map'][subprop], subprop)
-			new_v.append(new_i)
-			v = new_v
-	# map and create subobjects
-	if '.' in prop:
-		path = prop.split('.')
-		if len(path) == 2:
-			if my_obj.get(path[0]):
-				my_obj[path[0]][path[1]] = v
-			else:
-				my_obj[path[0]] = {}
-				my_obj[path[0]][path[1]] = v
-		elif len(path) == 3:
-			if my_obj.get(path[0]):
-				if my_obj[path[0]].get(path[1]):
-					my_obj[path[0]][path[1]][path[2]] = v
+		v = prop_map['value_map'].get(v)
+	if not v:
+		add_to_not_incl(lat_prop, v)
+	else:
+		# lists of objects need to be mapped each item at a time
+		if isinstance(v, list) and prop_map.get('subprop_map'):
+			new_v = []
+			for i in v:
+				new_i = {}
+				for subprop in prop_map['subprop_map'].keys():
+					lat_subprop = prop_map['subprop_map'][subprop]['lattice']
+					if i.get(lat_subprop):
+						add_value(new_i, i, prop_map['subprop_map'][subprop], subprop)
+				new_v.append(new_i)
+				v = new_v
+		# map and create subobjects
+		if '.' in prop:
+			path = prop.split('.')
+			if len(path) == 2:
+				if my_obj.get(path[0]):
+					my_obj[path[0]][path[1]] = v
 				else:
+					my_obj[path[0]] = {}
+					my_obj[path[0]][path[1]] = v
+			elif len(path) == 3:
+				if my_obj.get(path[0]):
+					if my_obj[path[0]].get(path[1]):
+						my_obj[path[0]][path[1]][path[2]] = v
+					else:
+						my_obj[path[0]][path[1]] = {}
+						my_obj[path[0]][path[1]][path[2]] = v
+				else:
+					my_obj[path[0]] = {}
 					my_obj[path[0]][path[1]] = {}
 					my_obj[path[0]][path[1]][path[2]] = v
-			else:
-				my_obj[path[0]] = {}
-				my_obj[path[0]][path[1]] = {}
-				my_obj[path[0]][path[1]][path[2]] = v
-	# Lattice dbxrefs are split into various DCP fields
-	elif prop == 'dbxrefs':
-		split_dbxrefs(my_obj, v, prop_map)
-	# add a mapped property and its value
+		# Lattice dbxrefs are split into various DCP fields
+		elif prop == 'dbxrefs':
+			split_dbxrefs(my_obj, v, prop_map)
+		# add a mapped property and its value
+		else:
+			my_obj[prop] = v
+
+
+def add_to_not_incl(prop, value):
+	if not_incl.get(prop):
+		not_incl[prop].add(str(value))
 	else:
-		my_obj[prop] = v
+		not_incl[prop] = {str(value)}
 
 
 def get_object(temp_obj):
@@ -146,10 +156,8 @@ def get_object(temp_obj):
 	# remove mapped properties from the object and stash the rest to report later
 	for p in remove:
 		del temp_obj[p]
-	if not_incl.get(dcp_obj_type):
-		not_incl[dcp_obj_type].append(temp_obj)
-	else:
-		not_incl[dcp_obj_type] = [temp_obj]
+	for k,v in temp_obj.items():
+		add_to_not_incl(k, v)
 
 	# add the object of mapped properties
 	if whole_dict.get(dcp_obj_type):
