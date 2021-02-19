@@ -242,8 +242,60 @@ def seq_to_susp(links_dict):
 	return all_susps, links
 
 
-def create_protocol(der_process):
-	return der_process
+def create_protocol(in_type, out_type, out_obj):
+	prots = []
+	der_process = out_obj['derivation_process']
+	my_obj = {
+		'provenance': {},
+		'protocol_core': {},
+		'method': {
+			'text': ','.join(der_process)
+		}
+	}
+	if in_type == 'donor_organism':
+		pr_type = 'collection_protocol'
+	elif out_type == 'cell_suspension' and in_type != 'cell_suspension':
+		pr_type = 'dissociation_protocol'
+	elif out_type == 'organoid' and in_type == 'cell_line':
+		pr_type = 'differentiation_protocol'
+	else:
+		pr_type = 'protocol'
+	pr_id = hashlib.md5(str([pr_type + out_obj['uuid']]).encode('utf-8')).hexdigest()
+
+	prots.append({'protocol_type': pr_type, 'protocol_id': pr_id})
+	
+	my_obj['protocol_core']['protocol_id'] = pr_id
+	my_obj['provenance']['document_id'] = pr_id
+	if whole_dict.get(pr_type):
+		whole_dict[pr_type].append(my_obj)
+	else:
+		whole_dict[pr_type] = [my_obj]
+	
+	if 'enrichment_factors' in out_obj:
+		pr_type = 'enrichment_protocol'
+		enpr_id = hashlib.md5(str([pr_type + out_obj['uuid']]).encode('utf-8')).hexdigest()
+		prots.apppend({
+			'protocol_type': pr_type,
+			'protocol_id': enpr_id
+			})
+		enr_obj = {
+			'provenance': {
+				'document_id': enpr_id
+			},
+			'protocol_core': {
+				'protocol_id': enpr_id
+				},
+			'method': {
+				'text': ','.join(der_process)
+				},
+			'enirchment_markers': out_type[pr_type]
+			}
+		if whole_dict.get(pr_type):
+			whole_dict[pr_type].append(enr_obj)
+		else:
+			whole_dict[pr_type] = [enr_obj]
+
+	return prots
 
 
 def add_links(temp_obj, der_fr, links):
@@ -257,7 +309,7 @@ def add_links(temp_obj, der_fr, links):
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
 	outs = [{'output_type': out_type, 'output_id': temp_obj['uuid']}]
-	prots = create_protocol(temp_obj['derivation_process'])
+	prots = create_protocol(in_type, out_type, temp_obj)
 	link = {
 		'outputs': outs,
 		'inputs': ins,
@@ -360,7 +412,12 @@ def main():
 		'cell_suspension': 'biomaterial',
 		'sequence_file': 'file',
 		'library_preparation_protocol': 'protocol/sequencing',
-		'sequencing_protocol': 'protocol/sequencing'
+		'sequencing_protocol': 'protocol/sequencing',
+		'dissociation_protocol': 'protocol/biomaterial_collection',
+		'collection_protocol': 'protocol/biomaterial_collection',
+		'enrichment_protcol': 'protocol/biomaterial_collection',
+		'differentiation_protocol': 'protocol/biomaterial_collection',
+		'protocol': 'protocol'
 	}
 
 	# write a json file for each object
