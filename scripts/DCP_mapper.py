@@ -68,7 +68,15 @@ def split_dbxrefs(my_obj, dbxrefs, dbxref_map):
 		v = path[1]
 		if dbxref_map.get(prefix):
 			prop = dbxref_map[prefix]
-			if my_obj.get('prop'):
+			if '.' in prop:
+				path = prop.split('.')
+				if len(path) == 2:
+					if my_obj.get(path[0]):
+						my_obj[path[0]][path[1]] = v
+					else:
+						my_obj[path[0]] = {}
+						my_obj[path[0]][path[1]] = v
+			elif my_obj.get('prop'):
 				my_obj[prop].append(v)
 			else:
 				my_obj[prop] = [v]
