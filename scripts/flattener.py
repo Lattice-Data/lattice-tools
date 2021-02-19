@@ -52,7 +52,7 @@ dataset_metadata = {
 	'final_matrix': [
 		'description',
 		'genome_annotation',
-		'default_visualization'
+		'default_visualization',
 		'default_embedding'
 		]
 	}
@@ -61,9 +61,7 @@ annot_fields = [
 	'cell_ontology.term_name',
 	'cell_ontology.term_id',
 	'author_cell_type',
-	'cell_ontology.cell_slims',
-	'enriched_marker_genes',
-	'depleted_marker_genes'
+	'cell_ontology.cell_slims'
 ]
 
 prop_map = {
@@ -76,10 +74,9 @@ prop_map = {
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_life_stage': 'development_stage',
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
+	'donor_age_display': 'donor_age',
 	'matrix_genome_annotation': 'reference_annotation_version',
 	'matrix_description': 'title',
-	'dataset_references_publication_doi': 'publication_doi',
-	'dataset_references_preprint_doi': 'preprint_doi',
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
@@ -89,6 +86,8 @@ prop_map = {
 	'cell_annotation_enriched_marker_genes': 'enriched_marker_genes',
 	'cell_annotation_depleted_marker_genes': 'depleted_marker_genes'
 }
+
+unreported_value = ''
 
 EPILOG = '''
 Examples:
@@ -110,6 +109,9 @@ def getArgs():
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
     args = parser.parse_args()
+    if len(sys.argv) == 1:
+    	parser.print_help()
+    	sys.exit()
     return args
 
 
@@ -191,7 +193,6 @@ def gather_objects(raw_matrix_file):
 
 
 def get_value(obj, prop):
-	unreported_value = ''
 	path = prop.split('.')
 	if len(path) == 1:
 		return obj.get(prop, unreported_value)
@@ -239,7 +240,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		key = prop_map.get(latkey, latkey)
 		values_to_add[key] = 'multiple {}s ({})'.format(obj_type, ','.join(value))
 
-
+# NEED TO CHECK LINES 252 and 260  <-------------------------
 def report_dataset(donor_objs, matrix, dataset):
 	ds_results = {}
 	ds_obj = lattice.get_object(dataset, connection)
@@ -247,7 +248,7 @@ def report_dataset(donor_objs, matrix, dataset):
 		value = get_value(ds_obj, prop)
 		if isinstance(value, list):
 			value = ','.join(value)
-		if value != 'unknown':
+		if value != unreported_value:
 			latkey = 'dataset_' + prop.replace('.','_')
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
@@ -255,7 +256,7 @@ def report_dataset(donor_objs, matrix, dataset):
 		value = get_value(matrix, prop)
 		if isinstance(value, list):
 			value = ','.join(value)
-		if value != 'unknown':
+		if value != unreported_value:
 			latkey = 'matrix_' + prop.replace('.','_')
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
@@ -266,9 +267,9 @@ def report_dataset(donor_objs, matrix, dataset):
 	derived_by = matrix.get('derivation_process')
 	for layer in matrix.get('layers'):
 		#label = layer.get('label')
-		units = layer.get('value_units', 'unknown')
-		scale = layer.get('value_scale', 'unknown')
-		norm_meth = layer.get('normalization_method', 'unknown')
+		units = layer.get('value_units', unreported_value)
+		scale = layer.get('value_scale', unreported_value)
+		norm_meth = layer.get('normalization_method', unreported_value)
 		desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 		layer_descs['X'] = desc
 	ds_results['layer_descriptions'] = layer_descs
@@ -326,18 +327,6 @@ def download_file(file_obj, directory):
 			print(file_name + ' downloaded')
 	else:
 		sys.exit('File {} has no uri defined'.format(file_obj['@id']))
-
-
-def remove_consistent(df, ds_results):
-	# if all values are equal for any metadata field, move those from the cell metadata to the dataset metadata
-	to_drop = []
-	for label, content in df.items():
-		if content.nunique() == 1:
-			ds_results[label] = content[0]
-			to_drop.append(label)
-	df = df.drop(columns=to_drop)
-
-	return df
 
 
 # Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
@@ -451,33 +440,56 @@ def quality_check(adata):
 def report_diseases(values_to_add, donor_objs, sample_objs):
 	names = set()
 	ids = set()
-	my_donors = []
+	#my_donors = []
 	for o in sample_objs:
 		dis_objs = o.get('diseases')
-		for donor in donor_objs:
-			if donor['@id'] in o.get('donors'):
-				my_donors.append(donor)
+		#for donor in donor_objs:
+		#	if donor['@id'] in o.get('donors'):
+		#		my_donors.append(donor)
 		if dis_objs:
 			for do in dis_objs:
 				ids.add(do.get('term_id'))
 				names.add(do.get('term_name'))
-		for o in my_donors:
-			dis_objs = o.get('diseases')
-			if dis_objs:
-				for do in dis_objs:
-					ids.add(do.get('term_id'))
-					names.add(do.get('term_name'))
+		#for o in my_donors:
+		#	dis_objs = o.get('diseases')
+		#	if dis_objs:
+		#		for do in dis_objs:
+		#			ids.add(do.get('term_id'))
+		#			names.add(do.get('term_name'))
 		if not ids:
-			ids.add('unknown')
+			ids.add('normal')
 		if not names:
-			names.add('unknown')
+			names.add('normal')
 
 	if len(sample_objs) > 1:
-		values_to_add['disease'] = 'multiple samples ({})'.format(','.join(names))
-		values_to_add['disease_ontology_term_id'] = 'multiple samples ({})'.format(','.join(ids))
+		values_to_add['disease'] = '[{}]'.format(', '.join(names))
+		values_to_add['disease_ontology_term_id'] = '[{}]'.format(', '.join(ids))
+	elif 'normal' in ids:
+		values_to_add['disease'] = 'normal'
+		values_to_add['disease_ontology_term_id'] = 'PATO:0000461'
 	else:
-		values_to_add['disease'] = ','.join(names)
-		values_to_add['disease_ontology_term_id'] = ','.join(ids)
+		values_to_add['disease'] = '[{}]'.format(', '.join(names))
+		values_to_add['disease_ontology_term_id'] =  '[{}]'.format(', '.join(ids))
+
+
+def prep_obs(raw_obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns):
+	celltype_col = mfinal_obj['author_cell_type_column']
+	cxg_obs = pd.merge(raw_obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
+	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
+	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+	if cxg_uns['organism'] == 'Homo sapiens':
+		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
+	else:
+		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'na', regex=True)
+	#cxg_obs['depleted_marker_genes'] = cxg_obs['depleted_marker_genes'].str.replace('^$', 'none', regex=True)
+	#cxg_obs['enriched_marker_genes'] = cxg_obs['enriched_marker_genes'].str.replace('^$', 'none', regex=True)
+	if 'author_cluster_column' in mfinal_obj:
+		cluster_col = mfinal_obj['author_cluster_column']
+		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
+		cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
+		cxg_obs['author_cluster'] = cxg_obs['author_cluster'].astype('category')
+	cxg_obs.drop(columns=['raw_matrix_accession','batch', celltype_col], inplace=True)
+	return cxg_obs
 
 
 def main(mfinal_id):
@@ -591,25 +603,16 @@ def main(mfinal_id):
 		sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
 	cxg_uns = ds_results
 	cxg_uns['version'] = {}
-	cxg_uns['version']['corpora_schema_version'] = 'v1.1.0'
-	cxg_uns['version']['corpora_encoding_version'] = 'v0.2.0'
+	cxg_uns['version']['corpora_schema_version'] = '1.0.0'
+	cxg_uns['version']['corpora_encoding_version'] = '0.1.0'
+	if cxg_uns['organism_ontology_term_id'] == 'NCBI:9606':
+		cxg_uns['organism_ontology_term_id'] = 'NCBITaxon:9606'
+	elif cxg_uns['organism_ontology_term_id'] == 'NCBI:10090':
+		cxg_uns['organism_ontology_term_id'] = 'NCBITaxon:10090'
 	cxg_obsm = get_embeddings(mfinal_adata)
 
 	# Prep obs dataframe, add cluster assignment if author_cluster_column is in 
-	celltype_col = mfinal_obj['author_cell_type_column']
-	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
-	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
-	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
-	if cxg_uns['organism'] == 'Homo sapiens':
-		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
-	else:
-		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'na', regex=True)
-	if 'author_cluster_column' in mfinal_obj:
-		cluster_col = mfinal_obj['author_cluster_column']
-		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
-		cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
-		cxg_obs['author_cluster'] = cxg_obs['author_cluster'].astype('category')
-	cxg_obs.drop(columns=['raw_matrix_accession','batch', celltype_col], inplace=True)
+	cxg_obs = prep_obs(cxg_adata_raw.obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns)
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
 	for gene in list(mfinal_adata.var_names):
