@@ -173,7 +173,7 @@ def flatten_obj(obj):
 	new_obj = {}
 	for k,v in obj.items():
 		if k not in ignore:
-			if isinstance(v, dict):
+			if isinstance(v, dict) and k != 'test_results':
 				for x,y in v.items():
 					new_obj[k + '.' + x] = y
 			else:
@@ -363,6 +363,48 @@ def get_dcp_schema_ver(directory):
 	return vers
 
 
+def fill_gaps(obj, obj_type):
+	if obj_type == 'project':
+		if obj['project_core'].get('project_title'):
+			short = obj['project_core']['project_title'].replace(' ','')[:50]
+			obj['project_core']['project_short_name'] = short
+	elif obj_type == 'donor_organism':
+		if not obj.get('is_living'):
+			if obj['development_stage']['ontology_label'] in ['embryonic','fetal']:
+				obj['is_living'] = 'not applicable'
+			else:
+				obj['is_living'] = 'unknown'
+	elif obj_type == 'specimen_from_organism':
+		if obj.get('purchased_specimen'):
+			if not obj['purchased_specimen'].get('catalog_number'):
+				del obj['purchased_specimen']
+	elif obj_type == 'cell_line':
+		if obj.get('supplier') and not obj.get('catalog_number'):
+			del obj['supplier']
+	elif obj_type == 'library_preparation_protocol':
+		if not obj.get('strand'):
+			obj['strand'] = 'not provided'
+
+
+def type_conversion(obj, obj_type):
+	if obj_type == 'project':
+		if obj.get('publications'):
+			for i in obj['publications']:
+				index = obj['publications'].index(i)
+				if i.get('doi'):
+					obj['publications'][index]['doi'] = i['doi'][0]
+				if i.get('pmid'):
+					obj['publications'][index]['pmid'] = int(i['pmid'])
+	elif obj_type == 'donor_organism':
+		if obj.get('human_specific'):
+			if obj['human_specific'].get('ethnicity'):
+				obj['human_specific']['ethnicity'] = [obj['human_specific']['ethnicity']]
+		if obj.get('medical_history'):
+			if obj['medical_history'].get('test_results'):
+				tr = [k + ':' + v for k,v in obj['medical_history']['test_results'].items()]
+				obj['medical_history']['test_results'] = ','.join(tr)
+
+
 def main():
 	# get the dataset, and convert it to a project object
 	url = urljoin(server, args.dataset + '/?format=json')
@@ -440,6 +482,8 @@ def main():
 	for k in whole_dict.keys():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
+			fill_gaps(o, k)
+			type_conversion(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)

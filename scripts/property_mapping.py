@@ -111,6 +111,12 @@ lattice_to_dcp = {
 			'BioProject': 'insdc_study_accessions',
 			'BioStudies': 'biostudies_accessions'
 		},
+		'project_core.project_description': {
+			'lattice': 'description'
+		},
+		'project_core.project_title': {
+			'lattice': 'title'
+		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
 		},
@@ -199,14 +205,42 @@ lattice_to_dcp = {
 		'organ_parts.ontology_label': {
 			'lattice': 'biosample_ontology.term_name'
 		},
+		'preservation_storage.preservation_method': {
+			'lattice': 'preservation_method',
+			'value_map': {
+				'n/a (fresh)': 'fresh',
+				'paraffin embedding': 'paraffin block'
+			}
+		},
+		'preservation_storage.storage_method': {
+			'lattice': 'preservation_method',
+			'value_map': {
+				'n/a (fresh)': 'fresh',
+				'cryopreservation': 'cryopreservation, other', # confirm with DCP
+				'paraffin embedding': 'formalin fixed and paraffin embedded'
+			}
+		},
 		'preservation_storage.storage_time': {
 			'lattice': 'preservation_time'
 		},
 		'preservation_storage.storage_time_unit.text': {
 			'lattice': 'preservation_time_units'
 		},
+		'purchased_specimen.catalog_number': {
+			'lattice': 'product_id'
+		},
+		'purchased_specimen.lot_number': {
+			'lattice': 'lot_id'
+		},
+		'purchased_specimen.manufacturer': {
+			'lattice': 'source'
+		},
 		'state_of_specimen.ischemic_temperature': {
-			'lattice': 'ischemic_temperature'
+			'lattice': 'ischemic_temperature',
+			'value_map': {
+				'warm': 'warm',
+				'cold': 'cold'
+			}
 		},
 		'state_of_specimen.ischemic_time': {
 			'lattice': 'ischemic_time'
@@ -218,6 +252,9 @@ lattice_to_dcp = {
 	'CellCulture': {
 		**biosample,
 		'class': 'cell_line',
+		'catalog_number': {
+			'lattice': 'product_id'
+		},
 		'cell_type.ontology': {
 			'lattice': 'biosample_ontology.term_id'
 		},
@@ -243,6 +280,12 @@ lattice_to_dcp = {
 		},
 		'growth_conditions.mycoplasma_testing_results': {
 			'lattice': 'mycoplasma_testing_results'
+		},
+		'lot_number': {
+			'lattice': 'lot_id'
+		},
+		'supplier': {
+			'lattice': 'source'
 		}
 	},
 	'Organoid': {
@@ -324,6 +367,12 @@ lattice_to_dcp = {
 				'CITE-seq': 'single cell',
 				'bulk ATAC-seq': 'bulk',
 				'bulk RNA-seq': 'bulk'
+			}
+		},
+		'primer': {
+			'lattice': 'protocol.first_strand_primer',
+			'value_map': {
+				'poly(dT)': 'poly-dT'
 			}
 		},
 		'provenance.document_id': {
