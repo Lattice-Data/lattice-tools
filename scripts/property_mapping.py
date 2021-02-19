@@ -87,10 +87,13 @@ postnatal_donor = {
 }
 
 biosample = {
+	'biomaterial_core.biomaterial_id': {
+		'lattice': 'uuid'
+	},
 	'dbxrefs': {
 		'lattice': 'dbxrefs',
-		'BioSample': 'biosamples_accession',
-		'SRA': 'insdc_sample_accession'	
+		'BioSample': 'biomaterial_core.biosamples_accession',
+		'SRA': 'biomaterial_core.insdc_sample_accession'	
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
@@ -178,19 +181,121 @@ lattice_to_dcp = {
 	},
 	'Tissue': {
 		**biosample,
-		'class': 'specimen_from_organism'
+		'class': 'specimen_from_organism',
+		'diseases': {
+			'lattice': 'diseases',
+			'future_subprop_map': {
+				'ontology': {
+					'lattice': 'term_id',
+				},
+				'ontology_label': {
+					'lattice': 'term_name'
+				}
+			}
+		},
+		'organ_parts.ontology': {
+			'lattice': 'biosample_ontology.term_id'
+		},
+		'organ_parts.ontology_label': {
+			'lattice': 'biosample_ontology.term_name'
+		},
+		'preservation_storage.storage_time': {
+			'lattice': 'preservation_time'
+		},
+		'preservation_storage.storage_time_unit.text': {
+			'lattice': 'preservation_time_units'
+		},
+		'state_of_specimen.ischemic_temperature': {
+			'lattice': 'ischemic_temperature'
+		},
+		'state_of_specimen.ischemic_time': {
+			'lattice': 'ischemic_time'
+		},
+		'state_of_specimen.postmortem_interval': {
+			'lattice': 'death_to_preservation_interval'
+		}
 	},
 	'CellCulture': {
 		**biosample,
-		'class': 'cell_line'
+		'class': 'cell_line',
+		'cell_type.ontology': {
+			'lattice': 'biosample_ontology.term_id'
+		},
+		'cell_type.ontology_label': {
+			'lattice': 'biosample_ontology.term_name'
+		},
+		'diseases': {
+			'lattice': 'diseases',
+			'future_subprop_map': {
+				'ontology': {
+					'lattice': 'term_id',
+				},
+				'ontology_label': {
+					'lattice': 'term_name'
+				}
+			}
+		},
+		'growth_conditions.growth_medium': {
+			'lattice': 'growth_medium'
+		},
+		'growth_conditions.mycoplasma_testing_method': {
+			'lattice': 'mycoplasma_testing_method'
+		},
+		'growth_conditions.mycoplasma_testing_results': {
+			'lattice': 'mycoplasma_testing_results'
+		}
 	},
 	'Organoid': {
 		**biosample,
-		'class': 'organoid'
+		'class': 'organoid',
+		'age': {
+			'lattice': 'post_differentiation_time'
+		},
+		'age_unit.text': {
+			'lattice': 'post_differentiation_time_units'
+		},
+		'embedded_in_matrigel': {
+			'lattice': 'embedded_in_matrigel'
+		},
+		'growth_environment': {
+			'lattice': 'growth_medium'
+		},
+		'model_organ_part.ontology': {
+			'lattice': 'biosample_ontology.term_id'
+		},
+		'model_organ_part.ontology_label': {
+			'lattice': 'biosample_ontology.term_name'
+		}
 	},
 	'Suspension': {
 		**biosample,
-		'class': 'cell_suspension'
+		'class': 'cell_suspension',
+		'cell_morphology.cell_size': {
+			'lattice': 'cell_size'
+		},
+		'cell_morphology.cell_size_unit.text': {
+			'lattice': 'cell_size_unit'
+		},
+		'cell_morphology.cell_viability_method': {
+			'lattice': 'cell_viability_method'
+		},
+		'cell_morphology.percent_cell_viability': {
+			'lattice': 'percent_cell_viability'
+		},
+		'growth_conditions.culture_environment': {
+			'lattice': 'medium'
+		},
+		'selected_cell_types': {
+			'lattice': 'enriched_cell_types',
+			'subprop_map': {
+				'ontology': {
+					'lattice': 'term_id'
+				},
+				'ontology_label': {
+					'lattice': 'term_name'
+				}
+			}
+		}
 	},
 	'Library': {
 		'class': 'library_preparation_protocol',
@@ -257,7 +362,7 @@ lattice_to_dcp = {
 	},
 	'SequencingRun': {
 		'class': 'sequencing_protocol',
-		'instrument_manufacturer.text': {
+		'instrument_manufacturer_model.text': {
 			'lattice': 'platform'
 		},
 		'local_machine_name': {
