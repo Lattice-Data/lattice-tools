@@ -101,6 +101,13 @@ def add_value(my_obj, temp_obj, prop_map, prop):
 						add_value(new_i, i, prop_map['subprop_map'][subprop], subprop)
 				new_v.append(new_i)
 				v = new_v
+		elif isinstance(v, dict) and prop_map.get('subprop_map'):
+			new_v = {}
+			for subprop in prop_map['subprop_map'].keys():
+				lat_subprop = prop_map['subprop_map'][subprop]['lattice']
+				if v.get(lat_subprop):
+					add_value(new_v, v, prop_map['subprop_map'][subprop], subprop)
+			v = new_v
 		# map and create subobjects
 		if '.' in prop:
 			path = prop.split('.')
@@ -173,7 +180,7 @@ def flatten_obj(obj):
 	new_obj = {}
 	for k,v in obj.items():
 		if k not in ignore:
-			if isinstance(v, dict) and k != 'test_results':
+			if isinstance(v, dict) and k not in ['test_results', 'award']:
 				for x,y in v.items():
 					new_obj[k + '.' + x] = y
 			else:
@@ -229,7 +236,12 @@ def seq_to_susp(links_dict):
 			lib = sr_obj['derived_from']
 			lib_url = urljoin(server, lib + '/?format=json')
 			lib_obj = requests.get(lib_url, auth=connection.auth).json()
-			get_object(lib_obj)
+			if not whole_dict.get('library_preparation_protocol'):
+				get_object(lib_obj)
+			else:
+				lib_prots = [i['provenance']['document_id'] for i in whole_dict['library_preparation_protocol']]
+				if lib_obj['protocol']['uuid'] not in lib_prots:
+					get_object(lib_obj)
 			susps.extend([i['uuid'] for i in lib_obj['derived_from']])
 			all_susps.update(susps)
 			for obj in lib_obj['derived_from']:	
@@ -238,7 +250,7 @@ def seq_to_susp(links_dict):
 				ins.append({'input_type': in_type, 'input_id': obj['uuid']})
 			lib_type = lib_obj['@type'][0]
 			dcp_type = lattice_to_dcp[lib_type]['class']
-			lib_prot = {'protocol_type': dcp_type, 'protocol_id': lib_obj['uuid']}
+			lib_prot = {'protocol_type': dcp_type, 'protocol_id': lib_obj['protocol']['uuid']}
 			protocols.append(lib_prot)
 			sr_type = sr_obj['@type'][0]
 			dcp_type = lattice_to_dcp[sr_type]['class']
@@ -276,7 +288,7 @@ def create_protocol(in_type, out_type, out_obj):
 		pr_type = 'differentiation_protocol'
 	else:
 		pr_type = 'protocol'
-	pr_id = hashlib.md5(str([pr_type + out_obj['uuid']]).encode('utf-8')).hexdigest()
+	pr_id = hashlib.md5(str([pr_type + in_type + out_type]).encode('utf-8')).hexdigest()
 
 	prots.append({'protocol_type': pr_type, 'protocol_id': pr_id})
 	
@@ -289,7 +301,7 @@ def create_protocol(in_type, out_type, out_obj):
 	
 	if 'enrichment_factors' in out_obj:
 		pr_type = 'enrichment_protocol'
-		enpr_id = hashlib.md5(str([pr_type + out_obj['uuid']]).encode('utf-8')).hexdigest()
+		enpr_id = hashlib.md5(str([pr_type + in_type + out_type]).encode('utf-8')).hexdigest()
 		prots.apppend({
 			'protocol_type': pr_type,
 			'protocol_id': enpr_id
@@ -363,39 +375,28 @@ def get_dcp_schema_ver(directory):
 	return vers
 
 
-def fill_gaps(obj, obj_type):
+def customize_fields(obj, obj_type):
 	if obj_type == 'project':
-		if obj['project_core'].get('project_title'):
-			short = obj['project_core']['project_title'].replace(' ','')[:50]
-			obj['project_core']['project_short_name'] = short
-	elif obj_type == 'donor_organism':
-		if not obj.get('is_living'):
-			if obj['development_stage']['ontology_label'] in ['embryonic','fetal']:
-				obj['is_living'] = 'not applicable'
-			else:
-				obj['is_living'] = 'unknown'
-	elif obj_type == 'specimen_from_organism':
-		if obj.get('purchased_specimen'):
-			if not obj['purchased_specimen'].get('catalog_number'):
-				del obj['purchased_specimen']
-	elif obj_type == 'cell_line':
-		if obj.get('supplier') and not obj.get('catalog_number'):
-			del obj['supplier']
-	elif obj_type == 'library_preparation_protocol':
-		if not obj.get('strand'):
-			obj['strand'] = 'not provided'
-
-
-def type_conversion(obj, obj_type):
-	if obj_type == 'project':
+		if obj.get('project_core'):
+			if obj['project_core'].get('project_title'):
+				short = obj['project_core']['project_title'].replace(' ','')[:50]
+				obj['project_core']['project_short_name'] = short
 		if obj.get('publications'):
 			for i in obj['publications']:
 				index = obj['publications'].index(i)
 				if i.get('doi'):
 					obj['publications'][index]['doi'] = i['doi'][0]
 				if i.get('pmid'):
-					obj['publications'][index]['pmid'] = int(i['pmid'])
+					obj['publications'][index]['pmid'] = int(i['pmid'][0])
+		if obj.get('funders'):
+			obj['funders']['organization'] = 'Chan Zuckerberg Initiative'
+			obj['funders'] = [obj['funders']]
 	elif obj_type == 'donor_organism':
+		if not obj.get('is_living'):
+			if obj['development_stage']['ontology_label'] in ['embryonic','fetal']:
+				obj['is_living'] = 'not applicable'
+			else:
+				obj['is_living'] = 'unknown'
 		if obj.get('human_specific'):
 			if obj['human_specific'].get('ethnicity'):
 				obj['human_specific']['ethnicity'] = [obj['human_specific']['ethnicity']]
@@ -403,6 +404,21 @@ def type_conversion(obj, obj_type):
 			if obj['medical_history'].get('test_results'):
 				tr = [k + ':' + v for k,v in obj['medical_history']['test_results'].items()]
 				obj['medical_history']['test_results'] = ','.join(tr)
+	elif obj_type == 'specimen_from_organism':
+		if obj.get('purchased_specimen'):
+			if not obj['purchased_specimen'].get('catalog_number'):
+				del obj['purchased_specimen']
+	elif obj_type == 'cell_line':
+		if obj.get('supplier') and not obj.get('catalog_number'):
+			del obj['supplier']
+	elif obj_type == 'cell_suspension':
+		if obj.get('estimated_count_units'):
+			if obj['estimated_count_units'] not in ['cells', 'nuclei']:
+				del obj['estimated_cell_count']
+			del obj['estimated_count_units']
+	elif obj_type == 'library_preparation_protocol':
+		if not obj.get('strand'):
+			obj['strand'] = 'not provided'
 
 
 def main():
@@ -482,8 +498,7 @@ def main():
 	for k in whole_dict.keys():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
-			fill_gaps(o, k)
-			type_conversion(o, k)
+			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)

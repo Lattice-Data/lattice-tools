@@ -111,6 +111,17 @@ lattice_to_dcp = {
 			'BioProject': 'insdc_study_accessions',
 			'BioStudies': 'biostudies_accessions'
 		},
+		'funders': {
+			'lattice': 'award',
+			'subprop_map': {
+				'grant_title': {
+					'lattice': 'title'
+				},
+				'grant_id': {
+					'lattice': 'CZI_project_identifier'
+				}
+			}
+		},
 		'project_core.project_description': {
 			'lattice': 'description'
 		},
@@ -325,6 +336,12 @@ lattice_to_dcp = {
 		'cell_morphology.percent_cell_viability': {
 			'lattice': 'percent_cell_viability'
 		},
+		'estimated_cell_count': {
+			'lattice': 'starting_quantity'
+		},
+		'estimated_count_units': { # deleted before report
+			'lattice': 'starting_quantity_units'
+		},
 		'growth_conditions.culture_environment': {
 			'lattice': 'medium'
 		},
@@ -376,10 +393,22 @@ lattice_to_dcp = {
 			}
 		},
 		'provenance.document_id': {
-			'lattice': 'uuid'
+			'lattice': 'protocol.uuid'
 		},
 		'strand': {
 			'lattice': 'protocol.strand_specificity'
+		}
+	},
+	'SequencingRun': {
+		'class': 'sequencing_protocol',
+		'instrument_manufacturer_model.text': {
+			'lattice': 'platform'
+		},
+		'local_machine_name': {
+			'lattice': 'flowcell_details.machine'
+		},
+		'provenance.document_id': {
+			'lattice': 'uuid'
 		}
 	},
 	'RawSequenceFile': {
@@ -407,18 +436,6 @@ lattice_to_dcp = {
 		},
 		'read_length': {
 			'lattice': 'read_length'
-		}
-	},
-	'SequencingRun': {
-		'class': 'sequencing_protocol',
-		'instrument_manufacturer_model.text': {
-			'lattice': 'platform'
-		},
-		'local_machine_name': {
-			'lattice': 'flowcell_details.machine'
-		},
-		'provenance.document_id': {
-			'lattice': 'uuid'
 		}
 	}
 }
