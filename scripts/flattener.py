@@ -23,13 +23,17 @@ cell_metadata = {
 		'ethnicity.term_name',
 		'ethnicity.term_id',
 		'life_stage',
-		'life_stage_term_id'
+		'life_stage_term_id',
+		'diseases.term_id',
+		'diseases.term_name'
 		],
 	'sample': [
 		'uuid',
 		'preservation_method',
 		'biosample_ontology.term_name',
-		'biosample_ontology.term_id'
+		'biosample_ontology.term_id',
+		'diseases.term_id',
+		'diseases.term_name'
 		],
 	'suspension': [
 		'uuid',
@@ -45,8 +49,6 @@ cell_metadata = {
 
 dataset_metadata = {
 	'dataset': [
-		'references.preprint_doi',
-		'references.publication_doi',
 		'urls'
 		],
 	'final_matrix': [
@@ -274,14 +276,6 @@ def report_dataset(donor_objs, matrix, dataset):
 		layer_descs['X'] = desc
 	ds_results['layer_descriptions'] = layer_descs
 
-	pub_doi = set()
-	for pub in ds_obj['references']:
-		for i in pub['identifiers']:
-			if i.startswith('doi:'):
-				pub_doi.add(i.replace('doi:', 'https://doi.org/'))
-	if pub_doi:
-		ds_results['doi'] = ','.join(pub_doi)
-
 	org_id = set()
 	org_name = set()
 	for obj in donor_objs:
@@ -437,39 +431,46 @@ def quality_check(adata):
 		sys.exit("There are more genes in normalized genes than in raw matrix.")
 
 
-def report_diseases(values_to_add, donor_objs, sample_objs):
-	names = set()
-	ids = set()
-	#my_donors = []
-	for o in sample_objs:
-		dis_objs = o.get('diseases')
-		#for donor in donor_objs:
-		#	if donor['@id'] in o.get('donors'):
-		#		my_donors.append(donor)
-		if dis_objs:
-			for do in dis_objs:
-				ids.add(do.get('term_id'))
-				names.add(do.get('term_name'))
-		#for o in my_donors:
-		#	dis_objs = o.get('diseases')
-		#	if dis_objs:
-		#		for do in dis_objs:
-		#			ids.add(do.get('term_id'))
-		#			names.add(do.get('term_name'))
-		if not ids:
-			ids.add('normal')
-		if not names:
-			names.add('normal')
+# Return uniqued list separated by ', '
+def clean_list(lst):
+	lst = lst.split(',')
+	if '' in lst:
+		lst.remove('')
+	lst = list(set(lst))
+	return lst
 
-	if len(sample_objs) > 1:
-		values_to_add['disease'] = '[{}]'.format(', '.join(names))
-		values_to_add['disease_ontology_term_id'] = '[{}]'.format(', '.join(ids))
-	elif 'normal' in ids:
-		values_to_add['disease'] = 'normal'
-		values_to_add['disease_ontology_term_id'] = 'PATO:0000461'
+
+# Remove unused disease fields, and summarize with 'disease', 'disease_ontology_term_id', and 'reported_diseases'
+# List in pandas are still considered strings, so need to join and split to create a list of all diseases
+def report_diseases(mxr_df, exp_disease):
+	exp_disease_id = exp_disease['term_id']
+	exp_disease_name = exp_disease['term_name']
+	if exp_disease_id == '':
+		mxr_df['disease'] = ['normal'] * len(mxr_df.index)
+		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
+	elif exp_disease_id in ','.join(mxr_df['sample_diseases_term_id'].unique()).split(','):
+		if len(','.join(mxr_df['sample_diseases_term_id'].unique()).split(',')) <= 2:
+			mxr_df['disease'] = mxr_df['sample_diseases_term_name'].str.contains(exp_disease_name).astype('string')
+			mxr_df['disease'] = mxr_df['disease'].str.replace('^False$', 'normal', regex=True)
+			mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease_name, regex=True)
+			mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'].str.contains(exp_disease_id).astype('string')
+			mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
+			xr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease_id, regex=True)
+		else:
+			sys.exit("There is unexpected extra disease states in biosamples: {}".format(mxr_df['sample_diseases_term_id'].unique()))
+	elif exp_disease_id in ','.join(mxr_df['donor_diseases_term_id'].unique()).split(','):
+		mxr_df['disease'] = mxr_df['donor_diseases_term_name'].str.contains(exp_disease_name).astype('string')
+		mxr_df['disease'] = mxr_df['disease'].str.replace('^False$', 'normal', regex=True)
+		mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease_name, regex=True)
+		mxr_df['disease_ontology_term_id'] = mxr_df['donor_diseases_term_id'].str.contains(exp_disease_id).astype('string')
+		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
+		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease_id, regex=True)
 	else:
-		values_to_add['disease'] = '[{}]'.format(', '.join(names))
-		values_to_add['disease_ontology_term_id'] =  '[{}]'.format(', '.join(ids))
+		sys.exit("Cannot find the experimental_variable_disease in donor or sample diseases: {}".format(exp_disease_name))
+	# 'reported_diseases' is a list of all unique diseases from donor and samples
+	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list)
+	return mxr_df
 
 
 def prep_obs(raw_obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns):
@@ -556,7 +557,7 @@ def main(mfinal_id):
 					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, objs)
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, objs)
-		report_diseases(values_to_add, relevant_objects['donor'], relevant_objects['sample'])
+		#report_diseases(values_to_add, relevant_objects['donor'], relevant_objects['sample'])
 		row_to_add = pd.Series(values_to_add, name=mxr['@id'])
 		df = df.append(row_to_add)
 		download_file(mxr, tmp_dir)
@@ -573,6 +574,9 @@ def main(mfinal_id):
 		adata_raw = adata_raw[overlapped_ids]
 		adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 		cxg_adata_lst.append(adata_raw)
+
+	# Go through donor and biosample diseases and calculate cxg field accordingly
+	report_diseases(df, mfinal_obj['experimental_variable_disease'])
 
 	# get dataset-level metadata
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
@@ -594,7 +598,6 @@ def main(mfinal_id):
 		annot_row = pd.Series(annot_metadata, name=annot_obj['author_cell_type'])
 		annot_df = annot_df.append(annot_row)
 	annot_df = trim_cell_slims(annot_df)
-	print(annot_df)
 
 	# Concatenate all anndata objects in list and load parameters
 	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
@@ -605,10 +608,6 @@ def main(mfinal_id):
 	cxg_uns['version'] = {}
 	cxg_uns['version']['corpora_schema_version'] = '1.0.0'
 	cxg_uns['version']['corpora_encoding_version'] = '0.1.0'
-	if cxg_uns['organism_ontology_term_id'] == 'NCBI:9606':
-		cxg_uns['organism_ontology_term_id'] = 'NCBITaxon:9606'
-	elif cxg_uns['organism_ontology_term_id'] == 'NCBI:10090':
-		cxg_uns['organism_ontology_term_id'] = 'NCBITaxon:10090'
 	cxg_obsm = get_embeddings(mfinal_adata)
 
 	# Prep obs dataframe, add cluster assignment if author_cluster_column is in 
