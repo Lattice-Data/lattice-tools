@@ -37,8 +37,7 @@ cell_metadata = {
 		],
 	'suspension': [
 		'uuid',
-		'suspension_type',
-		'percent_cell_viability'
+		'suspension_type'
 		],
 	'library': [
 		'uuid',
@@ -48,9 +47,6 @@ cell_metadata = {
 	}
 
 dataset_metadata = {
-	'dataset': [
-		'urls'
-		],
 	'final_matrix': [
 		'description',
 		'genome_annotation',
@@ -84,9 +80,7 @@ prop_map = {
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'matrix_default_visualization': 'default_field',
 	'matrix_default_embedding': 'default_embedding',
-	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
-	'cell_annotation_enriched_marker_genes': 'enriched_marker_genes',
-	'cell_annotation_depleted_marker_genes': 'depleted_marker_genes'
+	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category'
 }
 
 unreported_value = ''
@@ -246,14 +240,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 def report_dataset(donor_objs, matrix, dataset):
 	ds_results = {}
 	ds_obj = lattice.get_object(dataset, connection)
-	for prop in dataset_metadata['dataset']:
-		value = get_value(ds_obj, prop)
-		if isinstance(value, list):
-			value = ','.join(value)
-		if value != unreported_value:
-			latkey = 'dataset_' + prop.replace('.','_')
-			key = prop_map.get(latkey, latkey)
-			ds_results[key] = value
 	for prop in dataset_metadata['final_matrix']:
 		value = get_value(matrix, prop)
 		if isinstance(value, list):
@@ -262,20 +248,17 @@ def report_dataset(donor_objs, matrix, dataset):
 			latkey = 'matrix_' + prop.replace('.','_')
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
-
 	layer_descs = {
 		'raw.X': 'raw'
 	}
 	derived_by = matrix.get('derivation_process')
 	for layer in matrix.get('layers'):
-		#label = layer.get('label')
 		units = layer.get('value_units', unreported_value)
 		scale = layer.get('value_scale', unreported_value)
 		norm_meth = layer.get('normalization_method', unreported_value)
 		desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 		layer_descs['X'] = desc
 	ds_results['layer_descriptions'] = layer_descs
-
 	org_id = set()
 	org_name = set()
 	for obj in donor_objs:
@@ -360,6 +343,7 @@ def get_embeddings(mfinal_adata):
 
 
 # From R object, create and return h5ad in temporary drive
+# Returns list of 
 def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	converted_h5ad = []
 	utils = rpackages.importr('utils')
@@ -437,42 +421,42 @@ def clean_list(lst):
 	if '' in lst:
 		lst.remove('')
 	lst = list(set(lst))
-	return lst
+	diseases_str = '[{}]'.format(', '.join(lst))
+	return diseases_str
 
 
 # Remove unused disease fields, and summarize with 'disease', 'disease_ontology_term_id', and 'reported_diseases'
 # List in pandas are still considered strings, so need to join and split to create a list of all diseases
 def report_diseases(mxr_df, exp_disease):
-	exp_disease_id = exp_disease['term_id']
-	exp_disease_name = exp_disease['term_name']
-	if exp_disease_id == '':
+	if not exp_disease:
 		mxr_df['disease'] = ['normal'] * len(mxr_df.index)
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
-	elif exp_disease_id in ','.join(mxr_df['sample_diseases_term_id'].unique()).split(','):
+	elif exp_disease['term_id'] in ','.join(mxr_df['sample_diseases_term_id'].unique()).split(','):
 		if len(','.join(mxr_df['sample_diseases_term_id'].unique()).split(',')) <= 2:
-			mxr_df['disease'] = mxr_df['sample_diseases_term_name'].str.contains(exp_disease_name).astype('string')
+			mxr_df['disease'] = mxr_df['sample_diseases_term_name'].str.contains(exp_disease['term_name']).astype('string')
 			mxr_df['disease'] = mxr_df['disease'].str.replace('^False$', 'normal', regex=True)
-			mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease_name, regex=True)
-			mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'].str.contains(exp_disease_id).astype('string')
+			mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease['term_name'], regex=True)
+			mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'].str.contains(exp_disease['term_id']).astype('string')
 			mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
-			xr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease_id, regex=True)
+			xr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease['term_id'], regex=True)
 		else:
 			sys.exit("There is unexpected extra disease states in biosamples: {}".format(mxr_df['sample_diseases_term_id'].unique()))
-	elif exp_disease_id in ','.join(mxr_df['donor_diseases_term_id'].unique()).split(','):
-		mxr_df['disease'] = mxr_df['donor_diseases_term_name'].str.contains(exp_disease_name).astype('string')
+	elif exp_disease['term_id'] in ','.join(mxr_df['donor_diseases_term_id'].unique()).split(','):
+		mxr_df['disease'] = mxr_df['donor_diseases_term_name'].str.contains(exp_disease['term_name']).astype('string')
 		mxr_df['disease'] = mxr_df['disease'].str.replace('^False$', 'normal', regex=True)
-		mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease_name, regex=True)
-		mxr_df['disease_ontology_term_id'] = mxr_df['donor_diseases_term_id'].str.contains(exp_disease_id).astype('string')
+		mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease['term_name'], regex=True)
+		mxr_df['disease_ontology_term_id'] = mxr_df['donor_diseases_term_id'].str.contains(exp_disease['term_id']).astype('string')
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
-		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease_id, regex=True)
+		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease['term_id'], regex=True)
 	else:
-		sys.exit("Cannot find the experimental_variable_disease in donor or sample diseases: {}".format(exp_disease_name))
+		sys.exit("Cannot find the experimental_variable_disease in donor or sample diseases: {}".format(exp_disease['term_name']))
 	# 'reported_diseases' is a list of all unique diseases from donor and samples
 	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
 	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list)
 	return mxr_df
 
 
+# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 def prep_obs(raw_obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns):
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(raw_obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
@@ -482,24 +466,35 @@ def prep_obs(raw_obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns):
 		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
 	else:
 		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'na', regex=True)
-	#cxg_obs['depleted_marker_genes'] = cxg_obs['depleted_marker_genes'].str.replace('^$', 'none', regex=True)
-	#cxg_obs['enriched_marker_genes'] = cxg_obs['enriched_marker_genes'].str.replace('^$', 'none', regex=True)
 	if 'author_cluster_column' in mfinal_obj:
 		cluster_col = mfinal_obj['author_cluster_column']
 		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
 		cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
 		cxg_obs['author_cluster'] = cxg_obs['author_cluster'].astype('category')
-	cxg_obs.drop(columns=['raw_matrix_accession','batch', celltype_col], inplace=True)
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
+			'donor_diseases_term_id', 'donor_diseases_term_name']
+	cxg_obs.drop(columns=columns_to_drop, inplace=True)
+	if 'batch' in cxg_obs.columns.to_list():
+		cxg_obs.drop(columns='batch', inplace=True)
 	return cxg_obs
 
 
 def main(mfinal_id):
+	flat_version = '1'
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	# confirm that the identifier you've provided corresponds to a MatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
+	assay10x = ''
 	if mfinal_type != 'MatrixFile':
 		sys.exit('{} is not a MatrixFile, but a {}'.format(mfinal_id, mfinal_type))
+	if mfinal_obj['assays'] == ['snATAC-seq']:
+		assay10x = 'ATAC'
+	elif mfinal_obj['assays'] == ['snRNA-seq'] or mfinal_obj['assays'] == ['scRNA-seq'] or\
+			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq']:
+		assay10x = 'RNA'
+	else:
+		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
 
 	# set the metadata keys based on defined metadata fields
 	headers = []
@@ -533,7 +528,7 @@ def main(mfinal_id):
 		mfinal_adata = sc.read_h5ad(converted_h5ad[0][0])
 	else:
 		sys.exit('Do not recognize file format or exention {} {}'.format(mfinal_obj['file_format'], mfinal_local_path))
-	mfinal_cell_identifiers = list(mfinal_adata.obs_names)
+	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
 
 	cxg_adata_lst = []
 
@@ -557,26 +552,25 @@ def main(mfinal_id):
 					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, objs)
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, objs)
-		#report_diseases(values_to_add, relevant_objects['donor'], relevant_objects['sample'])
 		row_to_add = pd.Series(values_to_add, name=mxr['@id'])
 		df = df.append(row_to_add)
-		download_file(mxr, tmp_dir)
-
-		# Add new anndata to list of final anndatas
-		local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
-		adata_raw = sc.read_10x_h5(local_path)
-		adata_raw.var_names_make_unique(join = '.')
-
-		# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
-		concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
-		adata_raw.obs_names = concatenated_ids
-		overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
-		adata_raw = adata_raw[overlapped_ids]
-		adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
-		cxg_adata_lst.append(adata_raw)
+		
+		# Add anndata to list of final raw anndatas
+		if assay10x == 'RNA':
+			download_file(mxr, tmp_dir)
+			local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
+			adata_raw = sc.read_10x_h5(local_path)
+			adata_raw.var_names_make_unique(join = '.')
+			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
+			concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
+			adata_raw.obs_names = concatenated_ids
+			overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+			adata_raw = adata_raw[overlapped_ids]
+			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
+			cxg_adata_lst.append(adata_raw)
 
 	# Go through donor and biosample diseases and calculate cxg field accordingly
-	report_diseases(df, mfinal_obj['experimental_variable_disease'])
+	report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
 
 	# get dataset-level metadata
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
@@ -599,14 +593,40 @@ def main(mfinal_id):
 		annot_df = annot_df.append(annot_row)
 	annot_df = trim_cell_slims(annot_df)
 
-	# Concatenate all anndata objects in list and load parameters
-	cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
-	cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
-	if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
-		sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
+	# For RNA datasets, concatenate all anndata objects in list,
+	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
+	cell_mapping_rev_dct = {}
+	raw_matrix_mapping = []
+	for mapping_dict in mfinal_obj['cell_label_mappings']:
+		cell_mapping_rev_dct[mapping_dict['label']] = mapping_dict['raw_matrix']
+	if assay10x == 'RNA':
+		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
+		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
+		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
+			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
+	else:
+		flag_removed = False
+		for final_id in mfinal_cell_identifiers:
+			if not re.search('[AGCT]+-1', final_id):
+				flag_removed = True
+		for cell_id in mfinal_cell_identifiers:
+			if mfinal_obj['cell_label_location'] == 'prefix':
+				label = re.search('^(.*)[AGCT]{16}.*$', cell_id).group(1)
+			elif mfinal_obj['cell_label_location'] == 'suffix':
+				if flag_removed:
+					label = re.search(r'^[AGCT]+(.*)$', cell_id).group(1)
+				else:
+					label = re.search(r'^[AGCT]+-1(.*)$', cell_id).group(1)
+			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
+		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
+		cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
+	print("Here")
+	print(cxg_adata_raw.obs.iloc[1,])
+
+	# Set uns and obsm parameters
 	cxg_uns = ds_results
 	cxg_uns['version'] = {}
-	cxg_uns['version']['corpora_schema_version'] = '1.0.0'
+	cxg_uns['version']['corpora_schema_version'] = '1.1.0'
 	cxg_uns['version']['corpora_encoding_version'] = '0.1.0'
 	cxg_obsm = get_embeddings(mfinal_adata)
 
@@ -628,7 +648,7 @@ def main(mfinal_id):
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 		cxg_adata.raw = cxg_adata_raw
 		quality_check(cxg_adata)
-		results_file = mfinal_obj['accession']+".h5ad"
+		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 		cxg_adata.write(results_file)
 	else:
 		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
@@ -647,9 +667,9 @@ def main(mfinal_id):
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
 			if len(converted_h5ad) == 1:
-				results_file = '{}.h5ad'.format(mfinal_obj['accession'])
+				results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 			else:
-				results_file = '{}_{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2])
+				results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2], flat_version)
 			cxg_adata.write(results_file)
 
 	shutil.rmtree(tmp_dir)
