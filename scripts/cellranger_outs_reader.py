@@ -9,6 +9,7 @@ import re
 import requests
 import subprocess
 import sys
+import gzip
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
