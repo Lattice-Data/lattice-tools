@@ -121,8 +121,8 @@ args = getArgs()
 if args.assay == 'rna':
 	obj_name = 'rna_metrics'
 	files_to_check = [
-		'metrics_summary.csv',
-		'web_summary.html'
+		'metrics_summary.csv.gz',
+		'web_summary.html.gz'
 	]
 
 elif args.assay == 'atac':
@@ -162,8 +162,8 @@ for file_name in files_to_check:
 	else:
 		print(file_name + ' downloaded')
 
-		if file_name == 'web_summary.html':
-			with open(file_name) as html_doc:
+		if file_name == 'web_summary.html.gz':
+			with gzip.open(file_name) as html_doc:
 				match_flag = False
 				soup = BeautifulSoup(html_doc, 'html.parser')
 				for x in soup.find_all('script'):
@@ -196,8 +196,8 @@ for file_name in files_to_check:
 			print(file_name + ' removed')
 
 		else:
-			if file_name == 'metrics_summary.csv':
-				with open(file_name, newline='') as csvfile:
+			if file_name == 'metrics_summary.csv.gz':
+				with gzip.open(file_name, 'rt') as csvfile:
 					spamreader = csv.reader(csvfile)
 					rows = list(spamreader)
 					headers = [header.lower().replace(' ','_') for header in rows[0]]
