@@ -9,8 +9,8 @@ donor = {
 	'biomaterial_core.ncbi_taxon_id': {
 		'lattice': 'organism.taxon_id',
 		'value_map': {
-			'NCBI:9606': '9606',
-			'NCBI:10090': '10090'
+			'NCBITaxon:9606': '9606',
+			'NCBITaxon:10090': '10090'
 		}
 	},
 	'development_stage.ontology': {
@@ -21,7 +21,7 @@ donor = {
 	},
 	'diseases': {
 		'lattice': 'diseases',
-		'future_subprop_map': { # need disease embedded in Donor
+		'subprop_map': {
 			'ontology': {
 				'lattice': 'term_id',
 			},
@@ -29,12 +29,6 @@ donor = {
 				'lattice': 'term_name'
 			}
 		}
-	},
-	'genus_species.ontology': {
-		'lattice': 'organism.taxon_id'
-	},
-	'genus_species.ontology_label': {
-		'lattice': 'organism.scientific_name'
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
@@ -69,10 +63,10 @@ mouse_donor = {
 }
 
 prenatal_donor = {
-	'organism_age': {
+	'gestational_age': {
 		'lattice': 'gestational_age'
 	},
-	'organism_age_unit.text': {
+	'gestational_age_unit.text': {
 		'lattice': 'gestational_age_units'
 	}
 }
@@ -90,6 +84,9 @@ biosample = {
 	'biomaterial_core.biomaterial_id': {
 		'lattice': 'uuid'
 	},
+	'biomaterial_core.ncbi_taxon_id': {
+		'lattice': 'donors' # later pull organism.taxon_id
+	},
 	'dbxrefs': {
 		'lattice': 'dbxrefs',
 		'BioSample': 'biomaterial_core.biosamples_accession',
@@ -103,6 +100,31 @@ biosample = {
 lattice_to_dcp = {
 	'Dataset': {
 		'class': 'project',
+		'contributors': {
+			'lattice': 'contributors',
+			'subprop_map': {
+				'name': {
+					'lattice': 'title'
+				},
+				'institution': {
+					'lattice': 'institute_name'
+				}
+			}
+		},
+		'corresponding_contributors': {
+			'lattice': 'corresponding_contributors',
+			'subprop_map': {
+				'name': {
+					'lattice': 'title'
+				},
+				'institution': {
+					'lattice': 'institute_name'
+				},
+				'email': {
+					'lattice': 'email'
+				}
+			}
+		},
 		'dbxrefs': {
 			'lattice': 'dbxrefs',
 			'SRA': 'insdc_project_accessions',
@@ -111,22 +133,14 @@ lattice_to_dcp = {
 			'BioProject': 'insdc_study_accessions',
 			'BioStudies': 'biostudies_accessions'
 		},
-		'funders': {
-			'lattice': 'award',
-			'subprop_map': {
-				'grant_title': {
-					'lattice': 'title'
-				},
-				'grant_id': {
-					'lattice': 'CZI_project_identifier'
-				}
-			}
+		'funders.organization': {
+			'lattice': 'funding_organizations'
 		},
 		'project_core.project_description': {
 			'lattice': 'description'
 		},
 		'project_core.project_title': {
-			'lattice': 'title'
+			'lattice': 'dataset_title'
 		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
@@ -137,13 +151,14 @@ lattice_to_dcp = {
 				'authors': {
 					'lattice': 'authors',
 				},
+				'doi': {
+					'lattice': 'doi'
+				},
+				'pmid': {
+					'lattice': 'pmid'
+				},
 				'title': {
 					'lattice': 'title'
-				},
-				'dbxrefs': {
-					'lattice': 'identifiers',
-					'doi': 'doi',
-					'PMID': 'pmid'
 				}
 			}
 		}
@@ -210,6 +225,9 @@ lattice_to_dcp = {
 				}
 			}
 		},
+		'organ.text': {
+			'lattice': 'biosample_ontology.organ_slims'
+		},
 		'organ_parts.ontology': {
 			'lattice': 'biosample_ontology.term_id'
 		},
@@ -227,7 +245,7 @@ lattice_to_dcp = {
 			'lattice': 'preservation_method',
 			'value_map': {
 				'n/a (fresh)': 'fresh',
-				'cryopreservation': 'cryopreservation, other', # confirm with DCP
+				'cryopreservation': 'cryopreservation, other',
 				'paraffin embedding': 'formalin fixed and paraffin embedded'
 			}
 		},
@@ -256,16 +274,19 @@ lattice_to_dcp = {
 		'state_of_specimen.ischemic_time': {
 			'lattice': 'ischemic_time'
 		},
+		'state_of_specimen.ischemic_time_units': { # deleted before report
+			'lattice': 'ischemic_time_units'
+		},
 		'state_of_specimen.postmortem_interval': {
 			'lattice': 'death_to_preservation_interval'
+		},
+		'state_of_specimen.postmortem_interval_units': { # deleted before report
+			'lattice': 'death_to_preservation_interval_units'
 		}
 	},
 	'CellCulture': {
 		**biosample,
 		'class': 'cell_line',
-		'catalog_number': {
-			'lattice': 'product_id'
-		},
 		'cell_type.ontology': {
 			'lattice': 'biosample_ontology.term_id'
 		},
@@ -290,13 +311,23 @@ lattice_to_dcp = {
 			'lattice': 'mycoplasma_testing_method'
 		},
 		'growth_conditions.mycoplasma_testing_results': {
-			'lattice': 'mycoplasma_testing_results'
+			'lattice': 'mycoplasma_testing_results',
+			'value_map': {
+				'negative': 'pass',
+				'positive': 'fail'
+			}
 		},
 		'lot_number': {
 			'lattice': 'lot_id'
 		},
 		'supplier': {
 			'lattice': 'source'
+		},
+		'tissue.text': {
+			'lattice': 'biosample_ontology.organ_slims'
+		},
+		'type': {
+			'lattice': 'biosample_ontology.cell_slims'
 		}
 	},
 	'Organoid': {
@@ -313,6 +344,9 @@ lattice_to_dcp = {
 		},
 		'growth_environment': {
 			'lattice': 'growth_medium'
+		},
+		'model_organ.text': {
+			'lattice': 'biosample_ontology.organ_slims'
 		},
 		'model_organ_part.ontology': {
 			'lattice': 'biosample_ontology.term_id'
@@ -347,7 +381,7 @@ lattice_to_dcp = {
 		},
 		'selected_cell_types': {
 			'lattice': 'enriched_cell_types',
-			'subprop_map': {
+			'future_subprop_map': { # need enriched_cell_types embedded
 				'ontology': {
 					'lattice': 'term_id'
 				},
@@ -363,7 +397,12 @@ lattice_to_dcp = {
 			'lattice': 'protocol.library_amplification_method'
 		},
 		'end_bias': {
-			'lattice': 'protocol.end_bias'
+			'lattice': 'protocol.end_bias',
+			'value_map': {
+				"3'": "3 prime end bias",
+				"5'": "5 prime end bias",
+				"full length": "full length"
+			}
 		},
 		'input_nucleic_acid_molecule.text': {
 			'lattice': 'protocol.biological_macromolecule'
@@ -375,7 +414,7 @@ lattice_to_dcp = {
 			'lattice': 'protocol.library_preamplification_method'
 		},
 		'nucleic_acid_source': {
-			'lattice': 'assay_type',
+			'lattice': 'assay',
 			'value_map': {
 				'scATAC-seq': 'single cell',
 				'snATAC-seq': 'single nucleus',
@@ -389,8 +428,12 @@ lattice_to_dcp = {
 		'primer': {
 			'lattice': 'protocol.first_strand_primer',
 			'value_map': {
-				'poly(dT)': 'poly-dT'
+				'poly(dT)': 'poly-dT',
+				'adapter': 'random'
 			}
+		},
+		'protocol_core.protocol_id': {
+			'lattice': 'protocol.name'
 		},
 		'provenance.document_id': {
 			'lattice': 'protocol.uuid'
@@ -407,6 +450,9 @@ lattice_to_dcp = {
 		'local_machine_name': {
 			'lattice': 'flowcell_details.machine'
 		},
+		'protocol_core.protocol_id': {
+			'lattice': 'uuid'
+		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
 		}
@@ -422,16 +468,21 @@ lattice_to_dcp = {
 		'file_core.format': {
 			'lattice': 'file_format'
 		},
+		'insdc_run_accessions': {
+			'lattice': 'derived_from' # DCP_mapper pulls out just dbxrefs
+		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
 		},
 		'read_index': {
-			'lattice': 'read_type',
+			'lattice': 'read_type', # might instead map demultiplexed_type
 			'value_map': {
-				'Read 1': 'read 1',
-				'Read 2': 'read 2',
-				'Read 1N': 'read 1', # need to confirm
-				'Read 2N': 'read 2' # need to confirm
+				'i5 index': 'index2', # need to confirm for ATAC (demultiplexe_type=R2)
+				'i7 index': 'index1',
+				'Read 1': 'read1',
+				'Read 2': 'read2',
+				'Read 1N': 'read1',
+				'Read 2N': 'read2' # need to confirm for ATAC (demultiplexe_type=R3)
 			}
 		},
 		'read_length': {

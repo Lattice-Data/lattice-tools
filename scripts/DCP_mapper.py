@@ -6,6 +6,7 @@ import os
 import requests
 import sys
 from datetime import datetime, timezone
+from pint import UnitRegistry
 from urllib.parse import urljoin
 from property_mapping import (
     lattice_to_dcp
@@ -13,11 +14,11 @@ from property_mapping import (
 
 
 EPILOG = '''
-Get a Dataset from the Lattice database and put into json files.
+Get a Dataset from the Lattice database and put into DCP schema and exported in json files.
 
 Examples:
 
-    python %(prog)s --dataset LATDS444YHX
+    python %(prog)s --mode prod --dcp /Users/jason/GitClones/HCA/ --dataset LATDS940AQG
 
 For more details:
 
@@ -91,23 +92,24 @@ def add_value(my_obj, temp_obj, prop_map, prop):
 		add_to_not_incl(lat_prop, v)
 	else:
 		# lists of objects need to be mapped each item at a time
-		if isinstance(v, list) and prop_map.get('subprop_map'):
-			new_v = []
-			for i in v:
-				new_i = {}
+		if prop_map.get('subprop_map'):
+			if isinstance(v, list):
+				new_v = []
+				for i in v:
+					new_i = {}
+					for subprop in prop_map['subprop_map'].keys():
+						lat_subprop = prop_map['subprop_map'][subprop]['lattice']
+						if i.get(lat_subprop):
+							add_value(new_i, i, prop_map['subprop_map'][subprop], subprop)
+					new_v.append(new_i)
+					v = new_v
+			elif isinstance(v, dict):
+				new_v = {}
 				for subprop in prop_map['subprop_map'].keys():
 					lat_subprop = prop_map['subprop_map'][subprop]['lattice']
-					if i.get(lat_subprop):
-						add_value(new_i, i, prop_map['subprop_map'][subprop], subprop)
-				new_v.append(new_i)
+					if v.get(lat_subprop):
+						add_value(new_v, v, prop_map['subprop_map'][subprop], subprop)
 				v = new_v
-		elif isinstance(v, dict) and prop_map.get('subprop_map'):
-			new_v = {}
-			for subprop in prop_map['subprop_map'].keys():
-				lat_subprop = prop_map['subprop_map'][subprop]['lattice']
-				if v.get(lat_subprop):
-					add_value(new_v, v, prop_map['subprop_map'][subprop], subprop)
-			v = new_v
 		# map and create subobjects
 		if '.' in prop:
 			path = prop.split('.')
@@ -180,9 +182,15 @@ def flatten_obj(obj):
 	new_obj = {}
 	for k,v in obj.items():
 		if k not in ignore:
-			if isinstance(v, dict) and k not in ['test_results', 'award']:
+			if isinstance(v, dict) and k not in ['test_results']:
 				for x,y in v.items():
 					new_obj[k + '.' + x] = y
+			elif (isinstance(v, list) and all(isinstance(i, dict) for i in v)):
+				new_v = []
+				for i in v:
+					new_i = flatten_obj(i)
+					new_v.append(new_i)
+				new_obj[k] = new_v
 			else:
 				new_obj[k] = v
 	return new_obj
@@ -259,7 +267,7 @@ def seq_to_susp(links_dict):
 		l = {
 			'protocols': protocols,
 			'inputs': ins,
-			'outputs': links_dict[seqruns]
+			'outputs': links_dict[seqruns]['outputs']
 			}
 		link_hash = hashlib.md5(str(l).encode('utf-8')).hexdigest()
 		l['link_type'] = 'process_link'
@@ -299,10 +307,10 @@ def create_protocol(in_type, out_type, out_obj):
 	else:
 		whole_dict[pr_type] = [my_obj]
 	
-	if 'enrichment_factors' in out_obj:
+	if 'enrichment_factors' or 'enriched_cell_types' in out_obj:
 		pr_type = 'enrichment_protocol'
 		enpr_id = hashlib.md5(str([pr_type + in_type + out_type]).encode('utf-8')).hexdigest()
-		prots.apppend({
+		prots.append({
 			'protocol_type': pr_type,
 			'protocol_id': enpr_id
 			})
@@ -314,10 +322,11 @@ def create_protocol(in_type, out_type, out_obj):
 				'protocol_id': enpr_id
 				},
 			'method': {
-				'text': ','.join(der_process)
-				},
-			'enirchment_markers': out_type[pr_type]
+				'text': 'enrichment'
+				}
 			}
+		if out_obj.get('enrichment_factors'):
+			enr_obj['markers'] = out_obj['enrichment_factors']
 		if whole_dict.get(pr_type):
 			whole_dict[pr_type].append(enr_obj)
 		else:
@@ -375,22 +384,59 @@ def get_dcp_schema_ver(directory):
 	return vers
 
 
+def number_conversion(value):
+	range_indicators = ['-','<','>']
+	if True not in [c in value for c in range_indicators]:
+		return int(value)
+	else:
+		return None
+
+
+def unit_conversion(value, current_u, desired_u):
+	ureg = UnitRegistry()
+	curr = value * ureg(current_u)
+	curr.ito(desired_u)
+	return curr.magnitude
+
+
 def customize_fields(obj, obj_type):
+	if obj.get('provenance'):
+		obj['provenance']['submission_date'] = dt
+	else:
+		obj['provenance'] = {'submission_date': dt}
+	if obj.get('biomaterial_core'):
+		if obj['biomaterial_core'].get('ncbi_taxon_id'):
+			if obj_type == 'donor_organism':
+				obj['biomaterial_core']['ncbi_taxon_id'] = [int(obj['biomaterial_core']['ncbi_taxon_id'])]
+			else:
+				temp = set()
+				for d in obj['biomaterial_core']['ncbi_taxon_id']:
+					path = d.get('organism.taxon_id').split(':')
+					temp.add(int(path[1]))
+				obj['biomaterial_core']['ncbi_taxon_id'] = list(temp)
 	if obj_type == 'project':
 		if obj.get('project_core'):
 			if obj['project_core'].get('project_title'):
 				short = obj['project_core']['project_title'].replace(' ','')[:50]
 				obj['project_core']['project_short_name'] = short
-		if obj.get('publications'):
-			for i in obj['publications']:
-				index = obj['publications'].index(i)
-				if i.get('doi'):
-					obj['publications'][index]['doi'] = i['doi'][0]
-				if i.get('pmid'):
-					obj['publications'][index]['pmid'] = int(i['pmid'][0])
 		if obj.get('funders'):
-			obj['funders']['organization'] = 'Chan Zuckerberg Initiative'
-			obj['funders'] = [obj['funders']]
+			if obj['funders'].get('organization'):
+				funds = []
+				for o in obj['funders']['organization']:
+					funds.append({'organization': o})
+				obj['funders']['organization'] = 'Chan Zuckerberg Initiative'
+				obj['funders'] = funds
+		if obj.get('corresponding_contributors'):
+			if not obj.get('contributors'):
+				obj['contributors'] = []
+			for cc in obj['corresponding_contributors']:
+				cc['corresponding_contributor'] = True
+				obj['contributors'].append(cc)
+			del obj['corresponding_contributors']
+		if obj.get('publications'):
+			for p in obj['publications']:
+				if p.get('pmid'):
+					p['pmid'] = int(p['pmid'])
 	elif obj_type == 'donor_organism':
 		if not obj.get('is_living'):
 			if obj['development_stage']['ontology_label'] in ['embryonic','fetal']:
@@ -400,6 +446,9 @@ def customize_fields(obj, obj_type):
 		if obj.get('human_specific'):
 			if obj['human_specific'].get('ethnicity'):
 				obj['human_specific']['ethnicity'] = [obj['human_specific']['ethnicity']]
+		if obj.get('mouse_specific'):
+			if obj['mouse_specific'].get('strain'):
+				obj['mouse_specific']['strain'] = [obj['mouse_specific']['strain']]
 		if obj.get('medical_history'):
 			if obj['medical_history'].get('test_results'):
 				tr = [k + ':' + v for k,v in obj['medical_history']['test_results'].items()]
@@ -408,27 +457,124 @@ def customize_fields(obj, obj_type):
 		if obj.get('purchased_specimen'):
 			if not obj['purchased_specimen'].get('catalog_number'):
 				del obj['purchased_specimen']
+		if obj.get('organ_parts'):
+			obj['organ_parts'] = [obj['organ_parts']]
+		if obj.get('organ'):
+			if obj['organ'].get('text'):
+				obj['organ']['text'] = obj['organ']['text'][0]
+		else:
+			obj['organ'] = {'text': obj['organ_parts'][0]['ontology_label']}
+		if obj.get('preservation_storage'):
+			if obj['preservation_storage'].get('storage_time'):
+				new_v = number_conversion(obj['preservation_storage']['storage_time'])
+				if new_v:
+					obj['preservation_storage']['storage_time'] = new_v
+				else:
+					del obj['preservation_storage']['storage_time']
+					del obj['preservation_storage']['storage_time_units']
+		if obj.get('state_of_specimen'):
+			if obj['state_of_specimen'].get('ischemic_time'):
+				new_v = number_conversion(obj['state_of_specimen']['ischemic_time'])
+				if new_v:
+					obj['state_of_specimen']['ischemic_time'] = new_v
+				else:
+					del obj['state_of_specimen']['ischemic_time']
+					del obj['state_of_specimen']['ischemic_time_units']
+			if obj['state_of_specimen'].get('ischemic_time_units'):
+				if obj['state_of_specimen']['ischemic_time_units'] != 'second':
+					new_v = unit_conversion(obj['state_of_specimen']['ischemic_time'],obj['state_of_specimen']['ischemic_time_units'], 'second')
+					obj['state_of_specimen']['ischemic_time'] = new_v
+					del obj['state_of_specimen']['ischemic_time_units']
+			if obj['state_of_specimen'].get('postmortem_interval'):
+				new_v = number_conversion(obj['state_of_specimen']['postmortem_interval'])
+				if new_v:
+					obj['state_of_specimen']['postmortem_interval'] = new_v
+				else:
+					del obj['state_of_specimen']['postmortem_interval']
+					del obj['state_of_specimen']['postmortem_interval_units']
+			if obj['state_of_specimen'].get('postmortem_interval_units'):
+				if obj['state_of_specimen']['postmortem_interval_units'] != 'second':
+					new_v = unit_conversion(obj['state_of_specimen']['postmortem_interval'],obj['state_of_specimen']['postmortem_interval_units'], 'second')
+					obj['state_of_specimen']['postmortem_interval'] = new_v
+					del obj['state_of_specimen']['postmortem_interval_units']
 	elif obj_type == 'cell_line':
+		if obj.get('type'):
+			celltypes = obj['type']
+			if 'induced pluripotent stem cell' in celltypes:
+				obj['type'] = 'induced pluripotent'
+			elif 'stem cell derived cell line' in celltypes:
+				obj['type'] = 'stem cell-derived'
+			elif 'stem cell' in celltypes:
+				obj['type'] = 'stem cell'
+			else:
+				obj['type'] = 'primary'
+		else:
+			obj['type'] = 'primary'
+		if obj.get('tissue'):
+			if obj['tissue'].get('text'):
+				obj['tissue']['text'] = obj['tissue']['text'][0]
 		if obj.get('supplier') and not obj.get('catalog_number'):
 			del obj['supplier']
+	elif obj_type == 'organoid':
+		if obj.get('age_unit') and not obj.get('age'):
+			obj['age'] = 0
+		if obj.get('model_organ'):
+			if obj['model_organ'].get('text'):
+				obj['model_organ']['text'] = obj['model_organ']['text'][0]
+		else:
+			obj['model_organ'] = {'text': obj['model_organ_part']['ontology_label']}
 	elif obj_type == 'cell_suspension':
+		if obj.get('cell_morphology'):
+			if obj['cell_morphology'].get('cell_size'):
+				obj['cell_morphology']['cell_size'] = str(obj['cell_morphology']['cell_size'])
+			if obj['cell_morphology'].get('percent_cell_viability'):
+				new_v = number_conversion(obj['cell_morphology']['percent_cell_viability'])
+				if new_v:
+					obj['cell_morphology']['percent_cell_viability'] = new_v
+				else:
+					del obj['cell_morphology']['percent_cell_viability']
 		if obj.get('estimated_count_units'):
 			if obj['estimated_count_units'] not in ['cells', 'nuclei']:
 				del obj['estimated_cell_count']
 			del obj['estimated_count_units']
+		if obj.get('estimated_cell_count'):
+			new_v = number_conversion(obj['estimated_cell_count'])
+			if new_v:
+				obj['estimated_cell_count'] = new_v
+			else:
+				del obj['estimated_cell_count']
 	elif obj_type == 'library_preparation_protocol':
 		if not obj.get('strand'):
 			obj['strand'] = 'not provided'
+	elif obj_type == 'sequence_file':
+		if obj.get('insdc_run_accessions'):
+			v = []
+			for i in obj['insdc_run_accessions']:
+				if i.get('dbxrefs'):
+					for ref in i['dbxrefs']:
+						no_pre = ref.split(':')[1]
+						v.append(no_pre)
+		if v:
+			obj['insdc_run_accessions'] = v
+		else:
+			del obj['insdc_run_accessions']
+	elif obj_type == 'sequencing_protocol':
+		if 'paired_end' not in obj:
+			obj['paired_end'] = False
+		if not obj.get('method'):
+			obj['method'] = {'text': 'high throughput sequencing'}
 
 
 def main():
 	# get the dataset, and convert it to a project object
+	print('GETTING THE DATASET')
 	url = urljoin(server, args.dataset + '/?format=json')
 	ds_obj = requests.get(url, auth=connection.auth).json()
 	dataset_id = ds_obj['uuid']
 	get_object(ds_obj)
 
 	# get the raw sequence files from that dataset
+	print('GETTING RAW SEQUENCE FILES')
 	links_dict = {}
 	files = [i for i in ds_obj['files']]
 	for f in files:
@@ -436,17 +582,24 @@ def main():
 		temp_obj = requests.get(url, auth=connection.auth).json()
 		obj_type = temp_obj['@type'][0]
 		if obj_type == 'RawSequenceFile':
-			# convert each to a sequence_file
-			get_object(temp_obj)
-			# pull the derived_from to store for later formation to links
-			get_links(temp_obj, tuple(temp_obj['derived_from']), links_dict)
+			if temp_obj.get('validated') == False:
+				print('{} has not been validated, will be excluded'.format(temp_obj['@id']))
+				not_valid.append(temp_obj['@id'])
+			else:
+				# convert each to a sequence_file
+				get_object(temp_obj)
+				# pull the derived_from to store for later formation to links
+				der_from = [i['@id'] for i in temp_obj['derived_from']]
+				get_links(temp_obj, tuple(der_from), links_dict)
 
 	# special walkback of graph until Suspension object
 	# gather all the Suspension objects to traverse next
 	# set up links between sequence_file and suspension as the start of each subgraph
+	print('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
 	susps, links = seq_to_susp(links_dict)
 
 	# walkback graph the rest of the way
+	print('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')
 	seen = set()
 	remaining = susps
 	while remaining:
@@ -459,10 +612,8 @@ def main():
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
 
-	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
-	dt = str(d_now).replace('+00:00', 'Z')
-
 	# make directory named after dataset
+	print('WRITING THE JSON FILES')
 	os.mkdir(dataset_id)
 	os.mkdir(dataset_id + '/metadata')
 	os.mkdir(dataset_id + '/links/')
@@ -489,7 +640,7 @@ def main():
 		'sequencing_protocol': 'protocol/sequencing',
 		'dissociation_protocol': 'protocol/biomaterial_collection',
 		'collection_protocol': 'protocol/biomaterial_collection',
-		'enrichment_protcol': 'protocol/biomaterial_collection',
+		'enrichment_protocol': 'protocol/biomaterial_collection',
 		'differentiation_protocol': 'protocol/biomaterial_collection',
 		'protocol': 'protocol'
 	}
@@ -504,16 +655,24 @@ def main():
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
 				json.dump(o, outfile, indent=4)
-				outfile.close()
 
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
 	with open(dataset_id + '/not_included.json', 'w') as outfile:
 		json.dump(not_incl, outfile, indent=4)
 
+	if not_valid:
+		with open(dataset_id + '/not_validated.txt', 'w') as outfile:
+			outfile.write('\n'.join(not_valid))
+			outfile.write('\n')
+
 if __name__ == '__main__':
+	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
+	dt = str(d_now).replace('+00:00', 'Z')
+
 	whole_dict = {}
 	not_incl = {}
+	not_valid = []
 	args = getArgs()
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
