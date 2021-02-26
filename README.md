@@ -16,6 +16,7 @@ Install the following packages
 ```
 $ pip install python-magic requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
 $ conda install anndata -c conda-forge
+$ conda install -c conda-forge pint
 $ conda install pandas
 ```
 Define variables in your environment based on the various servers you might submit to based on an alias for each server
