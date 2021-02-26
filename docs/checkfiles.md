@@ -15,10 +15,7 @@ $ ssh -i lattice_ec2.pem ec2-user@<Public DNS>
 ```
 Mount the storage device to the instance
 ```
-$ sudo mkfs.ext4 /dev/nvme1n1
-$ sudo mount /dev/nvme1n1 /mnt
-$ sudo chown ec2-user /mnt
-$ cd /mnt
+$ sudo mkfs.ext4 /dev/nvme1n1 ; sudo mount /dev/nvme1n1 /mnt ; sudo chown ec2-user /mnt ; cd /mnt
 ```
 Install python and necessary modules
 ```
@@ -34,12 +31,19 @@ Copy 2 files from your local machine to the instance
 $ scp -i lattice_ec2.pem checkfiles.py ec2-user@<Public DNS>:/mnt
 $ scp -i lattice_ec2.pem lattice.py ec2-user@<Public DNS>:/mnt
 ```
-If you will be checking files hosted in the Lattice S3 storage, create directory to hold AWS credentials and copy credentials from your local machine to the instance
+If you will be checking files hosted in the Lattice S3 storage, create directory to hold AWS credentials & set your variable to the location of the credentials
 ```
 $ mkdir .aws
-$ scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:.aws
+$ export AWS_SHARED_CREDENTIALS_FILE=.aws/credentials
+```
+... and copy credentials from your local machine to the instance
+```
+$ scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:/mnt/.aws
 ```
 Run checkfiles.py on the files
+```
+python3 checkfiles.py -m prod --update -query "report/?type=RawSequenceFile&audit.ERROR.category=file+not+validated" > output_1.log &
+```
 Upon completion, download the report
 ```
 $ scp -i lattice_ec2.pem ec2-user@<Public DNS>:/mnt/<report txt> ./
