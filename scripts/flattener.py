@@ -364,13 +364,20 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	
 	# Load Seurat object into a h5Seurat file, and create h5ad for each assay
 	# If scaled.data is present, data is in raw.X, else data is in X
+	robjects.r('print(sessionInfo())')
 	h5s_file = '{}/r_obj.h5Seurat'.format(temp_dir)
 	robjects.r('robj <- readRDS("{}")'.format(path_rds))
 	robjects.r('updated_robj <- Seurat::UpdateSeuratObject(object = robj)')
-	robjects.r('updated_robj@meta.data${} <- as.character(updated_robj@meta.data${})'.format(cell_col, cell_col))
-	robjects.r('SeuratDisk::SaveH5Seurat(updated_robj, filename="{}")'.format(h5s_file))
 	for assay in assays:
-		scaled_matrix = robjects.r('dim(Seurat::GetAssayData(object = updated_robj, assay="{}", slot="scale.data"))'.format(assay))
+		robjects.r('robj_assay <- Seurat::GetAssay(updated_robj, assay="{}")'.format(assay))
+		robjects.r('robj_new <- Seurat::CreateSeuratObject(robj_assay, assay = "{}", meta.data = updated_robj@meta.data)'.format(assay))
+		# Unique to Humphreys: will need to port over all embeddings in the future
+		robjects.r('umap_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="umap"), loadings = Loadings(updated_robj, reduction="umap"), global=TRUE, assay = "{}")'.format(assay))
+		robjects.r('robj_new@reductions$umap <- umap_reduc')
+
+		robjects.r('robj_new@meta.data${} <- as.character(robj_new@meta.data${})'.format(cell_col, cell_col))
+		robjects.r('SeuratDisk::SaveH5Seurat(robj_new, filename="{}")'.format(h5s_file))
+		scaled_matrix = robjects.r('dim(Seurat::GetAssayData(object = robj_new, assay="{}", slot="scale.data"))'.format(assay))
 		h5ad_file = '{}/{}.h5ad'.format(temp_dir, assay)
 		seuratdisk.Convert(h5s_file, dest="h5ad", assay=assay, overwrite = 'FALSE')
 		os.rename(h5s_file.replace('h5Seurat', 'h5ad'), h5ad_file)
