@@ -80,10 +80,14 @@ prop_map = {
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'matrix_default_visualization': 'default_field',
 	'matrix_default_embedding': 'default_embedding',
-	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category'
+	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
+	'suspension_suspension_type': 'suspension_type'
 }
 
 unreported_value = ''
+corpora_schema_version = '1.1.0'
+corpora_encoding_version = '0.1.0'
+flat_version = '2'
 
 EPILOG = '''
 Examples:
@@ -371,10 +375,11 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	for assay in assays:
 		robjects.r('robj_assay <- Seurat::GetAssay(updated_robj, assay="{}")'.format(assay))
 		robjects.r('robj_new <- Seurat::CreateSeuratObject(robj_assay, assay = "{}", meta.data = updated_robj@meta.data)'.format(assay))
-		# Unique to Humphreys: will need to port over all embeddings in the future
-		robjects.r('umap_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="umap"), loadings = Loadings(updated_robj, reduction="umap"), global=TRUE, assay = "{}")'.format(assay))
-		robjects.r('robj_new@reductions$umap <- umap_reduc')
-
+		robjects.r('reducs <- names(updated_robj@reductions)')
+		reductions = robjects.r('print(reducs)')
+		for reduc in reductions:
+			robjects.r('robj_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="{}"), loadings = Loadings(updated_robj, reduction="umap"), global=TRUE, assay = "{}")'.format(reduc, assay))
+			robjects.r('robj_new@reductions${} <- robj_reduc'.format(reduc))
 		robjects.r('robj_new@meta.data${} <- as.character(robj_new@meta.data${})'.format(cell_col, cell_col))
 		robjects.r('SeuratDisk::SaveH5Seurat(robj_new, filename="{}")'.format(h5s_file))
 		scaled_matrix = robjects.r('dim(Seurat::GetAssayData(object = robj_new, assay="{}", slot="scale.data"))'.format(assay))
@@ -487,7 +492,6 @@ def prep_obs(raw_obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns):
 
 
 def main(mfinal_id):
-	flat_version = '1'
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	# confirm that the identifier you've provided corresponds to a MatrixFile
@@ -627,14 +631,12 @@ def main(mfinal_id):
 			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
 		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
 		cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
-	print("Here")
-	print(cxg_adata_raw.obs.iloc[1,])
 
 	# Set uns and obsm parameters
 	cxg_uns = ds_results
 	cxg_uns['version'] = {}
-	cxg_uns['version']['corpora_schema_version'] = '1.1.0'
-	cxg_uns['version']['corpora_encoding_version'] = '0.1.0'
+	cxg_uns['version']['corpora_schema_version'] = corpora_schema_version
+	cxg_uns['version']['corpora_encoding_version'] = corpora_encoding_version
 	cxg_obsm = get_embeddings(mfinal_adata)
 
 	# Prep obs dataframe, add cluster assignment if author_cluster_column is in 
