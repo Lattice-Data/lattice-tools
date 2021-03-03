@@ -819,8 +819,11 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
                     blockers.append('already validated')
                     check_me_flag = False
                 if check_me_flag == False:
+                    uri = file_json.get('s3_uri',file_json.get('external_uri'))
+                    if uri == None:
+                        uri = ''
                     out = open(report_out, 'a')
-                    out.write(acc + '\t' + file_json.get('s3_uri',file_json.get('external_uri')) + '\t' + ','.join(blockers) + '\n')
+                    out.write(acc + '\t' + uri + '\t' + ','.join(blockers) + '\n')
                     out.close()
                 elif check_me_flag == True:
                     job = {

@@ -28,8 +28,7 @@ $ export PROD_KEY=<> ; export PROD_SECRET=<> ; export PROD_SERVER=https://www.la
 ```
 Copy 2 files from your local machine to the instance
 ```
-$ scp -i lattice_ec2.pem checkfiles.py ec2-user@<Public DNS>:/mnt
-$ scp -i lattice_ec2.pem lattice.py ec2-user@<Public DNS>:/mnt
+$ scp -i lattice_ec2.pem lattice.py checkfiles.py ec2-user@<Public DNS>:/mnt
 ```
 If you will be checking files hosted in the Lattice S3 storage, create directory to hold AWS credentials & set your variable to the location of the credentials
 ```
@@ -42,7 +41,7 @@ $ scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:/mnt/.aws
 ```
 Run checkfiles.py on the files
 ```
-python3 checkfiles.py -m prod --update -query "report/?type=RawSequenceFile&audit.ERROR.category=file+not+validated" > output_1.log &
+python3 checkfiles.py -m prod --update -query "report/?type=RawSequenceFile&audit.ERROR.category=file+not+validated" &
 ```
 Upon completion, download the report
 ```
