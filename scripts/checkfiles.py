@@ -3,10 +3,12 @@ import boto3
 import h5py
 import json
 import lattice
+import logging
 import os
 import re
 import requests
 import shutil
+import socket
 import subprocess
 import sys
 import tables
@@ -231,6 +233,7 @@ def process_read_name_line(read_name_line, old_illumina_current_prefix, read_num
 
 
 def process_fastq_file(job):
+    logging.info('Getting fastq metadata')
     item = job['item']
     errors = job['errors']
     results = job['results']
@@ -284,9 +287,11 @@ def process_fastq_file(job):
         if line_index != 0:
             errors['incomplete fastq file'] = 'Last line was not a factor of 4, but has a remainder of {}'.format(line_index)
         # read_count update
+        logging.info('Determining read count')
         results['read_count'] = read_count
 
         # read1/read2
+        logging.info('Determining read number')
         if len(read_numbers_set) == 1:
             read_number = next(iter(read_numbers_set))
             results['member_pair'] = read_number
@@ -296,6 +301,7 @@ def process_fastq_file(job):
                 '{}.'.format(', '.join(sorted(list(read_numbers_set))))
 
         # read_length
+        logging.info('Determining read lengths')
         results['read_length'] = max(read_lengths_dictionary, key=read_lengths_dictionary.get)
 
         read_lengths_list = []
@@ -305,6 +311,7 @@ def process_fastq_file(job):
         results['read_lengths_list'] = ', '.join(map(str, read_lengths_list))
 
         # signatures
+        logging.info('Determining read signatures')
         all_flowcells = set()
         all_smp_ins = set()
         for sign in signatures_set:
@@ -334,6 +341,7 @@ def process_fastq_file(job):
 
 
 def process_h5matrix_file(job):
+    logging.info('Getting h5 matrix metadata')
     feature_type_mapping = {
         'Gene Expression': 'gene',
         'Peaks': 'peak'
@@ -380,6 +388,7 @@ def process_h5matrix_file(job):
 
 
 def process_mexmatrix_file(job):
+    logging.info('Getting mex matrix metadata')
     item = job['item']
     errors = job['errors']
     results = job['results']
@@ -530,14 +539,14 @@ def download_s3_directory(job):
     s3client = boto3.client("s3")
     tmp_dir = 'raw_feature_bc_matrix'
     os.mkdir(tmp_dir)
-    print(file_name + ' downloading')
+    logging.info(file_name + ' downloading')
     for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
             s3client.download_file(bucket_name, dir_path + '/' + file_name, '{}/{}'.format(tmp_dir, file_name))
         except subprocess.CalledProcessError as e:
             errors['file not found'] = 'Failed to find file on s3'
         else:
-            print(file_name + ' downloaded')
+            logging.info(file_name + ' downloaded')
 
     return tmp_dir, job
 
@@ -554,13 +563,13 @@ def download_s3_file(job):
     job['download_start'] = datetime.now()
 
     s3client = boto3.client("s3")
-    print(file_name + ' downloading')
+    logging.info(file_name + ' downloading')
     try:
         s3client.download_file(bucket_name, file_path, file_name)
     except subprocess.CalledProcessError as e:
         errors['file not found'] = 'Failed to find file on s3'
     else:
-        print(file_name + ' downloaded')
+        logging.info(file_name + ' downloaded')
         job['download_stop'] = datetime.now()
         job['download_time'] = job['download_stop'] - job['download_start']
 
@@ -574,6 +583,9 @@ def download_external(job):
     download_url = item.get('external_uri')
     ftp_server = download_url.split('/')[2]
     ftp = FTP(ftp_server)
+    ftp.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 75)
+    ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
     ftp.login(user='anonymous', passwd = 'password')
 
     file_path = download_url.replace('ftp://{}/'.format(ftp_server), '')
@@ -581,7 +593,7 @@ def download_external(job):
 
     job['download_start'] = datetime.now()
 
-    print(file_name + ' downloading')
+    logging.info(file_name + ' downloading')
     try:
         ftp.retrbinary('RETR ' + file_path, open(file_name, 'wb').write)
     except error_perm as e:
@@ -589,7 +601,7 @@ def download_external(job):
         os.remove(file_name)
     else:
         ftp.quit()
-        print(file_name + ' downloaded')
+        logging.info(file_name + ' downloaded')
         job['download_stop'] = datetime.now()
         job['download_time'] = job['download_stop'] - job['download_start']
 
@@ -627,6 +639,8 @@ def compare_with_db(job, connection):
     errors = job['errors']
     results = job['results']
     post_json = {}
+
+    logging.info('Comparing results with metadata in Lattice DB')
 
     metadata_consistency = []
     metadata_inconsistency = []
@@ -690,10 +704,12 @@ def check_file(job):
     job['check_start'] = datetime.now()
 
     # check file size & md5sum
+    logging.info('Getting file size')
     file_stat = os.stat(local_path)
     results['file_size'] = file_stat.st_size
     # Faster than doing it in Python.
     try:
+        logging.info('Getting file md5')
         output = subprocess.check_output('md5sum {}'.format(local_path),
             shell=True, executable='/bin/bash', stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
@@ -716,6 +732,7 @@ def check_file(job):
         elif not is_gzipped:
             errors['gzip'] = 'Expected gzipped file'
         else:
+            logging.info('Getting file content md5')
             # May want to replace this with something like:
             # $ cat $local_path | tee >(md5sum >&2) | gunzip | md5sum
             # or http://stackoverflow.com/a/15343686/199100    
@@ -736,15 +753,15 @@ def check_file(job):
             if file.get('file_format') == 'fastq':
                 process_fastq_file(job)
                 os.remove(local_path)
-                print(local_path + ' removed')
+                logging.info(local_path + ' removed')
     if file.get('file_format') == 'mex':
         process_mexmatrix_file(job)
         shutil.rmtree(tmp_dir)
-        print(tmp_dir + ' removed')
+        logging.info(tmp_dir + ' removed')
     if file.get('file_format') == 'hdf5':
         process_h5matrix_file(job)
         os.remove(local_path)
-        print(local_path + ' removed')
+        logging.info(local_path + ' removed')
 
     job['check_stop'] = datetime.now()
     job['check_time'] = job['check_stop'] - job['check_start']
@@ -753,6 +770,7 @@ def check_file(job):
 
 
 def fetch_files(report_out, connection=None, query=None, accessions=None, s3_file=None, ext_file=None, file_format=None, include_validate=False):
+    logging.info('Fetching files that need validation')
     if accessions or query:
         server = connection.server
         if accessions:
@@ -860,6 +878,9 @@ def report(job):
 
 
 def main():
+    logging.basicConfig(filename='checkfiles.log', level=logging.INFO)
+    logging.info('Started')
+
     args = getArgs()
     if (args.query or args.accessions) and not args.mode:
         sys.exit('ERROR: --mode is required with --query/--accessions')
@@ -878,12 +899,11 @@ def main():
         connection = ''
 
     initiating_run = 'STARTING Checkfiles version {}'.format(checkfiles_version)
-    print(initiating_run)
+    logging.info(initiating_run)
 
     timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
     report_out = 'report_{}.txt'.format(timestr)
-    print('Writing results to {}'.format(report_out))
-    out = open(report_out, 'w')
+    logging.info('Writing results to {}'.format(report_out))
     report_headers = '\t'.join([
         'identifier',
         'uri',
@@ -896,16 +916,17 @@ def main():
         'check_time',
         'content_md5sum_time'
     ])
-    out.write(report_headers + '\n')
-    out.close()
+    with open(report_out, 'w') as out:
+        out.write(report_headers + '\n')
 
     jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.ext_file, args.file_format, args.include_validated)
 
     if jobs:
         all_seq_runs = []
-        print('CHECKING {} files'.format(len(jobs)))
+        logging.info('CHECKING {} files'.format(len(jobs)))
         for job in jobs:
             file_obj = job.get('item')
+            logging.info('Starting {}'.format(file_obj.get('@id', 'File not in DB')))
             if file_obj.get('external_uri'):
                 local_file, job = download_external(job)
             elif file_obj.get('file_format') == 'mex':
@@ -923,7 +944,7 @@ def main():
                                             'errors': {}
                                             })
                     if job['post_json'] and not job['errors'] and args.update:
-                        print('PATCHING {}'.format(file_obj.get('accession')))
+                        logging.info('PATCHING {}'.format(file_obj.get('accession')))
                         patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
                         job['patch_result'] = patch['status']
                         if file_obj.get('s3_uri'):
@@ -938,12 +959,12 @@ def main():
                 if job not in seq_run_jobs:
                     seq_run_uuids.append(job['item']['uuid'])
                     seq_run_jobs.append(job)
-            print('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
+            logging.info('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
             for job in seq_run_jobs:
                 if seq_run_uuids.count(job['item']['uuid']) == 1:
                     compare_with_db(job, connection)
                     if job['post_json'] and not job['errors'] and args.update:
-                        print('PATCHING {}'.format(job['item'].get('uuid')))
+                        logging.info('PATCHING {}'.format(job['item'].get('uuid')))
                         patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
                         job['patch_result'] = patch['status']
                     out = open(report_out, 'a')
@@ -956,11 +977,12 @@ def main():
                     out.close()
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
-        print(finishing_run)
+        logging.info(finishing_run)
     else:
-        print('FINISHED No files to check, see report.txt for details')
+        logging.info('FINISHED No files to check, see report.txt for details')
 
-    print('Results written to {}'.format(report_out))
+    logging.info('Results written to {}'.format(report_out))
+    logging.info('Finished')
 
 if __name__ == '__main__':
     main()
