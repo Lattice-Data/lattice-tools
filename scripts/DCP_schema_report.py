@@ -24,14 +24,15 @@ if not args.sheet:
 	sys.exit('ERROR: --sheet is required')
 
 schemas_to_pull = [
+	'project',
 	'donor_organism',
 	'specimen_from_organism',
 	'cell_line',
 	'organoid',
 	'cell_suspension',
-	'library_preparation_protocol',
+	'library_preparation_protcol',
 	'sequence_file'
-]
+	]
 
 # follow instructions here to enable API & generate credentials
 # https://www.twilio.com/blog/2017/02/an-easy-way-to-read-and-write-to-a-google-spreadsheet-in-python.html
@@ -66,6 +67,7 @@ for path, subdirs, files in os.walk(schema_dir + main_obj_dir):
 			non_submit = []
 			all_props = {}
 			schema = json.load(open(os.path.join(path, name)))
+			required = schema.get('required')
 			for tab in sheet.worksheets():
 				if tab.title == schema_name:
 					sheet.del_worksheet(tab)
@@ -138,6 +140,9 @@ for path, subdirs, files in os.walk(schema_dir + main_obj_dir):
 
 			set_frozen(tab, rows=1)
 
+			green = color(0.58, 0.77, 0.49)
+			grey = color(0.85, 0.85, 0.85)
+
 			non_submit_row = []
 			for p in non_submit:
 				non_submit_row.append(list(all_props.keys()).index(p) + 2)
@@ -145,5 +150,13 @@ for path, subdirs, files in os.walk(schema_dir + main_obj_dir):
 			# for the properties with embedded objects, shade the non-submittable property
 			for row in non_submit_row:
 				cells = 'A' + str(row) + ':K' + str(row)
-				grey = color(0.85, 0.85, 0.85)
 				format_cell_range(tab, cells, cellFormat(backgroundColor=grey))
+
+			req_row = []
+			for p in required:
+				req_row.append(list(all_props.keys()).index(p) + 2)
+
+			# for the properties with embedded objects, shade the non-submittable property
+			for row in req_row:
+				cells = 'A' + str(row) + ':K' + str(row)
+				format_cell_range(tab, cells, cellFormat(backgroundColor=green))
