@@ -7,6 +7,7 @@ import os
 import re
 import requests
 import shutil
+import socket
 import subprocess
 import sys
 import tables
@@ -574,6 +575,9 @@ def download_external(job):
     download_url = item.get('external_uri')
     ftp_server = download_url.split('/')[2]
     ftp = FTP(ftp_server)
+    ftp.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 75)
+    ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
     ftp.login(user='anonymous', passwd = 'password')
 
     file_path = download_url.replace('ftp://{}/'.format(ftp_server), '')
