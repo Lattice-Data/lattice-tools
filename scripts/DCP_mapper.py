@@ -387,7 +387,10 @@ def get_dcp_schema_ver(directory):
 def number_conversion(value):
 	range_indicators = ['-','<','>']
 	if True not in [c in value for c in range_indicators]:
-		return int(value)
+		if '.' in value:
+			return float(value)
+		else:
+			return int(value)
 	else:
 		return None
 
@@ -471,7 +474,7 @@ def customize_fields(obj, obj_type):
 					obj['preservation_storage']['storage_time'] = new_v
 				else:
 					del obj['preservation_storage']['storage_time']
-					del obj['preservation_storage']['storage_time_units']
+					del obj['preservation_storage']['storage_time_unit']
 		if obj.get('state_of_specimen'):
 			if obj['state_of_specimen'].get('ischemic_time'):
 				new_v = number_conversion(obj['state_of_specimen']['ischemic_time'])
@@ -582,7 +585,7 @@ def main():
 		temp_obj = requests.get(url, auth=connection.auth).json()
 		obj_type = temp_obj['@type'][0]
 		if obj_type == 'RawSequenceFile':
-			if temp_obj.get('validated') == False:
+			if temp_obj.get('validated') == 'd':
 				print('{} has not been validated, will be excluded'.format(temp_obj['@id']))
 				not_valid.append(temp_obj['@id'])
 			else:
@@ -678,6 +681,8 @@ if __name__ == '__main__':
 		sys.exit('ERROR: --dataset is required')
 	if not args.mode:
 		sys.exit('ERROR: --mode is required')
+	if not args.dcp:
+		sys.exit('ERROR: --dcp is required')
 	connection = lattice.Connection(args.mode)
 	server = connection.server
 	dcp_vs = get_dcp_schema_ver(args.dcp)

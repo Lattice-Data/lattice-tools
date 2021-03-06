@@ -19,6 +19,9 @@ donor = {
 	'development_stage.ontology_label': {
 		'lattice': 'life_stage'
 	},
+	'development_stage.text': {
+		'lattice': 'life_stage'
+	},
 	'diseases': {
 		'lattice': 'diseases',
 		'subprop_map': {
@@ -26,6 +29,9 @@ donor = {
 				'lattice': 'term_id',
 			},
 			'ontology_label': {
+				'lattice': 'term_name'
+			},
+			'text': {
 				'lattice': 'term_name'
 			}
 		}
@@ -50,6 +56,9 @@ human_donor = {
 	},
 	'human_specific.ethnicity.ontology_label': {
 		'lattice': 'ethnicity.term_name'
+	},
+	'human_specific.ethnicity.text': {
+		'lattice': 'ethnicity.term_name'
 	}
 }
 
@@ -58,6 +67,9 @@ mouse_donor = {
 		'lattice': 'strain_term_id'
 	},
 	'mouse_specific.strain.ontology_label': {
+		'lattice': 'strain_term_name'
+	},
+	'mouse_specific.strain.text': {
 		'lattice': 'strain_term_name'
 	}
 }
@@ -216,11 +228,14 @@ lattice_to_dcp = {
 		'class': 'specimen_from_organism',
 		'diseases': {
 			'lattice': 'diseases',
-			'future_subprop_map': {
+			'subprop_map': {
 				'ontology': {
 					'lattice': 'term_id',
 				},
 				'ontology_label': {
+					'lattice': 'term_name'
+				},
+				'text': {
 					'lattice': 'term_name'
 				}
 			}
@@ -232,6 +247,9 @@ lattice_to_dcp = {
 			'lattice': 'biosample_ontology.term_id'
 		},
 		'organ_parts.ontology_label': {
+			'lattice': 'biosample_ontology.term_name'
+		},
+		'organ_parts.text': {
 			'lattice': 'biosample_ontology.term_name'
 		},
 		'preservation_storage.preservation_method': {
@@ -293,16 +311,8 @@ lattice_to_dcp = {
 		'cell_type.ontology_label': {
 			'lattice': 'biosample_ontology.term_name'
 		},
-		'diseases': {
-			'lattice': 'diseases',
-			'future_subprop_map': {
-				'ontology': {
-					'lattice': 'term_id',
-				},
-				'ontology_label': {
-					'lattice': 'term_name'
-				}
-			}
+		'cell_type.text': {
+			'lattice': 'biosample_ontology.term_name'
 		},
 		'growth_conditions.growth_medium': {
 			'lattice': 'growth_medium'
@@ -353,6 +363,9 @@ lattice_to_dcp = {
 		},
 		'model_organ_part.ontology_label': {
 			'lattice': 'biosample_ontology.term_name'
+		},
+		'model_organ_part.text': {
+			'lattice': 'biosample_ontology.term_name'
 		}
 	},
 	'Suspension': {
@@ -381,11 +394,14 @@ lattice_to_dcp = {
 		},
 		'selected_cell_types': {
 			'lattice': 'enriched_cell_types',
-			'future_subprop_map': { # need enriched_cell_types embedded
+			'subprop_map': {
 				'ontology': {
 					'lattice': 'term_id'
 				},
 				'ontology_label': {
+					'lattice': 'term_name'
+				},
+				'text': {
 					'lattice': 'term_name'
 				}
 			}
