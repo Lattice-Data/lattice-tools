@@ -89,20 +89,21 @@ flowcell_pattern = '[a-zA-Z\d_-]+'
 
 read_name_prefix = re.compile(
     machine_pattern + ':' + run_id_pattern + ':' + flowcell_pattern +
-    ':\d+:\d+:\d+:\d+)$')
+    ':\d+:\d+:\d+:\d+)$'
+)
 
 illumina_read_name_pattern = re.compile(
     machine_pattern + ':' + run_id_pattern + ':' + flowcell_pattern +
-    ':\d+:\d+:\d+:\d+[\s_][123]:[YXN]:[0-9]+:([ACNTG\+]*|[0-9]*))$'
+    ':\d+:\d+:\d+:\d+)'
 )
 
 illumina_read_name_pattern_no_flowcell = re.compile(
     machine_pattern +
-    ':\d+:\d+:\d+:\d+[\s_][123]:[YXN]:[0-9]+:([ACNTG\+]*|[0-9]*))$'
+    ':\d+:\d+:\d+:\d+)'
 )
 
 srr_read_name_pattern = re.compile(
-    '^(@SRR[\d.]+)$'
+    '^(@[S|E]RR[\d.]+)$'
 )
 
 
@@ -207,7 +208,7 @@ def process_read_name_line(read_name_line, old_illumina_current_prefix, read_num
                                                             signatures_no_smp_in_set,
                                                             signatures_set,
                                                             read_lengths_dictionary,
-                                                            errors, True, read_name_details)
+                                                            errors, True)
     else:
         # unrecognized read_name_format
         # current convention is to include WHOLE
