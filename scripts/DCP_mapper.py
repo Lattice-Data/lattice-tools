@@ -585,7 +585,7 @@ def main():
 		temp_obj = requests.get(url, auth=connection.auth).json()
 		obj_type = temp_obj['@type'][0]
 		if obj_type == 'RawSequenceFile':
-			if temp_obj.get('validated') == 'd':
+			if temp_obj.get('validated') == False:
 				print('{} has not been validated, will be excluded'.format(temp_obj['@id']))
 				not_valid.append(temp_obj['@id'])
 			else:
