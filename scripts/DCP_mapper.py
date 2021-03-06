@@ -229,6 +229,18 @@ def get_links(temp_obj, der_fr, links_dict):
 		links_dict[der_fr] = {'outputs': [outs]}
 
 
+def uuid_make(value):
+	s = str(value)
+	md5 = hashlib.md5(s.encode('utf-8')).hexdigest()
+	return '-'.join([
+		md5[0:8],
+		md5[8:12],
+		md5[12:16],
+		md5[16:20],
+		md5[20:]
+		])
+
+
 def seq_to_susp(links_dict):
 	links = []
 	all_susps = set()
@@ -269,7 +281,7 @@ def seq_to_susp(links_dict):
 			'inputs': ins,
 			'outputs': links_dict[seqruns]['outputs']
 			}
-		link_hash = hashlib.md5(str(l).encode('utf-8')).hexdigest()
+		link_hash = uuid_make(l)
 		l['link_type'] = 'process_link'
 		l['process_type'] = 'process'
 		l['process_id'] = link_hash
@@ -296,7 +308,7 @@ def create_protocol(in_type, out_type, out_obj):
 		pr_type = 'differentiation_protocol'
 	else:
 		pr_type = 'protocol'
-	pr_id = hashlib.md5(str([pr_type + in_type + out_type]).encode('utf-8')).hexdigest()
+	pr_id = uuid_make([pr_type + in_type + out_type])
 
 	prots.append({'protocol_type': pr_type, 'protocol_id': pr_id})
 	
@@ -309,7 +321,7 @@ def create_protocol(in_type, out_type, out_obj):
 	
 	if 'enrichment_factors' or 'enriched_cell_types' in out_obj:
 		pr_type = 'enrichment_protocol'
-		enpr_id = hashlib.md5(str([pr_type + in_type + out_type]).encode('utf-8')).hexdigest()
+		enpr_id = uuid_make([pr_type + in_type + out_type])
 		prots.append({
 			'protocol_type': pr_type,
 			'protocol_id': enpr_id
@@ -352,7 +364,7 @@ def add_links(temp_obj, der_fr, links):
 		'inputs': ins,
 		'protocols': prots
 		}
-	link_hash = hashlib.md5(str(link).encode('utf-8')).hexdigest()
+	link_hash = uuid_make(link)
 	link['link_type'] = 'process_link'
 	link['process_type'] = 'process'
 	link['process_id'] = link_hash
