@@ -306,8 +306,10 @@ def create_protocol(in_type, out_type, out_obj):
 		pr_type = 'dissociation_protocol'
 	elif out_type == 'organoid' and in_type == 'cell_line':
 		pr_type = 'differentiation_protocol'
+		my_obj['method'] = my_obj['method']['text']
 	else:
 		pr_type = 'protocol'
+		del my_obj['method']
 	pr_id = uuid_make([pr_type + in_type + out_type])
 
 	prots.append({'protocol_type': pr_type, 'protocol_id': pr_id})
