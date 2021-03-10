@@ -37,12 +37,14 @@ cell_metadata = {
 		],
 	'suspension': [
 		'uuid',
-		'suspension_type'
+		'suspension_type',
+		'@id'
 		],
 	'library': [
 		'uuid',
 		'protocol.title',
-		'protocol.term_id'
+		'protocol.term_id',
+		'@id'
 		]
 	}
 
@@ -80,10 +82,14 @@ prop_map = {
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'matrix_default_visualization': 'default_field',
 	'matrix_default_embedding': 'default_embedding',
-	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category'
+	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
+	'suspension_suspension_type': 'suspension_type'
 }
 
 unreported_value = ''
+corpora_schema_version = '1.1.0'
+corpora_encoding_version = '0.1.0'
+flat_version = '2'
 
 EPILOG = '''
 Examples:
@@ -134,8 +140,9 @@ def gather_rawmatrices(derived_from):
 	return my_raw_matrices
 
 
-def gather_objects(raw_matrix_file):
-	lib_ids = raw_matrix_file['libraries']
+def gather_objects(input_object, start_type=None):
+	if start_type == None:
+		lib_ids = input_object['libraries']
 	libraries = []
 	susp_ids = []
 	suspensions = []
@@ -146,17 +153,27 @@ def gather_objects(raw_matrix_file):
 	donor_ids = []
 	donors = []
 
-	for i in lib_ids:
-		obj = lattice.get_object(i, connection)
-		libraries.append(obj)
-		for o in obj['derived_from']:
-			if o.get('uuid') not in susp_ids:
-				suspensions.append(o)
-				susp_ids.append(o.get('uuid'))
-		for o in obj['donors']:
-			if o.get('uuid') not in donor_ids:
-				donors.append(o)
-				donor_ids.append(o.get('uuid'))
+	if start_type == None:
+		for i in lib_ids:
+			obj = lattice.get_object(i, connection)
+			libraries.append(obj)
+			for o in obj['derived_from']:
+				if o.get('uuid') not in susp_ids:
+					suspensions.append(o)
+					susp_ids.append(o.get('uuid'))
+			for o in obj['donors']:
+				if o.get('uuid') not in donor_ids:
+					donors.append(o)
+					donor_ids.append(o.get('uuid'))
+	elif start_type == 'suspension':
+		susp_ids = [input_object['uuid']]
+		suspensions = [input_object]
+		for susp in suspensions:
+			for o in susp['donors']:
+				if o.get('uuid') not in donor_ids:
+					donors.append(o)
+					donor_ids.append(o.get('uuid'))
+
 	for o in suspensions:
 		for i in o['derived_from']:
 			sample_ids.append(i)
@@ -179,9 +196,10 @@ def gather_objects(raw_matrix_file):
 	objs = {
 		'donor': donors,
 		'sample': samples,
-		'suspension': suspensions,
-		'library': libraries
+		'suspension': suspensions
 		}
+	if start_type == None:
+		objs['library'] = libraries
 	if prepooled_susps:
 		objs['prepooled_suspension'] = prepooled_susps
 		objs['pooled_suspension'] = objs.pop('suspension')
@@ -231,10 +249,13 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		value = set()
 		for obj in objs:
 			v = get_value(obj, prop)
-			value.add(v)
+			if isinstance(v, list):
+				value.update(v)
+			else:
+				value.add(v)
 		latkey = (obj_type + '_' + prop).replace('.', '_')
 		key = prop_map.get(latkey, latkey)
-		values_to_add[key] = 'multiple {}s ({})'.format(obj_type, ','.join(value))
+		values_to_add[key] = '{}'.format(','.join(value))
 
 # NEED TO CHECK LINES 252 and 260  <-------------------------
 def report_dataset(donor_objs, matrix, dataset):
@@ -371,10 +392,11 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	for assay in assays:
 		robjects.r('robj_assay <- Seurat::GetAssay(updated_robj, assay="{}")'.format(assay))
 		robjects.r('robj_new <- Seurat::CreateSeuratObject(robj_assay, assay = "{}", meta.data = updated_robj@meta.data)'.format(assay))
-		# Unique to Humphreys: will need to port over all embeddings in the future
-		robjects.r('umap_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="umap"), loadings = Loadings(updated_robj, reduction="umap"), global=TRUE, assay = "{}")'.format(assay))
-		robjects.r('robj_new@reductions$umap <- umap_reduc')
-
+		robjects.r('reducs <- names(updated_robj@reductions)')
+		reductions = robjects.r('print(reducs)')
+		for reduc in reductions:
+			robjects.r('robj_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="{}"), loadings = Loadings(updated_robj, reduction="umap"), global=TRUE, assay = "{}")'.format(reduc, assay))
+			robjects.r('robj_new@reductions${} <- robj_reduc'.format(reduc))
 		robjects.r('robj_new@meta.data${} <- as.character(robj_new@meta.data${})'.format(cell_col, cell_col))
 		robjects.r('SeuratDisk::SaveH5Seurat(robj_new, filename="{}")'.format(h5s_file))
 		scaled_matrix = robjects.r('dim(Seurat::GetAssayData(object = robj_new, assay="{}", slot="scale.data"))'.format(assay))
@@ -445,7 +467,7 @@ def report_diseases(mxr_df, exp_disease):
 			mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease['term_name'], regex=True)
 			mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'].str.contains(exp_disease['term_id']).astype('string')
 			mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
-			xr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease['term_id'], regex=True)
+			mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease['term_id'], regex=True)
 		else:
 			sys.exit("There is unexpected extra disease states in biosamples: {}".format(mxr_df['sample_diseases_term_id'].unique()))
 	elif exp_disease['term_id'] in ','.join(mxr_df['donor_diseases_term_id'].unique()).split(','):
@@ -456,38 +478,60 @@ def report_diseases(mxr_df, exp_disease):
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease['term_id'], regex=True)
 	else:
-		sys.exit("Cannot find the experimental_variable_disease in donor or sample diseases: {}".format(exp_disease['term_name']))
+		sys.exit("Cannot find the experimental_variable_disease in donor or sample diseases: {}; {}; {}".format(exp_disease['term_id'], \
+			','.join(mxr_df['sample_diseases_term_id'].unique()).split(','), ','.join(mxr_df['donor_diseases_term_id'].unique()).split(',')))
 	# 'reported_diseases' is a list of all unique diseases from donor and samples
 	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
 	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list)
 	return mxr_df
 
 
-# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
-def prep_obs(raw_obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns):
-	celltype_col = mfinal_obj['author_cell_type_column']
-	cxg_obs = pd.merge(raw_obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
-	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
-	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
-	if cxg_uns['organism'] == 'Homo sapiens':
-		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
-	else:
-		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'na', regex=True)
-	if 'author_cluster_column' in mfinal_obj:
-		cluster_col = mfinal_obj['author_cluster_column']
-		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
-		cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
-		cxg_obs['author_cluster'] = cxg_obs['author_cluster'].astype('category')
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
-			'donor_diseases_term_id', 'donor_diseases_term_name']
-	cxg_obs.drop(columns=columns_to_drop, inplace=True)
-	if 'batch' in cxg_obs.columns.to_list():
-		cxg_obs.drop(columns='batch', inplace=True)
-	return cxg_obs
+# Demultiplex experimental metadata by finding demultiplexed suspension
+# Determine overlapping suspension, create library & demultiplexed suspension df
+# get cell_metadata from that suspension, merge in library info
+# merge with mxr_df on library
+def demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj):
+	susp_df = pd.DataFrame()
+	lattice_donor = {}
+	lattice_donor_col = []
+	demult_susp_lst = []
 
+	for donor_map in mfinal_obj['donor_mappings']:
+		lattice_donor[donor_map['label']] = donor_map['donor']
+	for author_don in lib_donor_df['author_donor'].to_list():
+		lattice_donor_col.append(lattice_donor[author_don])
+	lib_donor_df['author_donor_@id'] = lattice_donor_col
+	lib_donor_df['library_donor_@id'] = lib_donor_df['library_@id'] + "," + lib_donor_df['author_donor_@id']
+
+	for lib_donor_unique in lib_donor_df['library_donor_@id'].to_list():
+		demult_susp = ''
+		lib_uniq = lib_donor_unique.split(',')[0]
+		donor_uniq = lib_donor_unique.split(',')[1]
+		for susp in donor_susp[donor_uniq]:
+			if susp in library_susp[lib_uniq]:
+				demult_susp = susp
+		demult_susp_lst.append(demult_susp)
+		if demult_susp == '':
+	 		print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
+	lib_donor_df['suspension_@id'] = demult_susp_lst
+
+	obj_type_subset = ['sample', 'suspension', 'donor']
+	for susp in lib_donor_df['suspension_@id'].to_list():
+		values_to_add = {}
+		susp_obj = lattice.get_object(susp, connection)
+		relevant_objects = gather_objects(susp_obj, start_type='suspension')
+		for obj_type in obj_type_subset:
+		 	objs = relevant_objects.get(obj_type, [])
+		 	if len(objs) == 1:
+		 		gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
+		 	else: 
+		 		print('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
+		row_to_add = pd.Series(values_to_add)
+		susp_df = susp_df.append(row_to_add, ignore_index=True)
+	lib_donor_df = lib_donor_df.merge(susp_df, left_on='suspension_@id', right_on='suspension_@id', how='left')
+	return(lib_donor_df)
 
 def main(mfinal_id):
-	flat_version = '1'
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	# confirm that the identifier you've provided corresponds to a MatrixFile
@@ -527,7 +571,8 @@ def main(mfinal_id):
 	assays = []
 	converted_h5ad = []
 	for layer in mfinal_obj['layers']:
-		assays.append(layer['assay'])
+		if 'assay' in layer:
+			assays.append(layer['assay'])
 	if mfinal_obj['file_format'] == 'hdf5' and re.search('h5ad$', mfinal_local_path):
 		mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	elif mfinal_obj['file_format'] == 'rds':
@@ -541,28 +586,55 @@ def main(mfinal_id):
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
+	donor_susp = {}
+	library_susp = {}
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
-		for obj_type in cell_metadata.keys():
-			objs = relevant_objects.get(obj_type, [])
-			if len(objs) == 1:
-				gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
-			elif len(objs) > 1:
-				gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
-		if relevant_objects.get('prepooled_suspension'):
-			for obj_type in ['prepooled_suspension', 'pooled_suspension']:
+
+		# If there is a author_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
+		# Gather library, suspension, and donor associations while iterating through relevant objects
+		# Cannot handle multiple pooling events, so will sys.exit
+		if 'author_donor_column' in mfinal_obj:
+			lib_obj = relevant_objects.get('library', [])
+			gather_metdata('library', cell_metadata['library'], values_to_add, lib_obj)
+			for i in range(len(lib_obj)):
+				for single_lib_susp in lib_obj[i]['derived_from']:
+					if lib_obj[i]['@id'] not in library_susp:
+						library_susp[lib_obj[i]['@id']] = [single_lib_susp['@id']]
+					else:
+						library_susp[lib_obj[i]['@id']].append(single_lib_susp['@id'])
+			susp_obj = relevant_objects.get('suspension', [])
+			if isinstance(susp_obj, list):
+				for single_susp in susp_obj:
+					if len(single_susp['donors']) > 1:
+						sys.exit('Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
+					if single_susp['donors'][0] not in donor_susp:
+						donor_susp[single_susp['donors'][0]] = [single_susp['@id']]
+					else:
+						donor_susp[single_susp['donors'][0]].append(single_susp['@id'])
+			else:
+				if len(single_susp['donors']) > 1:
+					sys.exit('Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
+				if single_susp['donors'][0] not in donor_susp:
+					donor_susp[susp_obj['donors'][0]] = [susp_obj['@id']]
+				else:
+					donor_susp[susp_obj['donors'][0]].append(susp_obj['@id'])
+
+		# Gather metdata without demultiplexing
+		else:
+			for obj_type in cell_metadata.keys():
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					gather_metdata(obj_type, cell_metadata['suspension'], values_to_add, objs)
+					gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 				elif len(objs) > 1:
-					gather_pooled_metadata(obj_type, cell_metadata['suspension'], values_to_add, objs)
+					gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 		row_to_add = pd.Series(values_to_add, name=mxr['@id'])
 		df = df.append(row_to_add)
 		
-		# Add anndata to list of final raw anndatas
+		# Add anndata to list of final raw anndatas, only for RNAseq
 		if assay10x == 'RNA':
 			download_file(mxr, tmp_dir)
 			local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
@@ -575,9 +647,6 @@ def main(mfinal_id):
 			adata_raw = adata_raw[overlapped_ids]
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
-
-	# Go through donor and biosample diseases and calculate cxg field accordingly
-	report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
 
 	# get dataset-level metadata
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
@@ -627,18 +696,56 @@ def main(mfinal_id):
 			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
 		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
 		cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
-	print("Here")
-	print(cxg_adata_raw.obs.iloc[1,])
 
 	# Set uns and obsm parameters
 	cxg_uns = ds_results
 	cxg_uns['version'] = {}
-	cxg_uns['version']['corpora_schema_version'] = '1.1.0'
-	cxg_uns['version']['corpora_encoding_version'] = '0.1.0'
+	cxg_uns['version']['corpora_schema_version'] = corpora_schema_version
+	cxg_uns['version']['corpora_encoding_version'] = corpora_encoding_version
 	cxg_obsm = get_embeddings(mfinal_adata)
 
-	# Prep obs dataframe, add cluster assignment if author_cluster_column is in 
-	cxg_obs = prep_obs(cxg_adata_raw.obs, df, annot_df, mfinal_obj, mfinal_adata, cxg_uns)
+	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
+	celltype_col = mfinal_obj['author_cell_type_column']
+	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
+	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
+	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+
+	if 'author_cluster_column' in mfinal_obj:
+		cluster_col = mfinal_obj['author_cluster_column']
+		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
+		cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
+		cxg_obs['author_cluster'] = cxg_obs['author_cluster'].astype('category')
+
+	# After getting experimental metadata keyed off of mxr, if there is author_donor_column, run demultiplex
+	if 'author_donor_column' in mfinal_obj:
+		donor_col = mfinal_obj['author_donor_column']
+		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[donor_col]], left_index=True, right_index=True, how='left')
+		cxg_obs.rename(columns={donor_col: 'author_donor'}, inplace=True)
+		cxg_obs['library_@id'] = cxg_obs['library_@id'].astype(str)
+		cxg_obs['author_donor'] = cxg_obs['author_donor'].astype(str)
+		cxg_obs['library_authordonor'] = cxg_obs['library_@id'] + ',' + cxg_obs['author_donor']
+
+		lib_donor_df = cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
+		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj)
+		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease'))
+		# Retain cell identifiers as index
+		cxg_obs = cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
+	else:
+		# Go through donor and biosample diseases and calculate cxg field accordingly
+		report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
+
+	# Drop columns that were used as intermediate calculations
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
+			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
+			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id']
+	for column_drop in  columns_to_drop: 
+		if column_drop in cxg_obs.columns.to_list():
+			cxg_obs.drop(columns=column_drop, inplace=True)
+
+	if cxg_uns['organism'] == 'Homo sapiens':
+		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
+	else:
+		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'na', regex=True)
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
 	for gene in list(mfinal_adata.var_names):
