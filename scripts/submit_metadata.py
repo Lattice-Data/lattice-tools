@@ -285,6 +285,9 @@ def dict_patcher(old_dict, schema_properties, ont_schema_properties):
 		if old_dict[key] != '':  # this removes empty cells
 			path = key.split('.')
 			if len(path) == 1:
+				if schema_properties[key].get('linkTo') == 'OntologyTerm' or \
+					(schema_properties[key].get('items') and schema_properties[key]['items'].get('linkTo') == 'OntologyTerm'):
+					old_dict[key] = old_dict[key].replace(':','_')
 				new_dict[key] = type_formatter(old_dict[key], schema_properties, key)
 			elif len(path) == 2: # embedded object, need to build the mini dictionary to put this in
 				if '-' in path[0]: # this has a number next to it and we expect an array of objects
