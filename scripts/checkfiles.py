@@ -60,7 +60,7 @@ def getArgs():
                         action='store_true',
                         help='Check all files even if they are validated=True in the Lattice database')
     parser.add_argument('--s3-file',
-                        help="path to a file at s3 to check")
+                        help="path to a file at s3 to check, comma separated or a file containing a list of file accessions to check")
     parser.add_argument('--ext-file',
                         help="path to a file elsewhere to check")
     parser.add_argument('--file-format',
@@ -840,16 +840,23 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
 
     # checkfiles on a file that is not in the Lattice database but is at s3
     elif s3_file:
-        jobs = [{
-            'item': {
-                'accession': 'not yet submitted',
-                's3_uri': s3_file
-            },
-            'results': {},
-            'errors': {}
-        }]
-        if file_format:
-            jobs[0]['item']['file_format'] = file_format
+        if os.path.isfile(s3_file):
+            s3FILES = [line.rstrip('\n') for line in open(s3_file)]
+        else:
+            s3FILES = s3_file.split(',')
+        jobs = []
+        for file in s3FILES:
+            job = {
+                'item': {
+                    'accession': 'not yet submitted',
+                    's3_uri': file
+                },
+                'results': {},
+                'errors': {}
+            }
+            if file_format:
+                job['item']['file_format'] = file_format
+            jobs.append(job)
         return jobs
 
     # checkfiles on a file that is not in the Lattice database but is available elsewhere
