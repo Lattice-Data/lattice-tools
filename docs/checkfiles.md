@@ -28,8 +28,7 @@ $ export PROD_KEY=<> ; export PROD_SECRET=<> ; export PROD_SERVER=https://www.la
 ```
 Copy 2 files from your local machine to the instance
 ```
-$ scp -i lattice_ec2.pem checkfiles.py ec2-user@<Public DNS>:/mnt
-$ scp -i lattice_ec2.pem lattice.py ec2-user@<Public DNS>:/mnt
+$ scp -i lattice_ec2.pem lattice.py checkfiles.py ec2-user@<Public DNS>:/mnt
 ```
 If you will be checking files hosted in the Lattice S3 storage, create directory to hold AWS credentials & set your variable to the location of the credentials
 ```
