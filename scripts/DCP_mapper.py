@@ -634,6 +634,8 @@ def main():
 	os.mkdir(dataset_id)
 	os.mkdir(dataset_id + '/metadata')
 	os.mkdir(dataset_id + '/links/')
+	os.mkdir(dataset_id + '/descriptors/')
+	os.mkdir(dataset_id + '/descriptors/sequence_file')
 
 	# reformat links to use uuids and put in required schema
 	for i in links:
@@ -672,6 +674,20 @@ def main():
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
 				json.dump(o, outfile, indent=4)
+			if k in ['sequence_file']:
+				file_descriptor = {
+					'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_vs['file_descriptor']),
+					'schema_type': 'file_descriptor',
+					'file_name': o['file_core']['file_name'],
+					'file_id': o['provenance']['document_id'],
+					'file_version': dt,
+					'content_type': 'application/gzip',
+					'size': '',
+					'sha256': '',
+					'crc32c': ''
+				}
+				with open(dataset_id + '/descriptors/' + k + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
+					json.dump(file_descriptor, outfile, indent=4)
 
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
