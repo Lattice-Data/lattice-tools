@@ -41,7 +41,7 @@ $ scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:/mnt/.aws
 ```
 Run checkfiles.py on the files
 ```
-python3 checkfiles.py -m prod --update -query "report/?type=RawSequenceFile&audit.ERROR.category=file+not+validated" > output_1.log &
+python3 checkfiles.py -m prod --update -query "report/?type=RawSequenceFile&audit.ERROR.category=file+not+validated" &
 ```
 Upon completion, download the report
 ```
