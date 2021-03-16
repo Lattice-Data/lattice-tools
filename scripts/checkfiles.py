@@ -339,6 +339,9 @@ def process_fastq_file(job):
                 for flowcell in all_flowcells:
                     flowcell_details.append({'machine': flowcell[0], 'lane': flowcell[1]})
                 results['flowcell_details'] = flowcell_details
+        results['signature'] = list(signatures_set)
+        with open('signatures.txt', 'w') as f:
+            f.write(','.join(signatures_set))
 
 
 def process_h5matrix_file(job):
@@ -942,9 +945,11 @@ def main():
                 if not args.s3_file:
                     compare_with_db(job, connection)
                     if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
+                        dets = job['results']['flowcell_details']
+                        sorted_dets = sorted(dets, key=lambda k: (k.get('machine'), k.get('flowcell'), k.get('lane')))
                         all_seq_runs.append({
                                             'item': file_obj['derived_from'],
-                                            'results': {'flowcell_details': job['results']['flowcell_details']},
+                                            'results': {'flowcell_details': sorted_dets},
                                             'errors': {}
                                             })
                     if job['post_json'] and not job['errors'] and args.update:
