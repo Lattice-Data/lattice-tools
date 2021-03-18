@@ -582,11 +582,36 @@ def customize_fields(obj, obj_type):
 			obj['method'] = {'text': 'high throughput sequencing'}
 
 
+def transfer_file(obj, obj_type, dataset):
+	file_descriptor = {
+		'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_vs['file_descriptor']),
+		'schema_type': 'file_descriptor',
+		'file_name': obj['file_core']['file_name'],
+		'file_id': obj['provenance']['document_id'],
+		'file_version': dt,
+		'content_type': 'application/gzip',
+		'size': '',
+		'sha256': '',
+		'crc32c': ''
+	}
+	with open(dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
+		json.dump(file_descriptor, outfile, indent=4)
+	if obj.get('s3_uri'):
+		print('s3_uri:' + obj.get('s3_uri'))
+		del obj['s3_uri']
+	elif obj.get('external_uri'):
+		print('external_uri:' + obj.get('external_uri'))
+		del obj['external_uri']
+	else:
+		print('ERROR:{} has no uri'.format(file_descriptor['file_id']))
+
+
 def main():
 	# get the dataset, and convert it to a project object
 	print('GETTING THE DATASET')
 	url = urljoin(server, args.dataset + '/?format=json')
 	ds_obj = requests.get(url, auth=connection.auth).json()
+
 	# if there are ERROR-level audits on the dataset, flag it to stop the script
 	if (ds_obj.get('audit') and ds_obj['audit'].get('ERROR')):
 		freq = {}
@@ -621,6 +646,9 @@ def main():
 				# pull the derived_from to store for later formation to links
 				der_from = [i['@id'] for i in temp_obj['derived_from']]
 				get_links(temp_obj, tuple(der_from), links_dict)
+
+	if not links_dict:
+		sys.exit('No RawSequenceFiles associated with this dataset')
 
 	# special walkback of graph until Suspension object
 	# gather all the Suspension objects to traverse next
@@ -682,26 +710,14 @@ def main():
 	for k in whole_dict.keys():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
+			if k in ['sequence_file']:
+				transfer_file(o, k, dataset_id)
 			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
 				json.dump(o, outfile, indent=4)
-			if k in ['sequence_file']:
-				file_descriptor = {
-					'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_vs['file_descriptor']),
-					'schema_type': 'file_descriptor',
-					'file_name': o['file_core']['file_name'],
-					'file_id': o['provenance']['document_id'],
-					'file_version': dt,
-					'content_type': 'application/gzip',
-					'size': '',
-					'sha256': '',
-					'crc32c': ''
-				}
-				with open(dataset_id + '/descriptors/' + k + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
-					json.dump(file_descriptor, outfile, indent=4)
 
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)

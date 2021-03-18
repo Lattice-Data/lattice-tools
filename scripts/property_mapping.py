@@ -503,6 +503,12 @@ lattice_to_dcp = {
 		},
 		'read_length': {
 			'lattice': 'read_length'
+		},
+		's3_uri': {
+			'lattice': 's3_uri' # used to transfer the file but deleted from the metadata
+		},
+		'external_uri': {
+			'lattice': 'external_uri' # used to transfer the file but deleted from the metadata
 		}
 	}
 }
