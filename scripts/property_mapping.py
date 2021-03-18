@@ -493,12 +493,12 @@ lattice_to_dcp = {
 		'read_index': {
 			'lattice': 'read_type', # might instead map demultiplexed_type
 			'value_map': {
-				'i5 index': 'index2', # need to confirm for ATAC (demultiplexe_type=R2)
+				'i5 index': 'index2',
 				'i7 index': 'index1',
 				'Read 1': 'read1',
 				'Read 2': 'read2',
 				'Read 1N': 'read1',
-				'Read 2N': 'read2' # need to confirm for ATAC (demultiplexe_type=R3)
+				'Read 2N': 'read2'
 			}
 		},
 		'read_length': {
