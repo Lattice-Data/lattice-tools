@@ -253,7 +253,7 @@ def seq_to_susp(links_dict):
 			url = urljoin(server, sr + '/?format=json')
 			sr_obj = requests.get(url, auth=connection.auth).json()
 			get_object(sr_obj)
-			lib = sr_obj['derived_from']
+			lib = sr_obj['derived_from'][0]
 			lib_url = urljoin(server, lib + '/?format=json')
 			lib_obj = requests.get(lib_url, auth=connection.auth).json()
 			if not whole_dict.get('library_preparation_protocol'):
