@@ -226,6 +226,9 @@ lattice_to_dcp = {
 	'Tissue': {
 		**biosample,
 		'class': 'specimen_from_organism',
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
+		},
 		'diseases': {
 			'lattice': 'diseases',
 			'subprop_map': {
@@ -305,6 +308,9 @@ lattice_to_dcp = {
 	'CellCulture': {
 		**biosample,
 		'class': 'cell_line',
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
+		},
 		'cell_type.ontology': {
 			'lattice': 'biosample_ontology.term_id'
 		},
@@ -348,6 +354,9 @@ lattice_to_dcp = {
 		},
 		'age_unit.text': {
 			'lattice': 'post_differentiation_time_units'
+		},
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
 		},
 		'embedded_in_matrigel': {
 			'lattice': 'embedded_in_matrigel'
