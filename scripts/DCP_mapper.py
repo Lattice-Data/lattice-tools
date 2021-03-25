@@ -582,6 +582,56 @@ def customize_fields(obj, obj_type):
 			obj['method'] = {'text': 'high throughput sequencing'}
 
 
+def remove_cell_lines(links, whole_dict):
+	keep_cell_line = set()
+	consolidated_links = []
+	for l in links:
+		consolidate = {}
+		sublinks = l['links']
+		for link in sublinks:
+			for i in link['inputs']:
+				if i['input_type'] == 'cell_line':
+					ins = sorted([x['input_id'] for x in link['inputs']])
+					if '#'.join(ins) not in consolidate:
+						consolidate['#'.join(ins)] = {}
+					consolidate['#'.join(ins)]['ins'] = link
+			for o in link['outputs']:
+				if o['output_type'] == 'cell_line':
+					outs = sorted([x['output_id'] for x in link['outputs']])
+					if '#'.join(outs) not in consolidate:
+						consolidate['#'.join(outs)] = {}
+					consolidate['#'.join(outs)]['outs'] = link
+		if consolidate:
+			for k,v in consolidate.items():
+				# we don't want to collapse any cell_line-to-suspension links
+				if v['ins']['outputs'][0]['output_type'] == 'cell_suspension':
+					keep_cell_line.update(k.split('#'))
+				else:
+					new_link = {
+						'outputs': v['ins']['outputs'],
+						'inputs': v['outs']['inputs'],
+						'protocols': v['ins']['protocols'] + v['outs']['protocols'],
+						'link_type': 'process_link',
+						'process_type': 'process',
+						'process_id': v['outs']['process_id']
+					}
+					sublinks.remove(v['ins'])
+					sublinks.remove(v['outs'])
+					sublinks.append(new_link)
+			consolidated_links.append({'links': sublinks})
+		else:
+			consolidated_links.append(l)
+
+	# we need to remove cell_line objects if they don't feed directly to suspension
+	for i in whole_dict['cell_line']:
+		if i['biomaterial_core']['biomaterial_id'] not in keep_cell_line:
+			whole_dict['cell_line'].remove(i)
+	if not whole_dict['cell_line']:
+		del whole_dict['cell_line']
+
+	return consolidated_links
+
+
 def transfer_file(obj, obj_type, dataset):
 	file_descriptor = {
 		'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_vs['file_descriptor']),
@@ -669,6 +719,9 @@ def main():
 			get_object(temp_obj)
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
+
+	# the dcp does not capture cell_lines used just to grow organoids
+	links = remove_cell_lines(links, whole_dict)
 
 	# make directory named after dataset
 	print('WRITING THE JSON FILES')
