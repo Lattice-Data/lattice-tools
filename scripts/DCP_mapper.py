@@ -644,16 +644,21 @@ def transfer_file(obj, obj_type, dataset):
 		'sha256': '',
 		'crc32c': ''
 	}
-	with open(dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
-		json.dump(file_descriptor, outfile, indent=4)
 	if obj.get('s3_uri'):
+		# get file from s3 and put it in data/ directory as file_descriptor['file_name']
 		print('s3_uri:' + obj.get('s3_uri'))
 		del obj['s3_uri']
 	elif obj.get('external_uri'):
+		# get file from ftp and put it in data/ directory as file_descriptor['file_name']
 		print('external_uri:' + obj.get('external_uri'))
 		del obj['external_uri']
 	else:
 		print('ERROR:{} has no uri'.format(file_descriptor['file_id']))
+	# local_path = dataset + '/data/' + file_descriptor['file_name']
+	# file_descriptor['size'] = os.path.getsize('my_file.fastq.gz')
+	# get size and sha256 and crc32c of local_path, put in dict
+	with open(dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
+		json.dump(file_descriptor, outfile, indent=4)
 
 
 def main():
