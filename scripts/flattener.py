@@ -25,7 +25,10 @@ cell_metadata = {
 		'life_stage',
 		'life_stage_term_id',
 		'diseases.term_id',
-		'diseases.term_name'
+		'diseases.term_name',
+		'body_mass_index',
+		'times_pregnant',
+		'family_history_breast_cancer'
 		],
 	'sample': [
 		'uuid',
@@ -69,12 +72,14 @@ prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
 	'library_protocol_title': 'assay',
 	'library_protocol_term_id': 'assay_ontology_term_id',
+	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
 	'donor_ethnicity_term_name': 'ethnicity',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_life_stage': 'development_stage',
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
 	'donor_age_display': 'donor_age',
+	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
 	'matrix_genome_annotation': 'reference_annotation_version',
 	'matrix_description': 'title',
 	'cell_annotation_author_cell_type': 'author_cell_type',
@@ -246,18 +251,23 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 	for prop in properties:
-		value = set()
+		value = list()
 		for obj in objs:
 			v = get_value(obj, prop)
 			if isinstance(v, list):
-				value.update(v)
+				value.extend(v)
 			else:
-				value.add(v)
+				value.append(v)
 		latkey = (obj_type + '_' + prop).replace('.', '_')
 		key = prop_map.get(latkey, latkey)
-		values_to_add[key] = '{}'.format(','.join(value))
+		value_str = [str(i) for i in value]
+		value_set = set(value_str)
+		if len(value_set) > 1:
+			value_str = [re.sub(r'^$', 'unknown', i) for i in value_str]
+			values_to_add[key] = 'pooled samples: [{}]'.format(','.join(value_str))
+		else:
+			values_to_add[key] = next(iter(value_set))
 
-# NEED TO CHECK LINES 252 and 260  <-------------------------
 def report_dataset(donor_objs, matrix, dataset):
 	ds_results = {}
 	ds_obj = lattice.get_object(dataset, connection)
@@ -287,7 +297,6 @@ def report_dataset(donor_objs, matrix, dataset):
 		org_name.add(obj['organism']['scientific_name'])
 	ds_results['organism_ontology_term_id'] = ','.join(org_id)
 	ds_results['organism'] = ','.join(org_name)
-
 	return ds_results
 
 
@@ -416,20 +425,25 @@ def trim_cell_slims(df_annot):
 	cell_term_list = df_annot['cell_type_category'].tolist()
 	for i in range(len(cell_term_list)):
 		cell_terms = cell_term_list[i].split(',')
-		if len(cell_terms) == 2:
-			if 'epithelial cell' in cell_terms and 'endothelial cell' in cell_terms:
-				cell_term_list[i] = 'endothelial cell'
-			elif 'hematopoietic cell' in cell_terms and 'leukocyte' in cell_terms:
-				cell_term_list[i] = 'leukocyte'
-			elif 'fibroblast' in cell_terms and 'connective tissue cell' in cell_terms:
-				cell_term_list[i] = 'fibroblast'
-			elif 'pericyte' in cell_terms and 'connective tissue cell' in cell_terms:
-				cell_term_list[i] = 'pericyte'
+		if len(cell_terms) > 1:
+			if df_annot.iloc[i]['cell_type'] in cell_terms:
+				for index in range(len(cell_terms)):
+					if df_annot.iloc[i]['cell_type'] == cell_terms[index]:
+						if index == len(cell_terms) - 1:
+							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index]))
+							cell_term_list[i] = cell_terms[index]
+						else:
+							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index+1]))
+							cell_term_list[i] = cell_terms[index+1]
 			else:
-				print("WARNING, there is a cell_slims that is more than a single ontology: {}".format(cell_term_list[i]))
-		elif len(cell_terms) > 2:
-			print("WARNING, there is a cell_slims that is more than a single ontology: {}".format(cell_term_list[i]))
+				print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[0]))
+				cell_term_list[i] = cell_terms[0]
 	df_annot['cell_type_category'] = cell_term_list
+	df_annot['cell_type'] = df_annot['cell_type'].astype(str)
+	df_annot['cell_type_category'] = df_annot['cell_type_category'].astype(str)
+	if (len(df_annot.loc[df_annot['cell_type_category']=='']) > 1):
+		print("WARNING, there are cells that do not have a cell slim, so will just use cell_type")
+		df_annot.loc[df_annot['cell_type_category']=='', 'cell_type_category'] = df_annot.loc[df_annot['cell_type_category']=='', 'cell_type']
 	return df_annot
 
 
@@ -483,7 +497,7 @@ def report_diseases(mxr_df, exp_disease):
 	# 'reported_diseases' is a list of all unique diseases from donor and samples
 	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
 	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list)
-	return mxr_df
+	#return mxr_df
 
 
 # Demultiplex experimental metadata by finding demultiplexed suspension
@@ -631,7 +645,7 @@ def main(mfinal_id):
 					gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
-		row_to_add = pd.Series(values_to_add, name=mxr['@id'])
+		row_to_add = pd.Series(values_to_add, name=mxr['@id'], dtype=str)
 		df = df.append(row_to_add)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
@@ -733,14 +747,23 @@ def main(mfinal_id):
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
 		report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
+		cxg_obs = pd.merge(cxg_obs, df[['disease', 'disease_ontology_term_id', 'reported_diseases']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# Drop columns that were used as intermediate calculations
+	# Also check to see if optional columns are all empty, then drop those columns as well
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
-			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id']
+			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
+	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant']
+	for col in optional_columns:
+		if col in cxg_obs.columns.to_list():
+			col_content = cxg_obs[col].unique()
+			if len(col_content) == 1:
+				if col_content == ['[]'] or col_content == unreported_value:
+					cxg_obs.drop(columns=col, inplace=True)
 
 	if cxg_uns['organism'] == 'Homo sapiens':
 		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
