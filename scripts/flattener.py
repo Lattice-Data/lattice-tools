@@ -22,7 +22,6 @@ cell_metadata = {
 		'sex',
 		'ethnicity.term_name',
 		'ethnicity.term_id',
-		'life_stage',
 		'life_stage_term_id',
 		'diseases.term_id',
 		'diseases.term_name',
@@ -76,7 +75,6 @@ prop_map = {
 	'donor_sex': 'sex',
 	'donor_ethnicity_term_name': 'ethnicity',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
-	'donor_life_stage': 'development_stage',
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
@@ -91,7 +89,7 @@ prop_map = {
 	'suspension_suspension_type': 'suspension_type'
 }
 
-unreported_value = ''
+unreported_value = 'unknown'
 corpora_schema_version = '1.1.0'
 corpora_encoding_version = '0.1.0'
 flat_version = '2'
@@ -263,7 +261,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		value_str = [str(i) for i in value]
 		value_set = set(value_str)
 		if len(value_set) > 1:
-			value_str = [re.sub(r'^$', 'unknown', i) for i in value_str]
 			values_to_add[key] = 'pooled samples: [{}]'.format(','.join(value_str))
 		else:
 			values_to_add[key] = next(iter(value_set))
@@ -497,7 +494,6 @@ def report_diseases(mxr_df, exp_disease):
 	# 'reported_diseases' is a list of all unique diseases from donor and samples
 	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
 	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list)
-	#return mxr_df
 
 
 # Demultiplex experimental metadata by finding demultiplexed suspension
@@ -544,6 +540,26 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj):
 		susp_df = susp_df.append(row_to_add, ignore_index=True)
 	lib_donor_df = lib_donor_df.merge(susp_df, left_on='suspension_@id', right_on='suspension_@id', how='left')
 	return(lib_donor_df)
+
+
+# Convert our stage enums to ontology term names
+def get_stage(df):
+	term_lookup = {
+		'HsapDv:0000002': 'embryonic human stage',
+		'HsapDv:0000037': 'fetal stage',
+		'HsapDv:0000082': 'newborn human stage',
+		'HsapDv:0000083': 'infant stage',
+		'HsapDv:0000081': 'child stage',
+		'HsapDv:0000086': 'adolescent stage',
+		'HsapDv:0000087': 'human adult stage'
+	}
+	stage_ids = df['development_stage_ontology_term_id'].unique()
+	for stage in stage_ids:
+		if stage in term_lookup:
+			df.loc[df['development_stage_ontology_term_id']==stage, 'development_stage'] = term_lookup[stage]
+		else:
+			sys.exit("Unexpected development_stage_ontology_term_id: {}".format(stage))
+
 
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
@@ -694,7 +710,7 @@ def main(mfinal_id):
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
-	else:
+	elif assay10x == 'ATAC':
 		flag_removed = False
 		for final_id in mfinal_cell_identifiers:
 			if not re.search('[AGCT]+-1', final_id):
@@ -719,6 +735,11 @@ def main(mfinal_id):
 	cxg_obsm = get_embeddings(mfinal_adata)
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
+	if cxg_uns['organism'] != 'Homo sapiens':
+		sys.exit("Organism is not Homo sapiens.")
+	if cxg_uns['organism'] == 'Homo sapiens' and 'ethnicity' in df:
+		if 'unknown' in df['ethnicity'].unique():
+			df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
@@ -742,12 +763,17 @@ def main(mfinal_id):
 		lib_donor_df = cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
 		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj)
 		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease'))
+		get_stage(donor_df)
+		if cxg_uns['organism'] == 'Homo sapiens' and 'unknown' in donor_df['ethnicity'].unique():
+			donor_df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
+			print(donor_df['ethnicity_ontology_term_id'])
 		# Retain cell identifiers as index
 		cxg_obs = cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
 		report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
-		cxg_obs = pd.merge(cxg_obs, df[['disease', 'disease_ontology_term_id', 'reported_diseases']], left_on="raw_matrix_accession", right_index=True, how="left" )
+		get_stage(df)
+		cxg_obs = pd.merge(cxg_obs, df[['disease', 'disease_ontology_term_id', 'reported_diseases', 'development_stage']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
@@ -762,13 +788,9 @@ def main(mfinal_id):
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
-				if col_content == ['[]'] or col_content == unreported_value:
+				if col_content[0] == '[]' or col_content[0] == '[' + unreported_value + ']':
 					cxg_obs.drop(columns=col, inplace=True)
 
-	if cxg_uns['organism'] == 'Homo sapiens':
-		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'unknown', regex=True)
-	else:
-		cxg_obs['ethnicity'] = cxg_obs['ethnicity'].str.replace('^$', 'na', regex=True)
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
 	for gene in list(mfinal_adata.var_names):
@@ -780,7 +802,7 @@ def main(mfinal_id):
 				sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
-	if converted_h5ad == []:
+	if mfinal_obj['file_format'] == 'hdf5':
 		cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 		cxg_adata.raw = cxg_adata_raw
