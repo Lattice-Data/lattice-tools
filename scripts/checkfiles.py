@@ -340,8 +340,6 @@ def process_fastq_file(job):
                     flowcell_details.append({'machine': flowcell[0], 'lane': flowcell[1]})
                 results['flowcell_details'] = flowcell_details
         results['signature'] = list(signatures_set)
-        with open('signatures.txt', 'w') as f:
-            f.write(','.join(signatures_set))
 
 
 def process_h5matrix_file(job):
@@ -388,7 +386,19 @@ def process_h5matrix_file(job):
     feature_counts = []
     for feature in counts.keys():
         feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
-    results['feature_counts'] = feature_counts
+
+    if feature_counts[0]['feature_type'] == 'gene':
+        units = 'UMI'
+    else:
+        units = 'fragment ends'
+
+    results['layers'] = [{
+        'label': 'raw',
+        'feature_counts': feature_counts,
+        'normalized': False,
+        'value_scale': 'linear',
+        'value_units': units
+    }]
 
 
 def process_mexmatrix_file(job):
