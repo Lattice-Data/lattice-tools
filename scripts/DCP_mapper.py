@@ -1,4 +1,5 @@
 import argparse
+import request_to_gcp
 import hashlib
 import json
 import lattice
@@ -631,7 +632,7 @@ def remove_cell_lines(links, whole_dict):
 	return consolidated_links
 
 
-def transfer_file(obj, obj_type, dataset):
+def file_descript(obj, obj_type, dataset):
 	file_descriptor = {
 		'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_vs['file_descriptor']),
 		'schema_type': 'file_descriptor',
@@ -760,7 +761,7 @@ def main():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
 			if k in ['sequence_file']:
-				transfer_file(o, k, dataset_id)
+				file_descript(o, k, dataset_id)
 				if o.get('s3_uri'):
 					s3_uris.append(o['s3_uri'])
 					del o['s3_uri']
@@ -775,6 +776,9 @@ def main():
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
 				json.dump(o, outfile, indent=4)
+
+	# transfer the metadata directory to the DCP Google Cloud project
+	request_to_gcp.directory_transfer(dataset_id)
 
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
