@@ -10,7 +10,10 @@ $ pip install rpy2
 
 For converting a Seurat object to h5ad format, R is required to be installed on the machine (https://www.r-project.org/). The required libraries are:
 ```
-
+Seurat
+Signac
+SeuratDisk
+reticulate
 ```
 
 Running flattener.py
@@ -26,9 +29,10 @@ The script will produce a h5ad file in the current directory where the script is
 Version update logging
 ----------------
 **Version 2**: 
--Add ability to demultiplex metadata from experiments pooled at the library entity. The requirement is that the the 'author\_donor\_column' metadata field is filled out in the final matrix object. 
--Convert development_stage to term name so that corresponds with term id.
--Ethnicity is empty string when ethnicity is unknown.
+- Add ability to demultiplex metadata from experiments pooled at the library entity. The requirement is that the the 'author\_donor\_column' metadata field is filled out in the final matrix object. 
+- Convert development_stage to term name so that corresponds with term id.
+- Ethnicity is empty string when ethnicity is unknown.
+- Add optional columns, which are removed if they are all empty or unreported values.
 
 
 **Version 1**: Initial version, which can take a h5ad or Seurat object as input from RNA-seq and ATAC-seq assays. For RNA-seq assays, the raw matrix is subsetted from the Cell Ranger filtered raw counts. For ATAC-seq assays, the corresponding raw matrix from the activity gene matrix is used.
