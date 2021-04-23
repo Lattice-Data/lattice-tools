@@ -780,6 +780,15 @@ def main():
 	# transfer the metadata directory to the DCP Google Cloud project
 	request_to_gcp.directory_transfer(dataset_id)
 
+	s3_uris = ['s3://submissions-czi009kid/muto_humphreys_2020/muto_2020_fastq/Control_2_S4_L002_R2_001.fastq.gz']
+	# transfer the data files from S3 to the DCP Google Cloud project
+	if s3_uris:
+		request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
+
+	# transfer the data files from external FTPs to the DCP Google Cloud project
+	#if ftp_uris:
+		#request_to_gcp.ext_file_transfer(dataset_id, ftp_uris)
+
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
 	with open(dataset_id + '/not_included.json', 'w') as outfile:

@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 
 # adapted from https://github.com/GoogleCloudPlatform/python-docs-samples/blob/master/storage/transfer_service/aws_request.py
 def aws_file_transfer(dataset_id, file_uris):
-    session = boto3.Session(profile_name='read-only')
-    credentials = session.get_credentials()
+    s3_session = boto3.Session(profile_name='read-only')
+    s3_credentials = s3_session.get_credentials()
 
     d_now = datetime.now(tz=timezone.utc)
 
@@ -34,8 +34,8 @@ def aws_file_transfer(dataset_id, file_uris):
         description = 'Transfer of {} files for dataset {}'.format(len(files),dataset_id)
         transfer_job = {
             'description': description,
+            'projectId': 'broad-dsp-monster-hca-dev',
             'status': 'ENABLED',
-            'projectId': 'project_id', # I AM NEEDED
             'schedule': {
                 'scheduleStartDate': {
                     'day': d_now.day,
@@ -47,11 +47,11 @@ def aws_file_transfer(dataset_id, file_uris):
                 'awsS3DataSource': {
                     'bucketName': source_bucket,
                     'awsAccessKey': {
-                        'accessKeyId': credentials.access_key,
-                        'secretAccessKey': credentials.secret_key
+                        'accessKeyId': s3_credentials.access_key,
+                        'secretAccessKey': s3_credentials.secret_key
                     }
                 },
-                'ObjectConditions': {
+                'objectConditions': {
                     'includePrefixes': files
                 },
                 'gcsDataSink': {
@@ -60,10 +60,10 @@ def aws_file_transfer(dataset_id, file_uris):
                 }
             }
         }
-
-    result = storagetransfer.transferJobs().create(body=transfer_job).execute()
-    print('Returned transferJob: {}'.format(
-        json.dumps(result, indent=4)))
+        print(transfer_job)
+        result = storagetransfer.transferJobs().create(body=transfer_job).execute()
+        print('Returned transferJob: {}'.format(
+            json.dumps(result, indent=4)))
 
 
 def directory_transfer(local_path, gcs_path=None):
