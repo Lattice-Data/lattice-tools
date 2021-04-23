@@ -493,6 +493,9 @@ lattice_to_dcp = {
 		'file_core.format': {
 			'lattice': 'file_format'
 		},
+		'file_size': {
+			'lattice': 'file_size' # used for file_descriptor, not other metadata
+		},
 		'insdc_run_accessions': {
 			'lattice': 'derived_from' # DCP_mapper pulls out just dbxrefs
 		},

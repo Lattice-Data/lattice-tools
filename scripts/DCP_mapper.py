@@ -623,11 +623,10 @@ def remove_cell_lines(links, whole_dict):
 			consolidated_links.append(l)
 
 	# we need to remove cell_line objects if they don't feed directly to suspension
-	for i in whole_dict['cell_line']:
-		if i['biomaterial_core']['biomaterial_id'] not in keep_cell_line:
-			whole_dict['cell_line'].remove(i)
-	if not whole_dict['cell_line']:
-		del whole_dict['cell_line']
+	if whole_dict.get('cell_line'):
+		for i in whole_dict['cell_line']:
+			if i['biomaterial_core']['biomaterial_id'] not in keep_cell_line:
+				whole_dict['cell_line'].remove(i)
 
 	return consolidated_links
 
@@ -640,22 +639,11 @@ def transfer_file(obj, obj_type, dataset):
 		'file_id': obj['provenance']['document_id'],
 		'file_version': dt,
 		'content_type': 'application/gzip',
-		'size': '',
+		'size': obj['file_size'],
 		'sha256': '',
 		'crc32c': ''
 	}
-	if obj.get('s3_uri'):
-		# get file from s3 and put it in data/ directory as file_descriptor['file_name']
-		print('s3_uri:' + obj.get('s3_uri'))
-		del obj['s3_uri']
-	elif obj.get('external_uri'):
-		# get file from ftp and put it in data/ directory as file_descriptor['file_name']
-		print('external_uri:' + obj.get('external_uri'))
-		del obj['external_uri']
-	else:
-		print('ERROR:{} has no uri'.format(file_descriptor['file_id']))
-	# local_path = dataset + '/data/' + file_descriptor['file_name']
-	# file_descriptor['size'] = os.path.getsize('my_file.fastq.gz')
+	del obj['file_size']
 	# get size and sha256 and crc32c of local_path, put in dict
 	with open(dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
 		json.dump(file_descriptor, outfile, indent=4)
@@ -764,12 +752,23 @@ def main():
 		'protocol': 'protocol'
 	}
 
+	s3_uris = []
+	ftp_uris = []
+
 	# write a json file for each object
 	for k in whole_dict.keys():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
 			if k in ['sequence_file']:
 				transfer_file(o, k, dataset_id)
+				if o.get('s3_uri'):
+					s3_uris.append(o['s3_uri'])
+					del o['s3_uri']
+				elif o.get('external_uri'):
+					ftp_uris.append(o['external_uri'])
+					del obj['external_uri']
+				else:
+					print('ERROR:{} has no uri'.format(o['provenance']['document_id']))
 			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
