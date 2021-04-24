@@ -60,7 +60,6 @@ def aws_file_transfer(dataset_id, file_uris):
                 }
             }
         }
-        print(transfer_job)
         result = storagetransfer.transferJobs().create(body=transfer_job).execute()
         print('Returned transferJob: {}'.format(
             json.dumps(result, indent=4)))
