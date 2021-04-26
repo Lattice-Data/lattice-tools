@@ -1,5 +1,6 @@
 import argparse
 import boto3
+import hashlib
 import h5py
 import json
 import lattice
@@ -12,6 +13,7 @@ import socket
 import subprocess
 import sys
 import tables
+import zlib
 from datetime import datetime
 from ftplib import error_perm, FTP
 from urllib.parse import urljoin
@@ -707,11 +709,13 @@ def check_file(job):
 
     job['check_start'] = datetime.now()
 
-    # check file size & md5sum
+    # check file size
     logging.info('Getting file size')
     file_stat = os.stat(local_path)
     results['file_size'] = file_stat.st_size
-    # Faster than doing it in Python.
+
+    # get the md5sum
+    # faster than doing it in Python
     try:
         logging.info('Getting file md5')
         output = subprocess.check_output('md5sum {}'.format(local_path),
@@ -724,6 +728,28 @@ def check_file(job):
             int(results['md5sum'], 16)
         except ValueError:
             errors['md5sum'] = output.decode(errors='replace').rstrip('\n')
+
+
+    # get the sha256
+    sha256_hash = hashlib.sha256()
+    with open(local_path,"rb") as f:
+        # Read and update hash string value in blocks of 4K
+        for byte_block in iter(lambda: f.read(4096),b""):
+            sha256_hash.update(byte_block)
+        results['sha256'] = sha256_hash.hexdigest()
+
+
+    # get the crc32c
+    with open(local_path, 'rb') as f:
+        hash = 0
+        while True:
+            s = f.read(65536)
+            if not s:
+                break
+            hash = zlib.crc32(s, hash)
+        results['crc32c'] = "%08X" % (hash & 0xFFFFFFFF)
+
+
     # check for correct gzip status
     try:
         is_gzipped = is_path_gzipped(local_path)
