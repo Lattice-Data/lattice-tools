@@ -843,16 +843,15 @@ def main():
 				json.dump(o, outfile, indent=4)
 
 	# transfer the metadata directory to the DCP Google Cloud project
-	#request_to_gcp.directory_transfer(dataset_id)
+	request_to_gcp.local_dir_transfer(dataset_id)
 
 	# transfer the data files from S3 to the DCP Google Cloud project
-	#if s3_uris:
-		#request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
+	if s3_uris:
+		request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
 
-	#ftp_uris = ['ftp://ftp.ebi.ac.uk/pub/databases/microarray/data/experiment/MTAB/E-MTAB-8221/HT-182-d125-lung-Distal_S5_L008_I1_001.fastq.gz']
 	# transfer the data files from external FTPs to the DCP Google Cloud project
-	#if ftp_uris:
-		#equest_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
+	if ftp_uris:
+		request_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
 
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)

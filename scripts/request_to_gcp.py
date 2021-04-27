@@ -4,9 +4,40 @@ import glob
 import googleapiclient.discovery
 import json
 import os
+import socket
+from datetime import datetime, timezone
+from ftplib import error_perm, FTP
 from google.cloud import storage
 from google.oauth2 import service_account
-from datetime import datetime, timezone
+
+
+def ftp_file_transfer(dataset_id, file_uris):
+    sink_path = 'staging/{}/data/'.format(dataset_id)
+    for uri in file_uris:
+        ftp_download(uri)
+        local_path = uri.split('/')[-1]
+        local_file_transfer(local_path, sink_path)
+        os.remove(local_path)
+
+
+def ftp_download(uri):
+    ftp_server = uri.split('/')[2]
+    ftp = FTP(ftp_server)
+    ftp.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 75)
+    ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
+    ftp.login(user='anonymous', passwd = 'password')
+
+    file_path = uri.replace('ftp://{}/'.format(ftp_server), '')
+    file_name = uri.split('/')[-1]
+
+    try:
+        ftp.retrbinary('RETR ' + file_path, open(file_name, 'wb').write)
+    except error_perm as e:
+        errors['file download error'] = e
+        os.remove(file_name)
+    else:
+        ftp.quit()
 
 
 # adapted from https://github.com/GoogleCloudPlatform/python-docs-samples/blob/master/storage/transfer_service/aws_request.py
@@ -65,16 +96,33 @@ def aws_file_transfer(dataset_id, file_uris):
             json.dumps(result, indent=4)))
 
 
-def directory_transfer(local_path, gcs_path=None):
-    assert os.path.isdir(local_path)
+def local_dir_transfer(local_path, gcs_path=None):
     if not gcs_path:
         gcs_path = 'staging/' + local_path
-    for local_file in glob.glob(local_path + '/**'):
-        if not os.path.isfile(local_file):
-            directory_transfer(local_file, gcs_path + "/" + os.path.basename(local_file))
-        else:
-            bucket_name = 'broad-dsp-monster-hca-dev-lattice'
-            bucket = storage.Client().bucket(bucket_name)
-            remote_path = os.path.join(gcs_path, local_file[1 + len(local_path):])
-            blob = bucket.blob(remote_path)
-            blob.upload_from_filename(local_file)
+
+    bucket_name = 'broad-dsp-monster-hca-dev-lattice'
+    bucket = storage.Client().bucket(bucket_name)
+
+    if os.path.isdir(local_path):
+        for local_file in glob.glob(local_path + '/**'):
+            if not os.path.isfile(local_file):
+                local_dir_transfer(local_file, gcs_path + "/" + os.path.basename(local_file))
+            else:
+                remote_path = os.path.join(gcs_path, local_file[1 + len(local_path):])
+                blob = bucket.blob(remote_path)
+                blob.upload_from_filename(local_file)
+    elif os.path.isfile(local_path):
+        remote_path = os.path.join(gcs_path, local_file[1 + len(local_path):])
+        blob = bucket.blob(remote_path)
+        blob.upload_from_filename(local_file)
+
+
+def local_file_transfer(local_file, gcs_path):
+    assert os.path.isfile(local_file)
+
+    bucket_name = 'broad-dsp-monster-hca-dev-lattice'
+    bucket = storage.Client().bucket(bucket_name)
+
+    remote_path = os.path.join(gcs_path, local_file)
+    blob = bucket.blob(remote_path)
+    blob.upload_from_filename(local_file)
