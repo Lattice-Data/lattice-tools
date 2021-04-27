@@ -49,19 +49,24 @@ def aws_file_transfer(dataset_id, file_uris):
 
     sink_path = 'staging/{}/data/'.format(dataset_id)
 
-    files_per_buck = {}
+    files_per_buckpath = {}
     for uri in file_uris:
         path = uri.split('/')
-        bucket = path[2]
-        if files_per_buck.get(bucket):
-            files_per_buck[bucket].append('/'.join(path[3:]))
+        aws_bucket = path[2]
+        aws_path = '/'.join(path[3:-1])
+        aws_file = path[-1]
+        aws_buckpath = (aws_bucket, aws_path)
+        if files_per_buckpath.get(aws_buckpath):
+            files_per_buckpath[aws_buckpath].append(aws_file)
         else:
-            files_per_buck[bucket] = ['/'.join(path[3:])]
+            files_per_buckpath[aws_buckpath] = [aws_file]
 
     """Create a one-time transfer from Amazon S3 to Google Cloud Storage."""
     storagetransfer = googleapiclient.discovery.build('storagetransfer', 'v1')
 
-    for source_bucket,files in files_per_buck.items():
+    for source,files in files_per_buckpath.items():
+        source_bucket = source[0]
+        source_path = source[1] + '/'
         description = 'Transfer of {} files for dataset {}'.format(len(files),dataset_id)
         transfer_job = {
             'description': description,
@@ -77,6 +82,7 @@ def aws_file_transfer(dataset_id, file_uris):
             'transferSpec': {
                 'awsS3DataSource': {
                     'bucketName': source_bucket,
+                    'path': source_path,
                     'awsAccessKey': {
                         'accessKeyId': s3_credentials.access_key,
                         'secretAccessKey': s3_credentials.secret_key
