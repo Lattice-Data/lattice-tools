@@ -16,9 +16,6 @@ donor = {
 	'development_stage.ontology': {
 		'lattice': 'life_stage_term_id'
 	},
-	'development_stage.ontology_label': {
-		'lattice': 'life_stage'
-	},
 	'development_stage.text': {
 		'lattice': 'life_stage'
 	},
@@ -35,6 +32,9 @@ donor = {
 				'lattice': 'term_name'
 			}
 		}
+	},
+	'medical_history.treatment': {
+		'lattice': 'treatment_summary'
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
@@ -106,6 +106,9 @@ biosample = {
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
+	},
+	'treatment_summary': {
+		'lattice': 'treatment_summary'
 	}
 }
 
@@ -173,6 +176,9 @@ lattice_to_dcp = {
 					'lattice': 'title'
 				}
 			}
+		},
+		'supplementary_links': {
+			'lattice': 'urls'
 		}
 	},
 	'HumanPostnatalDonor': {
@@ -285,6 +291,9 @@ lattice_to_dcp = {
 		'purchased_specimen.manufacturer': {
 			'lattice': 'source'
 		},
+		'spatial_information': {
+			'lattice': 'spatial_information'
+		},
 		'state_of_specimen.ischemic_temperature': {
 			'lattice': 'ischemic_temperature',
 			'value_map': {
@@ -391,6 +400,18 @@ lattice_to_dcp = {
 		},
 		'cell_morphology.percent_cell_viability': {
 			'lattice': 'percent_cell_viability'
+		},
+		'dissociation_reagent': {
+			'lattice': 'dissociation_reagent'
+		},
+		'dissociation_time': {
+			'lattice': 'dissociation_time'
+		},
+		'dissociation_time_units': {
+			'lattice': 'dissociation_time_units'
+		},
+		'enrichment_factors': {
+			'lattice': 'enrichment_factors'
 		},
 		'estimated_cell_count': {
 			'lattice': 'starting_quantity'
