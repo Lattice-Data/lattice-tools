@@ -1,11 +1,12 @@
 import argparse
-import request_to_gcp
 import hashlib
 import json
 import lattice
 import os
+import request_to_gcp
 import requests
 import sys
+import zlib
 from datetime import datetime, timezone
 from pint import UnitRegistry
 from urllib.parse import urljoin
@@ -168,6 +169,30 @@ def add_to_not_incl(prop, value):
 				not_incl[prop] = [str(value)]
 
 
+def file_stats(local_path, obj):
+	# get file size
+    file_stat = os.stat(local_path)
+    obj['file_size'] = file_stat.st_size
+
+    # get the sha256
+    sha256_hash = hashlib.sha256()
+    with open(local_path,"rb") as f:
+        # Read and update hash string value in blocks of 4K
+        for byte_block in iter(lambda: f.read(4096),b""):
+            sha256_hash.update(byte_block)
+        obj['sha256'] = sha256_hash.hexdigest()
+
+    # get the crc32c
+    with open(local_path, 'rb') as f:
+        hash = 0
+        while True:
+            s = f.read(65536)
+            if not s:
+                break
+            hash = zlib.crc32(s, hash)
+        obj['crc32c'] = "%08X" % (hash & 0xFFFFFFFF)
+
+
 def get_object(temp_obj):
 	# drop unneeded properties, flatten subobjects
 	temp_obj = flatten_obj(temp_obj)
@@ -175,6 +200,9 @@ def get_object(temp_obj):
 	remove = set()
 	my_obj = {}
 	obj_type = temp_obj['@type'][0]
+
+	if temp_obj.get('documents'):
+		[handle_doc(d) for d in temp_obj['documents'] if d not in handled_docs]
 
 	for prop in lattice_to_dcp[obj_type].keys():
 		if prop != 'class':
@@ -311,6 +339,22 @@ def seq_to_susp(links_dict):
 		link = {'links': [l]}
 		links.append(link)
 	return all_susps, links
+
+
+def handle_doc(doc_id):
+	doc_url = urljoin(server, doc_id + '/?format=json')
+	doc_obj = requests.get(doc_url, auth=connection.auth).json()
+
+	link_info = {'file_type': 'supplementary_file', 'file_id': doc_obj['uuid']}
+	doc_files.append(link_info)
+
+	download_url = urljoin(server, doc_id + doc_obj['attachment']['href'])
+	r = requests.get(download_url, auth=connection.auth)
+	file_name = doc_obj['attachment']['download']
+	open(file_name, 'wb').write(r.content)
+	file_stats(file_name, doc_obj)
+	get_object(doc_obj)
+	handled_docs.append(doc_id)
 
 
 def create_protocol(in_type, out_type, out_obj):
@@ -641,6 +685,9 @@ def customize_fields(obj, obj_type):
 			obj['insdc_run_accessions'] = v
 		else:
 			del obj['insdc_run_accessions']
+	elif obj_type == 'supplementary_file':
+		file_format = obj['file_core']['file_name'].split('.')[-1]
+		obj['file_core']['format'] = file_format
 	elif obj_type == 'sequencing_protocol':
 		if 'paired_end' not in obj:
 			obj['paired_end'] = False
@@ -706,11 +753,12 @@ def file_descript(obj, obj_type, dataset):
 		'file_version': dt,
 		'content_type': 'application/gzip',
 		'size': obj['file_size'],
-		'sha256': '',
-		'crc32c': ''
+		'sha256': '', # obj['sha256'] UPDATE AFTER RELEASE
+		'crc32c': '' # obj['crc32c'] UPDATE AFTER RELEASE
 	}
 	del obj['file_size']
-	# get size and sha256 and crc32c of local_path, put in dict
+	# del obj['sha256'] UPDATE AFTER RELEASE
+	# del obj['crc32c'] UPDATE AFTER RELEASE
 	with open(dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
 		json.dump(file_descriptor, outfile, indent=4)
 
@@ -779,17 +827,24 @@ def main():
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
 
+	dir_to_make = ['', 'metadata', 'links', 'data', 'descriptors', 'descriptors/sequence_file']
+
 	# the dcp does not capture cell_lines used just to grow organoids
 	links = remove_cell_lines(links, whole_dict)
+	if doc_files:
+		doc_link = {
+			'link_type': 'supplementary_file_link',
+			'entity': {'entity_type': 'project', 'entity_id': dataset_id},
+			'files': doc_files
+		}
+		for i in links:
+			i['links'].append(doc_link)
+		dir_to_make.append('descriptors/supplementary_file')
 
 	# make directory named after dataset
 	print('WRITING THE JSON FILES')
-	os.mkdir(dataset_id)
-	os.mkdir(dataset_id + '/metadata')
-	os.mkdir(dataset_id + '/links/')
-	os.mkdir(dataset_id + '/data/')
-	os.mkdir(dataset_id + '/descriptors/')
-	os.mkdir(dataset_id + '/descriptors/sequence_file')
+	for d in dir_to_make:
+		os.mkdir(dataset_id + '/' + d)
 
 	# reformat links to use uuids and put in required schema
 	for i in links:
@@ -815,7 +870,8 @@ def main():
 		'collection_protocol': 'protocol/biomaterial_collection',
 		'enrichment_protocol': 'protocol/biomaterial_collection',
 		'differentiation_protocol': 'protocol/biomaterial_collection',
-		'protocol': 'protocol'
+		'protocol': 'protocol',
+		'supplementary_file': 'file'
 	}
 
 	s3_uris = []
@@ -825,7 +881,7 @@ def main():
 	for k in whole_dict.keys():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
-			if k in ['sequence_file']:
+			if k == 'sequence_file':
 				file_descript(o, k, dataset_id)
 				if o.get('s3_uri'):
 					s3_uris.append(o['s3_uri'])
@@ -833,8 +889,10 @@ def main():
 				elif o.get('external_uri'):
 					ftp_uris.append(o['external_uri'])
 					del o['external_uri']
-				else:
-					print('ERROR:{} has no uri'.format(o['provenance']['document_id']))
+			elif k == 'supplementary_file':
+				file_descript(o, k, dataset_id)
+				file_name = o['file_core']['file_name']
+				os.rename(file_name, dataset_id + '/data/' + file_name)
 			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
@@ -874,6 +932,8 @@ if __name__ == '__main__':
 
 	whole_dict = {}
 	not_valid = []
+	doc_files = []
+	handled_docs = []
 	args = getArgs()
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')

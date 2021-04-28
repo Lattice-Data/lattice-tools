@@ -505,6 +505,9 @@ lattice_to_dcp = {
 	},
 	'RawSequenceFile': {
 		'class': 'sequence_file',
+		'crc32c': {
+			'lattice': 'crc32c'
+		},
 		'file_core.checksum': {
 			'lattice': 'md5sum'
 		},
@@ -537,11 +540,35 @@ lattice_to_dcp = {
 		'read_length': {
 			'lattice': 'read_length'
 		},
+		'sha256': {
+			'lattice': 'sha256'
+		},
 		's3_uri': {
 			'lattice': 's3_uri' # used to transfer the file but deleted from the metadata
 		},
 		'external_uri': {
 			'lattice': 'external_uri' # used to transfer the file but deleted from the metadata
+		}
+	},
+	'Document': {
+		'class': 'supplementary_file',
+		'crc32c': {
+			'lattice': 'crc32c' # calculcated in DCP_mapper
+		},
+		'file_core.file_name': {
+			'lattice': 'attachment.download'
+		},
+		'file_description': {
+			'lattice': 'description'
+		},
+		'file_size': {
+			'lattice': 'file_size' # calculcated in DCP_mapper
+		},
+		'provenance.document_id': {
+			'lattice': 'uuid'
+		},
+		'sha256': {
+			'lattice': 'sha256' # calculcated in DCP_mapper
 		}
 	}
 }
