@@ -1,6 +1,7 @@
 Running DCP_mapper on an EC2 instance
 ---------------- 
-This should only be needed if there are files being transferred via an external ftp site. Files hosted at the Lattice S3 storage will not need to be downloaded between S3 and GCP, so can be done on your local machine. 
+This should only be needed if there are files being transferred via an external ftp site. Files hosted at the Lattice S3 storage will not need to be downloaded between S3 and GCP, so can be done on your local machine.
+ 
 Create a new spot instance from the checkfiles template
 ```
 $ aws ec2 run-instances --launch-template LaunchTemplateName=checkfiles
