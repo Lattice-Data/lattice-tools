@@ -30,7 +30,7 @@ $ scp -i lattice_ec2.pem lattice.py DCP_mapper.py property_mapping.py request_to
 ```
 Copy the DCP metadata-schema from your local clone to the instance
 ```
-$ scp -i lattice_ec2.pem -r metadata-schema/ ec2-user@<Public DNS>:/mnt
+$ scp -i lattice_ec2.pem -r json_schema/ ec2-user@<Public DNS>:/mnt
 ```
 Copy the GCP credentials json file from your local computer to the instance
 ```

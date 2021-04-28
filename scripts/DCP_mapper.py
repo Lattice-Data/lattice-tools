@@ -287,7 +287,7 @@ def seq_to_susp(links_dict):
 					get_object(lib_obj)
 			susps.extend([i['uuid'] for i in lib_obj['derived_from']])
 			all_susps.update(susps)
-			for obj in lib_obj['derived_from']:	
+			for obj in lib_obj['derived_from']:
 				lat_type = obj['@type'][0]
 				in_type = lattice_to_dcp[lat_type]['class']
 				ins.append({'input_type': in_type, 'input_id': obj['uuid']})
@@ -431,7 +431,7 @@ def get_dcp_schema_ver(directory):
 	vers = {}
 	if not directory.endswith('/'):
 		directory = directory + '/'
-	v_file = directory + 'metadata-schema/json_schema/versions.json'
+	v_file = directory + 'json_schema/versions.json'
 	versions = json.load(open(v_file))
 	for v in versions['version_numbers'].values():
 		for k2,v2 in v.items():
