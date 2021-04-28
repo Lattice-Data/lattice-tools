@@ -8,6 +8,8 @@ import argparse
 import anndata as ad
 import gzip
 import re
+import numpy as np
+from scipy import sparse
 
 
 EPILOG = '''
@@ -84,6 +86,8 @@ def main(args):
 			adata = adata.transpose()
 		if args.gtf is not None:
 			add_gene(adata, args, df_gtf)
+		if type(adata.X) == np.ndarray:
+			adata.X = sparse.csr_matrix(adata.X)
 		adata.write(os.path.join(args.outdir, filename.replace('.txt.gz', '.h5ad')))
 
 	shutil.rmtree(temp_dir)
