@@ -44,24 +44,47 @@ def getArgs():
 
 
 def test_mapping():
+	error_count = 0
 	schema_url = urljoin(server, 'profiles/?format=json')
 	schemas = requests.get(schema_url).json()
 	for k,v in lattice_to_dcp.items():
 		schema_props = schemas[k]['properties']
 		for prop in v.keys():
-			if prop != 'class':
+			flag = False
+			if prop == 'class':
+				flag = True
+			else:
 				lat_prop = v[prop]['lattice']
 				if '.' in lat_prop:
 					path = lat_prop.split('.')
-					if path[0] not in schema_props:
+					if path[0] in schema_props:
+						flag = True
+					elif schema_props[path[0]].get('linkTo'):
+						link_obj = schema_props[path[0]]['linkTo']
+						if path[1] in schemas[link_obj]['properties']:
+							flag = True
+					elif schema_props[path[0]].get('properties'):
+						if path[1] in schema_props[path[0]]['properties']:
+							flag = True
+					elif schema_props[path[0]].get('items'):
+						if schema_props[path[0]]['items'].get('properties'):
+							if path[1] in schema_props[path[0]]['items']['properties']:
+								flag = True
+						elif schema_props[path[0]]['items'].get('linkTo'):
+							link_obj = schema_props[path[0]]['items']['linkTo']
+							if path[1] in schemas[link_obj]['properties']:
+								flag = True
+					else:
 						print(k)
-						print(lat_prop)
-						print('--------')
-				elif lat_prop not in schema_props:
-					print(k)
-					print(lat_prop)
-					print('--------')
-	sys.exit()
+						print(path)
+					if len(path) > 2:
+						print('-----long path----')
+				elif lat_prop in schema_props:
+					flag = True
+			if flag != True:
+				error_count += 1
+				print('{} not found in schema for {}'.format(lat_prop,k))
+	return error_count
 
 
 def split_dbxrefs(my_obj, dbxrefs, dbxref_map):
@@ -367,6 +390,7 @@ def create_protocol(in_type, out_type, out_obj):
 			'text': ','.join(der_process)
 		}
 	}
+
 	if in_type == 'donor_organism':
 		pr_type = 'collection_protocol'
 		if out_obj.get('spatial_information'):
@@ -934,6 +958,7 @@ if __name__ == '__main__':
 	not_valid = []
 	doc_files = []
 	handled_docs = []
+
 	args = getArgs()
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
@@ -941,7 +966,16 @@ if __name__ == '__main__':
 		sys.exit('ERROR: --mode is required')
 	if not args.dcp:
 		sys.exit('ERROR: --dcp is required')
+
 	connection = lattice.Connection(args.mode)
 	server = connection.server
 	dcp_vs = get_dcp_schema_ver(args.dcp)
+
+	schema_errors = test_mapping()
+	if schema_errors > 0:
+		print(str(schema_errors) + ' found')
+		i = input('Continue? y/n: ')
+		if i.lower() not in ['y','yes']:
+			sys.exit('Stopped due to schema errors')
+
 	main()
