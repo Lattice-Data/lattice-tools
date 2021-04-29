@@ -375,7 +375,7 @@ def handle_doc(doc_id):
 	r = requests.get(download_url, auth=connection.auth)
 	file_name = doc_obj['attachment']['download']
 	open(file_name, 'wb').write(r.content)
-	file_stats(file_name, doc_obj)
+
 	get_object(doc_obj)
 	handled_docs.append(doc_id)
 
@@ -914,9 +914,10 @@ def main():
 					ftp_uris.append(o['external_uri'])
 					del o['external_uri']
 			elif k == 'supplementary_file':
-				file_descript(o, k, dataset_id)
 				file_name = o['file_core']['file_name']
+				file_stats(file_name, o)
 				os.rename(file_name, dataset_id + '/data/' + file_name)
+				file_descript(o, k, dataset_id)
 			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]

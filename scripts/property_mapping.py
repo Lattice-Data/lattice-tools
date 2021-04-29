@@ -552,23 +552,14 @@ lattice_to_dcp = {
 	},
 	'Document': {
 		'class': 'supplementary_file',
-		'crc32c': {
-			'lattice': 'crc32c' # calculcated in DCP_mapper
-		},
 		'file_core.file_name': {
 			'lattice': 'attachment.download'
 		},
 		'file_description': {
 			'lattice': 'description'
 		},
-		'file_size': {
-			'lattice': 'file_size' # calculcated in DCP_mapper
-		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
-		},
-		'sha256': {
-			'lattice': 'sha256' # calculcated in DCP_mapper
 		}
 	}
 }
