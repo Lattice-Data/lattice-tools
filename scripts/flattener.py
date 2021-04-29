@@ -797,7 +797,10 @@ def main(mfinal_id):
 		if gene not in list(cxg_adata_raw.var_names):
 			if re.search(r'^[A-Za-z]\S+-[0-9]$', gene):
 				modified_gene = re.sub(r'(^[A-Z]\S+)-([0-9])$', r'\1.\2', gene)
-				mfinal_adata.var.rename(index={gene: modified_gene}, inplace=True)
+				if modified_gene in list(cxg_adata_raw.var_names):
+					mfinal_adata.var.rename(index={gene: modified_gene}, inplace=True)
+				else:
+					sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 			else:
 				sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 
