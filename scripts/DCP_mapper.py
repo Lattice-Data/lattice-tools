@@ -217,12 +217,31 @@ def file_stats(local_path, obj):
 
 
 def get_object(temp_obj):
+	obj_type = temp_obj['@type'][0]
+
+	# if there are ERROR-level audits, flag it to stop the script
+	if (temp_obj.get('audit') and temp_obj['audit'].get('ERROR')):
+		freq = {}
+		for a in temp_obj['audit']['ERROR']:
+			if a['category'] in freq:
+				freq[a['category']] += 1
+			else:
+				freq[a['category']] = 1
+		for k,v in freq.items():
+			print('ERROR audit:{}x {} on {} {}'.format(
+				str(v),
+				k,
+				obj_type,
+				temp_obj.get('uuid')))
+		i = input('Continue? y/n: ')
+		if i.lower() not in ['y','yes']:
+			sys.exit('Stopped due to one or more ERROR audits')
+
 	# drop unneeded properties, flatten subobjects
 	temp_obj = flatten_obj(temp_obj)
 
 	remove = set()
 	my_obj = {}
-	obj_type = temp_obj['@type'][0]
 
 	if temp_obj.get('documents'):
 		[handle_doc(d) for d in temp_obj['documents'] if d not in handled_docs]
@@ -793,19 +812,13 @@ def main():
 	url = urljoin(server, args.dataset + '/?format=json')
 	ds_obj = requests.get(url, auth=connection.auth).json()
 
-	# if there are ERROR-level audits on the dataset, flag it to stop the script
-	if (ds_obj.get('audit') and ds_obj['audit'].get('ERROR')):
-		freq = {}
-		for a in ds_obj['audit']['ERROR']:
-			if a['category'] in freq:
-				freq[a['category']] += 1
-			else:
-				freq[a['category']] = 1
-		for k,v in freq.items():
-			print('ERROR audit:{}x {}'.format(str(v), k))
+	# check status of the dataset
+	if ds_obj.get('status') not in ['in progress', 'released']:
+		print('WARNING: Dataset status is {}'.format(ds_obj.get('status')))
 		i = input('Continue? y/n: ')
 		if i.lower() not in ['y','yes']:
 			sys.exit('Stopped due to one or more ERROR audits')
+
 	dataset_id = ds_obj['uuid']
 	get_object(ds_obj)
 
