@@ -47,6 +47,25 @@ def getArgs():
     return args
 
 
+dcp_types = {
+	'project': 'project',
+	'donor_organism': 'biomaterial',
+	'specimen_from_organism': 'biomaterial',
+	'cell_line': 'biomaterial',
+	'organoid': 'biomaterial',
+	'cell_suspension': 'biomaterial',
+	'sequence_file': 'file',
+	'library_preparation_protocol': 'protocol/sequencing',
+	'sequencing_protocol': 'protocol/sequencing',
+	'dissociation_protocol': 'protocol/biomaterial_collection',
+	'collection_protocol': 'protocol/biomaterial_collection',
+	'enrichment_protocol': 'protocol/biomaterial_collection',
+	'differentiation_protocol': 'protocol/biomaterial_collection',
+	'protocol': 'protocol',
+	'supplementary_file': 'file'
+}
+
+
 def test_mapping():
 	error_count = 0
 	schema_url = urljoin(server, 'profiles/?format=json')
@@ -602,7 +621,7 @@ def customize_fields(obj, obj_type):
 					obj['supplementary_links'].remove(l)
 	elif obj_type == 'donor_organism':
 		if not obj.get('is_living'):
-			if obj['development_stage']['ontology_label'] in ['embryonic','fetal']:
+			if obj['development_stage']['text'] in ['embryonic','fetal']:
 				obj['is_living'] = 'not applicable'
 			else:
 				obj['is_living'] = 'unknown'
@@ -789,6 +808,9 @@ def remove_cell_lines(links, whole_dict):
 		for i in whole_dict['cell_line']:
 			if i['biomaterial_core']['biomaterial_id'] not in keep_cell_line:
 				whole_dict['cell_line'].remove(i)
+	if len(whole_dict.get('cell line', [''])) == 0:
+		print('i will delete it')
+		del whole_dict['cell_line']
 
 	return consolidated_links
 
@@ -819,7 +841,6 @@ def file_descript(obj, obj_type, dataset):
 
 
 def main():
-	# get the dataset, and convert it to a project object
 	print('GETTING THE DATASET')
 	url = urljoin(server, args.dataset + '/?format=json')
 	ds_obj = requests.get(url, auth=connection.auth).json()
@@ -832,9 +853,12 @@ def main():
 			sys.exit('Stopped due to one or more ERROR audits')
 
 	dataset_id = ds_obj['uuid']
+	print('WILL WRITE FILES TO THE {} DIRECTORY'.format(dataset_id))
+
+	# convert the dataset to DCP schema
 	get_object(ds_obj)
 
-	# get the raw sequence files from that dataset
+	# get the validated raw sequence files from that dataset
 	print('GETTING RAW SEQUENCE FILES')
 	links_dict = {}
 	files = [i for i in ds_obj['files']]
@@ -847,14 +871,15 @@ def main():
 				print('{} has not been validated, will be excluded'.format(temp_obj['@id']))
 				not_valid.append(temp_obj['@id'])
 			else:
-				# convert each to a sequence_file
+				# convert each to DCP schema
 				get_object(temp_obj)
+
 				# pull the derived_from to store for later formation to links
 				der_from = [i['@id'] for i in temp_obj['derived_from']]
 				get_links(temp_obj, tuple(der_from), links_dict)
 
 	if not links_dict:
-		sys.exit('No RawSequenceFiles associated with this dataset')
+		sys.exit('No validated RawSequenceFiles associated with this dataset')
 
 	# special walkback of graph until Suspension object
 	# gather all the Suspension objects to traverse next
@@ -879,7 +904,9 @@ def main():
 	dir_to_make = ['', 'metadata', 'links', 'data', 'descriptors', 'descriptors/sequence_file']
 
 	# the dcp does not capture cell_lines used just to grow organoids
+	# remove these objects and reconnect broken links
 	links = remove_cell_lines(links, whole_dict)
+
 	if doc_files:
 		doc_link = {
 			'link_type': 'supplementary_file_link',
@@ -895,7 +922,7 @@ def main():
 	for d in dir_to_make:
 		os.mkdir(dataset_id + '/' + d)
 
-	# reformat links to use uuids and put in required schema
+	# reformat links to use uuids and convert to DCP schema
 	for i in links:
 		i['schema_type'] = 'links'
 		i['schema_version'] = dcp_vs['links']
@@ -904,24 +931,6 @@ def main():
 		with open(dataset_id + '/links/' + first_id + '_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
 			json.dump(i, outfile, indent=4)
 			outfile.close()
-
-	dcp_types = {
-		'project': 'project',
-		'donor_organism': 'biomaterial',
-		'specimen_from_organism': 'biomaterial',
-		'cell_line': 'biomaterial',
-		'organoid': 'biomaterial',
-		'cell_suspension': 'biomaterial',
-		'sequence_file': 'file',
-		'library_preparation_protocol': 'protocol/sequencing',
-		'sequencing_protocol': 'protocol/sequencing',
-		'dissociation_protocol': 'protocol/biomaterial_collection',
-		'collection_protocol': 'protocol/biomaterial_collection',
-		'enrichment_protocol': 'protocol/biomaterial_collection',
-		'differentiation_protocol': 'protocol/biomaterial_collection',
-		'protocol': 'protocol',
-		'supplementary_file': 'file'
-	}
 
 	s3_uris = []
 	ftp_uris = []
@@ -950,9 +959,21 @@ def main():
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
 				json.dump(o, outfile, indent=4)
 
+	# report metadata not mapped to DCP schema
+	for k,v in not_incl.items():
+		not_incl[k] = list(v)
+	with open('not_included.json', 'w') as outfile:
+		json.dump(not_incl, outfile, indent=4)
+
+	# report files that are not validated, and thus, not included in the mapping
+	if not_valid:
+		with open('not_validated.json', 'w') as outfile:
+			outfile.write('\n'.join(not_valid))
+			outfile.write('\n')
+
 	if args.update:
-		print('TRANSFERRING METADATA DIRECTORIES')
 		# transfer the metadata directory to the DCP Google Cloud project
+		print('TRANSFERRING METADATA DIRECTORIES')
 		request_to_gcp.local_dir_transfer(dataset_id)
 
 		# transfer the data files from S3 to the DCP Google Cloud project
@@ -965,22 +986,15 @@ def main():
 			print('TRANSFERRING EXTERNAL FILES')
 			request_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
 
-		for k,v in not_incl.items():
-			not_incl[k] = list(v)
-		with open('not_included.json', 'w') as outfile:
-			json.dump(not_incl, outfile, indent=4)
-
-		if not_valid:
-			with open('not_validated.json', 'w') as outfile:
-				outfile.write('\n'.join(not_valid))
-				outfile.write('\n')
 	else:
 		sys.exit('Metadata directories written locally, but not transferring without the --update option')
 
 if __name__ == '__main__':
+	# set the current date time, used to version throughout
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
 	dt = str(d_now).replace('+00:00', 'Z')
 
+	# used to track metdata not mapped to DCP schema
 	if os.path.exists('not_included.json'):
 		not_incl = json.load(open('not_included.json'))
 	else:
@@ -1001,8 +1015,10 @@ if __name__ == '__main__':
 
 	connection = lattice.Connection(args.mode)
 	server = connection.server
+
 	dcp_vs = get_dcp_schema_ver(args.dcp)
 
+	# check for Lattice schema errors, possibly outdated fields
 	schema_errors = test_mapping()
 	if schema_errors > 0:
 		print(str(schema_errors) + ' found')
