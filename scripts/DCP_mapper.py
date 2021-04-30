@@ -39,6 +39,10 @@ def getArgs():
                         help='The machine to run on.')
     parser.add_argument('--dcp',
                         help='The directory to find the DCP metadata-schema.')
+    parser.add_argument('--update',
+                        default=False,
+                        action='store_true',
+                        help='Let the script proceed with the changes.  Default is False')
     args = parser.parse_args()
     return args
 
@@ -946,26 +950,32 @@ def main():
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
 				json.dump(o, outfile, indent=4)
 
-	# transfer the metadata directory to the DCP Google Cloud project
-	request_to_gcp.local_dir_transfer(dataset_id)
+	if args.update:
+		print('TRANSFERRING METADATA DIRECTORIES')
+		# transfer the metadata directory to the DCP Google Cloud project
+		request_to_gcp.local_dir_transfer(dataset_id)
 
-	# transfer the data files from S3 to the DCP Google Cloud project
-	if s3_uris:
-		request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
+		# transfer the data files from S3 to the DCP Google Cloud project
+		if s3_uris:
+			print('TRANSFERRING FILES FROM S3')
+			request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
 
-	# transfer the data files from external FTPs to the DCP Google Cloud project
-	if ftp_uris:
-		request_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
+		# transfer the data files from external FTPs to the DCP Google Cloud project
+		if ftp_uris:
+			print('TRANSFERRING EXTERNAL FILES')
+			request_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
 
-	for k,v in not_incl.items():
-		not_incl[k] = list(v)
-	with open('not_included.json', 'w') as outfile:
-		json.dump(not_incl, outfile, indent=4)
+		for k,v in not_incl.items():
+			not_incl[k] = list(v)
+		with open('not_included.json', 'w') as outfile:
+			json.dump(not_incl, outfile, indent=4)
 
-	if not_valid:
-		with open('not_validated.json', 'w') as outfile:
-			outfile.write('\n'.join(not_valid))
-			outfile.write('\n')
+		if not_valid:
+			with open('not_validated.json', 'w') as outfile:
+				outfile.write('\n'.join(not_valid))
+				outfile.write('\n')
+	else:
+		sys.exit('Metadata directories written locally, but not transferring without the --update option')
 
 if __name__ == '__main__':
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
