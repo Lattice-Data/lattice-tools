@@ -552,6 +552,9 @@ lattice_to_dcp = {
 	},
 	'Document': {
 		'class': 'supplementary_file',
+		'content_type': {
+			'lattice': 'attachment.type' # used in file_descriptor
+		},
 		'file_core.file_name': {
 			'lattice': 'attachment.download'
 		},

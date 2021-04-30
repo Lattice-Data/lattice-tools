@@ -790,13 +790,19 @@ def remove_cell_lines(links, whole_dict):
 
 
 def file_descript(obj, obj_type, dataset):
+	if obj.get('content_type'):
+		content_type = obj['content_type']
+		del obj['content_type']
+	elif obj_type == 'sequence_file':
+		content_type = 'application/gzip'
+
 	file_descriptor = {
 		'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_vs['file_descriptor']),
 		'schema_type': 'file_descriptor',
 		'file_name': obj['file_core']['file_name'],
 		'file_id': obj['provenance']['document_id'],
 		'file_version': dt,
-		'content_type': 'application/gzip',
+		'content_type': content_type,
 		'size': obj['file_size'],
 		'sha256': '', # obj['sha256'] UPDATE AFTER RELEASE
 		'crc32c': '' # obj['crc32c'] UPDATE AFTER RELEASE
