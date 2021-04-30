@@ -716,6 +716,8 @@ def customize_fields(obj, obj_type):
 	elif obj_type == 'library_preparation_protocol':
 		if not obj.get('strand'):
 			obj['strand'] = 'not provided'
+		if not obj.get('end_bias'):
+			obj['end_bias'] = 'full length'
 	elif obj_type == 'sequence_file':
 		if obj.get('insdc_run_accessions'):
 			v = []
