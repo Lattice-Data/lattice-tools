@@ -44,8 +44,8 @@ cell_metadata = {
 		],
 	'library': [
 		'uuid',
-		'protocol.title',
-		'protocol.term_id',
+		'protocol.assay_ontology.term_name',
+		'protocol.assay_ontology.term_id',
 		'@id'
 		]
 	}
@@ -69,8 +69,9 @@ annot_fields = [
 prop_map = {
 	'sample_biosample_ontology_term_name': 'tissue',
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
-	'library_protocol_title': 'assay',
-	'library_protocol_term_id': 'assay_ontology_term_id',
+	'library_protocol_title': 'assay_title',
+	'library_protocol_assay_ontology_term_name': 'assay',
+	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
 	'donor_ethnicity_term_name': 'ethnicity',
@@ -232,8 +233,30 @@ def get_value(obj, prop):
 				return value
 		else:
 			return obj.get(key1,unreported_value)
+	elif len(path) == 3:
+		key1 = path[0]
+		key2 = path[1]
+		key3 = path[2]
+		if isinstance(obj.get(key1), list):
+			embed_objs = obj.get(key1, unreported_value)
+			values = []
+			for embed_obj in embed_objs:
+				if isinstance(embed_obj.get(key2), list):
+					values += [k.get(key3, unreported_value) for k in embed_obj[key2]]
+				else:
+					values += embed_obj[key2].get(key3, unreported_value)
+			return list(set(values))
+		# Will need to revisit cell culture and organoid values 
+		elif obj.get(key1):
+			embed_obj = obj.get(key1, unreported_value)
+			if isinstance(embed_obj.get(key2), list):
+				return [v.get(key3, unreported_value) for v in embed_obj[key2]]
+			else:
+				return embed_obj[key2].get(key3, unreported_value)
+		else:
+			return obj.get(key1, unreported_value)
 	else:
-		return 'unable to traverse more than 1 embedding'
+		return 'unable to traverse more than 2 embeddings'
 
 
 def gather_metdata(obj_type, properties, values_to_add, objs):
@@ -374,7 +397,6 @@ def get_embeddings(mfinal_adata):
 def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	converted_h5ad = []
 	utils = rpackages.importr('utils')
-	#base = rpackages.importr('base')
 	utils.chooseCRANmirror(ind=1)
 	packnames = ('Seurat', 'reticulate', 'BiocManager', 'devtools')
 	names_to_install = [x for x in packnames if not rpackages.isinstalled(x)]
@@ -382,10 +404,10 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 		utils.install_packages(StrVector(names_to_install))
 
 	devtools = rpackages.importr('devtools')
-	github_packages = ('cli', 'crayon', 'hdf5r', 'Matrix', 'R6', 'rlang', 'stringi', 'withr')
+	github_packages = ( 'SeuratDisk', 'cli', 'crayon', 'hdf5r', 'Matrix', 'R6', 'rlang', 'stringi', 'withr')
 	github_install = [x for x in github_packages if not rpackages.isinstalled(x)]
 	if len(github_install) > 0:
-		devtools.install_github(StrVector(bioc_to_install))
+		devtools.install_github(StrVector(github_install))
 	seurat = rpackages.importr('Seurat')
 	seuratdisk = rpackages.importr('SeuratDisk')
 	
@@ -458,8 +480,8 @@ def quality_check(adata):
 # Return uniqued list separated by ', '
 def clean_list(lst):
 	lst = lst.split(',')
-	if '' in lst:
-		lst.remove('')
+	if unreported_value in lst:
+		lst.remove(unreported_value)
 	lst = list(set(lst))
 	diseases_str = '[{}]'.format(', '.join(lst))
 	return diseases_str
@@ -520,13 +542,14 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj):
 		for susp in donor_susp[donor_uniq]:
 			if susp in library_susp[lib_uniq]:
 				demult_susp = susp
-		demult_susp_lst.append(demult_susp)
 		if demult_susp == '':
-	 		print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
+			print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
+		else:
+			demult_susp_lst.append(demult_susp)
 	lib_donor_df['suspension_@id'] = demult_susp_lst
 
 	obj_type_subset = ['sample', 'suspension', 'donor']
-	for susp in lib_donor_df['suspension_@id'].to_list():
+	for susp in set(lib_donor_df['suspension_@id'].to_list()):
 		values_to_add = {}
 		susp_obj = lattice.get_object(susp, connection)
 		relevant_objects = gather_objects(susp_obj, start_type='suspension')
@@ -769,6 +792,8 @@ def main(mfinal_id):
 			print(donor_df['ethnicity_ontology_term_id'])
 		# Retain cell identifiers as index
 		cxg_obs = cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
+		if mfinal_adata.X.shape[0] != cxg_obs.shape[0]:
+			sys.exit('WARNING: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(mfinal_adata.X.shape[0], cxg_obs.shape[0]))
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
 		report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
@@ -788,7 +813,7 @@ def main(mfinal_id):
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
-				if col_content[0] == '[]' or col_content[0] == '[' + unreported_value + ']':
+				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']':
 					cxg_obs.drop(columns=col, inplace=True)
 
 
