@@ -764,7 +764,7 @@ def customize_fields(obj, obj_type):
 
 
 def remove_cell_lines(links, whole_dict):
-	keep_cell_line = set()
+	keepers = set()
 	consolidated_links = []
 	for l in links:
 		consolidate = {}
@@ -786,7 +786,7 @@ def remove_cell_lines(links, whole_dict):
 			for k,v in consolidate.items():
 				# we don't want to collapse any cell_line-to-suspension links
 				if v['ins']['outputs'][0]['output_type'] == 'cell_suspension':
-					keep_cell_line.update(k.split('#'))
+					keepers.update(k.split('#'))
 				else:
 					new_link = {
 						'outputs': v['ins']['outputs'],
@@ -804,10 +804,15 @@ def remove_cell_lines(links, whole_dict):
 			consolidated_links.append(l)
 
 	# we need to remove cell_line objects if they don't feed directly to suspension
+	keep_cell_lines = []
 	if whole_dict.get('cell_line'):
 		for i in whole_dict['cell_line']:
-			if i['biomaterial_core']['biomaterial_id'] not in keep_cell_line:
-				whole_dict['cell_line'].remove(i)
+			if i['biomaterial_core']['biomaterial_id'] in keepers:
+				keep_cell_lines.append(i)
+		del whole_dict['cell_line']
+
+	if keep_cell_lines:
+		whole_dict['cell_line'] = keep_cell_lines
 
 	return consolidated_links
 
@@ -934,28 +939,27 @@ def main():
 
 	# write a json file for each object
 	for k in whole_dict.keys():
-		if whole_dict.get(k):
-			os.mkdir(dataset_id + '/metadata/' + k)
-			for o in whole_dict[k]:
-				if k == 'sequence_file':
-					file_descript(o, k, dataset_id)
-					if o.get('s3_uri'):
-						s3_uris.append(o['s3_uri'])
-						del o['s3_uri']
-					elif o.get('external_uri'):
-						ftp_uris.append(o['external_uri'])
-						del o['external_uri']
-				elif k == 'supplementary_file':
-					file_name = o['file_core']['file_name']
-					file_stats(file_name, o)
-					os.rename(file_name, dataset_id + '/data/' + file_name)
-					file_descript(o, k, dataset_id)
-				customize_fields(o, k)
-				o['schema_type'] = dcp_types[k].split('/')[0]
-				o['schema_version'] = dcp_vs[k]
-				o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
-				with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
-					json.dump(o, outfile, indent=4)
+		os.mkdir(dataset_id + '/metadata/' + k)
+		for o in whole_dict[k]:
+			if k == 'sequence_file':
+				file_descript(o, k, dataset_id)
+				if o.get('s3_uri'):
+					s3_uris.append(o['s3_uri'])
+					del o['s3_uri']
+				elif o.get('external_uri'):
+					ftp_uris.append(o['external_uri'])
+					del o['external_uri']
+			elif k == 'supplementary_file':
+				file_name = o['file_core']['file_name']
+				file_stats(file_name, o)
+				os.rename(file_name, dataset_id + '/data/' + file_name)
+				file_descript(o, k, dataset_id)
+			customize_fields(o, k)
+			o['schema_type'] = dcp_types[k].split('/')[0]
+			o['schema_version'] = dcp_vs[k]
+			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
+			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
+				json.dump(o, outfile, indent=4)
 
 	# report metadata not mapped to DCP schema
 	for k,v in not_incl.items():
