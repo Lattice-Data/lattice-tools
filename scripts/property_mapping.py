@@ -16,9 +16,6 @@ donor = {
 	'development_stage.ontology': {
 		'lattice': 'life_stage_term_id'
 	},
-	'development_stage.ontology_label': {
-		'lattice': 'life_stage'
-	},
 	'development_stage.text': {
 		'lattice': 'life_stage'
 	},
@@ -35,6 +32,9 @@ donor = {
 				'lattice': 'term_name'
 			}
 		}
+	},
+	'medical_history.treatment': {
+		'lattice': 'treatment_summary'
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
@@ -106,6 +106,9 @@ biosample = {
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
+	},
+	'treatment_summary': {
+		'lattice': 'treatment_summary'
 	}
 }
 
@@ -173,6 +176,9 @@ lattice_to_dcp = {
 					'lattice': 'title'
 				}
 			}
+		},
+		'supplementary_links': {
+			'lattice': 'urls'
 		}
 	},
 	'HumanPostnatalDonor': {
@@ -226,6 +232,9 @@ lattice_to_dcp = {
 	'Tissue': {
 		**biosample,
 		'class': 'specimen_from_organism',
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
+		},
 		'diseases': {
 			'lattice': 'diseases',
 			'subprop_map': {
@@ -282,6 +291,9 @@ lattice_to_dcp = {
 		'purchased_specimen.manufacturer': {
 			'lattice': 'source'
 		},
+		'spatial_information': {
+			'lattice': 'spatial_information'
+		},
 		'state_of_specimen.ischemic_temperature': {
 			'lattice': 'ischemic_temperature',
 			'value_map': {
@@ -305,6 +317,9 @@ lattice_to_dcp = {
 	'CellCulture': {
 		**biosample,
 		'class': 'cell_line',
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
+		},
 		'cell_type.ontology': {
 			'lattice': 'biosample_ontology.term_id'
 		},
@@ -349,6 +364,9 @@ lattice_to_dcp = {
 		'age_unit.text': {
 			'lattice': 'post_differentiation_time_units'
 		},
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
+		},
 		'embedded_in_matrigel': {
 			'lattice': 'embedded_in_matrigel'
 		},
@@ -382,6 +400,18 @@ lattice_to_dcp = {
 		},
 		'cell_morphology.percent_cell_viability': {
 			'lattice': 'percent_cell_viability'
+		},
+		'dissociation_reagent': {
+			'lattice': 'dissociation_reagent'
+		},
+		'dissociation_time': {
+			'lattice': 'dissociation_time'
+		},
+		'dissociation_time_units': {
+			'lattice': 'dissociation_time_units'
+		},
+		'enrichment_factors': {
+			'lattice': 'enrichment_factors'
 		},
 		'estimated_cell_count': {
 			'lattice': 'starting_quantity'
@@ -475,6 +505,9 @@ lattice_to_dcp = {
 	},
 	'RawSequenceFile': {
 		'class': 'sequence_file',
+		'crc32c': {
+			'lattice': 'crc32c'
+		},
 		'file_core.checksum': {
 			'lattice': 'md5sum'
 		},
@@ -483,6 +516,9 @@ lattice_to_dcp = {
 		},
 		'file_core.format': {
 			'lattice': 'file_format'
+		},
+		'file_size': {
+			'lattice': 'file_size' # used for file_descriptor, not other metadata
 		},
 		'insdc_run_accessions': {
 			'lattice': 'derived_from' # DCP_mapper pulls out just dbxrefs
@@ -493,16 +529,40 @@ lattice_to_dcp = {
 		'read_index': {
 			'lattice': 'read_type', # might instead map demultiplexed_type
 			'value_map': {
-				'i5 index': 'index2', # need to confirm for ATAC (demultiplexe_type=R2)
+				'i5 index': 'index2',
 				'i7 index': 'index1',
 				'Read 1': 'read1',
 				'Read 2': 'read2',
 				'Read 1N': 'read1',
-				'Read 2N': 'read2' # need to confirm for ATAC (demultiplexe_type=R3)
+				'Read 2N': 'read2'
 			}
 		},
 		'read_length': {
 			'lattice': 'read_length'
+		},
+		'sha256': {
+			'lattice': 'sha256'
+		},
+		's3_uri': {
+			'lattice': 's3_uri' # used to transfer the file but deleted from the metadata
+		},
+		'external_uri': {
+			'lattice': 'external_uri' # used to transfer the file but deleted from the metadata
+		}
+	},
+	'Document': {
+		'class': 'supplementary_file',
+		'content_type': {
+			'lattice': 'attachment.type' # used in file_descriptor
+		},
+		'file_core.file_name': {
+			'lattice': 'attachment.download'
+		},
+		'file_description': {
+			'lattice': 'description'
+		},
+		'provenance.document_id': {
+			'lattice': 'uuid'
 		}
 	}
 }

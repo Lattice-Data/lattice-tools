@@ -15,6 +15,7 @@ $ conda activate lattice_submit
 Install the following packages
 ```
 $ pip install python-magic requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
+$ pip install google-cloud-storage google-auth-httplib2
 $ conda install anndata -c conda-forge
 $ conda install -c conda-forge pint
 $ conda install pandas
