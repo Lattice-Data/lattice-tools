@@ -832,12 +832,12 @@ def file_descript(obj, obj_type, dataset):
 		'file_version': dt,
 		'content_type': content_type,
 		'size': obj['file_size'],
-		'sha256': '', # obj['sha256'] UPDATE AFTER RELEASE
-		'crc32c': '' # obj['crc32c'] UPDATE AFTER RELEASE
+		'sha256': obj['sha256'],
+		'crc32c': obj['crc32c']
 	}
 	del obj['file_size']
-	# del obj['sha256'] UPDATE AFTER RELEASE
-	# del obj['crc32c'] UPDATE AFTER RELEASE
+	del obj['sha256']
+	del obj['crc32c']
 	with open(dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
 		json.dump(file_descriptor, outfile, indent=4)
 
