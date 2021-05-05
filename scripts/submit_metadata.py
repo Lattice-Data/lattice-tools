@@ -524,6 +524,18 @@ def main():
 		if obj_type in names.keys():
 			obj_posts = []
 			row_count, rows = reader(book, names[obj_type])
+
+			# remove all columns that do not have any values submitted
+			index_to_remove = []
+			for i in range(0,len(rows[0])):
+				values = [row[i] for row in rows[1:]]
+				if set(values) == {''}:
+					index_to_remove.append(i)
+			index_to_remove.reverse()
+			for index in index_to_remove:
+				for row in rows:
+					del row[index]
+
 			headers = rows.pop(0)
 			schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
 			schema_properties = requests.get(schema_url).json()['properties']
@@ -536,7 +548,7 @@ def main():
 				row_count += 1
 				post_json = dict(zip(headers, row))
 				# convert values to the type specified in the schema, including embedded json objects
-				post_json, post_ont = dict_patcher(post_json,schema_properties, ont_term_schema)
+				post_json, post_ont = dict_patcher(post_json, schema_properties, ont_term_schema)
 				for k, v in post_ont.items():
 					all_posts.setdefault('ontology_term', []).append((obj_type + '.' + k, v))
 				# add attchments here
