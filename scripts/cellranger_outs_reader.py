@@ -105,6 +105,14 @@ def getArgs():
 
 args = getArgs()
 
+if not args.mode:
+	sys.exit('ERROR: --mode is required')
+
+s3client = boto3.client("s3")
+
+connection = lattice.Connection(args.mode)
+server = connection.server
+
 if args.assay == 'rna':
 	obj_name = 'rna_metrics'
 	files_to_check = [
@@ -122,12 +130,7 @@ elif args.assay == 'atac':
 else:
 	sys.exit('must specify rna or atac for --assay')
 
-if not args.mode:
-	sys.exit('ERROR: --mode is required')
-
-connection = lattice.Connection(args.mode)
-server = connection.server
-schema_url = urljoin(server, 'profiles/' + obj_name + '/?format=json')
+schema_url = urljoin(server, 'profiles/{}/?format=json'.format(obj_name))
 full_schema = requests.get(schema_url).json()
 schema_props = list(full_schema['properties'].keys())
 
@@ -147,76 +150,81 @@ for direct in directories:
 	bucket_name = full_path.split('/')[0]
 	outs_dir_path = full_path.replace(bucket_name + '/', '')
 
-	s3client = boto3.client("s3")
-
 	report_json = {'quality_metric_of': '<linkTo MatrixFile - filtered matrix .h5>'}
 
-	files_to_check = ['web_summary.html']
-	for file_name in files_to_check:
-		try:
-		    s3client.download_file(bucket_name, outs_dir_path + '/' + file_name, file_name)
-		except botocore.exceptions.ClientError:
-			print('Failed to find {} on s3'.format(file_name))
-		else:
-			print(file_name + ' downloaded')
-
-			if file_name == 'web_summary.html':
-				with open(file_name) as html_doc:
-					match_flag = False
-					soup = BeautifulSoup(html_doc, 'html.parser')
-					for x in soup.find_all('script'):
-						match = re.search("const data = ", x.string)
-						if match:
-							match_flag = True
-							end = match.end()
-							data = json.loads(x.string[end:])
-							if data.get('pipeline_info_table'):
-								pipeline_info_table = data.get('pipeline_info_table')
+	summary_file = 'web_summary.html'
+	try:
+	    s3client.download_file(bucket_name, outs_dir_path + '/' + summary_file, summary_file)
+	except botocore.exceptions.ClientError:
+		print('Failed to find {} on s3'.format(summary_file))
+	else:
+		print(summary_file + ' downloaded')
+		with open(summary_file) as html_doc:
+			match_flag = False
+			soup = BeautifulSoup(html_doc, 'html.parser')
+			for x in soup.find_all('script'):
+				match = re.search("const data = ", x.string)
+				if match:
+					match_flag = True
+					end = match.end()
+					data = json.loads(x.string[end:])
+					if data.get('pipeline_info_table'):
+						pipeline_info_table = data.get('pipeline_info_table')
+					else:
+						pipeline_info_table = data['summary']['summary_tab']['pipeline_info_table']
+					info_list = pipeline_info_table['rows']
+					for pair in info_list:
+						report_json[pair[0]] = value_mapping.get(pair[1], pair[1])
+			if match_flag == False:
+				for x in soup.find_all('table', id='sample_table'):
+					for row in x.find_all('tr'):
+						col_count = 1
+						columns = row.find_all('td')
+						for column in columns:
+							if col_count == 1:
+								field = column.get_text().strip()
 							else:
-								pipeline_info_table = data['summary']['summary_tab']['pipeline_info_table']
-							info_list = pipeline_info_table['rows']
-							for pair in info_list:
-								report_json[pair[0]] = value_mapping.get(pair[1], pair[1])
-					if match_flag == False:
-						for x in soup.find_all('table', id='sample_table'):
-							for row in x.find_all('tr'):
-								col_count = 1
-								columns = row.find_all('td')
-								for column in columns:
-									if col_count == 1:
-										field = column.get_text().strip()
-									else:
-										value = column.get_text().strip()
-									col_count += 1
-								report_json[field] = value_mapping.get(value, value)
-				print(report_json)
+								value = column.get_text().strip()
+							col_count += 1
+						report_json[field] = value_mapping.get(value, value)
 
-				os.remove(file_name)
-				print(file_name + ' removed')
+		os.remove(summary_file)
+		print(summary_file + ' removed')
 
-			else:
-				if file_name == 'metrics_summary.csv':
-					with open(file_name, newline='') as csvfile:
-						spamreader = csv.reader(csvfile)
-						rows = list(spamreader)
-						headers = [header.lower().replace(' ','_') for header in rows[0]]
-						new_headers = [schema_mapping.get(header, header) for header in headers]
-						values = rows[1]
-						new_values = [value.strip('%') for value in values]
-						post_json = dict(zip(new_headers, new_values))
+	if args.assay == 'atac':
+		metrics_file = 'summary.json'
+		try:
+		    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
+		except botocore.exceptions.ClientError:
+			print('Failed to find {} on s3'.format(metrics_file))
+		else:
+			with open(metrics_file) as summary_json:
+				post_json = json.load(summary_json)
+				my_props = list(post_json.keys())
+				for prop in my_props:
+					if prop in schema_mapping.keys():
+						post_json[schema_mapping[prop]] = post_json[prop]
+						del post_json[prop]
+	else:
+		metrics_file = 'metrics_summary.csv'
+		try:
+		    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
+		except botocore.exceptions.ClientError:
+			print('Failed to find {} on s3'.format(metrics_file))
+		else:
+			with open(metrics_file, newline='') as csvfile:
+				spamreader = csv.reader(csvfile)
+				rows = list(spamreader)
+				headers = [header.lower().replace(' ','_') for header in rows[0]]
+				new_headers = [schema_mapping.get(header, header) for header in headers]
+				values = rows[1]
+				new_values = [value.strip('%') for value in values]
+				post_json = dict(zip(new_headers, new_values))
 
-				elif file_name == 'summary.json':
-					with open(file_name) as summary_json:
-						post_json = json.load(summary_json)
-						my_props = list(post_json.keys())
-						for prop in my_props:
-							if prop in schema_mapping.keys():
-								post_json[schema_mapping[prop]] = post_json[prop]
-								del post_json[prop]
-				os.remove(file_name)
-				print(file_name + ' removed')
+	os.remove(metrics_file)
+	print(metrics_file + ' removed')
 
-				report_json.update(post_json)
+	report_json.update(post_json)
 
 	final_values = {}
 	extra_values = {}
@@ -241,7 +249,7 @@ for direct in directories:
 	out_schema[direct] = extra_values
 
 df = pd.DataFrame(in_schema).transpose()
-df.to_csv('metrics.tsv', sep='\t')
+df.to_csv(args.assay + '_metrics.tsv', sep='\t')
 
 df = pd.DataFrame(out_schema).transpose()
-df.to_csv('metrics_not_in_schema.tsv', sep='\t')
+df.to_csv(args.assay + '_metrics_not_in_schema.tsv', sep='\t')
