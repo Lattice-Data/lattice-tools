@@ -95,9 +95,9 @@ def getArgs():
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 	)
 	parser.add_argument('--dir', '-d',
-						help="s3 path to the cellranger outs directory")
+						help="s3 path to the cellranger outs directory or local path to a file that lists directories")
 	parser.add_argument('--assay', '-a',
-						help="use if pulling metrics from rna data")
+						help="specify atac or rna")
 	parser.add_argument('--mode', '-m',
 						help='The machine to pull schema from.')
 	args = parser.parse_args()
