@@ -5,6 +5,7 @@ import csv
 import json
 import lattice
 import os
+import pandas as pd
 import re
 import requests
 import subprocess
@@ -88,19 +89,6 @@ should_match = {
 	"waste_cell_unmapped_fragments": "waste_unmapped_fragments"
 }
 
-system_props = [
-	"status",
-	"uuid",
-	"schema_version",
-	"date_created",
-	"submitted_by",
-	"notes",
-	"documents",
-	"@id",
-	"@type"
-]
-
-
 def getArgs():
 	parser = argparse.ArgumentParser(
 		description=__doc__, epilog=EPILOG,
@@ -142,124 +130,118 @@ server = connection.server
 schema_url = urljoin(server, 'profiles/' + obj_name + '/?format=json')
 full_schema = requests.get(schema_url).json()
 schema_props = list(full_schema['properties'].keys())
-for a in system_props:
-	schema_props.remove(a)
 
-full_path = args.dir.rstrip('/')
-bucket_name = full_path.split('/')[0]
-outs_dir_path = full_path.replace(bucket_name + '/', '')
+dir_list = args.dir
 
-s3client = boto3.client("s3")
+if os.path.isfile(dir_list):
+    directories = [line.rstrip('\n') for line in open(dir_list)]
+else:
+    directories = dir_list.split(',')
 
-report_json = {}
+in_schema = {}
+out_schema = {}
 
-for file_name in files_to_check:
-	try:
-	    s3client.download_file(bucket_name, outs_dir_path + '/' + file_name, file_name)
-	except botocore.exceptions.ClientError:
-		print('Failed to find {} on s3'.format(file_name))
-	else:
-		print(file_name + ' downloaded')
+for direct in directories:
+	direct = direct.replace('s3://', '')
+	full_path = direct.rstrip('/')
+	bucket_name = full_path.split('/')[0]
+	outs_dir_path = full_path.replace(bucket_name + '/', '')
 
-		if file_name == 'web_summary.html':
-			with open(file_name) as html_doc:
-				match_flag = False
-				soup = BeautifulSoup(html_doc, 'html.parser')
-				for x in soup.find_all('script'):
-					match = re.search("const data = ", x.string)
-					if match:
-						match_flag = True
-						end = match.end()
-						data = json.loads(x.string[end:])
-						if data.get('pipeline_info_table'):
-							pipeline_info_table = data.get('pipeline_info_table')
-						else:
-							pipeline_info_table = data['summary']['summary_tab']['pipeline_info_table']
-						info_list = pipeline_info_table['rows']
-						for pair in info_list:
-							report_json[pair[0]] = value_mapping.get(pair[1], pair[1])
-				if match_flag == False:
-					for x in soup.find_all('table', id='sample_table'):
-						for row in x.find_all('tr'):
-							col_count = 1
-							columns = row.find_all('td')
-							for column in columns:
-								if col_count == 1:
-									field = column.get_text().strip()
-								else:
-									value = column.get_text().strip()
-								col_count += 1
-							report_json[field] = value_mapping.get(value, value)
+	s3client = boto3.client("s3")
 
-			os.remove(file_name)
-			print(file_name + ' removed')
+	report_json = {'quality_metric_of': '<linkTo MatrixFile - filtered matrix .h5>'}
 
+	files_to_check = ['web_summary.html']
+	for file_name in files_to_check:
+		try:
+		    s3client.download_file(bucket_name, outs_dir_path + '/' + file_name, file_name)
+		except botocore.exceptions.ClientError:
+			print('Failed to find {} on s3'.format(file_name))
 		else:
-			if file_name == 'metrics_summary.csv':
-				with open(file_name, newline='') as csvfile:
-					spamreader = csv.reader(csvfile)
-					rows = list(spamreader)
-					headers = [header.lower().replace(' ','_') for header in rows[0]]
-					new_headers = [schema_mapping.get(header, header) for header in headers]
-					values = rows[1]
-					new_values = [value.strip('%') for value in values]
-					post_json = dict(zip(new_headers, new_values))
-					post_json['quality_metric_of'] = '<linkTo filtered_feature_bc_matrix.h5>'
-				csvfile.close()
+			print(file_name + ' downloaded')
+
+			if file_name == 'web_summary.html':
+				with open(file_name) as html_doc:
+					match_flag = False
+					soup = BeautifulSoup(html_doc, 'html.parser')
+					for x in soup.find_all('script'):
+						match = re.search("const data = ", x.string)
+						if match:
+							match_flag = True
+							end = match.end()
+							data = json.loads(x.string[end:])
+							if data.get('pipeline_info_table'):
+								pipeline_info_table = data.get('pipeline_info_table')
+							else:
+								pipeline_info_table = data['summary']['summary_tab']['pipeline_info_table']
+							info_list = pipeline_info_table['rows']
+							for pair in info_list:
+								report_json[pair[0]] = value_mapping.get(pair[1], pair[1])
+					if match_flag == False:
+						for x in soup.find_all('table', id='sample_table'):
+							for row in x.find_all('tr'):
+								col_count = 1
+								columns = row.find_all('td')
+								for column in columns:
+									if col_count == 1:
+										field = column.get_text().strip()
+									else:
+										value = column.get_text().strip()
+									col_count += 1
+								report_json[field] = value_mapping.get(value, value)
+				print(report_json)
+
 				os.remove(file_name)
 				print(file_name + ' removed')
 
-			elif file_name == 'summary.json':
-				with open(file_name) as summary_json:
-					post_json = json.load(summary_json)
-					my_props = list(post_json.keys())
-					for prop in my_props:
-						if prop in schema_mapping.keys():
-							post_json[schema_mapping[prop]] = post_json[prop]
-							del post_json[prop]
-					post_json['quality_metric_of'] = '<linkTo filtered_peak_bc_matrix.h5>'
-				os.remove(file_name)
-				print(file_name + ' removed')
-
-			report_json.update(post_json)
-
-report_json['directory'] = full_path
-
-extra_headers = []
-extra_values = []
-final_headers = ['directory'] + schema_props
-final_values = []
-
-full_schema['properties']['directory'] = {'type':'string'}
-
-for prop in final_headers:
-	if (full_schema['properties'][prop]['type'] == 'integer') and (str(report_json.get(prop, '')).endswith('.0') == True):
-		final_values.append(str(report_json.get(prop, '')).strip('.0'))
-	elif str(report_json.get(prop, '')) == 'None':
-		final_values.append('')
-	else:
-		final_values.append(str(report_json.get(prop, '')))
-
-for key in report_json.keys():
-	if key not in schema_props:
-		extra_headers.append(key)
-		extra_values.append(str(report_json[key]))
-		if key in should_match.keys():
-			if report_json[key] != report_json[should_match[key]]:
-				print('WARNING: {} does not match {}'.format(should_match[key], key))
 			else:
-				print('all good: {} does match {}'.format(should_match[key], key))
+				if file_name == 'metrics_summary.csv':
+					with open(file_name, newline='') as csvfile:
+						spamreader = csv.reader(csvfile)
+						rows = list(spamreader)
+						headers = [header.lower().replace(' ','_') for header in rows[0]]
+						new_headers = [schema_mapping.get(header, header) for header in headers]
+						values = rows[1]
+						new_values = [value.strip('%') for value in values]
+						post_json = dict(zip(new_headers, new_values))
 
-if len(extra_headers) > 1:
-	none_schema_outfile = open('metrics_not_in_schema.tsv', 'a')
-	none_schema_outfile.write('\t'.join(extra_headers) + '\n')
-	none_schema_outfile.write('\t'.join(extra_values) + '\n')
-	none_schema_outfile.close()
+				elif file_name == 'summary.json':
+					with open(file_name) as summary_json:
+						post_json = json.load(summary_json)
+						my_props = list(post_json.keys())
+						for prop in my_props:
+							if prop in schema_mapping.keys():
+								post_json[schema_mapping[prop]] = post_json[prop]
+								del post_json[prop]
+				os.remove(file_name)
+				print(file_name + ' removed')
 
-if len(final_headers) > 1:
-	outfile = open('metrics.tsv', 'a')
-	outfile.write('\t'.join(final_headers) + '\n')
-	outfile.write('\t'.join(final_values) + '\n')
-	outfile.close()
+				report_json.update(post_json)
 
-print('metrics recorded')
+	final_values = {}
+	extra_values = {}
+
+	for prop, value in report_json.items():
+		if prop in schema_props:
+			if (full_schema['properties'][prop]['type'] == 'integer') and (str(value).endswith('.0') == True):
+				value = str(value).strip('.0')
+			elif value == None:
+				value = ''
+			else:
+				value = str(value)
+			final_values[prop] = value
+		else:
+			extra_values[prop] = value
+			if prop in should_match.keys():
+				if report_json[prop] != report_json[should_match[prop]]:
+					print('WARNING: {} does not match {}'.format(should_match[prop], prop))
+				else:
+					print('all good: {} does match {}'.format(should_match[prop], prop))
+	in_schema[direct] = final_values
+	out_schema[direct] = extra_values
+
+df = pd.DataFrame(in_schema).transpose()
+df.to_csv('metrics.tsv', sep='\t')
+
+df = pd.DataFrame(out_schema).transpose()
+df.to_csv('metrics_not_in_schema.tsv', sep='\t')
