@@ -366,32 +366,69 @@ def seq_to_susp(links_dict):
 		susps = []
 		protocols = []
 		for sr in seqruns:
+			# handle the sequencing metadata
 			url = urljoin(server, sr + '/?format=json')
 			sr_obj = requests.get(url, auth=connection.auth).json()
-			get_object(sr_obj)
 			lib = sr_obj['derived_from'][0]
 			lib_url = urljoin(server, lib + '/?format=json')
 			lib_obj = requests.get(lib_url, auth=connection.auth).json()
+
+			# see if we need to skip back over a pooling step for demultiplexed sequence data
+			if sr_obj.get('demultiplexed_link'):
+				url = urljoin(server, sr_obj['demultiplexed_link'] + '/?format=json')
+				prepooled_obj = requests.get(url, auth=connection.auth).json()
+				if prepooled_obj['@type'][0] == 'Suspension':
+					susps.extend([prepooled_obj['uuid']])
+					lat_type = prepooled_obj['@type'][0]
+					in_type = lattice_to_dcp[lat_type]['class']
+					ins.append({'input_type': in_type, 'input_id': prepooled_obj['uuid']})
+					seq_method = 'high throughput sequencing, demultiplexing'
+				# cannot yet handle multiple Tissues pooled into a single Suspension
+				else:
+					sys.exit('ERROR: not yet equiped to handle pooling non-Suspensions directly pooled into a Suspension')
+			else:
+				susps.extend([i['uuid'] for i in lib_obj['derived_from']])
+				for obj in lib_obj['derived_from']:
+					lat_type = obj['@type'][0]
+					in_type = lattice_to_dcp[lat_type]['class']
+					ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+					seq_method = 'high throughput sequencing'
+
+			seq_prot = {
+				'instrument_manufacter_model': {
+					'text': sr_obj.get('platform')
+				},
+				'method': {
+					'text': seq_method
+				},
+				'paired_end': False
+			}
+			seq_prot_uuid = uuid_make(seq_prot)
+			seq_prot['protocol_core'] = {'protocol_id': seq_prot_uuid}
+			seq_prot['provenance'] = {'document_id': seq_prot_uuid}
+			if not whole_dict.get('sequencing_protocol'):
+				whole_dict['sequencing_protocol'] = [seq_prot]
+			else:
+				seq_prots = [i['provenance']['document_id'] for i in whole_dict['sequencing_protocol']]
+				if seq_prot_uuid not in seq_prots:
+					whole_dict['sequencing_protocol'].append(seq_prot)
+
+			seq_prot_short = {'protocol_type': 'sequencing_protocol', 'protocol_id': seq_prot_uuid}
+			protocols.append(seq_prot_short)
+
+			# handle the library metadata
 			if not whole_dict.get('library_preparation_protocol'):
 				get_object(lib_obj)
 			else:
 				lib_prots = [i['provenance']['document_id'] for i in whole_dict['library_preparation_protocol']]
 				if lib_obj['protocol']['uuid'] not in lib_prots:
 					get_object(lib_obj)
-			susps.extend([i['uuid'] for i in lib_obj['derived_from']])
-			all_susps.update(susps)
-			for obj in lib_obj['derived_from']:
-				lat_type = obj['@type'][0]
-				in_type = lattice_to_dcp[lat_type]['class']
-				ins.append({'input_type': in_type, 'input_id': obj['uuid']})
 			lib_type = lib_obj['@type'][0]
 			dcp_type = lattice_to_dcp[lib_type]['class']
 			lib_prot = {'protocol_type': dcp_type, 'protocol_id': lib_obj['protocol']['uuid']}
 			protocols.append(lib_prot)
-			sr_type = sr_obj['@type'][0]
-			dcp_type = lattice_to_dcp[sr_type]['class']
-			seq_prot = {'protocol_type': dcp_type, 'protocol_id': sr_obj['uuid']}
-			protocols.append(seq_prot)
+
+			all_susps.update(susps)
 		l = {
 			'protocols': protocols,
 			'inputs': ins,
@@ -756,11 +793,6 @@ def customize_fields(obj, obj_type):
 	elif obj_type == 'supplementary_file':
 		file_format = obj['file_core']['file_name'].split('.')[-1]
 		obj['file_core']['format'] = file_format
-	elif obj_type == 'sequencing_protocol':
-		if 'paired_end' not in obj:
-			obj['paired_end'] = False
-		if not obj.get('method'):
-			obj['method'] = {'text': 'high throughput sequencing'}
 
 
 def remove_cell_lines(links, whole_dict):
