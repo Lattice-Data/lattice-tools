@@ -13,6 +13,8 @@ import sys
 import scanpy as sc
 import re
 import subprocess
+from urllib.parse import urljoin
+import requests
 
 
 cell_metadata = {
@@ -34,8 +36,10 @@ cell_metadata = {
 		'preservation_method',
 		'biosample_ontology.term_name',
 		'biosample_ontology.term_id',
+		'biosample_ontology.organ_slims',
 		'diseases.term_id',
-		'diseases.term_name'
+		'diseases.term_name',
+		'treatment_summary'
 		],
 	'suspension': [
 		'uuid',
@@ -249,8 +253,10 @@ def get_value(obj, prop):
 		# Will need to revisit cell culture and organoid values 
 		elif obj.get(key1):
 			embed_obj = obj.get(key1, unreported_value)
-			if isinstance(embed_obj.get(key2), list):
+			if isinstance(embed_obj.get(key2, unreported_value), list):
 				return [v.get(key3, unreported_value) for v in embed_obj[key2]]
+			elif embed_obj.get(key2, unreported_value) == unreported_value:
+				return unreported_value
 			else:
 				return embed_obj[key2].get(key3, unreported_value)
 		else:
@@ -423,7 +429,7 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 		robjects.r('reducs <- names(updated_robj@reductions)')
 		reductions = robjects.r('print(reducs)')
 		for reduc in reductions:
-			robjects.r('robj_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="{}"), loadings = Loadings(updated_robj, reduction="umap"), global=TRUE, assay = "{}")'.format(reduc, assay))
+			robjects.r('robj_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="{}"), global=TRUE, assay = "{}")'.format(reduc, assay))
 			robjects.r('robj_new@reductions${} <- robj_reduc'.format(reduc))
 		robjects.r('robj_new@meta.data${} <- as.character(robj_new@meta.data${})'.format(cell_col, cell_col))
 		robjects.r('SeuratDisk::SaveH5Seurat(robj_new, filename="{}")'.format(h5s_file))
@@ -460,7 +466,7 @@ def trim_cell_slims(df_annot):
 	df_annot['cell_type_category'] = cell_term_list
 	df_annot['cell_type'] = df_annot['cell_type'].astype(str)
 	df_annot['cell_type_category'] = df_annot['cell_type_category'].astype(str)
-	if (len(df_annot.loc[df_annot['cell_type_category']=='']) > 1):
+	if (len(df_annot.loc[df_annot['cell_type_category']=='']) >= 1):
 		print("WARNING, there are cells that do not have a cell slim, so will just use cell_type")
 		df_annot.loc[df_annot['cell_type_category']=='', 'cell_type_category'] = df_annot.loc[df_annot['cell_type_category']=='', 'cell_type']
 	return df_annot
@@ -584,6 +590,24 @@ def get_stage(df):
 			sys.exit("Unexpected development_stage_ontology_term_id: {}".format(stage))
 
 
+# If there is no tissue_ontology, get first value of organ slims
+def get_organ_slim(df_series, suffix):
+	df_series['tissue'] = df_series['sample_biosample_ontology_organ_slims'].split("'")[1] + suffix
+	tissue = df_series['sample_biosample_ontology_organ_slims'].split("'")[1].replace(" ", "+")
+	df_series.drop(labels='sample_biosample_ontology_organ_slims')
+	query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + tissue + '&format=json')
+	r = requests.get(query_url, auth=connection.auth)
+	try:
+		r.raise_for_status()
+	except requests.HTTPError:
+		sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
+	else:
+		if r.json()['total']==1:
+			df_series['tissue_ontology_term_id'] = r.json()['@graph'][0]['term_id'] + suffix
+		else:
+			sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
+
+
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
@@ -685,6 +709,18 @@ def main(mfinal_id):
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 		row_to_add = pd.Series(values_to_add, name=mxr['@id'], dtype=str)
+
+		# make sure donor_df contains UBERON for tissue, may need to revisit 'if' statement
+		if 'author_donor_column' not in mfinal_obj:
+			if not row_to_add['tissue_ontology_term_id'].startswith('UBERON'):
+				if row_to_add['tissue'].endswith('(cell culture)'):
+					get_organ_slim(row_to_add, ' (cell culture)')
+				elif row_to_add['tissue'].endswith('(organoid)'):
+					get_organ_slim(row_to_add, ' (organoid)')
+				else:
+					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
+			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
+
 		df = df.append(row_to_add)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
@@ -785,6 +821,9 @@ def main(mfinal_id):
 
 		lib_donor_df = cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
 		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj)
+
+		# make sure donor_df contains UBERON for tissue
+
 		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease'))
 		get_stage(donor_df)
 		if cxg_uns['organism'] == 'Homo sapiens' and 'unknown' in donor_df['ethnicity'].unique():
@@ -808,7 +847,7 @@ def main(mfinal_id):
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
-	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant']
+	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method', 'sample_treatment_summary']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
@@ -849,7 +888,7 @@ def main(mfinal_id):
 				if i != 0:
 					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
 				matrix_loc = mfinal_adata.raw.X
-				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var.index),]
+				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var['_index']),]
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
