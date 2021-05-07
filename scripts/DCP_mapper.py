@@ -990,8 +990,8 @@ def main():
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_vs[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
-			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w') as outfile:
-				json.dump(o, outfile, indent=4)
+			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
+				json.dump(o, outfile, indent=4, ensure_ascii=False)
 
 	# report metadata not mapped to DCP schema
 	for k,v in not_incl.items():
