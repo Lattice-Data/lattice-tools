@@ -488,21 +488,6 @@ lattice_to_dcp = {
 			'lattice': 'protocol.strand_specificity'
 		}
 	},
-	'SequencingRun': {
-		'class': 'sequencing_protocol',
-		'instrument_manufacturer_model.text': {
-			'lattice': 'platform'
-		},
-		'local_machine_name': {
-			'lattice': 'flowcell_details.machine'
-		},
-		'protocol_core.protocol_id': {
-			'lattice': 'uuid'
-		},
-		'provenance.document_id': {
-			'lattice': 'uuid'
-		}
-	},
 	'RawSequenceFile': {
 		'class': 'sequence_file',
 		'crc32c': {
