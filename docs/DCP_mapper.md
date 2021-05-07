@@ -45,7 +45,7 @@ $ export AWS_SHARED_CREDENTIALS_FILE=.aws/credentials ; export GOOGLE_APPLICATIO
 ```
 $ scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:/mnt/.aws
 ```
-Run checkfiles.py on the files
+Run the script on a given Dataset
 ```
 python3 DCP_mapper.py -m prod -d <dataset_identifier> --dcp ./
 ```
