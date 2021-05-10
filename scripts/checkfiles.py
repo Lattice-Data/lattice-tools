@@ -363,31 +363,37 @@ def process_h5matrix_file(job):
     if hdf5_validate != True:
         errors['is_hdf5'] = hdf5_validate
 
-    # https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/h5_matrices
     with tables.open_file(local_path, 'r') as f:
-        mat_group = f.get_node(f.root, 'matrix')
+        top_level = (list(f.walk_groups('/'))[0].__members__[0])
+        top_group = f.get_node(f.root, top_level)
 
-        barcodes = f.get_node(mat_group, 'barcodes')
+        barcodes = f.get_node(top_group, 'barcodes')
         results['observation_count'] = int(barcodes.shape[0])
 
-        feature_group = f.get_node(mat_group, 'features')
-        counts = {}
-        for i in list(getattr(feature_group, 'feature_type')):
-            i = feature_type_mapping.get(i.decode("utf-8"), i.decode("utf-8"))
-            if (i in counts):
-                counts[i] += 1
-            else:
-                counts[i] = 1
+        if 'features' in top_group.__members__:
+            feature_group = f.get_node(top_group, 'features')
+            counts = {}
+            for i in list(getattr(feature_group, 'feature_type')):
+                i = feature_type_mapping.get(i.decode("utf-8"), i.decode("utf-8"))
+                if (i in counts):
+                    counts[i] += 1
+                else:
+                    counts[i] = 1
+            feature_counts = []
+            for feature in counts.keys():
+                feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
 
-        genome_list = []
-        genomes = (set(getattr(feature_group, 'genome')))
-        for g in genomes:
-            genome_list.append(g.decode("utf-8"))
-        results['genomes'] = genome_list
+        else:
+            feature_group = f.get_node(top_group, 'genes')
+            feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
 
-    feature_counts = []
-    for feature in counts.keys():
-        feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
+        if '__members__' in feature_group.__dict__.keys():
+            if 'genome' in feature_group.__members__:
+                genome_list = []
+                genomes = (set(getattr(feature_group, 'genome')))
+                for g in genomes:
+                    genome_list.append(g.decode("utf-8"))
+                results['genomes'] = genome_list
 
     if feature_counts[0]['feature_type'] == 'gene':
         units = 'UMI'
