@@ -38,7 +38,7 @@ def getArgs():
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
     parser.add_argument('--dcp',
-                        help='The directory to find the DCP metadata-schema.')
+                        help='The pull path to the DCP metadata-schema/.')
     parser.add_argument('--update',
                         default=False,
                         action='store_true',
