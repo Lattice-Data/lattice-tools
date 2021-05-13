@@ -37,6 +37,8 @@ def getArgs():
                         help='Any identifier for the dataset of interest.')
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
+    parser.add_argument('--only', '-o',
+                        help='The specific directory to transfer, if not all metadata and data files.')
     parser.add_argument('--dcp',
                         help='The pull path to the DCP metadata-schema/.')
     parser.add_argument('--update',
@@ -1006,19 +1008,24 @@ def main():
 			outfile.write('\n')
 
 	if args.update:
-		# transfer the metadata directory to the DCP Google Cloud project
-		print('TRANSFERRING METADATA DIRECTORIES')
-		request_to_gcp.local_dir_transfer(dataset_id)
+		if args.only:
+			xfer_dir = args.only
+			print('TRANSFERRING ONLY METADATA DIRECOTRY:{}'.format(xfer_dir))
+			request_to_gcp.local_dir_transfer(dataset_id + '/' + xfer_dir)
+		else:
+			# transfer the metadata directory to the DCP Google Cloud project
+			print('TRANSFERRING METADATA DIRECTORIES')
+			request_to_gcp.local_dir_transfer(dataset_id)
 
-		# transfer the data files from S3 to the DCP Google Cloud project
-		if s3_uris:
-			print('TRANSFERRING FILES FROM S3')
-			request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
+			# transfer the data files from S3 to the DCP Google Cloud project
+			if s3_uris:
+				print('TRANSFERRING FILES FROM S3')
+				request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
 
-		# transfer the data files from external FTPs to the DCP Google Cloud project
-		if ftp_uris:
-			print('TRANSFERRING EXTERNAL FILES')
-			request_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
+			# transfer the data files from external FTPs to the DCP Google Cloud project
+			if ftp_uris:
+				print('TRANSFERRING EXTERNAL FILES')
+				request_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
 
 	else:
 		sys.exit('Metadata directories written locally, but not transferring without the --update option')
