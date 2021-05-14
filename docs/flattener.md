@@ -33,6 +33,9 @@ Version update logging
 - Convert development_stage to term name so that corresponds with term id.
 - Ethnicity is empty string when ethnicity is unknown.
 - Add optional columns, which are removed if they are all empty or unreported values.
+- Update assay ontology logic to obtain information from linked OntologyTerm
+- Add logic for cell culture tissue ontology to be from organ slims
+- If cell culture ontology is not UBERON, will go get most specific tissue slim
 
 
 **Version 1**: Initial version, which can take a h5ad or Seurat object as input from RNA-seq and ATAC-seq assays. For RNA-seq assays, the raw matrix is subsetted from the Cell Ranger filtered raw counts. For ATAC-seq assays, the corresponding raw matrix from the activity gene matrix is used.
