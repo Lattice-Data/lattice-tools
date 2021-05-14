@@ -118,22 +118,22 @@ lattice_to_dcp = {
 		'contributors': {
 			'lattice': 'contributors',
 			'subprop_map': {
-				'name': {
+				'contact_name': {
 					'lattice': 'title'
 				},
 				'institution': {
-					'lattice': 'institute_name'
+					'lattice': 'lab.institute_name'
 				}
 			}
 		},
-		'corresponding_contributors': {
+		'corresponding_contributors': { # DCP_mapper merges these with contributors
 			'lattice': 'corresponding_contributors',
 			'subprop_map': {
-				'name': {
+				'contact_name': {
 					'lattice': 'title'
 				},
 				'institution': {
-					'lattice': 'institute_name'
+					'lattice': 'lab.institute_name'
 				},
 				'email': {
 					'lattice': 'email'
@@ -148,7 +148,7 @@ lattice_to_dcp = {
 			'BioProject': 'insdc_study_accessions',
 			'BioStudies': 'biostudies_accessions'
 		},
-		'funders.organization': {
+		'funders.funder_name': {
 			'lattice': 'funding_organizations'
 		},
 		'project_core.project_description': {
@@ -512,7 +512,7 @@ lattice_to_dcp = {
 			'lattice': 'uuid'
 		},
 		'read_index': {
-			'lattice': 'read_type', # might instead map demultiplexed_type
+			'lattice': 'read_type',
 			'value_map': {
 				'i5 index': 'index2',
 				'i7 index': 'index1',
