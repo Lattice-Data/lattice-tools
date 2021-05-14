@@ -397,7 +397,7 @@ def seq_to_susp(links_dict):
 					seq_method = 'high throughput sequencing'
 
 			seq_prot = {
-				'instrument_manufacter_model': {
+				'instrument_manufacturer_model': {
 					'text': sr_obj.get('platform')
 				},
 				'method': {
