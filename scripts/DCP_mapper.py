@@ -637,11 +637,10 @@ def customize_fields(obj, obj_type):
 				short = obj['project_core']['project_title'].replace(' ','')[:50]
 				obj['project_core']['project_short_name'] = short
 		if obj.get('funders'):
-			if obj['funders'].get('organization'):
+			if obj['funders'].get('funder_name'):
 				funds = []
-				for o in obj['funders']['organization']:
-					funds.append({'organization': o})
-				obj['funders']['organization'] = 'Chan Zuckerberg Initiative'
+				for o in obj['funders']['funder_name']:
+					funds.append({'funder_name': o})
 				obj['funders'] = funds
 		if obj.get('corresponding_contributors'):
 			if not obj.get('contributors'):
