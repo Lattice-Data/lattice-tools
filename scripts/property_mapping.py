@@ -122,7 +122,7 @@ lattice_to_dcp = {
 					'lattice': 'title'
 				},
 				'institution': {
-					'lattice': 'lab.institute_name'
+					'lattice': 'institute_name'
 				}
 			}
 		},
@@ -133,7 +133,7 @@ lattice_to_dcp = {
 					'lattice': 'title'
 				},
 				'institution': {
-					'lattice': 'lab.institute_name'
+					'lattice': 'institute_name'
 				},
 				'email': {
 					'lattice': 'email'
