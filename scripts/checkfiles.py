@@ -1,5 +1,6 @@
 import argparse
 import boto3
+import botocore
 import hashlib
 import h5py
 import json
@@ -565,8 +566,8 @@ def download_s3_directory(job):
     for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
             s3client.download_file(bucket_name, dir_path + '/' + file_name, '{}/{}'.format(tmp_dir, file_name))
-        except subprocess.CalledProcessError as e:
-            errors['file not found'] = 'Failed to find file on s3'
+        except botocore.exceptions.ClientError as e:
+            errors['s3 uri error'] = e.response['Error']['Message']
         else:
             logging.info(file_name + ' downloaded')
 
@@ -588,8 +589,8 @@ def download_s3_file(job):
     logging.info(file_name + ' downloading')
     try:
         s3client.download_file(bucket_name, file_path, file_name)
-    except subprocess.CalledProcessError as e:
-        errors['file not found'] = 'Failed to find file on s3'
+    except botocore.exceptions.ClientError as e:
+        errors['s3 uri error'] = e.response['Error']['Message']
     else:
         logging.info(file_name + ' downloaded')
         job['download_stop'] = datetime.now()
