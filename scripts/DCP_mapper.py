@@ -866,7 +866,7 @@ def file_descript(obj, obj_type, dataset):
 		'content_type': content_type,
 		'size': obj['file_size'],
 		'sha256': obj['sha256'],
-		'crc32c': obj['crc32c'].lower()
+		'crc32c': obj['crc32c']
 	}
 	del obj['file_size']
 	del obj['sha256']
