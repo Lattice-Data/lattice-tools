@@ -1,6 +1,7 @@
 import argparse
 import boto3
 import botocore
+import crcmod
 import hashlib
 import h5py
 import json
@@ -14,7 +15,6 @@ import socket
 import subprocess
 import sys
 import tables
-import zlib
 from datetime import datetime
 from ftplib import error_perm, FTP
 from urllib.parse import urljoin
@@ -758,13 +758,13 @@ def check_file(job):
 
     # get the crc32c
     with open(local_path, 'rb') as f:
-        hash = 0
+        crc32c_func = crcmod.predefined.Crc('crc-32c')
         while True:
             s = f.read(65536)
             if not s:
                 break
-            hash = zlib.crc32(s, hash)
-        results['crc32c'] = "%08X" % (hash & 0xFFFFFFFF)
+            crc32c_func.update(s)
+        results['crc32c'] = crc32c_func.hexdigest().lower()
 
 
     # check for correct gzip status
