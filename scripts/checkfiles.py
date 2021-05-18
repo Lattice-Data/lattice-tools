@@ -365,13 +365,14 @@ def process_h5matrix_file(job):
         errors['is_hdf5'] = hdf5_validate
 
     with tables.open_file(local_path, 'r') as f:
-        top_level = (list(f.walk_groups('/'))[0].__members__[0])
-        top_group = f.get_node(f.root, top_level)
+        # first check for standard CellRanger formatted matrix
+        if list(f.walk_groups('/'))[0].__members__ == ['matrix']:
+            top_name = 'matrix'
+            top_group = f.get_node(f.root, top_name)
 
-        barcodes = f.get_node(top_group, 'barcodes')
-        results['observation_count'] = int(barcodes.shape[0])
+            barcodes = f.get_node(top_group, 'barcodes')
+            results['observation_count'] = int(barcodes.shape[0])
 
-        if 'features' in top_group.__members__:
             feature_group = f.get_node(top_group, 'features')
             counts = {}
             for i in list(getattr(feature_group, 'feature_type')):
@@ -384,17 +385,19 @@ def process_h5matrix_file(job):
             for feature in counts.keys():
                 feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
 
+            genome_list = []
+            genomes = (set(getattr(feature_group, 'genome')))
+            for g in genomes:
+                genome_list.append(g.decode("utf-8"))
+            results['genomes'] = genome_list
         else:
-            feature_group = f.get_node(top_group, 'genes')
+            var_group = f.get_node(f.root, 'var')
+            feature_group = f.get_node(var_group, 'gene_ids')
             feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
 
-        if '__members__' in feature_group.__dict__.keys():
-            if 'genome' in feature_group.__members__:
-                genome_list = []
-                genomes = (set(getattr(feature_group, 'genome')))
-                for g in genomes:
-                    genome_list.append(g.decode("utf-8"))
-                results['genomes'] = genome_list
+            obs_group = f.get_node(f.root, 'obs')
+            obs_index = f.get_node(obs_group, '_index')
+            results['observation_count'] = int(obs_index.shape[0])
 
     if feature_counts[0]['feature_type'] == 'gene':
         units = 'UMI'
