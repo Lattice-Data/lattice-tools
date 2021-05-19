@@ -38,6 +38,8 @@ def getArgs():
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
     parser.add_argument('--metadataonly',
+                        default=False,
+                        action='store_true',
                         help='The specific directory to transfer, if not all metadata and data files.')
     parser.add_argument('--dcp',
                         help='The pull path to the DCP metadata-schema/.')
