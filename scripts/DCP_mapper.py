@@ -66,7 +66,8 @@ dcp_types = {
 	'enrichment_protocol': 'protocol/biomaterial_collection',
 	'differentiation_protocol': 'protocol/biomaterial_collection',
 	'protocol': 'protocol',
-	'supplementary_file': 'file'
+	'supplementary_file': 'file',
+	'process': 'process'
 }
 
 
@@ -444,6 +445,9 @@ def seq_to_susp(links_dict):
 		l['process_id'] = link_hash
 		link = {'links': [l]}
 		links.append(link)
+
+		add_process(link_hash)
+
 	return all_susps, links
 
 
@@ -570,12 +574,27 @@ def add_links(temp_obj, der_fr, links):
 	link['link_type'] = 'process_link'
 	link['process_type'] = 'process'
 	link['process_id'] = link_hash
+
+	add_process(link_hash)
+
 	for i in links.copy():
 		index = links.index(i)
 		for i2 in i['links']:
 			for i3 in i2['inputs']:
 				if temp_obj['uuid'] == i3['input_id']:
 					links[index]['links'].append(link)
+
+
+def add_process(process_id):
+	process = {
+		'process_core': {'process_id': process_id},
+		'provenance': {'document_id': process_id}
+		}
+
+	if whole_dict.get('process'):
+		whole_dict['process'].append(process)
+	else:
+		whole_dict['process'] = [process]
 
 
 def get_dcp_schema_ver(directory):
