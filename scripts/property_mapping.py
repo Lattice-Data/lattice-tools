@@ -551,3 +551,34 @@ lattice_to_dcp = {
 		}
 	}
 }
+
+dcp_versions = {
+  'file_descriptor': '2.0.0',
+  'links': '2.1.1',
+  'cell_line': '9.0.5',
+  'cell_suspension': '13.3.0',
+  'donor_organism': '15.5.0',
+  'imaged_specimen': '3.3.0',
+  'organoid': '11.3.0',
+  'specimen_from_organism': '10.4.0',
+  'analysis_file': '6.2.0',
+  'image_file': '2.2.0',
+  'reference_file': '3.2.0',
+  'sequence_file': '9.2.0',
+  'supplementary_file': '2.2.0',
+  'analysis_process': '12.0.0',
+  'process': '9.2.0',
+  'project': '9.0.4',
+  'analysis_protocol': '9.1.0',
+  'aggregate_generation_protocol': '2.1.0',
+  'collection_protocol': '9.2.0',
+  'differentiation_protocol': '2.2.0',
+  'dissociation_protocol': '6.2.0',
+  'enrichment_protocol': '3.1.0',
+  'ipsc_induction_protocol': '3.2.0',
+  'imaging_preparation_protocol': '2.2.0',
+  'imaging_protocol': '11.2.0',
+  'protocol': '7.1.0',
+  'library_preparation_protocol': '6.2.0',
+  'sequencing_protocol': '10.1.0'
+}

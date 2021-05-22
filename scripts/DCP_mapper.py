@@ -11,7 +11,8 @@ from datetime import datetime, timezone
 from pint import UnitRegistry
 from urllib.parse import urljoin
 from property_mapping import (
-    lattice_to_dcp
+	dcp_versions,
+	lattice_to_dcp
 )
 
 
@@ -20,7 +21,7 @@ Get a Dataset from the Lattice database and put into DCP schema and exported in 
 
 Examples:
 
-    python %(prog)s --mode prod --dcp /Users/jason/GitClones/HCA/ --dataset LATDS940AQG
+    python %(prog)s --mode prod --dataset LATDS940AQG
 
 For more details:
 
@@ -41,8 +42,6 @@ def getArgs():
                         default=False,
                         action='store_true',
                         help='The specific directory to transfer, if not all metadata and data files.')
-    parser.add_argument('--dcp',
-                        help='The pull path to the DCP metadata-schema/.')
     parser.add_argument('--update',
                         default=False,
                         action='store_true',
@@ -597,26 +596,6 @@ def add_process(process_id):
 		whole_dict['process'] = [process]
 
 
-def get_dcp_schema_ver(directory):
-	vers = {}
-	if not directory.endswith('/'):
-		directory = directory + '/'
-	v_file = directory + 'json_schema/versions.json'
-	versions = json.load(open(v_file))
-	for v in versions['version_numbers'].values():
-		for k2,v2 in v.items():
-			if isinstance(v2, dict):
-				for k3,v3 in v2.items():
-					if isinstance(v3, dict):
-						for k4,v4 in v3.items():
-							vers[k4] = v4
-					else:
-						vers[k3] = v3
-			else:
-				vers[k2] = v2
-	return vers
-
-
 def number_conversion(value):
 	range_indicators = ['-','<','>']
 	if True not in [c in value for c in range_indicators]:
@@ -879,7 +858,7 @@ def file_descript(obj, obj_type, dataset):
 		content_type = 'application/gzip'
 
 	file_descriptor = {
-		'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_vs['file_descriptor']),
+		'describedBy': 'https://schema.humancellatlas.org/system/{}/file_descriptor'.format(dcp_versions['file_descriptor']),
 		'schema_type': 'file_descriptor',
 		'file_name': obj['file_core']['file_name'],
 		'file_id': obj['provenance']['document_id'],
@@ -981,8 +960,8 @@ def main():
 	# reformat links to use uuids and convert to DCP schema
 	for i in links:
 		i['schema_type'] = 'links'
-		i['schema_version'] = dcp_vs['links']
-		i['describedBy'] = 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_vs['links'])
+		i['schema_version'] = dcp_versions['links']
+		i['describedBy'] = 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_versions['links'])
 		first_id = i['links'][0]['process_id']
 		with open(dataset_id + '/links/' + first_id + '_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
 			json.dump(i, outfile, indent=4)
@@ -1010,8 +989,8 @@ def main():
 				file_descript(o, k, dataset_id)
 			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
-			o['schema_version'] = dcp_vs[k]
-			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_vs[k], k)
+			o['schema_version'] = dcp_versions[k]
+			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_versions[k], k)
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
 				json.dump(o, outfile, indent=4, ensure_ascii=False)
 
@@ -1069,13 +1048,9 @@ if __name__ == '__main__':
 		sys.exit('ERROR: --dataset is required')
 	if not args.mode:
 		sys.exit('ERROR: --mode is required')
-	if not args.dcp:
-		sys.exit('ERROR: --dcp is required')
 
 	connection = lattice.Connection(args.mode)
 	server = connection.server
-
-	dcp_vs = get_dcp_schema_ver(args.dcp)
 
 	# check for Lattice schema errors, possibly outdated fields
 	schema_errors = test_mapping()

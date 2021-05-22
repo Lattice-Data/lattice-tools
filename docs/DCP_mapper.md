@@ -32,10 +32,6 @@ Copy 4 files from your local lattice-tools clone to the instance
 ```
 scp -i lattice_ec2.pem lattice.py DCP_mapper.py property_mapping.py request_to_gcp.py ec2-user@<Public DNS>:/mnt
 ```
-Copy the DCP metadata-schema from your local clone to the instance
-```
-scp -i lattice_ec2.pem -r json_schema/ ec2-user@<Public DNS>:/mnt
-```
 Copy the GCP credentials json file from your local computer to the instance
 ```
 scp -i lattice_ec2.pem gcp_creds.json ec2-user@<Public DNS>:/mnt
@@ -53,5 +49,5 @@ scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:/mnt/.aws
 ```
 Run the script on a given Dataset
 ```
-python3 DCP_mapper.py -m prod -d <dataset_identifier> --dcp ./
+python3 DCP_mapper.py -m prod -d <dataset_identifier>
 ```
