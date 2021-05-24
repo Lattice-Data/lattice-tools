@@ -33,6 +33,23 @@ donor = {
 			}
 		}
 	},
+	'genus_species.ontology': {
+		'lattice': 'organism.taxon_id'
+	},
+	'genus_species.ontology_label': {
+		'lattice': 'organism.taxon_id',
+		'value_map': {
+			'NCBITaxon:9606': 'Homo sapiens',
+			'NCBITaxon:10090': 'Mus musculus'
+		}
+	},
+	'genus_species.text': {
+		'lattice': 'organism.taxon_id',
+		'value_map': {
+			'NCBITaxon:9606': 'Homo sapiens',
+			'NCBITaxon:10090': 'Mus musculus'
+		}
+	},
 	'medical_history.treatment': {
 		'lattice': 'treatment_summary'
 	},

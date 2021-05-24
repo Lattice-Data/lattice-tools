@@ -658,6 +658,8 @@ def customize_fields(obj, obj_type):
 				if l.startswith('https://data.humancellatlas.org'):
 					obj['supplementary_links'].remove(l)
 	elif obj_type == 'donor_organism':
+		if obj.get('genus_species'):
+			obj['genus_species'] = [obj['genus_species']]
 		if not obj.get('is_living'):
 			if obj['development_stage']['text'] in ['embryonic','fetal']:
 				obj['is_living'] = 'not applicable'
