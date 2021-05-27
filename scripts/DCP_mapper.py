@@ -14,6 +14,9 @@ from property_mapping import (
 	dcp_versions,
 	lattice_to_dcp
 )
+from validate_staging_area import (
+	dcp_validation
+)
 
 
 EPILOG = '''
@@ -41,7 +44,11 @@ def getArgs():
     parser.add_argument('--metadataonly',
                         default=False,
                         action='store_true',
-                        help='The specific directory to transfer, if not all metadata and data files.')
+                        help='If true and --update, only metadata files will be transferred to DCP, no data files.')
+    parser.add_argument('--no_validate',
+                        default=False,
+                        action='store_true',
+                        help='If true, nothing will be validated against the DCP schema.')
     parser.add_argument('--update',
                         default=False,
                         action='store_true',
@@ -996,17 +1003,29 @@ def main():
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
 				json.dump(o, outfile, indent=4, ensure_ascii=False)
 
+	if not os.path.isdir('DCP_outs'):
+		os.mkdir('DCP_outs')
+
 	# report metadata not mapped to DCP schema
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
-	with open('not_included.json', 'w') as outfile:
+	with open('DCP_outs/not_included.json', 'w') as outfile:
 		json.dump(not_incl, outfile, indent=4)
 
 	# report files that are not validated, and thus, not included in the mapping
 	if not_valid:
-		with open('not_validated.json', 'w') as outfile:
+		with open('DCP_outs/not_validated.txt', 'w') as outfile:
 			outfile.write('\n'.join(not_valid))
-			outfile.write('\n')
+
+	if not args.no_validate:
+		dcp_errors = dcp_validation(dataset_id)
+		if dcp_errors != 0:
+			print('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
+			if args.update:
+				i = input('Continue? y/n: ')
+				if i.lower() not in ['y','yes']:
+					sys.exit('Stopped due to one or more DCP schema errors')
+
 
 	if args.update:
 		# transfer the metadata directory to the DCP Google Cloud project
