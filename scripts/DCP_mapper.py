@@ -41,14 +41,18 @@ def getArgs():
                         help='Any identifier for the dataset of interest.')
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
-    parser.add_argument('--metadataonly',
+    parser.add_argument('--metadata-only',
                         default=False,
                         action='store_true',
                         help='If true and --update, only metadata files will be transferred to DCP, no data files.')
-    parser.add_argument('--no_validate',
+    parser.add_argument('--no-validate',
                         default=False,
                         action='store_true',
                         help='If true, nothing will be validated against the DCP schema.')
+    parser.add_argument('--validate-only',
+                        default=False,
+                        action='store_true',
+                        help='If true, existing metadata files will be validated against the DCP schema.')
     parser.add_argument('--update',
                         default=False,
                         action='store_true',
@@ -897,6 +901,13 @@ def main():
 			sys.exit('Stopped due to one or more ERROR audits')
 
 	dataset_id = ds_obj['uuid']
+
+	if args.validate_only:
+		dcp_errors = dcp_validation(dataset_id)
+		if dcp_errors != 0:
+			print('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
+		sys.exit('Exiting after DCP schema validation, as per validate-only option')
+
 	print('WILL WRITE FILES TO THE {} DIRECTORY'.format(dataset_id))
 
 	# convert the dataset to DCP schema
@@ -1032,8 +1043,8 @@ def main():
 		print('TRANSFERRING METADATA DIRECTORIES')
 		request_to_gcp.local_dir_transfer(dataset_id)
 
-		if args.metadataonly:
-			sys.exit('Metadata directories transferred, data not transferred due to --metadataonly')
+		if args.metadata_only:
+			sys.exit('Metadata directories transferred, data not transferred due to --metadata-only')
 
 		# transfer the data files from S3 to the DCP Google Cloud project
 		if s3_uris:
@@ -1067,8 +1078,8 @@ if __name__ == '__main__':
 	args = getArgs()
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
-	if not args.mode:
-		sys.exit('ERROR: --mode is required')
+	if not args.mode and not args.validate_only:
+		sys.exit('ERROR: --mode is required, unless --validate-only provided')
 
 	connection = lattice.Connection(args.mode)
 	server = connection.server
