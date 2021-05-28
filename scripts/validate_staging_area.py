@@ -31,7 +31,6 @@ def validate_files(path: str, reporting) -> None:
     for r, d, f in os.walk(os.path.join(directory, path)):
         for file_name in f:
             full_path = os.path.join(r, file_name)
-            type_file = full_path.replace(directory, '')
             validate_file_fn(full_path, reporting)
 
 
