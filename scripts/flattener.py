@@ -41,6 +41,10 @@ cell_metadata = {
 		'diseases.term_name',
 		'treatment_summary'
 		],
+	'tissue_section': [
+		'uuid',
+		'thickness_units'
+	],
 	'suspension': [
 		'uuid',
 		'suspension_type',
@@ -131,8 +135,10 @@ def gather_rawmatrices(derived_from):
 	for identifier in derived_from:
 		obj = lattice.get_object(identifier, connection)
 		if obj['@type'][0] == 'MatrixFile' and obj['layers'][0]['normalized'] != True and \
-				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
-				'cell calling' in obj['derivation_process']:
+				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1:
+				# Temporarily change 
+				#obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
+				#'cell calling' in obj['derivation_process']:
 			my_raw_matrices.append(obj)
 		else:
 			# grab the derived_from in case we need to go a layer deeper
@@ -309,12 +315,32 @@ def report_dataset(donor_objs, matrix, dataset):
 		'raw.X': 'raw'
 	}
 	derived_by = matrix.get('derivation_process')
-	for layer in matrix.get('layers'):
-		units = layer.get('value_units', unreported_value)
-		scale = layer.get('value_scale', unreported_value)
-		norm_meth = layer.get('normalization_method', unreported_value)
-		desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-		layer_descs['X'] = desc
+	# NEED TO WORK OUT LOGIC FOR MULTIPLE LAYERS, RECONCILING WHEN FINAL MATRIX IS SEURAT VS H5AD
+	# for layer in matrix.get('layers'):
+	# 	units = layer.get('value_units', unreported_value)
+	# 	scale = layer.get('value_scale', unreported_value)
+	# 	norm_meth = layer.get('normalization_method', unreported_value)
+	# 	desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+	# 	layer_descs['X'] = desc
+	if len(matrix.get('layers')) == 1:
+		for layer in matrix.get('layers'):
+			units = layer.get('value_units', unreported_value)
+			scale = layer.get('value_scale', unreported_value)
+			norm_meth = layer.get('normalization_method', unreported_value)
+			desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+			layer_descs['X'] = desc
+	else:
+		for layer in matrix.get('layers'):
+			units = layer.get('value_units', unreported_value)
+			scale = layer.get('value_scale', unreported_value)
+			norm_meth = layer.get('normalization_method', unreported_value)
+			desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+			if layer.get('label') == 'scaled':
+				desc += "; centered mean at zero; scaled by standard deviation"
+			layer_descs[layer.get('label')] = desc
+
+
+
 	ds_results['layer_descriptions'] = layer_descs
 	org_id = set()
 	org_name = set()
@@ -855,7 +881,8 @@ def main(mfinal_id):
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
-	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method', 'sample_treatment_summary']
+	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
+			'sample_treatment_summary', 'suspension', 'suspension_uuid']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
