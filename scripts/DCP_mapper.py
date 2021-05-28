@@ -3,18 +3,18 @@ import hashlib
 import json
 import lattice
 import os
-import request_to_gcp
 import requests
 import sys
 import zlib
 from datetime import datetime, timezone
 from pint import UnitRegistry
 from urllib.parse import urljoin
-from property_mapping import (
+import DCP_mods.request_to_gcp
+from DCP_mods.property_mapping import (
 	dcp_versions,
 	lattice_to_dcp
 )
-from validate_staging_area import (
+from DCP_mods.validate_staging_area import (
 	dcp_validation
 )
 
