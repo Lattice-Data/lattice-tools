@@ -3,16 +3,19 @@ import hashlib
 import json
 import lattice
 import os
-import request_to_gcp
 import requests
 import sys
 import zlib
 from datetime import datetime, timezone
 from pint import UnitRegistry
 from urllib.parse import urljoin
-from property_mapping import (
+import DCP_mods.request_to_gcp
+from DCP_mods.property_mapping import (
 	dcp_versions,
 	lattice_to_dcp
+)
+from DCP_mods.validate_staging_area import (
+	dcp_validation
 )
 
 
@@ -38,10 +41,18 @@ def getArgs():
                         help='Any identifier for the dataset of interest.')
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
-    parser.add_argument('--metadataonly',
+    parser.add_argument('--metadata-only',
                         default=False,
                         action='store_true',
-                        help='The specific directory to transfer, if not all metadata and data files.')
+                        help='If true and --update, only metadata files will be transferred to DCP, no data files.')
+    parser.add_argument('--no-validate',
+                        default=False,
+                        action='store_true',
+                        help='If true, nothing will be validated against the DCP schema.')
+    parser.add_argument('--validate-only',
+                        default=False,
+                        action='store_true',
+                        help='If true, existing metadata files will be validated against the DCP schema.')
     parser.add_argument('--update',
                         default=False,
                         action='store_true',
@@ -513,7 +524,7 @@ def create_protocol(in_type, out_type, out_obj):
 		tr_obj = {
 			'provenance': {},
 			'protocol_core': {},
-			'method': {
+			'type': {
 				'text': 'treated with ' + out_obj['treatment_summary']
 				}
 			}
@@ -619,6 +630,7 @@ def customize_fields(obj, obj_type):
 		obj['provenance']['submission_date'] = dt
 	else:
 		obj['provenance'] = {'submission_date': dt}
+
 	if obj.get('biomaterial_core'):
 		if obj['biomaterial_core'].get('ncbi_taxon_id'):
 			if obj_type == 'donor_organism':
@@ -629,8 +641,10 @@ def customize_fields(obj, obj_type):
 					path = d.get('organism.taxon_id').split(':')
 					temp.add(int(path[1]))
 				obj['biomaterial_core']['ncbi_taxon_id'] = list(temp)
+
 	if obj.get('treatment_summary'):
 		del obj['treatment_summary']
+
 	if obj_type == 'project':
 		if obj.get('project_core'):
 			if obj['project_core'].get('project_title'):
@@ -653,13 +667,22 @@ def customize_fields(obj, obj_type):
 			for p in obj['publications']:
 				if p.get('pmid'):
 					p['pmid'] = int(p['pmid'])
+				if p.get('authors'):
+					p['authors'] = p['authors'].split(',')
 		if obj.get('supplementary_links'):
 			for l in obj['supplementary_links']:
 				if l.startswith('https://data.humancellatlas.org'):
 					obj['supplementary_links'].remove(l)
+		for a in ['geo_series', 'insdc_study', 'insdc_project', 'array_express_investigation']:
+			if obj.get(a):
+				obj[a] = obj[a][0]
+
 	elif obj_type == 'donor_organism':
 		if obj.get('genus_species'):
 			obj['genus_species'] = [obj['genus_species']]
+		for a in ['organism_age', 'gestational_age']:
+			if obj.get(a) == 'unknown':
+				del obj[a]
 		if not obj.get('is_living'):
 			if obj['development_stage']['text'] in ['embryonic','fetal']:
 				obj['is_living'] = 'not applicable'
@@ -668,6 +691,11 @@ def customize_fields(obj, obj_type):
 		if obj.get('human_specific'):
 			if obj['human_specific'].get('ethnicity'):
 				obj['human_specific']['ethnicity'] = [obj['human_specific']['ethnicity']]
+			if obj['human_specific'].get('body_mass_index'):
+				if '-' in obj['human_specific']['body_mass_index']:
+					del obj['human_specific']['body_mass_index']
+				else:
+					obj['human_specific']['body_mass_index'] = float(obj['human_specific']['body_mass_index'])
 		if obj.get('mouse_specific'):
 			if obj['mouse_specific'].get('strain'):
 				obj['mouse_specific']['strain'] = [obj['mouse_specific']['strain']]
@@ -675,6 +703,7 @@ def customize_fields(obj, obj_type):
 			if obj['medical_history'].get('test_results'):
 				tr = [k + ':' + v for k,v in obj['medical_history']['test_results'].items()]
 				obj['medical_history']['test_results'] = ','.join(tr)
+
 	elif obj_type == 'specimen_from_organism':
 		if obj.get('spatial_information'):
 			del obj['spatial_information']
@@ -721,19 +750,26 @@ def customize_fields(obj, obj_type):
 					new_v = unit_conversion(obj['state_of_specimen']['postmortem_interval'],obj['state_of_specimen']['postmortem_interval_units'], 'second')
 					obj['state_of_specimen']['postmortem_interval'] = new_v
 					del obj['state_of_specimen']['postmortem_interval_units']
+
 	elif obj_type == 'cell_line':
-		if obj.get('type'):
-			celltypes = obj['type']
+		if obj.get('cell_line_type'):
+			celltypes = obj['cell_line_type']
 			if 'induced pluripotent stem cell' in celltypes:
-				obj['type'] = 'induced pluripotent'
+				obj['cell_line_type'] = 'induced pluripotent'
 			elif 'stem cell derived cell line' in celltypes:
-				obj['type'] = 'stem cell-derived'
+				obj['cell_line_type'] = 'stem cell-derived'
 			elif 'stem cell' in celltypes:
-				obj['type'] = 'stem cell'
+				obj['cell_line_type'] = 'stem cell'
 			else:
-				obj['type'] = 'primary'
+				obj['cell_line_type'] = 'primary'
 		else:
-			obj['type'] = 'primary'
+			obj['cell_line_type'] = 'primary'
+		if obj['biomaterial_core'].get('insdc_sample_accession'):
+			obj['biomaterial_core']['insdc_biomaterial'] = obj['biomaterial_core']['insdc_sample_accession']
+			del obj['biomaterial_core']['insdc_sample_accession']
+		if obj['biomaterial_core'].get('biosamples_accession'):
+			obj['biomaterial_core']['biosd_biomaterial'] = obj['biomaterial_core']['biosamples_accession']
+			del obj['biomaterial_core']['biosamples_accession']
 		if obj.get('tissue'):
 			if obj['tissue'].get('text'):
 				obj['tissue']['text'] = obj['tissue']['text'][0]
@@ -747,6 +783,7 @@ def customize_fields(obj, obj_type):
 				obj['model_organ']['text'] = obj['model_organ']['text'][0]
 		else:
 			obj['model_organ'] = {'text': obj['model_organ_part']['ontology_label']}
+
 	elif obj_type == 'cell_suspension':
 		if obj.get('dissociation_time'):
 			del obj['dissociation_time']
@@ -776,11 +813,13 @@ def customize_fields(obj, obj_type):
 				obj['estimated_cell_count'] = new_v
 			else:
 				del obj['estimated_cell_count']
+
 	elif obj_type == 'library_preparation_protocol':
 		if not obj.get('strand'):
 			obj['strand'] = 'not provided'
 		if not obj.get('end_bias'):
 			obj['end_bias'] = 'full length'
+
 	elif obj_type == 'sequence_file':
 		if obj.get('insdc_run_accessions'):
 			v = []
@@ -793,63 +832,10 @@ def customize_fields(obj, obj_type):
 			obj['insdc_run_accessions'] = v
 		else:
 			del obj['insdc_run_accessions']
+
 	elif obj_type == 'supplementary_file':
 		file_format = obj['file_core']['file_name'].split('.')[-1]
 		obj['file_core']['format'] = file_format
-
-
-def remove_cell_lines(links, whole_dict):
-	keepers = set()
-	consolidated_links = []
-	for l in links:
-		consolidate = {}
-		sublinks = l['links']
-		for link in sublinks:
-			for i in link['inputs']:
-				if i['input_type'] == 'cell_line':
-					ins = sorted([x['input_id'] for x in link['inputs']])
-					if '#'.join(ins) not in consolidate:
-						consolidate['#'.join(ins)] = {}
-					consolidate['#'.join(ins)]['ins'] = link
-			for o in link['outputs']:
-				if o['output_type'] == 'cell_line':
-					outs = sorted([x['output_id'] for x in link['outputs']])
-					if '#'.join(outs) not in consolidate:
-						consolidate['#'.join(outs)] = {}
-					consolidate['#'.join(outs)]['outs'] = link
-		if consolidate:
-			for k,v in consolidate.items():
-				# we don't want to collapse any cell_line-to-suspension links
-				if v['ins']['outputs'][0]['output_type'] == 'cell_suspension':
-					keepers.update(k.split('#'))
-				else:
-					new_link = {
-						'outputs': v['ins']['outputs'],
-						'inputs': v['outs']['inputs'],
-						'protocols': v['ins']['protocols'] + v['outs']['protocols'],
-						'link_type': 'process_link',
-						'process_type': 'process',
-						'process_id': v['outs']['process_id']
-					}
-					sublinks.remove(v['ins'])
-					sublinks.remove(v['outs'])
-					sublinks.append(new_link)
-			consolidated_links.append({'links': sublinks})
-		else:
-			consolidated_links.append(l)
-
-	# we need to remove cell_line objects if they don't feed directly to suspension
-	keep_cell_lines = []
-	if whole_dict.get('cell_line'):
-		for i in whole_dict['cell_line']:
-			if i['biomaterial_core']['biomaterial_id'] in keepers:
-				keep_cell_lines.append(i)
-		del whole_dict['cell_line']
-
-	if keep_cell_lines:
-		whole_dict['cell_line'] = keep_cell_lines
-
-	return consolidated_links
 
 
 def file_descript(obj, obj_type, dataset):
@@ -890,6 +876,13 @@ def main():
 			sys.exit('Stopped due to one or more ERROR audits')
 
 	dataset_id = ds_obj['uuid']
+
+	if args.validate_only:
+		dcp_errors = dcp_validation(dataset_id)
+		if dcp_errors != 0:
+			print('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
+		sys.exit('Exiting after DCP schema validation, as per validate-only option')
+
 	print('WILL WRITE FILES TO THE {} DIRECTORY'.format(dataset_id))
 
 	# convert the dataset to DCP schema
@@ -939,10 +932,6 @@ def main():
 		remaining = next_remaining - seen
 
 	dir_to_make = ['', 'metadata', 'links', 'data', 'descriptors', 'descriptors/sequence_file']
-
-	# the dcp does not capture cell_lines used just to grow organoids
-	# remove these objects and reconnect broken links
-	links = remove_cell_lines(links, whole_dict)
 
 	if doc_files:
 		doc_link = {
@@ -996,25 +985,37 @@ def main():
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
 				json.dump(o, outfile, indent=4, ensure_ascii=False)
 
+	if not os.path.isdir('DCP_outs'):
+		os.mkdir('DCP_outs')
+
 	# report metadata not mapped to DCP schema
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
-	with open('not_included.json', 'w') as outfile:
+	with open('DCP_outs/not_included.json', 'w') as outfile:
 		json.dump(not_incl, outfile, indent=4)
 
 	# report files that are not validated, and thus, not included in the mapping
 	if not_valid:
-		with open('not_validated.json', 'w') as outfile:
+		with open('DCP_outs/not_validated.txt', 'w') as outfile:
 			outfile.write('\n'.join(not_valid))
-			outfile.write('\n')
+
+	if not args.no_validate:
+		dcp_errors = dcp_validation(dataset_id)
+		if dcp_errors != 0:
+			print('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
+			if args.update:
+				i = input('Continue? y/n: ')
+				if i.lower() not in ['y','yes']:
+					sys.exit('Stopped due to one or more DCP schema errors')
+
 
 	if args.update:
 		# transfer the metadata directory to the DCP Google Cloud project
 		print('TRANSFERRING METADATA DIRECTORIES')
 		request_to_gcp.local_dir_transfer(dataset_id)
 
-		if args.metadataonly:
-			sys.exit('Metadata directories transferred, data not transferred due to --metadataonly')
+		if args.metadata_only:
+			sys.exit('Metadata directories transferred, data not transferred due to --metadata-only')
 
 		# transfer the data files from S3 to the DCP Google Cloud project
 		if s3_uris:
@@ -1049,7 +1050,7 @@ if __name__ == '__main__':
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
 	if not args.mode:
-		sys.exit('ERROR: --mode is required')
+		sys.exit('ERROR: --mode is required, unless --validate-only provided')
 
 	connection = lattice.Connection(args.mode)
 	server = connection.server

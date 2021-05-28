@@ -159,11 +159,10 @@ lattice_to_dcp = {
 		},
 		'dbxrefs': {
 			'lattice': 'dbxrefs',
-			'SRA': 'insdc_project_accessions',
-			'GEO': 'geo_series_accessions',
-			'ArrayExpress': 'array_express_accessions',
-			'BioProject': 'insdc_study_accessions',
-			'BioStudies': 'biostudies_accessions'
+			'SRA': 'insdc_project',
+			'GEO': 'geo_series',
+			'ArrayExpress': 'array_express_investigation',
+			'BioProject': 'insdc_study'
 		},
 		'funders.funder_name': {
 			'lattice': 'funding_organizations'
@@ -189,7 +188,7 @@ lattice_to_dcp = {
 				'pmid': {
 					'lattice': 'pmid'
 				},
-				'title': {
+				'publication_title': {
 					'lattice': 'title'
 				}
 			}
@@ -289,8 +288,9 @@ lattice_to_dcp = {
 			'lattice': 'preservation_method',
 			'value_map': {
 				'n/a (fresh)': 'fresh',
-				'cryopreservation': 'cryopreservation, other',
-				'paraffin embedding': 'formalin fixed and paraffin embedded'
+				'cryopreservation': 'frozen at -80C',
+				'flash-freezing': 'frozen in liquid nitrogen',
+				'paraffin embedding': 'paraffin block'
 			}
 		},
 		'preservation_storage.storage_time': {
@@ -368,7 +368,7 @@ lattice_to_dcp = {
 		'tissue.text': {
 			'lattice': 'biosample_ontology.organ_slims'
 		},
-		'type': {
+		'cell_line_type': {
 			'lattice': 'biosample_ontology.cell_slims'
 		}
 	},
