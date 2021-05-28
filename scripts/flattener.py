@@ -97,7 +97,7 @@ prop_map = {
 unreported_value = 'unknown'
 corpora_schema_version = '1.1.0'
 corpora_encoding_version = '0.1.0'
-flat_version = '2'
+flat_version = '3'
 
 EPILOG = '''
 Examples:
@@ -393,7 +393,7 @@ def get_embeddings(mfinal_adata):
 	for embedding in all_embedding_keys:
 		if embedding == 'X_pca' or embedding == 'X_harmony':
 			final_embeddings.pop(embedding)
-		elif embedding != 'X_umap' and embedding != 'X_tsne':
+		elif embedding != 'X_umap' and embedding != 'X_tsne' and embedding != 'X_spatial':
 			sys.exit('There is an unrecognized embedding in final matrix: {}'.format(embedding))
 	return final_embeddings
 
@@ -613,14 +613,14 @@ def main(mfinal_id):
 
 	# confirm that the identifier you've provided corresponds to a MatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
-	assay10x = ''
+	summary_assay = ''
 	if mfinal_type != 'MatrixFile':
 		sys.exit('{} is not a MatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 	if mfinal_obj['assays'] == ['snATAC-seq']:
-		assay10x = 'ATAC'
+		summary_assay = 'ATAC'
 	elif mfinal_obj['assays'] == ['snRNA-seq'] or mfinal_obj['assays'] == ['scRNA-seq'] or\
-			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq']:
-		assay10x = 'RNA'
+			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq'] or mfinal_obj['assays'] == ['spatial transcriptomics']:
+		summary_assay = 'RNA'
 	else:
 		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
 
@@ -724,15 +724,24 @@ def main(mfinal_id):
 		df = df.append(row_to_add)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
-		if assay10x == 'RNA':
+		if summary_assay == 'RNA':
 			download_file(mxr, tmp_dir)
-			local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
-			adata_raw = sc.read_10x_h5(local_path)
+			if mxr['submitted_file_name'].endswith('h5'):
+				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
+				adata_raw = sc.read_10x_h5(local_path)
+			elif mxr['submitted_file_name'].endswith('h5ad'):
+				local_path = '{}/{}.h5ad'.format(tmp_dir, mxr_acc)
+				adata_raw = sc.read_h5ad(local_path)
+			else:
+				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['submitted_file_name']))
 			adata_raw.var_names_make_unique(join = '.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
-			concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
-			adata_raw.obs_names = concatenated_ids
-			overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+			if mfinal_obj.get('cell_label_mappings', None):
+				concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
+				adata_raw.obs_names = concatenated_ids
+				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+			else:
+				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
 			adata_raw = adata_raw[overlapped_ids]
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
@@ -760,16 +769,15 @@ def main(mfinal_id):
 
 	# For RNA datasets, concatenate all anndata objects in list,
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
-	cell_mapping_rev_dct = {}
 	raw_matrix_mapping = []
-	for mapping_dict in mfinal_obj['cell_label_mappings']:
-		cell_mapping_rev_dct[mapping_dict['label']] = mapping_dict['raw_matrix']
-	if assay10x == 'RNA':
-		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
+	if summary_assay == 'RNA':
+		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
-	elif assay10x == 'ATAC':
+	elif summary_assay == 'ATAC':
+		for mapping_dict in mfinal_obj['cell_label_mappings']:
+			cell_mapping_rev_dct[mapping_dict['label']] = mapping_dict['raw_matrix']
 		flag_removed = False
 		for final_id in mfinal_cell_identifiers:
 			if not re.search('[AGCT]+-1', final_id):
@@ -873,6 +881,9 @@ def main(mfinal_id):
 		cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 		cxg_adata.raw = cxg_adata_raw
+		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
+			if label != 'X':
+				cxg_adata.layers[label] = mfinal_adata.layers[label]
 		quality_check(cxg_adata)
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 		cxg_adata.write(results_file)
@@ -888,7 +899,8 @@ def main(mfinal_id):
 				if i != 0:
 					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
 				matrix_loc = mfinal_adata.raw.X
-				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var['_index']),]
+				# final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var['_index']),]
+				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var.index),]
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
