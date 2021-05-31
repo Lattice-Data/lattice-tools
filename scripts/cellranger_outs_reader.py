@@ -249,6 +249,7 @@ for direct in directories:
 	out_schema[direct] = extra_values
 
 df = pd.DataFrame(in_schema).transpose()
+df = df[ ['quality_metric_of'] + [ col for col in df.columns if col != 'quality_metric_of' ] ]
 df.to_csv(args.assay + '_metrics.tsv', sep='\t')
 
 df = pd.DataFrame(out_schema).transpose()
