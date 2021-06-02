@@ -43,11 +43,12 @@ cell_metadata = {
 		],
 	'tissue_section': [
 		'uuid',
+		'thickness',
 		'thickness_units'
 	],
 	'suspension': [
 		'uuid',
-		'suspension_type',
+		'suspension_type'
 		'@id'
 		],
 	'library': [
@@ -87,7 +88,7 @@ prop_map = {
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
-	'matrix_genome_annotation': 'reference_annotation_version',
+	'matrix_genome_annotation': 'genome_annotation_version',
 	'matrix_description': 'title',
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
@@ -166,6 +167,8 @@ def gather_objects(input_object, start_type=None):
 	samples = []
 	donor_ids = []
 	donors = []
+	tissue_section_ids = []
+	tissue_sections = []
 
 	if start_type == None:
 		for i in lib_ids:
@@ -173,8 +176,13 @@ def gather_objects(input_object, start_type=None):
 			libraries.append(obj)
 			for o in obj['derived_from']:
 				if o.get('uuid') not in susp_ids:
-					suspensions.append(o)
-					susp_ids.append(o.get('uuid'))
+					if o.get('type') == 'Suspension':
+						suspensions.append(o)
+						susp_ids.append(o.get('uuid'))
+					elif 'TissueSection' in o['@type']:
+						tissue_sections.append(o)
+						tissue_section_ids.append(o.get('uuid'))
+
 			for o in obj['donors']:
 				if o.get('uuid') not in donor_ids:
 					donors.append(o)
@@ -188,9 +196,17 @@ def gather_objects(input_object, start_type=None):
 					donors.append(o)
 					donor_ids.append(o.get('uuid'))
 
-	for o in suspensions:
-		for i in o['derived_from']:
-			sample_ids.append(i)
+	# for o in suspensions:
+	# 	for i in o['derived_from']:
+	# 		sample_ids.append(i)
+	if len(suspensions) > 0:
+		for o in suspensions:
+			for i in o['derived_from']:
+				sample_ids.append(i)
+	else:
+		for o in tissue_sections:
+			for i in o['derived_from']:
+				sample_ids.append(i)
 	remaining = set(sample_ids)
 	seen = set()
 	while remaining:
@@ -210,7 +226,8 @@ def gather_objects(input_object, start_type=None):
 	objs = {
 		'donor': donors,
 		'sample': samples,
-		'suspension': suspensions
+		'suspension': suspensions,
+		'tissue_section': tissue_sections
 		}
 	if start_type == None:
 		objs['library'] = libraries
@@ -327,16 +344,17 @@ def report_dataset(donor_objs, matrix, dataset):
 			units = layer.get('value_units', unreported_value)
 			scale = layer.get('value_scale', unreported_value)
 			norm_meth = layer.get('normalization_method', unreported_value)
-			desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs['X'] = desc
 	else:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
 			scale = layer.get('value_scale', unreported_value)
 			norm_meth = layer.get('normalization_method', unreported_value)
-			desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			if layer.get('label') == 'scaled':
-				desc += "; centered mean at zero; scaled by standard deviation"
+				desc = '{} counts; {}; normalized using {}; scaled; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+			else:
+				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs[layer.get('label')] = desc
 
 
@@ -728,7 +746,7 @@ def main(mfinal_id):
 
 		# Gather metdata without demultiplexing
 		else:
-			for obj_type in cell_metadata.keys():
+			for obj_type in cell_metadata.keys()
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
 					gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
@@ -882,13 +900,16 @@ def main(mfinal_id):
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension', 'suspension_uuid']
+			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
 				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']':
 					cxg_obs.drop(columns=col, inplace=True)
+	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
+		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
+		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
 
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
