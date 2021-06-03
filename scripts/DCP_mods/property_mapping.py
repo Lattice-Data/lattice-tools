@@ -525,6 +525,9 @@ lattice_to_dcp = {
 		'insdc_run_accessions': {
 			'lattice': 'derived_from' # DCP_mapper pulls out just dbxrefs
 		},
+		'library_prep_id': {
+			'lattice': 'libraries'
+		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
 		},
@@ -567,6 +570,21 @@ lattice_to_dcp = {
 			'lattice': 'uuid'
 		}
 	}
+}
+
+donor_stages = {
+	'MmusDv:0000002': 'embryonic mouse stage',
+	'MmusDv:0000031': 'fetal stage',
+	'MmusDv:0000036': 'Theiler stage 27',
+	'MmusDv:0000112': 'premature stage',
+	'MmusDv:0000110': 'mature stage',
+	'HsapDv:0000002': 'embryonic human stage',
+	'HsapDv:0000037': 'fetal stage',
+	'HsapDv:0000082': 'newborn human stage',
+	'HsapDv:0000083': 'infant stage',
+	'HsapDv:0000081': 'child stage',
+	'HsapDv:0000086': 'adolescent stage',
+	'HsapDv:0000087': 'human adult stage'
 }
 
 dcp_versions = {

@@ -9,10 +9,11 @@ import zlib
 from datetime import datetime, timezone
 from pint import UnitRegistry
 from urllib.parse import urljoin
-import DCP_mods.request_to_gcp
+import DCP_mods.request_to_gcp as request_to_gcp
 from DCP_mods.property_mapping import (
 	dcp_versions,
-	lattice_to_dcp
+	lattice_to_dcp,
+	donor_stages
 )
 from DCP_mods.validate_staging_area import (
 	dcp_validation
@@ -308,7 +309,7 @@ def get_object(temp_obj):
 
 def flatten_obj(obj):
 	ignore = ['accession','actions','aliases','audit','contributing_files',
-		'date_created','libraries','original_files','status','submitted_by',
+		'date_created','original_files','status','submitted_by',
 		'superseded_by','supersedes']
 	new_obj = {}
 	for k,v in obj.items():
@@ -503,6 +504,18 @@ def create_protocol(in_type, out_type, out_obj):
 			desc.append('used {}'.format(out_obj['dissociation_reagent']))
 		if desc:
 			my_obj['protocol_core']['protocol_description'] = ', '.join(desc)
+		if out_obj.get('enrichment_factors') or out_obj.get('enriched_cell_types'):
+			enrich_derivs = []
+			my_derivs = []
+			for d in der_process:
+				if d in ['detergent solubilization','enzymatic dissociation','mechanical dissociation']:
+					my_derivs.append(d)
+				else:
+					enrich_derivs.append(d)
+			if my_derivs:
+				my_obj['method']['text'] = ','.join(my_derivs)
+			else:
+				my_obj['method']['text'] = '{} dissociation'.format(out_obj['suspension_type'])
 	elif out_type == 'organoid' and in_type == 'cell_line':
 		pr_type = 'differentiation_protocol'
 		my_obj['method'] = my_obj['method']['text']
@@ -542,13 +555,15 @@ def create_protocol(in_type, out_type, out_obj):
 		enr_obj = {
 			'provenance': {},
 			'protocol_core': {},
-			'method': {
-				'text': 'enrichment'
-				}
+			'method': {}
 			}
+		meth_txt = ['enrichment']
 		if out_obj.get('enriched_cell_types'):
 			enr_cells = [ct['term_name'] for ct in out_obj['enriched_cell_types']]
-			enr_obj['method']['text'] = 'enrichment for {}'.format(','.join(enr_cells))
+			meth_txt.append('for {}'.format(','.join(enr_cells)))
+		if enrich_derivs:
+			meth_txt.append('by {}'.format(','.join(enrich_derivs)))
+		enr_obj['method']['text'] = ' '.join(meth_txt)
 		if out_obj.get('enrichment_factors'):
 			enr_obj['markers'] = out_obj['enrichment_factors']
 		enpr_id = uuid_make([pr_type + in_type + out_type + str(enr_obj)])
@@ -678,6 +693,8 @@ def customize_fields(obj, obj_type):
 				obj[a] = obj[a][0]
 
 	elif obj_type == 'donor_organism':
+		if obj.get('development_stage'):
+			obj['development_stage']['ontology_label'] = donor_stages[obj['development_stage']['ontology']]
 		if obj.get('genus_species'):
 			obj['genus_species'] = [obj['genus_species']]
 		for a in ['organism_age', 'gestational_age']:
@@ -832,6 +849,11 @@ def customize_fields(obj, obj_type):
 			obj['insdc_run_accessions'] = v
 		else:
 			del obj['insdc_run_accessions']
+
+		if obj.get('library_prep_id'):
+			url = urljoin(server, obj['library_prep_id'][0] + '/?format=json')
+			lib_obj = requests.get(url, auth=connection.auth).json()
+			obj['library_prep_id'] = lib_obj['uuid']
 
 	elif obj_type == 'supplementary_file':
 		file_format = obj['file_core']['file_name'].split('.')[-1]
