@@ -351,7 +351,7 @@ def report_dataset(donor_objs, matrix, dataset):
 			units = layer.get('value_units', unreported_value)
 			scale = layer.get('value_scale', unreported_value)
 			norm_meth = layer.get('normalization_method', unreported_value)
-			if layer.get('label') == 'scaled':
+			if layer.get('scaled', unreported_value):
 				desc = '{} counts; {}; normalized using {}; scaled; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			else:
 				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
@@ -519,7 +519,7 @@ def trim_cell_slims(df_annot):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
-		sys.exit("There is at least one 'NaN' value in the cxg anndata obs dataframe.")
+		sys.exit("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
@@ -746,7 +746,7 @@ def main(mfinal_id):
 
 		# Gather metdata without demultiplexing
 		else:
-			for obj_type in cell_metadata.keys()
+			for obj_type in cell_metadata.keys():
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
 					gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
@@ -794,11 +794,11 @@ def main(mfinal_id):
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 
 	# Should add error checking to make sure all matrices have the same number of vars
-	feature_lengths = []
-	for adata in cxg_adata_lst:
-		feature_lengths.append(adata.shape[1])
-	if len(set(feature_lengths)) > 1:
-		sys.exit('The number of genes in all raw matrices need to match.')
+	#feature_lengths = []
+	#for adata in cxg_adata_lst:
+	#	feature_lengths.append(adata.shape[1])
+	#if len(set(feature_lengths)) > 1:
+	#	sys.exit('The number of genes in all raw matrices need to match.')
 
 	# Set up dataframe for cell annotations keyed off of author_cell_type
 	annot_df = pd.DataFrame()
@@ -923,6 +923,7 @@ def main(mfinal_id):
 					sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 			else:
 				sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
+	cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'gene_ids': 'gene_identifier'})
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	if mfinal_obj['file_format'] == 'hdf5':
