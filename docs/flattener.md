@@ -28,6 +28,16 @@ The script will produce a h5ad file in the current directory where the script is
 
 Version update logging
 ----------------
+**Version 3**:
+- Allow reading from h5ad file format for raw count matrices
+- Raw matrix will be an outer join to allow for merging of matrices with varying feature counts
+- Add ability to read data from spatial transcriptomic assays
+- Transfer additional layers from the 'layers' attribute of the contributor final h5ad matrix to cxg h5ad
+- Permit final matrices that do not have prefix/suffix added to cell barcodes in cell_label_mappings
+- Transfer X_spatial embedding
+- Looks for TissueSection objects in experimental graph
+
+
 **Version 2**: 
 - Add ability to demultiplex metadata from experiments pooled at the library entity. The requirement is that the the 'author\_donor\_column' metadata field is filled out in the final matrix object. 
 - Convert development_stage to term name so that corresponds with term id.
