@@ -41,9 +41,14 @@ cell_metadata = {
 		'diseases.term_name',
 		'treatment_summary'
 		],
+	'tissue_section': [
+		'uuid',
+		'thickness',
+		'thickness_units'
+	],
 	'suspension': [
 		'uuid',
-		'suspension_type',
+		'suspension_type'
 		'@id'
 		],
 	'library': [
@@ -83,7 +88,7 @@ prop_map = {
 	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
-	'matrix_genome_annotation': 'reference_annotation_version',
+	'matrix_genome_annotation': 'genome_annotation_version',
 	'matrix_description': 'title',
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
@@ -97,7 +102,7 @@ prop_map = {
 unreported_value = 'unknown'
 corpora_schema_version = '1.1.0'
 corpora_encoding_version = '0.1.0'
-flat_version = '2'
+flat_version = '3'
 
 EPILOG = '''
 Examples:
@@ -131,8 +136,10 @@ def gather_rawmatrices(derived_from):
 	for identifier in derived_from:
 		obj = lattice.get_object(identifier, connection)
 		if obj['@type'][0] == 'MatrixFile' and obj['layers'][0]['normalized'] != True and \
-				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
-				'cell calling' in obj['derivation_process']:
+				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1:
+				# Temporarily change 
+				#obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
+				#'cell calling' in obj['derivation_process']:
 			my_raw_matrices.append(obj)
 		else:
 			# grab the derived_from in case we need to go a layer deeper
@@ -160,6 +167,8 @@ def gather_objects(input_object, start_type=None):
 	samples = []
 	donor_ids = []
 	donors = []
+	tissue_section_ids = []
+	tissue_sections = []
 
 	if start_type == None:
 		for i in lib_ids:
@@ -167,8 +176,13 @@ def gather_objects(input_object, start_type=None):
 			libraries.append(obj)
 			for o in obj['derived_from']:
 				if o.get('uuid') not in susp_ids:
-					suspensions.append(o)
-					susp_ids.append(o.get('uuid'))
+					if o.get('type') == 'Suspension':
+						suspensions.append(o)
+						susp_ids.append(o.get('uuid'))
+					elif 'TissueSection' in o['@type']:
+						tissue_sections.append(o)
+						tissue_section_ids.append(o.get('uuid'))
+
 			for o in obj['donors']:
 				if o.get('uuid') not in donor_ids:
 					donors.append(o)
@@ -182,9 +196,17 @@ def gather_objects(input_object, start_type=None):
 					donors.append(o)
 					donor_ids.append(o.get('uuid'))
 
-	for o in suspensions:
-		for i in o['derived_from']:
-			sample_ids.append(i)
+	# for o in suspensions:
+	# 	for i in o['derived_from']:
+	# 		sample_ids.append(i)
+	if len(suspensions) > 0:
+		for o in suspensions:
+			for i in o['derived_from']:
+				sample_ids.append(i)
+	else:
+		for o in tissue_sections:
+			for i in o['derived_from']:
+				sample_ids.append(i)
 	remaining = set(sample_ids)
 	seen = set()
 	while remaining:
@@ -204,7 +226,8 @@ def gather_objects(input_object, start_type=None):
 	objs = {
 		'donor': donors,
 		'sample': samples,
-		'suspension': suspensions
+		'suspension': suspensions,
+		'tissue_section': tissue_sections
 		}
 	if start_type == None:
 		objs['library'] = libraries
@@ -309,12 +332,33 @@ def report_dataset(donor_objs, matrix, dataset):
 		'raw.X': 'raw'
 	}
 	derived_by = matrix.get('derivation_process')
-	for layer in matrix.get('layers'):
-		units = layer.get('value_units', unreported_value)
-		scale = layer.get('value_scale', unreported_value)
-		norm_meth = layer.get('normalization_method', unreported_value)
-		desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-		layer_descs['X'] = desc
+	# NEED TO WORK OUT LOGIC FOR MULTIPLE LAYERS, RECONCILING WHEN FINAL MATRIX IS SEURAT VS H5AD
+	# for layer in matrix.get('layers'):
+	# 	units = layer.get('value_units', unreported_value)
+	# 	scale = layer.get('value_scale', unreported_value)
+	# 	norm_meth = layer.get('normalization_method', unreported_value)
+	# 	desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+	# 	layer_descs['X'] = desc
+	if len(matrix.get('layers')) == 1:
+		for layer in matrix.get('layers'):
+			units = layer.get('value_units', unreported_value)
+			scale = layer.get('value_scale', unreported_value)
+			norm_meth = layer.get('normalization_method', unreported_value)
+			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+			layer_descs['X'] = desc
+	else:
+		for layer in matrix.get('layers'):
+			units = layer.get('value_units', unreported_value)
+			scale = layer.get('value_scale', unreported_value)
+			norm_meth = layer.get('normalization_method', unreported_value)
+			if layer.get('scaled', unreported_value):
+				desc = '{} counts; {}; normalized using {}; scaled; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+			else:
+				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
+			layer_descs[layer.get('label')] = desc
+
+
+
 	ds_results['layer_descriptions'] = layer_descs
 	org_id = set()
 	org_name = set()
@@ -393,7 +437,7 @@ def get_embeddings(mfinal_adata):
 	for embedding in all_embedding_keys:
 		if embedding == 'X_pca' or embedding == 'X_harmony':
 			final_embeddings.pop(embedding)
-		elif embedding != 'X_umap' and embedding != 'X_tsne':
+		elif embedding != 'X_umap' and embedding != 'X_tsne' and embedding != 'X_spatial':
 			sys.exit('There is an unrecognized embedding in final matrix: {}'.format(embedding))
 	return final_embeddings
 
@@ -475,7 +519,7 @@ def trim_cell_slims(df_annot):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
-		sys.exit("There is at least one 'NaN' value in the cxg anndata obs dataframe.")
+		sys.exit("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
@@ -613,14 +657,14 @@ def main(mfinal_id):
 
 	# confirm that the identifier you've provided corresponds to a MatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
-	assay10x = ''
+	summary_assay = ''
 	if mfinal_type != 'MatrixFile':
 		sys.exit('{} is not a MatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 	if mfinal_obj['assays'] == ['snATAC-seq']:
-		assay10x = 'ATAC'
+		summary_assay = 'ATAC'
 	elif mfinal_obj['assays'] == ['snRNA-seq'] or mfinal_obj['assays'] == ['scRNA-seq'] or\
-			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq']:
-		assay10x = 'RNA'
+			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq'] or mfinal_obj['assays'] == ['spatial transcriptomics']:
+		summary_assay = 'RNA'
 	else:
 		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
 
@@ -724,15 +768,24 @@ def main(mfinal_id):
 		df = df.append(row_to_add)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
-		if assay10x == 'RNA':
+		if summary_assay == 'RNA':
 			download_file(mxr, tmp_dir)
-			local_path = '{}/{}.h5'.format(tmp_dir,mxr_acc)
-			adata_raw = sc.read_10x_h5(local_path)
+			if mxr['submitted_file_name'].endswith('h5'):
+				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
+				adata_raw = sc.read_10x_h5(local_path)
+			elif mxr['submitted_file_name'].endswith('h5ad'):
+				local_path = '{}/{}.h5ad'.format(tmp_dir, mxr_acc)
+				adata_raw = sc.read_h5ad(local_path)
+			else:
+				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['submitted_file_name']))
 			adata_raw.var_names_make_unique(join = '.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
-			concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
-			adata_raw.obs_names = concatenated_ids
-			overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+			if mfinal_obj.get('cell_label_mappings', None):
+				concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
+				adata_raw.obs_names = concatenated_ids
+				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+			else:
+				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
 			adata_raw = adata_raw[overlapped_ids]
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
@@ -741,11 +794,11 @@ def main(mfinal_id):
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 
 	# Should add error checking to make sure all matrices have the same number of vars
-	feature_lengths = []
-	for adata in cxg_adata_lst:
-		feature_lengths.append(adata.shape[1])
-	if len(set(feature_lengths)) > 1:
-		sys.exit('The number of genes in all raw matrices need to match.')
+	#feature_lengths = []
+	#for adata in cxg_adata_lst:
+	#	feature_lengths.append(adata.shape[1])
+	#if len(set(feature_lengths)) > 1:
+	#	sys.exit('The number of genes in all raw matrices need to match.')
 
 	# Set up dataframe for cell annotations keyed off of author_cell_type
 	annot_df = pd.DataFrame()
@@ -760,16 +813,15 @@ def main(mfinal_id):
 
 	# For RNA datasets, concatenate all anndata objects in list,
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
-	cell_mapping_rev_dct = {}
 	raw_matrix_mapping = []
-	for mapping_dict in mfinal_obj['cell_label_mappings']:
-		cell_mapping_rev_dct[mapping_dict['label']] = mapping_dict['raw_matrix']
-	if assay10x == 'RNA':
-		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None)
+	if summary_assay == 'RNA':
+		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
-	elif assay10x == 'ATAC':
+	elif summary_assay == 'ATAC':
+		for mapping_dict in mfinal_obj['cell_label_mappings']:
+			cell_mapping_rev_dct[mapping_dict['label']] = mapping_dict['raw_matrix']
 		flag_removed = False
 		for final_id in mfinal_cell_identifiers:
 			if not re.search('[AGCT]+-1', final_id):
@@ -847,13 +899,17 @@ def main(mfinal_id):
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
-	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method', 'sample_treatment_summary']
+	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
+			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
 				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']':
 					cxg_obs.drop(columns=col, inplace=True)
+	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
+		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
+		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
 
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
@@ -867,12 +923,16 @@ def main(mfinal_id):
 					sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 			else:
 				sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
+	cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'gene_ids': 'gene_identifier'})
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	if mfinal_obj['file_format'] == 'hdf5':
 		cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 		cxg_adata.raw = cxg_adata_raw
+		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
+			if label != 'X':
+				cxg_adata.layers[label] = mfinal_adata.layers[label]
 		quality_check(cxg_adata)
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 		cxg_adata.write(results_file)
@@ -888,7 +948,8 @@ def main(mfinal_id):
 				if i != 0:
 					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
 				matrix_loc = mfinal_adata.raw.X
-				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var['_index']),]
+				# final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var['_index']),]
+				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var.index),]
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
