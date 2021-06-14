@@ -957,11 +957,11 @@ def main():
         sys.exit('ERROR: --mode is required with --query/--accessions')
 
     arg_count = 0
-    for arg in [args.query, args.accessions, args.s3_file]:
+    for arg in [args.query, args.accessions, args.s3_file, args.ext_file]:
         if arg:
             arg_count += 1
     if arg_count != 1:
-        sys.exit('ERROR: exactly one of --query, --accessions, --s3-file is required, {} given'.format(arg_count))
+        sys.exit('ERROR: exactly one of --query, --accessions, --s3-file, --ext-file is required, {} given'.format(arg_count))
 
 
     if args.mode:
@@ -1006,7 +1006,7 @@ def main():
                 local_file, job = download_s3_file(job)
             if os.path.exists(local_file):
                 check_file(job)
-                if not args.s3_file:
+                if not args.s3_file and not args.ext_file:
                     compare_with_db(job, connection)
                     if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
                         dets = job['results']['flowcell_details']
