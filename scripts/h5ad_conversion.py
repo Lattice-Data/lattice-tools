@@ -95,21 +95,21 @@ def get_ensembl(adata, args, df_gtf):
 
 # add bead location as embedding and celltype in obs
 def add_beadloc(filename, adata, args):
-	beadfile = filename.replace("merged_sct_cts", "BeadLocationsForR")
-	bead_df = pd.read_csv(os.path.join(args.beadloc, beadfile), index_col='barcode')
+	beadfile = filename.replace("MappedDGEForR_sct_cts_extensive", "BeadLocationsForR")
+	bead_df = pd.read_csv(os.path.join(args.beadloc, beadfile), index_col='barcodes')
 	bead_df.index.name = None
 	bead_df = bead_df.loc[adata.obs.index.to_list(),]
-	bead_np = bead_df[['UMAP_1', 'UMAP_2']].to_numpy(copy=True)
-	adata.obsm['X_umap'] = bead_np
+	bead_np = bead_df[['xcoord', 'ycoord']].to_numpy(copy=True)
+	adata.obsm['X_spatial'] = bead_np
 	adata.obs = pd.merge(adata.obs, bead_df[['cell_type']], left_index=True, right_index=True, how='left', validate="1:1")
 	adata.obs = adata.obs.rename(columns={'cell_type': 'celltype'})
 
 
 # add scaled layer to AnnData.layers
 def add_layer(filename, adata, args):
-	layerfile = filename.replace("cts", "scaled")
+	layerfile = filename.replace("cts_extensive", "scaled")
 	layer_adata = ad.read_csv(os.path.join(args.layer, layerfile), delimiter = args.delimiter, first_column_names=True)
-	#layer_adata = layer_adata.transpose()
+	layer_adata = layer_adata.transpose()
 	layer_adata = layer_adata[adata.obs_names.to_list()]
 	adata.layers['scaled'] = layer_adata.X
 
@@ -134,7 +134,7 @@ def main(args):
 
 		if type(adata.X) == np.ndarray:
 			adata.X = sparse.csr_matrix(adata.X)
-		if args.transpose == 'True':
+		if args.transpose:
 			print("transposed the data")
 			adata = adata.transpose()
 		if args.remove:
@@ -149,7 +149,7 @@ def main(args):
 			add_beadloc(filename, adata, args)
 		if args.layer:
 			add_layer(filename, adata, args)
-		adata.write(os.path.join(args.outdir, filename.replace('sct_cts.csv', 'final.h5ad')))
+		adata.write(os.path.join(args.outdir, filename.replace('sct_cts_extensive.csv', 'final.h5ad')))
 
 	shutil.rmtree(temp_dir)
 
