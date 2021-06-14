@@ -4,23 +4,19 @@ import pandas as pd
 
 
 def flatten_obj(obj):
-	ignore = ['accession','actions','aliases','audit','contributing_files',
-		'date_created','original_files','status','submitted_by',
-		'superseded_by','supersedes']
 	new_obj = {}
 	for k,v in obj.items():
-		if k not in ignore:
-			if isinstance(v, dict) and k not in ['test_results']:
-				for x,y in v.items():
-					new_obj[k + '.' + x] = y
-			elif (isinstance(v, list) and all(isinstance(i, dict) for i in v)):
-				new_v = []
-				for i in v:
-					new_i = flatten_obj(i)
-					new_v.append(new_i)
-				new_obj[k] = new_v
-			else:
-				new_obj[k] = v
+		if isinstance(v, dict):
+			for x,y in v.items():
+				new_obj[k + '.' + x] = y
+		elif (isinstance(v, list) and all(isinstance(i, dict) for i in v)):
+			new_v = []
+			for i in v:
+				new_i = flatten_obj(i)
+				new_v.append(new_i)
+			new_obj[k] = new_v
+		else:
+			new_obj[k] = v
 	return new_obj
 
 
@@ -48,9 +44,13 @@ def tsv_report(ds_id):
 			metadata_dict[obj_id] = {}
 			o_json = json.load(open(ds_id + '/metadata/' + obj_type + '/' + o))
 			for k,v in flatten_obj(o_json).items():
-				if isinstance(v, list) and len(v) == 1 and isinstance(v[0], dict):
-					for k2,v2 in v[0].items():
-						metadata_dict[obj_id][k + '.' + k2] = v2
+				if isinstance(v, list) and isinstance(v[0], dict):
+					for e in v:
+						for k2,v2 in e.items():
+							if k + '.' + k2 in metadata_dict[obj_id]:
+								metadata_dict[obj_id][k + '.' + k2].append(v2)
+							else:
+								metadata_dict[obj_id][k + '.' + k2] = [v2]
 				elif isinstance(v, dict):
 					for k2,v2 in v.items():
 						metadata_dict[obj_id][k + '.' + k2] = v2
@@ -84,6 +84,8 @@ def tsv_report(ds_id):
 					prop = i.split('/')[0] + '.' + k
 					if prop in uber_dict[seq_file_id]:
 						uber_dict[seq_file_id][prop].append(v)
+					elif isinstance(v, list):
+						uber_dict[seq_file_id][prop] = v
 					else:
 						uber_dict[seq_file_id][prop] = [v]
 			for k,v in uber_dict[seq_file_id].items():
@@ -91,4 +93,3 @@ def tsv_report(ds_id):
 
 	df = pd.DataFrame(uber_dict).fillna('').transpose()
 	df.to_csv('DCP_outs/' + ds_id + '.tsv', sep='\t')
-
