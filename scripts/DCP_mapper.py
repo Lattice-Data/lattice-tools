@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pint import UnitRegistry
 from urllib.parse import urljoin
 import DCP_mods.request_to_gcp as request_to_gcp
+from DCP_mods.DCP_flatten import tsv_report
 from DCP_mods.property_mapping import (
 	dcp_versions,
 	lattice_to_dcp,
@@ -1009,6 +1010,9 @@ def main():
 
 	if not os.path.isdir('DCP_outs'):
 		os.mkdir('DCP_outs')
+
+	# print a close approximation of the DCP metadata.tsv
+	tsv_report(dataset_id)
 
 	# report metadata not mapped to DCP schema
 	for k,v in not_incl.items():
