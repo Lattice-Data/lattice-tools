@@ -15,6 +15,8 @@ def flatten_obj(obj):
 				new_i = flatten_obj(i)
 				new_v.append(new_i)
 			new_obj[k] = new_v
+		elif v in [True, False]:
+			new_obj[k] = str(v)
 		else:
 			new_obj[k] = v
 	return new_obj
@@ -48,9 +50,14 @@ def tsv_report(ds_id):
 					for e in v:
 						for k2,v2 in e.items():
 							if k + '.' + k2 in metadata_dict[obj_id]:
-								metadata_dict[obj_id][k + '.' + k2].append(v2)
+								if isinstance(v2, list):
+									metadata_dict[obj_id][k + '.' + k2].update(v2)
+								else:
+									metadata_dict[obj_id][k + '.' + k2].append(str(v2))
+							elif isinstance(v2, list):
+								metadata_dict[obj_id][k + '.' + k2] = v2
 							else:
-								metadata_dict[obj_id][k + '.' + k2] = [v2]
+								metadata_dict[obj_id][k + '.' + k2] = [str(v2)]
 				elif isinstance(v, dict):
 					for k2,v2 in v.items():
 						metadata_dict[obj_id][k + '.' + k2] = v2
@@ -77,6 +84,24 @@ def tsv_report(ds_id):
 				for identifier in remaining:
 					ins.extend(get_inputs(link_json, identifier))
 				remaining = next_remaining - seen
+
+			for k,v in metadata_dict['sequence_file/' + seq_file_id].items():
+				prop = 'sequence_file.' + k
+				if prop in uber_dict[seq_file_id]:
+					uber_dict[seq_file_id][prop].append(v)
+				elif isinstance(v, list):
+					uber_dict[seq_file_id][prop] = v
+				else:
+					uber_dict[seq_file_id][prop] = [v]
+
+			for k,v in metadata_dict['project/' + ds_id].items():
+				prop = 'project.' + k
+				if prop in uber_dict[seq_file_id]:
+					uber_dict[seq_file_id][prop].append(v)
+				elif isinstance(v, list):
+					uber_dict[seq_file_id][prop] = v
+				else:
+					uber_dict[seq_file_id][prop] = [v]
 
 			# complile metadata for all input objects up the graph
 			for i in ins:
