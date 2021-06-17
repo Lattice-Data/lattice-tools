@@ -692,6 +692,12 @@ def customize_fields(obj, obj_type):
 		for a in ['geo_series', 'insdc_study', 'insdc_project', 'array_express_investigation']:
 			if obj.get(a):
 				obj[a] = obj[a][0]
+		obj['contributors'].append({
+				'contact_name': 'Lattice Data Coordination',
+				'institution': 'Stanford University',
+				'project_role': 'external curator',
+				'email': 'lattice-info@lists.stanford.edu'
+			})
 
 	elif obj_type == 'donor_organism':
 		if obj.get('development_stage'):
