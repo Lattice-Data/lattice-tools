@@ -150,7 +150,7 @@ for direct in directories:
 	bucket_name = full_path.split('/')[0]
 	outs_dir_path = full_path.replace(bucket_name + '/', '')
 
-	report_json = {'quality_metric_of': '<linkTo MatrixFile - filtered matrix .h5>'}
+	report_json = {'quality_metric_of': '<linkTo RawMatrixFile - filtered matrix .h5>'}
 
 	summary_file = 'web_summary.html'
 	try:
