@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import crcmod
 import json
 import lattice
 import os
@@ -247,13 +248,13 @@ def file_stats(local_path, obj):
 
     # get the crc32c
     with open(local_path, 'rb') as f:
-        hash = 0
+        crc32c_func = crcmod.predefined.Crc('crc-32c')
         while True:
             s = f.read(65536)
             if not s:
                 break
-            hash = zlib.crc32(s, hash)
-        obj['crc32c'] = "%08X" % (hash & 0xFFFFFFFF)
+            crc32c_func.update(s)
+        obj['crc32c'] = crc32c_func.hexdigest().lower()
 
 
 def get_object(temp_obj):
@@ -1018,6 +1019,7 @@ def main():
 		os.mkdir('DCP_outs')
 
 	# print a close approximation of the DCP metadata.tsv
+	print('PREPARING MOCK DCP METADATA TSV')
 	tsv_report(dataset_id)
 
 	# report metadata not mapped to DCP schema
