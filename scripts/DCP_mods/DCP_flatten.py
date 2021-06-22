@@ -26,12 +26,13 @@ def get_inputs(links, obj_id):
 	obj_id = obj_id.split('/')[-1]
 	ins = []
 	for l in links['links']:
-		for outs in l['outputs']:
-			if obj_id in outs['output_id']:
-				for inp in l['inputs']:
-					ins.append(inp['input_type'] + '/' + inp['input_id'])
-				for prot in l['protocols']:
-					ins.append(prot['protocol_type'] + '/' + prot['protocol_id'])
+		if l.get('outputs'):
+			for outs in l['outputs']:
+				if obj_id in outs['output_id']:
+					for inp in l['inputs']:
+						ins.append(inp['input_type'] + '/' + inp['input_id'])
+					for prot in l['protocols']:
+						ins.append(prot['protocol_type'] + '/' + prot['protocol_id'])
 	return ins
 
 
@@ -51,7 +52,7 @@ def tsv_report(ds_id):
 						for k2,v2 in e.items():
 							if k + '.' + k2 in metadata_dict[obj_id]:
 								if isinstance(v2, list):
-									metadata_dict[obj_id][k + '.' + k2].update(v2)
+									metadata_dict[obj_id][k + '.' + k2].extend(v2)
 								else:
 									metadata_dict[obj_id][k + '.' + k2].append(str(v2))
 							elif isinstance(v2, list):
@@ -67,6 +68,12 @@ def tsv_report(ds_id):
 	# cycle through to pull files & walk links backward
 	for f in os.listdir(ds_id + '/links'):
 		link_json = json.load(open(ds_id + '/links/' + f))
+
+		supps = []
+		for l in link_json['links']:
+			if l.get('link_type') == 'supplementary_file_link':
+				supps = [f['file_type'] + '/' + f['file_id'] for f in l['files']]
+
 		seq_file_link = link_json['links'][0]
 		for seq_file in seq_file_link['outputs']:
 			if seq_file['output_type'] != 'sequence_file':
@@ -103,16 +110,31 @@ def tsv_report(ds_id):
 				else:
 					uber_dict[seq_file_id][prop] = [v]
 
+			if supps:
+				for s in supps:
+					for k,v in metadata_dict[s].items():
+						prop = 'supplementary_file.' + k
+						if prop in uber_dict[seq_file_id]:
+							uber_dict[seq_file_id][prop].append(v)
+						elif isinstance(v, list):
+							uber_dict[seq_file_id][prop] = v
+						else:
+							uber_dict[seq_file_id][prop] = [v]
+
 			# complile metadata for all input objects up the graph
 			for i in ins:
 				for k,v in metadata_dict[i].items():
 					prop = i.split('/')[0] + '.' + k
 					if prop in uber_dict[seq_file_id]:
-						uber_dict[seq_file_id][prop].append(v)
+						if isinstance(v, list):
+							uber_dict[seq_file_id][prop].append('||'.join(v))
+						else:
+							uber_dict[seq_file_id][prop].append(v)
 					elif isinstance(v, list):
 						uber_dict[seq_file_id][prop] = v
 					else:
 						uber_dict[seq_file_id][prop] = [v]
+
 			for k,v in uber_dict[seq_file_id].items():
 				uber_dict[seq_file_id][k] = '||'.join(v)
 
