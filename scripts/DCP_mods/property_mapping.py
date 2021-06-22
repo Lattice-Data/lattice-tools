@@ -140,6 +140,9 @@ lattice_to_dcp = {
 				},
 				'institution': {
 					'lattice': 'institute_name'
+				},
+				'project_role': {
+					'lattice': 'job_title'
 				}
 			}
 		},
@@ -154,6 +157,9 @@ lattice_to_dcp = {
 				},
 				'email': {
 					'lattice': 'email'
+				},
+				'project_role': {
+					'lattice': 'job_title'
 				}
 			}
 		},
