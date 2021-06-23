@@ -22,7 +22,7 @@ Install python and necessary modules
 sudo yum install python3
 ```
 ```
-sudo pip3 install requests Pint google-api-python-client google-cloud-storage crcmod boto3
+sudo pip3 install requests Pint google-api-python-client google-cloud-storage crcmod boto3 pandas jsonschema
 ```
 Define 3 variables for Lattice db permissions
 ```
