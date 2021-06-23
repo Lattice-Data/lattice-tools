@@ -22,7 +22,7 @@ Install python and necessary modules
 sudo yum install python3
 ```
 ```
-sudo pip3 install requests Pint google-api-python-client google-cloud-storage
+sudo pip3 install requests Pint google-api-python-client google-cloud-storage crcmod boto3
 ```
 Define 3 variables for Lattice db permissions
 ```
@@ -30,8 +30,13 @@ export PROD_KEY=<> ; export PROD_SECRET=<> ; export PROD_SERVER=https://www.latt
 ```
 Copy 4 files from your local lattice-tools clone to the instance
 ```
-scp -i lattice_ec2.pem lattice.py DCP_mapper.py property_mapping.py request_to_gcp.py ec2-user@<Public DNS>:/mnt
+scp -i lattice_ec2.pem lattice.py DCP_mapper.py ec2-user@<Public DNS>:/mnt
 ```
+Copy DCP_mods directory your local lattice-tools clone to the instance
+```
+scp -i lattice_ec2.pem -r DCP_mods/ ec2-user@<Public DNS>:/mnt
+```
+
 Copy the GCP credentials json file from your local computer to the instance
 ```
 scp -i lattice_ec2.pem gcp_creds.json ec2-user@<Public DNS>:/mnt
