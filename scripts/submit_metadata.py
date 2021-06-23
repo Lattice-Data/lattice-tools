@@ -1,4 +1,5 @@
 import argparse
+import ast
 import os
 import json
 import lattice
@@ -217,6 +218,7 @@ def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
 		if schema_properties[key1].get('linkTo'):
 			linkTo_flag = True
 		if schema_properties[key1].get('items'):
+			array_of_type = schema_properties[key1]['items'].get('type')
 			if schema_properties[key1]['items'].get('linkTo'):
 				linkTo_flag = True
 	elif not key3:
@@ -253,11 +255,16 @@ def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
 					desired_type = schema_properties[key1]['properties'][key2]['properties'][key3]['type']
 					if schema_properties[key1]['properties'][key2]['properties'][key3].get('linkTo'):
 						linkTo_flag = True
+
 	# adjust the value to the specified type
 	if desired_type == 'array' and linkTo_flag == True:
 		return [quote(x.strip()) for x in old_value.split(',')]
 	if desired_type == 'array':
-		return [x.strip() for x in old_value.split(',')]
+		if array_of_type == 'object':
+			old_value = old_value.replace('},{', '}${')
+			return [ast.literal_eval(x) for x in old_value.split('$')]
+		else:
+			return [x.strip() for x in old_value.split(',')]
 	elif desired_type == 'boolean':
 		if str(old_value).lower() in ['true', '1']:
 			return True
