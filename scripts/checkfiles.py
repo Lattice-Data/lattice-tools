@@ -410,18 +410,7 @@ def process_h5matrix_file(job):
             obs_index = f.get_node(obs_group, '_index')
             results['observation_count'] = int(obs_index.shape[0])
 
-    if feature_counts[0]['feature_type'] == 'gene':
-        units = 'UMI'
-    else:
-        units = 'fragment ends'
-
-    results['layers'] = [{
-        'label': 'raw',
-        'feature_counts': feature_counts,
-        'normalized': False,
-        'value_scale': 'linear',
-        'value_units': units
-    }]
+    results['feature_counts'] = feature_counts
 
 
 def process_mexmatrix_file(job):
