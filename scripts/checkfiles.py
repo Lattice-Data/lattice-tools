@@ -622,6 +622,7 @@ def download_external(job):
     ftp = FTP(ftp_server)
     ftp.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 75)
+    #in some cases the next line needs to be commented out
     ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
     ftp.login(user='anonymous', passwd = 'password')
 
@@ -993,7 +994,6 @@ def main():
     jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.ext_file, args.file_format, args.include_validated)
 
     if jobs:
-        all_seq_runs = []
         logging.info('CHECKING {} files'.format(len(jobs)))
         for job in jobs:
             file_obj = job.get('item')
@@ -1011,11 +1011,6 @@ def main():
                     if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
                         dets = job['results']['flowcell_details']
                         sorted_dets = sorted(dets, key=lambda k: (k.get('machine'), k.get('flowcell'), k.get('lane')))
-                        all_seq_runs.append({
-                                            'item': file_obj['derived_from'],
-                                            'results': {'flowcell_details': sorted_dets},
-                                            'errors': {}
-                                            })
                     if job['post_json'] and not job['errors'] and args.update:
                         logging.info('PATCHING {}'.format(file_obj.get('accession')))
                         patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
@@ -1025,29 +1020,6 @@ def main():
             out = open(report_out, 'a')
             out.write(report(job))
             out.close()
-        if all_seq_runs:
-            seq_run_jobs = []
-            seq_run_uuids = []
-            for job in all_seq_runs:
-                if job not in seq_run_jobs:
-                    seq_run_uuids.append(job['item']['uuid'])
-                    seq_run_jobs.append(job)
-            logging.info('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
-            for job in seq_run_jobs:
-                if seq_run_uuids.count(job['item']['uuid']) == 1:
-                    compare_with_db(job, connection)
-                    if job['post_json'] and not job['errors'] and args.update:
-                        logging.info('PATCHING {}'.format(job['item'].get('uuid')))
-                        patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
-                        job['patch_result'] = patch['status']
-                    out = open(report_out, 'a')
-                    out.write(report(job))
-                    out.close()
-                else:
-                    job['errors']['internal_conflict'] = 'multiple files derive from this sequencing run with inconsistent metadata'
-                    out = open(report_out, 'a')
-                    out.write(report(job))
-                    out.close()
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
         logging.info(finishing_run)
