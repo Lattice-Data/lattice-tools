@@ -92,7 +92,7 @@ def aws_file_transfer(dataset_id, file_uris):
                     'includePrefixes': files
                 },
                 'gcsDataSink': {
-                    'bucketName': 'broad-dsp-monster-hca-dev-lattice',
+                    'bucketName': 'broad-dsp-monster-hca-prod-lattice',
                     'path': sink_path
                 }
             }
@@ -106,7 +106,7 @@ def local_dir_transfer(local_path, gcs_path=None):
     if not gcs_path:
         gcs_path = 'staging/' + local_path
 
-    bucket_name = 'broad-dsp-monster-hca-dev-lattice'
+    bucket_name = 'broad-dsp-monster-hca-prod-lattice'
     bucket = storage.Client().bucket(bucket_name)
 
     if os.path.isdir(local_path):
@@ -126,7 +126,7 @@ def local_dir_transfer(local_path, gcs_path=None):
 def local_file_transfer(local_file, gcs_path):
     assert os.path.isfile(local_file)
 
-    bucket_name = 'broad-dsp-monster-hca-dev-lattice'
+    bucket_name = 'broad-dsp-monster-hca-prod-lattice'
     bucket = storage.Client().bucket(bucket_name)
 
     remote_path = os.path.join(gcs_path, local_file)
