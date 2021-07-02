@@ -619,7 +619,7 @@ def main():
 					if patch_req == True and args.remove:
 						existing_json = lattice.get_object(temp['uuid'], connection, frame="edit")
 						for k in post_json.keys():
-							if k not in ['uuid', 'accesion', 'alias', '@id']:
+							if k not in ['uuid', 'accession', 'alias', '@id']:
 								if k not in existing_json.keys():
 									print('Cannot remove {}, may be calculated property, or is not submitted'.format(k))
 								else:
