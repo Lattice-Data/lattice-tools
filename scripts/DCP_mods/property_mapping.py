@@ -14,10 +14,13 @@ donor = {
 		}
 	},
 	'development_stage.ontology': {
-		'lattice': 'life_stage_term_id'
+		'lattice': 'development_ontology.term_id'
+	},
+	'development_stage.ontology_label': {
+		'lattice': 'development_ontology.term_name'
 	},
 	'development_stage.text': {
-		'lattice': 'life_stage'
+		'lattice': 'development_ontology.term_name'
 	},
 	'diseases': {
 		'lattice': 'diseases',
@@ -93,10 +96,10 @@ mouse_donor = {
 
 prenatal_donor = {
 	'gestational_age': {
-		'lattice': 'gestational_age'
+		'lattice': 'conceptional_age' # 2 weeks, or 14 days, are added later
 	},
 	'gestational_age_unit.text': {
-		'lattice': 'gestational_age_units'
+		'lattice': 'conceptional_age_units'
 	}
 }
 

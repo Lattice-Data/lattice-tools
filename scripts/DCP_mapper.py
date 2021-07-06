@@ -693,26 +693,36 @@ def customize_fields(obj, obj_type):
 		for a in ['geo_series', 'insdc_study', 'insdc_project', 'array_express_investigation']:
 			if obj.get(a):
 				obj[a] = obj[a][0]
-		obj['contributors'].append({
-				'contact_name': 'Lattice Data Coordination',
-				'institution': 'Stanford University',
-				'project_role': 'external curator',
-				'email': 'lattice-info@lists.stanford.edu'
-			})
+		if obj.get('contributors'):
+			obj['contributors'].append({
+					'contact_name': 'Lattice Data Coordination',
+					'institution': 'Stanford University',
+					'project_role': 'external curator',
+					'email': 'lattice-info@lists.stanford.edu'
+				})
 
 	elif obj_type == 'donor_organism':
-		if obj.get('development_stage'):
-			obj['development_stage']['ontology_label'] = donor_stages[obj['development_stage']['ontology']]
 		if obj.get('genus_species'):
 			obj['genus_species'] = [obj['genus_species']]
-		for a in ['organism_age', 'gestational_age']:
-			if obj.get(a) == 'unknown':
-				del obj[a]
+		if obj.get('organism_age') == 'unknown':
+			del obj['organism_age']
 		if not obj.get('is_living'):
-			if obj['development_stage']['text'] in ['embryonic','fetal']:
+			if obj.get('gestational_age'):
 				obj['is_living'] = 'not applicable'
 			else:
 				obj['is_living'] = 'unknown'
+		if obj.get('gestational_age'):
+			if obj['gestational_age'] == 'unknown':
+				del obj['gestational_age']
+			elif obj['gestational_age_unit']['text'] == 'month' or '-' in obj['gestational_age']:
+				del obj['gestational_age']
+				del obj['gestational_age_unit']
+			else:
+				age = int(obj['gestational_age'])
+				if obj['gestational_age_unit']['text'] == 'week':
+					obj['gestational_age'] = str(age + 2)
+				elif obj['gestational_age_unit']['text'] == 'day':
+					obj['gestational_age'] = str(age + 14)
 		if obj.get('human_specific'):
 			if obj['human_specific'].get('ethnicity'):
 				obj['human_specific']['ethnicity'] = [obj['human_specific']['ethnicity']]
