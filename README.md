@@ -33,7 +33,9 @@ Environment configuration
 So you'd define the following three variables.
 
 	`$ conda env config vars set LOCAL_KEY=<key>`
+
 	`$ conda env config vars set LOCAL_SECRET=<secret>`
+
 	`$ conda env config vars set LOCAL_SERVER=http://localhost:6543`
 
 1. After defining those, you'll need to reactivate your environment
