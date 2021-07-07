@@ -13,7 +13,7 @@ Environment configuration
     ```
 *Note: the examples call the environment `lattice_submit` but you can name it anything as long as it is clearly distinguishable from the enviroment you use to launch the encoded app*
 
-Install the following packages
+1. Install the following packages
     ```
     pip install python-magic requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
     ```
@@ -29,15 +29,14 @@ Install the following packages
     ```
     conda install pandas jsonschema
     ```
-Define variables in your environment based on the various servers you might submit to based on an alias for each server
-(`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to a local instance of the app, you might call this `local`.  
+1. Define variables in your environment based on the various servers you might submit to based on an alias for each server (`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to a local instance of the app, you might call this `local`.  
 So you'd define the following three variables.
 
 	`$ conda env config vars set LOCAL_KEY=<key>`
 	`$ conda env config vars set LOCAL_SECRET=<secret>`
 	`$ conda env config vars set LOCAL_SERVER=http://localhost:6543`
 
-After defining those, you'll need to reactivate your environment
+1. After defining those, you'll need to reactivate your environment
     ```
     conda activate lattice_submit
     ```
