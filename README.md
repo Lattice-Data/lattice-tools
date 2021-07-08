@@ -46,3 +46,23 @@ So you'd define the following three variables.
     ```
     conda env config vars list
     ```
+
+Available tools
+---------------- 
+* **cellranger_outs_reader.py**
+Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
+
+* **checkfiles.py**
+Gathers data file content information and compares with submitted metadata [run instructions](docs/checkfiles.md)
+
+* **DCP_mapper.py**
+Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)
+
+* **flattener.py**
+Transforms a contributor matrix, raw count data, and Lattice metadata into a cellxgene-approved matrix file [run instructions](docs/flattener.md)
+
+* **make_template.py**
+Produces a tabular representation of Lattice schema submittable properties, for ease of wrangling
+
+* **submit_metadata.py**
+Transforms tabulated metadata into json objects and posts/patches to the Lattice DB [use instructions](docs/submit_metadata.md)
