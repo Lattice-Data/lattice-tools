@@ -4,10 +4,6 @@ Create a new spot instance from the checkfiles template
 ```
 aws ec2 run-instances --launch-template LaunchTemplateName=checkfiles
 ```
-If only matrix files are being checked, you can limit the duration of the instance to 1 hour
-```
-aws ec2 run-instances --launch-template LaunchTemplateName=checkfiles --instance-market-options MarketType=spot,SpotOptions={BlockDurationMinutes=60}
-```
 Identify the Public DNS for the instance and ssh to instance
 ```
 aws ec2 describe-instances --filters Name=image-id,Values=ami-0e4035ae3f70c400f --query Reservations[*].Instances[*].[PublicDnsName] --output text

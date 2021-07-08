@@ -14,7 +14,7 @@ The objects will be loaded in the order specified in encoded/src/loadxl.py `ORDE
 
 Use the `--justtype` argument to only submit one of the object types, even if your file contains more sheets. Example:
 ```
-$ python submit_metadata.py -m local mydata.xsls --justtype Experiment
+python submit_metadata.py -m local mydata.xsls --justtype Experiment
 ```
 
 Use the `--starttype` argument to start at an object type and only submit the sequential objects
@@ -60,43 +60,45 @@ Embedded objects
 Embedded objects are assumed to be of the format of dictionary objects or a list of dictionary objects
 
 If you are submitting just one dictionary object...
-
-	 'plate_barcode_details': [
-			{
-				'barcode': 'ATGCCGCCG',
-				'plate_location': 'A1'
-			}
-		]
+```
+'plate_barcode_details': [
+	{
+		'barcode': 'ATGCCGCCG',
+		'plate_location': 'A1'
+	}
+]
+```
 Formatting in the document should be as follows for the above example:
 | plate_barcode_details.barcode | plate_barcode_details.plate_location |
 |:--|:--|
 | ATGCCGCCG | A1 |
 
-If you are submitting a list of multiple dictionary objects...
-
-	 'plate_barcode_details': [
-			{
-				'barcode': 'ATGCCGCCG',
-				'plate_location': 'A1'
-			},
-			{
-				'barcode': 'TGAAACGAC',
-				'plate_location': 'A2'
-			}
-		]
-
+If you are submitting multiple dictionary objects...
+```
+'plate_barcode_details': [
+	{
+		'barcode': 'ATGCCGCCG',
+		'plate_location': 'A1'
+	},
+	{
+		'barcode': 'TGAAACGAC',
+		'plate_location': 'A2'
+	}
+]
+```
 An identifier (number or letter) should be appended to the property names w/ '-' in order to group them appropriately...
 | plate_barcode_details-1.barcode | plate_barcode_details-1.plate_location | plate_barcode_details-2.barcode | plate_barcode_details-2.plate_location |
 |:--|:--|:--|:--|
 | ATGCCGCCG| A1 | TGAAACGAC | A2 |
 
 For more complex cases of embedded objects within embedded objects, the same logic applies but there will be two properties to append identifiers to. For example, these columns would be expected for a MatrixFile that has a layer with 2 filtering_cutoffs and another layer with 1 filter_cutoff...
-
-	layers-1.label
-	layers-1.filtering_cutoffs-1.cutoff_value
-	layers-1.filtering_cutoffs-1.cutoff_units
-	layers-1.filtering_cutoffs-2.cutoff_value
-	layers-1.filtering_cutoffs-2.cutoff_units
-	layers-2.label
-	layers-2.filtering_cutoffs-1.cutoff_value
-	layers-2.filtering_cutoffs-1.cutoff_units
+```
+layers-1.label
+layers-1.filtering_cutoffs-1.cutoff_value
+layers-1.filtering_cutoffs-1.cutoff_units
+layers-1.filtering_cutoffs-2.cutoff_value
+layers-1.filtering_cutoffs-2.cutoff_units
+layers-2.label
+layers-2.filtering_cutoffs-1.cutoff_value
+layers-2.filtering_cutoffs-1.cutoff_units
+```
