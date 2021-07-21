@@ -70,7 +70,7 @@ def aws_file_transfer(dataset_id, file_uris):
         description = 'Transfer of {} files for dataset {}'.format(len(files),dataset_id)
         transfer_job = {
             'description': description,
-            'projectId': 'broad-dsp-monster-hca-dev',
+            'projectId': 'mystical-slate-284720',
             'status': 'ENABLED',
             'schedule': {
                 'scheduleStartDate': {
