@@ -44,6 +44,10 @@ def getArgs():
                         help='Any identifier for the dataset of interest.')
     parser.add_argument('--mode', '-m',
                         help='The machine to run on.')
+    parser.add_argument('--data-only',
+                        default=False,
+                        action='store_true',
+                        help='If true and --update, only data files will be transferred to DCP, no metadata files.')
     parser.add_argument('--metadata-only',
                         default=False,
                         action='store_true',
@@ -693,13 +697,6 @@ def customize_fields(obj, obj_type):
 		for a in ['geo_series', 'insdc_study', 'insdc_project', 'array_express_investigation']:
 			if obj.get(a):
 				obj[a] = obj[a][0]
-		if obj.get('contributors'):
-			obj['contributors'].append({
-					'contact_name': 'Lattice Data Coordination',
-					'institution': 'Stanford University',
-					'project_role': 'external curator',
-					'email': 'lattice-info@lists.stanford.edu'
-				})
 
 	elif obj_type == 'donor_organism':
 		if obj.get('genus_species'):
@@ -1054,12 +1051,13 @@ def main():
 
 
 	if args.update:
-		# transfer the metadata directory to the DCP Google Cloud project
-		print('TRANSFERRING METADATA DIRECTORIES')
-		request_to_gcp.local_dir_transfer(dataset_id)
+		if not args.data_only:
+			# transfer the metadata directory to the DCP Google Cloud project
+			logging.info('TRANSFERRING METADATA DIRECTORIES')
+			request_to_gcp.local_dir_transfer(dataset_id)
 
-		if args.metadata_only:
-			sys.exit('Metadata directories transferred, data not transferred due to --metadata-only')
+			if args.metadata_only:
+				sys.exit('Metadata directories transferred, data not transferred due to --metadata-only')
 
 		# transfer the data files from S3 to the DCP Google Cloud project
 		if s3_uris:
