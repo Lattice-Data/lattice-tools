@@ -13,6 +13,7 @@ import sys
 import scanpy as sc
 import re
 import subprocess
+import numpy as np
 from urllib.parse import urljoin
 import requests
 
@@ -22,21 +23,22 @@ cell_metadata = {
 		'uuid',
 		'age_display',
 		'sex',
-		'ethnicity.term_name',
 		'ethnicity.term_id',
-		'life_stage_term_id',
+		'development_ontology.development_slims',
+		'development_ontology.term_id',
 		'diseases.term_id',
 		'diseases.term_name',
 		'body_mass_index',
 		'times_pregnant',
-		'family_history_breast_cancer'
+		'family_history_breast_cancer',
+		'organism.taxon_id'
 		],
 	'sample': [
 		'uuid',
 		'preservation_method',
-		'biosample_ontology.term_name',
 		'biosample_ontology.term_id',
 		'biosample_ontology.organ_slims',
+		'biosample_ontology.cell_slims',
 		'diseases.term_id',
 		'diseases.term_name',
 		'treatment_summary'
@@ -48,14 +50,14 @@ cell_metadata = {
 	],
 	'suspension': [
 		'uuid',
-		'suspension_type'
+		'suspension_type',
 		'@id'
 		],
 	'library': [
 		'uuid',
-		'protocol.assay_ontology.term_name',
 		'protocol.assay_ontology.term_id',
-		'@id'
+		'@id',
+		'dataset'
 		]
 	}
 
@@ -63,8 +65,8 @@ dataset_metadata = {
 	'final_matrix': [
 		'description',
 		'genome_annotation',
-		'default_visualization',
-		'default_embedding'
+		'default_embedding',
+		'dataset'
 		]
 	}
 
@@ -76,16 +78,13 @@ annot_fields = [
 ]
 
 prop_map = {
-	'sample_biosample_ontology_term_name': 'tissue',
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
-	'library_protocol_title': 'assay_title',
-	'library_protocol_assay_ontology_term_name': 'assay',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
-	'donor_ethnicity_term_name': 'ethnicity',
+	'donor_organism_taxon_id': 'organism_ontology_term_id',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
-	'donor_life_stage_term_id': 'development_stage_ontology_term_id',
+	'donor_development_ontology_term_id': 'development_stage_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
 	'matrix_genome_annotation': 'genome_annotation_version',
@@ -93,16 +92,14 @@ prop_map = {
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
-	'matrix_default_visualization': 'default_field',
 	'matrix_default_embedding': 'default_embedding',
 	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
 	'suspension_suspension_type': 'suspension_type'
 }
 
 unreported_value = 'unknown'
-corpora_schema_version = '1.1.0'
-corpora_encoding_version = '0.1.0'
-flat_version = '3'
+schema_version = '2.0.0'
+flat_version = '4'
 
 EPILOG = '''
 Examples:
@@ -135,11 +132,7 @@ def gather_rawmatrices(derived_from):
 	df_ids = []
 	for identifier in derived_from:
 		obj = lattice.get_object(identifier, connection)
-		if obj['@type'][0] == 'MatrixFile' and obj['layers'][0]['normalized'] != True and \
-				obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1:
-				# Temporarily change 
-				#obj['layers'][0]['value_scale'] == 'linear' and len(obj['layers']) == 1 and \
-				#'cell calling' in obj['derivation_process']:
+		if obj['@type'][0] == 'RawMatrixFile' and obj['background_barcodes_included'] == False:
 			my_raw_matrices.append(obj)
 		else:
 			# grab the derived_from in case we need to go a layer deeper
@@ -148,9 +141,7 @@ def gather_rawmatrices(derived_from):
 	if not my_raw_matrices:
 		for identifier in df_ids:
 			obj = lattice.get_object(identifier, connection)
-			if obj['@type'][0] == 'MatrixFile' and obj['normalized'] != True and \
-				obj['value_scale'] == 'linear' and obj['file_format'] == 'hdf5' and \
-				'cell calling' in obj['derivation_process']:
+			if obj['@type'][0] == 'RawMatrixFile' and obj['background_barcodes_included'] == False:
 				my_raw_matrices.append(obj)
 	return my_raw_matrices
 
@@ -176,7 +167,7 @@ def gather_objects(input_object, start_type=None):
 			libraries.append(obj)
 			for o in obj['derived_from']:
 				if o.get('uuid') not in susp_ids:
-					if o.get('type') == 'Suspension':
+					if 'Suspension' in o['@type']:
 						suspensions.append(o)
 						susp_ids.append(o.get('uuid'))
 					elif 'TissueSection' in o['@type']:
@@ -196,9 +187,6 @@ def gather_objects(input_object, start_type=None):
 					donors.append(o)
 					donor_ids.append(o.get('uuid'))
 
-	# for o in suspensions:
-	# 	for i in o['derived_from']:
-	# 		sample_ids.append(i)
 	if len(suspensions) > 0:
 		for o in suspensions:
 			for i in o['derived_from']:
@@ -300,10 +288,13 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 
 
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
+	dev_list = []
 	for prop in properties:
 		value = list()
 		for obj in objs:
 			v = get_value(obj, prop)
+			if prop == 'development_ontology.development_slims':
+				dev_list.append(v)
 			if isinstance(v, list):
 				value.extend(v)
 			else:
@@ -312,8 +303,31 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		key = prop_map.get(latkey, latkey)
 		value_str = [str(i) for i in value]
 		value_set = set(value_str)
+		cxg_fields = ['disease_ontology_term_id', 'ethnicity_ontology_term_id', 'organism_ontology_term_id',\
+						 'sex_ontology_term_id', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 		if len(value_set) > 1:
-			values_to_add[key] = 'pooled samples: [{}]'.format(','.join(value_str))
+			if key in cxg_fields:
+				if key == 'development_stage_ontology_term_id':
+					dev_in_all = list(set.intersection(*map(set, dev_list)))
+					if dev_in_all == []:
+						sys.exit("There is no common development_slims that can be used for development_stage_ontology_term_id")
+					else:
+						query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + dev_in_all[0] + '&format=json')
+						r = requests.get(query_url, auth=connection.auth)
+						try:
+							r.raise_for_status()
+						except requests.HTTPError:
+							sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
+						else:
+							if r.json()['total']==1:
+								values_to_add[key] = r.json()['@graph'][0]['term_id']
+							else:
+								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
+						#values_to_add[key] = dev_in_all[0]
+				else:
+					sys.exit("Cxg field is a list")
+			else:		
+				values_to_add[key] = 'pooled samples: [{}]'.format(','.join(value_str))
 		else:
 			values_to_add[key] = next(iter(value_set))
 
@@ -339,6 +353,7 @@ def report_dataset(donor_objs, matrix, dataset):
 	# 	norm_meth = layer.get('normalization_method', unreported_value)
 	# 	desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 	# 	layer_descs['X'] = desc
+	x_norm = ""
 	if len(matrix.get('layers')) == 1:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -346,6 +361,7 @@ def report_dataset(donor_objs, matrix, dataset):
 			norm_meth = layer.get('normalization_method', unreported_value)
 			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs['X'] = desc
+			x_norm = norm_meth
 	else:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -356,17 +372,15 @@ def report_dataset(donor_objs, matrix, dataset):
 			else:
 				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs[layer.get('label')] = desc
-
-
+			if layer.get('label', unreported_value) == 'X':
+				x_norm = norm_meth
 
 	ds_results['layer_descriptions'] = layer_descs
-	org_id = set()
-	org_name = set()
-	for obj in donor_objs:
-		org_id.add(obj['organism']['taxon_id'])
-		org_name.add(obj['organism']['scientific_name'])
-	ds_results['organism_ontology_term_id'] = ','.join(org_id)
-	ds_results['organism'] = ','.join(org_name)
+	if x_norm == '' or x_norm == unreported_value:
+		ds_results['normalization'] = 'none'
+	else:
+		ds_results['normalization'] = x_norm
+
 	return ds_results
 
 
@@ -510,9 +524,9 @@ def trim_cell_slims(df_annot):
 	df_annot['cell_type_category'] = cell_term_list
 	df_annot['cell_type'] = df_annot['cell_type'].astype(str)
 	df_annot['cell_type_category'] = df_annot['cell_type_category'].astype(str)
-	if (len(df_annot.loc[df_annot['cell_type_category']=='']) >= 1):
+	if (len(df_annot.loc[df_annot['cell_type_category']==unreported_value]) >= 1):
 		print("WARNING, there are cells that do not have a cell slim, so will just use cell_type")
-		df_annot.loc[df_annot['cell_type_category']=='', 'cell_type_category'] = df_annot.loc[df_annot['cell_type_category']=='', 'cell_type']
+		df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type_category'] = df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type']
 	return df_annot
 
 
@@ -615,30 +629,11 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj):
 	return(lib_donor_df)
 
 
-# Convert our stage enums to ontology term names
-def get_stage(df):
-	term_lookup = {
-		'HsapDv:0000002': 'embryonic human stage',
-		'HsapDv:0000037': 'fetal stage',
-		'HsapDv:0000082': 'newborn human stage',
-		'HsapDv:0000083': 'infant stage',
-		'HsapDv:0000081': 'child stage',
-		'HsapDv:0000086': 'adolescent stage',
-		'HsapDv:0000087': 'human adult stage'
-	}
-	stage_ids = df['development_stage_ontology_term_id'].unique()
-	for stage in stage_ids:
-		if stage in term_lookup:
-			df.loc[df['development_stage_ontology_term_id']==stage, 'development_stage'] = term_lookup[stage]
-		else:
-			sys.exit("Unexpected development_stage_ontology_term_id: {}".format(stage))
-
-
 # If there is no tissue_ontology, get first value of organ slims
 def get_organ_slim(df_series, suffix):
-	df_series['tissue'] = df_series['sample_biosample_ontology_organ_slims'].split("'")[1] + suffix
+	# df_series['tissue'] = df_series['sample_biosample_ontology_organ_slims'].split("'")[1] + suffix
 	tissue = df_series['sample_biosample_ontology_organ_slims'].split("'")[1].replace(" ", "+")
-	df_series.drop(labels='sample_biosample_ontology_organ_slims')
+	df_series.drop(labels='sample_biosample_ontology_organ_slims', inplace=True)
 	query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + tissue + '&format=json')
 	r = requests.get(query_url, auth=connection.auth)
 	try:
@@ -652,14 +647,86 @@ def get_organ_slim(df_series, suffix):
 			sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
 
 
+# For cell culture, tissue is not UBERON, use cell slims to get CL
+def get_cell_slim(df_series, suffix):
+	cell = df_series['sample_biosample_ontology_cell_slims'].split("'")[1].replace(" ", "+")
+	df_series.drop(labels='sample_biosample_ontology_cell_slims', inplace=True)
+	query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + cell + '&format=json')
+	r = requests.get(query_url, auth=connection.auth)
+	try:
+		r.raise_for_status()
+	except requests.HTTPError:
+		sys.exit("Error in getting cell slim as tissue ontology: {}".format(query_url))
+	else:
+		if r.json()['total']==1:
+			df_series['tissue_ontology_term_id'] = r.json()['@graph'][0]['term_id'] + suffix
+		else:
+			sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
+
+
+# Ontologize sex from donor.sex enum
+def get_sex_ontology(donor_df):
+	term_lookup = {
+		'female': 'PATO:0000383',
+		'male': 'PATO:0000384'
+	}
+	sexes = donor_df['sex'].unique()
+	for sex in sexes:
+		if sex in term_lookup:
+			donor_df.loc[donor_df['sex'] == sex, 'sex_ontology_term_id'] = term_lookup[sex]
+		elif sex == 'unknown' or sex == 'mixed':
+			donor_df.loc[donor_df['sex'] == sex, 'sex_ontology_term_id'] = 'unknown'
+		else:
+			sys.exit("Unexpexted sex: {}".format(sex))
+
+
+# Make sure cxg_adata and cxg_adata_raw have same number of features
+# If not, create an adata of np.nan and concat to cxg_adata 
+def add_nan(cxg_adata, cxg_adata_raw):
+	if cxg_adata_raw.shape[1] > cxg_adata.shape[1]:
+		genes_add = [x for x in cxg_adata_raw.var.index.to_list() if x not in cxg_adata.var.index.to_list()]
+		all_nan = np.empty((cxg_adata.shape[0], len(genes_add)))
+		all_nan[:] = np.nan
+		nan_var = pd.DataFrame(index=genes_add)
+		adata_nan = ad.AnnData(X=all_nan, obs=cxg_adata.obs, var = nan_var, uns=cxg_adata.uns)
+		new_adata = ad.concat([cxg_adata, adata_nan], join='outer', axis=1, uns_merge='same', merge='same')
+		new_adata.obsm = cxg_adata.obsm
+		new_adata = new_adata[:,cxg_adata_raw.var.index.to_list()]
+		return(new_adata)
+	else:
+		return(cxg_adata)
+
+
+# Use cxg_adata_raw var to map ensembl IDs and use that as index
+# Make sure the indices are the same order for both anndata objects & clean up var metadata
+# WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
+def set_ensembl(cxg_adata, cxg_adata_raw):
+	if 'feature_types' in cxg_adata_raw.var.columns.to_list():
+		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
+		cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
+	else:
+		cxg_adata.var.insert(0, 'feature_biotype', 'gene')
+		cxg_adata_raw.var.insert(0, 'feature_biotype', 'gene') 
+	keep = ['feature_biotype', 'gene_ids']
+	remove = [x for x in cxg_adata_raw.var.columns.to_list() if x not in keep]
+	for r in remove:
+		cxg_adata_raw.var.drop(columns=r, inplace=True)
+	if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
+		cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
+		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
+		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
+		cxg_adata.var.index.name = None
+		cxg_adata_raw.var.index.name = None
+
+
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
-	# confirm that the identifier you've provided corresponds to a MatrixFile
+	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
 	summary_assay = ''
-	if mfinal_type != 'MatrixFile':
-		sys.exit('{} is not a MatrixFile, but a {}'.format(mfinal_id, mfinal_type))
+	if mfinal_type != 'ProcessedMatrixFile':
+		sys.exit('{} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 	if mfinal_obj['assays'] == ['snATAC-seq']:
 		summary_assay = 'ATAC'
 	elif mfinal_obj['assays'] == ['snRNA-seq'] or mfinal_obj['assays'] == ['scRNA-seq'] or\
@@ -757,10 +824,9 @@ def main(mfinal_id):
 		# make sure donor_df contains UBERON for tissue, may need to revisit 'if' statement
 		if 'author_donor_column' not in mfinal_obj:
 			if not row_to_add['tissue_ontology_term_id'].startswith('UBERON'):
-				if row_to_add['tissue'].endswith('(cell culture)'):
-					get_organ_slim(row_to_add, ' (cell culture)')
-				elif row_to_add['tissue'].endswith('(organoid)'):
-					get_organ_slim(row_to_add, ' (organoid)')
+				if row_to_add['tissue_ontology_term_id'].endswith('(cell culture)'):
+					#get_organ_slim(row_to_add, ' (cell culture)')
+					get_cell_slim(row_to_add, ' (cell_culture)')
 				else:
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
 			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
@@ -814,6 +880,7 @@ def main(mfinal_id):
 	# For RNA datasets, concatenate all anndata objects in list,
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
 	raw_matrix_mapping = []
+	cell_mapping_rev_dct = {}
 	if summary_assay == 'RNA':
 		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
@@ -840,17 +907,16 @@ def main(mfinal_id):
 
 	# Set uns and obsm parameters
 	cxg_uns = ds_results
-	cxg_uns['version'] = {}
-	cxg_uns['version']['corpora_schema_version'] = corpora_schema_version
-	cxg_uns['version']['corpora_encoding_version'] = corpora_encoding_version
+	cxg_uns['schema_version'] = schema_version
 	cxg_obsm = get_embeddings(mfinal_adata)
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
-	if cxg_uns['organism'] != 'Homo sapiens':
-		sys.exit("Organism is not Homo sapiens.")
-	if cxg_uns['organism'] == 'Homo sapiens' and 'ethnicity' in df:
-		if 'unknown' in df['ethnicity'].unique():
-			df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
+	# Also add calculated fields to df 
+	if 'NCIT:C17998' in df['ethnicity_ontology_term_id'].unique():
+		df.loc[df['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = df['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
+	df['is_primary_data'] = df['library_dataset'] == ds_results['matrix_dataset']
+	del cxg_uns['matrix_dataset']
+
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
@@ -874,10 +940,8 @@ def main(mfinal_id):
 		lib_donor_df = cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
 		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj)
 
-		# make sure donor_df contains UBERON for tissue
-
 		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease'))
-		get_stage(donor_df)
+		get_sex_ontology(donor_df)
 		if cxg_uns['organism'] == 'Homo sapiens' and 'unknown' in donor_df['ethnicity'].unique():
 			donor_df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
 			print(donor_df['ethnicity_ontology_term_id'])
@@ -888,14 +952,31 @@ def main(mfinal_id):
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
 		report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
-		get_stage(df)
-		cxg_obs = pd.merge(cxg_obs, df[['disease', 'disease_ontology_term_id', 'reported_diseases', 'development_stage']], left_on="raw_matrix_accession", right_index=True, how="left" )
+		get_sex_ontology(df)
+		cxg_obs = pd.merge(cxg_obs, df[['disease', 'disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
+
+	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
+	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
+	metrics_list = ['n_genes', 'percent.mito', 'percent.mt', 'percent.rpl', 'percent.rps']
+	if mfinal_obj['file_format'] == 'rds':
+		if len(mfinal_obj['layers']) == 1:
+			layer_assay = mfinal_obj['layers'][0]['assay']
+			metrics_list.extend(['nCount_' + layer_assay, 'nFeature_' + layer_assay])
+		else:
+			sys.exit("Need to add extra logic if wrangling multiple assays in Seurat object")
+	for metric in metrics_list:
+		if metric in mfinal_adata.obs.columns.to_list():
+			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[metric]], left_index=True, right_index=True, how='left')
+			if cxg_obs[metric].dtype != 'float' and cxg_obs[metric].dtype != 'int32':
+				print("WARNING: metrics from contributor matrix transferred to cxg h5ad is neither a float or an int")
+
 
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
-			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
-			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id']
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'library_dataset',\
+			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'disease',\
+			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'cell_type',\
+			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
@@ -923,12 +1004,15 @@ def main(mfinal_id):
 					sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 			else:
 				sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
-	cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'gene_ids': 'gene_identifier'})
+
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	if mfinal_obj['file_format'] == 'hdf5':
-		cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
+		#cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
+		cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+		cxg_adata = add_nan(cxg_adata, cxg_adata_raw)
+		set_ensembl(cxg_adata, cxg_adata_raw)
 		cxg_adata.raw = cxg_adata_raw
 		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
 			if label != 'X':
@@ -943,14 +1027,18 @@ def main(mfinal_id):
 				if i != 0:
 					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
 				matrix_loc = mfinal_adata.X
-				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
+				final_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 			else:
 				if i != 0:
 					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
 				matrix_loc = mfinal_adata.raw.X
-				# final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var['_index']),]
-				final_var = cxg_adata_raw.var.loc[list(mfinal_adata.raw.var.index),]
+				if '_index' in mfinal_adata.raw.var.columns.to_list():
+					final_var = pd.DataFrame(index = mfinal_adata.raw.var['_index'].to_list())
+				else:
+					final_var = pd.DataFrame(index = mfinal_adata.raw.var.index.to_list())
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
+			cxg_adata = add_nan(cxg_adata, cxg_adata_raw)
+			set_ensembl(cxg_adata, cxg_adata_raw)
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
 			if len(converted_h5ad) == 1:
