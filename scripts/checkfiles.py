@@ -1,5 +1,8 @@
 import argparse
 import boto3
+import botocore
+import crcmod
+import hashlib
 import h5py
 import json
 import lattice
@@ -361,44 +364,53 @@ def process_h5matrix_file(job):
     if hdf5_validate != True:
         errors['is_hdf5'] = hdf5_validate
 
-    # https://support.10xgenomics.com/single-cell-gene-expression/software/pipelines/latest/advanced/h5_matrices
     with tables.open_file(local_path, 'r') as f:
-        mat_group = f.get_node(f.root, 'matrix')
+        # first check for standard CellRanger formatted matrix
+        if list(f.walk_groups('/'))[0].__members__ == ['matrix']:
+            top_name = 'matrix'
+            top_group = f.get_node(f.root, top_name)
 
-        barcodes = f.get_node(mat_group, 'barcodes')
-        results['observation_count'] = int(barcodes.shape[0])
+            barcodes = f.get_node(top_group, 'barcodes')
+            results['observation_count'] = int(barcodes.shape[0])
 
-        feature_group = f.get_node(mat_group, 'features')
-        counts = {}
-        for i in list(getattr(feature_group, 'feature_type')):
-            i = feature_type_mapping.get(i.decode("utf-8"), i.decode("utf-8"))
-            if (i in counts):
-                counts[i] += 1
-            else:
-                counts[i] = 1
+            feature_group = f.get_node(top_group, 'features')
+            counts = {}
+            for i in list(getattr(feature_group, 'feature_type')):
+                i = feature_type_mapping.get(i.decode("utf-8"), i.decode("utf-8"))
+                if (i in counts):
+                    counts[i] += 1
+                else:
+                    counts[i] = 1
+            feature_counts = []
+            for feature in counts.keys():
+                feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
 
-        genome_list = []
-        genomes = (set(getattr(feature_group, 'genome')))
-        for g in genomes:
-            genome_list.append(g.decode("utf-8"))
-        results['genomes'] = genome_list
+            genome_list = []
+            genomes = (set(getattr(feature_group, 'genome')))
+            for g in genomes:
+                genome_list.append(g.decode("utf-8"))
+            results['genomes'] = genome_list
+        elif list(f.walk_groups('/'))[0].__members__ == ['hg19']:
+            top_name = 'hg19'
+            top_group = f.get_node(f.root, top_name)
 
-    feature_counts = []
-    for feature in counts.keys():
-        feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
+            barcodes = f.get_node(top_group, 'barcodes')
+            results['observation_count'] = int(barcodes.shape[0])
 
-    if feature_counts[0]['feature_type'] == 'gene':
-        units = 'UMI'
-    else:
-        units = 'fragment ends'
+            feature_group = f.get_node(top_group, 'gene_names')
+            feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
 
-    results['layers'] = [{
-        'label': 'raw',
-        'feature_counts': feature_counts,
-        'normalized': False,
-        'value_scale': 'linear',
-        'value_units': units
-    }]
+            results['genomes'] = ['hg19']
+        else:
+            var_group = f.get_node(f.root, 'var')
+            feature_group = f.get_node(var_group, 'gene_ids')
+            feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
+
+            obs_group = f.get_node(f.root, 'obs')
+            obs_index = f.get_node(obs_group, '_index')
+            results['observation_count'] = int(obs_index.shape[0])
+
+    results['feature_counts'] = feature_counts
 
 
 def process_mexmatrix_file(job):
@@ -557,8 +569,8 @@ def download_s3_directory(job):
     for file_name in ['barcodes.tsv.gz', 'features.tsv.gz', 'matrix.mtx.gz']:
         try:
             s3client.download_file(bucket_name, dir_path + '/' + file_name, '{}/{}'.format(tmp_dir, file_name))
-        except subprocess.CalledProcessError as e:
-            errors['file not found'] = 'Failed to find file on s3'
+        except botocore.exceptions.ClientError as e:
+            errors['s3 uri error'] = e.response['Error']['Message']
         else:
             logging.info(file_name + ' downloaded')
 
@@ -580,8 +592,8 @@ def download_s3_file(job):
     logging.info(file_name + ' downloading')
     try:
         s3client.download_file(bucket_name, file_path, file_name)
-    except subprocess.CalledProcessError as e:
-        errors['file not found'] = 'Failed to find file on s3'
+    except botocore.exceptions.ClientError as e:
+        errors['s3 uri error'] = e.response['Error']['Message']
     else:
         logging.info(file_name + ' downloaded')
         job['download_stop'] = datetime.now()
@@ -599,6 +611,7 @@ def download_external(job):
     ftp = FTP(ftp_server)
     ftp.sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
     ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 75)
+    #in some cases the next line needs to be commented out
     ftp.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
     ftp.login(user='anonymous', passwd = 'password')
 
@@ -717,11 +730,13 @@ def check_file(job):
 
     job['check_start'] = datetime.now()
 
-    # check file size & md5sum
+    # check file size
     logging.info('Getting file size')
     file_stat = os.stat(local_path)
     results['file_size'] = file_stat.st_size
-    # Faster than doing it in Python.
+
+    # get the md5sum
+    # faster than doing it in Python
     try:
         logging.info('Getting file md5')
         output = subprocess.check_output('md5sum {}'.format(local_path),
@@ -734,6 +749,28 @@ def check_file(job):
             int(results['md5sum'], 16)
         except ValueError:
             errors['md5sum'] = output.decode(errors='replace').rstrip('\n')
+
+
+    # get the sha256
+    sha256_hash = hashlib.sha256()
+    with open(local_path,"rb") as f:
+        # Read and update hash string value in blocks of 4K
+        for byte_block in iter(lambda: f.read(4096),b""):
+            sha256_hash.update(byte_block)
+        results['sha256'] = sha256_hash.hexdigest()
+
+
+    # get the crc32c
+    with open(local_path, 'rb') as f:
+        crc32c_func = crcmod.predefined.Crc('crc-32c')
+        while True:
+            s = f.read(65536)
+            if not s:
+                break
+            crc32c_func.update(s)
+        results['crc32c'] = crc32c_func.hexdigest().lower()
+
+
     # check for correct gzip status
     try:
         is_gzipped = is_path_gzipped(local_path)
@@ -910,11 +947,11 @@ def main():
         sys.exit('ERROR: --mode is required with --query/--accessions')
 
     arg_count = 0
-    for arg in [args.query, args.accessions, args.s3_file]:
+    for arg in [args.query, args.accessions, args.s3_file, args.ext_file]:
         if arg:
             arg_count += 1
     if arg_count != 1:
-        sys.exit('ERROR: exactly one of --query, --accessions, --s3-file is required, {} given'.format(arg_count))
+        sys.exit('ERROR: exactly one of --query, --accessions, --s3-file, --ext-file is required, {} given'.format(arg_count))
 
 
     if args.mode:
@@ -946,7 +983,6 @@ def main():
     jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.ext_file, args.file_format, args.include_validated)
 
     if jobs:
-        all_seq_runs = []
         logging.info('CHECKING {} files'.format(len(jobs)))
         for job in jobs:
             file_obj = job.get('item')
@@ -959,16 +995,11 @@ def main():
                 local_file, job = download_s3_file(job)
             if os.path.exists(local_file):
                 check_file(job)
-                if not args.s3_file:
+                if not args.s3_file and not args.ext_file:
                     compare_with_db(job, connection)
                     if job['results'].get('flowcell_details') and file_obj.get('derived_from'):
                         dets = job['results']['flowcell_details']
                         sorted_dets = sorted(dets, key=lambda k: (k.get('machine'), k.get('flowcell'), k.get('lane')))
-                        all_seq_runs.append({
-                                            'item': file_obj['derived_from'],
-                                            'results': {'flowcell_details': sorted_dets},
-                                            'errors': {}
-                                            })
                     if job['post_json'] and not job['errors'] and args.update:
                         logging.info('PATCHING {}'.format(file_obj.get('accession')))
                         patch = lattice.patch_object(file_obj.get('accession'), connection, job['post_json'])
@@ -978,29 +1009,6 @@ def main():
             out = open(report_out, 'a')
             out.write(report(job))
             out.close()
-        if all_seq_runs:
-            seq_run_jobs = []
-            seq_run_uuids = []
-            for job in all_seq_runs:
-                if job not in seq_run_jobs:
-                    seq_run_uuids.append(job['item']['uuid'])
-                    seq_run_jobs.append(job)
-            logging.info('CHECKING {} sequencing_runs'.format(len(seq_run_jobs)))
-            for job in seq_run_jobs:
-                if seq_run_uuids.count(job['item']['uuid']) == 1:
-                    compare_with_db(job, connection)
-                    if job['post_json'] and not job['errors'] and args.update:
-                        logging.info('PATCHING {}'.format(job['item'].get('uuid')))
-                        patch = lattice.patch_object(job['item'].get('uuid'), connection, job['post_json'])
-                        job['patch_result'] = patch['status']
-                    out = open(report_out, 'a')
-                    out.write(report(job))
-                    out.close()
-                else:
-                    job['errors']['internal_conflict'] = 'multiple files derive from this sequencing run with inconsistent metadata'
-                    out = open(report_out, 'a')
-                    out.write(report(job))
-                    out.close()
 
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
         logging.info(finishing_run)

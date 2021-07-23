@@ -14,13 +14,13 @@ donor = {
 		}
 	},
 	'development_stage.ontology': {
-		'lattice': 'life_stage_term_id'
+		'lattice': 'development_ontology.term_id'
 	},
 	'development_stage.ontology_label': {
-		'lattice': 'life_stage'
+		'lattice': 'development_ontology.term_name'
 	},
 	'development_stage.text': {
-		'lattice': 'life_stage'
+		'lattice': 'development_ontology.term_name'
 	},
 	'diseases': {
 		'lattice': 'diseases',
@@ -35,6 +35,26 @@ donor = {
 				'lattice': 'term_name'
 			}
 		}
+	},
+	'genus_species.ontology': {
+		'lattice': 'organism.taxon_id'
+	},
+	'genus_species.ontology_label': {
+		'lattice': 'organism.taxon_id',
+		'value_map': {
+			'NCBITaxon:9606': 'Homo sapiens',
+			'NCBITaxon:10090': 'Mus musculus'
+		}
+	},
+	'genus_species.text': {
+		'lattice': 'organism.taxon_id',
+		'value_map': {
+			'NCBITaxon:9606': 'Homo sapiens',
+			'NCBITaxon:10090': 'Mus musculus'
+		}
+	},
+	'medical_history.treatment': {
+		'lattice': 'treatment_summary'
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
@@ -76,10 +96,10 @@ mouse_donor = {
 
 prenatal_donor = {
 	'gestational_age': {
-		'lattice': 'gestational_age'
+		'lattice': 'conceptional_age' # 2 weeks, or 14 days, are added later
 	},
 	'gestational_age_unit.text': {
-		'lattice': 'gestational_age_units'
+		'lattice': 'conceptional_age_units'
 	}
 }
 
@@ -106,6 +126,9 @@ biosample = {
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
+	},
+	'treatment_summary': {
+		'lattice': 'treatment_summary'
 	}
 }
 
@@ -115,18 +138,21 @@ lattice_to_dcp = {
 		'contributors': {
 			'lattice': 'contributors',
 			'subprop_map': {
-				'name': {
+				'contact_name': {
 					'lattice': 'title'
 				},
 				'institution': {
 					'lattice': 'institute_name'
+				},
+				'project_role': {
+					'lattice': 'job_title'
 				}
 			}
 		},
-		'corresponding_contributors': {
+		'corresponding_contributors': { # DCP_mapper merges these with contributors
 			'lattice': 'corresponding_contributors',
 			'subprop_map': {
-				'name': {
+				'contact_name': {
 					'lattice': 'title'
 				},
 				'institution': {
@@ -134,18 +160,20 @@ lattice_to_dcp = {
 				},
 				'email': {
 					'lattice': 'email'
+				},
+				'project_role': {
+					'lattice': 'job_title'
 				}
 			}
 		},
 		'dbxrefs': {
 			'lattice': 'dbxrefs',
-			'SRA': 'insdc_project_accessions',
-			'GEO': 'geo_series_accessions',
-			'ArrayExpress': 'array_express_accessions',
-			'BioProject': 'insdc_study_accessions',
-			'BioStudies': 'biostudies_accessions'
+			'SRA': 'insdc_project',
+			'GEO': 'geo_series',
+			'ArrayExpress': 'array_express_investigation',
+			'BioProject': 'insdc_study'
 		},
-		'funders.organization': {
+		'funders.funder_name': {
 			'lattice': 'funding_organizations'
 		},
 		'project_core.project_description': {
@@ -169,10 +197,13 @@ lattice_to_dcp = {
 				'pmid': {
 					'lattice': 'pmid'
 				},
-				'title': {
+				'publication_title': {
 					'lattice': 'title'
 				}
 			}
+		},
+		'supplementary_links': {
+			'lattice': 'urls'
 		}
 	},
 	'HumanPostnatalDonor': {
@@ -226,6 +257,9 @@ lattice_to_dcp = {
 	'Tissue': {
 		**biosample,
 		'class': 'specimen_from_organism',
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
+		},
 		'diseases': {
 			'lattice': 'diseases',
 			'subprop_map': {
@@ -263,8 +297,9 @@ lattice_to_dcp = {
 			'lattice': 'preservation_method',
 			'value_map': {
 				'n/a (fresh)': 'fresh',
-				'cryopreservation': 'cryopreservation, other',
-				'paraffin embedding': 'formalin fixed and paraffin embedded'
+				'cryopreservation': 'frozen at -80C',
+				'flash-freezing': 'frozen in liquid nitrogen',
+				'paraffin embedding': 'paraffin block'
 			}
 		},
 		'preservation_storage.storage_time': {
@@ -281,6 +316,9 @@ lattice_to_dcp = {
 		},
 		'purchased_specimen.manufacturer': {
 			'lattice': 'source'
+		},
+		'spatial_information': {
+			'lattice': 'spatial_information'
 		},
 		'state_of_specimen.ischemic_temperature': {
 			'lattice': 'ischemic_temperature',
@@ -305,6 +343,9 @@ lattice_to_dcp = {
 	'CellCulture': {
 		**biosample,
 		'class': 'cell_line',
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
+		},
 		'cell_type.ontology': {
 			'lattice': 'biosample_ontology.term_id'
 		},
@@ -336,7 +377,7 @@ lattice_to_dcp = {
 		'tissue.text': {
 			'lattice': 'biosample_ontology.organ_slims'
 		},
-		'type': {
+		'cell_line_type': {
 			'lattice': 'biosample_ontology.cell_slims'
 		}
 	},
@@ -348,6 +389,9 @@ lattice_to_dcp = {
 		},
 		'age_unit.text': {
 			'lattice': 'post_differentiation_time_units'
+		},
+		'biomaterial_core.biomaterial_description': {
+			'lattice': 'summary'
 		},
 		'embedded_in_matrigel': {
 			'lattice': 'embedded_in_matrigel'
@@ -382,6 +426,18 @@ lattice_to_dcp = {
 		},
 		'cell_morphology.percent_cell_viability': {
 			'lattice': 'percent_cell_viability'
+		},
+		'dissociation_reagent': {
+			'lattice': 'dissociation_reagent'
+		},
+		'dissociation_time': {
+			'lattice': 'dissociation_time'
+		},
+		'dissociation_time_units': {
+			'lattice': 'dissociation_time_units'
+		},
+		'enrichment_factors': {
+			'lattice': 'enrichment_factors'
 		},
 		'estimated_cell_count': {
 			'lattice': 'starting_quantity'
@@ -458,23 +514,11 @@ lattice_to_dcp = {
 			'lattice': 'protocol.strand_specificity'
 		}
 	},
-	'SequencingRun': {
-		'class': 'sequencing_protocol',
-		'instrument_manufacturer_model.text': {
-			'lattice': 'platform'
-		},
-		'local_machine_name': {
-			'lattice': 'flowcell_details.machine'
-		},
-		'protocol_core.protocol_id': {
-			'lattice': 'uuid'
-		},
-		'provenance.document_id': {
-			'lattice': 'uuid'
-		}
-	},
 	'RawSequenceFile': {
 		'class': 'sequence_file',
+		'crc32c': {
+			'lattice': 'crc32c'
+		},
 		'file_core.checksum': {
 			'lattice': 'md5sum'
 		},
@@ -484,25 +528,101 @@ lattice_to_dcp = {
 		'file_core.format': {
 			'lattice': 'file_format'
 		},
+		'file_size': {
+			'lattice': 'file_size' # used for file_descriptor, not other metadata
+		},
 		'insdc_run_accessions': {
 			'lattice': 'derived_from' # DCP_mapper pulls out just dbxrefs
+		},
+		'library_prep_id': {
+			'lattice': 'libraries'
 		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
 		},
 		'read_index': {
-			'lattice': 'read_type', # might instead map demultiplexed_type
+			'lattice': 'read_type',
 			'value_map': {
-				'i5 index': 'index2', # need to confirm for ATAC (demultiplexe_type=R2)
+				'i5 index': 'index2',
 				'i7 index': 'index1',
 				'Read 1': 'read1',
 				'Read 2': 'read2',
 				'Read 1N': 'read1',
-				'Read 2N': 'read2' # need to confirm for ATAC (demultiplexe_type=R3)
+				'Read 2N': 'read2'
 			}
 		},
 		'read_length': {
 			'lattice': 'read_length'
+		},
+		'sha256': {
+			'lattice': 'sha256'
+		},
+		's3_uri': {
+			'lattice': 's3_uri' # used to transfer the file but deleted from the metadata
+		},
+		'external_uri': {
+			'lattice': 'external_uri' # used to transfer the file but deleted from the metadata
+		}
+	},
+	'Document': {
+		'class': 'supplementary_file',
+		'content_type': {
+			'lattice': 'attachment.type' # used in file_descriptor
+		},
+		'file_core.file_name': {
+			'lattice': 'attachment.download'
+		},
+		'file_description': {
+			'lattice': 'description'
+		},
+		'provenance.document_id': {
+			'lattice': 'uuid'
 		}
 	}
+}
+
+donor_stages = {
+	'MmusDv:0000002': 'embryonic mouse stage',
+	'MmusDv:0000031': 'fetal stage',
+	'MmusDv:0000036': 'Theiler stage 27',
+	'MmusDv:0000112': 'premature stage',
+	'MmusDv:0000110': 'mature stage',
+	'HsapDv:0000002': 'embryonic human stage',
+	'HsapDv:0000037': 'fetal stage',
+	'HsapDv:0000082': 'newborn human stage',
+	'HsapDv:0000083': 'infant stage',
+	'HsapDv:0000081': 'child stage',
+	'HsapDv:0000086': 'adolescent stage',
+	'HsapDv:0000087': 'human adult stage'
+}
+
+dcp_versions = {
+  'file_descriptor': '2.0.0',
+  'links': '2.1.1',
+  'cell_line': '9.0.5',
+  'cell_suspension': '13.3.0',
+  'donor_organism': '15.5.0',
+  'imaged_specimen': '3.3.0',
+  'organoid': '11.3.0',
+  'specimen_from_organism': '10.4.0',
+  'analysis_file': '6.2.0',
+  'image_file': '2.2.0',
+  'reference_file': '3.2.0',
+  'sequence_file': '9.2.0',
+  'supplementary_file': '2.2.0',
+  'analysis_process': '12.0.0',
+  'process': '9.2.0',
+  'project': '9.0.4',
+  'analysis_protocol': '9.1.0',
+  'aggregate_generation_protocol': '2.1.0',
+  'collection_protocol': '9.2.0',
+  'differentiation_protocol': '2.2.0',
+  'dissociation_protocol': '6.2.0',
+  'enrichment_protocol': '3.1.0',
+  'ipsc_induction_protocol': '3.2.0',
+  'imaging_preparation_protocol': '2.2.0',
+  'imaging_protocol': '11.2.0',
+  'protocol': '7.1.0',
+  'library_preparation_protocol': '6.2.0',
+  'sequencing_protocol': '10.1.0'
 }

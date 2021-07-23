@@ -1,4 +1,5 @@
 import argparse
+import ast
 import os
 import json
 import lattice
@@ -30,9 +31,9 @@ ORDER = [
     'gene',
     'publication',
     'document',
+    'ontology_term',
     'library_protocol',
     'antibody_lot',
-    'ontology_term',
     'treatment',
     'human_postnatal_donor',
     'human_prenatal_donor',
@@ -42,13 +43,15 @@ ORDER = [
     'cell_culture',
     'organoid',
     'suspension',
+    'tissue_section',
     'dataset',
     'library',
-    'reference_file',
     'sequencing_run',
     'raw_sequence_file',
     'sequence_alignment_file',
     'matrix_file',
+    'raw_matrix_file',
+    'processed_matrix_file',
     'rna_metrics',
     'antibody_capture_metrics',
     'rna_aggregate_metrics',
@@ -88,6 +91,10 @@ def getArgs():
 						action='store_true',
 						help='PATCH existing objects.  Default is False \
 						and will only PATCH with user override')
+	parser.add_argument('--remove',
+						default=False,
+						action='store_true',
+						help='Will remove all values in the provided properties.  Default is False'),
 	args = parser.parse_args()
 	return args
 
@@ -217,6 +224,7 @@ def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
 		if schema_properties[key1].get('linkTo'):
 			linkTo_flag = True
 		if schema_properties[key1].get('items'):
+			array_of_type = schema_properties[key1]['items'].get('type')
 			if schema_properties[key1]['items'].get('linkTo'):
 				linkTo_flag = True
 	elif not key3:
@@ -253,11 +261,16 @@ def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
 					desired_type = schema_properties[key1]['properties'][key2]['properties'][key3]['type']
 					if schema_properties[key1]['properties'][key2]['properties'][key3].get('linkTo'):
 						linkTo_flag = True
+
 	# adjust the value to the specified type
 	if desired_type == 'array' and linkTo_flag == True:
 		return [quote(x.strip()) for x in old_value.split(',')]
 	if desired_type == 'array':
-		return [x.strip() for x in old_value.split(',')]
+		if array_of_type == 'object':
+			old_value = old_value.replace('},{', '}${')
+			return [ast.literal_eval(x) for x in old_value.split('$')]
+		else:
+			return [x.strip() for x in old_value.split(',')]
 	elif desired_type == 'boolean':
 		if str(old_value).lower() in ['true', '1']:
 			return True
@@ -524,6 +537,19 @@ def main():
 		if obj_type in names.keys():
 			obj_posts = []
 			row_count, rows = reader(book, names[obj_type])
+
+			# remove all columns that do not have any values submitted
+			if not args.remove:
+				index_to_remove = []
+				for i in range(0,len(rows[0])):
+					values = [row[i] for row in rows[1:]]
+					if set(values) == {''}:
+						index_to_remove.append(i)
+				index_to_remove.reverse()
+				for index in index_to_remove:
+					for row in rows:
+						del row[index]
+
 			headers = rows.pop(0)
 			schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
 			schema_properties = requests.get(schema_url).json()['properties']
@@ -536,13 +562,14 @@ def main():
 				row_count += 1
 				post_json = dict(zip(headers, row))
 				# convert values to the type specified in the schema, including embedded json objects
-				post_json, post_ont = dict_patcher(post_json,schema_properties, ont_term_schema)
-				for k, v in post_ont.items():
-					all_posts.setdefault('ontology_term', []).append((obj_type + '.' + k, v))
-				# add attchments here
-				if post_json.get('attachment'):
-					attach = attachment(post_json['attachment'])
-					post_json['attachment'] = attach
+				if not args.remove:
+					post_json, post_ont = dict_patcher(post_json, schema_properties, ont_term_schema)
+					for k, v in post_ont.items():
+						all_posts.setdefault('ontology_term', []).append((obj_type + '.' + k, v))
+					# add attchments here
+					if post_json.get('attachment'):
+						attach = attachment(post_json['attachment'])
+						post_json['attachment'] = attach
 				obj_posts.append((row_count, post_json))
 			all_posts[schema_to_load] = obj_posts
 
@@ -589,7 +616,26 @@ def main():
 						i = input('PATCH? y/n: ')
 						if i.lower() == 'y':
 							patch_req = True
-					if patch_req == True and args.update:
+					if patch_req == True and args.remove:
+						existing_json = lattice.get_object(temp['uuid'], connection, frame="edit")
+						for k in post_json.keys():
+							if k not in ['uuid', 'accession', 'alias', '@id']:
+								if k not in existing_json.keys():
+									print('Cannot remove {}, may be calculated property, or is not submitted'.format(k))
+								else:
+									existing_json.pop(k)
+									print('Removing value:', k)
+						if args.update:
+							e = lattice.replace_object(temp['uuid'], connection, existing_json)
+							if e['status'] == 'error':
+								error += 1
+							elif e['status'] == 'success':
+								new_patched_object = e['@graph'][0]
+								# Print now and later
+								print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
+									'accession', new_patched_object.get('uuid')))))
+								patch += 1
+					elif patch_req == True and args.update:
 						e = lattice.patch_object(temp['uuid'], connection, post_json)
 						if e['status'] == 'error':
 							error += 1
