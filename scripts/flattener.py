@@ -497,7 +497,7 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 		seuratdisk.Convert(h5s_file, dest="h5ad", assay=assay, overwrite = 'FALSE')
 		os.rename(h5s_file.replace('h5Seurat', 'h5ad'), h5ad_file)
 		print("Converting to h5ad: {}".format(h5ad_file))
-		if scaled_matrix[0] == 0 and scaled_matrix[0] == 0:
+		if scaled_matrix[0] == 0 and scaled_matrix[1] == 0:
 			converted_h5ad.append((h5ad_file, 'X', assay))
 		else:
 			converted_h5ad.append((h5ad_file,'raw.X', assay))
@@ -1010,21 +1010,19 @@ def main(mfinal_id):
 	# Clean up columns and column names for var, gene name must be gene_id
 	# WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
 	if len(set(feature_lengths)) > 1:
-		gene_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'gene_id' in i]]
+		gene_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'gene_ids' in i]]
 		feature_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'feature_types' in i]]
 		genome_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'genome' in i]]
 		gene_pd = gene_pd.replace('nan', np.nan)
 		feature_pd = feature_pd.replace('nan', np.nan)
 		genome_pd = genome_pd.replace('nan', np.nan)
-		gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_identifier')
+		gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_ids')
 		feature_pd = feature_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='feature_types')
 		genome_pd = genome_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='genome')
 		cxg_adata_raw.var.drop(columns = cxg_adata_raw.var.columns.tolist(), inplace=True)
 		cxg_adata_raw.var = cxg_adata_raw.var.merge(gene_pd, left_index = True, right_index=True, how = 'left')
 		cxg_adata_raw.var = cxg_adata_raw.var.merge(feature_pd, left_index = True, right_index=True, how = 'left')
 		cxg_adata_raw.var = cxg_adata_raw.var.merge(genome_pd, left_index = True, right_index=True, how = 'left')
-	else:
-		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'gene_ids': 'gene_identifier'})
 
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
@@ -1032,7 +1030,7 @@ def main(mfinal_id):
 		#cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
-		cxg_adata = add_nan(cxg_adata, cxg_adata_raw)
+		#cxg_adata = add_nan(cxg_adata, cxg_adata_raw)
 		set_ensembl(cxg_adata, cxg_adata_raw)
 		cxg_adata.raw = cxg_adata_raw
 		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
@@ -1058,7 +1056,7 @@ def main(mfinal_id):
 				else:
 					final_var = pd.DataFrame(index = mfinal_adata.raw.var.index.to_list())
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
-			cxg_adata = add_nan(cxg_adata, cxg_adata_raw)
+			#cxg_adata = add_nan(cxg_adata, cxg_adata_raw)
 			set_ensembl(cxg_adata, cxg_adata_raw)
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
