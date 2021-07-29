@@ -16,6 +16,7 @@ import subprocess
 import numpy as np
 from urllib.parse import urljoin
 import requests
+import numpy as np
 
 
 cell_metadata = {
@@ -860,9 +861,9 @@ def main(mfinal_id):
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 
 	# Should add error checking to make sure all matrices have the same number of vars
-	#feature_lengths = []
-	#for adata in cxg_adata_lst:
-	#	feature_lengths.append(adata.shape[1])
+	feature_lengths = []
+	for adata in cxg_adata_lst:
+		feature_lengths.append(adata.shape[1])
 	#if len(set(feature_lengths)) > 1:
 	#	sys.exit('The number of genes in all raw matrices need to match.')
 
@@ -1004,6 +1005,26 @@ def main(mfinal_id):
 					sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 			else:
 				sys.exit('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
+
+        
+	# Clean up columns and column names for var, gene name must be gene_id
+	# WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
+	if len(set(feature_lengths)) > 1:
+		gene_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'gene_id' in i]]
+		feature_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'feature_types' in i]]
+		genome_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'genome' in i]]
+		gene_pd = gene_pd.replace('nan', np.nan)
+		feature_pd = feature_pd.replace('nan', np.nan)
+		genome_pd = genome_pd.replace('nan', np.nan)
+		gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_identifier')
+		feature_pd = feature_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='feature_types')
+		genome_pd = genome_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='genome')
+		cxg_adata_raw.var.drop(columns = cxg_adata_raw.var.columns.tolist(), inplace=True)
+		cxg_adata_raw.var = cxg_adata_raw.var.merge(gene_pd, left_index = True, right_index=True, how = 'left')
+		cxg_adata_raw.var = cxg_adata_raw.var.merge(feature_pd, left_index = True, right_index=True, how = 'left')
+		cxg_adata_raw.var = cxg_adata_raw.var.merge(genome_pd, left_index = True, right_index=True, how = 'left')
+	else:
+		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'gene_ids': 'gene_identifier'})
 
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
