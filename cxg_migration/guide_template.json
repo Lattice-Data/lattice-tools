@@ -12,6 +12,20 @@
 				"unknown": "unknown"
 			}
         },
+        "age": {
+	        "update_in": "development_stage_ontology_term_id",
+	        "value_map": {
+	            "21 years": "HsapDv:0000115",
+				"38 years": "HsapDv:0000132",
+				" ": "unknown",
+				"5 years": "HsapDv:0000099",
+				"22 years": "HsapDv:0000116",
+				"44 years": "HsapDv:0000138",
+				"54 years": "HsapDv:0000148",
+				"1 months": "HsapDv:0000174",
+				"6 years": "HsapDv:0000100"
+			}
+        },
         "assay_ontology_term_id": {
 	        "value_map": {
 				"EFO:000000": "EFO:00001234"
