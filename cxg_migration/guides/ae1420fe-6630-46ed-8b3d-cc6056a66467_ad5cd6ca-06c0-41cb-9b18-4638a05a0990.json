@@ -1,0 +1,32 @@
+{
+	"prop_map": {
+		"development_stage": {
+			"update_in": "development_stage_ontology_term_id",
+			"value_map": {
+				"unknown": "unknown"
+			}
+		},
+		"ethnicity": {
+			"update_in": "ethnicity_ontology_term_id",
+			"value_map": {
+				"na": "na"
+			}
+		},
+		"cell_type": {
+			"update_in": "cell_type_ontology_term_id",
+	        "value_map": {
+	            "Primary Motor Cortex Cell": "CL:0002319"
+	        }
+	    },
+	    "assay_ontology_term_id": {
+	        "value_map": {
+	            "EFO:0000751": "EFO:0008939"
+	        }
+	    }
+	},
+	"drop_raw_x": true,
+	"is_primary_data": true,
+	"add_uns": {
+		"X_normalization": ""
+	}
+}

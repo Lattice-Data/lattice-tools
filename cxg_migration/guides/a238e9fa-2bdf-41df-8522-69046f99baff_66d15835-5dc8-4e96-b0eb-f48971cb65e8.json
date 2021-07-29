@@ -1,0 +1,51 @@
+{
+	"prop_map": {
+        "cell_type": {
+	        "update_in": "cell_type_ontology_term_id",
+	        "value_map": {
+	            "alpha": "CL:alpha",
+				"beta": "CL:beta",
+				"delta": "CL:delta",
+				"unknown": "unknown"
+			}
+        },
+        "age ": {
+	        "update_in": "development_stage_ontology_term_id",
+	        "value_map": {
+	            "21 years": "HsapDv:0000115",
+				"38 years": "HsapDv:0000132",
+				" ": "unknown",
+				"5 years": "HsapDv:0000099",
+				"22 years": "HsapDv:0000116",
+				"44 years": "HsapDv:0000138",
+				"54 years": "HsapDv:0000148",
+				"1 months": "HsapDv:0000174",
+				"6 years": "HsapDv:0000100"
+			}
+        },
+        "ethnicity": {
+	        "update_in": "ethnicity_ontology_term_id",
+	        "value_map": {
+	            "European": "HANCESTRO:0005",
+				"African American": "HANCESTRO:0568",
+				"Asian": "HANCESTRO:0008",
+				"male": "unknown",
+				"unknown": "unknown"
+			}
+        }
+    },
+	"update_dtypes": {
+		"sample_recieve_date": "category",
+		"c1_chip_id": "category"
+	},
+	"add_uns": {
+		"X_normalization": "none"
+	},
+	"remove_var": [],
+	"remove_uns": [],
+	"remove_obs": [
+		"cluster",
+		"age ",
+		"experiment_name"
+	]
+}

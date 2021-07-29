@@ -1,0 +1,33 @@
+{
+	"prop_rename": {
+		"old name": "new name"
+	},
+	"prop_map": {
+        "cell_type": {
+	        "update_in": "cell_type_ontology_term_id",
+	        "value_map": {
+	            "alpha": "CL:alpha",
+				"beta": "CL:beta",
+				"delta": "CL:delta",
+				"unknown": "unknown"
+			}
+        },
+        "assay_ontology_term_id": {
+	        "value_map": {
+				"EFO:000000": "EFO:00001234"
+			}
+        }
+    },
+	"update_dtypes": {
+		"field": "new dtype",
+		"field": "new dtype"
+	},
+	"drop_raw_x": true,
+	"is_primary_data": false,
+	"add_uns": {
+		"X_normalization": "",
+		"field": "value"
+	},
+	"remove_uns": [],
+	"remove_obs": []
+}
