@@ -26,11 +26,7 @@
         "ethnicity": {
 	        "update_in": "ethnicity_ontology_term_id",
 	        "value_map": {
-	            "European": "HANCESTRO:0005",
-				"African American": "HANCESTRO:0568",
-				"Asian": "HANCESTRO:0008",
-				"male": "unknown",
-				"unknown": "unknown"
+				"male": "unknown"
 			}
         }
     },
