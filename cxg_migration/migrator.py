@@ -55,7 +55,7 @@ def main(ds):
 	uns['schema_version'] = '2.0.0'
 	uns.update(guide.get('add_uns', {}))
 
-	# UPDATE OBSM
+	# UPDATE OBSM?
 
 	if guide.get('drop_raw_x') == True:
 		del adata.raw
@@ -79,7 +79,7 @@ def main(ds):
 	portal_fields = ['assay', 'cell_type', 'development_stage', 'disease', 'ethnicity', 'sex', 'tissue', 'organism']
 	remove_obs = []
 	for k in obs.keys():
-		if k.endswith('_original') or k in portal_fields + guide.get('remove_obs', []):
+		if k in portal_fields + guide.get('remove_obs', []):
 			remove_obs.append(k)
 	obs = obs.drop(columns=remove_obs)
 
