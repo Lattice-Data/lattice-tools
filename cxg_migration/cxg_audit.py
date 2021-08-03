@@ -20,8 +20,15 @@ def getArgs():
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 	)
 	parser.add_argument('-f', '--file', default=None)
+	parser.add_argument('-r', '--refresh', default=False)
 	args = parser.parse_args()
 	return args
+
+if not os.path.exists('cxg_outs'):
+	os.mkdir('cxg_outs')
+
+with open('cxg_outs/min_max.txt', 'a') as out:
+	out.write('\t'.join(['dataset','raw min','X min','raw max','X max']) + '\n')
 
 s3client = boto3.client("s3")
 
@@ -81,14 +88,30 @@ ont_dbs = {
 	'tissue': 'UBERON'
 }
 
+age_fields = [
+	'age',
+	'age_days',
+	'age_group',
+	'age(y)',
+	'donor_age'
+]
 
-def upload_file(file_name):
-    object_name = 'cxg_migration/original/' + file_name
+susp_type_fields = [
+	'suspension_type',
+	'cell_source',
+	'suspension_suspension_type',
+	'cell_prep_type',
+	'BICCN_project',
+	'Lib_type'
+]
+
+
+def upload_file(file, folder):
+    object_name = 'cxg_migration/' + folder + file
     bucket = 'submissions-lattice'
 
-    s3_client = boto3.client('s3')
     try:
-        response = s3_client.upload_file(file_name, bucket, object_name)
+        response = s3client.upload_file(file, bucket, object_name)
     except ClientError as e:
         logging.error(e)
         return False
@@ -96,36 +119,52 @@ def upload_file(file_name):
 
 
 def id_label_comp(ds, prop, label, term_id, org_id=None):
+	ont_err = False
 	if '(' in label:
 		label = label.split('(')[0].strip()
 		term_id = term_id.split('(')[0].strip()
 		if label.split('(')[1:] != term_id.split('(')[1:]:
-			report_error(ds, 'mismatched appendings between {} and {}'.format(label, term_id))
+			ont_err = 'mismatched appendings'
 	if label == 'unknown' and prop in ['ethnicity', 'sex', 'development_stage']:
-		if term_id != '':
-			report_error(ds, prop + ' ' + term_id + ' not in ontology, associated with label:' + label)
+		if term_id != 'unknown':
+			ont_err = 'not in ontology'
 	elif label == 'na' and org_id != 'NCBITaxon:9606' and prop == 'ethnicity':
-		if term_id != '':
-			report_error(ds, prop + ' ' + term_id + ' not in ontology, associated with label:' + label)
+		if term_id != 'na':
+			ont_err = 'not in ontology'
 	elif not ont.get(term_id):
-		report_error(ds, prop + ' ' + term_id + ' not in ontology, associated with label:' + label)
+		ont_err = 'not in ontology'
 	elif ont[term_id]['name'] != label:
-		report_error(ds, prop + ' ' + label + ' does not match ' + 'label:' + ont[term_id]['name'] + ' of ' + term_id)
+		term_id = term_id + '-' + ont[term_id]['name']
+		ont_err = 'ontology mismatch'
+
 	if ':' in term_id and term_id.split(':')[0] != ont_dbs[prop]:
 		if prop != 'disease' and term_id != 'PATO:0000461':
 			if prop == 'development_stage':
 				if org_id == 'NCBITaxon:9606':
-					report_error(ds, prop + ' ' + term_id + ' should be from db ' + ont_dbs[prop])
-				elif term_id.split(':')[0] != 'EFO':
-					report_error(ds, prop + ' ' + term_id + ' should be from db EFO')
+					ont_err = 'wrong ontology'
+				elif term_id.split(':')[0] != 'MmusDv':
+					ont_err = 'wrong ontology'
 			else:
-				report_error(ds, prop + ' ' + term_id + ' should be from db ' + ont_dbs[prop])
+				ont_err = 'wrong ontology'
 
+	if ont_err:
+		report_error(ds, 'value_update [{}]'.format(ont_err), prop + '_ontology_term_id', label +' [' + term_id + ']', prop)
 
-def report_error(ds, err):
-	with open('cxg_errors.txt', 'a') as out:
-		out.write(ds + '\t' + err + '\n')
+def report_error(ds, cat, prop, err='', map_prop=''):
+	with open('cxg_outs/errors.txt', 'a') as out:
+		out.write('\t'.join([ds,cat,prop,map_prop,err]) + '\n')
 
+def report_data(ds, raw_min, X_min, raw_max, X_max):
+	raw_min = str(raw_min)
+	X_min = str(X_min)
+	raw_max = str(raw_max)
+	X_max = str(X_max)
+	with open('cxg_outs/min_max.txt', 'a') as out:
+		out.write('\t'.join([ds,raw_min,X_min,raw_max,X_max]) + '\n')
+
+def report(ds, cat, err):
+	with open('cxg_outs/report.txt', 'a') as out:
+		out.write('\t'.join([ds,cat,err]) + '\n')
 
 def check_raw(ds, raw):
 	if type(raw).__name__ != 'ndarray':
@@ -135,32 +174,61 @@ def check_raw(ds, raw):
 	while len(vals):
 		v = vals.pop(0)
 		if v - int(v) != 0:
-			report_error(ds, 'non-whole numbers found in raw.X')
+			report_error(ds, 'data [not raw]', 'non-whole numbers found in raw.X')
 			break
 
 
-def matrix_info(local_path):
-	dataset = local_path
+def matrix_info(local_path, initial_scan=False):
+	ds = local_path.split('.')[0]
 
 	# report max values of raw.X and .X
-	# Look for whole numbers in raw layer then clear memory
 	adata_full = sc.read_h5ad(local_path)
+
+	X_layer = adata_full.X
+	X_max = X_layer.max()
+	X_min = X_layer.min()
+	X_var_count = X_layer.shape[1]
+	del X_layer
+	gc.collect()
+
 	if adata_full.raw:
 		raw_layer = adata_full.raw.X
-		raw_max = 'max is ' + str(adata_full.raw.X.max())
-		raw_min = 'min is ' + str(adata_full.raw.X.min())
-		raw_var_count = 'var count is ' + str(adata_full.raw.shape[1])
+		raw_max = adata_full.raw.X.max()
+		raw_min = adata_full.raw.X.min()
+		raw_var_count = adata_full.raw.shape[1]
+
+		if raw_min < 0:
+			report_error(ds, 'data [not raw]', 'negative numbers found in raw.X')
+		if raw_max <= 20:
+			report_error(ds, 'data [not raw]', 'raw.X max:' + str(raw_max))
+
+		if raw_max == X_max and raw_min == X_min:
+			report_error(ds, 'data [duplicate layers]', 'equal min,max:{},{}'.format(str(raw_min),str(raw_max)))
+		elif raw_max < X_max:
+			report_error(ds, 'data [swapped layers]', 'raw.X max:{} < .X max:{}'.format(str(raw_max),str(X_max)))
+		
+		if X_max > 20:
+			report_error(ds, 'data [high normalized value]', '.X max:')
+
 	else:
 		raw_layer = adata_full.X
-		raw_max = 'is not present'
-		raw_min = 'is not present'
-		raw_var_count = 'is not present'
-	report_error(dataset, '.raw.X ' + raw_max + ',.X max is ' + str(adata_full.X.max()))
-	report_error(dataset, '.raw.X ' + raw_min + ',.X min is ' + str(adata_full.X.min()))
-	report_error(dataset, '.raw.X ' + raw_var_count + ',.X var count is ' + str(adata_full.X.shape[1]))
+		raw_max = 'not present'
+		raw_min = 'not present'
+		raw_var_count = 'not present'
+
+		# we know X should hold raw counts, so validate raw
+		if X_min < 0:
+			report_error(ds, 'data [not raw]', 'negative numbers found in raw layer .X')
+		if X_max <= 20:
+			report_error(ds, 'data [not raw]', 'raw layer .X max:' + str(X_max))
+
+	report_data(ds, raw_min, X_min, raw_max, X_max)
+	report(ds, 'var count', 'raw.X:' + str(raw_var_count) + '; X:' + str(X_var_count))
 	del adata_full
 	gc.collect()
-	check_raw(dataset, raw_layer)
+
+	# Look for whole numbers in raw layer
+	check_raw(ds, raw_layer)
 	del raw_layer
 	gc.collect()
 
@@ -186,7 +254,7 @@ def matrix_info(local_path):
 		for k,v in barcodes.items():
 			if v > 0:
 				report_list.append(str(v) + ' ' + k)
-		report_error(dataset, ','.join(report_list))
+		report(ds, '10x barcodes', ','.join(report_list))
 
 	# check for ensembl ids
 	ensembl_flag = False
@@ -194,125 +262,120 @@ def matrix_info(local_path):
 		sample_val = str(adata.var.iloc[5,][k])
 		if sample_val.startswith('ENSG'):
 			ensembl_flag = True
-			report_error(dataset, 'SUCCESS:Ensembl IDs in var.' + k)
+			report(ds, 'gene IDs', 'SUCCESS:Ensembl IDs in var.' + k)
 		elif sample_val.startswith('ENSMUSG'):
 			ensembl_flag = True
-			report_error(dataset, 'SUCCESS:Ensembl IDs in var.' + k)
+			report(ds, 'gene IDs', 'SUCCESS:Ensembl IDs in var.' + k)
 	if ensembl_flag == False:
-		report_error(dataset, 'needs Ensembl IDs')
+		report(ds, 'gene IDs', 'needs Ensembl IDs')
 
 	# check for default_embedding value in obsm_keys()
 	if 'default_embedding' in adata.uns:
 		de = adata.uns['default_embedding']
 		if 'X_' + de not in adata.obsm_keys():
-			report_error(dataset, 'uns.default_embedding:{} not in obsm keys'.format(de))
+			report_error(ds, 'value_update [{} not in obsm keys]'.format(de), 'uns.default_embedding')
 
 	# check title field appears exactly once
 	if 'title' not in adata.uns:
-		report_error(dataset, 'missing uns.title')
+		report_error(ds, 'field missing', 'uns.title')
 	elif adata.uns_keys().count('title') > 1:
-		report_error(dataset, 'title appears {} times in uns keys'.format(adata.uns_keys().count('title')))
+		report_error(ds, 'field duplicated', 'uns.title')
 
 	# check for organism fields exactly once, validate labe/ID pair
 	if 'organism' not in adata.uns or 'organism_ontology_term_id' not in adata.uns:
 		if 'organism' not in adata.uns:
-			report_error(dataset, 'missing uns.organism')
+			report_error(ds, 'field missing', 'uns.organism')
 		if 'organism_ontology_term_id' not in adata.uns:
-			report_error(dataset, 'missing uns.organism_ontology_term_id')
+			report_error(ds, 'field missing', 'uns.organism_ontology_term_id')
 	else:
-		id_label_comp(dataset, 'organism', adata.uns['organism'], adata.uns['organism_ontology_term_id'])
-
-	# provide all EFO dev ontology terms so we know what will need to be migrated
-	if 'organism_ontology_term_id' in adata.uns and 'development_stage_ontology_term_id' in adata.obs:
-		org = adata.uns['organism_ontology_term_id']
-		for i in adata.obs['development_stage_ontology_term_id'].value_counts().to_dict().keys():
-			if i.startswith('EFO:'):
-				with open('cxg_efo_dev.txt', 'a') as out:
-					out.write(dataset + '\t' + org + '\t' + i + '\n')
-	elif 'organism_ontology_term_id' in adata.uns and 'development_stage' in adata.obs:
-		org = adata.uns['organism_ontology_term_id']
-		for i in adata.obs['development_stage'].value_counts().to_dict().keys():
-			if i.startswith('EFO:'):
-				with open('cxg_efo_dev.txt', 'a') as out:
-					out.write(dataset + '\t' + org + '\t' + i + '\n')
+		id_label_comp(ds, 'organism', adata.uns['organism'], adata.uns['organism_ontology_term_id'])
 
 	# check sex field appears exactly once and contains valid values
 	if 'sex' not in adata.obs:
-		report_error(dataset, 'missing obs.sex')
+		report_error(ds, 'field missing', 'sex')
 	else:
 		if adata.obs.dtypes['sex'].name != 'category':
-			report_error(dataset, 'sex dtype is {}, not category'.format(adata.obs.dtypes['sex'].name))
+			report_error(ds, 'update_dtype', 'sex', '', adata.obs.dtypes['sex'].name)
 		if adata.obs_keys().count('sex') > 1:
-			report_error(dataset, 'sex appears {} times in obs keys'.format(adata.obs_keys().count('sex')))
+			report_error(ds, 'field duplicated', 'sex')
 		for k in adata.obs['sex'].value_counts().to_dict().keys():
-			if k not in ['male', 'female', 'unknown']:
-				report_error(dataset, 'obs.sex:{} invalid'.format(k))
+			if k not in ['male', 'female', 'unknown', 'mixed']:
+				report_error(ds, 'value_update', 'sex', str(k))
 
 	# check remaining schema fields
 	for o in obs_ont_standards:
 		ont_field = o + '_ontology_term_id'
 		if o in adata.obs and ont_field in adata.obs:
 			if adata.obs_keys().count(o) > 1:
-				report_error(dataset, '{} appears {} times in obs keys'.format(o, adata.obs_keys().count(o)))
+				report_error(ds, 'field duplicated', o)
 			if adata.obs_keys().count(ont_field) > 1:
-				report_error(dataset, '{} appears {} times in obs keys'.format(ont_field, adata.obs_keys().count(ont_field)))
+				report_error(ds, 'field duplicated', ont_field)
 			for k in adata.obs[[o,ont_field]].value_counts().to_dict().keys():
-				id_label_comp(dataset, o, k[0],k[1], adata.uns['organism_ontology_term_id'])
+				id_label_comp(ds, o, k[0],k[1], adata.uns['organism_ontology_term_id'])
 		else:
 			if o not in adata.obs and ont_field not in adata.obs:
-				report_error(dataset, 'obs.{} missing'.format(o))
-				report_error(dataset, 'obs.{} missing'.format(ont_field))
+				report_error(ds, 'field missing', o)
+				report_error(ds, 'field missing', ont_field)
 			elif o not in adata.obs:
-				report_error(dataset, 'obs.{} missing'.format(o))
+				report_error(ds, 'field missing', o)
 				for k in adata.obs[ont_field].value_counts().to_dict().keys():
-					id_label_comp(dataset, o, 'missing', k, adata.uns['organism_ontology_term_id'])
+					id_label_comp(ds, o, 'missing', k, adata.uns['organism_ontology_term_id'])
 			else:
-				report_error(dataset, 'obs.{} missing'.format(ont_field))
+				report_error(ds, 'field missing', ont_field)
 				for k in adata.obs[o].value_counts().to_dict().keys():
-					id_label_comp(dataset, o, k, 'missing', adata.uns['organism_ontology_term_id'])
+					id_label_comp(ds, o, k, 'missing', adata.uns['organism_ontology_term_id'])
 
 	uber_dict = {}
-	heatmap_fields = []
-	obj_fields = []
-	long_fields = []
 	for o in adata.obs.keys():
 		value_counts_dict = adata.obs[o].value_counts().to_dict()
 		counts = '_'.join([str(c) for c in value_counts_dict.values()])
+		count_len = len(value_counts_dict.keys())
 		values = [str(i) for i in value_counts_dict.keys()]
 
-		# look for fields with only 1 value of 'null' or equivalent
-		if len(value_counts_dict.keys()) == 1 and o not in full_standards:
-			report_error(dataset, 'all values for ' + o + ' are ' + str(list(value_counts_dict.keys())[0]))
+		if count_len == 1:
+			report_error(ds, 'remove_field [all same value]', o, str(list(value_counts_dict.keys())[0]))
+
+		#ATTN - HOW DO WE WAIVE THIS IF HSAPDV TERMS ALREADY IN PLACE?
+		#GET VALUE_COUNTS WITH THIS + DEV_STAGE + DEV_STAGE_ONT_TERM_ID
+		if o.lower().strip() in age_fields:
+			for v in values:
+				report_error(ds, 'value_update', 'development_stage_ontology_term_id', v, o)
+
+		elif o.lower().strip() in susp_type_fields:
+			for v in values:
+				report_error(ds, 'value_update', 'suspension_type', v, o)
 
 		# look for a field with age values, that can inform development ontology term
-		age_flag = False
-		if 'development_stage' not in o:
-			for i in value_counts_dict.keys():
-				if 'year' in str(i).lower():
+		if initial_scan:
+			age_flag = False
+			if 'development_stage' not in o:
+				for i in value_counts_dict.keys():
+					if 'year' in str(i).lower():
+						age_flag = True
+				if 'age' in o.lower() or 'year' in o.lower():
 					age_flag = True
-			if 'age' in o.lower() or 'year' in o.lower():
-				age_flag = True
-		if age_flag == True:
-			report_error(dataset, 'possible age field - ' + o + ' - ' + ','.join(values))
+			if age_flag == True:
+				report_error(ds, 'possible age field', o, ','.join(values))
 
 		# check for heatmap fields to ensure they 'make sense' (not cluster ID)
-		if adata.obs.dtypes[o].name in ['float32', 'float64', 'int32']:
-			heatmap_fields.append(o)
+		if adata.obs.dtypes[o].name in ['float32', 'float64', 'int32', 'int64']:
+			report_error(ds, 'update_dtype [heatmap]', o, 'length {}'.format(str(count_len)))
 		else:
 			# check for long categories as they will not be enabled for coloring
-			if len(value_counts_dict.keys()) > 200:
-				long_fields.append(o + ':' + str(len(value_counts_dict.keys())))
+			if count_len > 200:
+				report_error(ds, 'update_dtype [long]', o, 'length {}'.format(str(count_len)))
 			# check for dtype object fields as they will not be enabled for coloring
 			if adata.obs.dtypes[o].name in ['object']:
-				obj_fields.append(o)
+				report_error(ds, 'update_dtype [object]', o, 'length {}'.format(str(count_len)))
 
 			# look for a field with suspension type values - possible optional schema
-			susp_flag = False
-			for i in value_counts_dict.keys():
-				if 'nucle' in str(i).lower() or 'cell' in str(i).lower():
-					susp_flag = True
-			if susp_flag == True:
-				report_error(dataset, 'possible suspension field - ' + o + ' - ' + ','.join(values))
+			if initial_scan:
+				susp_flag = False
+				for i in value_counts_dict.keys():
+					if 'nucle' in str(i).lower() or 'cell' in str(i).lower():
+						susp_flag = True
+				if susp_flag == True:
+					report_error(ds, 'possible suspension_type', o, ','.join(values))
 
 			# report value_counts to later look for redundancy
 			metadata = {
@@ -330,26 +393,90 @@ def matrix_info(local_path):
 			props = [e['property'] for e in v]
 			if len(v) > 1 and not all(elem in full_standards for elem in props):
 				for e in v:
-					with open('cxg_redundant.txt', 'a') as out:
-						out.write(dataset + '\t' + k + '\t' + e['property'] + '\t' + ','.join(e['values']) + '\n')
-
-	# report various collected fields
-	if heatmap_fields:
-		report_error(dataset, 'heatmap fields - ' + ','.join(heatmap_fields))
-	if obj_fields:
-		report_error(dataset, 'object fields - ' + ','.join(obj_fields))
-	if long_fields:
-		report_error(dataset, 'long fields - ' + ','.join(long_fields))
+					report_error(ds, 'remove_field [redundant]', e['property'], k, ','.join(e['values']))
 
 args = getArgs()
+
 if args.file:
-	matrix_info(args.file)
+	matrix_info(args.file, initial_scan=True)
+
 else:
+	# collect the files already in s3
+	s3_files = []
 	s3 = boto3.resource('s3')
 	my_bucket = s3.Bucket('submissions-lattice')
 	for s3_object in my_bucket.objects.filter(Prefix="cxg_migration/original"):
 		filename = os.path.split(s3_object.key)[1]
 		if filename:
-			my_bucket.download_file(s3_object.key, filename)
-			matrix_info(filename)
-			os.remove(filename)
+			s3_files.append(filename)
+
+	# we want to audit only files not in s3
+	if ags.refresh:
+		# A retry strategy is required to mitigate a temporary infrastructure 504 infrastructure issue.
+		retry_strategy = Retry(
+		    total=5,
+		    backoff_factor=1,
+		    status_forcelist=[requests.codes.gateway_timeout],
+		    method_whitelist=["HEAD", "GET"]
+		)
+		adapter = HTTPAdapter(max_retries=retry_strategy)
+		https = requests.Session()
+		https.mount("https://", adapter)
+
+		CELLXGENE_PRODUCTION_ENDPOINT = 'https://api.cellxgene.cziscience.com'
+
+		COLLECTIONS = CELLXGENE_PRODUCTION_ENDPOINT + "/dp/v1/collections/"
+		DATASETS = CELLXGENE_PRODUCTION_ENDPOINT + "/dp/v1/datasets/"
+
+		r = https.get(COLLECTIONS)
+		r.raise_for_status()
+
+		dataset_table = []
+		collection_ids = [x['id'] for x in r.json()['collections']]
+		for coll in collection_ids:
+			r1 = https.get(COLLECTIONS + coll, timeout=5)
+			r1.raise_for_status()    
+			collection_metadata = r1.json()
+			for ds in collection_metadata['datasets']:
+				for file in ds.get('dataset_assets'):
+					if file.get('filetype') == 'H5AD':
+						dataset_table.append({
+							'collection_id': coll,
+							'collection_name': collection_metadata.get('name'),
+							'asset_id': file.get('id'),
+							'dataset_id': file.get('dataset_id'),
+							'dataset_name': ds.get('name'),
+							'cell_count': ds.get('cell_count')
+						})
+
+		df = pd.DataFrame(dataset_table)
+		df.to_csv('cxg_outs/datasets.txt', sep='\t', index=False)
+
+
+		count = 0
+		for ds in dataset_table:
+			coll_ds = ds['collection_id'] + '_' + ds['dataset_id']
+			if coll_ds not in s3_files:
+				DATASET_REQUEST = DATASETS + ds['dataset_id'] +"/asset/"+  ds['asset_id']
+				r2 = requests.post(DATASET_REQUEST)
+				r2.raise_for_status()
+				presigned_url = r2.json()['presigned_url']
+				headers = {'range': 'bytes=0-0'}
+				r3 = https.get(presigned_url, headers=headers)
+				if (r3.status_code == requests.codes.partial) :
+				  print(r3.headers['Content-Range'])
+				file = coll_ds + '.h5ad'
+				r3 = https.get(presigned_url, timeout=10)
+				r3.raise_for_status()
+				open(file, 'wb').write(r3.content)
+				matrix_info(file, initial_scan=True)
+				upload_file(file, 'original/')
+				os.remove(file)
+
+	# we want to audit only files in s3
+	else:
+		for file in s3_files:
+			my_bucket.download_file(s3_object.key, file)
+			matrix_info(file)
+			upload_file(file, 'working/')
+			os.remove(file)
