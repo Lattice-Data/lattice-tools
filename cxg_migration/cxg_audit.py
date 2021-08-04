@@ -152,7 +152,7 @@ def matrix_info(local_path, initial_scan=False):
 		for k,v in barcodes.items():
 			if v > 0:
 				report_list.append(str(v) + ' ' + k)
-		barcode_results = ds, ','.join(report_list)
+		barcode_results = ','.join(report_list)
 
 	# check for ensembl ids
 	gene_ids = 'needs Ensembl IDs'
