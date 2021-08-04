@@ -255,8 +255,7 @@ def matrix_info(local_path, initial_scan=False):
 				report_error(ds, 'field missing', ont_field)
 				for k in adata.obs[o].value_counts().to_dict().keys():
 					id_label_comp(ds, o, k, 'missing', org_id)
-	#ATTN-CHECK FOR 90+ YR HUMAN
-	#ATTN-CHECK FOR LEADING/TRAILING WSPACES,DOUBLE WSPACES
+
 	uber_dict = {}
 	for o in adata.obs.keys():
 		if o.startswith(' ') or o.endswith(' ') or '  ' in o:
