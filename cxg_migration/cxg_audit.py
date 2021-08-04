@@ -77,35 +77,11 @@ def report_error(ds, cat, prop, err='', map_prop=''):
 		out.write('\t'.join([ds,cat,prop,map_prop,err]) + '\n')
 
 
-def report_data(ds, raw_min, X_min, raw_max, X_max):
-	raw_min = str(raw_min)
-	X_min = str(X_min)
-	raw_max = str(raw_max)
-	X_max = str(X_max)
-	with open('cxg_outs/min_max.txt', 'a') as out:
-		out.write('\t'.join([ds,raw_min,X_min,raw_max,X_max]) + '\n')
-
-
-def report_barcodes(ds, results):
-	with open('cxg_outs/10x_barcodes.txt', 'a') as out:
-		out.write('\t'.join([ds,results]) + '\n')
-
-
-def report_var(ds, cat, err):
+def report_data(ds, raw_min, X_min, raw_max, X_max, raw_var, X_var, layerdesc, geneIDs, barcodes):
+	lst = [ds,raw_min,X_min,raw_max,X_max,raw_var,X_var,layerdesc, geneIDs, barcodes]
+	str_lst = [str(i) for i in lst]
 	with open('cxg_outs/report.txt', 'a') as out:
-		out.write('\t'.join([ds,cat,err]) + '\n')
-
-
-def check_raw(ds, raw):
-	if type(raw).__name__ != 'ndarray':
-		vals = list(np.unique(raw.toarray()))[:1000]
-	else:
-		vals = list(np.unique(raw))[:1000]
-	while len(vals):
-		v = vals.pop(0)
-		if v - int(v) != 0:
-			report_error(ds, 'data [not raw]', 'non-whole numbers found in raw.X')
-			break
+		out.write('\t'.join(str_lst) + '\n')
 
 
 def matrix_info(local_path, initial_scan=False):
@@ -122,7 +98,6 @@ def matrix_info(local_path, initial_scan=False):
 	gc.collect()
 
 	if adata_full.raw:
-		raw_layer = adata_full.raw.X
 		raw_max = adata_full.raw.X.max()
 		raw_min = adata_full.raw.X.min()
 		raw_var_count = adata_full.raw.shape[1]
@@ -141,7 +116,6 @@ def matrix_info(local_path, initial_scan=False):
 			report_error(ds, 'data [high normalized value]', '.X max:')
 
 	else:
-		raw_layer = adata_full.X
 		raw_max = 'not present'
 		raw_min = 'not present'
 		raw_var_count = 'not present'
@@ -152,19 +126,13 @@ def matrix_info(local_path, initial_scan=False):
 		if X_max <= 20:
 			report_error(ds, 'data [not raw]', 'raw layer .X max:' + str(X_max))
 
-	report_data(ds, raw_min, X_min, raw_max, X_max)
-	report_var(ds, 'var count', 'raw.X:' + str(raw_var_count) + '; X:' + str(X_var_count))
 	del adata_full
-	gc.collect()
-
-	# Look for whole numbers in raw layer
-	check_raw(ds, raw_layer)
-	del raw_layer
 	gc.collect()
 
 	adata = sc.read_h5ad(local_path, backed='r')
 
 	# check 1000 random barcodes against 10x lists
+	barcode_results = ''
 	if re.search(barcode_pattern, adata.obs.index[5,]):
 		obs_count = adata.obs.index.shape[0]
 		random_indices = [randint(0, obs_count - 1) for p in range(0, 1000)]
@@ -184,20 +152,18 @@ def matrix_info(local_path, initial_scan=False):
 		for k,v in barcodes.items():
 			if v > 0:
 				report_list.append(str(v) + ' ' + k)
-		report_barcodes(ds, ','.join(report_list))
+		barcode_results = ds, ','.join(report_list)
 
 	# check for ensembl ids
-	ensembl_flag = False
+	gene_ids = 'needs Ensembl IDs'
 	for k in adata.var_keys():
 		sample_val = str(adata.var.iloc[5,][k])
 		if sample_val.startswith('ENSG'):
-			ensembl_flag = True
-			report_var(ds, 'gene IDs', 'SUCCESS:Ensembl IDs in var.' + k)
+			gene_ids = 'Ensembl IDs in var.' + k
 		elif sample_val.startswith('ENSMUSG'):
-			ensembl_flag = True
-			report_var(ds, 'gene IDs', 'SUCCESS:Ensembl IDs in var.' + k)
-	if ensembl_flag == False:
-		report_var(ds, 'gene IDs', 'needs Ensembl IDs')
+			gene_ids = 'Ensembl IDs in var.' + k
+
+	report_data(ds, raw_min, X_min, raw_max, X_max, raw_var_count, X_var_count,adata.uns.get('layer_descriptions'), gene_ids, barcode_results)
 
 	# check for default_embedding value in obsm_keys()
 	if 'default_embedding' in adata.uns:
@@ -231,7 +197,7 @@ def matrix_info(local_path, initial_scan=False):
 			report_error(ds, 'field duplicated', 'sex')
 		for k in adata.obs['sex'].value_counts().to_dict().keys():
 			if k not in ['male', 'female', 'unknown', 'mixed']:
-				report_error(ds, 'update_value', 'sex', str(k))
+				report_error(ds, 'update_value [invalid sex]', 'sex', str(k))
 
 	# check remaining schema fields
 	for o in obs_ont_standards:
@@ -266,6 +232,9 @@ def matrix_info(local_path, initial_scan=False):
 		count_len = len(value_counts_dict.keys())
 		values = [str(i) for i in value_counts_dict.keys()]
 
+		if o not in full_standards and ' '.join(o.split()).lower() in full_standards:
+			report_error(ds, 'update_field [schema conflict]', o, ','.join(values))
+
 		if count_len == 1:
 			lone_v = str(list(value_counts_dict.keys())[0])
 			if o not in full_standards:
@@ -276,16 +245,16 @@ def matrix_info(local_path, initial_scan=False):
 		# report assays to check for non-specific terms and crosscheck 10x barcodes
 		if o == 'assay':
 			for v in values:
-				report_error(ds, 'update_value', 'assay_ontology_term_id', v, o)
+				report_error(ds, 'update_value [check assay specificity]', 'assay_ontology_term_id', v, o)
 
 		if o.lower().strip() in age_fields:
 			age_dev_value_counts_dict = adata.obs[[o, 'development_stage_ontology_term_id']].value_counts().to_dict()
 			for a,d in age_dev_value_counts_dict.keys():
-				report_error(ds, 'update_value', 'development_stage_ontology_term_id', '{} ({})'.format(a,d), o)
+				report_error(ds, 'update_value [age-to-dev]', 'development_stage_ontology_term_id', '{} ({})'.format(a,d), o)
 
 		elif o.lower().strip() in susp_type_fields:
 			for v in values:
-				report_error(ds, 'update_value', 'suspension_type', v, o)
+				report_error(ds, 'update_value [standardize susp_type]', 'suspension_type', v, o)
 
 		# look for a field with age values, that can inform development ontology term
 		if initial_scan:
@@ -341,8 +310,8 @@ def matrix_info(local_path, initial_scan=False):
 if not os.path.exists('cxg_outs'):
 	os.mkdir('cxg_outs')
 
-with open('cxg_outs/min_max.txt', 'a') as out:
-	out.write('\t'.join(['dataset','raw min','X min','raw max','X max']) + '\n')
+#put headers in place
+report_data('dataset','raw min','X min','raw max','X max','raw var ct', 'X var ct', 'layer desc', 'gene IDs', '10x barcodes')
 
 s3client = boto3.client("s3")
 
@@ -387,7 +356,7 @@ obs_ont_standards = [
 	'tissue',
 ]
 
-full_standards = ['sex']
+full_standards = ['sex', 'sex_ontology_term_id']
 for a in obs_ont_standards:
 	full_standards.append(a)
 	full_standards.append(a + '_ontology_term_id')
@@ -416,7 +385,8 @@ susp_type_fields = [
 	'suspension_suspension_type',
 	'cell_prep_type',
 	'BICCN_project',
-	'Lib_type'
+	'Lib_type',
+	'Assay'
 ]
 
 args = getArgs()
@@ -483,21 +453,17 @@ else:
 
 		df = pd.DataFrame(dataset_table)
 		df.to_csv('cxg_outs/datasets.txt', sep='\t', index=False)
-		class_one = ['f72958f5-7f42-4ebb-98da-445b0c6de516','fa27492b-82ff-4ab7-ac61-0e2b184eee67','53d208b0-2cfd-4366-9866-c3c6114081bc']
-		class_two = ['f7c1c579-2dc0-47e2-ba19-8165c5a0e353','9dbab10c-118d-496b-966a-67f1763a6b7d']
+
 		for ds in dataset_table:
 			coll_ds = ds['collection_id'] + '_' + ds['dataset_id']
 			file = coll_ds + '.h5ad'
-			if file not in s3_files and ds['dataset_id'] not in class_one:
-				print(ds['dataset_id'])
+			if file not in s3_files:
 				DATASET_REQUEST = DATASETS + ds['dataset_id'] +"/asset/"+  ds['asset_id']
 				r2 = requests.post(DATASET_REQUEST)
 				r2.raise_for_status()
 				presigned_url = r2.json()['presigned_url']
 				headers = {'range': 'bytes=0-0'}
 				r3 = https.get(presigned_url, headers=headers)
-				if (r3.status_code == requests.codes.partial):
-					print(r3.headers['Content-Range'])
 				r3 = https.get(presigned_url, timeout=10)
 				r3.raise_for_status()
 				open(file, 'wb').write(r3.content)
@@ -508,7 +474,6 @@ else:
 	# we want to audit only files in s3
 	else:
 		for file in s3_files:
-			my_bucket.download_file(s3_object.key, file)
+			my_bucket.download_file('cxg_migration/original/' + file, file)
 			matrix_info(file)
-			upload_file(file, 'working/')
 			os.remove(file)
