@@ -113,7 +113,7 @@ def matrix_info(local_path, initial_scan=False):
 			report_error(ds, 'data [swapped layers]', 'raw.X max:{} < .X max:{}'.format(str(raw_max),str(X_max)))
 		
 		if X_max > 20:
-			report_error(ds, 'data [high normalized value]', '.X max:')
+			report_error(ds, 'data [high normalized value]', '.X max:{}'.format(str(X_max)))
 
 	else:
 		raw_max = 'not present'
@@ -165,10 +165,14 @@ def matrix_info(local_path, initial_scan=False):
 
 	report_data(ds, raw_min, X_min, raw_max, X_max, raw_var_count, X_var_count,adata.uns.get('layer_descriptions'), gene_ids, barcode_results)
 
+	for k in adata.obsm_keys():
+		if not k.startswith('X_'):
+			report_error(ds, 'update_value [obsm not valid]', 'obsm.' + k, err='does not start with X_')
+
 	# check for default_embedding value in obsm_keys()
 	if 'default_embedding' in adata.uns:
 		de = adata.uns['default_embedding']
-		if 'X_' + de not in adata.obsm_keys():
+		if de not in adata.obsm_keys():
 			report_error(ds, 'update_value [{} not in obsm keys]'.format(de), 'uns.default_embedding')
 
 	# check title field appears exactly once
@@ -177,7 +181,7 @@ def matrix_info(local_path, initial_scan=False):
 	elif adata.uns_keys().count('title') > 1:
 		report_error(ds, 'field duplicated', 'uns.title')
 
-	org_id = adata.uns['organism_ontology_term_id']
+	org_id = adata.uns.get('organism_ontology_term_id','Nonex')
 	# check for organism fields exactly once, validate labe/ID pair
 	if 'organism' not in adata.uns or 'organism_ontology_term_id' not in adata.uns:
 		if 'organism' not in adata.uns:
@@ -240,7 +244,7 @@ def matrix_info(local_path, initial_scan=False):
 			if o not in full_standards:
 				report_error(ds, 'remove_field [all same value]', o, lone_v)
 			elif lone_v in ['unknown'] and o in ['ethnicity', 'sex', 'development_stage']:
-				report_error(ds, 'possible wrangling [all unknown-{}]'.format(org_id), o, lone_v, o + '_ontology_term_id')
+				report_error(ds, 'possible wrangling [all unknown-{}]'.format(org_id), o + '_ontology_term_id', lone_v, o)
 
 		# report assays to check for non-specific terms and crosscheck 10x barcodes
 		if o == 'assay':
