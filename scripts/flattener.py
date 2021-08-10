@@ -19,6 +19,7 @@ import requests
 import numpy as np
 import collections
 import logging
+import gc
 
 
 cell_metadata = {
@@ -545,44 +546,31 @@ def quality_check(adata):
 
 
 # Return uniqued list separated by ', '
-def clean_list(lst):
+def clean_list(lst, exp_disease):
 	lst = lst.split(',')
-	if unreported_value in lst:
-		lst.remove(unreported_value)
-	lst = list(set(lst))
-	diseases_str = '[{}]'.format(', '.join(lst))
-	return diseases_str
+	disease = exp_disease['term_name'] if exp_disease['term_name'] in lst else 'normal'
+	disease = exp_disease['term_id'] if exp_disease['term_id'] in lst else 'PATO:0000461'
+	return disease
 
 
 # Remove unused disease fields, and summarize with 'disease', 'disease_ontology_term_id', and 'reported_diseases'
 # List in pandas are still considered strings, so need to join and split to create a list of all diseases
 def report_diseases(mxr_df, exp_disease):
-	if not exp_disease:
+	mxr_df.to_csv("/Users/jenny/Downloads/mxr_df.csv", index=True, header=True)
+	print(exp_disease['term_name'])
+	print(exp_disease['term_id'])
+	### NEED TO SEE IF I SHOULD DROP EXPERIIMENTAL DISEASE FROM REPORTED_DISEASES, OR ELSE MAY RESULT IN REDUNDANT COLUMNS
+	mxr_df['reported_diseases'] = mxr_df[['sample_diseases_term_name','donor_diseases_term_name']].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].astype(dtype='string').astype(dtype='category')
+	if exp_disease == unreported_value:
 		mxr_df['disease'] = ['normal'] * len(mxr_df.index)
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
-	elif exp_disease['term_id'] in ','.join(mxr_df['sample_diseases_term_id'].unique()).split(','):
-		if len(','.join(mxr_df['sample_diseases_term_id'].unique()).split(',')) <= 2:
-			mxr_df['disease'] = mxr_df['sample_diseases_term_name'].str.contains(exp_disease['term_name']).astype('string')
-			mxr_df['disease'] = mxr_df['disease'].str.replace('^False$', 'normal', regex=True)
-			mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease['term_name'], regex=True)
-			mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'].str.contains(exp_disease['term_id']).astype('string')
-			mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
-			mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease['term_id'], regex=True)
-		else:
-			sys.exit("There is unexpected extra disease states in biosamples: {}".format(mxr_df['sample_diseases_term_id'].unique()))
-	elif exp_disease['term_id'] in ','.join(mxr_df['donor_diseases_term_id'].unique()).split(','):
-		mxr_df['disease'] = mxr_df['donor_diseases_term_name'].str.contains(exp_disease['term_name']).astype('string')
-		mxr_df['disease'] = mxr_df['disease'].str.replace('^False$', 'normal', regex=True)
-		mxr_df['disease'] = mxr_df['disease'].str.replace('^True$', exp_disease['term_name'], regex=True)
-		mxr_df['disease_ontology_term_id'] = mxr_df['donor_diseases_term_id'].str.contains(exp_disease['term_id']).astype('string')
-		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^False$', 'PATO:0000461', regex=True)
-		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].str.replace('^True$', exp_disease['term_id'], regex=True)
 	else:
-		sys.exit("Cannot find the experimental_variable_disease in donor or sample diseases: {}; {}; {}".format(exp_disease['term_id'], \
-			','.join(mxr_df['sample_diseases_term_id'].unique()).split(','), ','.join(mxr_df['donor_diseases_term_id'].unique()).split(',')))
-	# 'reported_diseases' is a list of all unique diseases from donor and samples
-	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(clean_list)
+		mxr_df['disease'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
+		mxr_df['disease'] = mxr_df['disease'].apply(clean_list, exp_disease=exp_disease)
+		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
+		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease)
+
 
 
 # Demultiplex experimental metadata by finding demultiplexed suspension
@@ -738,7 +726,7 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
 
 
 # Reconcile genes if raw matrices annotated to multiple version by merging raw based on Ensembl ID
-def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes, raw_versions):
+def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 	redundant = []
 	redundant_within_version = []
 	chain_redundant_genes = []
@@ -780,15 +768,10 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes, raw_versions)
 	# Go through adata indexed on ensembl to see which have > 1 symbol
 	gene_pd_ensembl = cxg_adata_raw_ensembl.var[[i for i in cxg_adata_raw_ensembl.var.columns.values.tolist() if 'gene_symbols' in i]]
 
-	# Drop redundant genes symbols from normalized matrix within a single version and clean up redundant columns in gene_pd_ensembl and gene_pd_symbol
+	# Drop redundant genes symbols from normalized matrix within a single version
 	gene_ensembl_columns_to_drop = []
 	for i in range(len(gene_pd_ensembl.columns.to_list())):
-		if raw_versions[i] not in versions_checked:
-			versions_checked.append(raw_versions[i])
-			redundant_within_version.extend([item for item, count in collections.Counter(gene_pd_ensembl.iloc[:,i].dropna().to_list()).items() if count > 1])
-		else:
-			gene_ensembl_columns_to_drop.append(gene_pd_ensembl.columns.to_list()[i])
-	gene_pd_ensembl.drop(columns=gene_ensembl_columns_to_drop, inplace=True)
+		redundant_within_version.extend([item for item, count in collections.Counter(gene_pd_ensembl.iloc[:,i].dropna().to_list()).items() if count > 1])
 	redundant_within_version = list(set(redundant_within_version))
 	stats['redundant_within_version'].extend(redundant_within_version)
 	redundant.extend(redundant_within_version)
@@ -845,8 +828,8 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes, raw_versions)
 	redundant.extend(chain_redundant_genes)
 
 	stats['gene_multi_ensembl'] = gene_multi_ensembl
-	stats['collapsed'] = genes_to_collapse_final.keys()
-	stats['redundant'] = redundant
+	stats['collapsed'] = list(genes_to_collapse_final.keys())
+	stats['redundant'] = list(set(redundant))
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
@@ -913,13 +896,12 @@ def main(mfinal_id):
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
 	donor_susp = {}
 	library_susp = {}
-	raw_versions = []
+
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
-		raw_versions.append(mxr.get('genome_annotation', None))
 
 		# If there is a author_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
@@ -1021,10 +1003,11 @@ def main(mfinal_id):
 	raw_matrix_mapping = []
 	cell_mapping_rev_dct = {}
 	normalize_drop = []
+	redundant = []
 	if summary_assay == 'RNA':
 		# If raw matrices are annotated to multiple gencode versions, concatenate on ensembl ID
 		if len(mfinal_obj.get('genome_annotations',[])) > 1:
-			reconcile_results = reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata.var.index.to_list(), raw_versions)
+			reconcile_results = reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata.var.index.to_list())
 			cxg_adata_raw = reconcile_results[0]
 			collapse = reconcile_results[1]
 			redundant = reconcile_results[2]
@@ -1087,7 +1070,7 @@ def main(mfinal_id):
 		lib_donor_df = cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
 		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj)
 
-		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease'))
+		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease', unreported_value))
 		get_sex_ontology(donor_df)
 		if cxg_uns['organism'] == 'Homo sapiens' and 'unknown' in donor_df['ethnicity'].unique():
 			donor_df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
@@ -1098,7 +1081,7 @@ def main(mfinal_id):
 			sys.exit('WARNING: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(mfinal_adata.X.shape[0], cxg_obs.shape[0]))
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
-		report_diseases(df, mfinal_obj.get('experimental_variable_disease'))
+		report_diseases(df, mfinal_obj.get('experimental_variable_disease', unreported_value))
 		get_sex_ontology(df)
 		cxg_obs = pd.merge(cxg_obs, df[['disease', 'disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
@@ -1133,7 +1116,7 @@ def main(mfinal_id):
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
-				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']':
+				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
 					cxg_obs.drop(columns=col, inplace=True)
 	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
 		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
@@ -1155,18 +1138,25 @@ def main(mfinal_id):
 					print('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 	else:
 		# Need to add new row for collapsed gene and remove original genes, and make sure appropriate name is used
-		matching_symbol_lst_total = []
+		collapsed_adata = None
+		all_drop = []
 		for gene_collapse in collapse.keys():
+			all_drop.extend(collapse[gene_collapse])
 			x_collapse = np.sum(mfinal_adata[:,collapse[gene_collapse]].X.toarray(), axis=1)
 			matching_symbol_lst = [i for i in collapse[gene_collapse] if i in cxg_adata_raw.var.index.to_list()]
 			if len(matching_symbol_lst) == 1:
 				matching_symbol = matching_symbol_lst[0]
-				matching_symbol_lst_total.append(matching_symbol)
 			else:
 				logging.info('ERROR:\tcould not find matching symbol for collaped {}'.format(gene_collapse))
 			collapsed_row = ad.AnnData(X=pd.DataFrame(x_collapse), obs=mfinal_adata[:,matching_symbol].obs, var=mfinal_adata[:,matching_symbol].var)
-			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in collapse[gene_collapse]]]
-			mfinal_adata = ad.concat([mfinal_adata, collapsed_row], axis=1, join='outer', merge="first")
+			if not collapsed_adata:
+				collapsed_adata = collapsed_row
+			else:
+				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
+			del(collapsed_row)
+			gc.collect()
+		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
+		mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in redundant]]
 
         
@@ -1225,7 +1215,6 @@ def main(mfinal_id):
 			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
 			cxg_adata = set_ensembl_return[0]
 			cxg_adata_raw = set_ensembl_return[1]
-			print('ENSG00000158122\t{}'.format(np.count_nonzero(cxg_adata[:,['ENSG00000158122']].X.toarray())))
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
 			if len(converted_h5ad) == 1:
