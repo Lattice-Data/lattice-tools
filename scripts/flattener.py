@@ -22,6 +22,7 @@ import logging
 import gc
 
 
+# Metadata to be gathered for each object type
 cell_metadata = {
 	'donor': [
 		'uuid',
@@ -81,6 +82,7 @@ annot_fields = [
 	'cell_ontology.cell_slims'
 ]
 
+# Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
 prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
@@ -101,6 +103,7 @@ prop_map = {
 	'suspension_suspension_type': 'suspension_type'
 }
 
+# Global variables
 unreported_value = 'unknown'
 schema_version = '2.0.0'
 flat_version = '4'
@@ -131,6 +134,7 @@ def getArgs():
     return args
 
 
+# Gatherr arw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
 def gather_rawmatrices(derived_from):
 	my_raw_matrices = []
 	df_ids = []
@@ -150,6 +154,7 @@ def gather_rawmatrices(derived_from):
 	return my_raw_matrices
 
 
+# Gather all objects up the experimental graph, assuming that there is either a suspension oorr tissue section
 def gather_objects(input_object, start_type=None):
 	if start_type == None:
 		lib_ids = input_object['libraries']
@@ -229,6 +234,7 @@ def gather_objects(input_object, start_type=None):
 	return objs
 
 
+# Get property value forr given object, can only traverse embedded objects that are embedded 2 levels in
 def get_value(obj, prop):
 	path = prop.split('.')
 	if len(path) == 1:
@@ -280,6 +286,7 @@ def get_value(obj, prop):
 		return 'unable to traverse more than 2 embeddings'
 
 
+# Gather object metadata, convert property name to cxg required field names
 def gather_metdata(obj_type, properties, values_to_add, objs):
 	obj = objs[0]
 	for prop in properties:
@@ -291,6 +298,8 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 		values_to_add[key] = value
 
 
+# Gather metadata for pooled objects
+# For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 	dev_list = []
 	for prop in properties:
@@ -335,6 +344,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		else:
 			values_to_add[key] = next(iter(value_set))
 
+
+# Gather dataset metadata for adata.uns
 def report_dataset(donor_objs, matrix, dataset):
 	ds_results = {}
 	ds_obj = lattice.get_object(dataset, connection)
@@ -381,13 +392,14 @@ def report_dataset(donor_objs, matrix, dataset):
 
 	ds_results['layer_descriptions'] = layer_descs
 	if x_norm == '' or x_norm == unreported_value:
-		ds_results['normalization'] = 'none'
+		ds_results['X_normalization'] = 'none'
 	else:
-		ds_results['normalization'] = x_norm
+		ds_results['X_normalization'] = x_norm
 
 	return ds_results
 
 
+# Download file object from s3
 def download_file(file_obj, directory):
 	if file_obj.get('s3_uri'):
 		download_url = file_obj.get('s3_uri')
@@ -461,7 +473,7 @@ def get_embeddings(mfinal_adata):
 
 
 # From R object, create and return h5ad in temporary drive
-# Returns list of 
+# Returns list of converted h5ad files
 def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	converted_h5ad = []
 	utils = rpackages.importr('utils')
@@ -545,7 +557,7 @@ def quality_check(adata):
 		sys.exit("There are more genes in normalized genes than in raw matrix.")
 
 
-# Return uniqued list separated by ', '
+# Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease):
 	lst = lst.split(',')
 	disease = exp_disease['term_name'] if exp_disease['term_name'] in lst else 'normal'
@@ -553,13 +565,9 @@ def clean_list(lst, exp_disease):
 	return disease
 
 
-# Remove unused disease fields, and summarize with 'disease', 'disease_ontology_term_id', and 'reported_diseases'
-# List in pandas are still considered strings, so need to join and split to create a list of all diseases
+# Determine reported disease as unique of sample and donor diseases, removing unreported value
 def report_diseases(mxr_df, exp_disease):
-	mxr_df.to_csv("/Users/jenny/Downloads/mxr_df.csv", index=True, header=True)
-	print(exp_disease['term_name'])
-	print(exp_disease['term_id'])
-	### NEED TO SEE IF I SHOULD DROP EXPERIIMENTAL DISEASE FROM REPORTED_DISEASES, OR ELSE MAY RESULT IN REDUNDANT COLUMNS
+	### NEED TO SEE IF I SHOULD DROP EXPERIMENTAL DISEASE FROM REPORTED_DISEASES, OR ELSE MAY RESULT IN REDUNDANT COLUMNS
 	mxr_df['reported_diseases'] = mxr_df[['sample_diseases_term_name','donor_diseases_term_name']].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
 	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].astype(dtype='string').astype(dtype='category')
 	if exp_disease == unreported_value:
@@ -868,8 +876,8 @@ def main(mfinal_id):
 
 	results = {}
 	tmp_dir = 'matrix_files'
-	##### os.mkdir(tmp_dir)
-	##### download_file(mfinal_obj, tmp_dir)
+	os.mkdir(tmp_dir)
+	download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -956,7 +964,7 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
-			##### download_file(mxr, tmp_dir)
+			download_file(mxr, tmp_dir)
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_10x_h5(local_path)
@@ -1225,7 +1233,7 @@ def main(mfinal_id):
 			print(cxg_adata.raw.var.columns.to_list())
 			cxg_adata.write(results_file)
 
-	##### shutil.rmtree(tmp_dir)
+	shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
