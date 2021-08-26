@@ -254,7 +254,7 @@ def matrix_info(local_path, initial_scan=False):
 		if o.lower().strip() in age_fields:
 			age_dev_value_counts_dict = adata.obs[[o, 'development_stage_ontology_term_id']].value_counts().to_dict()
 			for a,d in age_dev_value_counts_dict.keys():
-				report_error(ds, 'update_value [age-to-dev]', 'development_stage_ontology_term_id', '{} ({})'.format(a,d), o)
+				report_error(ds, 'update_value [age-to-dev]', 'development_stage_ontology_term_id', '{} [{}]'.format(a,d), o)
 
 		elif o.lower().strip() in susp_type_fields:
 			for v in values:
@@ -273,7 +273,7 @@ def matrix_info(local_path, initial_scan=False):
 				report_error(ds, 'possible age field', o, ','.join(values))
 
 		# check for heatmap fields to ensure they 'make sense' (not cluster ID)
-		if adata.obs.dtypes[o].name in ['float32', 'float64', 'int32', 'int64']:
+		if adata.obs.dtypes[o].name in numb_types:
 			report_error(ds, 'update_dtype [heatmap]', o, 'length:{}'.format(str(count_len)))
 		else:
 			# check for long categories as they will not be enabled for coloring
@@ -391,6 +391,11 @@ susp_type_fields = [
 	'BICCN_project',
 	'Lib_type',
 	'Assay'
+]
+
+numb_types = [
+	'int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64',
+	'float_', 'float16', 'float32', 'float64'
 ]
 
 args = getArgs()
