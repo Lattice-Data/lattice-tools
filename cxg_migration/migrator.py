@@ -114,5 +114,5 @@ for g in guides:
 		file = ds + '.h5ad'
 		s3.download_file('submissions-lattice', 'cxg_migration/original/' + file, file)
 		main(ds)
-		#s3.upload_file(file, 'submissions-lattice', 'cxg_migration/working/' + file)
-		#os.remove(file)
+		s3.upload_file(file, 'submissions-lattice', 'cxg_migration/working/' + file)
+		os.remove(file)
