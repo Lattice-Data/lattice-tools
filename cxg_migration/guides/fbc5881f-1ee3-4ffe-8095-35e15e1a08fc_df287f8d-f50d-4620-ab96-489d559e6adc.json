@@ -1,0 +1,13 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {},
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [
+        "Phenotype"
+    ],
+    "remove_uns": []
+}

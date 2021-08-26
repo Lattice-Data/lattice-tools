@@ -1,0 +1,34 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "na"
+            },
+            "update_from": "ethnicity"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "adult": "MmusDv:0000061"
+            },
+            "update_from": "development_stage"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [
+        "assay_ontology_term_id_original",
+        "assay_original",
+        "cell_type_ontology_term_id_original",
+        "ethnicity_ontology_term_id_original",
+        "ethnicity_original",
+        "tissue_ontology_term_id_original",
+        "tissue_original",
+        "disease_ontology_term_id_original",
+        "disease_original"
+    ],
+    "remove_uns": []
+}

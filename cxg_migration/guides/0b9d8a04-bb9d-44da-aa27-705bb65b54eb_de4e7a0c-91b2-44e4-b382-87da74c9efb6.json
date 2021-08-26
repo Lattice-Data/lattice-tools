@@ -1,0 +1,30 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "30m": "MmusDv:0000091"
+            },
+            "update_from": "age"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {
+        "cell": "category"
+    },
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [
+        "age",
+        "tissue_free_annotation",
+        "tissue_original"
+    ],
+    "remove_uns": []
+}

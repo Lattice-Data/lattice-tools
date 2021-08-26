@@ -2,6 +2,12 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "unknown": "MmusDv:0000061"
@@ -10,17 +16,18 @@
         },
         "cell_type_ontology_term_id": {
             "value_map": {
-                "Primary Motor Cortex Cell": "CL:0000003"
+                "cerebral cortex": "CL:0000003"
             },
             "update_from": "cell_type"
         }
     },
     "update_dtypes": {
-        "FullCellID": "category"
+        "cellID": "category"
     },
     "add_uns": {
         "X_normalization": ""
     },
     "remove_obs": [],
-    "remove_uns": []
+    "remove_uns": [],
+    "drop_raw_x": true
 }

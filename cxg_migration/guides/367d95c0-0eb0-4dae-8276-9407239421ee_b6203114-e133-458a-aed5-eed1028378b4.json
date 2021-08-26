@@ -1,0 +1,74 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "H18.30.002": "HsapDv:0000144",
+                "H18.30.001": "HsapDv:0000154",
+                "F003": "MmusDv:0000061",
+                "F004": "MmusDv:0000061",
+                "F005": "MmusDv:0000061",
+                "F006": "MmusDv:0000061",
+                "F007": "MmusDv:0000061",
+                "F008": "MmusDv:0000061",
+                "M002": "MmusDv:0000061",
+                "M003": "MmusDv:0000061",
+                "M004": "MmusDv:0000061",
+                "M006": "MmusDv:0000061",
+                "M007": "MmusDv:0000061",
+                "M008": "MmusDv:0000061",
+                "bi005": "UBERON:0000113",
+                "bi006": "UBERON:0000113"
+            },
+            "update_from": "donor_id"
+        },
+        "organism_ontology_term_id": {
+            "value_map": {
+                "F003": "NCBITaxon:10090",
+                "F004": "NCBITaxon:10090",
+                "F005": "NCBITaxon:10090",
+                "F006": "NCBITaxon:10090",
+                "F007": "NCBITaxon:10090",
+                "F008": "NCBITaxon:10090",
+                "M002": "NCBITaxon:10090",
+                "M003": "NCBITaxon:10090",
+                "M004": "NCBITaxon:10090",
+                "M006": "NCBITaxon:10090",
+                "M007": "NCBITaxon:10090",
+                "M008": "NCBITaxon:10090",
+                "H18.30.001": "NCBITaxon:9606",
+                "H18.30.002": "NCBITaxon:9606"
+            },
+            "update_from": "donor_id"
+        }
+    },
+    "update_dtypes": {
+        "sample_id": "category"
+    },
+    "add_uns": {
+        "X_normalization": "",
+        "BICCN_subclass_label_colors": [
+            "#50B2AD",
+            "#C4EC04",
+            "#2D8CB8",
+            "#3E9E64",
+            "#53377D",
+            "#0D5B78",
+            "#A19922",
+            "#5100FF"
+        ]
+    },
+    "remove_obs": [
+        "orig.ident",
+        "Sex",
+        "subclass_color"
+    ],
+    "remove_uns": []
+}

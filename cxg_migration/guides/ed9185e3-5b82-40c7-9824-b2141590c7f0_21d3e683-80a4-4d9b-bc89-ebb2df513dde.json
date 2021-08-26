@@ -1,0 +1,67 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {
+        "cell_type": "author_cell_type"
+    },
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "24.0": "HsapDv:0000118",
+                "30.0": "HsapDv:0000124",
+                "32.0": "HsapDv:0000126",
+                "35.0": "HsapDv:0000129",
+                "37.0": "HsapDv:0000131",
+                "40.0": "HsapDv:0000134",
+                "45.0": "HsapDv:0000139",
+                "47.0": "HsapDv:0000141",
+                "49.0": "HsapDv:0000143",
+                "50.0": "HsapDv:0000144",
+                "51.0": "HsapDv:0000145",
+                "52.0": "HsapDv:0000146",
+                "53.0": "HsapDv:0000147",
+                "54.0": "HsapDv:0000148",
+                "55.0": "HsapDv:0000149",
+                "57.0": "HsapDv:0000151",
+                "58.0": "HsapDv:0000152",
+                "59.0": "HsapDv:0000153",
+                "60.0": "HsapDv:0000154",
+                "61.0": "HsapDv:0000155",
+                "63.0": "HsapDv:0000157",
+                "66.0": "HsapDv:0000160",
+                "67.0": "HsapDv:0000161",
+                "70.0": "HsapDv:0000164",
+                "71.0": "HsapDv:0000165",
+                "73.0": "HsapDv:0000167",
+                "74.0": "HsapDv:0000168",
+                "76.0": "HsapDv:0000170",
+                "77.0": "HsapDv:0000171",
+                "78.0": "HsapDv:0000172",
+                "79.0": "HsapDv:0000173",
+                "84.0": "HsapDv:0000210"
+            },
+            "update_from": "age"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "TCRVbeta13.1pos": "CL:0000084",
+                "double-positive T cell": "CL:0000809",
+                "TissueResMemT": "CL:0000813",
+                "double negative T cell": "CL:0002489"
+            },
+            "update_from": "author_cell_type"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [],
+    "remove_uns": [],
+    "drop_raw_x": true
+}

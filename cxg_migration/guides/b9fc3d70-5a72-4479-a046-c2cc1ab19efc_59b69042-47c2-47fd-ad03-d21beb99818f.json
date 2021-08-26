@@ -1,0 +1,73 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "T/NK proliferative": "CL:0000542",
+                "NK activated": "CL:0000623",
+                "B intermediate": "CL:0000818"
+            },
+            "update_from": "cell_type"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "cov01": "HANCESTRO:0005",
+                "cov03": "HANCESTRO:0005",
+                "cov07": "HANCESTRO:0005",
+                "cov08": "HANCESTRO:0005",
+                "cov09": "HANCESTRO:0005",
+                "cov17": "HANCESTRO:0005",
+                "cov18": "HANCESTRO:0005",
+                "cov02": "HANCESTRO:0568",
+                "cov04": "HANCESTRO:0568",
+                "cov10": "HANCESTRO:0568",
+                "cov11": "HANCESTRO:0568",
+                "cov12": "HANCESTRO:0568"
+            },
+            "update_from": "patient"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "cov17": "HsapDv:0000095",
+                "cov09": "HsapDv:0000132",
+                "cov12": "HsapDv:0000141",
+                "cov11": "HsapDv:0000142",
+                "cov02": "HsapDv:0000147",
+                "cov04": "HsapDv:0000153",
+                "cov10": "HsapDv:0000154",
+                "cov08": "HsapDv:0000162",
+                "cov18": "HsapDv:0000164",
+                "cov01": "HsapDv:0000169",
+                "cov03": "HsapDv:0000169",
+                "cov07": "HsapDv:0000210"
+            },
+            "update_from": "patient"
+        },
+        "sex_ontology_term_id": {
+            "value_map": {
+                "cov01": "PATO:0000383",
+                "cov02": "PATO:0000383",
+                "cov03": "PATO:0000383",
+                "cov07": "PATO:0000383",
+                "cov08": "PATO:0000383",
+                "cov10": "PATO:0000383",
+                "cov12": "PATO:0000383",
+                "cov18": "PATO:0000383",
+                "cov04": "PATO:0000384",
+                "cov09": "PATO:0000384",
+                "cov11": "PATO:0000384",
+                "cov17": "PATO:0000384"
+            },
+            "update_from": "patient"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [
+        "age(y)"
+    ],
+    "remove_uns": []
+}

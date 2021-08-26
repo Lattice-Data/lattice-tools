@@ -2,22 +2,26 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "development_stage_ontology_term_id": {
+        "assay_ontology_term_id": {
             "value_map": {
-                "unknown": "MmusDv:0000061"
+                "10X sequencing": "EFO:0030003"
             },
-            "update_from": "development_stage"
+            "update_from": "assay"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
         },
         "cell_type_ontology_term_id": {
             "value_map": {
-                "Primary Motor Cortex Cell": "CL:0000003"
+                "pancreas": "CL:0000003"
             },
             "update_from": "cell_type"
         }
     },
-    "update_dtypes": {
-        "FullCellID": "category"
-    },
+    "update_dtypes": {},
     "add_uns": {
         "X_normalization": ""
     },

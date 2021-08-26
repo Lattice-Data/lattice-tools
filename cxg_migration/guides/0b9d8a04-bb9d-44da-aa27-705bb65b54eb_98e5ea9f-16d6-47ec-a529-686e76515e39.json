@@ -4,19 +4,22 @@
     "prop_map": {
         "development_stage_ontology_term_id": {
             "value_map": {
-                "unknown": "MmusDv:0000061"
+                "3m": "MmusDv:0000063",
+                "18m": "MmusDv:0000089",
+                "21m": "MmusDv:0000091",
+                "24m": "MmusDv:0000091"
             },
-            "update_from": "development_stage"
+            "update_from": "age"
         },
-        "cell_type_ontology_term_id": {
+        "ethnicity_ontology_term_id": {
             "value_map": {
-                "Primary Motor Cortex Cell": "CL:0000003"
+                "na": "na"
             },
-            "update_from": "cell_type"
+            "update_from": "ethnicity"
         }
     },
     "update_dtypes": {
-        "FullCellID": "category"
+        "cell": "category"
     },
     "add_uns": {
         "X_normalization": ""

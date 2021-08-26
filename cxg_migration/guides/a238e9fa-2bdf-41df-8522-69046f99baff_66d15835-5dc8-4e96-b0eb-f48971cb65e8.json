@@ -1,47 +1,44 @@
 {
-	"prop_map": {
-        "cell_type": {
-	        "update_in": "cell_type_ontology_term_id",
-	        "value_map": {
-	            "alpha": "CL:alpha",
-				"beta": "CL:beta",
-				"delta": "CL:delta",
-				"unknown": "unknown"
-			}
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "5 years": "HsapDv:0000099",
+                "6 years": "HsapDv:0000100",
+                "21 years": "HsapDv:0000115",
+                "22 years": "HsapDv:0000116",
+                "38 years": "HsapDv:0000132",
+                "44 years": "HsapDv:0000138",
+                "54 years": "HsapDv:0000148",
+                "1 months": "HsapDv:0000174",
+                "[]": "unknown"
+            },
+            "update_from": "age "
         },
-        "age ": {
-	        "update_in": "development_stage_ontology_term_id",
-	        "value_map": {
-	            "21 years": "HsapDv:0000115",
-				"38 years": "HsapDv:0000132",
-				" ": "unknown",
-				"5 years": "HsapDv:0000099",
-				"22 years": "HsapDv:0000116",
-				"44 years": "HsapDv:0000138",
-				"54 years": "HsapDv:0000148",
-				"1 months": "HsapDv:0000174",
-				"6 years": "HsapDv:0000100"
-			}
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "unknown": "CL:0000003",
+                "beta": "CL:0000169",
+                "delta": "CL:0000502",
+                "alpha": "CL:0002067"
+            },
+            "update_from": "cell_type"
         },
-        "ethnicity": {
-	        "update_in": "ethnicity_ontology_term_id",
-	        "value_map": {
-				"male": "unknown"
-			}
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "male": "unknown",
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
         }
     },
-	"update_dtypes": {
-		"sample_recieve_date": "category",
-		"c1_chip_id": "category"
-	},
-	"add_uns": {
-		"X_normalization": "none"
-	},
-	"remove_var": [],
-	"remove_uns": [],
-	"remove_obs": [
-		"cluster",
-		"age ",
-		"experiment_name"
-	]
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "none"
+    },
+    "remove_obs": [
+        "age"
+    ],
+    "remove_uns": []
 }

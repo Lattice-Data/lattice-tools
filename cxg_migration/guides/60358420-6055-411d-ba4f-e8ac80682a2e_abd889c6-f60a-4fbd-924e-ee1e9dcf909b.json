@@ -1,0 +1,32 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "Myofibroblasts": "CL:0000186",
+                "FOXF2- Muscularis": "CL:0002504",
+                "FOXF2+ Distal Muscularis": "CL:0002504",
+                "IGF1+ Distal Muscularis": "CL:0002504",
+                "MORN5+ Distal Muscularis": "CL:0002504",
+                "MYOCD+ Muscularis": "CL:0002504",
+                "ENS Progenitors": "CL:0011026"
+            },
+            "update_from": "cell_type"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [
+        "ontology_term"
+    ],
+    "remove_uns": []
+}

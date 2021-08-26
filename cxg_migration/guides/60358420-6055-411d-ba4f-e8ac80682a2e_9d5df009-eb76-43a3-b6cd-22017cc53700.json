@@ -1,0 +1,37 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "assay_ontology_term_id": {
+            "value_map": {
+                "scRNA-seq": "EFO:0009922"
+            },
+            "update_from": "assay"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "Myofibroblasts": "CL:0000186",
+                "Mesothelium": "CL:0000077",
+                "Immune": "CL:0000738",
+                "Neural": "CL:0002319",
+                "Muscularis": "CL:0002504"
+            },
+            "update_from": "cell_type"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [
+        "tissue_original",
+        "ontology_term"
+    ],
+    "remove_uns": []
+}

@@ -1,0 +1,31 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "3m": "MmusDv:0000063",
+                "18m": "MmusDv:0000089",
+                "24m": "MmusDv:0000091"
+            },
+            "update_from": "age"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {
+        "cell": "category"
+    },
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [
+        "subtissue",
+        "tissue_original"
+    ],
+    "remove_uns": []
+}

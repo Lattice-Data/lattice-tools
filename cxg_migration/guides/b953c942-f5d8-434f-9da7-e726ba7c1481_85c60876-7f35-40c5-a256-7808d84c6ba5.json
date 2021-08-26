@@ -1,0 +1,37 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "93": "HsapDv:0000095",
+                "57": "HsapDv:0000151",
+                "61": "HsapDv:0000155",
+                "62": "HsapDv:0000156",
+                "66": "HsapDv:0000160",
+                "67": "HsapDv:0000161",
+                "68": "HsapDv:0000162",
+                "71": "HsapDv:0000165",
+                "72": "HsapDv:0000166",
+                "73": "HsapDv:0000167",
+                "79": "HsapDv:0000173",
+                "81": "HsapDv:0000207",
+                "87": "HsapDv:0000213",
+                "89": "HsapDv:0000215"
+            },
+            "update_from": "Age"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": ""
+    },
+    "remove_obs": [],
+    "remove_uns": []
+}
