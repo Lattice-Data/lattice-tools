@@ -55,7 +55,8 @@ def main(ds):
 			obs = obs.merge(map_df, on=old)
 
 	# fill in is_primary_data
-	obs['is_primary_data'] = guide['is_primary_data']
+	if 'is_primary_data' not in obs:
+		obs['is_primary_data'] = guide['is_primary_data']
 
 	# migration organism from uns to obs if not already present
 	if 'organism_ontology_term_id' not in obs.columns:
