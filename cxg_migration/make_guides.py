@@ -13,7 +13,13 @@ ds_df = ds_df[['coll_ds','X_normalization','is_primary_data']]
 ds_df = ds_df.loc[ds_df['X_normalization'] != 'Lattice dataset']
 
 guides = {}
+no_pri = 0
+no_nor = 0
 for i,r in ds_df.iterrows():
+	if r['is_primary_data'] not in [True, False]:
+		no_pri += 1
+	if not r['X_normalization']:
+		no_nor += 1
 	guides[r['coll_ds']] = {
 		'is_primary_data': r['is_primary_data'],
 		'prop_rename': {},
@@ -25,6 +31,8 @@ for i,r in ds_df.iterrows():
 		'remove_obs': [],
 		'remove_uns': []
 	}
+print(str(no_pri) + ' datasets without is_primary_data')
+print(str(no_nor) + ' datasets without X_normalization')
 
 v = lambda x: x.split(' [')[0]
 
@@ -66,6 +74,8 @@ for i, r in err_df.iterrows():
 	elif cat == 'data' and up == 'swap raw.X and .X':
 		guides[ds]['swap_layers'] = True
 	elif cat == 'update_value':
+		if field == 'is_primary_data':
+			up = up.lower() == 'true'
 		if r['impacted field'] not in guides[ds]['prop_map']:
 			prop_map = {'value_map': {r['note']: up}}
 			if r['map-from field']:
@@ -80,7 +90,14 @@ for i, r in err_df.iterrows():
 	elif cat == 'add_uns_field' and up == 'add_field':
 		if field in guides[ds]['add_uns']:
 			print(str(i) + ':MULTIPLE UNS ADD')
+		guides[ds]['add_uns'][field] = r['note']
+	elif cat == 'add_uns_field_list' and up == 'add_field':
+		if field in guides[ds]['add_uns']:
+			print(str(i) + ':MULTIPLE UNS ADD')
 		guides[ds]['add_uns'][field] = r['note'].split(',')
+	elif cat == 'remove_uns_field' and up == 'remove_field':
+		if field not in guides[ds]['remove_uns']:
+			guides[ds]['remove_uns'].append(field)
 	elif cat == 'update_dtype':
 		if field in guides[ds]['update_dtypes']:
 			print(str(i) + ':MULTIPLE DTYPE UPDATE')
