@@ -2,12 +2,6 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "unknown": "unknown"
-            },
-            "update_from": "ethnicity"
-        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "BT_S6": "HsapDv:0000142",
@@ -16,6 +10,12 @@
                 "BT_S4": "HsapDv:0000154"
             },
             "update_from": "Sample.name"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
         }
     },
     "update_dtypes": {},
@@ -42,12 +42,12 @@
         ]
     },
     "remove_obs": [
-        "housekeeping_cluster_color",
-        "Sample.type.color",
         "cell_type_original",
-        "Selection.color",
+        "housekeeping_cluster_color",
+        "Location.color",
         "Sample.name.color",
-        "Location.color"
+        "Sample.type.color",
+        "Selection.color"
     ],
     "remove_uns": []
 }

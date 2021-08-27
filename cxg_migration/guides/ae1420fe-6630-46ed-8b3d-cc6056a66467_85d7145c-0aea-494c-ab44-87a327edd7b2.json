@@ -2,17 +2,17 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "development_stage_ontology_term_id": {
-            "value_map": {
-                "unknown": "MmusDv:0000061"
-            },
-            "update_from": "development_stage"
-        },
         "cell_type_ontology_term_id": {
             "value_map": {
                 "Primary Motor Cortex Cell": "CL:0000003"
             },
             "update_from": "cell_type"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "unknown": "MmusDv:0000061"
+            },
+            "update_from": "development_stage"
         }
     },
     "update_dtypes": {

@@ -2,12 +2,6 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "unknown": "unknown"
-            },
-            "update_from": "ethnicity"
-        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "7": "HsapDv:0000095",
@@ -22,6 +16,12 @@
                 "6": "HsapDv:0000213"
             },
             "update_from": "PatientID"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
         }
     },
     "update_dtypes": {},

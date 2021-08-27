@@ -1,7 +1,22 @@
 {
-    "is_primary_data": true,
+    "is_primary_data": "",
     "prop_rename": {},
-    "prop_map": {},
+    "prop_map": {
+        "is_primary_data": {
+            "value_map": {
+                "D17PrPzF_Via": false,
+                "BPH342PrF_Via": true,
+                "D27PrPzF_Via": false,
+                "D27PrTzF_Via": false,
+                "BPH340PrGF_Via": false,
+                "D17PrTzF_Via": false,
+                "BPH327PrGF_Via": false,
+                "D35PrTzF_Via": false,
+                "D35PrPzF_Via": false
+            },
+            "update_from": "Sample"
+        }
+    },
     "update_dtypes": {},
     "add_uns": {
         "X_normalization": ""

@@ -2,12 +2,6 @@
     "is_primary_data": false,
     "prop_rename": {},
     "prop_map": {
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "unknown": "unknown"
-            },
-            "update_from": "ethnicity"
-        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "H18.30.002": "HsapDv:0000144",
@@ -28,6 +22,12 @@
                 "bi006": "UBERON:0000113"
             },
             "update_from": "donor_id"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
         },
         "organism_ontology_term_id": {
             "value_map": {

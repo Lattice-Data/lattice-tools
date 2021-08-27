@@ -10,24 +10,6 @@
             },
             "update_from": "cell_type"
         },
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "H1": "HANCESTRO:0005",
-                "H2": "HANCESTRO:0005",
-                "H3": "HANCESTRO:0005",
-                "H4": "HANCESTRO:0005",
-                "H6": "HANCESTRO:0005",
-                "H5": "HANCESTRO:0008",
-                "C1": "unknown",
-                "C2": "unknown",
-                "C3": "unknown",
-                "C4": "unknown",
-                "C5": "unknown",
-                "C6": "unknown",
-                "C7": "unknown"
-            },
-            "update_from": "patient"
-        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "C7": "HsapDv:0000088",
@@ -43,6 +25,24 @@
                 "C2": "HsapDv:0000239",
                 "C5": "HsapDv:0000240",
                 "C1": "HsapDv:0000241"
+            },
+            "update_from": "patient"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "H1": "HANCESTRO:0005",
+                "H2": "HANCESTRO:0005",
+                "H3": "HANCESTRO:0005",
+                "H4": "HANCESTRO:0005",
+                "H6": "HANCESTRO:0005",
+                "H5": "HANCESTRO:0008",
+                "C1": "unknown",
+                "C2": "unknown",
+                "C3": "unknown",
+                "C4": "unknown",
+                "C5": "unknown",
+                "C6": "unknown",
+                "C7": "unknown"
             },
             "update_from": "patient"
         },

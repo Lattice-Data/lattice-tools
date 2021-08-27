@@ -2,26 +2,6 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "TSP1": "HANCESTRO:0005",
-                "TSP3": "HANCESTRO:0005",
-                "TSP5": "HANCESTRO:0005",
-                "TSP6": "HANCESTRO:0005",
-                "TSP7": "HANCESTRO:0005",
-                "TSP14": "HANCESTRO:0005",
-                "TSP11": "HANCESTRO:0008",
-                "TSP8": "HANCESTRO:0014",
-                "TSP9": "HANCESTRO:0014",
-                "TSP10": "HANCESTRO:0014",
-                "TSP12": "HANCESTRO:0014",
-                "TSP13": "HANCESTRO:0014",
-                "TSP15": "HANCESTRO:0014",
-                "TSP2": "HANCESTRO:0016",
-                "TSP4": "HANCESTRO:0016"
-            },
-            "update_from": "donor"
-        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "TSP13": "HsapDv:0000116",
@@ -39,6 +19,26 @@
                 "TSP6": "HsapDv:0000161",
                 "TSP7": "HsapDv:0000163",
                 "TSP12": "HsapDv:0000168"
+            },
+            "update_from": "donor"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "TSP1": "HANCESTRO:0005",
+                "TSP3": "HANCESTRO:0005",
+                "TSP5": "HANCESTRO:0005",
+                "TSP6": "HANCESTRO:0005",
+                "TSP7": "HANCESTRO:0005",
+                "TSP14": "HANCESTRO:0005",
+                "TSP11": "HANCESTRO:0008",
+                "TSP8": "HANCESTRO:0014",
+                "TSP9": "HANCESTRO:0014",
+                "TSP10": "HANCESTRO:0014",
+                "TSP12": "HANCESTRO:0014",
+                "TSP13": "HANCESTRO:0014",
+                "TSP15": "HANCESTRO:0014",
+                "TSP2": "HANCESTRO:0016",
+                "TSP4": "HANCESTRO:0016"
             },
             "update_from": "donor"
         }

@@ -2,19 +2,6 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "cell_type_ontology_term_id": {
-            "value_map": {
-                "T/NK proliferative": "CL:0000542",
-                "B intermediate": "CL:0000818"
-            },
-            "update_from": "cell_type"
-        },
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "unknown": "unknown"
-            },
-            "update_from": "ethnicity"
-        },
         "assay_ontology_term_id": {
             "value_map": {
                 "nCoV 1": "EFO:0009922",
@@ -38,6 +25,13 @@
             },
             "update_from": "patient"
         },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "T/NK proliferative": "CL:0000542",
+                "B intermediate": "CL:0000818"
+            },
+            "update_from": "cell_type"
+        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "nCoV 6": "HsapDv:0000132",
@@ -60,6 +54,12 @@
                 "nCoV 2": "HsapDv:0000208"
             },
             "update_from": "patient"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
         },
         "patient": {
             "value_map": {

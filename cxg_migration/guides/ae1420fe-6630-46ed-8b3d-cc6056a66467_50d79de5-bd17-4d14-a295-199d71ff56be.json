@@ -2,17 +2,17 @@
     "is_primary_data": false,
     "prop_rename": {},
     "prop_map": {
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "na": "na"
-            },
-            "update_from": "ethnicity"
-        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "unknown": "MmusDv:0000061"
             },
             "update_from": "development_stage"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
         }
     },
     "update_dtypes": {
@@ -91,10 +91,10 @@
         ]
     },
     "remove_obs": [
-        "sex_original",
-        "method",
+        "cluster_color",
         "Lib_Name",
-        "cluster_color"
+        "method",
+        "sex_original"
     ],
     "remove_uns": []
 }

@@ -4,6 +4,21 @@
         "cell_type": "author_cell_type"
     },
     "prop_map": {
+        "assay_ontology_term_id_original": {
+            "value_map": {
+                "CITE-seq": "EFO:0011025"
+            },
+            "update_from": "assay"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "TCRVbeta13.1pos": "CL:0000084",
+                "double-positive T cell": "CL:0000809",
+                "TissueResMemT": "CL:0000813",
+                "double negative T cell": "CL:0002489"
+            },
+            "update_from": "author_cell_type"
+        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "24.0": "HsapDv:0000118",
@@ -40,15 +55,6 @@
                 "84.0": "HsapDv:0000210"
             },
             "update_from": "age"
-        },
-        "cell_type_ontology_term_id": {
-            "value_map": {
-                "TCRVbeta13.1pos": "CL:0000084",
-                "double-positive T cell": "CL:0000809",
-                "TissueResMemT": "CL:0000813",
-                "double negative T cell": "CL:0002489"
-            },
-            "update_from": "author_cell_type"
         },
         "ethnicity_ontology_term_id": {
             "value_map": {

@@ -2,6 +2,12 @@
     "is_primary_data": false,
     "prop_rename": {},
     "prop_map": {
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "unknown": "CL:0000003"
+            },
+            "update_from": "cell_type"
+        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "65-70": "HsapDv:0000091",
@@ -14,11 +20,11 @@
             },
             "update_from": "age_group"
         },
-        "cell_type_ontology_term_id": {
+        "ethnicity_ontology_term_id": {
             "value_map": {
-                "unknown": "CL:0000003"
+                "unknown": "HANCESTRO:0005"
             },
-            "update_from": "cell_type"
+            "update_from": "ethnicity"
         },
         "suspension_type": {
             "value_map": {
@@ -28,12 +34,6 @@
                 "Sanger-Nuclei": "nucleus"
             },
             "update_from": "cell_source"
-        },
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "unknown": "HANCESTRO:0005"
-            },
-            "update_from": "ethnicity"
         }
     },
     "update_dtypes": {},
@@ -41,10 +41,10 @@
         "X_normalization": ""
     },
     "remove_obs": [
+        "age_group",
         "gender",
         "region",
-        "version",
-        "age_group"
+        "version"
     ],
     "remove_uns": []
 }

@@ -4,6 +4,12 @@
         "injection_exclusion_criterion": "injection_exclusion_criterion"
     },
     "prop_map": {
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "unknown": "CL:0000003"
+            },
+            "update_from": "cell_type"
+        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "51": "MmusDv:0000051",
@@ -24,12 +30,6 @@
             },
             "update_from": "age_days"
         },
-        "cell_type_ontology_term_id": {
-            "value_map": {
-                "unknown": "CL:0000003"
-            },
-            "update_from": "cell_type"
-        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "na": "na"
@@ -41,7 +41,8 @@
         "seq_name": "category"
     },
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "",
+        "title": "Shared and distinct transcriptomic cell types across neocortical areas"
     },
     "remove_obs": [
         "sex_original"

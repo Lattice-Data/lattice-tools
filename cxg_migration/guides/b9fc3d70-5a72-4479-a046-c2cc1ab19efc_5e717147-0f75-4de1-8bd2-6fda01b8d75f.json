@@ -2,13 +2,6 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "cell_type_ontology_term_id": {
-            "value_map": {
-                "T/NK proliferative": "CL:0000542",
-                "B intermediate": "CL:0000818"
-            },
-            "update_from": "cell_type"
-        },
         "assay_ontology_term_id": {
             "value_map": {
                 "C2P01H": "EFO:0009899",
@@ -55,51 +48,12 @@
             },
             "update_from": "patient"
         },
-        "ethnicity_ontology_term_id": {
+        "cell_type_ontology_term_id": {
             "value_map": {
-                "C2P01H": "HANCESTRO:0005",
-                "C2P05F": "HANCESTRO:0005",
-                "C2P07H": "HANCESTRO:0005",
-                "C2P10H": "HANCESTRO:0005",
-                "C2P13F": "HANCESTRO:0005",
-                "C2P15H": "HANCESTRO:0005",
-                "C2P16H": "HANCESTRO:0005",
-                "C2P19H": "HANCESTRO:0005",
-                "P02H": "HANCESTRO:0005",
-                "P04H": "HANCESTRO:0005",
-                "P06F": "HANCESTRO:0005",
-                "P07H": "HANCESTRO:0005",
-                "P08H": "HANCESTRO:0005",
-                "P09H": "HANCESTRO:0005",
-                "P13H": "HANCESTRO:0005",
-                "P15F": "HANCESTRO:0005",
-                "P17H": "HANCESTRO:0005",
-                "P18F": "HANCESTRO:0005",
-                "P20H": "HANCESTRO:0005",
-                "C19-CB-0001": "unknown",
-                "C19-CB-0002": "unknown",
-                "C19-CB-0003": "unknown",
-                "C19-CB-0005": "unknown",
-                "C19-CB-0008": "unknown",
-                "C19-CB-0009": "unknown",
-                "C19-CB-0011": "unknown",
-                "C19-CB-0012": "unknown",
-                "C19-CB-0013": "unknown",
-                "C19-CB-0016": "unknown",
-                "C19-CB-0020": "unknown",
-                "C19-CB-0021": "unknown",
-                "C19-CB-0052": "unknown",
-                "C19-CB-0053": "unknown",
-                "C19-CB-0198": "unknown",
-                "C19-CB-0199": "unknown",
-                "C19-CB-0204": "unknown",
-                "C19-CB-0214": "unknown",
-                "Five": "unknown",
-                "one": "unknown",
-                "one_Ten": "unknown",
-                "Ten": "unknown"
+                "T/NK proliferative": "CL:0000542",
+                "B intermediate": "CL:0000818"
             },
-            "update_from": "patient"
+            "update_from": "cell_type"
         },
         "development_stage_ontology_term_id": {
             "value_map": {
@@ -140,6 +94,52 @@
                 "C19-CB-0016": "HsapDv:0000242",
                 "C19-CB-0053": "HsapDv:0000242",
                 "C19-CB-0204": "HsapDv:0000242",
+                "Five": "unknown",
+                "one": "unknown",
+                "one_Ten": "unknown",
+                "Ten": "unknown"
+            },
+            "update_from": "patient"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "C2P01H": "HANCESTRO:0005",
+                "C2P05F": "HANCESTRO:0005",
+                "C2P07H": "HANCESTRO:0005",
+                "C2P10H": "HANCESTRO:0005",
+                "C2P13F": "HANCESTRO:0005",
+                "C2P15H": "HANCESTRO:0005",
+                "C2P16H": "HANCESTRO:0005",
+                "C2P19H": "HANCESTRO:0005",
+                "P02H": "HANCESTRO:0005",
+                "P04H": "HANCESTRO:0005",
+                "P06F": "HANCESTRO:0005",
+                "P07H": "HANCESTRO:0005",
+                "P08H": "HANCESTRO:0005",
+                "P09H": "HANCESTRO:0005",
+                "P13H": "HANCESTRO:0005",
+                "P15F": "HANCESTRO:0005",
+                "P17H": "HANCESTRO:0005",
+                "P18F": "HANCESTRO:0005",
+                "P20H": "HANCESTRO:0005",
+                "C19-CB-0001": "unknown",
+                "C19-CB-0002": "unknown",
+                "C19-CB-0003": "unknown",
+                "C19-CB-0005": "unknown",
+                "C19-CB-0008": "unknown",
+                "C19-CB-0009": "unknown",
+                "C19-CB-0011": "unknown",
+                "C19-CB-0012": "unknown",
+                "C19-CB-0013": "unknown",
+                "C19-CB-0016": "unknown",
+                "C19-CB-0020": "unknown",
+                "C19-CB-0021": "unknown",
+                "C19-CB-0052": "unknown",
+                "C19-CB-0053": "unknown",
+                "C19-CB-0198": "unknown",
+                "C19-CB-0199": "unknown",
+                "C19-CB-0204": "unknown",
+                "C19-CB-0214": "unknown",
                 "Five": "unknown",
                 "one": "unknown",
                 "one_Ten": "unknown",

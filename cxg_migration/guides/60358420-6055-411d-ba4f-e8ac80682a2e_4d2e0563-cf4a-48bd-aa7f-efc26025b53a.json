@@ -20,8 +20,8 @@
         "X_normalization": ""
     },
     "remove_obs": [
-        "tissue_original",
-        "ontology_term"
+        "ontology_term",
+        "tissue_original"
     ],
     "remove_uns": []
 }

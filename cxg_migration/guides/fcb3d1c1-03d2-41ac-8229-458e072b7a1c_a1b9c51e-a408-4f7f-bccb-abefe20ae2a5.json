@@ -2,6 +2,11 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "CL:0000003": "CL:0002319"
+            }
+        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "unknown": "unknown"

@@ -14,6 +14,12 @@
             },
             "update_from": "age_group"
         },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "HANCESTRO:0005"
+            },
+            "update_from": "ethnicity"
+        },
         "suspension_type": {
             "value_map": {
                 "Sanger-CD45": "cell",
@@ -22,12 +28,6 @@
                 "Sanger-Nuclei": "nucleus"
             },
             "update_from": "cell_source"
-        },
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "unknown": "HANCESTRO:0005"
-            },
-            "update_from": "ethnicity"
         }
     },
     "update_dtypes": {},
@@ -35,10 +35,10 @@
         "X_normalization": ""
     },
     "remove_obs": [
+        "age_group",
         "gender",
         "region",
-        "version",
-        "age_group"
+        "version"
     ],
     "remove_uns": []
 }

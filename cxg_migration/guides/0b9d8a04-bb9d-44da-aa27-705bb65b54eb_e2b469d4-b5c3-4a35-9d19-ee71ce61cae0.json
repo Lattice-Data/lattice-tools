@@ -24,7 +24,8 @@
         "cell": "category"
     },
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "",
+        "title": "Spleen - A single-cell transcriptomic atlas characterizes ageing tissues in the mouse - 10x"
     },
     "remove_obs": [
         "free_annotation",

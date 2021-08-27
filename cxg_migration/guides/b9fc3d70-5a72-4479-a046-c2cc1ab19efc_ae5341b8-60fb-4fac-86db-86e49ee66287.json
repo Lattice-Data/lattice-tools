@@ -2,13 +2,6 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "development_stage_ontology_term_id": {
-            "value_map": {
-                "P1": "HsapDv:0000133",
-                "P2": "HsapDv:0000172"
-            },
-            "update_from": "patient"
-        },
         "assay_ontology_term_id": {
             "value_map": {
                 "10x Genomics": "EFO:0009899"
@@ -21,6 +14,13 @@
                 "B intermediate": "CL:0000818"
             },
             "update_from": "cell_type"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "P1": "HsapDv:0000133",
+                "P2": "HsapDv:0000172"
+            },
+            "update_from": "patient"
         },
         "ethnicity_ontology_term_id": {
             "value_map": {

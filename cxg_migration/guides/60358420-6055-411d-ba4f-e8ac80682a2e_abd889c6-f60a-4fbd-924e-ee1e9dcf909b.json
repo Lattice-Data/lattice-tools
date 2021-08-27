@@ -2,12 +2,6 @@
     "is_primary_data": false,
     "prop_rename": {},
     "prop_map": {
-        "ethnicity_ontology_term_id": {
-            "value_map": {
-                "unknown": "unknown"
-            },
-            "update_from": "ethnicity"
-        },
         "cell_type_ontology_term_id": {
             "value_map": {
                 "Myofibroblasts": "CL:0000186",
@@ -19,6 +13,12 @@
                 "ENS Progenitors": "CL:0011026"
             },
             "update_from": "cell_type"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
         }
     },
     "update_dtypes": {},
