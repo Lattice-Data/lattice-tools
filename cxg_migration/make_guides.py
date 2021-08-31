@@ -65,7 +65,7 @@ for i, r in err_df.iterrows():
 		if field in guides[ds]['prop_rename']:
 			print(str(i) + ':MULTIPLE RENAME FIELD')
 		guides[ds]['prop_rename'][field] = ' '.join(field.split())
-	elif cat == 'update_field' and up == 'author_cell_type':
+	elif cat == 'update_field':
 		if field in guides[ds]['prop_rename']:
 			print(str(i) + ':MULTIPLE RENAME FIELD')
 		guides[ds]['prop_rename'][field] = up
