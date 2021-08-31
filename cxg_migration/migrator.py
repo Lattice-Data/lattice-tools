@@ -41,6 +41,10 @@ def main(ds):
 					k2 = float(k2)
 				elif old_dtype == 'int64':
 					k2 = int(k2)
+				elif old_dtype != 'object':
+					if old_dtype == 'category':
+						if obs[old].cat.categories.dtype == 'int64':
+							k2 = int(k2)
 				obs[new] = np.where((obs[old] == k2), v2,obs[new])
 		else:
 			data = {old: [], new: []}
@@ -49,6 +53,9 @@ def main(ds):
 					k2 = float(k2)
 				elif old_dtype == 'int64':
 					k2 = int(k2)
+				elif old_dtype == 'category':
+					if obs[old].cat.categories.dtype == 'int64':
+						k2 = int(k2)
 				data[old].append(k2)
 				data[new].append(v2)
 			map_df = pd.DataFrame.from_dict(data)
