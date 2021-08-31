@@ -7,12 +7,37 @@ import pandas as pd
 import scanpy as sc
 
 
+def report(ds, obs, ver):
+	props = [
+		'assay',
+		'tissue',
+		'cell_type',
+		'sex',
+		'development_stage',
+		'ethnicity',
+		'disease'
+	]
+	outfile = ver + '_labels.tsv'
+	if ver == 'new':
+		props = [e + '_ontology_term_id' for e in props]
+	for p in props:
+		i = obs[p].value_counts().to_frame()
+		i['dataset'] = ds
+		i['field'] = p
+		i = i.rename(columns={p: 'cells'})
+		i.index.name = 'label'
+		i.to_csv(outfile, sep='\t', mode='a', header=False)
+
+
 def main(ds):
 	guide = json.load(open('guides/{}.json'.format(ds)))
+
 	adata = sc.read_h5ad(ds + '.h5ad')
+
 	obs = adata.obs
 	uns = adata.uns
-	obs_len = len(obs)
+
+	report(ds, obs, 'orig')
 
 	# rename obs fields
 	obs = obs.rename(columns=guide['prop_rename'])
@@ -87,14 +112,14 @@ def main(ds):
 		if k.endswith('_original'):
 			remove_uns.append(k)
 	for e in remove_uns:
-		if uns.get(e):
+		if e in uns:
 			del uns[e]
 
 	# remove columns from obs
-	portal_fields = ['assay', 'cell_type', 'development_stage', 'disease', 'ethnicity', 'sex', 'tissue', 'organism']
+	portal_props = ['assay','tissue','cell_type','sex','development_stage','ethnicity','disease','organism']
 	remove_obs = []
 	for k in obs.keys():
-		if k in portal_fields + guide['remove_obs']:
+		if k in portal_props + guide['remove_obs']:
 			remove_obs.append(k)
 	obs = obs.drop(columns=remove_obs)
 
@@ -104,23 +129,35 @@ def main(ds):
 		adata.raw = adata
 		adata.X = orig_raw.X
 
+	report(ds, obs, 'new')
+
 	# write the new object to the file
 	adata.obs = obs
 	adata.uns = uns
 	adata.write(filename=ds + '.h5ad')
 
 attn_needed = [
-	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f',
-	'f70ebd97-b3bc-44fe-849d-c18e08fe773d_e0ed3c55-aff6-4bb7-b6ff-98a2d90b890c'
+	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # no raw counts
+	'f70ebd97-b3bc-44fe-849d-c18e08fe773d_e0ed3c55-aff6-4bb7-b6ff-98a2d90b890c', # no raw counts, 2 non-raw layers
+	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8' # cell don't group by cluster/cell_type
 	]
 
-s3 = boto3.client('s3')
+client = boto3.client('s3')
 guides = os.listdir('guides')
+
+already_run = []
+resource = boto3.resource('s3')
+your_bucket = resource.Bucket('submissions-lattice')
+for s3_file in your_bucket.objects.all():
+	if 'cxg_migration/working' in s3_file.key:
+		already_run.append(s3_file.key.split('/')[-1].split('.')[0])
+
 for g in guides:
 	ds = g.split('.')[0]
-	if ds not in attn_needed:
+	if ds not in attn_needed and ds not in already_run:
+		print('PROCESSING:' + ds)
 		file = ds + '.h5ad'
-		s3.download_file('submissions-lattice', 'cxg_migration/original/' + file, file)
+		client.download_file('submissions-lattice', 'cxg_migration/original/' + file, file)
 		main(ds)
-		s3.upload_file(file, 'submissions-lattice', 'cxg_migration/working/' + file)
+		client.upload_file(file, 'submissions-lattice', 'cxg_migration/working/' + file)
 		os.remove(file)
