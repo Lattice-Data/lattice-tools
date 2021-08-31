@@ -55,6 +55,8 @@ def id_label_comp(ds, prop, label, term_id, org_id=None):
 	elif ont[term_id]['name'] != label:
 		term_id = term_id + '-' + ont[term_id]['name']
 		ont_err = 'ontology mismatch'
+	elif label.startswith('obsolete'):
+		ont_err = 'obsolete term'
 
 	if ':' in term_id and term_id.split(':')[0] != ont_dbs[prop]:
 		if prop != 'disease' and term_id != 'PATO:0000461':
