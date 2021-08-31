@@ -8,17 +8,17 @@
             },
             "update_from": "assay"
         },
-        "cell_type_ontology_term_id": {
-            "value_map": {
-                "pancreas": "CL:0000003"
-            },
-            "update_from": "cell_type"
-        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "unknown": "unknown"
             },
             "update_from": "ethnicity"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "pancreas": "CL:0000003"
+            },
+            "update_from": "cell_type"
         }
     },
     "update_dtypes": {},

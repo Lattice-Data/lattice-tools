@@ -8,6 +8,12 @@
             },
             "update_from": "assay"
         },
+        "tissue_ontology_term_id": {
+            "value_map": {
+                "HESC": "CL:0002322 (cell culture)"
+            },
+            "update_from": "tissue"
+        },
         "author_cell_type": {
             "value_map": {
                 "102": "Adrenal gland inflammatory cell",
@@ -443,12 +449,6 @@
                 "Liver_2": "unknown"
             },
             "update_from": "batch"
-        },
-        "tissue_ontology_term_id": {
-            "value_map": {
-                "HESC": "CL:0002322 (cell culture)"
-            },
-            "update_from": "tissue"
         }
     },
     "update_dtypes": {},

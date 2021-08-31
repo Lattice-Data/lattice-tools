@@ -25,9 +25,9 @@
         "title": "Kidney - A single-cell transcriptomic atlas characterizes ageing tissues in the mouse - Smart-seq2"
     },
     "remove_obs": [
-        "free_annotation",
         "subtissue",
-        "tissue_original"
+        "tissue_original",
+        "free_annotation"
     ],
     "remove_uns": []
 }

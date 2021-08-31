@@ -25,7 +25,7 @@
                 "Sympathoblasts": "CL:0011103",
                 "ELF3_AGBL2 positive": "CL:2000046",
                 "neuron associated cell": "CL:0000095",
-                "obsolete glial cell": "CL:0000125"
+                "obsolete glial cell (sensu Nematoda and Protostomia)": "CL:0000125"
             },
             "update_from": "cell_type"
         },

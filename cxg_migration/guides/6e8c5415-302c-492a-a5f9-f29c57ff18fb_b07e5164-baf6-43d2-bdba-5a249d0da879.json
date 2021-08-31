@@ -2,16 +2,16 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "assay_ontology_term_id": {
-            "value_map": {
-                "EFO:0009922": "EFO:0010010"
-            }
-        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "unknown": "unknown"
             },
             "update_from": "ethnicity"
+        },
+        "assay_ontology_term_id": {
+            "value_map": {
+                "EFO:0009922": "EFO:0010010"
+            }
         }
     },
     "update_dtypes": {},

@@ -23,17 +23,17 @@
             },
             "update_from": "cell_type"
         },
-        "development_stage_ontology_term_id": {
-            "value_map": {
-                "adult": "MmusDv:0000052"
-            },
-            "update_from": "development_stage"
-        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "na": "na"
             },
             "update_from": "ethnicity"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "adult": "MmusDv:0000052"
+            },
+            "update_from": "development_stage"
         }
     },
     "update_dtypes": {},
@@ -41,15 +41,15 @@
         "X_normalization": ""
     },
     "remove_obs": [
-        "cell_type__ontology_label",
-        "cell_type_original",
         "disease__ontology_label",
         "disease_original",
         "library_preparation_protocol",
         "library_preparation_protocol__ontology_label",
-        "sex_original",
         "species",
-        "species__ontology_label"
+        "species__ontology_label",
+        "cell_type__ontology_label",
+        "cell_type_original",
+        "sex_original"
     ],
     "remove_uns": []
 }

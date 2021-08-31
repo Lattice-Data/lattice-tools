@@ -2,6 +2,12 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
+        "tissue_ontology_term_id": {
+            "value_map": {
+                "EFO:0009922": "CL:0002328 (cell culture)"
+            },
+            "update_from": "assay_ontology_term_id"
+        },
         "cell_type_ontology_term_id": {
             "value_map": {
                 "BC/Club": "CL:0002371"

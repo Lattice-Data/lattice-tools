@@ -1,7 +1,32 @@
 {
     "is_primary_data": false,
     "prop_rename": {},
-    "prop_map": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "BPH389PrSF": "HsapDv:0000161",
+                "BPH511PrG_Fcol_3GEX": "HsapDv:0000167",
+                "D17PrPzF_Via": "HsapDv:0000125",
+                "BPH327PrSF_Via": "HsapDv:0000168",
+                "BPH340PrSF_Via": "HsapDv:0000166",
+                "D27PrPzF_Via": "HsapDv:0000123",
+                "BPH340PrGF_Via": "HsapDv:0000166",
+                "D27PrTzF_Via": "HsapDv:0000123",
+                "BPH556PrGA2_Fcol": "HsapDv:0000165",
+                "D17PrTzF_Via": "HsapDv:0000125",
+                "BPH511PrPUr_Fcol_3GEX": "HsapDv:0000167",
+                "D35PrTzF_Via": "HsapDv:0000123",
+                "BPH389PrGF": "HsapDv:0000161",
+                "BPH327PrGF_Via": "HsapDv:0000168",
+                "D35PrPzF_Via": "HsapDv:0000123",
+                "BPH556PrSN_Fcol": "HsapDv:0000165",
+                "BPH283PrSF_Via": "HsapDv:0000207",
+                "BPH283PrGF_Via": "HsapDv:0000207",
+                "BPH556PrGA1_Fcol": "HsapDv:0000165"
+            },
+            "update_from": "Sample"
+        }
+    },
     "update_dtypes": {},
     "add_uns": {
         "X_normalization": ""

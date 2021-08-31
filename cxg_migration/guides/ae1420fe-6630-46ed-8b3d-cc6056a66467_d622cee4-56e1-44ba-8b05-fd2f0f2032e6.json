@@ -2,12 +2,6 @@
     "is_primary_data": false,
     "prop_rename": {},
     "prop_map": {
-        "development_stage_ontology_term_id": {
-            "value_map": {
-                "unknown": "MmusDv:0000061"
-            },
-            "update_from": "development_stage"
-        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "na": "na"
@@ -19,6 +13,12 @@
                 "Cells": "cell"
             },
             "update_from": "cell_prep_type"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "unknown": "MmusDv:0000061"
+            },
+            "update_from": "development_stage"
         }
     },
     "update_dtypes": {
@@ -96,9 +96,9 @@
     },
     "remove_obs": [
         "cell_prep_type",
+        "Type",
         "cluster_color",
-        "sex_original",
-        "Type"
+        "sex_original"
     ],
     "remove_uns": []
 }

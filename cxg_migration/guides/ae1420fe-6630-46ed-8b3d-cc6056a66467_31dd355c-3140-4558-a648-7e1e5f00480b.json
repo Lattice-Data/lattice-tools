@@ -2,11 +2,17 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "cell_type_ontology_term_id": {
+        "sex_ontology_term_id": {
             "value_map": {
-                "cerebral cortex": "CL:0000003"
+                "mixed": "PATO:0000384"
             },
-            "update_from": "cell_type"
+            "update_from": "sex"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
         },
         "development_stage_ontology_term_id": {
             "value_map": {
@@ -14,11 +20,11 @@
             },
             "update_from": "development_stage"
         },
-        "ethnicity_ontology_term_id": {
+        "cell_type_ontology_term_id": {
             "value_map": {
-                "na": "na"
+                "cerebral cortex": "CL:0000003"
             },
-            "update_from": "ethnicity"
+            "update_from": "cell_type"
         }
     },
     "update_dtypes": {

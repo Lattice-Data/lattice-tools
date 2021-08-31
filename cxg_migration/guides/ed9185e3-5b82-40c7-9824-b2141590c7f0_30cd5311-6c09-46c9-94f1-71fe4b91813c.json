@@ -4,20 +4,6 @@
         "cell_type": "author_cell_type"
     },
     "prop_map": {
-        "assay_ontology_term_id_original": {
-            "value_map": {
-                "CITE-seq": "EFO:0011025"
-            },
-            "update_from": "assay"
-        },
-        "cell_type_ontology_term_id": {
-            "value_map": {
-                "NK_CD56loCD16lo": "CL:0000623",
-                "NK_CD56hiCD16lo": "CL:0000938",
-                "NK_CD16hi": "CL:0000939"
-            },
-            "update_from": "author_cell_type"
-        },
         "development_stage_ontology_term_id": {
             "value_map": {
                 "24.0": "HsapDv:0000118",
@@ -55,11 +41,25 @@
             },
             "update_from": "age"
         },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "NK_CD56loCD16lo": "CL:0000623",
+                "NK_CD56hiCD16lo": "CL:0000938",
+                "NK_CD16hi": "CL:0000939"
+            },
+            "update_from": "author_cell_type"
+        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "unknown": "unknown"
             },
             "update_from": "ethnicity"
+        },
+        "assay_ontology_term_id": {
+            "value_map": {
+                "CITE-seq": "EFO:0011025"
+            },
+            "update_from": "assay"
         }
     },
     "update_dtypes": {},

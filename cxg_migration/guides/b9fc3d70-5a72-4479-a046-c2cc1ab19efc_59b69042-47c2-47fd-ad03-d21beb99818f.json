@@ -2,12 +2,6 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
-        "assay_ontology_term_id": {
-            "value_map": {
-                "CITE-seq": "EFO:0009922"
-            },
-            "update_from": "assay"
-        },
         "cell_type_ontology_term_id": {
             "value_map": {
                 "T/NK proliferative": "CL:0000542",
@@ -15,6 +9,12 @@
                 "B intermediate": "CL:0000818"
             },
             "update_from": "cell_type"
+        },
+        "assay_ontology_term_id": {
+            "value_map": {
+                "CITE-Seq": "EFO:0009922"
+            },
+            "update_from": "assay"
         },
         "development_stage_ontology_term_id": {
             "value_map": {

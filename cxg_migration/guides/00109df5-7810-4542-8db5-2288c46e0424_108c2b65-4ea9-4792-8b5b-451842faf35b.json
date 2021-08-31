@@ -2,11 +2,17 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
+        "tissue_ontology_term_id": {
+            "value_map": {
+                "A549": "CL:0010003 (cell culture)"
+            },
+            "update_from": "cell_type_original"
+        },
         "cell_type_ontology_term_id": {
             "value_map": {
-                "[]": "CL:0000010"
+                "A549": "CL:0000010"
             },
-            "update_from": "cell_type"
+            "update_from": "cell_type_original"
         },
         "development_stage_ontology_term_id": {
             "value_map": {
