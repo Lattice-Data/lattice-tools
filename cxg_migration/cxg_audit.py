@@ -20,6 +20,7 @@ def getArgs():
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 	)
 	parser.add_argument('-f', '--file', default=None)
+	parser.add_argument('-w', '--working', default=False, action='store_true')
 	parser.add_argument('-r', '--refresh', default=False, action='store_true')
 	args = parser.parse_args()
 	return args
@@ -404,6 +405,17 @@ args = getArgs()
 
 if args.file:
 	matrix_info(args.file, initial_scan=True)
+
+elif args.working:
+	# collect the files already in s3
+	s3 = boto3.resource('s3')
+	my_bucket = s3.Bucket('submissions-lattice')
+	for s3_object in my_bucket.objects.filter(Prefix="cxg_migration/working"):
+		filename = os.path.split(s3_object.key)[1]
+		if filename:
+			my_bucket.download_file('cxg_migration/working/' + filename, filename)
+			matrix_info(filename)
+			os.remove(filename)
 
 else:
 	# collect the files already in s3
