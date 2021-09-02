@@ -4,9 +4,24 @@
     "prop_map": {
         "ethnicity_ontology_term_id": {
             "value_map": {
-                "unknown": "unknown"
+                "bi005": "na",
+                "bi006": "na",
+                "F003": "na",
+                "F004": "na",
+                "F005": "na",
+                "F006": "na",
+                "F007": "na",
+                "F008": "na",
+                "H18.30.001": "unknown",
+                "H18.30.002": "unknown",
+                "M002": "na",
+                "M003": "na",
+                "M004": "na",
+                "M006": "na",
+                "M007": "na",
+                "M008": "na"
             },
-            "update_from": "ethnicity"
+            "update_from": "donor_id"
         },
         "development_stage_ontology_term_id": {
             "value_map": {

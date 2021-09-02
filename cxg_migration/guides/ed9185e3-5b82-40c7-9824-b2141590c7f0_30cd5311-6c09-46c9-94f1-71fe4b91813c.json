@@ -64,7 +64,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "none"
     },
     "remove_obs": [],
     "remove_uns": [],

@@ -18,6 +18,7 @@
     "update_dtypes": {},
     "add_uns": {
         "X_normalization": "",
+        "default_embedding": "X_tUMAP",
         "title": "A Single-Cell Transcriptional Roadmap of the Mouse and Human Lymph Node Lymphatic Vasculature - mouse"
     },
     "remove_obs": [
