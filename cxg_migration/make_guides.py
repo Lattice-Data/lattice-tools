@@ -1,7 +1,5 @@
-from urllib.request import urlopen
 import json
 import pandas as pd
-import sys
 
 
 sheet_id = '18e5PG2wCaN8kf9-KVm_yomgEx8TYka0Ldd7_swVxiJk'
