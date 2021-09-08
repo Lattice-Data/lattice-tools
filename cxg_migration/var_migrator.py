@@ -16,8 +16,11 @@ def report(counts):
 		'dataset',
 		'starting',
 		'not_mapped',
+		'not_mapped_samples',
 		'multiple_ids',
+		'multiple_id_samples',
 		'duplicate_ids',
+		'duplicate_ids_samples',
 		'not_approved',
 		'final'
 	]
@@ -72,6 +75,8 @@ def fixup_var(var, strategy):
 	no_gene_id = var.index[var[field].isnull()]
 	var_to_keep = list(set(var_to_keep) - set(no_gene_id))
 	counts['not_mapped'] = str(len(no_gene_id))
+	no_gene_id_samples = [str(i) for i in no_gene_id[0:10]]
+	counts['not_mapped_samples'] = '_'.join(no_gene_id_samples)
 	var = var.rename(columns={field:'feature_id'})
 
 	# filter if symbol mapped to multiple genes
@@ -79,12 +84,16 @@ def fixup_var(var, strategy):
 	multi_mapping = var.index[var['feature_id'] == 'multiple'].tolist()
 	var_to_keep = list(set(var_to_keep) - set(multi_mapping))
 	counts['multiple_ids'] = str(before - len(var_to_keep))
+	multiple_id_samples = [str(i) for i in multi_mapping[0:10]]
+	counts['multiple_id_samples'] = '_'.join(multiple_id_samples)
 
 	# filter if ID is duplicated within df
 	before = len(var_to_keep)
-	dups = var[var.duplicated(subset='feature_id',keep=False)]
+	dups = var.index[var.duplicated(subset='feature_id',keep=False)].tolist()
+	dups_still_kept = [str(i) for i in dups if i in var_to_keep]
 	var_to_keep = list(set(var_to_keep) - set(dups))
 	counts['duplicate_ids'] = str(before - len(var_to_keep))
+	counts['duplicate_ids_samples'] = '_'.join(dups_still_kept)
 
 	# filter on approved annotation references
 	before = len(var_to_keep)
@@ -183,8 +192,11 @@ props = [
 	'dataset',
 	'starting',
 	'not_mapped',
+	'not_mapped_samples',
 	'multiple_ids',
+	'multiple_id_samples',
 	'duplicate_ids',
+	'duplicate_ids_samples',
 	'not_approved',
 	'final'
 ]
