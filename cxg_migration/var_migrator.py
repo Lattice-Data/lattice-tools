@@ -1,4 +1,5 @@
 import boto3
+import gc
 import gzip
 import json
 import os
@@ -57,6 +58,8 @@ def fixup_var(var, strategy):
 		field = '.'.join(strategy.split('.')[1:])
 	# if mapping IDs from data source
 	else:
+		if 'gene_ids' in var.keys():
+			var.rename(columns={'gene_ids':'gene_ids_original'},inplace=True)
 		file_path = 'cxg_migration/var_refs/' + strategy
 		if not os.path.exists(strategy):
 			try:
@@ -130,16 +133,20 @@ def main(ds, strategy):
 		raw_adata = raw_adata[:, to_keep]
 		raw_adata.var.set_index('feature_id', inplace=True)
 		adata.raw = raw_adata
+		del raw_adata
+		gc.collect()
 
 	var, to_keep, counts = fixup_var(adata.var, strategy)
 	counts['dataset'] = ds + '-X'
 	report(counts)
 	adata.var = var
-	adata = adata[:, to_keep] # AssertionError: Don’t call _normalize_index with non-categorical/string names
+	adata = adata[:, to_keep]
 	adata.var.set_index('feature_id', inplace=True)
 
 	# write the new object to the file
 	adata.write(filename=ds + '.h5ad')
+	del adata
+	gc.collect()
 
 
 # avoid these datasets for now
@@ -147,7 +154,8 @@ attn_needed = [
 	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # no raw counts
 	'f70ebd97-b3bc-44fe-849d-c18e08fe773d_e0ed3c55-aff6-4bb7-b6ff-98a2d90b890c', # no raw counts, 2 non-raw layers
 	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8', # cell don't group by cluster/cell_type
-	'9b02383a-9358-4f0f-9795-a891ec523bcc_13a027de-ea3e-432b-9a5e-6bc7048498fc' # Lattice dataset, not yet in working/
+	'9b02383a-9358-4f0f-9795-a891ec523bcc_13a027de-ea3e-432b-9a5e-6bc7048498fc', # Lattice dataset, not yet in working/
+	'00109df5-7810-4542-8db5-2288c46e0424_fe2479fd-daff-41a8-97dc-a50457ab1871' # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 59.9 GiB for an array with shape (292010, 55050) and data type float32
 	]
 
 # get the specified mapping strategy/file for each dataset
