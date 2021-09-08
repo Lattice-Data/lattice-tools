@@ -22,6 +22,7 @@ def report(counts):
 		'duplicate_ids',
 		'duplicate_ids_samples',
 		'not_approved',
+		'not_approved_samples',
 		'final'
 	]
 	report_out = [counts[e] for e in props]
@@ -99,8 +100,10 @@ def fixup_var(var, strategy):
 	before = len(var_to_keep)
 	approved = pd.read_csv('approved_ids.csv',dtype='str')['feature_id']
 	var_in_approved = var.index[var['feature_id'].isin(approved)].tolist()
+	not_approved_samples = [str(i) for i in var_to_keep if i not in var_in_approved][0:10]
 	var_to_keep = [e for e in var_to_keep if e in var_in_approved]
 	counts['not_approved'] = str(before - len(var_to_keep))
+	counts['not_approved_samples'] = '_'.join(not_approved_samples)
 
 	counts['final'] = str(len(var_to_keep))
 
@@ -198,6 +201,7 @@ props = [
 	'duplicate_ids',
 	'duplicate_ids_samples',
 	'not_approved',
+	'not_approved_samples',
 	'final'
 ]
 with open(outfile, 'a') as f:
