@@ -124,9 +124,11 @@ def fixup_var(var, strategy):
 
 	# remove columns from var
 	portal_props = ['feature_reference','feature_name','gene_symbols']
+	redundant_props = ['feature_types','feature_types-Harvard-Nuclei','feature_types-Sanger-CD45','feature_types-Sanger-Cells','feature_types-Sanger-Nuclei',
+		'features','gene_ids','gene_ids-Harvard-Nuclei','gene_ids-Sanger-CD45','gene_ids-Sanger-Cells','gene_ids-Sanger-Nuclei','hgnc_gene_symbol','type']
 	remove_var = []
 	for k in var.keys():
-		if k in portal_props:
+		if k in portal_props + redundant_props:
 			remove_var.append(k)
 	var = var.drop(columns=remove_var)
 
