@@ -124,8 +124,8 @@ def fixup_var(var, strategy):
 
 	# remove columns from var
 	portal_props = ['feature_reference','feature_name','gene_symbols']
-	redundant_props = ['feature_types','feature_types-Harvard-Nuclei','feature_types-Sanger-CD45','feature_types-Sanger-Cells','feature_types-Sanger-Nuclei',
-		'features','gene_ids','gene_ids-Harvard-Nuclei','gene_ids-Sanger-CD45','gene_ids-Sanger-Cells','gene_ids-Sanger-Nuclei','hgnc_gene_symbol','type']
+	redundant_props = ['feature_types','feature_type','feature_types-Harvard-Nuclei','feature_types-Sanger-CD45','feature_types-Sanger-Cells','feature_types-Sanger-Nuclei',
+		'features','ensemblid','gene_ids','gene_ids-Harvard-Nuclei','gene_ids-Sanger-CD45','gene_ids-Sanger-Cells','gene_ids-Sanger-Nuclei','hgnc_gene_symbol','type']
 	remove_var = []
 	for k in var.keys():
 		if k in portal_props + redundant_props:
@@ -151,6 +151,7 @@ def main(ds, strategy):
 		gc.collect()
 
 	var, to_keep, counts = fixup_var(adata.var, strategy)
+	var['feature_is_filtered'] = False # feature_is_filtered is default False
 	counts['dataset'] = ds + '-X'
 	report(counts)
 	adata.var = var
@@ -169,7 +170,15 @@ attn_needed = [
 	'f70ebd97-b3bc-44fe-849d-c18e08fe773d_e0ed3c55-aff6-4bb7-b6ff-98a2d90b890c', # no raw counts, 2 non-raw layers
 	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8', # cell don't group by cluster/cell_type
 	'9b02383a-9358-4f0f-9795-a891ec523bcc_13a027de-ea3e-432b-9a5e-6bc7048498fc', # Lattice dataset, not yet in working/
-	'00109df5-7810-4542-8db5-2288c46e0424_fe2479fd-daff-41a8-97dc-a50457ab1871' # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 59.9 GiB for an array with shape (292010, 55050) and data type float32
+	'00109df5-7810-4542-8db5-2288c46e0424_fe2479fd-daff-41a8-97dc-a50457ab1871', # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 59.9 GiB for an array with shape (292010, 55050) and data type float32
+	'c114c20f-1ef4-49a5-9c2e-d965787fb90c_f7c1c579-2dc0-47e2-ba19-8165c5a0e353', # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 17.4 GiB for an array with shape (2332585730,) and data type int64
+	'0a839c4b-10d0-4d64-9272-684c49a2c8ba_9dbab10c-118d-496b-966a-67f1763a6b7d', # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 17.3 GiB for an array with shape (2315747958,) and data type int64
+	'e5f58829-1a66-40b5-a624-9046778e74f5_5a11f879-d1ef-458a-910c-9b0bdfca5ebf', # raw.var is just index (numerical, no metadata to migrate)
+	'e5f58829-1a66-40b5-a624-9046778e74f5_97a17473-e2b1-4f31-a544-44a60773e2dd', # raw.var is just index (numerical, no metadata to migrate)
+	'e5f58829-1a66-40b5-a624-9046778e74f5_c5d88abe-f23a-45fa-a534-788985e93dad', # raw.var is just index (numerical, no metadata to migrate)
+	'e5f58829-1a66-40b5-a624-9046778e74f5_a68b64d8-aee3-4947-81b7-36b8fe5a44d2', # raw.var is just index (numerical, no metadata to migrate)
+	'e5f58829-1a66-40b5-a624-9046778e74f5_53d208b0-2cfd-4366-9866-c3c6114081bc', # raw.var is just index (numerical, no metadata to migrate)
+	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf' # adata.raw = raw_adata numpy.core._exceptions.MemoryError: Unable to allocate 32.5 GiB for an array with shape (14533, 599926) and data type float32
 	]
 
 # get the specified mapping strategy/file for each dataset
