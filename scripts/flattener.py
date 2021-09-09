@@ -955,7 +955,7 @@ def main(mfinal_id):
 			if not row_to_add['tissue_ontology_term_id'].startswith('UBERON'):
 				if row_to_add['tissue_ontology_term_id'].endswith('(cell culture)'):
 					#get_organ_slim(row_to_add, ' (cell culture)')
-					get_cell_slim(row_to_add, ' (cell_culture)')
+					get_cell_slim(row_to_add, ' (cell culture)')
 				else:
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
 			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
@@ -1133,7 +1133,7 @@ def main(mfinal_id):
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
 	# If genome_annotations > 1, then filter genes that cannot be unambiguously mapped to Ensembl
-	if len(mfinal_obj.get('genome_annotations')) == 1:
+	if len(mfinal_obj.get('genome_annotations')) <= 1:
 		for gene in list(mfinal_adata.var_names):
 			if gene not in list(cxg_adata_raw.var_names):
 				if re.search(r'^[A-Za-z]\S+-[0-9]$', gene):
