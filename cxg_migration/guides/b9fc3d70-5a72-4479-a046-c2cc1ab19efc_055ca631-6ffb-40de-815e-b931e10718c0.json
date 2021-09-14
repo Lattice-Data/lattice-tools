@@ -69,7 +69,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "log1p, base 2"
     },
     "remove_obs": [
         "age(y)",

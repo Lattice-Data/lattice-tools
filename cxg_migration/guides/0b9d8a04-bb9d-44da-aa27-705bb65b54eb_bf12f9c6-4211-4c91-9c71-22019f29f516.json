@@ -21,7 +21,7 @@
         "cell": "category"
     },
     "add_uns": {
-        "X_normalization": "",
+        "X_normalization": "log1p, base e, scaled",
         "title": "Bladder lumen - A single-cell transcriptomic atlas characterizes ageing tissues in the mouse - Smart-seq2"
     },
     "remove_obs": [

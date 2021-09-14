@@ -19,7 +19,7 @@
         "exp_component_name": "category"
     },
     "add_uns": {
-        "X_normalization": "",
+        "X_normalization": "log1p",
         "BICCN_cluster_label_colors": [
             "#52CA74",
             "#6F836B",

@@ -29,7 +29,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "square root"
     },
     "remove_obs": [],
     "remove_uns": []

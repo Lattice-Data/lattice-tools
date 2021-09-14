@@ -68,7 +68,7 @@
         "sample_id": "category"
     },
     "add_uns": {
-        "X_normalization": "",
+        "X_normalization": "log1p, base e",
         "BICCN_subclass_label_colors": [
             "#50B2AD",
             "#C4EC04",

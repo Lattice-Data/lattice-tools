@@ -41,7 +41,7 @@
         "seq_name": "category"
     },
     "add_uns": {
-        "X_normalization": "",
+        "X_normalization": "log1p",
         "title": "Shared and distinct transcriptomic cell types across neocortical areas"
     },
     "remove_obs": [

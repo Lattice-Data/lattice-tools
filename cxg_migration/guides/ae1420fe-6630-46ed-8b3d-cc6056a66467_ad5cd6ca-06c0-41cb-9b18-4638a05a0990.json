@@ -31,7 +31,7 @@
         "FullCellID": "category"
     },
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "normalized"
     },
     "remove_obs": [],
     "remove_uns": []

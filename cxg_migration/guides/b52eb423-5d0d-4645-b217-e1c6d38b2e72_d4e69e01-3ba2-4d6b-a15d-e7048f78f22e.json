@@ -38,7 +38,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": "",
+        "X_normalization": "log1p, base e",
         "cell_type_original_colors": [
             "#1f77b4",
             "#ff7f0e",

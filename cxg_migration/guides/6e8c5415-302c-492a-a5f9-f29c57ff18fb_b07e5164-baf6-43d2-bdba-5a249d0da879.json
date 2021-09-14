@@ -16,7 +16,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "normalized"
     },
     "remove_obs": [
         "Age",

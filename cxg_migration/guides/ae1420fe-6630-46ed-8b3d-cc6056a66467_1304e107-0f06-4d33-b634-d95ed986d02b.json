@@ -29,7 +29,7 @@
         "library_prep": "category"
     },
     "add_uns": {
-        "X_normalization": "",
+        "X_normalization": "log1p",
         "BICCN_cluster_label_colors": [
             "#197A6E",
             "#81B389",

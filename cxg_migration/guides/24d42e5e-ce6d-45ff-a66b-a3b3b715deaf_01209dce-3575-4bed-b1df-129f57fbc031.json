@@ -23,7 +23,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "log1p"
     },
     "remove_obs": [
         "tissue_original"

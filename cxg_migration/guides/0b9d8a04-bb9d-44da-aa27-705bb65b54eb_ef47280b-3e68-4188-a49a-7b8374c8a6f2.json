@@ -22,7 +22,7 @@
         "cell": "category"
     },
     "add_uns": {
-        "X_normalization": "",
+        "X_normalization": "log1p, base e, scaled",
         "title": "Pancreas - A single-cell transcriptomic atlas characterizes ageing tissues in the mouse - 10x"
     },
     "remove_obs": [

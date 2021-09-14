@@ -36,7 +36,7 @@
         "cell.id": "category"
     },
     "add_uns": {
-        "X_normalization": ""
+        "X_normalization": "log1p, base e"
     },
     "remove_obs": [
         "organism",
