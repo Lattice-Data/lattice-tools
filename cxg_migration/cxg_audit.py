@@ -38,6 +38,12 @@ def upload_file(file, folder):
     return True
 
 
+def audit_var(ds, var):
+	for v in var.keys():
+		samples = [str(i) for i in var[v].value_counts().keys()[0:10]]
+		report_error(ds, 'review_var', v, '_'.join(samples))
+
+
 def id_label_comp(ds, prop, label, term_id, org_id=None):
 	ont_err = False
 	if '(' in label:
@@ -80,8 +86,8 @@ def report_error(ds, cat, prop, err='', map_prop=''):
 		out.write('\t'.join([ds,cat,prop,map_prop,err]) + '\n')
 
 
-def report_data(ds, raw_min, X_min, raw_max, X_max, raw_var, X_var, layerdesc, geneIDs, barcodes):
-	lst = [ds,raw_min,X_min,raw_max,X_max,raw_var,X_var,layerdesc, geneIDs, barcodes]
+def report_data(ds, cells, raw_min, X_min, raw_max, X_max, raw_var, X_var, layerdesc, geneIDs, barcodes):
+	lst = [ds,cells, raw_min,X_min,raw_max,X_max,raw_var,X_var,layerdesc, geneIDs, barcodes]
 	str_lst = [str(i) for i in lst]
 	with open('cxg_outs/report.txt', 'a') as out:
 		out.write('\t'.join(str_lst) + '\n')
@@ -134,11 +140,13 @@ def matrix_info(local_path, initial_scan=False):
 
 	adata = sc.read_h5ad(local_path, backed='r')
 
+	cellcount = adata.obs.index.shape[0]
+
 	# check 1000 random barcodes against 10x lists
 	barcode_results = ''
 	if re.search(barcode_pattern, adata.obs.index[5,]):
-		obs_count = adata.obs.index.shape[0]
-		random_indices = [randint(0, obs_count - 1) for p in range(0, 1000)]
+		cellcount
+		random_indices = [randint(0, cellcount - 1) for p in range(0, 1000)]
 		barcodes = {'v2': 0,'v3': 0,'both': 0,'neither': 0}
 		for i in random_indices:
 			if re.search(barcode_pattern, adata.obs.index[i,]):
@@ -166,7 +174,9 @@ def matrix_info(local_path, initial_scan=False):
 		elif sample_val.startswith('ENSMUSG'):
 			gene_ids = 'Ensembl IDs in var.' + k
 
-	report_data(ds, raw_min, X_min, raw_max, X_max, raw_var_count, X_var_count,adata.uns.get('layer_descriptions'), gene_ids, barcode_results)
+	audit_var(ds,adata.var)
+
+	report_data(ds, str(cellcount), raw_min, X_min, raw_max, X_max, raw_var_count, X_var_count,adata.uns.get('layer_descriptions'), gene_ids, barcode_results)
 
 	for k in adata.obsm_keys():
 		if not k.startswith('X_'):
@@ -193,6 +203,15 @@ def matrix_info(local_path, initial_scan=False):
 			report_error(ds, 'field missing', 'uns.organism_ontology_term_id')
 	else:
 		id_label_comp(ds, 'organism', adata.uns['organism'], org_id)
+
+	portal_props = ['assay','tissue','cell_type','sex','development_stage','ethnicity','disease','organism']
+	for u in adata.uns_keys():
+		if 'color' in u:
+			cat = 'update_uns_field [colors]'
+			if not u.endswith('_colors'):
+				report_error(ds, cat, u, 'check format')
+			elif i[:-7] not in portal_props + list(adata.obs_keys()):
+				report_error(ds, cat, u, 'not in uns')
 
 	# check sex field appears exactly once and contains valid values
 	if 'sex' not in adata.obs:
@@ -318,7 +337,7 @@ if not os.path.exists('cxg_outs'):
 	os.mkdir('cxg_outs')
 
 #put headers in place
-report_data('dataset','raw min','X min','raw max','X max','raw var ct', 'X var ct', 'layer desc', 'gene IDs', '10x barcodes')
+report_data('dataset','cell count','raw min','X min','raw max','X max','raw var ct', 'X var ct', 'layer desc', 'gene IDs', '10x barcodes')
 
 s3client = boto3.client("s3")
 
