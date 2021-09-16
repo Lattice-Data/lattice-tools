@@ -32,6 +32,7 @@ def report(counts):
 
 
 def compile_annotations():
+	# https://github.com/chanzuckerberg/single-cell-curation/tree/cellxgene_schema_cli_v_1_0_0-uns_validator/cellxgene_schema_cli/cellxgene_schema/ontology_files
 	ref_files = [
 		'genes_ercc.csv',
 		'genes_homo_sapiens.csv',
@@ -76,8 +77,8 @@ def fixup_var(var, strategy):
 	no_gene_id = var.index[var[field].isnull()]
 	var_to_keep = list(set(var_to_keep) - set(no_gene_id))
 	counts['not_mapped'] = str(len(no_gene_id))
-	no_gene_id_samples = [str(i) for i in no_gene_id[0:10]]
-	counts['not_mapped_samples'] = '_'.join(no_gene_id_samples)
+	no_gene_id_samples = [str(i) for i in no_gene_id]
+	counts['not_mapped_samples'] = ','.join(no_gene_id_samples)
 	var = var.rename(columns={field:'feature_id'})
 
 	# filter if symbol mapped to multiple genes
@@ -85,8 +86,8 @@ def fixup_var(var, strategy):
 	multi_mapping = var.index[var['feature_id'] == 'multiple'].tolist()
 	var_to_keep = list(set(var_to_keep) - set(multi_mapping))
 	counts['multiple_ids'] = str(before - len(var_to_keep))
-	multiple_id_samples = [str(i) for i in multi_mapping[0:10]]
-	counts['multiple_id_samples'] = '_'.join(multiple_id_samples)
+	multiple_id_samples = [str(i) for i in multi_mapping]
+	counts['multiple_id_samples'] = ','.join(multiple_id_samples)
 
 	# filter if ID is duplicated within df
 	before = len(var_to_keep)
@@ -94,16 +95,16 @@ def fixup_var(var, strategy):
 	dups_still_kept = [str(i) for i in dups if i in var_to_keep]
 	var_to_keep = list(set(var_to_keep) - set(dups))
 	counts['duplicate_ids'] = str(before - len(var_to_keep))
-	counts['duplicate_ids_samples'] = '_'.join(dups_still_kept)
+	counts['duplicate_ids_samples'] = ','.join(dups_still_kept)
 
 	# filter on approved annotation references
 	before = len(var_to_keep)
 	approved = pd.read_csv('approved_ids.csv',dtype='str')['feature_id']
 	var_in_approved = var.index[var['feature_id'].isin(approved)].tolist()
-	not_approved_samples = [str(i) for i in var_to_keep if i not in var_in_approved][0:10]
+	not_approved_samples = [str(i) for i in var_to_keep if i not in var_in_approved]
 	var_to_keep = [e for e in var_to_keep if e in var_in_approved]
 	counts['not_approved'] = str(before - len(var_to_keep))
-	counts['not_approved_samples'] = '_'.join(not_approved_samples)
+	counts['not_approved_samples'] = ','.join(not_approved_samples)
 
 	counts['final'] = str(len(var_to_keep))
 
@@ -124,8 +125,9 @@ def fixup_var(var, strategy):
 
 	# remove columns from var
 	portal_props = ['feature_reference','feature_name','gene_symbols']
-	redundant_props = ['feature_types','feature_type','feature_types-Harvard-Nuclei','feature_types-Sanger-CD45','feature_types-Sanger-Cells','feature_types-Sanger-Nuclei',
-		'features','ensemblid','gene_ids','gene_ids-Harvard-Nuclei','gene_ids-Sanger-CD45','gene_ids-Sanger-Cells','gene_ids-Sanger-Nuclei','hgnc_gene_symbol','type']
+	redundant_props = ['features','ensemblid','gene_ids','gene_ids_original','feature_types','feature_type','type',
+		'feature_types-Harvard-Nuclei','feature_types-Sanger-CD45','feature_types-Sanger-Cells','feature_types-Sanger-Nuclei',
+		'gene_ids-Harvard-Nuclei','gene_ids-Sanger-CD45','gene_ids-Sanger-Cells','gene_ids-Sanger-Nuclei','hgnc_gene_symbol']
 	remove_var = []
 	for k in var.keys():
 		if k in portal_props + redundant_props:
@@ -166,19 +168,13 @@ def main(ds, strategy):
 
 # avoid these datasets for now
 attn_needed = [
-	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # no raw counts
-	'f70ebd97-b3bc-44fe-849d-c18e08fe773d_e0ed3c55-aff6-4bb7-b6ff-98a2d90b890c', # no raw counts, 2 non-raw layers
-	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8', # cell don't group by cluster/cell_type
-	'9b02383a-9358-4f0f-9795-a891ec523bcc_13a027de-ea3e-432b-9a5e-6bc7048498fc', # Lattice dataset, not yet in working/
-	'00109df5-7810-4542-8db5-2288c46e0424_fe2479fd-daff-41a8-97dc-a50457ab1871', # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 59.9 GiB for an array with shape (292010, 55050) and data type float32
-	'c114c20f-1ef4-49a5-9c2e-d965787fb90c_f7c1c579-2dc0-47e2-ba19-8165c5a0e353', # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 17.4 GiB for an array with shape (2332585730,) and data type int64
-	'0a839c4b-10d0-4d64-9272-684c49a2c8ba_9dbab10c-118d-496b-966a-67f1763a6b7d', # adata.write(filename=ds + '.h5ad') numpy.core._exceptions.MemoryError: Unable to allocate 17.3 GiB for an array with shape (2315747958,) and data type int64
-	'e5f58829-1a66-40b5-a624-9046778e74f5_5a11f879-d1ef-458a-910c-9b0bdfca5ebf', # raw.var is just index (numerical, no metadata to migrate)
-	'e5f58829-1a66-40b5-a624-9046778e74f5_97a17473-e2b1-4f31-a544-44a60773e2dd', # raw.var is just index (numerical, no metadata to migrate)
-	'e5f58829-1a66-40b5-a624-9046778e74f5_c5d88abe-f23a-45fa-a534-788985e93dad', # raw.var is just index (numerical, no metadata to migrate)
-	'e5f58829-1a66-40b5-a624-9046778e74f5_a68b64d8-aee3-4947-81b7-36b8fe5a44d2', # raw.var is just index (numerical, no metadata to migrate)
-	'e5f58829-1a66-40b5-a624-9046778e74f5_53d208b0-2cfd-4366-9866-c3c6114081bc', # raw.var is just index (numerical, no metadata to migrate)
-	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf' # adata.raw = raw_adata numpy.core._exceptions.MemoryError: Unable to allocate 32.5 GiB for an array with shape (14533, 599926) and data type float32
+	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf', # work on r5ad.12xl, not on 4xl - also not in working yet
+	'00109df5-7810-4542-8db5-2288c46e0424_fe2479fd-daff-41a8-97dc-a50457ab1871', # work on r5ad.12xl, not on 4xl
+	'c114c20f-1ef4-49a5-9c2e-d965787fb90c_f7c1c579-2dc0-47e2-ba19-8165c5a0e353', # work on r5ad.12xl, not on 4xl
+	'0a839c4b-10d0-4d64-9272-684c49a2c8ba_9dbab10c-118d-496b-966a-67f1763a6b7d', # work on r5ad.12xl, not on 4xl
+	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
+	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8', # Enge pancreas, cell don't group by cluster/cell_type
+	'9b02383a-9358-4f0f-9795-a891ec523bcc_13a027de-ea3e-432b-9a5e-6bc7048498fc' # Lattice dataset, not yet in working/
 	]
 
 # get the specified mapping strategy/file for each dataset
@@ -225,5 +221,5 @@ for index,row in ds_df.iterrows():
 		file = ds + '.h5ad'
 		client.download_file('submissions-lattice', 'cxg_migration/working/' + file, file)
 		main(ds, row['var_mapping'])
-		client.upload_file(file, bucket_name, 'cxg_migration/final/' + file)
+		client.upload_file(file, bucket_name, 'cxg_migration/final/' + file, ExtraArgs={'ACL':'public-read'})
 		os.remove(file)
