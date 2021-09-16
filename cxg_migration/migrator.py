@@ -5,28 +5,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 import scanpy as sc
-
-
-def report(ds, obs, ver):
-	props = [
-		'assay',
-		'tissue',
-		'cell_type',
-		'sex',
-		'development_stage',
-		'ethnicity',
-		'disease'
-	]
-	outfile = ver + '_labels.tsv'
-	if ver == 'new':
-		props = [e + '_ontology_term_id' for e in props]
-	for p in props:
-		i = obs[p].value_counts().to_frame()
-		i['dataset'] = ds
-		i['field'] = p
-		i = i.rename(columns={p: 'cells'})
-		i.index.name = 'label'
-		i.to_csv(outfile, sep='\t', mode='a', header=False)
+from scipy import sparse
 
 
 def main(ds):
@@ -36,8 +15,6 @@ def main(ds):
 
 	obs = adata.obs
 	uns = adata.uns
-
-	report(ds, obs, 'orig')
 
 	# rename obs fields
 	obs = obs.rename(columns=guide['prop_rename'])
@@ -59,31 +36,39 @@ def main(ds):
 	for k,v in prop_map.items():
 		old = v.get('update_from', k)
 		new = k
-		old_dtype = obs.dtypes[old]
+		old_dtype = obs[old].dtype
 		if new in obs.columns:
-			for k2, v2 in v['value_map'].items():
-				if old_dtype == '<f8':
-					k2 = float(k2)
-				elif old_dtype == 'int64':
-					k2 = int(k2)
-				elif old_dtype != 'object':
-					if old_dtype == 'category':
-						if obs[old].cat.categories.dtype == 'int64':
-							k2 = int(k2)
-				obs[new] = np.where((obs[old] == k2), v2,obs[new])
+			new_dtype = obs[new].dtype
+			if v.get('update_from'):
+				for k2, v2 in v['value_map'].items():
+					if old_dtype in ['<f8','float64']:
+						k2 = float(k2)
+					elif old_dtype in ['int64','int32']:
+						k2 = int(k2)
+					elif old_dtype != 'object':
+						if old_dtype == 'category':
+							if obs[old].cat.categories.dtype in ['int64','int32']:
+								k2 = int(k2)
+					obs[new] = np.where((obs[old] == k2), v2,obs[new])
+					obs = obs.astype({new: new_dtype})
+			else:
+				obs[k].cat = obs[k].cat.add_categories(list(set(v['value_map'].values())))
+				obs[k] = obs[k].replace(v['value_map'])
+				obs[k] = obs[k].astype('category')
 		else:
 			data = {old: [], new: []}
 			for k2, v2 in v['value_map'].items():
-				if old_dtype == '<f8':
+				if old_dtype in ['<f8','float64']:
 					k2 = float(k2)
-				elif old_dtype == 'int64':
+				elif old_dtype in ['int64','int32']:
 					k2 = int(k2)
 				elif old_dtype == 'category':
-					if obs[old].cat.categories.dtype == 'int64':
+					if obs[old].cat.categories.dtype in ['int64','int32']:
 						k2 = int(k2)
 				data[old].append(k2)
 				data[new].append(v2)
 			map_df = pd.DataFrame.from_dict(data)
+			map_df[old] = map_df[old].astype(old_dtype)
 			obs = obs.merge(map_df, on=old)
 
 	# fill in is_primary_data
@@ -129,17 +114,23 @@ def main(ds):
 		adata.raw = adata
 		adata.X = orig_raw.X
 
-	report(ds, obs, 'new')
-
+	if adata.raw:
+		if type(adata.raw.X) != sparse.csr.csr_matrix:
+			raw_adata = ad.AnnData(adata.raw.X, var=adata.raw.var, obs=adata.obs)
+			raw_adata.X = sparse.csr_matrix(raw_adata.X)
+			adata.raw = raw_adata
+	if type(adata.X) != sparse.csr.csr_matrix:
+		adata.X = sparse.csr_matrix(adata.X)
+	
 	# write the new object to the file
 	adata.obs = obs
 	adata.uns = uns
 	adata.write(filename=ds + '.h5ad')
 
 attn_needed = [
-	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # no raw counts
-	'f70ebd97-b3bc-44fe-849d-c18e08fe773d_e0ed3c55-aff6-4bb7-b6ff-98a2d90b890c', # no raw counts, 2 non-raw layers
-	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8' # cell don't group by cluster/cell_type
+	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf', # memory 4.32 GiB
+	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
+	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8' # Enge pancreas, cell don't group by cluster/cell_type
 	]
 
 client = boto3.client('s3')
