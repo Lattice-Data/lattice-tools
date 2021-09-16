@@ -206,12 +206,14 @@ def matrix_info(local_path, initial_scan=False):
 
 	portal_props = ['assay','tissue','cell_type','sex','development_stage','ethnicity','disease','organism']
 	for u in adata.uns_keys():
-		if 'color' in u:
-			cat = 'update_uns_field [colors]'
-			if not u.endswith('_colors'):
-				report_error(ds, cat, u, 'check format')
-			elif i[:-7] not in portal_props + list(adata.obs_keys()):
-				report_error(ds, cat, u, 'not in uns')
+		if u.endswith('_colors'):
+			if u[:-7] not in portal_props + list(adata.obs_keys()):
+				v = adata.uns[u]
+				if type(v) == list:
+					v = ','.join(v)
+				else:
+					v = str(v)
+				report_error(ds, 'remove_uns_field [colors to no obs field]', u, v)
 
 	# check sex field appears exactly once and contains valid values
 	if 'sex' not in adata.obs:
