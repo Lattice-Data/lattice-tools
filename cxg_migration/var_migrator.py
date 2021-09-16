@@ -32,7 +32,7 @@ def report(counts):
 
 
 def compile_annotations():
-	# https://github.com/chanzuckerberg/single-cell-curation/tree/cellxgene_schema_cli_v_1_0_0-uns_validator/cellxgene_schema_cli/cellxgene_schema/ontology_files
+	# https://github.com/chanzuckerberg/single-cell-curation/tree/main/cellxgene_schema_cli/cellxgene_schema/ontology_files
 	ref_files = [
 		'genes_ercc.csv',
 		'genes_homo_sapiens.csv',
@@ -168,7 +168,7 @@ def main(ds, strategy):
 
 # avoid these datasets for now
 attn_needed = [
-	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf', # work on r5ad.12xl, not on 4xl - also not in working yet
+	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf', # work on r5ad.12xl, not on 4xl - also not in working/ yet
 	'00109df5-7810-4542-8db5-2288c46e0424_fe2479fd-daff-41a8-97dc-a50457ab1871', # work on r5ad.12xl, not on 4xl
 	'c114c20f-1ef4-49a5-9c2e-d965787fb90c_f7c1c579-2dc0-47e2-ba19-8165c5a0e353', # work on r5ad.12xl, not on 4xl
 	'0a839c4b-10d0-4d64-9272-684c49a2c8ba_9dbab10c-118d-496b-966a-67f1763a6b7d', # work on r5ad.12xl, not on 4xl
