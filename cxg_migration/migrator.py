@@ -128,7 +128,6 @@ def main(ds):
 	adata.write(filename=ds + '.h5ad')
 
 attn_needed = [
-	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf', # memory 4.32 GiB
 	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
 	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8' # Enge pancreas, cell don't group by cluster/cell_type
 	]
