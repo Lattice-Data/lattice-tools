@@ -23,11 +23,12 @@
         "title": "Trachea - A single-cell transcriptomic atlas characterizes ageing tissues in the mouse - 10x"
     },
     "remove_obs": [
-        "age",
         "free_annotation",
         "subtissue",
         "tissue_free_annotation",
         "tissue_original"
     ],
-    "remove_uns": []
+    "remove_uns": [
+        "cell_ontology_class_colors"
+    ]
 }

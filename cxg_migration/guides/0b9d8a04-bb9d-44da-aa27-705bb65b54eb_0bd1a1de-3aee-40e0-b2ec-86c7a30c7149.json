@@ -27,5 +27,7 @@
     "remove_obs": [
         "tissue_original"
     ],
-    "remove_uns": []
+    "remove_uns": [
+        "cell_ontology_class_colors"
+    ]
 }

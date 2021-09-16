@@ -48,5 +48,8 @@
         "X_normalization": "log1p, base e, scaled"
     },
     "remove_obs": [],
-    "remove_uns": []
+    "remove_uns": [
+        "donor_method_colors",
+        "method_colors"
+    ]
 }

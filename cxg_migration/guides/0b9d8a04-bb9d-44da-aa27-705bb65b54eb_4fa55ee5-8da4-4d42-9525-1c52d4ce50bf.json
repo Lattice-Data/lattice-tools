@@ -27,8 +27,9 @@
         "free_annotation",
         "subtissue",
         "tissue_free_annotation",
-        "tissue_original",
-        "age"
+        "tissue_original"
     ],
-    "remove_uns": []
+    "remove_uns": [
+        "cell_ontology_class_colors"
+    ]
 }

@@ -23,9 +23,10 @@
         "title": "Large intestine - A single-cell transcriptomic atlas characterizes ageing tissues in the mouse - Smart-seq2"
     },
     "remove_obs": [
-        "age",
         "tissue_free_annotation",
         "tissue_original"
     ],
-    "remove_uns": []
+    "remove_uns": [
+        "cell_ontology_class_colors"
+    ]
 }

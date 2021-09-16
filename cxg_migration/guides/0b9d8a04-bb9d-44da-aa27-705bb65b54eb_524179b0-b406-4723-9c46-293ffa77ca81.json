@@ -29,5 +29,7 @@
         "tissue_original",
         "free_annotation"
     ],
-    "remove_uns": []
+    "remove_uns": [
+        "cell_ontology_class_colors"
+    ]
 }
