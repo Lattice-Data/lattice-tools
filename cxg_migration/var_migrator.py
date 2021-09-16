@@ -168,10 +168,6 @@ def main(ds, strategy):
 
 # avoid these datasets for now
 attn_needed = [
-	'38833785-fac5-48fd-944a-0f62a4c23ed1_2adb1f8a-a6b1-4909-8ee8-484814e2d4bf', # work on r5ad.12xl, not on 4xl - also not in working/ yet
-	'00109df5-7810-4542-8db5-2288c46e0424_fe2479fd-daff-41a8-97dc-a50457ab1871', # work on r5ad.12xl, not on 4xl
-	'c114c20f-1ef4-49a5-9c2e-d965787fb90c_f7c1c579-2dc0-47e2-ba19-8165c5a0e353', # work on r5ad.12xl, not on 4xl
-	'0a839c4b-10d0-4d64-9272-684c49a2c8ba_9dbab10c-118d-496b-966a-67f1763a6b7d', # work on r5ad.12xl, not on 4xl
 	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
 	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8', # Enge pancreas, cell don't group by cluster/cell_type
 	'9b02383a-9358-4f0f-9795-a891ec523bcc_13a027de-ea3e-432b-9a5e-6bc7048498fc' # Lattice dataset, not yet in working/
