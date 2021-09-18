@@ -40,6 +40,7 @@ def main(ds):
 		if new in obs.columns:
 			new_dtype = obs[new].dtype
 			if v.get('update_from'):
+				df_2nd = pd.DataFrame(columns=[old, new])
 				for k2, v2 in v['value_map'].items():
 					if old_dtype in ['<f8','float64']:
 						k2 = float(k2)
@@ -49,8 +50,10 @@ def main(ds):
 						if old_dtype == 'category':
 							if obs[old].cat.categories.dtype in ['int64','int32']:
 								k2 = int(k2)
-					obs[new] = np.where((obs[old] == k2), v2,obs[new])
-					obs = obs.astype({new: new_dtype})
+					df_2nd.loc[df_2nd.shape[0]] = [k2, v2]
+				obs.set_index(old, inplace=True)
+				obs.update(df_2nd.set_index(old))
+				obs.reset_index(inplace=True)
 			else:
 				obs[k].cat = obs[k].cat.add_categories(list(set(v['value_map'].values())))
 				obs[k] = obs[k].replace(v['value_map'])
