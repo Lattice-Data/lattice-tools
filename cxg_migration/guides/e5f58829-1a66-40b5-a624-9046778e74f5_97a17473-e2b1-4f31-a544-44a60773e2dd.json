@@ -45,7 +45,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": "log1p, base e, scaled"
+        "X_normalization": "log1p"
     },
     "remove_obs": [],
     "remove_uns": [
