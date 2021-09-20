@@ -248,5 +248,5 @@ for index,row in ds_df.iterrows():
 		client.download_file('submissions-lattice', 'cxg_migration/working/' + file, file)
 		main(ds, row['var_mapping'], row['fixup_genes'])
 		validate_cxg(ds)
-		#client.upload_file(file, bucket_name, 'cxg_migration/final/' + file, ExtraArgs={'ACL':'public-read'})
+		client.upload_file(file, bucket_name, 'cxg_migration/final/' + file, ExtraArgs={'ACL':'public-read'})
 		os.remove(file)
