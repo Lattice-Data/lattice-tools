@@ -124,6 +124,9 @@ def main(ds):
 			adata.raw = raw_adata
 	if type(adata.X) != sparse.csr.csr_matrix:
 		adata.X = sparse.csr_matrix(adata.X)
+	for l in adata.layers:
+	    if type(adata.layers[l]) != sparse.csr.csr_matrix:
+	        adata.layers[l] = sparse.csr_matrix(adata.layers[l])
 	
 	# write the new object to the file
 	adata.obs = obs
