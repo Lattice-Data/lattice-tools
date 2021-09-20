@@ -38,7 +38,7 @@
     },
     "update_dtypes": {},
     "add_uns": {
-        "X_normalization": "log1p"
+        "X_normalization": "none"
     },
     "remove_obs": [
         "disease__ontology_label",
