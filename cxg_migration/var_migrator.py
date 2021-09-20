@@ -5,10 +5,33 @@ import json
 import os
 import requests
 import subprocess
+import gene_symbol_custom
 import anndata as ad
 import pandas as pd
 import scanpy as sc
 import pandas as pd
+
+
+def fixup(df):
+	hgnc = 'hgnc_complete_set.txt'
+	file_path = 'cxg_migration/var_refs/' + hgnc
+	if not os.path.exists(hgnc):
+		try:
+			client.download_file(bucket_name, file_path, hgnc)
+		except subprocess.CalledProcessError as e:
+			sys.exit('ERROR: {} not found, check uri'.format(hgnc))
+	df = gene_symbol_custom.get_upgraded_var_index(df, hgnc)
+
+	return df
+
+
+def validate_cxg(ds):
+	file = ds + '.h5ad'
+	validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE)
+	with open('validate_logs.txt', 'a') as f:
+		for line in validate_process.stdout.decode('utf-8').split('\n'):
+			if line:
+				f.write(ds + '\t' + line + '\n')
 
 
 def report(counts):
@@ -50,7 +73,7 @@ def compile_annotations():
 	ids.to_csv('approved_ids.csv',index=False)
 
 
-def fixup_var(var, strategy):
+def curate_var(var, strategy, fixedup):
 	counts = {}
 	var_len_orig = len(var)
 	counts['starting'] = str(var_len_orig)
@@ -72,6 +95,8 @@ def fixup_var(var, strategy):
 			except subprocess.CalledProcessError as e:
 				sys.exit('ERROR: {} not found, check uri'.format(strategy))
 		map_df = pd.read_csv(strategy,sep='\t')
+		if fixedup:
+			map_df = fixup(map_df)
 		var = var.merge(map_df,left_index=True,right_on='gene_symbols',how='left').set_index(var.index)
 		field='gene_ids'
 	no_gene_id = var.index[var[field].isnull()]
@@ -137,12 +162,17 @@ def fixup_var(var, strategy):
 	return var, var_to_keep, counts
 
 
-def main(ds, strategy):
+def main(ds, strategy, fixup_genes):
 	adata = sc.read_h5ad(ds + '.h5ad')
+
+	if fixup_genes == 'Y':
+		fixedup = True
+	else:
+		fixedup = False
 
 	if adata.raw:
 		raw_adata = ad.AnnData(adata.raw.X, var=adata.raw.var, obs=adata.obs)
-		var, to_keep, counts = fixup_var(raw_adata.var, strategy)
+		var, to_keep, counts = curate_var(raw_adata.var, strategy, fixedup)
 		counts['dataset'] = ds + '-raw'
 		report(counts)
 		raw_adata.var = var
@@ -152,7 +182,7 @@ def main(ds, strategy):
 		del raw_adata
 		gc.collect()
 
-	var, to_keep, counts = fixup_var(adata.var, strategy)
+	var, to_keep, counts = curate_var(adata.var, strategy, fixedup)
 	var['feature_is_filtered'] = False # feature_is_filtered is default False
 	counts['dataset'] = ds + '-X'
 	report(counts)
@@ -177,7 +207,7 @@ attn_needed = [
 sheet_id = '18e5PG2wCaN8kf9-KVm_yomgEx8TYka0Ldd7_swVxiJk'
 sheet_name = 'datasets'
 url = 'https://docs.google.com/spreadsheets/d/{}/gviz/tq?tqx=out:csv&sheet={}'.format(sheet_id, sheet_name)
-ds_df = pd.read_csv(url)[['coll_ds','var_mapping']]
+ds_df = pd.read_csv(url)[['coll_ds','var_mapping','fixup_genes']]
 ds_df = ds_df.loc[ds_df['var_mapping'] != 'Lattice dataset'].dropna()
 
 already_run = []
@@ -216,6 +246,7 @@ for index,row in ds_df.iterrows():
 		print('PROCESSING:' + ds)
 		file = ds + '.h5ad'
 		client.download_file('submissions-lattice', 'cxg_migration/working/' + file, file)
-		main(ds, row['var_mapping'])
-		client.upload_file(file, bucket_name, 'cxg_migration/final/' + file, ExtraArgs={'ACL':'public-read'})
+		main(ds, row['var_mapping'], row['fixup_genes'])
+		validate_cxg(ds)
+		#client.upload_file(file, bucket_name, 'cxg_migration/final/' + file, ExtraArgs={'ACL':'public-read'})
 		os.remove(file)
