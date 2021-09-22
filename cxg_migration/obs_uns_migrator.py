@@ -51,10 +51,10 @@ def main(ds):
 						if obs[old].cat.categories.dtype in ['int64','int32']:
 							k2 = int(k2)
 				map_df.loc[map_df.shape[0]] = [k2, v2]
-			obs_update = obs[obs[old].isin(map_df[old])]
-			obs = obs[obs[old].isin(map_df[old]) == False]
-			obs_update = obs_update.reset_index(drop=True).merge(map_df,how='left',on=old,suffixes=('_x',None)).set_index(obs_update.index)
-			obs = obs.append(obs_update)
+			if new in obs.columns:
+				map_df = map_df.append(obs[obs[old].isin(map_df[old]) == False][[old,new]].drop_duplicates())
+			obs = obs.reset_index(drop=True).merge(map_df,how='left',on=old,suffixes=('_x',None)).set_index(obs.index)
+			obs[old] = obs[old].astype(old_dtype)
 			if new == 'is_primary_data':
 				obs[new] = obs[new].astype('bool')
 			remove_obs.append(new + '_x')
