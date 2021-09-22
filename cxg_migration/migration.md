@@ -8,7 +8,7 @@ make_guides.py was run to extract the actions noted for each dataset and write i
 
 obs_uns_migrator.py was run to manipulate the h5ad in original/ as noted in the corresponding json guide, and store the file in the working/ directory.
 
-Using information in associated publications, code repositories, data archive records, etc., we identified a gtf or a data source file (an alternate matrix file) that contained a mapping between gene symbols and Ensembl IDs for that particular dataset (in some cases, a gtf mapped symbols to Entez IDs, which were then mapped to Ensembl IDs). The gtf or source file was parsed into a 2-column mapping file with gene_symbols and gene_ids.
+Using information in associated publications, code repositories, data archive records, etc., we identified a gtf or a data source file (an alternate matrix file) that contained a mapping between gene symbols and Ensembl IDs for that particular dataset (in some cases, a gtf mapped symbols to RefSeq IDs, which were then mapped to Ensembl IDs). The gtf or source file was parsed into a 2-column mapping file with gene_symbols and gene_ids.
 
 var_migrator.py was run to manipulate the h5ad from the working/ directory by matching Ensembl IDs to the gene symbols in the var index based on the specified mapping file and add other schema 2.0.0 requirements for var and raw.var, if present.
 
@@ -28,7 +28,7 @@ ssh -i lattice_ec2.pem ec2-user@<Public DNS>
 ```
 Mount the storage device to the instance & create directory to hold AWS credentials & set your variable to the location of the credentials & install necessary modules
 ```
-sudo mkfs.ext4 /dev/nvme1n1 ; sudo mount /dev/nvme1n1 /mnt ; sudo chown ec2-user /mnt ; cd /mnt ; mkdir .aws ; export AWS_SHARED_CREDENTIALS_FILE=credentials ; sudo pip3 install boto3 requests pandas scanpy cellxgene-schema; pip3 install numpy==1.20
+sudo mkfs.ext4 /dev/nvme1n1 ; sudo mount /dev/nvme1n1 /mnt ; sudo chown ec2-user /mnt ; cd /mnt ; mkdir .aws ; export AWS_SHARED_CREDENTIALS_FILE=credentials ; sudo pip3 install boto3 requests pandas scanpy cellxgene-schema; pip3 install numpy==1.20 anndata==0.7.5
 ```
 Copy relevant script & aws credentials from your local machine to the instance. If running var_migrator.py, then gene_symbol_custom.py is already required.
 ```
