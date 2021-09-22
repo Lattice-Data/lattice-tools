@@ -16,6 +16,8 @@ def main(ds):
 	obs = adata.obs
 	uns = adata.uns
 
+	remove_obs = guide['remove_obs']
+
 	# rename obs fields
 	obs = obs.rename(columns=guide['prop_rename'])
 
@@ -37,42 +39,29 @@ def main(ds):
 		old = v.get('update_from', k)
 		new = k
 		old_dtype = obs[old].dtype
-		if new in obs.columns:
-			new_dtype = obs[new].dtype
-			if v.get('update_from'):
-				df_2nd = pd.DataFrame(columns=[old, new])
-				for k2, v2 in v['value_map'].items():
-					if old_dtype in ['<f8','float64']:
-						k2 = float(k2)
-					elif old_dtype in ['int64','int32']:
-						k2 = int(k2)
-					elif old_dtype != 'object':
-						if old_dtype == 'category':
-							if obs[old].cat.categories.dtype in ['int64','int32']:
-								k2 = int(k2)
-					df_2nd.loc[df_2nd.shape[0]] = [k2, v2]
-				obs.set_index(old, inplace=True)
-				obs.update(df_2nd.set_index(old))
-				obs.reset_index(inplace=True)
-			else:
-				obs[k].cat = obs[k].cat.add_categories(list(set(v['value_map'].values())))
-				obs[k] = obs[k].replace(v['value_map'])
-				obs[k] = obs[k].astype('category')
-		else:
-			data = {old: [], new: []}
+		if v.get('update_from'):
+			map_df = pd.DataFrame(columns=[old, new])
 			for k2, v2 in v['value_map'].items():
 				if old_dtype in ['<f8','float64']:
 					k2 = float(k2)
 				elif old_dtype in ['int64','int32']:
 					k2 = int(k2)
-				elif old_dtype == 'category':
-					if obs[old].cat.categories.dtype in ['int64','int32']:
-						k2 = int(k2)
-				data[old].append(k2)
-				data[new].append(v2)
-			map_df = pd.DataFrame.from_dict(data)
-			map_df[old] = map_df[old].astype(old_dtype)
-			obs = obs.merge(map_df, on=old)
+				elif old_dtype != 'object':
+					if old_dtype == 'category':
+						if obs[old].cat.categories.dtype in ['int64','int32']:
+							k2 = int(k2)
+				map_df.loc[map_df.shape[0]] = [k2, v2]
+			obs_update = obs[obs[old].isin(map_df[old])]
+			obs = obs[obs[old].isin(map_df[old]) == False]
+			obs_update = obs_update.reset_index(drop=True).merge(map_df,how='left',on=old,suffixes=('_x',None)).set_index(obs_update.index)
+			obs = obs.append(obs_update)
+			if new == 'is_primary_data':
+				obs[new] = obs[new].astype('bool')
+			remove_obs.append(new + '_x')
+		else:
+			obs[k].cat = obs[k].cat.add_categories(list(set(v['value_map'].values())))
+			obs[k] = obs[k].replace(v['value_map'])
+			obs[k] = obs[k].astype('category')
 
 	# fill in is_primary_data
 	if 'is_primary_data' not in obs:
@@ -105,11 +94,11 @@ def main(ds):
 
 	# remove columns from obs
 	portal_props = ['assay','tissue','cell_type','sex','development_stage','ethnicity','disease','organism']
-	remove_obs = []
+	remove = []
 	for k in obs.keys():
-		if k in portal_props + guide['remove_obs']:
-			remove_obs.append(k)
-	obs = obs.drop(columns=remove_obs)
+		if k in portal_props + remove_obs:
+			remove.append(k)
+	obs = obs.drop(columns=remove)
 
 	# swap raw.X and .X
 	if guide.get('swap_layers'):
@@ -125,8 +114,8 @@ def main(ds):
 	if type(adata.X) != sparse.csr.csr_matrix:
 		adata.X = sparse.csr_matrix(adata.X)
 	for l in adata.layers:
-	    if type(adata.layers[l]) != sparse.csr.csr_matrix:
-	        adata.layers[l] = sparse.csr_matrix(adata.layers[l])
+		if type(adata.layers[l]) != sparse.csr.csr_matrix:
+			adata.layers[l] = sparse.csr_matrix(adata.layers[l])
 	
 	# write the new object to the file
 	adata.obs = obs
