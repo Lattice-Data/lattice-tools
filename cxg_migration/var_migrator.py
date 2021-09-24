@@ -194,8 +194,7 @@ def main(ds, strategy):
 # avoid these datasets for now
 attn_needed = [
 	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
-	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8', # Enge pancreas, cell don't group by cluster/cell_type
-	'9b02383a-9358-4f0f-9795-a891ec523bcc_13a027de-ea3e-432b-9a5e-6bc7048498fc' # Lattice dataset, not yet in working/
+	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8' # Enge pancreas, cell don't group by cluster/cell_type
 	]
 
 # get the specified mapping strategy/file for each dataset
