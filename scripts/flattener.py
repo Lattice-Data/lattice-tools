@@ -1017,6 +1017,7 @@ def main(mfinal_id):
 	# get dataset-level metadata
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 	df['is_primary_data'] = ds_results['is_primary_data']
+	del ds_results['is_primary_data']
 
 	# Should add error checking to make sure all matrices have the same number of vars
 	feature_lengths = []
@@ -1232,7 +1233,7 @@ def main(mfinal_id):
 				cxg_adata.layers[label] = mfinal_adata.layers[label]
 		quality_check(cxg_adata)
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
-		cxg_adata.write(results_file)
+		cxg_adata.write(results_file, compression = 'gzip')
 	else:
 		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
 		for i in range(len(converted_h5ad)):
@@ -1262,7 +1263,7 @@ def main(mfinal_id):
 				results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2], flat_version)
 			print(cxg_adata.obs.columns.to_list())
 			print(cxg_adata.raw.var.columns.to_list())
-			cxg_adata.write(results_file)
+			cxg_adata.write(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)
 
