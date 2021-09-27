@@ -186,7 +186,7 @@ def main(ds, strategy):
 	adata.var.set_index('feature_id', inplace=True)
 
 	# write the new object to the file
-	adata.write(filename=ds + '.h5ad')
+	adata.write(filename=ds + '.h5ad', compression='gzip')
 	del adata
 	gc.collect()
 
