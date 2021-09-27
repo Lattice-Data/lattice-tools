@@ -29,7 +29,7 @@ The script will produce a h5ad file in the current directory where the script is
 Version update logging
 ----------------
 **Version 4**:
-- Corresponds with https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/2.0.0/schema.md#uns-dataset-metadata:w
+- Corresponds with https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/2.0.0/schema.md
 - Add tyrer_cuzick_lifetime_risk, enriched_cell_types, mapped_reference_annotation, and enrichment-factors as optional metadata fields for obs
 - Add is_primary_data, organism_ontology_term_id, sex_ontology_term_id as required metadata fields for obs.
 - Removed *_onotology_term_name fields as they will be populated by cxg portal
