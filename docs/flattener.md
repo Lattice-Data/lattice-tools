@@ -28,6 +28,19 @@ The script will produce a h5ad file in the current directory where the script is
 
 Version update logging
 ----------------
+**Version 4**:
+- Corresponds with https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/2.0.0/schema.md
+- Add tyrer_cuzick_lifetime_risk, enriched_cell_types, mapped_reference_annotation, and enrichment-factors as optional metadata fields for obs
+- Add is_primary_data, organism_ontology_term_id, sex_ontology_term_id as required metadata fields for obs.
+- Removed *_onotology_term_name fields as they will be populated by cxg portal
+- Add feature_is_filtered to var and feature_biotype to both var and raw.var
+- Filter both var and raw.var to pinned gene annotation (GENCODE v38)
+- var index must be Ensembl IDs
+- Pad matrix with implied zeros to make X and raw.X the same shapes
+- For datasets with raw matrices mapped to multiple annotations, will do out join for raw.X and inner join with padded implied zeros for X  
+- Remove reported_disease and donor_age if disease_ontology_term_name and development_stage_ontology_name are redundant
+- For uns, add schema_version and removed organism, organism_ontology_term_id, deafult_field, version.corpora_encoding_version, and version.corpora_schema_version.
+
 **Version 3**:
 - Allow reading from h5ad file format for raw count matrices
 - Raw matrix will be an outer join to allow for merging of matrices with varying feature counts

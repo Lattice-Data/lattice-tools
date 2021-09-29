@@ -20,7 +20,15 @@ import numpy as np
 import collections
 import logging
 import gc
+from scipy import sparse
 
+# Reference files by which the flattener will filter var features
+ref_files = {
+	'ercc':'genes_ercc.csv',
+	'human':'genes_homo_sapiens.csv',
+	'mouse':'genes_mus_musculus.csv',
+	'sars':'genes_sars_cov_2.csv'
+}
 
 # Metadata to be gathered for each object type
 cell_metadata = {
@@ -36,7 +44,9 @@ cell_metadata = {
 		'body_mass_index',
 		'times_pregnant',
 		'family_history_breast_cancer',
-		'organism.taxon_id'
+		'organism.taxon_id',
+		'risk_score_tyrer_cuzick_lifetime',
+		'age_development_stage_redundancy'
 		],
 	'sample': [
 		'uuid',
@@ -54,6 +64,8 @@ cell_metadata = {
 		'thickness_units'
 	],
 	'suspension': [
+		'enriched_cell_types.term_name',
+		'enrichment_factors',
 		'uuid',
 		'suspension_type',
 		'@id'
@@ -61,17 +73,14 @@ cell_metadata = {
 	'library': [
 		'uuid',
 		'protocol.assay_ontology.term_id',
-		'@id',
-		'dataset'
+		'@id'
 		]
 	}
 
 dataset_metadata = {
 	'final_matrix': [
 		'description',
-		'genome_annotation',
-		'default_embedding',
-		'dataset'
+		'default_embedding'
 		]
 	}
 
@@ -93,20 +102,24 @@ prop_map = {
 	'donor_development_ontology_term_id': 'development_stage_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
-	'matrix_genome_annotation': 'genome_annotation_version',
+	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
+	'donor_age_development_stage_redundancy': 'donor_age_redundancy',
 	'matrix_description': 'title',
+	'matrix_default_embedding': 'default_embedding',
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
-	'matrix_default_embedding': 'default_embedding',
 	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
-	'suspension_suspension_type': 'suspension_type'
+	'suspension_suspension_type': 'suspension_type',
+	'suspension_enriched_cell_types_term_name': 'enriched_cell_types',
+	'suspension_enrichment_factors': 'enrichment_factors'
 }
 
 # Global variables
 unreported_value = 'unknown'
 schema_version = '2.0.0'
 flat_version = '4'
+tmp_dir = 'matrix_files'
 
 EPILOG = '''
 Examples:
@@ -234,7 +247,7 @@ def gather_objects(input_object, start_type=None):
 	return objs
 
 
-# Get property value forr given object, can only traverse embedded objects that are embedded 2 levels in
+# Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
 def get_value(obj, prop):
 	path = prop.split('.')
 	if len(path) == 1:
@@ -361,14 +374,10 @@ def report_dataset(donor_objs, matrix, dataset):
 		'raw.X': 'raw'
 	}
 	derived_by = matrix.get('derivation_process')
+
 	# NEED TO WORK OUT LOGIC FOR MULTIPLE LAYERS, RECONCILING WHEN FINAL MATRIX IS SEURAT VS H5AD
-	# for layer in matrix.get('layers'):
-	# 	units = layer.get('value_units', unreported_value)
-	# 	scale = layer.get('value_scale', unreported_value)
-	# 	norm_meth = layer.get('normalization_method', unreported_value)
-	# 	desc = '{} counts; {} scaling; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-	# 	layer_descs['X'] = desc
 	x_norm = ""
+	is_primary_data = None
 	if len(matrix.get('layers')) == 1:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -376,7 +385,8 @@ def report_dataset(donor_objs, matrix, dataset):
 			norm_meth = layer.get('normalization_method', unreported_value)
 			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs['X'] = desc
-			x_norm = norm_meth
+			x_norm = scale
+			is_primary_data = layer.get('is_primary_data', unreported_value)
 	else:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -388,10 +398,12 @@ def report_dataset(donor_objs, matrix, dataset):
 				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs[layer.get('label')] = desc
 			if layer.get('label', unreported_value) == 'X':
-				x_norm = norm_meth
+				x_norm = scale
+				is_primary_data = layer.get('is_primary_data', unreported_value)
 
 	ds_results['layer_descriptions'] = layer_descs
-	if x_norm == '' or x_norm == unreported_value:
+	ds_results['is_primary_data'] = is_primary_data
+	if x_norm == 'linear' or x_norm == unreported_value:
 		ds_results['X_normalization'] = 'none'
 	else:
 		ds_results['X_normalization'] = x_norm
@@ -434,6 +446,20 @@ def download_file(file_obj, directory):
 			print(file_name + ' downloaded')
 	else:
 		sys.exit('File {} has no uri defined'.format(file_obj['@id']))
+
+
+# Compile all reference annotations for var features into one pandas df
+def compile_annotations(files):
+	ids = pd.DataFrame()
+	client = boto3.client('s3')
+	bucket_name = 'submissions-lattice'
+	for key in files:
+		filename = tmp_dir + "/" + files[key]
+		print("Downloading reference: {}".format(files[key]))
+		client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
+		df = pd.read_csv(filename, names=['feature_id','symbol','num'])
+		ids  = ids.append(df)
+	return ids
 
 
 # Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
@@ -560,28 +586,32 @@ def quality_check(adata):
 # Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease):
 	lst = lst.split(',')
-	disease = exp_disease['term_name'] if exp_disease['term_name'] in lst else 'normal'
 	disease = exp_disease['term_id'] if exp_disease['term_id'] in lst else 'PATO:0000461'
 	return disease
 
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
 def report_diseases(mxr_df, exp_disease):
-	### NEED TO SEE IF I SHOULD DROP EXPERIMENTAL DISEASE FROM REPORTED_DISEASES, OR ELSE MAY RESULT IN REDUNDANT COLUMNS
 	mxr_df['reported_diseases'] = mxr_df[['sample_diseases_term_name','donor_diseases_term_name']].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].astype(dtype='string').astype(dtype='category')
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].astype(dtype='string')
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: x.replace("'", ""))
+	total_reported = mxr_df['reported_diseases'].unique()
+	if len(total_reported) == 1:
+		if total_reported[0] == '[]':
+			mxr_df['reported_diseases'] = '[]'
+	elif '[]' in total_reported:
+		mxr_df['reported_diseases'].replace({'[]':'none'}, inplace=True)
+
 	if exp_disease == unreported_value:
-		mxr_df['disease'] = ['normal'] * len(mxr_df.index)
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
-		mxr_df['disease'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
-		mxr_df['disease'] = mxr_df['disease'].apply(clean_list, exp_disease=exp_disease)
 		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease)
+		exp_disease_aslist = '[{}]'.format(exp_disease['term_name'])
+		if len([x for x in total_reported if x not in ['none', exp_disease_aslist,'[]']])==0:
+			mxr_df['reported_diseases'] = '[]'
 
-
-
-# Demultiplex experimental metadata by finding demultiplexed suspension
+# Demultiplex experimental metadata by finding demultiplexed suspension 
 # Determine overlapping suspension, create library & demultiplexed suspension df
 # get cell_metadata from that suspension, merge in library info
 # merge with mxr_df on library
@@ -628,24 +658,6 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj):
 	return(lib_donor_df)
 
 
-# If there is no tissue_ontology, get first value of organ slims
-def get_organ_slim(df_series, suffix):
-	# df_series['tissue'] = df_series['sample_biosample_ontology_organ_slims'].split("'")[1] + suffix
-	tissue = df_series['sample_biosample_ontology_organ_slims'].split("'")[1].replace(" ", "+")
-	df_series.drop(labels='sample_biosample_ontology_organ_slims', inplace=True)
-	query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + tissue + '&format=json')
-	r = requests.get(query_url, auth=connection.auth)
-	try:
-		r.raise_for_status()
-	except requests.HTTPError:
-		sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
-	else:
-		if r.json()['total']==1:
-			df_series['tissue_ontology_term_id'] = r.json()['@graph'][0]['term_id'] + suffix
-		else:
-			sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
-
-
 # For cell culture, tissue is not UBERON, use cell slims to get CL
 def get_cell_slim(df_series, suffix):
 	cell = df_series['sample_biosample_ontology_cell_slims'].split("'")[1].replace(" ", "+")
@@ -676,27 +688,30 @@ def get_sex_ontology(donor_df):
 		elif sex == 'unknown' or sex == 'mixed':
 			donor_df.loc[donor_df['sex'] == sex, 'sex_ontology_term_id'] = 'unknown'
 		else:
-			sys.exit("Unexpexted sex: {}".format(sex))
+			sys.exit("Unexpected sex: {}".format(sex))
 
 
 # Make sure cxg_adata and cxg_adata_raw have same number of features
-# If not, create an adata of np.nan and concat to cxg_adata 
-def add_nan(cxg_adata, cxg_adata_raw):
+# If not, add implied zeros to csr, and add corresponding 'feature_is_filtered'
+def add_zero(cxg_adata, cxg_adata_raw):
 	if cxg_adata_raw.shape[1] > cxg_adata.shape[1]:
 		genes_add = [x for x in cxg_adata_raw.var.index.to_list() if x not in cxg_adata.var.index.to_list()]
-		all_nan = np.empty((cxg_adata.shape[0], len(genes_add)))
-		all_nan[:] = np.nan
-		nan_var = pd.DataFrame(index=genes_add)
-		adata_nan = ad.AnnData(X=all_nan, obs=cxg_adata.obs, var = nan_var, uns=cxg_adata.uns)
-		new_adata = ad.concat([cxg_adata, adata_nan], join='outer', axis=1, uns_merge='same', merge='same')
-		new_adata.obsm = cxg_adata.obsm
+		new_matrix = sparse.csr_matrix((cxg_adata.X.data, cxg_adata.X.indices, cxg_adata.X.indptr), shape = cxg_adata_raw.shape)
+		all_genes = cxg_adata.var.index.to_list()
+		all_genes.extend(genes_add)
+		new_var = pd.DataFrame(index=all_genes)
+		new_var = pd.merge(new_var, cxg_adata_raw.var, left_index=True, right_index=True, how='left')
+		new_var['feature_is_filtered'] = False
+		new_var.loc[genes_add, 'feature_is_filtered'] = True
+		new_adata = ad.AnnData(X=new_matrix, obs=cxg_adata.obs, var=new_var, uns=cxg_adata.uns, obsm=cxg_adata.obsm)
 		new_adata = new_adata[:,cxg_adata_raw.var.index.to_list()]
 		return(new_adata)
 	else:
+		cxg_adata.var['feature_is_filtered'] = False
 		return(cxg_adata)
 
 
-# Use cxg_adata_raw var to map ensembl IDs and use that as index
+# Use cxg_adata_raw var to map ensembl IDs and use that as index, filter against ref_files[]
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
 def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
@@ -712,6 +727,7 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
 
 	if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
 		# Check for gene symbols that are redudant and have suffix
+		# WILL NEED TO MAKE SURE SPLITTING ON '.' IS STILL APPROPRIATE FOR FUTURE DATASETS
 		norm_index = set(cxg_adata.var.index.to_list())
 		raw_index = set(cxg_adata_raw.var.index.to_list())
 		drop_redundant_with_suffix = list(norm_index.difference(raw_index))
@@ -724,12 +740,24 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
 		cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_redundant_with_suffix]]
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
-		cxg_adata.var['gene_symbols'] = cxg_adata.var.index
-		cxg_adata_raw.var['gene_symbols'] = cxg_adata_raw.var.index
 		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata.var.index.name = None
 		cxg_adata_raw.var.index.name = None
+	else:
+		print("WARNING: raw matrix does not have genes_ids column")
+
+	compiled_annot = compile_annotations(ref_files)
+	var_in_approved = cxg_adata.var.index[cxg_adata.var.index.isin(compiled_annot['feature_id'])]
+	rawvar_in_approved = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(compiled_annot['feature_id'])]
+	cxg_adata = cxg_adata[:, var_in_approved]
+	cxg_adata_raw = cxg_adata_raw[:, rawvar_in_approved]
+
+	ercc_df = compile_annotations({'ercc':ref_files['ercc']})
+	var_ercc = cxg_adata.var.index[cxg_adata.var.index.isin(ercc_df['feature_id'])]
+	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
+	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
+	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
 	return cxg_adata, cxg_adata_raw
 
 
@@ -875,7 +903,6 @@ def main(mfinal_id):
 	df = pd.DataFrame()
 
 	results = {}
-	tmp_dir = 'matrix_files'
 	os.mkdir(tmp_dir)
 	download_file(mfinal_obj, tmp_dir)
 
@@ -954,17 +981,15 @@ def main(mfinal_id):
 		if 'author_donor_column' not in mfinal_obj:
 			if not row_to_add['tissue_ontology_term_id'].startswith('UBERON'):
 				if row_to_add['tissue_ontology_term_id'].endswith('(cell culture)'):
-					#get_organ_slim(row_to_add, ' (cell culture)')
 					get_cell_slim(row_to_add, ' (cell culture)')
 				else:
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
 			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
-
-		df = df.append(row_to_add)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
 			download_file(mxr, tmp_dir)
+			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_10x_h5(local_path)
@@ -987,8 +1012,12 @@ def main(mfinal_id):
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
 
+		df = df.append(row_to_add)
+
 	# get dataset-level metadata
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
+	df['is_primary_data'] = ds_results['is_primary_data']
+	del ds_results['is_primary_data']
 
 	# Should add error checking to make sure all matrices have the same number of vars
 	feature_lengths = []
@@ -1052,8 +1081,6 @@ def main(mfinal_id):
 	# Also add calculated fields to df 
 	if 'NCIT:C17998' in df['ethnicity_ontology_term_id'].unique():
 		df.loc[df['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = df['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
-	df['is_primary_data'] = df['library_dataset'] == ds_results['matrix_dataset']
-	del cxg_uns['matrix_dataset']
 
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
@@ -1091,7 +1118,7 @@ def main(mfinal_id):
 		# Go through donor and biosample diseases and calculate cxg field accordingly
 		report_diseases(df, mfinal_obj.get('experimental_variable_disease', unreported_value))
 		get_sex_ontology(df)
-		cxg_obs = pd.merge(cxg_obs, df[['disease', 'disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
+		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
@@ -1111,24 +1138,29 @@ def main(mfinal_id):
 
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'library_dataset',\
-			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'disease',\
-			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'cell_type',\
-			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims']
-	for column_drop in  columns_to_drop: 
-		if column_drop in cxg_obs.columns.to_list():
-			cxg_obs.drop(columns=column_drop, inplace=True)
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units']
+			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units',\
+			'enriched_cell_types', 'enrichment_factors', 'tyrer_cuzick_lifetime_risk']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
 				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
 					cxg_obs.drop(columns=col, inplace=True)
+	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
+		if cxg_obs['donor_age_redundancy'].unique():
+			cxg_obs.drop(columns='donor_age', inplace=True)
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
+			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
+			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'cell_type',\
+			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims','donor_age_redundancy']
+	for column_drop in  columns_to_drop: 
+		if column_drop in cxg_obs.columns.to_list():
+			cxg_obs.drop(columns=column_drop, inplace=True)
 	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
 		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
 		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
+
 
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
@@ -1191,17 +1223,17 @@ def main(mfinal_id):
 		#cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
-		#cxg_adata = add_nan(cxg_adata, cxg_adata_raw)
-		set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
-		cxg_adata = set_ensembl_return[0]
-		cxg_adata_raw = set_ensembl_return[1]
+		if summary_assay != 'ATAC':
+			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
+			cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
+			cxg_adata_raw = set_ensembl_return[1]
 		cxg_adata.raw = cxg_adata_raw
 		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
 			if label != 'X':
 				cxg_adata.layers[label] = mfinal_adata.layers[label]
 		quality_check(cxg_adata)
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
-		cxg_adata.write(results_file)
+		cxg_adata.write(results_file, compression = 'gzip')
 	else:
 		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
 		for i in range(len(converted_h5ad)):
@@ -1219,10 +1251,10 @@ def main(mfinal_id):
 				else:
 					final_var = pd.DataFrame(index = mfinal_adata.raw.var.index.to_list())
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
-			#cxg_adata = add_nan(cxg_adata, cxg_adata_raw)s
-			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
-			cxg_adata = set_ensembl_return[0]
-			cxg_adata_raw = set_ensembl_return[1]
+			if summary_assay != 'ATAC':
+				set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
+				cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
+				cxg_adata_raw = set_ensembl_return[1]
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
 			if len(converted_h5ad) == 1:
@@ -1231,7 +1263,7 @@ def main(mfinal_id):
 				results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2], flat_version)
 			print(cxg_adata.obs.columns.to_list())
 			print(cxg_adata.raw.var.columns.to_list())
-			cxg_adata.write(results_file)
+			cxg_adata.write(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)
 
