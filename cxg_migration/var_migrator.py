@@ -46,7 +46,8 @@ def report(counts):
 		'duplicate_ids_samples',
 		'not_approved',
 		'not_approved_samples',
-		'final'
+		'final',
+		'mapping_file'
 	]
 	report_out = [counts[e] for e in props]
 	outfile = 'var_report.tsv'
@@ -169,6 +170,7 @@ def main(ds, strategy):
 		raw_adata = ad.AnnData(adata.raw.X, var=adata.raw.var, obs=adata.obs)
 		var, to_keep, counts = curate_var(raw_adata.var, strategy)
 		counts['dataset'] = ds + '-raw'
+		counts['mapping_file'] = strategy
 		report(counts)
 		raw_adata.var = var
 		raw_adata = raw_adata[:, to_keep]
@@ -180,6 +182,7 @@ def main(ds, strategy):
 	var, to_keep, counts = curate_var(adata.var, strategy)
 	var['feature_is_filtered'] = False # feature_is_filtered is default False
 	counts['dataset'] = ds + '-X'
+	counts['mapping_file'] = strategy
 	report(counts)
 	adata.var = var
 	adata = adata[:, to_keep]
@@ -236,7 +239,8 @@ props = [
 	'duplicate_ids_samples',
 	'not_approved',
 	'not_approved_samples',
-	'final'
+	'final',
+	'mapping_file'
 ]
 with open(outfile, 'a') as f:
 	f.write('\t'.join(props) + '\n')
