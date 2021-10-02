@@ -404,7 +404,8 @@ age_fields = [
 	'age_days',
 	'age_group',
 	'age(y)',
-	'donor_age'
+	'donor_age',
+	'mouse age'
 ]
 
 susp_type_fields = [
