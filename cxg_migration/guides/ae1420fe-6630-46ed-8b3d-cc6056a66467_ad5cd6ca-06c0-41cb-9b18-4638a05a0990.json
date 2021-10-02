@@ -2,6 +2,12 @@
     "is_primary_data": true,
     "prop_rename": {},
     "prop_map": {
+        "assay_ontology_term_id": {
+            "value_map": {
+                "methylation profiling": "EFO:0008939"
+            },
+            "update_from": "assay"
+        },
         "sex_ontology_term_id": {
             "value_map": {
                 "unknown": "PATO:0000384"
