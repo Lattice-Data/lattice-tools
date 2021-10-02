@@ -120,7 +120,7 @@ def main(ds):
 	# write the new object to the file
 	adata.obs = obs
 	adata.uns = uns
-	adata.write(filename=ds + '.h5ad')
+	adata.write(filename=ds + '.h5ad', compression='gzip')
 
 attn_needed = [
 	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
@@ -137,9 +137,14 @@ for s3_file in your_bucket.objects.all():
 	if 'cxg_migration/working' in s3_file.key:
 		already_run.append(s3_file.key.split('/')[-1].split('.')[0])
 
+in_original = []
+for s3_file in your_bucket.objects.all():
+	if 'cxg_migration/original' in s3_file.key:
+		in_original.append(s3_file.key.split('/')[-1].split('.')[0])
+
 for g in guides:
 	ds = g.split('.')[0]
-	if ds not in attn_needed and ds not in already_run:
+	if ds not in attn_needed and ds not in already_run and ds in in_original:
 		print('PROCESSING:' + ds)
 		file = ds + '.h5ad'
 		client.download_file('submissions-lattice', 'cxg_migration/original/' + file, file)
