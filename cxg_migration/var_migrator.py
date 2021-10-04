@@ -193,13 +193,6 @@ def main(ds, strategy):
 	del adata
 	gc.collect()
 
-
-# avoid these datasets for now
-attn_needed = [
-	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
-	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8' # Enge pancreas, cell don't group by cluster/cell_type
-	]
-
 # get the specified mapping strategy/file for each dataset
 sheet_id = '18e5PG2wCaN8kf9-KVm_yomgEx8TYka0Ldd7_swVxiJk'
 sheet_name = 'datasets'
@@ -247,7 +240,7 @@ with open(outfile, 'a') as f:
 
 for index,row in ds_df.iterrows():
 	ds = row['coll_ds']
-	if ds not in attn_needed and ds not in already_run and ds in in_working:
+	if ds not in already_run and ds in in_working:
 		print('PROCESSING:' + ds)
 		file = ds + '.h5ad'
 		client.download_file('submissions-lattice', 'cxg_migration/working/' + file, file)
