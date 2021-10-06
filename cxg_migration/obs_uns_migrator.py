@@ -124,9 +124,8 @@ def main(ds):
 
 attn_needed = [
 	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
-	'a238e9fa-2bdf-41df-8522-69046f99baff_66d15835-5dc8-4e96-b0eb-f48971cb65e8', # Enge pancreas, cell don't group by cluster/cell_type
-	'4f586cb6-972b-4ef7-a4ef-3c3800a3c004_1', # Max prepping new h5ad
-	'fcbc5571-f313-4b84-9aeb-bf4ef133d064_1' # Max prepping new h5ad
+	'4f586cb6-972b-4ef7-a4ef-3c3800a3c004_1', # Max prepping new h5ad & needs primary_data flag
+	'fcbc5571-f313-4b84-9aeb-bf4ef133d064_1' # Max prepping new h5ad & needs primary_data flag
 	]
 
 client = boto3.client('s3')
