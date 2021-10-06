@@ -4,17 +4,17 @@
     "prop_map": {
         "development_stage_ontology_term_id": {
             "value_map": {
-                "5 years": "HsapDv:0000099",
-                "6 years": "HsapDv:0000100",
-                "21 years": "HsapDv:0000115",
-                "22 years": "HsapDv:0000116",
-                "38 years": "HsapDv:0000132",
-                "44 years": "HsapDv:0000138",
-                "54 years": "HsapDv:0000148",
-                "1 months": "HsapDv:0000174",
-                "[]": "unknown"
+                "panc_5yr": "HsapDv:0000099",
+                "panc_6yr": "HsapDv:0000100",
+                "panc_21y_141021": "HsapDv:0000115",
+                "panc-22yr": "HsapDv:0000116",
+                "panc_38yrs": "HsapDv:0000132",
+                "panc_44yr": "HsapDv:0000138",
+                "panc-54yr": "HsapDv:0000148",
+                "panc_1m": "HsapDv:0000174",
+                "nan": "unknown"
             },
-            "update_from": "age "
+            "update_from": "experiment_name"
         },
         "cell_type_ontology_term_id": {
             "value_map": {
@@ -38,7 +38,7 @@
         "X_normalization": "none"
     },
     "remove_obs": [
-        "age"
+        "age "
     ],
     "remove_uns": []
 }
