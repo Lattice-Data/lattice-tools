@@ -27,6 +27,8 @@ def fixup(df):
 
 def validate_cxg(ds):
 	file = ds + '.h5ad'
+	with open('validate_logs.txt', 'a') as f:
+		f.write('validating ' + ds + '\n')
 	validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE)
 	with open('validate_logs.txt', 'a') as f:
 		for line in validate_process.stdout.decode('utf-8').split('\n'):
@@ -147,7 +149,7 @@ def curate_var(var, strategy):
 			sys.exit('ERROR: {} not found, check uri'.format(spikein_id_file))
 	ercc_df = pd.read_csv(spikein_id_file)
 	ercc_df['feature_biotype'] = 'spike-in'
-	var.loc[var.feature_id.isin(ercc_df.feature_id), ['feature_biotype']] = ercc_df[['feature_biotype']]
+	var.loc[var['feature_id'].isin(ercc_df['feature_id']), 'feature_biotype'] = 'spike-in'
 
 	# remove columns from var
 	portal_props = ['feature_reference','feature_name','gene_symbols']
