@@ -124,7 +124,6 @@ def main(ds):
 
 attn_needed = [
 	'7edef704-f63a-462c-8636-4bc86a9472bd_b83559d1-156f-4ba9-9f6a-b165f83ef43f', # Voigt/Scheetz retina, no raw counts
-	'4f586cb6-972b-4ef7-a4ef-3c3800a3c004_1', # Max prepping new h5ad & needs primary_data flag
 	'fcbc5571-f313-4b84-9aeb-bf4ef133d064_1' # Max prepping new h5ad & needs primary_data flag
 	]
 
