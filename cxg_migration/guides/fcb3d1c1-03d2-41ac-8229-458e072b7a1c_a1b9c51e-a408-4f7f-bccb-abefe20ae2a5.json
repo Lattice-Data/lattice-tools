@@ -7,6 +7,11 @@
                 "CL:0000003": "CL:0002319"
             }
         },
+        "author_cell_type": {
+            "value_map": {
+                "Native cell": "Neural cell"
+            }
+        },
         "ethnicity_ontology_term_id": {
             "value_map": {
                 "unknown": "unknown"
