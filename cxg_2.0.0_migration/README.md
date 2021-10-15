@@ -4,13 +4,13 @@ cxg_audit.py was run using --refresh option to download the h5ad version of each
 
 The audit report was imported into a Google Sheet for collaborative examination and curation. The actions to take were noted in the sheet based on information found in associated publications, code repositories, data archive records, etc.
 
-make_guides.py was run to extract the actions noted for each dataset and write into a json-formatted guide.
+make_guides.py was run to extract the actions noted for each dataset and write into a json-formatted guide, stored in guides/.
 
-obs_uns_migrator.py was run to manipulate the h5ad in original/ as noted in the corresponding json guide, and store the file in the working/ directory.
+obs_uns_migrator.py was run to manipulate the h5ad in original/ as noted in the corresponding json guide, and uploaded the resulting file in the Lattice S3 working/ directory.
 
-Using information in associated publications, code repositories, data archive records, etc., we identified a gtf or a data source file (an alternate matrix file) that contained a mapping between gene symbols and Ensembl IDs for that particular dataset (in some cases, a gtf mapped symbols to RefSeq IDs, which were then mapped to Ensembl IDs). The gtf or source file was parsed into a 2-column mapping file with gene_symbols and gene_ids.
+Using information in associated publications, code repositories, data archive records, etc., a gtf or a data source file (an alternate matrix file) was identified that contained a mapping between gene symbols and Ensembl IDs for that particular dataset (in some cases, a gtf mapped symbols to RefSeq IDs, which were then mapped to Ensembl IDs using the HGNC BioMart). The gtf or source file was parsed into a 2-column mapping file with gene_symbols and gene_ids.
 
-var_migrator.py was run to manipulate the h5ad from the working/ directory by matching Ensembl IDs to the gene symbols in the var index based on the specified mapping file and add other schema 2.0.0 requirements for var and raw.var, if present.
+var_migrator.py was run to manipulate the h5ad from the Lattice S3 working/ directory by matching values in the index of var and raw.var, if present, to gene_symbols in the specified mapping file, and replacing with the corresponding gene_id. This tool also added other schema 2.0.0 requirements for var and raw.var, if present, before running cellxgene-schema validate and uploading the resulting file in the Lattice S3 final/ directory.
 
 
 Running checkfiles on an EC2 instance
