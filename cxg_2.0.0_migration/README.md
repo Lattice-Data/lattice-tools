@@ -1,3 +1,8 @@
+Goal
+----------------
+Revise all datasets that were in the cellxgene Data Portal as of summer 2021 to meet schema 2.0.0. This additionally included some non-requirements of updating metadata to be more specific, if more specific information was available.
+
+
 General process
 ---------------- 
 cxg_audit.py was run using --refresh option to download the h5ad version of each published dataset in the cellxgene portal, and upload the file to the Lattice S3 original/ directory using the file naming collectionID_datasetID.h5ad
@@ -13,9 +18,9 @@ Using information in associated publications, code repositories, data archive re
 var_migrator.py was run to manipulate the h5ad from the Lattice S3 working/ directory by matching values in the index of var and raw.var, if present, to gene_symbols in the specified mapping file, and replacing with the corresponding gene_id. This tool also added other schema 2.0.0 requirements for var and raw.var, if present, before running cellxgene-schema validate and uploading the resulting file in the Lattice S3 final/ directory.
 
 
-Running checkfiles on an EC2 instance
+Running migration tools on an EC2 instance
 ---------------- 
-Create a new spot instance from the checkfiles template (r5ad.8xlarge)
+Create a new spot instance from the cxg template (r5ad.8xlarge)
 ```
 aws ec2 run-instances --launch-template LaunchTemplateName=cxg
 ```
