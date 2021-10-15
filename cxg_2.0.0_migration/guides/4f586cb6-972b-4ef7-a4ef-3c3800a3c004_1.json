@@ -1,0 +1,28 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "development_stage"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p"
+    },
+    "remove_obs": [
+        "gender",
+        "region",
+        "age"
+    ],
+    "remove_uns": []
+}

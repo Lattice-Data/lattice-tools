@@ -1,0 +1,23 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "D27PrPzF_Via": "HsapDv:0000123",
+                "D27PrTzF_Via": "HsapDv:0000123",
+                "D17PrPzF_Via": "HsapDv:0000125",
+                "D17PrTzF_Via": "HsapDv:0000125",
+                "D35PrTzF_Via": "HsapDv:0000123",
+                "D35PrPzF_Via": "HsapDv:0000123"
+            },
+            "update_from": "Sample"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p, base e"
+    },
+    "remove_obs": [],
+    "remove_uns": []
+}

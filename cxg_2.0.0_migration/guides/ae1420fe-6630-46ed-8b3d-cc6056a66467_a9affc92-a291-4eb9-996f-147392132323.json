@@ -1,0 +1,33 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "prog": "CL:0000003"
+            },
+            "update_from": "cell_type"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "unknown": "MmusDv:0000061"
+            },
+            "update_from": "development_stage"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p"
+    },
+    "remove_obs": [
+        "dataset",
+        "sex_original"
+    ],
+    "remove_uns": []
+}

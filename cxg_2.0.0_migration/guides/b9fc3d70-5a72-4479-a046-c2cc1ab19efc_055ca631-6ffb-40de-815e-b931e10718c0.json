@@ -1,0 +1,79 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "sex_ontology_term_id": {
+            "value_map": {
+                "P1": "PATO:0000384",
+                "P2": "PATO:0000384",
+                "H1": "PATO:0000383",
+                "H3": "PATO:0000383",
+                "C1": "PATO:0000384",
+                "C2": "PATO:0000384",
+                "C3": "PATO:0000384",
+                "C4": "PATO:0000384",
+                "C5": "PATO:0000384",
+                "C6": "PATO:0000384",
+                "C7": "PATO:0000384",
+                "H2": "PATO:0000384",
+                "H4": "PATO:0000384",
+                "H5": "PATO:0000384",
+                "H6": "PATO:0000384"
+            },
+            "update_from": "patient"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "T/NK proliferative": "CL:0000542",
+                "NK activated": "CL:0000623",
+                "B intermediate": "CL:0000818"
+            },
+            "update_from": "cell_type"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "C7": "HsapDv:0000088",
+                "C6": "HsapDv:0000095",
+                "H3": "HsapDv:0000130",
+                "H6": "HsapDv:0000131",
+                "H5": "HsapDv:0000142",
+                "H1": "HsapDv:0000143",
+                "H2": "HsapDv:0000143",
+                "H4": "HsapDv:0000143",
+                "C3": "HsapDv:0000238",
+                "C4": "HsapDv:0000238",
+                "C2": "HsapDv:0000239",
+                "C5": "HsapDv:0000240",
+                "C1": "HsapDv:0000241"
+            },
+            "update_from": "patient"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "H1": "HANCESTRO:0005",
+                "H2": "HANCESTRO:0005",
+                "H3": "HANCESTRO:0005",
+                "H4": "HANCESTRO:0005",
+                "H6": "HANCESTRO:0005",
+                "H5": "HANCESTRO:0008",
+                "C1": "unknown",
+                "C2": "unknown",
+                "C3": "unknown",
+                "C4": "unknown",
+                "C5": "unknown",
+                "C6": "unknown",
+                "C7": "unknown"
+            },
+            "update_from": "patient"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p, base 2"
+    },
+    "remove_obs": [
+        "age(y)",
+        "Status"
+    ],
+    "remove_uns": []
+}

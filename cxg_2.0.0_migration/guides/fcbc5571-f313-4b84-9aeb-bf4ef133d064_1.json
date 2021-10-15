@@ -1,0 +1,20 @@
+{
+    "is_primary_data": "",
+    "prop_rename": {},
+    "prop_map": {
+        "Donor": {
+            "value_map": {
+                "28205-0555d0": "28205-0555",
+                "28205-0555d2": "28205-0555",
+                "28205-0564d2": "28205-0564",
+                "28205-0564d0": "28205-0564"
+            }
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p"
+    },
+    "remove_obs": [],
+    "remove_uns": []
+}

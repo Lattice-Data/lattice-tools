@@ -1,0 +1,80 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "adult": "MmusDv:0000052"
+            },
+            "update_from": "development_stage"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "none",
+        "MajorRegion_colors": [
+            "#176CDB",
+            "#7B42CD",
+            "#ff7f0e",
+            "#d62728"
+        ],
+        "Region_colors": [
+            "#2F538E",
+            "#c49c94",
+            "#ff7f0e",
+            "#231611",
+            "#C24AF4",
+            "#C67F08",
+            "#9B7260",
+            "#FCDAA4",
+            "#7B42CD",
+            "#02C757",
+            "#EFB22C",
+            "#D15B03",
+            "#F2CE80",
+            "#EF486F",
+            "#F2BF4A",
+            "#C87AFD",
+            "#2A6041",
+            "#0EB733",
+            "#DC831E",
+            "#800000",
+            "#3C1518",
+            "#FADF63",
+            "#8c564b",
+            "#6FCAD1",
+            "#176CDB",
+            "#F4E287",
+            "#AFCCEC",
+            "#8EE3F4",
+            "#5E4035",
+            "#A6D634",
+            "#00FF67",
+            "#043D7A",
+            "#FFAAAA",
+            "#e377c2",
+            "#399DE5",
+            "#2ca02c",
+            "#9467bd",
+            "#DDD2F4",
+            "#2CEAA3",
+            "#A376F4",
+            "#6BFFB8",
+            "#FFD2FC",
+            "#FF6347",
+            "#B2196B",
+            "#d62728"
+        ]
+    },
+    "remove_obs": [
+        "DissectionRegionColor",
+        "MajorRegionColor"
+    ],
+    "remove_uns": []
+}

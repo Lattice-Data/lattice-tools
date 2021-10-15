@@ -1,0 +1,22 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p",
+        "title": "Type I interferon autoantibodies are associated with systemic immune alterations in patients with COVID-19",
+        "publication_doi": "https://doi.org/10.1126/scitranslmed.abh2624"
+    },
+    "remove_obs": [],
+    "remove_uns": [
+        "group_colors"
+    ]
+}

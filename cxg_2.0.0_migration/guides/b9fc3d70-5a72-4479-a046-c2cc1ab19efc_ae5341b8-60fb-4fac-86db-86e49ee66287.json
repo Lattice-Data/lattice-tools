@@ -1,0 +1,40 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "P1": "HsapDv:0000133",
+                "P2": "HsapDv:0000172"
+            },
+            "update_from": "patient"
+        },
+        "assay_ontology_term_id": {
+            "value_map": {
+                "10x Genomics": "EFO:0009899"
+            },
+            "update_from": "assay"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "T/NK proliferative": "CL:0000542",
+                "B intermediate": "CL:0000818"
+            },
+            "update_from": "cell_type"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p, base 2"
+    },
+    "remove_obs": [
+        "age(y)"
+    ],
+    "remove_uns": []
+}

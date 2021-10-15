@@ -1,0 +1,36 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "sex_ontology_term_id": {
+            "value_map": {
+                "mixed": "PATO:0000384"
+            },
+            "update_from": "sex"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "adult": "MmusDv:0000061"
+            },
+            "update_from": "development_stage"
+        }
+    },
+    "update_dtypes": {
+        "cellID": "category"
+    },
+    "add_uns": {
+        "X_normalization": "normalized"
+    },
+    "remove_obs": [
+        "tissue_ontology_term_id_original",
+        "tissue_original"
+    ],
+    "remove_uns": [],
+    "drop_raw_x": true
+}
