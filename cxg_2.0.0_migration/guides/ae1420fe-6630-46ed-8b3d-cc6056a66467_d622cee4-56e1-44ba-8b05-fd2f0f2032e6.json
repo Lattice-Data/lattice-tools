@@ -1,0 +1,104 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        },
+        "suspension_type": {
+            "value_map": {
+                "Cells": "cell"
+            },
+            "update_from": "cell_prep_type"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "unknown": "MmusDv:0000061"
+            },
+            "update_from": "development_stage"
+        }
+    },
+    "update_dtypes": {
+        "exp_component_vendor_name": "category",
+        "fastq_path_list": "category",
+        "fpkm_dir": "category",
+        "fpkm_filename": "category",
+        "library_prep": "category"
+    },
+    "add_uns": {
+        "X_normalization": "log1p",
+        "BICCN_cluster_label_colors": [
+            "#197A6E",
+            "#3CBC78",
+            "#BC2D71",
+            "#3CBC92",
+            "#3CBC45",
+            "#00CF1F",
+            "#81B389",
+            "#5DDB65",
+            "#FFA388",
+            "#A13662",
+            "#3CBC99",
+            "#3A646A",
+            "#3C78BC",
+            "#FF7F2C",
+            "#1F7C70",
+            "#ADB6A6",
+            "#B8FFCA",
+            "#4ECB54",
+            "#09564C",
+            "#FF09FF",
+            "#7779BF",
+            "#FF0CFF",
+            "#992E81",
+            "#2F8C4D",
+            "#FF7290",
+            "#BF880D",
+            "#9900B3",
+            "#47867A",
+            "#5A983D",
+            "#1AAB99",
+            "#BD3D9A",
+            "#804600",
+            "#3CBCAC",
+            "#FF90AE",
+            "#D27A2A",
+            "#FF4DC1",
+            "#A720FF",
+            "#8E9050",
+            "#8B3975",
+            "#B94DA7",
+            "#B0993C",
+            "#A73F66",
+            "#FF00FF",
+            "#271F7C",
+            "#FF88AD",
+            "#FF1EFF",
+            "#358459",
+            "#807059",
+            "#168577",
+            "#FFFF00",
+            "#C77963",
+            "#FF197F",
+            "#40BC3C",
+            "#53A367",
+            "#7C2D1F",
+            "#3B9E99",
+            "#335280",
+            "#9925C7",
+            "#810E3C",
+            "#74996B",
+            "#5100FF"
+        ]
+    },
+    "remove_obs": [
+        "cell_prep_type",
+        "Type",
+        "cluster_color",
+        "sex_original"
+    ],
+    "remove_uns": []
+}

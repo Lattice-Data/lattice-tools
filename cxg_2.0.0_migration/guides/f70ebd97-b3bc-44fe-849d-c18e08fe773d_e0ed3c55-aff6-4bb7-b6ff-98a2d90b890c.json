@@ -1,0 +1,55 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "CL_0000057": "CL:0000057",
+                "CL_0000065": "CL:0000065",
+                "CL_0000099": "CL:0000099",
+                "CL_0000115": "CL:0000115",
+                "CL_0000119": "CL:0000119",
+                "CL_0000121": "CL:0000121",
+                "CL_0000128": "CL:0000128",
+                "CL_0000129": "CL:0000129",
+                "CL_0000235": "CL:0000235",
+                "CL_0000498": "CL:0000498",
+                "CL_0000644": "CL:0000644",
+                "CL_0001031": "CL:0001031",
+                "CL_0002453": "CL:0002453",
+                "CL_0002603": "CL:0002603",
+                "CL_0002671": "CL:0002671",
+                "CL_0008030": "CL:0008030"
+            },
+            "update_from": "cell_type"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "adult": "MmusDv:0000052"
+            },
+            "update_from": "development_stage"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "none"
+    },
+    "remove_obs": [
+        "disease__ontology_label",
+        "disease_original",
+        "library_preparation_protocol",
+        "library_preparation_protocol__ontology_label",
+        "species",
+        "species__ontology_label",
+        "cell_type__ontology_label",
+        "cell_type_original",
+        "sex_original"
+    ],
+    "remove_uns": []
+}

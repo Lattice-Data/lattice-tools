@@ -1,0 +1,44 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "panc_5yr": "HsapDv:0000099",
+                "panc_6yr": "HsapDv:0000100",
+                "panc_21y_141021": "HsapDv:0000115",
+                "panc-22yr": "HsapDv:0000116",
+                "panc_38yrs": "HsapDv:0000132",
+                "panc_44yr": "HsapDv:0000138",
+                "panc-54yr": "HsapDv:0000148",
+                "panc_1m": "HsapDv:0000174",
+                "nan": "unknown"
+            },
+            "update_from": "experiment_name"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "unknown": "CL:0000003",
+                "beta": "CL:0000169",
+                "delta": "CL:0000502",
+                "alpha": "CL:0002067"
+            },
+            "update_from": "cell_type"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "male": "unknown",
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "none"
+    },
+    "remove_obs": [
+        "age "
+    ],
+    "remove_uns": []
+}

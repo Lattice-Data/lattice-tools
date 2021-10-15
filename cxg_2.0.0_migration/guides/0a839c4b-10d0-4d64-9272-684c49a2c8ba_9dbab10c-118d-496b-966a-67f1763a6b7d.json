@@ -1,0 +1,34 @@
+{
+    "is_primary_data": true,
+    "prop_rename": {},
+    "prop_map": {
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "92-year-old human stage": "HsapDv:0000095",
+                "unknown": "unknown"
+            },
+            "update_from": "development_stage"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        },
+        "assay_ontology_term_id": {
+            "value_map": {
+                "10x 5' v3 sequencing": "EFO:0009900"
+            },
+            "update_from": "assay"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p"
+    },
+    "remove_obs": [
+        "SARS-CoV-2",
+        "Single cell sequencing platform"
+    ],
+    "remove_uns": []
+}

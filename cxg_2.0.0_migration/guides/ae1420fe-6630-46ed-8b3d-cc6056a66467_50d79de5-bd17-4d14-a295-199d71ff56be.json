@@ -1,0 +1,100 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "na": "na"
+            },
+            "update_from": "ethnicity"
+        },
+        "development_stage_ontology_term_id": {
+            "value_map": {
+                "unknown": "MmusDv:0000061"
+            },
+            "update_from": "development_stage"
+        }
+    },
+    "update_dtypes": {
+        "exp_component_name": "category"
+    },
+    "add_uns": {
+        "X_normalization": "log1p",
+        "BICCN_cluster_label_colors": [
+            "#6F836B",
+            "#338C5E",
+            "#3DA078",
+            "#00CF1E",
+            "#33716D",
+            "#7C8169",
+            "#3CBC45",
+            "#3CBC92",
+            "#4B907C",
+            "#3E766C",
+            "#00CF1F",
+            "#BC2D71",
+            "#932D5E",
+            "#66787A",
+            "#53A367",
+            "#FF00FF",
+            "#BC2C51",
+            "#FFA388",
+            "#CDB115",
+            "#4F7777",
+            "#3F8678",
+            "#E62A5D",
+            "#3CBC78",
+            "#3C78BC",
+            "#802600",
+            "#D2A328",
+            "#1AAB99",
+            "#5364AC",
+            "#FF7290",
+            "#2B9880",
+            "#FF9F2C",
+            "#45A091",
+            "#992E81",
+            "#5D8E76",
+            "#A55A20",
+            "#47867A",
+            "#09564C",
+            "#518C7F",
+            "#617383",
+            "#7C2D1F",
+            "#7E0ACB",
+            "#ED4C50",
+            "#FF4DC1",
+            "#474662",
+            "#7779BF",
+            "#3CBC99",
+            "#DD8091",
+            "#37BEA2",
+            "#4F9E8C",
+            "#4C9F58",
+            "#FFFF00",
+            "#AB1DFF",
+            "#A62F67",
+            "#57806F",
+            "#DDACC9",
+            "#476655",
+            "#D9C566",
+            "#FF197F",
+            "#188D85",
+            "#804811",
+            "#486D5B",
+            "#C77963",
+            "#46784E",
+            "#9440F3",
+            "#335280",
+            "#810E3C",
+            "#804600"
+        ]
+    },
+    "remove_obs": [
+        "method",
+        "sex_original",
+        "cluster_color",
+        "Lib_Name"
+    ],
+    "remove_uns": []
+}
