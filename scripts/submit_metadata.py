@@ -33,6 +33,7 @@ ORDER = [
     'document',
     'ontology_term',
     'library_protocol',
+    'target',
     'antibody_lot',
     'treatment',
     'human_postnatal_donor',
