@@ -234,6 +234,8 @@ def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
 				desired_type = schema_properties[key1]['items']['properties'][key2]['type']
 				if schema_properties[key1]['items']['properties'][key2].get('linkTo'):
 					linkTo_flag = True
+				if schema_properties[key1]['items']['properties'][key2].get('items'):
+					array_of_type = schema_properties[key1]['items']['properties'][key2]['items'].get('type')
 		else:
 			if schema_properties[key1]['properties'].get(key2):
 				desired_type = schema_properties[key1]['properties'][key2]['type']
