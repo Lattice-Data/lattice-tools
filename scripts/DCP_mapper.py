@@ -3,6 +3,7 @@ import hashlib
 import crcmod
 import json
 import lattice
+import logging
 import os
 import requests
 import sys
@@ -120,15 +121,15 @@ def test_mapping():
 							if path[1] in schemas[link_obj]['properties']:
 								flag = True
 					else:
-						print(k)
-						print(path)
+						logging.info(k)
+						logging.info(path)
 					if len(path) > 2:
-						print('-----long path----')
+						logging.info('-----long path----')
 				elif lat_prop in schema_props:
 					flag = True
 			if flag != True:
 				error_count += 1
-				print('{} not found in schema for {}'.format(lat_prop,k))
+				logging.info('{} not found in schema for {}'.format(lat_prop,k))
 	return error_count
 
 
@@ -567,6 +568,10 @@ def create_protocol(in_type, out_type, out_obj):
 		if out_obj.get('enriched_cell_types'):
 			enr_cells = [ct['term_name'] for ct in out_obj['enriched_cell_types']]
 			meth_txt.append('for {}'.format(','.join(enr_cells)))
+		try:
+			enrich_derivs
+		except NameError:
+			enrich_derivs = []
 		if enrich_derivs:
 			meth_txt.append('by {}'.format(','.join(enrich_derivs)))
 		enr_obj['method']['text'] = ' '.join(meth_txt)
@@ -901,7 +906,7 @@ def file_descript(obj, obj_type, dataset):
 
 
 def main():
-	print('GETTING THE DATASET')
+	logging.info('GETTING THE DATASET')
 	url = urljoin(server, args.dataset + '/?format=json')
 	ds_obj = requests.get(url, auth=connection.auth).json()
 
@@ -917,16 +922,16 @@ def main():
 	if args.validate_only:
 		dcp_errors = dcp_validation(dataset_id)
 		if dcp_errors != 0:
-			print('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
+			logging.info('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
 		sys.exit('Exiting after DCP schema validation, as per validate-only option')
 
-	print('WILL WRITE FILES TO THE {} DIRECTORY'.format(dataset_id))
+	logging.info('WILL WRITE FILES TO THE {} DIRECTORY'.format(dataset_id))
 
 	# convert the dataset to DCP schema
 	get_object(ds_obj)
 
 	# get the validated raw sequence files from that dataset
-	print('GETTING RAW SEQUENCE FILES')
+	logging.info('GETTING RAW SEQUENCE FILES')
 	links_dict = {}
 	files = [i for i in ds_obj['files']]
 	for f in files:
@@ -935,7 +940,7 @@ def main():
 		obj_type = temp_obj['@type'][0]
 		if obj_type == 'RawSequenceFile':
 			if temp_obj.get('validated') == False:
-				print('{} has not been validated, will be excluded'.format(temp_obj['@id']))
+				logging.info('{} has not been validated, will be excluded'.format(temp_obj['@id']))
 				not_valid.append(temp_obj['@id'])
 			else:
 				# convert each to DCP schema
@@ -951,11 +956,11 @@ def main():
 	# special walkback of graph until Suspension object
 	# gather all the Suspension objects to traverse next
 	# set up links between sequence_file and suspension as the start of each subgraph
-	print('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
+	logging.info('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
 	susps, links = seq_to_susp(links_dict)
 
 	# walkback graph the rest of the way
-	print('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')
+	logging.info('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')
 	seen = set()
 	remaining = susps
 	while remaining:
@@ -981,7 +986,7 @@ def main():
 		dir_to_make.append('descriptors/supplementary_file')
 
 	# make directory named after dataset
-	print('WRITING THE JSON FILES')
+	logging.info('WRITING THE JSON FILES')
 	for d in dir_to_make:
 		os.mkdir(dataset_id + '/' + d)
 
@@ -1025,8 +1030,8 @@ def main():
 	if not os.path.isdir('DCP_outs'):
 		os.mkdir('DCP_outs')
 
-	# print a close approximation of the DCP metadata.tsv
-	print('PREPARING MOCK DCP METADATA TSV')
+	# logging.info a close approximation of the DCP metadata.tsv
+	logging.info('PREPARING MOCK DCP METADATA TSV')
 	tsv_report(dataset_id)
 
 	# report metadata not mapped to DCP schema
@@ -1041,6 +1046,7 @@ def main():
 			outfile.write('\n'.join(not_valid))
 
 	if not args.no_validate:
+		logging.info('VALIDATING AGAINST DCP SCHEMA')
 		dcp_errors = dcp_validation(dataset_id)
 		if dcp_errors != 0:
 			print('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
@@ -1048,7 +1054,6 @@ def main():
 				i = input('Continue? y/n: ')
 				if i.lower() not in ['y','yes']:
 					sys.exit('Stopped due to one or more DCP schema errors')
-
 
 	if args.update:
 		if not args.data_only:
@@ -1061,18 +1066,21 @@ def main():
 
 		# transfer the data files from S3 to the DCP Google Cloud project
 		if s3_uris:
-			print('TRANSFERRING FILES FROM S3')
+			logging.info('TRANSFERRING {} FILES FROM S3'.format(str(len(s3_uris))))
 			request_to_gcp.aws_file_transfer(dataset_id, s3_uris)
 
 		# transfer the data files from external FTPs to the DCP Google Cloud project
 		if ftp_uris:
-			print('TRANSFERRING EXTERNAL FILES')
+			logging.info('TRANSFERRING {} EXTERNAL FILES'.format(str(len(ftp_uris))))
 			request_to_gcp.ftp_file_transfer(dataset_id, ftp_uris)
 
 	else:
-		sys.exit('Metadata directories written locally, but not transferring without the --update option')
+		logging.info('Metadata directories written locally, but not transferring without the --update option')
+		quit()
 
 if __name__ == '__main__':
+	logging.basicConfig(filename='mapper.log', level=logging.INFO)
+	logging.info('STARTED')
 	# set the current date time, used to version throughout
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
 	dt = str(d_now).replace('+00:00', 'Z')
