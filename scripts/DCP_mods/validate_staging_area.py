@@ -26,7 +26,6 @@ date_format = '%Y-%m-%dT%H:%M:%S.%fZ'
 
 def validate_files(path: str, reporting) -> None:
     directory = reporting['dataset']
-    print(f'VALIDATING {path}/ FILES')
     validate_file_fn = globals()[f'validate_{path}_file']
     for r, d, f in os.walk(os.path.join(directory, path)):
         for file_name in f:
@@ -216,6 +215,7 @@ def write_error(message):
 
 
 def dcp_validation(dataset):
+    write_error('validating ' + dataset)
     reporting = {
         'dataset': dataset,
         'names_to_id': {},
@@ -223,9 +223,11 @@ def dcp_validation(dataset):
         'file_errors': set(),
         'extra_files': [],
     }
-
+    write_error('validating links')
     validate_files('links', reporting)
+    write_error('validating metadata')
     validate_files('metadata', reporting)
+    write_error('validating descriptors')
     validate_files('descriptors', reporting)
     check_results(reporting)
 
