@@ -80,7 +80,8 @@ cell_metadata = {
 dataset_metadata = {
 	'final_matrix': [
 		'description',
-		'default_embedding'
+		'default_embedding',
+		'is_primary_data'
 		]
 	}
 
@@ -106,6 +107,7 @@ prop_map = {
 	'donor_age_development_stage_redundancy': 'donor_age_redundancy',
 	'matrix_description': 'title',
 	'matrix_default_embedding': 'default_embedding',
+	'matrix_is_primary_data': 'is_primary_data',
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
@@ -377,7 +379,6 @@ def report_dataset(donor_objs, matrix, dataset):
 
 	# NEED TO WORK OUT LOGIC FOR MULTIPLE LAYERS, RECONCILING WHEN FINAL MATRIX IS SEURAT VS H5AD
 	x_norm = ""
-	is_primary_data = None
 	if len(matrix.get('layers')) == 1:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -386,7 +387,6 @@ def report_dataset(donor_objs, matrix, dataset):
 			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs['X'] = desc
 			x_norm = scale
-			is_primary_data = layer.get('is_primary_data', unreported_value)
 	else:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -399,10 +399,8 @@ def report_dataset(donor_objs, matrix, dataset):
 			layer_descs[layer.get('label')] = desc
 			if layer.get('label', unreported_value) == 'X':
 				x_norm = scale
-				is_primary_data = layer.get('is_primary_data', unreported_value)
 
 	ds_results['layer_descriptions'] = layer_descs
-	ds_results['is_primary_data'] = is_primary_data
 	if x_norm == 'linear' or x_norm == unreported_value:
 		ds_results['X_normalization'] = 'none'
 	else:
@@ -1014,9 +1012,10 @@ def main(mfinal_id):
 
 		df = df.append(row_to_add)
 
-	# get dataset-level metadata
+	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 	df['is_primary_data'] = ds_results['is_primary_data']
+	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
 	del ds_results['is_primary_data']
 
 	# Should add error checking to make sure all matrices have the same number of vars
