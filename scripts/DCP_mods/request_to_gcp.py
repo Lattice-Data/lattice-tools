@@ -11,13 +11,25 @@ from google.cloud import storage
 from google.oauth2 import service_account
 
 
+def list_bucket_contents():
+    files = []
+    client = storage.Client()
+    bucket = storage.Bucket(client, 'broad-dsp-monster-hca-prod-lattice')
+    all_blobs = list(client.list_blobs(bucket))
+    for blob in all_blobs:
+        files.append(blob.name)
+    return files
+
+
 def ftp_file_transfer(dataset_id, file_uris):
     sink_path = 'staging/{}/data/'.format(dataset_id)
+    gcp_files = list_bucket_contents()
     for uri in file_uris:
-        ftp_download(uri)
         local_path = uri.split('/')[-1]
-        local_file_transfer(local_path, sink_path)
-        os.remove(local_path)
+        if (sink_path + local_path) not in gcp_files:
+            ftp_download(uri)
+            local_file_transfer(local_path, sink_path)
+            os.remove(local_path)
 
 
 def ftp_download(uri):
