@@ -225,13 +225,6 @@ def process_read_name_line(read_name_line, old_illumina_current_prefix, read_num
                     old_illumina_current_prefix,
                     read_numbers_set,
                     srr_flag)
-            else:
-                errors['fastq_format_readname'] = read_name
-                # the only case to skip update content error - due to the changing
-                # nature of read names
-        else:
-            errors['fastq_format_readname'] = read_name
-    # found a match to the regex of "almost" illumina read_name
 
     return old_illumina_current_prefix
 
