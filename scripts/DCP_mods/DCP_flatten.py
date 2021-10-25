@@ -47,23 +47,24 @@ def tsv_report(ds_id):
 			metadata_dict[obj_id] = {}
 			o_json = json.load(open(ds_id + '/metadata/' + obj_type + '/' + o))
 			for k,v in flatten_obj(o_json).items():
-				if isinstance(v, list) and isinstance(v[0], dict):
-					for e in v:
-						for k2,v2 in e.items():
-							if k + '.' + k2 in metadata_dict[obj_id]:
-								if isinstance(v2, list):
-									metadata_dict[obj_id][k + '.' + k2].extend(v2)
+				if v:
+					if isinstance(v, list) and isinstance(v[0], dict):
+						for e in v:
+							for k2,v2 in e.items():
+								if k + '.' + k2 in metadata_dict[obj_id]:
+									if isinstance(v2, list):
+										metadata_dict[obj_id][k + '.' + k2].extend(v2)
+									else:
+										metadata_dict[obj_id][k + '.' + k2].append(str(v2))
+								elif isinstance(v2, list):
+									metadata_dict[obj_id][k + '.' + k2] = v2
 								else:
-									metadata_dict[obj_id][k + '.' + k2].append(str(v2))
-							elif isinstance(v2, list):
-								metadata_dict[obj_id][k + '.' + k2] = v2
-							else:
-								metadata_dict[obj_id][k + '.' + k2] = [str(v2)]
-				elif isinstance(v, dict):
-					for k2,v2 in v.items():
-						metadata_dict[obj_id][k + '.' + k2] = v2
-				else:
-					metadata_dict[obj_id][k] = str(v)
+									metadata_dict[obj_id][k + '.' + k2] = [str(v2)]
+					elif isinstance(v, dict):
+						for k2,v2 in v.items():
+							metadata_dict[obj_id][k + '.' + k2] = v2
+					else:
+						metadata_dict[obj_id][k] = str(v)
 
 	# cycle through to pull files & walk links backward
 	for f in os.listdir(ds_id + '/links'):
@@ -127,6 +128,7 @@ def tsv_report(ds_id):
 					prop = i.split('/')[0] + '.' + k
 					if prop in uber_dict[seq_file_id]:
 						if isinstance(v, list):
+							v = set(v)
 							uber_dict[seq_file_id][prop].append('||'.join(v))
 						else:
 							uber_dict[seq_file_id][prop].append(v)
@@ -136,6 +138,7 @@ def tsv_report(ds_id):
 						uber_dict[seq_file_id][prop] = [v]
 
 			for k,v in uber_dict[seq_file_id].items():
+				v = set(v)
 				uber_dict[seq_file_id][k] = '||'.join(v)
 
 	df = pd.DataFrame(uber_dict).fillna('').transpose()
