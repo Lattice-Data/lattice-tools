@@ -133,6 +133,7 @@ else:
 schema_url = urljoin(server, 'profiles/{}/?format=json'.format(obj_name))
 full_schema = requests.get(schema_url).json()
 schema_props = list(full_schema['properties'].keys())
+schema_version = 'schema_version=' + (full_schema['properties']['schema_version']['default'])
 
 dir_list = args.dir
 
@@ -249,8 +250,10 @@ for direct in directories:
 	out_schema[direct] = extra_values
 
 df = pd.DataFrame(in_schema).transpose()
-df = df[ ['quality_metric_of'] + [ col for col in df.columns if col != 'quality_metric_of' ] ]
+df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
+df.index.name = schema_version
 df.to_csv(args.assay + '_metrics.tsv', sep='\t')
 
 df = pd.DataFrame(out_schema).transpose()
+df.index.name = schema_version
 df.to_csv(args.assay + '_metrics_not_in_schema.tsv', sep='\t')
