@@ -49,7 +49,7 @@ So you'd define the following three variables.
 
 Available tools
 ---------------- 
-* **cellranger_outs_reader.py**
+* **qcmetrics_reader.py**
 Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
 
 * **checkfiles.py**
