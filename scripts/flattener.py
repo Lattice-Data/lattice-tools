@@ -113,8 +113,7 @@ prop_map = {
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
 	'suspension_suspension_type': 'suspension_type',
-	'suspension_enriched_cell_types_term_name': 'enriched_cell_types',
-	'suspension_enrichment_factors': 'enrichment_factors'
+	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types'
 }
 
 # Global variables
@@ -492,7 +491,8 @@ def get_embeddings(mfinal_adata):
 		if embedding == 'X_pca' or embedding == 'X_harmony':
 			final_embeddings.pop(embedding)
 		elif embedding != 'X_umap' and embedding != 'X_tsne' and embedding != 'X_spatial':
-			sys.exit('There is an unrecognized embedding in final matrix: {}'.format(embedding))
+			final_embeddings.pop(embedding)
+			print('There is an unrecognized embedding in final matrix that will be dropped: {}'.format(embedding))
 	return final_embeddings
 
 
@@ -1120,8 +1120,10 @@ def main(mfinal_id):
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
-	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
+	# WILL NEED TO viewREVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
+
 	metrics_list = ['n_genes', 'percent.mito', 'percent.mt', 'percent.rpl', 'percent.rps']
+	# metrics_list = ['cell_cycle', 'pct_counts_Mt', 'total_counts', 'nFeature_originalexp', 'nCount_originalexp']
 	if mfinal_obj['file_format'] == 'rds':
 		if len(mfinal_obj['layers']) == 1:
 			layer_assay = mfinal_obj['layers'][0]['assay']
@@ -1131,15 +1133,17 @@ def main(mfinal_id):
 	for metric in metrics_list:
 		if metric in mfinal_adata.obs.columns.to_list():
 			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[metric]], left_index=True, right_index=True, how='left')
-			if cxg_obs[metric].dtype != 'float' and cxg_obs[metric].dtype != 'int32':
-				print("WARNING: metrics from contributor matrix transferred to cxg h5ad is neither a float or an int")
+	
+	# LOGIC NEEDS TO BE MORE ROBUST
+	#		if cxg_obs[metric].dtype != 'float' and cxg_obs[metric].dtype != 'int32':
+	#			print("WARNING: {} metrics from contributor matrix transferred to cxg h5ad is neither a float or an int".format(metric))
 
 
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
 			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units',\
-			'enriched_cell_types', 'enrichment_factors', 'tyrer_cuzick_lifetime_risk']
+			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'tyrer_cuzick_lifetime_risk']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
@@ -1159,6 +1163,10 @@ def main(mfinal_id):
 	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
 		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
 		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
+	if 'suspension_enriched_cell_types' in cxg_obs.columns.to_list():
+		cxg_obs['suspension_enriched_cell_types'].replace({unreported_value: 'na'}, inplace=True)
+	if 'suspension_enrichment_factors' in cxg_obs.columns.to_list():
+		cxg_obs['suspension_enrichment_factors'].replace({unreported_value: 'na'}, inplace=True)
 
 
 
@@ -1218,14 +1226,24 @@ def main(mfinal_id):
 
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
+	# Also "fix" gene symbols from '--' 
 	if mfinal_obj['file_format'] == 'hdf5':
 		#cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+		if not sparse.issparse(cxg_adata.X):
+			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+		elif cxg_adata.X.getformat()=='csc':
+			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+
 		if summary_assay != 'ATAC':
 			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
 			cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
 			cxg_adata_raw = set_ensembl_return[1]
+		if not sparse.issparse(cxg_adata_raw.X):
+			cxg_adata_raw.X = sparse.csr_matrix(cxg_adata_raw.X)
+		elif cxg_adata.X.getformat()=='csc':
+			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 		cxg_adata.raw = cxg_adata_raw
 		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
 			if label != 'X':
