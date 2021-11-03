@@ -61,6 +61,10 @@ def getArgs():
                         default=False,
                         action='store_true',
                         help='If true, existing metadata files will be validated against the DCP schema.')
+    parser.add_argument('--revision',
+                        default=False,
+                        action='store_true',
+                        help='If true, treated as updating an existing DCP project.  Default is False')
     parser.add_argument('--update',
                         default=False,
                         action='store_true',
@@ -1030,6 +1034,13 @@ def main():
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_versions[k], k)
 			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
 				json.dump(o, outfile, indent=4, ensure_ascii=False)
+
+	# make a staging_area.json to meet DCP requirements
+	text = {
+		"is_delta": args.revision
+	}
+	with open(dataset_id + '/staging_area.json', 'w', encoding='utf8') as outfile:
+		json.dump(text, outfile, indent=4, ensure_ascii=False)
 
 	if not os.path.isdir('DCP_outs'):
 		os.mkdir('DCP_outs')
