@@ -917,7 +917,11 @@ def main():
 		if i.lower() not in ['y','yes']:
 			sys.exit('Stopped due to one or more ERROR audits')
 
-	dataset_id = ds_obj['uuid']
+	# in case a project is already in the DCP, we may need to match the project ID to that
+	lattice_dataset_id = ds_obj['uuid']
+	dcp_projects = {'49104d6a-0e30-4180-94b9-bf552b110686': 'dbd836cf-bfc2-41f0-9834-41cc6c0b235a'}
+	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
+	ds_obj['uuid'] = dataset_id
 
 	if args.validate_only:
 		dcp_errors = dcp_validation(dataset_id)
@@ -1100,7 +1104,7 @@ if __name__ == '__main__':
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
 	if not args.mode:
-		sys.exit('ERROR: --mode is required, unless --validate-only provided')
+		sys.exit('ERROR: --mode is required')
 
 	connection = lattice.Connection(args.mode)
 	server = connection.server
