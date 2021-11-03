@@ -89,6 +89,11 @@ def aws_file_transfer(dataset_id, file_uris):
                     'day': d_now.day,
                     'month': d_now.month,
                     'year': d_now.year
+                },
+                'scheduleEndDate': {
+                    'day': d_now.day,
+                    'month': d_now.month,
+                    'year': d_now.year
                 }
             },
             'transferSpec': {
