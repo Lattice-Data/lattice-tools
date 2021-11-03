@@ -15,28 +15,20 @@ Mount the storage device to the instance
 ```
 sudo mkfs.ext4 /dev/nvme1n1 ; sudo mount /dev/nvme1n1 /mnt ; sudo chown ec2-user /mnt ; cd /mnt
 ```
-Install python and necessary modules
+Install python and necessary modules, and set your variable to the location of the credentials
 ```
 sudo yum install python3
 ```
 ```
-sudo pip3 install boto3 tables requests h5py crcmod
+sudo pip3 install boto3 tables requests h5py crcmod ; export AWS_SHARED_CREDENTIALS_FILE=credentials
 ```
 Define 3 variables for Lattice db permissions
 ```
 export PROD_KEY=<> ; export PROD_SECRET=<> ; export PROD_SERVER=https://www.lattice-data.org
 ```
-Copy 2 files from your local machine to the instance
+Copy 2 python files and credentials from your local machine to the instance
 ```
-scp -i lattice_ec2.pem lattice.py checkfiles.py ec2-user@<Public DNS>:/mnt
-```
-If you will be checking files hosted in the Lattice S3 storage, create directory to hold AWS credentials & set your variable to the location of the credentials
-```
-mkdir .aws ; export AWS_SHARED_CREDENTIALS_FILE=.aws/credentials
-```
-... and copy credentials from your local machine to the instance
-```
-scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:/mnt/.aws
+scp -i lattice_ec2.pem lattice.py checkfiles.py ~/.aws/credentials ec2-user@<Public DNS>:/mnt
 ```
 Run checkfiles.py on the files
 ```
