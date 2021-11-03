@@ -45,6 +45,15 @@ def getArgs():
 	args = parser.parse_args()
 	return args
 
+
+def schemify(value, prop_type):
+	if (prop_type == 'integer') and (str(value).endswith('.0') == True):
+		return str(value).strip('.0')
+	elif value == None:
+		return ''
+	else:
+		return str(value)
+
 args = getArgs()
 
 if not args.mode:
@@ -66,6 +75,7 @@ else:
 
 in_schema = {}
 out_schema = {}
+genotypemetrics = []
 
 if args.assay == 'rna':
 	obj_name = 'rna_metrics'
@@ -183,15 +193,10 @@ if args.pipeline.lower() in ['cr','cellranger']:
 
 		for prop, value in report_json.items():
 			if prop in schema_props:
-				if (full_schema['properties'][prop]['type'] == 'integer') and (str(value).endswith('.0') == True):
-					value = str(value).strip('.0')
-				elif value == None:
-					value = ''
-				else:
-					value = str(value)
-				final_values[prop] = value
+				final_values[prop] = schemify(value, full_schema['properties'][prop]['type'])
 			else:
 				extra_values[prop] = value
+				# CHANGE TO for k,v in should_match.items():
 				if prop in should_match.keys():
 					if report_json[prop] != report_json[should_match[prop]]:
 						print('WARNING: {} does not match {}'.format(should_match[prop], prop))
@@ -202,9 +207,10 @@ if args.pipeline.lower() in ['cr','cellranger']:
 
 elif args.pipeline.lower() == 'dragen':
 	schema_mapping = qcmetrics_property_mapping.dragen['schema_mapping']
-	for direct in directories:
-		direct = direct.replace('s3://', '')
-		full_path = direct.rstrip('/')
+	value_mapping = qcmetrics_property_mapping.dragen['value_mapping']
+	for file in directories:
+		file = file.replace('s3://', '')
+		full_path = file.rstrip('/')
 		bucket_name = full_path.split('/')[0]
 		outs_dir_path = '/'.join(full_path.split('/')[1:-1])
 
@@ -219,6 +225,7 @@ elif args.pipeline.lower() == 'dragen':
 			print(summary_file + ' downloaded')
 			with open(summary_file) as html_doc:
 				soup = BeautifulSoup(html_doc, 'html.parser')
+
 				sc_metrics = soup.find('main', id='scrnaseq-metrics-page')
 				x = sc_metrics.find('table', {"class":"table table-striped table-hover"})
 				for row in x.find_all('tr'):
@@ -230,8 +237,14 @@ elif args.pipeline.lower() == 'dragen':
 							field = schema_mapping.get(field, field)
 						else:
 							value = column.get_text().strip()
+							if field in value_mapping:
+								factor = value_mapping[field]['factor']
+								action = value_mapping[field]['action']
+								if action == 'multiply':
+									value = str(float(value) * factor)
 							report_json[field] = value
 						col_count += 1
+
 				map_metrics = soup.find('main', id='mapping-metrics-page')
 				x = map_metrics.find('table', {"class":"table table-striped"})
 				for row in x.find_all('tr'):
@@ -247,8 +260,37 @@ elif args.pipeline.lower() == 'dragen':
 						else:
 							per = column.get_text().strip()
 							if per:
-								report_json[field + ' %'] = per
+								field = field + ' %'
+								field = schema_mapping.get(field, field)
+								report_json[field] = per
 						col_count += 1
+
+				genotype_metrics = soup.find( 'main', id='genotype-demultiplexing-page')
+				tables = genotype_metrics.find_all('table', {"class":"table table-striped table-hover"})
+				x = tables[1]
+				for row in x.find_all('tr'):
+					col_count = 1
+					columns = row.find_all('td')
+					for column in columns:
+						if col_count == 1:
+							field = column.get_text().strip()
+							field = schema_mapping.get(field, field)
+						else:
+							value = column.get_text().strip()
+							report_json[field] = value
+						col_count += 1
+
+				x = tables[0]
+				rows = x.find_all('tr')
+				headers = rows[0].find_all('th', scope='col')
+				headers = [h.text for h in headers]
+				for row in rows[1:]:
+					sample_id = row.find('th')
+					values = [sample_id] + row.find_all('td')
+					values = [v.text for v in values]
+					d = {'file': summary_file}
+					d.update(dict(zip(headers, values)))
+					genotypemetrics.append(d)
 
 			os.remove(summary_file)
 			print(summary_file + ' removed')
@@ -258,26 +300,18 @@ elif args.pipeline.lower() == 'dragen':
 
 		for prop, value in report_json.items():
 			if prop in schema_props:
-				if (full_schema['properties'][prop]['type'] == 'integer') and (str(value).endswith('.0') == True):
-					value = str(value).strip('.0')
-				elif value == None:
-					value = ''
-				else:
-					value = str(value)
-				final_values[prop] = value
+				final_values[prop] = schemify(value, full_schema['properties'][prop]['type'])
 			else:
 				extra_values[prop] = value
-				#if prop in should_match.keys():
-				#	if report_json[prop] != report_json[should_match[prop]]:
-				#		print('WARNING: {} does not match {}'.format(should_match[prop], prop))
-				#	else:
-				#		print('all good: {} does match {}'.format(should_match[prop], prop))
-		in_schema[direct] = final_values
-		out_schema[direct] = extra_values
+		in_schema[file] = final_values
+		out_schema[file] = extra_values
 
 else:
 	sys.exit('ERROR: --pipline not recognized, should be cellranger or dragen')
 
+if genotypemetrics:
+	df = pd.DataFrame(genotypemetrics)
+	df.to_csv('genotype_metrics.tsv', sep='\t')
 
 df = pd.DataFrame(in_schema).transpose()
 df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]

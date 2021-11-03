@@ -62,55 +62,22 @@ cellranger = {
 
 dragen = {
 	'schema_mapping': {
-		"": "percent_valid_barcodes",
-		"": "percent_sequencing_saturation",
-		"": "percent_q30_bases_in_barcode",
-		"": "percent_q30_bases_in_rna_read",
-		"": "percent_q30_bases_in_rna_read_2",
-		"": "percent_q30_bases_in_sample_index",
-		"": "percent_q30_bases_in_umi",
-		"": "percent_reads_mapped_to_genome",
-		"": "percent_reads_mapped_confidently_to_genome",
-		"": "percent_reads_mapped_confidently_to_intergenic_regions",
-		"": "percent_reads_mapped_confidently_to_intronic_regions",
-		"": "percent_reads_mapped_confidently_to_exonic_regions",
-		"": "percent_reads_mapped_confidently_to_transcriptome",
-		"": "percent_reads_mapped_antisense_to_gene",
-		"": "percent_reads_in_cells",
-		"": "frac_valid_barcodes",
-		"": "frac_waste_dup",
-		"": "estimated_frac_cells_annotated",
-		"": "frac_cell_calling_noise",
-		"": "frac_gelbead_doublets_cells",
-		"": "frac_of_genome_within_2000bp_of_peaks",
-		"": "frac_q30_bases_in_barcode",
-		"": "frac_q30_bases_in_read1",
-		"": "frac_q30_bases_in_read2",
-		"": "frac_q30_bases_in_sample_index",
-		"": "median_fragments_overlapping_peaks_per_cell",
-		"": "frac_waste_mito",
-		"": "waste_noncell_barcode_fragments",
-		"": "frac_waste_noncell_barcode",
-		"": "frac_valid_noncells",
-		"": "number_fragments",
-		"": "number_reads",
-		"": "total_bases_in_read1",
-		"": "total_bases_in_read2",
-		"": "total_bases_in_sample_index",
-		"": "total_bases_in_barcode",
-		"": "q30_bases_in_sample_index",
-		"": "q30_bases_in_read2",
-		"": "q30_bases_in_read1",
-		"": "q30_bases_in_barcode",
-		"": "waste_dup_fragments",
-		"": "waste_mito_fragments"
+		'Passing cells': 'estimated_number_of_cells',
+		'Mean reads per cell': 'mean_reads_per_cell',
+		'Median genes per cell': 'median_genes_per_cell',
+		'Median UMIs per cell': 'median_umi_counts_per_cell',
+		'Total input reads': 'number_of_reads',
+		'Q30 bases R1 %': 'percent_q30_bases_in_rna_read',
+		'Q30 bases R2 %': 'percent_q30_bases_in_rna_read_2',
+		'Mapped reads %': 'percent_reads_mapped_to_genome',
+		'Sequencing saturation': 'percent_sequencing_saturation',
+		'Total genes detected': 'total_genes_detected'
 	},
-	'should_match': {
-		"annotated_cells": "cells_detected",
-		"waste_cell_dup_fragments": "waste_dup_fragments",
-		"waste_cell_lowmapq_fragments": "waste_lowmapq_fragments",
-		"waste_cell_mito_fragments": "waste_mito_fragments",
-		"waste_cell_unmapped_fragments": "waste_unmapped_fragments"
+	'value_mapping': {
+		'percent_sequencing_saturation': {
+			'factor': 100,
+			'action': 'multiply'
+		}
 	}
 }
 
