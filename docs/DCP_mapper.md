@@ -56,3 +56,7 @@ Run the script on a given Dataset
 ```
 python3 DCP_mapper.py -m prod -d <dataset_identifier>
 ```
+Once that is complete and all file transfers are completed, run validation on the staging area (in a python 3.8 environment)
+```
+ python validate_staging_area.py -s gs://broad-dsp-monster-hca-prod-lattice/staging/<project_id>
+```

@@ -18,7 +18,7 @@ from DCP_mods.property_mapping import (
 	lattice_to_dcp,
 	donor_stages
 )
-from DCP_mods.validate_staging_area import (
+from DCP_mods.staging_area_validator import (
 	dcp_validation
 )
 

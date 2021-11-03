@@ -1,7 +1,7 @@
 """
 Runs a pre-check of a metadata files to identify issues that 
 might cause the snapshot or indexing processes to fail.
-Adapted from https://github.com/dataBiosphere/hca-import-validation
+Adapted from https://github.com/DataBiosphere/hca-import-validation/blob/main/hca/staging_area_validator.py
 """
 import json
 import os
