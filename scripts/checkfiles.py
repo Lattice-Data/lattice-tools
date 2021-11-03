@@ -394,6 +394,17 @@ def process_h5matrix_file(job):
             feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
 
             results['genomes'] = ['hg19']
+        elif list(f.walk_groups('/'))[0].__members__ == ['GRCh38']:
+            top_name = 'GRCh38'
+            top_group = f.get_node(f.root, top_name)
+
+            barcodes = f.get_node(top_group, 'barcodes')
+            results['observation_count'] = int(barcodes.shape[0])
+
+            feature_group = f.get_node(top_group, 'gene_names')
+            feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
+
+            results['genomes'] = ['GRCh38']
         else:
             var_group = f.get_node(f.root, 'var')
             feature_group = f.get_node(var_group, 'gene_ids')
