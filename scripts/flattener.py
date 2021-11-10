@@ -37,25 +37,29 @@ cell_metadata = {
 		'age_display',
 		'sex',
 		'ethnicity.term_id',
-		'development_ontology.development_slims',
-		'development_ontology.term_id',
+#		'development_ontology.development_slims',
+#		'development_ontology.term_id',
 		'diseases.term_id',
 		'diseases.term_name',
 		'body_mass_index',
 		'times_pregnant',
 		'family_history_breast_cancer',
 		'organism.taxon_id',
-		'risk_score_tyrer_cuzick_lifetime',
-		'age_development_stage_redundancy'
+		'risk_score_tyrer_cuzick_lifetime'
+#		'age_development_stage_redundancy'
 		],
 	'sample': [
+		'age_development_stage_redundancy',
 		'uuid',
 		'preservation_method',
 		'biosample_ontology.term_id',
 		'biosample_ontology.organ_slims',
 		'biosample_ontology.cell_slims',
+		'summary_development_ontology_at_collection.development_slims',
+		'summary_development_ontology_at_collection.term_id',
 		'diseases.term_id',
 		'diseases.term_name',
+		'disease_state',
 		'treatment_summary'
 		],
 	'tissue_section': [
@@ -64,6 +68,7 @@ cell_metadata = {
 		'thickness_units'
 	],
 	'suspension': [
+		'cell_depletion_factors',
 		'enriched_cell_types.term_name',
 		'enrichment_factors',
 		'uuid',
@@ -95,16 +100,16 @@ annot_fields = [
 # Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
 prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
+	'sample_summary_development_ontology_at_collection_term_id': 'development_stage_ontology_term_id',
+	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
-	'donor_development_ontology_term_id': 'development_stage_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
-	'donor_age_development_stage_redundancy': 'donor_age_redundancy',
 	'matrix_description': 'title',
 	'matrix_default_embedding': 'default_embedding',
 	'matrix_is_primary_data': 'is_primary_data',
@@ -113,7 +118,8 @@ prop_map = {
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
 	'suspension_suspension_type': 'suspension_type',
-	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types'
+	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
+	'suspension_cell_depletion_factors': 'suspension_depletion_factors'
 }
 
 # Global variables
@@ -244,7 +250,12 @@ def gather_objects(input_object, start_type=None):
 		objs['library'] = libraries
 	if prepooled_susps:
 		objs['prepooled_suspension'] = prepooled_susps
-		objs['pooled_suspension'] = objs.pop('suspension')
+		objs['pooled_suspension'] = objs['suspension']
+		print('prepooled')
+		print(objs['prepooled_suspension'])
+		print('suspension')
+		print(objs['suspension'])
+
 	return objs
 
 
@@ -320,7 +331,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		value = list()
 		for obj in objs:
 			v = get_value(obj, prop)
-			if prop == 'development_ontology.development_slims':
+			if prop == 'summary_development_ontology_at_collection.development_slims':
 				dev_list.append(v)
 			if isinstance(v, list):
 				value.extend(v)
@@ -573,7 +584,7 @@ def trim_cell_slims(df_annot):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
-		sys.exit("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
+		print("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
@@ -712,7 +723,7 @@ def add_zero(cxg_adata, cxg_adata_raw):
 # Use cxg_adata_raw var to map ensembl IDs and use that as index, filter against ref_files[]
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
-def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
+def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 	if 'feature_types' in cxg_adata_raw.var.columns.to_list():
 		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
 		cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
@@ -723,27 +734,38 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
 	for r in remove:
 		cxg_adata_raw.var.drop(columns=r, inplace=True)
 
-	if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
-		# Check for gene symbols that are redudant and have suffix
-		# WILL NEED TO MAKE SURE SPLITTING ON '.' IS STILL APPROPRIATE FOR FUTURE DATASETS
-		norm_index = set(cxg_adata.var.index.to_list())
-		raw_index = set(cxg_adata_raw.var.index.to_list())
-		drop_redundant_with_suffix = list(norm_index.difference(raw_index))
-		for unmapped in drop_redundant_with_suffix:
-			unmapped_split = unmapped.split(".")
-			if unmapped_split[0] not in redundant:
-				logging.info('ERROR:\t{}\tnot redundant but unmapped'.format(unmapped))
-		logging.info('drop_redundant_with_suffix\t{}\t{}'.format(len(drop_redundant_with_suffix), drop_redundant_with_suffix))
+	if feature_keys == ['gene symbol']:
+		if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
+			# Check for gene symbols that are redudant and have suffix
+			# WILL NEED TO MAKE SURE SPLITTING ON '.' IS STILL APPROPRIATE FOR FUTURE DATASETS
+			norm_index = set(cxg_adata.var.index.to_list())
+			raw_index = set(cxg_adata_raw.var.index.to_list())
+			drop_redundant_with_suffix = list(norm_index.difference(raw_index))
+			for unmapped in drop_redundant_with_suffix:
+				unmapped_split = unmapped.split(".")
+				if unmapped_split[0] not in redundant:
+					logging.info('ERROR:\t{}\tnot redundant but unmapped'.format(unmapped))
+			logging.info('drop_redundant_with_suffix\t{}\t{}'.format(len(drop_redundant_with_suffix), drop_redundant_with_suffix))
 
-		cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_redundant_with_suffix]]
+			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_redundant_with_suffix]]
+			cxg_adata_raw.var_names_make_unique()
+			cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
+			cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
+			cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
+			cxg_adata.var.index.name = None
+			cxg_adata_raw.var.index.name = None
+		else:
+			print("WARNING: raw matrix does not have genes_ids column")
+	elif feature_keys == ['Ensembl gene ID']:
 		cxg_adata_raw.var_names_make_unique()
-		cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
-		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
-		cxg_adata.var.index.name = None
 		cxg_adata_raw.var.index.name = None
-	else:
-		print("WARNING: raw matrix does not have genes_ids column")
+		print("HERE")
+		cxg_adata.var.insert(0,  'feature_biotype', 'gene')
+		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
+		if len(unique_to_norm) > 0:
+			print("WARNING: normalized matrix contains Ensembl IDs not in raw: {}".format(unique_to_norm))
+
 
 	compiled_annot = compile_annotations(ref_files)
 	var_in_approved = cxg_adata.var.index[cxg_adata.var.index.isin(compiled_annot['feature_id'])]
@@ -754,6 +776,7 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant):
 	ercc_df = compile_annotations({'ercc':ref_files['ercc']})
 	var_ercc = cxg_adata.var.index[cxg_adata.var.index.isin(ercc_df['feature_id'])]
 	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
+	print(cxg_adata.var)
 	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
 	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
 	return cxg_adata, cxg_adata_raw
@@ -901,8 +924,8 @@ def main(mfinal_id):
 	df = pd.DataFrame()
 
 	results = {}
-	os.mkdir(tmp_dir)
-	download_file(mfinal_obj, tmp_dir)
+	###os.mkdir(tmp_dir)
+	###download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -986,7 +1009,7 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
-			download_file(mxr, tmp_dir)
+			###download_file(mxr, tmp_dir)
 			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
@@ -1006,6 +1029,8 @@ def main(mfinal_id):
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 			else:
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
+			if len(overlapped_ids) == 0:
+				sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
 			adata_raw = adata_raw[overlapped_ids]
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
@@ -1078,9 +1103,6 @@ def main(mfinal_id):
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
-	if 'NCIT:C17998' in df['ethnicity_ontology_term_id'].unique():
-		df.loc[df['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = df['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
-
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
@@ -1106,9 +1128,9 @@ def main(mfinal_id):
 
 		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease', unreported_value))
 		get_sex_ontology(donor_df)
-		if cxg_uns['organism'] == 'Homo sapiens' and 'unknown' in donor_df['ethnicity'].unique():
-			donor_df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
-			print(donor_df['ethnicity_ontology_term_id'])
+#		if cxg_uns['organism'] == 'Homo sapiens' and 'unknown' in donor_df['ethnicity'].unique():
+#			donor_df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
+#			print(donor_df['ethnicity_ontology_term_id'])
 		# Retain cell identifiers as index
 		cxg_obs = cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
 		if mfinal_adata.X.shape[0] != cxg_obs.shape[0]:
@@ -1119,20 +1141,22 @@ def main(mfinal_id):
 		get_sex_ontology(df)
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
-	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
-	# WILL NEED TO viewREVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
+	#if 'NCIT:C17998' in df['ethnicity_ontology_term_id'].unique():
+	#	df.loc[df['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = df['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
 
-	metrics_list = ['n_genes', 'percent.mito', 'percent.mt', 'percent.rpl', 'percent.rps']
-	# metrics_list = ['cell_cycle', 'pct_counts_Mt', 'total_counts', 'nFeature_originalexp', 'nCount_originalexp']
-	if mfinal_obj['file_format'] == 'rds':
-		if len(mfinal_obj['layers']) == 1:
-			layer_assay = mfinal_obj['layers'][0]['assay']
-			metrics_list.extend(['nCount_' + layer_assay, 'nFeature_' + layer_assay])
+
+	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
+	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
+	for author_col in mfinal_obj['author_columns']:
+		if author_col in mfinal_adata.obs.columns.to_list():
+
+			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
-			sys.exit("Need to add extra logic if wrangling multiple assays in Seurat object")
-	for metric in metrics_list:
-		if metric in mfinal_adata.obs.columns.to_list():
-			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[metric]], left_index=True, right_index=True, how='left')
+			print("WARNING: author_column not in final matrix: {}".format(author_col))
+
+
+	if 'NCIT:C17998' in cxg_obs['ethnicity_ontology_term_id'].unique():
+		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = cxg_obs['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
 	
 	# LOGIC NEEDS TO BE MORE ROBUST
 	#		if cxg_obs[metric].dtype != 'float' and cxg_obs[metric].dtype != 'int32':
@@ -1143,7 +1167,7 @@ def main(mfinal_id):
 	# Also check to see if optional columns are all empty, then drop those columns as well
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
 			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'tyrer_cuzick_lifetime_risk']
+			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk', 'disease_state']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
@@ -1156,33 +1180,33 @@ def main(mfinal_id):
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
 			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'cell_type',\
-			'sample_biosample_ontology_cell_slims', 'donor_development_ontology_development_slims','donor_age_redundancy']
+			'sample_biosample_ontology_cell_slims', 'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
 	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
 		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
 		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
-	if 'suspension_enriched_cell_types' in cxg_obs.columns.to_list():
-		cxg_obs['suspension_enriched_cell_types'].replace({unreported_value: 'na'}, inplace=True)
-	if 'suspension_enrichment_factors' in cxg_obs.columns.to_list():
-		cxg_obs['suspension_enrichment_factors'].replace({unreported_value: 'na'}, inplace=True)
-
+	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state']
+	for field in change_unreported:
+		if field in cxg_obs.columns.to_list():
+			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
 
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
 	# If genome_annotations > 1, then filter genes that cannot be unambiguously mapped to Ensembl
 	if len(mfinal_obj.get('genome_annotations')) <= 1:
-		for gene in list(mfinal_adata.var_names):
-			if gene not in list(cxg_adata_raw.var_names):
-				if re.search(r'^[A-Za-z]\S+-[0-9]$', gene):
-					modified_gene = re.sub(r'(^[A-Z]\S+)-([0-9])$', r'\1.\2', gene)
-					if modified_gene in list(cxg_adata_raw.var_names):
-						mfinal_adata.var.rename(index={gene: modified_gene}, inplace=True)
+		if mfinal_obj['feature_keys'] == ['gene symbol']:
+			for gene in list(mfinal_adata.var_names):
+				if gene not in list(cxg_adata_raw.var_names):
+					if re.search(r'^[A-Za-z]\S+-[0-9]$', gene):
+						modified_gene = re.sub(r'(^[A-Z]\S+)-([0-9])$', r'\1.\2', gene)
+						if modified_gene in list(cxg_adata_raw.var_names):
+							mfinal_adata.var.rename(index={gene: modified_gene}, inplace=True)
+						else:
+							print('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 					else:
 						print('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
-				else:
-					print('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
 	else:
 		# Need to add new row for collapsed gene and remove original genes, and make sure appropriate name is used
 		collapsed_adata = None
@@ -1237,13 +1261,15 @@ def main(mfinal_id):
 			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 
 		if summary_assay != 'ATAC':
-			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
+			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
 			cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
 			cxg_adata_raw = set_ensembl_return[1]
+			
 		if not sparse.issparse(cxg_adata_raw.X):
 			cxg_adata_raw.X = sparse.csr_matrix(cxg_adata_raw.X)
 		elif cxg_adata.X.getformat()=='csc':
 			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+
 		cxg_adata.raw = cxg_adata_raw
 		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
 			if label != 'X':
@@ -1269,7 +1295,7 @@ def main(mfinal_id):
 					final_var = pd.DataFrame(index = mfinal_adata.raw.var.index.to_list())
 			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
 			if summary_assay != 'ATAC':
-				set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant)
+				set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
 				cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
 				cxg_adata_raw = set_ensembl_return[1]
 			cxg_adata.raw = cxg_adata_raw
@@ -1282,7 +1308,7 @@ def main(mfinal_id):
 			print(cxg_adata.raw.var.columns.to_list())
 			cxg_adata.write(results_file, compression = 'gzip')
 
-	shutil.rmtree(tmp_dir)
+	###shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
