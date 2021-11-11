@@ -10,7 +10,7 @@ import re
 import requests
 import subprocess
 import sys
-import qcmetrics_property_mapping
+import qcmetrics_mapper
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
