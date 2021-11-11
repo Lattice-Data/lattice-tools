@@ -100,9 +100,9 @@ schema_props = list(full_schema['properties'].keys())
 schema_version = 'schema_version=' + (full_schema['properties']['schema_version']['default'])
 
 if args.pipeline.lower() in ['cr','cellranger']:
-	value_mapping = qcmetrics_property_mapping.cellranger['value_mapping']
-	schema_mapping = qcmetrics_property_mapping.cellranger['schema_mapping']
-	should_match = qcmetrics_property_mapping.cellranger['should_match']
+	value_mapping = qcmetrics_mapper.cellranger['value_mapping']
+	schema_mapping = qcmetrics_mapper.cellranger['schema_mapping']
+	should_match = qcmetrics_mapper.cellranger['should_match']
 
 	for direct in directories:
 		direct = direct.replace('s3://', '')
@@ -206,8 +206,8 @@ if args.pipeline.lower() in ['cr','cellranger']:
 		out_schema[direct] = extra_values
 
 elif args.pipeline.lower() == 'dragen':
-	schema_mapping = qcmetrics_property_mapping.dragen['schema_mapping']
-	value_mapping = qcmetrics_property_mapping.dragen['value_mapping']
+	schema_mapping = qcmetrics_mapper.dragen['schema_mapping']
+	value_mapping = qcmetrics_mapper.dragen['value_mapping']
 	for file in directories:
 		file = file.replace('s3://', '')
 		full_path = file.rstrip('/')
