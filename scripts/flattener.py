@@ -94,7 +94,8 @@ annot_fields = [
 	'cell_ontology.term_name',
 	'cell_ontology.term_id',
 	'author_cell_type',
-	'cell_ontology.cell_slims'
+#	'cell_ontology.cell_slims',
+	'cell_state'
 ]
 
 # Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
@@ -102,6 +103,7 @@ prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
 	'sample_summary_development_ontology_at_collection_term_id': 'development_stage_ontology_term_id',
 	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
+	'sample_disease_state': 'disease_state',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
@@ -116,7 +118,8 @@ prop_map = {
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
-	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
+#	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
+	'cell_annotation_cell_state': 'cell_state',
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
 	'suspension_cell_depletion_factors': 'suspension_depletion_factors'
@@ -555,30 +558,30 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 
 
 # If cell slims is a list, narrow down to one ontology
-def trim_cell_slims(df_annot):
-	cell_term_list = df_annot['cell_type_category'].tolist()
-	for i in range(len(cell_term_list)):
-		cell_terms = cell_term_list[i].split(',')
-		if len(cell_terms) > 1:
-			if df_annot.iloc[i]['cell_type'] in cell_terms:
-				for index in range(len(cell_terms)):
-					if df_annot.iloc[i]['cell_type'] == cell_terms[index]:
-						if index == len(cell_terms) - 1:
-							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index]))
-							cell_term_list[i] = cell_terms[index]
-						else:
-							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index+1]))
-							cell_term_list[i] = cell_terms[index+1]
-			else:
-				print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[0]))
-				cell_term_list[i] = cell_terms[0]
-	df_annot['cell_type_category'] = cell_term_list
-	df_annot['cell_type'] = df_annot['cell_type'].astype(str)
-	df_annot['cell_type_category'] = df_annot['cell_type_category'].astype(str)
-	if (len(df_annot.loc[df_annot['cell_type_category']==unreported_value]) >= 1):
-		print("WARNING, there are cells that do not have a cell slim, so will just use cell_type")
-		df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type_category'] = df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type']
-	return df_annot
+# def trim_cell_slims(df_annot):
+# 	cell_term_list = df_annot['cell_type_category'].tolist()
+# 	for i in range(len(cell_term_list)):
+# 		cell_terms = cell_term_list[i].split(',')
+# 		if len(cell_terms) > 1:
+# 			if df_annot.iloc[i]['cell_type'] in cell_terms:
+# 				for index in range(len(cell_terms)):
+# 					if df_annot.iloc[i]['cell_type'] == cell_terms[index]:
+# 						if index == len(cell_terms) - 1:
+# 							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index]))
+# 							cell_term_list[i] = cell_terms[index]
+# 						else:
+# 							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index+1]))
+# 							cell_term_list[i] = cell_terms[index+1]
+# 			else:
+# 				print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[0]))
+# 				cell_term_list[i] = cell_terms[0]
+# 	df_annot['cell_type_category'] = cell_term_list
+# 	df_annot['cell_type'] = df_annot['cell_type'].astype(str)
+# 	df_annot['cell_type_category'] = df_annot['cell_type_category'].astype(str)
+# 	if (len(df_annot.loc[df_annot['cell_type_category']==unreported_value]) >= 1):
+# 		print("WARNING, there are cells that do not have a cell slim, so will just use cell_type")
+# 		df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type_category'] = df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type']
+# 	return df_annot
 
 
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
@@ -924,8 +927,8 @@ def main(mfinal_id):
 	df = pd.DataFrame()
 
 	results = {}
-	###os.mkdir(tmp_dir)
-	###download_file(mfinal_obj, tmp_dir)
+	os.mkdir(tmp_dir)
+	download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -1005,11 +1008,11 @@ def main(mfinal_id):
 					get_cell_slim(row_to_add, ' (cell culture)')
 				else:
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
-			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
+#			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
-			###download_file(mxr, tmp_dir)
+			download_file(mxr, tmp_dir)
 			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
@@ -1057,7 +1060,7 @@ def main(mfinal_id):
 		gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst)
 		annot_row = pd.Series(annot_metadata, name=annot_obj['author_cell_type'])
 		annot_df = annot_df.append(annot_row)
-	annot_df = trim_cell_slims(annot_df)
+	#annot_df = trim_cell_slims(annot_df)
 
 	# For RNA datasets, concatenate all anndata objects in list,
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
@@ -1128,9 +1131,7 @@ def main(mfinal_id):
 
 		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease', unreported_value))
 		get_sex_ontology(donor_df)
-#		if cxg_uns['organism'] == 'Homo sapiens' and 'unknown' in donor_df['ethnicity'].unique():
-#			donor_df['ethnicity_ontology_term_id'].replace('NCIT:C17998', '', inplace=True)
-#			print(donor_df['ethnicity_ontology_term_id'])
+
 		# Retain cell identifiers as index
 		cxg_obs = cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
 		if mfinal_adata.X.shape[0] != cxg_obs.shape[0]:
@@ -1140,10 +1141,6 @@ def main(mfinal_id):
 		report_diseases(df, mfinal_obj.get('experimental_variable_disease', unreported_value))
 		get_sex_ontology(df)
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
-
-	#if 'NCIT:C17998' in df['ethnicity_ontology_term_id'].unique():
-	#	df.loc[df['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = df['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
-
 
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
@@ -1166,7 +1163,7 @@ def main(mfinal_id):
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units',\
+			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
 			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk', 'disease_state']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
@@ -1180,14 +1177,15 @@ def main(mfinal_id):
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
 			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'cell_type',\
-			'sample_biosample_ontology_cell_slims', 'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
+			'sample_biosample_ontology_cell_slims', 'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy',\
+			'sample_biosample_ontology_organ_slims']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
 	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
 		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
 		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
-	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state']
+	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
@@ -1308,7 +1306,7 @@ def main(mfinal_id):
 			print(cxg_adata.raw.var.columns.to_list())
 			cxg_adata.write(results_file, compression = 'gzip')
 
-	###shutil.rmtree(tmp_dir)
+	shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
