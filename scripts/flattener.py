@@ -37,8 +37,6 @@ cell_metadata = {
 		'age_display',
 		'sex',
 		'ethnicity.term_id',
-#		'development_ontology.development_slims',
-#		'development_ontology.term_id',
 		'diseases.term_id',
 		'diseases.term_name',
 		'body_mass_index',
@@ -46,7 +44,6 @@ cell_metadata = {
 		'family_history_breast_cancer',
 		'organism.taxon_id',
 		'risk_score_tyrer_cuzick_lifetime'
-#		'age_development_stage_redundancy'
 		],
 	'sample': [
 		'age_development_stage_redundancy',
@@ -94,7 +91,6 @@ annot_fields = [
 	'cell_ontology.term_name',
 	'cell_ontology.term_id',
 	'author_cell_type',
-#	'cell_ontology.cell_slims',
 	'cell_state'
 ]
 
@@ -118,7 +114,6 @@ prop_map = {
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
 	'cell_annotation_cell_ontology_term_name': 'cell_type',
-#	'cell_annotation_cell_ontology_cell_slims': 'cell_type_category',
 	'cell_annotation_cell_state': 'cell_state',
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
@@ -163,7 +158,7 @@ def gather_rawmatrices(derived_from):
 	df_ids = []
 	for identifier in derived_from:
 		obj = lattice.get_object(identifier, connection)
-		if obj['@type'][0] == 'RawMatrixFile' and obj['background_barcodes_included'] == False:
+		if obj['@type'][0] == 'RawMatrixFile':
 			my_raw_matrices.append(obj)
 		else:
 			# grab the derived_from in case we need to go a layer deeper
@@ -172,7 +167,7 @@ def gather_rawmatrices(derived_from):
 	if not my_raw_matrices:
 		for identifier in df_ids:
 			obj = lattice.get_object(identifier, connection)
-			if obj['@type'][0] == 'RawMatrixFile' and obj['background_barcodes_included'] == False:
+			if obj['@type'][0] == 'RawMatrixFile':
 				my_raw_matrices.append(obj)
 	return my_raw_matrices
 
@@ -557,33 +552,6 @@ def convert_from_rds(path_rds, assays, temp_dir, cell_col):
 	return converted_h5ad
 
 
-# If cell slims is a list, narrow down to one ontology
-# def trim_cell_slims(df_annot):
-# 	cell_term_list = df_annot['cell_type_category'].tolist()
-# 	for i in range(len(cell_term_list)):
-# 		cell_terms = cell_term_list[i].split(',')
-# 		if len(cell_terms) > 1:
-# 			if df_annot.iloc[i]['cell_type'] in cell_terms:
-# 				for index in range(len(cell_terms)):
-# 					if df_annot.iloc[i]['cell_type'] == cell_terms[index]:
-# 						if index == len(cell_terms) - 1:
-# 							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index]))
-# 							cell_term_list[i] = cell_terms[index]
-# 						else:
-# 							print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[index+1]))
-# 							cell_term_list[i] = cell_terms[index+1]
-# 			else:
-# 				print("WARNING, there is a cell_slims that is more than a single ontology: {} changed to {}".format(cell_term_list[i], cell_terms[0]))
-# 				cell_term_list[i] = cell_terms[0]
-# 	df_annot['cell_type_category'] = cell_term_list
-# 	df_annot['cell_type'] = df_annot['cell_type'].astype(str)
-# 	df_annot['cell_type_category'] = df_annot['cell_type_category'].astype(str)
-# 	if (len(df_annot.loc[df_annot['cell_type_category']==unreported_value]) >= 1):
-# 		print("WARNING, there are cells that do not have a cell slim, so will just use cell_type")
-# 		df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type_category'] = df_annot.loc[df_annot['cell_type_category']==unreported_value, 'cell_type']
-# 	return df_annot
-
-
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
@@ -910,7 +878,8 @@ def main(mfinal_id):
 	if mfinal_obj['assays'] == ['snATAC-seq']:
 		summary_assay = 'ATAC'
 	elif mfinal_obj['assays'] == ['snRNA-seq'] or mfinal_obj['assays'] == ['scRNA-seq'] or\
-			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq'] or mfinal_obj['assays'] == ['spatial transcriptomics']:
+			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq'] or mfinal_obj['assays'] == ['spatial transcriptomics'] or\
+			mfinal_obj['assays'] == ['scRNA-seq', 'snRNA-seq']:
 		summary_assay = 'RNA'
 	else:
 		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
@@ -1154,10 +1123,6 @@ def main(mfinal_id):
 
 	if 'NCIT:C17998' in cxg_obs['ethnicity_ontology_term_id'].unique():
 		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = cxg_obs['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
-	
-	# LOGIC NEEDS TO BE MORE ROBUST
-	#		if cxg_obs[metric].dtype != 'float' and cxg_obs[metric].dtype != 'int32':
-	#			print("WARNING: {} metrics from contributor matrix transferred to cxg h5ad is neither a float or an int".format(metric))
 
 
 	# Drop columns that were used as intermediate calculations
@@ -1224,8 +1189,10 @@ def main(mfinal_id):
 				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
 			del(collapsed_row)
 			gc.collect()
+		print(collapsed_adata)
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
-		mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
+		if collapsed_adata:
+			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in redundant]]
 
         
