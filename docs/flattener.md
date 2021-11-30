@@ -40,6 +40,12 @@ Version update logging
 - For datasets with raw matrices mapped to multiple annotations, will do out join for raw.X and inner join with padded implied zeros for X  
 - Remove reported_disease and donor_age if disease_ontology_term_name and development_stage_ontology_name are redundant
 - For uns, add schema_version and removed organism, organism_ontology_term_id, deafult_field, version.corpora_encoding_version, and version.corpora_schema_version.
+- Add enrichment_factors and cell_state to optional fields
+- Use development_ontology_at_collection and age_development_stage_redundancy at Tissue rather than development ontology at Donor
+- Remove cell_type_category
+- Handles multiplexed donor datasets correctly
+- Looks at feature_keys of ProcessedMatrix to determine whether or not the there needs to be mapping of Ensembl IDs
+- Distinguish between serially linked vs pooled suspensions, and ignores first suspension if there are serially linked suspensions
 
 **Version 3**:
 - Allow reading from h5ad file format for raw count matrices
