@@ -1,4 +1,4 @@
-## flattener.py on EC2
+# flattener.py on EC2
 
 Starting up EC2
 ----------------
@@ -39,7 +39,7 @@ exit
 Open jupyter config file:
 ```
 cd .jupyter
-vim jupyter_notebook_config.py_
+vim jupyter_notebook_config.py
 ```
 Paste the following, with your hash replaced (including 'sha1:'):
 ```
@@ -72,7 +72,7 @@ sudo yum install openssl-devel
 sudo R -e "install.packages('curl', repos='http://cran.us.r-project.org')"
 sudo R -e "install.packages('openssl', repos='http://cran.us.r-project.org')"
 sudo R -e "install.packages('httr', repos='http://cran.us.r-project.org')"
-sudo R -e "install.packages('Seurat', repos='http://cran.us.r-project.org')"
+sudo R -e "install.packages('Seurat', repos='http://cran.us.r-project.org', Ncpus=4)"
 sudo amazon-linux-extras install epel -y
 sudo yum install libxml2-devel
 ```
@@ -81,8 +81,9 @@ Install correct version of hdf5 fortran wrappers and SeuratDisk
 ```
 wget https://cbs.centos.org/kojifiles/packages/hdf5/1.8.13/7.el7/x86_64/hdf5-1.8.13-7.el7.x86_64.rpm
 wget ftp://ftp.pbone.net/mirror/ftp.centos.org/7.9.2009/cloud/x86_64/openstack-queens/Packages/h/hdf5-devel-1.8.13-7.el7.x86_64.rpm
-sudo yum localinstall hdf5-devel-1.8.13-7.el7.x86_64.rpmsudo yum localinstall hdf5-devel-1.8.13-7.el7.x86_64.rpm
 sudo yum localinstall hdf5-1.8.13-7.el7.x86_64.rpm
+sudo yum localinstall hdf5-devel-1.8.13-7.el7.x86_64.rpm
+sudo R -e "install.packages('remotes', repos='http://cran.us.r-project.org')"
 sudo R -e "remotes::install_github('mojaveazure/seurat-disk')"
 ```
 
@@ -94,7 +95,10 @@ sudo yum install rstudio-server-rhel-2021.09.1-372-x86_64.rpm
 sudo useradd <username>
 sudo passwd <username>
 ```
-Add 'www-port=80' to this file: /etc/rstudio/rserver.conf
+Add 'www-port=80' to this file: /etc/rstudio/rserver.conf:
+```
+sudo vi /etc/rstudio/rserver.conf
+```
 Restart R studio:
 ```
 sudo rstudio-server restart
