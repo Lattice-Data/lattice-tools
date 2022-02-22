@@ -249,10 +249,6 @@ def gather_objects(input_object, start_type=None):
 	if prepooled_susps:
 		objs['prepooled_suspension'] = prepooled_susps
 		objs['pooled_suspension'] = objs['suspension']
-		print('prepooled')
-		print(objs['prepooled_suspension'])
-		print('suspension')
-		print(objs['suspension'])
 
 	return objs
 
@@ -733,7 +729,6 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var.index.name = None
-		print("HERE")
 		cxg_adata.var.insert(0,  'feature_biotype', 'gene')
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
@@ -1077,6 +1072,7 @@ def main(mfinal_id):
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
+	print(df)
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
