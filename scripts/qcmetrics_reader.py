@@ -159,6 +159,20 @@ if args.pipeline.lower() in ['cr','cellranger']:
 			    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
 			except botocore.exceptions.ClientError:
 				print('Failed to find {} on s3'.format(metrics_file))
+				metrics_file = 'summary.csv'
+				try:
+				    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
+				except botocore.exceptions.ClientError:
+					print('Failed to find {} on s3'.format(metrics_file))
+				else:
+					with open(metrics_file, newline='') as csvfile:
+						spamreader = csv.reader(csvfile)
+						rows = list(spamreader)
+						headers = [header.lower().replace(' ','_') for header in rows[0]]
+						new_headers = [schema_mapping.get(header, header) for header in headers]
+						values = rows[1]
+						new_values = [value.strip('%') for value in values]
+						post_json = dict(zip(new_headers, new_values))
 			else:
 				with open(metrics_file) as summary_json:
 					post_json = json.load(summary_json)
