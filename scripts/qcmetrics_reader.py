@@ -134,6 +134,8 @@ if args.pipeline.lower() in ['cr','cellranger']:
 						data = json.loads(x.string[end:])
 						if data.get('pipeline_info_table'):
 							pipeline_info_table = data.get('pipeline_info_table')
+						elif data.get('joint_pipeline_info_table'):
+							pipeline_info_table = data.get('joint_pipeline_info_table')
 						else:
 							pipeline_info_table = data['summary']['summary_tab']['pipeline_info_table']
 						info_list = pipeline_info_table['rows']
