@@ -20,8 +20,8 @@ Extract summary info and QC metrics from a cellranger pipeline run.
 
 Examples:
 
-    python %(prog)s -m production -a atac -d submissions-czi009kid/muto_humphreys_2020/Control_5/outs
-    python %(prog)s -m local -a rna -d submissions-czi012eye/chen_2020/19D013_foveaR_outs
+    python %(prog)s -m production -a atac -p cr -d submissions-czi009kid/muto_humphreys_2020/Control_5/outs
+    python %(prog)s -m local -a rna -p cr -d submissions-czi012eye/chen_2020/19D013_foveaR_outs
 
 For more details:
 
@@ -41,7 +41,7 @@ def getArgs():
 	parser.add_argument('--mode', '-m',
 						help='The machine to pull schema from.')
 	parser.add_argument('--pipeline', '-p',
-						help='The pipeline that generated the metrics.')
+						help='specify cr or cellranger for CellRanger, or dragen')
 	args = parser.parse_args()
 	return args
 
