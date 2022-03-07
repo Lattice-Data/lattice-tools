@@ -74,23 +74,14 @@ else:
     directories = dir_list.split(',')
 
 in_schema = {}
+in_ac_schema = {}
 out_schema = {}
 genotypemetrics = []
 
 if args.assay == 'rna':
 	obj_name = 'rna_metrics'
-	files_to_check = [
-		'metrics_summary.csv',
-		'web_summary.html'
-	]
-
 elif args.assay == 'atac':
 	obj_name = 'atac_metrics'
-	files_to_check = [
-		'summary.json',
-		'web_summary.html'
-	]
-
 else:
 	sys.exit('must specify rna or atac for --assay')
 
@@ -98,6 +89,12 @@ schema_url = urljoin(server, 'profiles/{}/?format=json'.format(obj_name))
 full_schema = requests.get(schema_url).json()
 schema_props = list(full_schema['properties'].keys())
 schema_version = 'schema_version=' + (full_schema['properties']['schema_version']['default'])
+
+acmetrics_url = urljoin(server, 'profiles/antibody_capture_metrics/?format=json')
+ac_full_schema = requests.get(acmetrics_url).json()
+ac_schema_props = list(ac_full_schema['properties'].keys())
+ac_schema_version = 'schema_version=' + (ac_full_schema['properties']['schema_version']['default'])
+
 
 if args.pipeline.lower() in ['cr','cellranger']:
 	value_mapping = qcmetrics_mapper.cellranger['value_mapping']
@@ -113,6 +110,13 @@ if args.pipeline.lower() in ['cr','cellranger']:
 		report_json = {'quality_metric_of': '<linkTo RawMatrixFile - filtered matrix .h5>'}
 
 		summary_file = 'web_summary.html'
+		objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path)
+		summaries = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(summary_file)]
+		if len(summaries) > 1:
+			print('multiple {} files found on s3'.format(summary_file))
+		else:
+			summary_file = summaries[0].split('/')[-1]
+
 		try:
 		    s3client.download_file(bucket_name, outs_dir_path + '/' + summary_file, summary_file)
 		except botocore.exceptions.ClientError:
@@ -155,6 +159,13 @@ if args.pipeline.lower() in ['cr','cellranger']:
 
 		if args.assay == 'atac':
 			metrics_file = 'summary.json'
+			objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path)
+			ms = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(metrics_file)]
+			if len(ms) > 1:
+				print('multiple {} files found on s3'.format(metrics_file))
+			else:
+				metrics_file = ms[0].split('/')[-1]
+
 			try:
 			    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
 			except botocore.exceptions.ClientError:
@@ -169,6 +180,13 @@ if args.pipeline.lower() in ['cr','cellranger']:
 							del post_json[prop]
 		else:
 			metrics_file = 'metrics_summary.csv'
+			objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path)
+			ms = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(metrics_file)]
+			if len(ms) > 1:
+				print('multiple {} files found on s3'.format(metrics_file))
+			else:
+				metrics_file = ms[0].split('/')[-1]
+
 			try:
 			    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
 			except botocore.exceptions.ClientError:
@@ -178,24 +196,33 @@ if args.pipeline.lower() in ['cr','cellranger']:
 					spamreader = csv.reader(csvfile)
 					rows = list(spamreader)
 					headers = [header.lower().replace(' ','_') for header in rows[0]]
-					new_headers = [schema_mapping.get(header, header) for header in headers]
+					new_headers = [schema_mapping.get(header.replace('antibody:_',''), header) for header in headers]
 					values = rows[1]
 					new_values = [value.strip('%') for value in values]
 					post_json = dict(zip(new_headers, new_values))
 
-		os.remove(metrics_file)
-		print(metrics_file + ' removed')
+		if os.path.isfile(metrics_file):
+			os.remove(metrics_file)
+			print(metrics_file + ' removed')
+		else:
+			sys.exit()
 
 		report_json.update(post_json)
 
 		final_values = {}
+		ac_values = {}
 		extra_values = {}
 
 		for prop, value in report_json.items():
 			if prop in schema_props:
 				final_values[prop] = schemify(value, full_schema['properties'][prop]['type'])
 			else:
-				extra_values[prop] = value
+				#check for antibody capture metrics
+				try_prop = prop.replace('antibody:_','').split('_(')[0]
+				if args.assay == 'rna'and try_prop in ac_schema_props:
+					ac_values[try_prop] = schemify(value, ac_full_schema['properties'][try_prop]['type'])
+				else:
+					extra_values[prop] = value
 				# CHANGE TO for k,v in should_match.items():
 				if prop in should_match.keys():
 					if report_json[prop] != report_json[should_match[prop]]:
@@ -203,6 +230,9 @@ if args.pipeline.lower() in ['cr','cellranger']:
 					else:
 						print('all good: {} does match {}'.format(should_match[prop], prop))
 		in_schema[direct] = final_values
+		if ac_values:
+			ac_values['quality_metric_of'] = final_values['quality_metric_of']
+			in_ac_schema[direct] = ac_values
 		out_schema[direct] = extra_values
 
 elif args.pipeline.lower() == 'dragen':
@@ -317,6 +347,12 @@ df = pd.DataFrame(in_schema).transpose()
 df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
 df.index.name = schema_version
 df.to_csv(args.assay + '_metrics.tsv', sep='\t')
+
+if in_ac_schema:
+	df = pd.DataFrame(in_ac_schema).transpose()
+	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
+	df.index.name = ac_schema_version
+	df.to_csv('antibody_capture_metrics.tsv', sep='\t')
 
 df = pd.DataFrame(out_schema).transpose()
 df.to_csv(args.assay + '_metrics_not_in_schema.tsv', sep='\t')
