@@ -76,6 +76,7 @@ def aws_file_transfer(dataset_id, file_uris):
     """Create a one-time transfer from Amazon S3 to Google Cloud Storage."""
     storagetransfer = googleapiclient.discovery.build('storagetransfer', 'v1')
 
+    transferJobs = []
     for source,files in files_per_buckpath.items():
         source_bucket = source[0]
         source_path = source[1] + '/'
@@ -117,6 +118,8 @@ def aws_file_transfer(dataset_id, file_uris):
         result = storagetransfer.transferJobs().create(body=transfer_job).execute()
         print('Returned transferJob: {}'.format(
             json.dumps(result, indent=4)))
+        transferJobs.append(result['name'])
+    print('\n'.join(transferJobs))
 
 
 def local_dir_transfer(local_path, gcs_path=None):
