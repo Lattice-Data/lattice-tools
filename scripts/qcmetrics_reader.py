@@ -20,8 +20,8 @@ Extract summary info and QC metrics from a cellranger pipeline run.
 
 Examples:
 
-    python %(prog)s -m production -a atac -d submissions-czi009kid/muto_humphreys_2020/Control_5/outs
-    python %(prog)s -m local -a rna -d submissions-czi012eye/chen_2020/19D013_foveaR_outs
+    python %(prog)s -m production -a atac -p cr -d submissions-czi009kid/muto_humphreys_2020/Control_5/outs
+    python %(prog)s -m local -a rna -p cr -d submissions-czi012eye/chen_2020/19D013_foveaR_outs
 
 For more details:
 
@@ -41,7 +41,7 @@ def getArgs():
 	parser.add_argument('--mode', '-m',
 						help='The machine to pull schema from.')
 	parser.add_argument('--pipeline', '-p',
-						help='The pipeline that generated the metrics.')
+						help='specify cr or cellranger for CellRanger, or dragen')
 	args = parser.parse_args()
 	return args
 
@@ -170,6 +170,20 @@ if args.pipeline.lower() in ['cr','cellranger']:
 			    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
 			except botocore.exceptions.ClientError:
 				print('Failed to find {} on s3'.format(metrics_file))
+				metrics_file = 'summary.csv'
+				try:
+				    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
+				except botocore.exceptions.ClientError:
+					print('Failed to find {} on s3'.format(metrics_file))
+				else:
+					with open(metrics_file, newline='') as csvfile:
+						spamreader = csv.reader(csvfile)
+						rows = list(spamreader)
+						headers = [header.lower().replace(' ','_') for header in rows[0]]
+						new_headers = [schema_mapping.get(header, header) for header in headers]
+						values = rows[1]
+						new_values = [value.strip('%') for value in values]
+						post_json = dict(zip(new_headers, new_values))
 			else:
 				with open(metrics_file) as summary_json:
 					post_json = json.load(summary_json)
@@ -223,12 +237,12 @@ if args.pipeline.lower() in ['cr','cellranger']:
 					ac_values[try_prop] = schemify(value, ac_full_schema['properties'][try_prop]['type'])
 				else:
 					extra_values[prop] = value
-				# CHANGE TO for k,v in should_match.items():
-				if prop in should_match.keys():
-					if report_json[prop] != report_json[should_match[prop]]:
-						print('WARNING: {} does not match {}'.format(should_match[prop], prop))
-					else:
-						print('all good: {} does match {}'.format(should_match[prop], prop))
+		for k,v in should_match.items():
+			if report_json.get(k) != report_json.get(v):
+				print('WARNING: {} does not match {}'.format(k,v))
+			else:
+				print('all good: {} does match {}'.format(k,v))
+ 
 		in_schema[direct] = final_values
 		if ac_values:
 			ac_values['quality_metric_of'] = final_values['quality_metric_of']
