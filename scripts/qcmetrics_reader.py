@@ -79,17 +79,9 @@ genotypemetrics = []
 
 if args.assay == 'rna':
 	obj_name = 'rna_metrics'
-	files_to_check = [
-		'metrics_summary.csv',
-		'web_summary.html'
-	]
 
 elif args.assay == 'atac':
 	obj_name = 'atac_metrics'
-	files_to_check = [
-		'summary.json',
-		'web_summary.html'
-	]
 
 else:
 	sys.exit('must specify rna or atac for --assay')
@@ -113,6 +105,13 @@ if args.pipeline.lower() in ['cr','cellranger']:
 		report_json = {'quality_metric_of': '<linkTo RawMatrixFile - filtered matrix .h5>'}
 
 		summary_file = 'web_summary.html'
+		objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path)
+		summaries = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(summary_file)]
+		if len(summaries) > 1:
+			print('multiple {} files found on s3'.format(summary_file))
+		else:
+			summary_file = summaries[0].split('/')[-1]
+
 		try:
 		    s3client.download_file(bucket_name, outs_dir_path + '/' + summary_file, summary_file)
 		except botocore.exceptions.ClientError:
@@ -155,6 +154,13 @@ if args.pipeline.lower() in ['cr','cellranger']:
 
 		if args.assay == 'atac':
 			metrics_file = 'summary.json'
+			objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path)
+			ms = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(metrics_file)]
+			if len(ms) > 1:
+				print('multiple {} files found on s3'.format(metrics_file))
+			else:
+				metrics_file = ms[0].split('/')[-1]
+
 			try:
 			    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
 			except botocore.exceptions.ClientError:
@@ -169,6 +175,13 @@ if args.pipeline.lower() in ['cr','cellranger']:
 							del post_json[prop]
 		else:
 			metrics_file = 'metrics_summary.csv'
+			objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path)
+			ms = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(metrics_file)]
+			if len(ms) > 1:
+				print('multiple {} files found on s3'.format(metrics_file))
+			else:
+				metrics_file = ms[0].split('/')[-1]
+
 			try:
 			    s3client.download_file(bucket_name, outs_dir_path + '/' + metrics_file, metrics_file)
 			except botocore.exceptions.ClientError:
@@ -183,8 +196,11 @@ if args.pipeline.lower() in ['cr','cellranger']:
 					new_values = [value.strip('%') for value in values]
 					post_json = dict(zip(new_headers, new_values))
 
-		os.remove(metrics_file)
-		print(metrics_file + ' removed')
+		if os.path.isfile(metrics_file):
+			os.remove(metrics_file)
+			print(metrics_file + ' removed')
+		else:
+			sys.exit()
 
 		report_json.update(post_json)
 
