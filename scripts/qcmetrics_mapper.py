@@ -41,7 +41,18 @@ cellranger = {
 		"r1_q30_bases": "q30_bases_in_read1",
 		"bc_q30_bases": "q30_bases_in_barcode",
 		"waste_duplicate_fragments": "waste_dup_fragments",
-		"waste_mitochondrial_fragments": "waste_mito_fragments"
+		"waste_mitochondrial_fragments": "waste_mito_fragments",
+        "q30_bases_in_sample_index": "percent_q30_bases_in_sample_index",
+        "fraction_reads_in_barcodes_with_high_umi_counts": "percent_reads_in_barcodes_with_high_umi_counts",
+        "antibody_reads_in_cells": "percent_reads_in_cells",
+        "fraction_antibody_reads": "percent_reads_recognized_antibody",
+        "fraction_antibody_reads_in_aggregate_barcodes": "percent_reads_in_aggregate_barcodes",
+        "fraction_antibody_reads_usable": "percent_reads_usable",
+        "fraction_unrecognized_antibody": "percent_reads_unrecognized_antibody",
+        "q30_bases_in_antibody_read": "percent_q30_bases_in_antibody_read",
+        "q30_bases_in_antibody_read_2": "percent_q30_bases_in_antibody_read_2",
+        "median_per_cell_unique_fragments_at_50000_rrpc": "median_per_cell_unique_fragments_at_50000_RRPC",
+        "median_per_cell_unique_fragments_at_30000_rrpc": "median_per_cell_unique_fragments_at_30000_RRPC"
 	},
 	'value_mapping': {
 		"Single Cell 3' v1": "SC3Pv1",

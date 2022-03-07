@@ -292,10 +292,6 @@ def process_fastq_file(job):
         if len(read_numbers_set) == 1:
             read_number = next(iter(read_numbers_set))
             results['member_pair'] = read_number
-        elif len(read_numbers_set) > 1:
-            errors['inconsistent_read_numbers'] = \
-                'fastq file contains mixed read numbers ' + \
-                '{}.'.format(', '.join(sorted(list(read_numbers_set))))
 
         # read_length
         logging.info('Determining read lengths')
@@ -967,7 +963,7 @@ def main():
     logging.info(initiating_run)
 
     timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
-    report_out = 'report_{}.txt'.format(timestr)
+    report_out = 'report_{}.tsv'.format(timestr)
     logging.info('Writing results to {}'.format(report_out))
     report_headers = '\t'.join([
         'identifier',
@@ -1017,7 +1013,7 @@ def main():
         finishing_run = 'FINISHED Checkfiles at {}'.format(datetime.now())
         logging.info(finishing_run)
     else:
-        logging.info('FINISHED No files to check, see report.txt for details')
+        logging.info('FINISHED No files to check, see report*.tsv for details')
 
     logging.info('Results written to {}'.format(report_out))
     logging.info('Finished')
