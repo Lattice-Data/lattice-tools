@@ -712,6 +712,9 @@ def customize_fields(obj, obj_type):
 			obj['genus_species'] = [obj['genus_species']]
 		if obj.get('organism_age') == 'unknown':
 			del obj['organism_age']
+		elif obj.get('organism_age') == '>89':
+			del obj['organism_age']
+			del obj['organism_age_unit']
 		if not obj.get('is_living'):
 			if obj.get('gestational_age'):
 				obj['is_living'] = 'not applicable'
@@ -923,7 +926,10 @@ def main():
 
 	# in case a project is already in the DCP, we may need to match the project ID to that
 	lattice_dataset_id = ds_obj['uuid']
-	dcp_projects = {'49104d6a-0e30-4180-94b9-bf552b110686': 'dbd836cf-bfc2-41f0-9834-41cc6c0b235a'}
+	dcp_projects = {
+		'49104d6a-0e30-4180-94b9-bf552b110686': 'dbd836cf-bfc2-41f0-9834-41cc6c0b235a', # Lavaert et al 2020
+		'e62da5d2-33fb-4a3d-bdd7-4daca3a042cd': '9c20a245-f2c0-43ae-82c9-2232ec6b594f' # Chen retina
+		}
 	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
 	ds_obj['uuid'] = dataset_id
 
