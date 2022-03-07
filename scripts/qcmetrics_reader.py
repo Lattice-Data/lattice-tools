@@ -196,12 +196,11 @@ if args.pipeline.lower() in ['cr','cellranger']:
 				final_values[prop] = schemify(value, full_schema['properties'][prop]['type'])
 			else:
 				extra_values[prop] = value
-				# CHANGE TO for k,v in should_match.items():
-				if prop in should_match.keys():
-					if report_json[prop] != report_json[should_match[prop]]:
-						print('WARNING: {} does not match {}'.format(should_match[prop], prop))
-					else:
-						print('all good: {} does match {}'.format(should_match[prop], prop))
+		for k,v in should_match.items():
+			if report_json.get(k) != report_json.get(v):
+				print('WARNING: {} does not match {}'.format(k,v))
+			else:
+				print('all good: {} does match {}'.format(k,v))
 		in_schema[direct] = final_values
 		out_schema[direct] = extra_values
 
