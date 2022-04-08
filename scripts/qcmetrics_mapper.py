@@ -164,6 +164,15 @@ cellranger= {
 		},
 	    "should_match": {},
 	    "perc_to_frac": []
+	},
+	"spatial": {
+	    "schema_mapping": {
+		    "fraction_reads_in_spots_under_tissue": "frac_reads_in_spots_under_tissue",
+			"fraction_of_spots_under_tissue": "frac_spots_under_tissue",
+			"number_of_spots_under_tissue": "total_spots_under_tissue"
+	    },
+	    "should_match": {},
+	    "perc_to_frac": []
 	}
 }
 

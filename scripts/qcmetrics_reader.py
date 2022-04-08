@@ -39,13 +39,13 @@ def getArgs():
 						help="s3 path to the cellranger outs directory or dragen html, or local path to a file that lists those")
 	parser.add_argument('--assay', '-a',
 						required=True,
-						help="specify rna or atac or multiome")
+						help="specify rna, atac, multiome, or spatial")
 	parser.add_argument('--mode', '-m',
 						required=True,
 						help='The machine to pull schema from.')
 	parser.add_argument('--pipeline', '-p',
 						required=True,
-						help='specify cr or cellranger for CellRanger, or dragen')
+						help='specify cr or cellranger for CellRanger, dragen, or star')
 	args = parser.parse_args()
 	return args
 
@@ -255,7 +255,7 @@ if args.pipeline.lower() in ['cr','cellranger']:
 				else:
 					extra_values[k] = v
 
-			elif assay == 'multiome' and try_k.startswith('gex_'):
+			elif assay in 'multiome' and try_k.startswith('gex_'):
 				try_k = '_'.join(try_k.split('_')[1:])
 				try_k = qcmetrics_mapper.cellranger['rna']['schema_mapping'].get(try_k, try_k)
 				if try_k in schemas['rna']:
@@ -279,6 +279,13 @@ if args.pipeline.lower() in ['cr','cellranger']:
 				if k in perc_to_frac:
 					try_v = fractionize(try_v)
 				final_values[try_k] = schemify(try_v, schemas[assay][k]['type'])
+
+			elif assay in 'spatial':
+				try_k = qcmetrics_mapper.cellranger['rna']['schema_mapping'].get(try_k, try_k)
+				if try_k in schemas['rna']:
+					rna_values[try_k] = schemify(try_v, schemas['rna'][try_k]['type'])
+				else:
+					extra_values[k] = v
 
 			else:
 				extra_values[k] = value_mapping.get(v, v)
