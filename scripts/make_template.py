@@ -2,6 +2,7 @@ import argparse
 import gspread
 import json
 import lattice
+import os
 import requests
 import string
 import sys
@@ -15,31 +16,25 @@ def getArgs():
     	formatter_class=argparse.RawDescriptionHelpFormatter,
         )
     parser.add_argument('-t','--type',
-                        help="the object type to return a template for")
+                        help="the object type to return a template for",
+                        required=True)
     parser.add_argument('-m','--mode',
-                        help="the server to look-up schema, if not local")
-    parser.add_argument('-c','--creds',
-                        help="the location of google drive client_secret.json file")
+                        help="the server to look-up schema, if not local",
+                        required=True)
     parser.add_argument('-s','--sheet',
-                        help="the key for the google sheet")
+                        help="the key for the google sheet",
+                        required=True)
     args = parser.parse_args()
     return args
 
 args = getArgs()
-if not args.type:
-	sys.exit('ERROR: --type is required')
-if not args.creds:
-	sys.exit('ERROR: --creds is required')
-if not args.sheet:
-	sys.exit('ERROR: --sheet is required')
-if not args.mode:
-	sys.exit('ERROR: --mode is required')
 
 schema_name = args.type
 
 # follow instructions here to enable API & generate credentials
 # https://www.twilio.com/blog/2017/02/an-easy-way-to-read-and-write-to-a-google-spreadsheet-in-python.html
-creds = ServiceAccountCredentials.from_json_keyfile_name(args.creds, 'https://www.googleapis.com/auth/drive')
+client_secret = os.getenv('CLIENT_SECRET_FILE')
+creds = ServiceAccountCredentials.from_json_keyfile_name(client_secret, 'https://www.googleapis.com/auth/drive')
 client = gspread.authorize(creds)
 sheet = client.open_by_key(args.sheet)
 for tab in sheet.worksheets():
