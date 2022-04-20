@@ -10,7 +10,7 @@ import re
 import requests
 import subprocess
 import sys
-import qcmetrics_mapper
+from qcmetrics_mapper import mappings
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
@@ -59,6 +59,22 @@ def read_cr_csv(file):
 		headers = rows[0]
 		values = rows[1]
 		temp_json = dict(zip(headers, values))
+
+	os.remove(file)
+	print(file + ' removed')
+
+	return temp_json
+
+
+def read_star_csv(file):
+	s3client.download_file(bucket_name, outs_dir_path + '/' + file, file)
+	print(file + ' downloaded')
+	temp_json = {}
+	with open(file, newline='') as csvfile:
+		spamreader = csv.reader(csvfile)
+		rows = list(spamreader)
+		for row in rows:
+			temp_json[row[0]] = row[1]
 
 	os.remove(file)
 	print(file + ' removed')
@@ -139,10 +155,17 @@ def schemify(value, prop_type):
 	else:
 		return str(value)
 
+pipe_map = {
+	'cr': 'cellranger',
+	'starsolo': 'star'
+}
 
 args = getArgs()
 
 assay = args.assay
+
+pipeline = args.pipeline.lower()
+pipeline = pipe_map.get(pipeline, pipeline)
 
 s3client = boto3.client("s3")
 
@@ -180,11 +203,11 @@ in_sp_schema = {}
 out_schema = {}
 genotypemetrics = []
 
-if args.pipeline.lower() in ['cr','cellranger']:
-	value_mapping = qcmetrics_mapper.cellranger['value_mapping']
-	schema_mapping = qcmetrics_mapper.cellranger[assay]['schema_mapping']
-	should_match = qcmetrics_mapper.cellranger[assay]['should_match']
-	perc_to_frac = qcmetrics_mapper.cellranger[assay]['perc_to_frac']
+if pipeline in ['cellranger', 'star']:
+	value_mapping = mappings[pipeline].get('value_mapping',{})
+	schema_mapping = mappings[pipeline][assay].get('schema_mapping',{})
+	should_match = mappings[pipeline][assay].get('should_match',{})
+	perc_to_frac = mappings[pipeline][assay].get('perc_to_frac',[])
 
 	for direct in directories:
 		direct = direct.replace('s3://', '')
@@ -195,8 +218,8 @@ if args.pipeline.lower() in ['cr','cellranger']:
 		report_json = {}
 
 		summary_file = 'web_summary.html'
-		objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path)
-		summaries = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(summary_file)]
+		objects = s3client.list_objects_v2(Bucket=bucket_name,Prefix=outs_dir_path + '/')
+		summaries = [o['Key'] for o in objects['Contents'] if o['Key'].lower().endswith(summary_file)]
 		if len(summaries) == 1:
 			summary_file = summaries[0].split('/')[-1]
 			report_json.update(read_cr_html(summary_file))
@@ -206,7 +229,7 @@ if args.pipeline.lower() in ['cr','cellranger']:
 			print('WARNING: no {} files found on s3'.format(summary_file))
 
 		metrics_json_file = 'summary.json'
-		jsons = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(metrics_json_file)]
+		jsons = [o['Key'] for o in objects['Contents'] if o['Key'].lower().endswith(metrics_json_file)]
 		if len(jsons) == 1:
 			metrics_json_file = jsons[0].split('/')[-1]
 			report_json.update(read_cr_json(metrics_json_file))
@@ -216,11 +239,15 @@ if args.pipeline.lower() in ['cr','cellranger']:
 				print('WARNING: no {} files found on s3'.format(metrics_json_file))
 
 		metrics_csv_file = 'summary.csv'
-		csvs = [o['Key'] for o in objects['Contents'] if o['Key'].endswith(metrics_csv_file)]
+		csvs = [o['Key'] for o in objects['Contents'] if o['Key'].lower().endswith(metrics_csv_file)]
 		if len(csvs) == 1:
 			metrics_csv_file = csvs[0].split('/')[-1]
-			report_json.update(read_cr_csv(metrics_csv_file))
+			if pipeline == 'star':
+				report_json.update(read_star_csv(metrics_csv_file))
+			else:
+				report_json.update(read_cr_csv(metrics_csv_file))
 		elif len(csvs) > 1:
+			print(csvs)
 			print('WARNING: multiple {} files found on s3'.format(metrics_csv_file))
 		elif len(csvs) == 0:
 			print('WARNING: no {} files found on s3'.format(metrics_csv_file))
@@ -247,9 +274,9 @@ if args.pipeline.lower() in ['cr','cellranger']:
 
 			elif assay == 'rna' and try_k.startswith('antibody:_'):
 				try_k = '_'.join(try_k.split('_')[1:])
-				try_k = qcmetrics_mapper.cellranger['antibody_capture']['schema_mapping'].get(try_k, try_k)
+				try_k = mappings[pipeline]['antibody_capture']['schema_mapping'].get(try_k, try_k)
 				if try_k in schemas['antibody_capture']:
-					if try_k in qcmetrics_mapper.cellranger['antibody_capture']['perc_to_frac']:
+					if try_k in mappings[pipeline]['antibody_capture']['perc_to_frac']:
 						try_v = fractionize(try_v)
 					ac_values[try_k] = schemify(try_v, schemas['antibody_capture'][try_k]['type'])
 				else:
@@ -257,7 +284,7 @@ if args.pipeline.lower() in ['cr','cellranger']:
 
 			elif assay in 'multiome' and try_k.startswith('gex_'):
 				try_k = '_'.join(try_k.split('_')[1:])
-				try_k = qcmetrics_mapper.cellranger['rna']['schema_mapping'].get(try_k, try_k)
+				try_k = mappings[pipeline]['rna']['schema_mapping'].get(try_k, try_k)
 				if try_k in schemas['rna']:
 					rna_values[try_k] = schemify(try_v, schemas['rna'][try_k]['type'])
 				else:
@@ -265,7 +292,7 @@ if args.pipeline.lower() in ['cr','cellranger']:
 
 			elif assay == 'multiome' and try_k.startswith('atac_'):
 				try_k = '_'.join(try_k.split('_')[1:])
-				try_k = qcmetrics_mapper.cellranger['atac']['schema_mapping'].get(try_k, try_k)
+				try_k = mappings[pipeline]['atac']['schema_mapping'].get(try_k, try_k)
 				if try_k in schemas['atac']:
 					atac_values[try_k] = schemify(try_v, schemas['atac'][try_k]['type'])
 				else:
@@ -281,7 +308,7 @@ if args.pipeline.lower() in ['cr','cellranger']:
 				final_values[try_k] = schemify(try_v, schemas[assay][k]['type'])
 
 			elif assay in 'spatial':
-				try_k = qcmetrics_mapper.cellranger['rna']['schema_mapping'].get(try_k, try_k)
+				try_k = mappings[pipeline]['rna']['schema_mapping'].get(try_k, try_k)
 				if try_k in schemas['rna']:
 					rna_values[try_k] = schemify(try_v, schemas['rna'][try_k]['type'])
 				else:
@@ -315,8 +342,8 @@ if args.pipeline.lower() in ['cr','cellranger']:
 		out_schema[direct] = extra_values
 
 
-elif args.pipeline.lower() == 'dragen':
-	schema_mapping = qcmetrics_mapper.dragen[assay]['schema_mapping']
+elif pipeline == 'dragen':
+	schema_mapping = mappings[pipeline][assay]['schema_mapping']
 	for file in directories:
 		file = file.replace('s3://', '')
 		full_path = file.rstrip('/')
@@ -402,7 +429,7 @@ elif args.pipeline.lower() == 'dragen':
 		extra_values = {}
 
 		for prop, value in report_json.items():
-			if prop in qcmetrics_mapper.dragen[assay]['perc_to_frac']:
+			if prop in mappings[pipeline][assay]['perc_to_frac']:
 				dig = len(value.replace('.',''))
 				value = float(value)
 				if value < 10:
@@ -417,40 +444,40 @@ elif args.pipeline.lower() == 'dragen':
 		out_schema[file] = extra_values
 
 else:
-	sys.exit('ERROR: --pipline not recognized, should be cellranger or dragen')
+	sys.exit('ERROR: --pipeline not recognized, should be cellranger, star or dragen')
 
 if in_schema:
 	df = pd.DataFrame(in_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
-	df.index.name = schemas[assay]['schema_version']['default']
+	df.index.name = 'schema_version=' + str(schemas[assay]['schema_version']['default'])
 	df.to_csv(assay + '_metrics.tsv', sep='\t')
 
 if genotypemetrics:
 	df = pd.DataFrame(genotypemetrics)
-	df.to_csv('genotype_metrics.tsv', sep='\t')
+	df.to_csv('genotype_metrics.tsv', sep='\t', index=False)
 
 if in_atac_schema:
 	df = pd.DataFrame(in_atac_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
-	df.index.name = schemas['atac']['schema_version']['default']
+	df.index.name = 'schema_version=' + str(schemas['atac']['schema_version']['default'])
 	df.to_csv('atac_metrics.tsv', sep='\t')
 
 if in_rna_schema:
 	df = pd.DataFrame(in_rna_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
-	df.index.name = schemas['rna']['schema_version']['default']
+	df.index.name = 'schema_version=' + str(schemas['rna']['schema_version']['default'])
 	df.to_csv('rna_metrics.tsv', sep='\t')
 
 if in_mu_schema:
 	df = pd.DataFrame(in_mu_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
-	df.index.name = schemas['multiome']['schema_version']['default']
+	df.index.name = 'schema_version=' + str(schemas['multiome']['schema_version']['default'])
 	df.to_csv('multiome_metrics.tsv', sep='\t')
 
 if in_ac_schema:
 	df = pd.DataFrame(in_ac_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
-	df.index.name = schemas['antibody_capture']['schema_version']['default']
+	df.index.name = 'schema_version=' + str(schemas['antibody_capture']['schema_version']['default'])
 	df.to_csv('antibody_capture_metrics.tsv', sep='\t')
 
 df = pd.DataFrame(out_schema).transpose()
