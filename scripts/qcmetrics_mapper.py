@@ -43,6 +43,7 @@ mappings = {
 				"frac_q30_bases_in_barcode",
 				"frac_q30_bases_in_rna_read",
 				"frac_q30_bases_in_rna_read2",
+				"frac_q30_bases_in_sample_index",
 				"frac_q30_bases_in_umi",
 				"frac_reads_in_cells",
 				"frac_reads_mapped_antisense_to_gene",
