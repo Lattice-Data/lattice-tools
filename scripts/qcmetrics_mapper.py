@@ -94,6 +94,7 @@ mappings = {
 				"unmapped_read_pairs": "frac_waste_unmapped",
 				"mean_raw_read_pairs_per_cell": "mean_fragments_per_cell",
 				"median_frags_overlapping_peaks_per_cell": "median_fragments_overlapping_peaks_per_cell",
+				"median_high-quality_fragments_per_cell": "median_high_quality_fragments_per_cell",
 				"median_per_cell_unique_fragments_at_10000_hq_rpc": "median_per_cell_unique_fragments_at_10000_HQ_RPC",
 				"median_per_cell_unique_fragments_at_10000_rrpc": "median_per_cell_unique_fragments_at_10000_RRPC",
 				"median_per_cell_unique_fragments_at_30000_hq_rpc": "median_per_cell_unique_fragments_at_30000_HQ_RPC",
