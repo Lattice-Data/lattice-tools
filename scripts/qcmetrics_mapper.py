@@ -144,11 +144,11 @@ mappings = {
 				"median_umis_per_cell_(summed_over_all_recognized_antibody_barcodes)": "median_umi_counts_per_cell",
 				"number_of_reads": "total_reads"
 			},
-		    "should_match": {},
-		    "perc_to_frac": [
-			    "frac_q30_bases_in_antibody_read",
-			    "frac_q30_bases_in_barcode",
-			    "frac_q30_bases_in_umi",
+			"should_match": {},
+			"perc_to_frac": [
+				"frac_q30_bases_in_antibody_read",
+				"frac_q30_bases_in_barcode",
+				"frac_q30_bases_in_umi",
 				"frac_reads_in_aggregate_barcodes",
 				"frac_reads_in_cells",
 				"frac_reads_recognized_antibody",
