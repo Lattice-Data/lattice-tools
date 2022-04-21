@@ -34,7 +34,6 @@ ORDER = [
     'ontology_term',
     'library_protocol',
     'target',
-    'antibody_lot',
     'antibody',
     'treatment',
     'human_postnatal_donor',
