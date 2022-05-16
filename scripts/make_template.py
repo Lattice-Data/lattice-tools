@@ -10,6 +10,8 @@ from collections import OrderedDict
 from gspread_formatting import *
 from oauth2client.service_account import ServiceAccountCredentials
 from urllib.parse import urljoin
+from template_field_order import priorityFields
+
 
 def getArgs():
     parser = argparse.ArgumentParser(
@@ -92,6 +94,9 @@ for p in props.keys():
 				subprops[p + '.' + sp] = my_props[sp]
 ordered_props.update(subprops)
 
+# collect required fields
+req_props = schema.get('required', [])
+
 remove_props = []
 ont_props = []
 for p in ordered_props.keys():
@@ -103,41 +108,49 @@ for p in ordered_props.keys():
 	elif ordered_props[p].get('linkTo') == 'OntologyTerm':
 		remove_props.append(p)
 		ont_props.append(p)
+
 for p in remove_props:
 	del ordered_props[p]
+
 for p in ont_props:
 	ordered_props[p + '.term_id'] = term_id_props
 	ordered_props[p + '.term_name'] = term_name_props
+	if p in req_props:
+		req_props.extend([p + '.term_id', p + '.term_name'])
+		req_props.remove(p)
 
-non_submit_col = []
-for p in non_submit:
-	non_submit_col.append(cell_grid[list(ordered_props.keys()).index(p) + 1])
+prop_order = priorityFields.get(schema_name, {}).get('order', [])
+preferred = priorityFields.get(schema_name, {}).get('preferred', [])
 
-# collect required fields & move fields to the front
-req_props = []
-if schema.get('required'):
-	req_count = 0
-	req_props = schema['required']
+#use preset order if defined, otherwise use required properties
+if prop_order:
+	prop_order.reverse()
+	for i in prop_order:
+		ordered_props.move_to_end(i, False)
+else:
 	for i in req_props:
-		if i in ordered_props:
-			ordered_props.move_to_end(i, False)
-			req_count += 1
-		else:
-			ordered_props.move_to_end(i + '.term_id', False)
-			ordered_props.move_to_end(i + '.term_name', False)
-			req_count += 2
+		ordered_props.move_to_end(i, False)
 
-# get the required field columns so we can color them later
-req_columns = []
-if req_props:
-	if 'aliases' in ordered_props.keys():
-		ordered_props.move_to_end('aliases', False)
-		req_start_col = 'C'
-		req_stop_col = cell_grid[req_count + 1]
-	else:
-		req_start_col = 'B'
-		req_stop_col = cell_grid[req_count]
-	req_columns = ':'.join([req_start_col, req_stop_col])
+if 'aliases' in ordered_props.keys():
+	ordered_props.move_to_end('aliases', False)
+
+#determine columns to paint green
+paint_greens = []
+for i in req_props:
+	col = cell_grid[list(ordered_props.keys()).index(i) + 1]
+	paint_greens.append((col, cellFormat(backgroundColor=color(0.58, 0.77, 0.49))))
+
+#determine columns to paint yellow
+paint_yellows = []
+for i in preferred:
+	col = cell_grid[list(ordered_props.keys()).index(i) + 1]
+	paint_yellows.append((col, cellFormat(backgroundColor=color(0.97, 0.99, 0.43))))
+
+#determine columns to paint grey
+paint_greys = []
+for i in non_submit:
+	col = cell_grid[list(ordered_props.keys()).index(i) + 1]
+	paint_greys.append((col, cellFormat(backgroundColor=color(0.85, 0.85, 0.85))))
 
 # list the attributes we want to know about each property
 descriptor_list = [
@@ -174,11 +187,11 @@ for descriptor in descriptor_list:
 # write the whole thing to the google sheet
 tab.update('A1',uber_list)
 
-# bold the first column
-tab.format('A:A', {'textFormat': {'bold': True}})
-
-# set the whole sheet to clip text
-tab.format('A1:AZ100',{'wrapStrategy': 'CLIP'})
+# bold the first column & set the whole sheet to clip text
+# shade in the appropriate cells
+bold_fmt = cellFormat(textFormat=textFormat(bold=True))
+clip_fmt = cellFormat(wrapStrategy='CLIP')
+format_cell_ranges(tab, [('A:A', bold_fmt), ('A1:AZ100', clip_fmt)] + paint_greens + paint_yellows + paint_greys)
 
 # set cell validation in the first input row for all boolean fields or fields with an enum list
 count = 0
@@ -197,13 +210,3 @@ if ordered_props.get('aliases'):
 	set_frozen(tab, rows=len(descriptor_list) + 1, cols=2)
 else: #if no aliases propertry, then just freeze the descriptor column
 	set_frozen(tab, rows=len(descriptor_list) + 1, cols=1)
-
-# shade all of the columns with required properties
-if req_columns:	
-	green = color(0.58, 0.77, 0.49)
-	format_cell_range(tab, req_columns, cellFormat(backgroundColor=green))
-
-# for the properties with embedded objects, shade the non-submittable property
-for column in non_submit_col:
-	grey = color(0.85, 0.85, 0.85)
-	format_cell_range(tab, column, cellFormat(backgroundColor=grey))
