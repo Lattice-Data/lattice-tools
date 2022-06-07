@@ -2,15 +2,17 @@ Running submit_metadata.py to post new object and patch existing objects to the 
 ----------------
 To run this script, you should first set-up your environment according to the [lattice-tools instructions](../README.md)
 
-This script takes in an Excel file with the metadata
+This script takes in a Google Sheet identifier with the metadata
 
 This is a dryrun-default script, run with `--update` to enable patch and post
 
 Defining object types
 ----------------
-Name each sheet of the excel file the name of the object type you are using with the format used on https://www.lattice-data.org/profiles/, capitalization and underscores do not matter
+Name each tab of the Google sheet the name of the object type you are using with the format used in [loadxl.py ORDER] (https://github.com/Lattice-Data/encoded/blob/dev/src/encoded/loadxl.py#L15). This is also the format in the url when viewing schema on the portal (ex: https://www.lattice-data.org/profiles/human_postnatal_donor)
 
-The objects will be loaded in the order specified in encoded/src/loadxl.py `ORDER`
+Any tab that is not named after a valid schema type will be ignored.
+
+The objects will be loaded in the order specified in [loadxl.py ORDER] (https://github.com/Lattice-Data/encoded/blob/dev/src/encoded/loadxl.py#L15)
 
 Use the `--justtype` argument to only submit one of the object types, even if your file contains more sheets. Example:
 ```
@@ -23,11 +25,7 @@ Spreadsheet formatting
 ----------------
 The top row of each sheet should be the names of the fields specified in the schema. The validity of these fields will be check during a "dry-run" (i.e. if `--update` is not used)
 
-If the first value in a row (column A) begins with `#`, the entire row will be ignored. This is useful if you want rows with property descriptors (e.g. description, enum, linkTo). These rows to ignore must be above metadata-to-submit rows or the Row number print-outs will be inaccurate
-
-If the first cell (A1) is either empty or begins with `schema_version=`, the entire first column (A) will be ignored. This action happens after the above avoidance of rows starting with `#`
-
-Any sheet with the name **Cover Sheet** will be ignored, capitalization does not matter, but the space does.
+Any row, except for row 1, with the first value (column A) beginning with `#` and any column with the first value (row 1) beginning with `#` will be ignored. This is useful if you want rows with property descriptors (e.g. description, enum, linkTo) or columns with additional notes, annotations, etc.
 
 Objects with attachments (not tested)
 ----------------
