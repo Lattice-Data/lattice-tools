@@ -391,8 +391,8 @@ def get_tab_ids(soup):
 	tab_ids = {}
 	pattern = re.compile('var bootstrapData = (.*?);')
 	for s in soup.find_all('script'):
-		if pattern.search(s.text):
-			d = pattern.search(s.text).group()[20:-1]
+		if pattern.search(str(s)):
+			d = pattern.search(str(s)).group()[20:-1]
 			data = json.loads(d)
 			for t in data['changes']['topsnapshot']:
 				u = t[1].split('"')
@@ -454,6 +454,9 @@ def main():
 	req = Request(sheet_url, headers={'User-Agent' : "Magic Browser"})
 	s = urlopen(req)
 	soup = BeautifulSoup(s, 'html.parser')
+	h1 = soup.find('h1')
+	if (h1 and h1.text == 'Sign in'):
+		sys.exit('Google Sheet is not accessible. Ensure anyone with link can View.')
 	tabs = [x.text.lower() for x in soup.find_all('div', {'class':'goog-inline-block docs-sheet-tab-caption'})]
 
 	#establish what objects are being loaded and in what order
