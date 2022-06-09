@@ -8,6 +8,7 @@ import re
 import requests
 import sys
 import magic  # install me with 'pip install python-magic'
+import numpy as np
 import pandas as pd
 from PIL import Image  # install me with 'pip install Pillow'
 from urllib.parse import urljoin, quote
@@ -115,6 +116,7 @@ def properties_validator(keys, schema_name, schema, remove):
 	prop_types = {}
 	dup_keys = []
 	base_props = []
+	linkTos = []
 	ont_props = ['term_name','term_id']
 	schema_properties = schema['properties']
 
@@ -130,7 +132,10 @@ def properties_validator(keys, schema_name, schema, remove):
 			report_schema_error(propA, schema_name)
 			flag = True
 		elif len(props) == 1:
-			prop_types[key] = schema_properties[propA]['type']
+			immediate_schema = schema_properties[propA]
+			prop_types[key] = immediate_schema['type']
+			if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+				linkTos.append(key)
 		elif len(props) > 1:
 			propB = props[1].split('-')[0]
 			if schema_properties[propA]['type'] == 'array':
@@ -138,7 +143,10 @@ def properties_validator(keys, schema_name, schema, remove):
 					report_schema_error(propB, schema_name + '.' + propA)
 					flag = True
 				elif len(props) == 2:
-					prop_types[key] = schema_properties[propA]['items']['properties'][propB]['type']
+					immediate_schema = schema_properties[propA]['items']['properties'][propB]
+					prop_types[key] = immediate_schema['type']
+					if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+						linkTos.append(key)
 				elif len(props) > 2:
 					propC = props[2].split('-')[0]
 					if schema_properties[propA]['items']['properties'][propB]['type'] == 'array':
@@ -146,21 +154,27 @@ def properties_validator(keys, schema_name, schema, remove):
 							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 							flag = True
 						else:
-							prop_types[key] = schema_properties[propA]['items']['properties'][propB]['items']['properties'][propC]['type']
+							immediate_schema = schema_properties[propA]['items']['properties'][propB]['items']['properties'][propC]
+							prop_types[key] = immediate_schema['type']
+							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+								linkTos.append(key)
 					elif schema_properties[propA]['items']['properties'][propB]['type'] == 'object':
 						if propC not in schema_properties[propA]['items']['properties'][propB]['properties'].keys():
 							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 							flag = True
 						else:
-							prop_types[key] = schema_properties[propA]['items']['properties'][propB]['properties'][propC]['type']
+							immediate_schema = schema_properties[propA]['items']['properties'][propB]['properties'][propC]
+							prop_types[key] = immediate_schema['type']
+							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+								linkTos.append(key)
 					elif schema_properties[propA]['items']['properties'][propB].get('linkTo') == "OntologyTerm":
 						if propC not in ont_props:
 							report_schema_error(propC, 'OntologyTerm via ' + schema_name + '.' + propA + '.' + propB)
 							flag = True
 						elif propC == 'term_id':
-							prop_types[key] = 'ontology.term_id'
+							prop_types[key] = 'ontology.term_id' #DO WE NEED LINKTOS HERE?
 						else:
-							prop_types[key] = 'string' #because term_name is strings
+							prop_types[key] = 'string' #because term_name is strings #DO WE NEED LINKTOS HERE?
 					else:
 						print('Not expecting subproperties for property {}.{} in schema {} ({} given) '.format(propA, propB, schema_name, propC))
 						flag = True
@@ -169,7 +183,10 @@ def properties_validator(keys, schema_name, schema, remove):
 					report_schema_error(propB, schema_name + '.' + propA)
 					flag = True
 				elif len(props) == 2:
-					prop_types[key] = schema_properties[propA]['properties'][propB]['type']
+					immediate_schema = schema_properties[propA]['properties'][propB]
+					prop_types[key] = immediate_schema['type']
+					if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+						linkTos.append(key)
 				elif len(props) > 2:
 					propC = props[2].split('-')[0]
 					if schema_properties[propA]['properties'][propB]['type'] == 'array':
@@ -177,13 +194,19 @@ def properties_validator(keys, schema_name, schema, remove):
 							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 							flag = True
 						else:
-							prop_types[key] = schema_properties[propA]['properties'][propB]['items']['properties'][propC]['type']
+							immediate_schema = schema_properties[propA]['properties'][propB]['items']['properties'][propC]
+							prop_types[key] = immediate_schema['type']
+							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+								linkTos.append(key)
 					elif schema_properties[propA]['properties'][propB]['type'] == 'object':
 						if propC not in schema_properties[propA]['properties'][propB]['properties'].keys():
 							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 							flag = True
 						else:
-							prop_types[key] = schema_properties[propA]['properties'][propB]['properties'][propC]['type']
+							immediate_schema = schema_properties[propA]['properties'][propB]['properties'][propC]
+							prop_types[key] = immediate_schema['type']
+							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+								linkTos.append(key)
 					else:
 						print('Not expecting subproperties for property {} in schema {}.{} ({} given) '.format(probB, schema_name, propA, propC))
 						flag = True
@@ -192,7 +215,7 @@ def properties_validator(keys, schema_name, schema, remove):
 					report_schema_error(propB, 'OntologyTerm via ' + schema_name + '.' + propA)
 					flag = True
 				else:
-					prop_types[key] = 'string' #because term_id and term_name are both strings
+					prop_types[key] = 'string' #because term_id and term_name are both strings #DO WE NEED LINKTOS HERE?
 			else:
 				print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema_name, propB))
 				flag = True
@@ -203,7 +226,7 @@ def properties_validator(keys, schema_name, schema, remove):
 			print('Required properties {} missing in schema {} '.format(','.join(req_missing), schema_name))
 			flag = True
 
-	return flag, prop_types
+	return flag, prop_types, linkTos
 
 
 def booleanify(s):
@@ -389,7 +412,7 @@ def attachment(path):
 
 def get_tab_ids(soup):
 	tab_ids = {}
-	pattern = re.compile('var bootstrapData = (.*?);')
+	pattern = re.compile('var bootstrapData = (.*?)};')
 	for s in soup.find_all('script'):
 		if pattern.search(str(s)):
 			d = pattern.search(str(s)).group()[20:-1]
@@ -401,22 +424,28 @@ def get_tab_ids(soup):
 	return tab_ids
 
 
-def set_value_types(df, prop_types):
+def set_value_types(df, prop_types, linkTos):
 	for c in list(df.columns):
 		val_type = prop_types[c]
 		if val_type == 'string':
-			df[c] = df.apply(lambda x: str(x[c]).strip(), axis=1) #do linkTos need quote(str(x[c]).strip()) for x?
+			if c in linkTos:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else quote(str(x[c]).strip()), axis=1)
+			else:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else str(x[c]).strip(), axis=1)
 		elif val_type == 'ontology.term_id':
-			df[c] = df.apply(lambda x: str(x[c]).replace('_',':'), axis=1)
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else str(x[c]).replace('_',':'), axis=1)
 		elif val_type == 'array':
-			df[c] = df.apply(lambda x: [x.strip() for x in str(x[c]).split(',')], axis=1) #do linkTos need quote(x.strip()) for x?
-			# if array of objects, 	old_value = old_value.replace('},{', '}${') THEN [ast.literal_eval(x) for x in old_value.split('$')]
+			if c in linkTos:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else [quote(v.strip()) for v in str(x[c]).split(',')], axis=1)
+			else:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else [v.strip() for v in str(x[c]).split(',')], axis=1)
+				# if array of objects, 	old_value = old_value.replace('},{', '}${') THEN [ast.literal_eval(x) for x in old_value.split('$')]
 		elif val_type == 'boolean':
-			df[c] = df.apply(lambda x: booleanify(x[c]), axis=1)
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else booleanify(x[c]), axis=1)
 		elif val_type == 'integer':
-			df[c] = df.apply(lambda x: int(x[c]), axis=1)
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else int(x[c]), axis=1)
 		elif val_type == 'number':
-			df[c] = df.apply(lambda x: float(x[c]), axis=1)
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else float(x[c]), axis=1)
 
 
 def check_existing_obj(post_json, schema, connection):
@@ -511,7 +540,7 @@ def main():
 		schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
 		schema = requests.get(schema_url).json()
 
-		invalid_flag, prop_types = properties_validator(headers, schema_to_load, schema, args.remove)
+		invalid_flag, prop_types, linkTos = properties_validator(headers, schema_to_load, schema, args.remove)
 
 		if invalid_flag == True:
 			print('{}: invalid schema, check the headers'.format(schema_to_load))
@@ -519,11 +548,12 @@ def main():
 			continue
 
 		elif not args.remove:
-			set_value_types(df, prop_types)
+			set_value_types(df, prop_types, linkTos)
 
 		obj_posts = []
 
 		for row_count, row in df.iterrows():
+			row_count += 2 #1 for the header row, 1 to go from 0-based to 1-based
 			row = row.dropna()
 			post_json = json.loads(row.to_json())
 
@@ -556,6 +586,7 @@ def main():
 			failed_postings = []
 			for row_count, post_json in all_posts[schema]:
 				total += 1
+
 				#check for an existing object based on any possible identifier
 				temp_id, temp = check_existing_obj(post_json, schema, connection)
 
@@ -633,6 +664,7 @@ def main():
 							# Print now and later
 							print(schema.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
 								'accession', new_object.get('uuid')))))
+							#NEEDED - CAN WE DITCH THIS
 							new_accessions_aliases.append(('ROW ' + str(row_count), new_object.get(
 								'accession', new_object.get('uuid')), new_object.get('aliases', new_object.get('name'))))
 							success += 1
@@ -642,7 +674,7 @@ def main():
 				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
 			summary_report.append('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
 				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-			if new_accessions_aliases:
+			if new_accessions_aliases: #NEEDED - CAN WE DITCH THIS
 				print('New accessions/UUIDs and aliases:')
 				for (row, accession, alias) in new_accessions_aliases:
 					if alias == None:
