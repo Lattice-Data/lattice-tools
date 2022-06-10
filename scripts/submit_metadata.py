@@ -11,7 +11,7 @@ import magic  # install me with 'pip install python-magic'
 import numpy as np
 import pandas as pd
 from PIL import Image  # install me with 'pip install Pillow'
-from urllib.parse import urljoin, quote
+from urllib.parse import urljoin, quote, unquote
 from urllib.request import urlopen
 from urllib.request import Request
 from base64 import b64encode
@@ -111,7 +111,7 @@ def report_schema_error(prop, schema):
 	print('ERROR: Property "{}" not found in schema {}'.format(prop, schema))
 
 
-def properties_validator(keys, schema_name, schema, remove):
+def properties_validator(keys, schema_name, schema, remove, patchall):
 	flag = False
 	prop_types = {}
 	dup_keys = []
@@ -220,7 +220,7 @@ def properties_validator(keys, schema_name, schema, remove):
 				print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema_name, propB))
 				flag = True
 
-	if not remove:
+	if not remove and not patchall:
 		req_missing = [p for p in schema['required'] if p not in base_props]
 		if req_missing:
 			print('Required properties {} missing in schema {} '.format(','.join(req_missing), schema_name))
@@ -348,7 +348,7 @@ def dict_patcher(old_dict, schema_properties):
 						temp_dict = {propC: value}
 						new_dict[propA] = {propB: temp_dict}
 		elif len(path) > 3:
-			print('ERROR:' + key + ': Not prepared to do triplpe-embedded properties, check for errant period')
+			print('ERROR:' + key + ': Not prepared to do triple-embedded properties, check for errant period')
 
 	for prop in array_o_objs_dict.keys():
 		new_list = []
@@ -479,6 +479,19 @@ def main():
 	server = connection.server
 	print(f'Running on {server}')
 
+	if args.remove and args.patchall:
+		sys.exit('ERROR: cannot specify both --remove and --patch')
+
+	if args.update:
+		if args.patchall:
+			print('Running to UPDATE, data will be PATCHED')
+		elif args.remove:
+			print('Running to UPDATE, data will be REMOVED')
+		else:
+			print('Running to UPDATE, data will be POSTED')
+	else:
+		print('Running in dry-run mode. No updates will be made')
+
 	sheet_url = f'https://docs.google.com/spreadsheets/d/{args.sheet_id}'
 	req = Request(sheet_url, headers={'User-Agent' : "Magic Browser"})
 	s = urlopen(req)
@@ -540,41 +553,37 @@ def main():
 		schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
 		schema = requests.get(schema_url).json()
 
-		invalid_flag, prop_types, linkTos = properties_validator(headers, schema_to_load, schema, args.remove)
+		invalid_flag, prop_types, linkTos = properties_validator(headers, schema_to_load, schema, args.remove, args.patchall)
 
 		if invalid_flag == True:
 			print('{}: invalid schema, check the headers'.format(schema_to_load))
 			summary_report.append('{}: invalid schema, check the headers'.format(schema_to_load))
 			continue
 
-		elif not args.remove:
-			set_value_types(df, prop_types, linkTos)
+		set_value_types(df, prop_types, linkTos)
 
 		obj_posts = []
 
 		for row_count, row in df.iterrows():
 			row_count += 2 #1 for the header row, 1 to go from 0-based to 1-based
-			row = row.dropna()
+			if not args.remove:
+				row = row.dropna()
 			post_json = json.loads(row.to_json())
 
 			#split out the OntologyTerms to load
-			post_json, post_ont = dict_patcher(post_json, schema['properties']) #NEEDED - PROBABLY NOT NEEDED FOR REMOVE
-			for k, v in post_ont.items():
-				all_posts.setdefault('ontology_term', []).append((schema_to_load + '.' + k, v))
+			if not args.remove:
+				post_json, post_ont = dict_patcher(post_json, schema['properties'])
+				for k, v in post_ont.items():
+					all_posts.setdefault('ontology_term', []).append((schema_to_load + '.' + k, v))
 
-			# add attchments here
-			if post_json.get('attachment'):
-				attach = attachment(post_json['attachment'])
-				post_json['attachment'] = attach
+				# add attchments here
+				if post_json.get('attachment'):
+					attach = attachment(post_json['attachment'])
+					post_json['attachment'] = attach
 
 			obj_posts.append((row_count, post_json))
 
 		all_posts[schema_to_load] = obj_posts
-
-	if args.patchall:
-		patch_req = True
-	else:
-		patch_req = False
 
 	failed_postings = []
 	for schema in load_order:
@@ -589,43 +598,32 @@ def main():
 
 				#check for an existing object based on any possible identifier
 				temp_id, temp = check_existing_obj(post_json, schema, connection)
+				temp_id = unquote(temp_id)
 
 				if temp.get('uuid'): # if there is an existing corresponding object
-					if schema == 'ontology_term' and schema not in tabs:
-						ont_mismatch = False
-						ont_patch = False
+					if schema == 'ontology_term' and schema not in tabs: #NEEDED - IS THIS A VALID METHOD (SCHEMA NOT IN TABS)
 						if post_json.get('term_name') != temp.get('term_name'):
 							print('ERROR: {}: term_name {} of {} does not match existing {}'.format(row_count, post_json.get('term_name'), post_json['term_id'], temp.get('term_name')))
-							ont_mismatch = True
-
-						if ont_mismatch == False and ont_patch == True:
-							print(schema.upper() + ' ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(post_json['term_id']))
-							i = input('PATCH? y/n: ')
-							if i.lower() == 'y':
-						 		patch_req = True
-
-						elif ont_mismatch == True:
-							print('OntologyTerm {} will not be updated'.format(post_json['term_id']))
-							i = input('EXIT SUBMISSION? y/n: ')
-							if i.lower() == 'y':
-								sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-									sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-
-					elif patch_req == False: # patch wasn't specified, see if the user wants to patch
-						print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(temp_id))
-						i = input('PATCH? y/n: ')
-						if i.lower() == 'y':
-							patch_req = True
-
-					if patch_req == True and args.remove: #NEEDED - VISIT THIS SECTION
-						existing_json = lattice.get_object(temp['uuid'], connection, frame="edit")
-						for k in post_json.keys():
-							if k not in ['uuid', 'accession', 'alias', '@id']:
-								if k not in existing_json.keys():
-									print('Cannot remove {}, may be calculated property, or is not submitted'.format(k))
-								else:
-									existing_json.pop(k)
-									print('Removing value:', k)
+							sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
+								sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
+						elif args.remove: #NEEDED - SHOULD WE ALLOW PATCHALL IN THIS CASE, USE CASE: PATCH TISSUE TO DIFF UBERON, UBERON NEEDS SUBMITTING FIRST
+							print('ERROR: {}: cannot remove OntologyTerms indirectly'.format(row_count))
+							sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
+								sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
+					if args.remove:
+						idprops = ['uuid', 'accession', 'aliases', '@id']
+						idprops_in_sheet = [p for p in idprops if p in post_json.keys()]
+						if len(idprops_in_sheet) > 1:
+							print('ERROR: {} ROW {}: {} identifying properties found, only 1 allowed'.format(schema.upper(), row_count, str(len(idprops_in_sheet))))
+						else:
+							existing_json = lattice.get_object(temp['uuid'], connection, frame="edit")
+							for k in post_json.keys():
+								if k not in idprops:
+									if k not in existing_json.keys():
+										print('ERROR: {} ROW {}: Cannot remove {}, may be calculated property, or is not submitted'.format(schema.upper(), row_count, k))
+									else:
+										existing_json.pop(k)
+										print('{} ROW {}:Removing value: {}'.format(schema.upper(), row_count, k))
 						if args.update:
 							e = lattice.replace_object(temp['uuid'], connection, existing_json)
 							if e['status'] == 'error':
@@ -635,33 +633,36 @@ def main():
 								print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
 									'accession', new_patched_object.get('uuid')))))
 								patch += 1
-
-					elif patch_req == True and args.update:
-						e = lattice.patch_object(temp['uuid'], connection, post_json)
-						if e['status'] == 'error':
-							error += 1
-						elif e['status'] == 'success':
-							new_patched_object = e['@graph'][0]
-							print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
-								'accession', new_patched_object.get('uuid')))))
-							patch += 1
-
-				else: # we have new object to post
-					if args.patchall:
-						print(schema.upper() + ' ROW ' + str(row_count) + ':Object not found. Check identifier or consider removing --patchall to post a new object')
+					elif args.patchall:
+						if args.update:
+							e = lattice.patch_object(temp['uuid'], connection, post_json)
+							if e['status'] == 'error':
+								error += 1
+							elif e['status'] == 'success':
+								new_patched_object = e['@graph'][0]
+								print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
+									'accession', new_patched_object.get('uuid')))))
+								patch += 1
+					else:
+						print('ERROR: {} ROW {}: Object {} already exists.'.format(schema.upper(), row_count, temp_id))
 						error += 1
-					elif args.update:
-						print(schema.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
-						e = lattice.post_object(schema, connection, post_json)
-						if e['status'] == 'error':
-							error += 1
-							obj_failed.append(schema.upper() + ' ROW ' + str(row_count) + ':' + post_json.get(
-								'aliases', ['alias not specified'])[0])
-						elif e['status'] == 'success':
-							new_object = e['@graph'][0]
-							print(schema.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
-								'accession', new_object.get('uuid')))))
-							success += 1
+				else: # there is no existing object found
+					if args.remove or args.patchall:
+						print('ERROR: {} ROW {}: Object does not exist.'.format(schema.upper(), row_count))
+						error += 1
+					else: # post new object
+						if args.update:
+							print(schema.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
+							e = lattice.post_object(schema, connection, post_json)
+							if e['status'] == 'error':
+								error += 1
+								obj_failed.append(schema.upper() + ' ROW ' + str(row_count) + ':' + post_json.get(
+									'aliases', ['alias not specified'])[0])
+							elif e['status'] == 'success':
+								new_object = e['@graph'][0]
+								print(schema.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
+									'accession', new_object.get('uuid')))))
+								success += 1
 
 			# Print now and later
 			print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
@@ -679,7 +680,6 @@ def main():
 		print('-------Summary of failed objects-------')
 		for a in failed_postings:
 			print(a)
-
 	print('-------Summary of all objects-------')
 	print('\n'.join(summary_report))
 
