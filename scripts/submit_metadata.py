@@ -576,14 +576,14 @@ def main():
 	else:
 		patch_req = False
 
+	failed_postings = []
 	for schema in load_order:
 		if all_posts.get(schema):
 			total = 0
 			error = 0
 			success = 0
 			patch = 0
-			new_accessions_aliases = []
-			failed_postings = []
+			obj_failed = []
 			for row_count, post_json in all_posts[schema]:
 				total += 1
 
@@ -632,7 +632,6 @@ def main():
 								error += 1
 							elif e['status'] == 'success':
 								new_patched_object = e['@graph'][0]
-								# Print now and later
 								print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
 									'accession', new_patched_object.get('uuid')))))
 								patch += 1
@@ -643,7 +642,6 @@ def main():
 							error += 1
 						elif e['status'] == 'success':
 							new_patched_object = e['@graph'][0]
-							# Print now and later
 							print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
 								'accession', new_patched_object.get('uuid')))))
 							patch += 1
@@ -657,16 +655,12 @@ def main():
 						e = lattice.post_object(schema, connection, post_json)
 						if e['status'] == 'error':
 							error += 1
-							failed_postings.append(schema.upper() + ' ROW ' + str(row_count) + ':' + str(post_json.get(
-								'aliases', 'alias not specified')))
+							obj_failed.append(schema.upper() + ' ROW ' + str(row_count) + ':' + post_json.get(
+								'aliases', ['alias not specified'])[0])
 						elif e['status'] == 'success':
 							new_object = e['@graph'][0]
-							# Print now and later
 							print(schema.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
 								'accession', new_object.get('uuid')))))
-							#NEEDED - CAN WE DITCH THIS
-							new_accessions_aliases.append(('ROW ' + str(row_count), new_object.get(
-								'accession', new_object.get('uuid')), new_object.get('aliases', new_object.get('name'))))
 							success += 1
 
 			# Print now and later
@@ -674,18 +668,17 @@ def main():
 				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
 			summary_report.append('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
 				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-			if new_accessions_aliases: #NEEDED - CAN WE DITCH THIS
-				print('New accessions/UUIDs and aliases:')
-				for (row, accession, alias) in new_accessions_aliases:
-					if alias == None:
-						alias = 'alias not specified'
-					else:
-						alias = ', '.join(alias) if isinstance(alias, list) else alias
-					print(row, accession, alias)
-			if failed_postings:
-				print('Posting failed for {} object(s):'.format(len(failed_postings)))
-				for alias in failed_postings:
-					print(', '.join(alias) if isinstance(alias, list) else alias)
+
+			if obj_failed:
+				print('Posting failed for {} object(s):'.format(len(obj_failed)))
+				for a in obj_failed:
+					print(a)
+				failed_postings.extend(obj_failed)
+
+	if failed_postings:
+		print('-------Summary of failed objects-------')
+		for a in failed_postings:
+			print(a)
 
 	print('-------Summary of all objects-------')
 	print('\n'.join(summary_report))
