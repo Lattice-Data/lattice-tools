@@ -8,11 +8,11 @@ This is a dryrun-default script, run with `--update` to enable patch and post
 
 Defining object types
 ----------------
-Name each tab of the Google sheet the name of the object type you are using with the format used in [loadxl.py ORDER] (https://github.com/Lattice-Data/encoded/blob/dev/src/encoded/loadxl.py#L15). This is also the format in the url when viewing schema on the portal (ex: https://www.lattice-data.org/profiles/human_postnatal_donor)
+Name each tab of the Google sheet the name of the object type you are using with the format used in [loadxl.py ORDER]. This is also the format in the url when viewing schema on the portal (ex: https://www.lattice-data.org/profiles/human_postnatal_donor)
 
 Any tab that is not named after a valid schema type will be ignored.
 
-The objects will be loaded in the order specified in [loadxl.py ORDER] (https://github.com/Lattice-Data/encoded/blob/dev/src/encoded/loadxl.py#L15)
+The objects will be loaded in the order specified in [loadxl.py ORDER].
 
 Use the `--justtype` argument to only submit one of the object types, even if your file contains more sheets. Example:
 ```
@@ -100,3 +100,5 @@ layers-2.label
 layers-2.filtering_cutoffs-1.cutoff_value
 layers-2.filtering_cutoffs-1.cutoff_units
 ```
+
+[loadxl.py ORDER]: https://github.com/Lattice-Data/encoded/blob/dev/src/encoded/loadxl.py#L15
