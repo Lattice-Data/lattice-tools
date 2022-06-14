@@ -47,11 +47,11 @@ The first column should be an identifying property. The other column(s) should b
 
 Ontology terms
 ----------------
-In most cases, a file does not need a separate OntologyTerm sheet. Instead, the field in other object that linkTo:OntologyTerm can be split into 2 fields: <property>.term_name and <property>.term_id. The submission script will pair these together and submit the corresponding OntologyTerm, if it is not already in the DB. If it is in the DB, it will confirm that term_name, etc. from the sheet match the DB metadata, and error if there is any mismatch.
+In most cases, a file does not need a separate ontology_term sheet. Instead, the field in other object that linkTo:OntologyTerm can be split into 2 fields: <property>.term_name and <property>.term_id. The submission script will pair these together and submit the corresponding OntologyTerm, if it is not already in the DB. If it is in the DB, it will confirm that the term_name from the sheet match the DB metadata, and error if there is any mismatch. The submission is forgiving and will allow for `:` or `_` delimiter in the term_id.
 
 For example, instead of a column for `biosample_ontology` with values that linkTo OntologyTerm (UBERON_0002113, CL_0000057), you can submit 2 columns `biosample_ontology.term_id` (UBERON:0002113, CL:0000057) and `biosample_ontology.term_name` (kidney, fibroblast).
 
-The above will not work for arrays of linkTo:OntologyTerm, like `diseases`. For that, a column labeled `diseases` is expected and the values need to be comma-separated in the format to identify the OntologyTerm object to linkTo (MONDO_0005015, MONDO_0005565)
+The above will not work for arrays of linkTo:OntologyTerm, like `diseases`. For that, a column labeled `diseases` is expected and the values need to be comma-separated in the format to identify the OntologyTerm object to linkTo (MONDO_0005015, MONDO_0005565) and any terms not already represented in the DB will need to be defined on an ontology_term sheet. The submission is forgiving and will allow for `:` or `_` delimiter in the term_id.
 
 Embedded objects
 ----------------
