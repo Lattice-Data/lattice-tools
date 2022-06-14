@@ -229,15 +229,6 @@ def properties_validator(keys, schema_name, schema, remove, patchall):
 	return flag, prop_types, linkTos
 
 
-def booleanify(s):
-	if str(s).lower() in ['true', '1']:
-		return True
-	elif str(s).lower() in ['false', '0']:
-		return False
-	else:
-		return s
-
-
 def dict_patcher(old_dict, schema_properties):
 	new_dict = {}
 	array_o_objs_dict = {}
@@ -247,7 +238,12 @@ def dict_patcher(old_dict, schema_properties):
 		if len(path) == 1:
 			if schema_properties[key].get('linkTo') == 'OntologyTerm' or \
 				(schema_properties[key].get('items') and schema_properties[key]['items'].get('linkTo') == 'OntologyTerm'):
-				value = value.replace(':','_')
+				if isinstance(value, list):
+					value = [unquote(v).replace(':','_') for v in value]
+				else:
+					value = value.replace(':','_')
+			elif key == 'term_id':
+				value = value.replace('_',':')
 			new_dict[key] = value
 		elif len(path) == 2: # embedded object, need to build the mini dictionary to put this in
 			if '-' in path[0]: # this has a number next to it and we expect an array of objects
@@ -424,6 +420,25 @@ def get_tab_ids(soup):
 	return tab_ids
 
 
+def booleanify(s):
+	if str(s).lower() in ['true', '1']:
+		return True
+	elif str(s).lower() in ['false', '0']:
+		return False
+	else:
+		return s
+
+
+def stringify(s):
+	s = str(s).strip()
+	if s.lower() == 'true':
+		return 'True'
+	elif s.lower() == 'false':
+		return 'False'
+	else:
+		return s
+
+
 def set_value_types(df, prop_types, linkTos):
 	for c in list(df.columns):
 		val_type = prop_types[c]
@@ -431,7 +446,7 @@ def set_value_types(df, prop_types, linkTos):
 			if c in linkTos:
 				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else quote(str(x[c]).strip()), axis=1)
 			else:
-				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else str(x[c]).strip(), axis=1)
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else stringify(x[c]), axis=1)
 		elif val_type == 'ontology.term_id':
 			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else str(x[c]).replace('_',':'), axis=1)
 		elif val_type == 'array':
@@ -533,6 +548,10 @@ def main():
 		g_url = f'https://docs.google.com/spreadsheets/d/{args.sheet_id}/export?gid={g_id}&format=csv'
 		df = pd.read_csv(g_url)
 
+		#remove columns that are all NaNs
+		if not args.remove:
+			df = df.dropna(how='all',axis='columns')
+
 		#get rid of rows that start with "#"
 		df = df[(df.iloc[:,0].str.startswith('#') == False) | (df.iloc[:,0].isna())]
 
@@ -540,7 +559,7 @@ def main():
 		drop = [h for h in df.columns if h.startswith('#')]
 		df = df.drop(columns=drop)
 
-		#remove columns that are all NaNs
+		#remove columns that are all NaNs now that possible notes have been cleared
 		if not args.remove:
 			df = df.dropna(how='all',axis='columns')
 
@@ -574,7 +593,9 @@ def main():
 			if not args.remove:
 				post_json, post_ont = dict_patcher(post_json, schema['properties'])
 				for k, v in post_ont.items():
-					all_posts.setdefault('ontology_term', []).append((schema_to_load + '.' + k, v))
+					if 'ontology_term_' + schema_to_load not in load_order:
+						load_order.insert(0, 'ontology_term_' + schema_to_load)
+					all_posts.setdefault('ontology_term_' + schema_to_load, []).append(('', v))
 
 				# add attchments here
 				if post_json.get('attachment'):
@@ -586,14 +607,16 @@ def main():
 		all_posts[schema_to_load] = obj_posts
 
 	failed_postings = []
-	for schema in load_order:
-		if all_posts.get(schema):
+	idprops = ['uuid', 'accession', 'aliases', '@id']
+	for schema_to_report in load_order:
+		schema = 'ontology_term' if schema_to_report.startswith('ontology_term_') else schema_to_report
+		if all_posts.get(schema_to_report):
 			total = 0
 			error = 0
 			success = 0
 			patch = 0
 			obj_failed = []
-			for row_count, post_json in all_posts[schema]:
+			for row_count, post_json in all_posts[schema_to_report]:
 				total += 1
 
 				#check for an existing object based on any possible identifier
@@ -601,74 +624,91 @@ def main():
 				temp_id = unquote(temp_id)
 
 				if temp.get('uuid'): # if there is an existing corresponding object
-					if schema == 'ontology_term' and schema not in tabs: #NEEDED - IS THIS A VALID METHOD (SCHEMA NOT IN TABS)
-						if post_json.get('term_name') != temp.get('term_name'):
-							print('ERROR: {}: term_name {} of {} does not match existing {}'.format(row_count, post_json.get('term_name'), post_json['term_id'], temp.get('term_name')))
-							sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-								sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-						elif args.remove: #NEEDED - SHOULD WE ALLOW PATCHALL IN THIS CASE, USE CASE: PATCH TISSUE TO DIFF UBERON, UBERON NEEDS SUBMITTING FIRST
-							print('ERROR: {}: cannot remove OntologyTerms indirectly'.format(row_count))
-							sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-								sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
 					if args.remove:
-						idprops = ['uuid', 'accession', 'aliases', '@id']
-						idprops_in_sheet = [p for p in idprops if p in post_json.keys()]
-						if len(idprops_in_sheet) > 1:
-							print('ERROR: {} ROW {}: {} identifying properties found, only 1 allowed'.format(schema.upper(), row_count, str(len(idprops_in_sheet))))
+						if schema_to_report.startswith('ontology_term_'): #the secondary ontology_terms should be ignored for remove
+							total -= 1
 						else:
 							existing_json = lattice.get_object(temp['uuid'], connection, frame="edit")
 							for k in post_json.keys():
-								if k not in idprops:
-									if k not in existing_json.keys():
-										print('ERROR: {} ROW {}: Cannot remove {}, may be calculated property, or is not submitted'.format(schema.upper(), row_count, k))
-									else:
-										existing_json.pop(k)
-										print('{} ROW {}:Removing value: {}'.format(schema.upper(), row_count, k))
-						if args.update:
-							e = lattice.replace_object(temp['uuid'], connection, existing_json)
-							if e['status'] == 'error':
-								error += 1
-							elif e['status'] == 'success':
-								new_patched_object = e['@graph'][0]
-								print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
-									'accession', new_patched_object.get('uuid')))))
-								patch += 1
+								if k not in existing_json.keys():
+									print('ERROR: {} ROW {}: Cannot remove {}, may be calculated property, or is not submitted'.format(schema_to_report.upper(), row_count, k))
+								elif k not in idprops:
+									existing_json.pop(k)
+									print('{} ROW {}:Removing value: {}'.format(schema_to_report.upper(), row_count, k))
+							if args.update:
+								e = lattice.replace_object(temp['uuid'], connection, existing_json)
+								if e['status'] == 'error':
+									error += 1
+								elif e['status'] == 'success':
+									new_patched_object = e['@graph'][0]
+									print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
+										'accession', new_patched_object.get('uuid')))))
+									patch += 1
 					elif args.patchall:
-						if args.update:
+						if schema_to_report.startswith('ontology_term_'):
+							if post_json.get('term_name') and post_json['term_name'] != temp['term_name']:
+								print('ERROR: {}: sumbission term_name {} of {} does not match existing term_name {}'.format(schema_to_report.upper(), post_json['term_name'], post_json['term_id'], temp['term_name']))
+								error += 1
+							else: #secondary ontology_terms that exist can be ignored if the term_name matches existing object
+								total -= 1
+						elif args.update:
 							e = lattice.patch_object(temp['uuid'], connection, post_json)
 							if e['status'] == 'error':
 								error += 1
 							elif e['status'] == 'success':
 								new_patched_object = e['@graph'][0]
-								print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
+								print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
 									'accession', new_patched_object.get('uuid')))))
 								patch += 1
+					elif schema_to_report.startswith('ontology_term_'):
+						if post_json.get('term_name') and post_json['term_name'] != temp['term_name']:
+							print('ERROR: {}: sumbission term_name {} of {} does not match existing term_name {}'.format(schema_to_report.upper(), post_json['term_name'], post_json['term_id'], temp['term_name']))
+							error += 1
+						else: #secondary ontology_terms that exist can be ignored if the term_name matches existing object
+							total -= 1
 					else:
-						print('ERROR: {} ROW {}: Object {} already exists.'.format(schema.upper(), row_count, temp_id))
+						print('ERROR: {} ROW {}: Object {} already exists.'.format(schema_to_report.upper(), row_count, temp_id))
 						error += 1
+
 				else: # there is no existing object found
-					if args.remove or args.patchall:
-						print('ERROR: {} ROW {}: Object does not exist.'.format(schema.upper(), row_count))
+					if args.remove:
+						print('ERROR: {} ROW {}: Object does not exist.'.format(schema_to_report.upper(), row_count))
 						error += 1
+					elif args.patchall:
+						if schema_to_report.startswith('ontology_term_'): #possible we need to post new ontology_terms to patch existing objects
+							if args.update:
+								print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
+								e = lattice.post_object(schema, connection, post_json)
+								if e['status'] == 'error':
+									error += 1
+									obj_failed.append(schema_to_report.upper() + ' ROW ' + str(row_count) + ':' + 'term_id')
+								elif e['status'] == 'success':
+									new_object = e['@graph'][0]
+									print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
+										'accession', new_object.get('uuid')))))
+									success += 1
+						else:
+							print('ERROR: {} ROW {}: Object does not exist.'.format(schema_to_report.upper(), row_count))
+							error += 1
 					else: # post new object
 						if args.update:
-							print(schema.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
+							print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
 							e = lattice.post_object(schema, connection, post_json)
 							if e['status'] == 'error':
 								error += 1
-								obj_failed.append(schema.upper() + ' ROW ' + str(row_count) + ':' + post_json.get(
+								obj_failed.append(schema_to_report.upper() + ' ROW ' + str(row_count) + ':' + post_json.get(
 									'aliases', ['alias not specified'])[0])
 							elif e['status'] == 'success':
 								new_object = e['@graph'][0]
-								print(schema.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
+								print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
 									'accession', new_object.get('uuid')))))
 								success += 1
 
-			# Print now and later
-			print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-			summary_report.append('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
+			if total > 0:
+				print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
+					sheet=schema_to_report.upper(), success=success, total=total, error=error, patch=patch))
+				summary_report.append('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
+					sheet=schema_to_report.upper(), success=success, total=total, error=error, patch=patch))
 
 			if obj_failed:
 				print('Posting failed for {} object(s):'.format(len(obj_failed)))
