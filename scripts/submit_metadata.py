@@ -607,7 +607,7 @@ def main():
 		all_posts[schema_to_load] = obj_posts
 
 	failed_postings = []
-	idprops = ['uuid', 'accession', 'aliases', '@id']
+	idprops = ['uuid', 'accession', 'aliases', 'term_id', 'name']
 	for schema_to_report in load_order:
 		schema = 'ontology_term' if schema_to_report.startswith('ontology_term_') else schema_to_report
 		if all_posts.get(schema_to_report):
