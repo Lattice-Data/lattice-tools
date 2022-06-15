@@ -8,50 +8,46 @@ This is a dryrun-default script, run with `--update` to enable patch and post
 
 Defining object types
 ----------------
-Name each tab of the Google sheet the name of the object type you are using with the format used in [loadxl.py ORDER]. This is also the format in the url when viewing schema on the portal (ex: https://www.lattice-data.org/profiles/human_postnatal_donor)
-
-Any tab that is not named after a valid schema type will be ignored.
+Name each tab of the Google sheet the name of the object type you are using with the format used in [loadxl.py ORDER]. This is also the format in the url when viewing schema on the portal (ex: https://www.lattice-data.org/profiles/human_postnatal_donor). Any tab that is not named after a valid schema type will be ignored.
 
 The objects will be loaded in the order specified in [loadxl.py ORDER].
 
-Use the `--justtype` argument to only submit one of the object types, even if your file contains more sheets. Example:
+Use the `--justtype` argument to only submit one of the object types, even if your file contains more valid tabs. Example:
 ```
-python submit_metadata.py -m local mydata.xsls --justtype Experiment
+python submit_metadata.py -m <sheet_id> --justtype raw_sequence_file
 ```
 
-Use the `--starttype` argument to start at an object type and only submit the sequential objects
+Use the `--starttype` argument to start at an object type and only submit the sequential objects.
 
 Spreadsheet formatting
 ----------------
 The top row of each sheet should be the names of the fields specified in the schema. The validity of these fields will be check during a "dry-run" (i.e. if `--update` is not used)
 
-Any row, except for row 1, with the first value (column A) beginning with `#` and any column with the first value (row 1) beginning with `#` will be ignored. This is useful if you want rows with property descriptors (e.g. description, enum, linkTo) or columns with additional notes, annotations, etc.
+Any row, except for row 1, with the first value (column A) beginning with `#` and any column with the header value (row 1) beginning with `#` will be ignored. This is useful if you want rows with property descriptors (e.g. description, enum, linkTo) or columns with additional notes, annotations, etc.
 
-Objects with attachments (not tested)
+Objects with attachments
 ----------------
 To upload objects with attachments (**Documents**), have a column titled `attachment` containing the path and name of the file you wish to attach
 
 Patch existing objects
 ----------------
-If there is an idenitifying property (e.g. `uuid`, `alias`, `accession`, `name`, or `term_id`) in the sheet, and an existing object is found using that identifier, it will ask if you want to patch that object.
+To change or add metadata to existing objects, the sheet must include an identifying property (e.g. `uuid`, `alias`, `accession`, `name`, or `term_id`) and `--patchall` must be passed in order to idnetify the object to update.
 
-Use `--patchall` if you want to patch ALL objects in your document and ignore that message.
-
-It is advised to not try to post new objects and patch existing objects, in the same run, but rather split those into separate tasks.
+Posting new objects and patching existing objects must be split into separate tasks. If `--patchall` is not used and existing objects are found to conflict based on identifying properties, an error will be reported.
 
 Removing properties of existing objects
 ----------------
-Use `--patchall`, as described above for editing existing objects. Add `--remove` to signal that you do not want to update any values, only remove them.
+To remove values from existing objects, rather than updating them, use `--remove`. The first column in the sheet should be an identifying property. The other column(s) should be labeled with the property you wish to remove. It does not matter if values are filled in those columns, they will be ignored.
 
-The first column should be an identifying property. The other column(s) should be labeled with the property you wish to remove. It does not matter if values are filled in those columns, they will be ignored.
+If a default value is set in the schema for a given property, removing that property will reset it to the default value.
 
 Ontology terms
 ----------------
-In most cases, a file does not need a separate ontology_term sheet. Instead, the field in other object that linkTo:OntologyTerm can be split into 2 fields: <property>.term_name and <property>.term_id. The submission script will pair these together and submit the corresponding OntologyTerm, if it is not already in the DB. If it is in the DB, it will confirm that the term_name from the sheet match the DB metadata, and error if there is any mismatch. The submission is forgiving and will allow for `:` or `_` delimiter in the term_id.
+In most cases, a sheet does not need a separate ontology_term tab. Instead, the field in other objects that linkTo:OntologyTerm can be split into 2 fields: `<property>.term_name` and `<property>.term_id`. The submission script will pair these together and submit the corresponding OntologyTerm if it is not already in the DB. If it is in the DB, it will confirm that the `term_name` from the sheet match the DB metadata, and error if there is any mismatch. The submission is forgiving and will allow for `:` or `_` delimiter in the term_id.
 
 For example, instead of a column for `biosample_ontology` with values that linkTo OntologyTerm (UBERON_0002113, CL_0000057), you can submit 2 columns `biosample_ontology.term_id` (UBERON:0002113, CL:0000057) and `biosample_ontology.term_name` (kidney, fibroblast).
 
-The above will not work for arrays of linkTo:OntologyTerm, like `diseases`. For that, a column labeled `diseases` is expected and the values need to be comma-separated in the format to identify the OntologyTerm object to linkTo (MONDO_0005015, MONDO_0005565) and any terms not already represented in the DB will need to be defined on an ontology_term sheet. The submission is forgiving and will allow for `:` or `_` delimiter in the term_id.
+The above will not work for arrays of linkTo:OntologyTerm, like `diseases`. For that, a column labeled `diseases` is expected and the values need to be comma-separated in the format to identify the OntologyTerm object to linkTo (MONDO_0005015, MONDO_0005565) and any terms not already represented in the DB will need to be defined on an ontology_term tab. The submission is forgiving and will allow for `:` or `_` delimiter in the term_id.
 
 Embedded objects
 ----------------
@@ -84,7 +80,7 @@ If you are submitting multiple dictionary objects...
 	}
 ]
 ```
-An identifier (number or letter) should be appended to the property names w/ '-' in order to group them appropriately...
+An identifier (number or letter) should be appended to the property names with '-' in order to group them appropriately...
 | plate_barcode_details-1.barcode | plate_barcode_details-1.plate_location | plate_barcode_details-2.barcode | plate_barcode_details-2.plate_location |
 |:--|:--|:--|:--|
 | ATGCCGCCG| A1 | TGAAACGAC | A2 |
