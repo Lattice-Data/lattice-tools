@@ -338,7 +338,8 @@ def process_h5matrix_file(job):
     logging.info('Getting h5 matrix metadata')
     feature_type_mapping = {
         'Gene Expression': 'gene',
-        'Peaks': 'peak'
+        'Peaks': 'peak',
+        'Antibody Capture': 'antibody capture',
     }
 
     item = job['item']
