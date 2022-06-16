@@ -100,7 +100,6 @@ priorityFields = {
 			'genetic_modifications',
 			'source',
 			'product_id',
-			'lot_id',
 			'dbxrefs'
 		],
 		'preferred': [
@@ -112,7 +111,6 @@ priorityFields = {
 			'genetic_modifications',
 			'source',
 			'product_id',
-			'lot_id',
 			'dbxrefs'
 		]
 	},
