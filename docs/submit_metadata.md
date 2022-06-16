@@ -14,7 +14,7 @@ The objects will be loaded in the order specified in [loadxl.py ORDER].
 
 Use the `--justtype` argument to only submit one of the object types, even if your file contains more valid tabs. Example:
 ```
-python submit_metadata.py -m <sheet_id> --justtype raw_sequence_file
+python submit_metadata.py -m local <sheet_id> --justtype raw_sequence_file
 ```
 
 Use the `--starttype` argument to start at an object type and only submit the sequential objects.
