@@ -111,114 +111,121 @@ def report_schema_error(prop, schema):
 	print('ERROR: Property "{}" not found in schema {}'.format(prop, schema))
 
 
-def properties_validator(keys, schema_name, schema, remove, patchall):
+def properties_validator(keys, schema_name, schema, dup_cols, remove, patchall):
 	flag = False
 	prop_types = {}
-	dup_keys = []
+	dup_keys = {}
 	base_props = []
 	linkTos = []
 	ont_props = ['term_name','term_id']
 	schema_properties = schema['properties']
 
 	for key in keys:
-		if keys.count(key) >1 and key not in dup_keys: # check for duplicated headers
-			print('Property {} found {} times in {} sheet headers'.format(key, keys.count(key), schema_name))
-			dup_keys.append(key)
-			flag = True
 		props = key.split('.')
-		propA = props[0].split('-')[0]
-		base_props.append(propA)
-		if propA not in schema_properties.keys():
-			report_schema_error(propA, schema_name)
-			flag = True
-		elif len(props) == 1:
-			immediate_schema = schema_properties[propA]
-			prop_types[key] = immediate_schema['type']
-			if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
-				linkTos.append(key)
-		elif len(props) > 1:
-			propB = props[1].split('-')[0]
-			if schema_properties[propA]['type'] == 'array':
-				if propB not in schema_properties[propA]['items']['properties'].keys():
-					report_schema_error(propB, schema_name + '.' + propA)
-					flag = True
-				elif len(props) == 2:
-					immediate_schema = schema_properties[propA]['items']['properties'][propB]
-					prop_types[key] = immediate_schema['type']
-					if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
-						linkTos.append(key)
-				elif len(props) > 2:
-					propC = props[2].split('-')[0]
-					if schema_properties[propA]['items']['properties'][propB]['type'] == 'array':
-						if propC not in schema_properties[propA]['items']['properties'][propB]['items']['properties'].keys():
-							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
-							flag = True
-						else:
-							immediate_schema = schema_properties[propA]['items']['properties'][propB]['items']['properties'][propC]
-							prop_types[key] = immediate_schema['type']
-							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
-								linkTos.append(key)
-					elif schema_properties[propA]['items']['properties'][propB]['type'] == 'object':
-						if propC not in schema_properties[propA]['items']['properties'][propB]['properties'].keys():
-							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
-							flag = True
-						else:
-							immediate_schema = schema_properties[propA]['items']['properties'][propB]['properties'][propC]
-							prop_types[key] = immediate_schema['type']
-							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
-								linkTos.append(key)
-					elif schema_properties[propA]['items']['properties'][propB].get('linkTo') == "OntologyTerm":
-						if propC not in ont_props:
-							report_schema_error(propC, 'OntologyTerm via ' + schema_name + '.' + propA + '.' + propB)
-							flag = True
-						elif propC == 'term_id':
-							prop_types[key] = 'ontology.term_id' #DO WE NEED LINKTOS HERE?
-						else:
-							prop_types[key] = 'string' #because term_name is strings #DO WE NEED LINKTOS HERE?
-					else:
-						print('Not expecting subproperties for property {}.{} in schema {} ({} given) '.format(propA, propB, schema_name, propC))
-						flag = True
-			elif schema_properties[propA]['type'] == 'object':
-				if propB not in schema_properties[propA]['properties'].keys() and schema_properties[propA].get('additionalProperties') != True:
-					report_schema_error(propB, schema_name + '.' + propA)
-					flag = True
-				elif len(props) == 2:
-					immediate_schema = schema_properties[propA]['properties'][propB]
-					prop_types[key] = immediate_schema['type']
-					if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
-						linkTos.append(key)
-				elif len(props) > 2:
-					propC = props[2].split('-')[0]
-					if schema_properties[propA]['properties'][propB]['type'] == 'array':
-						if propC not in schema_properties[propA]['properties'][propB]['items']['properties'].keys():
-							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
-							flag = True
-						else:
-							immediate_schema = schema_properties[propA]['properties'][propB]['items']['properties'][propC]
-							prop_types[key] = immediate_schema['type']
-							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
-								linkTos.append(key)
-					elif schema_properties[propA]['properties'][propB]['type'] == 'object':
-						if propC not in schema_properties[propA]['properties'][propB]['properties'].keys():
-							report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
-							flag = True
-						else:
-							immediate_schema = schema_properties[propA]['properties'][propB]['properties'][propC]
-							prop_types[key] = immediate_schema['type']
-							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
-								linkTos.append(key)
-					else:
-						print('Not expecting subproperties for property {} in schema {}.{} ({} given) '.format(probB, schema_name, propA, propC))
-						flag = True
-			elif schema_properties[propA].get('linkTo') == "OntologyTerm":
-				if propB not in ont_props:
-					report_schema_error(propB, 'OntologyTerm via ' + schema_name + '.' + propA)
-					flag = True
-				else:
-					prop_types[key] = 'string' #because term_id and term_name are both strings #DO WE NEED LINKTOS HERE?
-			else:
-				print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema_name, propB))
+		if '.'.join(props[:-1]) in dup_keys and props[-1] == str(dup_keys['.'.join(props[:-1])]):
+			flag = True #this is the second or more instance of a duplicated header
+			dup_keys['.'.join(props[:-1])] += 1
+		else:
+			if key in dup_cols: # check for duplicated headers
+				print('Property {} found multiple times in {} sheet headers'.format(key, schema_name))
+				dup_keys[key] = 1
 				flag = True
+			propA = props[0].split('-')[0]
+			base_props.append(propA)
+			if propA not in schema_properties.keys():
+				report_schema_error(propA, schema_name)
+				flag = True
+			elif len(props) == 1:
+				immediate_schema = schema_properties[propA]
+				prop_types[key] = immediate_schema['type']
+				if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+					linkTos.append(key)
+			elif len(props) > 1:
+				propB = props[1].split('-')[0]
+				if schema_properties[propA]['type'] == 'array':
+					if propB not in schema_properties[propA]['items']['properties'].keys():
+						report_schema_error(propB, schema_name + '.' + propA)
+						flag = True
+					elif len(props) == 2:
+						immediate_schema = schema_properties[propA]['items']['properties'][propB]
+						prop_types[key] = immediate_schema['type']
+						if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+							linkTos.append(key)
+					elif len(props) > 2:
+						propC = props[2].split('-')[0]
+						if schema_properties[propA]['items']['properties'][propB]['type'] == 'array':
+							if propC not in schema_properties[propA]['items']['properties'][propB]['items']['properties'].keys():
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
+								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['items']['properties'][propB]['items']['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
+						elif schema_properties[propA]['items']['properties'][propB]['type'] == 'object':
+							if propC not in schema_properties[propA]['items']['properties'][propB]['properties'].keys():
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
+								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['items']['properties'][propB]['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
+						elif schema_properties[propA]['items']['properties'][propB].get('linkTo') == "OntologyTerm":
+							if propC not in ont_props:
+								report_schema_error(propC, 'OntologyTerm via ' + schema_name + '.' + propA + '.' + propB)
+								flag = True
+							elif propC == 'term_id':
+								prop_types[key] = 'ontology.term_id' #DO WE NEED LINKTOS HERE?
+							else:
+								prop_types[key] = 'string' #because term_name is strings #DO WE NEED LINKTOS HERE?
+						else:
+							print('Not expecting subproperties for property {}.{} in schema {} ({} given) '.format(propA, propB, schema_name, propC))
+							flag = True
+				elif schema_properties[propA]['type'] == 'object':
+					if propB not in schema_properties[propA]['properties'].keys() and schema_properties[propA].get('additionalProperties') != True:
+						report_schema_error(propB, schema_name + '.' + propA)
+						flag = True
+					elif len(props) == 2:
+						if propB in schema_properties[propA]['properties'].keys():
+							immediate_schema = schema_properties[propA]['properties'][propB]
+							prop_types[key] = immediate_schema['type']
+							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+								linkTos.append(key)
+						elif schema_properties[propA].get('additionalProperties') == True:
+							prop_types[key] = 'string'
+					elif len(props) > 2:
+						propC = props[2].split('-')[0]
+						if schema_properties[propA]['properties'][propB]['type'] == 'array':
+							if propC not in schema_properties[propA]['properties'][propB]['items']['properties'].keys():
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
+								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['properties'][propB]['items']['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
+						elif schema_properties[propA]['properties'][propB]['type'] == 'object':
+							if propC not in schema_properties[propA]['properties'][propB]['properties'].keys():
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
+								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['properties'][propB]['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
+						else:
+							print('Not expecting subproperties for property {} in schema {}.{} ({} given) '.format(propB, schema_name, propA, propC))
+							flag = True
+				elif schema_properties[propA].get('linkTo') == "OntologyTerm":
+					if propB not in ont_props:
+						report_schema_error(propB, 'OntologyTerm via ' + schema_name + '.' + propA)
+						flag = True
+					else:
+						prop_types[key] = 'string' #because term_id and term_name are both strings #DO WE NEED LINKTOS HERE?
+				else:
+					print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema_name, propB))
+					flag = True
 
 	if not remove and not patchall:
 		req_missing = [p for p in schema['required'] if p not in base_props]
@@ -241,7 +248,7 @@ def dict_patcher(old_dict, schema_properties):
 				if isinstance(value, list):
 					value = [unquote(v).replace(':','_') for v in value]
 				else:
-					value = value.replace(':','_')
+					value = unquote(value).replace(':','_')
 			elif key == 'term_id':
 				value = value.replace('_',':')
 			new_dict[key] = value
@@ -568,11 +575,17 @@ def main():
 			tabs.remove(schema_to_load)
 			continue
 
+		#check for duplicated headers
+		dup_cols = []
+		for k,v in pd.read_csv(g_url, header=None, nrows=1).iloc[0,:].value_counts().items():
+			if v > 1:
+				dup_cols.append(k)
+
 		headers = list(df.columns)
 		schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
 		schema = requests.get(schema_url).json()
 
-		invalid_flag, prop_types, linkTos = properties_validator(headers, schema_to_load, schema, args.remove, args.patchall)
+		invalid_flag, prop_types, linkTos = properties_validator(headers, schema_to_load, schema, dup_cols, args.remove, args.patchall)
 
 		if invalid_flag == True:
 			print('{}: invalid schema, check the headers'.format(schema_to_load))
