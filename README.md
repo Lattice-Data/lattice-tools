@@ -15,10 +15,13 @@ Environment configuration
 
 1. Install the following packages
     ```
-    pip install python-magic requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
+    pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
     ```
     ```
     pip install google-cloud-storage google-auth-httplib2
+    ```
+    ```
+    pip install python-magic-bin==0.4.14
     ```
     ```
     conda install -c conda-forge anndata
