@@ -1,10 +1,11 @@
 Running submit_metadata.py to post new object and patch existing objects to the Lattice DB
 ----------------
-To run this script, you should first set-up your environment according to the [lattice-tools instructions](../README.md)
+To run this script, you should first set-up your environment according to the [lattice-tools instructions](../README.md).
 
-This script takes in a Google Sheet identifier with the metadata
+This script takes in a Google Sheet identifier with the metadata.
+The Google Sheet permissions must be set to "Anyone with the link" is a "Viewer".
 
-This is a dryrun-default script, run with `--update` to enable patch and post
+This is a dryrun-default script, run with `--update` to enable patch and post.
 
 Defining object types
 ----------------
@@ -21,7 +22,7 @@ Use the `--starttype` argument to start at an object type and only submit the se
 
 Spreadsheet formatting
 ----------------
-The top row of each sheet should be the names of the fields specified in the schema. The validity of these fields will be check during a "dry-run" (i.e. if `--update` is not used)
+The top row of each sheet should be the names of the fields specified in the schema. The validity of these fields will be check during a "dry-run" (i.e. if `--update` is not used).
 
 Any row, except for row 1, with the first value (column A) beginning with `#` and any column with the header value (row 1) beginning with `#` will be ignored. This is useful if you want rows with property descriptors (e.g. description, enum, linkTo) or columns with additional notes, annotations, etc.
 
@@ -51,7 +52,7 @@ The above will not work for arrays of linkTo:OntologyTerm, like `diseases`. For 
 
 Embedded objects
 ----------------
-Embedded objects are assumed to be of the format of dictionary objects or a list of dictionary objects
+Embedded objects are assumed to be of the format of dictionary objects or a list of dictionary objects.
 
 If you are submitting just one dictionary object...
 ```
