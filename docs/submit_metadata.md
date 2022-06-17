@@ -2,7 +2,10 @@ Running submit_metadata.py to post new object and patch existing objects to the 
 ----------------
 To run this script, you should first set-up your environment according to the [lattice-tools instructions](../README.md).
 
-This script takes in a Google Sheet identifier with the metadata.
+This script takes the ID of a  Google Sheet containing the metadata.
+
+The ID is the string following "/d" in the Sheet URL. For example, the Sheet ID of `https://docs.google.com/spreadsheets/d/1HE-1WyjlvfgYB7wTaOypRNWgmXexCdVDLxdnWIATbD4/edit#gid=1594921577` is `1HE-1WyjlvfgYB7wTaOypRNWgmXexCdVDLxdnWIATbD4`
+
 The Google Sheet permissions must be set to "Anyone with the link" is a "Viewer".
 
 This is a dryrun-default script, run with `--update` to enable patch and post.

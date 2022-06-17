@@ -465,9 +465,9 @@ def set_value_types(df, prop_types, linkTos):
 		elif val_type == 'boolean':
 			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else booleanify(x[c]), axis=1)
 		elif val_type == 'integer':
-			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else int(x[c]), axis=1)
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else int(x[c].replace(',','')), axis=1)
 		elif val_type == 'number':
-			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else float(x[c]), axis=1)
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else float(x[c].replace(',','')), axis=1)
 
 
 def check_existing_obj(post_json, schema, connection):
