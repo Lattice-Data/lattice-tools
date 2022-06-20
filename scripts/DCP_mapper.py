@@ -949,29 +949,78 @@ def main():
 	links_dict = {}
 	files = [i for i in ds_obj['files']]
 	for f in files:
-		url = urljoin(server, f + '/?format=json')
-		temp_obj = requests.get(url, auth=connection.auth).json()
-		obj_type = temp_obj['@type'][0]
-		if obj_type == 'RawSequenceFile':
-			if temp_obj.get('validated') == False:
-				logging.info('{} has not been validated, will be excluded'.format(temp_obj['@id']))
-				not_valid.append(temp_obj['@id'])
-			else:
-				# convert each to DCP schema
-				get_object(temp_obj)
+	    url = urljoin(server, f + '/?format=json')
+	    temp_obj = requests.get(url, auth=connection.auth).json()
+	    obj_type = temp_obj['@type'][0]
+	    if obj_type == 'RawMatrixFile':
+	        if temp_obj.get('validated') == False:
+	            print('{} has not been validated, will be excluded'.format(temp_obj['@id']))
+	            not_valid.append(temp_obj['@id'])
+	        else:
+	            # convert each to DCP schema
+	            get_object(temp_obj)
 
-				# pull the derived_from to store for later formation to links
-				der_from = [i['@id'] for i in temp_obj['derived_from']]
-				get_links(temp_obj, tuple(der_from), links_dict)
+	            # pull the derived_from to store for later formation to links
+	            der_from = [i for i in temp_obj['derived_from']]
+	            get_links(temp_obj, tuple(der_from), links_dict)
+	if links_dict:
+	    #NEEDED - MAKE A FUNCTION, mx_to_susp(links_dict)
+	    links = []
+	    susp = []
+	    for k,v in links_dict.items():
+	        ins = []
+	        prots = [{'protocol_type': 'analysis_protocol', 'protocol_id': ''}] #NEEDED
+	        for a in k:
+	            if a.startswith('/raw-sequence-files/'):
+	                url = urljoin(server, a + '/?format=json')
+	                temp_obj = requests.get(url, auth=connection.auth).json()
+	                if temp_obj.get('validated') == False:
+	                    print('{} has not been validated, will be excluded'.format(temp_obj['@id']))
+	                    not_valid.append(temp_obj['@id'])
+	                else:
+	                    # convert each to DCP schema
+	                    get_object(temp_obj)
+	                    ins.append({'input_id': temp_obj['uuid'], 'input_type': 'NEEDED'})
+	                #NEEDED, NOW SEND RAWSEQFILES DOWN TO GET SUSPS
+	            elif a.startswith('/libraries'):
+	                print('NEED TO DETERMINE HOW TO GO TO SUSPS HERE')
+	                prots.append({'protocol_type': 'library_preparation_protocol', 'protocol_id': ''}) #NEEDED, LibProt uuid
+	                prots.append({'protocol_type': 'sequencing_protocol', 'protocol_id': ''}) #NEEDED
+	        l = {
+	            'inputs': ins,
+	            'outputs': v,
+	            'protocols': prots
+	        }
+	        link_hash = uuid_make(l)
+	        l['link_type'] = 'process_link',
+	        l['process_type'] = 'process',
+	        l['process_id'] = link_hash
+	        links.append(l)
+	else: #need to run through for RawSequenceFiles
+		for f in files:
+			url = urljoin(server, f + '/?format=json')
+			temp_obj = requests.get(url, auth=connection.auth).json()
+			obj_type = temp_obj['@type'][0]
+			if obj_type == 'RawSequenceFile':
+				if temp_obj.get('validated') == False:
+					logging.info('{} has not been validated, will be excluded'.format(temp_obj['@id']))
+					not_valid.append(temp_obj['@id'])
+				else:
+					# convert each to DCP schema
+					get_object(temp_obj)
 
+					# pull the derived_from to store for later formation to links
+					der_from = [i['@id'] for i in temp_obj['derived_from']]
+					get_links(temp_obj, tuple(der_from), links_dict)
+		# special walkback of graph until Suspension object
+		# gather all the Suspension objects to traverse next
+		# set up links between sequence_file and suspension as the start of each subgraph
+		logging.info('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
+		susps, links = seq_to_susp(links_dict)
+
+	#NEED, PROBABLY CHANGE TO NOT SUSPS OR NOT LINKS
 	if not links_dict:
-		sys.exit('No validated RawSequenceFiles associated with this dataset')
-
-	# special walkback of graph until Suspension object
-	# gather all the Suspension objects to traverse next
-	# set up links between sequence_file and suspension as the start of each subgraph
-	logging.info('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
-	susps, links = seq_to_susp(links_dict)
+		sys.exit('No validated RawSequenceFiles or RawMatrixFiles associated with this dataset')
 
 	# walkback graph the rest of the way
 	logging.info('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')

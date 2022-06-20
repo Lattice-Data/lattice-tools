@@ -132,6 +132,36 @@ biosample = {
 	}
 }
 
+file = {
+	'crc32c': {
+		'lattice': 'crc32c'
+	},
+	'file_core.checksum': {
+		'lattice': 'md5sum'
+	},
+	'file_core.file_name': {
+		'lattice': 'submitted_file_name'
+	},
+	'file_core.format': {
+		'lattice': 'file_format'
+	},
+	'file_size': {
+		'lattice': 'file_size' # used for file_descriptor, not other metadata
+	},
+	'provenance.document_id': {
+		'lattice': 'uuid'
+	},
+	'sha256': {
+		'lattice': 'sha256'
+	},
+	's3_uri': {
+		'lattice': 's3_uri' # used to transfer the file but deleted from the metadata
+	},
+	'external_uri': {
+		'lattice': 'external_uri' # used to transfer the file but deleted from the metadata
+	}
+}
+
 lattice_to_dcp = {
 	'Dataset': {
 		'class': 'project',
@@ -515,30 +545,13 @@ lattice_to_dcp = {
 		}
 	},
 	'RawSequenceFile': {
+		**file,
 		'class': 'sequence_file',
-		'crc32c': {
-			'lattice': 'crc32c'
-		},
-		'file_core.checksum': {
-			'lattice': 'md5sum'
-		},
-		'file_core.file_name': {
-			'lattice': 'submitted_file_name'
-		},
-		'file_core.format': {
-			'lattice': 'file_format'
-		},
-		'file_size': {
-			'lattice': 'file_size' # used for file_descriptor, not other metadata
-		},
 		'insdc_run_accessions': {
 			'lattice': 'derived_from' # DCP_mapper pulls out just dbxrefs
 		},
 		'library_prep_id': {
 			'lattice': 'libraries'
-		},
-		'provenance.document_id': {
-			'lattice': 'uuid'
 		},
 		'read_index': {
 			'lattice': 'read_type',
@@ -553,15 +566,13 @@ lattice_to_dcp = {
 		},
 		'read_length': {
 			'lattice': 'read_length'
-		},
-		'sha256': {
-			'lattice': 'sha256'
-		},
-		's3_uri': {
-			'lattice': 's3_uri' # used to transfer the file but deleted from the metadata
-		},
-		'external_uri': {
-			'lattice': 'external_uri' # used to transfer the file but deleted from the metadata
+		}
+	},
+	'RawMatrixFile': {
+		**file,
+		'class': 'analysis_file',
+		'matrix_cell_count': {
+			'lattice': 'observation_count'
 		}
 	},
 	'Document': {
