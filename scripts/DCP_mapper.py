@@ -868,6 +868,31 @@ def customize_fields(obj, obj_type):
 			del obj['polyA_selection']
 		if obj.get('input_nucleic_acid_molecule') and obj['input_nucleic_acid_molecule']['text'] in input_onts:
 			obj['input_nucleic_acid_molecule']['ontology'] = input_onts[obj['input_nucleic_acid_molecule']['text']]
+		if obj.get('read_structure'):
+			for rs in obj['read_structure']:
+				length = rs['end'] - rs['start'] + 1
+				if rs['sequence_element'] == 'cell barcode':
+					obj['cell_barcode'] = {
+						'barcode_read': rs['located_in_read_type'], #NEEDED - 1N, 2N?
+						'barcode_offset': rs['start'] - 1, #1-based to 0-based
+						'barcode_length': length
+					}
+					if obj.get('cell_barcode_whitelist'):
+						obj['cell_barcode']['white_list_file'] = obj['cell_barcode_whitelist']
+						del obj['cell_barcode_whitelist']
+				if rs['sequence_element'] == 'spatial barcode':
+					obj['spatial_barcode'] = {
+						'barcode_read': rs['located_in_read_type'], #NEEDED - 1N, 2N?
+						'barcode_offset': rs['start'] - 1, #1-based to 0-based
+						'barcode_length': length
+					}
+				if rs['sequence_element'] == 'UMI':
+					obj['umi_barcode'] = {
+						'barcode_read': rs['located_in_read_type'], #NEEDED - 1N, 2N?
+						'barcode_offset': rs['start'] - 1, #1-based to 0-based
+						'barcode_length': length
+					}
+			del obj['read_structure']
 
 	elif obj_type == 'sequence_file':
 		if obj.get('insdc_run_accessions'):

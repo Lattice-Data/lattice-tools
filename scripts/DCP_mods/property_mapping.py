@@ -470,8 +470,14 @@ lattice_to_dcp = {
 		'input_nucleic_acid_molecule.text': {
 			'lattice': 'protocol.biological_macromolecule'
 		},
-		'polyA_selection': {
+		'polyA_selection': { #this is considered for input_nucleic_acid_molecule then removed
 			'lattice': 'protocol.polyA_selection'
+		},
+		'read_structure': { #this is considered for barcode information then removed
+			'lattice': 'protocol.read_structure'
+		},
+		'cell_barcode_whitelist': { #this is considered for barcode information then removed
+			'lattice': 'protocol.cell_barcode_whitelist'
 		},
 		'library_construction_method.text': {
 			'lattice': 'protocol.title'
