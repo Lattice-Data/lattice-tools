@@ -863,6 +863,11 @@ def customize_fields(obj, obj_type):
 			obj['strand'] = 'not provided'
 		if not obj.get('end_bias'):
 			obj['end_bias'] = 'full length'
+		if obj.get('polyA_selection'):
+			obj['input_nucleic_acid_molecule'] = {'text': 'polyA ' +obj['input_nucleic_acid_molecule']['text']}
+			del obj['polyA_selection']
+		if obj.get('input_nucleic_acid_molecule') and obj['input_nucleic_acid_molecule']['text'] in input_onts:
+			obj['input_nucleic_acid_molecule']['ontology'] = input_onts[obj['input_nucleic_acid_molecule']['text']]
 
 	elif obj_type == 'sequence_file':
 		if obj.get('insdc_run_accessions'):
@@ -1117,6 +1122,12 @@ if __name__ == '__main__':
 	doc_files = []
 	handled_docs = []
 
+	input_onts = {
+		'DNA': 'CHEBI:16991',
+		'RNA': 'CHEBI:33697',
+		'protein': 'CHEBI:36080'
+	}
+
 	args = getArgs()
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
@@ -1129,7 +1140,7 @@ if __name__ == '__main__':
 	# check for Lattice schema errors, possibly outdated fields
 	schema_errors = test_mapping()
 	if schema_errors > 0:
-		print(str(schema_errors) + ' found')
+		print(str(schema_errors) + ' schema errors found')
 		i = input('Continue? y/n: ')
 		if i.lower() not in ['y','yes']:
 			sys.exit('Stopped due to schema errors')
