@@ -287,7 +287,7 @@ def get_object(temp_obj, variable_age=False):
 		if i.lower() not in ['y','yes']:
 			sys.exit('Stopped due to one or more ERROR audits')
 
-	# drop unneeded properties, flatten subobjects
+	# drop unused properties, flatten subobjects
 	temp_obj = flatten_obj(temp_obj)
 
 	remove = set()
@@ -913,7 +913,7 @@ def customize_fields(obj, obj_type):
 				read_type = rs['located_in_read_type'].strip('N')
 				if rs['sequence_element'] == 'cell barcode':
 					obj['cell_barcode'] = {
-						'barcode_read': rs['located_in_read_type'], #NEEDED - 1N, 2N?
+						'barcode_read': rs['located_in_read_type'],
 						'barcode_offset': rs['start'] - 1, #1-based to 0-based
 						'barcode_length': length
 					}
@@ -922,13 +922,13 @@ def customize_fields(obj, obj_type):
 						del obj['cell_barcode_whitelist']
 				if rs['sequence_element'] == 'spatial barcode':
 					obj['spatial_barcode'] = {
-						'barcode_read': rs['located_in_read_type'], #NEEDED - 1N, 2N?
+						'barcode_read': rs['located_in_read_type'],
 						'barcode_offset': rs['start'] - 1, #1-based to 0-based
 						'barcode_length': length
 					}
 				if rs['sequence_element'] == 'UMI':
 					obj['umi_barcode'] = {
-						'barcode_read': rs['located_in_read_type'], #NEEDED - 1N, 2N?
+						'barcode_read': rs['located_in_read_type'],
 						'barcode_offset': rs['start'] - 1, #1-based to 0-based
 						'barcode_length': length
 					}
