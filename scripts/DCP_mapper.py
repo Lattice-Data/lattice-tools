@@ -408,6 +408,7 @@ def uuid_make(value):
 
 def seq_to_susp(links_dict):
 	links = []
+	lib_cell_counts = {}
 	all_susps = set()
 	for seqruns in list(links_dict.keys()):
 		l = {}
@@ -421,6 +422,7 @@ def seq_to_susp(links_dict):
 			lib = sr_obj['derived_from'][0]
 			lib_url = urljoin(server, lib + '/?format=json')
 			lib_obj = requests.get(lib_url, auth=connection.auth).json()
+			lib_cell_counts[lib] = lib_obj.get('observation_count') #grab to sum the project counts
 
 			# see if we need to skip back over a pooling step for demultiplexed sequence data
 			if sr_obj.get('demultiplexed_link'):
@@ -492,7 +494,13 @@ def seq_to_susp(links_dict):
 
 		add_process(link_hash)
 
-	return all_susps, links
+	cell_counts = [i for i in lib_cell_counts.values()]
+	if None not in cell_counts:
+		est_cell_count = sum(cell_counts)
+	else:
+		est_cell_count = None
+
+	return all_susps, links, est_cell_count
 
 
 def handle_doc(doc_id):
@@ -1032,7 +1040,11 @@ def main():
 	# gather all the Suspension objects to traverse next
 	# set up links between sequence_file and suspension as the start of each subgraph
 	logging.info('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
-	susps, links = seq_to_susp(links_dict)
+	susps, links, est_cell_count = seq_to_susp(links_dict)
+
+	#CAN'T INCLUDE AT CURRENT SCHEMA VERSION
+	#if est_cell_count:
+	#	whole_dict['project'][0]['estimated_cell_count'] = est_cell_count
 
 	# walkback graph the rest of the way
 	logging.info('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')
