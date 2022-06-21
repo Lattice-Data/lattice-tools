@@ -319,11 +319,9 @@ def get_object(temp_obj, variable_age=False):
 			'unit': {'text': variable_age[1]},
 			'relevance': 'donor age at collection'
 		}
-		#my_obj['development_stage'] = {'text': 'variable'}
+		#remove the non-HsapDv terms, but leave the development_stage.text
 		del my_obj['development_stage']['ontology']
 		del my_obj['development_stage']['ontology_label']
-		print(my_obj['development_stage'])
-		sys.exit()
 
 	# add the object of mapped properties
 	if whole_dict.get(dcp_obj_type):
