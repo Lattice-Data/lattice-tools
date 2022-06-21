@@ -910,6 +910,7 @@ def customize_fields(obj, obj_type):
 		if obj.get('read_structure'):
 			for rs in obj['read_structure']:
 				length = rs['end'] - rs['start'] + 1
+				read_type = rs['located_in_read_type'].strip('N')
 				if rs['sequence_element'] == 'cell barcode':
 					obj['cell_barcode'] = {
 						'barcode_read': rs['located_in_read_type'], #NEEDED - 1N, 2N?
