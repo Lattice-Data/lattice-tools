@@ -266,7 +266,7 @@ def file_stats(local_path, obj):
         obj['crc32c'] = crc32c_func.hexdigest().lower()
 
 
-def get_object(temp_obj):
+def get_object(temp_obj, variable_age=False):
 	obj_type = temp_obj['@type'][0]
 
 	# if there are ERROR-level audits, flag it to stop the script
@@ -311,6 +311,20 @@ def get_object(temp_obj):
 	for k,v in temp_obj.items():
 		add_to_not_incl(k, v)
 
+	if variable_age:
+		new_id = uuid_make(my_obj['provenance']['document_id'] + ''.join(variable_age))
+		my_obj['provenance']['document_id'] = new_id
+		my_obj['timecourse'] = {
+			'value': variable_age[0],
+			'unit': {'text': variable_age[1]},
+			'relevance': 'donor age at collection'
+		}
+		#my_obj['development_stage'] = {'text': 'variable'}
+		del my_obj['development_stage']['ontology']
+		del my_obj['development_stage']['ontology_label']
+		print(my_obj['development_stage'])
+		sys.exit()
+
 	# add the object of mapped properties
 	if whole_dict.get(dcp_obj_type):
 		whole_dict[dcp_obj_type].append(my_obj)
@@ -343,18 +357,26 @@ def get_derived_from(temp_obj, next_remaining, links):
 	uuid = temp_obj['uuid']
 	# get identifiers for any object that referenced by this one
 	if temp_obj.get('derived_from'):
-		if isinstance(temp_obj['derived_from'], str):
-			next_remaining.add(temp_obj['derived_from'])
-			add_links(temp_obj, tuple(temp_obj['derived_from']), links)
-		elif isinstance(temp_obj['derived_from'], dict):
-			der_fr = temp_obj['derived_from']['@id']
-			next_remaining.add(der_fr)
-			add_links(temp_obj, tuple(der_fr), links)
-		elif isinstance(temp_obj['derived_from'], list):
-			if isinstance(temp_obj['derived_from'][0], str):
+		if temp_obj.get('age_at_collection'): #these will need their donors split
+			variable_age = (temp_obj['age_at_collection'], temp_obj['age_at_collection_units'])
+		else:
+			variable_age = False
+
+		if isinstance(temp_obj['derived_from'][0], str): #object is not embedded
+			if variable_age:
+				identifer = [(temp_obj['derived_from'][0], variable_age)]
+				next_remaining.update(identifer)
+				add_links(temp_obj, tuple(identifer), links)
+			else:
 				next_remaining.update(temp_obj['derived_from'])
 				add_links(temp_obj, tuple(temp_obj['derived_from']), links)
-			elif isinstance(temp_obj['derived_from'][0], dict):
+		elif isinstance(temp_obj['derived_from'][0], dict): #object is embedded
+			if variable_age:
+				identifer = [(temp_obj['derived_from'][0]['@id'], variable_age)]
+				next_remaining.update(identifer)
+				add_links(temp_obj, tuple(identifer), links)
+
+			else:
 				der_fr = ()
 				for o in temp_obj['derived_from']:
 					next_remaining.add(o['@id'])
@@ -596,11 +618,20 @@ def create_protocol(in_type, out_type, out_obj):
 def add_links(temp_obj, der_fr, links):
 	ins = []
 	for i in der_fr:
-		url = urljoin(server, i + '/?format=json')
-		obj = requests.get(url, auth=connection.auth).json()
-		lat_type = obj['@type'][0]
-		in_type = lattice_to_dcp[lat_type]['class']
-		ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+		if isinstance(i, tuple): #donor ID + variable_age
+			identifer = i[0]
+			url = urljoin(server, identifer + '/?format=json')
+			obj = requests.get(url, auth=connection.auth).json()
+			lat_type = obj['@type'][0]
+			in_type = lattice_to_dcp[lat_type]['class']
+			in_id = uuid_make(obj['uuid'] + ''.join(i[1]))
+		else:
+			url = urljoin(server, i + '/?format=json')
+			obj = requests.get(url, auth=connection.auth).json()
+			lat_type = obj['@type'][0]
+			in_type = lattice_to_dcp[lat_type]['class']
+			in_id = obj['uuid']
+		ins.append({'input_type': in_type, 'input_id': in_id})
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
 	outs = [{'output_type': out_type, 'output_id': temp_obj['uuid']}]
@@ -710,7 +741,7 @@ def customize_fields(obj, obj_type):
 	elif obj_type == 'donor_organism':
 		if obj.get('genus_species'):
 			obj['genus_species'] = [obj['genus_species']]
-		if obj.get('organism_age') == 'unknown':
+		if obj.get('organism_age') in ['unknown','variable']:
 			del obj['organism_age']
 		elif obj.get('organism_age') == '>89':
 			del obj['organism_age']
@@ -1011,9 +1042,15 @@ def main():
 		seen.update(remaining)
 		next_remaining = set()
 		for identifier in remaining:
-			url = urljoin(server, identifier + '/?format=json')
-			temp_obj = requests.get(url, auth=connection.auth).json()
-			get_object(temp_obj)
+			if isinstance(identifier, tuple):
+				i = identifier[0]
+				url = urljoin(server, i + '/?format=json')
+				temp_obj = requests.get(url, auth=connection.auth).json()
+				get_object(temp_obj, identifier[1])
+			else:
+				url = urljoin(server, identifier + '/?format=json')
+				temp_obj = requests.get(url, auth=connection.auth).json()
+				get_object(temp_obj)
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
 
