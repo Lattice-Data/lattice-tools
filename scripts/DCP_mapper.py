@@ -1001,6 +1001,9 @@ def main():
 	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
 	ds_obj['uuid'] = dataset_id
 
+	if not os.path.isdir('DCP_outs'):
+		os.mkdir('DCP_outs')
+
 	if args.validate_only:
 		dcp_errors = dcp_validation(dataset_id)
 		if dcp_errors != 0:
@@ -1125,9 +1128,6 @@ def main():
 	}
 	with open(dataset_id + '/staging_area.json', 'w', encoding='utf8') as outfile:
 		json.dump(text, outfile, indent=4, ensure_ascii=False)
-
-	if not os.path.isdir('DCP_outs'):
-		os.mkdir('DCP_outs')
 
 	# logging.info a close approximation of the DCP metadata.tsv
 	logging.info('PREPARING MOCK DCP METADATA TSV')
