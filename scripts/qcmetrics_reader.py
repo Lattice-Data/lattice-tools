@@ -337,6 +337,8 @@ if pipeline in ['cellranger', 'star']:
 			mu_values['quality_metric_of'] = '<linkTo RawMatrixFile - filtered matrix .h5>'
 			in_mu_schema[direct] = mu_values
 		if ac_values:
+			if (final_values and 'total_cells_detected' in final_values):
+				ac_values['total_cells_detected'] = final_values['total_cells_detected']
 			ac_values['quality_metric_of'] = '<linkTo RawMatrixFile - filtered matrix .h5>'
 			in_ac_schema[direct] = ac_values
 		out_schema[direct] = extra_values
