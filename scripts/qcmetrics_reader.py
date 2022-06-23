@@ -36,7 +36,7 @@ def getArgs():
 	)
 	parser.add_argument('--dir', '-d',
 						required=True,
-						help="s3 path to the cellranger outs directory or dragen html, or local path to a file that lists those")
+						help="s3 path to the cellranger outs directory or dragen html")
 	parser.add_argument('--assay', '-a',
 						required=True,
 						help="specify rna, atac, multiome, or spatial")
@@ -148,10 +148,10 @@ def fractionize(v):
 
 
 def schemify(value, prop_type):
-	if (prop_type == 'integer') and (str(value).endswith('.0') == True):
-		return str(value).strip('.0')
-	elif value == None:
+	if value in [None, '', 'nan']:
 		return ''
+	elif (prop_type == 'integer') and (str(value).endswith('.0') == True):
+		return str(value).strip('.0')
 	else:
 		return str(value)
 
@@ -337,6 +337,8 @@ if pipeline in ['cellranger', 'star']:
 			mu_values['quality_metric_of'] = '<linkTo RawMatrixFile - filtered matrix .h5>'
 			in_mu_schema[direct] = mu_values
 		if ac_values:
+			if (final_values and 'total_cells_detected' in final_values):
+				ac_values['total_cells_detected'] = final_values['total_cells_detected']
 			ac_values['quality_metric_of'] = '<linkTo RawMatrixFile - filtered matrix .h5>'
 			in_ac_schema[direct] = ac_values
 		out_schema[direct] = extra_values
