@@ -266,7 +266,7 @@ def file_stats(local_path, obj):
         obj['crc32c'] = crc32c_func.hexdigest().lower()
 
 
-def get_object(temp_obj):
+def get_object(temp_obj, variable_age=False):
 	obj_type = temp_obj['@type'][0]
 
 	# if there are ERROR-level audits, flag it to stop the script
@@ -287,7 +287,7 @@ def get_object(temp_obj):
 		if i.lower() not in ['y','yes']:
 			sys.exit('Stopped due to one or more ERROR audits')
 
-	# drop unneeded properties, flatten subobjects
+	# drop unused properties, flatten subobjects
 	temp_obj = flatten_obj(temp_obj)
 
 	remove = set()
@@ -310,6 +310,18 @@ def get_object(temp_obj):
 		del temp_obj[p]
 	for k,v in temp_obj.items():
 		add_to_not_incl(k, v)
+
+	if variable_age:
+		new_id = uuid_make(my_obj['provenance']['document_id'] + ''.join(variable_age))
+		my_obj['provenance']['document_id'] = new_id
+		my_obj['timecourse'] = {
+			'value': variable_age[0],
+			'unit': {'text': variable_age[1]},
+			'relevance': 'donor age at collection'
+		}
+		#remove the non-HsapDv terms, but leave the development_stage.text
+		del my_obj['development_stage']['ontology']
+		del my_obj['development_stage']['ontology_label']
 
 	# add the object of mapped properties
 	if whole_dict.get(dcp_obj_type):
@@ -343,18 +355,26 @@ def get_derived_from(temp_obj, next_remaining, links):
 	uuid = temp_obj['uuid']
 	# get identifiers for any object that referenced by this one
 	if temp_obj.get('derived_from'):
-		if isinstance(temp_obj['derived_from'], str):
-			next_remaining.add(temp_obj['derived_from'])
-			add_links(temp_obj, tuple(temp_obj['derived_from']), links)
-		elif isinstance(temp_obj['derived_from'], dict):
-			der_fr = temp_obj['derived_from']['@id']
-			next_remaining.add(der_fr)
-			add_links(temp_obj, tuple(der_fr), links)
-		elif isinstance(temp_obj['derived_from'], list):
-			if isinstance(temp_obj['derived_from'][0], str):
+		if temp_obj.get('age_at_collection'): #these will need their donors split
+			variable_age = (temp_obj['age_at_collection'], temp_obj['age_at_collection_units'])
+		else:
+			variable_age = False
+
+		if isinstance(temp_obj['derived_from'][0], str): #object is not embedded
+			if variable_age:
+				identifer = [(temp_obj['derived_from'][0], variable_age)]
+				next_remaining.update(identifer)
+				add_links(temp_obj, tuple(identifer), links)
+			else:
 				next_remaining.update(temp_obj['derived_from'])
 				add_links(temp_obj, tuple(temp_obj['derived_from']), links)
-			elif isinstance(temp_obj['derived_from'][0], dict):
+		elif isinstance(temp_obj['derived_from'][0], dict): #object is embedded
+			if variable_age:
+				identifer = [(temp_obj['derived_from'][0]['@id'], variable_age)]
+				next_remaining.update(identifer)
+				add_links(temp_obj, tuple(identifer), links)
+
+			else:
 				der_fr = ()
 				for o in temp_obj['derived_from']:
 					next_remaining.add(o['@id'])
@@ -386,6 +406,7 @@ def uuid_make(value):
 
 def seq_to_susp(links_dict):
 	links = []
+	lib_cell_counts = {}
 	all_susps = set()
 	for seqruns in list(links_dict.keys()):
 		l = {}
@@ -399,6 +420,7 @@ def seq_to_susp(links_dict):
 			lib = sr_obj['derived_from'][0]
 			lib_url = urljoin(server, lib + '/?format=json')
 			lib_obj = requests.get(lib_url, auth=connection.auth).json()
+			lib_cell_counts[lib] = lib_obj.get('observation_count') #grab to sum the project counts
 
 			# see if we need to skip back over a pooling step for demultiplexed sequence data
 			if sr_obj.get('demultiplexed_link'):
@@ -470,7 +492,13 @@ def seq_to_susp(links_dict):
 
 		add_process(link_hash)
 
-	return all_susps, links
+	cell_counts = [i for i in lib_cell_counts.values()]
+	if None not in cell_counts:
+		est_cell_count = sum(cell_counts)
+	else:
+		est_cell_count = None
+
+	return all_susps, links, est_cell_count
 
 
 def handle_doc(doc_id):
@@ -596,11 +624,20 @@ def create_protocol(in_type, out_type, out_obj):
 def add_links(temp_obj, der_fr, links):
 	ins = []
 	for i in der_fr:
-		url = urljoin(server, i + '/?format=json')
-		obj = requests.get(url, auth=connection.auth).json()
-		lat_type = obj['@type'][0]
-		in_type = lattice_to_dcp[lat_type]['class']
-		ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+		if isinstance(i, tuple): #donor ID + variable_age
+			identifer = i[0]
+			url = urljoin(server, identifer + '/?format=json')
+			obj = requests.get(url, auth=connection.auth).json()
+			lat_type = obj['@type'][0]
+			in_type = lattice_to_dcp[lat_type]['class']
+			in_id = uuid_make(obj['uuid'] + ''.join(i[1]))
+		else:
+			url = urljoin(server, i + '/?format=json')
+			obj = requests.get(url, auth=connection.auth).json()
+			lat_type = obj['@type'][0]
+			in_type = lattice_to_dcp[lat_type]['class']
+			in_id = obj['uuid']
+		ins.append({'input_type': in_type, 'input_id': in_id})
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
 	outs = [{'output_type': out_type, 'output_id': temp_obj['uuid']}]
@@ -710,7 +747,7 @@ def customize_fields(obj, obj_type):
 	elif obj_type == 'donor_organism':
 		if obj.get('genus_species'):
 			obj['genus_species'] = [obj['genus_species']]
-		if obj.get('organism_age') == 'unknown':
+		if obj.get('organism_age') in ['unknown','variable']:
 			del obj['organism_age']
 		elif obj.get('organism_age') == '>89':
 			del obj['organism_age']
@@ -863,6 +900,37 @@ def customize_fields(obj, obj_type):
 			obj['strand'] = 'not provided'
 		if not obj.get('end_bias'):
 			obj['end_bias'] = 'full length'
+		if obj.get('polyA_selection'):
+			obj['input_nucleic_acid_molecule'] = {'text': 'polyA ' +obj['input_nucleic_acid_molecule']['text']}
+			del obj['polyA_selection']
+		if obj.get('input_nucleic_acid_molecule') and obj['input_nucleic_acid_molecule']['text'] in input_onts:
+			obj['input_nucleic_acid_molecule']['ontology'] = input_onts[obj['input_nucleic_acid_molecule']['text']]
+		if obj.get('read_structure'):
+			for rs in obj['read_structure']:
+				length = rs['end'] - rs['start'] + 1
+				read_type = rs['located_in_read_type'].strip('N')
+				if rs['sequence_element'] == 'cell barcode':
+					obj['cell_barcode'] = {
+						'barcode_read': rs['located_in_read_type'],
+						'barcode_offset': rs['start'] - 1, #1-based to 0-based
+						'barcode_length': length
+					}
+					if obj.get('cell_barcode_whitelist'):
+						obj['cell_barcode']['white_list_file'] = obj['cell_barcode_whitelist']
+						del obj['cell_barcode_whitelist']
+				if rs['sequence_element'] == 'spatial barcode':
+					obj['spatial_barcode'] = {
+						'barcode_read': rs['located_in_read_type'],
+						'barcode_offset': rs['start'] - 1, #1-based to 0-based
+						'barcode_length': length
+					}
+				if rs['sequence_element'] == 'UMI':
+					obj['umi_barcode'] = {
+						'barcode_read': rs['located_in_read_type'],
+						'barcode_offset': rs['start'] - 1, #1-based to 0-based
+						'barcode_length': length
+					}
+			del obj['read_structure']
 
 	elif obj_type == 'sequence_file':
 		if obj.get('insdc_run_accessions'):
@@ -933,6 +1001,9 @@ def main():
 	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
 	ds_obj['uuid'] = dataset_id
 
+	if not os.path.isdir('DCP_outs'):
+		os.mkdir('DCP_outs')
+
 	if args.validate_only:
 		dcp_errors = dcp_validation(dataset_id)
 		if dcp_errors != 0:
@@ -971,7 +1042,11 @@ def main():
 	# gather all the Suspension objects to traverse next
 	# set up links between sequence_file and suspension as the start of each subgraph
 	logging.info('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
-	susps, links = seq_to_susp(links_dict)
+	susps, links, est_cell_count = seq_to_susp(links_dict)
+
+	#CAN'T INCLUDE AT CURRENT SCHEMA VERSION
+	#if est_cell_count:
+	#	whole_dict['project'][0]['estimated_cell_count'] = est_cell_count
 
 	# walkback graph the rest of the way
 	logging.info('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')
@@ -981,9 +1056,15 @@ def main():
 		seen.update(remaining)
 		next_remaining = set()
 		for identifier in remaining:
-			url = urljoin(server, identifier + '/?format=json')
-			temp_obj = requests.get(url, auth=connection.auth).json()
-			get_object(temp_obj)
+			if isinstance(identifier, tuple):
+				i = identifier[0]
+				url = urljoin(server, i + '/?format=json')
+				temp_obj = requests.get(url, auth=connection.auth).json()
+				get_object(temp_obj, identifier[1])
+			else:
+				url = urljoin(server, identifier + '/?format=json')
+				temp_obj = requests.get(url, auth=connection.auth).json()
+				get_object(temp_obj)
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
 
@@ -1047,9 +1128,6 @@ def main():
 	}
 	with open(dataset_id + '/staging_area.json', 'w', encoding='utf8') as outfile:
 		json.dump(text, outfile, indent=4, ensure_ascii=False)
-
-	if not os.path.isdir('DCP_outs'):
-		os.mkdir('DCP_outs')
 
 	# logging.info a close approximation of the DCP metadata.tsv
 	logging.info('PREPARING MOCK DCP METADATA TSV')
@@ -1117,6 +1195,12 @@ if __name__ == '__main__':
 	doc_files = []
 	handled_docs = []
 
+	input_onts = {
+		'DNA': 'CHEBI:16991',
+		'RNA': 'CHEBI:33697',
+		'protein': 'CHEBI:36080'
+	}
+
 	args = getArgs()
 	if not args.dataset:
 		sys.exit('ERROR: --dataset is required')
@@ -1129,7 +1213,7 @@ if __name__ == '__main__':
 	# check for Lattice schema errors, possibly outdated fields
 	schema_errors = test_mapping()
 	if schema_errors > 0:
-		print(str(schema_errors) + ' found')
+		print(str(schema_errors) + ' schema errors found')
 		i = input('Continue? y/n: ')
 		if i.lower() not in ['y','yes']:
 			sys.exit('Stopped due to schema errors')

@@ -23,6 +23,8 @@ T = TypeVar('T')
 JSON = MutableMapping[str, T]
 date_format = '%Y-%m-%dT%H:%M:%S.%fZ'
 
+schemas = {}
+
 
 def validate_files(path: str, reporting) -> None:
     directory = reporting['dataset']
@@ -177,11 +179,15 @@ def validate_descriptors_file(file_name, reporting) -> None:
 def validate_file_json(file_json: JSON, file_name: str, reporting) -> None:
     type_file = '/'.join(file_name.split('/')[1:])
     if file_json.get('describedBy'):
-        try:
-            schema = download_schema(file_json['describedBy'])
-        except json.decoder.JSONDecodeError as e:
-            reporting['file_errors'].add(type_file)
-            write_error('ERROR: {}, failed to parse schema JSON from {}'.format(type_file, file_json['describedBy']))
+        if file_json['describedBy'] in schemas:
+            schema = schemas[file_json['describedBy']]
+        else:
+            try:
+                schema = download_schema(file_json['describedBy'])
+                schemas[file_json['describedBy']] = schema
+            except json.decoder.JSONDecodeError as e:
+                reporting['file_errors'].add(type_file)
+                write_error('ERROR: {}, failed to parse schema JSON from {}'.format(type_file, file_json['describedBy']))
     else:
         reporting['file_errors'].add(type_file)
         write_error('ERROR: {}, describedBy is required'.format(type_file))
