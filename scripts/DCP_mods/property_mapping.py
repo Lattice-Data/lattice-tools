@@ -126,9 +126,6 @@ biosample = {
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
-	},
-	'treatment_summary': {
-		'lattice': 'treatment_summary'
 	}
 }
 
@@ -254,6 +251,13 @@ lattice_to_dcp = {
 		**mouse_donor,
 		**prenatal_donor
 	},
+	'TissueSection': {
+		**biosample,
+		'class': 'imaged_specimen',
+		'slice_thickness': {
+			'lattice': 'thickness'
+		}
+	},
 	'Tissue': {
 		**biosample,
 		'class': 'specimen_from_organism',
@@ -285,6 +289,9 @@ lattice_to_dcp = {
 		},
 		'organ_parts.text': {
 			'lattice': 'biosample_ontology.term_name'
+		},
+		'treatment_summary': {
+			'lattice': 'treatment_summary'
 		},
 		'preservation_storage.preservation_method': {
 			'lattice': 'preservation_method',
@@ -349,6 +356,9 @@ lattice_to_dcp = {
 		'cell_type.text': {
 			'lattice': 'biosample_ontology.term_name'
 		},
+		'treatment_summary': {
+			'lattice': 'treatment_summary'
+		},
 		'growth_conditions.growth_medium': {
 			'lattice': 'growth_medium'
 		},
@@ -384,6 +394,9 @@ lattice_to_dcp = {
 		'biomaterial_core.biomaterial_description': {
 			'lattice': 'summary'
 		},
+		'treatment_summary': {
+			'lattice': 'treatment_summary'
+		},
 		'embedded_in_matrigel': {
 			'lattice': 'embedded_in_matrigel'
 		},
@@ -417,6 +430,9 @@ lattice_to_dcp = {
 		},
 		'cell_morphology.percent_cell_viability': {
 			'lattice': 'percent_cell_viability'
+		},
+		'treatment_summary': {
+			'lattice': 'treatment_summary'
 		},
 		'dissociation_reagent': {
 			'lattice': 'dissociation_reagent'
@@ -494,7 +510,8 @@ lattice_to_dcp = {
 				'snRNA-seq': 'single nucleus',
 				'CITE-seq': 'single cell',
 				'bulk ATAC-seq': 'bulk',
-				'bulk RNA-seq': 'bulk'
+				'bulk RNA-seq': 'bulk',
+				'spatial transcriptomics': 'single cell'
 			}
 		},
 		'primer': {
@@ -623,6 +640,6 @@ dcp_versions = {
   'imaging_preparation_protocol': '2.2.0',
   'imaging_protocol': '11.2.0',
   'protocol': '7.1.0',
-  'library_preparation_protocol': '6.2.0',
+  'library_preparation_protocol': '6.3.1',
   'sequencing_protocol': '10.1.0'
 }

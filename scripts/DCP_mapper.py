@@ -77,6 +77,7 @@ dcp_types = {
 	'project': 'project',
 	'donor_organism': 'biomaterial',
 	'specimen_from_organism': 'biomaterial',
+	'imaged_specimen': 'biomaterial',
 	'cell_line': 'biomaterial',
 	'organoid': 'biomaterial',
 	'cell_suspension': 'biomaterial',
@@ -831,6 +832,10 @@ def customize_fields(obj, obj_type):
 					new_v = unit_conversion(obj['state_of_specimen']['postmortem_interval'],obj['state_of_specimen']['postmortem_interval_units'], 'second')
 					obj['state_of_specimen']['postmortem_interval'] = new_v
 					del obj['state_of_specimen']['postmortem_interval_units']
+
+	elif obj_type == 'imaged_specimen':
+		if obj.get('slice_thickness'):
+			obj['slice_thickness'] = float(obj['slice_thickness'])
 
 	elif obj_type == 'cell_line':
 		if obj.get('cell_line_type'):
