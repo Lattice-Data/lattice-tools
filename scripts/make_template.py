@@ -159,7 +159,8 @@ descriptor_list = [
 	'comment',
 	'type',
 	'linkTo',
-	'enum'
+	'enum',
+	'default'
 ]
 
 uber_list = []
