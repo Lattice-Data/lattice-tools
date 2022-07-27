@@ -1,6 +1,7 @@
 priorityFields = {
 	'human_postnatal_donor': {
 		'order': [
+			'donor_id',
 			'sex',
 			'development_ontology.term_name',
 			'development_ontology.term_id',
@@ -19,7 +20,7 @@ priorityFields = {
 			'disease_state',
 			'ancestry_method',
 			'ancestry',
-			'ancestry.percentage',
+			'ancestry.fraction',
 			'ancestry.ancestry_group.term_id',
 			'ancestry.ancestry_group.term_name',
 			'genotype',
@@ -39,6 +40,7 @@ priorityFields = {
 	},
 	'human_prenatal_donor': {
 		'order': [
+			'donor_id',
 			'development_ontology.term_name',
 			'development_ontology.term_id',
 			'sex',
