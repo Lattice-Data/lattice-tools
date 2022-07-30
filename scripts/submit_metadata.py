@@ -3,15 +3,19 @@ import ast
 import os
 import json
 import lattice
-import sys
-import logging
 import mimetypes
+import re
 import requests
+import sys
 import magic  # install me with 'pip install python-magic'
+import numpy as np
+import pandas as pd
 from PIL import Image  # install me with 'pip install Pillow'
-from openpyxl import load_workbook
-from urllib.parse import urljoin, quote
+from urllib.parse import urljoin, quote, unquote
+from urllib.request import urlopen
+from urllib.request import Request
 from base64 import b64encode
+from bs4 import BeautifulSoup
 
 
 EPILOG = '''
@@ -23,46 +27,47 @@ For more details:
 '''
 
 
+# update this from encoded/src/encoded/loadxl.py as needed
 ORDER = [
-    'user',
-    'award',
-    'lab',
-    'organism',
-    'gene',
-    'publication',
-    'document',
-    'ontology_term',
-    'library_protocol',
-    'target',
-    'antibody',
-    'treatment',
-    'human_postnatal_donor',
-    'human_prenatal_donor',
-    'mouse_postnatal_donor',
-    'mouse_prenatal_donor',
-    'tissue',
-    'cell_culture',
-    'organoid',
-    'suspension',
-    'tissue_section',
-    'dataset',
-    'library',
-    'sequencing_run',
-    'raw_sequence_file',
-    'sequence_alignment_file',
-    'raw_matrix_file',
-    'processed_matrix_file',
-    'rna_metrics',
-    'antibody_capture_metrics',
-    'rna_aggregate_metrics',
-    'atac_metrics',
-    'atac_aggregate_metrics',
-    'multiome_metrics',
-    'spatial_metrics',
-    'cell_annotation',
-    'image',
-    'page',
-    'access_key'
+	'user',
+	'award',
+	'lab',
+	'organism',
+	'gene',
+	'publication',
+	'document',
+	'ontology_term',
+	'library_protocol',
+	'target',
+	'antibody',
+	'treatment',
+	'human_postnatal_donor',
+	'human_prenatal_donor',
+	'mouse_postnatal_donor',
+	'mouse_prenatal_donor',
+	'tissue',
+	'cell_culture',
+	'organoid',
+	'suspension',
+	'tissue_section',
+	'dataset',
+	'library',
+	'sequencing_run',
+	'raw_sequence_file',
+	'sequence_alignment_file',
+	'raw_matrix_file',
+	'processed_matrix_file',
+	'rna_metrics',
+	'antibody_capture_metrics',
+	'rna_aggregate_metrics',
+	'atac_metrics',
+	'atac_aggregate_metrics',
+	'multiome_metrics',
+	'spatial_metrics',
+	'cell_annotation',
+	'image',
+	'page',
+	'access_key'
 ]
 
 
@@ -72,14 +77,15 @@ def getArgs():
 		formatter_class=argparse.RawDescriptionHelpFormatter,
 	)
 
-	parser.add_argument('infile',
-						help='the datafile containing object data to import')
+	parser.add_argument('sheet_id',
+						help='the ID of the google sheet containing object data to import')
 	parser.add_argument('--justtype', '-jt',
 						help='the type of the objects to import if only one type is desired')
 	parser.add_argument('--starttype', '-st',
 						help='the type of the objects to start importing and continue in sequence')
 	parser.add_argument('--mode', '-m',
-						help='The machine to run on.')
+						help='The machine to run on.',
+						required=True)
 	parser.add_argument('--debug', '-d',
 						default=False,
 						action='store_true',
@@ -101,311 +107,251 @@ def getArgs():
 	return args
 
 
-def reader(book, sheetname):
-	sheet = book[sheetname]
-	row_count = 1 # start with 1 for the headers
-	rows = []
-	for row in sheet.iter_rows():
-		row = ['' if v.value is None else cell_value(v) for v in row]
-		if len(row) != row.count(''):
-			if row[0] != '' and str(row[0])[0] == '#': # avoid rows starting with comments
-				row_count += 1 # but add one row for each, assuming they are above submission rows
-			else:
-				rows.append(list(row))
-	cell_A1 = rows[0][0]
-	if cell_A1 is None or cell_A1.startswith('schema_version='): # may need to delete values in the first column
-		for row in rows:
-			del row[0]
-	# now remove the values in empty columns
-	bad_elements = []
-	for i in range(0,len(rows[0])):
-		temp = []
-		for row in rows:
-			temp.append(row[i])
-		if len(temp) == temp.count(''):
-			bad_elements.append(i)
-	for ele in sorted(bad_elements, reverse = True):
-		for row in rows:
-			del row[ele]
-	return(row_count, rows)
+def report_schema_error(prop, schema):
+	print('ERROR: Property "{}" not found in schema {}'.format(prop, schema))
 
 
-def cell_value(cell):
-	ctype = cell.data_type
-	cvalue = cell.value
-
-	if ctype in ['s','n']: # TYPE_STRING, TYPE_NUMERIC
-		return cvalue
-
-	elif ctype == 'b': # TYPE_BOOL
-		return str(cvalue).upper()
-
-	elif ctype == 'd': # datetime
-		return cvalue.date()
-
-	elif ctype == 'f': # TYPE_FORMULA
-		raise ValueError(repr(cell), 'formula in cell')
-
-	elif ctype == 'e': # TYPE_ERROR
-		raise ValueError(repr(cell), 'cell error')
-
-	else:
-		raise ValueError(repr(cell), '-'.join(['unknown cell type',ctype,cvalue]))
-
-
-def properties_validator(keys, schema, schema_properties, ont_props):
+def properties_validator(keys, schema_name, schema, dup_cols, remove, patchall):
 	flag = False
-	dup_keys = []
+	prop_types = {}
+	dup_keys = {}
+	base_props = []
+	linkTos = []
+	ont_props = ['term_name','term_id']
+	schema_properties = schema['properties']
+
 	for key in keys:
-		if key is not None:
-			if keys.count(key) >1 and key not in dup_keys: # check for duplicated headers
-				print('Property {} found {} times in {} sheet headers'.format(key, keys.count(key), schema))
-				dup_keys.append(key)
+		props = key.split('.')
+		if '.'.join(props[:-1]) in dup_keys and props[-1] == str(dup_keys['.'.join(props[:-1])]):
+			flag = True #this is the second or more instance of a duplicated header
+			dup_keys['.'.join(props[:-1])] += 1
+		else:
+			if key in dup_cols: # check for duplicated headers
+				print('Property {} found multiple times in {} sheet headers'.format(key, schema_name))
+				dup_keys[key] = 1
 				flag = True
-			props = key.split('.')
 			propA = props[0].split('-')[0]
+			base_props.append(propA)
 			if propA not in schema_properties.keys():
-				print('Property {} not found in schema {}'.format(propA, schema))
+				report_schema_error(propA, schema_name)
 				flag = True
+			elif len(props) == 1:
+				immediate_schema = schema_properties[propA]
+				prop_types[key] = immediate_schema['type']
+				if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+					linkTos.append(key)
 			elif len(props) > 1:
 				propB = props[1].split('-')[0]
 				if schema_properties[propA]['type'] == 'array':
 					if propB not in schema_properties[propA]['items']['properties'].keys():
-						print('Property {} not found in schema {}.{}'.format(propB, schema, propA))
+						report_schema_error(propB, schema_name + '.' + propA)
 						flag = True
+					elif len(props) == 2:
+						immediate_schema = schema_properties[propA]['items']['properties'][propB]
+						prop_types[key] = immediate_schema['type']
+						if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+							linkTos.append(key)
 					elif len(props) > 2:
 						propC = props[2].split('-')[0]
 						if schema_properties[propA]['items']['properties'][propB]['type'] == 'array':
 							if propC not in schema_properties[propA]['items']['properties'][propB]['items']['properties'].keys():
-								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['items']['properties'][propB]['items']['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
 						elif schema_properties[propA]['items']['properties'][propB]['type'] == 'object':
-							if propB not in schema_properties[propA]['items']['properties'][propB]['properties'].keys():
-								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+							if propC not in schema_properties[propA]['items']['properties'][propB]['properties'].keys():
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['items']['properties'][propB]['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
 						elif schema_properties[propA]['items']['properties'][propB].get('linkTo') == "OntologyTerm":
 							if propC not in ont_props:
-								print('Property {} not found in OntologyTerm schema via schema {}.{}.{}'.format(propC, schema, propA, propB))
+								report_schema_error(propC, 'OntologyTerm via ' + schema_name + '.' + propA + '.' + propB)
 								flag = True
+							elif propC == 'term_id':
+								prop_types[key] = 'ontology.term_id' #DO WE NEED LINKTOS HERE?
+							else:
+								prop_types[key] = 'string' #because term_name is strings #DO WE NEED LINKTOS HERE?
 						else:
-							print('Not expecting subproperties for property {}.{} in schema {} ({} given) '.format(propA, propB, schema, propC))
+							print('Not expecting subproperties for property {}.{} in schema {} ({} given) '.format(propA, propB, schema_name, propC))
 							flag = True
 				elif schema_properties[propA]['type'] == 'object':
 					if propB not in schema_properties[propA]['properties'].keys() and schema_properties[propA].get('additionalProperties') != True:
-						print('Property {} not found in schema {}.{}'.format(propB, schema, propA))
+						report_schema_error(propB, schema_name + '.' + propA)
 						flag = True
+					elif len(props) == 2:
+						if propB in schema_properties[propA]['properties'].keys():
+							immediate_schema = schema_properties[propA]['properties'][propB]
+							prop_types[key] = immediate_schema['type']
+							if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+								linkTos.append(key)
+						elif schema_properties[propA].get('additionalProperties') == True:
+							prop_types[key] = 'string'
 					elif len(props) > 2:
 						propC = props[2].split('-')[0]
 						if schema_properties[propA]['properties'][propB]['type'] == 'array':
 							if propC not in schema_properties[propA]['properties'][propB]['items']['properties'].keys():
-								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['properties'][propB]['items']['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
 						elif schema_properties[propA]['properties'][propB]['type'] == 'object':
 							if propC not in schema_properties[propA]['properties'][propB]['properties'].keys():
-								print('Property {} not found in schema {}.{}.{}'.format(propC, schema, propA, propB))
+								report_schema_error(propC, schema_name + '.' + propA + '.' + propB)
 								flag = True
+							else:
+								immediate_schema = schema_properties[propA]['properties'][propB]['properties'][propC]
+								prop_types[key] = immediate_schema['type']
+								if immediate_schema.get('linkTo') or immediate_schema.get('items',{}).get('linkTo'):
+									linkTos.append(key)
 						else:
-							print('Not expecting subproperties for property {} in schema {}.{} ({} given) '.format(probB, schema, propA, propC))
+							print('Not expecting subproperties for property {} in schema {}.{} ({} given) '.format(propB, schema_name, propA, propC))
 							flag = True
 				elif schema_properties[propA].get('linkTo') == "OntologyTerm":
 					if propB not in ont_props:
-						print('Property {} not found in OntologyTerm schema via schema {}.{}'.format(propB, schema, propA))
+						report_schema_error(propB, 'OntologyTerm via ' + schema_name + '.' + propA)
 						flag = True
+					else:
+						prop_types[key] = 'string' #because term_id and term_name are both strings #DO WE NEED LINKTOS HERE?
 				else:
-					print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema, propB))
+					print('Not expecting subproperties for property {} in schema {} ({} given) '.format(propA, schema_name, propB))
 					flag = True
-	return flag
+
+	if not remove and not patchall:
+		req_missing = [p for p in schema['required'] if p not in base_props]
+		if req_missing:
+			print('Required properties {} missing in schema {} '.format(','.join(req_missing), schema_name))
+			flag = True
+
+	return flag, prop_types, linkTos
 
 
-def type_formatter(old_value, schema_properties, key1, key2=None, key3=None):
-	# determine the type specified in the schema
-	linkTo_flag = False
-	desired_type = ''
-	if not key2:
-		desired_type = schema_properties[key1]['type']
-		if schema_properties[key1].get('linkTo'):
-			linkTo_flag = True
-		if schema_properties[key1].get('items'):
-			array_of_type = schema_properties[key1]['items'].get('type')
-			if schema_properties[key1]['items'].get('linkTo'):
-				linkTo_flag = True
-	elif not key3:
-		if schema_properties[key1].get('items'):
-			if schema_properties[key1]['items']['properties'].get(key2):
-				desired_type = schema_properties[key1]['items']['properties'][key2]['type']
-				if schema_properties[key1]['items']['properties'][key2].get('linkTo'):
-					linkTo_flag = True
-				if schema_properties[key1]['items']['properties'][key2].get('items'):
-					array_of_type = schema_properties[key1]['items']['properties'][key2]['items'].get('type')
-		else:
-			if schema_properties[key1]['properties'].get(key2):
-				desired_type = schema_properties[key1]['properties'][key2]['type']
-				if schema_properties[key1]['properties'][key2].get('linkTo'):
-					linkTo_flag = True
-	else:
-		if schema_properties[key1].get('items'):
-			if schema_properties[key1]['items']['properties'].get(key2):
-				if schema_properties[key1]['items']['properties'][key2].get('items'):
-					if schema_properties[key1]['items']['properties'][key2]['items']['properties'].get(key3):
-						desired_type = schema_properties[key1]['items']['properties'][key2]['items']['properties'][key3]['type']
-						if schema_properties[key1]['items']['properties'][key2]['items']['properties'][key3].get('linkTo'):
-							linkTo_flag = True
-				else:
-					if schema_properties[key1]['items']['properties'][key2]['properties'].get(key3):
-						desired_type = schema_properties[key1]['items']['properties'][key2]['properties'][key3]['type']
-						if schema_properties[key1]['items']['properties'][key2]['properties'][key3].get('linkTo'):
-							linkTo_flag = True
-		else:
-			if schema_properties[key1]['properties'].get(key2):
-				if schema_properties[key1]['properties'][key2].get('items'):
-					desired_type = schema_properties[key1]['properties'][key2]['items']['properties'][key3]['type']
-					if schema_properties[key1]['properties'][key2]['items']['properties'][key3].get('linkTo'):
-						linkTo_flag = True
-				else:
-					desired_type = schema_properties[key1]['properties'][key2]['properties'][key3]['type']
-					if schema_properties[key1]['properties'][key2]['properties'][key3].get('linkTo'):
-						linkTo_flag = True
-
-	# adjust the value to the specified type
-	if desired_type == 'array' and linkTo_flag == True:
-		return [quote(x.strip()) for x in old_value.split(',')]
-	if desired_type == 'array':
-		if array_of_type == 'object':
-			old_value = old_value.replace('},{', '}${')
-			return [ast.literal_eval(x) for x in old_value.split('$')]
-		else:
-			return [x.strip() for x in old_value.split(',')]
-	elif desired_type == 'boolean':
-		if str(old_value).lower() in ['true', '1']:
-			return True
-		elif str(old_value).lower() in ['false', '0']:
-			return False
-		else:
-			print('Boolean was expected for {prop} but value is {value}'.format(prop=key1, value=old_value))
-	elif desired_type == 'number':
-		return float(old_value)
-	elif desired_type == 'integer':
-		return int(old_value)
-	elif desired_type == 'string' and linkTo_flag == True:
-		return quote(str(old_value).strip())
-	elif desired_type == 'string':
-		return str(old_value).strip()
-	else:
-		return old_value
-
-
-def dict_patcher(old_dict, schema_properties, ont_schema_properties):
+def dict_patcher(old_dict, schema_properties):
 	new_dict = {}
 	array_o_objs_dict = {}
 	onts = {}
-	for key in sorted(old_dict.keys()):
-		if old_dict[key] != '':  # this removes empty cells
-			path = key.split('.')
-			if len(path) == 1:
-				if schema_properties[key].get('linkTo') == 'OntologyTerm' or \
-					(schema_properties[key].get('items') and schema_properties[key]['items'].get('linkTo') == 'OntologyTerm'):
-					old_dict[key] = old_dict[key].replace(':','_')
-				new_dict[key] = type_formatter(old_dict[key], schema_properties, key)
-			elif len(path) == 2: # embedded object, need to build the mini dictionary to put this in
-				if '-' in path[0]: # this has a number next to it and we expect an array of objects
-					group = path[0].split('-')[1]
+	for key, value in old_dict.items():
+		path = key.split('.')
+		if len(path) == 1:
+			if schema_properties[key].get('linkTo') == 'OntologyTerm' or \
+				(schema_properties[key].get('items') and schema_properties[key]['items'].get('linkTo') == 'OntologyTerm'):
+				if isinstance(value, list):
+					value = [unquote(v).replace(':','_') for v in value]
 				else:
-					group = '1'
-				propA = path[0].split('-')[0]
-				propB = path[1]
-				if schema_properties[propA].get('linkTo') == 'OntologyTerm':
-					if onts.get(propA):
-						onts[propA][propB] = type_formatter(old_dict[key], ont_schema_properties, propB)
+					value = unquote(value).replace(':','_')
+			elif key == 'term_id':
+				value = value.replace('_',':')
+			new_dict[key] = value
+		elif len(path) == 2: # embedded object, need to build the mini dictionary to put this in
+			if '-' in path[0]: # this has a number next to it and we expect an array of objects
+				group = path[0].split('-')[1]
+			else:
+				group = '1'
+			propA = path[0].split('-')[0]
+			propB = path[1]
+			if schema_properties[propA].get('linkTo') == 'OntologyTerm':
+				if onts.get(propA):
+					onts[propA][propB] = value
+				else:
+					onts[propA] = {}
+					onts[propA][propB] = value
+				if propB == 'term_id':
+					new_dict[propA] = value.replace(':','_') # replace the term_name/term_id with the linkTo
+			elif schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
+				if array_o_objs_dict.get(propA): # I have already added the embedded object to the new dictionary
+					if array_o_objs_dict[propA].get(group):
+						# this should be that we have started putting in the new object
+						array_o_objs_dict[propA][group].update({propB: value})
 					else:
-						onts[propA] = {}
-						onts[propA][propB] = type_formatter(old_dict[key], ont_schema_properties, propB)
-					if propB == 'term_id':
-						new_dict[propA] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
-				elif schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
-					if array_o_objs_dict.get(propA): # I have already added the embedded object to the new dictionary
+						# this means we have not added any part of new item to the list
+						array_o_objs_dict[propA][group] = {propB: value}
+				else: # I need to make new item in dictionary
+					array_o_objs_dict[propA] = {}
+					array_o_objs_dict[propA][group] = {propB: value}
+			else: # there is no number next to it, this is our only object to handle
+				if new_dict.get(propA): # I have already added the embedded object to the new dictionary
+					new_dict[propA].update({propB: value})
+				else: # I need to make new item in dictionary
+					temp_dict = {propB: value}
+					new_dict[propA] = temp_dict
+		elif len(path) == 3: # we have an object embedded within an embedded object
+			if '-' in path[0]:
+				group = path[0].split('-')[1]
+			else:
+				group = '1'
+			if '-' in path[1]:
+				subgroup = path[1].split('-')[1]
+			else:
+				subgroup = '1'
+			propA = path[0].split('-')[0]
+			propB = path[1].split('-')[0]
+			propC = path[2]
+			if schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
+				if schema_properties[propA]['items']['properties'][propB]['type'] == 'array': # we have an array of objects within an array of objects
+					if array_o_objs_dict.get(propA):
 						if array_o_objs_dict[propA].get(group):
-							# this should be that we have started putting in the new object
-							array_o_objs_dict[propA][group].update({propB: type_formatter(old_dict[key], schema_properties, propA, propB)})
-						else:
-							# this means we have not added any part of new item to the list
-							array_o_objs_dict[propA][group] = {propB: type_formatter(old_dict[key], schema_properties, propA, propB)}
-					else: # I need to make new item in dictionary
-						array_o_objs_dict[propA] = {}
-						array_o_objs_dict[propA][group] = {propB: type_formatter(old_dict[key], schema_properties, propA, propB)}
-				else: # there is no number next to it, this is our only object to handle
-					if new_dict.get(propA): # I have already added the embedded object to the new dictionary
-						new_dict[propA].update({propB: type_formatter(old_dict[key], schema_properties, propA, propB)})
-					else: # I need to make new item in dictionary
-						temp_dict = {propB: type_formatter(old_dict[key], schema_properties, propA, propB)}
-						new_dict[propA] = temp_dict
-			elif len(path) == 3: # we have an object embedded within an embedded object
-				if '-' in path[0]:
-					group = path[0].split('-')[1]
-				else:
-					group = '1'
-				if '-' in path[1]:
-					subgroup = path[1].split('-')[1]
-				else:
-					subgroup = '1'
-				propA = path[0].split('-')[0]
-				propB = path[1].split('-')[0]
-				propC = path[2]
-				if schema_properties[propA]['type'] == 'array': # this is a single object that needs to end as a 1 item array of objects
-					if schema_properties[propA]['items']['properties'][propB]['type'] == 'array': # we have an array of objects within an array of objects
-						if array_o_objs_dict.get(propA):
-							if array_o_objs_dict[propA].get(group):
-								if array_o_objs_dict[propA][group].get(propB):
-									if array_o_objs_dict[propA][group][propB].get(subgroup):
-										array_o_objs_dict[propA][group][propB][subgroup].update({propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)})
-									else:
-										array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+							if array_o_objs_dict[propA][group].get(propB):
+								if array_o_objs_dict[propA][group][propB].get(subgroup):
+									array_o_objs_dict[propA][group][propB][subgroup].update({propC: value})
 								else:
-									array_o_objs_dict[propA][group][propB] = {}
-									array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+									array_o_objs_dict[propA][group][propB][subgroup] = {propC: value}
 							else:
-								array_o_objs_dict[propA][group] = {}
 								array_o_objs_dict[propA][group][propB] = {}
-								array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
+								array_o_objs_dict[propA][group][propB][subgroup] = {propC: value}
 						else:
-							array_o_objs_dict[propA] = {}
 							array_o_objs_dict[propA][group] = {}
 							array_o_objs_dict[propA][group][propB] = {}
-							array_o_objs_dict[propA][group][propB][subgroup] = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
-					else: # this is an object within an array of objects
-						if schema_properties[propA]['items']['properties'][propB].get('linkTo') == 'OntologyTerm':
-							if onts.get(propB):
-								onts[propB][propC] = type_formatter(old_dict[key], ont_schema_properties, propC)
-							else:
-								onts[propB] = {}
-								onts[propB][propC] = type_formatter(old_dict[key], ont_schema_properties, propC)
-							if propC == 'term_id':
-								if array_o_objs_dict.get(propA):
-									if array_o_objs_dict[propA].get(group):
-										array_o_objs_dict[propA][group][propB] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
-									else:
-										array_o_objs_dict[propA][group] = {}
-										array_o_objs_dict[propA][group][propB] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
-								else:
-									array_o_objs_dict[propA] = {}
-									array_o_objs_dict[propA][group] = {}
-									array_o_objs_dict[propA][group][propB] = old_dict[key].replace(':','_') # replace the term_name/term_id with the linkTo
+							array_o_objs_dict[propA][group][propB][subgroup] = {propC: value}
+					else:
+						array_o_objs_dict[propA] = {}
+						array_o_objs_dict[propA][group] = {}
+						array_o_objs_dict[propA][group][propB] = {}
+						array_o_objs_dict[propA][group][propB][subgroup] = {propC: value}
+				else: # this is an object within an array of objects
+					if schema_properties[propA]['items']['properties'][propB].get('linkTo') == 'OntologyTerm':
+						if onts.get(propB):
+							onts[propB][propC] = value
 						else:
-							print('ATTENTION IS NEEDED HERE her here her')
-				else:
-					if schema_properties[propA][propB]['type'] == 'array': # this is an array of objects within an object
+							onts[propB] = {}
+							onts[propB][propC] = value
+						if propC == 'term_id':
+							if array_o_objs_dict.get(propA):
+								if array_o_objs_dict[propA].get(group):
+									array_o_objs_dict[propA][group][propB] = value.replace(':','_') # replace the term_name/term_id with the linkTo
+								else:
+									array_o_objs_dict[propA][group] = {}
+									array_o_objs_dict[propA][group][propB] = value.replace(':','_') # replace the term_name/term_id with the linkTo
+							else:
+								array_o_objs_dict[propA] = {}
+								array_o_objs_dict[propA][group] = {}
+								array_o_objs_dict[propA][group][propB] = value.replace(':','_') # replace the term_name/term_id with the linkTo
+					else:
 						print('ATTENTION IS NEEDED HERE')
-					else: # this is an object within an object
-						if new_dict.get(propA): # I have already added the embedded object to the new dictionary
-							if new_dict[propA].get(propB): # I have already added the double-embedded object to the new dictionary
-								new_dict[propA][propB].update({propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)})
-							else: # I need to add the double-embedded object to the new dictionary
-								temp_dict = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
-								new_dict[propA].update({propB: temp_dict})
-						else: # I need to make new item in dictionary
-							temp_dict = {propC: type_formatter(old_dict[key], schema_properties, propA, propB, propC)}
-							new_dict[propA] = {propB: temp_dict}
-			elif len(path) > 3:
-				print('ERROR:' + key + ': Not prepared to do triplpe-embedded properties, check for errant period')
+			else:
+				if schema_properties[propA][propB]['type'] == 'array': # this is an array of objects within an object
+					print('ATTENTION IS NEEDED HERE')
+				else: # this is an object within an object
+					if new_dict.get(propA): # I have already added the embedded object to the new dictionary
+						if new_dict[propA].get(propB): # I have already added the double-embedded object to the new dictionary
+							new_dict[propA][propB].update({propC: value})
+						else: # I need to add the double-embedded object to the new dictionary
+							temp_dict = {propC: value}
+							new_dict[propA].update({propB: temp_dict})
+					else: # I need to make new item in dictionary
+						temp_dict = {propC: value}
+						new_dict[propA] = {propB: temp_dict}
+		elif len(path) > 3:
+			print('ERROR:' + key + ': Not prepared to do triple-embedded properties, check for errant period')
 
 	for prop in array_o_objs_dict.keys():
 		new_list = []
@@ -467,6 +413,63 @@ def attachment(path):
 	raise ValueError('Unknown file type for %s' % filename)
 
 
+def get_tab_ids(soup):
+	tab_ids = {}
+	pattern = re.compile('var bootstrapData = (.*?)};')
+	for s in soup.find_all('script'):
+		if pattern.search(str(s)):
+			d = pattern.search(str(s)).group()[20:-1]
+			data = json.loads(d)
+			for t in data['changes']['topsnapshot']:
+				u = t[1].split('"')
+				if len(u) > 5:
+					tab_ids[u[5]] = u[1]
+	return tab_ids
+
+
+def booleanify(s):
+	if str(s).lower() in ['true', '1']:
+		return True
+	elif str(s).lower() in ['false', '0']:
+		return False
+	else:
+		return s
+
+
+def stringify(s):
+	s = str(s).strip()
+	if s.lower() == 'true':
+		return 'True'
+	elif s.lower() == 'false':
+		return 'False'
+	else:
+		return s
+
+
+def set_value_types(df, prop_types, linkTos):
+	for c in list(df.columns):
+		val_type = prop_types[c]
+		if val_type == 'string':
+			if c in linkTos:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else quote(str(x[c]).strip()), axis=1)
+			else:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else stringify(x[c]), axis=1)
+		elif val_type == 'ontology.term_id':
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else str(x[c]).replace('_',':'), axis=1)
+		elif val_type == 'array':
+			if c in linkTos:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else [quote(v.strip()) for v in str(x[c]).split(',')], axis=1)
+			else:
+				df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else [v.strip() for v in str(x[c]).split(',')], axis=1)
+				# if array of objects, 	old_value = old_value.replace('},{', '}${') THEN [ast.literal_eval(x) for x in old_value.split('$')]
+		elif val_type == 'boolean':
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else booleanify(x[c]), axis=1)
+		elif val_type == 'integer':
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else int(str(x[c]).replace(',','')), axis=1)
+		elif val_type == 'number':
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else float(str(x[c]).replace(',','')), axis=1)
+
+
 def check_existing_obj(post_json, schema, connection):
 	if post_json.get('uuid'):
 		temp_identifier = post_json['uuid']
@@ -478,8 +481,6 @@ def check_existing_obj(post_json, schema, connection):
 		temp_identifier = schema + '/' + post_json['name']
 	elif post_json.get('term_id'):
 		temp_identifier = schema + '/' + post_json['term_id'].replace(':','_')
-	elif post_json.get('gene_id'):
-		temp_identifier = schema + '/' + post_json['gene_id']
 	elif post_json.get('aliases'):
 		temp_identifier = quote(post_json['aliases'][0])
 	try:
@@ -494,198 +495,244 @@ def check_existing_obj(post_json, schema, connection):
 
 
 def main():
-	summary_report = []
 	args = getArgs()
-	if not args.mode:
-		sys.exit('ERROR: --mode is required')
+
 	connection = lattice.Connection(args.mode)
 	server = connection.server
-	print('Running on {server}'.format(server=server))
-	if not os.path.isfile(args.infile):
-		sys.exit('ERROR: file {filename} not found!'.format(filename=args.infile))
-	book = load_workbook(args.infile)
-	names = {}
-	if args.justtype:
-		if args.starttype:
+	print(f'Running on {server}')
+
+	if args.remove and args.patchall:
+		sys.exit('ERROR: cannot specify both --remove and --patch')
+
+	if args.update:
+		if args.patchall:
+			print('Running to UPDATE, data will be PATCHED')
+		elif args.remove:
+			print('Running to UPDATE, data will be REMOVED')
+		else:
+			print('Running to UPDATE, data will be POSTED')
+	else:
+		print('Running in dry-run mode. No updates will be made')
+
+	sheet_url = f'https://docs.google.com/spreadsheets/d/{args.sheet_id}'
+	req = Request(sheet_url, headers={'User-Agent' : "Magic Browser"})
+	s = urlopen(req)
+	soup = BeautifulSoup(s, 'html.parser')
+	h1 = soup.find('h1')
+	if (h1 and h1.text == 'Sign in'):
+		sys.exit('Google Sheet is not accessible. Ensure anyone with link can View.')
+	tabs = [x.text.lower() for x in soup.find_all('div', {'class':'goog-inline-block docs-sheet-tab-caption'})]
+
+	#establish what objects are being loaded and in what order
+	load_order = ORDER
+	if args.starttype:
+		if args.justtype:
 			sys.exit('ERROR: cannot specify both --justtype and --starttype')
 		else:
-			for sheet in book.sheetnames:
-				if sheet.lower().replace('_','') == args.justtype.lower().replace('_',''):
-					names[sheet.lower().replace('_','')] = sheet
-	else:
-		for sheet in book.sheetnames:
-			names[sheet.lower().replace('_','')] = sheet
-	profiles = requests.get(server + 'profiles/?format=json').json()
-	supported_collections = [s.lower() for s in list(profiles.keys())] # get accepted object types
-	supported_collections.append('cover sheet')
-	for n in names.keys():
-		if n not in supported_collections: # check that each sheet name corresponds to an object type
-			print('ERROR: Sheet name {name} not part of supported object types!'.format(
-				name=n), file=sys.stderr)
+			st_index = load_order.index(args.starttype)
+			load_order = load_order[st_index:]
+	if args.justtype:
+		if args.justtype in load_order:
+			load_order = [args.justtype]
+		else:
+			sys.exit('ERROR: --justtype {jt} not valid object type'.format(jt=args.justtype))
 
-	ont_schema_url = urljoin(server, 'profiles/ontology_term/?format=json')
-	ont_term_schema = requests.get(ont_schema_url).json()['properties']
-	ontology_props = []
-	for p in ont_term_schema.keys():
-		if not str(ont_term_schema[p].get('comment')).startswith('Do not submit') \
-		and ont_term_schema[p].get('notSubmittable') != True:
-			ontology_props.append(p)
+	not_schema = [t for t in tabs if t not in load_order]
+	print('Sheets will NOT be considered: ' + ','.join(not_schema))
 
-	load_order = ORDER # pull in the order used to load test inserts on a local instance
-	if args.starttype:
-		st_index = load_order.index(args.starttype)
-		load_order = load_order[st_index:]
+	to_load = [t for t in load_order if t in tabs]
+	print('Sheets WILL be considered: ' + ','.join(to_load))
+
+	#get the tab ids in order to fill in csv access links
+	tab_ids = get_tab_ids(soup)
+
 	all_posts = {}
-	for schema_to_load in load_order: # go in order to try and get objects posted before they are referenced by another object
-		obj_type = schema_to_load.replace('_','')
-		if obj_type in names.keys():
-			obj_posts = []
-			row_count, rows = reader(book, names[obj_type])
+	summary_report = []
 
-			# remove all columns that do not have any values submitted
+	for schema_to_load in to_load:
+		#read the sheet from csv into pandas
+		g_id = tab_ids[schema_to_load]
+		g_url = f'https://docs.google.com/spreadsheets/d/{args.sheet_id}/export?gid={g_id}&format=csv'
+		df = pd.read_csv(g_url)
+
+		#remove columns that are all NaNs
+		if not args.remove:
+			df = df.dropna(how='all',axis='columns')
+
+		#get rid of rows that start with "#"
+		df = df[(df.iloc[:,0].str.startswith('#') == False) | (df.iloc[:,0].isna())]
+
+		#get rid of columns with a header that start with "#"
+		drop = [h for h in df.columns if h.startswith('#')]
+		df = df.drop(columns=drop)
+
+		#remove columns that are all NaNs now that possible notes have been cleared
+		if not args.remove:
+			df = df.dropna(how='all',axis='columns')
+
+		if df.empty:
+			print('skipping {}: no objects to submit'.format(schema_to_load))
+			tabs.remove(schema_to_load)
+			continue
+
+		#check for duplicated headers
+		dup_cols = []
+		for k,v in pd.read_csv(g_url, header=None, nrows=1).iloc[0,:].value_counts().items():
+			if v > 1:
+				dup_cols.append(k)
+
+		headers = list(df.columns)
+		schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
+		schema = requests.get(schema_url).json()
+
+		invalid_flag, prop_types, linkTos = properties_validator(headers, schema_to_load, schema, dup_cols, args.remove, args.patchall)
+
+		if invalid_flag == True:
+			print('{}: invalid schema, check the headers'.format(schema_to_load))
+			summary_report.append('{}: invalid schema, check the headers'.format(schema_to_load))
+			continue
+
+		set_value_types(df, prop_types, linkTos)
+
+		obj_posts = []
+
+		for row_count, row in df.iterrows():
+			row_count += 2 #1 for the header row, 1 to go from 0-based to 1-based
 			if not args.remove:
-				index_to_remove = []
-				for i in range(0,len(rows[0])):
-					values = [row[i] for row in rows[1:]]
-					if set(values) == {''}:
-						index_to_remove.append(i)
-				index_to_remove.reverse()
-				for index in index_to_remove:
-					for row in rows:
-						del row[index]
+				row = row.dropna()
+			post_json = json.loads(row.to_json())
 
-			headers = rows.pop(0)
-			schema_url = urljoin(server, 'profiles/' + schema_to_load + '/?format=json')
-			schema_properties = requests.get(schema_url).json()['properties']
-			invalid_flag = properties_validator(headers, schema_to_load, schema_properties, ontology_props)
-			if invalid_flag == True:
-				print('{}: invalid schema, check the headers'.format(obj_type))
-				summary_report.append('{}: invalid schema, check the headers'.format(obj_type))
-				continue
-			for row in rows:
-				row_count += 1
-				post_json = dict(zip(headers, row))
-				# convert values to the type specified in the schema, including embedded json objects
-				if not args.remove:
-					post_json, post_ont = dict_patcher(post_json, schema_properties, ont_term_schema)
-					for k, v in post_ont.items():
-						all_posts.setdefault('ontology_term', []).append((obj_type + '.' + k, v))
-					# add attchments here
-					if post_json.get('attachment'):
-						attach = attachment(post_json['attachment'])
-						post_json['attachment'] = attach
-				obj_posts.append((row_count, post_json))
-			all_posts[schema_to_load] = obj_posts
+			#split out the OntologyTerms to load
+			if not args.remove:
+				post_json, post_ont = dict_patcher(post_json, schema['properties'])
+				for k, v in post_ont.items():
+					if 'ontology_term_' + schema_to_load not in load_order:
+						load_order.insert(0, 'ontology_term_' + schema_to_load)
+					all_posts.setdefault('ontology_term_' + schema_to_load, []).append(('', v))
 
-	if args.patchall:
-		patch_req = True
-	else:
-		patch_req = False
-	for schema in load_order: # go in order to try and get objects posted before they are referenced by another object
-		if all_posts.get(schema):
+				# add attchments here
+				if post_json.get('attachment'):
+					attach = attachment(post_json['attachment'])
+					post_json['attachment'] = attach
+
+			obj_posts.append((row_count, post_json))
+
+		all_posts[schema_to_load] = obj_posts
+
+	failed_postings = []
+	idprops = ['uuid', 'accession', 'aliases', 'term_id', 'name']
+	for schema_to_report in load_order:
+		schema = 'ontology_term' if schema_to_report.startswith('ontology_term_') else schema_to_report
+		if all_posts.get(schema_to_report):
 			total = 0
 			error = 0
 			success = 0
 			patch = 0
-			new_accessions_aliases = []
-			failed_postings = []
-			for row_count, post_json in all_posts[schema]:
+			obj_failed = []
+			for row_count, post_json in all_posts[schema_to_report]:
 				total += 1
+
 				#check for an existing object based on any possible identifier
 				temp_id, temp = check_existing_obj(post_json, schema, connection)
+				temp_id = unquote(temp_id)
 
 				if temp.get('uuid'): # if there is an existing corresponding object
-					if schema == 'ontology_term':
-						ont_mismatch = False
-						ont_patch = False
-						for k in post_json.keys():
-							if temp.get(k) and post_json[k] != temp.get(k):
-								print('ERROR: {}:{} {} of {} does not match existing {}'.format(row_count, k, post_json[k], post_json['term_id'], temp.get(k)))
-								ont_mismatch = True
-							elif not temp.get(k):
-								ont_patch = True
-						if ont_mismatch == False and ont_patch == True:
-							print(schema.upper() + ' ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(post_json['term_id']))
-							i = input('PATCH? y/n: ')
-							if i.lower() == 'y':
-						 		patch_req = True
-						elif ont_mismatch == True:
-							print('OntologyTerm {} will not be updated'.format(post_json['term_id']))
-							i = input('EXIT SUBMISSION? y/n: ')
-							if i.lower() == 'y':
-								sys.exit('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-									sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-					elif patch_req == False: # patch wasn't specified, see if the user wants to patch
-						print(schema.upper() + ' ROW ' + str(row_count) + ':Object {} already exists.  Would you like to patch it instead?'.format(temp_id))
-						i = input('PATCH? y/n: ')
-						if i.lower() == 'y':
-							patch_req = True
-					if patch_req == True and args.remove:
-						existing_json = lattice.get_object(temp['uuid'], connection, frame="edit")
-						for k in post_json.keys():
-							if k not in ['uuid', 'accession', 'alias', '@id']:
+					if args.remove:
+						if schema_to_report.startswith('ontology_term_'): #the secondary ontology_terms should be ignored for remove
+							total -= 1
+						else:
+							existing_json = lattice.get_object(temp['uuid'], connection, frame="edit")
+							for k in post_json.keys():
 								if k not in existing_json.keys():
-									print('Cannot remove {}, may be calculated property, or is not submitted'.format(k))
-								else:
+									print('ERROR: {} ROW {}: Cannot remove {}, may be calculated property, or is not submitted'.format(schema_to_report.upper(), row_count, k))
+								elif k not in idprops:
 									existing_json.pop(k)
-									print('Removing value:', k)
-						if args.update:
-							e = lattice.replace_object(temp['uuid'], connection, existing_json)
+									print('{} ROW {}:Removing value: {}'.format(schema_to_report.upper(), row_count, k))
+							if args.update:
+								e = lattice.replace_object(temp['uuid'], connection, existing_json)
+								if e['status'] == 'error':
+									error += 1
+								elif e['status'] == 'success':
+									new_patched_object = e['@graph'][0]
+									print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
+										'accession', new_patched_object.get('uuid')))))
+									patch += 1
+					elif args.patchall:
+						if schema_to_report.startswith('ontology_term_'):
+							if post_json.get('term_name') and post_json['term_name'] != temp['term_name']:
+								print('ERROR: {}: sumbission term_name {} of {} does not match existing term_name {}'.format(schema_to_report.upper(), post_json['term_name'], post_json['term_id'], temp['term_name']))
+								error += 1
+							else: #secondary ontology_terms that exist can be ignored if the term_name matches existing object
+								total -= 1
+						elif args.update:
+							e = lattice.patch_object(temp['uuid'], connection, post_json)
 							if e['status'] == 'error':
 								error += 1
 							elif e['status'] == 'success':
 								new_patched_object = e['@graph'][0]
-								# Print now and later
-								print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
+								print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
 									'accession', new_patched_object.get('uuid')))))
 								patch += 1
-					elif patch_req == True and args.update:
-						e = lattice.patch_object(temp['uuid'], connection, post_json)
-						if e['status'] == 'error':
+					elif schema_to_report.startswith('ontology_term_'):
+						if post_json.get('term_name') and post_json['term_name'] != temp['term_name']:
+							print('ERROR: {}: sumbission term_name {} of {} does not match existing term_name {}'.format(schema_to_report.upper(), post_json['term_name'], post_json['term_id'], temp['term_name']))
 							error += 1
-						elif e['status'] == 'success':
-							new_patched_object = e['@graph'][0]
-							# Print now and later
-							print(schema.upper() + ' ROW ' + str(row_count) + ':identifier: {}'.format((new_patched_object.get(
-								'accession', new_patched_object.get('uuid')))))
-							patch += 1
-				else: # we have new object to post
-					if args.patchall:
-						print(schema.upper() + ' ROW ' + str(row_count) + ':Object not found. Check identifier or consider removing --patchall to post a new object')
-						error += 1
-					elif args.update:
-						print(schema.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
-						e = lattice.post_object(schema, connection, post_json)
-						if e['status'] == 'error':
-							error += 1
-							failed_postings.append(schema.upper() + ' ROW ' + str(row_count) + ':' + str(post_json.get(
-								'aliases', 'alias not specified')))
-						elif e['status'] == 'success':
-							new_object = e['@graph'][0]
-							# Print now and later
-							print(schema.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
-								'accession', new_object.get('uuid')))))
-							new_accessions_aliases.append(('ROW ' + str(row_count), new_object.get(
-								'accession', new_object.get('uuid')), new_object.get('aliases', new_object.get('name'))))
-							success += 1
-
-			# Print now and later
-			print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-			summary_report.append('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
-				sheet=schema.upper(), success=success, total=total, error=error, patch=patch))
-			if new_accessions_aliases:
-				print('New accessions/UUIDs and aliases:')
-				for (row, accession, alias) in new_accessions_aliases:
-					if alias == None:
-						alias = 'alias not specified'
+						else: #secondary ontology_terms that exist can be ignored if the term_name matches existing object
+							total -= 1
 					else:
-						alias = ', '.join(alias) if isinstance(alias, list) else alias
-					print(row, accession, alias)
-			if failed_postings:
-				print('Posting failed for {} object(s):'.format(len(failed_postings)))
-				for alias in failed_postings:
-					print(', '.join(alias) if isinstance(alias, list) else alias)
+						print('ERROR: {} ROW {}: Object {} already exists.'.format(schema_to_report.upper(), row_count, temp_id))
+						error += 1
+
+				else: # there is no existing object found
+					if args.remove:
+						print('ERROR: {} ROW {}: Object does not exist.'.format(schema_to_report.upper(), row_count))
+						error += 1
+					elif args.patchall:
+						if schema_to_report.startswith('ontology_term_'): #possible we need to post new ontology_terms to patch existing objects
+							if args.update:
+								print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
+								e = lattice.post_object(schema, connection, post_json)
+								if e['status'] == 'error':
+									error += 1
+									obj_failed.append(schema_to_report.upper() + ' ROW ' + str(row_count) + ':' + 'term_id')
+								elif e['status'] == 'success':
+									new_object = e['@graph'][0]
+									print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
+										'accession', new_object.get('uuid')))))
+									success += 1
+						else:
+							print('ERROR: {} ROW {}: Object does not exist.'.format(schema_to_report.upper(), row_count))
+							error += 1
+					else: # post new object
+						if args.update:
+							print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':POSTing data!')
+							e = lattice.post_object(schema, connection, post_json)
+							if e['status'] == 'error':
+								error += 1
+								obj_failed.append(schema_to_report.upper() + ' ROW ' + str(row_count) + ':' + post_json.get(
+									'aliases', ['alias not specified'])[0])
+							elif e['status'] == 'success':
+								new_object = e['@graph'][0]
+								print(schema_to_report.upper() + ' ROW ' + str(row_count) + ':New accession/UUID: {}'.format((new_object.get(
+									'accession', new_object.get('uuid')))))
+								success += 1
+
+			if total > 0:
+				print('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
+					sheet=schema_to_report.upper(), success=success, total=total, error=error, patch=patch))
+				summary_report.append('{sheet}: {success} posted, {patch} patched, {error} errors out of {total} total'.format(
+					sheet=schema_to_report.upper(), success=success, total=total, error=error, patch=patch))
+
+			if obj_failed:
+				print('Posting failed for {} object(s):'.format(len(obj_failed)))
+				for a in obj_failed:
+					print(a)
+				failed_postings.extend(obj_failed)
+
+	if failed_postings:
+		print('-------Summary of failed objects-------')
+		for a in failed_postings:
+			print(a)
 	print('-------Summary of all objects-------')
 	print('\n'.join(summary_report))
 

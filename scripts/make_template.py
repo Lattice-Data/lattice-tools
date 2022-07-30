@@ -167,7 +167,7 @@ uber_list = []
 
 # gather the top row list of schema_version followed by the property names
 schema_version = schema['properties']['schema_version']['default']
-prop_list = ['schema_version=' + schema_version]
+prop_list = ['#schema_version=' + schema_version]
 for p in ordered_props.keys():
 	prop_list.append(p)
 uber_list.append(prop_list)
