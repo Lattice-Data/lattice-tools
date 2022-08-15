@@ -320,7 +320,7 @@ if pipeline in ['cellranger', 'star']:
 		for k,v in should_match.items():
 			if k in extra_values and v in final_values:
 				if float(extra_values[k]) != float(final_values[v]):
-					print('ERROR: {k}:{} does not match {}:{}'.format(k, str(extra_values[k]),v,str(final_values[v])))
+					print('ERROR: {}:{} does not match {}:{}'.format(k, str(extra_values[k]),v,str(final_values[v])))
 				else:
 					del extra_values[k]
  
