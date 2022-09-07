@@ -210,6 +210,7 @@ if pipeline in ['cellranger', 'star']:
 	perc_to_frac = mappings[pipeline][assay].get('perc_to_frac',[])
 
 	for direct in directories:
+		print('starting: {}'.format(direct))
 		direct = direct.replace('s3://', '')
 		full_path = direct.rstrip('/')
 		bucket_name = full_path.split('/')[0]
