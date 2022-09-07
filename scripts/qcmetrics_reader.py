@@ -151,7 +151,7 @@ def schemify(value, prop_type):
 	if value in [None, '', 'nan']:
 		return ''
 	elif (prop_type == 'integer') and (str(value).endswith('.0') == True):
-		return str(value).strip('.0')
+		return str(value)[:-2]
 	else:
 		return str(value)
 
@@ -262,8 +262,11 @@ if pipeline in ['cellranger', 'star']:
 
 
 		for k,v in report_json.items():
-			try_v = str(v)
-			try_v = try_v.strip('%')
+			if v is None:
+				try_v = ''
+			else:
+				try_v = str(v)
+				try_v = try_v.strip('%')
 
 			try_k = k.lower().replace(' ','_')
 			try_k = schema_mapping.get(try_k, try_k)
