@@ -174,7 +174,7 @@ server = connection.server
 
 dir_list = args.dir
 if os.path.isfile(dir_list):
-    directories = [line.rstrip('\n') for line in open(dir_list)]
+	directories = [line.rstrip('\n') for line in open(dir_list)]
 else:
     directories = dir_list.split(',')
 
@@ -314,7 +314,12 @@ if pipeline in ['cellranger', 'star']:
 				else:
 					extra_values[k] = v
 
+			elif type(v) in [dict]:
+				print('WARNING: {} is a {}, not included in report'.format(k, type(v).__name__))
+
 			else:
+				if isinstance(v, list):
+					v = ','.join(v)
 				extra_values[k] = value_mapping.get(v, v)
 
 		for k,v in should_match.items():
