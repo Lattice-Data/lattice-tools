@@ -12,8 +12,7 @@ import numpy as np
 import pandas as pd
 from PIL import Image  # install me with 'pip install Pillow'
 from urllib.parse import urljoin, quote, unquote
-from urllib.request import urlopen
-from urllib.request import Request
+from urllib.request import Request,urlopen
 from base64 import b64encode
 from bs4 import BeautifulSoup
 
@@ -465,7 +464,7 @@ def set_value_types(df, prop_types, linkTos):
 		elif val_type == 'boolean':
 			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else booleanify(x[c]), axis=1)
 		elif val_type == 'integer':
-			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else int(float(str(x[c]).replace(',',''))), axis=1)
+			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else int(float(str(x[c]).replace(',',''))), axis=1).astype('Int64')
 		elif val_type == 'number':
 			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else float(str(x[c]).replace(',','')), axis=1)
 
