@@ -465,7 +465,6 @@ def set_value_types(df, prop_types, linkTos):
 		elif val_type == 'boolean':
 			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else booleanify(x[c]), axis=1)
 		elif val_type == 'integer':
-			print(df[c])
 			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else int(float(str(x[c]).replace(',',''))), axis=1)
 		elif val_type == 'number':
 			df[c] = df.apply(lambda x: np.nan if pd.isnull(x[c]) else float(str(x[c]).replace(',','')), axis=1)
