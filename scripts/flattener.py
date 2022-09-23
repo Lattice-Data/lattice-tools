@@ -33,7 +33,7 @@ ref_files = {
 # Metadata to be gathered for each object type
 cell_metadata = {
 	'donor': [
-		'uuid',
+		'donor_id',
 		'age_display',
 		'sex',
 		'ethnicity.term_id',
@@ -103,6 +103,7 @@ prop_map = {
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
+	'donor_donor_id': 'donor_id',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
 	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
@@ -249,10 +250,6 @@ def gather_objects(input_object, start_type=None):
 	if prepooled_susps:
 		objs['prepooled_suspension'] = prepooled_susps
 		objs['pooled_suspension'] = objs['suspension']
-		print('prepooled')
-		print(objs['prepooled_suspension'])
-		print('suspension')
-		print(objs['suspension'])
 
 	return objs
 
@@ -731,7 +728,6 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var.index.name = None
-		print("HERE")
 		cxg_adata.var.insert(0,  'feature_biotype', 'gene')
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
@@ -747,7 +743,6 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 	ercc_df = compile_annotations({'ercc':ref_files['ercc']})
 	var_ercc = cxg_adata.var.index[cxg_adata.var.index.isin(ercc_df['feature_id'])]
 	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
-	print(cxg_adata.var)
 	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
 	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
 	return cxg_adata, cxg_adata_raw
@@ -1113,7 +1108,7 @@ def main(mfinal_id):
 
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
-	for author_col in mfinal_obj['author_columns']:
+	for author_col in mfinal_obj.get('author_columns',[]):
 		if author_col in mfinal_adata.obs.columns.to_list():
 
 			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
@@ -1229,6 +1224,12 @@ def main(mfinal_id):
 			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
 			cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
 			cxg_adata_raw = set_ensembl_return[1]
+		# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
+		else:
+			cxg_adata.var['feature_biotype'] = 'gene'
+			cxg_adata.var['feature_is_filtered'] = False
+			cxg_adata_raw.var['feature_biotype'] = 'gene'
+
 			
 		if not sparse.issparse(cxg_adata_raw.X):
 			cxg_adata_raw.X = sparse.csr_matrix(cxg_adata_raw.X)
@@ -1269,8 +1270,6 @@ def main(mfinal_id):
 				results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 			else:
 				results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2], flat_version)
-			print(cxg_adata.obs.columns.to_list())
-			print(cxg_adata.raw.var.columns.to_list())
 			cxg_adata.write(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)
