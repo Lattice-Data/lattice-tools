@@ -801,7 +801,8 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 
 	# Store potential collapses in dictionary
 	genes_to_collapse_df = gene_pd_ensembl[gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: len(x.unique())>1)==True]
-	genes_to_collapse_df.to_csv("/Users/jenny/Lattice/lattice-tools/scripts/collapse_df.csv", index=True, header=False)
+	genes_to_collapse_df.dropna(inplace=True)
+	genes_to_collapse_df.to_csv(tmp_dir + "/collapse_df.csv", index=True, header=False)
 	genes_to_collapse_dict = genes_to_collapse_df.to_dict(orient='index')
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Do not var_names_make_unique, or else may accidentally map redundant in normalized layer
@@ -858,7 +859,7 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
 		logging.info("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
 
-	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant
+	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant, genes_to_collapse_dict
 
 
 def main(mfinal_id):
@@ -1039,6 +1040,7 @@ def main(mfinal_id):
 			cxg_adata_raw = reconcile_results[0]
 			collapse = reconcile_results[1]
 			redundant = reconcile_results[2]
+			collapse_dict = reconcile_results[3]
 		else:
 			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
@@ -1172,10 +1174,16 @@ def main(mfinal_id):
 		for gene_collapse in collapse.keys():
 			all_drop.extend(collapse[gene_collapse])
 			x_collapse = np.sum(mfinal_adata[:,collapse[gene_collapse]].X.toarray(), axis=1)
-			matching_symbol_lst = [i for i in collapse[gene_collapse] if i in cxg_adata_raw.var.index.to_list()]
+			matching_symbol_lst = list(set([i for i in collapse[gene_collapse] if i in cxg_adata_raw.var.index.to_list()]))
+			all_symbols = list(set([collapse_dict[gene_collapse][i] for i in collapse_dict[gene_collapse].keys()]))
 			if len(matching_symbol_lst) == 1:
 				matching_symbol = matching_symbol_lst[0]
+			elif len([i for i in all_symbols if i in cxg_adata_raw.var.index.to_list()]) == 1:
+				matching_symbol = collapse[gene_collapse][0]
+				symbol_in_raw = [i for i in all_symbols if i in cxg_adata_raw.var.index.to_list()][0]
+				cxg_adata_raw.var.rename(index={symbol_in_raw: matching_symbol}, inplace=True)
 			else:
+				sys.exit("Could not find matching symbol for collaped {}".format(gene_collapse))
 				logging.info('ERROR:\tcould not find matching symbol for collaped {}'.format(gene_collapse))
 			collapsed_row = ad.AnnData(X=pd.DataFrame(x_collapse), obs=mfinal_adata[:,matching_symbol].obs, var=mfinal_adata[:,matching_symbol].var)
 			if not collapsed_adata:
@@ -1184,7 +1192,8 @@ def main(mfinal_id):
 				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
 			del(collapsed_row)
 			gc.collect()
-		print(collapsed_adata)
+		results = "/Users/jychien/Lattice-Data/lattice-tools/scripts/collapsed_adata.h5ad"
+		collapsed_adata.write(results, compression="gzip")
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
 		if collapsed_adata:
 			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
