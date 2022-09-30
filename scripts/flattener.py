@@ -105,7 +105,7 @@ prop_map = {
 	'donor_sex': 'sex',
 	'donor_donor_id': 'donor_id',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
-	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
+	'donor_ethnicity_term_id': 'self_reported_ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
@@ -123,7 +123,7 @@ prop_map = {
 
 # Global variables
 unreported_value = 'unknown'
-schema_version = '2.0.0'
+schema_version = '3.0.0'
 flat_version = '4'
 tmp_dir = 'matrix_files'
 
@@ -153,7 +153,7 @@ def getArgs():
     return args
 
 
-# Gatherr arw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
+# Gather raw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
 def gather_rawmatrices(derived_from):
 	my_raw_matrices = []
 	df_ids = []
@@ -336,7 +336,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		key = prop_map.get(latkey, latkey)
 		value_str = [str(i) for i in value]
 		value_set = set(value_str)
-		cxg_fields = ['disease_ontology_term_id', 'ethnicity_ontology_term_id', 'organism_ontology_term_id',\
+		cxg_fields = ['disease_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'organism_ontology_term_id',\
 						 'sex_ontology_term_id', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 		if len(value_set) > 1:
 			if key in cxg_fields:
@@ -357,10 +357,13 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 							else:
 								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
 						#values_to_add[key] = dev_in_all[0]
+				elif key == 'self_reported_ethnicity_ontology_term_id':
+					values_to_add[key]='multiethnic'
+
 				else:
 					sys.exit("Cxg field is a list")
 			else:		
-				values_to_add[key] = 'pooled samples: [{}]'.format(','.join(value_str))
+				values_to_add[key] = 'pooled'
 		else:
 			values_to_add[key] = next(iter(value_set))
 
@@ -1118,8 +1121,8 @@ def main(mfinal_id):
 			print("WARNING: author_column not in final matrix: {}".format(author_col))
 
 
-	if 'NCIT:C17998' in cxg_obs['ethnicity_ontology_term_id'].unique():
-		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = cxg_obs['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
+	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
+		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
 
 
 	# Drop columns that were used as intermediate calculations
