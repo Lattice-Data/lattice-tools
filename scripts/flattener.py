@@ -357,9 +357,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 							else:
 								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
 						#values_to_add[key] = dev_in_all[0]
-				elif key == 'self_reported_ethnicity_ontology_term_id':
-					values_to_add[key]='multiethnic'
-
+				if key == 'self_reported_ethnicity_ontology_term_id':
+					values_to_add[key] = 'multiethnic'
 				else:
 					sys.exit("Cxg field is a list")
 			else:		
