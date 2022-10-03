@@ -378,42 +378,7 @@ def report_dataset(donor_objs, matrix, dataset):
 			latkey = 'matrix_' + prop.replace('.','_')
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
-	layer_descs = {
-		'raw.X': 'raw'
-	}
-	derived_by = matrix.get('derivation_process')
-
-	# NEED TO WORK OUT LOGIC FOR MULTIPLE LAYERS, RECONCILING WHEN FINAL MATRIX IS SEURAT VS H5AD
-	#x_norm = ""
-	if len(matrix.get('layers')) == 1:
-		for layer in matrix.get('layers'):
-			units = layer.get('value_units', unreported_value)
-			scale = layer.get('value_scale', unreported_value)
-			norm_meth = layer.get('normalization_method', unreported_value)
-			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-			layer_descs['X'] = desc
-			#x_norm = scale
-	else:
-		for layer in matrix.get('layers'):
-			units = layer.get('value_units', unreported_value)
-			scale = layer.get('value_scale', unreported_value)
-			norm_meth = layer.get('normalization_method', unreported_value)
-			if layer.get('scaled', unreported_value):
-				desc = '{} counts; {}; normalized using {}; scaled; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-			else:
-				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-			layer_descs[layer.get('label')] = desc
-			# if layer.get('label', unreported_value) == 'X':
-			# 	x_norm = scale
-
-	#ds_results['layer_descriptions'] = layer_descs
-	# if x_norm == 'linear' or x_norm == unreported_value:
-	# 	ds_results['X_normalization'] = 'none'
-	# else:
-	# 	ds_results['X_normalization'] = x_norm
-
 	return ds_results
-
 
 # Download file object from s3
 def download_file(file_obj, directory):
@@ -1194,8 +1159,8 @@ def main(mfinal_id):
 			del(collapsed_row)
 			gc.collect()
 		results = "/Users/jychien/Lattice-Data/lattice-tools/scripts/collapsed_adata.h5ad"
-		collapsed_adata.write(results, compression="gzip")
-		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
+		#collapsed_adata.write(results, compression="gzip")
+		#mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
 		if collapsed_adata:
 			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in redundant]]
