@@ -46,6 +46,7 @@ Version update logging
 - Handles multiplexed donor datasets correctly
 - Looks at feature_keys of ProcessedMatrix to determine whether or not the there needs to be mapping of Ensembl IDs
 - Distinguish between serially linked vs pooled suspensions, and ignores first suspension if there are serially linked suspensions
+- author_columns is used to list columns to be transferred from contributor matrix
 
 **Version 3**:
 - Allow reading from h5ad file format for raw count matrices
