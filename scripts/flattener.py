@@ -357,8 +357,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 							else:
 								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
 						#values_to_add[key] = dev_in_all[0]
-				if key == 'self_reported_ethnicity_ontology_term_id':
-					values_to_add[key] = 'multiethnic'
+				
 				else:
 					sys.exit("Cxg field is a list")
 			else:		
@@ -385,7 +384,7 @@ def report_dataset(donor_objs, matrix, dataset):
 	derived_by = matrix.get('derivation_process')
 
 	# NEED TO WORK OUT LOGIC FOR MULTIPLE LAYERS, RECONCILING WHEN FINAL MATRIX IS SEURAT VS H5AD
-	x_norm = ""
+	#x_norm = ""
 	if len(matrix.get('layers')) == 1:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -393,7 +392,7 @@ def report_dataset(donor_objs, matrix, dataset):
 			norm_meth = layer.get('normalization_method', unreported_value)
 			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs['X'] = desc
-			x_norm = scale
+			#x_norm = scale
 	else:
 		for layer in matrix.get('layers'):
 			units = layer.get('value_units', unreported_value)
@@ -404,14 +403,14 @@ def report_dataset(donor_objs, matrix, dataset):
 			else:
 				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
 			layer_descs[layer.get('label')] = desc
-			if layer.get('label', unreported_value) == 'X':
-				x_norm = scale
+			# if layer.get('label', unreported_value) == 'X':
+			# 	x_norm = scale
 
-	ds_results['layer_descriptions'] = layer_descs
-	if x_norm == 'linear' or x_norm == unreported_value:
-		ds_results['X_normalization'] = 'none'
-	else:
-		ds_results['X_normalization'] = x_norm
+	#ds_results['layer_descriptions'] = layer_descs
+	# if x_norm == 'linear' or x_norm == unreported_value:
+	# 	ds_results['X_normalization'] = 'none'
+	# else:
+	# 	ds_results['X_normalization'] = x_norm
 
 	return ds_results
 
@@ -859,7 +858,7 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		logging.info("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
+		logging.info("{}\t{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
 
 	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant, genes_to_collapse_dict
 
