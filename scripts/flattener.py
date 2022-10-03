@@ -492,12 +492,14 @@ def concatenate_cell_id(mfinal_obj, mxr_acc, raw_obs_names, mfinal_cells):
 def get_embeddings(mfinal_adata):
 	if len(mfinal_adata.obsm_keys()) == 0:
 		sys.exit('At least 1 set of cell embeddings is required in final matrix')
+	mfinal_adata
 	final_embeddings = mfinal_adata.obsm.copy()
 	all_embedding_keys = mfinal_adata.obsm_keys()
+	accepted_embeddings = ['X_umap', 'X_tsne', 'X_spatial', 'X_UMAP']
 	for embedding in all_embedding_keys:
 		if embedding == 'X_pca' or embedding == 'X_harmony':
 			final_embeddings.pop(embedding)
-		elif embedding != 'X_umap' and embedding != 'X_tsne' and embedding != 'X_spatial':
+		elif embedding not in accepted_embeddings:
 			final_embeddings.pop(embedding)
 			print('There is an unrecognized embedding in final matrix that will be dropped: {}'.format(embedding))
 	return final_embeddings
@@ -803,7 +805,7 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 	# Store potential collapses in dictionary
 	genes_to_collapse_df = gene_pd_ensembl[gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: len(x.unique())>1)==True]
 	genes_to_collapse_df.dropna(inplace=True)
-	genes_to_collapse_df.to_csv(tmp_dir + "/collapse_df.csv", index=True, header=False)
+	# genes_to_collapse_df.to_csv(tmp_dir + "/collapse_df.csv", index=True, header=False)
 	genes_to_collapse_dict = genes_to_collapse_df.to_dict(orient='index')
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Do not var_names_make_unique, or else may accidentally map redundant in normalized layer
@@ -1073,6 +1075,7 @@ def main(mfinal_id):
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
+	print(df)
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
@@ -1111,12 +1114,12 @@ def main(mfinal_id):
 
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
+
 	for author_col in mfinal_obj.get('author_columns',[]):
 		if author_col in mfinal_adata.obs.columns.to_list():
-
-			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
-		else:
-			print("WARNING: author_column not in final matrix: {}".format(author_col))
+      cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+    else:
+      print("WARNING: author_column not in final matrix: {}".format(author_col))
 
 
 	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
