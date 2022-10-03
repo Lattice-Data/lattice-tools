@@ -361,7 +361,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				else:
 					sys.exit("Cxg field is a list")
 			else:		
-				values_to_add[key] = 'pooled: [{}]'.format(','.join(value_str))
+				values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
 		else:
 			values_to_add[key] = next(iter(value_set))
 
