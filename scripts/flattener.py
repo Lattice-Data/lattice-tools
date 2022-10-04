@@ -658,15 +658,15 @@ def add_zero(cxg_adata, cxg_adata_raw):
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
 def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
-	if 'feature_types' in cxg_adata_raw.var.columns.to_list():
-		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
-		cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
-	else:
-		cxg_adata_raw.var.insert(0, 'feature_biotype', 'gene') 
-	keep = ['feature_biotype', 'gene_ids']
-	remove = [x for x in cxg_adata_raw.var.columns.to_list() if x not in keep]
-	for r in remove:
-		cxg_adata_raw.var.drop(columns=r, inplace=True)
+	# if 'feature_types' in cxg_adata_raw.var.columns.to_list():
+	# 	cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
+	# 	cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
+	# else:
+	# 	cxg_adata_raw.var.insert(0, 'feature_biotype', 'gene') 
+	# keep = ['feature_biotype', 'gene_ids']
+	# remove = [x for x in cxg_adata_raw.var.columns.to_list() if x not in keep]
+	# for r in remove:
+	# 	cxg_adata_raw.var.drop(columns=r, inplace=True)
 
 	if feature_keys == ['gene symbol']:
 		if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
@@ -694,7 +694,7 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var.index.name = None
-		cxg_adata.var.insert(0,  'feature_biotype', 'gene')
+		# cxg_adata.var.insert(0,  'feature_biotype', 'gene')
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
 			print("WARNING: normalized matrix contains Ensembl IDs not in raw: {}".format(unique_to_norm))
@@ -709,8 +709,8 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 	ercc_df = compile_annotations({'ercc':ref_files['ercc']})
 	var_ercc = cxg_adata.var.index[cxg_adata.var.index.isin(ercc_df['feature_id'])]
 	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
-	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
-	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
+	# cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
+	# cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
 	return cxg_adata, cxg_adata_raw
 
 
@@ -1158,9 +1158,9 @@ def main(mfinal_id):
 				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
 			del(collapsed_row)
 			gc.collect()
-		results = "/Users/jychien/Lattice-Data/lattice-tools/scripts/collapsed_adata.h5ad"
+		#results = "/Users/jychien/Lattice-Data/lattice-tools/scripts/collapsed_adata.h5ad"
 		#collapsed_adata.write(results, compression="gzip")
-		#mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
+		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
 		if collapsed_adata:
 			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in redundant]]
@@ -1170,17 +1170,17 @@ def main(mfinal_id):
 	# WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
 	if len(set(feature_lengths)) > 1 and len(mfinal_obj['genome_annotations'])==1:
 		gene_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'gene_ids' in i]]
-		feature_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'feature_types' in i]]
+		#feature_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'feature_types' in i]]
 		genome_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'genome' in i]]
 		gene_pd = gene_pd.replace('nan', np.nan)
-		feature_pd = feature_pd.replace('nan', np.nan)
+		#feature_pd = feature_pd.replace('nan', np.nan)
 		genome_pd = genome_pd.replace('nan', np.nan)
 		gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_ids')
-		feature_pd = feature_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='feature_types')
+		#feature_pd = feature_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='feature_types')
 		genome_pd = genome_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='genome')
 		cxg_adata_raw.var.drop(columns = cxg_adata_raw.var.columns.tolist(), inplace=True)
 		cxg_adata_raw.var = cxg_adata_raw.var.merge(gene_pd, left_index = True, right_index=True, how = 'left')
-		cxg_adata_raw.var = cxg_adata_raw.var.merge(feature_pd, left_index = True, right_index=True, how = 'left')
+		#cxg_adata_raw.var = cxg_adata_raw.var.merge(feature_pd, left_index = True, right_index=True, how = 'left')
 		cxg_adata_raw.var = cxg_adata_raw.var.merge(genome_pd, left_index = True, right_index=True, how = 'left')
 
 
@@ -1201,9 +1201,9 @@ def main(mfinal_id):
 			cxg_adata_raw = set_ensembl_return[1]
 		# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 		else:
-			cxg_adata.var['feature_biotype'] = 'gene'
+			# cxg_adata.var['feature_biotype'] = 'gene'
 			cxg_adata.var['feature_is_filtered'] = False
-			cxg_adata_raw.var['feature_biotype'] = 'gene'
+			# cxg_adata_raw.var['feature_biotype'] = 'gene'
 
 			
 		if not sparse.issparse(cxg_adata_raw.X):
