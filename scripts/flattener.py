@@ -33,7 +33,7 @@ ref_files = {
 # Metadata to be gathered for each object type
 cell_metadata = {
 	'donor': [
-		'uuid',
+		'donor_id',
 		'age_display',
 		'sex',
 		'ethnicity.term_id',
@@ -103,8 +103,9 @@ prop_map = {
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
+	'donor_donor_id': 'donor_id',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
-	'donor_ethnicity_term_id': 'ethnicity_ontology_term_id',
+	'donor_ethnicity_term_id': 'self_reported_ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
@@ -122,7 +123,7 @@ prop_map = {
 
 # Global variables
 unreported_value = 'unknown'
-schema_version = '2.0.0'
+schema_version = '3.0.0'
 flat_version = '4'
 tmp_dir = 'matrix_files'
 
@@ -152,7 +153,7 @@ def getArgs():
     return args
 
 
-# Gatherr arw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
+# Gather raw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
 def gather_rawmatrices(derived_from):
 	my_raw_matrices = []
 	df_ids = []
@@ -335,7 +336,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		key = prop_map.get(latkey, latkey)
 		value_str = [str(i) for i in value]
 		value_set = set(value_str)
-		cxg_fields = ['disease_ontology_term_id', 'ethnicity_ontology_term_id', 'organism_ontology_term_id',\
+		cxg_fields = ['disease_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'organism_ontology_term_id',\
 						 'sex_ontology_term_id', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 		if len(value_set) > 1:
 			if key in cxg_fields:
@@ -356,10 +357,11 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 							else:
 								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
 						#values_to_add[key] = dev_in_all[0]
+				
 				else:
 					sys.exit("Cxg field is a list")
 			else:		
-				values_to_add[key] = 'pooled samples: [{}]'.format(','.join(value_str))
+				values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
 		else:
 			values_to_add[key] = next(iter(value_set))
 
@@ -376,40 +378,6 @@ def report_dataset(donor_objs, matrix, dataset):
 			latkey = 'matrix_' + prop.replace('.','_')
 			key = prop_map.get(latkey, latkey)
 			ds_results[key] = value
-	layer_descs = {
-		'raw.X': 'raw'
-	}
-	derived_by = matrix.get('derivation_process')
-
-	# NEED TO WORK OUT LOGIC FOR MULTIPLE LAYERS, RECONCILING WHEN FINAL MATRIX IS SEURAT VS H5AD
-	x_norm = ""
-	if len(matrix.get('layers')) == 1:
-		for layer in matrix.get('layers'):
-			units = layer.get('value_units', unreported_value)
-			scale = layer.get('value_scale', unreported_value)
-			norm_meth = layer.get('normalization_method', unreported_value)
-			desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-			layer_descs['X'] = desc
-			x_norm = scale
-	else:
-		for layer in matrix.get('layers'):
-			units = layer.get('value_units', unreported_value)
-			scale = layer.get('value_scale', unreported_value)
-			norm_meth = layer.get('normalization_method', unreported_value)
-			if layer.get('scaled', unreported_value):
-				desc = '{} counts; {}; normalized using {}; scaled; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-			else:
-				desc = '{} counts; {}; normalized using {}; derived by {}'.format(units, scale, norm_meth, ', '.join(derived_by))
-			layer_descs[layer.get('label')] = desc
-			if layer.get('label', unreported_value) == 'X':
-				x_norm = scale
-
-	ds_results['layer_descriptions'] = layer_descs
-	if x_norm == 'linear' or x_norm == unreported_value:
-		ds_results['X_normalization'] = 'none'
-	else:
-		ds_results['X_normalization'] = x_norm
-
 	return ds_results
 
 
@@ -490,14 +458,12 @@ def concatenate_cell_id(mfinal_obj, mxr_acc, raw_obs_names, mfinal_cells):
 def get_embeddings(mfinal_adata):
 	if len(mfinal_adata.obsm_keys()) == 0:
 		sys.exit('At least 1 set of cell embeddings is required in final matrix')
-	mfinal_adata
 	final_embeddings = mfinal_adata.obsm.copy()
 	all_embedding_keys = mfinal_adata.obsm_keys()
-	accepted_embeddings = ['X_umap', 'X_tsne', 'X_spatial', 'X_UMAP']
 	for embedding in all_embedding_keys:
 		if embedding == 'X_pca' or embedding == 'X_harmony':
 			final_embeddings.pop(embedding)
-		elif embedding not in accepted_embeddings:
+		elif embedding != 'X_umap' and embedding != 'X_tsne' and embedding != 'X_spatial':
 			final_embeddings.pop(embedding)
 			print('There is an unrecognized embedding in final matrix that will be dropped: {}'.format(embedding))
 	return final_embeddings
@@ -744,7 +710,6 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 	ercc_df = compile_annotations({'ercc':ref_files['ercc']})
 	var_ercc = cxg_adata.var.index[cxg_adata.var.index.isin(ercc_df['feature_id'])]
 	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
-	print(cxg_adata.var)
 	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
 	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
 	return cxg_adata, cxg_adata_raw
@@ -803,7 +768,8 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 
 	# Store potential collapses in dictionary
 	genes_to_collapse_df = gene_pd_ensembl[gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: len(x.unique())>1)==True]
-	# genes_to_collapse_df.to_csv("/Users/jenny/Lattice/lattice-tools/scripts/collapse_df.csv", index=True, header=False)
+	genes_to_collapse_df.dropna(inplace=True)
+	genes_to_collapse_df.to_csv(tmp_dir + "/collapse_df.csv", index=True, header=False)
 	genes_to_collapse_dict = genes_to_collapse_df.to_dict(orient='index')
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Do not var_names_make_unique, or else may accidentally map redundant in normalized layer
@@ -858,9 +824,9 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		logging.info("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
+		logging.info("{}\t{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
 
-	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant
+	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant, genes_to_collapse_dict
 
 
 def main(mfinal_id):
@@ -1041,6 +1007,7 @@ def main(mfinal_id):
 			cxg_adata_raw = reconcile_results[0]
 			collapse = reconcile_results[1]
 			redundant = reconcile_results[2]
+			collapse_dict = reconcile_results[3]
 		else:
 			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
@@ -1072,7 +1039,6 @@ def main(mfinal_id):
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
-	print(df)
 	celltype_col = mfinal_obj['author_cell_type_column']
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
@@ -1111,17 +1077,16 @@ def main(mfinal_id):
 
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
-	if mfinal_obj.get('author_columns'):
-		for author_col in mfinal_obj.get('author_columns'):
-			if author_col in mfinal_adata.obs.columns.to_list():
+	for author_col in mfinal_obj.get('author_columns',[]):
+		if author_col in mfinal_adata.obs.columns.to_list():
 
-				cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
-			else:
-				print("WARNING: author_column not in final matrix: {}".format(author_col))
+			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+		else:
+			print("WARNING: author_column not in final matrix: {}".format(author_col))
 
 
-	if 'NCIT:C17998' in cxg_obs['ethnicity_ontology_term_id'].unique():
-		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'ethnicity_ontology_term_id'] = cxg_obs['ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
+	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
+		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
 
 
 	# Drop columns that were used as intermediate calculations
@@ -1176,10 +1141,16 @@ def main(mfinal_id):
 		for gene_collapse in collapse.keys():
 			all_drop.extend(collapse[gene_collapse])
 			x_collapse = np.sum(mfinal_adata[:,collapse[gene_collapse]].X.toarray(), axis=1)
-			matching_symbol_lst = [i for i in collapse[gene_collapse] if i in cxg_adata_raw.var.index.to_list()]
+			matching_symbol_lst = list(set([i for i in collapse[gene_collapse] if i in cxg_adata_raw.var.index.to_list()]))
+			all_symbols = list(set([collapse_dict[gene_collapse][i] for i in collapse_dict[gene_collapse].keys()]))
 			if len(matching_symbol_lst) == 1:
 				matching_symbol = matching_symbol_lst[0]
+			elif len([i for i in all_symbols if i in cxg_adata_raw.var.index.to_list()]) == 1:
+				matching_symbol = collapse[gene_collapse][0]
+				symbol_in_raw = [i for i in all_symbols if i in cxg_adata_raw.var.index.to_list()][0]
+				cxg_adata_raw.var.rename(index={symbol_in_raw: matching_symbol}, inplace=True)
 			else:
+				sys.exit("Could not find matching symbol for collaped {}".format(gene_collapse))
 				logging.info('ERROR:\tcould not find matching symbol for collaped {}'.format(gene_collapse))
 			collapsed_row = ad.AnnData(X=pd.DataFrame(x_collapse), obs=mfinal_adata[:,matching_symbol].obs, var=mfinal_adata[:,matching_symbol].var)
 			if not collapsed_adata:
@@ -1188,7 +1159,8 @@ def main(mfinal_id):
 				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
 			del(collapsed_row)
 			gc.collect()
-		print(collapsed_adata)
+		#results = "/Users/jychien/Lattice-Data/lattice-tools/scripts/collapsed_adata.h5ad"
+		#collapsed_adata.write(results, compression="gzip")
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
 		if collapsed_adata:
 			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
@@ -1228,6 +1200,12 @@ def main(mfinal_id):
 			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
 			cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
 			cxg_adata_raw = set_ensembl_return[1]
+		# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
+		else:
+			cxg_adata.var['feature_biotype'] = 'gene'
+			cxg_adata.var['feature_is_filtered'] = False
+			cxg_adata_raw.var['feature_biotype'] = 'gene'
+
 			
 		if not sparse.issparse(cxg_adata_raw.X):
 			cxg_adata_raw.X = sparse.csr_matrix(cxg_adata_raw.X)
@@ -1268,8 +1246,6 @@ def main(mfinal_id):
 				results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 			else:
 				results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2], flat_version)
-			print(cxg_adata.obs.columns.to_list())
-			print(cxg_adata.raw.var.columns.to_list())
 			cxg_adata.write(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)
