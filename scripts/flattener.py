@@ -124,7 +124,7 @@ prop_map = {
 # Global variables
 unreported_value = 'unknown'
 schema_version = '3.0.0'
-flat_version = '4'
+flat_version = '5'
 tmp_dir = 'matrix_files'
 
 EPILOG = '''
