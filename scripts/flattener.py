@@ -1091,28 +1091,27 @@ def main(mfinal_id):
 
 	# if the donor has multiple ethnicities, self_reported_ethnicity_ontology_term_id is a list, set ontology term to multiethnic
 	# need to complete test on this section.
-	if type(cxg_obs['self_reported_ethnicity_ontology_term_id']) == list:
-		cxg_obs['self_reported_ethnicity_ontology_term_id'] == 'multiethnic'
+	if len([i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]) > 0:
+		for multi in [i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]:
+			cxg_obs['self_reported_ethnicity_ontology_term_id'].replace({multi:'multiethnic'}, inplace=True)
 	
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in cxg_obs.columns:
 		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
+	elif cxg_obs['suspension_type'].isnull().values.any():
+		cxg_obs['suspension_type'].fillna(value='na', inplace=True)
 	
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
+			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
 			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk', 'disease_state']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
 				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
-					# if suspension_type exists in obs, replace unreported_value with na
-					if col == 'suspension_type':
-						cxg_obs[col].replace({unreported_value: 'na'}, inplace=True)
-					else:
-						cxg_obs.drop(columns=col, inplace=True)
+					cxg_obs.drop(columns=col, inplace=True)
 
 	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if cxg_obs['donor_age_redundancy'].unique():
