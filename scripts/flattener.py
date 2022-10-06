@@ -659,15 +659,15 @@ def add_zero(cxg_adata, cxg_adata_raw):
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
 def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
-	# if 'feature_types' in cxg_adata_raw.var.columns.to_list():
-		#cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
-		#cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
-	# else:
-	# 	cxg_adata_raw.var.insert(0, 'feature_biotype', 'gene') 
-	# keep = ['feature_biotype', 'gene_ids']
-	# remove = [x for x in cxg_adata_raw.var.columns.to_list() if x not in keep]
-	# for r in remove:
-		# cxg_adata_raw.var.drop(columns=r, inplace=True)
+	if 'feature_types' in cxg_adata_raw.var.columns.to_list():
+		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
+		cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
+	else:
+		cxg_adata_raw.var.insert(0, 'feature_biotype', 'gene') 
+	keep = ['feature_biotype', 'gene_ids']
+	remove = [x for x in cxg_adata_raw.var.columns.to_list() if x not in keep]
+	for r in remove:
+		cxg_adata_raw.var.drop(columns=r, inplace=True)
 
 	if feature_keys == ['gene symbol']:
 		if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
@@ -710,8 +710,9 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 	ercc_df = compile_annotations({'ercc':ref_files['ercc']})
 	var_ercc = cxg_adata.var.index[cxg_adata.var.index.isin(ercc_df['feature_id'])]
 	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
-	# cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
-	# cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
+	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
+	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
+	del cxg_adata_raw.var['feature_biotype'] # remove feature_biotype from var and raw.var and 
 	return cxg_adata, cxg_adata_raw
 
 
@@ -1088,7 +1089,15 @@ def main(mfinal_id):
 	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
 		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
 
-
+	# if the donor has multiple ethnicities, self_reported_ethnicity_ontology_term_id is a list, set ontology term to multiethnic
+	# need to complete test on this section.
+	if type(cxg_obs['self_reported_ethnicity_ontology_term_id']) == list:
+		cxg_obs['self_reported_ethnicity_ontology_term_id'] == 'multiethnic'
+	
+	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
+	if 'suspension_type' not in cxg_obs.columns:
+		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
+	
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
@@ -1099,7 +1108,12 @@ def main(mfinal_id):
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
 				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
-					cxg_obs.drop(columns=col, inplace=True)
+					# if suspension_type exists in obs, replace unreported_value with na
+					if col == 'suspension_type':
+						cxg_obs[col].replace({unreported_value: 'na'}, inplace=True)
+					else:
+						cxg_obs.drop(columns=col, inplace=True)
+
 	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if cxg_obs['donor_age_redundancy'].unique():
 			cxg_obs.drop(columns='donor_age', inplace=True)
@@ -1118,7 +1132,6 @@ def main(mfinal_id):
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
-
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
 	# If genome_annotations > 1, then filter genes that cannot be unambiguously mapped to Ensembl
