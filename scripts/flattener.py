@@ -173,7 +173,7 @@ def gather_rawmatrices(derived_from):
 	return my_raw_matrices
 
 
-# Gather all objects up the experimental graph, assuming that there is either a suspension oorr tissue section
+# Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
 def gather_objects(input_object, start_type=None):
 	if start_type == None:
 		lib_ids = input_object['libraries']
@@ -830,6 +830,23 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant, genes_to_collapse_dict
 
 
+def get_results_filename(mfinal_obj):
+	results_file = None
+	dataset = mfinal_obj.get('dataset',[])
+	dataset_obj = lattice.get_object(dataset, connection)
+	collection_id = None
+	if dataset_obj.get('cellxgene_urls',[]):
+		collection_id = dataset_obj.get('cellxgene_urls',[])[0]
+		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
+	if mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
+		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
+	elif mfinal_obj.get('cellxgene_uuid',[]):
+		results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
+	else:
+		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
+	return results_file
+
+
 def main(mfinal_id):
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 	logging.basicConfig(filename='outfile_flattener.log', level=logging.INFO)
@@ -860,8 +877,8 @@ def main(mfinal_id):
 	df = pd.DataFrame()
 
 	results = {}
-	os.mkdir(tmp_dir)
-	download_file(mfinal_obj, tmp_dir)
+	####os.mkdir(tmp_dir)
+	####download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -945,7 +962,7 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
-			download_file(mxr, tmp_dir)
+			####download_file(mxr, tmp_dir)
 			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
@@ -1085,7 +1102,6 @@ def main(mfinal_id):
 		else:
 			print("WARNING: author_column not in final matrix: {}".format(author_col))
 
-
 	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
 		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
 
@@ -1171,8 +1187,6 @@ def main(mfinal_id):
 				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
 			del(collapsed_row)
 			gc.collect()
-		#results = "/Users/jychien/Lattice-Data/lattice-tools/scripts/collapsed_adata.h5ad"
-		#collapsed_adata.write(results, compression="gzip")
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
 		if collapsed_adata:
 			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
@@ -1199,6 +1213,7 @@ def main(mfinal_id):
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	# Also "fix" gene symbols from '--' 
+	results_file  = get_results_filename(mfinal_obj)
 	if mfinal_obj['file_format'] == 'hdf5':
 		#cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
@@ -1214,9 +1229,7 @@ def main(mfinal_id):
 			cxg_adata_raw = set_ensembl_return[1]
 		# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 		else:
-			# cxg_adata.var['feature_biotype'] = 'gene'
 			cxg_adata.var['feature_is_filtered'] = False
-			# cxg_adata_raw.var['feature_biotype'] = 'gene'
 
 			
 		if not sparse.issparse(cxg_adata_raw.X):
@@ -1229,7 +1242,6 @@ def main(mfinal_id):
 			if label != 'X':
 				cxg_adata.layers[label] = mfinal_adata.layers[label]
 		quality_check(cxg_adata)
-		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 		cxg_adata.write(results_file, compression = 'gzip')
 	else:
 		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
@@ -1254,13 +1266,11 @@ def main(mfinal_id):
 				cxg_adata_raw = set_ensembl_return[1]
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
-			if len(converted_h5ad) == 1:
-				results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
-			else:
-				results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2], flat_version)
+			if len(converted_h5ad) > 1:
+				results_file = '{}_{}'.format(converted_h5ad[i][2], results_file)
 			cxg_adata.write(results_file, compression = 'gzip')
 
-	shutil.rmtree(tmp_dir)
+	####shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
