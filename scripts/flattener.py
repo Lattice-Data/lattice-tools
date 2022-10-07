@@ -453,22 +453,6 @@ def concatenate_cell_id(mfinal_obj, mxr_acc, raw_obs_names, mfinal_cells):
 	return(new_ids)
 
 
-# Get cell embeddings from final matrix object
-# Skip pca or harmony embeddings, and only transfer umap and tsne embeddings
-def get_embeddings(mfinal_adata):
-	if len(mfinal_adata.obsm_keys()) == 0:
-		sys.exit('At least 1 set of cell embeddings is required in final matrix')
-	final_embeddings = mfinal_adata.obsm.copy()
-	all_embedding_keys = mfinal_adata.obsm_keys()
-	for embedding in all_embedding_keys:
-		if embedding == 'X_pca' or embedding == 'X_harmony':
-			final_embeddings.pop(embedding)
-		elif embedding != 'X_umap' and embedding != 'X_tsne' and embedding != 'X_spatial':
-			final_embeddings.pop(embedding)
-			print('There is an unrecognized embedding in final matrix that will be dropped: {}'.format(embedding))
-	return final_embeddings
-
-
 # From R object, create and return h5ad in temporary drive
 # Returns list of converted h5ad files
 def convert_from_rds(path_rds, assays, temp_dir, cell_col):
@@ -830,6 +814,8 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant, genes_to_collapse_dict
 
 
+# filename will be collectionuuid_datasetuuid_accession_version.h5ad, collectionuuid_accession_version.h5ad, or accession_version.h5ad
+# depending on what information is available for the dataset
 def get_results_filename(mfinal_obj):
 	results_file = None
 	dataset = mfinal_obj.get('dataset',[])
@@ -877,8 +863,8 @@ def main(mfinal_id):
 	df = pd.DataFrame()
 
 	results = {}
-	####os.mkdir(tmp_dir)
-	####download_file(mfinal_obj, tmp_dir)
+	os.mkdir(tmp_dir)
+	download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -962,7 +948,7 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
-			####download_file(mxr, tmp_dir)
+			download_file(mxr, tmp_dir)
 			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 			if mxr['submitted_file_name'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
@@ -1053,7 +1039,9 @@ def main(mfinal_id):
 	# Set uns and obsm parameters
 	cxg_uns = ds_results
 	cxg_uns['schema_version'] = schema_version
-	cxg_obsm = get_embeddings(mfinal_adata)
+	cxg_obsm = mfinal_adata.obsm.copy()
+	if len([i for i in cxg_obsm.keys() if i.startswith('X_')]) < 1:
+		sys.exit("At least one embedding that starts with 'X_' is required")
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
@@ -1270,7 +1258,7 @@ def main(mfinal_id):
 				results_file = '{}_{}'.format(converted_h5ad[i][2], results_file)
 			cxg_adata.write(results_file, compression = 'gzip')
 
-	####shutil.rmtree(tmp_dir)
+	shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
