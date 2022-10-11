@@ -3,6 +3,9 @@ donor = {
 	'biomaterial_core.biomaterial_id': {
 		'lattice': 'uuid'
 	},
+	'biomaterial_core.biomaterial_name': {
+		'lattice': 'donor_id'
+	},
 	'biomaterial_core.genotype': {
 		'lattice': 'genotype'
 	},
