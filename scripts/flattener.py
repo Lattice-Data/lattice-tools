@@ -679,7 +679,7 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var.index.name = None
-		# cxg_adata.var.insert(0,  'feature_biotype', 'gene')
+		cxg_adata.var.insert(0,  'feature_biotype', 'gene')
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
 			print("WARNING: normalized matrix contains Ensembl IDs not in raw: {}".format(unique_to_norm))
@@ -696,7 +696,8 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
 	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
 	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
-	del cxg_adata_raw.var['feature_biotype'] # remove feature_biotype from var and raw.var and 
+	del cxg_adata_raw.var['feature_biotype'] # remove feature_biotype from var and raw.var
+	del cxg_adata.var['feature_biotype']
 	return cxg_adata, cxg_adata_raw
 
 
@@ -980,6 +981,7 @@ def main(mfinal_id):
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
+
 	del ds_results['is_primary_data']
 
 	# Should add error checking to make sure all matrices have the same number of vars
