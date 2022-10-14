@@ -124,7 +124,7 @@ prop_map = {
 # Global variables
 unreported_value = 'unknown'
 schema_version = '3.0.0'
-flat_version = '4'
+flat_version = '5'
 tmp_dir = 'matrix_files'
 
 EPILOG = '''
@@ -173,7 +173,7 @@ def gather_rawmatrices(derived_from):
 	return my_raw_matrices
 
 
-# Gather all objects up the experimental graph, assuming that there is either a suspension oorr tissue section
+# Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
 def gather_objects(input_object, start_type=None):
 	if start_type == None:
 		lib_ids = input_object['libraries']
@@ -453,22 +453,6 @@ def concatenate_cell_id(mfinal_obj, mxr_acc, raw_obs_names, mfinal_cells):
 	return(new_ids)
 
 
-# Get cell embeddings from final matrix object
-# Skip pca or harmony embeddings, and only transfer umap and tsne embeddings
-def get_embeddings(mfinal_adata):
-	if len(mfinal_adata.obsm_keys()) == 0:
-		sys.exit('At least 1 set of cell embeddings is required in final matrix')
-	final_embeddings = mfinal_adata.obsm.copy()
-	all_embedding_keys = mfinal_adata.obsm_keys()
-	for embedding in all_embedding_keys:
-		if embedding == 'X_pca' or embedding == 'X_harmony':
-			final_embeddings.pop(embedding)
-		elif embedding != 'X_umap' and embedding != 'X_tsne' and embedding != 'X_spatial':
-			final_embeddings.pop(embedding)
-			print('There is an unrecognized embedding in final matrix that will be dropped: {}'.format(embedding))
-	return final_embeddings
-
-
 # From R object, create and return h5ad in temporary drive
 # Returns list of converted h5ad files
 def convert_from_rds(path_rds, assays, temp_dir, cell_col):
@@ -712,6 +696,8 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
 	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
 	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
+	del cxg_adata_raw.var['feature_biotype'] # remove feature_biotype from var and raw.var
+	del cxg_adata.var['feature_biotype']
 	return cxg_adata, cxg_adata_raw
 
 
@@ -827,6 +813,25 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 		logging.info("{}\t{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
 
 	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant, genes_to_collapse_dict
+
+
+# filename will be collectionuuid_datasetuuid_accession_version.h5ad, collectionuuid_accession_version.h5ad, or accession_version.h5ad
+# depending on what information is available for the dataset
+def get_results_filename(mfinal_obj):
+	results_file = None
+	dataset = mfinal_obj.get('dataset',[])
+	dataset_obj = lattice.get_object(dataset, connection)
+	collection_id = None
+	if dataset_obj.get('cellxgene_urls',[]):
+		collection_id = dataset_obj.get('cellxgene_urls',[])[0]
+		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
+	if mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
+		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
+	elif mfinal_obj.get('cellxgene_uuid',[]):
+		results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
+	else:
+		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
+	return results_file
 
 
 def main(mfinal_id):
@@ -965,7 +970,17 @@ def main(mfinal_id):
 			else:
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
 			if len(overlapped_ids) == 0:
-				sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
+				if mfinal_obj['cell_label_location'] == 'prefix':
+					if concatenated_ids[0].endswith('-1'):
+						concatenated_ids = [re.sub('-1$', '', i) for i in concatenated_ids]
+					else:
+						concatenated_ids = [i+'-1' for i in concatenated_ids]
+					overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+					if len(overlapped_ids) == 0:
+						sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
+					adata_raw.obs_names = concatenated_ids
+				else:
+					sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
 			adata_raw = adata_raw[overlapped_ids]
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
@@ -976,6 +991,7 @@ def main(mfinal_id):
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
+
 	del ds_results['is_primary_data']
 
 	# Should add error checking to make sure all matrices have the same number of vars
@@ -1035,7 +1051,9 @@ def main(mfinal_id):
 	# Set uns and obsm parameters
 	cxg_uns = ds_results
 	cxg_uns['schema_version'] = schema_version
-	cxg_obsm = get_embeddings(mfinal_adata)
+	cxg_obsm = mfinal_adata.obsm.copy()
+	if len([i for i in cxg_obsm.keys() if i.startswith('X_')]) < 1:
+		sys.exit("At least one embedding that starts with 'X_' is required")
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
@@ -1084,15 +1102,25 @@ def main(mfinal_id):
 		else:
 			print("WARNING: author_column not in final matrix: {}".format(author_col))
 
-
 	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
 		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
 
-
+	# if the donor has multiple ethnicities, self_reported_ethnicity_ontology_term_id is a list, set ontology term to multiethnic
+	# need to complete test on this section.
+	if len([i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]) > 0:
+		for multi in [i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]:
+			cxg_obs['self_reported_ethnicity_ontology_term_id'].replace({multi:'multiethnic'}, inplace=True)
+	
+	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
+	if 'suspension_type' not in cxg_obs.columns:
+		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
+	elif cxg_obs['suspension_type'].isnull().values.any():
+		cxg_obs['suspension_type'].fillna(value='na', inplace=True)
+	
 	# Drop columns that were used as intermediate calculations
 	# Also check to see if optional columns are all empty, then drop those columns as well
 	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_type', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
+			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
 			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk', 'disease_state']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
@@ -1100,6 +1128,7 @@ def main(mfinal_id):
 			if len(col_content) == 1:
 				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
 					cxg_obs.drop(columns=col, inplace=True)
+
 	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if cxg_obs['donor_age_redundancy'].unique():
 			cxg_obs.drop(columns='donor_age', inplace=True)
@@ -1118,7 +1147,6 @@ def main(mfinal_id):
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
-
 
 	# Make sure gene ids match before using mfinal_data.var for cxg_adata
 	# If genome_annotations > 1, then filter genes that cannot be unambiguously mapped to Ensembl
@@ -1159,8 +1187,6 @@ def main(mfinal_id):
 				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
 			del(collapsed_row)
 			gc.collect()
-		#results = "/Users/jychien/Lattice-Data/lattice-tools/scripts/collapsed_adata.h5ad"
-		#collapsed_adata.write(results, compression="gzip")
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
 		if collapsed_adata:
 			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
@@ -1187,6 +1213,7 @@ def main(mfinal_id):
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	# Also "fix" gene symbols from '--' 
+	results_file  = get_results_filename(mfinal_obj)
 	if mfinal_obj['file_format'] == 'hdf5':
 		#cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
 		cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
@@ -1202,9 +1229,7 @@ def main(mfinal_id):
 			cxg_adata_raw = set_ensembl_return[1]
 		# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 		else:
-			cxg_adata.var['feature_biotype'] = 'gene'
 			cxg_adata.var['feature_is_filtered'] = False
-			cxg_adata_raw.var['feature_biotype'] = 'gene'
 
 			
 		if not sparse.issparse(cxg_adata_raw.X):
@@ -1217,7 +1242,6 @@ def main(mfinal_id):
 			if label != 'X':
 				cxg_adata.layers[label] = mfinal_adata.layers[label]
 		quality_check(cxg_adata)
-		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 		cxg_adata.write(results_file, compression = 'gzip')
 	else:
 		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
@@ -1242,10 +1266,8 @@ def main(mfinal_id):
 				cxg_adata_raw = set_ensembl_return[1]
 			cxg_adata.raw = cxg_adata_raw
 			quality_check(cxg_adata)
-			if len(converted_h5ad) == 1:
-				results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
-			else:
-				results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['accession'], converted_h5ad[i][2], flat_version)
+			if len(converted_h5ad) > 1:
+				results_file = '{}_{}'.format(converted_h5ad[i][2], results_file)
 			cxg_adata.write(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)

@@ -28,6 +28,18 @@ The script will produce a h5ad file in the current directory where the script is
 
 Version update logging
 ----------------
+**Version 5**:
+- Corresponds with https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/3.0.0/schema.md
+- change ethnicity_ontology_term_id to self_reported_ethnicity_ontology_term_id
+- update uns.schema_version to 3.0.0
+- remove X_normalization from uns
+- remove layer_descriptions from uns
+- remove feature_biotype from var and raw.var
+- if donor_ethnicity_term_id is a list length > 1, it needs to be set to “multiethnic”
+- name output h5ad to the format: LATaccession_collectionuuid_datasetuuid.h5ad
+- add suspension_type = ‘na’ for spatial assays
+- allow for any embedding to be transferred to final cxg h5ad, make sure minimum of 1 embedding starting with ‘X_’
+
 **Version 4**:
 - Corresponds with https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/2.0.0/schema.md
 - Add tyrer_cuzick_lifetime_risk, enriched_cell_types, mapped_reference_annotation, and enrichment-factors as optional metadata fields for obs
