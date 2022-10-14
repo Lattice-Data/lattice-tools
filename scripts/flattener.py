@@ -970,7 +970,17 @@ def main(mfinal_id):
 			else:
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
 			if len(overlapped_ids) == 0:
-				sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
+				if mfinal_obj['cell_label_location'] == 'prefix':
+					if concatenated_ids[0].endswith('-1'):
+						concatenated_ids = [re.sub('-1$', '', i) for i in concatenated_ids]
+					else:
+						concatenated_ids = [i+'-1' for i in concatenated_ids]
+					overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
+					if len(overlapped_ids) == 0:
+						sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
+					adata_raw.obs_names = concatenated_ids
+				else:
+					sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
 			adata_raw = adata_raw[overlapped_ids]
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
