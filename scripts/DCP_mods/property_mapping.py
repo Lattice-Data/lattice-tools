@@ -168,10 +168,14 @@ lattice_to_dcp = {
 		},
 		'dbxrefs': {
 			'lattice': 'dbxrefs',
-			'SRA': 'insdc_project',
-			'GEO': 'geo_series',
-			'ArrayExpress': 'array_express_investigation',
-			'BioProject': 'insdc_study'
+			'SRA': 'insdc_project_accessions',
+			'ENA': 'insdc_project_accessions',
+			'BioProject': 'insdc_study_accessions',
+			'BioStudies': 'biostudies_accessions',
+			'GEO': 'geo_series_accessions',
+			'ArrayExpress': 'array_express_accessions',
+			'EGA': 'ega_accessions',
+			'dbGaP': 'dbgap_accessions'
 		},
 		'estimated_cell_count': {
 			'lattice': 'observation_count'

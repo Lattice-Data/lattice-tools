@@ -736,14 +736,15 @@ def customize_fields(obj, obj_type):
 				if p.get('pmid'):
 					p['pmid'] = int(p['pmid'])
 				if p.get('authors'):
-					p['authors'] = p['authors'].split(',')
+					p['authors'] = [a.lstrip() for a in p['authors'].split(',')]
+				if p.get('doi'):
+					p['url'] = 'doi.org/' + p['doi']
+				if 'official_hca_publication' not in p:
+					p['official_hca_publication'] = False
 		if obj.get('supplementary_links'):
 			for l in obj['supplementary_links']:
 				if l.startswith('https://data.humancellatlas.org'):
 					obj['supplementary_links'].remove(l)
-		for a in ['geo_series', 'insdc_study', 'insdc_project', 'array_express_investigation']:
-			if obj.get(a):
-				obj[a] = obj[a][0]
 
 	elif obj_type == 'donor_organism':
 		if obj.get('genus_species'):
