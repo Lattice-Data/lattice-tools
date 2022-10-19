@@ -563,6 +563,11 @@ def create_protocol(in_type, out_type, out_obj):
 		pr_type = 'protocol'
 		del my_obj['method']
 
+	for u in out_obj.get('urls', []):
+		if 'protocols.io' in u and 'doi.org' in u:
+			protocols_doi = u.split('doi.org/')[1]
+			my_obj['protocol_core']['protocols_io_doi'] = protocols_doi
+
 	pr_id = uuid_make([pr_type + in_type + out_type + str(my_obj)])
 	prots.append({'protocol_type': pr_type, 'protocol_id': pr_id})
 	my_obj['protocol_core']['protocol_id'] = pr_id
