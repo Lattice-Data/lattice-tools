@@ -138,13 +138,13 @@ lattice_to_dcp = {
 		'contributors': {
 			'lattice': 'contributors',
 			'subprop_map': {
-				'contact_name': {
+				'name': {
 					'lattice': 'title'
 				},
 				'institution': {
 					'lattice': 'institute_name'
 				},
-				'project_role': {
+				'project_role.text': {
 					'lattice': 'job_title'
 				}
 			}
@@ -152,7 +152,7 @@ lattice_to_dcp = {
 		'corresponding_contributors': { # DCP_mapper merges these with contributors
 			'lattice': 'corresponding_contributors',
 			'subprop_map': {
-				'contact_name': {
+				'name': {
 					'lattice': 'title'
 				},
 				'institution': {
@@ -161,7 +161,7 @@ lattice_to_dcp = {
 				'email': {
 					'lattice': 'email'
 				},
-				'project_role': {
+				'project_role.text': {
 					'lattice': 'job_title'
 				}
 			}
@@ -173,7 +173,10 @@ lattice_to_dcp = {
 			'ArrayExpress': 'array_express_investigation',
 			'BioProject': 'insdc_study'
 		},
-		'funders.funder_name': {
+		'estimated_cell_count': {
+			'lattice': 'observation_count'
+		},
+		'funders.organization': {
 			'lattice': 'funding_organizations'
 		},
 		'project_core.project_description': {
@@ -194,10 +197,13 @@ lattice_to_dcp = {
 				'doi': {
 					'lattice': 'doi'
 				},
+				'official_hca_publication': {
+					'lattice': 'hca_publication'
+				},
 				'pmid': {
 					'lattice': 'pmid'
 				},
-				'publication_title': {
+				'title': {
 					'lattice': 'title'
 				}
 			}
@@ -632,7 +638,7 @@ dcp_versions = {
   'supplementary_file': '2.2.0',
   'analysis_process': '12.0.0',
   'process': '9.2.0',
-  'project': '9.0.4',
+  'project': '17.0.0',
   'analysis_protocol': '9.1.0',
   'aggregate_generation_protocol': '2.1.0',
   'collection_protocol': '9.2.0',
