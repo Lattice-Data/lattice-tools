@@ -153,7 +153,7 @@ def split_dbxrefs(my_obj, dbxrefs, dbxref_map):
 					else:
 						my_obj[path[0]] = {}
 						my_obj[path[0]][path[1]] = v
-			elif my_obj.get('prop'):
+			elif my_obj.get(prop):
 				my_obj[prop].append(v)
 			else:
 				my_obj[prop] = [v]
