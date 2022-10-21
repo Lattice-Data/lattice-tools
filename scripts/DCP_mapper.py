@@ -97,7 +97,7 @@ dcp_types = {
 def test_mapping():
 	error_count = 0
 	schema_url = urljoin(server, 'profiles/?format=json')
-	schemas = requests.get(schema_url).json()
+	schemas = requests.get(schema_url, timeout=60).json()
 	for k,v in lattice_to_dcp.items():
 		schema_props = schemas[k]['properties']
 		for prop in v.keys():
@@ -153,7 +153,7 @@ def split_dbxrefs(my_obj, dbxrefs, dbxref_map):
 					else:
 						my_obj[path[0]] = {}
 						my_obj[path[0]][path[1]] = v
-			elif my_obj.get('prop'):
+			elif my_obj.get(prop):
 				my_obj[prop].append(v)
 			else:
 				my_obj[prop] = [v]
@@ -417,16 +417,16 @@ def seq_to_susp(links_dict):
 		for sr in seqruns:
 			# handle the sequencing metadata
 			url = urljoin(server, sr + '/?format=json')
-			sr_obj = requests.get(url, auth=connection.auth).json()
+			sr_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 			lib = sr_obj['derived_from'][0]
 			lib_url = urljoin(server, lib + '/?format=json')
-			lib_obj = requests.get(lib_url, auth=connection.auth).json()
+			lib_obj = requests.get(lib_url, auth=connection.auth, timeout=60).json()
 			lib_cell_counts[lib] = lib_obj.get('observation_count') #grab to sum the project counts
 
 			# see if we need to skip back over a pooling step for demultiplexed sequence data
 			if sr_obj.get('demultiplexed_link'):
 				url = urljoin(server, sr_obj['demultiplexed_link'] + '/?format=json')
-				prepooled_obj = requests.get(url, auth=connection.auth).json()
+				prepooled_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 				if prepooled_obj['@type'][0] == 'Suspension':
 					susps.extend([prepooled_obj['uuid']])
 					lat_type = prepooled_obj['@type'][0]
@@ -504,13 +504,13 @@ def seq_to_susp(links_dict):
 
 def handle_doc(doc_id):
 	doc_url = urljoin(server, doc_id + '/?format=json')
-	doc_obj = requests.get(doc_url, auth=connection.auth).json()
+	doc_obj = requests.get(doc_url, auth=connection.auth, timeout=60).json()
 
 	link_info = {'file_type': 'supplementary_file', 'file_id': doc_obj['uuid']}
 	doc_files.append(link_info)
 
 	download_url = urljoin(server, doc_id + doc_obj['attachment']['href'])
-	r = requests.get(download_url, auth=connection.auth)
+	r = requests.get(download_url, auth=connection.auth, timeout=60)
 	file_name = doc_obj['attachment']['download']
 	open(file_name, 'wb').write(r.content)
 
@@ -562,6 +562,11 @@ def create_protocol(in_type, out_type, out_obj):
 	else:
 		pr_type = 'protocol'
 		del my_obj['method']
+
+	for u in out_obj.get('urls', []):
+		if 'protocols.io' in u and 'doi.org' in u:
+			protocols_doi = u.split('doi.org/')[1]
+			my_obj['protocol_core']['protocols_io_doi'] = protocols_doi
 
 	pr_id = uuid_make([pr_type + in_type + out_type + str(my_obj)])
 	prots.append({'protocol_type': pr_type, 'protocol_id': pr_id})
@@ -628,13 +633,13 @@ def add_links(temp_obj, der_fr, links):
 		if isinstance(i, tuple): #donor ID + variable_age
 			identifer = i[0]
 			url = urljoin(server, identifer + '/?format=json')
-			obj = requests.get(url, auth=connection.auth).json()
+			obj = requests.get(url, auth=connection.auth, timeout=60).json()
 			lat_type = obj['@type'][0]
 			in_type = lattice_to_dcp[lat_type]['class']
 			in_id = uuid_make(obj['uuid'] + ''.join(i[1]))
 		else:
 			url = urljoin(server, i + '/?format=json')
-			obj = requests.get(url, auth=connection.auth).json()
+			obj = requests.get(url, auth=connection.auth, timeout=60).json()
 			lat_type = obj['@type'][0]
 			in_type = lattice_to_dcp[lat_type]['class']
 			in_id = obj['uuid']
@@ -719,10 +724,10 @@ def customize_fields(obj, obj_type):
 				short = obj['project_core']['project_title'].replace(' ','')[:50]
 				obj['project_core']['project_short_name'] = short
 		if obj.get('funders'):
-			if obj['funders'].get('funder_name'):
+			if obj['funders'].get('organization'):
 				funds = []
-				for o in obj['funders']['funder_name']:
-					funds.append({'funder_name': o})
+				for o in obj['funders']['organization']:
+					funds.append({'organization': o, 'grant_id': 'unspecified'})
 				obj['funders'] = funds
 		if obj.get('corresponding_contributors'):
 			if not obj.get('contributors'):
@@ -736,14 +741,15 @@ def customize_fields(obj, obj_type):
 				if p.get('pmid'):
 					p['pmid'] = int(p['pmid'])
 				if p.get('authors'):
-					p['authors'] = p['authors'].split(',')
+					p['authors'] = [a.lstrip() for a in p['authors'].split(',')]
+				if p.get('doi'):
+					p['url'] = 'doi.org/' + p['doi']
+				if 'official_hca_publication' not in p:
+					p['official_hca_publication'] = False
 		if obj.get('supplementary_links'):
 			for l in obj['supplementary_links']:
 				if l.startswith('https://data.humancellatlas.org'):
 					obj['supplementary_links'].remove(l)
-		for a in ['geo_series', 'insdc_study', 'insdc_project', 'array_express_investigation']:
-			if obj.get(a):
-				obj[a] = obj[a][0]
 
 	elif obj_type == 'donor_organism':
 		if obj.get('genus_species'):
@@ -952,7 +958,7 @@ def customize_fields(obj, obj_type):
 
 		if obj.get('library_prep_id'):
 			url = urljoin(server, obj['library_prep_id'][0] + '/?format=json')
-			lib_obj = requests.get(url, auth=connection.auth).json()
+			lib_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 			obj['library_prep_id'] = lib_obj['uuid']
 
 	elif obj_type == 'supplementary_file':
@@ -987,8 +993,16 @@ def file_descript(obj, obj_type, dataset):
 
 def main():
 	logging.info('GETTING THE DATASET')
-	url = urljoin(server, args.dataset + '/?format=json')
-	ds_obj = requests.get(url, auth=connection.auth).json()
+	#large Datasets may produce a 504
+	#I open the json in the browser
+	#copy/paste into https://jsonformatter.curiousconcept.com/# to add quotes
+	#save it to a file of accession.json
+	datasets_too_big = ['LATDS169XWF']
+	if args.dataset in datasets_too_big:
+		ds_obj = json.load(open(args.dataset + '.json'))
+	else:
+		url = urljoin(server, args.dataset + '/?format=json')
+		ds_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 
 	# check status of the dataset
 	if ds_obj.get('status') not in ['in progress', 'released']:
@@ -1026,7 +1040,7 @@ def main():
 	files = [i for i in ds_obj['files']]
 	for f in files:
 		url = urljoin(server, f + '/?format=json')
-		temp_obj = requests.get(url, auth=connection.auth).json()
+		temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 		obj_type = temp_obj['@type'][0]
 		if obj_type == 'RawSequenceFile':
 			if temp_obj.get('validated') == False:
@@ -1064,11 +1078,11 @@ def main():
 			if isinstance(identifier, tuple):
 				i = identifier[0]
 				url = urljoin(server, i + '/?format=json')
-				temp_obj = requests.get(url, auth=connection.auth).json()
+				temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 				get_object(temp_obj, identifier[1])
 			else:
 				url = urljoin(server, identifier + '/?format=json')
-				temp_obj = requests.get(url, auth=connection.auth).json()
+				temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 				get_object(temp_obj)
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
