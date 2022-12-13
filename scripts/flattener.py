@@ -88,7 +88,6 @@ dataset_metadata = {
 	}
 
 annot_fields = [
-	'cell_ontology.term_name',
 	'cell_ontology.term_id',
 	'author_cell_type',
 	'cell_state'
@@ -114,7 +113,6 @@ prop_map = {
 	'matrix_is_primary_data': 'is_primary_data',
 	'cell_annotation_author_cell_type': 'author_cell_type',
 	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
-	'cell_annotation_cell_ontology_term_name': 'cell_type',
 	'cell_annotation_cell_state': 'cell_state',
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
@@ -1134,7 +1132,7 @@ def main(mfinal_id):
 			cxg_obs.drop(columns='donor_age', inplace=True)
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
-			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'cell_type',\
+			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex',
 			'sample_biosample_ontology_cell_slims', 'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy',\
 			'sample_biosample_ontology_organ_slims']
 	for column_drop in  columns_to_drop: 
