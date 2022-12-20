@@ -883,6 +883,8 @@ def main(mfinal_id):
 	else:
 		sys.exit('Do not recognize file format or exention {} {}'.format(mfinal_obj['file_format'], mfinal_local_path))
 	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
+	if 'counts' in mfinal_adata.layers:
+		del(mfinal_adata.layers['counts'])
 
 	cxg_adata_lst = []
 
