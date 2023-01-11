@@ -1,7 +1,3 @@
-import rpy2.robjects.packages as rpackages
-from rpy2.robjects.packages import importr
-from rpy2.robjects.vectors import StrVector
-import rpy2.robjects as robjects
 import argparse
 import anndata as ad
 import boto3
@@ -450,54 +446,6 @@ def concatenate_cell_id(mfinal_obj, mxr_acc, raw_obs_names, mfinal_cells):
 			new_ids.append(id+cell_mapping_dct[mxr_acc])
 	return(new_ids)
 
-
-# From R object, create and return h5ad in temporary drive
-# Returns list of converted h5ad files
-def convert_from_rds(path_rds, assays, temp_dir, cell_col):
-	converted_h5ad = []
-	utils = rpackages.importr('utils')
-	utils.chooseCRANmirror(ind=1)
-	packnames = ('Seurat', 'reticulate', 'BiocManager', 'devtools')
-	names_to_install = [x for x in packnames if not rpackages.isinstalled(x)]
-	if len(names_to_install) > 0:
-		utils.install_packages(StrVector(names_to_install))
-
-	devtools = rpackages.importr('devtools')
-	github_packages = ( 'SeuratDisk', 'cli', 'crayon', 'hdf5r', 'Matrix', 'R6', 'rlang', 'stringi', 'withr')
-	github_install = [x for x in github_packages if not rpackages.isinstalled(x)]
-	if len(github_install) > 0:
-		devtools.install_github(StrVector(github_install))
-	seurat = rpackages.importr('Seurat')
-	seuratdisk = rpackages.importr('SeuratDisk')
-	
-	# Load Seurat object into a h5Seurat file, and create h5ad for each assay
-	# If scaled.data is present, data is in raw.X, else data is in X
-	robjects.r('print(sessionInfo())')
-	h5s_file = '{}/r_obj.h5Seurat'.format(temp_dir)
-	robjects.r('robj <- readRDS("{}")'.format(path_rds))
-	robjects.r('updated_robj <- Seurat::UpdateSeuratObject(object = robj)')
-	for assay in assays:
-		robjects.r('robj_assay <- Seurat::GetAssay(updated_robj, assay="{}")'.format(assay))
-		robjects.r('robj_new <- Seurat::CreateSeuratObject(robj_assay, assay = "{}", meta.data = updated_robj@meta.data)'.format(assay))
-		robjects.r('reducs <- names(updated_robj@reductions)')
-		reductions = robjects.r('print(reducs)')
-		for reduc in reductions:
-			robjects.r('robj_reduc <- Seurat::CreateDimReducObject(embeddings = Embeddings(updated_robj, reduction="{}"), global=TRUE, assay = "{}")'.format(reduc, assay))
-			robjects.r('robj_new@reductions${} <- robj_reduc'.format(reduc))
-		robjects.r('robj_new@meta.data${} <- as.character(robj_new@meta.data${})'.format(cell_col, cell_col))
-		robjects.r('SeuratDisk::SaveH5Seurat(robj_new, filename="{}")'.format(h5s_file))
-		scaled_matrix = robjects.r('dim(Seurat::GetAssayData(object = robj_new, assay="{}", slot="scale.data"))'.format(assay))
-		h5ad_file = '{}/{}.h5ad'.format(temp_dir, assay)
-		seuratdisk.Convert(h5s_file, dest="h5ad", assay=assay, overwrite = 'FALSE')
-		os.rename(h5s_file.replace('h5Seurat', 'h5ad'), h5ad_file)
-		print("Converting to h5ad: {}".format(h5ad_file))
-		if scaled_matrix[0] == 0 and scaled_matrix[1] == 0:
-			converted_h5ad.append((h5ad_file, 'X', assay))
-		else:
-			converted_h5ad.append((h5ad_file,'raw.X', assay))
-	return converted_h5ad
-
-
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
@@ -870,18 +818,7 @@ def main(mfinal_id):
 	file_ext = file_url.split('.')[-1]
 	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
 	mfinal_adata = None
-	assays = []
-	converted_h5ad = []
-	for layer in mfinal_obj['layers']:
-		if 'assay' in layer:
-			assays.append(layer['assay'])
-	if mfinal_obj['file_format'] == 'hdf5' and re.search('h5ad$', mfinal_local_path):
-		mfinal_adata = sc.read_h5ad(mfinal_local_path)
-	elif mfinal_obj['file_format'] == 'rds':
-		converted_h5ad = convert_from_rds(mfinal_local_path, assays, tmp_dir, mfinal_obj['author_cell_type_column'])
-		mfinal_adata = sc.read_h5ad(converted_h5ad[0][0])
-	else:
-		sys.exit('Do not recognize file format or exention {} {}'.format(mfinal_obj['file_format'], mfinal_local_path))
+	mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
 	if 'counts' in mfinal_adata.layers:
 		del(mfinal_adata.layers['counts'])
@@ -945,7 +882,6 @@ def main(mfinal_id):
 					get_cell_slim(row_to_add, ' (cell culture)')
 				else:
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
-#			row_to_add = row_to_add.drop(labels='sample_biosample_ontology_organ_slims')
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay == 'RNA':
@@ -1008,7 +944,6 @@ def main(mfinal_id):
 		gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst)
 		annot_row = pd.Series(annot_metadata, name=annot_obj['author_cell_type'])
 		annot_df = annot_df.append(annot_row)
-	#annot_df = trim_cell_slims(annot_df)
 
 	# For RNA datasets, concatenate all anndata objects in list,
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
@@ -1212,63 +1147,34 @@ def main(mfinal_id):
 
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
-	# Also "fix" gene symbols from '--' 
 	results_file  = get_results_filename(mfinal_obj)
-	if mfinal_obj['file_format'] == 'hdf5':
-		#cxg_var = cxg_adata_raw.var.loc[list(mfinal_adata.var_names),]
-		cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
-		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
-		if not sparse.issparse(cxg_adata.X):
-			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-		elif cxg_adata.X.getformat()=='csc':
-			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+	cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
+	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+	if not sparse.issparse(cxg_adata.X):
+		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+	elif cxg_adata.X.getformat()=='csc':
+		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 
-		if summary_assay != 'ATAC':
-			set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
-			cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
-			cxg_adata_raw = set_ensembl_return[1]
-		# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
-		else:
-			cxg_adata.var['feature_is_filtered'] = False
-
-			
-		if not sparse.issparse(cxg_adata_raw.X):
-			cxg_adata_raw.X = sparse.csr_matrix(cxg_adata_raw.X)
-		elif cxg_adata.X.getformat()=='csc':
-			cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-
-		cxg_adata.raw = cxg_adata_raw
-		for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
-			if label != 'X':
-				cxg_adata.layers[label] = mfinal_adata.layers[label]
-		quality_check(cxg_adata)
-		cxg_adata.write(results_file, compression = 'gzip')
+	if summary_assay != 'ATAC':
+		set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
+		cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
+		cxg_adata_raw = set_ensembl_return[1]
+	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 	else:
-		# For seurat objects, create an anndata object for each assay; append assay name if more than 1 file
-		for i in range(len(converted_h5ad)):
-			if  converted_h5ad[i][1] == 'X':
-				if i != 0:
-					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
-				matrix_loc = mfinal_adata.X
-				final_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
-			else:
-				if i != 0:
-					mfinal_adata = sc.read_h5ad(converted_h5ad[i][0])
-				matrix_loc = mfinal_adata.raw.X
-				if '_index' in mfinal_adata.raw.var.columns.to_list():
-					final_var = pd.DataFrame(index = mfinal_adata.raw.var['_index'].to_list())
-				else:
-					final_var = pd.DataFrame(index = mfinal_adata.raw.var.index.to_list())
-			cxg_adata = ad.AnnData(matrix_loc, obs=cxg_obs, obsm=cxg_obsm, var=final_var, uns=cxg_uns)
-			if summary_assay != 'ATAC':
-				set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
-				cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
-				cxg_adata_raw = set_ensembl_return[1]
-			cxg_adata.raw = cxg_adata_raw
-			quality_check(cxg_adata)
-			if len(converted_h5ad) > 1:
-				results_file = '{}_{}'.format(converted_h5ad[i][2], results_file)
-			cxg_adata.write(results_file, compression = 'gzip')
+		cxg_adata.var['feature_is_filtered'] = False
+
+		
+	if not sparse.issparse(cxg_adata_raw.X):
+		cxg_adata_raw.X = sparse.csr_matrix(cxg_adata_raw.X)
+	elif cxg_adata.X.getformat()=='csc':
+		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+
+	cxg_adata.raw = cxg_adata_raw
+	for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
+		if label != 'X':
+			cxg_adata.layers[label] = mfinal_adata.layers[label]
+	quality_check(cxg_adata)
+	cxg_adata.write(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)
 
