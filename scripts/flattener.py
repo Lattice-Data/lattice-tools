@@ -817,7 +817,6 @@ def main(mfinal_id):
 	file_url = mfinal_obj['s3_uri']
 	file_ext = file_url.split('.')[-1]
 	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
-	mfinal_adata = None
 	mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
 	if 'counts' in mfinal_adata.layers:
