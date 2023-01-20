@@ -233,13 +233,11 @@ priorityFields = {
 		'order': [
 			'derived_from',
 			'dataset',
-			'submitted_file_name',
 			's3_uri',
 			'read_type',
 			'lab'
 		],
 		'preferred': [
-			'submitted_file_name',
 			's3_uri',
 			'read_type',
 			'lab'
@@ -258,7 +256,6 @@ priorityFields = {
 			'genome_annotation',
 			'cellranger_assay_chemistry',
 			'software',
-			'submitted_file_name',
 			's3_uri',
 			'intronic_reads_counted',
 			'feature_keys',
@@ -270,7 +267,6 @@ priorityFields = {
 			'genome_annotation',
 			'cellranger_assay_chemistry',
 			'software',
-			'submitted_file_name',
 			's3_uri',
 			'intronic_reads_counted',
 			'feature_keys',
