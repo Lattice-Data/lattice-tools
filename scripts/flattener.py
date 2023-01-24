@@ -835,10 +835,10 @@ def main(mfinal_id):
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
 
-		# If there is a author_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
+		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
-		if 'author_donor_column' in mfinal_obj:
+		if 'demultiplexed_donor_column' in mfinal_obj:
 			lib_obj = relevant_objects.get('library', [])
 			gather_metdata('library', cell_metadata['library'], values_to_add, lib_obj)
 			for i in range(len(lib_obj)):
@@ -875,7 +875,7 @@ def main(mfinal_id):
 		row_to_add = pd.Series(values_to_add, name=mxr['@id'], dtype=str)
 
 		# make sure donor_df contains UBERON for tissue, may need to revisit 'if' statement
-		if 'author_donor_column' not in mfinal_obj:
+		if 'demultiplexed_donor_column' not in mfinal_obj:
 			if not row_to_add['tissue_ontology_term_id'].startswith('UBERON'):
 				if row_to_add['tissue_ontology_term_id'].endswith('(cell culture)'):
 					get_cell_slim(row_to_add, ' (cell culture)')
@@ -886,14 +886,14 @@ def main(mfinal_id):
 		if summary_assay == 'RNA':
 			download_file(mxr, tmp_dir)
 			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
-			if mxr['submitted_file_name'].endswith('h5'):
+			if mxr['s3_uri'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_10x_h5(local_path)
-			elif mxr['submitted_file_name'].endswith('h5ad'):
+			elif mxr['s3_uri'].endswith('h5ad'):
 				local_path = '{}/{}.h5ad'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_h5ad(local_path)
 			else:
-				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['submitted_file_name']))
+				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 			# only make var unique if all raw matrices are same annotation version
 			if len(mfinal_obj.get('genome_annotations', [])) == 1:
 				adata_raw.var_names_make_unique(join = '.')
@@ -1002,9 +1002,9 @@ def main(mfinal_id):
 		cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
 		cxg_obs['author_cluster'] = cxg_obs['author_cluster'].astype('category')
 
-	# After getting experimental metadata keyed off of mxr, if there is author_donor_column, run demultiplex
-	if 'author_donor_column' in mfinal_obj:
-		donor_col = mfinal_obj['author_donor_column']
+	# After getting experimental metadata keyed off of mxr, if there is demultiplexed_donor_column, run demultiplex
+	if 'demultiplexed_donor_column' in mfinal_obj:
+		donor_col = mfinal_obj['demultiplexed_donor_column']
 		cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[donor_col]], left_index=True, right_index=True, how='left')
 		cxg_obs.rename(columns={donor_col: 'author_donor'}, inplace=True)
 		cxg_obs['library_@id'] = cxg_obs['library_@id'].astype(str)
@@ -1161,17 +1161,13 @@ def main(mfinal_id):
 	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 	else:
 		cxg_adata.var['feature_is_filtered'] = False
-
 		
 	if not sparse.issparse(cxg_adata_raw.X):
-		cxg_adata_raw.X = sparse.csr_matrix(cxg_adata_raw.X)
+		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 
 	cxg_adata.raw = cxg_adata_raw
-	for label in [x['label'] for x in mfinal_obj['layers'] if 'label' in x]:
-		if label != 'X':
-			cxg_adata.layers[label] = mfinal_adata.layers[label]
 	quality_check(cxg_adata)
 	cxg_adata.write(results_file, compression = 'gzip')
 
