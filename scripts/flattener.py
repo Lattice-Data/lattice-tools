@@ -419,10 +419,14 @@ def compile_annotations(files):
 	bucket_name = 'submissions-lattice'
 	for key in files:
 		filename = tmp_dir + "/" + files[key]
-		print("Downloading reference: {}".format(files[key]))
-		client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
+		try:
+			client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
+		except subprocess.CalledProcessError as e:
+			sys.exit('Failed to find file {} on s3'.format(file_obj.get('@id')))
+		else:
+			print("Downloading reference: {}".format(files[key]))
 		df = pd.read_csv(filename, names=['feature_id','symbol','num'])
-		ids  = ids.append(df)
+		ids  = pd.concat([ids,df])
 	return ids
 
 
@@ -629,22 +633,15 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
 			print("WARNING: normalized matrix contains Ensembl IDs not in raw: {}".format(unique_to_norm))
-
-
-	compiled_annot = compile_annotations(ref_files)
-	var_in_approved = cxg_adata.var.index[cxg_adata.var.index.isin(compiled_annot['feature_id'])]
-	rawvar_in_approved = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(compiled_annot['feature_id'])]
-	cxg_adata = cxg_adata[:, var_in_approved]
-	cxg_adata_raw = cxg_adata_raw[:, rawvar_in_approved]
-
-	ercc_df = compile_annotations({'ercc':ref_files['ercc']})
-	var_ercc = cxg_adata.var.index[cxg_adata.var.index.isin(ercc_df['feature_id'])]
-	rawvar_ercc = cxg_adata_raw.var.index[cxg_adata_raw.var.index.isin(ercc_df['feature_id'])]
-	cxg_adata.var.loc[var_ercc, 'feature_biotype'] = 'spike-in'
-	cxg_adata_raw.var.loc[rawvar_ercc, 'feature_biotype'] = 'spike-in'
 	del cxg_adata_raw.var['feature_biotype'] # remove feature_biotype from var and raw.var
 	del cxg_adata.var['feature_biotype']
 	return cxg_adata, cxg_adata_raw
+
+
+def filter_ensembl(cxg_adata, compiled_annot):
+	var_in_approved = cxg_adata.var.index[cxg_adata.var.index.isin(compiled_annot['feature_id'])]
+	cxg_adata = cxg_adata[:, var_in_approved]
+	return cxg_adata
 
 
 # Reconcile genes if raw matrices annotated to multiple version by merging raw based on Ensembl ID
@@ -872,12 +869,12 @@ def main(mfinal_id):
 					gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
-		row_to_add = pd.Series(values_to_add, name=mxr['@id'], dtype=str)
+		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 
 		# make sure donor_df contains UBERON for tissue, may need to revisit 'if' statement
 		if 'demultiplexed_donor_column' not in mfinal_obj:
-			if not row_to_add['tissue_ontology_term_id'].startswith('UBERON'):
-				if row_to_add['tissue_ontology_term_id'].endswith('(cell culture)'):
+			if not row_to_add.loc[mxr['@id'],'tissue_ontology_term_id'].startswith('UBERON'):
+				if row_to_add.loc[mxr['@id'],'tissue_ontology_term_id'].endswith('(cell culture)'):
 					get_cell_slim(row_to_add, ' (cell culture)')
 				else:
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
@@ -920,7 +917,7 @@ def main(mfinal_id):
 			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
 			cxg_adata_lst.append(adata_raw)
 
-		df = df.append(row_to_add)
+		df = pd.concat([df, row_to_add])
 
 	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
@@ -941,8 +938,8 @@ def main(mfinal_id):
 		annot_lst.append(annot_obj)
 		annot_metadata = {}
 		gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst)
-		annot_row = pd.Series(annot_metadata, name=annot_obj['author_cell_type'])
-		annot_df = annot_df.append(annot_row)
+		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
+		annot_df = pd.concat([annot_df, annot_row])
 
 	# For RNA datasets, concatenate all anndata objects in list,
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
@@ -1154,12 +1151,18 @@ def main(mfinal_id):
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 
+
+	# Convert gene symbols to ensembl and filter to approved set
+	compiled_annot = compile_annotations(ref_files)
+	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 	if summary_assay != 'ATAC':
 		set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
-		cxg_adata = add_zero(set_ensembl_return[0], set_ensembl_return[1])
-		cxg_adata_raw = set_ensembl_return[1]
-	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
+		cxg_adata_raw = filter_ensembl(set_ensembl_return[1], compiled_annot)
+		cxg_adata = filter_ensembl(set_ensembl_return[0], compiled_annot)
+		cxg_adata = add_zero(cxg_adata, cxg_adata_raw)
 	else:
+		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
+		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False
 		
 	if not sparse.issparse(cxg_adata_raw.X):
