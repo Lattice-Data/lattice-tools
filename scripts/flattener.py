@@ -957,6 +957,8 @@ def main(mfinal_id):
 			collapse_dict = reconcile_results[3]
 		else:
 			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
+			if cxg_adata_raw.var.shape[0] != cxg_adata_lst[0].var.shape[0]:
+				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
@@ -989,6 +991,8 @@ def main(mfinal_id):
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
 	celltype_col = mfinal_obj['author_cell_type_column']
+	if mfinal_adata.obs[celltype_col].dtype != 'object':
+		mfinal_adata.obs[celltype_col] = mfinal_adata.obs[celltype_col].astype('string')
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
