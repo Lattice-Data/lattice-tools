@@ -331,7 +331,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 		value_str = [str(i) for i in value]
 		value_set = set(value_str)
 		cxg_fields = ['disease_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'organism_ontology_term_id',\
-						 'sex_ontology_term_id', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
+						 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 		if len(value_set) > 1:
 			if key in cxg_fields:
 				if key == 'development_stage_ontology_term_id':
@@ -350,8 +350,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 								values_to_add[key] = r.json()['@graph'][0]['term_id']
 							else:
 								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
-						#values_to_add[key] = dev_in_all[0]
-				
+				elif key == 'sex':
+					values_to_add[key] = 'unknown'
 				else:
 					sys.exit("Cxg field is a list")
 			else:		
