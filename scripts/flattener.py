@@ -120,6 +120,10 @@ unreported_value = 'unknown'
 schema_version = '3.0.0'
 flat_version = '5'
 tmp_dir = 'matrix_files'
+mfinal_obj = None
+mfinal_adata = None
+cxg_adata = None
+cxg_adata_raw = None
 
 EPILOG = '''
 Examples:
@@ -431,7 +435,8 @@ def compile_annotations(files):
 
 
 # Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
-def concatenate_cell_id(mfinal_obj, mxr_acc, raw_obs_names, mfinal_cells):
+def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells):
+	global mfinal_obj
 	new_ids = []
 	flag_removed = False
 	cell_mapping_dct = {}
@@ -493,7 +498,8 @@ def report_diseases(mxr_df, exp_disease):
 # Determine overlapping suspension, create library & demultiplexed suspension df
 # get cell_metadata from that suspension, merge in library info
 # merge with mxr_df on library
-def demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj):
+def demultiplex(lib_donor_df, library_susp, donor_susp):
+	global mfinal_obj
 	susp_df = pd.DataFrame()
 	lattice_donor = {}
 	lattice_donor_col = []
@@ -571,7 +577,9 @@ def get_sex_ontology(donor_df):
 
 # Make sure cxg_adata and cxg_adata_raw have same number of features
 # If not, add implied zeros to csr, and add corresponding 'feature_is_filtered'
-def add_zero(cxg_adata, cxg_adata_raw):
+def add_zero():
+	global cxg_adata
+	global cxg_adata_raw
 	if cxg_adata_raw.shape[1] > cxg_adata.shape[1]:
 		genes_add = [x for x in cxg_adata_raw.var.index.to_list() if x not in cxg_adata.var.index.to_list()]
 		new_matrix = sparse.csr_matrix((cxg_adata.X.data, cxg_adata.X.indices, cxg_adata.X.indptr), shape = cxg_adata_raw.shape)
@@ -583,26 +591,21 @@ def add_zero(cxg_adata, cxg_adata_raw):
 		new_var.loc[genes_add, 'feature_is_filtered'] = True
 		new_adata = ad.AnnData(X=new_matrix, obs=cxg_adata.obs, var=new_var, uns=cxg_adata.uns, obsm=cxg_adata.obsm)
 		new_adata = new_adata[:,cxg_adata_raw.var.index.to_list()]
-		return(new_adata)
+		new_adata.var = new_adata.var.merge(cxg_adata.var, left_index=True, right_index=True, how='left')
+		cxg_adata = new_adata
 	else:
 		cxg_adata.var['feature_is_filtered'] = False
-		return(cxg_adata)
+		cxg_adata = cxg_adata
 
 
 # Use cxg_adata_raw var to map ensembl IDs and use that as index, filter against ref_files[]
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
-def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
-	if 'feature_types' in cxg_adata_raw.var.columns.to_list():
-		cxg_adata_raw.var = cxg_adata_raw.var.rename(columns={'feature_types': 'feature_biotype'})
-		cxg_adata_raw.var['feature_biotype'] = cxg_adata_raw.var['feature_biotype'].str.replace('Gene Expression', 'gene')
-	else:
-		cxg_adata_raw.var.insert(0, 'feature_biotype', 'gene') 
-	keep = ['feature_biotype', 'gene_ids']
-	remove = [x for x in cxg_adata_raw.var.columns.to_list() if x not in keep]
-	for r in remove:
-		cxg_adata_raw.var.drop(columns=r, inplace=True)
-
+def set_ensembl(redundant, feature_keys):
+	global cxg_adata
+	global cxg_adata_raw
+	raw_cols = cxg_adata_raw.var.columns.to_list()
+	cxg_adata_raw.var.drop(columns=[i for i in raw_cols if i!='gene_ids'], inplace=True)
 	if feature_keys == ['gene symbol']:
 		if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
 			# Check for gene symbols that are redudant and have suffix
@@ -629,19 +632,28 @@ def set_ensembl(cxg_adata, cxg_adata_raw, redundant, feature_keys):
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var.index.name = None
-		cxg_adata.var.insert(0,  'feature_biotype', 'gene')
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
 			print("WARNING: normalized matrix contains Ensembl IDs not in raw: {}".format(unique_to_norm))
-	del cxg_adata_raw.var['feature_biotype'] # remove feature_biotype from var and raw.var
-	del cxg_adata.var['feature_biotype']
-	return cxg_adata, cxg_adata_raw
 
 
-def filter_ensembl(cxg_adata, compiled_annot):
-	var_in_approved = cxg_adata.var.index[cxg_adata.var.index.isin(compiled_annot['feature_id'])]
-	cxg_adata = cxg_adata[:, var_in_approved]
-	return cxg_adata
+def filter_ensembl(adata, compiled_annot):
+	var_in_approved = adata.var.index[adata.var.index.isin(compiled_annot['feature_id'])]
+	adata = adata[:, var_in_approved]
+	return adata
+
+
+# Clean up columns and column names for var, gene name must be gene_id
+# WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
+def clean_var():
+	global cxg_adata
+	global cxg_adata_raw
+	global mfinal_adata
+	gene_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'gene_ids' in i]]
+	gene_pd = gene_pd.replace('nan', np.nan)
+	gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_ids')
+	cxg_adata_raw.var.drop(columns = cxg_adata_raw.var.columns.tolist(), inplace=True)
+	cxg_adata_raw.var = cxg_adata_raw.var.merge(gene_pd, left_index = True, right_index=True, how = 'left')
 
 
 # Reconcile genes if raw matrices annotated to multiple version by merging raw based on Ensembl ID
@@ -778,6 +790,10 @@ def get_results_filename(mfinal_obj):
 
 
 def main(mfinal_id):
+	global mfinal_obj
+	global mfinal_adata
+	global cxg_adata
+	global cxg_adata_raw
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 	logging.basicConfig(filename='outfile_flattener.log', level=logging.INFO)
 
@@ -896,7 +912,7 @@ def main(mfinal_id):
 				adata_raw.var_names_make_unique(join = '.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
 			if mfinal_obj.get('cell_label_mappings', None):
-				concatenated_ids = concatenate_cell_id(mfinal_obj, mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
+				concatenated_ids = concatenate_cell_id(mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers)
 				adata_raw.obs_names = concatenated_ids
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 			else:
@@ -930,6 +946,7 @@ def main(mfinal_id):
 	feature_lengths = []
 	for adata in cxg_adata_lst:
 		feature_lengths.append(adata.shape[1])
+	feature_lengths = list(set(feature_lengths))
 
 	# Set up dataframe for cell annotations keyed off of author_cell_type
 	annot_df = pd.DataFrame()
@@ -957,8 +974,9 @@ def main(mfinal_id):
 			collapse_dict = reconcile_results[3]
 		else:
 			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
-			if cxg_adata_raw.var.shape[0] != cxg_adata_lst[0].var.shape[0]:
-				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
+			if len(feature_lengths) == 1:
+				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
+					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
@@ -1013,7 +1031,7 @@ def main(mfinal_id):
 		cxg_obs['library_authordonor'] = cxg_obs['library_@id'] + ',' + cxg_obs['author_donor']
 
 		lib_donor_df = cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
-		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, mfinal_obj)
+		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp)
 
 		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease', unreported_value))
 		get_sex_ontology(donor_df)
@@ -1127,29 +1145,14 @@ def main(mfinal_id):
 			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
 		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in redundant]]
 
-        
-	# Clean up columns and column names for var, gene name must be gene_id
-	# WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
-	if len(set(feature_lengths)) > 1 and len(mfinal_obj['genome_annotations'])==1:
-		gene_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'gene_ids' in i]]
-		feature_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'feature_types' in i]]
-		genome_pd = cxg_adata_raw.var[[i for i in cxg_adata_raw.var.columns.values.tolist() if 'genome' in i]]
-		gene_pd = gene_pd.replace('nan', np.nan)
-		feature_pd = feature_pd.replace('nan', np.nan)
-		genome_pd = genome_pd.replace('nan', np.nan)
-		gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_ids')
-		feature_pd = feature_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='feature_types')
-		genome_pd = genome_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='genome')
-		cxg_adata_raw.var.drop(columns = cxg_adata_raw.var.columns.tolist(), inplace=True)
-		cxg_adata_raw.var = cxg_adata_raw.var.merge(gene_pd, left_index = True, right_index=True, how = 'left')
-		cxg_adata_raw.var = cxg_adata_raw.var.merge(feature_pd, left_index = True, right_index=True, how = 'left')
-		cxg_adata_raw.var = cxg_adata_raw.var.merge(genome_pd, left_index = True, right_index=True, how = 'left')
-
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
 	cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
+	keep_types = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+	var_meta = mfinal_adata.var.select_dtypes(include=keep_types)
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+	cxg_adata.var = cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 	if not sparse.issparse(cxg_adata.X):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 	elif cxg_adata.X.getformat()=='csc':
@@ -1157,18 +1160,21 @@ def main(mfinal_id):
 
 
 	# Convert gene symbols to ensembl and filter to approved set
+	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
+		clean_var()
+
 	compiled_annot = compile_annotations(ref_files)
 	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 	if summary_assay != 'ATAC':
-		set_ensembl_return = set_ensembl(cxg_adata, cxg_adata_raw, redundant, mfinal_obj['feature_keys'])
-		cxg_adata_raw = filter_ensembl(set_ensembl_return[1], compiled_annot)
-		cxg_adata = filter_ensembl(set_ensembl_return[0], compiled_annot)
-		cxg_adata = add_zero(cxg_adata, cxg_adata_raw)
+		set_ensembl(redundant, mfinal_obj['feature_keys'])
+		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
+		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
+		add_zero()
 	else:
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False
-		
+	
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
