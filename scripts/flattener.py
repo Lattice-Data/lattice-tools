@@ -429,7 +429,7 @@ def compile_annotations(files):
 			sys.exit('Failed to find file {} on s3'.format(file_obj.get('@id')))
 		else:
 			print("Downloading reference: {}".format(files[key]))
-		df = pd.read_csv(filename, names=['feature_id','symbol','num'])
+		df = pd.read_csv(filename, names=['feature_id','symbol','num'], dtype='str')
 		ids  = pd.concat([ids,df])
 	return ids
 
@@ -930,7 +930,7 @@ def main(mfinal_id):
 				else:
 					sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
 			adata_raw = adata_raw[overlapped_ids]
-			adata_raw.obs['raw_matrix_accession'] = [mxr['@id']]*len(overlapped_ids)
+			adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 			cxg_adata_lst.append(adata_raw)
 
 		df = pd.concat([df, row_to_add])
@@ -1179,6 +1179,14 @@ def main(mfinal_id):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+
+	# Copy over any additional data from mfinal_adata to cxg_adatda
+	reserved_uns = ['schema_version', 'title', 'batch_condition', 'default_embedding', 'X_approximate_distribution']
+	for i in mfinal_adata.uns.keys():
+		if i not in reserved_uns:
+			cxg_adata.uns[i] = mfinal_adata.uns[i]
+	if mfinal_adata.obsp:
+		cxg_adata.obsp = mfinal_adata.obsp
 
 	cxg_adata.raw = cxg_adata_raw
 	quality_check(cxg_adata)
