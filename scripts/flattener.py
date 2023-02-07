@@ -595,7 +595,6 @@ def add_zero():
 		cxg_adata = new_adata
 	else:
 		cxg_adata.var['feature_is_filtered'] = False
-		cxg_adata = cxg_adata
 
 
 # Use cxg_adata_raw var to map ensembl IDs and use that as index, filter against ref_files[]
