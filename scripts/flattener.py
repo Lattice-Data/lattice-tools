@@ -787,6 +787,14 @@ def get_results_filename(mfinal_obj):
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 	return results_file
 
+def map_antibody():
+	global cxg_adata
+	global cxg_adata_raw
+	global mfinal_obj
+	antibody_meta = pd.DataFrame()
+	cxg_adata.var['gene_ids'] = cxg_adata_raw.var['gene_ids']
+	cxg_adata_raw.var.drop(columns=['genome'], inplace=True)
+
 
 def main(mfinal_id):
 	global mfinal_obj
@@ -807,6 +815,8 @@ def main(mfinal_id):
 			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq'] or mfinal_obj['assays'] == ['spatial transcriptomics'] or\
 			mfinal_obj['assays'] == ['scRNA-seq', 'snRNA-seq']:
 		summary_assay = 'RNA'
+	elif mfinal_obj['assays'] == ['CITE-seq']:
+		summary_assay = 'CITE'
 	else:
 		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
 
@@ -895,17 +905,21 @@ def main(mfinal_id):
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
-		if summary_assay == 'RNA':
+		if summary_assay in ['RNA','CITE']:
 			download_file(mxr, tmp_dir)
-			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 			if mxr['s3_uri'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
-				adata_raw = sc.read_10x_h5(local_path)
+				adata_raw = sc.read_10x_h5(local_path, gex_only = False)
 			elif mxr['s3_uri'].endswith('h5ad'):
 				local_path = '{}/{}.h5ad'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_h5ad(local_path)
 			else:
-				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
+				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))	
+			if summary_assay == 'RNA':
+				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
+				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Gene Expression']
+			else:
+				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Antibody Capture']
 			# only make var unique if all raw matrices are same annotation version
 			if len(mfinal_obj.get('genome_annotations', [])) == 1:
 				adata_raw.var_names_make_unique(join = '.')
@@ -957,7 +971,7 @@ def main(mfinal_id):
 		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
 		annot_df = pd.concat([annot_df, annot_row])
 
-	# For RNA datasets, concatenate all anndata objects in list,
+	# For CITE and RNA datasets, concatenate all anndata objects in list, but no reconciling genes for CITE
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
 	raw_matrix_mapping = []
 	cell_mapping_rev_dct = {}
@@ -976,6 +990,14 @@ def main(mfinal_id):
 			if len(feature_lengths) == 1:
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
+		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
+		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
+			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
+	elif summary_assay == 'CITE':
+		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
+		if len(feature_lengths) == 1:
+			if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
+				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
@@ -1149,6 +1171,8 @@ def main(mfinal_id):
 	results_file  = get_results_filename(mfinal_obj)
 	cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 	keep_types = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+	if summary_assay == 'CITE':
+		keep_types.append('object')
 	var_meta = mfinal_adata.var.select_dtypes(include=keep_types)
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 	cxg_adata.var = cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
@@ -1162,17 +1186,22 @@ def main(mfinal_id):
 	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
 		clean_var()
 
-	compiled_annot = compile_annotations(ref_files)
 	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
-	if summary_assay != 'ATAC':
+	# For CITE, standardize antibody index and metadata and no filtering
+
+	if summary_assay == 'RNA':
+		compiled_annot = compile_annotations(ref_files)
 		set_ensembl(redundant, mfinal_obj['feature_keys'])
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		add_zero()
-	else:
+	elif summary_assay == 'ATAC':
+		compiled_annot = compile_annotations(ref_files)
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False
+	elif summary_assay == 'CITE':
+		map_antibody()
 	
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
