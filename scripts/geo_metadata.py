@@ -55,7 +55,9 @@ library_metadata = {
 		],
 	'suspension': [
 		'cell_depletion_factors',
-		'enrichment_factors'
+		'enrichment_factors',
+		'treatment_summary',
+		'preservation_method'
 		],
 	'sequencing_run': [
 		'aliases',
@@ -73,6 +75,17 @@ library_metadata = {
 	]
 }
 
+raw_matrix = [
+	'normalized',
+	'value_scale',
+	'feature_keys',
+	'cellranger_assay_chemistry',
+	'background_barcodes_included',
+	'assembly',
+	'genome_annotation',
+	'file_format',
+	'value_units'
+]
 
 
 # Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
@@ -313,6 +326,54 @@ def get_filename(uri):
 	return l[len(l)-1]
 
 
+# Check files with files field in dataset object
+def checkfiles(raw_seq_files, derived_seq_files, raw_matrix_files, derived_raw_matrix, derived_unfiltered_matrix):
+	dataset_seq_uniq = [i for i in raw_seq_files if i not in derived_seq_files]
+	derived_seq_uniq = [i for i in derived_seq_files if i not in raw_seq_files]
+	dataset_matrix_uniq = [i for i in raw_matrix_files if i not in derived_raw_matrix]
+	derived_matrix_uniq = [i for i in derived_raw_matrix if i not in raw_matrix_files]
+	if len(dataset_seq_uniq)>1:
+		print("raw seq only in dataset: {}".format(dataset_seq_uniq))
+	elif len(derived_seq_uniq)>1:
+		print("raw seq only in derived: {}".format(derived_seq_uniq))
+	elif len(dataset_matrix_uniq)>1:
+		filtered_uniq = [i for i in dataset_matrix_uniq if i not in derived_unfiltered_matrix]
+		if len(filtered_uniq)>1:
+			print("matrix only in dataset filtered: {}".format(filtered_uniq))
+	elif len(derived_matrix_uniq)>1:
+		print("matrix only in derived: {}".format(derived_matrix_uniq))
+
+
+def format_protocols(field, key, value, protocols_results):
+	global geo_protocols
+	if field in protocols_results.keys():
+		protocols_results[field] += "; "+key+':'+str(value)
+	else:
+		protocols_results[field] = key+':'+str(value)
+	return protocols_results
+
+
+def calculate_protocols():
+	global geo_protocols
+	global geo_samples
+	protocols_input = {}
+	protocols_results = {}
+	for c in raw_matrix:
+		col = "raw_matrix_"+c
+		if len(geo_samples[col].unique())==1:
+			protocols_input[col]=geo_samples[col].unique()[0]
+			geo_samples.drop(columns=[col], inplace=True)
+	for k,v in protocols_input.items():
+		if k in ['raw_matrix_assembly','raw_matrix_genome_annotation']:
+			protocols_results = format_protocols('genome build/assembly',k,v,protocols_results)
+		elif k in ['raw_matrix_normalized','raw_matrix_value_scale','raw_matrix_background_barcodes_included',\
+				'raw_matrix_feature_keys','raw_matrix_cellranger_assay_chemistry']:
+			protocols_results = format_protocols('data processing step',k,v,protocols_results)
+		elif k in ['raw_matrix_file_format','raw_matrix_value_units']:
+			protocols_results = format_protocols('processed data files format and content',k,v,protocols_results)	
+	geo_protocols = pd.DataFrame(protocols_results.items())
+
+
 def main(dataset):
 	global geo_study
 	global geo_samples
@@ -320,6 +381,7 @@ def main(dataset):
 	global geo_sequences
 	fastq_meta = pd.DataFrame()
 	all_s3_uri = []
+	matrix_meta = pd.DataFrame()
 
 	# Get dataset metadata
 	all_files = get_dataset(dataset)
@@ -343,6 +405,9 @@ def main(dataset):
 		fastq_to_add = {} #fastq metadata
 		runs_to_add = {} #sequencing run metadata
 		all_runs = {} #all fastq files for library
+		matrix_to_add = {}
+
+		gather_metadata('raw_matrix', raw_matrix, matrix_to_add, [mxr])
 
 		for obj_type in library_metadata.keys():
 			objs = relevant_objects.get(obj_type, [])
@@ -375,6 +440,7 @@ def main(dataset):
 		values_to_add['processed data file'] = get_filename(mxr.get('s3_uri'))
 		all_s3_uri.append(mxr.get('s3_uri'))
 		values_to_add.update(all_runs)
+		values_to_add.update(matrix_to_add)
 		alias = values_to_add.get('library_aliases').split(':')[1]
 		geo_samples = pd.concat([geo_samples, pd.DataFrame(values_to_add, index=[alias])])
 
@@ -399,28 +465,21 @@ def main(dataset):
 			geo_samples.rename(columns={'filename':col}, inplace=True)
 
 	# Check files with files field in dataset object
-	dataset_seq_uniq = [i for i in raw_seq_files if i not in derived_seq_files]
-	derived_seq_uniq = [i for i in derived_seq_files if i not in raw_seq_files]
-	dataset_matrix_uniq = [i for i in raw_matrix_files if i not in derived_raw_matrix]
-	derived_matrix_uniq = [i for i in derived_raw_matrix if i not in raw_matrix_files]
-	if len(dataset_seq_uniq)>1:
-		print("raw seq only in dataset: {}".format(dataset_seq_uniq))
-	elif len(derived_seq_uniq)>1:
-		print("raw seq only in derived: {}".format(derived_seq_uniq))
-	elif len(dataset_matrix_uniq)>1:
-		filtered_uniq = [i for i in dataset_matrix_uniq if i not in derived_unfiltered_matrix]
-		if len(filtered_uniq)>1:
-			print("matrix only in dataset filtered: {}".format(filtered_uniq))
-	elif len(derived_matrix_uniq)>1:
-		print("matrix only in derived: {}".format(derived_matrix_uniq))
+	checkfiles(raw_seq_files, derived_seq_files, raw_matrix_files, derived_raw_matrix, derived_unfiltered_matrix)
+
+	# For single values in columns in 'raw_matrix' fields, move over to protocols dataframe
+	calculate_protocols()
 
 	# Write to files
 	# all_df = [geo_study,geo_samples,geo_sequences]
 	with open(dataset+"_metadata.csv",'a') as f:
+		f.write("STUDY\n")
 		geo_study.to_csv(f, header=False, index=False)
-		f.write('\n')
+		f.write('\nSAMPLES\n')
 		geo_samples.to_csv(f)
-		f.write('\n')
+		f.write('\nPROTOCOLS\n')
+		geo_protocols.to_csv(f, header=False, index=False)
+		f.write('\nPAIRED-END EXPERIMENTS\n')
 		geo_sequences.to_csv(f)
 	with open(dataset+"_s3_uri.csv", "w") as f:
 		f.write('\n'.join(all_s3_uri))	
