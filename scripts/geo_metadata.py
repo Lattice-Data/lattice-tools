@@ -11,6 +11,7 @@ import subprocess
 from urllib.parse import urljoin
 import requests
 import gspread
+import numpy as np
 
 
 EPILOG = '''
@@ -51,7 +52,8 @@ library_metadata = {
 		'donors.sex',
 		'donors.ethnicity.term_name',
 		'donors.age_display',
-		'donors.living_at_sample_collection'
+		'donors.living_at_sample_collection',
+		'donors.donor_id'
 		],
 	'suspension': [
 		'cell_depletion_factors',
@@ -84,7 +86,8 @@ raw_matrix = [
 	'assembly',
 	'genome_annotation',
 	'file_format',
-	'value_units'
+	'value_units',
+	'assays'
 ]
 
 
@@ -92,6 +95,7 @@ raw_matrix = [
 prop_map = {
 	'library_donors_age_display': 'age',
 	'library_donors_sex': 'sex',
+	'library_donors_donor_id': 'donor_id',
 	'library_protocol_assay_ontology_term_name': 'assay',
 	'library_protocol_biological_macromolecule': 'molecule',
 	'library_donors_ethnicity_term_name': 'ethnicity',
@@ -114,6 +118,7 @@ geo_study = pd.DataFrame()
 geo_samples = pd.DataFrame()
 geo_protocols = pd.DataFrame()
 geo_sequences = pd.DataFrame()
+geo_md5 = pd.DataFrame()
 
 # Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
 def gather_objects(input_object, start_type=None):
@@ -370,7 +375,9 @@ def calculate_protocols():
 				'raw_matrix_feature_keys','raw_matrix_cellranger_assay_chemistry']:
 			protocols_results = format_protocols('data processing step',k,v,protocols_results)
 		elif k in ['raw_matrix_file_format','raw_matrix_value_units']:
-			protocols_results = format_protocols('processed data files format and content',k,v,protocols_results)	
+			protocols_results = format_protocols('processed data files format and content',k,v,protocols_results)
+		elif k == 'raw_matrix_assays':
+			protocols_results = format_protocols('library strategy',k,v,protocols_results)
 	geo_protocols = pd.DataFrame(protocols_results.items())
 
 
@@ -379,6 +386,7 @@ def main(dataset):
 	global geo_samples
 	global geo_protocols
 	global geo_sequences
+	global geo_md5
 	fastq_meta = pd.DataFrame()
 	all_s3_uri = []
 	matrix_meta = pd.DataFrame()
@@ -406,11 +414,13 @@ def main(dataset):
 		runs_to_add = {} #sequencing run metadata
 		all_runs = {} #all fastq files for library
 		matrix_to_add = {}
+		mxr_to_add = {}
 
 		gather_metadata('raw_matrix', raw_matrix, matrix_to_add, [mxr])
 
 		for obj_type in library_metadata.keys():
 			objs = relevant_objects.get(obj_type, [])
+			# For sequencing run objects, add related sequences to geo_sequences and additional metadata to runs_to_add which are added to all_runs
 			if obj_type == 'sequencing_run':
 				i = 1
 				for o in objs:
@@ -426,6 +436,7 @@ def main(dataset):
 						new_k = k+"_run"+str(i)
 						all_runs[new_k] = v
 					i+=1
+			# Go through raw sequence file objects to store metadata in fastq_meta
 			elif obj_type == 'sequence_file':
 				for o in objs:
 					gather_metadata(obj_type, library_metadata[obj_type], fastq_to_add, [o])
@@ -437,6 +448,10 @@ def main(dataset):
 				if len(objs)>1:
 					sys.exit("Cannot handle multiplexed libraries")
 				gather_metadata(obj_type, library_metadata[obj_type], values_to_add, objs)
+		# Get mxr metadata
+		mxr_to_add['processed file name'] = get_filename(mxr.get('s3_uri'))
+		mxr_to_add['processed checksum'] = mxr.get('md5sum')
+		geo_md5 = pd.concat([geo_md5, pd.DataFrame(mxr_to_add, index=[geo_md5.shape[0]])])
 		values_to_add['processed data file'] = get_filename(mxr.get('s3_uri'))
 		all_s3_uri.append(mxr.get('s3_uri'))
 		values_to_add.update(all_runs)
@@ -444,6 +459,9 @@ def main(dataset):
 		alias = values_to_add.get('library_aliases').split(':')[1]
 		geo_samples = pd.concat([geo_samples, pd.DataFrame(values_to_add, index=[alias])])
 
+	# Merge fastq metadata to raw sequence files
+	# Add sequences to geo_md5
+	geo_seq_md5 = pd.DataFrame()
 	for col in geo_sequences.columns.to_list():
 		if len(geo_sequences[col].unique())==1 and geo_sequences[col].unique()[0]==unreported_value:
 			geo_sequences.drop(columns=[col], inplace=True)
@@ -451,9 +469,23 @@ def main(dataset):
 			geo_sequences.drop(columns=[col], inplace=True)
 		else:
 			geo_sequences = geo_sequences.merge(fastq_meta, left_on=col, right_index=True, how='left')
-			geo_sequences.rename(columns={'filename': col+'_filename', 'sequence_file_md5sum': col+'_md5sum'}, inplace=True)
-			geo_sequences.drop(columns=[col], inplace=True)
-
+			geo_subset = pd.DataFrame(geo_sequences[['filename', 'sequence_file_md5sum']])
+			geo_subset['filename'].replace('', np.nan, inplace=True)
+			geo_subset.dropna(subset=['filename'], inplace=True)
+			geo_seq_md5 = pd.concat([geo_seq_md5, geo_subset], ignore_index=True)
+			geo_sequences.rename(columns={'filename': col+'_filename'}, inplace=True)
+			geo_sequences.drop(columns=[col,'sequence_file_md5sum'], inplace=True)
+	geo_sequences.rename(columns={'read_1_filename':'filename 1', 'read_2_filename':'filename 2', 'index_1_filename':'filename 3', 'index_2_filename':'filename 4'}, inplace=True)
+	if 'filename 4' in geo_sequences.columns:
+		geo_sequences = geo_sequences[['filename 1','filename 2', 'filename 3', 'filename 4']]
+	elif 'filename 3' in geo_sequences.columns:
+		geo_sequences = geo_sequences[['filename 1','filename 2', 'filename 3']]
+	else:
+		geo_sequences = geo_sequences[['filename 1','filename 2']]
+	geo_md5 = pd.concat([geo_seq_md5,geo_md5], axis=1)
+	geo_md5.rename(columns={'processed file name':'filename','processed checksum':'checksum'})
+	
+	# Replace raw sequence file accession with fastq file name
 	for col in geo_samples.columns.to_list():
 		if len(geo_samples[col].unique())==1 and geo_samples[col].unique()[0]==unreported_value:
 			geo_samples.drop(columns=[col], inplace=True)
@@ -470,6 +502,15 @@ def main(dataset):
 	# For single values in columns in 'raw_matrix' fields, move over to protocols dataframe
 	calculate_protocols()
 
+	# Collapse platform
+	collapse = []
+	for c in geo_samples.columns:
+		if c.startswith('instrument model'):
+			collapse.append(c)
+	geo_samples['instrument model'] = geo_samples[collapse].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
+	geo_samples['instrument model'] = geo_samples['instrument model'].astype(dtype='string')
+	geo_samples.drop(columns=collapse, inplace=True)
+
 	# Write to files
 	# all_df = [geo_study,geo_samples,geo_sequences]
 	with open(dataset+"_metadata.csv",'a') as f:
@@ -480,9 +521,14 @@ def main(dataset):
 		f.write('\nPROTOCOLS\n')
 		geo_protocols.to_csv(f, header=False, index=False)
 		f.write('\nPAIRED-END EXPERIMENTS\n')
-		geo_sequences.to_csv(f)
+		geo_sequences.to_csv(f, index=False)
+
 	with open(dataset+"_s3_uri.csv", "w") as f:
 		f.write('\n'.join(all_s3_uri))	
+
+	with open(dataset+"_md5sum.csv",'w') as f:
+		f.write('RAW FILES,,PROCESSED DATA FILES\n')
+		geo_md5.to_csv(f, index=False)
 
 
 args = getArgs()
