@@ -228,11 +228,17 @@ def get_dataset(dataset):
 	desc = results.get('description','')
 
 	all_tissues = []
+	all_assays = []
 	for lib in results.get('libraries'):
 		for tissue in lib.get('biosample_summary'):
 			if tissue not in all_tissues:
 				all_tissues.append(tissue)
-	design = "{} of {} from {} human donors".format(results.get('libraries')[0].get('assay'), ','.join(all_tissues), results.get('donor_count'))
+		all_assays.append(lib.get('assay'))
+	assays_uniq = list(set(all_assays))
+	if len(assays_uniq) == 1:
+		design = "{} of {} from {} human donors".format(assays_uniq[0], ', '.join(all_tissues), results.get('donor_count'))
+	else:
+		design = "{} of {} from {} human donors".format(' and '.join(assays_uniq), ', '.join(all_tissues), results.get('donor_count'))
 	keys = ['title','summary (abstract)','experimental design']
 	vals = [title,desc,design]
 	
