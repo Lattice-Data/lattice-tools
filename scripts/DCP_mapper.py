@@ -1122,13 +1122,15 @@ def main():
 		os.mkdir(dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
 			if k == 'sequence_file':
-				file_descript(o, k, dataset_id)
 				if o.get('s3_uri'):
 					s3_uris.append(o['s3_uri'])
+					o['file_core']['file_name'] = o['s3_uri'].split('/')[-1]
 					del o['s3_uri']
 				elif o.get('external_uri'):
 					ftp_uris.append(o['external_uri'])
+					o['file_core']['file_name'] = o['external_uri'].split('/')[-1]
 					del o['external_uri']
+				file_descript(o, k, dataset_id)
 			elif k == 'supplementary_file':
 				file_name = o['file_core']['file_name']
 				file_stats(file_name, o)

@@ -552,9 +552,6 @@ lattice_to_dcp = {
 		'file_core.checksum': {
 			'lattice': 'md5sum'
 		},
-		'file_core.file_name': {
-			'lattice': 'submitted_file_name'
-		},
 		'file_core.format': {
 			'lattice': 'file_format'
 		},
