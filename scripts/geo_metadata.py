@@ -1,16 +1,9 @@
 import argparse
-import anndata as ad
 import lattice
-import os
 import pandas as pd
-import shutil
 import sys
-import scanpy as sc
-import re
-import subprocess
 from urllib.parse import urljoin
 import requests
-import gspread
 import numpy as np
 
 
@@ -514,7 +507,6 @@ def main(dataset):
 		if c.startswith('instrument model'):
 			collapse.append(c)
 	geo_samples['instrument model'] = geo_samples[collapse].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
-	geo_samples['instrument model'] = geo_samples['instrument model'].astype(dtype='string')
 	geo_samples.drop(columns=collapse, inplace=True)
 
 	# Write to files
