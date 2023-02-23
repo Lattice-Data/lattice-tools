@@ -12,7 +12,6 @@ python geo_metadata.py -m local -d <Dataset_accession>
 	- <Dataset_accession>_md5sum.csv: This is a csv of all the fasta and raw matrix file names and checksums.
 	- <Dataset_accession>_s3_uri.csv: This is a list of the s3 URI for all fastq and raw matrix files.
 - Upload the metadata and md5sum csv files in a google spreadsheet. Have wrangler add any additional contributor or protocol information.
-- Make sure all raw matrix and fastq files listed have unique files names.
 
 Launch EC2
 ----------------
