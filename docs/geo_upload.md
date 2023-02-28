@@ -44,7 +44,7 @@ mkdir raw_data
 ```
 mkdir processed_data
 ```
-- Create a shell script upload_fastq.sh to download file from s3, upload to GEO, and remove the file locally with following example, updating the <user>, <password>, and <directory> variables:
+- Create a shell script upload_fastq.sh to download file from s3, upload to GEO, and remove the file locally with following example, updating the "user", "password", and "directory" variables:
 ```
 #!/bin/bash
 
@@ -72,9 +72,9 @@ grep 'h5$' <Dataset_accession>_s3_uri.csv > h5_s3_uri.csv
 ```
 ./upload_fastq.sh h5_s3_uri.csv &
 ```
-- Download metadata google spreadsheet as excel spreadsheet. Upload to GEO server:
+- Download metadata google spreadsheet as excel spreadsheet. Upload to GEO server using ncftpput, replacing the "user", "password", "directory", and "excel_filename" variables:
 ```
-ncftpput -B 33554432 -u <user> -p <password> ftp-private.ncbi.nlm.nih.gov /uploads/<directory>/processed_data/ $excel_filename
+ncftpput -B 33554432 -u <user> -p <password> ftp-private.ncbi.nlm.nih.gov /uploads/<directory>/processed_data/ <excel_filename>
 ```
 
 Upload fastq files
@@ -87,9 +87,9 @@ screen -S geo
 ```
 screen -r geo
 ```
-- Update the shell script using "raw_data" as part of the directory path.
-#!/bin/bash
+- Update the shell script using "raw_data" as part of the directory path, replacing "user", "password", and "directory" variables:
 ```
+#!/bin/bash
 # Open file of s3 uri
 
 while read URI
