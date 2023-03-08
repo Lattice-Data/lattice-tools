@@ -124,6 +124,7 @@ mfinal_obj = None
 mfinal_adata = None
 cxg_adata = None
 cxg_adata_raw = None
+cxg_obs = None
 
 EPILOG = '''
 Examples:
@@ -597,7 +598,7 @@ def add_zero():
 		cxg_adata.var['feature_is_filtered'] = False
 
 
-# Use cxg_adata_raw var to map ensembl IDs and use that as index, filter against ref_files[]
+# Use cxg_adata_raw var to map ensembl IDs and use that as index and drop redundants
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
 def set_ensembl(redundant, feature_keys):
@@ -607,24 +608,22 @@ def set_ensembl(redundant, feature_keys):
 	cxg_adata_raw.var.drop(columns=[i for i in raw_cols if i!='gene_ids'], inplace=True)
 	if feature_keys == ['gene symbol']:
 		if 'gene_ids' in cxg_adata_raw.var.columns.to_list():
-			# Check for gene symbols that are redudant and have suffix
-			# WILL NEED TO MAKE SURE SPLITTING ON '.' IS STILL APPROPRIATE FOR FUTURE DATASETS
+			# Drop unmapped genes from normalized matrix
 			norm_index = set(cxg_adata.var.index.to_list())
 			raw_index = set(cxg_adata_raw.var.index.to_list())
-			drop_redundant_with_suffix = list(norm_index.difference(raw_index))
-			for unmapped in drop_redundant_with_suffix:
-				unmapped_split = unmapped.split(".")
-				if unmapped_split[0] not in redundant:
-					logging.info('ERROR:\t{}\tnot redundant but unmapped'.format(unmapped))
-			logging.info('drop_redundant_with_suffix\t{}\t{}'.format(len(drop_redundant_with_suffix), drop_redundant_with_suffix))
+			drop_unmapped = list(norm_index.difference(raw_index))
+			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_unmapped]]
+			logging.info('drop_unmapped\t{}'.format(drop_unmapped))
 
-			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_redundant_with_suffix]]
-			cxg_adata_raw.var_names_make_unique()
 			cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
 			cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
 			cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 			cxg_adata.var.index.name = None
 			cxg_adata_raw.var.index.name = None
+
+			# Drop redundant by Ensembl ID
+			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in redundant]]
+
 		else:
 			print("WARNING: raw matrix does not have genes_ids column")
 	elif feature_keys == ['Ensembl gene ID']:
@@ -656,24 +655,18 @@ def clean_var():
 
 
 # Reconcile genes if raw matrices annotated to multiple version by merging raw based on Ensembl ID
-def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
+# Return raw matrix merged on Ensembl ID and list of gene to drop from normalized matrices
+def reconcile_genes(cxg_adata_lst):
+	global mfinal_obj
+	global mfinal_adata
+	mfinal_adata_genes = mfinal_adata.var.index.to_list()
 	redundant = []
-	redundant_within_version = []
-	chain_redundant_genes = []
-	gene_multi_ensembl = []
-	versions_checked = []
-	genes_to_collapse_final = {}
-	collapsed_need_to_only_switch_id = {}
-	total_genes = []
+	multiple_ensembl = []
+	multiple_symbols = []
 	stats = {}
 	stats['redundant'] = []
-	stats['redundant_within_version'] = []
-	stats['chain_redundant_genes'] = []
-	stats['gene_multi_ensembl'] = []
-	stats['already_being_collapsed'] = []
-	stats['not_collapsed_because_not_in_X'] = []
-	stats['not_collapsed_because_ambiguous'] = []
-	stats['collapsed_need_to_only_switch_id'] = []
+	stats['multiple_ensembl'] = []
+	stats['multiple_symbols'] = []
 
 	# Join raw matrices on ensembl, gene symbols stored as metadata
 	for cxg_adata in cxg_adata_lst:
@@ -688,85 +681,40 @@ def reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata_genes):
 		cxg_adata.var_names_make_unique(join = '.')
 	cxg_adata_raw_symbol = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
 
-	# Go through adata indexed on symbol to see which have > 1 Ensembl IDs
+	# Go through adata indexed on symbol to see which have > 1 Ensembl ID
 	gene_pd_symbol = cxg_adata_raw_symbol.var[[i for i in cxg_adata_raw_symbol.var.columns.values.tolist() if 'gene_ids' in i]]
-	genes_to_drop_df = gene_pd_symbol[gene_pd_symbol.stack().groupby(level=0).apply(lambda x: len(x.unique())>1)==True]
-	gene_multi_ensembl.extend(genes_to_drop_df.index.to_list())
-	stats['gene_multi_ensembl'].extend(gene_multi_ensembl)
-	redundant.extend(genes_to_drop_df.index.to_list())
+	multiple_ensembl_df = gene_pd_symbol[gene_pd_symbol.stack().groupby(level=0).apply(lambda x: len([i for i in x.unique() if str(i)!='nan'])>1)==True]
+	multiple_ensembl = list(set(multiple_ensembl_df.index.to_list()))
+	stats['multiple_ensembl'].extend(multiple_ensembl)
 
 	# Go through adata indexed on ensembl to see which have > 1 symbol
 	gene_pd_ensembl = cxg_adata_raw_ensembl.var[[i for i in cxg_adata_raw_ensembl.var.columns.values.tolist() if 'gene_symbols' in i]]
+	multiple_symbols_df = gene_pd_ensembl[gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: len([i for i in x.unique() if str(i)!='nan'])>1)==True]
+	multiple_symbols = list(set(multiple_symbols_df.stack().groupby(level=0).apply(lambda x: x.unique().tolist()).sum()))
+	stats['multiple_symbols'].extend(multiple_symbols)
 
-	# Drop redundant genes symbols from normalized matrix within a single version
-	gene_ensembl_columns_to_drop = []
-	for i in range(len(gene_pd_ensembl.columns.to_list())):
-		redundant_within_version.extend([item for item, count in collections.Counter(gene_pd_ensembl.iloc[:,i].dropna().to_list()).items() if count > 1])
-	redundant_within_version = list(set(redundant_within_version))
-	stats['redundant_within_version'].extend(redundant_within_version)
-	redundant.extend(redundant_within_version)
+	# Log redundant gene Ensembl IDs from normalized matrix within a single version
+	for col in gene_pd_ensembl.columns:
+	    for gene in [i for i, c in collections.Counter(gene_pd_ensembl[col].dropna().to_list()).items() if c > 1]:
+	        redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
+	redundant = list(set(redundant))
+	stats['redundant'].extend(redundant)
 
-	# Store potential collapses in dictionary
-	genes_to_collapse_df = gene_pd_ensembl[gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: len(x.unique())>1)==True]
-	genes_to_collapse_df.dropna(inplace=True)
-	genes_to_collapse_df.to_csv(tmp_dir + "/collapse_df.csv", index=True, header=False)
-	genes_to_collapse_dict = genes_to_collapse_df.to_dict(orient='index')
-
-	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Do not var_names_make_unique, or else may accidentally map redundant in normalized layer
-	# Track total genes for those that are not being considered for collapse, so that we can evaluate cross version redundancy
+	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Run var_names_make_unique and remove redundants after mapping of Ensembl
 	cxg_adata_raw_ensembl.var['gene_ids'] = cxg_adata_raw_ensembl.var.index
 	cxg_adata_raw_ensembl.var['gene_symbols'] = gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_symbols')
-	total_genes = cxg_adata_raw_ensembl.var.loc[[i for i in cxg_adata_raw_ensembl.var.index.to_list() if i not in genes_to_collapse_dict.keys()],:].index.to_list()
 	cxg_adata_raw_ensembl.var = cxg_adata_raw_ensembl.var.set_index('gene_symbols', drop=True)
 	cxg_adata_raw_ensembl.var.index.name = None
+	cxg_adata_raw_ensembl.var_names_make_unique(join = '.')
 
-	# Go through possible collapse ensembl genes, and see which one need to actually be collapsed
-	# Chain redundant genes need to be tracked for redundancy removal
-	for gene in genes_to_collapse_dict.keys():
-		total_genes.append(gene)
-		genes_to_collapse_final[gene] = []
-		chain_redundant_bool = False
-		for symbol in genes_to_collapse_dict[gene].keys():
-			total_genes.append(genes_to_collapse_dict[gene][symbol])
-			if genes_to_collapse_dict[gene][symbol] not in genes_to_collapse_final[gene]:
-				if genes_to_collapse_dict[gene][symbol] not in gene_multi_ensembl:
-					if genes_to_collapse_dict[gene][symbol] in mfinal_adata_genes:
-						genes_to_collapse_final[gene].append(genes_to_collapse_dict[gene][symbol])
-					else:
-						stats['not_collapsed_because_not_in_X'].append(genes_to_collapse_dict[gene][symbol])
-				else:
-					stats['not_collapsed_because_ambiguous'].append(genes_to_collapse_dict[gene][symbol])
-					chain_redundant_bool = True
-			else:
-				stats['already_being_collapsed'].append(genes_to_collapse_dict[gene][symbol])
-		# If gene not found in normalized layer, still need to make sure the gene symbol in raw and normalized are consistent
-		# If only 1 gene symbol in the end remains, no longer need to collapse
-		if len(genes_to_collapse_final[gene]) < 2:
-			if len(genes_to_collapse_final[gene]) == 1:
-				if genes_to_collapse_final[gene][0] not in cxg_adata_raw_ensembl.var.index.to_list():
-					for s in genes_to_collapse_dict[gene]:
-						if genes_to_collapse_dict[gene][s] in cxg_adata_raw_ensembl.var.index.to_list():
-							collapsed_need_to_only_switch_id[genes_to_collapse_dict[gene][s]] = genes_to_collapse_final[gene][0]
-							stats['collapsed_need_to_only_switch_id'].append(genes_to_collapse_dict[gene][s])
-			genes_to_collapse_final.pop(gene, None)
-		if chain_redundant_bool == True:
-			for symbol in genes_to_collapse_dict[gene].keys():
-				if genes_to_collapse_dict[gene][symbol] not in gene_multi_ensembl:
-					chain_redundant_genes.append(genes_to_collapse_dict[gene][symbol])
-
-	cxg_adata_raw_ensembl.var.rename(index=collapsed_need_to_only_switch_id, inplace=True)
-	stats['chain_redundant_genes'].extend(chain_redundant_genes)
-	redundant.extend(chain_redundant_genes)
-
-	stats['gene_multi_ensembl'] = gene_multi_ensembl
-	stats['collapsed'] = list(genes_to_collapse_final.keys())
-	stats['redundant'] = list(set(redundant))
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
 		logging.info("{}\t{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
 
-	return cxg_adata_raw_ensembl, genes_to_collapse_final, redundant, genes_to_collapse_dict
+	all_remove = list(set(redundant + multiple_ensembl + multiple_symbols))
+
+	return cxg_adata_raw_ensembl, redundant, all_remove
 
 
 # filename will be collectionuuid_datasetuuid_accession_version.h5ad, collectionuuid_accession_version.h5ad, or accession_version.h5ad
@@ -781,11 +729,70 @@ def get_results_filename(mfinal_obj):
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
 	if mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
 		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
-	elif mfinal_obj.get('cellxgene_uuid',[]):
-		results_file = '{}_{}_v{}.h5ad'.format(mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
+	elif collection_id:
+		results_file = '{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['accession'], flat_version)
 	else:
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 	return results_file
+
+
+# Final touches for obs columns, dropping unnecessary column and modifying any Lattice fields to fit cxg schema
+def clean_obs(celltype_col):
+	global cxg_obs
+	global mfinal_obj
+	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
+	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
+	for author_col in mfinal_obj.get('author_columns',[]):
+		if author_col in mfinal_adata.obs.columns.to_list():
+			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+		else:
+			print("WARNING: author_column not in final matrix: {}".format(author_col))
+
+	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
+		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
+
+	# if the donor has multiple ethnicities, self_reported_ethnicity_ontology_term_id is a list, set ontology term to multiethnic
+	# need to complete test on this section.
+	if len([i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]) > 0:
+		for multi in [i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]:
+			cxg_obs['self_reported_ethnicity_ontology_term_id'].replace({multi:'multiethnic'}, inplace=True)
+	
+	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
+	if 'suspension_type' not in cxg_obs.columns:
+		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
+	elif cxg_obs['suspension_type'].isnull().values.any():
+		cxg_obs['suspension_type'].fillna(value='na', inplace=True)
+	
+	# Drop columns that were used as intermediate calculations
+	# Also check to see if optional columns are all empty, then drop those columns as well
+	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
+			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
+			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk', 'disease_state']
+	for col in optional_columns:
+		if col in cxg_obs.columns.to_list():
+			col_content = cxg_obs[col].unique()
+			if len(col_content) == 1:
+				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
+					cxg_obs.drop(columns=col, inplace=True)
+
+	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
+		if cxg_obs['donor_age_redundancy'].unique():
+			cxg_obs.drop(columns='donor_age', inplace=True)
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
+			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
+			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex',
+			'sample_biosample_ontology_cell_slims', 'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy',\
+			'sample_biosample_ontology_organ_slims']
+	for column_drop in  columns_to_drop: 
+		if column_drop in cxg_obs.columns.to_list():
+			cxg_obs.drop(columns=column_drop, inplace=True)
+	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
+		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
+		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
+	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
+	for field in change_unreported:
+		if field in cxg_obs.columns.to_list():
+			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
 
 
 def main(mfinal_id):
@@ -793,6 +800,7 @@ def main(mfinal_id):
 	global mfinal_adata
 	global cxg_adata
 	global cxg_adata_raw
+	global cxg_obs
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 	logging.basicConfig(filename='outfile_flattener.log', level=logging.INFO)
 
@@ -809,14 +817,6 @@ def main(mfinal_id):
 		summary_assay = 'RNA'
 	else:
 		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
-
-	# set the metadata keys based on defined metadata fields
-	headers = []
-	for obj_type in cell_metadata.keys():
-		for prop in cell_metadata[obj_type]:
-			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
-			headers.append(key)
 
 	# Dataframe that contains experimental metadata keyed off of raw matrix
 	df = pd.DataFrame()
@@ -835,11 +835,13 @@ def main(mfinal_id):
 		del(mfinal_adata.layers['counts'])
 
 	cxg_adata_lst = []
+	redundant = []
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
 	donor_susp = {}
 	library_susp = {}
+
 
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
@@ -908,6 +910,8 @@ def main(mfinal_id):
 				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 			# only make var unique if all raw matrices are same annotation version
 			if len(mfinal_obj.get('genome_annotations', [])) == 1:
+				for gene in [i for i, c in collections.Counter(adata_raw.var['gene_ids'].dropna().to_list()).items() if c > 1]:
+					redundant.extend(adata_raw.var[adata_raw.var['gene_ids'] == gene].index.to_list())
 				adata_raw.var_names_make_unique(join = '.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
 			if mfinal_obj.get('cell_label_mappings', None):
@@ -933,6 +937,7 @@ def main(mfinal_id):
 			cxg_adata_lst.append(adata_raw)
 
 		df = pd.concat([df, row_to_add])
+		redundant = list(set(redundant))
 
 	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
@@ -961,16 +966,14 @@ def main(mfinal_id):
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
 	raw_matrix_mapping = []
 	cell_mapping_rev_dct = {}
-	normalize_drop = []
-	redundant = []
 	if summary_assay == 'RNA':
-		# If raw matrices are annotated to multiple gencode versions, concatenate on ensembl ID
+		# If raw matrices are annotated to multiple gencode versions, concatenate on ensembl ID and remove ambiguous symbols
 		if len(mfinal_obj.get('genome_annotations',[])) > 1:
-			reconcile_results = reconcile_genes(mfinal_obj, cxg_adata_lst, mfinal_adata.var.index.to_list())
+			reconcile_results = reconcile_genes(cxg_adata_lst)
 			cxg_adata_raw = reconcile_results[0]
-			collapse = reconcile_results[1]
-			redundant = reconcile_results[2]
-			collapse_dict = reconcile_results[3]
+			redundant = reconcile_results[1]
+			all_remove = reconcile_results[2]
+			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
 		else:
 			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
 			if len(feature_lengths) == 1:
@@ -1045,105 +1048,8 @@ def main(mfinal_id):
 		get_sex_ontology(df)
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
-	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
-	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
-	for author_col in mfinal_obj.get('author_columns',[]):
-		if author_col in mfinal_adata.obs.columns.to_list():
-
-			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
-		else:
-			print("WARNING: author_column not in final matrix: {}".format(author_col))
-
-	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
-		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
-
-	# if the donor has multiple ethnicities, self_reported_ethnicity_ontology_term_id is a list, set ontology term to multiethnic
-	# need to complete test on this section.
-	if len([i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]) > 0:
-		for multi in [i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]:
-			cxg_obs['self_reported_ethnicity_ontology_term_id'].replace({multi:'multiethnic'}, inplace=True)
-	
-	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
-	if 'suspension_type' not in cxg_obs.columns:
-		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
-	elif cxg_obs['suspension_type'].isnull().values.any():
-		cxg_obs['suspension_type'].fillna(value='na', inplace=True)
-	
-	# Drop columns that were used as intermediate calculations
-	# Also check to see if optional columns are all empty, then drop those columns as well
-	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk', 'disease_state']
-	for col in optional_columns:
-		if col in cxg_obs.columns.to_list():
-			col_content = cxg_obs[col].unique()
-			if len(col_content) == 1:
-				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
-					cxg_obs.drop(columns=col, inplace=True)
-
-	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
-		if cxg_obs['donor_age_redundancy'].unique():
-			cxg_obs.drop(columns='donor_age', inplace=True)
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
-			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
-			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex',
-			'sample_biosample_ontology_cell_slims', 'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy',\
-			'sample_biosample_ontology_organ_slims']
-	for column_drop in  columns_to_drop: 
-		if column_drop in cxg_obs.columns.to_list():
-			cxg_obs.drop(columns=column_drop, inplace=True)
-	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
-		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
-		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
-	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
-	for field in change_unreported:
-		if field in cxg_obs.columns.to_list():
-			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
-
-	# Make sure gene ids match before using mfinal_data.var for cxg_adata
-	# If genome_annotations > 1, then filter genes that cannot be unambiguously mapped to Ensembl
-	if len(mfinal_obj.get('genome_annotations')) <= 1:
-		if mfinal_obj['feature_keys'] == ['gene symbol']:
-			for gene in list(mfinal_adata.var_names):
-				if gene not in list(cxg_adata_raw.var_names):
-					if re.search(r'^[A-Za-z]\S+-[0-9]$', gene):
-						modified_gene = re.sub(r'(^[A-Z]\S+)-([0-9])$', r'\1.\2', gene)
-						if modified_gene in list(cxg_adata_raw.var_names):
-							mfinal_adata.var.rename(index={gene: modified_gene}, inplace=True)
-						else:
-							print('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
-					else:
-						print('There is a genes in the final matrix that is not in the raw matrix: {}'.format(gene))
-	else:
-		# Need to add new row for collapsed gene and remove original genes, and make sure appropriate name is used
-		collapsed_adata = None
-		all_drop = []
-		for gene_collapse in collapse.keys():
-			all_drop.extend(collapse[gene_collapse])
-			x_collapse = np.sum(mfinal_adata[:,collapse[gene_collapse]].X.toarray(), axis=1)
-			matching_symbol_lst = list(set([i for i in collapse[gene_collapse] if i in cxg_adata_raw.var.index.to_list()]))
-			all_symbols = list(set([collapse_dict[gene_collapse][i] for i in collapse_dict[gene_collapse].keys()]))
-			if len(matching_symbol_lst) == 1:
-				matching_symbol = matching_symbol_lst[0]
-			elif len([i for i in all_symbols if i in cxg_adata_raw.var.index.to_list()]) == 1:
-				matching_symbol = collapse[gene_collapse][0]
-				symbol_in_raw = [i for i in all_symbols if i in cxg_adata_raw.var.index.to_list()][0]
-				cxg_adata_raw.var.rename(index={symbol_in_raw: matching_symbol}, inplace=True)
-			else:
-				sys.exit("Could not find matching symbol for collaped {}".format(gene_collapse))
-				logging.info('ERROR:\tcould not find matching symbol for collaped {}'.format(gene_collapse))
-			collapsed_row = ad.AnnData(X=pd.DataFrame(x_collapse), obs=mfinal_adata[:,matching_symbol].obs, var=mfinal_adata[:,matching_symbol].var)
-			if not collapsed_adata:
-				collapsed_adata = collapsed_row
-			else:
-				collapsed_adata = ad.concat([collapsed_adata, collapsed_row], axis=1, join='outer', merge='first')
-			del(collapsed_row)
-			gc.collect()
-		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_drop]]
-		if collapsed_adata:
-			mfinal_adata = ad.concat([mfinal_adata, collapsed_adata], axis=1, join='outer', merge='first')
-		mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in redundant]]
-
+	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
+	clean_obs(celltype_col)
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
@@ -1191,7 +1097,7 @@ def main(mfinal_id):
 	quality_check(cxg_adata)
 	cxg_adata.write(results_file, compression = 'gzip')
 
-	shutil.rmtree(tmp_dir)
+	###shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
