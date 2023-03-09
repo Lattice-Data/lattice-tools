@@ -622,6 +622,8 @@ def set_ensembl(redundant, feature_keys):
 			cxg_adata_raw.var.index.name = None
 
 			# Drop redundant by Ensembl ID
+			drop_redundant = list(set(redundant).intersection(set(cxg_adata.var.index.to_list())))
+			logging.info('drop_redundant\t{}'.format(drop_redundant))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in redundant]]
 
 		else:
@@ -661,12 +663,7 @@ def reconcile_genes(cxg_adata_lst):
 	global mfinal_adata
 	mfinal_adata_genes = mfinal_adata.var.index.to_list()
 	redundant = []
-	multiple_ensembl = []
-	multiple_symbols = []
 	stats = {}
-	stats['redundant'] = []
-	stats['multiple_ensembl'] = []
-	stats['multiple_symbols'] = []
 
 	# Join raw matrices on ensembl, gene symbols stored as metadata
 	for cxg_adata in cxg_adata_lst:
@@ -684,21 +681,18 @@ def reconcile_genes(cxg_adata_lst):
 	# Go through adata indexed on symbol to see which have > 1 Ensembl ID
 	gene_pd_symbol = cxg_adata_raw_symbol.var[[i for i in cxg_adata_raw_symbol.var.columns.values.tolist() if 'gene_ids' in i]]
 	multiple_ensembl_df = gene_pd_symbol[gene_pd_symbol.stack().groupby(level=0).apply(lambda x: len([i for i in x.unique() if str(i)!='nan'])>1)==True]
-	multiple_ensembl = list(set(multiple_ensembl_df.index.to_list()))
-	stats['multiple_ensembl'].extend(multiple_ensembl)
+	stats['multiple_ensembl'] = list(set(multiple_ensembl_df.index.to_list()))
 
 	# Go through adata indexed on ensembl to see which have > 1 symbol
 	gene_pd_ensembl = cxg_adata_raw_ensembl.var[[i for i in cxg_adata_raw_ensembl.var.columns.values.tolist() if 'gene_symbols' in i]]
 	multiple_symbols_df = gene_pd_ensembl[gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: len([i for i in x.unique() if str(i)!='nan'])>1)==True]
-	multiple_symbols = list(set(multiple_symbols_df.stack().groupby(level=0).apply(lambda x: x.unique().tolist()).sum()))
-	stats['multiple_symbols'].extend(multiple_symbols)
+	stats['multiple_symbols'] = list(set(multiple_symbols_df.stack().groupby(level=0).apply(lambda x: x.unique().tolist()).sum()))
 
 	# Log redundant gene Ensembl IDs from normalized matrix within a single version
 	for col in gene_pd_ensembl.columns:
 	    for gene in [i for i, c in collections.Counter(gene_pd_ensembl[col].dropna().to_list()).items() if c > 1]:
 	        redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
-	redundant = list(set(redundant))
-	stats['redundant'].extend(redundant)
+	stats['redundant'] = list(set(redundant))
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Run var_names_make_unique and remove redundants after mapping of Ensembl
 	cxg_adata_raw_ensembl.var['gene_ids'] = cxg_adata_raw_ensembl.var.index
@@ -707,12 +701,12 @@ def reconcile_genes(cxg_adata_lst):
 	cxg_adata_raw_ensembl.var.index.name = None
 	cxg_adata_raw_ensembl.var_names_make_unique(join = '.')
 
+	all_remove = list(set(stats['multiple_ensembl'] + stats['multiple_symbols']))
+
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
 		logging.info("{}\t{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
-
-	all_remove = list(set(redundant + multiple_ensembl + multiple_symbols))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
 
@@ -969,10 +963,7 @@ def main(mfinal_id):
 	if summary_assay == 'RNA':
 		# If raw matrices are annotated to multiple gencode versions, concatenate on ensembl ID and remove ambiguous symbols
 		if len(mfinal_obj.get('genome_annotations',[])) > 1:
-			reconcile_results = reconcile_genes(cxg_adata_lst)
-			cxg_adata_raw = reconcile_results[0]
-			redundant = reconcile_results[1]
-			all_remove = reconcile_results[2]
+			cxg_adata_raw, redundant, all_remove  = reconcile_genes(cxg_adata_lst)
 			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
 		else:
 			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
@@ -1097,7 +1088,7 @@ def main(mfinal_id):
 	quality_check(cxg_adata)
 	cxg_adata.write(results_file, compression = 'gzip')
 
-	###shutil.rmtree(tmp_dir)
+	shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
