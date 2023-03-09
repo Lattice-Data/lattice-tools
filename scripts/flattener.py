@@ -613,7 +613,7 @@ def set_ensembl(redundant, feature_keys):
 			raw_index = set(cxg_adata_raw.var.index.to_list())
 			drop_unmapped = list(norm_index.difference(raw_index))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_unmapped]]
-			logging.info('drop_unmapped\t{}'.format(drop_unmapped))
+			logging.info('drop_unmapped:\t{}\t{}'.format(len(drop_unmapped),drop_unmapped))
 
 			cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
 			cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
@@ -623,7 +623,7 @@ def set_ensembl(redundant, feature_keys):
 
 			# Drop redundant by Ensembl ID
 			drop_redundant = list(set(redundant).intersection(set(cxg_adata.var.index.to_list())))
-			logging.info('drop_redundant\t{}'.format(drop_redundant))
+			logging.info('drop_redundant:\t{}\t{}'.format(len(drop_redundant),drop_redundant))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in redundant]]
 
 		else:
@@ -692,7 +692,8 @@ def reconcile_genes(cxg_adata_lst):
 	for col in gene_pd_ensembl.columns:
 	    for gene in [i for i, c in collections.Counter(gene_pd_ensembl[col].dropna().to_list()).items() if c > 1]:
 	        redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
-	stats['redundant'] = list(set(redundant))
+	redundant = list(set(redundant))
+	stats['redundant'] = redundant
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Run var_names_make_unique and remove redundants after mapping of Ensembl
 	cxg_adata_raw_ensembl.var['gene_ids'] = cxg_adata_raw_ensembl.var.index
@@ -964,6 +965,8 @@ def main(mfinal_id):
 		# If raw matrices are annotated to multiple gencode versions, concatenate on ensembl ID and remove ambiguous symbols
 		if len(mfinal_obj.get('genome_annotations',[])) > 1:
 			cxg_adata_raw, redundant, all_remove  = reconcile_genes(cxg_adata_lst)
+			drop_removes = set(mfinal_adata.var.index.to_list()).intersection(set(all_remove))
+			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
 			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
 		else:
 			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
