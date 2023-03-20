@@ -32,12 +32,11 @@ cell_metadata = {
 		'donor_id',
 		'age_display',
 		'sex',
-		'ethnicity.term_id',
+		'summary_ethnicity',
 		'diseases.term_id',
 		'diseases.term_name',
-		'body_mass_index',
 		'times_pregnant',
-		'family_history_breast_cancer',
+		'family_medical_history',
 		'organism.taxon_id',
 		'risk_score_tyrer_cuzick_lifetime'
 		],
@@ -53,6 +52,7 @@ cell_metadata = {
 		'diseases.term_id',
 		'diseases.term_name',
 		'disease_state',
+		'summary_body_mass_index',
 		'treatment_summary'
 		],
 	'tissue_section': [
@@ -95,14 +95,13 @@ prop_map = {
 	'sample_summary_development_ontology_at_collection_term_id': 'development_stage_ontology_term_id',
 	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
 	'sample_disease_state': 'disease_state',
+	'sample_summary_body_mass_index': 'donor_BMI_at_collection',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
-	'donor_body_mass_index': 'donor_BMI',
 	'donor_sex': 'sex',
 	'donor_donor_id': 'donor_id',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
-	'donor_ethnicity_term_id': 'self_reported_ethnicity_ontology_term_id',
+	'donor_summary_ethnicity': 'self_reported_ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
-	'donor_family_history_breast_cancer': 'family_history_breast_cancer',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
 	'matrix_description': 'title',
 	'matrix_default_embedding': 'default_embedding',
@@ -309,12 +308,20 @@ def get_value(obj, prop):
 def gather_metdata(obj_type, properties, values_to_add, objs):
 	obj = objs[0]
 	for prop in properties:
-		value = get_value(obj, prop)
-		if isinstance(value, list):
-			value = ','.join(value)
-		latkey = (obj_type + '_' + prop).replace('.', '_')
-		key = prop_map.get(latkey, latkey)
-		values_to_add[key] = value
+		if prop == 'family_medical_history':
+			history_list = get_value(obj, prop)
+			if history_list != 'unknown':
+				for history in history_list:
+					ontology = lattice.get_object(history.get('diagnosis'), connection)
+					key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
+					values_to_add[key] = history.get('present')
+		else:
+			value = get_value(obj, prop)
+			if isinstance(value, list):
+				value = ','.join(value)
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = prop_map.get(latkey, latkey)
+			values_to_add[key] = value
 
 
 # Gather metadata for pooled objects
@@ -322,47 +329,67 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 	dev_list = []
 	for prop in properties:
-		value = list()
-		for obj in objs:
-			v = get_value(obj, prop)
-			if prop == 'summary_development_ontology_at_collection.development_slims':
-				dev_list.append(v)
-			if isinstance(v, list):
-				value.extend(v)
-			else:
-				value.append(v)
-		latkey = (obj_type + '_' + prop).replace('.', '_')
-		key = prop_map.get(latkey, latkey)
-		value_str = [str(i) for i in value]
-		value_set = set(value_str)
-		cxg_fields = ['disease_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'organism_ontology_term_id',\
-						 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
-		if len(value_set) > 1:
-			if key in cxg_fields:
-				if key == 'development_stage_ontology_term_id':
-					dev_in_all = list(set.intersection(*map(set, dev_list)))
-					if dev_in_all == []:
-						sys.exit("There is no common development_slims that can be used for development_stage_ontology_term_id")
-					else:
-						query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + dev_in_all[0] + '&format=json')
-						r = requests.get(query_url, auth=connection.auth)
-						try:
-							r.raise_for_status()
-						except requests.HTTPError:
-							sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
-						else:
-							if r.json()['total']==1:
-								values_to_add[key] = r.json()['@graph'][0]['term_id']
-							else:
-								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
-				elif key == 'sex':
-					values_to_add[key] = 'unknown'
+		if prop == 'family_medical_history':
+			values_df = pd.DataFrame()
+			unknowns = []
+			for obj in objs:
+				ident = obj.get('@id')
+				history_list = get_value(obj, prop)
+				if history_list != 'unknown':
+					for history in history_list:
+						ontology = lattice.get_object(history.get('diagnosis'), connection)
+						key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
+						value = str(history.get('present'))
+						values_df.loc[key,ident] = value
 				else:
-					sys.exit("Cxg field is a list")
-			else:		
-				values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
+					values_df[ident] = np.nan
+					unknowns.append(ident)
+			for i in unknowns:
+				values_df[i] = 'unknown'
+			for index, row in values_df.iterrows():
+				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
 		else:
-			values_to_add[key] = next(iter(value_set))
+			value = list()
+			for obj in objs:
+				v = get_value(obj, prop)
+				if prop == 'summary_development_ontology_at_collection.development_slims':
+					dev_list.append(v)
+				if isinstance(v, list):
+					value.extend(v)
+				else:
+					value.append(v)
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = prop_map.get(latkey, latkey)
+			value_str = [str(i) for i in value]
+			value_set = set(value_str)
+			cxg_fields = ['disease_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'organism_ontology_term_id',\
+							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
+			if len(value_set) > 1:
+				if key in cxg_fields:
+					if key == 'development_stage_ontology_term_id':
+						dev_in_all = list(set.intersection(*map(set, dev_list)))
+						if dev_in_all == []:
+							sys.exit("There is no common development_slims that can be used for development_stage_ontology_term_id")
+						else:
+							query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + dev_in_all[0] + '&format=json')
+							r = requests.get(query_url, auth=connection.auth)
+							try:
+								r.raise_for_status()
+							except requests.HTTPError:
+								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
+							else:
+								if r.json()['total']==1:
+									values_to_add[key] = r.json()['@graph'][0]['term_id']
+								else:
+									sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
+					elif key == 'sex':
+						values_to_add[key] = 'unknown'
+					else:
+						sys.exit("Cxg field is a list")
+				else:
+					values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
+			else:
+				values_to_add[key] = next(iter(value_set))
 
 
 # Gather dataset metadata for adata.uns
@@ -731,8 +758,8 @@ def get_results_filename(mfinal_obj):
 	return results_file
 
 
-# Final touches for obs columns, dropping unnecessary column and modifying any Lattice fields to fit cxg schema
-def clean_obs(celltype_col):
+# Final touches for obs columns, modifying any Lattice fields to fit cxg schema
+def clean_obs():
 	global cxg_obs
 	global mfinal_obj
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
@@ -742,15 +769,6 @@ def clean_obs(celltype_col):
 			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
 			print("WARNING: author_column not in final matrix: {}".format(author_col))
-
-	if 'NCIT:C17998' in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique():
-		cxg_obs.loc[cxg_obs['organism_ontology_term_id'] == 'NCBITaxon:9606', 'self_reported_ethnicity_ontology_term_id'] = cxg_obs['self_reported_ethnicity_ontology_term_id'].str.replace('NCIT:C17998', 'unknown')
-
-	# if the donor has multiple ethnicities, self_reported_ethnicity_ontology_term_id is a list, set ontology term to multiethnic
-	# need to complete test on this section.
-	if len([i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]) > 0:
-		for multi in [i for i in cxg_obs['self_reported_ethnicity_ontology_term_id'].unique() if ',' in i]:
-			cxg_obs['self_reported_ethnicity_ontology_term_id'].replace({multi:'multiethnic'}, inplace=True)
 	
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in cxg_obs.columns:
@@ -758,11 +776,30 @@ def clean_obs(celltype_col):
 	elif cxg_obs['suspension_type'].isnull().values.any():
 		cxg_obs['suspension_type'].fillna(value='na', inplace=True)
 	
-	# Drop columns that were used as intermediate calculations
-	# Also check to see if optional columns are all empty, then drop those columns as well
-	optional_columns = ['donor_BMI', 'family_history_breast_cancer', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk', 'disease_state']
+	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
+		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
+		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
+
+	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
+	for field in change_unreported:
+		if field in cxg_obs.columns.to_list():
+			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
+
+	if mfinal_obj['is_primary_data'] == 'mixed':
+		primary_portion = mfinal_object.get('primary_portion')
+		cxg_obs['is_primary_data'] = False
+		cxg_obs.loc[cxg_obs[primary_portion.get('obs_field')].isin(primary_portion.get('values')),'is_primary_data'] = True
+
+	cxg_obs[[i for i in cxg_obs.columns.tolist() if i.startswith('family_history_')]] = \
+		cxg_obs[[i for i in cxg_obs.columns.tolist() if i.startswith('family_history_')]].fillna(value='unknown')
+
+
+# Drop any intermediate or optional fields that are all empty
+def drop_cols(celltype_col):
+	global cxg_obs
+	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
+			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state'\
+			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
@@ -773,21 +810,13 @@ def clean_obs(celltype_col):
 	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if cxg_obs['donor_age_redundancy'].unique():
 			cxg_obs.drop(columns='donor_age', inplace=True)
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name',\
-			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x',\
-			'author_donor_y', 'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex',
-			'sample_biosample_ontology_cell_slims', 'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy',\
-			'sample_biosample_ontology_organ_slims']
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims'\
+			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
+			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
+			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
-	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
-		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
-		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
-	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
-	for field in change_unreported:
-		if field in cxg_obs.columns.to_list():
-			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
 
 
 def main(mfinal_id):
@@ -1043,7 +1072,8 @@ def main(mfinal_id):
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	clean_obs(celltype_col)
+	clean_obs()
+	drop_cols(celltype_col)
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
@@ -1056,7 +1086,6 @@ def main(mfinal_id):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-
 
 	# Convert gene symbols to ensembl and filter to approved set
 	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
