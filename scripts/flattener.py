@@ -717,11 +717,11 @@ def reconcile_genes(cxg_adata_lst):
 
 	# Log redundant gene Ensembl IDs from normalized matrix within a single version
 	for col in gene_pd_ensembl.columns:
-	    for gene in [i for i, c in collections.Counter(gene_pd_ensembl[col].dropna().to_list()).items() if c > 1]:
+		for gene in [i for i, c in collections.Counter(gene_pd_ensembl[col].dropna().to_list()).items() if c > 1]:
 			if True in gene_pd_ensembl[gene_pd_ensembl[col]==gene].index.str.endswith("PAR_Y"):
 				redundant.extend([i for i in gene_pd_ensembl[gene_pd_ensembl[col]==gene].index.to_list() if i.endswith('PAR_Y')])
-		else:
-			redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
+			else:
+				redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
 	redundant = list(set(redundant))
 	stats['redundant'] = redundant
 
