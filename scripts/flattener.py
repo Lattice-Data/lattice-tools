@@ -718,7 +718,10 @@ def reconcile_genes(cxg_adata_lst):
 	# Log redundant gene Ensembl IDs from normalized matrix within a single version
 	for col in gene_pd_ensembl.columns:
 	    for gene in [i for i, c in collections.Counter(gene_pd_ensembl[col].dropna().to_list()).items() if c > 1]:
-	        redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
+			if True in gene_pd_ensembl[gene_pd_ensembl[col]==gene].index.str.endswith("PAR_Y"):
+				redundant.extend([i for i in gene_pd_ensembl[gene_pd_ensembl[col]==gene].index.to_list() if i.endswith('PAR_Y')])
+		else:
+			redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
 	redundant = list(set(redundant))
 	stats['redundant'] = redundant
 
@@ -934,8 +937,11 @@ def main(mfinal_id):
 				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 			# only make var unique if all raw matrices are same annotation version
 			if len(mfinal_obj.get('genome_annotations', [])) == 1:
-				for gene in [i for i, c in collections.Counter(adata_raw.var['gene_ids'].dropna().to_list()).items() if c > 1]:
-					redundant.extend(adata_raw.var[adata_raw.var['gene_ids'] == gene].index.to_list())
+				for g in [i for i,c in collections.Counter(adata_raw.var.index.to_list()).items() if c > 1]:
+					if True in adata_raw.var.loc[g, 'gene_ids'].str.endswith("PAR_Y").to_list():
+						redundant.extend([i for i in adata_raw.var.loc[g,'gene_ids'] if i.endswith('PAR_Y')])
+					else:
+						redundant.extend(adata_raw.var.loc[g,'gene_ids'].to_list())
 				adata_raw.var_names_make_unique(join = '.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
 			if mfinal_obj.get('cell_label_mappings', None):
