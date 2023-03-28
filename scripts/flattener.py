@@ -89,6 +89,24 @@ annot_fields = [
 	'cell_state'
 ]
 
+antibody_metadata = {
+	'antibody': [
+		'oligo_sequence',
+		'host_organism',
+		'source',
+		'product_ids',
+		'clone_id',
+		'control',
+		'isotype'
+	],
+	'target': [
+		'label',
+		'organism',
+		'dbxrefs'
+	]
+}
+
+
 # Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
 prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
@@ -111,7 +129,13 @@ prop_map = {
 	'cell_annotation_cell_state': 'cell_state',
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
-	'suspension_cell_depletion_factors': 'suspension_depletion_factors'
+	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
+	'antibody_oligo_sequence': 'barcode',
+	'antibody_source': 'vendor',
+	'antibody_product_ids': 'vender_product_ids',
+	'antibody_clone_id': 'clone_id',
+	'antibody_isotype': 'isotype',
+	'antibody_host_organism': 'host_organism'
 }
 
 # Global variables
@@ -760,13 +784,35 @@ def get_results_filename(mfinal_obj):
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 	return results_file
 
+
+# Add antibody metadata to var and raw.var
 def map_antibody():
 	global cxg_adata
 	global cxg_adata_raw
 	global mfinal_obj
 	antibody_meta = pd.DataFrame()
-	cxg_adata.var['gene_ids'] = cxg_adata_raw.var['gene_ids']
+	for anti_mapping in mfinal_obj.get('antibody_mappings'):
+		values_to_add = {}
+		antibody = anti_mapping.get('antibody')
+		gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody])
+		if not antibody.get('control'):
+			gather_metdata('target', antibody_metadata['target'], values_to_add, antibody.get('targets'))
+			values_to_add['new_index'] = values_to_add['target_label']
+			values_to_add['target_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['target_organism'])
+			values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
+		else:
+			values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
+			values_to_add['new_index'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
+		row_to_add = pd.DataFrame(values_to_add, index=[anti_mapping.get('label')], dtype=str)
+		antibody_meta = pd.concat([antibody_meta, row_to_add])
+	cxg_adata.var = pd.merge(cxg_adata.var, antibody_meta, left_index=True, right_index=True, how='left')
+	cxg_adata_raw.var = pd.merge(cxg_adata_raw.var, antibody_meta, left_index=True, right_index=True, how='left')
+	cxg_adata.var['author_index'] = cxg_adata.var.index
+	cxg_adata_raw.var['author_index'] = cxg_adata.var.index
+	cxg_adata.var.set_index('new_index', inplace=True, drop=True)
+	cxg_adata_raw.var.set_index('new_index', inplace=True, drop=True)
 	cxg_adata_raw.var.drop(columns=['genome'], inplace=True)
+	cxg_adata.var['feature_biotype'] = 'antibody-derived tags'
 
 
 # Final touches for obs columns, modifying any Lattice fields to fit cxg schema
@@ -780,7 +826,6 @@ def clean_obs():
 			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
 			print("WARNING: author_column not in final matrix: {}".format(author_col))
-	
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in cxg_obs.columns:
 		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
@@ -821,13 +866,47 @@ def drop_cols(celltype_col):
 	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if cxg_obs['donor_age_redundancy'].unique():
 			cxg_obs.drop(columns='donor_age', inplace=True)
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims'\
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
 			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
 			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
+
+
+# Add ontology term names to CXG standardized columns
+def add_labels():
+	global cxg_adata
+	global cxg_adata_raw
+	query_url = urljoin(server, 'search/?type=OntologyTerm&field=term_id&field=term_name&limit=all')
+	r = requests.get(query_url, auth=connection.auth)
+	try:
+		r.raise_for_status()
+	except requests.HTTPError:
+		sys.exit("Error in ontology term ids and names: {}".format(query_url))
+	else:
+		ontology_df = pd.DataFrame(r.json()['@graph'])
+	id_cols = ['assay_ontology_term_id','disease_ontology_term_id','cell_type_ontology_term_id','development_stage_ontology_term_id','sex_ontology_term_id',\
+			'tissue_ontology_term_id','organism_ontology_term_id','self_reported_ethnicity_ontology_term_id']
+	for col in id_cols:
+		name_col = col.replace("_ontology_term_id","")
+		cxg_adata.obs[name_col] = cxg_adata.obs[col]
+		for term_id in cxg_adata.obs[name_col].unique():
+			if term_id == 'PATO:0000461':
+				term_name = 'normal'
+			elif term_id == 'PATO:0000384':
+				term_name = 'male'
+			elif term_id == 'NCBITaxon:9606':
+				term_name = 'Homo sapiens'
+			elif term_id == 'unknown':
+				term_name = 'unknown'
+			elif len(ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique() == 1):
+				term_name = ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()[0]
+			else:
+				sys.exit("Found more than single ontology term name for id: {}\t{}".format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
+			cxg_adata.obs[name_col].replace(term_id, term_name, inplace=True)
+
 
 
 def main(mfinal_id):
@@ -1137,6 +1216,8 @@ def main(mfinal_id):
 		cxg_adata.var['feature_is_filtered'] = False
 	elif summary_assay == 'CITE':
 		map_antibody()
+		add_labels()
+		add_zero()
 	
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
