@@ -101,8 +101,7 @@ antibody_metadata = {
 	],
 	'target': [
 		'label',
-		'organism',
-		'dbxrefs'
+		'organism'
 	]
 }
 
@@ -803,24 +802,29 @@ def map_antibody():
 		values_to_add = {}
 		antibody = anti_mapping.get('antibody')
 		gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody])
+		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		if not antibody.get('control'):
 			gather_metdata('target', antibody_metadata['target'], values_to_add, antibody.get('targets'))
-			values_to_add['new_index'] = values_to_add['target_label']
+			values_to_add['feature_name'] = values_to_add['target_label']
 			values_to_add['target_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['target_organism'])
-			values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		else:
-			values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
-			values_to_add['new_index'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
+			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
+			for val in antibody_metadata['target']:
+				full_val = 'target_' + val
+				values_to_add[full_val] = 'na'
 		row_to_add = pd.DataFrame(values_to_add, index=[anti_mapping.get('label')], dtype=str)
 		antibody_meta = pd.concat([antibody_meta, row_to_add])
 	cxg_adata.var = pd.merge(cxg_adata.var, antibody_meta, left_index=True, right_index=True, how='left')
 	cxg_adata_raw.var = pd.merge(cxg_adata_raw.var, antibody_meta, left_index=True, right_index=True, how='left')
+	
 	cxg_adata.var['author_index'] = cxg_adata.var.index
 	cxg_adata_raw.var['author_index'] = cxg_adata.var.index
-	cxg_adata.var.set_index('new_index', inplace=True, drop=True)
-	cxg_adata_raw.var.set_index('new_index', inplace=True, drop=True)
 	cxg_adata_raw.var.drop(columns=['genome'], inplace=True)
 	cxg_adata.var['feature_biotype'] = 'antibody-derived tags'
+	cxg_adata.var.set_index('feature_name', inplace=True, drop=False)
+	cxg_adata_raw.var.set_index('feature_name', inplace=True, drop=False)
+	cxg_adata.var_names_make_unique(join='-')
+	cxg_adata_raw.var_names_make_unique(join='-')
 
 
 # Final touches for obs columns, modifying any Lattice fields to fit cxg schema
@@ -862,7 +866,7 @@ def clean_obs():
 def drop_cols(celltype_col):
 	global cxg_obs
 	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state'\
+			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state',\
 			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
@@ -1187,8 +1191,8 @@ def main(mfinal_id):
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	clean_obs()
 	drop_cols(celltype_col)
+	clean_obs()
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
