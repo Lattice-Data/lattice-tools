@@ -901,6 +901,8 @@ def add_labels():
 				term_name = 'normal'
 			elif term_id == 'PATO:0000384':
 				term_name = 'male'
+			elif term_id == 'PATO:0000383':
+				term_name = 'female'
 			elif term_id == 'NCBITaxon:9606':
 				term_name = 'Homo sapiens'
 			elif term_id == 'unknown':
