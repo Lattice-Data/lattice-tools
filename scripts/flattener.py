@@ -783,14 +783,6 @@ def get_results_filename(mfinal_obj):
 		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
 	return results_file
 
-def map_antibody():
-	global cxg_adata
-	global cxg_adata_raw
-	global mfinal_obj
-	antibody_meta = pd.DataFrame()
-	cxg_adata.var['gene_ids'] = cxg_adata_raw.var['gene_ids']
-	cxg_adata_raw.var.drop(columns=['genome'], inplace=True)
-
 
 # Add antibody metadata to var and raw.var
 def map_antibody():
