@@ -804,7 +804,7 @@ def map_antibody():
 			for val in antibody_metadata['target']:
 				full_val = 'target_' + val
 				values_to_add[full_val] = 'na'
-		row_to_add = pd.DataFrame(values_to_add, index=[anti_mapping.get('label')], dtype=str)
+		row_to_add = pd.DataFrame(values_to_add, index=[anti_mapping.get('label')])
 		antibody_meta = pd.concat([antibody_meta, row_to_add])
 	cxg_adata.var = pd.merge(cxg_adata.var, antibody_meta, left_index=True, right_index=True, how='left')
 	cxg_adata_raw.var = pd.merge(cxg_adata_raw.var, antibody_meta, left_index=True, right_index=True, how='left')
