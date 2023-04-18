@@ -89,6 +89,23 @@ annot_fields = [
 	'cell_state'
 ]
 
+antibody_metadata = {
+	'antibody': [
+		'oligo_sequence',
+		'host_organism',
+		'source',
+		'product_ids',
+		'clone_id',
+		'control',
+		'isotype'
+	],
+	'target': [
+		'label',
+		'organism'
+	]
+}
+
+
 # Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
 prop_map = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
@@ -111,7 +128,13 @@ prop_map = {
 	'cell_annotation_cell_state': 'cell_state',
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
-	'suspension_cell_depletion_factors': 'suspension_depletion_factors'
+	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
+	'antibody_oligo_sequence': 'barcode',
+	'antibody_source': 'vendor',
+	'antibody_product_ids': 'vender_product_ids',
+	'antibody_clone_id': 'clone_id',
+	'antibody_isotype': 'isotype',
+	'antibody_host_organism': 'host_organism'
 }
 
 # Global variables
@@ -761,6 +784,41 @@ def get_results_filename(mfinal_obj):
 	return results_file
 
 
+# Add antibody metadata to var and raw.var
+def map_antibody():
+	global cxg_adata
+	global cxg_adata_raw
+	global mfinal_obj
+	antibody_meta = pd.DataFrame()
+	for anti_mapping in mfinal_obj.get('antibody_mappings'):
+		values_to_add = {}
+		antibody = anti_mapping.get('antibody')
+		gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody])
+		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
+		if not antibody.get('control'):
+			gather_metdata('target', antibody_metadata['target'], values_to_add, antibody.get('targets'))
+			values_to_add['feature_name'] = values_to_add['target_label']
+			values_to_add['target_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['target_organism'])
+		else:
+			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
+			for val in antibody_metadata['target']:
+				full_val = 'target_' + val
+				values_to_add[full_val] = 'na'
+		row_to_add = pd.DataFrame(values_to_add, index=[anti_mapping.get('label')])
+		antibody_meta = pd.concat([antibody_meta, row_to_add])
+	cxg_adata.var = pd.merge(cxg_adata.var, antibody_meta, left_index=True, right_index=True, how='left')
+	cxg_adata_raw.var = pd.merge(cxg_adata_raw.var, antibody_meta, left_index=True, right_index=True, how='left')
+	
+	cxg_adata.var['author_index'] = cxg_adata.var.index
+	cxg_adata_raw.var['author_index'] = cxg_adata.var.index
+	cxg_adata_raw.var.drop(columns=['genome'], inplace=True)
+	cxg_adata.var['feature_biotype'] = 'antibody-derived tags'
+	cxg_adata.var.set_index('feature_name', inplace=True, drop=False)
+	cxg_adata_raw.var.set_index('feature_name', inplace=True, drop=False)
+	cxg_adata.var_names_make_unique(join='-')
+	cxg_adata_raw.var_names_make_unique(join='-')
+
+
 # Final touches for obs columns, modifying any Lattice fields to fit cxg schema
 def clean_obs():
 	global cxg_obs
@@ -772,7 +830,6 @@ def clean_obs():
 			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
 			print("WARNING: author_column not in final matrix: {}".format(author_col))
-	
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in cxg_obs.columns:
 		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
@@ -801,7 +858,7 @@ def clean_obs():
 def drop_cols(celltype_col):
 	global cxg_obs
 	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state'\
+			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state',\
 			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
@@ -813,13 +870,49 @@ def drop_cols(celltype_col):
 	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if cxg_obs['donor_age_redundancy'].unique():
 			cxg_obs.drop(columns='donor_age', inplace=True)
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims'\
+	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
 			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
 			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
+
+
+# Add ontology term names to CXG standardized columns
+def add_labels():
+	global cxg_adata
+	global cxg_adata_raw
+	query_url = urljoin(server, 'search/?type=OntologyTerm&field=term_id&field=term_name&limit=all')
+	r = requests.get(query_url, auth=connection.auth)
+	try:
+		r.raise_for_status()
+	except requests.HTTPError:
+		sys.exit("Error in ontology term ids and names: {}".format(query_url))
+	else:
+		ontology_df = pd.DataFrame(r.json()['@graph'])
+	id_cols = ['assay_ontology_term_id','disease_ontology_term_id','cell_type_ontology_term_id','development_stage_ontology_term_id','sex_ontology_term_id',\
+			'tissue_ontology_term_id','organism_ontology_term_id','self_reported_ethnicity_ontology_term_id']
+	for col in id_cols:
+		name_col = col.replace("_ontology_term_id","")
+		cxg_adata.obs[name_col] = cxg_adata.obs[col]
+		for term_id in cxg_adata.obs[name_col].unique():
+			if term_id == 'PATO:0000461':
+				term_name = 'normal'
+			elif term_id == 'PATO:0000384':
+				term_name = 'male'
+			elif term_id == 'PATO:0000383':
+				term_name = 'female'
+			elif term_id == 'NCBITaxon:9606':
+				term_name = 'Homo sapiens'
+			elif term_id == 'unknown':
+				term_name = 'unknown'
+			elif len(ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique() == 1):
+				term_name = ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()[0]
+			else:
+				sys.exit("Found more than single ontology term name for id: {}\t{}".format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
+			cxg_adata.obs[name_col].replace(term_id, term_name, inplace=True)
+
 
 
 def main(mfinal_id):
@@ -842,6 +935,8 @@ def main(mfinal_id):
 			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq'] or mfinal_obj['assays'] == ['spatial transcriptomics'] or\
 			mfinal_obj['assays'] == ['scRNA-seq', 'snRNA-seq']:
 		summary_assay = 'RNA'
+	elif mfinal_obj['assays'] == ['CITE-seq']:
+		summary_assay = 'CITE'
 	else:
 		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
 
@@ -924,17 +1019,21 @@ def main(mfinal_id):
 					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
-		if summary_assay == 'RNA':
+		if summary_assay in ['RNA','CITE']:
 			download_file(mxr, tmp_dir)
-			row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 			if mxr['s3_uri'].endswith('h5'):
 				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
-				adata_raw = sc.read_10x_h5(local_path)
+				adata_raw = sc.read_10x_h5(local_path, gex_only = False)
 			elif mxr['s3_uri'].endswith('h5ad'):
 				local_path = '{}/{}.h5ad'.format(tmp_dir, mxr_acc)
 				adata_raw = sc.read_h5ad(local_path)
 			else:
-				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
+				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))	
+			if summary_assay == 'RNA':
+				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
+				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Gene Expression']
+			else:
+				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Antibody Capture']
 			# only make var unique if all raw matrices are same annotation version
 			if len(mfinal_obj.get('genome_annotations', [])) == 1:
 				for g in [i for i,c in collections.Counter(adata_raw.var.index.to_list()).items() if c > 1]:
@@ -992,7 +1091,7 @@ def main(mfinal_id):
 		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
 		annot_df = pd.concat([annot_df, annot_row])
 
-	# For RNA datasets, concatenate all anndata objects in list,
+	# For CITE and RNA datasets, concatenate all anndata objects in list, but no reconciling genes for CITE
 	# For ATAC datasets, assumption is that there is no scale.data, and raw count is taken from mfinal_adata.raw.X
 	raw_matrix_mapping = []
 	cell_mapping_rev_dct = {}
@@ -1008,6 +1107,14 @@ def main(mfinal_id):
 			if len(feature_lengths) == 1:
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
+		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
+		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
+			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
+	elif summary_assay == 'CITE':
+		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
+		if len(feature_lengths) == 1:
+			if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
+				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
@@ -1078,13 +1185,15 @@ def main(mfinal_id):
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	clean_obs()
 	drop_cols(celltype_col)
+	clean_obs()
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
 	cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 	keep_types = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+	if summary_assay == 'CITE':
+		keep_types.append('object')
 	var_meta = mfinal_adata.var.select_dtypes(include=keep_types)
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 	cxg_adata.var = cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
@@ -1097,17 +1206,25 @@ def main(mfinal_id):
 	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
 		clean_var()
 
-	compiled_annot = compile_annotations(ref_files)
 	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
-	if summary_assay != 'ATAC':
+	# For CITE, standardize antibody index and metadata and no filtering
+
+	if summary_assay == 'RNA':
+		compiled_annot = compile_annotations(ref_files)
 		set_ensembl(redundant, mfinal_obj['feature_keys'])
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		add_zero()
-	else:
+	elif summary_assay == 'ATAC':
+		compiled_annot = compile_annotations(ref_files)
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False
+	elif summary_assay == 'CITE':
+		map_antibody()
+		add_labels()
+		add_zero()
+
 	
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
