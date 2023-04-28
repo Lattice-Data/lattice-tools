@@ -671,10 +671,6 @@ def check_file(job):
                 process_fastq_file(job)
                 os.remove(local_path)
                 logging.info(local_path + ' removed')
-    if file.get('file_format') == 'mex':
-        process_mexmatrix_file(job)
-        shutil.rmtree(tmp_dir)
-        logging.info(tmp_dir + ' removed')
     if file.get('file_format') == 'hdf5':
         process_h5matrix_file(job)
         os.remove(local_path)
