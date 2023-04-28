@@ -10,11 +10,11 @@ import logging
 import os
 import re
 import requests
+import scanpy as sc
 import shutil
 import socket
 import subprocess
 import sys
-import tables
 from datetime import datetime
 from ftplib import error_perm, FTP
 from urllib.parse import urljoin
@@ -354,205 +354,63 @@ def process_h5matrix_file(job):
     if hdf5_validate != True:
         errors['is_hdf5'] = hdf5_validate
 
-    with tables.open_file(local_path, 'r') as f:
-        # first check for standard CellRanger formatted matrix
-        if list(f.walk_groups('/'))[0].__members__ == ['matrix']:
-            top_name = 'matrix'
-            top_group = f.get_node(f.root, top_name)
-
-            barcodes = f.get_node(top_group, 'barcodes')
-            results['observation_count'] = int(barcodes.shape[0])
-
-            feature_group = f.get_node(top_group, 'features')
-            counts = {}
-            for i in list(getattr(feature_group, 'feature_type')):
-                i = feature_type_mapping.get(i.decode("utf-8"), i.decode("utf-8"))
-                if (i in counts):
-                    counts[i] += 1
-                else:
-                    counts[i] = 1
-            feature_counts = []
-            for feature in counts.keys():
-                feature_counts.append({'feature_type': feature, 'feature_count': counts[feature]})
-
-            genome_list = []
-            genomes = (set(getattr(feature_group, 'genome')))
-            for g in genomes:
-                genome_list.append(g.decode("utf-8"))
-            results['genomes'] = genome_list
-        elif list(f.walk_groups('/'))[0].__members__ == ['hg19']:
-            top_name = 'hg19'
-            top_group = f.get_node(f.root, top_name)
-
-            barcodes = f.get_node(top_group, 'barcodes')
-            results['observation_count'] = int(barcodes.shape[0])
-
-            feature_group = f.get_node(top_group, 'gene_names')
-            feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
-
-            results['genomes'] = ['hg19']
-        elif list(f.walk_groups('/'))[0].__members__ == ['GRCh38']:
-            top_name = 'GRCh38'
-            top_group = f.get_node(f.root, top_name)
-
-            barcodes = f.get_node(top_group, 'barcodes')
-            results['observation_count'] = int(barcodes.shape[0])
-
-            feature_group = f.get_node(top_group, 'gene_names')
-            feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
-
-            results['genomes'] = ['GRCh38']
-        else:
-            var_group = f.get_node(f.root, 'var')
-            feature_group = f.get_node(var_group, 'gene_ids')
-            feature_counts = [{'feature_type': 'gene', 'feature_count': int(feature_group.shape[0])}]
-
-            obs_group = f.get_node(f.root, 'obs')
-            obs_index = f.get_node(obs_group, '_index')
-            results['observation_count'] = int(obs_index.shape[0])
-
-    results['feature_counts'] = feature_counts
-
-
-def process_mexmatrix_file(job):
-    logging.info('Getting mex matrix metadata')
-    item = job['item']
-    errors = job['errors']
-    results = job['results']
-
-    tmp_dir = 'raw_feature_bc_matrix'
-    mtx_path = 'matrix.mtx.gz'
-    feature_path = 'features.tsv.gz'
-    barcode_path = 'barcodes.tsv.gz'
-
-    # do the matrix file in the directory
-    try:
-        matrix_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, mtx_path)],
-            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        errors['matrix_information_extraction'] = 'Failed to extract information from ' + mtx_path
-
-    try:
-        line_index = 0
-        for encoded_line in matrix_stream.stdout:
-            line_index += 1
-            if line_index == 3:
-                count_summary = encoded_line.decode('utf-8').strip().split()
-                features_count_frommatrix = int(count_summary[0])
-                barcodes_count_frommatrix = int(count_summary[1])
-                break
-    except IOError:
-        errors['unzipped_matrix_streaming'] = 'Error occured, while streaming unzipped matrix file.'
-
-    # do the features file in the directory
-    try:
-        features_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, feature_path)],
-            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        errors['features_information_extraction'] = 'Failed to extract information from ' + feature_path
-
-    features_row_count = 0
-    try:
-        for encoded_line in features_stream.stdout:
-            features_row_count += 1
-    except IOError:
-        errors['unzipped_features_streaming'] = 'Error occured, while streaming unzipped features file.'
+    if local_path.endswith('.h5'):
+        adata = sc.read_10x_h5(local_path)
     else:
-        # read_count update
-        if features_row_count == features_count_frommatrix:
-            results['feature_count'] = features_row_count
-        else:
-            errors['feature_count_discrepancy'] = 'Feature count from matrix ({}) does not match row count in features.tsv ({})'.format(
-                features_count_frommatrix, features_row_count)
+        adata = sc.read_h5ad(local_path, backed='r')
 
-    # do the barcodes file in the directory
-    try:
-        barcodes_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, barcode_path)],
-            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        errors['barcodes_information_extraction'] = 'Failed to extract information from ' + barcode_path
+    results['observation_count'] = adata.obs.shape[0]
 
-    barcodes_row_count = 0
-    try:
-        for encoded_line in barcodes_stream.stdout:
-            barcodes_row_count += 1
-    except IOError:
-        errors['unzipped_barcodes_streaming'] = 'Error occured, while streaming unzipped barcodes file.'
+    if 'genome' in adata.var.columns:
+        results['genomes'] = adata.var['genome'].unique().tolist()
+
+    if 'feature_types' not in adata.var.columns:
+        errors['var.feature_types'] = 'is missing'
     else:
-        # read_count update
-        if barcodes_row_count == barcodes_count_frommatrix:
-            results['barcode_count'] = barcodes_row_count
-        else:
-            errors['barcode_count_discrepancy'] = 'Barcode count from matrix ({}) does not match row count in barcodes.tsv ({})'.format(
-                barcodes_count_frommatrix, barcodes_row_count)
+        feature_counts = []
+        for k,v in adata.var['feature_types'].value_counts().to_dict().items():
+            key = feature_type_mapping.get(k,k)
+            feature_counts.append({key: v})
+            if k not in feature_type_mapping:
+                errors[f'var.feature_types[{k}]'] = 'not a valid feature type'
+        results['feature_counts'] = feature_counts
 
-    shutil.rmtree(tmp_dir)
-
-
-    mtx_path = 'matrix.mtx.gz'
-    feature_path = 'features.tsv.gz'
-    barcode_path = 'barcodes.tsv.gz'
-
-    # do the matrix file in the directory
-    try:
-        matrix_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, mtx_path)],
-            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        errors['matrix_information_extraction'] = 'Failed to extract information from ' + mtx_path
-
-    try:
-        line_index = 0
-        for encoded_line in matrix_stream.stdout:
-            line_index += 1
-            if line_index == 3:
-                count_summary = encoded_line.decode('utf-8').strip().split()
-                features_count_frommatrix = int(count_summary[0])
-                barcodes_count_frommatrix = int(count_summary[1])
-                break
-    except IOError:
-        errors['unzipped_matrix_streaming'] = 'Error occured, while streaming unzipped matrix file.'
-
-    # do the features file in the directory
-    try:
-        features_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, feature_path)],
-            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        errors['features_information_extraction'] = 'Failed to extract information from ' + feature_path
-
-    features_row_count = 0
-    try:
-        for encoded_line in features_stream.stdout:
-            features_row_count += 1
-    except IOError:
-        errors['unzipped_features_streaming'] = 'Error occured, while streaming unzipped features file.'
+    if 'gene_ids' not in adata.var.columns:
+        errors['var.gene_ids'] = 'is missing'
     else:
-        # read_count update
-        if features_row_count == features_count_frommatrix:
-            results['feature_count'] = features_row_count
-        else:
-            errors['feature_count_discrepancy'] = 'Feature count from matrix ({}) does not match row count in features.tsv ({})'.format(
-                features_count_frommatrix, features_row_count)
+        with_version = [g for g in adata.var['gene_ids'] if '.' in g]
+        if len(with_version) > 0:
+            errors['ENSG format'] = str(len(with_version)) + ' IDs in var.gene_ids'
 
-    # do the barcodes file in the directory
-    try:
-        barcodes_stream = subprocess.Popen(['gunzip --stdout {}/{}'.format(tmp_dir, barcode_path)],
-            shell=True, executable='/bin/bash', stdout=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        errors['barcodes_information_extraction'] = 'Failed to extract information from ' + barcode_path
+        pary_genes = [g for g in adata.var['gene_ids'] if 'PAR_Y' in g]
+        for g in pary_genes:
+            symb = adata.var.loc[adata.var['gene_ids'] == g].index[0]
+            if adata.var[adata.var.index == symb].shape[0] != 2:
+                errors['PAR_Y symbols'] = 'expecting PAR_Y symbols to be duplicated'
+            if g.endswith('PAR_Y') != True:
+                errors['PAR_Y ID'] = 'expecting PAR_Y genes to end with PAR_Y'
+            if 'gene_versions' in adata.var.columns:
+                ver = adata.var.loc[adata.var['gene_ids'] == g]['gene_versions'][0]
+                if g != '_'.join([ver.split('.')[0]] + ver.split('_')[1:]):
+                    errors['PAR_Y version'] = 'PAR_Y gene version does not match ID'
 
-    barcodes_row_count = 0
-    try:
-        for encoded_line in barcodes_stream.stdout:
-            barcodes_row_count += 1
-    except IOError:
-        errors['unzipped_barcodes_streaming'] = 'Error occured, while streaming unzipped barcodes file.'
-    else:
-        # read_count update
-        if barcodes_row_count == barcodes_count_frommatrix:
-            results['barcode_count'] = barcodes_row_count
-        else:
-            errors['barcode_count_discrepancy'] = 'Barcode count from matrix ({}) does not match row count in barcodes.tsv ({})'.format(
-                barcodes_count_frommatrix, barcodes_row_count)
+    if 'gene_versions' in adata.var.columns:
+        without_version = [g for g in adata.var['gene_ids'] if '.' not in g]
+        if len(with_version) > 0:
+            errors['ENSG.N format'] = str(len(without_version)) + ' IDs in var.gene_ids'
+
+    diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
+    if diff == 0:
+        errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+
+    check_dates = ['Mar-1','1-Mar','Dec-1','1-Dec']
+    date_symbols = [s for s in check_dates if s in adata.var.index]
+    if len(date_symbols) > 0:
+        errors['date-formatted symbols'] = 'symbols present that have been reformatted: ' + ','.join(date_symbols)
+
+    incorrect_cell_ids = [c for c in adata.obs.index if c.endswith('.1')]
+    if len(incorrect_cell_ids) > 0:
+        errors['cell_id suffix'] = 'obs.index values should not end in .1'
 
 
 def download_s3_directory(job):
