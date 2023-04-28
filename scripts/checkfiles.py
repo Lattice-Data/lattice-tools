@@ -355,7 +355,7 @@ def process_h5matrix_file(job):
         errors['is_hdf5'] = hdf5_validate
 
     if local_path.endswith('.h5'):
-        adata = sc.read_10x_h5(local_path)
+        adata = sc.read_10x_h5(local_path, gex_only=False)
     else:
         adata = sc.read_h5ad(local_path, backed='r')
 
@@ -370,7 +370,7 @@ def process_h5matrix_file(job):
         feature_counts = []
         for k,v in adata.var['feature_types'].value_counts().to_dict().items():
             key = feature_type_mapping.get(k,k)
-            feature_counts.append({key: v})
+            feature_counts.append({'feature_type': key, 'feature_count': v})
             if k not in feature_type_mapping:
                 errors[f'var.feature_types[{k}]'] = 'not a valid feature type'
         results['feature_counts'] = feature_counts
@@ -395,9 +395,9 @@ def process_h5matrix_file(job):
                     errors['PAR_Y version'] = 'PAR_Y gene version does not match ID'
 
     if 'gene_versions' in adata.var.columns:
-        without_version = [g for g in adata.var['gene_ids'] if '.' not in g]
+        without_version = [g for g in adata.var['gene_versions'] if '.' not in g]
         if len(with_version) > 0:
-            errors['ENSG.N format'] = str(len(without_version)) + ' IDs in var.gene_ids'
+            errors['ENSG.N format'] = str(len(without_version)) + ' IDs without version in var.gene_versions'
 
     diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
     if diff == 0:
