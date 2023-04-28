@@ -196,6 +196,7 @@ def gather_rawmatrices(derived_from):
 
 # Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
 def gather_objects(input_object, start_type=None):
+	global mfinal_obj
 	if start_type == None:
 		lib_ids = input_object['libraries']
 	libraries = []
@@ -213,7 +214,14 @@ def gather_objects(input_object, start_type=None):
 	if start_type == None:
 		for i in lib_ids:
 			obj = lattice.get_object(i, connection)
-			libraries.append(obj)
+			if mfinal_obj.get('output_types') == ['gene quantifications']:
+				if obj.get('assay') in ['scRNA-seq','snRNA-seq','spatial transcriptomics','bulk RNA-seq']:
+					libraries.append(obj)
+			elif mfinal_obj.get('output_types') == ['antibody capture quantifications']:
+				if obj.get('assay') == 'CITE-seq':
+					libraries.append(obj)
+			elif len(mfinal_obj.get('output_types')>1):
+				sys.exit("The flattener cannot flatten multimodal ProcessedMatrixFile")
 			for o in obj['derived_from']:
 				if o.get('uuid') not in susp_ids:
 					if 'Suspension' in o['@type']:
@@ -927,18 +935,17 @@ def main(mfinal_id):
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
 	summary_assay = ''
-	if mfinal_type != 'ProcessedMatrixFile':
-		sys.exit('{} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
-	if mfinal_obj['assays'] == ['snATAC-seq']:
-		summary_assay = 'ATAC'
-	elif mfinal_obj['assays'] == ['snRNA-seq'] or mfinal_obj['assays'] == ['scRNA-seq'] or\
-			mfinal_obj['assays'] == ['snRNA-seq', 'scRNA-seq'] or mfinal_obj['assays'] == ['spatial transcriptomics'] or\
-			mfinal_obj['assays'] == ['scRNA-seq', 'snRNA-seq']:
-		summary_assay = 'RNA'
-	elif mfinal_obj['assays'] == ['CITE-seq']:
+
+	if mfinal_obj['output_types'] == ['gene quantifications']:
+		if mfinal_obj['assays'] == ['snATAC-seq']:
+			summary_assay = 'ATAC'
+		else:
+			summary_assay = 'RNA'
+	elif mfinal_obj['output_types'] == ['antibody capture quantifications']:
 		summary_assay = 'CITE'
 	else:
-		sys.exit("Unexpected assay types to generate cxg h5ad: {}".format(mfinal_obj['assays']))
+	 	sys.exit("Unexpected assay types to generate cxg h5ad: {} {}".format(mfinal_obj['assays'], mfinal_obj['output_types']))
+
 
 	# Dataframe that contains experimental metadata keyed off of raw matrix
 	df = pd.DataFrame()
@@ -1152,6 +1159,8 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
+		print("WARNING: There are cells that did not sucessfully map to CellAnnotations: {}".format(cxg_obs[cxg_obs['cell_type_ontology_term_id'].isnull(), 'author_cell_type'].unique()))
 
 	if 'author_cluster_column' in mfinal_obj:
 		cluster_col = mfinal_obj['author_cluster_column']
