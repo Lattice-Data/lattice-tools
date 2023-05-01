@@ -20,7 +20,7 @@ Install python and necessary modules, and set your variable to the location of t
 sudo yum install python3
 ```
 ```
-sudo pip3 install boto3 tables requests h5py crcmod ; export AWS_SHARED_CREDENTIALS_FILE=credentials
+sudo pip3 install boto3 requests h5py crcmod scanpy ; export AWS_SHARED_CREDENTIALS_FILE=credentials
 ```
 Define 3 variables for Lattice db permissions
 ```
