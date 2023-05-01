@@ -72,7 +72,7 @@ def getArgs():
     return args
 
 
-checkfiles_version = '1.0'
+checkfiles_version = '2.0'
 
 abstract_file_types = [
     'Item',
