@@ -101,7 +101,7 @@ antibody_metadata = {
 	],
 	'target': [
 		'label',
-		'organism'
+		'organism.scientific_name'
 	]
 }
 
@@ -134,7 +134,8 @@ prop_map = {
 	'antibody_product_ids': 'vender_product_ids',
 	'antibody_clone_id': 'clone_id',
 	'antibody_isotype': 'isotype',
-	'antibody_host_organism': 'host_organism'
+	'antibody_host_organism': 'host_organism',
+	'target_organism_scientific_name': 'target_organism'
 }
 
 # Global variables
@@ -215,7 +216,7 @@ def gather_objects(input_object, start_type=None):
 		for i in lib_ids:
 			obj = lattice.get_object(i, connection)
 			if mfinal_obj.get('output_types') == ['gene quantifications']:
-				if obj.get('assay') in ['scRNA-seq','snRNA-seq','spatial transcriptomics','bulk RNA-seq']:
+				if obj.get('assay') in ['scRNA-seq','snRNA-seq','spatial transcriptomics','bulk RNA-seq', 'snATAC-seq']:
 					libraries.append(obj)
 			elif mfinal_obj.get('output_types') == ['antibody capture quantifications']:
 				if obj.get('assay') == 'CITE-seq':
@@ -804,14 +805,22 @@ def map_antibody():
 		gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody])
 		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		if not antibody.get('control'):
-			gather_metdata('target', antibody_metadata['target'], values_to_add, antibody.get('targets'))
+			target = None
+			if len(antibody.get('targets')) > 1:
+				for t in antibody.get('targets'):
+					name = t.get('organism').get('scientific_name')
+					if name == cxg_adata.obs['organism'].unique()[0]:
+						target = [t]
+			else:
+				target = antibody.get('targets')
+			gather_metdata('target', antibody_metadata['target'], values_to_add, target)
 			values_to_add['feature_name'] = values_to_add['target_label']
-			values_to_add['target_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['target_organism'])
 		else:
 			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
 			for val in antibody_metadata['target']:
-				full_val = 'target_' + val
-				values_to_add[full_val] = 'na'
+				latkey = ('target_' + val).replace('.', '_')
+				key = prop_map.get(latkey, latkey)
+				values_to_add[key] = 'na'
 		row_to_add = pd.DataFrame(values_to_add, index=[anti_mapping.get('label')])
 		antibody_meta = pd.concat([antibody_meta, row_to_add])
 	cxg_adata.var = pd.merge(cxg_adata.var, antibody_meta, left_index=True, right_index=True, how='left')
@@ -854,7 +863,7 @@ def clean_obs():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
 
 	if mfinal_obj['is_primary_data'] == 'mixed':
-		primary_portion = mfinal_object.get('primary_portion')
+		primary_portion = mfinal_obj.get('primary_portion')
 		cxg_obs['is_primary_data'] = False
 		cxg_obs.loc[cxg_obs[primary_portion.get('obs_field')].isin(primary_portion.get('values')),'is_primary_data'] = True
 
@@ -935,6 +944,8 @@ def main(mfinal_id):
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
 	summary_assay = ''
+	if mfinal_type != 'ProcessedMatrixFile':
+		sys.exit('{} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 
 	if mfinal_obj['output_types'] == ['gene quantifications']:
 		if mfinal_obj['assays'] == ['snATAC-seq']:
@@ -1230,8 +1241,8 @@ def main(mfinal_id):
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False
 	elif summary_assay == 'CITE':
-		map_antibody()
 		add_labels()
+		map_antibody()
 		add_zero()
 
 	
@@ -1250,7 +1261,8 @@ def main(mfinal_id):
 
 	cxg_adata.raw = cxg_adata_raw
 	quality_check(cxg_adata)
-	cxg_adata.write(results_file, compression = 'gzip')
+	print(cxg_adata.var.index.to_list())
+	cxg_adata.write_h5ad(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)
 
