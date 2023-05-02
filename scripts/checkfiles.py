@@ -378,7 +378,10 @@ def process_h5matrix_file(job):
     if 'gene_ids' not in adata.var.columns:
         errors['var.gene_ids'] = 'is missing'
     else:
-        with_version = [g for g in adata.var['gene_ids'] if '.' in g]
+        if 'feature_types' in adata.var.columns:
+            with_version = [g for g in adata.var[adata.var['feature_types'] != 'Peaks']['gene_ids'] if '.' in g]
+        else:
+            with_version = [g for g in adata.var['gene_ids'] if '.' in g]
         if len(with_version) > 0:
             errors['ENSG format'] = str(len(with_version)) + ' IDs in var.gene_ids'
 
@@ -399,9 +402,17 @@ def process_h5matrix_file(job):
         if len(with_version) > 0:
             errors['ENSG.N format'] = str(len(without_version)) + ' IDs without version in var.gene_versions'
 
-    diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
-    if diff == 0:
-        errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+    if 'feature_types' in adata.var.columns:
+        non_peak_var = adata.var[adata.var['feature_types'] != 'Peaks']
+        if not non_peak_var.empty:
+            diff = non_peak_var.index.shape[0] - non_peak_var.index.unique().shape[0]
+            if diff == 0:
+                errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+    else:
+        diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
+        if diff == 0:
+            errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+
 
     check_dates = ['Mar-1','1-Mar','Dec-1','1-Dec']
     date_symbols = [s for s in check_dates if s in adata.var.index]
