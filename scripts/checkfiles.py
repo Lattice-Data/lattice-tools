@@ -548,17 +548,19 @@ def compare_with_db(job, connection):
     schema_properties = requests.get(schema_url).json()['properties']
 
     for key in results.keys():
+        file_value = file.get(key)
+        results_value = results.get(key)
         # if it's a schema property currently absent, prepare to patch it
-        if not file.get(key) and schema_properties.get(key):
-            post_json[key] = results.get(key)
+        if not file_value and schema_properties.get(key):
+            post_json[key] = results_value
         # if the file information matches the current database metadata, log it
-        elif results.get(key) == file.get(key):
-            outcome = '{} consistent ({})'.format(key, results.get(key))
+        elif results_value == file_value:
+            outcome = '{} consistent ({})'.format(key, results_value)
             metadata_consistency.append(outcome)
-        elif file.get(key) != None:
+        elif file_value != None:
             #first check for embedded properties, specifically for flowcell_details
-            if isinstance(results.get(key), list) and isinstance(file.get(key), list) \
-                and len(results.get(key)) == 1 and len(file.get(key)) == 1:
+            if isinstance(results_value, list) and isinstance(file_value, list) \
+                and len(results_value) == 1 and len(file_value) == 1:
                 if schema_properties.get(key) and schema_properties[key].get('items'):
                     post_flag = True
                     results_obj = results[key][0]
@@ -576,9 +578,16 @@ def compare_with_db(job, connection):
                             del results_obj[subkey]
                     if post_flag == True:
                         post_json[key] = [results_obj]
+            elif isinstance(results_value, list) and isinstance(file_value, list):
+                if len(results_value) == len(file_value) and len([x for x in results_value if x in file_value]) == len(results_value):
+                    outcome = '{} consistent ({})'.format(key, results_value)
+                    metadata_consistency.append(outcome)
+                else:
+                    outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results_value, file_value)
+                    metadata_inconsistency.append(outcome)
             # we have an inconsistency to log
             else:
-                outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results.get(key), file.get(key))
+                outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results_value, file_value)
                 metadata_inconsistency.append(outcome)
     if len(metadata_inconsistency) == 0 and schema_properties.get('validated') and file.get('validated') != True:
         post_json['validated'] = True
