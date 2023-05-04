@@ -403,9 +403,9 @@ def process_h5matrix_file(job):
             errors['ENSG.N format'] = str(len(without_version)) + ' IDs without version in var.gene_versions'
 
     if 'feature_types' in adata.var.columns:
-        non_peak_var = adata.var[adata.var['feature_types'] != 'Peaks']
-        if not non_peak_var.empty:
-            diff = non_peak_var.index.shape[0] - non_peak_var.index.unique().shape[0]
+        gene_exp_var = adata.var[adata.var['feature_types'] == 'Gene Expression']
+        if not gene_exp_var.empty:
+            diff = gene_exp_var.index.shape[0] - gene_exp_var.index.unique().shape[0]
             if diff == 0:
                 errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
     else:
