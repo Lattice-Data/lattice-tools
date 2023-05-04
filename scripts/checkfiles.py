@@ -378,7 +378,10 @@ def process_h5matrix_file(job):
     if 'gene_ids' not in adata.var.columns:
         errors['var.gene_ids'] = 'is missing'
     else:
-        with_version = [g for g in adata.var['gene_ids'] if '.' in g]
+        if 'feature_types' in adata.var.columns:
+            with_version = [g for g in adata.var[adata.var['feature_types'] != 'Peaks']['gene_ids'] if '.' in g]
+        else:
+            with_version = [g for g in adata.var['gene_ids'] if '.' in g]
         if len(with_version) > 0:
             errors['ENSG format'] = str(len(with_version)) + ' IDs in var.gene_ids'
 
@@ -399,9 +402,17 @@ def process_h5matrix_file(job):
         if len(with_version) > 0:
             errors['ENSG.N format'] = str(len(without_version)) + ' IDs without version in var.gene_versions'
 
-    diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
-    if diff == 0:
-        errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+    if 'feature_types' in adata.var.columns:
+        gene_exp_var = adata.var[adata.var['feature_types'] == 'Gene Expression']
+        if not gene_exp_var.empty:
+            diff = gene_exp_var.index.shape[0] - gene_exp_var.index.unique().shape[0]
+            if diff == 0:
+                errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+    else:
+        diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
+        if diff == 0:
+            errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+
 
     check_dates = ['Mar-1','1-Mar','Dec-1','1-Dec']
     date_symbols = [s for s in check_dates if s in adata.var.index]
@@ -537,17 +548,19 @@ def compare_with_db(job, connection):
     schema_properties = requests.get(schema_url).json()['properties']
 
     for key in results.keys():
+        file_value = file.get(key)
+        results_value = results.get(key)
         # if it's a schema property currently absent, prepare to patch it
-        if not file.get(key) and schema_properties.get(key):
-            post_json[key] = results.get(key)
+        if not file_value and schema_properties.get(key):
+            post_json[key] = results_value
         # if the file information matches the current database metadata, log it
-        elif results.get(key) == file.get(key):
-            outcome = '{} consistent ({})'.format(key, results.get(key))
+        elif results_value == file_value:
+            outcome = '{} consistent ({})'.format(key, results_value)
             metadata_consistency.append(outcome)
-        elif file.get(key) != None:
+        elif file_value != None:
             #first check for embedded properties, specifically for flowcell_details
-            if isinstance(results.get(key), list) and isinstance(file.get(key), list) \
-                and len(results.get(key)) == 1 and len(file.get(key)) == 1:
+            if isinstance(results_value, list) and isinstance(file_value, list) \
+                and len(results_value) == 1 and len(file_value) == 1:
                 if schema_properties.get(key) and schema_properties[key].get('items'):
                     post_flag = True
                     results_obj = results[key][0]
@@ -565,9 +578,16 @@ def compare_with_db(job, connection):
                             del results_obj[subkey]
                     if post_flag == True:
                         post_json[key] = [results_obj]
+            elif isinstance(results_value, list) and isinstance(file_value, list):
+                if len(results_value) == len(file_value) and len([x for x in results_value if x in file_value]) == len(results_value):
+                    outcome = '{} consistent ({})'.format(key, results_value)
+                    metadata_consistency.append(outcome)
+                else:
+                    outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results_value, file_value)
+                    metadata_inconsistency.append(outcome)
             # we have an inconsistency to log
             else:
-                outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results.get(key), file.get(key))
+                outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results_value, file_value)
                 metadata_inconsistency.append(outcome)
     if len(metadata_inconsistency) == 0 and schema_properties.get('validated') and file.get('validated') != True:
         post_json['validated'] = True
