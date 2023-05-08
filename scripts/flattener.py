@@ -879,8 +879,7 @@ def drop_cols(celltype_col):
 	global cxg_obs
 	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
 			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk','in_tissue',\
-			'array_row','array_col']
+			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
@@ -894,7 +893,7 @@ def drop_cols(celltype_col):
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
 			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
-			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
+			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy','in_tissue','array_row','array_col']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
