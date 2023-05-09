@@ -476,6 +476,26 @@ def download_file(file_obj, directory):
 		sys.exit('File {} has no uri defined'.format(file_obj['@id']))
 
 
+# Download entire directory contents from S3
+def download_directory(download_url, directory):
+	bucket_name = download_url.split('/')[2]
+	spatial_folder = download_url.replace('s3://{}/'.format(bucket_name),"")
+	s3client = boto3.client("s3")
+	results = s3client.list_objects_v2(Bucket=bucket_name, Prefix=spatial_folder, Delimiter='/')
+	os.mkdir(tmp_dir+"/spatial")
+	for file in results.get('Contents'):
+		if file.get('Size') == 0:
+			continue
+		file_path = file.get('Key')
+		file_name = file_path.split('/')[-1]
+		try:
+			s3client.download_file(bucket_name, file_path, directory + '/spatial/' + file_name)
+		except subprocess.CalledProcessError as e:
+		 	sys.exit('Failed to find file s3://{}/{}'.format(bucket, file_path))
+		else:
+			print(file_name + ' downloaded')
+
+
 # Compile all reference annotations for var features into one pandas df
 def compile_annotations(files):
 	ids = pd.DataFrame()
@@ -890,7 +910,7 @@ def drop_cols(celltype_col):
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
 			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
-			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
+			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy','in_tissue','array_row','array_col']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
@@ -929,7 +949,6 @@ def add_labels():
 			else:
 				sys.exit("Found more than single ontology term name for id: {}\t{}".format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
 			cxg_adata.obs[name_col].replace(term_id, term_name, inplace=True)
-
 
 
 def main(mfinal_id):
@@ -1039,14 +1058,24 @@ def main(mfinal_id):
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay in ['RNA','CITE']:
 			download_file(mxr, tmp_dir)
-			if mxr['s3_uri'].endswith('h5'):
-				local_path = '{}/{}.h5'.format(tmp_dir, mxr_acc)
-				adata_raw = sc.read_10x_h5(local_path, gex_only = False)
+			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
+				if mxr['s3_uri'].endswith('h5'):
+					mxr_name = '{}.h5'.format(mxr_acc)
+				elif mxr['s3_uri'].endswith('h5ad'):
+					mxr_name = '{}.h5ad'.format(mxr_acc)
+				download_directory(mfinal_obj['spatial_s3_uri'], tmp_dir)
+				if 'spatial' in mfinal_adata.uns.keys():
+					del mfinal_adata.uns['spatial']
+				adata_raw = sc.read_visium(tmp_dir, count_file=mxr_name)
+			elif mxr['s3_uri'].endswith('h5'):
+				mxr_name = '{}.h5'.format(mxr_acc)
+				adata_raw = sc.read_10x_h5('{}/{}'.format(tmp_dir,mxr_name), gex_only = False)
 			elif mxr['s3_uri'].endswith('h5ad'):
-				local_path = '{}/{}.h5ad'.format(tmp_dir, mxr_acc)
-				adata_raw = sc.read_h5ad(local_path)
+				mxr_name = '{}.h5ad'.format(mxr_acc)
+				adata_raw = sc.read_h5ad('{}/{}'.format(tmp_dir,mxr_name))
 			else:
 				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))	
+
 			if summary_assay == 'RNA':
 				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Gene Expression']
@@ -1121,7 +1150,7 @@ def main(mfinal_id):
 			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
 			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
 		else:
-			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
+			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer', uns_merge='first')
 			if len(feature_lengths) == 1:
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
@@ -1155,12 +1184,23 @@ def main(mfinal_id):
 		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
 		cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
 
-	# Set uns and obsm parameters
+	# Set uns and obsm parameters, moving over spatial information if applicable
 	cxg_uns = ds_results
 	cxg_uns['schema_version'] = schema_version
+	if 'spatial' in cxg_adata_raw.uns.keys():
+		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
+		spatial_lib = list(cxg_uns['spatial'].keys())[0]
+		cxg_uns['image'] = cxg_uns['spatial'][spatial_lib]['images']['hires']
 	cxg_obsm = mfinal_adata.obsm.copy()
+	if mfinal_obj['assays'] == ['spatial transcriptomics']:
+		if 'spatial' in cxg_adata_lst[0].obsm.keys():
+			cxg_obsm['spatial'] = cxg_adata_lst[0][mfinal_adata.obs.index.to_list()].obsm['spatial']
+			if 'X_spatial' not in mfinal_adata.obsm.keys():
+				spatial_lib = list(cxg_uns['spatial'].keys())[0]
+				cxg_obsm['X_spatial'] = cxg_obsm['spatial'] * cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_hires_scalef']
 	if len([i for i in cxg_obsm.keys() if i.startswith('X_')]) < 1:
 		sys.exit("At least one embedding that starts with 'X_' is required")
+
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
