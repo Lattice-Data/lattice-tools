@@ -35,10 +35,13 @@ cell_metadata = {
 		'summary_ethnicity',
 		'diseases.term_id',
 		'diseases.term_name',
-		'times_pregnant',
 		'family_medical_history',
+		'living_at_sample_collection',
+		'menopausal_status',
 		'organism.taxon_id',
-		'risk_score_tyrer_cuzick_lifetime'
+		'risk_score_tyrer_cuzick_lifetime',
+		'smoker',
+		'times_pregnant'
 		],
 	'sample': [
 		'age_development_stage_redundancy',
@@ -49,6 +52,7 @@ cell_metadata = {
 		'biosample_ontology.cell_slims',
 		'summary_development_ontology_at_collection.development_slims',
 		'summary_development_ontology_at_collection.term_id',
+		'derivation_process',
 		'diseases.term_id',
 		'diseases.term_name',
 		'disease_state',
@@ -62,15 +66,24 @@ cell_metadata = {
 	],
 	'suspension': [
 		'cell_depletion_factors',
+		'depleted_cell_types.term_name',
+		'derivation_process',
+		'dissociation_reagent',
+		'dissociation_time',
+		'dissociation_time_units',
 		'enriched_cell_types.term_name',
 		'enrichment_factors',
+		'percent_cell_viability',
 		'uuid',
 		'suspension_type',
+		'tissue_handling_interval',
 		'@id'
 		],
 	'library': [
 		'uuid',
 		'protocol.assay_ontology.term_id',
+		'starting_quantity',
+		'starting_quantity_units',
 		'@id'
 		]
 	}
@@ -120,6 +133,7 @@ prop_map = {
 	'donor_summary_ethnicity': 'self_reported_ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
+	'donor_smoker': 'donor_smoking_status',
 	'matrix_description': 'title',
 	'matrix_default_embedding': 'default_embedding',
 	'matrix_is_primary_data': 'is_primary_data',
@@ -128,7 +142,9 @@ prop_map = {
 	'cell_annotation_cell_state': 'cell_state',
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
+	'suspension_depleted_cell_types_term_name': 'suspension_depleted_cell_types',
 	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
+	'suspension_tissue_handling_interval': 'tissue_handling_interval',
 	'antibody_oligo_sequence': 'barcode',
 	'antibody_source': 'vendor',
 	'antibody_product_ids': 'vender_product_ids',
@@ -873,9 +889,23 @@ def clean_obs():
 	elif cxg_obs['suspension_type'].isnull().values.any():
 		cxg_obs['suspension_type'].fillna(value='na', inplace=True)
 	
-	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
-		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
-		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
+	add_units = {'tissue_section_thickness': 'tissue_section_thickness_units',
+				'suspension_dissociation_time': 'suspension_dissociation_time_units',
+				'library_starting_quantity': 'library_starting_quantity_units'}
+	for field in add_units.keys():
+		if field in cxg_obs.columns:
+			cxg_obs[field] = cxg_obs[field].astype(str) + " " + cxg_obs[add_units[field]].astype(str)
+			cxg_obs.drop(columns=add_units[field], inplace=True)
+
+	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
+	for field in make_numeric:
+		if field in cxg_obs.columns:
+			if True in cxg_obs[field].str.contains('[<>-]|'+unreported_value, regex=True).to_list():
+				if True not in cxg_obs[field].str.contains('[<>-]', regex=True).to_list():
+					cxg_obs[field].replace({'unknown':np.nan}, inplace=True) 
+					cxg_obs[field]  = cxg_obs[field].astype('float')
+			else: 
+				cxg_obs[field]  = cxg_obs[field].astype('float')
 
 	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
 	for field in change_unreported:
@@ -896,7 +926,10 @@ def drop_cols(celltype_col):
 	global cxg_obs
 	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
 			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk']
+			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk',\
+			'donor_living_at_sample_collection','donor_menopausal_status','donor_smoking_status','sample_derivation_process','suspension_dissociation_reagent',\
+			'suspension_dissociation_time','suspension_depleted_cell_types','suspension_derivation_process','suspension_percent_cell_viability',\
+			'library_starting_quantity','library_starting_quantity_units','tissue_handling_interval','suspension_dissociation_time_units']
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
