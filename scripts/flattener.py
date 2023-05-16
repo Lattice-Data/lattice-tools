@@ -52,7 +52,7 @@ cell_metadata = {
 		'diseases.term_id',
 		'diseases.term_name',
 		'disease_state',
-		'summary_body_mass_index',
+		'summary_body_mass_index_at_collection',
 		'treatment_summary'
 		],
 	'tissue_section': [
@@ -112,7 +112,7 @@ prop_map = {
 	'sample_summary_development_ontology_at_collection_term_id': 'development_stage_ontology_term_id',
 	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
 	'sample_disease_state': 'disease_state',
-	'sample_summary_body_mass_index': 'donor_BMI_at_collection',
+	'sample_summary_body_mass_index_at_collection': 'donor_BMI_at_collection',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_sex': 'sex',
 	'donor_donor_id': 'donor_id',
@@ -1000,7 +1000,8 @@ def main(mfinal_id):
 	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
 	donor_susp = {}
 	library_susp = {}
-
+	mapping_error = False
+	error_info = {}
 
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
@@ -1096,6 +1097,15 @@ def main(mfinal_id):
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 			else:
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
+			# Error check to see that cells in raw matrix match the cell in mfinal_adata
+			cell_mapping_dct = {}
+			for mapping_dict in mfinal_obj['cell_label_mappings']:
+				cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
+			mapping_label = cell_mapping_dct[mxr.get('@id')]
+			if mfinal_obj['cell_label_location'] == 'prefix':
+				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label)]
+			else:
+				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.endswith(mapping_label)]
 			if len(overlapped_ids) == 0:
 				if mfinal_obj['cell_label_location'] == 'prefix':
 					if concatenated_ids[0].endswith('-1'):
@@ -1104,16 +1114,31 @@ def main(mfinal_id):
 						concatenated_ids = [i+'-1' for i in concatenated_ids]
 					overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 					if len(overlapped_ids) == 0:
-						sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
+						mapping_error = True
+						error_info[mxr.get('@id')] = mapping_label
+						error_info[mxr.get('@id')] += '; zero_prefix: {}'.format(concatenated_ids[0:5])
 					adata_raw.obs_names = concatenated_ids
 				else:
-					sys.exit("Could not find any matching cell identifiers: {}".format(concatenated_ids[0:5]))
-			adata_raw = adata_raw[overlapped_ids]
-			adata_raw.obs['raw_matrix_accession'] = mxr['@id']
-			cxg_adata_lst.append(adata_raw)
+					mapping_error = True
+					error_info[mxr.get('@id')] = mapping_label
+					error_info[mxr.get('@id')] += '; zero: {}'.format(concatenated_ids[0:5])
+			elif len(overlapped_ids) != len(mfinal_with_label):
+				mapping_error = True
+				error_info[mxr.get('@id')] = mapping_label
+				error_info[mxr.get('@id')] += '; in_adata: {}, in_raw: {}, overlap: {}'.format(len(mfinal_with_label), len(concatenated_ids), len(overlapped_ids))
+			if not mapping_error:
+				adata_raw = adata_raw[overlapped_ids]
+				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
+				cxg_adata_lst.append(adata_raw)
 
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
+
+	if mapping_error:
+		print("ERROR: There are {} mapping errors in cell_label_mappings:".format(len(error_info.keys())))
+		for er in error_info.keys():
+			print("RawMatrixFile: {}, {}".format(er, error_info[er]))
+		sys.exit()
 
 	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
@@ -1211,7 +1236,7 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
 	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
-		print("WARNING: There are cells that did not sucessfully map to CellAnnotations: {}".format(cxg_obs[cxg_obs['cell_type_ontology_term_id'].isnull(), 'author_cell_type'].unique()))
+		print("WARNING: There are cells that did not sucessfully map to CellAnnotations:")
 
 	if 'author_cluster_column' in mfinal_obj:
 		cluster_col = mfinal_obj['author_cluster_column']
@@ -1301,7 +1326,6 @@ def main(mfinal_id):
 
 	cxg_adata.raw = cxg_adata_raw
 	quality_check(cxg_adata)
-	print(cxg_adata.var.index.to_list())
 	cxg_adata.write_h5ad(results_file, compression = 'gzip')
 
 	shutil.rmtree(tmp_dir)
