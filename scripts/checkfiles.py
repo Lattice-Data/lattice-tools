@@ -617,7 +617,7 @@ def check_file(job):
         adata = sc.read_h5ad(local_path, backed='r')
         adata.write(filename='temp.h5ad', compression='gzip')
         compressed_file_stat = os.stat('temp.h5ad')
-        if file_stat.st_size > compressed_file_stat.st_size:
+        if (file_stat.st_size / 1.5) > compressed_file_stat.st_size:
             errors['compression'] = f'file size is {file_stat.st_size} but compressed file size is {compressed_file_stat.st_size}'
         os.remove('temp.h5ad')
 
