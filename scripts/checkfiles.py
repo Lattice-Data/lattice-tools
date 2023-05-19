@@ -383,7 +383,7 @@ def process_h5matrix_file(job):
         else:
             with_version = [g for g in adata.var['gene_ids'] if '.' in g]
         if len(with_version) > 0:
-            errors['ENSG format'] = str(len(with_version)) + ' IDs in var.gene_ids'
+            errors['ENSG format'] = str(len(with_version)) + ' versions in var.gene_ids'
 
         pary_genes = [g for g in adata.var['gene_ids'] if 'PAR_Y' in g]
         for g in pary_genes:
