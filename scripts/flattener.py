@@ -56,6 +56,7 @@ cell_metadata = {
 		'diseases.term_id',
 		'diseases.term_name',
 		'disease_state',
+		'source',
 		'summary_body_mass_index_at_collection',
 		'treatment_summary'
 		],
@@ -85,8 +86,16 @@ cell_metadata = {
 		'starting_quantity',
 		'starting_quantity_units',
 		'@id'
-		]
-	}
+	],
+	'raw_matrix': [
+		'assembly',
+		'genome_annotation',
+		'software'
+	],
+	'seq_run': [
+		'platform'
+	]
+}
 
 dataset_metadata = {
 	'final_matrix': [
@@ -151,7 +160,11 @@ prop_map = {
 	'antibody_clone_id': 'clone_id',
 	'antibody_isotype': 'isotype',
 	'antibody_host_organism': 'host_organism',
-	'target_organism_scientific_name': 'target_organism'
+	'target_organism_scientific_name': 'target_organism',
+	'raw_matrix_software': 'alignment_software',
+	'raw_matrix_genome_annotation': 'mapped_reference_annotation',
+	'raw_matrix_assembly': 'mapped_reference_assembly',
+	'seq_run_platform': 'sequencing_platform'
 }
 
 # Global variables
@@ -167,7 +180,7 @@ cxg_obs = None
 
 EPILOG = '''
 Examples:
-
+HsapDv:0000264
     python %(prog)s -m local -f LATDF119AAA
 
 For more details:
@@ -227,6 +240,11 @@ def gather_objects(input_object, start_type=None):
 	donors = []
 	tissue_section_ids = []
 	tissue_sections = []
+	sequencing_runs = []
+	raw_seq_ids = []
+	raw_seqs = []
+	seq_run_ids = []
+	seq_runs = []
 
 	if start_type == None:
 		for i in lib_ids:
@@ -252,6 +270,16 @@ def gather_objects(input_object, start_type=None):
 				if o.get('uuid') not in donor_ids:
 					donors.append(o)
 					donor_ids.append(o.get('uuid'))
+		for d in input_object['derived_from']:
+			obj = lattice.get_object(d, connection)
+			if 'RawSequenceFile' in obj.get('@type'):
+				for run in obj['derived_from']:
+					if run.get('@id') not in seq_run_ids:
+						seq_runs.append(run)
+						seq_run_ids.append(run.get('@id'))
+			else:
+				break
+
 	elif start_type == 'suspension':
 		susp_ids = [input_object['uuid']]
 		suspensions = [input_object]
@@ -289,7 +317,8 @@ def gather_objects(input_object, start_type=None):
 		'donor': donors,
 		'sample': samples,
 		'suspension': suspensions,
-		'tissue_section': tissue_sections
+		'tissue_section': tissue_sections,
+		'seq_run':  seq_runs
 		}
 	if start_type == None:
 		objs['library'] = libraries
@@ -309,6 +338,8 @@ def get_value(obj, prop):
 		key1 = path[0]
 		key2 = path[1]
 		if isinstance(obj.get(key1), list):
+			print(key1)
+			print(obj[key1])
 			values = [i.get(key2, unreported_value) for i in obj[key1]]
 			return list(set(values))
 		elif obj.get(key1):
@@ -929,7 +960,12 @@ def drop_cols(celltype_col):
 			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk',\
 			'donor_living_at_sample_collection','donor_menopausal_status','donor_smoking_status','sample_derivation_process','suspension_dissociation_reagent',\
 			'suspension_dissociation_time','suspension_depleted_cell_types','suspension_derivation_process','suspension_percent_cell_viability',\
-			'library_starting_quantity','library_starting_quantity_units','tissue_handling_interval','suspension_dissociation_time_units']
+			'library_starting_quantity','library_starting_quantity_units','tissue_handling_interval','suspension_dissociation_time_units','alignment_software',\
+			'mapped_reference_annotation','mapped_reference_assembly','sequencing_platform', 'sample_source']
+	
+	if 'sequencing_platform' in cxg_obs.columns:
+		if cxg_obs['sequencing_platform'].isnull().values.any():
+			cxg_obs['sequencing_platform'].fillna(unreported_value, inplace=True)
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
@@ -1042,6 +1078,9 @@ def main(mfinal_id):
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
 
+		# Get raw matrix metadata
+		gather_metdata('raw_matrix', cell_metadata['raw_matrix'], values_to_add, [mxr])
+
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
@@ -1091,7 +1130,7 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay in ['RNA','CITE']:
-			download_file(mxr, tmp_dir)
+			###download_file(mxr, tmp_dir)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				if mxr['s3_uri'].endswith('h5'):
 					mxr_name = '{}.h5'.format(mxr_acc)
@@ -1132,13 +1171,16 @@ def main(mfinal_id):
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
 			# Error check to see that cells in raw matrix match the cell in mfinal_adata
 			cell_mapping_dct = {}
-			for mapping_dict in mfinal_obj['cell_label_mappings']:
-				cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
-			mapping_label = cell_mapping_dct[mxr.get('@id')]
-			if mfinal_obj['cell_label_location'] == 'prefix':
+			if mfinal_obj.get('cell_label_mappings'):
+				for mapping_dict in mfinal_obj.get('cell_label_mappings'):
+					cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
+				mapping_label = cell_mapping_dct[mxr.get('@id')]
+			if mfinal_obj.get('cell_label_location') == 'prefix':
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label)]
-			else:
+			elif mfinal_obj.get('cell_label_location') == 'suffix':
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.endswith(mapping_label)]
+			else: 
+				mfinal_with_label = mfinal_cell_identifiers
 			if len(overlapped_ids) == 0:
 				if mfinal_obj['cell_label_location'] == 'prefix':
 					if concatenated_ids[0].endswith('-1'):
