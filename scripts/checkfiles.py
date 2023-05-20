@@ -379,7 +379,7 @@ def process_h5matrix_file(job):
         errors['var.gene_ids'] = 'is missing'
     else:
         if 'feature_types' in adata.var.columns:
-            with_version = [g for g in adata.var[adata.var['feature_types'] != 'Peaks']['gene_ids'] if '.' in g]
+            with_version = [g for g in adata.var[adata.var['feature_types'].isin(['Peaks', 'Antibody Capture']) == False]['gene_ids'] if '.' in g]
         else:
             with_version = [g for g in adata.var['gene_ids'] if '.' in g]
         if len(with_version) > 0:
@@ -388,7 +388,7 @@ def process_h5matrix_file(job):
         pary_genes = [g for g in adata.var['gene_ids'] if 'PAR_Y' in g]
         for g in pary_genes:
             symb = adata.var.loc[adata.var['gene_ids'] == g].index[0]
-            if adata.var[adata.var.index == symb].shape[0] != 2:
+            if adata.var[adata.var.index == symb].shape[0] < 2:
                 errors['PAR_Y symbols'] = 'expecting PAR_Y symbols to be duplicated'
             if g.endswith('PAR_Y') != True:
                 errors['PAR_Y ID'] = 'expecting PAR_Y genes to end with PAR_Y'
