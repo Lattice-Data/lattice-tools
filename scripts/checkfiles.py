@@ -379,16 +379,16 @@ def process_h5matrix_file(job):
         errors['var.gene_ids'] = 'is missing'
     else:
         if 'feature_types' in adata.var.columns:
-            with_version = [g for g in adata.var[adata.var['feature_types'] != 'Peaks']['gene_ids'] if '.' in g]
+            with_version = [g for g in adata.var[adata.var['feature_types'].isin(['Peaks', 'Antibody Capture']) == False]['gene_ids'] if '.' in g]
         else:
             with_version = [g for g in adata.var['gene_ids'] if '.' in g]
         if len(with_version) > 0:
-            errors['ENSG format'] = str(len(with_version)) + ' IDs in var.gene_ids'
+            errors['ENSG format'] = str(len(with_version)) + ' versions in var.gene_ids'
 
         pary_genes = [g for g in adata.var['gene_ids'] if 'PAR_Y' in g]
         for g in pary_genes:
             symb = adata.var.loc[adata.var['gene_ids'] == g].index[0]
-            if adata.var[adata.var.index == symb].shape[0] != 2:
+            if adata.var[adata.var.index == symb].shape[0] < 2:
                 errors['PAR_Y symbols'] = 'expecting PAR_Y symbols to be duplicated'
             if g.endswith('PAR_Y') != True:
                 errors['PAR_Y ID'] = 'expecting PAR_Y genes to end with PAR_Y'
@@ -617,7 +617,7 @@ def check_file(job):
         adata = sc.read_h5ad(local_path, backed='r')
         adata.write(filename='temp.h5ad', compression='gzip')
         compressed_file_stat = os.stat('temp.h5ad')
-        if file_stat.st_size > compressed_file_stat.st_size:
+        if (file_stat.st_size / 1.5) > compressed_file_stat.st_size:
             errors['compression'] = f'file size is {file_stat.st_size} but compressed file size is {compressed_file_stat.st_size}'
         os.remove('temp.h5ad')
 
