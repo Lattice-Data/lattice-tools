@@ -338,8 +338,6 @@ def get_value(obj, prop):
 		key1 = path[0]
 		key2 = path[1]
 		if isinstance(obj.get(key1), list):
-			print(key1)
-			print(obj[key1])
 			values = [i.get(key2, unreported_value) for i in obj[key1]]
 			return list(set(values))
 		elif obj.get(key1):
@@ -1130,7 +1128,7 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay in ['RNA','CITE']:
-			###download_file(mxr, tmp_dir)
+			download_file(mxr, tmp_dir)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				if mxr['s3_uri'].endswith('h5'):
 					mxr_name = '{}.h5'.format(mxr_acc)
