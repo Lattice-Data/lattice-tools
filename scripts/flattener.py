@@ -180,7 +180,7 @@ cxg_obs = None
 
 EPILOG = '''
 Examples:
-HsapDv:0000264
+
     python %(prog)s -m local -f LATDF119AAA
 
 For more details:
