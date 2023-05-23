@@ -378,6 +378,9 @@ def process_h5matrix_file(job):
     if 'gene_ids' not in adata.var.columns:
         errors['var.gene_ids'] = 'is missing'
     else:
+        not_ensg = [g for g in adata.var['gene_ids'] if g.startswith('ENS') == False]
+        if len(not_ensg) > 0:
+            errors['var.gene_ids'] = str(len(not_ensg)) + ' features in var.gene_ids not ENS-formatted'
         if 'feature_types' in adata.var.columns:
             with_version = [g for g in adata.var[adata.var['feature_types'].isin(['Peaks', 'Antibody Capture']) == False]['gene_ids'] if '.' in g]
         else:
@@ -405,9 +408,10 @@ def process_h5matrix_file(job):
     if 'feature_types' in adata.var.columns:
         gene_exp_var = adata.var[adata.var['feature_types'] == 'Gene Expression']
         if not gene_exp_var.empty:
-            diff = gene_exp_var.index.shape[0] - gene_exp_var.index.unique().shape[0]
-            if diff == 0:
-                errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+            if gene_exp_var.shape[0] > 16000:
+                diff = gene_exp_var.index.shape[0] - gene_exp_var.index.unique().shape[0]
+                if diff == 0:
+                    errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
     else:
         diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
         if diff == 0:
