@@ -411,11 +411,17 @@ def process_h5matrix_file(job):
             if gene_exp_var.shape[0] > 16000:
                 diff = gene_exp_var.index.shape[0] - gene_exp_var.index.unique().shape[0]
                 if diff == 0:
-                    errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+                    if len([g for g in adata.var.index if g.startswith('ENS')]) == adata.var.shape[0]:
+                        results['feature_keys'] = ['Ensembl gene ID']
+                    else:
+                        errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
     else:
         diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
         if diff == 0:
-            errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
+            if len([g for g in adata.var.index if g.startswith('ENS')]) == adata.var.shape[0]:
+                results['feature_keys'] = ['Ensembl gene ID']
+            else:
+                errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
 
 
     check_dates = ['Mar-1','1-Mar','Dec-1','1-Dec']
