@@ -33,6 +33,7 @@ cell_metadata = {
 		'age_display',
 		'sex',
 		'summary_ethnicity',
+		'causes_of_death.term_name',
 		'diseases.term_id',
 		'diseases.term_name',
 		'family_medical_history',
@@ -143,6 +144,7 @@ prop_map = {
 	'donor_age_display': 'donor_age',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
 	'donor_smoker': 'donor_smoking_status',
+	'donor_causes_of_death_term_name': 'donor_cause_of_death',
 	'matrix_description': 'title',
 	'matrix_default_embedding': 'default_embedding',
 	'matrix_is_primary_data': 'is_primary_data',
@@ -925,6 +927,7 @@ def clean_obs():
 		if field in cxg_obs.columns:
 			cxg_obs[field] = cxg_obs[field].astype(str) + " " + cxg_obs[add_units[field]].astype(str)
 			cxg_obs.drop(columns=add_units[field], inplace=True)
+			cxg_obs[field].replace({'unknown unknown': 'unknown'}, inplace=True)
 
 	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
 	for field in make_numeric:
@@ -936,7 +939,7 @@ def clean_obs():
 			else: 
 				cxg_obs[field]  = cxg_obs[field].astype('float')
 
-	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
+	change_unreported = ['suspension_enriched_cell_types','suspension_depleted_cell_types','suspension_enrichment_factors','suspension_depletion_factors','disease_state','cell_state']
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
@@ -959,7 +962,7 @@ def drop_cols(celltype_col):
 			'donor_living_at_sample_collection','donor_menopausal_status','donor_smoking_status','sample_derivation_process','suspension_dissociation_reagent',\
 			'suspension_dissociation_time','suspension_depleted_cell_types','suspension_derivation_process','suspension_percent_cell_viability',\
 			'library_starting_quantity','library_starting_quantity_units','tissue_handling_interval','suspension_dissociation_time_units','alignment_software',\
-			'mapped_reference_annotation','mapped_reference_assembly','sequencing_platform', 'sample_source']
+			'mapped_reference_annotation','mapped_reference_assembly','sequencing_platform','sample_source','donor_cause_of_death']
 	
 	if 'sequencing_platform' in cxg_obs.columns:
 		if cxg_obs['sequencing_platform'].isnull().values.any():
@@ -1385,7 +1388,6 @@ def main(mfinal_id):
 		add_labels()
 		map_antibody()
 		add_zero()
-
 	
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
