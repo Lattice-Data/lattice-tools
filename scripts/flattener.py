@@ -33,12 +33,16 @@ cell_metadata = {
 		'age_display',
 		'sex',
 		'summary_ethnicity',
+		'causes_of_death.term_name',
 		'diseases.term_id',
 		'diseases.term_name',
-		'times_pregnant',
 		'family_medical_history',
+		'living_at_sample_collection',
+		'menopausal_status',
 		'organism.taxon_id',
-		'risk_score_tyrer_cuzick_lifetime'
+		'risk_score_tyrer_cuzick_lifetime',
+		'smoker',
+		'times_pregnant'
 		],
 	'sample': [
 		'age_development_stage_redundancy',
@@ -49,9 +53,11 @@ cell_metadata = {
 		'biosample_ontology.cell_slims',
 		'summary_development_ontology_at_collection.development_slims',
 		'summary_development_ontology_at_collection.term_id',
+		'derivation_process',
 		'diseases.term_id',
 		'diseases.term_name',
 		'disease_state',
+		'source',
 		'summary_body_mass_index_at_collection',
 		'treatment_summary'
 		],
@@ -62,18 +68,35 @@ cell_metadata = {
 	],
 	'suspension': [
 		'cell_depletion_factors',
+		'depleted_cell_types.term_name',
+		'derivation_process',
+		'dissociation_reagent',
+		'dissociation_time',
+		'dissociation_time_units',
 		'enriched_cell_types.term_name',
 		'enrichment_factors',
+		'percent_cell_viability',
 		'uuid',
 		'suspension_type',
+		'tissue_handling_interval',
 		'@id'
 		],
 	'library': [
 		'uuid',
 		'protocol.assay_ontology.term_id',
+		'starting_quantity',
+		'starting_quantity_units',
 		'@id'
-		]
-	}
+	],
+	'raw_matrix': [
+		'assembly',
+		'genome_annotation',
+		'software'
+	],
+	'seq_run': [
+		'platform'
+	]
+}
 
 dataset_metadata = {
 	'final_matrix': [
@@ -120,6 +143,8 @@ prop_map = {
 	'donor_summary_ethnicity': 'self_reported_ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
+	'donor_smoker': 'donor_smoking_status',
+	'donor_causes_of_death_term_name': 'donor_cause_of_death',
 	'matrix_description': 'title',
 	'matrix_default_embedding': 'default_embedding',
 	'matrix_is_primary_data': 'is_primary_data',
@@ -128,14 +153,20 @@ prop_map = {
 	'cell_annotation_cell_state': 'cell_state',
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
+	'suspension_depleted_cell_types_term_name': 'suspension_depleted_cell_types',
 	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
+	'suspension_tissue_handling_interval': 'tissue_handling_interval',
 	'antibody_oligo_sequence': 'barcode',
 	'antibody_source': 'vendor',
 	'antibody_product_ids': 'vender_product_ids',
 	'antibody_clone_id': 'clone_id',
 	'antibody_isotype': 'isotype',
 	'antibody_host_organism': 'host_organism',
-	'target_organism_scientific_name': 'target_organism'
+	'target_organism_scientific_name': 'target_organism',
+	'raw_matrix_software': 'alignment_software',
+	'raw_matrix_genome_annotation': 'mapped_reference_annotation',
+	'raw_matrix_assembly': 'mapped_reference_assembly',
+	'seq_run_platform': 'sequencing_platform'
 }
 
 # Global variables
@@ -211,6 +242,11 @@ def gather_objects(input_object, start_type=None):
 	donors = []
 	tissue_section_ids = []
 	tissue_sections = []
+	sequencing_runs = []
+	raw_seq_ids = []
+	raw_seqs = []
+	seq_run_ids = []
+	seq_runs = []
 
 	if start_type == None:
 		for i in lib_ids:
@@ -236,6 +272,16 @@ def gather_objects(input_object, start_type=None):
 				if o.get('uuid') not in donor_ids:
 					donors.append(o)
 					donor_ids.append(o.get('uuid'))
+		for d in input_object['derived_from']:
+			obj = lattice.get_object(d, connection)
+			if 'RawSequenceFile' in obj.get('@type'):
+				for run in obj['derived_from']:
+					if run.get('@id') not in seq_run_ids:
+						seq_runs.append(run)
+						seq_run_ids.append(run.get('@id'))
+			else:
+				break
+
 	elif start_type == 'suspension':
 		susp_ids = [input_object['uuid']]
 		suspensions = [input_object]
@@ -273,7 +319,8 @@ def gather_objects(input_object, start_type=None):
 		'donor': donors,
 		'sample': samples,
 		'suspension': suspensions,
-		'tissue_section': tissue_sections
+		'tissue_section': tissue_sections,
+		'seq_run':  seq_runs
 		}
 	if start_type == None:
 		objs['library'] = libraries
@@ -873,11 +920,26 @@ def clean_obs():
 	elif cxg_obs['suspension_type'].isnull().values.any():
 		cxg_obs['suspension_type'].fillna(value='na', inplace=True)
 	
-	if 'tissue_section_thickness' in cxg_obs.columns.to_list() and 'tissue_section_thickness_units' in cxg_obs.columns.to_list():
-		cxg_obs['tissue_section_thickness'] = cxg_obs['tissue_section_thickness'].astype(str) + cxg_obs['tissue_section_thickness_units'].astype(str)
-		cxg_obs.drop(columns='tissue_section_thickness_units', inplace=True)
+	add_units = {'tissue_section_thickness': 'tissue_section_thickness_units',
+				'suspension_dissociation_time': 'suspension_dissociation_time_units',
+				'library_starting_quantity': 'library_starting_quantity_units'}
+	for field in add_units.keys():
+		if field in cxg_obs.columns:
+			cxg_obs[field] = cxg_obs[field].astype(str) + " " + cxg_obs[add_units[field]].astype(str)
+			cxg_obs.drop(columns=add_units[field], inplace=True)
+			cxg_obs[field].replace({'unknown unknown': 'unknown'}, inplace=True)
 
-	change_unreported = ['suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'disease_state', 'cell_state']
+	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
+	for field in make_numeric:
+		if field in cxg_obs.columns:
+			if True in cxg_obs[field].str.contains('[<>-]|'+unreported_value, regex=True).to_list():
+				if True not in cxg_obs[field].str.contains('[<>-]', regex=True).to_list():
+					cxg_obs[field].replace({'unknown':np.nan}, inplace=True) 
+					cxg_obs[field]  = cxg_obs[field].astype('float')
+			else: 
+				cxg_obs[field]  = cxg_obs[field].astype('float')
+
+	change_unreported = ['suspension_enriched_cell_types','suspension_depleted_cell_types','suspension_enrichment_factors','suspension_depletion_factors','disease_state','cell_state']
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
@@ -896,7 +958,15 @@ def drop_cols(celltype_col):
 	global cxg_obs
 	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
 			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk']
+			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk',\
+			'donor_living_at_sample_collection','donor_menopausal_status','donor_smoking_status','sample_derivation_process','suspension_dissociation_reagent',\
+			'suspension_dissociation_time','suspension_depleted_cell_types','suspension_derivation_process','suspension_percent_cell_viability',\
+			'library_starting_quantity','library_starting_quantity_units','tissue_handling_interval','suspension_dissociation_time_units','alignment_software',\
+			'mapped_reference_annotation','mapped_reference_assembly','sequencing_platform','sample_source','donor_cause_of_death']
+	
+	if 'sequencing_platform' in cxg_obs.columns:
+		if cxg_obs['sequencing_platform'].isnull().values.any():
+			cxg_obs['sequencing_platform'].fillna(unreported_value, inplace=True)
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
@@ -1009,6 +1079,9 @@ def main(mfinal_id):
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {}
 
+		# Get raw matrix metadata
+		gather_metdata('raw_matrix', cell_metadata['raw_matrix'], values_to_add, [mxr])
+
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
@@ -1099,13 +1172,16 @@ def main(mfinal_id):
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
 			# Error check to see that cells in raw matrix match the cell in mfinal_adata
 			cell_mapping_dct = {}
-			for mapping_dict in mfinal_obj['cell_label_mappings']:
-				cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
-			mapping_label = cell_mapping_dct[mxr.get('@id')]
-			if mfinal_obj['cell_label_location'] == 'prefix':
+			if mfinal_obj.get('cell_label_mappings'):
+				for mapping_dict in mfinal_obj.get('cell_label_mappings'):
+					cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
+				mapping_label = cell_mapping_dct[mxr.get('@id')]
+			if mfinal_obj.get('cell_label_location') == 'prefix':
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label)]
-			else:
+			elif mfinal_obj.get('cell_label_location') == 'suffix':
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.endswith(mapping_label)]
+			else: 
+				mfinal_with_label = mfinal_cell_identifiers
 			if len(overlapped_ids) == 0:
 				if mfinal_obj['cell_label_location'] == 'prefix':
 					if concatenated_ids[0].endswith('-1'):
@@ -1236,7 +1312,10 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
 	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
-		print("WARNING: There are cells that did not sucessfully map to CellAnnotations:")
+		print("\nWARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
+			format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
+	if len([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]) > 0:
+		print("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
 
 	if 'author_cluster_column' in mfinal_obj:
 		cluster_col = mfinal_obj['author_cluster_column']
@@ -1309,7 +1388,6 @@ def main(mfinal_id):
 		add_labels()
 		map_antibody()
 		add_zero()
-
 	
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
