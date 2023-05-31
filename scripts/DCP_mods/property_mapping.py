@@ -221,7 +221,7 @@ lattice_to_dcp = {
 		**human_donor,
 		**postnatal_donor,
 		'death.cause_of_death': {
-			'lattice': 'cause_of_death'
+			'lattice': 'causes_of_death'
 		},
 		'height': {
 			'lattice': 'height'

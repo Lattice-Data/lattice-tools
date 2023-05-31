@@ -791,6 +791,9 @@ def customize_fields(obj, obj_type):
 			if obj['medical_history'].get('test_results'):
 				tr = [k + ':' + v for k,v in obj['medical_history']['test_results'].items()]
 				obj['medical_history']['test_results'] = ','.join(tr)
+		if obj.get('death'):
+			causes_of_death = [f"{cd['term_name']} [{cd['term_id']}]" for cd in obj['death']['cause_of_death']]
+			obj['death'] = {'cause_of_death': ','.join(causes_of_death)}
 
 	elif obj_type == 'specimen_from_organism':
 		if obj.get('spatial_information'):
