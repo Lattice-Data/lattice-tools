@@ -778,7 +778,14 @@ def customize_fields(obj, obj_type):
 					obj['gestational_age'] = str(age + 14)
 		if obj.get('human_specific'):
 			if obj['human_specific'].get('ethnicity'):
-				obj['human_specific']['ethnicity'] = [obj['human_specific']['ethnicity']]
+				new_eths = []
+				for e in obj['human_specific']['ethnicity']:
+					new_eths.append({
+						'ontology': e['term_id'],
+						'ontology_label': e['term_name'],
+						'text': e['term_name']
+						})
+				obj['human_specific']['ethnicity'] = new_eths
 			if obj['human_specific'].get('body_mass_index'):
 				if '-' in obj['human_specific']['body_mass_index']:
 					del obj['human_specific']['body_mass_index']
