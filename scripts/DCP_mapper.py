@@ -614,7 +614,7 @@ def create_protocol(in_type, out_type, out_obj):
 			meth_txt.append('by {}'.format(','.join(enrich_derivs)))
 		enr_obj['method']['text'] = ' '.join(meth_txt)
 		if out_obj.get('enrichment_factors'):
-			enr_obj['markers'] = out_obj['enrichment_factors']
+			enr_obj['markers'] = ','.join(out_obj['enrichment_factors'])
 		enpr_id = uuid_make([pr_type + in_type + out_type + str(enr_obj)])
 		prots.append({'protocol_type': pr_type,'protocol_id': enpr_id})	
 		enr_obj['protocol_core']['protocol_id'] = enpr_id
