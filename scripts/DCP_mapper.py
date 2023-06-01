@@ -1004,7 +1004,7 @@ def file_descript(obj, obj_type, dataset):
 def main():
 	logging.info('GETTING THE DATASET')
 	#large Datasets may produce a 504
-	#I open the json in the browser
+	#I open the json in the browser - https://www.lattice-data.org/datasets/accession/?format=json
 	#copy/paste into https://jsonformatter.curiousconcept.com/# to add quotes
 	#save it to a file of accession.json
 	datasets_too_big = ['LATDS169XWF']
@@ -1024,6 +1024,7 @@ def main():
 	# in case a project is already in the DCP, we may need to match the project ID to that
 	lattice_dataset_id = ds_obj['uuid']
 	dcp_projects = {
+		'2a13992b-c518-4f12-8536-09c92d51d707': '16e99159-78bc-44aa-b479-55a5e903bf50', # van Zyl et al 2022 (Sanes)
 		'49104d6a-0e30-4180-94b9-bf552b110686': 'dbd836cf-bfc2-41f0-9834-41cc6c0b235a', # Lavaert et al 2020
 		'e62da5d2-33fb-4a3d-bdd7-4daca3a042cd': '9c20a245-f2c0-43ae-82c9-2232ec6b594f' # Chen retina
 		}
