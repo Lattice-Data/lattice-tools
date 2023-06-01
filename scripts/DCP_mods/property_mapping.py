@@ -74,14 +74,8 @@ donor = {
 }
 
 human_donor = {
-	'human_specific.ethnicity.ontology': {
-		'lattice': 'ethnicity.term_id'
-	},
-	'human_specific.ethnicity.ontology_label': {
-		'lattice': 'ethnicity.term_name'
-	},
-	'human_specific.ethnicity.text': {
-		'lattice': 'ethnicity.term_name'
+	'human_specific.ethnicity': {
+		'lattice': 'ethnicity'
 	}
 }
 
