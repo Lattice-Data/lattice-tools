@@ -1031,9 +1031,6 @@ def main():
 	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
 	ds_obj['uuid'] = dataset_id
 
-	if not os.path.isdir('DCP_outs'):
-		os.mkdir('DCP_outs')
-
 	if args.validate_only:
 		dcp_errors = dcp_validation(dataset_id)
 		if dcp_errors != 0:
@@ -1210,7 +1207,10 @@ def main():
 		quit()
 
 if __name__ == '__main__':
-	logging.basicConfig(filename='mapper.log', level=logging.INFO)
+	if not os.path.isdir('DCP_outs'):
+		os.mkdir('DCP_outs')
+
+	logging.basicConfig(filename='DCP_outs/mapper.log', level=logging.INFO)
 	logging.info('STARTED')
 	# set the current date time, used to version throughout
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
