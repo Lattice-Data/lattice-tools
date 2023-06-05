@@ -614,7 +614,7 @@ def create_protocol(in_type, out_type, out_obj):
 			meth_txt.append('by {}'.format(','.join(enrich_derivs)))
 		enr_obj['method']['text'] = ' '.join(meth_txt)
 		if out_obj.get('enrichment_factors'):
-			enr_obj['markers'] = out_obj['enrichment_factors']
+			enr_obj['markers'] = ','.join(out_obj['enrichment_factors'])
 		enpr_id = uuid_make([pr_type + in_type + out_type + str(enr_obj)])
 		prots.append({'protocol_type': pr_type,'protocol_id': enpr_id})	
 		enr_obj['protocol_core']['protocol_id'] = enpr_id
@@ -778,9 +778,16 @@ def customize_fields(obj, obj_type):
 					obj['gestational_age'] = str(age + 14)
 		if obj.get('human_specific'):
 			if obj['human_specific'].get('ethnicity'):
-				obj['human_specific']['ethnicity'] = [obj['human_specific']['ethnicity']]
+				new_eths = []
+				for e in obj['human_specific']['ethnicity']:
+					new_eths.append({
+						'ontology': e['term_id'],
+						'ontology_label': e['term_name'],
+						'text': e['term_name']
+						})
+				obj['human_specific']['ethnicity'] = new_eths
 			if obj['human_specific'].get('body_mass_index'):
-				if '-' in obj['human_specific']['body_mass_index']:
+				if '-' in obj['human_specific']['body_mass_index'] or obj['human_specific']['body_mass_index'] == 'variable':
 					del obj['human_specific']['body_mass_index']
 				else:
 					obj['human_specific']['body_mass_index'] = float(obj['human_specific']['body_mass_index'])
@@ -791,6 +798,9 @@ def customize_fields(obj, obj_type):
 			if obj['medical_history'].get('test_results'):
 				tr = [k + ':' + v for k,v in obj['medical_history']['test_results'].items()]
 				obj['medical_history']['test_results'] = ','.join(tr)
+		if obj.get('death'):
+			causes_of_death = [f"{cd['term_name']} [{cd['term_id']}]" for cd in obj['death']['cause_of_death']]
+			obj['death'] = {'cause_of_death': ','.join(causes_of_death)}
 
 	elif obj_type == 'specimen_from_organism':
 		if obj.get('spatial_information'):
@@ -919,10 +929,10 @@ def customize_fields(obj, obj_type):
 		if obj.get('read_structure'):
 			for rs in obj['read_structure']:
 				length = rs['end'] - rs['start'] + 1
-				read_type = rs['located_in_read_type'].strip('N')
+				read_type = rs['located_in_read_type'].strip('N').replace('index','Index')
 				if rs['sequence_element'] == 'cell barcode':
 					obj['cell_barcode'] = {
-						'barcode_read': rs['located_in_read_type'],
+						'barcode_read': read_type,
 						'barcode_offset': rs['start'] - 1, #1-based to 0-based
 						'barcode_length': length
 					}
@@ -931,13 +941,13 @@ def customize_fields(obj, obj_type):
 						del obj['cell_barcode_whitelist']
 				if rs['sequence_element'] == 'spatial barcode':
 					obj['spatial_barcode'] = {
-						'barcode_read': rs['located_in_read_type'],
+						'barcode_read': read_type,
 						'barcode_offset': rs['start'] - 1, #1-based to 0-based
 						'barcode_length': length
 					}
 				if rs['sequence_element'] == 'UMI':
 					obj['umi_barcode'] = {
-						'barcode_read': rs['located_in_read_type'],
+						'barcode_read': read_type,
 						'barcode_offset': rs['start'] - 1, #1-based to 0-based
 						'barcode_length': length
 					}
@@ -994,7 +1004,7 @@ def file_descript(obj, obj_type, dataset):
 def main():
 	logging.info('GETTING THE DATASET')
 	#large Datasets may produce a 504
-	#I open the json in the browser
+	#I open the json in the browser - https://www.lattice-data.org/datasets/accession/?format=json
 	#copy/paste into https://jsonformatter.curiousconcept.com/# to add quotes
 	#save it to a file of accession.json
 	datasets_too_big = ['LATDS169XWF']
@@ -1014,14 +1024,12 @@ def main():
 	# in case a project is already in the DCP, we may need to match the project ID to that
 	lattice_dataset_id = ds_obj['uuid']
 	dcp_projects = {
+		'2a13992b-c518-4f12-8536-09c92d51d707': '16e99159-78bc-44aa-b479-55a5e903bf50', # van Zyl et al 2022 (Sanes)
 		'49104d6a-0e30-4180-94b9-bf552b110686': 'dbd836cf-bfc2-41f0-9834-41cc6c0b235a', # Lavaert et al 2020
 		'e62da5d2-33fb-4a3d-bdd7-4daca3a042cd': '9c20a245-f2c0-43ae-82c9-2232ec6b594f' # Chen retina
 		}
 	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
 	ds_obj['uuid'] = dataset_id
-
-	if not os.path.isdir('DCP_outs'):
-		os.mkdir('DCP_outs')
 
 	if args.validate_only:
 		dcp_errors = dcp_validation(dataset_id)
@@ -1199,7 +1207,10 @@ def main():
 		quit()
 
 if __name__ == '__main__':
-	logging.basicConfig(filename='mapper.log', level=logging.INFO)
+	if not os.path.isdir('DCP_outs'):
+		os.mkdir('DCP_outs')
+
+	logging.basicConfig(filename='DCP_outs/mapper.log', level=logging.INFO)
 	logging.info('STARTED')
 	# set the current date time, used to version throughout
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')
