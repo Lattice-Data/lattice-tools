@@ -787,7 +787,7 @@ def customize_fields(obj, obj_type):
 						})
 				obj['human_specific']['ethnicity'] = new_eths
 			if obj['human_specific'].get('body_mass_index'):
-				if '-' in obj['human_specific']['body_mass_index']:
+				if '-' in obj['human_specific']['body_mass_index'] or obj['human_specific']['body_mass_index'] == 'variable':
 					del obj['human_specific']['body_mass_index']
 				else:
 					obj['human_specific']['body_mass_index'] = float(obj['human_specific']['body_mass_index'])
