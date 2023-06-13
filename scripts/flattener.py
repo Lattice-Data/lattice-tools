@@ -1138,6 +1138,12 @@ def main(mfinal_id):
 				elif mxr['s3_uri'].endswith('h5ad'):
 					mxr_name = '{}.h5ad'.format(mxr_acc)
 				download_directory(mfinal_obj['spatial_s3_uri'], tmp_dir)
+				# If tissue_positions is present rename to tissue_positions_list and remove header
+				tiss_positions_check = os.path.exists(tmp_dir + '/spatial/tissue_positions.csv')
+				if tiss_positions_check == True:
+					fixed_file = pd.read_csv(tmp_dir + '/spatial/tissue_positions.csv', header = 1)
+					fixed_file.to_csv(tmp_dir + '/spatial/tissue_positions_list.csv')
+					os.remove(tmp_dir + '/spatial/tissue_positions.csv'
 				if 'spatial' in mfinal_adata.uns.keys():
 					del mfinal_adata.uns['spatial']
 				adata_raw = sc.read_visium(tmp_dir, count_file=mxr_name)
