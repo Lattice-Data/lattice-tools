@@ -59,7 +59,9 @@ cell_metadata = {
 		'disease_state',
 		'source',
 		'summary_body_mass_index_at_collection',
-		'treatment_summary'
+		'treatment_summary',
+		'growth_medium',
+		'genetic_modifications'
 		],
 	'tissue_section': [
 		'uuid',
@@ -136,6 +138,8 @@ prop_map = {
 	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
 	'sample_disease_state': 'disease_state',
 	'sample_summary_body_mass_index_at_collection': 'donor_BMI_at_collection',
+	'sample_growth_medium': 'growth_medium',
+	'sample_genetic_modifications': 'genetic_modifications',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_sex': 'sex',
 	'donor_donor_id': 'donor_id',
@@ -670,9 +674,10 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 
 
 # For cell culture, tissue is not UBERON, use cell slims to get CL
-def get_cell_slim(df_series, suffix):
-	cell = df_series['sample_biosample_ontology_cell_slims'].split("'")[1].replace(" ", "+")
-	df_series.drop(labels='sample_biosample_ontology_cell_slims', inplace=True)
+def get_cell_slim(row_to_add, suffix):
+	rmx = row_to_add.index.to_list()[0]
+	cell = row_to_add.loc[rmx, 'sample_biosample_ontology_cell_slims'].split("'")[1].replace(" ", "+")
+	row_to_add.drop(columns=['sample_biosample_ontology_cell_slims'], inplace=True)
 	query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + cell + '&format=json')
 	r = requests.get(query_url, auth=connection.auth)
 	try:
@@ -681,7 +686,7 @@ def get_cell_slim(df_series, suffix):
 		sys.exit("Error in getting cell slim as tissue ontology: {}".format(query_url))
 	else:
 		if r.json()['total']==1:
-			df_series['tissue_ontology_term_id'] = r.json()['@graph'][0]['term_id'] + suffix
+			row_to_add['tissue_ontology_term_id'] = r.json()['@graph'][0]['term_id'] + suffix
 		else:
 			sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
 
@@ -962,7 +967,7 @@ def drop_cols(celltype_col):
 			'donor_living_at_sample_collection','donor_menopausal_status','donor_smoking_status','sample_derivation_process','suspension_dissociation_reagent',\
 			'suspension_dissociation_time','suspension_depleted_cell_types','suspension_derivation_process','suspension_percent_cell_viability',\
 			'library_starting_quantity','library_starting_quantity_units','tissue_handling_interval','suspension_dissociation_time_units','alignment_software',\
-			'mapped_reference_annotation','mapped_reference_assembly','sequencing_platform','sample_source','donor_cause_of_death']
+			'mapped_reference_annotation','mapped_reference_assembly','sequencing_platform','sample_source','donor_cause_of_death', 'growth_medium','genetic_modifications']
 	
 	if 'sequencing_platform' in cxg_obs.columns:
 		if cxg_obs['sequencing_platform'].isnull().values.any():
