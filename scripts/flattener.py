@@ -1141,8 +1141,8 @@ def main(mfinal_id):
 				# If tissue_positions is present rename to tissue_positions_list and remove header
 				tiss_positions_check = os.path.exists(tmp_dir + '/spatial/tissue_positions.csv')
 				if tiss_positions_check == True:
-					fixed_file = pd.read_csv(tmp_dir + '/spatial/tissue_positions.csv', header = 1)
-					fixed_file.to_csv(tmp_dir + '/spatial/tissue_positions_list.csv')
+					fixed_file = pd.read_csv(tmp_dir + '/spatial/tissue_positions.csv', skiprows = 1, header = None)
+					fixed_file.to_csv(tmp_dir + '/spatial/tissue_positions_list.csv', header = False)
 					os.remove(tmp_dir + '/spatial/tissue_positions.csv'
 				if 'spatial' in mfinal_adata.uns.keys():
 					del mfinal_adata.uns['spatial']
