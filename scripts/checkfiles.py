@@ -405,24 +405,8 @@ def process_h5matrix_file(job):
         if len(with_version) > 0:
             errors['ENSG.N format'] = str(len(without_version)) + ' IDs without version in var.gene_versions'
 
-    if 'feature_types' in adata.var.columns:
-        gene_exp_var = adata.var[adata.var['feature_types'] == 'Gene Expression']
-        if not gene_exp_var.empty:
-            if gene_exp_var.shape[0] > 16000:
-                diff = gene_exp_var.index.shape[0] - gene_exp_var.index.unique().shape[0]
-                if diff == 0:
-                    if len([g for g in adata.var.index if g.startswith('ENS')]) == adata.var.shape[0]:
-                        results['feature_keys'] = ['Ensembl gene ID']
-                    else:
-                        errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
-    else:
-        diff = adata.var.index.shape[0] - adata.var.index.unique().shape[0]
-        if diff == 0:
-            if len([g for g in adata.var.index if g.startswith('ENS')]) == adata.var.shape[0]:
-                results['feature_keys'] = ['Ensembl gene ID']
-            else:
-                errors['var.index'] = 'unique (gene symbols are expected to have some duplication)'
-
+    if len([g for g in adata.var.index if g.startswith('ENS')]) == adata.var.shape[0]:
+            results['feature_keys'] = ['Ensembl gene ID']
 
     check_dates = ['Mar-1','1-Mar','Dec-1','1-Dec']
     date_symbols = [s for s in check_dates if s in adata.var.index]
