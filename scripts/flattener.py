@@ -50,7 +50,6 @@ cell_metadata = {
 		'preservation_method',
 		'biosample_ontology.term_id',
 		'biosample_ontology.organ_slims',
-		'biosample_ontology.cell_slims',
 		'summary_development_ontology_at_collection.development_slims',
 		'summary_development_ontology_at_collection.term_id',
 		'derivation_process',
@@ -673,24 +672,6 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 	return(lib_donor_df)
 
 
-# For cell culture, tissue is not UBERON, use cell slims to get CL
-def get_cell_slim(row_to_add, suffix):
-	rmx = row_to_add.index.to_list()[0]
-	cell = row_to_add.loc[rmx, 'sample_biosample_ontology_cell_slims'].split("'")[1].replace(" ", "+")
-	row_to_add.drop(columns=['sample_biosample_ontology_cell_slims'], inplace=True)
-	query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + cell + '&format=json')
-	r = requests.get(query_url, auth=connection.auth)
-	try:
-		r.raise_for_status()
-	except requests.HTTPError:
-		sys.exit("Error in getting cell slim as tissue ontology: {}".format(query_url))
-	else:
-		if r.json()['total']==1:
-			row_to_add['tissue_ontology_term_id'] = r.json()['@graph'][0]['term_id'] + suffix
-		else:
-			sys.exit("Error in getting organ slim as tissue ontology: {}".format(query_url))
-
-
 # Ontologize sex from donor.sex enum
 def get_sex_ontology(donor_df):
 	term_lookup = {
@@ -1125,14 +1106,6 @@ def main(mfinal_id):
 				elif len(objs) > 1:
 					gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
-
-		# make sure donor_df contains UBERON for tissue, may need to revisit 'if' statement
-		if 'demultiplexed_donor_column' not in mfinal_obj:
-			if not row_to_add.loc[mxr['@id'],'tissue_ontology_term_id'].startswith('UBERON'):
-				if row_to_add.loc[mxr['@id'],'tissue_ontology_term_id'].endswith('(cell culture)'):
-					get_cell_slim(row_to_add, ' (cell culture)')
-				else:
-					sys.exit('Tissue should have an UBERON ontology term: {}'.format(row_to_add['tissue_ontology_term_id']))
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay in ['RNA','CITE']:
