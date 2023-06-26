@@ -553,12 +553,13 @@ def compile_annotations(files):
 	bucket_name = 'submissions-lattice'
 	for key in files:
 		filename = tmp_dir + "/" + files[key]
-		try:
-			client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
-		except subprocess.CalledProcessError as e:
-			sys.exit('Failed to find file {} on s3'.format(file_obj.get('@id')))
-		else:
-			print("Downloading reference: {}".format(files[key]))
+		if os.path.exists(filename) == False:
+			try:
+				client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
+			except subprocess.CalledProcessError as e:
+				sys.exit('Failed to find file {} on s3'.format(file_obj.get('@id')))
+			else:
+				print("Downloading reference: {}".format(files[key]))
 		df = pd.read_csv(filename, names=['feature_id','symbol','num'], dtype='str')
 		ids  = pd.concat([ids,df])
 	return ids
@@ -1037,8 +1038,14 @@ def main(mfinal_id):
 	df = pd.DataFrame()
 
 	results = {}
-	os.mkdir(tmp_dir)
-	download_file(mfinal_obj, tmp_dir)
+	
+	# Checking for presence of matrix_files, and creating if not present
+	if os.path.exists(tmp_dir) == False:
+		os.mkdir(tmp_dir)
+		
+	# Checking for presence of h5ad, and downloading if not present
+	if os.path.exists(tmp_dir + '/' + mfinal_obj['accession'] + '.h5ad') == False:
+		download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -1109,12 +1116,21 @@ def main(mfinal_id):
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay in ['RNA','CITE']:
-			download_file(mxr, tmp_dir)
+			# Checking for presence of mxr file and downloading if not present
+			if mxr['s3_uri'].endswith('h5'):
+				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5') == False:
+					download_file(mxr, tmp_dir)
+			elif mxr['s3_uri'].endswith('h5ad'):
+				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5ad') == False:
+					download_file(mxr, tmp_dir)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				if mxr['s3_uri'].endswith('h5'):
 					mxr_name = '{}.h5'.format(mxr_acc)
 				elif mxr['s3_uri'].endswith('h5ad'):
 					mxr_name = '{}.h5ad'.format(mxr_acc)
+				# Checking for presence of spatial directory and redownloading if present
+				if os.path.exists(tmp_dir + '/spatial'):
+					shutil.rmtree(tmp_dir + '/spatial')
 				download_directory(mfinal_obj['spatial_s3_uri'], tmp_dir)
 				# If tissue_positions is present rename to tissue_positions_list and remove header
 				if os.path.exists(tmp_dir + '/spatial/tissue_positions.csv') == True:
@@ -1388,8 +1404,6 @@ def main(mfinal_id):
 	cxg_adata.raw = cxg_adata_raw
 	quality_check(cxg_adata)
 	cxg_adata.write_h5ad(results_file, compression = 'gzip')
-
-	shutil.rmtree(tmp_dir)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
