@@ -1142,7 +1142,7 @@ def main(mfinal_id):
 			if mxr['s3_uri'].endswith('h5'):
 				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5') == False:
 					download_file(mxr, tmp_dir)
-			if mxr['s3_uri'].endswith('h5ad'):
+			elif mxr['s3_uri'].endswith('h5ad'):
 				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5ad') == False:
 					download_file(mxr, tmp_dir)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
@@ -1151,11 +1151,9 @@ def main(mfinal_id):
 				elif mxr['s3_uri'].endswith('h5ad'):
 					mxr_name = '{}.h5ad'.format(mxr_acc)
 				# Checking for presence of spatial directory and redownloading if present
-				if os.path.exists(tmp_dir + '/spatial') == False:
-					download_directory(mfinal_obj['spatial_s3_uri'], tmp_dir)
-				else:
+				if os.path.exists(tmp_dir + '/spatial'):
 					shutil.rmtree(tmp_dir + '/spatial')
-					download_directory(mfinal_obj['spatial_s3_uri'], tmp_dir)
+				download_directory(mfinal_obj['spatial_s3_uri'], tmp_dir)
 				# If tissue_positions is present rename to tissue_positions_list and remove header
 				if os.path.exists(tmp_dir + '/spatial/tissue_positions.csv') == True:
 					fixed_file = pd.read_csv(tmp_dir + '/spatial/tissue_positions.csv', skiprows = 1, header = None)
