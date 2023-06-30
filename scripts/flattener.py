@@ -668,7 +668,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 		 	else: 
 		 		print('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		row_to_add = pd.Series(values_to_add)
-		susp_df = susp_df.append(row_to_add, ignore_index=True)
+		susp_df = pd.concat([susp_df,row_to_add], ignore_index=True)
 	lib_donor_df = lib_donor_df.merge(susp_df, left_on='suspension_@id', right_on='suspension_@id', how='left')
 	return(lib_donor_df)
 
@@ -782,14 +782,14 @@ def reconcile_genes(cxg_adata_lst):
 	for cxg_adata in cxg_adata_lst:
 		cxg_adata.var['gene_symbols'] = cxg_adata.var.index
 		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
-	cxg_adata_raw_ensembl = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
+	cxg_adata_raw_ensembl = cxg_adata_lst[0].concat(cxg_adata_lst[1:], index_unique=None, joint='outer')
 
 	# Join raw matrices on gene symbol, ensembl stored as metadata. Add suffix to make unique, using '.' as to match R default
 	for cxg_adata in cxg_adata_lst:
 		cxg_adata.var['gene_ids'] = cxg_adata.var.index
 		cxg_adata.var =  cxg_adata.var.set_index('gene_symbols', drop=True)
 		cxg_adata.var_names_make_unique(join = '.')
-	cxg_adata_raw_symbol = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
+	cxg_adata_raw_symbol = cxg_adata_lst[0].concat(cxg_adata_lst[1:], index_unique=None, join='outer')
 
 	# Go through adata indexed on symbol to see which have > 1 Ensembl ID
 	gene_pd_symbol = cxg_adata_raw_symbol.var[[i for i in cxg_adata_raw_symbol.var.columns.values.tolist() if 'gene_ids' in i]]
@@ -1250,7 +1250,7 @@ def main(mfinal_id):
 			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
 			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
 		else:
-			cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer', uns_merge='first')
+			cxg_adata_raw = cxg_adata_lst[0].concat(cxg_adata_lst[1:],index_unique=None, join='outer', uns_merge='first')
 			if len(feature_lengths) == 1:
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
@@ -1258,7 +1258,7 @@ def main(mfinal_id):
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'CITE':
-		cxg_adata_raw = cxg_adata_lst[0].concatenate(cxg_adata_lst[1:], index_unique=None, join='outer')
+		cxg_adata_raw = cxg_adata_lst[0].concat(cxg_adata_lst[1:], index_unique=None, join='outer')
 		if len(feature_lengths) == 1:
 			if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
