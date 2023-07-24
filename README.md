@@ -1,5 +1,5 @@
 # lattice-tools
-External scripts used to interact with the Lattice Database
+Scripts used by the Lattice data coordination team for single cell data wrangling
 
 ## Environment configuration
 
@@ -28,7 +28,7 @@ So you'd define the following three variables.
 
 	`$ conda env config vars set PROD_SERVER=https://www.lattice-data.org/`
 
-Your demo access will be the same, but the demo server will change with each new demo.
+    Your demo access will be the same, but the demo server will change with each new demo.
 
 	`$ conda env config vars set DEMO_KEY=<key>`
 
@@ -47,7 +47,7 @@ Your demo access will be the same, but the demo server will change with each new
 
 ### cellxgene_resources - for curating towards CZ CELLxGENE Discover
 * **curation_qa.ipynb**
-Quality Assurance checks on an AnnData object
+Quality assurance checks on an AnnData object
 
 * **curation_sample_code.ipynb**
 Various samples of how to manipulate an AnnData object during curation
@@ -55,7 +55,7 @@ Various samples of how to manipulate an AnnData object during curation
 * **upload_local.ipynb**
 Submitting local files to CELLxGENE
 
-### scripts - for curating towards Lattice
+### scripts - for curating towards or out of Lattice
 * **DCP_mapper.py**
 Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)
 
