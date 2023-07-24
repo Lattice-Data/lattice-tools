@@ -1,8 +1,8 @@
 # lattice-tools
 External scripts used to interact with the Lattice Database
 
-Environment configuration
----------------- 
+## Environment configuration
+
 1. Create a virtual environment. This example uses anaconda. Other options would also work, like venv or pyenv
     ```
     conda create --name lattice python=3.9
@@ -43,22 +43,36 @@ Your demo access will be the same, but the demo server will change with each new
     conda env config vars list
     ```
 
-Available tools
----------------- 
-* **qcmetrics_reader.py**
-Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
+## Available tools
+
+### cellxgene_resources - for curating towards CZ CELLxGENE Discover
+* **curation_qa.ipynb**
+Quality Assurance checks on an AnnData object
+
+* **curation_sample_code.ipynb**
+Various samples of how to manipulate an AnnData object during curation
+
+* **upload_local.ipynb**
+Submitting local files to CELLxGENE
+
+### scripts - for curating towards Lattice
+* **DCP_mapper.py**
+Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)
 
 * **checkfiles.py**
 Gathers data file content information and compares with submitted metadata [run instructions](docs/checkfiles.md)
 
-* **DCP_mapper.py**
-Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)
-
 * **flattener.py**
 Transforms a contributor matrix, raw count data, and Lattice metadata into a cellxgene-approved matrix file [run instructions](docs/flattener.md)
 
+* **geo_metadata.py**
+Transforms a Lattice Dataset into GEO submission format
+
 * **make_template.py**
 Produces a tabular representation of Lattice schema submittable properties, for ease of wrangling
+
+* **qcmetrics_reader.py**
+Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
 
 * **submit_metadata.py**
 Transforms tabulated metadata into json objects and posts/patches to the Lattice DB [use instructions](docs/submit_metadata.md)
