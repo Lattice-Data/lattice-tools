@@ -5,45 +5,38 @@ Environment configuration
 ---------------- 
 1. Create a virtual environment. This example uses anaconda. Other options would also work, like venv or pyenv
     ```
-    conda create --name lattice_submit python=3.7
+    conda create --name lattice python=3.9
     ```
     You will need to be in this environment for the following instructions
     ```
-    conda activate lattice_submit
+    conda activate lattice
     ```
-*Note: the examples call the environment `lattice_submit` but you can name it anything as long as it is clearly distinguishable from the enviroment you use to launch the encoded app*
 
-1. Install the following packages
+2. Install the following packages
     ```
-    pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
-    ```
-    ```
-    pip install google-cloud-storage google-auth-httplib2
+    conda install -c conda-forge pint pandas jsonschema boto3 jupyter bs4
     ```
     ```
-    pip install python-magic-bin==0.4.14
+    pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy python-magic-bin==0.4.14 crcmod cellxgene-schema
     ```
-    ```
-    conda install -c conda-forge anndata
-    ```
-    ```
-    conda install -c conda-forge pint
-    ```
-    ```
-    conda install pandas jsonschema
-    ```
-1. Define variables in your environment based on the various servers you might submit to based on an alias for each server (`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to a local instance of the app, you might call this `local`.  
+3. Define variables in your environment based on the various servers you might submit to based on an alias for each server (`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to the production instance of Lattice, you might call this `prod`.
 So you'd define the following three variables.
 
-	`$ conda env config vars set LOCAL_KEY=<key>`
+	`$ conda env config vars set PROD_KEY=<key>`
 
-	`$ conda env config vars set LOCAL_SECRET=<secret>`
+	`$ conda env config vars set PROD_SECRET=<secret>`
 
-	`$ conda env config vars set LOCAL_SERVER=http://localhost:6543`
+	`$ conda env config vars set PROD_SERVER=https://www.lattice-data.org/`
 
-1. After defining those, you'll need to reactivate your environment
+Your demo access will be the same, but the demo server will change with each new demo.
+
+	`$ conda env config vars set DEMO_KEY=<key>`
+
+	`$ conda env config vars set DEMO_SECRET=<secret>`
+
+4. After defining those, you'll need to reactivate your environment
     ```
-    conda activate lattice_submit
+    conda activate lattice
     ```
 	You can then confirm that they are defined
     ```
