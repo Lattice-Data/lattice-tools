@@ -58,6 +58,14 @@ Submitting local files to CELLxGENE
 ### scripts - for curating towards or out of Lattice
 * **DCP_mapper.py**
 Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)
+Requires additional steps
+    ```
+    conda install -c conda-forge google-api-python-client
+    ```
+    ```
+    pip install google-cloud-storage
+    ```
+    `$ conda env config vars set GOOGLE_APPLICATION_CREDENTIALS=<creds.json>`
 
 * **checkfiles.py**
 Gathers data file content information and compares with submitted metadata [run instructions](docs/checkfiles.md)
@@ -70,6 +78,10 @@ Transforms a Lattice Dataset into GEO submission format
 
 * **make_template.py**
 Produces a tabular representation of Lattice schema submittable properties, for ease of wrangling
+Requires additional steps
+    Follow instructions [here](https://www.twilio.com/blog/2017/02/an-easy-way-to-read-and-write-to-a-google-spreadsheet-in-python.html) to enable API & generate credentials
+    `$ conda env config vars set CLIENT_SECRET_FILE=<creds.json>`
+
 
 * **qcmetrics_reader.py**
 Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
