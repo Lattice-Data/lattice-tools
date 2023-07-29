@@ -45,7 +45,7 @@ So you'd define the following three variables.
 
 ## Available tools
 
-### cellxgene_resources - for curating towards CZ CELLxGENE Discover
+### cellxgene_resources/<br>*for curating towards [CZ CELLxGENE Discover](cellxgene.cziscience.com)*
 * **curation_qa.ipynb**
 Quality assurance checks on an AnnData object
 
@@ -55,7 +55,7 @@ Various samples of how to manipulate an AnnData object during curation
 * **upload_local.ipynb**
 Submitting local files to CELLxGENE
 
-### scripts - for curating towards or out of Lattice
+### scripts/<br>*for curating towards or out of [Lattice DB](lattice-data.org)*
 * **checkfiles.py**
 Gathers data file content information and compares with submitted metadata [run instructions](docs/checkfiles.md)
 
