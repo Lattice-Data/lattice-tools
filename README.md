@@ -1,71 +1,90 @@
 # lattice-tools
-External scripts used to interact with the Lattice Database
+Scripts used by the Lattice data coordination team for single cell data wrangling
 
-Environment configuration
----------------- 
+## Environment configuration
+
 1. Create a virtual environment. This example uses anaconda. Other options would also work, like venv or pyenv
     ```
-    conda create --name lattice_submit python=3.7
+    conda create --name lattice python=3.9
     ```
     You will need to be in this environment for the following instructions
     ```
-    conda activate lattice_submit
+    conda activate lattice
     ```
-*Note: the examples call the environment `lattice_submit` but you can name it anything as long as it is clearly distinguishable from the enviroment you use to launch the encoded app*
 
-1. Install the following packages
+2. Install the following packages
     ```
-    pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy
-    ```
-    ```
-    pip install google-cloud-storage google-auth-httplib2
+    conda install -c conda-forge pint pandas jsonschema boto3 jupyter bs4
     ```
     ```
-    pip install python-magic-bin==0.4.14
+    pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy python-magic-bin crcmod cellxgene-schema
     ```
-    ```
-    conda install -c conda-forge anndata
-    ```
-    ```
-    conda install -c conda-forge pint
-    ```
-    ```
-    conda install pandas jsonschema
-    ```
-1. Define variables in your environment based on the various servers you might submit to based on an alias for each server (`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to a local instance of the app, you might call this `local`.  
+3. Define variables in your environment based on the various servers you might submit to based on an alias for each server (`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to the production instance of Lattice, you might call this `prod`.
 So you'd define the following three variables.
 
-	`$ conda env config vars set LOCAL_KEY=<key>`
+	`$ conda env config vars set PROD_KEY=<key>`
 
-	`$ conda env config vars set LOCAL_SECRET=<secret>`
+	`$ conda env config vars set PROD_SECRET=<secret>`
 
-	`$ conda env config vars set LOCAL_SERVER=http://localhost:6543`
+	`$ conda env config vars set PROD_SERVER=https://www.lattice-data.org/`
 
-1. After defining those, you'll need to reactivate your environment
+    Your demo access will be the same, but the demo server will change with each new demo.
+
+	`$ conda env config vars set DEMO_KEY=<key>`
+
+	`$ conda env config vars set DEMO_SECRET=<secret>`
+
+4. After defining those, you'll need to reactivate your environment
     ```
-    conda activate lattice_submit
+    conda activate lattice
     ```
 	You can then confirm that they are defined
     ```
     conda env config vars list
     ```
 
-Available tools
----------------- 
-* **qcmetrics_reader.py**
-Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
+## Available tools
 
+### cellxgene_resources/<br>*for curating towards [CZ CELLxGENE Discover](cellxgene.cziscience.com)*
+* **curation_qa.ipynb**
+Quality assurance checks on an AnnData object
+
+* **curation_sample_code.ipynb**
+Various samples of how to manipulate an AnnData object during curation
+
+* **upload_local.ipynb**
+Submitting local files to CELLxGENE
+
+### scripts/<br>*for curating towards or out of [Lattice DB](lattice-data.org)*
 * **checkfiles.py**
 Gathers data file content information and compares with submitted metadata [run instructions](docs/checkfiles.md)
 
 * **DCP_mapper.py**
-Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)
+Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)<br>
+Requires additional steps:
+    ```
+    pip install google-api-python-client ; google-cloud-storage
+    ```
+    `$ conda env config vars set GOOGLE_APPLICATION_CREDENTIALS=<creds.json>`
 
 * **flattener.py**
 Transforms a contributor matrix, raw count data, and Lattice metadata into a cellxgene-approved matrix file [run instructions](docs/flattener.md)
 
+* **geo_metadata.py**
+Transforms a Lattice Dataset into GEO submission format
+
 * **make_template.py**
-Produces a tabular representation of Lattice schema submittable properties, for ease of wrangling
+Produces a tabular representation of Lattice schema submittable properties, for ease of wrangling<br>
+Requires additional steps:<br>
+    Follow instructions [here](https://www.twilio.com/blog/2017/02/an-easy-way-to-read-and-write-to-a-google-spreadsheet-in-python.html) to enable API & generate credentials<br>
+    `$ conda env config vars set CLIENT_SECRET_FILE=<creds.json>`
+
+
+* **qcmetrics_reader.py**
+Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
+
+* **query_by_dataset_lab.ipynb**
+Return Donor, Sample, or Suspension objects from the Lattice DB for a given Dataset or Lab
 
 * **submit_metadata.py**
 Transforms tabulated metadata into json objects and posts/patches to the Lattice DB [use instructions](docs/submit_metadata.md)
