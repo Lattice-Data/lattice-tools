@@ -55,7 +55,7 @@ Various samples of how to manipulate an AnnData object during curation
 * **upload_local.ipynb**
 Submitting local files to CELLxGENE<br>
 Please note: <br>
-    This script utilizes the [single-cell-curation](https://github.com/chanzuckerberg/single-cell-curation/tree/main) repo which should be cloned to the following directory: `~/GitClones/CZI/` and CXG API keys should be stored in `~/Documents/keys/cxg-api-key.txt`
+    This script utilizes the [single-cell-curation](https://github.com/chanzuckerberg/single-cell-curation/tree/main) repo which should be cloned to the following directory `~/GitClones/CZI/` and CXG API keys should be stored in `~/Documents/keys/cxg-api-key.txt`
 
 
 ### scripts/<br>*for curating towards or out of [Lattice DB](lattice-data.org)*
