@@ -1398,12 +1398,14 @@ def main(mfinal_id):
 		add_labels()
 		map_antibody()
 		add_zero()
-	
+
+	# Check if mfinal_obj matrix is normalized, if not then place raw in adata.X
+	if mfinal_obj['X_normalized'] == False:
+		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-
 	# Copy over any additional data from mfinal_adata to cxg_adatda
 	reserved_uns = ['schema_version', 'title', 'batch_condition', 'default_embedding', 'X_approximate_distribution']
 	for i in mfinal_adata.uns.keys():
