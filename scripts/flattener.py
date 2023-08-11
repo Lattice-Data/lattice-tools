@@ -593,7 +593,7 @@ def quality_check(adata):
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
-	elif mfinal_adata['X_normalized'] == True:
+	elif mfinal_obj['X_normalized'] == True:
 		if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
 			sys.exit("There are more genes in normalized genes than in raw matrix.")
 
