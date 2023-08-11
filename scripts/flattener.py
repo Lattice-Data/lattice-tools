@@ -593,8 +593,9 @@ def quality_check(adata):
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
-	elif len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
-		sys.exit("There are more genes in normalized genes than in raw matrix.")
+	elif mfinal_adata['X_normalized'] == True:
+		if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
+			sys.exit("There are more genes in normalized genes than in raw matrix.")
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
@@ -1399,9 +1400,6 @@ def main(mfinal_id):
 		map_antibody()
 		add_zero()
 
-	# Check if mfinal_obj matrix is normalized, if not then place raw in adata.X
-	if mfinal_obj['X_normalized'] == False:
-		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
@@ -1414,7 +1412,12 @@ def main(mfinal_id):
 	if mfinal_adata.obsp:
 		cxg_adata.obsp = mfinal_adata.obsp
 
-	cxg_adata.raw = cxg_adata_raw
+	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
+	if mfinal_obj['X_normalized']:
+		cxg_adata.raw = cxg_adata_raw
+	else:
+		cxg_adata.var['feature_is_filtered'] = False
+		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
 	quality_check(cxg_adata)
 	cxg_adata.write_h5ad(results_file, compression = 'gzip')
 
