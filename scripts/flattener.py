@@ -1382,7 +1382,7 @@ def main(mfinal_id):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 		
 	# Adding layers from 'layers_to_keep' to cxg_adata.layers	
-	if mfinal_obj['layers_to_keep']:
+	if 'layers_to_keep' in mfinal_obj:
 		for k in mfinal_obj['layers_to_keep']:
 			cxg_adata.layers[k] = mfinal_adata.layers[k]
 			
