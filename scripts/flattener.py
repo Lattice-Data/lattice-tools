@@ -620,6 +620,8 @@ def concat_list(anndata_list,uns_merge):
 			concat_result = ad.concat(temp_anndata_list,index_unique=None, join='outer', merge = 'unique',  uns_merge='first')
 		else:
 			concat_result = ad.concat(temp_anndata_list,index_unique=None, join='outer', merge = 'unique')
+	else:
+		concat_result = anndata_list[0]
 	return concat_result
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
@@ -1302,7 +1304,6 @@ def main(mfinal_id):
 
 	# Set uns and obsm parameters, moving over spatial information if applicable
 	cxg_uns = ds_results
-	cxg_uns['schema_version'] = schema_version
 	if 'spatial' in cxg_adata_raw.uns.keys():
 		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
 		spatial_lib = list(cxg_uns['spatial'].keys())[0]
