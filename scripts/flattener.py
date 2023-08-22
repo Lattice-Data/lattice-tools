@@ -604,16 +604,22 @@ def clean_list(lst, exp_disease):
 	disease = exp_disease['term_id'] if exp_disease['term_id'] in lst else 'PATO:0000461'
 	return disease
 
-# Concatenate first object in cxg_adata_lst with rest of the objects in the list
+# Add temporary suffixes to var columns and then concatenate anndata objects in list together
+# temp_anndata_list is created so that original anndata_list does not get suffixes
 def concat_list(anndata_list,uns_merge):
-	concat_result = anndata_list[0]
 	if len(anndata_list) > 1:
+		suffix = 0
+		temp_anndata_list = []
+		for a in anndata_list:
+			a_copy = a.copy()
+			for name in a_copy.var.columns:
+				a_copy.var.rename(columns={name:name + '-' + str(suffix)}, inplace=True)
+			temp_anndata_list.append(a_copy)
+			suffix += 1
 		if uns_merge == True:
-			for a in anndata_list[1:]:
-				concat_result = ad.concat([concat_result,a],index_unique=None, join='outer', merge = 'first',  uns_merge='first')
+			concat_result = ad.concat(temp_anndata_list,index_unique=None, join='outer', merge = 'unique',  uns_merge='first')
 		else:
-			for a in anndata_list[1:]:
-				concat_result = ad.concat([concat_result,a],index_unique=None, merge = 'first', join='outer')
+			concat_result = ad.concat(temp_anndata_list,index_unique=None, join='outer', merge = 'unique')
 	return concat_result
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
@@ -1065,8 +1071,6 @@ def main(mfinal_id):
 	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
 	mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
-	if 'counts' in mfinal_adata.layers:
-		del(mfinal_adata.layers['counts'])
 
 	cxg_adata_lst = []
 	redundant = []
@@ -1376,7 +1380,12 @@ def main(mfinal_id):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-
+		
+	# Adding layers from 'layers_to_keep' to cxg_adata.layers	
+	if mfinal_obj['layers_to_keep']:
+		for k in mfinal_obj['layers_to_keep']:
+			cxg_adata.layers[k] = mfinal_adata.layers[k]
+			
 	# Convert gene symbols to ensembl and filter to approved set
 	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
 		clean_var()
