@@ -606,22 +606,16 @@ def clean_list(lst, exp_disease):
 
 # Add temporary suffixes to var columns and then concatenate anndata objects in list together
 # temp_anndata_list is created so that original anndata_list does not get suffixes
-def concat_list(anndata_list,uns_merge):
-	if len(anndata_list) > 1:
+def concat_list(anndata_list,column,uns_merge):
+	if column != 'none':
 		suffix = 0
-		temp_anndata_list = []
 		for a in anndata_list:
-			a_copy = a.copy()
-			for name in a_copy.var.columns:
-				a_copy.var.rename(columns={name:name + '-' + str(suffix)}, inplace=True)
-			temp_anndata_list.append(a_copy)
+			a.var.rename(columns={column:column + '-' + str(suffix)}, inplace=True)
 			suffix += 1
-		if uns_merge == True:
-			concat_result = ad.concat(temp_anndata_list,index_unique=None, join='outer', merge = 'unique',  uns_merge='first')
-		else:
-			concat_result = ad.concat(temp_anndata_list,index_unique=None, join='outer', merge = 'unique')
+	if uns_merge == True:
+		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique',  uns_merge='first')
 	else:
-		concat_result = anndata_list[0]
+		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique')
 	return concat_result
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
@@ -802,14 +796,16 @@ def reconcile_genes(cxg_adata_lst):
 	for cxg_adata in cxg_adata_lst:
 		cxg_adata.var['gene_symbols'] = cxg_adata.var.index
 		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
-	cxg_adata_raw_ensembl = concat_list(cxg_adata_lst,False)
+	cxg_adata_raw_ensembl = concat_list(cxg_adata_lst,'gene_symbols',False)
 
 	# Join raw matrices on gene symbol, ensembl stored as metadata. Add suffix to make unique, using '.' as to match R default
+	count = 0
 	for cxg_adata in cxg_adata_lst:
 		cxg_adata.var['gene_ids'] = cxg_adata.var.index
-		cxg_adata.var =  cxg_adata.var.set_index('gene_symbols', drop=True)
+		cxg_adata.var =  cxg_adata.var.set_index('gene_symbols' + '-' + str(count), drop=True)
+		count += 1
 		cxg_adata.var_names_make_unique(join = '.')
-	cxg_adata_raw_symbol = concat_list(cxg_adata_lst,False)
+	cxg_adata_raw_symbol = concat_list(cxg_adata_lst,'gene_ids',False)
 
 	# Go through adata indexed on symbol to see which have > 1 Ensembl ID
 	gene_pd_symbol = cxg_adata_raw_symbol.var[[i for i in cxg_adata_raw_symbol.var.columns.values.tolist() if 'gene_ids' in i]]
@@ -1268,7 +1264,7 @@ def main(mfinal_id):
 			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
 			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
 		else:
-			cxg_adata_raw = concat_list(cxg_adata_lst,True)
+			cxg_adata_raw = concat_list(cxg_adata_lst,'none',True)
 			if len(feature_lengths) == 1:
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
@@ -1276,7 +1272,7 @@ def main(mfinal_id):
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'CITE':
-		cxg_adata_raw = concat_list(cxg_adata_lst,False)
+		cxg_adata_raw = concat_list(cxg_adata_lst,'none',False)
 		if len(feature_lengths) == 1:
 			if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
