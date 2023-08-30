@@ -720,7 +720,6 @@ def add_zero():
 		new_adata = ad.AnnData(X=new_matrix, obs=cxg_adata.obs, var=new_var, uns=cxg_adata.uns, obsm=cxg_adata.obsm)
 		if cxg_adata.layers:
 			for layer in cxg_adata.layers:
-				cxg_adata.layers[layer] = sparse.csr_matrix(cxg_adata.layers[layer])
 				new_layer = sparse.csr_matrix((cxg_adata.layers[layer].data, cxg_adata.layers[layer].indices, cxg_adata.layers[layer].indptr), shape = cxg_adata_raw.shape)
 				new_adata.layers[layer] = new_layer
 		new_adata = new_adata[:,cxg_adata_raw.var.index.to_list()]
@@ -1387,7 +1386,11 @@ def main(mfinal_id):
 	if 'layers_to_keep' in mfinal_obj:
 		for k in mfinal_obj['layers_to_keep']:
 			cxg_adata.layers[k] = mfinal_adata.layers[k]
-			
+			if not sparse.issparse(cxg_adata.layers[k]):
+				cxg_adata.layers[k] = sparse.csr_matrix(cxg_adata.layers[k])
+			elif cxg_adata.layers[k].getformat()=='csc':
+				cxg_adata.layers[k] = sparse.csr_matrix(cxg_adata.layers[k])
+				
 	# Convert gene symbols to ensembl and filter to approved set
 	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
 		clean_var()
