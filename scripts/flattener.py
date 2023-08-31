@@ -604,16 +604,18 @@ def clean_list(lst, exp_disease):
 	disease = exp_disease['term_id'] if exp_disease['term_id'] in lst else 'PATO:0000461'
 	return disease
 
-# Concatenate first object in cxg_adata_lst with rest of the objects in the list
-def concat_list(anndata_list,uns_merge):
-	concat_result = anndata_list[0]
-	if len(anndata_list) > 1:
-		if uns_merge == True:
-			for a in anndata_list[1:]:
-				concat_result = ad.concat([concat_result,a],index_unique=None, join='outer', merge = 'first',  uns_merge='first')
-		else:
-			for a in anndata_list[1:]:
-				concat_result = ad.concat([concat_result,a],index_unique=None, merge = 'first', join='outer')
+# Add temporary suffixes to var columns and then concatenate anndata objects in list together
+# temp_anndata_list is created so that original anndata_list does not get suffixes
+def concat_list(anndata_list,column,uns_merge):
+	if column != 'none':
+		suffix = 0
+		for a in anndata_list:
+			a.var.rename(columns={column:column + '-' + str(suffix)}, inplace=True)
+			suffix += 1
+	if uns_merge == True:
+		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique',  uns_merge='first')
+	else:
+		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique')
 	return concat_result
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
@@ -716,6 +718,10 @@ def add_zero():
 		new_var['feature_is_filtered'] = False
 		new_var.loc[genes_add, 'feature_is_filtered'] = True
 		new_adata = ad.AnnData(X=new_matrix, obs=cxg_adata.obs, var=new_var, uns=cxg_adata.uns, obsm=cxg_adata.obsm)
+		if cxg_adata.layers:
+			for layer in cxg_adata.layers:
+				new_layer = sparse.csr_matrix((cxg_adata.layers[layer].data, cxg_adata.layers[layer].indices, cxg_adata.layers[layer].indptr), shape = cxg_adata_raw.shape)
+				new_adata.layers[layer] = new_layer
 		new_adata = new_adata[:,cxg_adata_raw.var.index.to_list()]
 		new_adata.var = new_adata.var.merge(cxg_adata.var, left_index=True, right_index=True, how='left')
 		cxg_adata = new_adata
@@ -794,14 +800,16 @@ def reconcile_genes(cxg_adata_lst):
 	for cxg_adata in cxg_adata_lst:
 		cxg_adata.var['gene_symbols'] = cxg_adata.var.index
 		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
-	cxg_adata_raw_ensembl = concat_list(cxg_adata_lst,False)
+	cxg_adata_raw_ensembl = concat_list(cxg_adata_lst,'gene_symbols',False)
 
 	# Join raw matrices on gene symbol, ensembl stored as metadata. Add suffix to make unique, using '.' as to match R default
+	count = 0
 	for cxg_adata in cxg_adata_lst:
 		cxg_adata.var['gene_ids'] = cxg_adata.var.index
-		cxg_adata.var =  cxg_adata.var.set_index('gene_symbols', drop=True)
+		cxg_adata.var =  cxg_adata.var.set_index('gene_symbols' + '-' + str(count), drop=True)
+		count += 1
 		cxg_adata.var_names_make_unique(join = '.')
-	cxg_adata_raw_symbol = concat_list(cxg_adata_lst,False)
+	cxg_adata_raw_symbol = concat_list(cxg_adata_lst,'gene_ids',False)
 
 	# Go through adata indexed on symbol to see which have > 1 Ensembl ID
 	gene_pd_symbol = cxg_adata_raw_symbol.var[[i for i in cxg_adata_raw_symbol.var.columns.values.tolist() if 'gene_ids' in i]]
@@ -1065,8 +1073,6 @@ def main(mfinal_id):
 	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
 	mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
-	if 'counts' in mfinal_adata.layers:
-		del(mfinal_adata.layers['counts'])
 
 	cxg_adata_lst = []
 	redundant = []
@@ -1262,7 +1268,7 @@ def main(mfinal_id):
 			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
 			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
 		else:
-			cxg_adata_raw = concat_list(cxg_adata_lst,True)
+			cxg_adata_raw = concat_list(cxg_adata_lst,'none',True)
 			if len(feature_lengths) == 1:
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
@@ -1270,7 +1276,7 @@ def main(mfinal_id):
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
 			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'CITE':
-		cxg_adata_raw = concat_list(cxg_adata_lst,False)
+		cxg_adata_raw = concat_list(cxg_adata_lst,'none',False)
 		if len(feature_lengths) == 1:
 			if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
@@ -1298,7 +1304,6 @@ def main(mfinal_id):
 
 	# Set uns and obsm parameters, moving over spatial information if applicable
 	cxg_uns = ds_results
-	cxg_uns['schema_version'] = schema_version
 	if 'spatial' in cxg_adata_raw.uns.keys():
 		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
 		spatial_lib = list(cxg_uns['spatial'].keys())[0]
@@ -1376,7 +1381,16 @@ def main(mfinal_id):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-
+		
+	# Adding layers from 'layers_to_keep' to cxg_adata.layers	
+	if 'layers_to_keep' in mfinal_obj:
+		for k in mfinal_obj['layers_to_keep']:
+			cxg_adata.layers[k] = mfinal_adata.layers[k]
+			if not sparse.issparse(cxg_adata.layers[k]):
+				cxg_adata.layers[k] = sparse.csr_matrix(cxg_adata.layers[k])
+			elif cxg_adata.layers[k].getformat()=='csc':
+				cxg_adata.layers[k] = sparse.csr_matrix(cxg_adata.layers[k])
+				
 	# Convert gene symbols to ensembl and filter to approved set
 	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
 		clean_var()
