@@ -1168,7 +1168,7 @@ def main(mfinal_id):
 				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))	
 
 			if summary_assay == 'RNA':
-				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
+				row_to_add['mapped_reference_annotation'] = mfinal_obj['genome_annotations']
 				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Gene Expression']
 			else:
 				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Antibody Capture']
