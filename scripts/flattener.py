@@ -1168,7 +1168,7 @@ def main(mfinal_id):
 				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))	
 
 			if summary_assay == 'RNA':
-				row_to_add['mapped_reference_annotation'] = mfinal_obj['genome_annotations']
+				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
 				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Gene Expression']
 			else:
 				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Antibody Capture']
@@ -1223,7 +1223,9 @@ def main(mfinal_id):
 				adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				cxg_adata_lst.append(adata_raw)
-
+		# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
+		if not mfinal_obj['genome_annotations']:
+			del row_to_add['mapped_reference_annotation']
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
 
