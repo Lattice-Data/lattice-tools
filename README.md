@@ -66,7 +66,7 @@ Gathers data file content information and compares with submitted metadata [run 
 Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)<br>
 Requires additional steps:
     ```
-    pip install google-api-python-client ; google-cloud-storage
+    pip install google-api-python-client google-cloud-storage
     ```
     `$ conda env config vars set GOOGLE_APPLICATION_CREDENTIALS=<creds.json>`
 
