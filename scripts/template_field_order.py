@@ -282,4 +282,12 @@ priorityFields = {
 			'treatment_term_id'
 		]
 	},
+	'user': {
+		'order': [
+			'first_name',
+			'last_name',
+			'institute_name',
+			'email'
+		]
+	}
 }
