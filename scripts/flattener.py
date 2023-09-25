@@ -1229,7 +1229,7 @@ def main(mfinal_id):
 		
 	# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
 	if not mfinal_obj['genome_annotations']:
-		del row_to_add['mapped_reference_annotation']
+		del df['mapped_reference_annotation']
 
 	if mapping_error:
 		print("ERROR: There are {} mapping errors in cell_label_mappings:".format(len(error_info.keys())))
