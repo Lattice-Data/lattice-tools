@@ -1088,7 +1088,9 @@ def main(mfinal_id):
 		os.mkdir(tmp_dir)
 		
 	# Checking for presence of h5ad, and downloading if not present
-	if os.path.exists(tmp_dir + '/' + mfinal_obj['accession'] + '.h5ad') == False:
+	if os.path.exists(tmp_dir + '/' + mfinal_obj['accession'] + '.h5ad'):
+		print(mfinal_obj['accession'] + '.h5ad' + ' was found locally')
+	else:
 		download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
@@ -1162,10 +1164,14 @@ def main(mfinal_id):
 		if summary_assay in ['RNA','CITE']:
 			# Checking for presence of mxr file and downloading if not present
 			if mxr['s3_uri'].endswith('h5'):
-				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5') == False:
+				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5'):
+					print(mxr_acc + '.h5' + ' was found locally')
+				else:
 					download_file(mxr, tmp_dir)
 			elif mxr['s3_uri'].endswith('h5ad'):
-				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5ad') == False:
+				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5ad'):
+					print(mxr_acc + '.h5ad' + ' was found locally')
+				else:
 					download_file(mxr, tmp_dir)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				if mxr['s3_uri'].endswith('h5'):
