@@ -526,7 +526,7 @@ def download_file(file_obj, directory):
 		except error_perm as e:
 			os.remove(file_name)
 			logging.error('ERROR: The following error occured while downloading file {}: \n {}'.format(file_name,e))
-			sys.exit('ERROR: The following error occured while downloading file {}: \n {}'.format(file_name,e))
+			sys.exit('ERROR: The following error occured while downloading file{}: \n {}'.format(file_name,e))
 		else:
 			ftp.quit()
 			print(file_name + ' downloaded')
@@ -550,7 +550,7 @@ def download_directory(download_url, directory):
 		try:
 			s3client.download_file(bucket_name, file_path, directory + '/spatial/' + file_name)
 		except subprocess.CalledProcessError as e:
-		 	logging.error('ERROR: Failed to find file S3://{}/{}'.format(bucket,file_path))
+			logging.error('ERROR: Failed to find file S3://{}/{}'.format(bucket,file_path))
 			sys.exit('ERROR: Failed to find file s3://{}/{}'.format(bucket,file_path))
 		else:
 			print(file_name + ' downloaded')
@@ -694,7 +694,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
 		 		gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
-		 	else: 
+		 	else:
 		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		row_to_add = pd.Series(values_to_add)
@@ -1057,7 +1057,7 @@ def main(mfinal_id):
 	global cxg_adata_raw
 	global cxg_obs
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
-	logging.basicConfig(filename='outfile_flattener.log', level=logging.INFO)
+	logging.basicConfig(filename='outfile_flattener.log', filemode='w', level=logging.INFO)
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
@@ -1074,7 +1074,7 @@ def main(mfinal_id):
 	elif mfinal_obj['output_types'] == ['antibody capture quantifications']:
 		summary_assay = 'CITE'
 	else:
-	 	logging.error('ERROR: Unexpected assay types to generate cxg h5ad: {} {}'.format(mfinal_obj['assays'], mfinal_obj['output_types']))
+		logging.error('ERROR: Unexpected assay types to generate cxg h5ad: {} {}'.format(mfinal_obj['assays'], mfinal_obj['output_types']))
 		sys.exit("ERROR: Unexpected assay types to generate cxg h5ad: {} {}".format(mfinal_obj['assays'], mfinal_obj['output_types']))
 
 
@@ -1192,7 +1192,7 @@ def main(mfinal_id):
 				adata_raw = sc.read_h5ad('{}/{}'.format(tmp_dir,mxr_name))
 			else:
 				logging.error('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
-				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))	
+				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 
 			if summary_assay == 'RNA':
 				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
@@ -1258,7 +1258,9 @@ def main(mfinal_id):
 				adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				cxg_adata_lst.append(adata_raw)
-
+		# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
+		if not mfinal_obj['genome_annotations']:
+			del row_to_add['mapped_reference_annotation']
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
 
