@@ -61,6 +61,7 @@ Please note: <br>
 ### scripts/<br>*for curating towards or out of [Lattice DB](lattice-data.org)*
 * **checkfiles.py**
 Gathers data file content information and compares with submitted metadata [run instructions](docs/checkfiles.md)
+If running locally, may need to install [Homebrew](https://brew.sh/) and `brew install md5sha1sum` so `md5sum` can run from checkfiles
 
 * **DCP_mapper.py**
 Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)<br>
