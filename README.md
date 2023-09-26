@@ -70,6 +70,13 @@ Requires additional steps:
     ```
     `$ conda env config vars set GOOGLE_APPLICATION_CREDENTIALS=<creds.json>`
 
+* **DCP_project_ready.ipynb**
+Validates a project staged for submission to the HCA Data Portal.
+Requires additional step:
+    ```
+    $ conda install -c anaconda more-itertools
+    ```
+
 * **flattener.py**
 Transforms a contributor matrix, raw count data, and Lattice metadata into a cellxgene-approved matrix file [run instructions](docs/flattener.md)
 
@@ -82,12 +89,20 @@ Requires additional steps:<br>
     Follow instructions [here](https://www.twilio.com/blog/2017/02/an-easy-way-to-read-and-write-to-a-google-spreadsheet-in-python.html) to enable API & generate credentials<br>
     `$ conda env config vars set CLIENT_SECRET_FILE=<creds.json>`
 
-
 * **qcmetrics_reader.py**
 Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
 
 * **query_by_dataset_lab.ipynb**
 Return Donor, Sample, or Suspension objects from the Lattice DB for a given Dataset or Lab
 
+* **s3_recent_uploads.ipynb**
+Return files recently uploaded to the submitter S3 buckets
+
 * **submit_metadata.py**
 Transforms tabulated metadata into json objects and posts/patches to the Lattice DB [use instructions](docs/submit_metadata.md)
+
+* **validate_demo.ipynb**
+Compares various aspects of the production DB and a specified demo DB to identify potential bugs.
+
+* **validate_checksums.py**
+Identifies any duplicated files in the Lattice DB. To be executed after each checkfiles run.
