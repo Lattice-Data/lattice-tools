@@ -52,6 +52,9 @@ Quality assurance checks on an AnnData object
 * **curation_sample_code.ipynb**
 Various samples of how to manipulate an AnnData object during curation
 
+* **HCA_data_table.ipynb**
+Compiles studies from CELLxGENE, HCA Data Portal, HCA Publications, and Bionetwork atlas lists
+
 * **upload_local.ipynb**
 Submitting local files to CELLxGENE<br>
 Please note: <br>
