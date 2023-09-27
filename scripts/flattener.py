@@ -1223,9 +1223,13 @@ def main(mfinal_id):
 				adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				cxg_adata_lst.append(adata_raw)
-
+				
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
+		
+	# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
+	if not mfinal_obj['genome_annotations']:
+		del df['mapped_reference_annotation']
 
 	if mapping_error:
 		print("ERROR: There are {} mapping errors in cell_label_mappings:".format(len(error_info.keys())))
