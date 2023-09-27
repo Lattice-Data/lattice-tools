@@ -504,7 +504,7 @@ def download_file(file_obj, directory):
 		file_ext = download_url.split('.')[-1]
 		s3client = boto3.client("s3")
 		file_name = file_obj.get('accession') + '.' + file_ext
-		print(file_name + ' downloading')
+		print(file_name + ' not found locally, downloading')
 		try:
 			s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
 		except subprocess.CalledProcessError as e:
@@ -520,7 +520,7 @@ def download_file(file_obj, directory):
 		file_path = download_url.replace('ftp://{}/'.format(ftp_server), '')
 		file_ext = download_url.split('.')[-1]
 		file_name = file_obj.get('accession') + '.' + file_ext
-		print(file_name + ' downloading')
+		print(file_name + ' not found locally, downloading')
 		try:
 			ftp.retrbinary('RETR ' + file_path, open(directory + '/' + file_name, 'wb').write)
 		except error_perm as e:
