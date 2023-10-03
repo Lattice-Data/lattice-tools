@@ -17,6 +17,7 @@ import collections
 import logging
 import gc
 from scipy import sparse
+from datetime import datetime
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -1057,7 +1058,10 @@ def main(mfinal_id):
 	global cxg_adata_raw
 	global cxg_obs
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
-	logging.basicConfig(filename='outfile_flattener.log', filemode='w', level=logging.INFO)
+	logging.basicConfig(filename= mfinal_id + '_outfile_flattener.log', filemode='w', level=logging.INFO)
+	# Adding date and time to top of logging file
+	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+	logging.info("Date and time of flattener run: " + time_date)
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
