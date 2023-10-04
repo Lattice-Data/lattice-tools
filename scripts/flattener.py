@@ -505,7 +505,7 @@ def download_file(file_obj, directory):
 		file_ext = download_url.split('.')[-1]
 		s3client = boto3.client("s3")
 		file_name = file_obj.get('accession') + '.' + file_ext
-		print(file_name + ' not found locally, downloading')
+		print(file_name + ' downloading')
 		try:
 			s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
 		except subprocess.CalledProcessError as e:
@@ -521,7 +521,7 @@ def download_file(file_obj, directory):
 		file_path = download_url.replace('ftp://{}/'.format(ftp_server), '')
 		file_ext = download_url.split('.')[-1]
 		file_name = file_obj.get('accession') + '.' + file_ext
-		print(file_name + ' not found locally, downloading')
+		print(file_name + ' downloading')
 		try:
 			ftp.retrbinary('RETR ' + file_path, open(directory + '/' + file_name, 'wb').write)
 		except error_perm as e:
@@ -601,7 +601,6 @@ def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
-		logging.warning("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
 		warning_list.append("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
@@ -762,8 +761,8 @@ def set_ensembl(redundant, feature_keys):
 			raw_index = set(cxg_adata_raw.var.index.to_list())
 			drop_unmapped = list(norm_index.difference(raw_index))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_unmapped]]
-			logging.info('drop_unmapped:\t{}\t{}'.format(len(drop_unmapped),drop_unmapped))
-
+			if len(drop_unmapped) > 0:
+				warning_list.append('WARNING: {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped),drop_unmapped))
 			cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
 			cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
 			cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
@@ -772,11 +771,11 @@ def set_ensembl(redundant, feature_keys):
 
 			# Drop redundant by Ensembl ID
 			drop_redundant = list(set(redundant).intersection(set(cxg_adata.var.index.to_list())))
-			logging.info('drop_redundant:\t{}\t{}'.format(len(drop_redundant),drop_redundant))
+			if len(drop_redundant) > 0:
+				warning_list.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant),drop_redundant))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in redundant]]
 
 		else:
-			logging.warning("WARNING: raw matrix does not have genes_ids column")
 			warning_list.append("WARNING: raw matrix does not have genes_ids column")
 	elif feature_keys == ['Ensembl gene ID']:
 		cxg_adata_raw.var_names_make_unique()
@@ -784,8 +783,7 @@ def set_ensembl(redundant, feature_keys):
 		cxg_adata_raw.var.index.name = None
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
-			logging.warning('WARNING: Normalized matrix contains Ensembl Ids not in raw: {}'.format(unique_to_norm))
-			warning_list.append("WARNING: normalized matrix contains Ensembl IDs not in raw: {}".format(unique_to_norm))
+			warning_list.append("WARNING: normalized matrix contains {} Ensembl IDs not in raw".format(unique_to_norm))
 
 
 def filter_ensembl(adata, compiled_annot):
@@ -863,7 +861,7 @@ def reconcile_genes(cxg_adata_lst):
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		logging.info("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
+		warning_list.append("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
 
@@ -940,7 +938,6 @@ def clean_obs():
 		if author_col in mfinal_adata.obs.columns.to_list():
 			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
-			logging.warning('WARNING: author_column not in final matrix: {}'.format(author_col))
 			warning_list.append("WARNING: author_column not in final matrix: {}".format(author_col))
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in cxg_obs.columns:
@@ -1382,12 +1379,9 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
 	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
-		logging.warning("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
-			format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
 		warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
 			format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
 	if len([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]) > 0:
-		logging.warning("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
 		warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
 
 	if 'author_cluster_column' in mfinal_obj:
@@ -1496,6 +1490,7 @@ def main(mfinal_id):
 	# Printing out list of warnings
 	for n in warning_list:
 		print(n, end = '\n')
+		logging.warning(n)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
