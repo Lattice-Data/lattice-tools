@@ -847,7 +847,6 @@ def reconcile_genes(cxg_adata_lst):
 			else:
 				redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
 	redundant = list(set(redundant))
-	stats['redundant'] = redundant
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Run var_names_make_unique and remove redundants after mapping of Ensembl
 	cxg_adata_raw_ensembl.var['gene_ids'] = cxg_adata_raw_ensembl.var.index
