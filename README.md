@@ -52,6 +52,9 @@ Quality assurance checks on an AnnData object
 * **curation_sample_code.ipynb**
 Various samples of how to manipulate an AnnData object during curation
 
+* **HCA_data_table.ipynb**
+Compiles studies from CELLxGENE, HCA Data Portal, HCA Publications, and Bionetwork atlas lists
+
 * **upload_local.ipynb**
 Submitting local files to CELLxGENE<br>
 Please note: <br>
@@ -61,6 +64,7 @@ Please note: <br>
 ### scripts/<br>*for curating towards or out of [Lattice DB](lattice-data.org)*
 * **checkfiles.py**
 Gathers data file content information and compares with submitted metadata [run instructions](docs/checkfiles.md)
+If running locally, may need to install [Homebrew](https://brew.sh/) and `brew install md5sha1sum` so `md5sum` can run from checkfiles
 
 * **DCP_mapper.py**
 Transforms a Lattice Dataset into HCA DCP-approved schema and stages at the DCP for submission to the HCA Portal [run instructions](docs/DCP_mapper.md)<br>
@@ -69,6 +73,13 @@ Requires additional steps:
     pip install google-api-python-client google-cloud-storage
     ```
     `$ conda env config vars set GOOGLE_APPLICATION_CREDENTIALS=<creds.json>`
+
+* **DCP_project_ready.ipynb**
+Validates a project staged for submission to the HCA Data Portal.
+Requires additional step:
+    ```
+    $ conda install -c anaconda more-itertools
+    ```
 
 * **flattener.py**
 Transforms a contributor matrix, raw count data, and Lattice metadata into a cellxgene-approved matrix file [run instructions](docs/flattener.md)
@@ -82,12 +93,20 @@ Requires additional steps:<br>
     Follow instructions [here](https://www.twilio.com/blog/2017/02/an-easy-way-to-read-and-write-to-a-google-spreadsheet-in-python.html) to enable API & generate credentials<br>
     `$ conda env config vars set CLIENT_SECRET_FILE=<creds.json>`
 
-
 * **qcmetrics_reader.py**
 Transforms quality metrics and other processing information from various files of a standard CellRanger outs/ directory into the Lattice schema
 
 * **query_by_dataset_lab.ipynb**
 Return Donor, Sample, or Suspension objects from the Lattice DB for a given Dataset or Lab
 
+* **s3_recent_uploads.ipynb**
+Return files recently uploaded to the submitter S3 buckets
+
 * **submit_metadata.py**
 Transforms tabulated metadata into json objects and posts/patches to the Lattice DB [use instructions](docs/submit_metadata.md)
+
+* **validate_demo.ipynb**
+Compares various aspects of the production DB and a specified demo DB to identify potential bugs.
+
+* **validate_checksums.py**
+Identifies any duplicated files in the Lattice DB. To be executed after each checkfiles run.

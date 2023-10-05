@@ -863,6 +863,7 @@ def reconcile_genes(cxg_adata_lst):
 		warning_list.append("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
+	
 
 
 # filename will be collectionuuid_datasetuuid_accession_version.h5ad, collectionuuid_accession_version.h5ad, or accession_version.h5ad
@@ -1264,11 +1265,13 @@ def main(mfinal_id):
 				adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				cxg_adata_lst.append(adata_raw)
-		# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
-		if not mfinal_obj['genome_annotations']:
-			del row_to_add['mapped_reference_annotation']
+       
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
+		
+	# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
+	if not mfinal_obj['genome_annotations']:
+		del df['mapped_reference_annotation']
 
 	if mapping_error:
 		logging.error('ERROR: There are {} mapping errors in cell_label_mappings:'.format(len(error_info.keys())))
