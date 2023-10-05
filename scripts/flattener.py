@@ -17,6 +17,7 @@ import collections
 import logging
 import gc
 from scipy import sparse
+from datetime import datetime
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -182,6 +183,7 @@ mfinal_adata = None
 cxg_adata = None
 cxg_adata_raw = None
 cxg_obs = None
+warning_list = []
 
 EPILOG = '''
 Examples:
@@ -261,7 +263,8 @@ def gather_objects(input_object, start_type=None):
 				if obj.get('assay') == 'CITE-seq':
 					libraries.append(obj)
 			elif len(mfinal_obj.get('output_types')>1):
-				sys.exit("The flattener cannot flatten multimodal ProcessedMatrixFile")
+				logging.error("ERROR: The flattener cannot flatten multimodal ProcessedMatrixFile")
+				sys.exit("ERROR: The flattener cannot flatten multimodal ProcessedMatrixFile")
 			for o in obj['derived_from']:
 				if o.get('uuid') not in susp_ids:
 					if 'Suspension' in o['@type']:
@@ -451,23 +454,27 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 					if key == 'development_stage_ontology_term_id':
 						dev_in_all = list(set.intersection(*map(set, dev_list)))
 						if dev_in_all == []:
-							sys.exit("There is no common development_slims that can be used for development_stage_ontology_term_id")
+							logging.error('ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id')
+							sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
 						else:
 							query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + dev_in_all[0] + '&format=json')
 							r = requests.get(query_url, auth=connection.auth)
 							try:
 								r.raise_for_status()
 							except requests.HTTPError:
-								sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
+								logging.error('ERROR: Unable to get development_slims as development_stage ontology: {}'.format(query_url))
+								sys.exit("ERROR: Unable to get development_slims as development_stage ontology: {}".format(query_url))
 							else:
 								if r.json()['total']==1:
 									values_to_add[key] = r.json()['@graph'][0]['term_id']
 								else:
-									sys.exit("Error in getting development_slims as development_stage ontology: {}".format(query_url))
+									logging.error('ERROR: Unable to get development_slims as development_stage ontology: {}'.format(query_url))
+									sys.exit("ERROR: Unable to get development_slims as development_stage ontology: {}".format(query_url))
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
 					else:
-						sys.exit("Cxg field is a list")
+						logging.error('ERROR: Cxg field is a list')
+						sys.exit("ERROR: Cxg field is a list")
 				else:
 					values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
 			else:
@@ -502,7 +509,8 @@ def download_file(file_obj, directory):
 		try:
 			s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
 		except subprocess.CalledProcessError as e:
-		 	sys.exit('Failed to find file {} on s3'.format(file_obj.get('@id')))
+			logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+			sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
 		else:
 			print(file_name + ' downloaded')
 	elif file_obj.get('external_uri'):
@@ -518,12 +526,14 @@ def download_file(file_obj, directory):
 			ftp.retrbinary('RETR ' + file_path, open(directory + '/' + file_name, 'wb').write)
 		except error_perm as e:
 			os.remove(file_name)
-			sys.exit(e)
+			logging.error('ERROR: The following error occured while downloading file {}: \n {}'.format(file_name,e))
+			sys.exit('ERROR: The following error occured while downloading file{}: \n {}'.format(file_name,e))
 		else:
 			ftp.quit()
 			print(file_name + ' downloaded')
 	else:
-		sys.exit('File {} has no uri defined'.format(file_obj['@id']))
+		logging.error('ERROR: File {} has no uri defined'.format(file_obj['@id']))
+		sys.exit('ERROR: File {} has no uri defined'.format(file_obj['@id']))
 
 
 # Download entire directory contents from S3
@@ -541,7 +551,8 @@ def download_directory(download_url, directory):
 		try:
 			s3client.download_file(bucket_name, file_path, directory + '/spatial/' + file_name)
 		except subprocess.CalledProcessError as e:
-		 	sys.exit('Failed to find file s3://{}/{}'.format(bucket, file_path))
+			logging.error('ERROR: Failed to find file S3://{}/{}'.format(bucket,file_path))
+			sys.exit('ERROR: Failed to find file s3://{}/{}'.format(bucket,file_path))
 		else:
 			print(file_name + ' downloaded')
 
@@ -557,7 +568,8 @@ def compile_annotations(files):
 			try:
 				client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
 			except subprocess.CalledProcessError as e:
-				sys.exit('Failed to find file {} on s3'.format(file_obj.get('@id')))
+				logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+				sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
 			else:
 				print("Downloading reference: {}".format(files[key]))
 		df = pd.read_csv(filename, names=['feature_id','symbol','num'], dtype='str')
@@ -589,13 +601,15 @@ def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
-		print("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
+		warning_list.append("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
-			sys.exit("The default_visualization field is not in the cxg anndata obs dataframe.")
+			logging.error('ERROR: The default_visualization field is not in the cxg anndata obs dataframe.')
+			sys.exit("ERROR: The default_visualization field is not in the cxg anndata obs dataframe.")
 	elif mfinal_obj['X_normalized'] == True:
 		if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
-			sys.exit("There are more genes in normalized genes than in raw matrix.")
+			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
+			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
@@ -665,7 +679,8 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 			if susp in library_susp[lib_uniq]:
 				demult_susp = susp
 		if demult_susp == '':
-			print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
+			logging.error('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
+			sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
 		else:
 			demult_susp_lst.append(demult_susp)
 	lib_donor_df['suspension_@id'] = demult_susp_lst
@@ -679,8 +694,9 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
 		 		gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
-		 	else: 
-		 		print('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
+		 	else:
+		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
+		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		row_to_add = pd.Series(values_to_add)
 		susp_df = pd.concat([susp_df,row_to_add.to_frame().T], ignore_index=True)
 	lib_donor_df = lib_donor_df.merge(susp_df, left_on='suspension_@id', right_on='suspension_@id', how='left')
@@ -700,7 +716,8 @@ def get_sex_ontology(donor_df):
 		elif sex == 'unknown' or sex == 'mixed':
 			donor_df.loc[donor_df['sex'] == sex, 'sex_ontology_term_id'] = 'unknown'
 		else:
-			sys.exit("Unexpected sex: {}".format(sex))
+			logging.error('ERROR: Unexpected sex: {}'.format(sex))
+			sys.exit("ERROR: Unexpected sex: {}".format(sex))
 
 
 # Make sure cxg_adata and cxg_adata_raw have same number of features
@@ -744,8 +761,8 @@ def set_ensembl(redundant, feature_keys):
 			raw_index = set(cxg_adata_raw.var.index.to_list())
 			drop_unmapped = list(norm_index.difference(raw_index))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_unmapped]]
-			logging.info('drop_unmapped:\t{}\t{}'.format(len(drop_unmapped),drop_unmapped))
-
+			if len(drop_unmapped) > 0:
+				warning_list.append('WARNING: {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped),drop_unmapped))
 			cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
 			cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
 			cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
@@ -754,18 +771,19 @@ def set_ensembl(redundant, feature_keys):
 
 			# Drop redundant by Ensembl ID
 			drop_redundant = list(set(redundant).intersection(set(cxg_adata.var.index.to_list())))
-			logging.info('drop_redundant:\t{}\t{}'.format(len(drop_redundant),drop_redundant))
+			if len(drop_redundant) > 0:
+				warning_list.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant),drop_redundant))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in redundant]]
 
 		else:
-			print("WARNING: raw matrix does not have genes_ids column")
+			warning_list.append("WARNING: raw matrix does not have genes_ids column")
 	elif feature_keys == ['Ensembl gene ID']:
 		cxg_adata_raw.var_names_make_unique()
 		cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		cxg_adata_raw.var.index.name = None
 		unique_to_norm =  set(cxg_adata.var.index.to_list()).difference(set(cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
-			print("WARNING: normalized matrix contains Ensembl IDs not in raw: {}".format(unique_to_norm))
+			warning_list.append("WARNING: normalized matrix contains {} Ensembl IDs not in raw".format(unique_to_norm))
 
 
 def filter_ensembl(adata, compiled_annot):
@@ -829,7 +847,6 @@ def reconcile_genes(cxg_adata_lst):
 			else:
 				redundant.extend(gene_pd_ensembl[gene_pd_ensembl[col] == gene].index.to_list())
 	redundant = list(set(redundant))
-	stats['redundant'] = redundant
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Run var_names_make_unique and remove redundants after mapping of Ensembl
 	cxg_adata_raw_ensembl.var['gene_ids'] = cxg_adata_raw_ensembl.var.index
@@ -843,7 +860,7 @@ def reconcile_genes(cxg_adata_lst):
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		logging.info("{}\t{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm, stats[key]))
+		warning_list.append("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
 	
@@ -921,7 +938,7 @@ def clean_obs():
 		if author_col in mfinal_adata.obs.columns.to_list():
 			cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
-			print("WARNING: author_column not in final matrix: {}".format(author_col))
+			warning_list.append("WARNING: author_column not in final matrix: {}".format(author_col))
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in cxg_obs.columns:
 		cxg_obs.insert(len(cxg_obs.columns),'suspension_type', 'na')
@@ -1003,7 +1020,8 @@ def add_labels():
 	try:
 		r.raise_for_status()
 	except requests.HTTPError:
-		sys.exit("Error in ontology term ids and names: {}".format(query_url))
+		logging.error('ERROR: Error in ontology term ids and names: {}'.format(query_url))
+		sys.exit("ERROR: Error in ontology term ids and names: {}".format(query_url))
 	else:
 		ontology_df = pd.DataFrame(r.json()['@graph'])
 	id_cols = ['assay_ontology_term_id','disease_ontology_term_id','cell_type_ontology_term_id','development_stage_ontology_term_id','sex_ontology_term_id',\
@@ -1025,7 +1043,8 @@ def add_labels():
 			elif len(ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique() == 1):
 				term_name = ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()[0]
 			else:
-				sys.exit("Found more than single ontology term name for id: {}\t{}".format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
+				logging.error('ERROR: Found more than single ontology term name for id: {}\t{}'.format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
+				sys.exit("ERROR: Found more than single ontology term name for id: {}\t{}".format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
 			cxg_adata.obs[name_col].replace(term_id, term_name, inplace=True)
 
 
@@ -1036,13 +1055,17 @@ def main(mfinal_id):
 	global cxg_adata_raw
 	global cxg_obs
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
-	logging.basicConfig(filename='outfile_flattener.log', level=logging.INFO)
+	logging.basicConfig(filename= mfinal_id + '_outfile_flattener.log', filemode='w', level=logging.INFO)
+	# Adding date and time to top of logging file
+	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+	logging.info("Date and time of flattener run: " + time_date)
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
 	summary_assay = ''
 	if mfinal_type != 'ProcessedMatrixFile':
-		sys.exit('{} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
+		logging.error('ERROR: {} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
+		sys.exit('ERROR: {} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 
 	if mfinal_obj['output_types'] == ['gene quantifications']:
 		if mfinal_obj['assays'] == ['snATAC-seq']:
@@ -1052,7 +1075,8 @@ def main(mfinal_id):
 	elif mfinal_obj['output_types'] == ['antibody capture quantifications']:
 		summary_assay = 'CITE'
 	else:
-	 	sys.exit("Unexpected assay types to generate cxg h5ad: {} {}".format(mfinal_obj['assays'], mfinal_obj['output_types']))
+		logging.error('ERROR: Unexpected assay types to generate cxg h5ad: {} {}'.format(mfinal_obj['assays'], mfinal_obj['output_types']))
+		sys.exit("ERROR: Unexpected assay types to generate cxg h5ad: {} {}".format(mfinal_obj['assays'], mfinal_obj['output_types']))
 
 
 	# Dataframe that contains experimental metadata keyed off of raw matrix
@@ -1065,7 +1089,9 @@ def main(mfinal_id):
 		os.mkdir(tmp_dir)
 		
 	# Checking for presence of h5ad, and downloading if not present
-	if os.path.exists(tmp_dir + '/' + mfinal_obj['accession'] + '.h5ad') == False:
+	if os.path.exists(tmp_dir + '/' + mfinal_obj['accession'] + '.h5ad'):
+		print(mfinal_obj['accession'] + '.h5ad' + ' was found locally')
+	else:
 		download_file(mfinal_obj, tmp_dir)
 
 	# Get list of unique final cell identifiers
@@ -1110,14 +1136,16 @@ def main(mfinal_id):
 			if isinstance(susp_obj, list):
 				for single_susp in susp_obj:
 					if len(single_susp['donors']) > 1:
-						sys.exit('Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
+						logging.error('ERROR: Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
+						sys.exit('ERROR: Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
 					if single_susp['donors'][0] not in donor_susp:
 						donor_susp[single_susp['donors'][0]] = [single_susp['@id']]
 					else:
 						donor_susp[single_susp['donors'][0]].append(single_susp['@id'])
 			else:
 				if len(single_susp['donors']) > 1:
-					sys.exit('Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
+					logging.error('ERROR: Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
+					sys.exit('ERROR: Not currently able to handle 2 pooling events: {}, {}'.format(single_susp['@id'], single_susp['donors']))
 				if single_susp['donors'][0] not in donor_susp:
 					donor_susp[susp_obj['donors'][0]] = [susp_obj['@id']]
 				else:
@@ -1137,10 +1165,14 @@ def main(mfinal_id):
 		if summary_assay in ['RNA','CITE']:
 			# Checking for presence of mxr file and downloading if not present
 			if mxr['s3_uri'].endswith('h5'):
-				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5') == False:
+				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5'):
+					print(mxr_acc + '.h5' + ' was found locally')
+				else:
 					download_file(mxr, tmp_dir)
 			elif mxr['s3_uri'].endswith('h5ad'):
-				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5ad') == False:
+				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5ad'):
+					print(mxr_acc + '.h5ad' + ' was found locally')
+				else:
 					download_file(mxr, tmp_dir)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				if mxr['s3_uri'].endswith('h5'):
@@ -1166,7 +1198,8 @@ def main(mfinal_id):
 				mxr_name = '{}.h5ad'.format(mxr_acc)
 				adata_raw = sc.read_h5ad('{}/{}'.format(tmp_dir,mxr_name))
 			else:
-				sys.exit('Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))	
+				logging.error('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
+				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 
 			if summary_assay == 'RNA':
 				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
@@ -1195,7 +1228,15 @@ def main(mfinal_id):
 					cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
 				mapping_label = cell_mapping_dct[mxr.get('@id')]
 			if mfinal_obj.get('cell_label_location') == 'prefix':
-				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label)]
+				prefixes = []
+				for mapping_dict in mfinal_obj['cell_label_mappings']: # Creating list of all prefixes
+					prefixes.append(mapping_dict['label'])
+				prefixes.remove(mapping_label) # Removing mapping_label prefix from list of all prefixes
+				# Checking to make sure none of the other prefixes contain the mapping_label prefix, if they do, then make sure there's no false match
+				if any(prefix.startswith(mapping_label) for prefix in prefixes):
+					mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label) and not i.startswith(tuple(prefixes))]
+				else:
+					mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label)]
 			elif mfinal_obj.get('cell_label_location') == 'suffix':
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.endswith(mapping_label)]
 			else: 
@@ -1224,7 +1265,7 @@ def main(mfinal_id):
 				adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				cxg_adata_lst.append(adata_raw)
-				
+       
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
 		
@@ -1233,9 +1274,11 @@ def main(mfinal_id):
 		del df['mapped_reference_annotation']
 
 	if mapping_error:
+		logging.error('ERROR: There are {} mapping errors in cell_label_mappings:'.format(len(error_info.keys())))
 		print("ERROR: There are {} mapping errors in cell_label_mappings:".format(len(error_info.keys())))
 		for er in error_info.keys():
 			print("RawMatrixFile: {}, {}".format(er, error_info[er]))
+			logging.error("RawMatrixFile: {}, {}".format(er, error_info[er]))
 		sys.exit()
 
 	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
@@ -1276,18 +1319,22 @@ def main(mfinal_id):
 			cxg_adata_raw = concat_list(cxg_adata_lst,'none',True)
 			if len(feature_lengths) == 1:
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
-					sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
+					logging.error('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
+					sys.exit('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
-			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
+			logging.error('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
+			sys.exit('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'CITE':
 		cxg_adata_raw = concat_list(cxg_adata_lst,'none',False)
 		if len(feature_lengths) == 1:
 			if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
-				sys.exit('There should be the same genes for raw matrices if only a single genome annotation')
+				logging.error('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
+				sys.exit('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
 		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
 		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
-			sys.exit('The number of cells do not match between final matrix and cxg h5ad.')
+			logging.error('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
+			sys.exit('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'ATAC':
 		for mapping_dict in mfinal_obj['cell_label_mappings']:
 			cell_mapping_rev_dct[mapping_dict['label']] = mapping_dict['raw_matrix']
@@ -1321,7 +1368,8 @@ def main(mfinal_id):
 				spatial_lib = list(cxg_uns['spatial'].keys())[0]
 				cxg_obsm['X_spatial'] = cxg_obsm['spatial'] * cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_hires_scalef']
 	if len([i for i in cxg_obsm.keys() if i.startswith('X_')]) < 1:
-		sys.exit("At least one embedding that starts with 'X_' is required")
+		logging.error("ERROR: At least one embedding that starts with 'X_' is required")
+		sys.exit("ERROR: At least one embedding that starts with 'X_' is required")
 
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
@@ -1333,10 +1381,10 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
 	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
-		print("\nWARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
+		warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
 			format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
 	if len([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]) > 0:
-		print("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
+		warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
 
 	if 'author_cluster_column' in mfinal_obj:
 		cluster_col = mfinal_obj['author_cluster_column']
@@ -1362,7 +1410,8 @@ def main(mfinal_id):
 		# Retain cell identifiers as index
 		cxg_obs = cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
 		if mfinal_adata.X.shape[0] != cxg_obs.shape[0]:
-			sys.exit('WARNING: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(mfinal_adata.X.shape[0], cxg_obs.shape[0]))
+			logging.error('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(mfinal_adata.X.shape[0], cxg_obs.shape[0]))
+			sys.exit('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(mfinal_adata.X.shape[0], cxg_obs.shape[0]))
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
 		report_diseases(df, mfinal_obj.get('experimental_variable_disease', unreported_value))
@@ -1439,6 +1488,11 @@ def main(mfinal_id):
 		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
 	quality_check(cxg_adata)
 	cxg_adata.write_h5ad(results_file, compression = 'gzip')
+
+	# Printing out list of warnings
+	for n in warning_list:
+		print(n, end = '\n')
+		logging.warning(n)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
