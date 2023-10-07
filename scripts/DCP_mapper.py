@@ -756,7 +756,7 @@ def customize_fields(obj, obj_type):
 			obj['genus_species'] = [obj['genus_species']]
 		if obj.get('organism_age') in ['unknown','variable']:
 			del obj['organism_age']
-		elif '>' in obj.get('organism_age'):
+		elif '>' in obj.get('organism_age',''):
 			obj['organism_age'] = obj['organism_age'].replace('>','') + '-122'
 			del obj['organism_age_unit']
 		if not obj.get('is_living'):
