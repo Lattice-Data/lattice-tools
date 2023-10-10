@@ -229,12 +229,9 @@ def dcp_validation(dataset):
         'file_errors': set(),
         'extra_files': [],
     }
-    write_error('validating links')
-    validate_files('links', reporting)
-    write_error('validating metadata')
-    validate_files('metadata', reporting)
-    write_error('validating descriptors')
-    validate_files('descriptors', reporting)
+    for t in ['links','metadata','descriptors']:
+        write_error('validating ' + t)
+        validate_files(t, reporting)
     check_results(reporting)
 
     for file_name in reporting['extra_files']:
