@@ -119,7 +119,7 @@ def aws_file_transfer(dataset_id, file_uris):
         print('Returned transferJob: {}'.format(
             json.dumps(result, indent=4)))
         transferJobs.append(result['name'])
-    print('\n'.join(transferJobs))
+    print(transferJobs)
 
 
 def local_dir_transfer(local_path, gcs_path=None):
