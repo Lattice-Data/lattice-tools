@@ -124,7 +124,7 @@ def aws_file_transfer(dataset_id, file_uris):
 
 def local_dir_transfer(local_path, gcs_path=None):
     if not gcs_path:
-        gcs_path = 'staging/' + local_path
+        gcs_path = 'staging/' + local_path.replace('DCPoutput/','')
 
     bucket_name = 'broad-dsp-monster-hca-prod-lattice'
     bucket = storage.Client().bucket(bucket_name)
