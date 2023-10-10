@@ -743,7 +743,7 @@ def customize_fields(obj, obj_type):
 				if p.get('authors'):
 					p['authors'] = [a.lstrip() for a in p['authors'].split(',')]
 				if p.get('doi'):
-					p['url'] = 'doi.org/' + p['doi']
+					p['url'] = 'https://doi.org/' + p['doi']
 				if 'official_hca_publication' not in p:
 					p['official_hca_publication'] = False
 		if obj.get('supplementary_links'):
