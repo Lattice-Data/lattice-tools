@@ -743,7 +743,7 @@ def customize_fields(obj, obj_type):
 				if p.get('authors'):
 					p['authors'] = [a.lstrip() for a in p['authors'].split(',')]
 				if p.get('doi'):
-					p['url'] = 'doi.org/' + p['doi']
+					p['url'] = 'https://doi.org/' + p['doi']
 				if 'official_hca_publication' not in p:
 					p['official_hca_publication'] = False
 		if obj.get('supplementary_links'):
@@ -997,7 +997,7 @@ def file_descript(obj, obj_type, dataset):
 	del obj['file_size']
 	del obj['sha256']
 	del obj['crc32c']
-	with open(dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
+	with open('DCPoutput/' + dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
 		json.dump(file_descriptor, outfile, indent=4)
 
 
@@ -1110,7 +1110,7 @@ def main():
 	# make directory named after dataset
 	logging.info('WRITING THE JSON FILES')
 	for d in dir_to_make:
-		os.mkdir(dataset_id + '/' + d)
+		os.mkdir('DCPoutput/' + dataset_id + '/' + d)
 
 	# reformat links to use uuids and convert to DCP schema
 	for i in links:
@@ -1118,7 +1118,7 @@ def main():
 		i['schema_version'] = dcp_versions['links']
 		i['describedBy'] = 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_versions['links'])
 		first_id = i['links'][0]['process_id']
-		with open(dataset_id + '/links/' + first_id + '_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
+		with open('DCPoutput/' + dataset_id + '/links/' + first_id + '_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
 			json.dump(i, outfile, indent=4)
 			outfile.close()
 
@@ -1127,7 +1127,7 @@ def main():
 
 	# write a json file for each object
 	for k in whole_dict.keys():
-		os.mkdir(dataset_id + '/metadata/' + k)
+		os.mkdir('DCPoutput/' + dataset_id + '/metadata/' + k)
 		for o in whole_dict[k]:
 			if k == 'sequence_file':
 				if o.get('s3_uri'):
@@ -1142,20 +1142,20 @@ def main():
 			elif k == 'supplementary_file':
 				file_name = o['file_core']['file_name']
 				file_stats(file_name, o)
-				os.rename(file_name, dataset_id + '/data/' + file_name)
+				os.rename(file_name, 'DCPoutput/' + dataset_id + '/data/' + file_name)
 				file_descript(o, k, dataset_id)
 			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_versions[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_versions[k], k)
-			with open(dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
+			with open('DCPoutput/' + dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
 				json.dump(o, outfile, indent=4, ensure_ascii=False)
 
 	# make a staging_area.json to meet DCP requirements
 	text = {
 		"is_delta": args.revision
 	}
-	with open(dataset_id + '/staging_area.json', 'w', encoding='utf8') as outfile:
+	with open('DCPoutput/' + dataset_id + '/staging_area.json', 'w', encoding='utf8') as outfile:
 		json.dump(text, outfile, indent=4, ensure_ascii=False)
 
 	# logging.info a close approximation of the DCP metadata.tsv
@@ -1165,12 +1165,12 @@ def main():
 	# report metadata not mapped to DCP schema
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
-	with open('DCP_outs/not_included.json', 'w') as outfile:
+	with open('DCPoutput/not_included.json', 'w') as outfile:
 		json.dump(not_incl, outfile, indent=4)
 
 	# report files that are not validated, and thus, not included in the mapping
 	if not_valid:
-		with open('DCP_outs/not_validated.txt', 'w') as outfile:
+		with open('DCPoutput/not_validated.txt', 'w') as outfile:
 			outfile.write('\n'.join(not_valid))
 
 	if not args.no_validate:
@@ -1187,7 +1187,7 @@ def main():
 		if not args.data_only:
 			# transfer the metadata directory to the DCP Google Cloud project
 			logging.info('TRANSFERRING METADATA DIRECTORIES')
-			request_to_gcp.local_dir_transfer(dataset_id)
+			request_to_gcp.local_dir_transfer('DCPoutput/' + dataset_id)
 
 			if args.metadata_only:
 				sys.exit('Metadata directories transferred, data not transferred due to --metadata-only')
@@ -1207,10 +1207,10 @@ def main():
 		quit()
 
 if __name__ == '__main__':
-	if not os.path.isdir('DCP_outs'):
-		os.mkdir('DCP_outs')
+	if not os.path.isdir('DCPoutput'):
+		os.mkdir('DCPoutput')
 
-	logging.basicConfig(filename='DCP_outs/mapper.log', level=logging.INFO)
+	logging.basicConfig(filename='DCPoutput/mapper.log', level=logging.INFO)
 	logging.info('STARTED')
 	# set the current date time, used to version throughout
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')

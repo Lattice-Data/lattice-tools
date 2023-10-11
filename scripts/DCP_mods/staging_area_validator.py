@@ -27,7 +27,7 @@ schemas = {}
 
 
 def validate_files(path: str, reporting) -> None:
-    directory = reporting['dataset']
+    directory = 'DCPoutput/' + reporting['dataset']
     validate_file_fn = globals()[f'validate_{path}_file']
     for r, d, f in os.walk(os.path.join(directory, path)):
         for file_name in f:
@@ -216,7 +216,7 @@ def check_results(reporting):
 
 
 def write_error(message):
-    with open('DCP_outs/validation_errors.txt', 'a') as outfile:
+    with open('DCPoutput/validation_errors.txt', 'a') as outfile:
         outfile.write(message + '\n')
 
 
@@ -229,12 +229,9 @@ def dcp_validation(dataset):
         'file_errors': set(),
         'extra_files': [],
     }
-    write_error('validating links')
-    validate_files('links', reporting)
-    write_error('validating metadata')
-    validate_files('metadata', reporting)
-    write_error('validating descriptors')
-    validate_files('descriptors', reporting)
+    for t in ['links','metadata','descriptors']:
+        write_error('validating ' + t)
+        validate_files(t, reporting)
     check_results(reporting)
 
     for file_name in reporting['extra_files']:
