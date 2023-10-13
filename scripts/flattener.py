@@ -18,6 +18,7 @@ import logging
 import gc
 from scipy import sparse
 from datetime import datetime
+import warnings
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -1059,6 +1060,10 @@ def main(mfinal_id):
 	# Adding date and time to top of logging file
 	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
 	logging.info("Date and time of flattener run: " + time_date)
+
+	# Suppressing specific anndata warnings
+	warnings.filterwarnings('ignore',message='Trying to modify attribute `.obs` of view, initializing view as actual.')
+	warnings.filterwarnings('ignore',message='Variable names are not unique. To make them unique, call `.var_names_make_unique`.')
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
