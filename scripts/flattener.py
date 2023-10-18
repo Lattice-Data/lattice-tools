@@ -1059,6 +1059,8 @@ def main(mfinal_id):
 	# Adding date and time to top of logging file
 	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
 	logging.info("Date and time of flattener run: " + time_date)
+	# Suppressing specific warnings from anndata
+	logging.captureWarnings(True)
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = mfinal_obj['@type'][0]
