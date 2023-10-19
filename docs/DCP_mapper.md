@@ -43,4 +43,4 @@ Run the script on a given Dataset
 ```
 python3 DCP_mapper.py -m prod -d <dataset_identifier>
 ```
-Once that is complete and all file transfers are completed, run validation on the staging area using the [DCP_project_ready notebook](../scripts/DCP_project_read.ipynb)
+Once that is complete and all file transfers are completed, run validation on the staging area using the [DCP_project_ready notebook](../scripts/DCP_project_ready.ipynb)
