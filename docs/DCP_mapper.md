@@ -8,7 +8,7 @@ aws ec2 run-instances --launch-template LaunchTemplateName=checkfiles
 ```
 Identify the Public DNS for the instance and ssh to instance
 ```
-aws ec2 describe-instances --filters Name=image-id,Values=ami-0e4035ae3f70c400f --query Reservations[*].Instances[*].[PublicDnsName] --output text
+aws ec2 describe-instances --filters Name=image-id,Values=ami-0e4035ae3f70c400f --query 'Reservations[*].Instances[*].[PublicDnsName]' --output text
 ```
 ```
 ssh -i lattice_ec2.pem ec2-user@<Public DNS>
@@ -22,41 +22,25 @@ Install python and necessary modules
 sudo yum install python3
 ```
 ```
-sudo pip3 install requests Pint google-api-python-client google-cloud-storage crcmod boto3 pandas jsonschema
+sudo pip3 install requests Pint google-api-python-client google-cloud-storage crcmod boto3 pandas jsonschema urllib3==1.26
 ```
 Define 3 variables for Lattice db permissions
 ```
 export PROD_KEY=<> ; export PROD_SECRET=<> ; export PROD_SERVER=https://www.lattice-data.org
 ```
-Copy 4 files from your local lattice-tools clone to the instance
+Copy local files from lattice-tools and credentials to the instance
 ```
-scp -i lattice_ec2.pem lattice.py DCP_mapper.py ec2-user@<Public DNS>:/mnt
-```
-Copy DCP_mods directory your local lattice-tools clone to the instance
-```
-scp -i lattice_ec2.pem -r DCP_mods/ ec2-user@<Public DNS>:/mnt
-```
-
-Copy the GCP credentials json file from your local computer to the instance
-```
-scp -i lattice_ec2.pem gcp_creds.json ec2-user@<Public DNS>:/mnt
+scp -r -i lattice_ec2.pem lattice.py DCP_mapper.py DCP_mods/ gcp_creds.json ~/.aws/credentials ec2-user@<Public DNS>:/mnt
 ```
 If you will be checking files hosted in the Lattice S3 storage, create directory to hold AWS credentials & set your variables to the location of the AWS & GCP credentials
 ```
 mkdir .aws
 ```
 ```
-export AWS_SHARED_CREDENTIALS_FILE=.aws/credentials ; export GOOGLE_APPLICATION_CREDENTIALS=/mnt/gcp_creds.json
-```
-... and copy credentials from your local machine to the instance
-```
-scp -i lattice_ec2.pem ~/.aws/credentials ec2-user@<Public DNS>:/mnt/.aws
+export AWS_SHARED_CREDENTIALS_FILE=credentials ; export GOOGLE_APPLICATION_CREDENTIALS=gcp_creds.json
 ```
 Run the script on a given Dataset
 ```
 python3 DCP_mapper.py -m prod -d <dataset_identifier>
 ```
-Once that is complete and all file transfers are completed, run validation on the staging area (in a python 3.8 environment)
-```
- python validate_staging_area.py -s gs://broad-dsp-monster-hca-prod-lattice/staging/<project_id>
-```
+Once that is complete and all file transfers are completed, run validation on the staging area using the [DCP_project_ready notebook](../scripts/DCP_project_ready.ipynb)
