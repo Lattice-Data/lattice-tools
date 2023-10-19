@@ -28,7 +28,7 @@ Define 3 variables for Lattice db permissions
 ```
 export PROD_KEY=<> ; export PROD_SECRET=<> ; export PROD_SERVER=https://www.lattice-data.org
 ```
-Copy files from your local lattice-tools clone to the instance
+Copy local files from lattice-tools and credentials to the instance
 ```
 scp -r -i lattice_ec2.pem lattice.py DCP_mapper.py DCP_mods/ gcp_creds.json ~/.aws/credentials ec2-user@<Public DNS>:/mnt
 ```
@@ -37,7 +37,7 @@ If you will be checking files hosted in the Lattice S3 storage, create directory
 mkdir .aws
 ```
 ```
-export AWS_SHARED_CREDENTIALS_FILE=.aws/credentials ; export GOOGLE_APPLICATION_CREDENTIALS=/mnt/gcp_creds.json
+export AWS_SHARED_CREDENTIALS_FILE=credentials ; export GOOGLE_APPLICATION_CREDENTIALS=gcp_creds.json
 ```
 Run the script on a given Dataset
 ```
