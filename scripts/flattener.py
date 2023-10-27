@@ -1420,6 +1420,18 @@ def main(mfinal_id):
 		get_sex_ontology(df)
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
+	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
+	primary_portion = mfinal_obj.get('primary_portion')
+	if primary_portion.get('obs_field') not in cxg_obs.columns:
+		logging.error("ERROR: 'obs_field' value {} not found in cxg_obs columns".format(primary_portion.get('obs_field')))
+		sys.exit("ERROR: 'obs_field' value {} not found in cxg_obs columns".format(primary_portion.get('obs_field')))
+
+	# Check that all primary_portion.values of ProcessedMatrixFile are found in the 'obs_field' column of cxg_obs
+	missing = [f for f in primary_portion.get('values') if f not in cxg_obs[primary_portion.get('obs_field')]]
+	if missing:
+		logging.error("ERROR: cxg_obs column {} doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
+		sys.exit("ERROR: cxg_obs column {} doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
+
 	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
 	drop_cols(celltype_col)
 	clean_obs()
