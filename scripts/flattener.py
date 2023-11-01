@@ -1421,7 +1421,7 @@ def main(mfinal_id):
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
 	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
-	if not mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
+	if mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
 		primary_portion = mfinal_obj.get('primary_portion')
 		if primary_portion.get('obs_field') not in cxg_obs.columns:
 			logging.error("ERROR: 'obs_field' value '{}' not found in cxg_obs columns".format(primary_portion.get('obs_field')))
