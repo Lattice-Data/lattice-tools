@@ -39,6 +39,8 @@ Run the conversion
 ```
 target/release/bamtofastq --reads-per-fastq=500000000 C70_SC_5pr_possorted_genome_bam.bam ./fastqs
 ```
+Each set of bam files requires thorough review as they may in terms of how many fastqs are produced, how they are named, and what the output file structure is. What follows outlines the steps to take, but the specific code may need to be adjusted.
+
 Likely need to change the name of the output fastqs so they'll be unique file names
 ```
 cd fastqs/* ; for a in `ls *` ; do mv $a SRR26173958_$a ; done ; cd .. ; cd ..
@@ -51,5 +53,4 @@ Remove the bam & the fastq directory before doing the next one
 ```
 rm C70_SC_5pr_possorted_genome_bam.bam ; rm -r fastqs
 ```
-Command templates for doing many conversions
-https://docs.google.com/spreadsheets/d/1M0bNaRoiYwWBZFkaqZABY6V65UHetOlbZ0g7KUzmg-c/edit#gid=1217473508
+[Command templates](https://docs.google.com/spreadsheets/d/1M0bNaRoiYwWBZFkaqZABY6V65UHetOlbZ0g7KUzmg-c/edit#gid=1217473508) for doing many conversions
