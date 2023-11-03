@@ -1487,11 +1487,24 @@ def main(mfinal_id):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-	# Copy over any additional data from mfinal_adata to cxg_adatda
-	reserved_uns = ['schema_version', 'title', 'batch_condition', 'default_embedding', 'X_approximate_distribution']
+
+	# Copy over any additional data from mfinal_adata to cxg_adata
+	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution']
 	for i in mfinal_adata.uns.keys():
-		if i not in reserved_uns:
+		if i == 'batch_condition':
+			if not isinstance(mfinal_adata.uns['batch_condition'], list) and not isinstance(mfinal_adata.uns['batch_condition'], np.ndarray) :
+				warning_list.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
+			else:
+				if len([x for x in mfinal_adata.uns['batch_condition'] if x not in cxg_adata.obs.columns]) > 0:
+					warning_list.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
+				elif len(set(mfinal_adata.uns['batch_condition'])) != len(mfinal_adata.uns['batch_condition']):
+					warning_list.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
+				else:
+					cxg_adata.uns['batch_condition'] = mfinal_adata.uns['batch_condition']
+		elif i not in reserved_uns:
 			cxg_adata.uns[i] = mfinal_adata.uns[i]
+
+
 	if mfinal_adata.obsp:
 		cxg_adata.obsp = mfinal_adata.obsp
 
