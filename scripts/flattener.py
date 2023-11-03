@@ -1420,6 +1420,10 @@ def main(mfinal_id):
 		get_sex_ontology(df)
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
+	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
+	drop_cols(celltype_col)
+	clean_obs()
+
 	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
 	if mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
 		primary_portion = mfinal_obj.get('primary_portion')
@@ -1432,10 +1436,6 @@ def main(mfinal_id):
 		if missing:
 			logging.error("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 			sys.exit("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
-
-	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	drop_cols(celltype_col)
-	clean_obs()
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
