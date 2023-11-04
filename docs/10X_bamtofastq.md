@@ -39,7 +39,7 @@ Run the conversion
 ```
 target/release/bamtofastq --reads-per-fastq=500000000 C70_SC_5pr_possorted_genome_bam.bam ./fastqs
 ```
-Each set of bam files requires thorough review as they may in terms of how many fastqs are produced, how they are named, and what the output file structure is. What follows outlines the steps to take, but the specific code may need to be adjusted.
+Each set of bam files requires thorough review as they vary may in terms of how many fastqs are produced, how they are named, and what the output file structure is. What follows outlines the steps to take, but the specific code may need to be adjusted.
 
 Likely need to change the name of the output fastqs so they'll be unique file names
 ```
