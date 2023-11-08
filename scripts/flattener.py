@@ -1483,6 +1483,10 @@ def main(mfinal_id):
 		map_antibody()
 		add_zero()
 
+	# Check that cxg_adata_raw.X is correct datatype
+	if not isinstance(cxg_adata_raw.X, np.float32):
+		cxg_adata_raw.X = cxg_adata_raw.X.astype(np.float32)
+
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
