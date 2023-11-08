@@ -33,7 +33,7 @@ cell_metadata = {
 		'donor_id',
 		'age_display',
 		'sex',
-		'summary_ethnicity',
+		'ethnicity',
 		'causes_of_death.term_name',
 		'diseases.term_id',
 		'diseases.term_name',
@@ -144,7 +144,7 @@ prop_map = {
 	'donor_sex': 'sex',
 	'donor_donor_id': 'donor_id',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
-	'donor_summary_ethnicity': 'self_reported_ethnicity_ontology_term_id',
+	'donor_ethnicity': 'self_reported_ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
 	'donor_smoker': 'donor_smoking_status',
@@ -400,6 +400,20 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 					ontology = lattice.get_object(history.get('diagnosis'), connection)
 					key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
 					values_to_add[key] = history.get('present')
+		elif prop == 'ethnicity':
+			ethnicity_list = []
+			ethnicity_dict_list = get_value(obj,prop)
+			if ethnicity_dict_list != None:
+				for ethnicity_dict in ethnicity_dict_list:
+					if ethnicity_dict.get('term_id') == 'NCIT:C17998':
+						ethnicity_list.append('unknown')
+					else:
+						ethnicity_list.append(ethnicity_dict.get('term_id'))
+				ethnicity_list.sort()
+				value = ','.join(ethnicity_list)
+				latkey = (obj_type + '_' + prop).replace('.','_')
+				key = prop_map.get(latkey, latkey)
+				values_to_add[key] = value
 		else:
 			value = get_value(obj, prop)
 			if isinstance(value, list):
@@ -429,6 +443,32 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				else:
 					values_df[ident] = np.nan
 					unknowns.append(ident)
+			for i in unknowns:
+				values_df[i] = 'unknown'
+			for index, row in values_df.iterrows():
+				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
+		elif prop == 'ethnicity':
+			values_df = pd.DataFrame()
+			unknowns = []
+			for obj in objs:
+				ident = obj.get('@id')
+				ethnicity_list = []
+				ethnicity_dict_list = get_value(obj,prop)
+				if ethnicity_dict_list != None:
+					for ethnicity_dict in ethnicity_dict_list:
+						if ethnicity_dict.get('term_id') == 'NCIT:C17998':
+							ethnicity_list.append('unknown')
+						else:
+							ethnicity_list.append(ethnicity_dict.get('term_id'))
+				if len(ethnicity_list) == 1 and ethnicity_list[0] == 'unknown':
+					values_df[ident] = np.nan
+					unknowns.append(ident)
+				else:
+					ethnicity_list.sort()
+					value = ','.join(ethnicity_list)
+					latkey = (obj_type + '_' + prop).replace('.','_')
+					key = prop_map.get(latkey, latkey)
+					values_df.loc[key,ident] = value
 			for i in unknowns:
 				values_df[i] = 'unknown'
 			for index, row in values_df.iterrows():
