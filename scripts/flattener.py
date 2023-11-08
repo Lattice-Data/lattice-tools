@@ -1446,6 +1446,11 @@ def main(mfinal_id):
 	var_meta = mfinal_adata.var.select_dtypes(include=keep_types)
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 	cxg_adata.var = cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
+	
+	# Removing feature_length column from var if present
+	if 'feature_length' in cxg_adata.var.columns:
+		adata.var.drop(columns=['feature_length'], inplace=True)
+		
 	if not sparse.issparse(cxg_adata.X):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 	elif cxg_adata.X.getformat()=='csc':
