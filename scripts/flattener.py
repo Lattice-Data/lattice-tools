@@ -1489,7 +1489,7 @@ def main(mfinal_id):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 
 	# Copy over any additional data from mfinal_adata to cxg_adata
-	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution']
+	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution','schema_reference','citation']
 	for i in mfinal_adata.uns.keys():
 		if i == 'batch_condition':
 			if not isinstance(mfinal_adata.uns['batch_condition'], list) and not isinstance(mfinal_adata.uns['batch_condition'], np.ndarray) :
@@ -1503,7 +1503,8 @@ def main(mfinal_id):
 					cxg_adata.uns['batch_condition'] = mfinal_adata.uns['batch_condition']
 		elif i not in reserved_uns:
 			cxg_adata.uns[i] = mfinal_adata.uns[i]
-
+		else:
+			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format())
 
 	if mfinal_adata.obsp:
 		cxg_adata.obsp = mfinal_adata.obsp
