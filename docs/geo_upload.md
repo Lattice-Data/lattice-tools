@@ -22,7 +22,7 @@ sudo yum install gcc
 ```
 - Install ncftp on machine:
 ```
-wget ftp://ftp.ncftp.com/ncftp/ncftp-3.2.6-src.tar.gz; tar -zxvf ncftp-3.2.6-src.tar.gz; cd ncftp-3.2.6; ./configure; make; sudo make install; make clean
+wget https://www.ncftp.com/downloads/ncftp/binaries/ncftp-3.2.6-linux-x86_64-glibc2.17-export.tar.gz; tar -zxvf ncftp-3.2.6-linux-x86_64-glibc2.17-export.tar.gz; cd ncftp-3.2.6/; sudo make install
 ```
 
 Upload processed files and metadata spreadsheet
