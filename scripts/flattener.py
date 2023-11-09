@@ -675,10 +675,13 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 	lib_donor_df['author_donor_@id'] = lattice_donor_col
 	lib_donor_df['library_donor_@id'] = lib_donor_df['library_@id'] + "," + lib_donor_df['author_donor_@id']
 
+	error = False
+	error_list = []
 	for lib_donor_unique in lib_donor_df['library_donor_@id'].to_list():
 		demult_susp = ''
 		lib_uniq = lib_donor_unique.split(',')[0]
 		donor_uniq = lib_donor_unique.split(',')[1]
+
 		for susp in donor_susp[donor_uniq]:
 			if susp in library_susp[lib_uniq]:
 				demult_susp = susp
@@ -686,10 +689,11 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 			logging.error('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}, {}'.format(donor_uniq, lib_uniq, donor_susp[donor_uniq], library_susp[lib_uniq]))
 			print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}, {}'.format(donor_uniq, lib_uniq, donor_susp[donor_uniq], library_susp[lib_uniq]))
 			error = True
+			error_list.append(donor_uniq)
 		else:
 			demult_susp_lst.append(demult_susp)
 	if error:
-		sys.exit("There are issues with suspension")
+		sys.exit("There are issues with finding common suspension for pooled library for the following donors:\t{}".format(error_list))
 	lib_donor_df['suspension_@id'] = demult_susp_lst
 
 	obj_type_subset = ['sample', 'suspension', 'donor']
