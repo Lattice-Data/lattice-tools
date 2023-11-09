@@ -630,6 +630,10 @@ def concat_list(anndata_list,column,uns_merge):
 		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique',  uns_merge='first')
 	else:
 		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique')
+	redundants = [i for i,c in collections.Counter(concat_result.obs.index.to_list()).items() if c>1]
+	if len(redundants)>0:
+		logging.error('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
+		sys.exit('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
 	return concat_result
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
@@ -679,10 +683,13 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 			if susp in library_susp[lib_uniq]:
 				demult_susp = susp
 		if demult_susp == '':
-			logging.error('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
-			sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}'.format(donor, donor_susp[donor], library_susp[assoc_lib]))
+			logging.error('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}, {}'.format(donor_uniq, lib_uniq, donor_susp[donor_uniq], library_susp[lib_uniq]))
+			print('ERROR: Could not find suspension for demultiplexed donor: {}, {}, {}, {}'.format(donor_uniq, lib_uniq, donor_susp[donor_uniq], library_susp[lib_uniq]))
+			error = True
 		else:
 			demult_susp_lst.append(demult_susp)
+	if error:
+		sys.exit("There are issues with suspension")
 	lib_donor_df['suspension_@id'] = demult_susp_lst
 
 	obj_type_subset = ['sample', 'suspension', 'donor']
@@ -1242,7 +1249,7 @@ def main(mfinal_id):
 			elif mfinal_obj.get('cell_label_location') == 'suffix':
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.endswith(mapping_label)]
 			else: 
-				mfinal_with_label = mfinal_cell_identifiers
+				mfinal_with_label = [i for i in mfinal_cell_identifiers if i in adata_raw.obs_names]
 			if len(overlapped_ids) == 0:
 				if mfinal_obj['cell_label_location'] == 'prefix':
 					if concatenated_ids[0].endswith('-1'):
