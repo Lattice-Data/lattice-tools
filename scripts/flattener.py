@@ -61,7 +61,8 @@ cell_metadata = {
 		'summary_body_mass_index_at_collection',
 		'treatment_summary',
 		'growth_medium',
-		'genetic_modifications'
+		'genetic_modifications',
+		'@type'
 		],
 	'tissue_section': [
 		'uuid',
@@ -350,12 +351,14 @@ def get_value(obj, prop):
 			return list(set(values))
 		elif obj.get(key1):
 			value = obj[key1].get(key2, unreported_value)
-			if key1 == 'biosample_ontology' and 'Culture' in obj['@type']:
+			if key1 == 'biosample_ontology' and 'Biosample' in obj['@type']:
 				obj_type = obj['@type'][0]
 				if obj_type == 'Organoid':
 					obj_type_conv = 'organoid'
 				elif obj_type == 'CellCulture':
 					obj_type_conv = 'cell culture'
+				elif obj_type == 'Tissue':
+					obj_type_conv = 'tissue'
 				return  '{} ({})'.format(value, obj_type_conv)
 			else:
 				return value
