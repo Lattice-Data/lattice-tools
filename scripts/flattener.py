@@ -1328,6 +1328,8 @@ def main(mfinal_id):
 			drop_removes = set(mfinal_adata.var.index.to_list()).intersection(set(all_remove))
 			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
 			mfinal_adata = mfinal_adata[:, [i for i in mfinal_adata.var.index.to_list() if i not in all_remove]]
+		elif len(feature_lengths) > 1:
+			cxg_adata_raw = concat_list(cxg_adata_lst,'gene_ids',True)
 		else:
 			cxg_adata_raw = concat_list(cxg_adata_lst,'none',True)
 			if len(feature_lengths) == 1:
