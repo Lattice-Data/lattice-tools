@@ -1000,9 +1000,10 @@ def clean_obs():
 	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
 	for field in make_numeric:
 		if field in cxg_obs.columns:
-			if True in cxg_obs[field].str.contains('[<>-]|'+unreported_value, regex=True).to_list():
+			if True in cxg_obs[field].str.contains('[<>-]|'+unreported_value+'|'+'pooled', regex=True).to_list():
 				if True not in cxg_obs[field].str.contains('[<>-]', regex=True).to_list():
 					cxg_obs[field].replace({'unknown':np.nan}, inplace=True) 
+					cxg_obs[field][np.where(cxg_obs[field].str.contains('pooled') == True)[0].tolist()] = np.nan
 					cxg_obs[field]  = cxg_obs[field].astype('float')
 			else: 
 				cxg_obs[field]  = cxg_obs[field].astype('float')
