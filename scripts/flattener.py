@@ -1436,6 +1436,8 @@ def main(mfinal_id):
 	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
 	drop_cols(celltype_col)
 	clean_obs()
+	del cxg_adata_lst
+	gc.collect()
 
 	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
 	if mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
