@@ -1283,7 +1283,7 @@ def main(mfinal_id):
 		redundant = list(set(redundant))
 		
 	# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
-	if mfinal_obj.get('genome_annotations', None):
+	if not mfinal_obj.get('genome_annotations', None):
 		del df['mapped_reference_annotation']
 
 	if mapping_error:
