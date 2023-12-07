@@ -342,7 +342,11 @@ def gather_objects(input_object, start_type=None):
 def get_value(obj, prop):
 	path = prop.split('.')
 	if len(path) == 1:
-		return obj.get(prop, unreported_value)
+		if path[0] == '@type':
+			value = obj.get('@type')[0]
+			return value
+		else:
+			return obj.get(prop, unreported_value)
 	elif len(path) == 2:
 		key1 = path[0]
 		key2 = path[1]
@@ -351,17 +355,7 @@ def get_value(obj, prop):
 			return list(set(values))
 		elif obj.get(key1):
 			value = obj[key1].get(key2, unreported_value)
-			if key1 == 'biosample_ontology' and 'Biosample' in obj['@type']:
-				obj_type = obj['@type'][0]
-				if obj_type == 'Organoid':
-					obj_type_conv = 'organoid'
-				elif obj_type == 'CellCulture':
-					obj_type_conv = 'cell culture'
-				elif obj_type == 'Tissue':
-					obj_type_conv = 'tissue'
-				return  '{} ({})'.format(value, obj_type_conv)
-			else:
-				return value
+			return value
 		else:
 			return obj.get(key1,unreported_value)
 	elif len(path) == 3:
