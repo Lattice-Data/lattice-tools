@@ -472,7 +472,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 			for i in unknowns:
 				values_df[i] = 'unknown'
 			for index, row in values_df.iterrows():
-				values_to_add[index] = row
+				values_to_add[index] = str(row[1])
 		else:
 			value = list()
 			for obj in objs:
