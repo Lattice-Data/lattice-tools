@@ -143,6 +143,7 @@ prop_map = {
 	'sample_genetic_modifications': 'genetic_modifications',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_sex': 'sex',
+	'sample_@type': 'tissue_type',
 	'donor_donor_id': 'donor_id',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
 	'donor_ethnicity': 'self_reported_ethnicity_ontology_term_id',
@@ -460,16 +461,19 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				if len(ethnicity_list) == 1 and ethnicity_list[0] == 'unknown':
 					values_df[ident] = np.nan
 					unknowns.append(ident)
-				else:
-					ethnicity_list.sort()
-					value = ','.join(ethnicity_list)
+				elif len(set(ethnicity_list)) == len(ethnicity_list):
+					value = ethnicity_list[0]
 					latkey = (obj_type + '_' + prop).replace('.','_')
 					key = prop_map.get(latkey, latkey)
 					values_df.loc[key,ident] = value
+				else:
+					values_df[ident] = np.nan
+					unknowns.append(ident)
 			for i in unknowns:
 				values_df[i] = 'unknown'
 			for index, row in values_df.iterrows():
-				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
+				print(row)
+				values_to_add[index] = row
 		else:
 			value = list()
 			for obj in objs:
@@ -1006,7 +1010,12 @@ def clean_obs():
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
-
+	valid_tissue_types = ['tissue', 'organoid', 'cell culture']
+	cxg_obs['tissue_type'] = cxg_obs['tissue_type'].str.lower()
+	for i in cxg_obs['tissue_type'].unique().tolist():
+		if i not in valid_tissue_types:
+			logging.error('ERROR: not a valid tissue type:\t{}'.format(i))
+			print('ERROR: not a valid tissue type:\t{}'.format(i))
 	if mfinal_obj['is_primary_data'] == 'mixed':
 		primary_portion = mfinal_obj.get('primary_portion')
 		cxg_obs['is_primary_data'] = False
