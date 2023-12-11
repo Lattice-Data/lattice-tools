@@ -1012,6 +1012,8 @@ def clean_obs():
 	valid_tissue_types = ['tissue', 'organoid', 'cell culture']
 	cxg_obs['tissue_type'] = cxg_obs['tissue_type'].str.lower()
 	for i in cxg_obs['tissue_type'].unique().tolist():
+		if i == 'cellculture':
+			cxg_obs['tissue_type'].replace({'cellculture':'cell culture'}, inplace=True)
 		if i not in valid_tissue_types:
 			logging.error('ERROR: not a valid tissue type:\t{}'.format(i))
 			print('ERROR: not a valid tissue type:\t{}'.format(i))
@@ -1535,7 +1537,7 @@ def main(mfinal_id):
 		add_zero()
 
 	# Check that cxg_adata_raw.X is correct datatype
-	if not isinstance(cxg_adata_raw.X, np.float32):
+	if not cxg_adata_raw.X.dtype == 'float32':
 		cxg_adata_raw.X = cxg_adata_raw.X.astype(np.float32)
 
 	if not sparse.issparse(cxg_adata_raw.X):
