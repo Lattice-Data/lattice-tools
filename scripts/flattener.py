@@ -33,7 +33,7 @@ cell_metadata = {
 		'donor_id',
 		'age_display',
 		'sex',
-		'summary_ethnicity',
+		'ethnicity',
 		'causes_of_death.term_name',
 		'diseases.term_id',
 		'diseases.term_name',
@@ -61,7 +61,8 @@ cell_metadata = {
 		'summary_body_mass_index_at_collection',
 		'treatment_summary',
 		'growth_medium',
-		'genetic_modifications'
+		'genetic_modifications',
+		'@type'
 		],
 	'tissue_section': [
 		'uuid',
@@ -142,9 +143,10 @@ prop_map = {
 	'sample_genetic_modifications': 'genetic_modifications',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'donor_sex': 'sex',
+	'sample_@type': 'tissue_type',
 	'donor_donor_id': 'donor_id',
 	'donor_organism_taxon_id': 'organism_ontology_term_id',
-	'donor_summary_ethnicity': 'self_reported_ethnicity_ontology_term_id',
+	'donor_ethnicity': 'self_reported_ethnicity_ontology_term_id',
 	'donor_age_display': 'donor_age',
 	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
 	'donor_smoker': 'donor_smoking_status',
@@ -341,7 +343,11 @@ def gather_objects(input_object, start_type=None):
 def get_value(obj, prop):
 	path = prop.split('.')
 	if len(path) == 1:
-		return obj.get(prop, unreported_value)
+		if path[0] == '@type':
+			value = obj.get('@type')[0]
+			return value
+		else:
+			return obj.get(prop, unreported_value)
 	elif len(path) == 2:
 		key1 = path[0]
 		key2 = path[1]
@@ -350,15 +356,7 @@ def get_value(obj, prop):
 			return list(set(values))
 		elif obj.get(key1):
 			value = obj[key1].get(key2, unreported_value)
-			if key1 == 'biosample_ontology' and 'Culture' in obj['@type']:
-				obj_type = obj['@type'][0]
-				if obj_type == 'Organoid':
-					obj_type_conv = 'organoid'
-				elif obj_type == 'CellCulture':
-					obj_type_conv = 'cell culture'
-				return  '{} ({})'.format(value, obj_type_conv)
-			else:
-				return value
+			return value
 		else:
 			return obj.get(key1,unreported_value)
 	elif len(path) == 3:
@@ -400,6 +398,20 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 					ontology = lattice.get_object(history.get('diagnosis'), connection)
 					key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
 					values_to_add[key] = history.get('present')
+		elif prop == 'ethnicity':
+			ethnicity_list = []
+			ethnicity_dict_list = get_value(obj,prop)
+			if ethnicity_dict_list != None:
+				for ethnicity_dict in ethnicity_dict_list:
+					if ethnicity_dict.get('term_id') == 'NCIT:C17998':
+						ethnicity_list.append('unknown')
+					else:
+						ethnicity_list.append(ethnicity_dict.get('term_id'))
+				ethnicity_list.sort()
+				value = ','.join(ethnicity_list)
+				latkey = (obj_type + '_' + prop).replace('.','_')
+				key = prop_map.get(latkey, latkey)
+				values_to_add[key] = value
 		else:
 			value = get_value(obj, prop)
 			if isinstance(value, list):
@@ -433,6 +445,34 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				values_df[i] = 'unknown'
 			for index, row in values_df.iterrows():
 				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
+		elif prop == 'ethnicity':
+			values_df = pd.DataFrame()
+			unknowns = []
+			for obj in objs:
+				ident = obj.get('@id')
+				ethnicity_list = []
+				ethnicity_dict_list = get_value(obj,prop)
+				if ethnicity_dict_list != None:
+					for ethnicity_dict in ethnicity_dict_list:
+						if ethnicity_dict.get('term_id') == 'NCIT:C17998':
+							ethnicity_list.append('unknown')
+						else:
+							ethnicity_list.append(ethnicity_dict.get('term_id'))
+				if len(ethnicity_list) == 1 and ethnicity_list[0] == 'unknown':
+					values_df[ident] = np.nan
+					unknowns.append(ident)
+				elif len(set(ethnicity_list)) == len(ethnicity_list):
+					value = ethnicity_list[0]
+					latkey = (obj_type + '_' + prop).replace('.','_')
+					key = prop_map.get(latkey, latkey)
+					values_df.loc[key,ident] = value
+				else:
+					values_df[ident] = np.nan
+					unknowns.append(ident)
+			for i in unknowns:
+				values_df[i] = 'unknown'
+			for index, row in values_df.iterrows():
+				values_to_add[index] = str(row[1])
 		else:
 			value = list()
 			for obj in objs:
@@ -968,9 +1008,10 @@ def clean_obs():
 	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
 	for field in make_numeric:
 		if field in cxg_obs.columns:
-			if True in cxg_obs[field].str.contains('[<>-]|'+unreported_value, regex=True).to_list():
+			if True in cxg_obs[field].str.contains('[<>-]|'+unreported_value+'|'+'pooled', regex=True).to_list():
 				if True not in cxg_obs[field].str.contains('[<>-]', regex=True).to_list():
 					cxg_obs[field].replace({'unknown':np.nan}, inplace=True) 
+					cxg_obs[field][np.where(cxg_obs[field].str.contains('pooled') == True)[0].tolist()] = np.nan
 					cxg_obs[field]  = cxg_obs[field].astype('float')
 			else: 
 				cxg_obs[field]  = cxg_obs[field].astype('float')
@@ -979,7 +1020,14 @@ def clean_obs():
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
-
+	valid_tissue_types = ['tissue', 'organoid', 'cell culture']
+	cxg_obs['tissue_type'] = cxg_obs['tissue_type'].str.lower()
+	for i in cxg_obs['tissue_type'].unique().tolist():
+		if i == 'cellculture':
+			cxg_obs['tissue_type'].replace({'cellculture':'cell culture'}, inplace=True)
+		if i not in valid_tissue_types:
+			logging.error('ERROR: not a valid tissue type:\t{}'.format(i))
+			print('ERROR: not a valid tissue type:\t{}'.format(i))
 	if mfinal_obj['is_primary_data'] == 'mixed':
 		primary_portion = mfinal_obj.get('primary_portion')
 		cxg_obs['is_primary_data'] = False
@@ -1461,6 +1509,11 @@ def main(mfinal_id):
 	var_meta = mfinal_adata.var.select_dtypes(include=keep_types)
 	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 	cxg_adata.var = cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
+	
+	# Removing feature_length column from var if present
+	if 'feature_length' in cxg_adata.var.columns:
+		adata.var.drop(columns=['feature_length'], inplace=True)
+		
 	if not sparse.issparse(cxg_adata.X):
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 	elif cxg_adata.X.getformat()=='csc':
@@ -1498,13 +1551,17 @@ def main(mfinal_id):
 		map_antibody()
 		add_zero()
 
+	# Check that cxg_adata_raw.X is correct datatype
+	if not cxg_adata_raw.X.dtype == 'float32':
+		cxg_adata_raw.X = cxg_adata_raw.X.astype(np.float32)
+
 	if not sparse.issparse(cxg_adata_raw.X):
 		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
 	elif cxg_adata.X.getformat()=='csc':
 		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 
 	# Copy over any additional data from mfinal_adata to cxg_adata
-	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution']
+	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution','schema_reference','citation']
 	for i in mfinal_adata.uns.keys():
 		if i == 'batch_condition':
 			if not isinstance(mfinal_adata.uns['batch_condition'], list) and not isinstance(mfinal_adata.uns['batch_condition'], np.ndarray) :
@@ -1518,7 +1575,8 @@ def main(mfinal_id):
 					cxg_adata.uns['batch_condition'] = mfinal_adata.uns['batch_condition']
 		elif i not in reserved_uns:
 			cxg_adata.uns[i] = mfinal_adata.uns[i]
-
+		else:
+			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format())
 
 	if mfinal_adata.obsp:
 		cxg_adata.obsp = mfinal_adata.obsp
