@@ -1129,7 +1129,8 @@ def main(mfinal_id):
 		sys.exit('ERROR: {} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 
 	if mfinal_obj['output_types'] == ['gene quantifications']:
-		if mfinal_obj['assays'] == ['snATAC-seq']:
+		#if mfinal_obj['assays'] == ['snATAC-seq']:
+		if 'snATAC-seq' in mfinal_obj['assays']:
 			summary_assay = 'ATAC'
 		else:
 			summary_assay = 'RNA'
@@ -1415,14 +1416,18 @@ def main(mfinal_id):
 					label = re.search(r'^[AGCT]+-1(.*)$', cell_id).group(1)
 			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
 		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
-		cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
+		if mfinal_adata.raw == None:
+			cxg_adata_raw = None
+		else:
+			cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
 
 	# Set uns and obsm parameters, moving over spatial information if applicable
 	cxg_uns = ds_results
-	if 'spatial' in cxg_adata_raw.uns.keys():
-		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
-		spatial_lib = list(cxg_uns['spatial'].keys())[0]
-		cxg_uns['image'] = cxg_uns['spatial'][spatial_lib]['images']['hires']
+	if cxg_adata_raw:
+		if 'spatial' in cxg_adata_raw.uns.keys():
+			cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
+			spatial_lib = list(cxg_uns['spatial'].keys())[0]
+			cxg_uns['image'] = cxg_uns['spatial'][spatial_lib]['images']['hires']
 	cxg_obsm = mfinal_adata.obsm.copy()
 	if mfinal_obj['assays'] == ['spatial transcriptomics']:
 		if 'spatial' in cxg_adata_lst[0].obsm.keys():
@@ -1543,7 +1548,8 @@ def main(mfinal_id):
 		add_zero()
 	elif summary_assay == 'ATAC':
 		compiled_annot = compile_annotations(ref_files)
-		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
+		if cxg_adata_raw != None:
+			cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False
 	elif summary_assay == 'CITE':
@@ -1583,7 +1589,8 @@ def main(mfinal_id):
 
 	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
 	if mfinal_obj['X_normalized']:
-		cxg_adata.raw = cxg_adata_raw
+		if cxg_adata_raw != None:
+			cxg_adata.raw = cxg_adata_raw
 	else:
 		cxg_adata.var['feature_is_filtered'] = False
 		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
