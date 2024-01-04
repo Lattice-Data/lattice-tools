@@ -1417,17 +1417,16 @@ def main(mfinal_id):
 			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
 		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
 		if mfinal_adata.raw == None:
-			cxg_adata_raw = None
+			cxg_adata_raw = ad.AnnData(mfinal_adata.X, var = mfinal_adata.var, obs = atac_obs)
 		else:
 			cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
 
 	# Set uns and obsm parameters, moving over spatial information if applicable
 	cxg_uns = ds_results
-	if cxg_adata_raw:
-		if 'spatial' in cxg_adata_raw.uns.keys():
-			cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
-			spatial_lib = list(cxg_uns['spatial'].keys())[0]
-			cxg_uns['image'] = cxg_uns['spatial'][spatial_lib]['images']['hires']
+	if 'spatial' in cxg_adata_raw.uns.keys():
+		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
+		spatial_lib = list(cxg_uns['spatial'].keys())[0]
+		cxg_uns['image'] = cxg_uns['spatial'][spatial_lib]['images']['hires']
 	cxg_obsm = mfinal_adata.obsm.copy()
 	if mfinal_obj['assays'] == ['spatial transcriptomics']:
 		if 'spatial' in cxg_adata_lst[0].obsm.keys():
@@ -1548,8 +1547,7 @@ def main(mfinal_id):
 		add_zero()
 	elif summary_assay == 'ATAC':
 		compiled_annot = compile_annotations(ref_files)
-		if cxg_adata_raw != None:
-			cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
+		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False
 	elif summary_assay == 'CITE':
@@ -1589,7 +1587,7 @@ def main(mfinal_id):
 
 	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
 	if mfinal_obj['X_normalized']:
-		if cxg_adata_raw != None:
+		if mfinal_adata.raw != None and summary_assay == 'ATAC':
 			cxg_adata.raw = cxg_adata_raw
 	else:
 		cxg_adata.var['feature_is_filtered'] = False
