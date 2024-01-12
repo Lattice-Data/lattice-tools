@@ -1,0 +1,17 @@
+{
+	"cae8bad0-39e9-4771-85a7-822b0e06de9f": {
+		"manaab_H46": "HsapDv:0000273",
+		"manaab_H71": "HsapDv:0000262"
+	},
+	"2f4c738f-e2f3-4553-9db2-0582a38ea4dc": {
+		"R-00646_01": "HsapDv:0000258",
+		"R-00646_03": "HsapDv:0000258",
+		"R-00646_04": "HsapDv:0000258"
+	},
+	"private_collection_title": {
+		"donor_A": "HsapDv:0000000",
+		"donor_B": "HsapDv:0000000",
+		"donor_C": "HsapDv:0000000",
+		"donor_D": "HsapDv:0000000"
+	}
+}
