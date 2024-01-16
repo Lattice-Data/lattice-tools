@@ -695,7 +695,7 @@ def report_diseases(mxr_df, exp_disease):
 	if exp_disease == unreported_value:
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
-		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
+		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id']
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease)
 		exp_disease_aslist = '[{}]'.format(exp_disease['term_name'])
 		if len([x for x in total_reported if x not in ['none', exp_disease_aslist,'[]']])==0:
