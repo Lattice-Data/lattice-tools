@@ -676,6 +676,9 @@ def concat_list(anndata_list,column,uns_merge):
 	if len(redundants)>0:
 		logging.error('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
 		sys.exit('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
+	drop_columns = [c for c in concat_result.obs.columns if c!='raw_matrix_accession']
+	if drop_columns:
+		concat_result.obs.drop(columns=drop_columns, inplace=True)
 	return concat_result
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
