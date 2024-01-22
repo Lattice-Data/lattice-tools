@@ -653,11 +653,17 @@ def quality_check(adata):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
 
-
 # Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease):
 	lst = lst.split(',')
-	disease = exp_disease['term_id'] if exp_disease['term_id'] in lst else 'PATO:0000461'
+	exp_disease_list = [i['term_id'] for i in exp_disease]
+	disease_found = [i for i in exp_disease_list if i in lst]
+	if disease_found:
+		disease = disease_found[0]
+		if len(disease_found) > 1:
+			warning_list.append("WARNING: There is at least one sample with more than one experimental variable disease:\t{}".format(disease_found))
+	else:
+		disease = 'PATO:0000461'
 	return disease
 
 # Add temporary suffixes to var columns and then concatenate anndata objects in list together
@@ -683,9 +689,8 @@ def concat_list(anndata_list,column,uns_merge):
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
 def report_diseases(mxr_df, exp_disease):
-	mxr_df['reported_diseases'] = mxr_df[['sample_diseases_term_name','donor_diseases_term_name']].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].astype(dtype='string')
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: x.replace("'", ""))
+	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: '[{}]'.format(','.join([i for i in set(x.split(',')) if i!=unreported_value])))
 	total_reported = mxr_df['reported_diseases'].unique()
 	if len(total_reported) == 1:
 		if total_reported[0] == '[]':
@@ -698,8 +703,9 @@ def report_diseases(mxr_df, exp_disease):
 	else:
 		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease)
-		exp_disease_aslist = '[{}]'.format(exp_disease['term_name'])
-		if len([x for x in total_reported if x not in ['none', exp_disease_aslist,'[]']])==0:
+		exp_disease_aslist = ['[{}]'.format(x['term_name']) for x in exp_disease]
+		exp_disease_aslist.extend(['none','[]'])
+		if len([x for x in total_reported if x not in exp_disease_aslist])==0:
 			mxr_df['reported_diseases'] = '[]'
 
 # Demultiplex experimental metadata by finding demultiplexed suspension 
