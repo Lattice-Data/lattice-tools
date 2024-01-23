@@ -652,7 +652,33 @@ def quality_check(adata):
 		if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
-
+# Check validity of colors before adding to cxg_adata.uns
+def colors_check(adata, color_column, column_name):
+	# Check that obs column exists
+	column_name = column_name.replace('_colors','')
+	if column_name not in adata.obs.columns:
+		error = 'the corresponding column is not present in obs.'
+		return False, error
+	# Verify color_column is a numpy array
+	if color_column is None or not isinstance(color_column, np.ndarray):
+		error = 'the column is not a numpy array.'
+		return False, error
+	# Verify that the numpy array contains strings
+	if not all(isinstance(color,str) for color in color_column):
+		error = 'the column does not contain strings.'
+		return False, error
+	# Verify that we have atleast as many colors as unique values in the obs column
+	if len(column_name) < len(adata.obs[column_name].unique()):
+		error = 'the column has less colors than unique values in the corresponding obs. column.'
+		return False, error
+	# Verify that either all colors are hex OR all colors are CSS4 named colors strings
+	all_hex_colors = all(re.match(r"^#([0-9a-fA-F]{6})$", color) for color in color_column)
+	all_css4_colors = all(color in mcolors.CSS4_COLORS for color in color_column)
+	if not (all_hex_colors or all_css4_colors):
+		error = 'the colors are not all hex or CSS4 named color strings.'
+		return False, error
+	else:
+		return True
 # Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease):
 	lst = lst.split(',')
@@ -1585,10 +1611,16 @@ def main(mfinal_id):
 					warning_list.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
 				else:
 					cxg_adata.uns['batch_condition'] = mfinal_adata.uns['batch_condition']
+		elif i.endswith('_colors'):
+			colors_result = colors_check(cxg_adata, mfinal_adata.uns[i], i)
+			if colors_result[0]:
+				cxg_adata.uns[i] = mfinal_adata.uns[i]
+			else:
+				warning_list.append("WARNING: The colors column '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(i,colors_result[1]))
 		elif i not in reserved_uns:
 			cxg_adata.uns[i] = mfinal_adata.uns[i]
 		else:
-			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format())
+			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(i))
 
 	if mfinal_adata.obsp:
 		cxg_adata.obsp = mfinal_adata.obsp
