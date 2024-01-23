@@ -1031,7 +1031,7 @@ def clean_obs():
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
 			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
-	valid_tissue_types = ['tissue', 'organoid', 'cell culture']
+	valid_tissue_types = ['tissue', 'organoid', 'cellculture']
 	cxg_obs['tissue_type'] = cxg_obs['tissue_type'].str.lower()
 	for i in cxg_obs['tissue_type'].unique().tolist():
 		if i == 'cellculture':
