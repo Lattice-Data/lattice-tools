@@ -652,6 +652,8 @@ def quality_check(adata):
 		if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
+
+
 # Check validity of colors before adding to cxg_adata.uns
 def colors_check(adata, color_column, column_name):
 	# Check that obs column exists
@@ -668,7 +670,7 @@ def colors_check(adata, color_column, column_name):
 		error = 'the column does not contain strings.'
 		return False, error
 	# Verify that we have atleast as many colors as unique values in the obs column
-	if len(column_name) < len(adata.obs[column_name].unique()):
+	if len(color_column) < len(adata.obs[column_name].unique()):
 		error = 'the column has less colors than unique values in the corresponding obs. column.'
 		return False, error
 	# Verify that either all colors are hex OR all colors are CSS4 named colors strings
@@ -679,6 +681,8 @@ def colors_check(adata, color_column, column_name):
 		return False, error
 	else:
 		return True
+
+
 # Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease):
 	lst = lst.split(',')
