@@ -18,6 +18,7 @@ import logging
 import gc
 from scipy import sparse
 from datetime import datetime
+import matplotlib.colors as mcolors
 
 # Reference files by which the flattener will filter var features
 ref_files = {
