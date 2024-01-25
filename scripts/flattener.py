@@ -681,7 +681,8 @@ def colors_check(adata, color_column, column_name):
 		error = 'the colors are not all hex or CSS4 named color strings.'
 		return False, error
 	else:
-		return True
+		error = 'none'
+		return True, error
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
