@@ -11,13 +11,13 @@ To get proper testing environment:
     pytest is part of test env
 
 Clone the lattice conda environment or create new environment as follows:
-
+```
 $ conda create --name cxg4testing python=3.9
 $ conda activate cxg4testing
 $ conda install -c conda-forge pint pandas jsonschema boto3 jupyter bs4
 $ pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy python-magic crcmod cellxgene-schema lxml pytest
 $ pip install git+https://github.com/chanzuckerberg/single-cell-curation/@main#subdirectory=cellxgene_schema_cli
-
+```
 
 Running tests
 ---------------- 
