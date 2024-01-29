@@ -1,6 +1,6 @@
 """
 QA testing for this issue:
-https://app.zenhub.com/workspaces/single-cell-5e2a191dad828d52cc78b028/issues/gh/chanzuckerberg/single-cell-curation/717
+https://github.com/chanzuckerberg/single-cell-curation/issues/717
 """
 
 import os
