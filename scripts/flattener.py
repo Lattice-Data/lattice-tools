@@ -657,11 +657,16 @@ def quality_check(adata):
 
 # Check validity of colors before adding to cxg_adata.uns
 def colors_check(adata, color_column, column_name):
-	# Check that obs column exists
 	column_name = column_name.replace('_colors','')
+	# Check that obs column exists
 	if column_name not in adata.obs.columns:
 		error = 'the corresponding column is not present in obs.'
 		return False, error
+	# Check that the corresponding column is the right datatype
+	if column_name in adata.obs.columns:
+		if adata.obs[column_name].dtype.name != 'category':
+			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(adata.obs[column_name].dtype.name)
+			return False, error
 	# Verify color_column is a numpy array
 	if color_column is None or not isinstance(color_column, np.ndarray):
 		error = 'the column is not a numpy array.'
