@@ -40,7 +40,11 @@ def test_obs_concat_unique_fails(validator_with_adata, duplicate_col):
     validator.adata.obs['author_test'] = 'test'
     validator.adata.obs = pd.concat([validator.adata.obs, validator.adata.obs[duplicate_col]], axis=1)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, 
+        match=f"Duplicate column name '{duplicate_col}' detected in 'adata.obs' DataFrame. "
+        "All DataFrame column names must be unique."
+    ):
         validator.validate_adata()
 
 
@@ -54,39 +58,51 @@ def test_var_concat_unique_fails(validator_with_adata, duplicate_col):
     validator = validator_with_adata
     validator.adata.var = pd.concat([validator.adata.var, validator.adata.var[duplicate_col]], axis=1)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, 
+        match=f"Duplicate column name '{duplicate_col}' detected in 'adata.var' DataFrame. "
+        "All DataFrame column names must be unique."
+    ):
         validator.validate_adata()
 
 
 @pytest.mark.parametrize(
-    "col_rename_dict",
+    "duplicate_col,col_rename_dict",
     (
-        pytest.param({'cluster_color': 'cluster', 'size': 'cluster'}, id="rename author obs col"),
-        pytest.param({'cluster_color': 'suspension_type'}, id="rename to required obs col"),
+        pytest.param('cluster', {'cluster_color': 'cluster', 'size': 'cluster'}, id="rename author obs col"),
+        pytest.param('suspension_type', {'cluster_color': 'suspension_type'}, id="rename to required obs col"),
     )
 )
-def test_obs_rename_unique_fails(validator_with_adata, col_rename_dict):
+def test_obs_rename_unique_fails(validator_with_adata, duplicate_col, col_rename_dict):
     validator = validator_with_adata
     validator.adata.obs.rename(columns=col_rename_dict, inplace=True)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, 
+        match=f"Duplicate column name '{duplicate_col}' detected in 'adata.obs' DataFrame. "
+        "All DataFrame column names must be unique."
+    ):
         validator.validate_adata()
 
-        
+
 @pytest.mark.parametrize(
-    "col_rename_dict",
+    "duplicate_col,col_rename_dict",
     (
-        pytest.param({'test': 'feature_is_filtered'}, id="rename var col to required name"),
-        pytest.param({'test': 'gene_symbol'}, id="rename var col to author name"),
+        pytest.param('feature_is_filtered', {'test': 'feature_is_filtered'}, id="rename var col to required name"),
+        pytest.param('gene_symbol', {'test': 'gene_symbol'}, id="rename var col to author name"),
     )
 )
-def test_var_rename_unique_fails(validator_with_adata, col_rename_dict):
+def test_var_rename_unique_fails(duplicate_col, validator_with_adata, col_rename_dict):
     validator = validator_with_adata
     validator.adata.var['test'] = 'test'
     validator.adata.var['gene_symbol'] = 'test'
     validator.adata.var.rename(columns=col_rename_dict, inplace=True)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, 
+        match=f"Duplicate column name '{duplicate_col}' detected in 'adata.var' DataFrame. "
+        "All DataFrame column names must be unique."
+    ):
         validator.validate_adata()
 
 
@@ -114,5 +130,46 @@ def test_raw_var_concat_fails(duplicate_col):
     validator = Validator()
     validator.adata = adata
 
-    with pytest.raises(ValueError):
+    with pytest.raises(
+        ValueError, 
+        match=f"Duplicate column name '{duplicate_col}' detected in 'adata.raw.var' DataFrame. "
+        "All DataFrame column names must be unique."
+    ):
         validator.validate_adata()
+
+
+@pytest.mark.parametrize(
+    "duplicate_col,rename_dict",
+    (
+        pytest.param('feature_is_filtered', {'test': 'feature_is_filtered'}, id="rename raw.var col to required name"),
+        pytest.param('gene_symbol', {'test': 'gene_symbol'}, id="rename raw.var col to author name"),
+    )
+)
+def test_raw_var_rename_fails(duplicate_col, rename_dict):
+    adata = ad.read_h5ad('fixtures/valid.h5ad')
+    var = adata.raw.var
+    var['test'] = 'test'
+    var[duplicate_col] = 'test'
+    var.rename(columns=rename_dict, inplace=True)
+    raw_adata = ad.AnnData(adata.raw.X, obs=adata.obs, var=var)
+    adata.raw = raw_adata
+    
+    # quick check to make sure only raw.var contains duplicates
+    print(adata.var)
+    print(adata.raw.var)
+
+    validator = Validator()
+    validator.adata = adata
+
+    with pytest.raises(
+        ValueError, 
+        match=f"Duplicate column name '{duplicate_col}' detected in 'adata.raw.var' DataFrame. "
+        "All DataFrame column names must be unique."
+    ):
+        validator.validate_adata()
+
+
+def test_del_raw_var(validator_with_adata):
+    validator = validator_with_adata
+    del validator.adata.raw
+    assert validator.validate_adata() is False
