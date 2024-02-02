@@ -26,6 +26,22 @@ def validator_with_adata() -> Validator:
 @pytest.mark.parametrize(
     "uns_key,empty_value,expected",
     (
+        pytest.param('title', 'Here is my title', True, id='Normal string title'),
+        pytest.param('batch_condition', ['donor_id'], True, id='Normal batch_condition list'),
+        pytest.param('log1p', np.array([1, 2, 3, 4]), True, id='Normal author np.array'),
+    )
+)
+def test_uns_zero_length_passes(validator_with_adata, uns_key, empty_value, expected):
+    validator = validator_with_adata
+    validator.adata.uns[uns_key] = empty_value
+    validator.validate_adata()
+    assert validator.is_valid is expected
+    assert validator.errors == []
+
+
+@pytest.mark.parametrize(
+    "uns_key,empty_value,expected",
+    (
         pytest.param('title', '', False, id='Empty string for title'),
         pytest.param('batch_condition', [], False, id='Empty list for batch_condition'),
         pytest.param('log1p', np.array([]), False, id='Empty numpy array, author key'),
@@ -33,6 +49,9 @@ def validator_with_adata() -> Validator:
         pytest.param('log1p', "", False, id='Empty string, author key'),
         pytest.param('log1p', {}, False, id='Empty dictionary, author key'),
         pytest.param('log1p', (), False, id='Empty set, author key'),
+        pytest.param('log1p', True, False, id='Value set to True'),
+        pytest.param('log1p', False, False, id='Value set to False'),
+        pytest.param('log1p', None, False, id='Value set to None'),
     )
 )
 def test_uns_zero_length_fails(validator_with_adata, uns_key, empty_value, expected):
