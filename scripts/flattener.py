@@ -1551,6 +1551,7 @@ def main(mfinal_id):
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
+	mfinal_adata.var_names_make_unique()
 	cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 	keep_types = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 	if summary_assay == 'CITE':
