@@ -450,7 +450,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
 		elif prop == 'ethnicity':
 			values_df = pd.DataFrame()
-			unknowns = []
+			latkey = (obj_type + '_' + prop).replace('.','_')
+			key = prop_map.get(latkey, latkey)
 			for obj in objs:
 				ident = obj.get('@id')
 				ethnicity_list = []
@@ -462,20 +463,16 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 						else:
 							ethnicity_list.append(ethnicity_dict.get('term_id'))
 				if len(ethnicity_list) == 1 and ethnicity_list[0] == 'unknown':
-					values_df[ident] = np.nan
-					unknowns.append(ident)
+					values_df.loc[key,ident] = 'unknown'
+				elif 'unknown' in ethnicity_list:
+					values_df.loc[key,ident] = 'unknown'
 				elif len(set(ethnicity_list)) == len(ethnicity_list):
 					value = ethnicity_list[0]
-					latkey = (obj_type + '_' + prop).replace('.','_')
-					key = prop_map.get(latkey, latkey)
 					values_df.loc[key,ident] = value
-				else:
-					values_df[ident] = np.nan
-					unknowns.append(ident)
-			for i in unknowns:
-				values_df[i] = 'unknown'
+				elif 'unknown' in ethnicity_list:
+					values_df.loc[key,ident] = 'unknown'
 			for index, row in values_df.iterrows():
-				values_to_add[index] = str(row[1])
+				values_to_add[index] = str(row[0])
 		else:
 			value = list()
 			for obj in objs:
@@ -490,7 +487,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 			key = prop_map.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			cxg_fields = ['disease_ontology_term_id', 'self_reported_ethnicity_ontology_term_id', 'organism_ontology_term_id',\
+			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
 							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
 				if key in cxg_fields:
@@ -1551,6 +1548,7 @@ def main(mfinal_id):
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
 	results_file  = get_results_filename(mfinal_obj)
+	mfinal_adata.var_names_make_unique()
 	cxg_var = pd.DataFrame(index = mfinal_adata.var.index.to_list())
 	keep_types = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 	if summary_assay == 'CITE':
