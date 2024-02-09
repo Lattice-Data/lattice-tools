@@ -1495,7 +1495,7 @@ def main(mfinal_id):
 	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
 		warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
 			format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
-	if celltype_col.isna():
+	if cxg_obs[celltype_col].isna().any():
 		logging.error("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
 		sys.exit("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
 	if len([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]) > 0:
