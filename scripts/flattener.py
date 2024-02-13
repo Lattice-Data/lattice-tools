@@ -960,7 +960,8 @@ def reconcile_genes(cxg_adata_lst):
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		warning_list.append("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
+		warning_list.append("WARNING: Full list of {}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
+		warning_list.append("WARNING: Genes with {}. {} in raw. {} in normalized. Full list available in logging file. Preview of normalized: {}".format(key, len(stats[key]), len(overlap_norm), list(overlap_norm)[:10]))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
 	
