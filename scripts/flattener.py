@@ -858,7 +858,8 @@ def set_ensembl(redundant, feature_keys):
 			drop_unmapped = list(norm_index.difference(raw_index))
 			cxg_adata = cxg_adata[:, [i for i in cxg_adata.var.index.to_list() if i not in drop_unmapped]]
 			if len(drop_unmapped) > 0:
-				warning_list.append('WARNING: {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped),drop_unmapped))
+				warning_list.append('WARNING: {} unmapped gene_symbols were dropped. Full list available in logging file. Preview: {}'.format(len(drop_unmapped),drop_unmapped[:10]))
+				warning_list.append('WARNING: Full list of the {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped),drop_unmapped))
 			cxg_adata.var = pd.merge(cxg_adata.var, cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
 			cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
 			cxg_adata_raw.var  = cxg_adata_raw.var.set_index('gene_ids', drop=True)
@@ -956,7 +957,8 @@ def reconcile_genes(cxg_adata_lst):
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		warning_list.append("{}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
+		warning_list.append("WARNING: Full list of {}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
+		warning_list.append("WARNING: Genes with {}. {} in raw. {} in normalized. Full list available in logging file. Preview of normalized: {}".format(key, len(stats[key]), len(overlap_norm), list(overlap_norm)[:10]))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
 	
@@ -1648,8 +1650,10 @@ def main(mfinal_id):
 
 	# Printing out list of warnings
 	for n in warning_list:
-		print(n, end = '\n')
-		logging.warning(n)
+		if 'WARNING: Full list' not in n:
+			print(n, end = '\n')
+		if 'Full list available in logging file.' not in n:
+			logging.warning(n)
 
 args = getArgs()
 connection = lattice.Connection(args.mode)
