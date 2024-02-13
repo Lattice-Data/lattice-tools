@@ -641,7 +641,7 @@ def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
 	if adata.obs.isnull().values.any():
-		warning_list.append("WARNING: There is at least one 'NaN' value in the cxg anndata obs dataframe.")
+		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format(adata.obs.columns[adata.obs.isna().any()].tolist()))
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			logging.error('ERROR: The default_visualization field is not in the cxg anndata obs dataframe.')
@@ -1492,6 +1492,9 @@ def main(mfinal_id):
 	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
 		warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
 			format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
+	if cxg_obs[celltype_col].isna().any():
+		logging.error("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
+		sys.exit("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
 	if len([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]) > 0:
 		warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
 
