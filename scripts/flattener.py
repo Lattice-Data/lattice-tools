@@ -1463,7 +1463,10 @@ def main(mfinal_id):
 					label = re.search(r'^[AGCT]+-1(.*)$', cell_id).group(1)
 			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
 		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
-		cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
+		if mfinal_adata.raw == None:
+			cxg_adata_raw = ad.AnnData(mfinal_adata.X, var = mfinal_adata.var, obs = atac_obs)
+		else:
+			cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
 
 	# Set uns and obsm parameters, moving over spatial information if applicable
 	cxg_uns = ds_results
@@ -1641,7 +1644,8 @@ def main(mfinal_id):
 
 	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
 	if mfinal_obj['X_normalized']:
-		cxg_adata.raw = cxg_adata_raw
+		if mfinal_adata.raw != None and summary_assay == 'ATAC':
+			cxg_adata.raw = cxg_adata_raw
 	else:
 		cxg_adata.var['feature_is_filtered'] = False
 		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
