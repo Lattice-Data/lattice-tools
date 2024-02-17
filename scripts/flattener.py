@@ -1644,7 +1644,7 @@ def main(mfinal_id):
 
 	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
 	if mfinal_obj['X_normalized']:
-		if mfinal_adata.raw != None and summary_assay == 'ATAC':
+		if summary_assay != 'ATAC' or mfinal_adata.raw != None:
 			cxg_adata.raw = cxg_adata_raw
 	else:
 		cxg_adata.var['feature_is_filtered'] = False
