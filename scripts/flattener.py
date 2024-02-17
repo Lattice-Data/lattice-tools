@@ -1129,8 +1129,7 @@ def main(mfinal_id):
 		sys.exit('ERROR: {} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 
 	if mfinal_obj['output_types'] == ['gene quantifications']:
-		#if mfinal_obj['assays'] == ['snATAC-seq']:
-		if 'snATAC-seq' in mfinal_obj['assays']:
+		if mfinal_obj['assays'] == ['snATAC-seq']:
 			summary_assay = 'ATAC'
 		else:
 			summary_assay = 'RNA'
