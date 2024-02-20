@@ -33,6 +33,10 @@ def validator_with_adata() -> Validator:
         pytest.param('MONDO:0005583', True, id='Valid MONDO:0005583, non-human disease parent term'),
         pytest.param('MONDO:1011335', True, id='Valid MONDO:1011335, non-human disease child term'),
         pytest.param('MONDO:1011336', True, id='Valid MONDO:1011336, nervous system disorder, non-human animal'),
+        pytest.param('MONDO:1010239', True, id='Valid MONDO:1010239, peripheral neuropathy, non-human animal'),
+        pytest.param('MONDO:1010003', True, id='Valid MONDO:1010003, narcolepsy non-human animal'),
+        pytest.param('MONDO:1010421', True, id='Valid MONDO:1010421, animal disease, sheep narcolepsy'),
+        pytest.param('MONDO:0800478', True, id='Valid MONDO:0800478, new term with pinned release, trigeminal trophic syndrome'),
     )
 )
 def test_disease_ontology_term_id_true(validator_with_adata, dt_id, expected):
@@ -71,10 +75,6 @@ def test_disease_ontology_term_false(validator_with_adata, dt_id, expected):
         pytest.param('', False, id='Empty str'),
         pytest.param('EFO:000001', False, id='EFO:000001, Invalid ontology'),
         pytest.param('NCIT:C158547', False, id='NCIT:C158547, Invalid ontology'),
-        pytest.param('MONDO:1010239', False, id='Valid MONDO:1010239, peripheral neuropathy, non-human animal'),
-        pytest.param('MONDO:1010003', False, id='Valid MONDO:1010003, narcolepsy non-human animal'),
-        pytest.param('MONDO:1010421', False, id='Valid MONDO:1010421, animal disease, sheep narcolepsy'),
-        pytest.param('MONDO:0800478', False, id='Valid MONDO:0800478, new term with pinned release, trigeminal trophic syndrome'),
         pytest.param('MONDO:0100535', False, id='Invalid MONDO:0100535, not approved as of 1-25-24'),
         pytest.param('MONDO:0100536', False, id='Invalid child of MONDO:0100535, not approved as of 1-25-24'),
     )

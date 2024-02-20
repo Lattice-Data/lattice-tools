@@ -29,6 +29,8 @@ def validator_with_adata() -> Validator:
         pytest.param('EFO:0008995', True, id='Valid EFO:0008995, child of single cell library construction'),
         pytest.param('EFO:0009900', True, id='Valid EFO:0009900, current 4.0.0 pinned ontology'),
         pytest.param('EFO:0030003', True, id='Valid EFO:0030003, 10x 3prime transcription profiling parent term'),
+        pytest.param('EFO:0022490', True, id='New valid EFO:0022490, new term in pinned ontology bump'),
+        pytest.param('EFO:0022492', True, id='New valid EFO:0022492, new term in pinned ontology bump'),
     )
 )
 def test_assay_ontology_term_id_valid(validator_with_adata, at_id, expected):
@@ -62,8 +64,6 @@ def test_assay_ontology_term_id_not_allowed(validator_with_adata, at_id, expecte
     (
         pytest.param('', False, id='Empty string'),
         pytest.param('PATO:0000461', False, id='PATO:0000461, wrong ontology'),
-        pytest.param('EFO:0022490', False, id='Not yet valid EFO:0022490, new term in pinned ontology bump'),
-        pytest.param('EFO:0022492', False, id='Not yet valid EFO:0022492, new term in pinned ontology bump'),
     )
 )
 def test_assay_ontology_term_id_not_valid(validator_with_adata, at_id, expected):

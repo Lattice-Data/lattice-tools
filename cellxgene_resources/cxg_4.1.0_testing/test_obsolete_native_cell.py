@@ -26,15 +26,12 @@ def validator_with_adata() -> Validator:
     "cell_type_term,tissue_type,expected",
     (
         pytest.param('unknown', 'tissue', True, id='cell_type_term is unknown'),
-        pytest.param('CL:0000003', 'tissue', True, id='CL:0000003, native cell, tissue_type == tissue'),
         pytest.param('CL:0000034', 'tissue', True, id='CL:0000034, child of CL:0000548, animal cell, tissue_type == tissue'),
         pytest.param('CL:0000463', 'tissue', True, id='CL:0000463, child of CL:0000255, eukaryotic cell, tissue_type == tissue'),
         pytest.param('unknown', 'cell culture', True, id='cell_type_term is unknown, tissue_type == cell culture'),
-        pytest.param('CL:0000003', 'cell culture', True, id='CL:0000003, native cell, tissue_type == cell culture'),
         pytest.param('CL:0000034', 'cell culture', True, id='CL:0000034, child of CL:0000548, animal cell, tissue_type == cell culture'),
         pytest.param('CL:0000463', 'cell culture', True, id='CL:0000463, child of CL:0000255, eukaryotic cell, tissue_type == cell culture'),
         pytest.param('unknown', 'organoid', True, id='cell_type_term is unknown, tissue_type == organoid'),
-        pytest.param('CL:0000003', 'organoid', True, id='CL:0000003, native cell, tissue_type == organoid'),
         pytest.param('CL:0000034', 'organoid', True, id='CL:0000034, child of CL:0000548, animal cell, tissue_type == organoid'),
         pytest.param('CL:0000463', 'organoid', True, id='CL:0000463, child of CL:0000255, eukaryotic cell, tissue_type == organoid'),
     )
@@ -59,14 +56,31 @@ def test_cell_ontology_term_is_valid(validator_with_adata, cell_type_term, tissu
     "cell_type_term,tissue_type,expected",
     (
         pytest.param('CL:0000003', 'tissue', False, id='CL:0000003, native cell, tissue_type == tissue'),
-        pytest.param('CL:0000255', 'tissue', False, id='CL:0000255, eukaryotic cell, tissue_type == tissue'),
         pytest.param('CL:0000548', 'tissue', False, id='CL:0000548, animal cell, tissue_type == tissue'),
         pytest.param('CL:0000003', 'organoid', False, id='CL:0000003, native cell, tissue_type == organoid'),
-        pytest.param('CL:0000255', 'organoid', False, id='CL:0000255, eukaryotic cell, tissue_type == organoid'),
         pytest.param('CL:0000548', 'organoid', False, id='CL:0000548, animal cell, tissue_type == organoid'),
     )
 )
-def test_cell_ontology_term_fails(validator_with_adata, cell_type_term, tissue_type, expected):
+def test_cell_ontology_term_fails_deprecated(validator_with_adata, cell_type_term, tissue_type, expected):
+    validator = validator_with_adata
+    validator.adata.obs['tissue_type'] = tissue_type
+    validator.adata.obs['tissue_type'] = validator.adata.obs['tissue_type'].astype('category')
+    validator.adata.obs['cell_type_ontology_term_id'] = cell_type_term
+    validator.validate_adata()
+    assert validator.is_valid is expected
+    assert validator.errors == [
+        f"ERROR: '{cell_type_term}' in 'cell_type_ontology_term_id' is a deprecated term id of 'CL'."
+    ]
+
+
+@pytest.mark.parametrize(
+    "cell_type_term,tissue_type,expected",
+    (
+        pytest.param('CL:0000255', 'tissue', False, id='CL:0000255, eukaryotic cell, tissue_type == tissue'),
+        pytest.param('CL:0000255', 'organoid', False, id='CL:0000255, eukaryotic cell, tissue_type == organoid'),
+    )
+)
+def test_cell_ontology_term_fails_not_allowed(validator_with_adata, cell_type_term, tissue_type, expected):
     validator = validator_with_adata
     validator.adata.obs['tissue_type'] = tissue_type
     validator.adata.obs['tissue_type'] = validator.adata.obs['tissue_type'].astype('category')
@@ -81,9 +95,7 @@ def test_cell_ontology_term_fails(validator_with_adata, cell_type_term, tissue_t
 @pytest.mark.parametrize(
     "cell_type_term,tissue_type,expected",
     (
-        pytest.param('CL:0000003', 'cell culture', False, id='CL:0000003, native cell, tissue_type == cell culture'),
         pytest.param('CL:0000255', 'cell culture', False, id='CL:0000255, eukaryotic cell, tissue_type == cell culture'),
-        pytest.param('CL:0000548', 'cell culture', False, id='CL:0000548, animal cell, tissue_type == cell culture'),
     )
 )
 def test_cell_ontology_term_cell_culture_fails(validator_with_adata, cell_type_term, tissue_type, expected):
@@ -97,6 +109,27 @@ def test_cell_ontology_term_cell_culture_fails(validator_with_adata, cell_type_t
         f"ERROR: '{cell_type_term}' in 'tissue_ontology_term_id' is not allowed. When 'tissue_type' is 'cell culture', "
         "'tissue_ontology_term_id' MUST be either a CL term (excluding 'CL:0000255' (eukaryotic cell), 'CL:0000257' "
         "(Eumycetozoan cell), and 'CL:0000548' (animal cell)) or 'unknown'."
+    ]
+
+
+@pytest.mark.parametrize(
+    "cell_type_term,tissue_type,expected",
+    (
+        pytest.param('CL:0000003', 'cell culture', False, id='CL:0000003, native cell, tissue_type == cell culture'),
+        pytest.param('CL:0000548', 'cell culture', False, id='CL:0000548, animal cell, tissue_type == cell culture'),
+    )
+)
+def test_cell_ontology_term_cell_culture_fails_deprecated(validator_with_adata, cell_type_term, tissue_type, expected):
+    validator = validator_with_adata
+    validator.adata.obs['tissue_type'] = tissue_type
+    validator.adata.obs['tissue_type'] = validator.adata.obs['tissue_type'].astype('category')
+    validator.adata.obs['tissue_ontology_term_id'] = cell_type_term
+    validator.validate_adata()
+    assert validator.is_valid is expected
+    assert validator.errors == [
+        f"ERROR: '{cell_type_term}' in 'tissue_ontology_term_id' is a deprecated term id of 'CL'. "
+        "When 'tissue_type' is 'cell culture', 'tissue_ontology_term_id' MUST be either a CL term (excluding 'CL:0000255'"
+        " (eukaryotic cell), 'CL:0000257' (Eumycetozoan cell), and 'CL:0000548' (animal cell)) or 'unknown'."
     ]
 
 
