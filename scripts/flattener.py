@@ -640,13 +640,14 @@ def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells):
 
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(adata):
+	global mfinal_obj
 	if adata.obs.isnull().values.any():
 		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format(adata.obs.columns[adata.obs.isna().any()].tolist()))
 	elif 'default_visualization' in adata.uns:
 		if adata.uns['default_visualization'] not in adata.obs.values:
 			logging.error('ERROR: The default_visualization field is not in the cxg anndata obs dataframe.')
 			sys.exit("ERROR: The default_visualization field is not in the cxg anndata obs dataframe.")
-	elif mfinal_obj['X_normalized'] == True:
+	elif mfinal_obj['X_normalized'] == True and mfinal_obj['assays'] != ['snATAC-seq']:
 		if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
@@ -1155,6 +1156,16 @@ def add_labels():
 			cxg_adata.obs[name_col].replace(term_id, term_name, inplace=True)
 
 
+# Look at matrix and only convert to sparse if density is less than 0.5
+def check_matrix(m):
+	if not sparse.issparse(m):
+		if (np.count_nonzero(m)/np.prod(m.shape)) <= 0.5:
+			m = sparse.csr_matrix(m)
+	elif m.getformat()=='csc':
+		m = sparse.csr_matrix(m)
+	return m
+
+
 def main(mfinal_id):
 	global mfinal_obj
 	global mfinal_adata
@@ -1464,7 +1475,7 @@ def main(mfinal_id):
 			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
 		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
 		if mfinal_adata.raw == None:
-			cxg_adata_raw = ad.AnnData(mfinal_adata.X, var = mfinal_adata.var, obs = atac_obs)
+			cxg_adata_raw = ad.AnnData(sparse.csr_matrix(mfinal_adata.X.shape), var = mfinal_adata.var, obs = atac_obs)
 		else:
 			cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
 
@@ -1568,20 +1579,20 @@ def main(mfinal_id):
 	# Removing feature_length column from var if present
 	if 'feature_length' in cxg_adata.var.columns:
 		adata.var.drop(columns=['feature_length'], inplace=True)
-		
-	if not sparse.issparse(cxg_adata.X):
-		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
-	elif cxg_adata.X.getformat()=='csc':
-		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
+
+	# Check matrix density
+	cxg_adata.X = check_matrix(cxg_adata.X)
+	cxg_adata_raw.X = check_matrix(cxg_adata_raw.X)
+
+	# Check that cxg_adata_raw.X is correct datatype
+	if not cxg_adata_raw.X.dtype == 'float32':
+		cxg_adata_raw.X = cxg_adata_raw.X.astype(np.float32) 
 		
 	# Adding layers from 'layers_to_keep' to cxg_adata.layers	
 	if 'layers_to_keep' in mfinal_obj:
 		for k in mfinal_obj['layers_to_keep']:
 			cxg_adata.layers[k] = mfinal_adata.layers[k]
-			if not sparse.issparse(cxg_adata.layers[k]):
-				cxg_adata.layers[k] = sparse.csr_matrix(cxg_adata.layers[k])
-			elif cxg_adata.layers[k].getformat()=='csc':
-				cxg_adata.layers[k] = sparse.csr_matrix(cxg_adata.layers[k])
+			cxg_adata.layers[k] = check_matrix(cxg_adata.layers[k])
 				
 	# Convert gene symbols to ensembl and filter to approved set
 	if len(feature_lengths) > 1 and len(mfinal_obj['genome_annotations'])==1:
@@ -1605,15 +1616,6 @@ def main(mfinal_id):
 		add_labels()
 		map_antibody()
 		add_zero()
-
-	# Check that cxg_adata_raw.X is correct datatype
-	if not cxg_adata_raw.X.dtype == 'float32':
-		cxg_adata_raw.X = cxg_adata_raw.X.astype(np.float32)
-
-	if not sparse.issparse(cxg_adata_raw.X):
-		cxg_adata_raw = ad.AnnData(X = sparse.csr_matrix(cxg_adata_raw.X), obs = cxg_adata_raw.obs, var = cxg_adata_raw.var)
-	elif cxg_adata.X.getformat()=='csc':
-		cxg_adata.X = sparse.csr_matrix(cxg_adata.X)
 
 	# Copy over any additional data from mfinal_adata to cxg_adata
 	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution','schema_reference','citation']
