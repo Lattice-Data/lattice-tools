@@ -882,8 +882,9 @@ def filter_ensembl(adata, compiled_annot):
 	map_file = open('gene_map/gene_map_v44.json')
 	gene_map = json.load(map_file)
 	adata.var.reset_index(inplace=True)
-	adata.var['index'].map(gene_map).fillna(adata.var['index'])
-	adata.var.set_index('index',inplace=True)
+	index = adata.var.columns[0]
+	adata.var[index].map(gene_map).fillna(adata.var[index])
+	adata.var.set_index(index,inplace=True)
 	var_in_approved = adata.var.index[adata.var.index.isin(compiled_annot['feature_id'])]
 	adata = adata[:, var_in_approved]
 	return adata
