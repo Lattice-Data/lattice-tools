@@ -1278,7 +1278,22 @@ def main(mfinal_id):
 				if len(objs) == 1:
 					gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 				elif len(objs) > 1:
-					gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
+					# Check to make sure it is not multimodal before determining that it is pooled
+					if obj_type == 'library':
+						value = list()
+						for obj in objs:
+							v = get_value(obj, 'protocol.assay_ontology.term_id')
+							value.append(v)
+						if set(value) == {'EFO:0030059'}:
+							if mfinal_obj.get('assays') == ['snATAC-seq']:
+								single_obj = [o for o in objs if o.get('assay')=='snATAC-seq']
+							else:
+								single_obj = [o for o in objs if o.get('assay')=='snRNA-seq']
+							gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, single_obj)
+						else:
+							gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
+					else:
+						gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
@@ -1582,7 +1597,6 @@ def main(mfinal_id):
 
 	# Check matrix density
 	cxg_adata.X = check_matrix(cxg_adata.X)
-	cxg_adata_raw.X = check_matrix(cxg_adata_raw.X)
 
 	# Check that cxg_adata_raw.X is correct datatype
 	if not cxg_adata_raw.X.dtype == 'float32':
