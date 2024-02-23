@@ -415,6 +415,14 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 				latkey = (obj_type + '_' + prop).replace('.','_')
 				key = prop_map.get(latkey, latkey)
 				values_to_add[key] = value
+		elif prop == 'cell_ontology.term_id':
+			new_cell_id_list = []
+			value = get_value(obj,prop)
+			if value == 'NCIT:C17998':
+				value = 'unknown'
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = prop_map.get(latkey, latkey)
+			values_to_add[key] = value
 		else:
 			value = get_value(obj, prop)
 			if isinstance(value, list):
