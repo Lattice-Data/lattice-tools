@@ -469,8 +469,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				elif len(set(ethnicity_list)) == len(ethnicity_list):
 					value = ethnicity_list[0]
 					values_df.loc[key,ident] = value
-				elif 'unknown' in ethnicity_list:
-					values_df.loc[key,ident] = 'unknown'
 			for index, row in values_df.iterrows():
 				values_to_add[index] = str(row[0])
 		else:
