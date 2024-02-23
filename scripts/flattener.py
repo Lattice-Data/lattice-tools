@@ -485,6 +485,10 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				v = get_value(obj, prop)
 				if prop == 'summary_development_ontology_at_collection.development_slims':
 					dev_list.append(v)
+				if prop == 'cell_ontology.term_id':
+					if v == 'NCIT:C17998':
+						v = 'unknown'
+					value.append(v)
 				if isinstance(v, list):
 					value.extend(v)
 				else:
