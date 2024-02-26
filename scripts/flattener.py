@@ -394,18 +394,18 @@ def get_value(obj, prop):
 def gather_metdata(obj_type, properties, values_to_add, objs):
 	obj = objs[0]
 	for prop in properties:
+		value = get_value(obj,prop)
 		if prop == 'family_medical_history':
 			history_list = get_value(obj, prop)
-			if history_list != 'unknown':
-				for history in history_list:
+			if value != 'unknown':
+				for history in value:
 					ontology = lattice.get_object(history.get('diagnosis'), connection)
 					key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
 					values_to_add[key] = history.get('present')
 		elif prop == 'ethnicity':
 			ethnicity_list = []
-			ethnicity_dict_list = get_value(obj,prop)
-			if ethnicity_dict_list != None:
-				for ethnicity_dict in ethnicity_dict_list:
+			if value != None:
+				for ethnicity_dict in value:
 					if ethnicity_dict.get('term_id') == 'NCIT:C17998':
 						ethnicity_list.append('unknown')
 					else:
@@ -416,15 +416,12 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 				key = prop_map.get(latkey, latkey)
 				values_to_add[key] = value
 		elif prop == 'cell_ontology.term_id':
-			new_cell_id_list = []
-			value = get_value(obj,prop)
 			if value == 'NCIT:C17998':
 				value = 'unknown'
 			latkey = (obj_type + '_' + prop).replace('.', '_')
 			key = prop_map.get(latkey, latkey)
 			values_to_add[key] = value
 		else:
-			value = get_value(obj, prop)
 			if isinstance(value, list):
 				value = ','.join(value)
 			latkey = (obj_type + '_' + prop).replace('.', '_')
