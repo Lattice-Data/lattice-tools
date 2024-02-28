@@ -396,7 +396,6 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 	for prop in properties:
 		value = get_value(obj,prop)
 		if prop == 'family_medical_history':
-			history_list = get_value(obj, prop)
 			if value != 'unknown':
 				for history in value:
 					ontology = lattice.get_object(history.get('diagnosis'), connection)
