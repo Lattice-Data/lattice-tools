@@ -3,23 +3,8 @@ QA testing for this issue:
 https://github.com/chanzuckerberg/single-cell-curation/issues/719
 """
 
-import os
-import sys
-import anndata as ad
 import pytest
-
-scc_repo_loc = os.path.expanduser('~/GitClones/CZI/')
-
-sys.path.append(os.path.abspath(scc_repo_loc + 'single-cell-curation/cellxgene_schemea_cli/'))
-
-from cellxgene_schema.validate import Validator
-
-
-@pytest.fixture
-def validator_with_adata() -> Validator:
-    validator = Validator()
-    validator.adata = ad.read_h5ad('fixtures/valid.h5ad')
-    return validator
+from fixtures.valid_adatas import validator_with_adata
 
 
 @pytest.mark.parametrize(
