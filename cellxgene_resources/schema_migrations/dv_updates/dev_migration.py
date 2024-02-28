@@ -151,6 +151,117 @@ class CensusData:
         self.obs_df = final_df
 
 
+class AggregatedDatasetsDF:
+    def __init__(self, visibility):
+        self.visibility = visibility
+
+        self.all_obs_df = None
+
+    def create_obs_df_from_files(self, h5ad_location: str):
+        print(f'Generating aggregated obs df from {self.visibility} datasets...')
+        h5ads = [f for f in os.listdir(h5ad_location) if f.endswith('.h5ad')]
+
+        def generate_obs_df(h5ad_file):
+            dataset_id = h5ad_file.split('.')[0]
+
+            with h5py.File(h5ad_location + h5ad_file) as f:
+                obs = read_elem(f['obs'])
+                uns = read_elem(f['uns'])
+
+            collection_id = uns['citation'].split('/')[-1]
+
+            donor_df = obs[['donor_id', 'development_stage_ontology_term_id', 'development_stage']] \
+                .value_counts() \
+                .to_frame() \
+                .rename(columns={0: 'counts'}) \
+                .reset_index() 
+            donor_df['collection_id'] = collection_id
+            donor_df['dataset_id'] = dataset_id
+
+            return donor_df
+
+        obs_dfs = [generate_obs_df(file) for file in h5ads]
+
+        final_df = pd.concat(obs_dfs)
+        
+        print(f'Successfully created {self.visibility} aggregated obs df')
+        self.all_obs_df = final_df
+
+    def download_datasets(
+        self, 
+        urls: dict[str, int], 
+        save_dir: str, 
+        private_datasets, 
+        public_datasets, 
+        mutlithreading: bool = False
+    ):
+
+        dv_id_to_dsi = {}
+        for c in private_datasets:
+            datasets = c['datasets']
+            temp_dict = {d['dataset_version_id']: d['dataset_id'] for d in datasets}
+            dv_id_to_dsi.update(temp_dict)
+
+        public_dataset_dict = {d['dataset_version_id']: d['dataset_id'] for d in public_datasets} 
+        public_dataset_dict.update(dv_id_to_dsi)
+        dataset_version_id_to_dataset_id = public_dataset_dict
+
+        # multithreading approach
+        # much quicker but no exception handling, absolute chaos print stream with download percent
+        # now reworked to write chunks instead of holding file in memory before saving
+        def multi_get_file(url):
+            file_from_url = url.split('/')[-1].replace('.h5ad', '')
+            file_name = dataset_version_id_to_dataset_id[file_from_url] + '.h5ad'
+            with requests.get(url, stream=True) as res:
+                res.raise_for_status()
+                filesize = int(res.headers["Content-Length"])
+                with open(save_dir + file_name, 'wb') as file:
+                    total_bytes_received = 0
+                    for chunk in res.iter_content(chunk_size=1024 * 1024):
+                        file.write(chunk)
+                        total_bytes_received += len(chunk)
+                        percent_of_total_upload = float("{:.1f}".format(total_bytes_received / filesize * 100))
+                        print(f"{percent_of_total_upload}% downloaded from {file_name}")
+            sleep(res.elapsed.total_seconds())
+
+
+        # based off of scc repo download_assets()
+        def single_get_file(url):
+            try:
+                file_from_url = url.split('/')[-1].replace('.h5ad', '')
+                file_name = dataset_version_id_to_dataset_id[file_from_url] + '.h5ad'
+                print(f"\nDownloading {file_name}... ")
+                with requests.get(url, stream=True) as res:
+                    res.raise_for_status()
+                    filesize = int(res.headers["Content-Length"])
+                    with open(save_dir + file_name, "wb") as df:
+                        total_bytes_received = 0
+                        for chunk in res.iter_content(chunk_size=1024 * 1024):
+                            df.write(chunk)
+                            total_bytes_received += len(chunk)
+                            percent_of_total_upload = float("{:.1f}".format(total_bytes_received / filesize * 100))
+                            color = "\033[38;5;10m" if percent_of_total_upload == 100 else ""
+                            print(f"\033[1m{color}{percent_of_total_upload}% downloaded\033[0m\r", end="")
+            except requests.HTTPError as e:
+                print(f'Download failed for url {url}: ', e)
+                raise e
+
+        start = perf_counter()
+
+        # 5 concurrent downloads, could probably go higher, not sure when CZI 
+        # gets upset with spamming or robo traffic
+        if mutlithreading:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                executor.map(multi_get_file, urls)
+        else:
+            for url in urls:
+                single_get_file(url)
+
+        stop = perf_counter()
+
+        print(f"Took {stop - start} seconds to download all files")
+
+
 class DevMigrationTool:
     def __init__(self, sheet_id, repo_path, automigrate_json, donor_updates_json):
         self.sheet_id: str = sheet_id
