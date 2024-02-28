@@ -103,6 +103,54 @@ class ApiData:
             self.private_datasets = [get_collection(c) for c in self.private_collection_ids]
         
 
+class CensusData:
+    def __init__(self, census_version: str = 'latest'):
+        self.census_version = census_version
+
+        self._collection_dict = None
+        self.obs_df = None
+
+        self.get_data()
+
+    def get_data(self):
+        self._get_collection_dict()
+        self._get_obs_df()
+
+    def _get_collection_dict(self):
+        '''
+        The SOMA 'census_data' object does not contain collection_id, so need to generate dict that
+        can map collection_id from dataset_id
+        returns dict with {dataset_id: collection_id} from census for further identification
+        '''
+        print('Generating dict for mapping collection_id from dataset_id...')
+        with cellxgene_census.open_soma(census_version=self.census_version) as census:
+            dataset_info = census['census_info']['datasets'].read().concat().to_pandas()
+            
+        mapping = dataset_info.groupby('dataset_id')['collection_id'].agg('unique')
+        df = pd.DataFrame(mapping)
+        df['collection_id'] = df['collection_id'].apply(lambda x: x[0])
+        df_dict = df.to_dict('index')
+        final_dict = {k: v['collection_id'] for k, v in df_dict.items()}
+        print('Successfully created dictionary')
+        self._collection_dict = final_dict
+
+    def _get_obs_df(self):
+        print('Generating obs df from census with required columns...')
+        def get_specieis_obs_df(species):
+            with cellxgene_census.open_soma(census_version=self.census_version) as census:
+                dev_obs = census['census_data'][species] \
+                .obs.read(column_names=['dataset_id', 'development_stage', 'development_stage_ontology_term_id', 'donor_id']) \
+                .concat().to_pandas()
+
+            dev_obs['collection_id'] = dev_obs['dataset_id'].map(self._collection_dict)
+            return dev_obs
+        
+        dfs = [get_specieis_obs_df(x) for x in ['mus_musculus', 'homo_sapiens']]
+        final_df = pd.concat(dfs)
+        print('Successfully created obs_df')
+        self.obs_df = final_df
+
+
 class DevMigrationTool:
     def __init__(self, sheet_id, repo_path, automigrate_json, donor_updates_json):
         self.sheet_id: str = sheet_id
