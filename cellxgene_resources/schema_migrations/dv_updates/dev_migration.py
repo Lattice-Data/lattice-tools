@@ -30,6 +30,79 @@ set_api_access_config(api_key_file_path)
 mig_loc = czi_repo_loc + 'single-cell-curation/cellxgene_schema_cli/cellxgene_schema/'
 
 
+class ApiData:
+    def __init__(self, from_file: bool = False):
+        self.from_file = from_file
+
+        self.private_collections = None
+        self.private_datasets = None
+        self.public_collections = None
+        self.public_datasets = None
+        self.current_dev_terms = None
+
+        self.private_collection_ids = None
+
+        self.fetch_api_data(self.from_file)
+
+    def fetch_api_data(self, from_file):
+        if from_file:
+            print('Loading CXG API JSONs from file...')
+            self._load_from_file()
+            print('CXG API JSONs loaded successfully')
+        else:
+            print('Loading CXG API JSONs from website...')
+            self._load_from_czi()
+            print('CXG API JSONs loaded successfully')
+
+
+        print(f"{len(self.public_collections)} Public Collections")
+        print(f"{len(self.private_collection_ids)} Private Collections")
+
+        print('Loading current dev terms from website...')
+        self._fetch_dev_terms()
+        print('Current dev terms loaded successfully')
+
+    def save_api_jsons(self):
+        jsons = {
+            'api_private_datasets.json': self.private_datasets,
+            'api_private_collections.json': self.private_collections,
+            'api_public_datasets.json': self.public_datasets,
+            'api_public_collections.json': self.public_collections
+        }
+
+        for file_name, json_attr in jsons.items():
+            with open(file_name, 'w', encoding='utf-8') as f:
+                json.dump(json_attr, f, ensure_ascii=False, indent=2)
+
+    def _fetch_dev_terms(self):
+        self.current_dev_terms = ['unknown']
+        
+        for ont in ['hsapdv', 'mmusdv']:
+            url = f'https://www.ebi.ac.uk/ols4/api/ontologies/{ont}/terms?obsoletes=false&size=500'
+            r = requests.get(url).json()
+            terms = [t['obo_id'] for t in r['_embedded']['terms']]
+            self.current_dev_terms.extend(terms)
+
+    def _load_from_file(self):
+        try:
+            self.public_collections = json.load(open('api_public_collections.json'))
+            self.public_datasets = json.load(open('api_public_datasets.json'))
+            self.private_collections = json.load(open('api_private_collections.json'))
+            self.private_datasets = json.load(open('api_private_datasets.json'))
+        except FileNotFoundError as e:
+            print(f'File not found: {e}')
+
+        self.private_collection_ids = {c['collection_id'] for c in self.private_collections if not c.get('revision_of')}
+
+    def _load_from_czi(self):
+            self.public_collections = get_collections()
+            self.public_datasets = get_datasets()
+            self.private_collections = get_collections(visibility='PRIVATE')
+
+            self.private_collection_ids = {c['collection_id'] for c in self.private_collections if not c.get('revision_of')}
+            self.private_datasets = [get_collection(c) for c in self.private_collection_ids]
+        
+
 class DevMigrationTool:
     def __init__(self, sheet_id, repo_path, automigrate_json, donor_updates_json):
         self.sheet_id: str = sheet_id
