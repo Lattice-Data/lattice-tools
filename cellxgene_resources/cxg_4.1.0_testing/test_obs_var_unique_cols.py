@@ -10,7 +10,7 @@ Ways pandas DF can allow duplicate column names:
 import anndata as ad
 import pandas as pd
 import pytest
-from fixtures.valid_adatas import validator_with_adata, Validator
+from fixtures.valid_adatas import validator_with_adata, Validator, FIXTURES_ROOT
 
 
 @pytest.mark.parametrize(
@@ -96,7 +96,7 @@ def test_var_rename_unique_fails(duplicate_col, validator_with_adata, col_rename
     )
 )
 def test_raw_var_concat_fails(h5ad, duplicate_col):
-    adata = ad.read_h5ad(f'fixtures/{h5ad}')
+    adata = ad.read_h5ad(f'{FIXTURES_ROOT}/{h5ad}')
     var = adata.raw.var
     var[duplicate_col] = 'test'
     new_var = pd.concat([var, var[duplicate_col]], axis=1)
@@ -128,7 +128,7 @@ def test_raw_var_concat_fails(h5ad, duplicate_col):
     )
 )
 def test_raw_var_rename_fails(h5ad, duplicate_col, rename_dict):
-    adata = ad.read_h5ad(f'fixtures/{h5ad}')
+    adata = ad.read_h5ad(f'{FIXTURES_ROOT}/{h5ad}')
     var = adata.raw.var
     var['test'] = 'test'
     var[duplicate_col] = 'test'
