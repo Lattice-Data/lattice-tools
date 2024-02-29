@@ -45,22 +45,16 @@ class ApiData:
         self.fetch_api_data(self.from_file)
 
     def fetch_api_data(self, from_file):
-        if from_file:
-            print('Loading CXG API JSONs from file...')
-            self._load_from_file()
-            print('CXG API JSONs loaded successfully')
-        else:
-            print('Loading CXG API JSONs from website...')
-            self._load_from_czi()
-            print('CXG API JSONs loaded successfully')
+        cxg_api_fxn = self._load_cxg_api_from_file if from_file else self._load_cxg_api_from_web
 
+        for fxn in [self._fetch_dev_terms, cxg_api_fxn]:
+            name = fxn.__name__.replace('_', '', 1)
+            print(f'Running {name}()...')
+            fxn()
+            print(f'{name} loaded successfully')
 
         print(f"{len(self.public_collections)} Public Collections")
         print(f"{len(self.private_collection_ids)} Private Collections")
-
-        print('Loading current dev terms from website...')
-        self._fetch_dev_terms()
-        print('Current dev terms loaded successfully')
 
     def save_api_jsons(self):
         jsons = {
@@ -83,7 +77,7 @@ class ApiData:
             terms = [t['obo_id'] for t in r['_embedded']['terms']]
             self.current_dev_terms.extend(terms)
 
-    def _load_from_file(self):
+    def _load_cxg_api_from_file(self):
         try:
             self.public_collections = json.load(open('api_public_collections.json'))
             self.public_datasets = json.load(open('api_public_datasets.json'))
@@ -94,7 +88,7 @@ class ApiData:
 
         self.private_collection_ids = {c['collection_id'] for c in self.private_collections if not c.get('revision_of')}
 
-    def _load_from_czi(self):
+    def _load_cxg_api_from_web(self):
             self.public_collections = get_collections()
             self.public_datasets = get_datasets()
             self.private_collections = get_collections(visibility='PRIVATE')
@@ -152,10 +146,12 @@ class CensusData:
 
 
 class AggregatedDatasetsDF:
-    def __init__(self, visibility):
+    def __init__(self, visibility, h5ad_location):
         self.visibility = visibility
-
+        self.h5ad_location = h5ad_location
         self.all_obs_df = None
+
+        self.create_obs_df_from_files(self.h5ad_location)
 
     def create_obs_df_from_files(self, h5ad_location: str):
         print(f'Generating aggregated obs df from {self.visibility} datasets...')
@@ -181,7 +177,6 @@ class AggregatedDatasetsDF:
             return donor_df
 
         obs_dfs = [generate_obs_df(file) for file in h5ads]
-
         final_df = pd.concat(obs_dfs)
         
         print(f'Successfully created {self.visibility} aggregated obs df')
@@ -260,6 +255,359 @@ class AggregatedDatasetsDF:
         stop = perf_counter()
 
         print(f"Took {stop - start} seconds to download all files")
+
+
+class RepoJSONs:
+    def __init__(self, repo_path):
+        self.repo_path = repo_path
+        self.automigrate_terms = None
+        self.donor_updates = None
+        self.updated_donor_updates = None
+        
+        self._load_jsons()
+
+    def _load_jsons(self):
+        self.automigrate_terms = json.load(open(self.repo_path + 'automigrate_terms.json'))
+        self.donor_updates = json.load(open(self.repo_path + 'donor_updates.json'))
+        print(f"Loaded repo JSONs from {'lattice' if self.repo_path == '' else 'single-cell-curation'}")
+
+
+class GoogleSheet:
+    def __init__(self, sheet_id):
+        self.sheet_id = sheet_id
+        self.full_sheet = None
+        self.public_donors = None
+        self.private_donors = None
+
+        self._get_google_sheet()
+
+    def _get_google_sheet(self):
+        dfs = []
+        print('Loading data from HsapDv Updates Google sheet...')
+        for tab in ['private donors 2024', 'public donors 2024']:
+            url = f'https://docs.google.com/spreadsheets/d/{self.sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(tab)}'
+            donor_meta = pd.read_csv(url)[['donor_id', 'development_stage_ontology_term_id', 'development_stage', 'collection_id', 'dataset_ids', 'new_dev_stage']]
+            donor_meta['tab_name'] = tab
+            dfs.append(donor_meta)
+
+        final_df = pd.concat(dfs)
+        self.full_sheet = final_df
+        self.public_donors = final_df[final_df['tab_name'] == 'public donors 2024']
+        self.private_donors = final_df[final_df['tab_name'] == 'private donors 2024']
+        print('Google sheet data loaded successfully')
+
+
+class AllData:
+    def __init__(self):
+        self.api = ApiData(from_file=True)
+        self.census = CensusData()
+        # self.agg_private = AggregatedDatasetsDF('private', '/Users/brianmott/Documents/Curation/CellxGene/CXG-346/private_uncovered/MigToolDownload/')
+        self.agg_public = AggregatedDatasetsDF('public',  '/Users/brianmott/Documents/Curation/CellxGene/CXG-346/private_uncovered/MigToolDownload/public/')
+        self.jsons = RepoJSONs('')
+        self.google = GoogleSheet('1bELrjC18WH7wVyxlfKPvWjvUKKqy7y4iFav9ddNooAg')
+
+
+class DevTermValidate:
+
+    def update_donor_json(self, tab_names: list[str] = ['public donors 2024', 'private donors 2024']):
+        """
+        Function to load and update donor_updates.json file. Reads from google 
+        sheet tabs and appends info into a dictionary in the format of 
+        donor_updates.json:
+            {
+                "collection_id" OR "name": {
+                    "donor_id": "new_dev_term"
+                }
+            }
+        Will update with further docstring later once rest of class is fleshed out
+        """
+        # load donor_updates.json or create new
+        donor_updates = self.jsons.donor_updates
+
+        for tab in tab_names:
+
+            url = f'https://docs.google.com/spreadsheets/d/{self.sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(tab)}'
+            donor_meta = pd.read_csv(url)
+            col_names = ['donor_id', 'new_dev_stage', 'collection_id']
+
+            for _, row in donor_meta[col_names].iterrows():
+                c = row['collection_id']
+                d = row['donor_id']
+                t = row['new_dev_stage']
+
+                # collection_id won't change, title can, so change at last possible moment
+                if c in self.api_private_names_dict.keys():
+                    c = self.api_private_names_dict[c]
+                else:
+                    c = c
+
+                if c in donor_updates:
+                    donor_updates[c][d] = t
+                else:
+                    donor_updates[c] = {d:t}
+        
+        self.jsons.updated_donor_updates = donor_updates
+
+    def make_public_donor_dev_terms(self):
+        pub_collections = {}
+        for d in self.api_public_datasets:
+            c_id = d['collection_id']
+            dev_stages = {t['ontology_term_id']:t['label'] for t in d['development_stage']}
+            if c_id in pub_collections:
+                pub_collections[c_id]['donor_id'].extend(d['donor_id'])
+                pub_collections[c_id]['development_stage'].update(dev_stages)
+            else:
+                pub_collections[c_id] = {
+                    'donor_id': d['donor_id'],
+                    'development_stage': dev_stages
+                }
+        self.public_donor_ids_dev_terms = pub_collections
+
+    def make_private_donor_dev_terms(self):
+        private_collections = {}
+        for c in self.api.private_datasets:
+            c_id = c['collection_id']
+            datasets = c['datasets']
+            for d in datasets:
+                # skip datasets that have not met validation
+                if d['processing_status'] != 'SUCCESS':
+                    print(f"Current processing error with dataset {d['dataset_version_id']} in collection {c_id}")
+                    continue
+                dev_stages = {t['ontology_term_id']:t['label'] for t in d['development_stage']}
+                if c_id in private_collections:
+                    private_collections[c_id]['donor_id'].extend(d['donor_id'])
+                    private_collections[c_id]['development_stage'].update(dev_stages)
+                else:
+                    private_collections[c_id] = {
+                        'donor_id': d['donor_id'],
+                        'development_stage': dev_stages
+                    }
+        self.private_donor_ids_dev_terms = private_collections
+
+    def make_private_dataset_versions_dict(self):
+        dataset_version_dict = {}
+        for c in self.api_private_datasets:
+            c_id = c['collection_id']
+            datasets = c['datasets']
+            for d in datasets:
+                # skip datasets that have not met validation
+                if d['processing_status'] != 'SUCCESS':
+                    print(f"Current processing error with dataset {d['dataset_version_id']} in collection {c_id}")
+                    continue
+                dataset_version = d['dataset_version_id']
+                dataset_version_dict[dataset_version] = c_id
+        self.private_dataset_versions_dict = dataset_version_dict
+
+    def uncovered_terms(self, visibility: str = 'public'):
+        ''' 
+        collection_dict format:
+        {collection_id:
+            {
+                donor_id: list[donors],
+                development_stage: dict{dev_term_id: term}
+            }    
+        }
+        returns dict in this format collection_id: {dev_term_id: dev_term}
+        param current_terms: list of current dev terms, generated above
+        param automigrate_terms: dict from JSON file on single-cell-curation repo, {current_term: new migrated term}
+        '''
+        if visibility == 'public':
+            collection_dict = self.public_donor_ids_dev_terms
+        else:
+            collection_dict = self.private_donor_ids_dev_terms
+
+        collections = {}
+        for k,v in collection_dict.items():
+            dev_stages = v['development_stage']
+            deprecated = [t for t in dev_stages.keys() if t not in self.api_current_dev_terms and t.startswith('UBERON:') is False]
+            not_migrated = [t for t in deprecated if t not in self.automigrate_terms.keys()]
+            if not_migrated and k not in self.donor_updates_json_collection_ids:
+                print(k)
+                for t in not_migrated:
+                    entry = {t: dev_stages[t]}
+                    # print('--',t,':',dev_stages[t])
+                    if k in collections:
+                        collections[k].update(entry)
+                    else:
+                        collections[k] = entry                
+                    print(entry)
+                print('')
+        
+        if visibility == 'public':
+            self.public_uncovered_terms = collections
+        else:
+            self.private_uncovered_terms = collections
+
+    def uncovered_census_terms(self, visibility: str):
+        if not self.public_uncovered_terms:
+            print("Please generate public uncovered terms first with .uncovered_terms('public')")
+            return
+
+        if visibility == 'uncovered public':
+            uncovered_terms = self.public_uncovered_terms
+        elif visibility == 'google sheet all public':
+            uncovered_terms = self.create_google_sheet_aggregated_dict(sheet_tab='public donors 2024', key_col='collection_id', value_col='development_stage_ontology_term_id')
+            
+        public_covered_donors = self.create_google_sheet_aggregated_dict(
+            sheet_tab='public donors 2024',
+            key_col='collection_id',
+            value_col='donor_id'
+        )
+
+        print("Datasets not fully in Census that contain possible donors with uncovered dev terms:")
+        for collection, uncovered in uncovered_terms.items():
+            uncovered_set = {k for k in uncovered.keys()} if visibility == 'uncovered public' else {k for k in uncovered}
+            json_info = get_collection(collection)
+            datasets = json_info['datasets']
+            covered_donors = set(public_covered_donors[collection])
+            for dataset in datasets:
+                dataset_id = dataset['dataset_id']
+                assays = dataset['assay']
+                donors = set(dataset['donor_id'])
+                dev_stages = {t['ontology_term_id'] for t in dataset['development_stage']}
+                assays_set = {a['ontology_term_id'] for a in assays}
+                if (len(assays_set - self.census_assays) > 0 and \
+                    len(uncovered_set.intersection(dev_stages)) > 0 and \
+                    len(donors - covered_donors) > 0
+                        ):
+                    print(f"Unapproved Census assay(s) {assays_set - self.census_assays} in dataset {dataset_id} from collection: {collection}")
+                    if visibility == 'uncovered public':
+                        self.uncovered_census_datasets.append(dataset_id)
+                    else:
+                        self.uncovered_public_datasets.append(dataset_id)
+
+    def estimate_private_dataset_download(self):
+        urls_dict = {}
+        
+        if not self.private_uncovered_terms:
+            print("Please generate private uncovered terms first with uncovered_terms('private')")
+            return
+
+        # private_dataset_dict = {c: get_collection(c) for c in self.api_private_collection_ids}
+        private_dataset_dict = {c['collection_id']: c for c in self.api_private_datasets}
+
+        for cid, terms in self.private_uncovered_terms.items():
+            c_info = private_dataset_dict[cid]
+            uncovered_dev_terms = [k for k in terms.keys()]
+            for dataset in c_info['datasets']:
+                if dataset['processing_status'] != 'SUCCESS':
+                    print(f"Dataset {dataset['dataset_id']} from Collection {cid} not fully processed")
+                    continue
+                dev_stages = dataset['development_stage']
+                all_dev_terms = [d['ontology_term_id'] for d in dev_stages]
+                for t in uncovered_dev_terms:
+                    if t in all_dev_terms:
+                        url = dataset['assets'][0]['url']
+                        filesize = dataset['assets'][0]['filesize']
+                        urls_dict[url] = filesize
+
+        print(f'Total number of h5ad files to download: {len(urls_dict)}')
+        print(f'Total filesize of download: {sum(urls_dict.values()) / 2 ** 30:.2f} GB')
+
+        self.private_urls = urls_dict
+
+    def estimate_public_dataset_download(self):
+        public_urls = {}
+        for d in self.uncovered_census_datasets:
+            url = self.api_public_dataset_ids_dict[d]['assets'][0]['url']
+            filesize = self.api_public_dataset_ids_dict[d]['assets'][0]['filesize']
+            public_urls[url] = filesize
+
+        print(f'Total number of h5ad files to download: {len(public_urls)}')
+        print(f'Total filesize of download: {sum(public_urls.values()) / 2 ** 30:.2f} GB')
+
+        self.public_urls = public_urls
+
+    def dev_query(self, uncovered_terms):
+        stages = [f"development_stage == '{v}'" for v in uncovered_terms.values()]
+        return ' | '.join(stages)
+
+
+    def get_all_uncovered_donors(self, visibility):
+        # starting with proper uncovered terms
+        if visibility == 'census':
+            uncovered_terms = self.public_uncovered_terms
+        elif visibility == 'private':
+            uncovered_terms = self.private_uncovered_terms
+        else:
+            collection_set = {self.public_dataset_id_to_collection_id[d] for d in self.uncovered_census_datasets}
+            uncovered_terms = {k: v for k, v in self.public_uncovered_terms.items() if k in collection_set}
+
+        def get_obs_dev_df(collection_id, uncovered_terms, visibility):
+            if visibility == 'census':
+                initial_df = self.census_obs_df
+            elif visibility == 'private':
+                initial_df = self.private_all_obs_df
+            else:
+                initial_df = self.public_all_obs_df
+
+            filt = initial_df['collection_id'] == collection_id
+            df = initial_df[filt][['collection_id', 'donor_id', 'dataset_id', 'development_stage_ontology_term_id', 'development_stage']] \
+                .value_counts() \
+                .to_frame() \
+                .rename(columns={0: 'counts'}) \
+                .reset_index() \
+                .set_index('donor_id') \
+                .query(self.dev_query(uncovered_terms)) \
+                .sort_index() \
+                .sort_values(by=['collection_id', 'dataset_id', 'donor_id'])
+            return df
+
+
+        dfs = [get_obs_dev_df(k, v, visibility) for k, v in uncovered_terms.items()]
+        all_donor_devs = pd.concat(dfs)
+        datasets_df = all_donor_devs.groupby(['donor_id', 'development_stage_ontology_term_id', 'development_stage', 'collection_id'])['dataset_id'] \
+            .aggregate(list) \
+            .reset_index() \
+            .sort_values(by=['collection_id', 'donor_id'])
+
+        if visibility == 'census':
+            self.census_all_uncovered_donors = datasets_df
+        elif visibility == 'private':
+            self.private_all_uncovered_donors = datasets_df
+        else:
+            self.public_all_uncovered_donors = datasets_df
+
+    def validate_google_sheet(self):
+        if self.google_sheet.empty:
+            print("Please load google sheet by using .get_google_sheet()")
+
+        for idx, row in self.google_sheet.iterrows():
+            donor = row['donor_id']
+            collection_id = row['collection_id']
+            new_dev_stage = row['new_dev_stage']
+            visibilty = 'private' if row['tab_name'].startswith('private') else 'public'
+
+            if visibilty == 'private':
+                donor_id_dev_terms = self.private_donor_ids_dev_terms
+            else:
+                donor_id_dev_terms = self.public_donor_ids_dev_terms
+
+            try:
+                assert collection_id in donor_id_dev_terms, f'{collection_id = } not in {visibilty} donor_id_dev_terms'
+                assert donor in donor_id_dev_terms[collection_id]['donor_id'], f'{donor = } not in {collection_id = }'
+                assert new_dev_stage in self.api_current_dev_terms, f'{new_dev_stage} not in new dev terms for {donor = } in {collection_id = }'
+            except AssertionError as e:
+                print(f"Issue with row {idx}: {e}")
+                
+    def create_google_sheet_aggregated_dict(self, sheet_tab: str, key_col: str, value_col: str) -> dict:
+        '''
+        Creates dict from google sheet tab with key column and a list of values aggregated based on key
+        '''
+        if self.google_sheet.empty:
+            print("Please load google sheet by using .get_google_sheet()")
+        
+        filt = self.google_sheet['tab_name'] == sheet_tab
+        all_public_collections_dict = self.google_sheet[filt][[key_col, value_col]] \
+           .value_counts() \
+           .to_frame() \
+           .reset_index() \
+           .drop(columns='count') \
+           .groupby(key_col) \
+           .aggregate(list) \
+           .to_dict()[value_col]
+
+        return all_public_collections_dict
 
 
 class DevMigrationTool:
