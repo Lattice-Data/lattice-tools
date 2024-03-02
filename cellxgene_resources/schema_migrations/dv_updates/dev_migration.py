@@ -7,6 +7,7 @@ import pandas as pd
 import requests
 import sys
 from anndata._io.specs import read_elem
+from collections import defaultdict
 from urllib.parse import quote
 from time import perf_counter, sleep
 
@@ -47,11 +48,10 @@ class ApiData:
         self.from_file = from_file
         self.private_collections: list[dict] | None = None
         self.private_datasets: list[dict] | None = None
-        self.public_collections: list[dict] | None  = None
         self.public_datasets: list[dict] | None  = None
         self.current_dev_terms: list | None = None
 
-        self.private_collection_ids: list | None = None
+        self.private_collection_ids: set | None = None
 
         self.fetch_api_data(self.from_file)
 
@@ -64,7 +64,9 @@ class ApiData:
             fxn()
             print(f'{name} loaded successfully')
 
-        print(f"{len(self.public_collections)} Public Collections")
+        # only using public collections object for number, don't need to fetch
+        public_collections = {d['collection_id'] for d in self.public_datasets}
+        print(f"{len(public_collections)} Public Collections")
         print(f"{len(self.private_collection_ids)} Private Collections")
 
     def save_api_jsons(self) -> None:
@@ -72,7 +74,6 @@ class ApiData:
             'api_private_datasets.json': self.private_datasets,
             'api_private_collections.json': self.private_collections,
             'api_public_datasets.json': self.public_datasets,
-            'api_public_collections.json': self.public_collections
         }
 
         for file_name, json_attr in jsons.items():
@@ -90,7 +91,6 @@ class ApiData:
 
     def _load_cxg_api_from_file(self) -> None:
         try:
-            self.public_collections = json.load(open('api_public_collections.json'))
             self.public_datasets = json.load(open('api_public_datasets.json'))
             self.private_collections = json.load(open('api_private_collections.json'))
             self.private_datasets = json.load(open('api_private_datasets.json'))
@@ -100,12 +100,21 @@ class ApiData:
         self.private_collection_ids = {c['collection_id'] for c in self.private_collections if not c.get('revision_of')}
 
     def _load_cxg_api_from_web(self) -> None:
-            self.public_collections = get_collections()
             self.public_datasets = get_datasets()
             self.private_collections = get_collections(visibility='PRIVATE')
 
             self.private_collection_ids = {c['collection_id'] for c in self.private_collections if not c.get('revision_of')}
-            self.private_datasets = [get_collection(c) for c in self.private_collection_ids]
+            # different format for dataset schema, below to get consistent format for downstream functions
+            full_private_info = [get_collection(c) for c in self.private_collection_ids]
+            private_datasets = []
+            for collection in full_private_info:
+                collection_id = collection['collection_id']
+                datasets = collection['datasets']
+                for dataset in datasets:
+                    dataset['collection_id'] = collection_id
+                    private_datasets.append(dataset)
+
+            self.private_datasets = private_datasets
         
 
 class CensusData:
@@ -239,15 +248,20 @@ class GoogleSheet:
 
 
 class AllData:
-    def __init__(self, cxg_from_file: bool = True):
+    def __init__(self, cxg_from_file: bool = True, load_agg_dfs: bool = False):
         self.cxg_from_file = cxg_from_file
+        self.load_agg_dfs = load_agg_dfs
 
         self.api: ApiData = ApiData(from_file=self.cxg_from_file)
         self.census: CensusData = CensusData()
-        self.agg_private: AggregatedDatasetsDF = AggregatedDatasetsDF('private', AGG_DATASET_DIR)
-        self.agg_public: AggregatedDatasetsDF = AggregatedDatasetsDF('public', AGG_DATASET_DIR + 'public/')
         self.jsons: RepoJSONs = RepoJSONs('')
         self.google: GoogleSheet = GoogleSheet(GOOGLE_SHEET_ID, GOOGLE_SHEET_COLS)
+
+        if self.load_agg_dfs:
+            self.agg_private: AggregatedDatasetsDF = AggregatedDatasetsDF('private', AGG_DATASET_DIR)
+            self.agg_public: AggregatedDatasetsDF = AggregatedDatasetsDF('public', AGG_DATASET_DIR + 'public/')
+        else:
+            self.agg_private, self.agg_public = None, None
 
 
 #TODO: need to rework this; better to append or create new? how to handle working off of complete build or update?
@@ -287,60 +301,36 @@ def update_donor_json(donor_updates: dict, tab_names: list[str] = ['public donor
     return donor_updates
 
 
-def make_public_donor_dev_terms(public_datasets: list[dict]) -> dict:
-    pub_collections = {}
-    for d in public_datasets:
+def _make_donor_dev_terms(api_datasets: list[dict]) -> dict:
+    donor_dev_terms = {}
+    for d in api_datasets:
         c_id = d['collection_id']
+        if d['processing_status'] != 'SUCCESS':     # processing private dataset will not have all keys
+            print(f"Current processing error with dataset {d['dataset_version_id']} in collection {c_id}")
+            continue
         dev_stages = {t['ontology_term_id']:t['label'] for t in d['development_stage']}
-        if c_id in pub_collections:
-            pub_collections[c_id]['donor_id'].extend(d['donor_id'])
-            pub_collections[c_id]['development_stage'].update(dev_stages)
+        if c_id in donor_dev_terms:
+            donor_dev_terms[c_id]['donor_id'].extend(d['donor_id'])
+            donor_dev_terms[c_id]['development_stage'].update(dev_stages)
         else:
-            pub_collections[c_id] = {
+            donor_dev_terms[c_id] = {
                 'donor_id': d['donor_id'],
                 'development_stage': dev_stages
             }
 
-    return pub_collections
+    return donor_dev_terms
 
 
-def make_private_donor_dev_terms(private_datasets: list[dict]) -> dict:
-    private_collections = {}
-    for c in private_datasets:
-        c_id = c['collection_id']
-        datasets = c['datasets']
-        for d in datasets:
-            # skip datasets that have not met validation
-            if d['processing_status'] != 'SUCCESS':
-                print(f"Current processing error with dataset {d['dataset_version_id']} in collection {c_id}")
-                continue
-            dev_stages = {t['ontology_term_id']:t['label'] for t in d['development_stage']}
-            if c_id in private_collections:
-                private_collections[c_id]['donor_id'].extend(d['donor_id'])
-                private_collections[c_id]['development_stage'].update(dev_stages)
-            else:
-                private_collections[c_id] = {
-                    'donor_id': d['donor_id'],
-                    'development_stage': dev_stages
-                }
+def make_all_donor_dev_terms(private_datasets: list[dict], public_datasets: list[dict]) -> tuple[dict, dict, dict]:
+    all_donor_dev_terms = {}
 
-    return private_collections
+    private = _make_donor_dev_terms(private_datasets)
+    public = _make_donor_dev_terms(public_datasets)
+    
+    for dd_terms in [private, public]:
+        all_donor_dev_terms.update(dd_terms)
 
-
-def make_private_dataset_versions_dict(private_datasets: list[dict]) -> dict:
-    dataset_version_dict = {}
-    for c in private_datasets:
-        c_id = c['collection_id']
-        datasets = c['datasets']
-        for d in datasets:
-            # skip datasets that have not met validation
-            if d['processing_status'] != 'SUCCESS':
-                print(f"Current processing error with dataset {d['dataset_version_id']} in collection {c_id}")
-                continue
-            dataset_version = d['dataset_version_id']
-            dataset_version_dict[dataset_version] = c_id
-
-    return dataset_version_dict
+    return all_donor_dev_terms, private, public
 
 
 # TODO: better way to get collection ids from donor_updates_json
@@ -383,23 +373,37 @@ def uncovered_terms(
     return uncovered_collections
 
 
-# TODO: checks google sheet, need check for JSON
-def uncovered_census_terms(uncovered_terms: dict, google_sheet: pd.DataFrame) -> list:
+def uncovered_census_terms(uncovered_terms: dict, donor_source: dict) -> list:
+    """
+    Provide donor source to check against, can be from google sheet or json file/dict
+    donor_source dict format: collection_id: list[donor_ids]
+    below code will make dict in proper format from google sheet
+
     public_covered_donors = create_google_sheet_aggregated_dict(
-        google_sheet=google_sheet,
+        google_sheet=donor_source,
         sheet_tab='public donors 2024',
         key_col='collection_id',
         value_col='donor_id'
     )
-    census_assays = set(RNA_SEQ)
 
+    collections_donors = {}
+
+    for collection, values in data.jsons.donor_updates.items():
+        donors = [k for k in values.keys()]
+        collections_donors[collection] = donors
+
+    collections_donors
+
+    """
+    census_assays = set(RNA_SEQ)
     uncovered_datasets = []
+
     print("Datasets not fully in Census that contain possible donors with uncovered dev terms:")
     for collection, uncovered in uncovered_terms.items():
         uncovered_set = {k for k in uncovered.keys()}
         json_info = get_collection(collection)
         datasets = json_info['datasets']
-        covered_donors = set(public_covered_donors[collection])
+        covered_donors = set(donor_source.get(collection, {}))
         for dataset in datasets:
             dataset_id = dataset['dataset_id']
             assays = dataset['assay']
@@ -418,12 +422,14 @@ def uncovered_census_terms(uncovered_terms: dict, google_sheet: pd.DataFrame) ->
 
 def estimate_private_dataset_download(private_datasets: list[dict], private_uncovered_terms: dict) -> dict:
     urls_dict = {}
-    private_dataset_dict = {c['collection_id']: c for c in private_datasets}
+    collection_datasets = defaultdict(list)
+    for dataset in private_datasets:
+        collection_datasets[dataset['collection_id']].append(dataset)
 
     for cid, terms in private_uncovered_terms.items():
-        c_info = private_dataset_dict[cid]
+        datasets = collection_datasets[cid]
         uncovered_dev_terms = [k for k in terms.keys()]
-        for dataset in c_info['datasets']:
+        for dataset in datasets:
             if dataset['processing_status'] != 'SUCCESS':
                 print(f"Dataset {dataset['dataset_id']} from Collection {cid} not fully processed")
                 continue
@@ -470,15 +476,12 @@ def download_datasets(
     mutlithreading: bool = False
 ) -> None:
     urls = [k for k in urls_dict.keys()]
-    dv_id_to_dsi = {}
-    for c in private_datasets:
-        datasets = c['datasets']
-        temp_dict = {d['dataset_version_id']: d['dataset_id'] for d in datasets}
-        dv_id_to_dsi.update(temp_dict)
 
-    public_dataset_dict = {d['dataset_version_id']: d['dataset_id'] for d in public_datasets} 
-    public_dataset_dict.update(dv_id_to_dsi)
-    dataset_version_id_to_dataset_id = public_dataset_dict
+    dataset_version_id_to_dataset_id = {}
+
+    for ds in [private_datasets, public_datasets]:
+        temp_dict = {d['dataset_version_id']: d['dataset_id'] for d in ds} 
+        dataset_version_id_to_dataset_id.update(temp_dict)
 
     # multithreading approach
     # much quicker but no exception handling, absolute chaos print stream with download percent
@@ -535,7 +538,7 @@ def download_datasets(
     print(f"Took {stop - start} seconds to download all files")
 
 
-def dev_query(uncovered_terms: dict) -> str:
+def _dev_query(uncovered_terms: dict) -> str:
     stages = [f"development_stage == '{v}'" for v in uncovered_terms.values()]
     return ' | '.join(stages)
 
@@ -550,7 +553,7 @@ def get_all_uncovered_donors(uncovered_terms: dict, all_obs_df: pd.DataFrame) ->
             .rename(columns={0: 'counts'}) \
             .reset_index() \
             .set_index('donor_id') \
-            .query(dev_query(uncovered_terms)) \
+            .query(_dev_query(uncovered_terms)) \
             .sort_index() \
             .sort_values(by=['collection_id', 'dataset_id', 'donor_id'])
 
@@ -572,7 +575,7 @@ def create_google_sheet_aggregated_dict(google_sheet: pd.DataFrame, sheet_tab: s
     Returns dict[key_col]: list[value_col]
     '''
     filt = google_sheet['tab_name'] == sheet_tab
-    all_public_collections_dict = google_sheet[filt][[key_col, value_col]] \
+    agg_dict = google_sheet[filt][[key_col, value_col]] \
        .value_counts() \
        .to_frame() \
        .reset_index() \
@@ -581,7 +584,7 @@ def create_google_sheet_aggregated_dict(google_sheet: pd.DataFrame, sheet_tab: s
        .aggregate(list) \
        .to_dict()[value_col]
 
-    return all_public_collections_dict
+    return agg_dict
 
 
 def validate_google_sheet(google_sheet: pd.DataFrame, current_dev_terms: list, donor_dev_terms: dict) -> None:
