@@ -65,7 +65,7 @@ req_enum = {
 
 req_pattern ={
     'obs': {
-        'cell_enrichment': '^CL:(([\d]{7})(\+|\-)|([0]{7}))$',
+        'cell_enrichment': '^(CL:([\d]{7})(\+|\-))|(na)$',
         'gene_annotation_version': '^v(7[5-9]|[8-9][0-9]|10[0-9]|11[01])|GCF_000001405.(2[5-9]|3[0-9]|40)$'
     }
 }
