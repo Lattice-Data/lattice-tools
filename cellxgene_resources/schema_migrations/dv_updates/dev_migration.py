@@ -10,6 +10,7 @@ from anndata._io.specs import read_elem
 from collections import defaultdict
 from urllib.parse import quote
 from time import perf_counter, sleep
+from typing import Collection
 
 # set repo and api key paths, might move this later
 CZI_REPO_LOC = os.path.expanduser('~/GitClones/CZI/')
@@ -68,6 +69,8 @@ class ApiData:
         public_collections = {d['collection_id'] for d in self.public_datasets}
         print(f"{len(public_collections)} Public Collections")
         print(f"{len(self.private_collection_ids)} Private Collections")
+        print(f"{len(self.public_datasets)} Public Datasets")
+        print(f"{len(self.private_datasets)} Private Datasets")
 
     def save_api_jsons(self) -> None:
         jsons = {
@@ -569,19 +572,18 @@ def get_all_uncovered_donors(uncovered_terms: dict, all_obs_df: pd.DataFrame) ->
     return datasets_df
 
 
-def create_google_sheet_aggregated_dict(google_sheet: pd.DataFrame, sheet_tab: str, key_col: str, value_col: str) -> dict:
+def create_aggregated_dict_from_df(dataframe: pd.DataFrame, key_col: str, value_col: str, value_collection: Collection[set | list]) -> dict:
     '''
-    Creates dict from google sheet tab with key column and a list of values aggregated based on key
+    Creates dict from dataframe with key column and a list of values aggregated based on key
     Returns dict[key_col]: list[value_col]
     '''
-    filt = google_sheet['tab_name'] == sheet_tab
-    agg_dict = google_sheet[filt][[key_col, value_col]] \
+    agg_dict = dataframe[[key_col, value_col]] \
        .value_counts() \
        .to_frame() \
        .reset_index() \
        .drop(columns='count') \
        .groupby(key_col) \
-       .aggregate(list) \
+       .aggregate(value_collection) \
        .to_dict()[value_col]
 
     return agg_dict
