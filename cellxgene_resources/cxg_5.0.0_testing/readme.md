@@ -1,6 +1,6 @@
 QA Testing
 ----------------
-QA validation tests for moving towards schema 4.1.0 migration. Almost all tests will be through pytest; `validate_notebook_workflow.ipynb` checks that validation through the curator notebook workflow does not break.
+QA validation tests for moving towards schema 5.0.0 migration. Almost all tests will be through pytest; `validate_notebook_workflow.ipynb` checks that validation through the curator notebook workflow does not break.
 
 
 General process
@@ -19,16 +19,16 @@ Create a seperate test environment since schema will be > 4.0.0. This can be don
 
 ### 1. Clone conda lattice env:
 ```
-conda create --name cxg4testing --clone lattice
+conda create --name cxg5testing --clone lattice
 ```
 
 ### OR Create a new test env
 ```
-conda create --name cxg4testing python=3.9
+conda create --name cxg5testing python=3.9
 ```
 Activate this env
 ```
-conda activate cxg4testing
+conda activate cxg5testing
 ```
 Install further dependencies
 ```
@@ -58,7 +58,15 @@ The tests assume the standard location of cloned repos that Lattice uses:
 Running tests
 ---------------- 
 Make sure the test env is activated.
-Navigate to this directory and run pytest from command line with desired flags
+If immediately following the above directions to create a new conda env,
+the env might need to be deactivated and reactivated to make sure pytest uses
+the correct testing env.
+Navigate to this directory and run pytest from command line with desired flags.
+
 ```
 pytest -vv
 ```
+Pytest should also be able to collect tests from the top directory of lattice-tools;
+this might also collect any python files that contain 'test' within the name.
+
+Run `validate_notebook_workflow.ipynb` to make sure CLI interface of validator still works.
