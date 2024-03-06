@@ -521,10 +521,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				values_to_add[key] = next(iter(value_set))
 
 
-# Gather dataset metadata for adata.uns
+# Gather matrix metadata for adata.uns
 def report_dataset(donor_objs, matrix, dataset):
 	ds_results = {}
-	ds_obj = lattice.get_object(dataset, connection)
 	for prop in dataset_metadata['final_matrix']:
 		value = get_value(matrix, prop)
 		if isinstance(value, list):
@@ -970,7 +969,7 @@ def reconcile_genes(cxg_adata_lst):
 def get_results_filename(mfinal_obj):
 	results_file = None
 	dataset = mfinal_obj.get('dataset',[])
-	dataset_obj = lattice.get_object(dataset, connection)
+	dataset_obj = lattice.get_object(dataset, connection, frame='object')
 	collection_id = None
 	if dataset_obj.get('cellxgene_urls',[]):
 		collection_id = dataset_obj.get('cellxgene_urls',[])[0]
