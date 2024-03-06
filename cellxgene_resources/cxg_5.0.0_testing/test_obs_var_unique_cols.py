@@ -95,8 +95,8 @@ def test_var_rename_unique_fails(duplicate_col, validator_with_adata, col_rename
         pytest.param('valid_mouse.h5ad', 'ensembl_version', id="duplicated raw var 'ensembl_version'"),
     )
 )
-def test_raw_var_concat_fails(h5ad, duplicate_col):
-    adata = ad.read_h5ad(f'{FIXTURES_ROOT}/{h5ad}')
+def test_raw_var_concat_fails(h5ad, duplicate_col, fixtures_root=FIXTURES_ROOT):
+    adata = ad.read_h5ad(f'{fixtures_root}/{h5ad}')
     var = adata.raw.var
     var[duplicate_col] = 'test'
     new_var = pd.concat([var, var[duplicate_col]], axis=1)
@@ -127,8 +127,8 @@ def test_raw_var_concat_fails(h5ad, duplicate_col):
         pytest.param('valid_mouse.h5ad', 'gene_symbol', {'test': 'gene_symbol'}, id="rename raw.var col to author name"),
     )
 )
-def test_raw_var_rename_fails(h5ad, duplicate_col, rename_dict):
-    adata = ad.read_h5ad(f'{FIXTURES_ROOT}/{h5ad}')
+def test_raw_var_rename_fails(h5ad, duplicate_col, rename_dict, fixtures_root=FIXTURES_ROOT):
+    adata = ad.read_h5ad(f'{fixtures_root}/{h5ad}')
     var = adata.raw.var
     var['test'] = 'test'
     var[duplicate_col] = 'test'
