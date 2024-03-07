@@ -968,11 +968,11 @@ def reconcile_genes(cxg_adata_lst):
 # depending on what information is available for the dataset
 def get_results_filename(mfinal_obj):
 	results_file = None
-	dataset = mfinal_obj.get('dataset',[])
-	dataset_obj = lattice.get_object(dataset, connection, frame='object')
 	collection_id = None
-	if dataset_obj.get('cellxgene_urls',[]):
-		collection_id = dataset_obj.get('cellxgene_urls',[])[0]
+	dataset = mfinal_obj.get('dataset',[])
+	dataset_objs = lattice.get_report('Dataset',[dataset], ['cellxgene_urls'], connection)
+	if dataset_objs[0].get('cellxgene_urls',[]):
+		collection_id = dataset_objs[0].get('cellxgene_urls',[])[0]
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
 	if mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
 		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
