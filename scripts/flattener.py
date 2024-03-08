@@ -970,7 +970,8 @@ def get_results_filename(mfinal_obj):
 	results_file = None
 	collection_id = None
 	dataset = mfinal_obj.get('dataset',[])
-	dataset_objs = lattice.get_report('Dataset',[dataset], ['cellxgene_urls'], connection)
+	obj_type, filter_url = lattice.parse_ids([dataset])
+	dataset_objs = lattice.get_report(obj_type, filter_url, ['cellxgene_urls'], connection)
 	if dataset_objs[0].get('cellxgene_urls',[]):
 		collection_id = dataset_objs[0].get('cellxgene_urls',[])[0]
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")

@@ -22,14 +22,25 @@ class Connection(object):
         self.auth = (self.authid, self.authpw)
 
 
-def get_report(obj_type, obj_ids, field_lst, connection):
+def parse_ids(ids_lst):
 	"""
-	Constructs a report url of fields in field_list for the objects in obj_ids (eg: ['/datasets/LATDS494QZH/','/datasets/LATDS257SGC/'])
-	for given object type and returns list of dictionaries from @graph
+	Takes a list of @ids and returns the object type and filters that designate all the ids as a complete string
 	"""
-	id_url = ''.join(["&@id="+i for i in obj_ids])
+	at_id = ids_lst[0].split('/')[1]
+	if at_id == 'libraries':
+		obj_type = 'Library'
+	else:
+		obj_type = ''.join([x.capitalize() for x in at_id.split('-')]).rstrip('s')
+	filter_url = ''.join(["&@id="+i for i in ids_lst])
+	return obj_type, filter_url
+
+
+def get_report(obj_type, filter_url, field_lst, connection):
+	"""
+	Constructs a report url of fields in field_list for the objects determined by the filter and returns list of dictionaries from @graph
+	"""
 	field_url = ''.join(["&field="+i for i in field_lst])
-	url = urljoin(connection.server, "report/?type={}{}{}&format=json&limit=all".format(obj_type, id_url, field_url))
+	url = urljoin(connection.server, "report/?type={}{}{}&format=json&limit=all".format(obj_type, filter_url, field_url))
 	try:
 		obj = requests.get(url, auth=connection.auth)
 		obj.raise_for_status()
