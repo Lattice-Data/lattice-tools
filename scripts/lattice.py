@@ -22,14 +22,64 @@ class Connection(object):
         self.auth = (self.authid, self.authpw)
 
 
+def parse_ids(ids_lst):
+	"""
+	Takes a list of @ids and returns the object type and filters that designate all the ids as a complete string
+	"""
+	at_id = ids_lst[0].split('/')[1]
+	if at_id == 'libraries':
+		obj_type = 'Library'
+	else:
+		obj_type = ''.join([x.capitalize() for x in at_id.split('-')]).rstrip('s')
+	filter_url = ''.join(["&@id="+i for i in ids_lst])
+	return obj_type, filter_url
+
+
+def get_report(obj_type, filter_url, field_lst, connection):
+	"""
+	Constructs a report url of fields in field_list for the objects determined by the filter and returns list of dictionaries from @graph
+	"""
+	field_url = ''.join(["&field="+i for i in field_lst])
+	url = urljoin(connection.server, "report/?type={}{}{}&format=json&limit=all".format(obj_type, filter_url, field_url))
+	try:
+		obj = requests.get(url, auth=connection.auth)
+		obj.raise_for_status()
+	except requests.exceptions.HTTPError as err:
+		print("HTTP Error: ", err)
+		sys.exit()
+	except requests.exceptions.Timeout as err:
+		print ("Timeout Error: ",err)
+		sys.exit()
+	except requests.exceptions.RequestException as err:
+		print ("Requests error: ",err)
+		sys.exit()
+	else:
+		return obj.json().get('@graph')
+
+
 def get_object(obj_id, connection, frame=None):
+	"""
+	Constructs a url for a single object and returns the object with option of having frame=object
+	"""
 	obj_id = obj_id.replace(':','%3A')
 	if frame is None:
 		url = urljoin(connection.server, obj_id)
 	else:
 		url = urljoin(connection.server, obj_id + '/?frame=' + frame)
-	obj = requests.get(url, auth=connection.auth).json()
-	return obj
+	try:
+		obj = requests.get(url, auth=connection.auth)
+		obj.raise_for_status()
+	except requests.exceptions.HTTPError as err:
+		print("HTTP Error: ", err)
+		sys.exit()
+	except requests.exceptions.Timeout as err:
+		print ("Timeout Error: ",err)
+		sys.exit()
+	except requests.exceptions.RequestException as err:
+		print ("Requests error: ",err)
+		sys.exit()
+	else:
+		return obj.json()
 
 
 def post_object(schema, connection, post_json):

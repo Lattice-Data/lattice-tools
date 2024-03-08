@@ -521,10 +521,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				values_to_add[key] = next(iter(value_set))
 
 
-# Gather dataset metadata for adata.uns
+# Gather matrix metadata for adata.uns
 def report_dataset(donor_objs, matrix, dataset):
 	ds_results = {}
-	ds_obj = lattice.get_object(dataset, connection)
 	for prop in dataset_metadata['final_matrix']:
 		value = get_value(matrix, prop)
 		if isinstance(value, list):
@@ -969,11 +968,12 @@ def reconcile_genes(cxg_adata_lst):
 # depending on what information is available for the dataset
 def get_results_filename(mfinal_obj):
 	results_file = None
-	dataset = mfinal_obj.get('dataset',[])
-	dataset_obj = lattice.get_object(dataset, connection)
 	collection_id = None
-	if dataset_obj.get('cellxgene_urls',[]):
-		collection_id = dataset_obj.get('cellxgene_urls',[])[0]
+	dataset = mfinal_obj.get('dataset',[])
+	obj_type, filter_url = lattice.parse_ids([dataset])
+	dataset_objs = lattice.get_report(obj_type, filter_url, ['cellxgene_urls'], connection)
+	if dataset_objs[0].get('cellxgene_urls',[]):
+		collection_id = dataset_objs[0].get('cellxgene_urls',[])[0]
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
 	if mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
 		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
