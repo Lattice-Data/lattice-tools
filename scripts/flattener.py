@@ -218,21 +218,10 @@ def getArgs():
 
 # Gather raw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
 def gather_rawmatrices(derived_from):
-	my_raw_matrices = []
-	df_ids = []
-	for identifier in derived_from:
-		obj = lattice.get_object(identifier, connection)
-		if obj['@type'][0] == 'RawMatrixFile':
-			my_raw_matrices.append(obj)
-		else:
-			# grab the derived_from in case we need to go a layer deeper
-			for i in obj['derived_from']:
-				df_ids.append(i)
-	if not my_raw_matrices:
-		for identifier in df_ids:
-			obj = lattice.get_object(identifier, connection)
-			if obj['@type'][0] == 'RawMatrixFile':
-				my_raw_matrices.append(obj)
+	field_lst = ['@id','accession','s3_uri','genome_annotation','libraries','derived_from']
+	obj_type, filter_lst = lattice.parse_ids(derived_from)
+	my_raw_matrices = lattice.get_report(obj_type,filter_lst,field_lst,connection)
+
 	return my_raw_matrices
 
 
