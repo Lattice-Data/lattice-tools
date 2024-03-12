@@ -497,19 +497,12 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 							logging.error('ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id')
 							sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
 						else:
-							query_url = urljoin(server, 'search/?type=OntologyTerm&term_name=' + dev_in_all[0] + '&format=json')
-							r = requests.get(query_url, auth=connection.auth)
-							try:
-								r.raise_for_status()
-							except requests.HTTPError:
+							obj = lattice.get_report('OntologyTerm','&term_name='+dev_in_all[0], ['term_id'], connection)
+							if obj[0].get('term_id'):
+								values_to_add[key] = obj[0].get('term_id')
+							else:
 								logging.error('ERROR: Unable to get development_slims as development_stage ontology: {}'.format(query_url))
 								sys.exit("ERROR: Unable to get development_slims as development_stage ontology: {}".format(query_url))
-							else:
-								if r.json()['total']==1:
-									values_to_add[key] = r.json()['@graph'][0]['term_id']
-								else:
-									logging.error('ERROR: Unable to get development_slims as development_stage ontology: {}'.format(query_url))
-									sys.exit("ERROR: Unable to get development_slims as development_stage ontology: {}".format(query_url))
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
 					else:
@@ -1123,15 +1116,9 @@ def drop_cols(celltype_col):
 def add_labels():
 	global cxg_adata
 	global cxg_adata_raw
-	query_url = urljoin(server, 'search/?type=OntologyTerm&field=term_id&field=term_name&limit=all')
-	r = requests.get(query_url, auth=connection.auth)
-	try:
-		r.raise_for_status()
-	except requests.HTTPError:
-		logging.error('ERROR: Error in ontology term ids and names: {}'.format(query_url))
-		sys.exit("ERROR: Error in ontology term ids and names: {}".format(query_url))
-	else:
-		ontology_df = pd.DataFrame(r.json()['@graph'])
+
+	obj = lattice.get_report('OntologyTerm', '', ['term_id','term_name'], connection)
+	ontology_df = pd.DataFrame(obj)
 	id_cols = ['assay_ontology_term_id','disease_ontology_term_id','cell_type_ontology_term_id','development_stage_ontology_term_id','sex_ontology_term_id',\
 			'tissue_ontology_term_id','organism_ontology_term_id','self_reported_ethnicity_ontology_term_id']
 	for col in id_cols:
