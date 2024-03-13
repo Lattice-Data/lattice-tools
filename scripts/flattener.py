@@ -498,11 +498,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 							sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
 						else:
 							obj = lattice.get_report('OntologyTerm','&term_name='+dev_in_all[0], ['term_id'], connection)
-							if obj[0].get('term_id'):
-								values_to_add[key] = obj[0].get('term_id')
-							else:
-								logging.error('ERROR: Unable to get development_slims as development_stage ontology: {}'.format(query_url))
-								sys.exit("ERROR: Unable to get development_slims as development_stage ontology: {}".format(query_url))
+							values_to_add[key] = obj[0].get('term_id')
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
 					else:
