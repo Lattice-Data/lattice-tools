@@ -973,7 +973,7 @@ def customize_fields(obj, obj_type):
 
 		if obj.get('library_prep_id'):
 			lib_id = obj['library_prep_id'][0]
-			lib_obj = lattice.get_report('Library',f'&@id='{lib_id},'uuid',connection)
+			lib_obj = lattice.get_report('Library',f'&@id={lib_id}',['uuid'],connection)[0]
 			obj['library_prep_id'] = lib_obj['uuid']
 
 	elif obj_type == 'supplementary_file':
@@ -1045,8 +1045,8 @@ def main():
 	links_dict = {}
 
 	files = [f for f in ds_obj['files'] if 'raw-sequence-files' in f]
-	obj_type, filter_url = parse_ids(files)
-	field_list = ['validated'] + \
+	obj_type, filter_url = lattice.parse_ids(files)
+	field_lst = ['validated'] + \
 		[v['lattice'] for v in lattice_to_dcp['RawSequenceFile'].values() if isinstance(v, dict)]
 	file_objs = lattice.get_report(obj_type, filter_url, field_lst, connection)
 
@@ -1057,7 +1057,6 @@ def main():
 		else:
 			# convert each to DCP schema
 			get_object(temp_obj)
-
 			# pull the derived_from to store for later formation to links
 			der_from = [i['@id'] for i in temp_obj['derived_from']]
 			get_links(temp_obj, tuple(der_from), links_dict)
