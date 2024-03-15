@@ -414,17 +414,21 @@ def seq_to_susp(links_dict):
 		ins = []
 		susps = []
 		protocols = []
+		print(seqruns)
 		for sr in seqruns:
 			# handle the sequencing metadata
+			#ATTN - query instead of get object
 			url = urljoin(server, sr + '/?format=json')
 			sr_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 			lib = sr_obj['derived_from'][0]
+			#ATTN - query instead of get object
 			lib_url = urljoin(server, lib + '/?format=json')
 			lib_obj = requests.get(lib_url, auth=connection.auth, timeout=60).json()
 			lib_cell_counts[lib] = lib_obj.get('observation_count') #grab to sum the project counts
 
 			# see if we need to skip back over a pooling step for demultiplexed sequence data
 			if sr_obj.get('demultiplexed_link'):
+				#ATTN - query instead of get object
 				url = urljoin(server, sr_obj['demultiplexed_link'] + '/?format=json')
 				prepooled_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 				if prepooled_obj['@type'][0] == 'Suspension':
@@ -503,8 +507,9 @@ def seq_to_susp(links_dict):
 
 
 def handle_doc(doc_id):
-	doc_url = urljoin(server, doc_id + '/?format=json')
-	doc_obj = requests.get(doc_url, auth=connection.auth, timeout=60).json()
+	field_lst = ['attachment'] + \
+		[v['lattice'] for v in lattice_to_dcp['Document'].values() if isinstance(v, dict)]
+	doc_obj = lattice.get_report('Document', f'&@id={doc_id}', field_lst, connection)[0]
 
 	link_info = {'file_type': 'supplementary_file', 'file_id': doc_obj['uuid']}
 	doc_files.append(link_info)
@@ -967,8 +972,8 @@ def customize_fields(obj, obj_type):
 			del obj['insdc_run_accessions']
 
 		if obj.get('library_prep_id'):
-			url = urljoin(server, obj['library_prep_id'][0] + '/?format=json')
-			lib_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+			lib_id = obj['library_prep_id'][0]
+			lib_obj = lattice.get_report('Library',f'&@id='{lib_id},'uuid',connection)
 			obj['library_prep_id'] = lib_obj['uuid']
 
 	elif obj_type == 'supplementary_file':
@@ -1003,16 +1008,9 @@ def file_descript(obj, obj_type, dataset):
 
 def main():
 	logging.info('GETTING THE DATASET')
-	#large Datasets may produce a 504
-	#I open the json in the browser - https://www.lattice-data.org/datasets/accession/?format=json
-	#copy/paste into https://jsonformatter.curiousconcept.com/# to add quotes
-	#save it to a file of accession.json
-	datasets_too_big = ['LATDS169XWF']
-	if args.dataset in datasets_too_big:
-		ds_obj = json.load(open(args.dataset + '.json'))
-	else:
-		url = urljoin(server, args.dataset + '/?format=json')
-		ds_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+	field_lst = ['status','files','audit'] + \
+		[v['lattice'] for v in lattice_to_dcp['Dataset'].values() if isinstance(v, dict)]
+	ds_obj = lattice.get_report('Dataset', f'&accession={args.dataset}', field_lst, connection)[0]
 
 	# check status of the dataset
 	if ds_obj.get('status') not in ['in progress', 'released']:
@@ -1045,22 +1043,24 @@ def main():
 	# get the validated raw sequence files from that dataset
 	logging.info('GETTING RAW SEQUENCE FILES')
 	links_dict = {}
-	files = [i for i in ds_obj['files']]
-	for f in files:
-		url = urljoin(server, f + '/?format=json')
-		temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
-		obj_type = temp_obj['@type'][0]
-		if obj_type == 'RawSequenceFile':
-			if temp_obj.get('validated') == False:
-				logging.info('{} has not been validated, will be excluded'.format(temp_obj['@id']))
-				not_valid.append(temp_obj['@id'])
-			else:
-				# convert each to DCP schema
-				get_object(temp_obj)
 
-				# pull the derived_from to store for later formation to links
-				der_from = [i['@id'] for i in temp_obj['derived_from']]
-				get_links(temp_obj, tuple(der_from), links_dict)
+	files = [f for f in ds_obj['files'] if 'raw-sequence-files' in f]
+	obj_type, filter_url = parse_ids(files)
+	field_list = ['validated'] + \
+		[v['lattice'] for v in lattice_to_dcp['RawSequenceFile'].values() if isinstance(v, dict)]
+	file_objs = lattice.get_report(obj_type, filter_url, field_lst, connection)
+
+	for temp_obj in file_objs:
+		if temp_obj.get('validated') == False:
+			logging.info('{} has not been validated, will be excluded'.format(temp_obj['@id']))
+			not_valid.append(temp_obj['@id'])
+		else:
+			# convert each to DCP schema
+			get_object(temp_obj)
+
+			# pull the derived_from to store for later formation to links
+			der_from = [i['@id'] for i in temp_obj['derived_from']]
+			get_links(temp_obj, tuple(der_from), links_dict)
 
 	if not links_dict:
 		sys.exit('No validated RawSequenceFiles associated with this dataset')
