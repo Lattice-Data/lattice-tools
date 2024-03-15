@@ -426,19 +426,19 @@ def seq_to_susp(links_dict):
 
 			# see if we need to skip back over a pooling step for demultiplexed sequence data
 			if sr_obj.get('demultiplexed_link'):
-				url = urljoin(server, sr_obj['demultiplexed_link'] + '/?format=json')
-				prepooled_obj = requests.get(url, auth=connection.auth, timeout=60).json()
-				if prepooled_obj['@type'][0] == 'Suspension':
+				obj_type, filter_url = lattice.parse_ids([sr_obj['demultiplexed_link']])
+				field_lst = ['uuid']
+				prepooled_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
+				if obj_type == 'Suspension':
 					susps.extend([prepooled_obj['uuid']])
-					lat_type = prepooled_obj['@type'][0]
-					in_type = lattice_to_dcp[lat_type]['class']
+					in_type = lattice_to_dcp[obj_type]['class']
 					ins.append({'input_type': in_type, 'input_id': prepooled_obj['uuid']})
 					seq_method = 'high throughput sequencing, demultiplexing'
 				# cannot yet handle multiple Tissues pooled into a single Suspension
 				else:
 					sys.exit('ERROR: not yet equiped to handle pooling non-Suspensions directly pooled into a Suspension')
 			else:
-				susps.extend([i['uuid'] for i in lib_obj['derived_from']])
+				susps.extend([i['@id'] for i in lib_obj['derived_from']])
 				for obj in lib_obj['derived_from']:
 					lat_type = obj['@type'][0]
 					in_type = lattice_to_dcp[lat_type]['class']
@@ -1078,12 +1078,14 @@ def main():
 		for identifier in remaining:
 			if isinstance(identifier, tuple):
 				i = identifier[0]
-				url = urljoin(server, i + '/?format=json')
-				temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+				obj_type, filter_url = lattice.parse_ids([i])
+				field_lst = [v['lattice'] for v in lattice_to_dcp[obj_type].values() if isinstance(v, dict)]
+				temp_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				get_object(temp_obj, identifier[1])
 			else:
-				url = urljoin(server, identifier + '/?format=json')
-				temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+				obj_type, filter_url = lattice.parse_ids([identifier])
+				field_lst = [v['lattice'] for v in lattice_to_dcp[obj_type].values() if isinstance(v, dict)]
+				temp_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				get_object(temp_obj)
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen
