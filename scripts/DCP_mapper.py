@@ -414,21 +414,18 @@ def seq_to_susp(links_dict):
 		ins = []
 		susps = []
 		protocols = []
-		print(seqruns)
 		for sr in seqruns:
 			# handle the sequencing metadata
-			#ATTN - query instead of get object
-			url = urljoin(server, sr + '/?format=json')
-			sr_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+			field_lst = ['derived_from','demultiplexed_link','platform']
+			sr_obj = lattice.get_report('SequencingRun', f'&@id={sr}', field_lst, connection)[0]
 			lib = sr_obj['derived_from'][0]
-			#ATTN - query instead of get object
-			lib_url = urljoin(server, lib + '/?format=json')
-			lib_obj = requests.get(lib_url, auth=connection.auth, timeout=60).json()
+			field_lst = ['observation_count', 'derived_from'] + \
+				[v['lattice'] for v in lattice_to_dcp['Library'].values() if isinstance(v, dict)]
+			lib_obj = lattice.get_report('Library', f'&@id={lib}', field_lst, connection)[0]
 			lib_cell_counts[lib] = lib_obj.get('observation_count') #grab to sum the project counts
 
 			# see if we need to skip back over a pooling step for demultiplexed sequence data
 			if sr_obj.get('demultiplexed_link'):
-				#ATTN - query instead of get object
 				url = urljoin(server, sr_obj['demultiplexed_link'] + '/?format=json')
 				prepooled_obj = requests.get(url, auth=connection.auth, timeout=60).json()
 				if prepooled_obj['@type'][0] == 'Suspension':
@@ -636,18 +633,12 @@ def add_links(temp_obj, der_fr, links):
 	ins = []
 	for i in der_fr:
 		if isinstance(i, tuple): #donor ID + variable_age
-			identifer = i[0]
-			url = urljoin(server, identifer + '/?format=json')
-			obj = requests.get(url, auth=connection.auth, timeout=60).json()
-			lat_type = obj['@type'][0]
-			in_type = lattice_to_dcp[lat_type]['class']
-			in_id = uuid_make(obj['uuid'] + ''.join(i[1]))
-		else:
-			url = urljoin(server, i + '/?format=json')
-			obj = requests.get(url, auth=connection.auth, timeout=60).json()
-			lat_type = obj['@type'][0]
-			in_type = lattice_to_dcp[lat_type]['class']
-			in_id = obj['uuid']
+			i = i[0]
+		obj_type, filter_url = lattice.parse_ids([i])
+		field_lst = ['uuid']
+		obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
+		in_type = lattice_to_dcp[obj_type]['class']
+		in_id = obj['uuid']
 		ins.append({'input_type': in_type, 'input_id': in_id})
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
@@ -1045,10 +1036,13 @@ def main():
 	links_dict = {}
 
 	files = [f for f in ds_obj['files'] if 'raw-sequence-files' in f]
-	obj_type, filter_url = lattice.parse_ids(files)
 	field_lst = ['validated'] + \
 		[v['lattice'] for v in lattice_to_dcp['RawSequenceFile'].values() if isinstance(v, dict)]
-	file_objs = lattice.get_report(obj_type, filter_url, field_lst, connection)
+	file_objs = lattice.get_report(
+		'RawSequenceFile',
+		f'&dataset=/datasets/{args.dataset}/&status!=archived&status!=deleted',
+		field_lst, connection
+		)
 
 	for temp_obj in file_objs:
 		if temp_obj.get('validated') == False:
