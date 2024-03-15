@@ -363,17 +363,17 @@ def get_derived_from(temp_obj, next_remaining, links):
 
 		if isinstance(temp_obj['derived_from'][0], str): #object is not embedded
 			if variable_age:
-				identifer = [(temp_obj['derived_from'][0], variable_age)]
-				next_remaining.update(identifer)
-				add_links(temp_obj, tuple(identifer), links)
+				identifier = [(temp_obj['derived_from'][0], variable_age)]
+				next_remaining.update(identifier)
+				add_links(temp_obj, tuple(identifier), links)
 			else:
 				next_remaining.update(temp_obj['derived_from'])
 				add_links(temp_obj, tuple(temp_obj['derived_from']), links)
 		elif isinstance(temp_obj['derived_from'][0], dict): #object is embedded
 			if variable_age:
-				identifer = [(temp_obj['derived_from'][0]['@id'], variable_age)]
-				next_remaining.update(identifer)
-				add_links(temp_obj, tuple(identifer), links)
+				identifier = [(temp_obj['derived_from'][0]['@id'], variable_age)]
+				next_remaining.update(identifier)
+				add_links(temp_obj, tuple(identifier), links)
 
 			else:
 				der_fr = ()
