@@ -430,7 +430,7 @@ def seq_to_susp(links_dict):
 				field_lst = ['uuid']
 				prepooled_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				if obj_type == 'Suspension':
-					susps.extend([prepooled_obj['uuid']])
+					susps.extend([prepooled_obj['@id']])
 					in_type = lattice_to_dcp[obj_type]['class']
 					ins.append({'input_type': in_type, 'input_id': prepooled_obj['uuid']})
 					seq_method = 'high throughput sequencing, demultiplexing'
