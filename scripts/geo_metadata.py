@@ -5,6 +5,7 @@ import sys
 from urllib.parse import urljoin
 import requests
 import numpy as np
+import time
 
 
 EPILOG = '''
@@ -113,8 +114,11 @@ geo_protocols = pd.DataFrame()
 geo_sequences = pd.DataFrame()
 geo_md5 = pd.DataFrame()
 
-# Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
+
 def gather_objects(input_object, start_type=None):
+	"""
+	Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
+	"""
 	if start_type == None:
 		lib_ids = input_object['libraries']
 	libraries = []
@@ -132,6 +136,7 @@ def gather_objects(input_object, start_type=None):
 	if start_type == None:
 		for i in lib_ids:
 			obj = lattice.get_object(i, connection)
+			time.sleep(3)
 			libraries.append(obj)
 			for o in obj['derived_from']:
 				if o.get('uuid') not in susp_ids:
@@ -140,6 +145,7 @@ def gather_objects(input_object, start_type=None):
 						susp_ids.append(o.get('uuid'))
 		for s in input_object['derived_from']:
 			s_obj = lattice.get_object(s, connection)
+			time.sleep(3)
 			if s_obj.get('uuid') not in fastq_ids:
 				fastqs.append(s_obj)
 				fastq_ids.append(s_obj)
@@ -164,6 +170,7 @@ def gather_objects(input_object, start_type=None):
 		next_remaining = set()
 		for i in remaining:
 			obj = lattice.get_object(i, connection)
+			time.sleep(3)
 			if 'Biosample' in obj['@type']:
 				samples.append(obj)
 			else:
@@ -188,35 +195,36 @@ def gather_objects(input_object, start_type=None):
 	return objs
 
 
-# Gather raw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
 def gather_rawmatrices(dataset):
+	"""
+	Gather raw matrices by object type associated with dataset with following filtering:
+	 - 'background_barcodes_included' to select for filtered matrix from CR output
+	 - 'status' = 'in progress' to select for valid objects
+	"""
 	my_raw_matrices = []
 	unfiltered_matrices = []
-	raw_ids = []
-	query_url = urljoin(server, 'search/?type=RawMatrixFile&dataset=/datasets/' + dataset + '/&format=json' + '&limit=all')
-	r = requests.get(query_url, auth=connection.auth)
-	try:
-		r.raise_for_status()
-	except requests.HTTPError:
-		sys.exit("Error in getting raw matrix files: {}".format(query_url))
-	else:
-		for raw in r.json()['@graph']:
-			raw_ids.append(raw['@id'])
-	for identifier in raw_ids:
-		obj = lattice.get_object(identifier, connection)
-		if obj['@type'][0] == 'RawMatrixFile':
-			if not obj.get('background_barcodes_included'):
-				my_raw_matrices.append(obj)
-			else:
-				unfiltered_matrices.append(obj)
+	field_lst =['@id','background_barcodes_included','normalized','value_scale','feature_keys','cellranger_assay_chemistry','assembly',\
+		'genome_annotation','file_format','value_units','assays','accession', 'libraries', 'derived_from', 's3_uri', 'status']
+	filter_url = '&dataset=/datasets/{}/&background_barcodes_included=0&status=in+progress'.format(dataset)
+	obj_type = 'RawMatrixFile'
+	all_raw_matrices = lattice.get_report(obj_type,filter_url,field_lst,connection)
+	for mtx in all_raw_matrices:
+		if not mtx.get('background_barcodes_included'):
+			my_raw_matrices.append(mtx)
 		else:
-			continue
-	return my_raw_matrices, unfiltered_matrices
+			unfiltered_matrices.append(mtx)
+	return my_raw_matrices#, unfiltered_matrices
 
 
 def get_dataset(dataset):
+	"""
+	Get dataset object to get dataset metadata for geo study metadata. Also gather all files for a quick sanity check of file count
+	"""
 	global geo_study
-	results = lattice.get_object(dataset, connection)
+	dataset_id = '/datasets/{}/'.format(dataset)
+	field_lst = ['dataset_title', 'description', 'libraries', 'donor_count', 'corresponding_contributors', 'internal_contact', 'files']
+	obj_type, filter_url = lattice.parse_ids([dataset_id])
+	results = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 	title = results.get('dataset_title','')
 	desc = results.get('description','')
 
@@ -234,7 +242,7 @@ def get_dataset(dataset):
 		design = "{} of {} from {} human donors".format(' and '.join(assays_uniq), ', '.join(all_tissues), results.get('donor_count'))
 	keys = ['title','summary (abstract)','experimental design']
 	vals = [title,desc,design]
-	
+
 	if results.get('corresponding_contributors',None):
 		con1 = results.get('corresponding_contributors')[0]['title']
 		keys.append('contributor')
@@ -262,6 +270,7 @@ def get_value(obj, prop):
 		if isinstance(obj.get(key1), list):
 			values = [i.get(key2, unreported_value) for i in obj[key1]]
 			return list(set(values))
+
 		elif obj.get(key1):
 			value = obj[key1].get(key2, unreported_value)
 			if key1 == 'biosample_ontology' and 'Culture' in obj['@type']:
@@ -324,28 +333,11 @@ def gather_metadata(obj_type, properties, values_to_add, objs):
 		del values_to_add['read_1N']
 		del values_to_add['read_2N']
 
+
 # Return last element if split by '/'
 def get_filename(uri):
 	l = uri.split('/')
 	return l[len(l)-1]
-
-
-# Check files with files field in dataset object
-def checkfiles(raw_seq_files, derived_seq_files, raw_matrix_files, derived_raw_matrix, derived_unfiltered_matrix):
-	dataset_seq_uniq = [i for i in raw_seq_files if i not in derived_seq_files]
-	derived_seq_uniq = [i for i in derived_seq_files if i not in raw_seq_files]
-	dataset_matrix_uniq = [i for i in raw_matrix_files if i not in derived_raw_matrix]
-	derived_matrix_uniq = [i for i in derived_raw_matrix if i not in raw_matrix_files]
-	if len(dataset_seq_uniq)>1:
-		print("raw seq only in dataset: {}".format(dataset_seq_uniq))
-	elif len(derived_seq_uniq)>1:
-		print("raw seq only in derived: {}".format(derived_seq_uniq))
-	elif len(dataset_matrix_uniq)>1:
-		filtered_uniq = [i for i in dataset_matrix_uniq if i not in derived_unfiltered_matrix]
-		if len(filtered_uniq)>1:
-			print("matrix only in dataset filtered: {}".format(filtered_uniq))
-	elif len(derived_matrix_uniq)>1:
-		print("matrix only in derived: {}".format(derived_matrix_uniq))
 
 
 def format_protocols(field, key, value, protocols_results):
@@ -364,6 +356,8 @@ def calculate_protocols():
 	protocols_results = {}
 	for c in raw_matrix:
 		col = "raw_matrix_"+c
+		if col == 'raw_matrix_cellranger_assay_chemistry':
+			continue
 		if len(geo_samples[col].unique())==1:
 			protocols_input[col]=geo_samples[col].unique()[0]
 			geo_samples.drop(columns=[col], inplace=True)
@@ -380,6 +374,73 @@ def calculate_protocols():
 	geo_protocols = pd.DataFrame(protocols_results.items())
 
 
+# Gather metadata for pooled objects
+# For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
+def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
+	dev_list = []
+	for prop in properties:
+		if prop == 'ethnicity':
+			values_df = pd.DataFrame()
+			latkey = (obj_type + '_' + prop).replace('.','_')
+			key = prop_map.get(latkey, latkey)
+			for obj in objs:
+				ident = obj.get('@id')
+				ethnicity_list = []
+				ethnicity_dict_list = get_value(obj,prop)
+				if ethnicity_dict_list != None:
+					for ethnicity_dict in ethnicity_dict_list:
+						if ethnicity_dict.get('term_id') == 'NCIT:C17998':
+							ethnicity_list.append('unknown')
+						else:
+							ethnicity_list.append(ethnicity_dict.get('term_id'))
+				if len(ethnicity_list) == 1 and ethnicity_list[0] == 'unknown':
+					values_df.loc[key,ident] = 'unknown'
+				#elif 'unknown' in ethnicity_list:
+				#	values_df.loc[key,ident] = 'unknown'
+				elif len(set(ethnicity_list)) == len(ethnicity_list):
+					value = ethnicity_list[0]
+					values_df.loc[key,ident] = value
+				#elif 'unknown' in ethnicity_list:
+				#	values_df.loc[key,ident] = 'unknown'
+			for index, row in values_df.iterrows():
+				values_to_add[index] = str(row[0])
+		else:
+			value = list()
+			for obj in objs:
+				v = get_value(obj, prop)
+				if prop == 'summary_development_ontology_at_collection.development_slims':
+					dev_list.append(v)
+				if isinstance(v, list):
+					value.extend(v)
+				else:
+					value.append(v)
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = prop_map.get(latkey, latkey)
+			value_str = [str(i) for i in value]
+			value_set = set(value_str)
+			#cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
+			#				 'tissue_ontology_term_id']#, 'sex', 'development_stage_ontology_term_id']
+			if len(value_set) > 1:
+				#if key in cxg_fields:
+					# if key == 'development_stage_ontology_term_id':
+					# 	dev_in_all = list(set.intersection(*map(set, dev_list)))
+					# 	if dev_in_all == []:
+					# 		logging.error('ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id')
+					# 		sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
+					# 	else:
+					# 		obj = lattice.get_report('OntologyTerm','&term_name='+dev_in_all[0], ['term_id'], connection)
+					# 		values_to_add[key] = obj[0].get('term_id')
+					# elif key == 'sex':
+					# 	values_to_add[key] = 'unknown'
+					# else:
+					# 	logging.error('ERROR: Cxg field is a list')
+					#sys.exit("ERROR: Cxg field is a list")
+				#else:
+				values_to_add[key] = '{}'.format(','.join(value_str))
+			else:
+				values_to_add[key] = next(iter(value_set))
+
+
 def main(dataset):
 	global geo_study
 	global geo_samples
@@ -392,20 +453,26 @@ def main(dataset):
 
 	# Get dataset metadata
 	all_files = get_dataset(dataset)
-	raw_seq_files = [i.split('/')[2] for i in all_files if i.startswith("/raw-sequence-files")]
-	raw_matrix_files = [i.split('/')[2] for i in all_files if i.startswith("/raw-matrix-files")]
+	print("Total files: {}".format(len(all_files)))
 
 	derived_seq_files = []
 	derived_raw_matrix = []
-	derived_unfiltered_matrix = []
+	#derived_unfiltered_matrix = []
 	mxraws_output = gather_rawmatrices(dataset)
-	mxraws = mxraws_output[0]
-	for unfiltered in mxraws_output[1]:
-		derived_unfiltered_matrix.append(unfiltered.get('accession'))
+	mxraws = mxraws_output
+	time.sleep(3)
+	print("Total raw matrix files: {}".format(len(mxraws)))
+	#for unfiltered in mxraws_output[1]:
+	#	derived_unfiltered_matrix.append(unfiltered.get('accession'))
 
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
+
+		## NEED TO DELETE THIS EVENTUALLY
+		if mxr.get('assembly') == 'hg19':
+			continue
 		mxr_acc = mxr['accession']
+		print("Processing {}".format(mxr_acc))
 		derived_raw_matrix.append(mxr_acc)
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {} #library metadata for each raw matrix
@@ -416,6 +483,7 @@ def main(dataset):
 		mxr_to_add = {}
 
 		gather_metadata('raw_matrix', raw_matrix, matrix_to_add, [mxr])
+		time.sleep(3)
 
 		for obj_type in library_metadata.keys():
 			objs = relevant_objects.get(obj_type, [])
@@ -445,7 +513,8 @@ def main(dataset):
 					all_s3_uri.append(o.get('s3_uri'))
 			else:
 				if len(objs)>1:
-					sys.exit("Cannot handle multiplexed libraries")
+					#sys.exit("Cannot handle multiplexed libraries")
+					gather_pooled_metadata(obj_type, library_metadata[obj_type], values_to_add, objs)
 				gather_metadata(obj_type, library_metadata[obj_type], values_to_add, objs)
 		# Get mxr metadata
 		mxr_to_add['processed file name'] = get_filename(mxr.get('s3_uri'))
@@ -495,9 +564,6 @@ def main(dataset):
 			geo_samples.drop(columns=[col,'sequence_file_md5sum'], inplace=True)
 			geo_samples.rename(columns={'filename':col}, inplace=True)
 
-	# Check files with files field in dataset object
-	checkfiles(raw_seq_files, derived_seq_files, raw_matrix_files, derived_raw_matrix, derived_unfiltered_matrix)
-
 	# For single values in columns in 'raw_matrix' fields, move over to protocols dataframe
 	calculate_protocols()
 
@@ -509,9 +575,10 @@ def main(dataset):
 	geo_samples['instrument model'] = geo_samples[collapse].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
 	geo_samples.drop(columns=collapse, inplace=True)
 
+
 	# Write to files
 	# all_df = [geo_study,geo_samples,geo_sequences]
-	with open(dataset+"_metadata.csv",'a') as f:
+	with open(dataset+"_metadata.csv",'w') as f:
 		f.write("STUDY\n")
 		geo_study.to_csv(f, header=False, index=False)
 		f.write('\nSAMPLES\n')
