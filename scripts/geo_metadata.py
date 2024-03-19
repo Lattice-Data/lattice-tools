@@ -6,7 +6,7 @@ from urllib.parse import urljoin
 import requests
 import numpy as np
 import time
-
+import gc
 
 EPILOG = '''
 Examples:
@@ -33,7 +33,7 @@ def getArgs():
     	sys.exit()
     return args
 
-library_metadata = {
+LIBRARY_METADATA = {
 	'sample': [
 		'biosample_ontology.term_name',
 		'diseases.term_name',
@@ -71,7 +71,7 @@ library_metadata = {
 	]
 }
 
-raw_matrix = [
+RAW_MATRIX = [
 	'normalized',
 	'value_scale',
 	'feature_keys',
@@ -86,7 +86,7 @@ raw_matrix = [
 
 
 # Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
-prop_map = {
+PROP_MAP = {
 	'library_donors_age_display': 'age',
 	'library_donors_sex': 'sex',
 	'library_donors_donor_id': 'donor_id',
@@ -107,12 +107,7 @@ prop_map = {
 
 
 # Global variables
-unreported_value = ''
-geo_study = pd.DataFrame()
-geo_samples = pd.DataFrame()
-geo_protocols = pd.DataFrame()
-geo_sequences = pd.DataFrame()
-geo_md5 = pd.DataFrame()
+UNREPORTED_VALUE = ''
 
 
 def gather_objects(input_object, start_type=None):
@@ -135,17 +130,22 @@ def gather_objects(input_object, start_type=None):
 
 	if start_type == None:
 		for i in lib_ids:
-			obj = lattice.get_object(i, connection)
-			time.sleep(3)
+			field_lst = ['aliases','protocol','donors','derived_from']
+			obj = lattice.get_report('Library', '&@id={}'.format(i), field_lst, connection)[0]
+			time.sleep(2)
 			libraries.append(obj)
 			for o in obj['derived_from']:
 				if o.get('uuid') not in susp_ids:
 					if 'Suspension' in o['@type']:
 						suspensions.append(o)
 						susp_ids.append(o.get('uuid'))
+
+		# Will be assuming that raw matrix files are derived from raw sequence files, or else should not run geo script
 		for s in input_object['derived_from']:
-			s_obj = lattice.get_object(s, connection)
-			time.sleep(3)
+			obj_type, filter_url = lattice.parse_ids([s])
+			field_lst = LIBRARY_METADATA['sequence_file']+['uuid','derived_from', 'accession']
+			s_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
+			time.sleep(2)
 			if s_obj.get('uuid') not in fastq_ids:
 				fastqs.append(s_obj)
 				fastq_ids.append(s_obj)
@@ -170,7 +170,7 @@ def gather_objects(input_object, start_type=None):
 		next_remaining = set()
 		for i in remaining:
 			obj = lattice.get_object(i, connection)
-			time.sleep(3)
+			time.sleep(2)
 			if 'Biosample' in obj['@type']:
 				samples.append(obj)
 			else:
@@ -203,8 +203,8 @@ def gather_rawmatrices(dataset):
 	"""
 	my_raw_matrices = []
 	unfiltered_matrices = []
-	field_lst =['@id','background_barcodes_included','normalized','value_scale','feature_keys','cellranger_assay_chemistry','assembly',\
-		'genome_annotation','file_format','value_units','assays','accession', 'libraries', 'derived_from', 's3_uri', 'status']
+
+	field_lst = RAW_MATRIX+['@id','accession', 'libraries', 'derived_from', 's3_uri', 'status']
 	filter_url = '&dataset=/datasets/{}/&background_barcodes_included=0&status=in+progress'.format(dataset)
 	obj_type = 'RawMatrixFile'
 	all_raw_matrices = lattice.get_report(obj_type,filter_url,field_lst,connection)
@@ -213,14 +213,13 @@ def gather_rawmatrices(dataset):
 			my_raw_matrices.append(mtx)
 		else:
 			unfiltered_matrices.append(mtx)
-	return my_raw_matrices#, unfiltered_matrices
+	return my_raw_matrices
 
 
-def get_dataset(dataset):
+def get_dataset(dataset, geo_study):
 	"""
 	Get dataset object to get dataset metadata for geo study metadata. Also gather all files for a quick sanity check of file count
 	"""
-	global geo_study
 	dataset_id = '/datasets/{}/'.format(dataset)
 	field_lst = ['dataset_title', 'description', 'libraries', 'donor_count', 'corresponding_contributors', 'internal_contact', 'files']
 	obj_type, filter_url = lattice.parse_ids([dataset_id])
@@ -259,20 +258,22 @@ def get_dataset(dataset):
 	return(results.get('files'))
 
 
-# Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
 def get_value(obj, prop):
+	"""
+	Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
+	"""
 	path = prop.split('.')
 	if len(path) == 1:
-		return obj.get(prop, unreported_value)
+		return obj.get(prop, UNREPORTED_VALUE)
 	elif len(path) == 2:
 		key1 = path[0]
 		key2 = path[1]
 		if isinstance(obj.get(key1), list):
-			values = [i.get(key2, unreported_value) for i in obj[key1]]
+			values = [i.get(key2, UNREPORTED_VALUE) for i in obj[key1]]
 			return list(set(values))
 
 		elif obj.get(key1):
-			value = obj[key1].get(key2, unreported_value)
+			value = obj[key1].get(key2, UNREPORTED_VALUE)
 			if key1 == 'biosample_ontology' and 'Culture' in obj['@type']:
 				obj_type = obj['@type'][0]
 				if obj_type == 'Organoid':
@@ -283,37 +284,39 @@ def get_value(obj, prop):
 			else:
 				return value
 		else:
-			return obj.get(key1,unreported_value)
+			return obj.get(key1,UNREPORTED_VALUE)
 	elif len(path) == 3:
 		key1 = path[0]
 		key2 = path[1]
 		key3 = path[2]
 		if isinstance(obj.get(key1), list):
-			embed_objs = obj.get(key1, unreported_value)
+			embed_objs = obj.get(key1, UNREPORTED_VALUE)
 			values = []
 			for embed_obj in embed_objs:
 				if isinstance(embed_obj.get(key2), list):
-					values += [k.get(key3, unreported_value) for k in embed_obj[key2]]
+					values += [k.get(key3, UNREPORTED_VALUE) for k in embed_obj[key2]]
 				else:
-					values += embed_obj[key2].get(key3, unreported_value)
+					values += embed_obj[key2].get(key3, UNREPORTED_VALUE)
 			return list(set(values))
 		# Will need to revisit cell culture and organoid values 
 		elif obj.get(key1):
-			embed_obj = obj.get(key1, unreported_value)
-			if isinstance(embed_obj.get(key2, unreported_value), list):
-				return [v.get(key3, unreported_value) for v in embed_obj[key2]]
-			elif embed_obj.get(key2, unreported_value) == unreported_value:
-				return unreported_value
+			embed_obj = obj.get(key1, UNREPORTED_VALUE)
+			if isinstance(embed_obj.get(key2, UNREPORTED_VALUE), list):
+				return [v.get(key3, UNREPORTED_VALUE) for v in embed_obj[key2]]
+			elif embed_obj.get(key2, UNREPORTED_VALUE) == UNREPORTED_VALUE:
+				return UNREPORTED_VALUE
 			else:
-				return embed_obj[key2].get(key3, unreported_value)
+				return embed_obj[key2].get(key3, UNREPORTED_VALUE)
 		else:
-			return obj.get(key1, unreported_value)
+			return obj.get(key1, UNREPORTED_VALUE)
 	else:
 		return 'unable to traverse more than 2 embeddings'
 
 
-# Gather object metadata, convert property name to cxg required field names
 def gather_metadata(obj_type, properties, values_to_add, objs):
+	"""
+	Gather object metadata, convert property name to desired field names for geo metadata spreadsheet
+	"""
 	obj = objs[0]
 	for prop in properties:
 		value = get_value(obj, prop)
@@ -323,25 +326,29 @@ def gather_metadata(obj_type, properties, values_to_add, objs):
 			else:
 				value = ','.join(value)
 		latkey = (obj_type + '_' + prop).replace('.', '_')
-		key = prop_map.get(latkey, latkey)
+		key = PROP_MAP.get(latkey, latkey)
 		values_to_add[key] = value
 	if obj_type=='sequencing_run':
-		if values_to_add['read_1'] == unreported_value and values_to_add['read_1N'] != unreported_value:
+		if values_to_add['read_1'] == UNREPORTED_VALUE and values_to_add['read_1N'] != UNREPORTED_VALUE:
 			values_to_add['read_1'] = values_to_add['read_1N']
-		if values_to_add['read_2'] == unreported_value and values_to_add['read_2N'] != unreported_value:
+		if values_to_add['read_2'] == UNREPORTED_VALUE and values_to_add['read_2N'] != UNREPORTED_VALUE:
 			values_to_add['read_2'] =  values_to_add['read_2N']
 		del values_to_add['read_1N']
 		del values_to_add['read_2N']
 
 
-# Return last element if split by '/'
 def get_filename(uri):
+	"""
+	Return last element if split by '/'
+	"""
 	l = uri.split('/')
 	return l[len(l)-1]
 
 
 def format_protocols(field, key, value, protocols_results):
-	global geo_protocols
+	"""
+	Format protocol metadata to desired geo spreadsheet format
+	"""
 	if field in protocols_results.keys():
 		protocols_results[field] += "; "+key+':'+str(value)
 	else:
@@ -349,12 +356,13 @@ def format_protocols(field, key, value, protocols_results):
 	return protocols_results
 
 
-def calculate_protocols():
-	global geo_protocols
-	global geo_samples
+def calculate_protocols(geo_protocols, geo_samples):
+	"""
+	For single values in columns in 'raw_matrix' fields, move over to protocols dataframe
+	"""
 	protocols_input = {}
 	protocols_results = {}
-	for c in raw_matrix:
+	for c in RAW_MATRIX:
 		col = "raw_matrix_"+c
 		if col == 'raw_matrix_cellranger_assay_chemistry':
 			continue
@@ -372,17 +380,19 @@ def calculate_protocols():
 		elif k == 'raw_matrix_assays':
 			protocols_results = format_protocols('library strategy',k,v,protocols_results)
 	geo_protocols = pd.DataFrame(protocols_results.items())
+	return geo_protocols
 
 
-# Gather metadata for pooled objects
-# For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
+	"""
+	Gather metadata for pooled objects, which will be a list within double quotes
+	"""
 	dev_list = []
 	for prop in properties:
 		if prop == 'ethnicity':
 			values_df = pd.DataFrame()
 			latkey = (obj_type + '_' + prop).replace('.','_')
-			key = prop_map.get(latkey, latkey)
+			key = PROP_MAP.get(latkey, latkey)
 			for obj in objs:
 				ident = obj.get('@id')
 				ethnicity_list = []
@@ -395,13 +405,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 							ethnicity_list.append(ethnicity_dict.get('term_id'))
 				if len(ethnicity_list) == 1 and ethnicity_list[0] == 'unknown':
 					values_df.loc[key,ident] = 'unknown'
-				#elif 'unknown' in ethnicity_list:
-				#	values_df.loc[key,ident] = 'unknown'
 				elif len(set(ethnicity_list)) == len(ethnicity_list):
 					value = ethnicity_list[0]
 					values_df.loc[key,ident] = value
-				#elif 'unknown' in ethnicity_list:
-				#	values_df.loc[key,ident] = 'unknown'
 			for index, row in values_df.iterrows():
 				values_to_add[index] = str(row[0])
 		else:
@@ -415,89 +421,66 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				else:
 					value.append(v)
 			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
+			key = PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			#cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
-			#				 'tissue_ontology_term_id']#, 'sex', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
-				#if key in cxg_fields:
-					# if key == 'development_stage_ontology_term_id':
-					# 	dev_in_all = list(set.intersection(*map(set, dev_list)))
-					# 	if dev_in_all == []:
-					# 		logging.error('ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id')
-					# 		sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
-					# 	else:
-					# 		obj = lattice.get_report('OntologyTerm','&term_name='+dev_in_all[0], ['term_id'], connection)
-					# 		values_to_add[key] = obj[0].get('term_id')
-					# elif key == 'sex':
-					# 	values_to_add[key] = 'unknown'
-					# else:
-					# 	logging.error('ERROR: Cxg field is a list')
-					#sys.exit("ERROR: Cxg field is a list")
-				#else:
 				values_to_add[key] = '{}'.format(','.join(value_str))
 			else:
 				values_to_add[key] = next(iter(value_set))
 
 
 def main(dataset):
-	global geo_study
-	global geo_samples
-	global geo_protocols
-	global geo_sequences
-	global geo_md5
+	geo_study = pd.DataFrame()
+	geo_samples = pd.DataFrame()
+	geo_protocols = pd.DataFrame()
+	geo_sequences_list = []
+	geo_md5 = pd.DataFrame()
+	fastq_meta_list = []
 	fastq_meta = pd.DataFrame()
 	all_s3_uri = []
 	matrix_meta = pd.DataFrame()
 
 	# Get dataset metadata
-	all_files = get_dataset(dataset)
+	all_files = get_dataset(dataset, geo_study)
 	print("Total files: {}".format(len(all_files)))
 
 	derived_seq_files = []
 	derived_raw_matrix = []
-	#derived_unfiltered_matrix = []
 	mxraws_output = gather_rawmatrices(dataset)
 	mxraws = mxraws_output
 	time.sleep(3)
 	print("Total raw matrix files: {}".format(len(mxraws)))
-	#for unfiltered in mxraws_output[1]:
-	#	derived_unfiltered_matrix.append(unfiltered.get('accession'))
 
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 
-		## NEED TO DELETE THIS EVENTUALLY
-		if mxr.get('assembly') == 'hg19':
-			continue
 		mxr_acc = mxr['accession']
 		print("Processing {}".format(mxr_acc))
 		derived_raw_matrix.append(mxr_acc)
 		relevant_objects = gather_objects(mxr)
 		values_to_add = {} #library metadata for each raw matrix
-		fastq_to_add = {} #fastq metadata
-		runs_to_add = {} #sequencing run metadata
 		all_runs = {} #all fastq files for library
 		matrix_to_add = {}
 		mxr_to_add = {}
 
-		gather_metadata('raw_matrix', raw_matrix, matrix_to_add, [mxr])
+		gather_metadata('raw_matrix', RAW_MATRIX, matrix_to_add, [mxr])
 		time.sleep(3)
 
-		for obj_type in library_metadata.keys():
+		for obj_type in LIBRARY_METADATA.keys():
 			objs = relevant_objects.get(obj_type, [])
 			# For sequencing run objects, add related sequences to geo_sequences and additional metadata to runs_to_add which are added to all_runs
 			if obj_type == 'sequencing_run':
 				i = 1
 				for o in objs:
-					gather_metadata(obj_type, library_metadata[obj_type], runs_to_add, [o])
+					runs_to_add = {}
+					gather_metadata(obj_type, LIBRARY_METADATA[obj_type], runs_to_add, [o])
 					alias = runs_to_add.get('sequencing_run_aliases')
 					platform = runs_to_add.get('platform')
 					runs_to_add.pop('sequencing_run_aliases')
 					runs_to_add.pop('platform')
 					runs_to_add.pop('instrument model', None)
-					geo_sequences = pd.concat([geo_sequences, pd.DataFrame(runs_to_add, index=[alias])])
+					geo_sequences_list.append(runs_to_add)
 					runs_to_add['instrument model'] = platform
 					for k,v in runs_to_add.items():
 						new_k = k+"_run"+str(i)
@@ -506,16 +489,17 @@ def main(dataset):
 			# Go through raw sequence file objects to store metadata in fastq_meta
 			elif obj_type == 'sequence_file':
 				for o in objs:
-					gather_metadata(obj_type, library_metadata[obj_type], fastq_to_add, [o])
+					fastq_to_add = {}
+					gather_metadata(obj_type, LIBRARY_METADATA[obj_type], fastq_to_add, [o])
 					fastq_to_add['filename'] = get_filename(fastq_to_add['filename'])
-					fastq_meta = pd.concat([fastq_meta, pd.DataFrame(fastq_to_add, index=[o.get('accession')])])
+					fastq_to_add['new_index'] = o.get('accession')
+					fastq_meta_list.append(fastq_to_add)
 					derived_seq_files.append(o.get('accession'))
 					all_s3_uri.append(o.get('s3_uri'))
 			else:
 				if len(objs)>1:
-					#sys.exit("Cannot handle multiplexed libraries")
-					gather_pooled_metadata(obj_type, library_metadata[obj_type], values_to_add, objs)
-				gather_metadata(obj_type, library_metadata[obj_type], values_to_add, objs)
+					gather_pooled_metadata(obj_type, LIBRARY_METADATA[obj_type], values_to_add, objs)
+				gather_metadata(obj_type, LIBRARY_METADATA[obj_type], values_to_add, objs)
 		# Get mxr metadata
 		mxr_to_add['processed file name'] = get_filename(mxr.get('s3_uri'))
 		mxr_to_add['processed checksum'] = mxr.get('md5sum')
@@ -527,11 +511,17 @@ def main(dataset):
 		alias = values_to_add.get('library_aliases').split(':')[1]
 		geo_samples = pd.concat([geo_samples, pd.DataFrame(values_to_add, index=[alias])])
 
+	gc.collect()
+
 	# Merge fastq metadata to raw sequence files
 	# Add sequences to geo_md5
+	print("MERGING FASTQ METADATA")
+	fastq_meta = pd.DataFrame(fastq_meta_list)
+	fastq_meta.set_index('new_index', inplace=True)
+	geo_sequences = pd.DataFrame(geo_sequences_list)
 	geo_seq_md5 = pd.DataFrame()
 	for col in geo_sequences.columns.to_list():
-		if len(geo_sequences[col].unique())==1 and geo_sequences[col].unique()[0]==unreported_value:
+		if len(geo_sequences[col].unique())==1 and geo_sequences[col].unique()[0]==UNREPORTED_VALUE:
 			geo_sequences.drop(columns=[col], inplace=True)
 		elif col == 'sequencing_run_aliases':
 			geo_sequences.drop(columns=[col], inplace=True)
@@ -554,27 +544,25 @@ def main(dataset):
 	geo_md5.rename(columns={'processed file name':'filename','processed checksum':'checksum'})
 	
 	# Replace raw sequence file accession with fastq file name
+	print("REPLACING SEQUENCE FILE ACCESSION WITH FILE")
 	for col in geo_samples.columns.to_list():
-		if len(geo_samples[col].unique())==1 and geo_samples[col].unique()[0]==unreported_value:
+		if len(geo_samples[col].unique())==1 and geo_samples[col].unique()[0]==UNREPORTED_VALUE:
 			geo_samples.drop(columns=[col], inplace=True)
 		elif col=='library_aliases':
 			geo_samples.drop(columns=[col], inplace=True)
-		elif col.startswith(('read','index')):
-			geo_samples = geo_samples.merge(fastq_meta, left_on=col, right_index=True, how='left')
-			geo_samples.drop(columns=[col,'sequence_file_md5sum'], inplace=True)
-			geo_samples.rename(columns={'filename':col}, inplace=True)
+	geo_samples.replace(fastq_meta['filename'].to_dict(), inplace=True)
 
+	print("CALCULATING PROTOCOLS")
 	# For single values in columns in 'raw_matrix' fields, move over to protocols dataframe
-	calculate_protocols()
+	geo_protocols = calculate_protocols(geo_protocols, geo_samples)
 
 	# Collapse platform
 	collapse = []
-	for c in geo_samples.columns:
+	for c in geo_samples.columns:	
 		if c.startswith('instrument model'):
 			collapse.append(c)
-	geo_samples['instrument model'] = geo_samples[collapse].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != unreported_value])
+	geo_samples['instrument model'] = geo_samples[collapse].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != UNREPORTED_VALUE])
 	geo_samples.drop(columns=collapse, inplace=True)
-
 
 	# Write to files
 	# all_df = [geo_study,geo_samples,geo_sequences]
