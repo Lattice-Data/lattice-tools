@@ -19,6 +19,7 @@ import gc
 from scipy import sparse
 from datetime import datetime
 import matplotlib.colors as mcolors
+import json
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -593,20 +594,13 @@ def download_directory(download_url, directory):
 # Compile all reference annotations for var features into one pandas df
 def compile_annotations(files):
 	ids = pd.DataFrame()
-	client = boto3.client('s3')
-	bucket_name = 'submissions-lattice'
+	urls = 'https://github.com/chanzuckerberg/single-cell-curation/raw/main/cellxgene_schema_cli/cellxgene_schema/ontology_files/'
 	for key in files:
-		filename = tmp_dir + "/" + files[key]
+		filename = tmp_dir + "/" + files[key] + ".gz"
 		if os.path.exists(filename) == False:
-			try:
-				client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
-			except subprocess.CalledProcessError as e:
-				logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-				sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-			else:
-				print("Downloading reference: {}".format(files[key]))
-		df = pd.read_csv(filename, names=['feature_id','symbol','num'], dtype='str')
-		ids  = pd.concat([ids,df])
+			filename = urls + files[key] + '.gz'
+		df = pd.read_csv(filename, names = ['feature_id','symbol','start','stop'], dtype='str')
+		ids = pd.concat([ids,df])
 	return ids
 
 
@@ -876,8 +870,17 @@ def set_ensembl(redundant, feature_keys):
 		if len(unique_to_norm) > 0:
 			warning_list.append("WARNING: normalized matrix contains {} Ensembl IDs not in raw".format(unique_to_norm))
 
-
+# Filters the Ensembl IDs based on the compiled list of approved IDs
 def filter_ensembl(adata, compiled_annot):
+	# Using map file to map old ensembl_ids to new ensembl_ids before filtering
+	map_file = open('gene_map/gene_map_v44.json')
+	gene_map = json.load(map_file)
+	adata.var['ensembl_ids'] = adata.var.index
+	change_list = [i for i in adata.var['ensembl_ids'] if i in gene_map.keys()]
+	change_list = [i for i in change_list if adata.var['ensembl_ids'].str.contains(gene_map[i]).any() == False]
+	for i in change_list:
+		adata.var['ensembl_ids'][np.where(adata.var['ensembl_ids'] == i)[0]] = gene_map[i]
+	adata.var.set_index('ensembl_ids',inplace=True)
 	var_in_approved = adata.var.index[adata.var.index.isin(compiled_annot['feature_id'])]
 	adata = adata[:, var_in_approved]
 	return adata
@@ -1606,9 +1609,9 @@ def main(mfinal_id):
 	if summary_assay == 'RNA':
 		compiled_annot = compile_annotations(ref_files)
 		set_ensembl(redundant, mfinal_obj['feature_keys'])
+		add_zero()
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
-		add_zero()
 	elif summary_assay == 'ATAC':
 		compiled_annot = compile_annotations(ref_files)
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
