@@ -204,7 +204,7 @@ def gather_rawmatrices(dataset):
 	my_raw_matrices = []
 	unfiltered_matrices = []
 
-	field_lst = RAW_MATRIX+['@id','accession', 'libraries', 'derived_from', 's3_uri', 'status']
+	field_lst = RAW_MATRIX+['@id','accession', 'libraries', 'derived_from', 's3_uri', 'status', 'md5sum']
 	filter_url = '&dataset=/datasets/{}/&background_barcodes_included=0&status=in+progress'.format(dataset)
 	obj_type = 'RawMatrixFile'
 	all_raw_matrices = lattice.get_report(obj_type,filter_url,field_lst,connection)
