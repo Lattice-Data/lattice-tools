@@ -506,8 +506,8 @@ def main(dataset):
 		geo_md5 = pd.concat([geo_md5, pd.DataFrame(mxr_to_add, index=[geo_md5.shape[0]])])
 		values_to_add['processed data file'] = get_filename(mxr.get('s3_uri'))
 		all_s3_uri.append(mxr.get('s3_uri'))
-		values_to_add.update(all_runs)
 		values_to_add.update(matrix_to_add)
+		values_to_add.update(all_runs)
 		alias = values_to_add.get('library_aliases').split(':')[1]
 		geo_samples = pd.concat([geo_samples, pd.DataFrame(values_to_add, index=[alias])])
 
@@ -563,6 +563,8 @@ def main(dataset):
 			collapse.append(c)
 	geo_samples['instrument model'] = geo_samples[collapse].stack().groupby(level=0).apply(lambda x: [i for i in x.unique() if i != UNREPORTED_VALUE])
 	geo_samples.drop(columns=collapse, inplace=True)
+	ordered_cols = [c for c in geo_samples.columns if not c.startswith(('read_','index_'))] + [c for c in geo_samples.columns if c.startswith(('read_','index_'))]
+	geo_samples = geo_samples[ordered_cols]
 
 	# Write to files
 	# all_df = [geo_study,geo_samples,geo_sequences]
