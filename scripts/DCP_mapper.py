@@ -363,17 +363,17 @@ def get_derived_from(temp_obj, next_remaining, links):
 
 		if isinstance(temp_obj['derived_from'][0], str): #object is not embedded
 			if variable_age:
-				identifer = [(temp_obj['derived_from'][0], variable_age)]
-				next_remaining.update(identifer)
-				add_links(temp_obj, tuple(identifer), links)
+				identifier = [(temp_obj['derived_from'][0], variable_age)]
+				next_remaining.update(identifier)
+				add_links(temp_obj, tuple(identifier), links)
 			else:
 				next_remaining.update(temp_obj['derived_from'])
 				add_links(temp_obj, tuple(temp_obj['derived_from']), links)
 		elif isinstance(temp_obj['derived_from'][0], dict): #object is embedded
 			if variable_age:
-				identifer = [(temp_obj['derived_from'][0]['@id'], variable_age)]
-				next_remaining.update(identifer)
-				add_links(temp_obj, tuple(identifer), links)
+				identifier = [(temp_obj['derived_from'][0]['@id'], variable_age)]
+				next_remaining.update(identifier)
+				add_links(temp_obj, tuple(identifier), links)
 
 			else:
 				der_fr = ()
@@ -416,28 +416,29 @@ def seq_to_susp(links_dict):
 		protocols = []
 		for sr in seqruns:
 			# handle the sequencing metadata
-			url = urljoin(server, sr + '/?format=json')
-			sr_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+			field_lst = ['derived_from','demultiplexed_link','platform']
+			sr_obj = lattice.get_report('SequencingRun', f'&@id={sr}', field_lst, connection)[0]
 			lib = sr_obj['derived_from'][0]
-			lib_url = urljoin(server, lib + '/?format=json')
-			lib_obj = requests.get(lib_url, auth=connection.auth, timeout=60).json()
+			field_lst = ['observation_count', 'derived_from'] + \
+				[v['lattice'] for v in lattice_to_dcp['Library'].values() if isinstance(v, dict)]
+			lib_obj = lattice.get_report('Library', f'&@id={lib}', field_lst, connection)[0]
 			lib_cell_counts[lib] = lib_obj.get('observation_count') #grab to sum the project counts
 
 			# see if we need to skip back over a pooling step for demultiplexed sequence data
 			if sr_obj.get('demultiplexed_link'):
-				url = urljoin(server, sr_obj['demultiplexed_link'] + '/?format=json')
-				prepooled_obj = requests.get(url, auth=connection.auth, timeout=60).json()
-				if prepooled_obj['@type'][0] == 'Suspension':
-					susps.extend([prepooled_obj['uuid']])
-					lat_type = prepooled_obj['@type'][0]
-					in_type = lattice_to_dcp[lat_type]['class']
+				obj_type, filter_url = lattice.parse_ids([sr_obj['demultiplexed_link']])
+				field_lst = ['uuid']
+				prepooled_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
+				if obj_type == 'Suspension':
+					susps.extend([prepooled_obj['@id']])
+					in_type = lattice_to_dcp[obj_type]['class']
 					ins.append({'input_type': in_type, 'input_id': prepooled_obj['uuid']})
 					seq_method = 'high throughput sequencing, demultiplexing'
 				# cannot yet handle multiple Tissues pooled into a single Suspension
 				else:
 					sys.exit('ERROR: not yet equiped to handle pooling non-Suspensions directly pooled into a Suspension')
 			else:
-				susps.extend([i['uuid'] for i in lib_obj['derived_from']])
+				susps.extend([i['@id'] for i in lib_obj['derived_from']])
 				for obj in lib_obj['derived_from']:
 					lat_type = obj['@type'][0]
 					in_type = lattice_to_dcp[lat_type]['class']
@@ -503,8 +504,9 @@ def seq_to_susp(links_dict):
 
 
 def handle_doc(doc_id):
-	doc_url = urljoin(server, doc_id + '/?format=json')
-	doc_obj = requests.get(doc_url, auth=connection.auth, timeout=60).json()
+	field_lst = ['attachment'] + \
+		[v['lattice'] for v in lattice_to_dcp['Document'].values() if isinstance(v, dict)]
+	doc_obj = lattice.get_report('Document', f'&@id={doc_id}', field_lst, connection)[0]
 
 	link_info = {'file_type': 'supplementary_file', 'file_id': doc_obj['uuid']}
 	doc_files.append(link_info)
@@ -631,18 +633,12 @@ def add_links(temp_obj, der_fr, links):
 	ins = []
 	for i in der_fr:
 		if isinstance(i, tuple): #donor ID + variable_age
-			identifer = i[0]
-			url = urljoin(server, identifer + '/?format=json')
-			obj = requests.get(url, auth=connection.auth, timeout=60).json()
-			lat_type = obj['@type'][0]
-			in_type = lattice_to_dcp[lat_type]['class']
-			in_id = uuid_make(obj['uuid'] + ''.join(i[1]))
-		else:
-			url = urljoin(server, i + '/?format=json')
-			obj = requests.get(url, auth=connection.auth, timeout=60).json()
-			lat_type = obj['@type'][0]
-			in_type = lattice_to_dcp[lat_type]['class']
-			in_id = obj['uuid']
+			i = i[0]
+		obj_type, filter_url = lattice.parse_ids([i])
+		field_lst = ['uuid']
+		obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
+		in_type = lattice_to_dcp[obj_type]['class']
+		in_id = obj['uuid']
 		ins.append({'input_type': in_type, 'input_id': in_id})
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
@@ -967,8 +963,8 @@ def customize_fields(obj, obj_type):
 			del obj['insdc_run_accessions']
 
 		if obj.get('library_prep_id'):
-			url = urljoin(server, obj['library_prep_id'][0] + '/?format=json')
-			lib_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+			lib_id = obj['library_prep_id'][0]
+			lib_obj = lattice.get_report('Library',f'&@id={lib_id}',['uuid'],connection)[0]
 			obj['library_prep_id'] = lib_obj['uuid']
 
 	elif obj_type == 'supplementary_file':
@@ -1003,16 +999,9 @@ def file_descript(obj, obj_type, dataset):
 
 def main():
 	logging.info('GETTING THE DATASET')
-	#large Datasets may produce a 504
-	#I open the json in the browser - https://www.lattice-data.org/datasets/accession/?format=json
-	#copy/paste into https://jsonformatter.curiousconcept.com/# to add quotes
-	#save it to a file of accession.json
-	datasets_too_big = ['LATDS169XWF']
-	if args.dataset in datasets_too_big:
-		ds_obj = json.load(open(args.dataset + '.json'))
-	else:
-		url = urljoin(server, args.dataset + '/?format=json')
-		ds_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+	field_lst = ['status','files','audit'] + \
+		[v['lattice'] for v in lattice_to_dcp['Dataset'].values() if isinstance(v, dict)]
+	ds_obj = lattice.get_report('Dataset', f'&accession={args.dataset}', field_lst, connection)[0]
 
 	# check status of the dataset
 	if ds_obj.get('status') not in ['in progress', 'released']:
@@ -1045,22 +1034,26 @@ def main():
 	# get the validated raw sequence files from that dataset
 	logging.info('GETTING RAW SEQUENCE FILES')
 	links_dict = {}
-	files = [i for i in ds_obj['files']]
-	for f in files:
-		url = urljoin(server, f + '/?format=json')
-		temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
-		obj_type = temp_obj['@type'][0]
-		if obj_type == 'RawSequenceFile':
-			if temp_obj.get('validated') == False:
-				logging.info('{} has not been validated, will be excluded'.format(temp_obj['@id']))
-				not_valid.append(temp_obj['@id'])
-			else:
-				# convert each to DCP schema
-				get_object(temp_obj)
 
-				# pull the derived_from to store for later formation to links
-				der_from = [i['@id'] for i in temp_obj['derived_from']]
-				get_links(temp_obj, tuple(der_from), links_dict)
+	files = [f for f in ds_obj['files'] if 'raw-sequence-files' in f]
+	field_lst = ['validated'] + \
+		[v['lattice'] for v in lattice_to_dcp['RawSequenceFile'].values() if isinstance(v, dict)]
+	file_objs = lattice.get_report(
+		'RawSequenceFile',
+		f'&dataset=/datasets/{args.dataset}/&status!=archived&status!=deleted',
+		field_lst, connection
+		)
+
+	for temp_obj in file_objs:
+		if temp_obj.get('validated') == False:
+			logging.info('{} has not been validated, will be excluded'.format(temp_obj['@id']))
+			not_valid.append(temp_obj['@id'])
+		else:
+			# convert each to DCP schema
+			get_object(temp_obj)
+			# pull the derived_from to store for later formation to links
+			der_from = [i['@id'] for i in temp_obj['derived_from']]
+			get_links(temp_obj, tuple(der_from), links_dict)
 
 	if not links_dict:
 		sys.exit('No validated RawSequenceFiles associated with this dataset')
@@ -1085,12 +1078,14 @@ def main():
 		for identifier in remaining:
 			if isinstance(identifier, tuple):
 				i = identifier[0]
-				url = urljoin(server, i + '/?format=json')
-				temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+				obj_type, filter_url = lattice.parse_ids([i])
+				field_lst = [v['lattice'] for v in lattice_to_dcp[obj_type].values() if isinstance(v, dict)]
+				temp_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				get_object(temp_obj, identifier[1])
 			else:
-				url = urljoin(server, identifier + '/?format=json')
-				temp_obj = requests.get(url, auth=connection.auth, timeout=60).json()
+				obj_type, filter_url = lattice.parse_ids([identifier])
+				field_lst = [v['lattice'] for v in lattice_to_dcp[obj_type].values() if isinstance(v, dict)]
+				temp_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				get_object(temp_obj)
 			get_derived_from(temp_obj, next_remaining, links)
 		remaining = next_remaining - seen

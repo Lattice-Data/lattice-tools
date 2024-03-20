@@ -12,8 +12,7 @@ donor = {
 	'biomaterial_core.ncbi_taxon_id': {
 		'lattice': 'organism.taxon_id',
 		'value_map': {
-			'NCBITaxon:9606': '9606',
-			'NCBITaxon:10090': '10090'
+			'NCBITaxon:9606': '9606'
 		}
 	},
 	'development_stage.ontology': {
@@ -45,15 +44,13 @@ donor = {
 	'genus_species.ontology_label': {
 		'lattice': 'organism.taxon_id',
 		'value_map': {
-			'NCBITaxon:9606': 'Homo sapiens',
-			'NCBITaxon:10090': 'Mus musculus'
+			'NCBITaxon:9606': 'Homo sapiens'
 		}
 	},
 	'genus_species.text': {
 		'lattice': 'organism.taxon_id',
 		'value_map': {
-			'NCBITaxon:9606': 'Homo sapiens',
-			'NCBITaxon:10090': 'Mus musculus'
+			'NCBITaxon:9606': 'Homo sapiens'
 		}
 	},
 	'medical_history.treatment': {
@@ -76,18 +73,6 @@ donor = {
 human_donor = {
 	'human_specific.ethnicity': {
 		'lattice': 'ethnicity'
-	}
-}
-
-mouse_donor = {
-	'mouse_specific.strain.ontology': {
-		'lattice': 'strain_term_id'
-	},
-	'mouse_specific.strain.ontology_label': {
-		'lattice': 'strain_term_name'
-	},
-	'mouse_specific.strain.text': {
-		'lattice': 'strain_term_name'
 	}
 }
 
@@ -246,16 +231,6 @@ lattice_to_dcp = {
 	'HumanPrenatalDonor': {
 		**donor,
 		**human_donor,
-		**prenatal_donor
-	},
-	'MousePostnatalDonor': {
-		**donor,
-		**mouse_donor,
-		**postnatal_donor
-	},
-	'MousePrenatalDonor': {
-		**donor,
-		**mouse_donor,
 		**prenatal_donor
 	},
 	'TissueSection': {
@@ -603,11 +578,6 @@ lattice_to_dcp = {
 }
 
 donor_stages = {
-	'MmusDv:0000002': 'embryonic mouse stage',
-	'MmusDv:0000031': 'fetal stage',
-	'MmusDv:0000036': 'Theiler stage 27',
-	'MmusDv:0000112': 'premature stage',
-	'MmusDv:0000110': 'mature stage',
 	'HsapDv:0000002': 'embryonic human stage',
 	'HsapDv:0000037': 'fetal stage',
 	'HsapDv:0000082': 'newborn human stage',
