@@ -1641,7 +1641,7 @@ def main(mfinal_id):
 				cxg_adata.uns[i] = mfinal_adata.uns[i]
 			else:
 				warning_list.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(i,colors_result[1]))
-		elif i not in reserved_uns:
+		elif i not in reserved_uns and mfinal_adata.uns[i] != {}:
 			cxg_adata.uns[i] = mfinal_adata.uns[i]
 		else:
 			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(i))
