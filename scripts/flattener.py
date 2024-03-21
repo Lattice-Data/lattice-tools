@@ -19,7 +19,6 @@ import gc
 from scipy import sparse
 from datetime import datetime
 import matplotlib.colors as mcolors
-import json
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -183,7 +182,10 @@ prop_map = {
 unreported_value = 'unknown'
 schema_version = '3.0.0'
 flat_version = '5'
-tmp_dir = 'matrix_files'
+output_dir = 'outputs'
+logging_dir = 'loggings'
+h5ad_dir = 'flattened_h5ads'
+mtx_dir = 'matrix_files'
 mfinal_obj = None
 mfinal_adata = None
 cxg_adata = None
@@ -217,20 +219,20 @@ def getArgs():
     return args
 
 
-# # Utilize lattice parse_ids and get_report to get all the raw matrix objects at once
+# Gather raw matrices by object type and 'background_barcodes_included' to select for filtered matrix from CR output
 def gather_rawmatrices(derived_from):
 	new_derived_from = []
 	field_lst = ['@id','accession','s3_uri','genome_annotation','libraries','derived_from']
 	
 	obj_type, filter_lst = lattice.parse_ids(derived_from)
-	
+
 	# If object type of the original derived_from ids is not raw matrix file, go another layer down
 	if obj_type != 'RawMatrixFile':
 		objs = lattice.get_report(obj_type,filter_list,['derived_from'],connection)
 		for obj in objs:
 			new_derived_from.append(obj['derived_from'])
 		obj_type, filter_lst = lattice.parse_ids(new_derived_from)
-		
+
 	my_raw_matrices = lattice.get_report(obj_type,filter_lst,field_lst,connection)
 
 	return my_raw_matrices
@@ -394,17 +396,18 @@ def get_value(obj, prop):
 def gather_metdata(obj_type, properties, values_to_add, objs):
 	obj = objs[0]
 	for prop in properties:
-		value = get_value(obj,prop)
 		if prop == 'family_medical_history':
-			if value != 'unknown':
-				for history in value:
+			history_list = get_value(obj, prop)
+			if history_list != 'unknown':
+				for history in history_list:
 					ontology = lattice.get_object(history.get('diagnosis'), connection)
 					key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
 					values_to_add[key] = history.get('present')
 		elif prop == 'ethnicity':
 			ethnicity_list = []
-			if value != None:
-				for ethnicity_dict in value:
+			ethnicity_dict_list = get_value(obj,prop)
+			if ethnicity_dict_list != None:
+				for ethnicity_dict in ethnicity_dict_list:
 					if ethnicity_dict.get('term_id') == 'NCIT:C17998':
 						ethnicity_list.append('unknown')
 					else:
@@ -414,13 +417,8 @@ def gather_metdata(obj_type, properties, values_to_add, objs):
 				latkey = (obj_type + '_' + prop).replace('.','_')
 				key = prop_map.get(latkey, latkey)
 				values_to_add[key] = value
-		elif prop == 'cell_ontology.term_id':
-			if value == 'NCIT:C17998':
-				value = 'unknown'
-			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
-			values_to_add[key] = value
 		else:
+			value = get_value(obj, prop)
 			if isinstance(value, list):
 				value = ','.join(value)
 			latkey = (obj_type + '_' + prop).replace('.', '_')
@@ -473,6 +471,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				elif len(set(ethnicity_list)) == len(ethnicity_list):
 					value = ethnicity_list[0]
 					values_df.loc[key,ident] = value
+				elif 'unknown' in ethnicity_list:
+					values_df.loc[key,ident] = 'unknown'
 			for index, row in values_df.iterrows():
 				values_to_add[index] = str(row[0])
 		else:
@@ -481,10 +481,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				v = get_value(obj, prop)
 				if prop == 'summary_development_ontology_at_collection.development_slims':
 					dev_list.append(v)
-				if prop == 'cell_ontology.term_id':
-					if v == 'NCIT:C17998':
-						v = 'unknown'
-					value.append(v)
 				if isinstance(v, list):
 					value.extend(v)
 				else:
@@ -576,7 +572,7 @@ def download_directory(download_url, directory):
 	spatial_folder = download_url.replace('s3://{}/'.format(bucket_name),"")
 	s3client = boto3.client("s3")
 	results = s3client.list_objects_v2(Bucket=bucket_name, Prefix=spatial_folder, Delimiter='/')
-	os.mkdir(tmp_dir+"/spatial")
+	os.mkdir(mtx_dir+"/spatial")
 	for file in results.get('Contents'):
 		if file.get('Size') == 0:
 			continue
@@ -594,13 +590,20 @@ def download_directory(download_url, directory):
 # Compile all reference annotations for var features into one pandas df
 def compile_annotations(files):
 	ids = pd.DataFrame()
-	urls = 'https://github.com/chanzuckerberg/single-cell-curation/raw/main/cellxgene_schema_cli/cellxgene_schema/ontology_files/'
+	client = boto3.client('s3')
+	bucket_name = 'submissions-lattice'
 	for key in files:
-		filename = tmp_dir + "/" + files[key] + ".gz"
+		filename = mtx_dir + "/" + files[key]
 		if os.path.exists(filename) == False:
-			filename = urls + files[key] + '.gz'
-		df = pd.read_csv(filename, names = ['feature_id','symbol','start','stop'], dtype='str')
-		ids = pd.concat([ids,df])
+			try:
+				client.download_file(bucket_name, 'cxg_migration/var_refs/' + files[key], filename)
+			except subprocess.CalledProcessError as e:
+				logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+				sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+			else:
+				print("Downloading reference: {}".format(files[key]))
+		df = pd.read_csv(filename, names=['feature_id','symbol','num'], dtype='str')
+		ids  = pd.concat([ids,df])
 	return ids
 
 
@@ -870,17 +873,8 @@ def set_ensembl(redundant, feature_keys):
 		if len(unique_to_norm) > 0:
 			warning_list.append("WARNING: normalized matrix contains {} Ensembl IDs not in raw".format(unique_to_norm))
 
-# Filters the Ensembl IDs based on the compiled list of approved IDs
+
 def filter_ensembl(adata, compiled_annot):
-	# Using map file to map old ensembl_ids to new ensembl_ids before filtering
-	map_file = open('gene_map/gene_map_v44.json')
-	gene_map = json.load(map_file)
-	adata.var['ensembl_ids'] = adata.var.index
-	change_list = [i for i in adata.var['ensembl_ids'] if i in gene_map.keys()]
-	change_list = [i for i in change_list if adata.var['ensembl_ids'].str.contains(gene_map[i]).any() == False]
-	for i in change_list:
-		adata.var['ensembl_ids'][np.where(adata.var['ensembl_ids'] == i)[0]] = gene_map[i]
-	adata.var.set_index('ensembl_ids',inplace=True)
 	var_in_approved = adata.var.index[adata.var.index.isin(compiled_annot['feature_id'])]
 	adata = adata[:, var_in_approved]
 	return adata
@@ -1164,7 +1158,16 @@ def main(mfinal_id):
 	global cxg_adata_raw
 	global cxg_obs
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
-	logging.basicConfig(filename= mfinal_id + '_outfile_flattener.log', filemode='w', level=logging.INFO)
+
+	# Checking for presence of output folder and associated sub-folders, and creating if not present
+	if os.path.exists(output_dir) == False:
+		os.mkdir(output_dir)
+	if os.path.exists(output_dir + '/' + logging_dir) == False:
+		os.mkdir(output_dir + '/' + logging_dir)
+	if os.path.exists(output_dir + '/' + h5ad_dir) == False:
+		os.mkdir(output_dir + '/' + h5ad_dir)
+
+	logging.basicConfig(filename= output_dir + '/' + logging_dir + '/' + mfinal_id + '_outfile_flattener.log', filemode='w', level=logging.INFO)
 	# Adding date and time to top of logging file
 	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
 	logging.info("Date and time of flattener run: " + time_date)
@@ -1196,19 +1199,19 @@ def main(mfinal_id):
 	results = {}
 	
 	# Checking for presence of matrix_files, and creating if not present
-	if os.path.exists(tmp_dir) == False:
-		os.mkdir(tmp_dir)
+	if os.path.exists(mtx_dir) == False:
+		os.mkdir(mtx_dir)
 		
 	# Checking for presence of h5ad, and downloading if not present
-	if os.path.exists(tmp_dir + '/' + mfinal_obj['accession'] + '.h5ad'):
+	if os.path.exists(mtx_dir + '/' + mfinal_obj['accession'] + '.h5ad'):
 		print(mfinal_obj['accession'] + '.h5ad' + ' was found locally')
 	else:
-		download_file(mfinal_obj, tmp_dir)
+		download_file(mfinal_obj, mtx_dir)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
 	file_ext = file_url.split('.')[-1]
-	mfinal_local_path = '{}/{}.{}'.format(tmp_dir, mfinal_obj['accession'], file_ext)
+	mfinal_local_path = '{}/{}.{}'.format(mtx_dir, mfinal_obj['accession'], file_ext)
 	mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
 
@@ -1291,38 +1294,38 @@ def main(mfinal_id):
 		if summary_assay in ['RNA','CITE']:
 			# Checking for presence of mxr file and downloading if not present
 			if mxr['s3_uri'].endswith('h5'):
-				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5'):
+				if os.path.exists(mtx_dir + '/' + mxr_acc + '.h5'):
 					print(mxr_acc + '.h5' + ' was found locally')
 				else:
-					download_file(mxr, tmp_dir)
+					download_file(mxr, mtx_dir)
 			elif mxr['s3_uri'].endswith('h5ad'):
-				if os.path.exists(tmp_dir + '/' + mxr_acc + '.h5ad'):
+				if os.path.exists(mtx_dir + '/' + mxr_acc + '.h5ad'):
 					print(mxr_acc + '.h5ad' + ' was found locally')
 				else:
-					download_file(mxr, tmp_dir)
+					download_file(mxr, mtx_dir)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				if mxr['s3_uri'].endswith('h5'):
 					mxr_name = '{}.h5'.format(mxr_acc)
 				elif mxr['s3_uri'].endswith('h5ad'):
 					mxr_name = '{}.h5ad'.format(mxr_acc)
 				# Checking for presence of spatial directory and redownloading if present
-				if os.path.exists(tmp_dir + '/spatial'):
-					shutil.rmtree(tmp_dir + '/spatial')
-				download_directory(mfinal_obj['spatial_s3_uri'], tmp_dir)
+				if os.path.exists(mtx_dir + '/spatial'):
+					shutil.rmtree(mtx_dir + '/spatial')
+				download_directory(mfinal_obj['spatial_s3_uri'], mtx_dir)
 				# If tissue_positions is present rename to tissue_positions_list and remove header
-				if os.path.exists(tmp_dir + '/spatial/tissue_positions.csv') == True:
-					fixed_file = pd.read_csv(tmp_dir + '/spatial/tissue_positions.csv', skiprows = 1, header = None)
-					fixed_file.to_csv(tmp_dir + '/spatial/tissue_positions_list.csv', header = False, index = False)
-					os.remove(tmp_dir + '/spatial/tissue_positions.csv')
+				if os.path.exists(mtx_dir + '/spatial/tissue_positions.csv') == True:
+					fixed_file = pd.read_csv(mtx_dir + '/spatial/tissue_positions.csv', skiprows = 1, header = None)
+					fixed_file.to_csv(mtx_dir + '/spatial/tissue_positions_list.csv', header = False, index = False)
+					os.remove(mtx_dir + '/spatial/tissue_positions.csv')
 				if 'spatial' in mfinal_adata.uns.keys():
 					del mfinal_adata.uns['spatial']
-				adata_raw = sc.read_visium(tmp_dir, count_file=mxr_name)
+				adata_raw = sc.read_visium(mtx_dir, count_file=mxr_name)
 			elif mxr['s3_uri'].endswith('h5'):
 				mxr_name = '{}.h5'.format(mxr_acc)
-				adata_raw = sc.read_10x_h5('{}/{}'.format(tmp_dir,mxr_name), gex_only = False)
+				adata_raw = sc.read_10x_h5('{}/{}'.format(mtx_dir,mxr_name), gex_only = False)
 			elif mxr['s3_uri'].endswith('h5ad'):
 				mxr_name = '{}.h5ad'.format(mxr_acc)
-				adata_raw = sc.read_h5ad('{}/{}'.format(tmp_dir,mxr_name))
+				adata_raw = sc.read_h5ad('{}/{}'.format(mtx_dir,mxr_name))
 			else:
 				logging.error('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
@@ -1609,9 +1612,9 @@ def main(mfinal_id):
 	if summary_assay == 'RNA':
 		compiled_annot = compile_annotations(ref_files)
 		set_ensembl(redundant, mfinal_obj['feature_keys'])
-		add_zero()
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
+		add_zero()
 	elif summary_assay == 'ATAC':
 		compiled_annot = compile_annotations(ref_files)
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
@@ -1657,7 +1660,7 @@ def main(mfinal_id):
 		cxg_adata.var['feature_is_filtered'] = False
 		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
 	quality_check(cxg_adata)
-	cxg_adata.write_h5ad(results_file, compression = 'gzip')
+	cxg_adata.write_h5ad(output_dir + '/' + h5ad_dir + '/' + results_file, compression = 'gzip')
 
 	# Printing out list of warnings
 	for n in warning_list:
