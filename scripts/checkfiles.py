@@ -90,6 +90,9 @@ machine_pattern = '^(@[a-zA-Z\d]+[a-zA-Z\d_-]*'
 run_id_pattern = '[a-zA-Z\d-]+'
 flowcell_pattern = '[a-zA-Z\d_-]+'
 
+output_dir = 'output'
+chkfls_dir = 'checkfiles'
+
 read_name_prefix = re.compile(
     machine_pattern + ':' + run_id_pattern + ':' + flowcell_pattern +
     ':\d+:\d+:\d+:\d+)$'
@@ -749,7 +752,7 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
                     uri = file_json.get('s3_uri',file_json.get('external_uri'))
                     if uri == None:
                         uri = ''
-                    out = open(report_out, 'a')
+                    out = open(output_dir + '/' + chkfls_dir + '/' + report_out, 'a')
                     out.write(acc + '\t' + uri + '\t' + ','.join(blockers) + '\n')
                     out.close()
                 elif check_me_flag == True:
@@ -838,6 +841,12 @@ def main():
     initiating_run = 'STARTING Checkfiles version {}'.format(checkfiles_version)
     logging.info(initiating_run)
 
+    # Checking for presence of / creating output folder and associated subfolder
+    if os.path.exists(output_dir) == False:
+        os.mkdir(output_dir)
+    if os.path.exists(output_dir + '/' + chkfls_dir) == False:
+        os.mkdir(output_dir + '/' + chkfls_dir)
+
     timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
     report_out = 'report_{}.tsv'.format(timestr)
     logging.info('Writing results to {}'.format(report_out))
@@ -853,7 +862,7 @@ def main():
         'check_time',
         'content_md5sum_time'
     ])
-    with open(report_out, 'w') as out:
+    with open(output_dir + '/' + chkfls_dir + '/' + report_out, 'w') as out:
         out.write(report_headers + '\n')
 
     jobs = fetch_files(report_out, connection, args.query, args.accessions, args.s3_file, args.ext_file, args.file_format, args.include_validated)
@@ -882,7 +891,7 @@ def main():
                         job['patch_result'] = patch['status']
                         if file_obj.get('s3_uri'):
                             set_s3_tags(job)
-            out = open(report_out, 'a')
+            out = open(output_dir + '/' + chkfls_dir + '/' + report_out, 'a')
             out.write(report(job))
             out.close()
 

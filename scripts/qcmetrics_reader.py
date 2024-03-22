@@ -160,6 +160,15 @@ pipe_map = {
 	'starsolo': 'star'
 }
 
+output_dir = 'outputs'
+qcmtrics_dir = 'qcmetrics'
+
+# Checking for presence / creating output folder and associated sub-folders
+if os.path.exists(output_dir) == False:
+	os.mkdir(output_dir)
+if os.path.exists(output_dir + '/' + qcmtrics_dir) == False:
+	os.mkdir(output_dir + '/' + qcmtrics_dir)
+
 args = getArgs()
 
 assay = args.assay
@@ -461,35 +470,35 @@ if in_schema:
 	df = pd.DataFrame(in_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
 	df.index.name = 'schema_version=' + str(schemas[assay]['schema_version']['default'])
-	df.to_csv(assay + '_metrics.tsv', sep='\t')
+	df.to_csv(output_dir + '/' + qcmtrics_dir + '/' + assay + '_metrics.tsv', sep='\t')
 
 if genotypemetrics:
 	df = pd.DataFrame(genotypemetrics)
-	df.to_csv('genotype_metrics.tsv', sep='\t', index=False)
+	df.to_csv(output_dir + '/' + qcmtrics_dir + '/' + 'genotype_metrics.tsv', sep='\t', index=False)
 
 if in_atac_schema:
 	df = pd.DataFrame(in_atac_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
 	df.index.name = 'schema_version=' + str(schemas['atac']['schema_version']['default'])
-	df.to_csv('atac_metrics.tsv', sep='\t')
+	df.to_csv(output_dir + '/' + qcmtrics_dir + '/' + 'atac_metrics.tsv', sep='\t')
 
 if in_rna_schema:
 	df = pd.DataFrame(in_rna_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
 	df.index.name = 'schema_version=' + str(schemas['rna']['schema_version']['default'])
-	df.to_csv('rna_metrics.tsv', sep='\t')
+	df.to_csv(output_dir + '/' + qcmtrics_dir + '/' + 'rna_metrics.tsv', sep='\t')
 
 if in_mu_schema:
 	df = pd.DataFrame(in_mu_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
 	df.index.name = 'schema_version=' + str(schemas['multiome']['schema_version']['default'])
-	df.to_csv('multiome_metrics.tsv', sep='\t')
+	df.to_csv(output_dir + '/' + qcmtrics_dir + '/' + 'multiome_metrics.tsv', sep='\t')
 
 if in_ac_schema:
 	df = pd.DataFrame(in_ac_schema).transpose()
 	df = df[['quality_metric_of'] + [col for col in df.columns if col != 'quality_metric_of']]
 	df.index.name = 'schema_version=' + str(schemas['antibody_capture']['schema_version']['default'])
-	df.to_csv('antibody_capture_metrics.tsv', sep='\t')
+	df.to_csv(output_dir + '/' + qcmtrics_dir + '/' + 'antibody_capture_metrics.tsv', sep='\t')
 
 df = pd.DataFrame(out_schema).transpose()
-df.to_csv('metrics_not_in_schema.tsv', sep='\t')
+df.to_csv(output_dir + '/' + qcmtrics_dir + '/' + 'metrics_not_in_schema.tsv', sep='\t')
