@@ -873,7 +873,7 @@ def set_ensembl(redundant, feature_keys):
 # Filters the Ensembl IDs based on the compiled list of approved IDs
 def filter_ensembl(adata, compiled_annot):
 	# Using map file to map old ensembl_ids to new ensembl_ids before filtering
-	map_file = open('gene_map/gene_map_v44.json')
+	map_file = open('../gene_ID_mapping/gene_map_v44.json')
 	gene_map = json.load(map_file)
 	adata.var['ensembl_ids'] = adata.var.index
 	change_list = [i for i in adata.var['ensembl_ids'] if i in gene_map.keys()]
