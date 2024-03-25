@@ -879,8 +879,6 @@ def filter_ensembl(adata, compiled_annot):
 	new_gene_map = {k:v for k,v in v44_gene_map.items() if k in adata.var.index and v not in adata.var.index}
 	test = adata.var.index
 	adata.var.rename(index=new_gene_map, inplace=True)
-	if (test == adata.var.index).all():
-		print('SUCCES')
 	var_in_approved = adata.var.index[adata.var.index.isin(compiled_annot['feature_id'])]
 	adata = adata[:, var_in_approved]
 	return adata
