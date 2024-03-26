@@ -24,7 +24,9 @@ from src.dataset import get_dataset,get_datasets
 # importing rna assays supported in census, might just hardcode instead
 # from the census builder directory so requires python 3.11 and other dependencies
 sys.path.append(os.path.abspath(CZI_REPO_LOC + 'cellxgene-census/tools/cellxgene_census_builder/src/'))
-from cellxgene_census_builder.build_soma.globals import RNA_SEQ
+from cellxgene_census_builder.build_soma.globals import RNA_SEQ, FULL_GENE_ASSAY
+
+CENSUS_ASSAYS = set(RNA_SEQ + FULL_GENE_ASSAY)
 
 set_api_access_config(API_KEY_FILE_PATH)
 
@@ -398,7 +400,6 @@ def uncovered_census_terms(uncovered_terms: dict, donor_source: dict) -> list:
     collections_donors
 
     """
-    census_assays = set(RNA_SEQ)
     uncovered_datasets = []
 
     print("Datasets not fully in Census that contain possible donors with uncovered dev terms:")
@@ -413,11 +414,11 @@ def uncovered_census_terms(uncovered_terms: dict, donor_source: dict) -> list:
             donors = set(dataset['donor_id'])
             dev_stages = {t['ontology_term_id'] for t in dataset['development_stage']}
             assays_set = {a['ontology_term_id'] for a in assays}
-            if (len(assays_set - census_assays) > 0 and 
+            if (len(assays_set - CENSUS_ASSAYS) > 0 and 
                 len(uncovered_set.intersection(dev_stages)) > 0 and 
                 len(donors - covered_donors) > 0
                     ):
-                print(f"Unapproved Census assay(s) {assays_set - census_assays} in dataset {dataset_id} from collection: {collection}")
+                print(f"Unapproved Census assay(s) {assays_set - CENSUS_ASSAYS} in dataset {dataset_id} from collection: {collection}")
                 uncovered_datasets.append(dataset_id)
 
     return uncovered_datasets
@@ -597,6 +598,7 @@ def validate_google_sheet(google_sheet: pd.DataFrame, current_dev_terms: list, d
         visibilty = 'private' if row['tab_name'].startswith('private') else 'public'
 
         try:
+            # TODO: need non-assert logic for validation
             assert collection_id in donor_dev_terms, f'{collection_id = } not in {visibilty} donor_id_dev_terms'
             assert donor in donor_dev_terms[collection_id]['donor_id'], f'{donor = } not in {collection_id = }'
             assert new_dev_stage in current_dev_terms, f'{new_dev_stage} not in new dev terms for {donor = } in {collection_id = }'
