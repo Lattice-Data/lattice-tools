@@ -1169,7 +1169,7 @@ def main(mfinal_id):
 	if os.path.exists(output_dir + '/' + fltnr_dir) == False:
 		os.mkdir(output_dir + '/' + fltnr_dir)
 
-	logging.basicConfig(filename= output_dir + '/' + fltnr_dir + '/' + mfinal_id + '_outfile_flattener.log', filemode='w', level=logging.INFO)
+	logging.basicConfig(filename="{}/{}/{}_outfile_flattener.log".format(output_dir, fltnr_dir, mfinal_id), filemode='w', level=logging.INFO)
 	# Adding date and time to top of logging file
 	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
 	logging.info("Date and time of flattener run: " + time_date)
