@@ -183,8 +183,6 @@ prop_map = {
 unreported_value = 'unknown'
 schema_version = '3.0.0'
 flat_version = '5'
-output_dir = 'outputs'
-fltnr_dir = 'flattener'
 mtx_dir = 'matrix_files'
 mfinal_obj = None
 mfinal_adata = None
@@ -1163,13 +1161,7 @@ def main(mfinal_id):
 	global cxg_obs
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
-	# Checking for presence / creating output folder and associated sub-folders
-	if os.path.exists(output_dir) == False:
-		os.mkdir(output_dir)
-	if os.path.exists(output_dir + '/' + fltnr_dir) == False:
-		os.mkdir(output_dir + '/' + fltnr_dir)
-
-	logging.basicConfig(filename="{}/{}/{}_outfile_flattener.log".format(output_dir, fltnr_dir, mfinal_id), filemode='w', level=logging.INFO)
+	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
 	# Adding date and time to top of logging file
 	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
 	logging.info("Date and time of flattener run: " + time_date)
@@ -1662,7 +1654,7 @@ def main(mfinal_id):
 		cxg_adata.var['feature_is_filtered'] = False
 		cxg_adata = ad.AnnData(cxg_adata_raw.X, obs=cxg_adata.obs, obsm=cxg_adata.obsm, var=cxg_adata.var, uns=cxg_adata.uns)
 	quality_check(cxg_adata)
-	cxg_adata.write_h5ad(output_dir + '/' + fltnr_dir + '/' + results_file, compression = 'gzip')
+	cxg_adata.write_h5ad(results_file, compression = 'gzip')
 
 	# Printing out list of warnings
 	for n in warning_list:
