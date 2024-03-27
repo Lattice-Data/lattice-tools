@@ -10,8 +10,6 @@ import scanpy as sc
 import re
 import subprocess
 import numpy as np
-from urllib.parse import urljoin
-import requests
 import numpy as np
 import collections
 import logging
@@ -20,6 +18,7 @@ from scipy import sparse
 from datetime import datetime
 import matplotlib.colors as mcolors
 import json
+import numbers
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -673,6 +672,26 @@ def colors_check(adata, color_column, column_name):
 	else:
 		error = 'none'
 		return True, error
+
+
+# Return False if value is considered empty
+def check_not_empty(value):
+	if any([
+		isinstance(value, sparse_class)
+		for sparse_class in (sparse.csr_matrix, sparse.csc_matrix, sparse.coo_matrix)
+	]):
+		if value.nnz == 0:
+			return False
+	elif (
+		value is not None
+		and not isinstance(value, numbers.Number)
+		and type(value) is not bool
+		and not (isinstance(value, (np.bool_, np.bool)))
+		and len(value) == 0
+	):
+		return False
+	else:
+		return True
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
@@ -1620,8 +1639,8 @@ def main(mfinal_id):
 
 	# Copy over any additional data from mfinal_adata to cxg_adata
 	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution','schema_reference','citation']
-	for i in mfinal_adata.uns.keys():
-		if i == 'batch_condition':
+	for k,v in mfinal_adata.uns.items():
+		if k == 'batch_condition':
 			if not isinstance(mfinal_adata.uns['batch_condition'], list) and not isinstance(mfinal_adata.uns['batch_condition'], np.ndarray) :
 				warning_list.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
 			else:
@@ -1631,16 +1650,19 @@ def main(mfinal_id):
 					warning_list.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
 				else:
 					cxg_adata.uns['batch_condition'] = mfinal_adata.uns['batch_condition']
-		elif i.endswith('_colors'):
-			colors_result = colors_check(cxg_adata, mfinal_adata.uns[i], i)
+		elif k.endswith('_colors'):
+			colors_result = colors_check(cxg_adata, v, k)
 			if colors_result[0]:
-				cxg_adata.uns[i] = mfinal_adata.uns[i]
+				cxg_adata.uns[k] = v
 			else:
-				warning_list.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(i,colors_result[1]))
-		elif i not in reserved_uns:
-			cxg_adata.uns[i] = mfinal_adata.uns[i]
+				warning_list.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(k,colors_result[1]))
+		elif k not in reserved_uns:
+			if check_not_empty(v):
+				cxg_adata.uns[k] = v
+			else:
+				warning_list.append("WARNING: The key '{}' has been dropped from uns due to having an empty value\n".format(k))
 		else:
-			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(i))
+			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(k))
 
 	if mfinal_adata.obsp:
 		cxg_adata.obsp = mfinal_adata.obsp
