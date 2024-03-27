@@ -160,15 +160,6 @@ pipe_map = {
 	'starsolo': 'star'
 }
 
-output_dir = 'outputs'
-qcmtrics_dir = 'qcmetrics'
-
-# Checking for presence / creating output folder and associated sub-folders
-if os.path.exists(output_dir) == False:
-	os.mkdir(output_dir)
-if os.path.exists(output_dir + '/' + qcmtrics_dir) == False:
-	os.mkdir(output_dir + '/' + qcmtrics_dir)
-
 args = getArgs()
 
 assay = args.assay
