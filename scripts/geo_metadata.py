@@ -567,13 +567,7 @@ def main(dataset):
 	geo_samples.drop(columns=collapse, inplace=True)
 	ordered_cols = [c for c in geo_samples.columns if not c.startswith(('read_','index_'))] + [c for c in geo_samples.columns if c.startswith(('read_','index_'))]
 	geo_samples = geo_samples[ordered_cols]
-
-	# Checking for presence / creating output folder and associated subfolder
-	if os.path.exists(output_dir) == False:
-		os.mkdir(output_dir)
-	if os.path.exists(output_dir + '/' + geo_dir) == False:
-		os.mkdir(output_dir + '/' + geo_dir)
-
+	
 	# Write to files
 	# all_df = [geo_study,geo_samples,geo_sequences]
 	with open(output_dir + '/' + dataset+"_metadata.csv",'w') as f:
