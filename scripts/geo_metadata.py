@@ -7,7 +7,6 @@ import requests
 import numpy as np
 import time
 import gc
-import os
 
 EPILOG = '''
 Examples:
