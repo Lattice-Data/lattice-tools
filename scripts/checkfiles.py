@@ -92,9 +92,6 @@ machine_pattern = '^(@[a-zA-Z\d]+[a-zA-Z\d_-]*'
 run_id_pattern = '[a-zA-Z\d-]+'
 flowcell_pattern = '[a-zA-Z\d_-]+'
 
-output_dir = 'output'
-chkfls_dir = 'checkfiles'
-
 read_name_prefix = re.compile(
     machine_pattern + ':' + run_id_pattern + ':' + flowcell_pattern +
     ':\d+:\d+:\d+:\d+)$'
