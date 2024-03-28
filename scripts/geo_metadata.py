@@ -108,6 +108,7 @@ PROP_MAP = {
 
 # Global variables
 UNREPORTED_VALUE = ''
+output_dir = lattice.create_subdirectory('geo_metadata')
 
 
 def gather_objects(input_object, start_type=None):
@@ -568,7 +569,7 @@ def main(dataset):
 
 	# Write to files
 	# all_df = [geo_study,geo_samples,geo_sequences]
-	with open(dataset+"_metadata.csv",'w') as f:
+	with open(output_dir + '/' + dataset+"_metadata.csv",'w') as f:
 		f.write("STUDY\n")
 		geo_study.to_csv(f, header=False, index=False)
 		f.write('\nSAMPLES\n')
@@ -578,10 +579,10 @@ def main(dataset):
 		f.write('\nPAIRED-END EXPERIMENTS\n')
 		geo_sequences.to_csv(f, index=False)
 
-	with open(dataset+"_s3_uri.csv", "w") as f:
+	with open(output_dir + '/' + dataset+"_s3_uri.csv", "w") as f:
 		f.write('\n'.join(all_s3_uri))	
 
-	with open(dataset+"_md5sum.csv",'w') as f:
+	with open(output_dir + '/' + dataset+"_md5sum.csv",'w') as f:
 		f.write('RAW FILES,,PROCESSED DATA FILES\n')
 		geo_md5.to_csv(f, index=False)
 

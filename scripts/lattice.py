@@ -155,3 +155,11 @@ def replace_object(obj_id, connection, post_json):
     if not response.status_code == 200:
         logging.warning('PUT failure.  Response = %s' % (response.text))
     return response.json()
+
+def create_subdirectory(subdirectory):
+    if os.path.exists('./outputs') == False:
+        os.mkdir('./outputs')
+    if os.path.exists('./outputs/' + subdirectory) == False:
+        os.mkdir('./outputs/' + subdirectory)
+    full_filepath = './outputs/' + subdirectory
+    return full_filepath

@@ -86,6 +86,8 @@ GZIP_TYPES = [
     "mex"
 ]
 
+output_dir = lattice.create_subdirectory('checkfiles')
+
 machine_pattern = '^(@[a-zA-Z\d]+[a-zA-Z\d_-]*'
 run_id_pattern = '[a-zA-Z\d-]+'
 flowcell_pattern = '[a-zA-Z\d_-]+'
@@ -815,7 +817,7 @@ def report(job):
 
 
 def main():
-    logging.basicConfig(filename='checkfiles.log', level=logging.INFO)
+    logging.basicConfig(filename= output_dir + '/checkfiles.log', level=logging.INFO)
     logging.info('Started')
 
     args = getArgs()
@@ -839,7 +841,7 @@ def main():
     logging.info(initiating_run)
 
     timestr = datetime.now().strftime('%Y_%m_%d-%H_%M_%S')
-    report_out = 'report_{}.tsv'.format(timestr)
+    report_out = '{}/report_{}.tsv'.format(output_dir,timestr)
     logging.info('Writing results to {}'.format(report_out))
     report_headers = '\t'.join([
         'identifier',
