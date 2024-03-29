@@ -557,23 +557,27 @@ def compare_with_db(job, connection):
             #first check for embedded properties, specifically for flowcell_details
             if isinstance(results_value, list) and isinstance(file_value, list) \
                 and len(results_value) == 1 and len(file_value) == 1:
-                if schema_properties.get(key) and schema_properties[key].get('items'):
-                    post_flag = True
-                    results_obj = results[key][0]
-                    file_obj = file[key][0]
-                    for subkey in results_obj:
-                        if schema_properties[key]['items']['properties'].get(subkey):
-                            if results_obj.get(subkey) == file_obj.get(subkey):
-                                outcome = '{}.{} consistent ({})'.format(key, subkey, results_obj.get(subkey))
-                                metadata_consistency.append(outcome)
-                            elif file_obj.get(subkey) and results_obj.get(subkey) != file_obj.get(subkey):
-                                post_flag = False
-                                outcome = '{}.{} inconsistent ({}-s3file, {}-submitted)'.format(key, subkey, results_obj.get(subkey), file_obj.get(subkey))
-                                metadata_inconsistency.append(outcome)
-                        else:
-                            del results_obj[subkey]
-                    if post_flag == True:
-                        post_json[key] = [results_obj]
+                if schema_properties.get(key) and schema_properties[key].get('items') \
+                    and schema_properties[key]['items'].get('properties'):
+                        post_flag = True
+                        results_obj = results[key][0]
+                        file_obj = file[key][0]
+                        for subkey in results_obj:
+                            if schema_properties[key]['items']['properties'].get(subkey):
+                                if results_obj.get(subkey) == file_obj.get(subkey):
+                                    outcome = '{}.{} consistent ({})'.format(key, subkey, results_obj.get(subkey))
+                                    metadata_consistency.append(outcome)
+                                elif file_obj.get(subkey) and results_obj.get(subkey) != file_obj.get(subkey):
+                                    post_flag = False
+                                    outcome = '{}.{} inconsistent ({}-s3file, {}-submitted)'.format(key, subkey, results_obj.get(subkey), file_obj.get(subkey))
+                                    metadata_inconsistency.append(outcome)
+                            else:
+                                del results_obj[subkey]
+                        if post_flag == True:
+                            post_json[key] = [results_obj]
+                elif file_value != results_value:
+                    outcome = '{} inconsistent ({}-s3file, {}-submitted)'.format(key, results_value, file_value)
+                    metadata_inconsistency.append(outcome)
             elif isinstance(results_value, list) and isinstance(file_value, list):
                 if len(results_value) == len(file_value) and len([x for x in results_value if x in file_value]) == len(results_value):
                     outcome = '{} consistent ({})'.format(key, results_value)
