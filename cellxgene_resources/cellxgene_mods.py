@@ -104,8 +104,7 @@ def map_filter_gene_ids(adata):
     return adata
 
 
-def TENx_barcode_checker(ref_df, obs_df):
-    #obs_df_sample = obs_df.sample(num_to_check, axis=0) # can add random_state=1 for reproducibility
+def barcode_compare(ref_df, obs_df):
     obs_df_split = obs_df.index.str.split('([ACTG]{16})')
     barcodes = pd.DataFrame([b for l in obs_df_split for b in l if re.match(r".*[ACTG]{16}.*", b)])    
     if barcodes.empty:
@@ -127,8 +126,7 @@ def evaluate_10x_barcodes(prop, obs):
     
     for a in obs[prop].unique():
         obs_df = obs[obs[prop] == a]
-        #num_to_check = obs_df.shape[0]
-        r = TENx_barcode_checker(ref_df, obs_df)
+        r = barcode_compare(ref_df, obs_df)
         r_dict = {'3pv2_5pv1_5pv2': None, '3pv3': None, 'multiome': None,'multiple': None, 'None': None} | r['summary'].value_counts().to_dict()
         r_dict[prop] = a
         results.append(r_dict)
@@ -147,10 +145,10 @@ def evaluate_obs(obs, full_obs_standards):
         values = [str(i) for i in vc_dict.keys()]
     
         if o.startswith(' ') or o.endswith(' ') or '  ' in o:
-            report(f'leading/trailing whitespace: {o}')
+            report(f'leading/trailing whitespace: {o}\n')
     
         if o not in full_obs_standards and ' '.join(o.split()).lower() in full_obs_standards:
-            report(f'schema conflict: {o}')
+            report(f'schema conflict: {o}\n')
 
         numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16',
                       'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
@@ -174,10 +172,12 @@ def evaluate_obs(obs, full_obs_standards):
         if '_' in k and not k.startswith('1_1'):
             props = [e['property'] for e in v]
             if len(v) > 1 and not all(elem in full_obs_standards for elem in props):
-                report(f'possible redundancy: {[e["property"] for e in v]}')
+                report(f'possible redundancy: {[e["property"] for e in v]}\n')
 
-    report(f'continuous fields: {gradient_fields}')
-    report(f'long fields: {long_fields}')
+    if gradient_fields:
+        report(f'continuous fields: {gradient_fields}\n')
+    if long_fields:
+        report(f'long fields: {long_fields}')
 
 
 def evaluate_dup_counts(adata):
@@ -191,9 +191,11 @@ def evaluate_dup_counts(adata):
     hash_df = hash_df[hash_df.duplicated(subset='hashes',keep=False) == True]
     hash_df.sort_values('hashes', inplace=True)
     if not hash_df.empty:
+        report('duplicated raw counts', 'ERROR')
         return hash_df
     report('no duplicated raw counts', 'GOOD')
 
+    
 def symbols_to_ids(symbols, var):
     
     ref_files = [
