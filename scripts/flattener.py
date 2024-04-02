@@ -10,7 +10,6 @@ import scanpy as sc
 import re
 import subprocess
 import numpy as np
-import numpy as np
 import collections
 import logging
 import gc
@@ -19,6 +18,7 @@ from datetime import datetime
 import matplotlib.colors as mcolors
 import json
 import numbers
+import flattener_mods as fm
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -515,20 +515,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 				values_to_add[key] = next(iter(value_set))
 
 
-# Gather matrix metadata for adata.uns
-def report_dataset(donor_objs, matrix, dataset):
-	ds_results = {}
-	for prop in dataset_metadata['final_matrix']:
-		value = get_value(matrix, prop)
-		if isinstance(value, list):
-			value = ','.join(value)
-		if value != unreported_value:
-			latkey = 'matrix_' + prop.replace('.','_')
-			key = prop_map.get(latkey, latkey)
-			ds_results[key] = value
-	return ds_results
-
-
 # Download file object from s3
 def download_file(file_obj, directory):
 	if file_obj.get('s3_uri'):
@@ -637,61 +623,6 @@ def quality_check(adata):
 		if len(adata.var.index.tolist()) > len(adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
-
-
-# Check validity of colors before adding to cxg_adata.uns
-def colors_check(adata, color_column, column_name):
-	column_name = column_name.replace('_colors','')
-	# Check that obs column exists
-	if column_name not in adata.obs.columns:
-		error = 'the corresponding column is not present in obs.'
-		return False, error
-	# Check that the corresponding column is the right datatype
-	if column_name in adata.obs.columns:
-		if adata.obs[column_name].dtype.name != 'category':
-			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(adata.obs[column_name].dtype.name)
-			return False, error
-	# Verify color_column is a numpy array
-	if color_column is None or not isinstance(color_column, np.ndarray):
-		error = 'the column is not a numpy array.'
-		return False, error
-	# Verify that the numpy array contains strings
-	if not all(isinstance(color,str) for color in color_column):
-		error = 'the column does not contain strings.'
-		return False, error
-	# Verify that we have atleast as many colors as unique values in the obs column
-	if len(color_column) < len(adata.obs[column_name].unique()):
-		error = 'the column has less colors than unique values in the corresponding obs. column.'
-		return False, error
-	# Verify that either all colors are hex OR all colors are CSS4 named colors strings
-	all_hex_colors = all(re.match(r"^#([0-9a-fA-F]{6})$", color) for color in color_column)
-	all_css4_colors = all(color in mcolors.CSS4_COLORS for color in color_column)
-	if not (all_hex_colors or all_css4_colors):
-		error = 'the colors are not all hex or CSS4 named color strings.'
-		return False, error
-	else:
-		error = 'none'
-		return True, error
-
-
-# Return False if value is considered empty
-def check_not_empty(value):
-	if any([
-		isinstance(value, sparse_class)
-		for sparse_class in (sparse.csr_matrix, sparse.csc_matrix, sparse.coo_matrix)
-	]):
-		if value.nnz == 0:
-			return False
-	elif (
-		value is not None
-		and not isinstance(value, numbers.Number)
-		and type(value) is not bool
-		and not (isinstance(value, (np.bool_, np.bool)))
-		and len(value) == 0
-	):
-		return False
-	else:
-		return True
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
@@ -1423,7 +1354,7 @@ def main(mfinal_id):
 		sys.exit()
 
 	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
-	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
+	ds_results = fm.report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'], prop_map)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
 
@@ -1639,30 +1570,7 @@ def main(mfinal_id):
 
 	# Copy over any additional data from mfinal_adata to cxg_adata
 	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution','schema_reference','citation']
-	for k,v in mfinal_adata.uns.items():
-		if k == 'batch_condition':
-			if not isinstance(mfinal_adata.uns['batch_condition'], list) and not isinstance(mfinal_adata.uns['batch_condition'], np.ndarray) :
-				warning_list.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
-			else:
-				if len([x for x in mfinal_adata.uns['batch_condition'] if x not in cxg_adata.obs.columns]) > 0:
-					warning_list.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
-				elif len(set(mfinal_adata.uns['batch_condition'])) != len(mfinal_adata.uns['batch_condition']):
-					warning_list.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
-				else:
-					cxg_adata.uns['batch_condition'] = mfinal_adata.uns['batch_condition']
-		elif k.endswith('_colors'):
-			colors_result = colors_check(cxg_adata, v, k)
-			if colors_result[0]:
-				cxg_adata.uns[k] = v
-			else:
-				warning_list.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(k,colors_result[1]))
-		elif k not in reserved_uns:
-			if check_not_empty(v):
-				cxg_adata.uns[k] = v
-			else:
-				warning_list.append("WARNING: The key '{}' has been dropped from uns due to having an empty value\n".format(k))
-		else:
-			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(k))
+	cxg_adata, warning_list = fm.copy_over_uns(reserved_uns, mfinal_adata, cxg_adata, warning_list)
 
 	if mfinal_adata.obsp:
 		cxg_adata.obsp = mfinal_adata.obsp
