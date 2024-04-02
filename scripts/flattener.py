@@ -10,7 +10,6 @@ import scanpy as sc
 import re
 import subprocess
 import numpy as np
-import numpy as np
 import collections
 import logging
 import gc
@@ -19,6 +18,7 @@ from datetime import datetime
 import matplotlib.colors as mcolors
 import json
 import numbers
+import flattener_mods as fm
 
 # Reference files by which the flattener will filter var features
 ref_files = {
@@ -215,132 +215,6 @@ def getArgs():
     	sys.exit()
     return args
 
-
-# # Utilize lattice parse_ids and get_report to get all the raw matrix objects at once
-def gather_rawmatrices(derived_from):
-	new_derived_from = []
-	field_lst = ['@id','accession','s3_uri','genome_annotation','libraries','derived_from']
-	
-	obj_type, filter_lst = lattice.parse_ids(derived_from)
-	
-	# If object type of the original derived_from ids is not raw matrix file, go another layer down
-	if obj_type != 'RawMatrixFile':
-		objs = lattice.get_report(obj_type,filter_list,['derived_from'],connection)
-		for obj in objs:
-			new_derived_from.append(obj['derived_from'])
-		obj_type, filter_lst = lattice.parse_ids(new_derived_from)
-		
-	my_raw_matrices = lattice.get_report(obj_type,filter_lst,field_lst,connection)
-
-	return my_raw_matrices
-
-
-# Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
-def gather_objects(input_object, start_type=None):
-	global mfinal_obj
-	if start_type == None:
-		lib_ids = input_object['libraries']
-	libraries = []
-	susp_ids = []
-	suspensions = []
-	prep_susp_ids = []
-	prepooled_susps = []
-	sample_ids = []
-	samples = []
-	donor_ids = []
-	donors = []
-	tissue_section_ids = []
-	tissue_sections = []
-	sequencing_runs = []
-	raw_seq_ids = []
-	raw_seqs = []
-	seq_run_ids = []
-	seq_runs = []
-
-	if start_type == None:
-		for i in lib_ids:
-			obj = lattice.get_object(i, connection)
-			if mfinal_obj.get('output_types') == ['gene quantifications']:
-				if obj.get('assay') in ['scRNA-seq','snRNA-seq','spatial transcriptomics','bulk RNA-seq', 'snATAC-seq']:
-					libraries.append(obj)
-			elif mfinal_obj.get('output_types') == ['antibody capture quantifications']:
-				if obj.get('assay') == 'CITE-seq':
-					libraries.append(obj)
-			elif len(mfinal_obj.get('output_types')>1):
-				logging.error("ERROR: The flattener cannot flatten multimodal ProcessedMatrixFile")
-				sys.exit("ERROR: The flattener cannot flatten multimodal ProcessedMatrixFile")
-			for o in obj['derived_from']:
-				if o.get('uuid') not in susp_ids:
-					if 'Suspension' in o['@type']:
-						suspensions.append(o)
-						susp_ids.append(o.get('uuid'))
-					elif 'TissueSection' in o['@type']:
-						tissue_sections.append(o)
-						tissue_section_ids.append(o.get('uuid'))
-
-			for o in obj['donors']:
-				if o.get('uuid') not in donor_ids:
-					donors.append(o)
-					donor_ids.append(o.get('uuid'))
-		for d in input_object['derived_from']:
-			obj = lattice.get_object(d, connection)
-			if 'RawSequenceFile' in obj.get('@type'):
-				for run in obj['derived_from']:
-					if run.get('@id') not in seq_run_ids:
-						seq_runs.append(run)
-						seq_run_ids.append(run.get('@id'))
-			else:
-				break
-
-	elif start_type == 'suspension':
-		susp_ids = [input_object['uuid']]
-		suspensions = [input_object]
-		for susp in suspensions:
-			for o in susp['donors']:
-				if o.get('uuid') not in donor_ids:
-					donors.append(o)
-					donor_ids.append(o.get('uuid'))
-
-	if len(suspensions) > 0:
-		for o in suspensions:
-			for i in o['derived_from']:
-				sample_ids.append(i)
-	else:
-		for o in tissue_sections:
-			for i in o['derived_from']:
-				sample_ids.append(i)
-	remaining = set(sample_ids)
-	seen = set()
-	while remaining:
-		seen.update(remaining)
-		next_remaining = set()
-		for i in remaining:
-			obj = lattice.get_object(i, connection)
-			if 'Biosample' in obj['@type']:
-				samples.append(obj)
-			else:
-				if 'Suspension' in obj['@type'] and obj['uuid'] not in prep_susp_ids:
-					prepooled_susps.append(obj)
-					next_remaining.update(obj['derived_from'])
-					prep_susp_ids.append(obj['uuid'])
-		remaining = next_remaining - seen
-
-	objs = {
-		'donor': donors,
-		'sample': samples,
-		'suspension': suspensions,
-		'tissue_section': tissue_sections,
-		'seq_run':  seq_runs
-		}
-	if start_type == None:
-		objs['library'] = libraries
-	if prepooled_susps:
-		objs['prepooled_suspension'] = prepooled_susps
-		objs['pooled_suspension'] = objs['suspension']
-
-	return objs
-
-
 # Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
 def get_value(obj, prop):
 	path = prop.split('.')
@@ -387,132 +261,6 @@ def get_value(obj, prop):
 			return obj.get(key1, unreported_value)
 	else:
 		return 'unable to traverse more than 2 embeddings'
-
-
-# Gather object metadata, convert property name to cxg required field names
-def gather_metdata(obj_type, properties, values_to_add, objs):
-	obj = objs[0]
-	for prop in properties:
-		value = get_value(obj,prop)
-		if prop == 'family_medical_history':
-			if value != 'unknown':
-				for history in value:
-					ontology = lattice.get_object(history.get('diagnosis'), connection)
-					key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
-					values_to_add[key] = history.get('present')
-		elif prop == 'ethnicity':
-			ethnicity_list = []
-			if value != None:
-				for ethnicity_dict in value:
-					if ethnicity_dict.get('term_id') == 'NCIT:C17998':
-						ethnicity_list.append('unknown')
-					else:
-						ethnicity_list.append(ethnicity_dict.get('term_id'))
-				ethnicity_list.sort()
-				value = ','.join(ethnicity_list)
-				latkey = (obj_type + '_' + prop).replace('.','_')
-				key = prop_map.get(latkey, latkey)
-				values_to_add[key] = value
-		elif prop == 'cell_ontology.term_id':
-			if value == 'NCIT:C17998':
-				value = 'unknown'
-			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
-			values_to_add[key] = value
-		else:
-			if isinstance(value, list):
-				value = ','.join(value)
-			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
-			values_to_add[key] = value
-
-
-# Gather metadata for pooled objects
-# For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
-def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
-	dev_list = []
-	for prop in properties:
-		if prop == 'family_medical_history':
-			values_df = pd.DataFrame()
-			unknowns = []
-			for obj in objs:
-				ident = obj.get('@id')
-				history_list = get_value(obj, prop)
-				if history_list != 'unknown':
-					for history in history_list:
-						ontology = lattice.get_object(history.get('diagnosis'), connection)
-						key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
-						value = str(history.get('present'))
-						values_df.loc[key,ident] = value
-				else:
-					values_df[ident] = np.nan
-					unknowns.append(ident)
-			for i in unknowns:
-				values_df[i] = 'unknown'
-			for index, row in values_df.iterrows():
-				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
-		elif prop == 'ethnicity':
-			values_df = pd.DataFrame()
-			latkey = (obj_type + '_' + prop).replace('.','_')
-			key = prop_map.get(latkey, latkey)
-			for obj in objs:
-				ident = obj.get('@id')
-				ethnicity_list = []
-				ethnicity_dict_list = get_value(obj,prop)
-				if ethnicity_dict_list != None:
-					for ethnicity_dict in ethnicity_dict_list:
-						if ethnicity_dict.get('term_id') == 'NCIT:C17998':
-							ethnicity_list.append('unknown')
-						else:
-							ethnicity_list.append(ethnicity_dict.get('term_id'))
-				if len(ethnicity_list) == 1 and ethnicity_list[0] == 'unknown':
-					values_df.loc[key,ident] = 'unknown'
-				elif 'unknown' in ethnicity_list:
-					values_df.loc[key,ident] = 'unknown'
-				elif len(set(ethnicity_list)) == len(ethnicity_list):
-					value = ethnicity_list[0]
-					values_df.loc[key,ident] = value
-			for index, row in values_df.iterrows():
-				values_to_add[index] = str(row[0])
-		else:
-			value = list()
-			for obj in objs:
-				v = get_value(obj, prop)
-				if prop == 'summary_development_ontology_at_collection.development_slims':
-					dev_list.append(v)
-				if prop == 'cell_ontology.term_id':
-					if v == 'NCIT:C17998':
-						v = 'unknown'
-					value.append(v)
-				if isinstance(v, list):
-					value.extend(v)
-				else:
-					value.append(v)
-			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
-			value_str = [str(i) for i in value]
-			value_set = set(value_str)
-			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
-							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
-			if len(value_set) > 1:
-				if key in cxg_fields:
-					if key == 'development_stage_ontology_term_id':
-						dev_in_all = list(set.intersection(*map(set, dev_list)))
-						if dev_in_all == []:
-							logging.error('ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id')
-							sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
-						else:
-							obj = lattice.get_report('OntologyTerm','&term_name='+dev_in_all[0], ['term_id'], connection)
-							values_to_add[key] = obj[0].get('term_id')
-					elif key == 'sex':
-						values_to_add[key] = 'unknown'
-					else:
-						logging.error('ERROR: Cxg field is a list')
-						sys.exit("ERROR: Cxg field is a list")
-				else:
-					values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
-			else:
-				values_to_add[key] = next(iter(value_set))
 
 
 # Gather matrix metadata for adata.uns
@@ -792,11 +540,11 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 	for susp in set(lib_donor_df['suspension_@id'].to_list()):
 		values_to_add = {}
 		susp_obj = lattice.get_object(susp, connection)
-		relevant_objects = gather_objects(susp_obj, start_type='suspension')
+		relevant_objects = fm.gather_objects(susp_obj, mfinal_obj, connection, start_type='suspension')
 		for obj_type in obj_type_subset:
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
-		 		gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
+		 		fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
 		 	else:
 		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
@@ -1004,7 +752,7 @@ def map_antibody():
 	for anti_mapping in mfinal_obj.get('antibody_mappings'):
 		values_to_add = {}
 		antibody = anti_mapping.get('antibody')
-		gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody])
+		fm.gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody], connection)
 		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		if not antibody.get('control'):
 			target = None
@@ -1015,7 +763,7 @@ def map_antibody():
 						target = [t]
 			else:
 				target = antibody.get('targets')
-			gather_metdata('target', antibody_metadata['target'], values_to_add, target)
+			fm.gather_metdata('target', antibody_metadata['target'], values_to_add, target, connection)
 			values_to_add['feature_name'] = values_to_add['target_label']
 		else:
 			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
@@ -1231,7 +979,7 @@ def main(mfinal_id):
 	redundant = []
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
-	mxraws = gather_rawmatrices(mfinal_obj['derived_from'])
+	mxraws = fm.gather_rawmatrices(mfinal_obj['derived_from'],connection)
 	donor_susp = {}
 	library_susp = {}
 	mapping_error = False
@@ -1240,18 +988,18 @@ def main(mfinal_id):
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
-		relevant_objects = gather_objects(mxr)
+		relevant_objects = fm.gather_objects(mxr, mfinal_obj, connection)
 		values_to_add = {}
 
 		# Get raw matrix metadata
-		gather_metdata('raw_matrix', cell_metadata['raw_matrix'], values_to_add, [mxr])
+		fm.gather_metdata('raw_matrix', cell_metadata['raw_matrix'], values_to_add, [mxr], connection)
 
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
 		if 'demultiplexed_donor_column' in mfinal_obj:
 			lib_obj = relevant_objects.get('library', [])
-			gather_metdata('library', cell_metadata['library'], values_to_add, lib_obj)
+			fm.gather_metdata('library', cell_metadata['library'], values_to_add, lib_obj, connection)
 			for i in range(len(lib_obj)):
 				for single_lib_susp in lib_obj[i]['derived_from']:
 					if lib_obj[i]['@id'] not in library_susp:
@@ -1282,7 +1030,7 @@ def main(mfinal_id):
 			for obj_type in cell_metadata.keys():
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs)
+					fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
 				elif len(objs) > 1:
 					# Check to make sure it is not multimodal before determining that it is pooled
 					if obj_type == 'library':
@@ -1295,11 +1043,11 @@ def main(mfinal_id):
 								single_obj = [o for o in objs if o.get('assay')=='snATAC-seq']
 							else:
 								single_obj = [o for o in objs if o.get('assay')=='snRNA-seq']
-							gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, single_obj)
+							fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, single_obj, connection)
 						else:
-							gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
+							fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
 					else:
-						gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs)
+						fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
@@ -1441,7 +1189,7 @@ def main(mfinal_id):
 		annot_lst = []
 		annot_lst.append(annot_obj)
 		annot_metadata = {}
-		gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst)
+		fm.gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst, connection)
 		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
 		annot_df = pd.concat([annot_df, annot_row])
 
