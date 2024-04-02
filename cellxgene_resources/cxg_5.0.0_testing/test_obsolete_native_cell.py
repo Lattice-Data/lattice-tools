@@ -11,14 +11,14 @@ from fixtures.valid_adatas import validator_with_adata
     "cell_type_term,tissue_type,expected",
     (
         pytest.param('unknown', 'tissue', True, id='cell_type_term is unknown'),
-        pytest.param('CL:0000034', 'tissue', True, id='CL:0000034, child of CL:0000548, animal cell, tissue_type == tissue'),
-        pytest.param('CL:0000463', 'tissue', True, id='CL:0000463, child of CL:0000255, eukaryotic cell, tissue_type == tissue'),
+        pytest.param('CL:0000034', 'tissue', True, id='CL:0000034, descendant of CL:0000548, animal cell, tissue_type == tissue'),
+        pytest.param('CL:0000463', 'tissue', True, id='CL:0000463, descendant of CL:0000255, eukaryotic cell, tissue_type == tissue'),
         pytest.param('unknown', 'cell culture', True, id='cell_type_term is unknown, tissue_type == cell culture'),
-        pytest.param('CL:0000034', 'cell culture', True, id='CL:0000034, child of CL:0000548, animal cell, tissue_type == cell culture'),
-        pytest.param('CL:0000463', 'cell culture', True, id='CL:0000463, child of CL:0000255, eukaryotic cell, tissue_type == cell culture'),
+        pytest.param('CL:0000034', 'cell culture', True, id='CL:0000034, descendant of CL:0000548, animal cell, tissue_type == cell culture'),
+        pytest.param('CL:0000463', 'cell culture', True, id='CL:0000463, descendant of CL:0000255, eukaryotic cell, tissue_type == cell culture'),
         pytest.param('unknown', 'organoid', True, id='cell_type_term is unknown, tissue_type == organoid'),
-        pytest.param('CL:0000034', 'organoid', True, id='CL:0000034, child of CL:0000548, animal cell, tissue_type == organoid'),
-        pytest.param('CL:0000463', 'organoid', True, id='CL:0000463, child of CL:0000255, eukaryotic cell, tissue_type == organoid'),
+        pytest.param('CL:0000034', 'organoid', True, id='CL:0000034, descendant of CL:0000548, animal cell, tissue_type == organoid'),
+        pytest.param('CL:0000463', 'organoid', True, id='CL:0000463, descendant of CL:0000255, eukaryotic cell, tissue_type == organoid'),
     )
 )
 def test_cell_ontology_term_is_valid(validator_with_adata, cell_type_term, tissue_type, expected):
@@ -161,5 +161,5 @@ def test_tissue_organoid_wrong_mismatched_tissue_ontology_fails(validator_with_a
     assert validator.is_valid is expected
     assert validator.errors == [
         f"ERROR: '{ontology_term}' in 'tissue_ontology_term_id' is not a valid ontology term id of 'UBERON'. "
-        "When 'tissue_type' is 'tissue' or 'organoid', 'tissue_ontology_term_id' MUST be a child term id of 'UBERON:0001062' (anatomical entity)."
+        "When 'tissue_type' is 'tissue' or 'organoid', 'tissue_ontology_term_id' MUST be a descendant term id of 'UBERON:0001062' (anatomical entity)."
     ]

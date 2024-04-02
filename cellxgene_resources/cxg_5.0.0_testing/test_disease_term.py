@@ -12,11 +12,11 @@ from fixtures.valid_adatas import validator_with_adata
     (
         pytest.param('PATO:0000461', True, id='Valid PATO:0000461, healthy'),
         pytest.param('MONDO:0700096', True, id='Valid MONDO:0700096, human disease parent term'),
-        pytest.param('MONDO:0005491', True, id='Valid MONDO:0005491, human disease child term'),
+        pytest.param('MONDO:0005491', True, id='Valid MONDO:0005491, human disease descendant term'),
         pytest.param('MONDO:0021178', True, id='Valid MONDO:0021178, injury parent term'),
-        pytest.param('MONDO:0015796', True, id='Valid MONDO:0015796, injury child term'),
+        pytest.param('MONDO:0015796', True, id='Valid MONDO:0015796, injury descendant term'),
         pytest.param('MONDO:0005583', True, id='Valid MONDO:0005583, non-human disease parent term'),
-        pytest.param('MONDO:1011335', True, id='Valid MONDO:1011335, non-human disease child term'),
+        pytest.param('MONDO:1011335', True, id='Valid MONDO:1011335, non-human disease descendant term'),
         pytest.param('MONDO:1011336', True, id='Valid MONDO:1011336, nervous system disorder, non-human animal'),
         pytest.param('MONDO:1010239', True, id='Valid MONDO:1010239, peripheral neuropathy, non-human animal'),
         pytest.param('MONDO:1010003', True, id='Valid MONDO:1010003, narcolepsy non-human animal'),
@@ -38,8 +38,8 @@ def test_disease_ontology_term_id_true(validator_with_adata, dt_id, expected):
         pytest.param('PATO:0001894', False, id='Invalid PATO:0001894 term id'),
         pytest.param('MONDO:0021125', False, id='Invalid MONDO:0021125, disease characteristic'),
         pytest.param('MONDO:0000001', False, id='Invalid MONDO:0000001, disease parent term'),
-        pytest.param('MONDO:0012153', False, id='Invalid MONDO:0012153, disease susceptiblity child term'),
-        pytest.param('MONDO:0021135', False, id='Invalid MONDO:0021135, disease characteristic child'),
+        pytest.param('MONDO:0012153', False, id='Invalid MONDO:0012153, disease susceptiblity descendant term'),
+        pytest.param('MONDO:0021135', False, id='Invalid MONDO:0021135, disease characteristic descendant'),
     )
 )
 def test_disease_ontology_term_false(validator_with_adata, dt_id, expected):
@@ -49,8 +49,8 @@ def test_disease_ontology_term_false(validator_with_adata, dt_id, expected):
     assert validator.is_valid is expected
     assert validator.errors == [
         f"ERROR: '{dt_id}' in 'disease_ontology_term_id' is not an allowed term id. "
-        "Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or children terms thereof, "
-        "or children terms of 'MONDO:0000001' (disease) are allowed"
+        "Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, "
+        "or descendant terms of 'MONDO:0000001' (disease) are allowed"
     ]
 
 
@@ -61,7 +61,7 @@ def test_disease_ontology_term_false(validator_with_adata, dt_id, expected):
         pytest.param('EFO:000001', False, id='EFO:000001, Invalid ontology'),
         pytest.param('NCIT:C158547', False, id='NCIT:C158547, Invalid ontology'),
         pytest.param('MONDO:0100535', False, id='Invalid MONDO:0100535, not approved as of 1-25-24'),
-        pytest.param('MONDO:0100536', False, id='Invalid child of MONDO:0100535, not approved as of 1-25-24'),
+        pytest.param('MONDO:0100536', False, id='Invalid descendant of MONDO:0100535, not approved as of 1-25-24'),
     )
 )
 def test_disease_ontology_term_not_valid(validator_with_adata, dt_id, expected):
@@ -71,6 +71,6 @@ def test_disease_ontology_term_not_valid(validator_with_adata, dt_id, expected):
     assert validator.is_valid is expected
     assert validator.errors == [
         f"ERROR: '{dt_id}' in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'. "
-        "Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or children terms thereof, "
-        "or children terms of 'MONDO:0000001' (disease) are allowed"
+        "Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, "
+        "or descendant terms of 'MONDO:0000001' (disease) are allowed"
     ]
