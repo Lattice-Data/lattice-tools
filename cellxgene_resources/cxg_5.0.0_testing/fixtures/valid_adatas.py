@@ -23,7 +23,7 @@ def validator_with_adata(request, fixtures_root=FIXTURES_ROOT) -> Validator:
 
 
 @pytest.fixture
-def label_writer(validator_with_adata):
+def label_writer(validator_with_adata: Validator) -> AnnDataLabelAppender:
     validator = validator_with_adata
     validator.validate_adata()
     return AnnDataLabelAppender(validator)

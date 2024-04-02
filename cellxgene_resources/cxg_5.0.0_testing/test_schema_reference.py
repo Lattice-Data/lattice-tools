@@ -5,14 +5,14 @@ SCHEMA_VERSION = "5.0.0"
 SCHEMA_REFERENCE = f"https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/{SCHEMA_VERSION}/schema.md"
 
 
-def test_schema_version_is_correct(validator_with_adata):
+def test_validator_schema_version_is_correct(validator_with_adata):
     validator = validator_with_adata
     validator.validate_adata()
     assert validator.is_valid is True
     assert validator.schema_version == SCHEMA_VERSION
 
 
-def test_write_success(label_writer):
+def test_label_write_version_and_reference_is_correct(label_writer):
     with tempfile.TemporaryDirectory() as temp_dir:
         labels_path = temp_dir + "labels.h5ad"
         label_writer.write_labels(labels_path)
