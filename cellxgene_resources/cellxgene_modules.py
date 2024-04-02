@@ -1,3 +1,4 @@
+import json
 import numpy as np
 import os
 import pandas as pd
@@ -59,7 +60,7 @@ def evaluate_data(adata):
         non_integer = np.any(~np.equal(np.mod(adata.X.data, 1), 0))
     
     if non_integer == False:
-        report('raw is all integers')
+        report('raw is all integers', 'GOOD')
     else:
         report('raw contains non-integer values', 'ERROR')
     
@@ -71,10 +72,10 @@ def evaluate_data(adata):
         report(f'layers[{l}] max = ' + str(adata.layers[l].max()))
 
 
-
 def map_filter_gene_ids(adata):
     #map genes
     v44_gene_map = json.load(open('../gene_ID_mapping/gene_map_v44.json'))
+    approved_file = 'ref_files/genes_approved.csv'
     approved = pd.read_csv(approved_file,dtype='str')
 
     my_gene_map = {k:v for k,v in v44_gene_map.items() if k in adata.var.index and v not in adata.var.index}
@@ -102,7 +103,7 @@ def map_filter_gene_ids(adata):
     return adata
 
 
-def TENx_barcode_checker_2(ref_df, obs_df):
+def TENx_barcode_checker(ref_df, obs_df):
     #obs_df_sample = obs_df.sample(num_to_check, axis=0) # can add random_state=1 for reproducibility
     obs_df_split = obs_df.index.str.split('([ACTG]{16})')
     barcodes = pd.DataFrame([b for l in obs_df_split for b in l if re.match(r".*[ACTG]{16}.*", b)])    
@@ -117,7 +118,7 @@ def TENx_barcode_checker_2(ref_df, obs_df):
         return barcode_results
 
 
-def TENx_barcode_checker(prop, obs):
+def evaluate_10x_barcodes(prop, obs):
 
     results = []
     csv = 'ref_files/10X_barcode_table.csv.gz'
@@ -126,7 +127,7 @@ def TENx_barcode_checker(prop, obs):
     for a in obs[prop].unique():
         obs_df = obs[obs[prop] == a]
         #num_to_check = obs_df.shape[0]
-        r = TENx_barcode_checker_2(ref_df, obs_df)
+        r = TENx_barcode_checker(ref_df, obs_df)
         r_dict = {'3pv2_5pv1_5pv2': None, '3pv3': None, 'multiome': None,'multiple': None, 'None': None} | r['summary'].value_counts().to_dict()
         r_dict[prop] = a
         results.append(r_dict)
@@ -190,7 +191,7 @@ def evaluate_dup_counts(adata):
     hash_df.sort_values('hashes', inplace=True)
     if not hash_df.empty:
         return hash_df
-    report('no duplicated raw counts')
+    report('no duplicated raw counts', 'GOOD')
 
 def symbols_to_ids(symbols, var):
     
