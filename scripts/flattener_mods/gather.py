@@ -138,7 +138,7 @@ def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 
 
 # Gather object metadata, convert property name to cxg required field names
-def gather_metdata(obj_type, properties, values_to_add, objs, connection):
+def gather_metdata(obj_type, properties, values_to_add, objs, connection, prop_map):
 	obj = objs[0]
 	for prop in properties:
 		value = get_value(obj,prop)
@@ -179,7 +179,7 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 
 # Gather metadata for pooled objects
 # For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
-def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection):
+def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection, prop_map):
 	dev_list = []
 	for prop in properties:
 		if prop == 'family_medical_history':

@@ -544,7 +544,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 		for obj_type in obj_type_subset:
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
-		 		fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
+		 		fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
 		 	else:
 		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
@@ -752,7 +752,7 @@ def map_antibody():
 	for anti_mapping in mfinal_obj.get('antibody_mappings'):
 		values_to_add = {}
 		antibody = anti_mapping.get('antibody')
-		fm.gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody], connection)
+		fm.gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody], connection, prop_map)
 		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		if not antibody.get('control'):
 			target = None
@@ -763,7 +763,7 @@ def map_antibody():
 						target = [t]
 			else:
 				target = antibody.get('targets')
-			fm.gather_metdata('target', antibody_metadata['target'], values_to_add, target, connection)
+			fm.gather_metdata('target', antibody_metadata['target'], values_to_add, target, connection, prop_map)
 			values_to_add['feature_name'] = values_to_add['target_label']
 		else:
 			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
@@ -992,14 +992,14 @@ def main(mfinal_id):
 		values_to_add = {}
 
 		# Get raw matrix metadata
-		fm.gather_metdata('raw_matrix', cell_metadata['raw_matrix'], values_to_add, [mxr], connection)
+		fm.gather_metdata('raw_matrix', cell_metadata['raw_matrix'], values_to_add, [mxr], connection, prop_map)
 
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
 		if 'demultiplexed_donor_column' in mfinal_obj:
 			lib_obj = relevant_objects.get('library', [])
-			fm.gather_metdata('library', cell_metadata['library'], values_to_add, lib_obj, connection)
+			fm.gather_metdata('library', cell_metadata['library'], values_to_add, lib_obj, connection, prop_map)
 			for i in range(len(lib_obj)):
 				for single_lib_susp in lib_obj[i]['derived_from']:
 					if lib_obj[i]['@id'] not in library_susp:
@@ -1030,7 +1030,7 @@ def main(mfinal_id):
 			for obj_type in cell_metadata.keys():
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
+					fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
 				elif len(objs) > 1:
 					# Check to make sure it is not multimodal before determining that it is pooled
 					if obj_type == 'library':
@@ -1043,11 +1043,11 @@ def main(mfinal_id):
 								single_obj = [o for o in objs if o.get('assay')=='snATAC-seq']
 							else:
 								single_obj = [o for o in objs if o.get('assay')=='snRNA-seq']
-							fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, single_obj, connection)
+							fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, single_obj, connection, prop_map)
 						else:
-							fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
+							fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
 					else:
-						fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection)
+						fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
@@ -1189,7 +1189,7 @@ def main(mfinal_id):
 		annot_lst = []
 		annot_lst.append(annot_obj)
 		annot_metadata = {}
-		fm.gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst, connection)
+		fm.gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst, connection, prop_map)
 		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
 		annot_df = pd.concat([annot_df, annot_row])
 
