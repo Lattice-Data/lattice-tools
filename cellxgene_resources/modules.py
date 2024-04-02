@@ -24,7 +24,7 @@ def determine_sparsity(x):
     elif isinstance(x, np.ndarray):
         sparsity = 1 - np.count_nonzero(x) / float(np.cumprod(x.shape)[-1])
     else:
-        print(f'matrix is of type {type(x)}, sparsity calculation has not been implemented')
+        report(f'matrix is of type {type(x)}, sparsity calculation has not been implemented')
 
     return round(sparsity, 3)
 
@@ -52,23 +52,23 @@ def evaluate_sparsity(adata):
 
 def evaluate_data(adata):
     if adata.raw:
-        print('raw min = ' + str(adata.raw.X.min()))
-        print('raw max = ' + str(adata.raw.X.max()))
+        report('raw min = ' + str(adata.raw.X.min()))
+        report('raw max = ' + str(adata.raw.X.max()))
         non_integer = np.any(~np.equal(np.mod(adata.raw.X.data, 1), 0))
     else:
         non_integer = np.any(~np.equal(np.mod(adata.X.data, 1), 0))
     
     if non_integer == False:
-        print('raw is all integers')
+        report('raw is all integers')
     else:
         report('raw contains non-integer values', 'ERROR')
     
-    print('X min = ' + str(adata.X.min()))
-    print('X max = ' + str(adata.X.max()))
+    report('X min = ' + str(adata.X.min()))
+    report('X max = ' + str(adata.X.max()))
     
     for l in adata.layers:
-        print(f'layers[{l}] min = ' + str(adata.layers[l].min()))
-        print(f'layers[{l}] max = ' + str(adata.layers[l].max()))
+        report(f'layers[{l}] min = ' + str(adata.layers[l].min()))
+        report(f'layers[{l}] max = ' + str(adata.layers[l].max()))
 
 
 
@@ -116,6 +116,7 @@ def TENx_barcode_checker_2(ref_df, obs_df):
         barcode_results['summary'].replace(0, None, inplace=True)
         return barcode_results
 
+
 def TENx_barcode_checker(prop, obs):
 
     results = []
@@ -133,7 +134,7 @@ def TENx_barcode_checker(prop, obs):
     return pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
 
 
-def evaluate_obs(obs):
+def evaluate_obs(obs, full_obs_standards):
     long_fields = []
     gradient_fields = []
     uber_dict = {}
@@ -144,10 +145,10 @@ def evaluate_obs(obs):
         values = [str(i) for i in vc_dict.keys()]
     
         if o.startswith(' ') or o.endswith(' ') or '  ' in o:
-            print('leading/trailing whitespace:', o)
+            report(f'leading/trailing whitespace: {o}')
     
         if o not in full_obs_standards and ' '.join(o.split()).lower() in full_obs_standards:
-            print('schema conflict:', o)
+            report(f'schema conflict: {o}')
 
         numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16',
                       'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
@@ -171,10 +172,10 @@ def evaluate_obs(obs):
         if '_' in k and not k.startswith('1_1'):
             props = [e['property'] for e in v]
             if len(v) > 1 and not all(elem in full_obs_standards for elem in props):
-                print('possible redundancy:', [e['property'] for e in v])
+                report(f'possible redundancy: {[e["property"] for e in v]}')
 
-    print('continuous fields:', gradient_fields)
-    print('long fields:', long_fields)
+    report(f'continuous fields: {gradient_fields}')
+    report(f'long fields: {long_fields}')
 
 
 def evaluate_dup_counts(adata):
@@ -187,9 +188,9 @@ def evaluate_dup_counts(adata):
     hash_df['hashes'] = hashes
     hash_df = hash_df[hash_df.duplicated(subset='hashes',keep=False) == True]
     hash_df.sort_values('hashes', inplace=True)
-    if hash_df:
+    if not hash_df.empty:
         return hash_df
-
+    report('no duplicated raw counts')
 
 def symbols_to_ids(symbols, var):
     
@@ -217,17 +218,17 @@ def symbols_to_ids(symbols, var):
             ensg_id = approved.loc[approved['symb'] == s, 'feature_id'].iloc[0]
             if ensg_id in var.index:
                 ensg_list.append(ensg_id)
-                print(ensg_id + ' -- ' + s)
+                report(f'{ensg_id} -- {s}')
             else:
                 s = s[0] + s[1:].lower()
                 if s in approved['symb'].tolist():
                     ensg_id = approved.loc[approved['symb'] == s, 'feature_id'].iloc[0]
                     if ensg_id in var.index:
                         ensg_list.append(ensg_id)
-                        print(ensg_id + ' -- ' + s)
+                        report(f'{ensg_id} -- {s}')
                     else:
-                        print(f'{s}/{ensg_id} not found in var')    
+                        report(f'{s}/{ensg_id} not found in var')    
                 else:
-                    print(f'{s} not found in gene file')
+                    report(f'{s} not found in gene file')
 
     return ensg_list
