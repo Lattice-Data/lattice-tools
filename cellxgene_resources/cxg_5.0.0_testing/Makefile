@@ -1,4 +1,5 @@
 GIT_REF = main
+CLONE_ENV = lattice
 
 venv:
 	python3.9 -m venv venv;
@@ -8,7 +9,7 @@ venv-install: requirements.txt
 	pip install git+https://github.com/chanzuckerberg/single-cell-curation/@$(GIT_REF)#subdirectory=cellxgene_schema_cli
 	
 conda-clone:
-	conda create --name cxg51testing --clone lattice
+	conda create --name cxg51testing --clone $(CLONE_ENV)
 
 conda:
 	conda create --name cxg51testing python=3.9
