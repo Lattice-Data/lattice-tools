@@ -593,7 +593,7 @@ def download_directory(download_url, directory):
 # Compile all reference annotations for var features into one pandas df
 def compile_annotations(files):
 	ids = pd.DataFrame()
-	urls = 'https://github.com/chanzuckerberg/single-cell-curation/raw/main/cellxgene_schema_cli/cellxgene_schema/ontology_files/'
+	urls = 'https://github.com/chanzuckerberg/single-cell-curation/raw/main/cellxgene_schema_cli/cellxgene_schema/gencode_files/'
 	for key in files:
 		filename = mtx_dir + "/" + files[key] + ".gz"
 		if os.path.exists(filename) == False:
