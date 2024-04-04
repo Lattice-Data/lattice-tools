@@ -2,7 +2,7 @@ GIT_REF = main
 CLONE_ENV = lattice
 
 venv:
-	python3.9 -m venv venv;
+	python3.10 -m venv venv;
 
 venv-install: requirements.txt 
 	pip install -r requirements.txt;
@@ -12,7 +12,7 @@ conda-clone:
 	conda create --name cxg51testing --clone $(CLONE_ENV)
 
 conda:
-	conda create --name cxg51testing python=3.9
+	conda create --name cxg51testing python=3.10
 
 conda-install: 
 	conda install -c conda-forge pint pandas jsonschema boto3 jupyter bs4
