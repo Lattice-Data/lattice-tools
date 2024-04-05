@@ -7,6 +7,20 @@ import re
 from scipy import sparse
 
 
+portal_obs_fields = [
+    'assay',
+    'cell_type',
+    'development_stage',
+    'disease',
+    'self_reported_ethnicity',
+    'organism',
+    'sex',
+    'tissue'
+]
+curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + ['donor_id','suspension_type','tissue_type','is_primary_data']
+full_obs_standards = portal_obs_fields + curator_obs_fields
+
+
 def report(mess, level=None):
     colors = {
         'GOOD': '\033[32m', #green
@@ -71,6 +85,27 @@ def evaluate_data(adata):
     for l in adata.layers:
         report(f'layers[{l}] min = ' + str(adata.layers[l].min()))
         report(f'layers[{l}] max = ' + str(adata.layers[l].max()))
+
+
+def evaluate_uns_colors(adata):
+    numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
+
+    for k in adata.uns.keys():
+        if k.endswith('_colors'):
+            colors = len(adata.uns[k])
+            obs_field = k[:-(len('_colors'))]
+
+            if obs_field in portal_obs_fields:
+                report(f'uns.{k} not allowed, move to uns.{obs_field}_ontology_term_id_colors', 'ERROR')
+            elif obs_field not in adata.obs.keys():
+                report(f'{obs_field} not found in obs, consider DELETING or RENAMING uns.{k}', 'ERROR')
+            else:
+                values = len(adata.obs[obs_field].unique())
+                if colors < values:
+                    report(f'uns.{k} has only {str(colors)} colors but obs.{obs_field} has {str(values)} values', 'ERROR')
+                if adata.obs.dtypes[obs_field].name in numb_types:
+                    report(f'uns.{k} is associated with non-categorical {obs_field}', 'ERROR')
+
 
 
 def map_filter_gene_ids(adata):
