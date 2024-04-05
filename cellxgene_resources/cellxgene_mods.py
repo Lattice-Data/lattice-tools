@@ -4,6 +4,7 @@ import numpy as np
 import os
 import pandas as pd
 import re
+import subprocess
 from scipy import sparse
 
 
@@ -271,3 +272,20 @@ def symbols_to_ids(symbols, var):
                     report(f'{s} not found in gene file')
 
     return ensg_list
+
+
+def validate(file):
+    validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    for line in validate_process.stdout.decode('utf-8').split('\n'):
+        report(line)
+    for line in validate_process.stderr.decode('utf-8').split('\n'):
+        if line.endswith('is_valid=True'):
+            report(line, 'GOOD')
+        elif line.endswith('is_valid=False'):
+            report(line, 'ERROR')
+        else:
+            prefix = line.split(':')[0]
+            if prefix in ['ERROR','WARNING']:
+                report(line.replace(f'{prefix}:',''), prefix)
+            else:
+                report(line)
