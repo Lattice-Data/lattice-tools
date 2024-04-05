@@ -301,6 +301,15 @@ def symbols_to_ids(symbols, var):
     return ensg_list
 
 
+def pick_embed(keys):
+    for k in keys:
+        if 'umap' in k.lower():
+            return k
+        elif 'umap' in k.lower():
+            return k
+    return keys[0]
+
+
 def validate(file):
     validate_process = subprocess.run(['cellxgene-schema', 'validate', file], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     for line in validate_process.stdout.decode('utf-8').split('\n'):
