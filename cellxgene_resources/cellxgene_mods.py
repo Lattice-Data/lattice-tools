@@ -18,7 +18,8 @@ portal_obs_fields = [
     'sex',
     'tissue'
 ]
-curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + ['donor_id','suspension_type','tissue_type','is_primary_data']
+non_ontology_fields = ['donor_id','suspension_type','tissue_type','is_primary_data']
+curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_ontology_fields
 full_obs_standards = portal_obs_fields + curator_obs_fields
 
 
@@ -168,6 +169,32 @@ def evaluate_10x_barcodes(prop, obs):
         results.append(r_dict)
     
     return pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
+
+
+def evaluate_obs_schema(obs, labels=False):
+    if labels:
+        for o in portal_obs_fields + non_ontology_fields:
+            if o not in obs.keys():
+                report(f'{o} not in obs\n', 'ERROR')
+            else:
+                un = obs[o].unique()
+                if un.dtype == 'category':
+                    report(f'{o} {un.to_list()}\n')
+                else:
+                    report(f'{o} {un.tolist()}\n')
+    else:
+        for o in curator_obs_fields:
+            if o not in obs.keys():
+                report(f'{o} not in obs\n', 'ERROR')
+            else:
+                un = obs[o].unique()
+                if un.dtype == 'category':
+                    report(f'{o} {un.to_list()}\n')
+                else:
+                    report(f'{o} {un.tolist()}\n')
+        for o in portal_obs_fields:
+            if o in obs.keys():
+                report(f'schema conflict - {o} in obs\n', 'ERROR')
 
 
 def evaluate_obs(obs, full_obs_standards):
