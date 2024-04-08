@@ -20,6 +20,9 @@ conda-install:
 	pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy python-magic crcmod lxml pytest
 	pip install git+https://github.com/chanzuckerberg/single-cell-curation/@$(GIT_REF)#subdirectory=cellxgene_schema_cli
 
+conda-vars:
+	cp /Users/$(USER)/anaconda3/envs/$(CLONE_ENV)/conda-meta/state /Users/$(USER)/anaconda3/envs/$(CONDA_NAME)/conda-meta/state
+
 cxg-cli:
 	pip uninstall cellxgene-schema
 	pip install git+https://github.com/chanzuckerberg/single-cell-curation/@$(GIT_REF)#subdirectory=cellxgene_schema_cli
