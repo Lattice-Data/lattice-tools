@@ -217,9 +217,9 @@ def add_value(my_obj, temp_obj, prop_map, prop):
 def add_to_not_incl(prop, value):
 	ok_to_drop = ['@context','@id','@type','age_display','award','biosample_classification','biosample_ontologies','biosample_ontology',
 		'biosample_summary','children','content_md5sum','dataset','demultiplexed_type','derivation_process','description','derived_from',
-		'donors','ethnicity','files','href','i5_index_file','i7_index_file','internal_contact','lab','no_file_available','notes','organism',
+		'donors','ethnicity','href','i5_index_file','i7_index_file','internal_contact','lab','no_file_available','notes','organism',
 		'output_types','protocol','read_1_file','read_1N_file','read_2_file','read_2N_file','read_length_units','reference_annotation',
-		'reference_assembly','references','revoked_files','schema_version','sequence_elements','software','title','url','uuid','validated']
+		'reference_assembly','references','schema_version','sequence_elements','software','title','url','uuid','validated']
 
 	base_prop = prop.split('.')[0]
 	if base_prop not in ok_to_drop:
@@ -332,7 +332,7 @@ def get_object(temp_obj, variable_age=False):
 
 
 def flatten_obj(obj):
-	ignore = ['accession','actions','aliases','audit','contributing_files',
+	ignore = ['accession','actions','aliases','audit',
 		'date_created','original_files','status','submitted_by',
 		'superseded_by','supersedes']
 	new_obj = {}
@@ -999,7 +999,7 @@ def file_descript(obj, obj_type, dataset):
 
 def main():
 	logging.info('GETTING THE DATASET')
-	field_lst = ['status','files','audit'] + \
+	field_lst = ['status','original_files','audit'] + \
 		[v['lattice'] for v in lattice_to_dcp['Dataset'].values() if isinstance(v, dict)]
 	ds_obj = lattice.get_report('Dataset', f'&accession={args.dataset}', field_lst, connection)[0]
 
@@ -1035,7 +1035,7 @@ def main():
 	logging.info('GETTING RAW SEQUENCE FILES')
 	links_dict = {}
 
-	files = [f for f in ds_obj['files'] if 'raw-sequence-files' in f]
+	files = [f for f in ds_obj['original_files'] if 'raw-sequence-files' in f]
 	field_lst = ['validated'] + \
 		[v['lattice'] for v in lattice_to_dcp['RawSequenceFile'].values() if isinstance(v, dict)]
 	file_objs = lattice.get_report(

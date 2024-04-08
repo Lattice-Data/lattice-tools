@@ -222,7 +222,7 @@ def get_dataset(dataset, geo_study):
 	Get dataset object to get dataset metadata for geo study metadata. Also gather all files for a quick sanity check of file count
 	"""
 	dataset_id = '/datasets/{}/'.format(dataset)
-	field_lst = ['dataset_title', 'description', 'libraries', 'donor_count', 'corresponding_contributors', 'internal_contact', 'files']
+	field_lst = ['dataset_title', 'description', 'libraries', 'donor_count', 'corresponding_contributors', 'internal_contact', 'original_files']
 	obj_type, filter_url = lattice.parse_ids([dataset_id])
 	results = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 	title = results.get('dataset_title','')
@@ -256,7 +256,7 @@ def get_dataset(dataset, geo_study):
 
 	geo_study[0] = keys
 	geo_study[1] = vals
-	return(results.get('files'))
+	return(results.get('original_files'))
 
 
 def get_value(obj, prop):
