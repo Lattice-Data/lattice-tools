@@ -1,6 +1,6 @@
-GIT_REF = main
 CONDA_NAME = cxg51testing
 CLONE_ENV = lattice
+GIT_REF = main
 PYTHON_VERSION = 3.11
 
 venv:

@@ -18,6 +18,8 @@ from fixtures.valid_adatas import validator_with_adata
         pytest.param('log1p', True, True, id='Value set to True'),
         pytest.param('log1p', False, True, id='Value set to False'),
         pytest.param('log1p', None, True, id='Value set to None'),
+        pytest.param('log1p', 1, True, id='Value set to int'),
+        pytest.param('log1p', 1.0, True, id='Value set to float'),
     )
 )
 def test_uns_zero_length_passes(validator_with_adata, uns_key, empty_value, expected):
