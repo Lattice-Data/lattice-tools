@@ -36,16 +36,16 @@ def get_inputs(links, obj_id):
 	return ins
 
 
-def tsv_report(ds_id):
+def tsv_report(ds_id, output_dir):
 	uber_dict = {}
 	metadata_dict = {}
 
 	# complile all metadata file contents in a dictionary
-	for obj_type in os.listdir('DCPoutput/' + ds_id + '/metadata'):
-		for o in os.listdir('DCPoutput/' + ds_id + '/metadata/' + obj_type):
+	for obj_type in os.listdir(f'{output_dir}/{ds_id}/metadata'):
+		for o in os.listdir(f'{output_dir}/{ds_id}/metadata/{obj_type}'):
 			obj_id = obj_type + '/' + o.split('_')[0]
 			metadata_dict[obj_id] = {}
-			o_json = json.load(open('DCPoutput/' + ds_id + '/metadata/' + obj_type + '/' + o))
+			o_json = json.load(open(f'{output_dir}/{ds_id}/metadata/{obj_type}/{o}'))
 			for k,v in flatten_obj(o_json).items():
 				if v:
 					if isinstance(v, list) and isinstance(v[0], dict):
@@ -67,8 +67,8 @@ def tsv_report(ds_id):
 						metadata_dict[obj_id][k] = str(v)
 
 	# cycle through to pull files & walk links backward
-	for f in os.listdir('DCPoutput/' + ds_id + '/links'):
-		link_json = json.load(open('DCPoutput/' + ds_id + '/links/' + f))
+	for f in os.listdir(f'{output_dir}/{ds_id}/links'):
+		link_json = json.load(open(f'{output_dir}/{ds_id}/links/{f}'))
 
 		supps = []
 		for l in link_json['links']:
@@ -142,4 +142,4 @@ def tsv_report(ds_id):
 				uber_dict[seq_file_id][k] = '||'.join(v)
 
 	df = pd.DataFrame(uber_dict).fillna('').transpose()
-	df.to_csv('DCPoutput/' + ds_id + '.tsv', sep='\t')
+	df.to_csv(f'{output_dir}/{ds_id}.tsv', sep='\t')
