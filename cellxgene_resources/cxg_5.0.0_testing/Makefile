@@ -3,6 +3,30 @@ CLONE_ENV = lattice
 GIT_REF = main
 PYTHON_VERSION = 3.11
 
+.PHONY: help
+help:
+	@echo "Makefile for 5.1.0 QA testing"
+	@echo "============ Default values ============"
+	@echo "PYTHON_VERSION="$(PYTHON_VERSION)
+	@echo "To create: CONDA_NAME="$(CONDA_NAME)
+	@echo "To clone: CLONE_ENV="$(CLONE_ENV)
+	@echo "Make cellxgene-schema from: GIT_REF="$(GIT_REF)
+	@echo "========================================"
+	@echo "Change any of the above as needed:"
+	@echo "========================================"
+	@echo "make conda PYTHON_VERSION=3.10"
+	@echo "make conda-install GIT_REF=v5.0.0"
+	@echo "make conda-vars CLONE_ENV=myconda"
+	@echo "make cxg-schema GIT_REF=v5.0.1"
+	@echo "make tests GIT_REF=v5.0.2"
+	@echo "========================================"
+	@echo "Or run defaults:"
+	@echo "========================================"
+	@echo "make conda"
+	@echo "conda activate cxg51testing"
+	@echo "make conda-install"
+	@echo "make tests"
+
 venv:
 	python$(PYTHON_VERSION) -m venv venv;
 
