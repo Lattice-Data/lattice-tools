@@ -24,11 +24,11 @@ conda-install:
 conda-vars:
 	cp /Users/$(USER)/anaconda3/envs/$(CLONE_ENV)/conda-meta/state /Users/$(USER)/anaconda3/envs/$(CONDA_NAME)/conda-meta/state
 
-cxg-cli:
+cxg-schema:
 	pip uninstall cellxgene-schema
 	pip install git+https://github.com/chanzuckerberg/single-cell-curation/@$(GIT_REF)#subdirectory=cellxgene_schema_cli
 
-tests: cxg-cli
+tests: cxg-schema
 	pytest -vvv
 
 clean:
