@@ -4,6 +4,7 @@ might cause the snapshot or indexing processes to fail.
 Adapted from https://github.com/DataBiosphere/hca-import-validation/blob/main/hca/staging_area_validator.py
 """
 import json
+import logging
 import os
 import requests
 import sys
@@ -26,8 +27,8 @@ date_format = '%Y-%m-%dT%H:%M:%S.%fZ'
 schemas = {}
 
 
-def validate_files(path: str, reporting) -> None:
-    directory = 'DCPoutput/' + reporting['dataset']
+def validate_files(path: str, reporting, output_dir) -> None:
+    directory = f'{output_dir}/{reporting["dataset"]}'
     validate_file_fn = globals()[f'validate_{path}_file']
     for r, d, f in os.walk(os.path.join(directory, path)):
         for file_name in f:
@@ -40,10 +41,10 @@ def validate_links_file(file_name, reporting) -> None:
     # Expected syntax: links/{bundle_uuid}_{version}_{project_uuid}.json
     if file_name.count('_') != 2:
         reporting['file_errors'].add(type_file)
-        write_error("ERROR: {} has {} _'s in name, expecting 2".format(type_file, str(file_name.count('_'))))
+        logging.error(f"{type_file} has {file_name.count('_')} _'s in name, expecting 2")
     if not file_name.endswith('.json'):
         reporting['file_errors'].add(type_file)
-        write_error('ERROR: {} does not end in .json'.format(type_file))
+        logging.error(f'{type_file} does not end in .json')
     _, _, project_uuid = file_name[:-5].split('_')
     file_json = json.load(open(file_name))
     validate_file_json(file_json, file_name, reporting)
@@ -61,13 +62,13 @@ def validate_links_file(file_name, reporting) -> None:
                         entity_type = entity[f'{category}_type']
                     else:
                         reporting['file_errors'].add(type_file)
-                        write_error('ERROR: {}, {} missing {}_type'.format(type_file, category, category))
+                        logging.error(f'{type_file}, {category} missing {category}_type')
                         entity_type = 'missing-type'
                     if entity.get(f'{category}_id'):
                         entity_id = entity[f'{category}_id']
                     else:
                         reporting['file_errors'].add(type_file)
-                        write_error('ERROR: {}, {} missing {}_id'.format(type_file, category, category))
+                        logging.error(f'{type_file}, {category} missing {category}_id')
                         entity_id = 'missing-id'
                     add_metadata_file(entity_id=entity_id,
                                            entity_type=entity_type,
@@ -77,10 +78,10 @@ def validate_links_file(file_name, reporting) -> None:
         elif link_type == 'supplementary_file_link':
             if link['entity']['entity_type'] != 'project':
                 reporting['file_errors'].add(type_file)
-                write_error('ERROR: {}, supplementary_file not linked to entity_type project'.format(type_file))
+                logging.error(f'{type_file}, supplementary_file not linked to entity_type project')
             if link['entity']['entity_id'] != project_uuid:
                 reporting['file_errors'].add(type_file)
-                write_error('ERROR: {}, supplementary_file not linked to project entity_id {}'.format(type_file, project_uuid))
+                logging.error(f'{type_file}, supplementary_file not linked to project entity_id {project_uuid}')
             for entity in link['files']:
                 entity_type = entity['file_type']
                 entity_id = entity['file_id']
@@ -127,17 +128,17 @@ def validate_metadata_file(file_name, reporting) -> None:
     metadata_type, metadata_file = file_name.split('/')[-2:]
     if metadata_file.count('_') != 1:
         reporting['file_errors'].add(type_file)
-        write_error("ERROR: {} has {} _'s in name, expecting 1".format(type_file, str(metadata_file.count('_'))))
+        logging.error(f"{type_file} has {metadata_file.count('_')} _'s in name, expecting 1")
     if not metadata_file.endswith('.json'):
         reporting['file_errors'].add(type_file)
-        write_error('ERROR: {} does not end in .json'.format(type_file))
+        logging.error(f'{type_file} does not end in .json')
     metadata_id, metadata_version = metadata_file.split('_')
     file_json = json.load(open(file_name))
     validate_file_json(file_json, file_name, reporting)
     if file_json.get('provenance'):
         if metadata_id != file_json['provenance']['document_id']:
             reporting['file_errors'].add(type_file)
-            write_error('ERROR: {} id in file name is {} but does not match provenance.document_id {}'.format(type_file, metadata_id, file_json['provenance']['document_id']))
+            logging.error(f"{type_file} id in file name is {metadata_id} but does not match provenance.document_id {file_json['provenance']['document_id']}")
     if reporting['metadata_files'].get(metadata_id):
         metadata_file = reporting['metadata_files'][metadata_id]
         metadata_file['name'] = file_name
@@ -155,10 +156,10 @@ def validate_descriptors_file(file_name, reporting) -> None:
     metadata_type, metadata_file = file_name.split('/')[-2:]
     if metadata_file.count('_') != 1:
         reporting['file_errors'].add(metadata_file)
-        write_error("ERROR: {} has {} _'s in name, expecting 1".format(metadata_file, str(metadata_file.count('_'))))
+        logging.error(f"{metadata_file} has {metadata_file.count('_')} _'s in name, expecting 1")
     if not metadata_file.endswith('.json'):
         reporting['file_errors'].add(metadata_file)
-        write_error('ERROR: {} does not end in .json'.format(metadata_file))
+        logging.error(f'{metadata_file} does not end in .json')
     metadata_id, metadata_version = metadata_file.split('_')
     file_json = json.load(open(file_name))
     validate_file_json(file_json, file_name, reporting)
@@ -171,7 +172,7 @@ def validate_descriptors_file(file_name, reporting) -> None:
         version = metadata_file['version']
         if version != metadata_version:
             reporting['file_errors'].add(metadata_file)
-            write_error('ERROR: {} version in file name is {} but does not match corresponding metadata file version {}'.format(metadata_file, metadata_version, version))
+            logging.error(f'{metadata_file} version in file name is {metadata_version} but does not match corresponding metadata file version {version}')
     else:
         reporting['extra_files'].append(type_file)
 
@@ -187,16 +188,16 @@ def validate_file_json(file_json: JSON, file_name: str, reporting) -> None:
                 schemas[file_json['describedBy']] = schema
             except json.decoder.JSONDecodeError as e:
                 reporting['file_errors'].add(type_file)
-                write_error('ERROR: {}, failed to parse schema JSON from {}'.format(type_file, file_json['describedBy']))
+                logging.error(f"{type_file}, failed to parse schema JSON from {file_json['describedBy']}")
     else:
         reporting['file_errors'].add(type_file)
-        write_error('ERROR: {}, describedBy is required'.format(type_file))
+        logging.error(f'{type_file}, describedBy is required')
     if 'schema' in locals():
         validator = Draft7Validator(schema)
         errors = validator.iter_errors(file_json)
         for e in errors:
             reporting['file_errors'].add(type_file)
-            write_error('ERROR: {}, {}'.format(type_file, e.message))
+            logging.error(f'{type_file}, {e.message}')
 
 
 def download_schema(schema_url: str) -> JSON:
@@ -209,19 +210,20 @@ def check_results(reporting):
     for metadata_id, metadata_file in reporting['metadata_files'].items():
         if not metadata_file['found_metadata']:
             reporting['file_errors'].add(metadata_file['entity_id'])
-            write_error('ERROR: {} {} metadata file not found'.format(metadata_file['entity_type'], metadata_file['entity_id']))
+            logging.error(f"{metadata_file['entity_type']} {metadata_file['entity_id']} metadata file not found")
         if metadata_file['entity_type'].endswith('_file') and not metadata_file['found_descriptor']:
             reporting['file_errors'].add(metadata_file['entity_id'])
-            write_error('ERROR: {} {} descriptor file not found'.format(metadata_file['entity_type'], metadata_file['entity_id']))
+            logging.error(f"{metadata_file['entity_type']} {metadata_file['entity_id']} descriptor file not found")
 
 
-def write_error(message):
-    with open('DCPoutput/validation_errors.txt', 'a') as outfile:
-        outfile.write(message + '\n')
+#def write_error(message, output_dir):
+#    with open(f'{output_dir}/validation_errors.txt', 'a') as outfile:
+#        outfile.write(message + '\n')
 
 
-def dcp_validation(dataset):
-    write_error('validating ' + dataset)
+def dcp_validation(dataset, output_dir):
+    #logging.basicConfig(filename=f'{output_dir}/validation.log', level=logging.INFO)
+    logging.info('validating ' + dataset)
     reporting = {
         'dataset': dataset,
         'names_to_id': {},
@@ -230,15 +232,15 @@ def dcp_validation(dataset):
         'extra_files': [],
     }
     for t in ['links','metadata','descriptors']:
-        write_error('validating ' + t)
-        validate_files(t, reporting)
+        logging.info('validating ' + t)
+        validate_files(t, reporting, output_dir)
     check_results(reporting)
 
     for file_name in reporting['extra_files']:
         reporting['file_errors'].add(file_name)
-        write_error('ERROR: {}, not a part of a subgraph in links files'.format(file_name))
+        logging.error(f'{file_name}, not a part of a subgraph in links files')
 
     if not reporting['file_errors']:
-        write_error('No DCP schema validation errors')
+        logging.info('No DCP schema validation errors')
 
     return(len(reporting['file_errors']))
