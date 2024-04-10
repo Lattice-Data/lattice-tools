@@ -20,6 +20,8 @@ To get proper testing environment:
 
 Create a seperate test environment since schema will be > 5.0.0. This can be done by cloning the lattice env or creating a new one.
 
+Running `make` will display a helpful, abbreviated outline of the following steps:
+
 ### 1. Create testing virtual venv:
 ```
 make venv
@@ -52,11 +54,11 @@ This step will also build `cellxgene-schema` off the `main` branch of the `singl
 
 ### 4. To update to the latest version of `cellxgene-schema`
 ```
-make cxg-cli
+make cxg-schema
 ```
 This uninstalls and reinstalls `cellxgene-schema` to get the latest version from the `main` branch of the `single-cell-curation` repo. There will likely be a prompt confirming with y/n that you want to uninstall `cellxgene-schema`. You can also use any valid git reference to install off of a specific branch, commit, tag, etc:
 ```
-make cxg-cli GIT_REF=your_git_ref_of_choice
+make cxg-schema GIT_REF=your_git_ref_of_choice
 ```
 The tests assume the standard location of cloned repos that Lattice uses:
 ```
