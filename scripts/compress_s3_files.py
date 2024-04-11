@@ -6,13 +6,13 @@ import scanpy as sc
 import subprocess
 import sys
 
-from botocore.exceptions import ClientError
 from dataclasses import dataclass
 
 
 EPILOG = """
-This script will take a list of s3 uri of uncompressed h5ad files as input, and it will create a compressed h5ad
-in the same S3 directory, with '_curated' added to file name.
+This script will take a list of s3 uris of uncompressed h5ad files as input, it will create a compressed h5ad
+in a temp directory, and then upload and replace the original s3 h5ad with the compressed version. If the 
+compressed file is the same size or smaller, the orginal file will be left in place.
 
 Examples:
 
@@ -70,7 +70,7 @@ def download_file(uri_info: URIMetaInfo):
     :param uri_info: URIMetaInfo object, uses proper attributes below
     :return: None, downloads file
     """
-    print(uri_info.file_name + " downloading")
+    print(uri_info.file_name + " downloading ...")
 
     try:
         S3_CLIENT.download_file(
@@ -84,11 +84,18 @@ def download_file(uri_info: URIMetaInfo):
 
 
 def get_file_metadata(uri_info: URIMetaInfo):
+    """
+    Gets s3 object metadata and adds to URIMetaInfo.metadata attribute
+
+    :param uri_info: URIMetaInfo object, uses proper attributes below
+    :return: None, object attribute updated
+    """
     uri_info.metadata = S3_CLIENT.get_object_attributes(
         Bucket=uri_info.bucket_name, 
         Key=uri_info.file_path,
         ObjectAttributes=["ObjectSize"]
     )
+    print(f"Processing file {uri_info.file_name} ...")
     print(f"Last Modified: {uri_info.metadata['LastModified']}")
     print(f"Object Size: {uri_info.metadata['ObjectSize']}")
 
@@ -114,8 +121,9 @@ def local_exists(*files: list[str]) -> bool:
     :return: True if directory/file exists, else False
 
     Make sure to use list with single item to check directory:
-    local_exists([TEMP_DIR]) -> argument = TEMP_DIR
-    local_exists(TEMP_DIR) -> argument = T/E/M/P/_D/I/R
+    local_exists([TEMP_DIR]) -> argument will be TEMP_DIR
+    local_exists([TEMP_DIR, "file.h5ad"]) -> argument will be TEMP_DIR/file.h5ad
+    local_exists(TEMP_DIR) -> argument will be T/E/M/P/_D/I/R
     """
     return os.path.exists("/".join(*files))
 
@@ -166,7 +174,7 @@ def main(s3_uri_file):
             with open(os.path.join(TEMP_DIR, uri.new_file_name), "rb") as f:
                 S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
         else:
-            print(f"Original file size {original_size} <= {compressed_size}, not uploading to S3")
+            print(f"INFO: Original file size {original_size} <= {compressed_size}, not uploading to S3")
 
         # remove h5ads
         if local_exists([TEMP_DIR, uri.file_name]):
