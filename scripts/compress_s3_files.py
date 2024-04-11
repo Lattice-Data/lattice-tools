@@ -73,13 +73,6 @@ def download_file(uri_info: URIMetaInfo):
     print(uri_info.file_name + " downloading")
 
     try:
-        uri_info.metadata = S3_CLIENT.get_object_attributes(
-            Bucket=uri_info.bucket_name, 
-            Key=uri_info.file_path,
-            ObjectAttributes=["ObjectSize"]
-        )
-        print(f"Last Modified: {uri_info.metadata['LastModified']}")
-        print(f"Object Size: {uri_info.metadata['ObjectSize']}")
         S3_CLIENT.download_file(
             uri_info.bucket_name, uri_info.file_path, TEMP_DIR + "/" + uri_info.file_name
         )
@@ -88,6 +81,16 @@ def download_file(uri_info: URIMetaInfo):
         sys.exit("ERROR: {} Failed to find file {} on s3".format(e, uri_info.full_uri))
     else:
         print(uri_info.file_name + " downloaded")
+
+
+def get_file_metadata(uri_info: URIMetaInfo):
+    uri_info.metadata = S3_CLIENT.get_object_attributes(
+        Bucket=uri_info.bucket_name, 
+        Key=uri_info.file_path,
+        ObjectAttributes=["ObjectSize"]
+    )
+    print(f"Last Modified: {uri_info.metadata['LastModified']}")
+    print(f"Object Size: {uri_info.metadata['ObjectSize']}")
 
 
 def compress_h5ad(h5ad: URIMetaInfo):
@@ -142,6 +145,9 @@ def main(s3_uri_file):
         s3_uris = [URIMetaInfo(line.strip()) for line in f]
 
     for uri in s3_uris:
+        # get object metadata
+        get_file_metadata(uri)
+
         # download
         download_file(uri)
 
@@ -149,9 +155,15 @@ def main(s3_uri_file):
         compress_h5ad(uri)
 
         # upload
-        print(f"Uploading compressed h5ad to this object key: {uri.file_path}")
-        with open(os.path.join(TEMP_DIR, uri.new_file_name), "rb") as f:
-            S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
+        compressed_size = os.path.getsize(os.path.join(TEMP_DIR, uri.new_file_name))
+        original_size = uri.metadata["ObjectSize"]
+
+        if original_size > compressed_size:
+            print(f"Uploading compressed h5ad to this object key: {uri.file_path}")
+            with open(os.path.join(TEMP_DIR, uri.new_file_name), "rb") as f:
+                S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
+        else:
+            print(f"Original file size {original_size} <= {compressed_size}, not uploading to S3")
 
         # remove h5ads
         if local_exists([TEMP_DIR, uri.file_name]):
