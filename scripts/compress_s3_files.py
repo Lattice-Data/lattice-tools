@@ -37,7 +37,7 @@ class URIMetaInfo:
     """
 
     full_uri: str
-    downloaded: bool = False
+    metadata = None
 
     def __post_init__(self):
         self.bucket_name: str = self.full_uri.split("/")[2]
@@ -73,6 +73,13 @@ def download_file(uri_info: URIMetaInfo):
     print(uri_info.file_name + " downloading")
 
     try:
+        uri_info.metadata = S3_CLIENT.get_object_attributes(
+            Bucket=uri_info.bucket_name, 
+            Key=uri_info.file_path,
+            ObjectAttributes=["ObjectSize"]
+        )
+        print(f"Last Modified: {uri_info.metadata['LastModified']}")
+        print(f"Object Size: {uri_info.metadata['ObjectSize']}")
         S3_CLIENT.download_file(
             uri_info.bucket_name, uri_info.file_path, TEMP_DIR + "/" + uri_info.file_name
         )
@@ -81,7 +88,6 @@ def download_file(uri_info: URIMetaInfo):
         sys.exit("ERROR: Failed to find file {} on s3".format(uri_info.full_uri))
     else:
         print(uri_info.file_name + " downloaded")
-        uri_info.downloaded = True
 
 
 def compress_h5ad(h5ad: URIMetaInfo):
