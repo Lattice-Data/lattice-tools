@@ -49,15 +49,15 @@ def download_file(download_url):
 	try:
 		s3client.download_file(bucket_name, file_path, TEMP_DIR + '/' + file_name)
 	except subprocess.CalledProcessError as e:
-		logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-		sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+		logging.error('ERROR: Failed to find file {} on s3'.format(download_url))
+		sys.exit('ERROR: Failed to find file {} on s3'.format(download_url))
 	else:
 		print(file_name + ' downloaded')
 
 
 def main(s3_uri_file):
-	if os.path.exists(mtx_dir) == False:
-		os.mkdir(mtx_dir)
+	if os.path.exists(TEMP_DIR) == False:
+		os.mkdir(TEMP_DIR)
 	print('test')
 
 
