@@ -144,7 +144,10 @@ def main(s3_uri_file):
     with open(s3_uri_file, "r") as f:
         s3_uris = [URIMetaInfo(line.strip()) for line in f]
 
+    total_files = len(s3_uris)
+
     for uri in s3_uris:
+        print(f"Remaining files to process: {total_files}")
         # get object metadata
         get_file_metadata(uri)
 
@@ -172,6 +175,9 @@ def main(s3_uri_file):
             print(f"Removed files {uri.file_name} and {uri.new_file_name} from {TEMP_DIR}")
         else:
             print(f"File {uri.file_name} not found in {TEMP_DIR}")
+
+        total_files -= 1
+        print("=====================================")
 
 
 args = getArgs()
