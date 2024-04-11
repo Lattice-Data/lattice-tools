@@ -1,31 +1,34 @@
 import numpy as np
 
 
-# Check validity of colors before adding to cxg_adata.uns
+
 def colors_check(adata, color_column, column_name):
+	'''
+	Check validity of colors before adding to cxg_adata.uns
+	Check that obs column exists
+	Check that the corresponding column is the right datatype
+	Verify color_column is a numpy array
+	Verify that the numpy array contains strings
+	Verify that we have atleast as many colors as unique values in the obs column
+	Verify that either all colors are hex OR all colors are CSS4 named colors strings
+	'''
 	column_name = column_name.replace('_colors','')
-	# Check that obs column exists
 	if column_name not in adata.obs.columns:
 		error = 'the corresponding column is not present in obs.'
 		return False, error
-	# Check that the corresponding column is the right datatype
 	if column_name in adata.obs.columns:
 		if adata.obs[column_name].dtype.name != 'category':
 			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(adata.obs[column_name].dtype.name)
 			return False, error
-	# Verify color_column is a numpy array
 	if color_column is None or not isinstance(color_column, np.ndarray):
 		error = 'the column is not a numpy array.'
 		return False, error
-	# Verify that the numpy array contains strings
 	if not all(isinstance(color,str) for color in color_column):
 		error = 'the column does not contain strings.'
 		return False, error
-	# Verify that we have atleast as many colors as unique values in the obs column
 	if len(color_column) < len(adata.obs[column_name].unique()):
 		error = 'the column has less colors than unique values in the corresponding obs. column.'
 		return False, error
-	# Verify that either all colors are hex OR all colors are CSS4 named colors strings
 	all_hex_colors = all(re.match(r"^#([0-9a-fA-F]{6})$", color) for color in color_column)
 	all_css4_colors = all(color in mcolors.CSS4_COLORS for color in color_column)
 	if not (all_hex_colors or all_css4_colors):
@@ -36,22 +39,11 @@ def colors_check(adata, color_column, column_name):
 		return True, error
 
 
-# Gather matrix metadata for adata.uns
-def report_dataset(donor_objs, matrix, dataset, prop_map):
-	ds_results = {}
-	for prop in dataset_metadata['final_matrix']:
-		value = get_value(matrix, prop)
-		if isinstance(value, list):
-			value = ','.join(value)
-		if value != unreported_value:
-			latkey = 'matrix_' + prop.replace('.','_')
-			key = prop_map.get(latkey, latkey)
-			ds_results[key] = value
-	return ds_results
 
-
-# Return False if value is considered empty
 def check_not_empty(value):
+	'''
+	Return False if value is considered empty
+	'''
 	if any([
 		isinstance(value, sparse_class)
 		for sparse_class in (sparse.csr_matrix, sparse.csc_matrix, sparse.coo_matrix)
@@ -70,8 +62,11 @@ def check_not_empty(value):
 		return True
 
 
-# Copy over any additional data from mfinal_adata to cxg_adata
+
 def copy_over_uns(reserved_uns, mfinal_adata, cxg_adata, warning_list)
+'''
+Copy over any additional data from mfinal_adata to cxg_adata
+'''
 	for k,v in mfinal_adata.uns.items():
 		if k == 'batch_condition':
 			if not isinstance(mfinal_adata.uns['batch_condition'], list) and not isinstance(mfinal_adata.uns['batch_condition'], np.ndarray) :
