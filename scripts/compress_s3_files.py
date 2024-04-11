@@ -142,23 +142,11 @@ def main(s3_uri_file):
         s3_uris = [URIMetaInfo(line.strip()) for line in f]
 
     for uri in s3_uris:
-        # skip iteration if curated file already exists on s3
-        if s3_exists(uri):
-            print(f"Curated file {uri.new_file_name} already exists at {uri.new_file_path}")
-            continue
-
         # download
-        if not local_exists([TEMP_DIR, uri.file_name]):
-            download_file(uri)
-        else:
-            print(f"File {uri.file_name} already exists in {TEMP_DIR}")
+        download_file(uri)
 
         # compress
-        if (local_exists([TEMP_DIR, uri.file_name]) and 
-            not local_exists([TEMP_DIR, uri.new_file_name])):
-            compress_h5ad(uri)
-        else:
-            print(f"File {uri.new_file_name} already compressed in {TEMP_DIR}")
+        compress_h5ad(uri)
 
         # upload
         print(f"Uploading compressed h5ad to this object key: {uri.file_path}")
