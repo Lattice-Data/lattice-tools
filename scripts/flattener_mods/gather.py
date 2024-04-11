@@ -11,8 +11,10 @@ sys.path.pop(0)
 # Attaching logger to Flattener logger
 logger = logging.getLogger(__name__)
 
-# Utilize lattice parse_ids and get_report to get all the raw matrix objects at once
 def gather_rawmatrices(derived_from, connection):
+	'''
+	Utilize lattice parse_ids and get_report to get all the raw matrix objects at once
+	'''
 	new_derived_from = []
 	field_lst = ['@id','accession','s3_uri','genome_annotation','libraries','derived_from']
 	
@@ -31,8 +33,10 @@ def gather_rawmatrices(derived_from, connection):
 
 
 
-# Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
 def gather_objects(input_object, mfinal_obj, connection, start_type=None):
+	'''
+	Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
+	'''
 	if start_type == None:
 		lib_ids = input_object['libraries']
 	libraries = []
@@ -137,8 +141,10 @@ def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 
 
 
-# Gather object metadata, convert property name to cxg required field names
 def gather_metdata(obj_type, properties, values_to_add, objs, connection, prop_map):
+	'''
+	Gather object metadata, convert property name to cxg required field names
+	'''
 	obj = objs[0]
 	for prop in properties:
 		value = get_value(obj,prop)
@@ -176,10 +182,11 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection, prop_m
 
 
 
-
-# Gather metadata for pooled objects
-# For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection, prop_map):
+	'''
+	Gather metadata for pooled objects
+	For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
+	'''
 	dev_list = []
 	for prop in properties:
 		if prop == 'family_medical_history':
@@ -263,3 +270,54 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
 			else:
 				values_to_add[key] = next(iter(value_set))
+
+
+
+def get_value(obj, prop):
+	'''
+	Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
+	'''
+	path = prop.split('.')
+	if len(path) == 1:
+		if path[0] == '@type':
+			value = obj.get('@type')[0]
+			return value
+		else:
+			return obj.get(prop, unreported_value)
+	elif len(path) == 2:
+		key1 = path[0]
+		key2 = path[1]
+		if isinstance(obj.get(key1), list):
+			values = [i.get(key2, unreported_value) for i in obj[key1]]
+			return list(set(values))
+		elif obj.get(key1):
+			value = obj[key1].get(key2, unreported_value)
+			return value
+		else:
+			return obj.get(key1,unreported_value)
+	elif len(path) == 3:
+		key1 = path[0]
+		key2 = path[1]
+		key3 = path[2]
+		if isinstance(obj.get(key1), list):
+			embed_objs = obj.get(key1, unreported_value)
+			values = []
+			for embed_obj in embed_objs:
+				if isinstance(embed_obj.get(key2), list):
+					values += [k.get(key3, unreported_value) for k in embed_obj[key2]]
+				else:
+					values += embed_obj[key2].get(key3, unreported_value)
+			return list(set(values))
+		# Will need to revisit cell culture and organoid values 
+		elif obj.get(key1):
+			embed_obj = obj.get(key1, unreported_value)
+			if isinstance(embed_obj.get(key2, unreported_value), list):
+				return [v.get(key3, unreported_value) for v in embed_obj[key2]]
+			elif embed_obj.get(key2, unreported_value) == unreported_value:
+				return unreported_value
+			else:
+				return embed_obj[key2].get(key3, unreported_value)
+		else:
+			return obj.get(key1, unreported_value)
+	else:
+		return 'unable to traverse more than 2 embeddings'

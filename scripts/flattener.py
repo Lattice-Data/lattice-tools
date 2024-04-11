@@ -215,66 +215,6 @@ def getArgs():
     	sys.exit()
     return args
 
-# Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
-def get_value(obj, prop):
-	path = prop.split('.')
-	if len(path) == 1:
-		if path[0] == '@type':
-			value = obj.get('@type')[0]
-			return value
-		else:
-			return obj.get(prop, unreported_value)
-	elif len(path) == 2:
-		key1 = path[0]
-		key2 = path[1]
-		if isinstance(obj.get(key1), list):
-			values = [i.get(key2, unreported_value) for i in obj[key1]]
-			return list(set(values))
-		elif obj.get(key1):
-			value = obj[key1].get(key2, unreported_value)
-			return value
-		else:
-			return obj.get(key1,unreported_value)
-	elif len(path) == 3:
-		key1 = path[0]
-		key2 = path[1]
-		key3 = path[2]
-		if isinstance(obj.get(key1), list):
-			embed_objs = obj.get(key1, unreported_value)
-			values = []
-			for embed_obj in embed_objs:
-				if isinstance(embed_obj.get(key2), list):
-					values += [k.get(key3, unreported_value) for k in embed_obj[key2]]
-				else:
-					values += embed_obj[key2].get(key3, unreported_value)
-			return list(set(values))
-		# Will need to revisit cell culture and organoid values 
-		elif obj.get(key1):
-			embed_obj = obj.get(key1, unreported_value)
-			if isinstance(embed_obj.get(key2, unreported_value), list):
-				return [v.get(key3, unreported_value) for v in embed_obj[key2]]
-			elif embed_obj.get(key2, unreported_value) == unreported_value:
-				return unreported_value
-			else:
-				return embed_obj[key2].get(key3, unreported_value)
-		else:
-			return obj.get(key1, unreported_value)
-	else:
-		return 'unable to traverse more than 2 embeddings'
-
-
-# Gather matrix metadata for adata.uns
-def report_dataset(donor_objs, matrix, dataset):
-	ds_results = {}
-	for prop in dataset_metadata['final_matrix']:
-		value = get_value(matrix, prop)
-		if isinstance(value, list):
-			value = ','.join(value)
-		if value != unreported_value:
-			latkey = 'matrix_' + prop.replace('.','_')
-			key = prop_map.get(latkey, latkey)
-			ds_results[key] = value
-	return ds_results
 
 
 # Download file object from s3
@@ -1036,7 +976,7 @@ def main(mfinal_id):
 					if obj_type == 'library':
 						value = list()
 						for obj in objs:
-							v = get_value(obj, 'protocol.assay_ontology.term_id')
+							v = fm.get_value(obj, 'protocol.assay_ontology.term_id')
 							value.append(v)
 						if set(value) == {'EFO:0030059'}:
 							if mfinal_obj.get('assays') == ['snATAC-seq']:
@@ -1171,7 +1111,8 @@ def main(mfinal_id):
 		sys.exit()
 
 	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
-	ds_results = report_dataset(relevant_objects['donor'], mfinal_obj, mfinal_obj['dataset'])
+	ds_results = {}
+	fm.gather_metdata('matrix', dataset_metadata('final_matrix'), ds_results, [mfinal_obj])
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
 

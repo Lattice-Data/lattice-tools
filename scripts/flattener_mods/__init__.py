@@ -1,1 +1,1 @@
-from flattener_mods.gather import gather_rawmatrices, gather_objects, gather_metdata, gather_pooled_metadata
+from flattener_mods.gather import gather_rawmatrices, gather_objects, gather_metdata, gather_pooled_metadata, get_value
