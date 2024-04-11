@@ -24,7 +24,6 @@ For more details:
 """
 
 S3_CLIENT = boto3.client("s3")
-S3_RESOURCE = boto3.resource("s3")
 TEMP_DIR = "temp_dir"
 
 
@@ -85,8 +84,8 @@ def download_file(uri_info: URIMetaInfo):
             uri_info.bucket_name, uri_info.file_path, TEMP_DIR + "/" + uri_info.file_name
         )
     except subprocess.CalledProcessError as e:
-        logging.error("ERROR: Failed to find file {} on s3".format(uri_info.full_uri))
-        sys.exit("ERROR: Failed to find file {} on s3".format(uri_info.full_uri))
+        logging.error("ERROR: {} Failed to find file {} on s3".format(e, uri_info.full_uri))
+        sys.exit("ERROR: {} Failed to find file {} on s3".format(e, uri_info.full_uri))
     else:
         print(uri_info.file_name + " downloaded")
 
