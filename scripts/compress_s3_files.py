@@ -24,6 +24,7 @@ For more details:
 """
 
 S3_CLIENT = boto3.client("s3")
+S3_RESOURCE = boto3.resource("s3")
 TEMP_DIR = "temp_dir"
 
 
