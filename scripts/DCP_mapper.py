@@ -217,9 +217,9 @@ def add_value(my_obj, temp_obj, prop_map, prop):
 def add_to_not_incl(prop, value):
 	ok_to_drop = ['@context','@id','@type','age_display','award','biosample_classification','biosample_ontologies','biosample_ontology',
 		'biosample_summary','children','content_md5sum','dataset','demultiplexed_type','derivation_process','description','derived_from',
-		'donors','ethnicity','files','href','i5_index_file','i7_index_file','internal_contact','lab','no_file_available','notes','organism',
+		'donors','ethnicity','href','i5_index_file','i7_index_file','internal_contact','lab','no_file_available','notes','organism',
 		'output_types','protocol','read_1_file','read_1N_file','read_2_file','read_2N_file','read_length_units','reference_annotation',
-		'reference_assembly','references','revoked_files','schema_version','sequence_elements','software','title','url','uuid','validated']
+		'reference_assembly','references','schema_version','sequence_elements','software','title','url','uuid','validated']
 
 	base_prop = prop.split('.')[0]
 	if base_prop not in ok_to_drop:
@@ -332,7 +332,7 @@ def get_object(temp_obj, variable_age=False):
 
 
 def flatten_obj(obj):
-	ignore = ['accession','actions','aliases','audit','contributing_files',
+	ignore = ['accession','actions','aliases','audit',
 		'date_created','original_files','status','submitted_by',
 		'superseded_by','supersedes']
 	new_obj = {}
@@ -993,13 +993,13 @@ def file_descript(obj, obj_type, dataset):
 	del obj['file_size']
 	del obj['sha256']
 	del obj['crc32c']
-	with open('DCPoutput/' + dataset + '/descriptors/' + obj_type + '/' + file_descriptor['file_id'] + '_' + file_descriptor['file_version'] + '.json', 'w') as outfile:
+	with open(f'{output_dir}/{dataset}/descriptors/{obj_type}/{file_descriptor["file_id"]}_{file_descriptor["file_version"]}.json', 'w') as outfile:
 		json.dump(file_descriptor, outfile, indent=4)
 
 
 def main():
 	logging.info('GETTING THE DATASET')
-	field_lst = ['status','files','audit'] + \
+	field_lst = ['status','original_files','audit'] + \
 		[v['lattice'] for v in lattice_to_dcp['Dataset'].values() if isinstance(v, dict)]
 	ds_obj = lattice.get_report('Dataset', f'&accession={args.dataset}', field_lst, connection)[0]
 
@@ -1021,7 +1021,7 @@ def main():
 	ds_obj['uuid'] = dataset_id
 
 	if args.validate_only:
-		dcp_errors = dcp_validation(dataset_id)
+		dcp_errors = dcp_validation(dataset_id, output_dir)
 		if dcp_errors != 0:
 			logging.info('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
 		sys.exit('Exiting after DCP schema validation, as per validate-only option')
@@ -1035,7 +1035,7 @@ def main():
 	logging.info('GETTING RAW SEQUENCE FILES')
 	links_dict = {}
 
-	files = [f for f in ds_obj['files'] if 'raw-sequence-files' in f]
+	files = [f for f in ds_obj['original_files'] if 'raw-sequence-files' in f]
 	field_lst = ['validated'] + \
 		[v['lattice'] for v in lattice_to_dcp['RawSequenceFile'].values() if isinstance(v, dict)]
 	file_objs = lattice.get_report(
@@ -1105,7 +1105,7 @@ def main():
 	# make directory named after dataset
 	logging.info('WRITING THE JSON FILES')
 	for d in dir_to_make:
-		os.mkdir('DCPoutput/' + dataset_id + '/' + d)
+		os.mkdir(f'{output_dir}/{dataset_id}/{d}')
 
 	# reformat links to use uuids and convert to DCP schema
 	for i in links:
@@ -1113,7 +1113,7 @@ def main():
 		i['schema_version'] = dcp_versions['links']
 		i['describedBy'] = 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_versions['links'])
 		first_id = i['links'][0]['process_id']
-		with open('DCPoutput/' + dataset_id + '/links/' + first_id + '_' + dt + '_' + dataset_id + '.json', 'w') as outfile:
+		with open(f'{output_dir}/{dataset_id}/links/{first_id}_{dt}_{dataset_id}.json', 'w') as outfile:
 			json.dump(i, outfile, indent=4)
 			outfile.close()
 
@@ -1122,7 +1122,7 @@ def main():
 
 	# write a json file for each object
 	for k in whole_dict.keys():
-		os.mkdir('DCPoutput/' + dataset_id + '/metadata/' + k)
+		os.mkdir(f'{output_dir}/{dataset_id}/metadata/{k}')
 		for o in whole_dict[k]:
 			if k == 'sequence_file':
 				if o.get('s3_uri'):
@@ -1137,40 +1137,40 @@ def main():
 			elif k == 'supplementary_file':
 				file_name = o['file_core']['file_name']
 				file_stats(file_name, o)
-				os.rename(file_name, 'DCPoutput/' + dataset_id + '/data/' + file_name)
+				os.rename(file_name, f'{output_dir}/{dataset_id}/data/{file_name}')
 				file_descript(o, k, dataset_id)
 			customize_fields(o, k)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_versions[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_versions[k], k)
-			with open('DCPoutput/' + dataset_id + '/metadata/' + k + '/' + o['provenance']['document_id'] + '_' + dt + '.json', 'w', encoding='utf8') as outfile:
+			with open(f'{output_dir}/{dataset_id}/metadata/{k}/{o["provenance"]["document_id"]}_{dt}.json', 'w', encoding='utf8') as outfile:
 				json.dump(o, outfile, indent=4, ensure_ascii=False)
 
 	# make a staging_area.json to meet DCP requirements
 	text = {
 		"is_delta": args.revision
 	}
-	with open('DCPoutput/' + dataset_id + '/staging_area.json', 'w', encoding='utf8') as outfile:
+	with open(f'{output_dir}/{dataset_id}/staging_area.json', 'w', encoding='utf8') as outfile:
 		json.dump(text, outfile, indent=4, ensure_ascii=False)
 
 	# logging.info a close approximation of the DCP metadata.tsv
 	logging.info('PREPARING MOCK DCP METADATA TSV')
-	tsv_report(dataset_id)
+	tsv_report(dataset_id, output_dir)
 
 	# report metadata not mapped to DCP schema
 	for k,v in not_incl.items():
 		not_incl[k] = list(v)
-	with open('DCPoutput/not_included.json', 'w') as outfile:
+	with open(f'{output_dir}/not_included.json', 'w') as outfile:
 		json.dump(not_incl, outfile, indent=4)
 
 	# report files that are not validated, and thus, not included in the mapping
 	if not_valid:
-		with open('DCPoutput/not_validated.txt', 'w') as outfile:
+		with open(f'{output_dir}/not_validated.txt', 'w') as outfile:
 			outfile.write('\n'.join(not_valid))
 
 	if not args.no_validate:
 		logging.info('VALIDATING AGAINST DCP SCHEMA')
-		dcp_errors = dcp_validation(dataset_id)
+		dcp_errors = dcp_validation(dataset_id, output_dir)
 		if dcp_errors != 0:
 			print('WARNING: {} files with DCP schema errors'.format(str(dcp_errors)))
 			if args.update:
@@ -1182,7 +1182,7 @@ def main():
 		if not args.data_only:
 			# transfer the metadata directory to the DCP Google Cloud project
 			logging.info('TRANSFERRING METADATA DIRECTORIES')
-			request_to_gcp.local_dir_transfer('DCPoutput/' + dataset_id)
+			request_to_gcp.local_dir_transfer(f'{output_dir}/{dataset_id}', output_dir)
 
 			if args.metadata_only:
 				sys.exit('Metadata directories transferred, data not transferred due to --metadata-only')
@@ -1202,10 +1202,9 @@ def main():
 		quit()
 
 if __name__ == '__main__':
-	if not os.path.isdir('DCPoutput'):
-		os.mkdir('DCPoutput')
+	output_dir = lattice.create_subdirectory('DCPmap')
 
-	logging.basicConfig(filename='DCPoutput/mapper.log', level=logging.INFO)
+	logging.basicConfig(filename=f'{output_dir}/mapper.log', level=logging.INFO)
 	logging.info('STARTED')
 	# set the current date time, used to version throughout
 	d_now = datetime.now(tz=timezone.utc).isoformat(timespec='auto')

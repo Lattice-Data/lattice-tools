@@ -122,9 +122,9 @@ def aws_file_transfer(dataset_id, file_uris):
     print(transferJobs)
 
 
-def local_dir_transfer(local_path, gcs_path=None):
+def local_dir_transfer(local_path, output_dir, gcs_path=None):
     if not gcs_path:
-        gcs_path = 'staging/' + local_path.replace('DCPoutput/','')
+        gcs_path = 'staging/' + local_path.replace(f'{output_dir}/','')
 
     bucket_name = 'broad-dsp-monster-hca-prod-lattice'
     bucket = storage.Client().bucket(bucket_name)
@@ -132,7 +132,7 @@ def local_dir_transfer(local_path, gcs_path=None):
     if os.path.isdir(local_path):
         for local_file in glob.glob(local_path + '/**'):
             if not os.path.isfile(local_file):
-                local_dir_transfer(local_file, gcs_path + "/" + os.path.basename(local_file))
+                local_dir_transfer(local_file, output_dir, gcs_path + "/" + os.path.basename(local_file))
             else:
                 remote_path = os.path.join(gcs_path, local_file[1 + len(local_path):])
                 blob = bucket.blob(remote_path)
