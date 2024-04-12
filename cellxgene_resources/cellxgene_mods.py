@@ -8,6 +8,16 @@ import subprocess
 from scipy import sparse
 
 
+portal_uns_fields = [
+    'citation',
+    'schema_reference',
+    'schema_version'
+]
+
+curator_uns_fields = [
+    'title'
+]
+
 portal_obs_fields = [
     'assay',
     'cell_type',
@@ -47,9 +57,9 @@ def determine_sparsity(x):
     return round(sparsity, 3)
 
 
-def evaluate_sparsity(adata):    
+def evaluate_sparsity(adata):
     max_sparsity = 0.5
-    
+
     sparsity = determine_sparsity(adata.X)
     report(f'X sparsity: {sparsity}')
     if sparsity > max_sparsity and type(adata.X) != sparse.csr_matrix:
@@ -69,31 +79,46 @@ def evaluate_sparsity(adata):
 
 
 def evaluate_data(adata):
+    min_maxs = {}
     if adata.raw:
-        report('raw min = ' + str(adata.raw.X.min()))
-        report('raw max = ' + str(adata.raw.X.max()))
+        raw_min = adata.raw.X.min()
+        raw_max = adata.raw.X.max()
+        report(f'raw min = {raw_min}')
+        report(f'raw max = {raw_max}')
+        min_maxs['raw'] = f'{raw_min}-{raw_max}'
         non_integer = np.any(~np.equal(np.mod(adata.raw.X.data, 1), 0))
     else:
         non_integer = np.any(~np.equal(np.mod(adata.X.data, 1), 0))
-    
+
     if non_integer == False:
         report('raw is all integers', 'GOOD')
     else:
         report('raw contains non-integer values', 'ERROR')
-    
-    report('X min = ' + str(adata.X.min()))
-    report('X max = ' + str(adata.X.max()))
-    
+
+    X_min = adata.raw.X.min()
+    X_max = adata.raw.X.max()
+    report(f'X min = {X_min}')
+    report(f'X max = {X_max}')
+    min_maxs['X'] = f'{X_min}-{X_max}'
+
     for l in adata.layers:
-        report(f'layers[{l}] min = ' + str(adata.layers[l].min()))
-        report(f'layers[{l}] max = ' + str(adata.layers[l].max()))
+        min = adata.raw.X.min()
+        max = adata.raw.X.max()
+        report(f'layers[{l}] min = {min}')
+        report(f'layers[{l}] max = {max}')
+        min_maxs[l] = f'{min}-{max}'
+
+    poss_dups = [k for k,v in min_maxs.items() if list(min_maxs.values()).count(v) > 1]
+    if poss_dups:
+        report(f'possible redundant layers: {poss_dups}','WARNING')
 
 
 def evaluate_uns_colors(adata):
     numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
 
-    for k in adata.uns.keys():
-        if k.endswith('_colors'):
+    colors_keys = [k for k in adata.uns.keys() if k.endswith('_colors')]
+    if colors_keys:
+        for k in colors_keys:
             colors = len(adata.uns[k])
             obs_field = k[:-(len('_colors'))]
 
@@ -102,11 +127,18 @@ def evaluate_uns_colors(adata):
             elif obs_field not in adata.obs.keys():
                 report(f'{obs_field} not found in obs, consider DELETING or RENAMING uns.{k}', 'ERROR')
             else:
+                valid = True
                 values = len(adata.obs[obs_field].unique())
                 if colors < values:
                     report(f'uns.{k} has only {str(colors)} colors but obs.{obs_field} has {str(values)} values', 'ERROR')
+                    valid = False
                 if adata.obs.dtypes[obs_field].name in numb_types:
                     report(f'uns.{k} is associated with non-categorical {obs_field}', 'ERROR')
+                    valid = False
+                if valid:
+                    report(f'uns.{k} defined appropriately', 'GOOD')
+    else:
+        report('no _colors keys defined')
 
 
 
