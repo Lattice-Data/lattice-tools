@@ -3,8 +3,7 @@ import re
 
 req_present = {
     'uns': [
-        'study_PI',
-        'unpublished' #suggesting this is removed
+        'study_PI'
     ],
     'obs': [
         'sample_ID',
@@ -53,7 +52,8 @@ req_enum = {
         'sequenced_fragment': [
             '3 prime tag',
             '5 prime tag',
-            'full length'
+            'full length',
+            'probe-based'
         ],
         'reference_genome': [
             'GRCh38', 'GRCh37',
