@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from dataclasses import dataclass
+from datetime import datetime
 
 
 EPILOG = """
@@ -151,6 +152,14 @@ def s3_exists(uri_info: URIMetaInfo) -> bool:
 
 
 def main(s3_uri_file):
+    log_file = f"{s3_uri_file}_outfile_s3_compress.log"
+    logging.basicConfig(filename=log_file, filemode='w', level=logging.INFO)
+    time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+    logging.info("Date and time of s3 compression run: " + time_date)
+    logging.captureWarnings(True)
+
+    files_not_changed = []
+
     if not local_exists([TEMP_DIR]):
         os.mkdir(TEMP_DIR)
 
@@ -180,6 +189,7 @@ def main(s3_uri_file):
                 S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
         else:
             print(f"INFO: Original file size {original_size} <= {compressed_size}, not uploading to S3")
+            files_not_changed.append(uri.full_uri)
 
         # remove h5ads
         if local_exists([TEMP_DIR, uri.file_name]):
@@ -191,6 +201,11 @@ def main(s3_uri_file):
 
         total_files -= 1
         print("=====================================")
+
+    with open(log_file, 'a') as f:
+        f.write("Files not uploaded due to original size <= compressed size :\n")
+        for uri in files_not_changed:
+            f.write(f"{uri}\n")
 
 
 args = getArgs()
