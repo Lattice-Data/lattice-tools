@@ -281,7 +281,7 @@ def download_directory(download_url, directory):
 # Compile all reference annotations for var features into one pandas df
 def compile_annotations(files):
 	ids = pd.DataFrame()
-	urls = 'https://github.com/chanzuckerberg/single-cell-curation/raw/main/cellxgene_schema_cli/cellxgene_schema/ontology_files/'
+	urls = 'https://github.com/chanzuckerberg/single-cell-curation/raw/main/cellxgene_schema_cli/cellxgene_schema/gencode_files/'
 	for key in files:
 		filename = mtx_dir + "/" + files[key] + ".gz"
 		if os.path.exists(filename) == False:
@@ -1195,6 +1195,13 @@ def main(mfinal_id):
 		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
 		spatial_lib = list(cxg_uns['spatial'].keys())[0]
 		cxg_uns['image'] = cxg_uns['spatial'][spatial_lib]['images']['hires']
+		# Moving spacial metadata from cxg_uns['spatial']
+		cxg_uns['spatial_metadata'] = cxg_uns['spatial'][spatial_lib]['metadata']
+		# Deleting unwanted spacial information, including metadata, from spatial
+		del cxg_uns['spatial'][spatial_lib]['metadata']
+		del cxg_uns['spatial'][spatial_lib]['images']['lowres']
+		del cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
+		del cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
 	cxg_obsm = mfinal_adata.obsm.copy()
 	if mfinal_obj['assays'] == ['spatial transcriptomics']:
 		if 'spatial' in cxg_adata_lst[0].obsm.keys():
