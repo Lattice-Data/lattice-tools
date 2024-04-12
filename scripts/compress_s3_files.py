@@ -90,14 +90,19 @@ def get_file_metadata(uri_info: URIMetaInfo):
     :param uri_info: URIMetaInfo object, uses proper attributes below
     :return: None, object attribute updated
     """
-    uri_info.metadata = S3_CLIENT.get_object_attributes(
-        Bucket=uri_info.bucket_name, 
-        Key=uri_info.file_path,
-        ObjectAttributes=["ObjectSize"]
-    )
-    print(f"Processing file {uri_info.file_name} ...")
-    print(f"Last Modified: {uri_info.metadata['LastModified']}")
-    print(f"Object Size: {uri_info.metadata['ObjectSize']}")
+    try:
+        uri_info.metadata = S3_CLIENT.get_object_attributes(
+            Bucket=uri_info.bucket_name, 
+            Key=uri_info.file_path,
+            ObjectAttributes=["ObjectSize"]
+        )
+    except S3_CLIENT.exceptions.NoSuchKey as e:
+        logging.error(f"{e}: Object key {uri_info.file_path} does not exist")
+        sys.exit(f"{e}: Object key {uri_info.file_path} does not exist")
+    else:
+        print(f"Processing file {uri_info.file_name} ...")
+        print(f"Last Modified: {uri_info.metadata['LastModified']}")
+        print(f"Object Size: {uri_info.metadata['ObjectSize']}")
 
 
 def compress_h5ad(h5ad: URIMetaInfo):
