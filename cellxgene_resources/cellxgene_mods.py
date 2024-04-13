@@ -95,15 +95,15 @@ def evaluate_data(adata):
     else:
         report('raw contains non-integer values', 'ERROR')
 
-    X_min = adata.raw.X.min()
-    X_max = adata.raw.X.max()
+    X_min = adata.X.min()
+    X_max = adata.X.max()
     report(f'X min = {X_min}')
     report(f'X max = {X_max}')
     min_maxs['X'] = f'{X_min}-{X_max}'
 
     for l in adata.layers:
-        min = adata.raw.X.min()
-        max = adata.raw.X.max()
+        min = adata.layers[l].min()
+        max = adata.layers[l].max()
         report(f'layers[{l}] min = {min}')
         report(f'layers[{l}] max = {max}')
         min_maxs[l] = f'{min}-{max}'
