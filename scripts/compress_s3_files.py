@@ -95,7 +95,7 @@ def get_file_metadata(uri_info: URIMetaInfo):
     )
     print(f"Processing file {uri_info.file_name} ...")
     print(f"Last Modified: {uri_info.metadata['LastModified']}")
-    print(f"Object Size: {uri_info.metadata['ObjectSize']}")
+    print(f"Object Size: {uri_info.metadata['ObjectSize']:,} bytes")
 
 
 def compress_h5ad(h5ad: URIMetaInfo):
@@ -182,7 +182,7 @@ def main(s3_uri_file):
             with open(os.path.join(TEMP_DIR, uri.new_file_name), "rb") as f:
                 S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
         else:
-            print(f"INFO: Original file size {original_size} <= {compressed_size}, not uploading to S3")
+            print(f"INFO: Original file size {original_size:,} <= {compressed_size:,}, not uploading to S3")
             files_not_changed.append(uri.full_uri)
 
         # remove h5ads
