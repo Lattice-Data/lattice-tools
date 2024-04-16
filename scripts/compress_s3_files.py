@@ -110,7 +110,7 @@ def compress_h5ad(h5ad: URIMetaInfo):
     print(f"Compressed {h5ad.new_file_name} to {TEMP_DIR}")
 
 
-def log_files_lists(s3_uris, index, files_not_changed, log_file):
+def log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file):
     """
     Appends to log file the S3 URIs not changed in place and the URIs not processed
     The URIs are appended one per line so it is easy to copy into another file to rerun this script
@@ -118,14 +118,16 @@ def log_files_lists(s3_uris, index, files_not_changed, log_file):
 
     :param s3_uris: list of URIMetaInfo objects generated from input txt
     :param index: int, use index from enumerate in main loop
+    :param files_changed: list of strs of the full URI for files uploaded to S3
     :param files_not_changed: list of strs of the full URI for files not changed on S3
     :param log_file: str, name of log file for this run
     :return: None, appends log file created for current run of script
     """
     remaining_uris = [uri.full_uri for uri in s3_uris[index:]]
     logging_info = {
-        "Files not uploaded due to original size <= compressed size:\n": files_not_changed,
-        "Files not processed due to error and/or script exit:\n" : remaining_uris
+        "Files uploaded to S3:\n": files_changed,
+        "Files NOT uploaded due to original size <= compressed size:\n": files_not_changed,
+        "Files NOT processed due to error and/or script exit:\n" : remaining_uris
     }
     with open(log_file, 'a') as f:
         for title, uris in logging_info.items():
@@ -150,6 +152,7 @@ def main(s3_uri_file):
 
     number_of_files = len(s3_uris)
     files_not_changed = []
+    files_changed = []
 
     for index, uri in enumerate(s3_uris):
         print(f"Remaining files to process: {number_of_files}")
@@ -159,7 +162,7 @@ def main(s3_uri_file):
             get_file_metadata(uri)
         except S3_CLIENT.exceptions.NoSuchKey as e:
             logging.error(f"{e}: Object key {uri.file_path} does not exist")
-            log_files_lists(s3_uris, index, files_not_changed, log_file)
+            log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file)
             sys.exit(f"{e}: Object key {uri.file_path} does not exist")
 
         # download
@@ -167,7 +170,7 @@ def main(s3_uri_file):
             download_file(uri)
         except subprocess.CalledProcessError as e:
             logging.error("ERROR: {} Failed to find file {} on S3".format(e, uri.full_uri))
-            log_files_lists(s3_uris, index, files_not_changed, log_file)
+            log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file)
             sys.exit("ERROR: {} Failed to find file {} on S3".format(e, uri.full_uri))
 
         # compress
@@ -181,6 +184,8 @@ def main(s3_uri_file):
             print(f"Uploading compressed h5ad to this object key: {uri.file_path}")
             with open(os.path.join(TEMP_DIR, uri.new_file_name), "rb") as f:
                 S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
+            print(f"INFO: File {uri.file_name} uploaded to S3")
+            files_changed.append(uri.full_uri)
         else:
             print(f"INFO: Original file size {original_size:,} <= {compressed_size:,}, not uploading to S3")
             files_not_changed.append(uri.full_uri)
@@ -194,7 +199,7 @@ def main(s3_uri_file):
         print("=====================================")
 
     # final logging list after loop completion
-    log_files_lists(s3_uris, len(s3_uris), files_not_changed, log_file)
+    log_files_lists(s3_uris, len(s3_uris), files_changed, files_not_changed, log_file)
 
 
 args = getArgs()
