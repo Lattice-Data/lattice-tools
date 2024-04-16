@@ -11,7 +11,7 @@ from datetime import datetime
 
 
 EPILOG = """
-This script will take a list of S3 URIs of uncompressed h5ad files as input, it will create a compressed h5ad
+This script will take a list of S3 URIs of uncompressed h5ad files in a txt file as input, it will create a compressed h5ad
 in a temp directory, and then upload and replace the original S3 h5ad with the compressed version. If the 
 compressed file is the same size or larger, the orginal file will be left in place.
 
