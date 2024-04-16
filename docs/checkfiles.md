@@ -43,7 +43,7 @@ exit
 ```
 Upon completion, download the report
 ```
-scp -i lattice_ec2.pem ec2-user@<Public DNS>:/mnt/<report txt> ./
+scp -i lattice_ec2.pem ec2-user@<Public DNS>:/mnt/outputs/checkfiles/<report txt> ./
 ```
 Put the report in the [Checkfiles Drive](https://drive.google.com/drive/u/2/folders/1iomrTnd11hAH6S2iOMKciU6Llg1BZorP)
 Get the instance ID and terminate the instance
