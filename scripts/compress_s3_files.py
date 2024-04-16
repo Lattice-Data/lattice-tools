@@ -134,6 +134,7 @@ def log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file):
             f.write(title)
             for uri in uris:
                 f.write(f"{uri}\n")
+            f.write("\n")
 
 
 def main(s3_uri_file):
@@ -181,13 +182,14 @@ def main(s3_uri_file):
 
         # only upload if compressed smaller than original
         if original_size > compressed_size:
+            print(f"INFO: Original size {original_size:,} > {compressed_size:,} compressed, uploading to S3")
             print(f"Uploading compressed h5ad to this object key: {uri.file_path}")
             with open(os.path.join(TEMP_DIR, uri.new_file_name), "rb") as f:
                 S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
             print(f"INFO: File {uri.file_name} uploaded to S3")
             files_changed.append(uri.full_uri)
         else:
-            print(f"INFO: Original file size {original_size:,} <= {compressed_size:,}, not uploading to S3")
+            print(f"INFO: Original size {original_size:,} <= {compressed_size:,} compressed, NOT uploading to S3")
             files_not_changed.append(uri.full_uri)
 
         # remove h5ads
