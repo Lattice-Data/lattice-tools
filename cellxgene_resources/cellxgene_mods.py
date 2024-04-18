@@ -18,6 +18,13 @@ curator_uns_fields = [
     'title'
 ]
 
+portal_var_fields = [
+    'feature_name',
+    'feature_reference',
+    'feature_biotype',
+    'feature_length'
+]
+
 portal_obs_fields = [
     'assay',
     'cell_type',
@@ -44,6 +51,21 @@ def report(mess, level=None):
         print(f'\033[1m{c}{level}:{mess}\033[0m')
     else:
         print(mess)
+
+
+def revise_cxg(adata):
+    for p in portal_uns_fields:
+        del adata.uns[p]
+
+    portal_obs_fields.append('observation_joinid')
+    adata.obs.drop(columns=portal_obs_fields, inplace=True)
+    adata.var.drop(columns=portal_var_fields, inplace=True)
+
+    if adata.raw:
+        adata.raw.var.drop(columns=portal_var_fields, inplace=True)
+
+
+    return adata
 
 
 def determine_sparsity(x):
