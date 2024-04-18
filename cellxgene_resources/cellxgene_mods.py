@@ -197,7 +197,7 @@ def map_filter_gene_ids(adata):
 
 def barcode_compare(ref_df, obs_df):
     obs_df_split = obs_df.index.str.split('([ACTG]{16})')
-    barcodes = pd.DataFrame([b for l in obs_df_split for b in l if re.match(r".*[ACTG]{16}.*", b)])    
+    barcodes = pd.DataFrame([b for l in obs_df_split for b in l if re.match(r".*[ACTG]{16}.*", b)])
     if barcodes.empty:
         return pd.DataFrame({'summary':['no barcode'] * len(obs_df)})
     else:
