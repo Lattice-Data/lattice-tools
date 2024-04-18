@@ -18,6 +18,13 @@ curator_uns_fields = [
     'title'
 ]
 
+portal_var_fields = [
+    'feature_name',
+    'feature_reference',
+    'feature_biotype',
+    'feature_length'
+]
+
 portal_obs_fields = [
     'assay',
     'cell_type',
@@ -44,6 +51,21 @@ def report(mess, level=None):
         print(f'\033[1m{c}{level}:{mess}\033[0m')
     else:
         print(mess)
+
+
+def revise_cxg(adata):
+    for p in portal_uns_fields:
+        del adata.uns[p]
+
+    adata.obs.drop(columns=portal_obs_fields, inplace=True)
+    adata.obs.drop(columns='observation_joinid', inplace=True)
+    adata.var.drop(columns=portal_var_fields, inplace=True)
+
+    if adata.raw:
+        adata.raw.var.drop(columns=portal_var_fields, inplace=True)
+
+
+    return adata
 
 
 def determine_sparsity(x):
@@ -175,7 +197,7 @@ def map_filter_gene_ids(adata):
 
 def barcode_compare(ref_df, obs_df):
     obs_df_split = obs_df.index.str.split('([ACTG]{16})')
-    barcodes = pd.DataFrame([b for l in obs_df_split for b in l if re.match(r".*[ACTG]{16}.*", b)])    
+    barcodes = pd.DataFrame([b for l in obs_df_split for b in l if re.match(r".*[ACTG]{16}.*", b)])
     if barcodes.empty:
         return pd.DataFrame({'summary':['no barcode'] * len(obs_df)})
     else:
