@@ -27,6 +27,13 @@ For more details:
 S3_CLIENT = boto3.client("s3")
 TEMP_DIR = "temp_dir"
 
+# initial logging setup to then use within functions
+# console print and logging all handled through logging setup,
+# no repetition of print and logging statements
+# debug level will print to console for updates while running
+# info level to console and log to record most important info
+logging.captureWarnings(capture=True)
+logger = logging.getLogger('compress_s3_files')
 
 @dataclass
 class URIMetaInfo:
@@ -71,14 +78,14 @@ def download_file(uri_info: URIMetaInfo):
     :param uri_info: URIMetaInfo object, uses proper attributes below
     :return: None, downloads file
     """
-    print(uri_info.file_name + " downloading ...")
+    logger.debug(uri_info.file_name + " downloading ...")
 
     S3_CLIENT.download_file(
         uri_info.bucket_name, 
         uri_info.file_path, 
         TEMP_DIR + "/" + uri_info.file_name
     )
-    print(uri_info.file_name + " downloaded")
+    logger.debug(uri_info.file_name + " downloaded")
 
 
 def get_file_metadata(uri_info: URIMetaInfo):
@@ -93,9 +100,9 @@ def get_file_metadata(uri_info: URIMetaInfo):
         Key=uri_info.file_path,
         ObjectAttributes=["ObjectSize"]
     )
-    print(f"Processing file {uri_info.file_name} ...")
-    print(f"Last Modified: {uri_info.metadata['LastModified']}")
-    print(f"Object Size: {uri_info.metadata['ObjectSize']:,} bytes")
+    logger.info(f"Processing file {uri_info.file_name} ...")
+    logger.info(f"Last Modified: {uri_info.metadata['LastModified']}")
+    logger.info(f"Object Size: {uri_info.metadata['ObjectSize']:,} bytes")
 
 
 def compress_h5ad(h5ad: URIMetaInfo):
@@ -107,7 +114,7 @@ def compress_h5ad(h5ad: URIMetaInfo):
     """
     adata = sc.read_h5ad(os.path.join(TEMP_DIR, h5ad.file_name))
     sc.write(os.path.join(TEMP_DIR, h5ad.new_file_name), adata, compression="gzip")
-    print(f"Compressed {h5ad.new_file_name} to {TEMP_DIR}")
+    logger.debug(f"Compressed {h5ad.new_file_name} to {TEMP_DIR}")
 
 
 def log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file):
@@ -124,13 +131,13 @@ def log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file):
     :return: None, appends log file created for current run of script
     """
     remaining_uris = [uri.full_uri for uri in s3_uris[index:]]
-    logging_info = {
+    logging_sections = {
         "Files uploaded to S3:\n": files_changed,
         "Files NOT uploaded due to original size <= compressed size:\n": files_not_changed,
         "Files NOT processed due to error and/or script exit:\n" : remaining_uris
     }
     with open(log_file, 'a') as f:
-        for title, uris in logging_info.items():
+        for title, uris in logging_sections.items():
             f.write(title)
             for uri in uris:
                 f.write(f"{uri}\n")
@@ -140,10 +147,23 @@ def log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file):
 def main(s3_uri_file):
     # set up logging
     log_file = f"{s3_uri_file}_outfile_s3_compress.log"
-    logging.basicConfig(filename=log_file, filemode='w', level=logging.INFO)
     time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
-    logging.info("Date and time of s3 compression run: " + time_date)
-    logging.captureWarnings(False)
+    logger.setLevel(logging.DEBUG)
+
+    fh = logging.FileHandler(log_file, mode='w')
+    fh.setLevel(logging.INFO)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+
+    file_formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)-7s - %(message)s")
+    console_formatter = logging.Formatter("%(name)s - %(message)s")
+    ch.setFormatter(console_formatter)
+    fh.setFormatter(file_formatter)
+
+    logger.addHandler(ch)
+    logger.addHandler(fh)
+    logger.info("Date and time of s3 compression run: " + time_date)
 
     if not os.path.exists(TEMP_DIR):
         os.mkdir(TEMP_DIR)
@@ -156,23 +176,23 @@ def main(s3_uri_file):
     files_changed = []
 
     for index, uri in enumerate(s3_uris):
-        print(f"Remaining files to process: {number_of_files}")
+        logger.debug(f"Remaining files to process: {number_of_files}")
 
         # get object metadata
         try:
             get_file_metadata(uri)
         except S3_CLIENT.exceptions.NoSuchKey as e:
-            logging.error(f"{e}: Object key {uri.file_path} does not exist")
+            logger.error(f"{e}: Object key {uri.file_path} does not exist")
             log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file)
-            sys.exit(f"{e}: Object key {uri.file_path} does not exist")
+            sys.exit(f"{e}: Exiting script")
 
         # download
         try:
             download_file(uri)
         except subprocess.CalledProcessError as e:
-            logging.error("ERROR: {} Failed to find file {} on S3".format(e, uri.full_uri))
+            logger.error("ERROR: {} Failed to find file {} on S3".format(e, uri.full_uri))
             log_files_lists(s3_uris, index, files_changed, files_not_changed, log_file)
-            sys.exit("ERROR: {} Failed to find file {} on S3".format(e, uri.full_uri))
+            sys.exit("Exiting script")
 
         # compress
         compress_h5ad(uri)
@@ -182,23 +202,23 @@ def main(s3_uri_file):
 
         # only upload if compressed smaller than original
         if original_size > compressed_size:
-            print(f"INFO: Original size {original_size:,} > {compressed_size:,} compressed, uploading to S3")
-            print(f"Uploading compressed h5ad to this object key: {uri.file_path}")
+            logger.info(f"Original size {original_size:,} > {compressed_size:,} compressed, uploading to S3")
+            logger.debug(f"Uploading compressed h5ad to this object key: {uri.file_path}")
             with open(os.path.join(TEMP_DIR, uri.new_file_name), "rb") as f:
                 S3_CLIENT.upload_fileobj(f, uri.bucket_name, uri.file_path)
-            print(f"INFO: File {uri.file_name} uploaded to S3")
+            logger.debug(f"File {uri.file_name} uploaded to S3")
             files_changed.append(uri.full_uri)
         else:
-            print(f"INFO: Original size {original_size:,} <= {compressed_size:,} compressed, NOT uploading to S3")
+            logger.info(f"Original size {original_size:,} <= {compressed_size:,} compressed, NOT uploading to S3")
             files_not_changed.append(uri.full_uri)
 
         # remove h5ads
         os.remove(os.path.join(TEMP_DIR, uri.file_name))
         os.remove(os.path.join(TEMP_DIR, uri.new_file_name))
-        print(f"Removed files {uri.file_name} and {uri.new_file_name} from {TEMP_DIR}")
+        logger.debug(f"Removed files {uri.file_name} and {uri.new_file_name} from {TEMP_DIR}")
 
         number_of_files -= 1
-        print("=====================================")
+        logger.info("===============================================")
 
     # final logging list after loop completion
     log_files_lists(s3_uris, len(s3_uris), files_changed, files_not_changed, log_file)
