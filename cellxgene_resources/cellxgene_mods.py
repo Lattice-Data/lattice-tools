@@ -1,9 +1,11 @@
 import anndata as ad
 import json
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
 import re
+import scanpy as sc
 import subprocess
 from scipy import sparse
 
@@ -174,6 +176,8 @@ def map_filter_gene_ids(adata):
     adata.var.rename(index=my_gene_map, inplace=True)
 
     #filter out genes
+    if not adata.var.index.name:
+        adata.var.index.name = 'ensembl_id'
     index_name = adata.var.index.name
     adata.var.reset_index(inplace=True)
     var_to_keep = adata.var[adata.var[index_name].isin(approved['feature_id'])].index #what if it's not called 'gene_ids'
@@ -184,6 +188,8 @@ def map_filter_gene_ids(adata):
         raw_adata = ad.AnnData(adata.raw.X, var=adata.raw.var, obs=adata.obs) #do we need to define obs?
         my_gene_map = {k:v for k,v in v44_gene_map.items() if k in raw_adata.var.index and v not in raw_adata.var.index}
         raw_adata.var.rename(index=my_gene_map, inplace=True)
+        if not raw_adata.var.index.name:
+            raw_adata.var.index.name = 'ensembl_id'
         index_name = raw_adata.var.index.name
         raw_adata.var.reset_index(inplace=True)
         var_to_keep = raw_adata.var[raw_adata.var[index_name].isin(approved['feature_id'])].index
@@ -362,6 +368,35 @@ def pick_embed(keys):
         elif 'umap' in k.lower():
             return k
     return keys[0]
+
+
+def plot_vis(adata, cellpop_field):
+    ncols = 2
+    nrows = 1
+    figsize = 4
+    wspace = 0.5
+    fig, axs = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(ncols * figsize + figsize * wspace * (ncols - 1), nrows * figsize),
+    )
+    plt.subplots_adjust(wspace=wspace)
+    lib = [k for k in adata.uns['spatial'].keys() if k != 'is_single'][0]
+
+    sc.pl.spatial(adata, ax=axs[0], library_id=lib, color=cellpop_field, show=False)
+    sc.pl.spatial(adata, ax=axs[1], library_id=lib)
+
+    if 'fullres' in adata.uns['spatial'][lib]['images']:
+        fig, axs = plt.subplots(
+            nrows=nrows,
+            ncols=ncols,
+            figsize=(ncols * figsize + figsize * wspace * (ncols - 1), nrows * figsize),
+        )
+        plt.subplots_adjust(wspace=wspace)
+        sc.pl.spatial(adata, ax=axs[0], library_id=lib, img_key='fullres', scale_factor=1, color=cellpop_field, show=False)
+        sc.pl.spatial(adata, ax=axs[1], library_id=lib, img_key='fullres', scale_factor=1)
+    else:
+        report('fullres image is highly recommended', 'WARNING')
 
 
 def validate(file):
