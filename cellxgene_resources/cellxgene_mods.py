@@ -406,8 +406,10 @@ def validate(file):
     for line in validate_process.stderr.decode('utf-8').split('\n'):
         if line.endswith('is_valid=True'):
             report(line, 'GOOD')
+            return True
         elif line.endswith('is_valid=False'):
             report(line, 'ERROR')
+            return False
         else:
             prefix = line.split(':')[0]
             if prefix in ['ERROR','WARNING']:
