@@ -593,7 +593,7 @@ def main(dataset):
 	print("CALCULATING PROTOCOLS")
 	geo_protocols = calculate_protocols(geo_protocols, geo_samples)
 
-	# Collapse platform meatadata
+	# Collapse platform metadata
 	collapse = []
 	for c in geo_samples.columns:	
 		if c.startswith('instrument model'):
