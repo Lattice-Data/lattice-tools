@@ -20,169 +20,7 @@ import json
 import numbers
 import flattener_mods as fm
 
-# Reference files by which the flattener will filter var features
-ref_files = {
-	'ercc':'genes_ercc.csv',
-	'human':'genes_homo_sapiens.csv',
-	'mouse':'genes_mus_musculus.csv',
-	'sars':'genes_sars_cov_2.csv'
-}
-
-# Metadata to be gathered for each object type
-cell_metadata = {
-	'donor': [
-		'donor_id',
-		'age_display',
-		'sex',
-		'ethnicity',
-		'causes_of_death.term_name',
-		'diseases.term_id',
-		'diseases.term_name',
-		'family_medical_history',
-		'living_at_sample_collection',
-		'menopausal_status',
-		'organism.taxon_id',
-		'risk_score_tyrer_cuzick_lifetime',
-		'smoker',
-		'times_pregnant'
-		],
-	'sample': [
-		'age_development_stage_redundancy',
-		'uuid',
-		'preservation_method',
-		'biosample_ontology.term_id',
-		'biosample_ontology.organ_slims',
-		'summary_development_ontology_at_collection.development_slims',
-		'summary_development_ontology_at_collection.term_id',
-		'derivation_process',
-		'diseases.term_id',
-		'diseases.term_name',
-		'disease_state',
-		'menstrual_phase_at_collection',
-		'source',
-		'summary_body_mass_index_at_collection',
-		'treatment_summary',
-		'growth_medium',
-		'genetic_modifications',
-		'@type'
-		],
-	'tissue_section': [
-		'uuid',
-		'thickness',
-		'thickness_units'
-	],
-	'suspension': [
-		'cell_depletion_factors',
-		'depleted_cell_types.term_name',
-		'derivation_process',
-		'dissociation_reagent',
-		'dissociation_time',
-		'dissociation_time_units',
-		'enriched_cell_types.term_name',
-		'enrichment_factors',
-		'percent_cell_viability',
-		'uuid',
-		'suspension_type',
-		'tissue_handling_interval',
-		'@id'
-		],
-	'library': [
-		'uuid',
-		'protocol.assay_ontology.term_id',
-		'starting_quantity',
-		'starting_quantity_units',
-		'@id'
-	],
-	'raw_matrix': [
-		'assembly',
-		'genome_annotation',
-		'software'
-	],
-	'seq_run': [
-		'platform'
-	]
-}
-
-dataset_metadata = {
-	'final_matrix': [
-		'description',
-		'default_embedding',
-		'is_primary_data'
-		]
-	}
-
-annot_fields = [
-	'cell_ontology.term_id',
-	'author_cell_type',
-	'cell_state'
-]
-
-antibody_metadata = {
-	'antibody': [
-		'oligo_sequence',
-		'host_organism',
-		'source',
-		'product_ids',
-		'clone_id',
-		'control',
-		'isotype'
-	],
-	'target': [
-		'label',
-		'organism.scientific_name'
-	]
-}
-
-
-# Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
-prop_map = {
-	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
-	'sample_summary_development_ontology_at_collection_term_id': 'development_stage_ontology_term_id',
-	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
-	'sample_disease_state': 'disease_state',
-	'sample_summary_body_mass_index_at_collection': 'donor_BMI_at_collection',
-	'sample_growth_medium': 'growth_medium',
-	'sample_genetic_modifications': 'genetic_modifications',
-	'sample_menstrual_phase_at_collection': 'menstrual_phase_at_collection',
-	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
-	'donor_sex': 'sex',
-	'sample_@type': 'tissue_type',
-	'donor_donor_id': 'donor_id',
-	'donor_organism_taxon_id': 'organism_ontology_term_id',
-	'donor_ethnicity': 'self_reported_ethnicity_ontology_term_id',
-	'donor_age_display': 'donor_age',
-	'donor_risk_score_tyrer_cuzick_lifetime': 'tyrer_cuzick_lifetime_risk',
-	'donor_smoker': 'donor_smoking_status',
-	'donor_causes_of_death_term_name': 'donor_cause_of_death',
-	'matrix_description': 'title',
-	'matrix_default_embedding': 'default_embedding',
-	'matrix_is_primary_data': 'is_primary_data',
-	'cell_annotation_author_cell_type': 'author_cell_type',
-	'cell_annotation_cell_ontology_term_id': 'cell_type_ontology_term_id',
-	'cell_annotation_cell_state': 'cell_state',
-	'suspension_suspension_type': 'suspension_type',
-	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
-	'suspension_depleted_cell_types_term_name': 'suspension_depleted_cell_types',
-	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
-	'suspension_tissue_handling_interval': 'tissue_handling_interval',
-	'antibody_oligo_sequence': 'barcode',
-	'antibody_source': 'vendor',
-	'antibody_product_ids': 'vender_product_ids',
-	'antibody_clone_id': 'clone_id',
-	'antibody_isotype': 'isotype',
-	'antibody_host_organism': 'host_organism',
-	'target_organism_scientific_name': 'target_organism',
-	'raw_matrix_software': 'alignment_software',
-	'raw_matrix_genome_annotation': 'mapped_reference_annotation',
-	'raw_matrix_assembly': 'mapped_reference_assembly',
-	'seq_run_platform': 'sequencing_platform'
-}
-
 # Global variables
-unreported_value = 'unknown'
-schema_version = '3.0.0'
-flat_version = '5'
-mtx_dir = 'matrix_files'
 mfinal_obj = None
 mfinal_adata = None
 cxg_adata = None
@@ -263,7 +101,7 @@ def download_directory(download_url, directory):
 	spatial_folder = download_url.replace('s3://{}/'.format(bucket_name),"")
 	s3client = boto3.client("s3")
 	results = s3client.list_objects_v2(Bucket=bucket_name, Prefix=spatial_folder, Delimiter='/')
-	os.mkdir(mtx_dir+"/spatial")
+	os.mkdir(fm.MTX_DIR+"/spatial")
 	for file in results.get('Contents'):
 		if file.get('Size') == 0:
 			continue
@@ -283,7 +121,7 @@ def compile_annotations(files):
 	ids = pd.DataFrame()
 	urls = 'https://github.com/chanzuckerberg/single-cell-curation/raw/main/cellxgene_schema_cli/cellxgene_schema/gencode_files/'
 	for key in files:
-		filename = mtx_dir + "/" + files[key] + ".gz"
+		filename = fm.MTX_DIR + "/" + files[key] + ".gz"
 		if os.path.exists(filename) == False:
 			filename = urls + files[key] + '.gz'
 		df = pd.read_csv(filename, names = ['feature_id','symbol','start','stop'], dtype='str')
@@ -419,7 +257,7 @@ def concat_list(anndata_list,column,uns_merge):
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
 def report_diseases(mxr_df, exp_disease):
 	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: '[{}]'.format(','.join([i for i in set(x.split(',')) if i!=unreported_value])))
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: '[{}]'.format(','.join([i for i in set(x.split(',')) if i!=fm.UNREPORTED_VALUE])))
 	total_reported = mxr_df['reported_diseases'].unique()
 	if len(total_reported) == 1:
 		if total_reported[0] == '[]':
@@ -427,7 +265,7 @@ def report_diseases(mxr_df, exp_disease):
 	elif '[]' in total_reported:
 		mxr_df['reported_diseases'].replace({'[]':'none'}, inplace=True)
 
-	if exp_disease == unreported_value:
+	if exp_disease == fm.UNREPORTED_VALUE:
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
 		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
@@ -484,7 +322,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp):
 		for obj_type in obj_type_subset:
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
-		 		fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
+		 		values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
 		 	else:
 		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
@@ -675,11 +513,11 @@ def get_results_filename(mfinal_obj):
 		collection_id = dataset_objs[0].get('cellxgene_urls',[])[0]
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
 	if mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
-		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], flat_version)
+		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], fm.FLAT_VERSION)
 	elif collection_id:
-		results_file = '{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['accession'], flat_version)
+		results_file = '{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['accession'], fm.FLAT_VERSION)
 	else:
-		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], flat_version)
+		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], fm.FLAT_VERSION)
 	return results_file
 
 
@@ -692,7 +530,7 @@ def map_antibody():
 	for anti_mapping in mfinal_obj.get('antibody_mappings'):
 		values_to_add = {}
 		antibody = anti_mapping.get('antibody')
-		fm.gather_metdata('antibody', antibody_metadata['antibody'], values_to_add, [antibody], connection, prop_map)
+		values_to_add = fm.gather_metdata('antibody', fm.ANTIBODY_METADATA['antibody'], values_to_add, [antibody], connection)
 		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		if not antibody.get('control'):
 			target = None
@@ -703,11 +541,11 @@ def map_antibody():
 						target = [t]
 			else:
 				target = antibody.get('targets')
-			fm.gather_metdata('target', antibody_metadata['target'], values_to_add, target, connection, prop_map)
+			values_to_add = fm.gather_metdata('target', fm.ANTIBODY_METADATA['target'], values_to_add, target, connection)
 			values_to_add['feature_name'] = values_to_add['target_label']
 		else:
 			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
-			for val in antibody_metadata['target']:
+			for val in fm.ANTIBODY_METADATA['target']:
 				latkey = ('target_' + val).replace('.', '_')
 				key = prop_map.get(latkey, latkey)
 				values_to_add[key] = 'na'
@@ -755,7 +593,7 @@ def clean_obs():
 	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
 	for field in make_numeric:
 		if field in cxg_obs.columns:
-			if True in cxg_obs[field].str.contains('[<>-]|'+unreported_value+'|'+'pooled', regex=True).to_list():
+			if True in cxg_obs[field].str.contains('[<>-]|'+fm.UNREPORTED_VALUE+'|'+'pooled', regex=True).to_list():
 				if True not in cxg_obs[field].str.contains('[<>-]', regex=True).to_list():
 					cxg_obs[field].replace({'unknown':np.nan}, inplace=True) 
 					cxg_obs[field][np.where(cxg_obs[field].str.contains('pooled') == True)[0].tolist()] = np.nan
@@ -766,7 +604,7 @@ def clean_obs():
 	change_unreported = ['suspension_enriched_cell_types','suspension_depleted_cell_types','suspension_enrichment_factors','suspension_depletion_factors','disease_state','cell_state']
 	for field in change_unreported:
 		if field in cxg_obs.columns.to_list():
-			cxg_obs[field].replace({unreported_value: 'na'}, inplace=True)
+			cxg_obs[field].replace({fm.UNREPORTED_VALUE: 'na'}, inplace=True)
 	valid_tissue_types = ['tissue', 'organoid', 'cellculture']
 	cxg_obs['tissue_type'] = cxg_obs['tissue_type'].str.lower()
 	for i in cxg_obs['tissue_type'].unique().tolist():
@@ -798,12 +636,12 @@ def drop_cols(celltype_col):
 	
 	if 'sequencing_platform' in cxg_obs.columns:
 		if cxg_obs['sequencing_platform'].isnull().values.any():
-			cxg_obs['sequencing_platform'].fillna(unreported_value, inplace=True)
+			cxg_obs['sequencing_platform'].fillna(fm.UNREPORTED_VALUE, inplace=True)
 	for col in optional_columns:
 		if col in cxg_obs.columns.to_list():
 			col_content = cxg_obs[col].unique()
 			if len(col_content) == 1:
-				if col_content[0] == unreported_value or col_content[0] == '[' + unreported_value + ']' or col_content[0] == '[]':
+				if col_content[0] == fm.UNREPORTED_VALUE or col_content[0] == '[' + fm.UNREPORTED_VALUE + ']' or col_content[0] == '[]':
 					cxg_obs.drop(columns=col, inplace=True)
 
 	if len(cxg_obs['donor_age_redundancy'].unique()) == 1:
@@ -899,19 +737,19 @@ def main(mfinal_id):
 	results = {}
 	
 	# Checking for presence of matrix_files, and creating if not present
-	if os.path.exists(mtx_dir) == False:
-		os.mkdir(mtx_dir)
+	if os.path.exists(fm.MTX_DIR) == False:
+		os.mkdir(fm.MTX_DIR)
 		
 	# Checking for presence of h5ad, and downloading if not present
-	if os.path.exists(mtx_dir + '/' + mfinal_obj['accession'] + '.h5ad'):
+	if os.path.exists(fm.MTX_DIR + '/' + mfinal_obj['accession'] + '.h5ad'):
 		print(mfinal_obj['accession'] + '.h5ad' + ' was found locally')
 	else:
-		download_file(mfinal_obj, mtx_dir)
+		download_file(mfinal_obj, fm.MTX_DIR)
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
 	file_ext = file_url.split('.')[-1]
-	mfinal_local_path = '{}/{}.{}'.format(mtx_dir, mfinal_obj['accession'], file_ext)
+	mfinal_local_path = '{}/{}.{}'.format(fm.MTX_DIR, mfinal_obj['accession'], file_ext)
 	mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = mfinal_adata.obs.index.to_list()
 
@@ -932,14 +770,14 @@ def main(mfinal_id):
 		values_to_add = {}
 
 		# Get raw matrix metadata
-		fm.gather_metdata('raw_matrix', cell_metadata['raw_matrix'], values_to_add, [mxr], connection, prop_map)
+		values_to_add = fm.gather_metdata('raw_matrix', fm.CELL_METADATA['raw_matrix'], values_to_add, [mxr], connection)
 
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
 		if 'demultiplexed_donor_column' in mfinal_obj:
 			lib_obj = relevant_objects.get('library', [])
-			fm.gather_metdata('library', cell_metadata['library'], values_to_add, lib_obj, connection, prop_map)
+			values_to_add = fm.gather_metdata('library', fm.CELL_METADATA['library'], values_to_add, lib_obj, connection)
 			for i in range(len(lib_obj)):
 				for single_lib_susp in lib_obj[i]['derived_from']:
 					if lib_obj[i]['@id'] not in library_susp:
@@ -967,10 +805,10 @@ def main(mfinal_id):
 
 		# Gather metdata without demultiplexing
 		else:
-			for obj_type in cell_metadata.keys():
+			for obj_type in fm.CELL_METADATA.keys():
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
+					values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
 				elif len(objs) > 1:
 					# Check to make sure it is not multimodal before determining that it is pooled
 					if obj_type == 'library':
@@ -983,49 +821,49 @@ def main(mfinal_id):
 								single_obj = [o for o in objs if o.get('assay')=='snATAC-seq']
 							else:
 								single_obj = [o for o in objs if o.get('assay')=='snRNA-seq']
-							fm.gather_metdata(obj_type, cell_metadata[obj_type], values_to_add, single_obj, connection, prop_map)
+							values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, single_obj, connection)
 						else:
-							fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
+							fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
 					else:
-						fm.gather_pooled_metadata(obj_type, cell_metadata[obj_type], values_to_add, objs, connection, prop_map)
+						fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
 		if summary_assay in ['RNA','CITE']:
 			# Checking for presence of mxr file and downloading if not present
 			if mxr['s3_uri'].endswith('h5'):
-				if os.path.exists(mtx_dir + '/' + mxr_acc + '.h5'):
+				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5'):
 					print(mxr_acc + '.h5' + ' was found locally')
 				else:
-					download_file(mxr, mtx_dir)
+					download_file(mxr, fm.MTX_DIR)
 			elif mxr['s3_uri'].endswith('h5ad'):
-				if os.path.exists(mtx_dir + '/' + mxr_acc + '.h5ad'):
+				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5ad'):
 					print(mxr_acc + '.h5ad' + ' was found locally')
 				else:
-					download_file(mxr, mtx_dir)
+					download_file(mxr, fm.MTX_DIR)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				if mxr['s3_uri'].endswith('h5'):
 					mxr_name = '{}.h5'.format(mxr_acc)
 				elif mxr['s3_uri'].endswith('h5ad'):
 					mxr_name = '{}.h5ad'.format(mxr_acc)
 				# Checking for presence of spatial directory and redownloading if present
-				if os.path.exists(mtx_dir + '/spatial'):
-					shutil.rmtree(mtx_dir + '/spatial')
-				download_directory(mfinal_obj['spatial_s3_uri'], mtx_dir)
+				if os.path.exists(fm.MTX_DIR + '/spatial'):
+					shutil.rmtree(fm.MTX_DIR + '/spatial')
+				download_directory(mfinal_obj['spatial_s3_uri'], fm.MTX_DIR)
 				# If tissue_positions is present rename to tissue_positions_list and remove header
-				if os.path.exists(mtx_dir + '/spatial/tissue_positions.csv') == True:
-					fixed_file = pd.read_csv(mtx_dir + '/spatial/tissue_positions.csv', skiprows = 1, header = None)
-					fixed_file.to_csv(mtx_dir + '/spatial/tissue_positions_list.csv', header = False, index = False)
-					os.remove(mtx_dir + '/spatial/tissue_positions.csv')
+				if os.path.exists(fm.MTX_DIR + '/spatial/tissue_positions.csv') == True:
+					fixed_file = pd.read_csv(fm.MTX_DIR + '/spatial/tissue_positions.csv', skiprows = 1, header = None)
+					fixed_file.to_csv(fm.MTX_DIR + '/spatial/tissue_positions_list.csv', header = False, index = False)
+					os.remove(fm.MTX_DIR + '/spatial/tissue_positions.csv')
 				if 'spatial' in mfinal_adata.uns.keys():
 					del mfinal_adata.uns['spatial']
-				adata_raw = sc.read_visium(mtx_dir, count_file=mxr_name)
+				adata_raw = sc.read_visium(fm.MTX_DIR, count_file=mxr_name)
 			elif mxr['s3_uri'].endswith('h5'):
 				mxr_name = '{}.h5'.format(mxr_acc)
-				adata_raw = sc.read_10x_h5('{}/{}'.format(mtx_dir,mxr_name), gex_only = False)
+				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR,mxr_name), gex_only = False)
 			elif mxr['s3_uri'].endswith('h5ad'):
 				mxr_name = '{}.h5ad'.format(mxr_acc)
-				adata_raw = sc.read_h5ad('{}/{}'.format(mtx_dir,mxr_name))
+				adata_raw = sc.read_h5ad('{}/{}'.format(fm.MTX_DIR,mxr_name))
 			else:
 				logging.error('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
@@ -1112,7 +950,7 @@ def main(mfinal_id):
 
 	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = {}
-	fm.gather_metdata('matrix', dataset_metadata('final_matrix'), ds_results, [mfinal_obj])
+	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [mfinal_obj], connection)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
 
@@ -1130,7 +968,7 @@ def main(mfinal_id):
 		annot_lst = []
 		annot_lst.append(annot_obj)
 		annot_metadata = {}
-		fm.gather_metdata('cell_annotation', annot_fields, annot_metadata, annot_lst, connection, prop_map)
+		annot_metadata = fm.gather_metdata('cell_annotation', fm.ANNOT_FIELDS, annot_metadata, annot_lst, connection)
 		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
 		annot_df = pd.concat([annot_df, annot_row])
 
@@ -1249,7 +1087,7 @@ def main(mfinal_id):
 		lib_donor_df = cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
 		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp)
 
-		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease', unreported_value))
+		report_diseases(donor_df, mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(donor_df)
 
 		# Retain cell identifiers as index
@@ -1259,7 +1097,7 @@ def main(mfinal_id):
 			sys.exit('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(mfinal_adata.X.shape[0], cxg_obs.shape[0]))
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
-		report_diseases(df, mfinal_obj.get('experimental_variable_disease', unreported_value))
+		report_diseases(df, mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(df)
 		cxg_obs = pd.merge(cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left" )
 
@@ -1318,13 +1156,13 @@ def main(mfinal_id):
 	# For CITE, standardize antibody index and metadata and no filtering
 
 	if summary_assay == 'RNA':
-		compiled_annot = compile_annotations(ref_files)
+		compiled_annot = compile_annotations(fm.REF_FILES)
 		set_ensembl(redundant, mfinal_obj['feature_keys'])
 		add_zero()
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 	elif summary_assay == 'ATAC':
-		compiled_annot = compile_annotations(ref_files)
+		compiled_annot = compile_annotations(fm.REF_FILES)
 		cxg_adata_raw = filter_ensembl(cxg_adata_raw, compiled_annot)
 		cxg_adata = filter_ensembl(cxg_adata, compiled_annot)
 		cxg_adata.var['feature_is_filtered'] = False

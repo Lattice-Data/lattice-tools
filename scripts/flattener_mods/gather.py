@@ -2,6 +2,7 @@ import sys
 import pandas as pd
 import numpy as np
 import logging
+import flattener_mods.constants as constants
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -14,6 +15,11 @@ logger = logging.getLogger(__name__)
 def gather_rawmatrices(derived_from, connection):
 	'''
 	Utilize lattice parse_ids and get_report to get all the raw matrix objects at once
+
+	:param List[str] derived_from: Raw matrices up the experimental graph which the final matrix object is derived from
+	:param obj connection: Information for connecting to lattice database
+
+	:returns List[dict] my_raw_matrices: List of raw matrices which the final matrix object is derived from
 	'''
 	new_derived_from = []
 	field_lst = ['@id','accession','s3_uri','genome_annotation','libraries','derived_from']
@@ -36,6 +42,14 @@ def gather_rawmatrices(derived_from, connection):
 def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 	'''
 	Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
+
+	:param obj input_object: Object for which objects up the experimental graph will be gathered
+	:param obj mfinal_obj: Processed Matrix File object
+	:param obj connection: Information for connecting to lattice database
+	:param str start_type: Starting object type of input_object, if not specified defaults to None
+
+	:returns dict objs: Dictionary with metadata information of all objects up the experimental graph from input_object
+
 	'''
 	if start_type == None:
 		lib_ids = input_object['libraries']
@@ -141,9 +155,17 @@ def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 
 
 
-def gather_metdata(obj_type, properties, values_to_add, objs, connection, prop_map):
+def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 	'''
 	Gather object metadata, convert property name to cxg required field names
+
+	:prop str obj_type: Object type of object in objs
+	:prop List[str] properties: List of properties for which metadata needs to be gathered
+	:prop dict values_to_add: Dictionary containing properties as keys and metadata as values
+	:prop List[obj] objs: List containing singular obj for which metadata is being gathered
+	:prop obj connection: Information for connecting to lattice database
+
+	:returns dict values_to_add: Modified values_to_add dictionary with metadata to be returned
 	'''
 	obj = objs[0]
 	for prop in properties:
@@ -165,27 +187,38 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection, prop_m
 				ethnicity_list.sort()
 				value = ','.join(ethnicity_list)
 				latkey = (obj_type + '_' + prop).replace('.','_')
-				key = prop_map.get(latkey, latkey)
+				key = constants.PROP_MAP.get(latkey, latkey)
 				values_to_add[key] = value
 		elif prop == 'cell_ontology.term_id':
 			if value == 'NCIT:C17998':
 				value = 'unknown'
 			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
+			key = constants.PROP_MAP.get(latkey, latkey)
 			values_to_add[key] = value
 		else:
 			if isinstance(value, list):
 				value = ','.join(value)
 			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
+			key = constants.PROP_MAP.get(latkey, latkey)
 			values_to_add[key] = value
 
+	return values_to_add
 
 
-def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection, prop_map):
+
+def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection):
 	'''
 	Gather metadata for pooled objects
 	For required cxg fields, these need to be a single value, so development_stage_ontology_term_id needs to be a commnon slim
+
+	:prop str obj_type: Object type of object in objs
+	:prop List[str] properties: List of properties for which metadata needs to be gathered
+	:prop dict values_to_add: Dictionary containing properties as keys and metadata as values
+	:prop List[obj] objs: List containing singular obj for which metadata is being gathered
+	:prop obj connection: Information for connecting to lattice database
+
+	:returns dict values_to_add: Modified values_to_add dictionary with metadata to be returned
+
 	'''
 	dev_list = []
 	for prop in properties:
@@ -211,7 +244,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 		elif prop == 'ethnicity':
 			values_df = pd.DataFrame()
 			latkey = (obj_type + '_' + prop).replace('.','_')
-			key = prop_map.get(latkey, latkey)
+			key = constants.PROP_MAP.get(latkey, latkey)
 			for obj in objs:
 				ident = obj.get('@id')
 				ethnicity_list = []
@@ -246,7 +279,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				else:
 					value.append(v)
 			latkey = (obj_type + '_' + prop).replace('.', '_')
-			key = prop_map.get(latkey, latkey)
+			key = constants.PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
 			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
@@ -271,11 +304,18 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			else:
 				values_to_add[key] = next(iter(value_set))
 
+	return values_to_add
+
 
 
 def get_value(obj, prop):
 	'''
 	Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
+
+	:prop obj obj: Object for which the property value is desired
+	:prop str prop: The property value that is desired
+
+	:return varys depending on what is found when traversing the embeddings
 	'''
 	path = prop.split('.')
 	if len(path) == 1:
@@ -283,41 +323,41 @@ def get_value(obj, prop):
 			value = obj.get('@type')[0]
 			return value
 		else:
-			return obj.get(prop, unreported_value)
+			return obj.get(prop, constants.UNREPORTED_VALUE)
 	elif len(path) == 2:
 		key1 = path[0]
 		key2 = path[1]
 		if isinstance(obj.get(key1), list):
-			values = [i.get(key2, unreported_value) for i in obj[key1]]
+			values = [i.get(key2, constants.UNREPORTED_VALUE) for i in obj[key1]]
 			return list(set(values))
 		elif obj.get(key1):
-			value = obj[key1].get(key2, unreported_value)
+			value = obj[key1].get(key2, constants.UNREPORTED_VALUE)
 			return value
 		else:
-			return obj.get(key1,unreported_value)
+			return obj.get(key1,constants.UNREPORTED_VALUE)
 	elif len(path) == 3:
 		key1 = path[0]
 		key2 = path[1]
 		key3 = path[2]
 		if isinstance(obj.get(key1), list):
-			embed_objs = obj.get(key1, unreported_value)
+			embed_objs = obj.get(key1, constants.UNREPORTED_VALUE)
 			values = []
 			for embed_obj in embed_objs:
 				if isinstance(embed_obj.get(key2), list):
-					values += [k.get(key3, unreported_value) for k in embed_obj[key2]]
+					values += [k.get(key3, constants.UNREPORTED_VALUE) for k in embed_obj[key2]]
 				else:
-					values += embed_obj[key2].get(key3, unreported_value)
+					values += embed_obj[key2].get(key3, constants.UNREPORTED_VALUE)
 			return list(set(values))
 		# Will need to revisit cell culture and organoid values 
 		elif obj.get(key1):
-			embed_obj = obj.get(key1, unreported_value)
-			if isinstance(embed_obj.get(key2, unreported_value), list):
-				return [v.get(key3, unreported_value) for v in embed_obj[key2]]
-			elif embed_obj.get(key2, unreported_value) == unreported_value:
-				return unreported_value
+			embed_obj = obj.get(key1, constants.UNREPORTED_VALUE)
+			if isinstance(embed_obj.get(key2, constants.UNREPORTED_VALUE), list):
+				return [v.get(key3, constants.UNREPORTED_VALUE) for v in embed_obj[key2]]
+			elif embed_obj.get(key2, constants.UNREPORTED_VALUE) == constants.UNREPORTED_VALUE:
+				return constants.UNREPORTED_VALUE
 			else:
-				return embed_obj[key2].get(key3, unreported_value)
+				return embed_obj[key2].get(key3, constants.UNREPORTED_VALUE)
 		else:
-			return obj.get(key1, unreported_value)
+			return obj.get(key1, constants.UNREPORTED_VALUE)
 	else:
 		return 'unable to traverse more than 2 embeddings'
