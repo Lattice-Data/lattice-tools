@@ -33,6 +33,7 @@ def getArgs():
     	sys.exit()
     return args
 
+
 LIBRARY_METADATA = {
 	'sample': [
 		'biosample_ontology.term_name',
@@ -84,8 +85,6 @@ RAW_MATRIX = [
 	'assays'
 ]
 
-
-# Mapping of field name (object_type + "_" + property) and what needs to be in the final cxg h5ad
 PROP_MAP = {
 	'library_donors_age_display': 'age',
 	'library_donors_sex': 'sex',
@@ -106,14 +105,17 @@ PROP_MAP = {
 }
 
 
-# Global variables
 UNREPORTED_VALUE = ''
-output_dir = lattice.create_subdirectory('geo_metadata')
+OUTPUT_DIR = lattice.create_subdirectory('geo_metadata')
 
 
 def gather_objects(input_object, start_type=None):
 	"""
 	Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
+
+	:param input_object: the starting object from which to gather relevant objects
+	:param start_type: None or "suspension" to distinguish the object type of input_object
+	:return: a dictionary where key is the object type and value is a list of objects
 	"""
 	if start_type == None:
 		lib_ids = input_object['libraries']
@@ -201,6 +203,9 @@ def gather_rawmatrices(dataset):
 	Gather raw matrices by object type associated with dataset with following filtering:
 	 - 'background_barcodes_included' to select for filtered matrix from CR output
 	 - 'status' = 'in progress' to select for valid objects
+
+	 :param dataset: the dataset accession
+	 :return: list of filtered raw matrix files associated with given dataset
 	"""
 	my_raw_matrices = []
 	unfiltered_matrices = []
@@ -219,7 +224,11 @@ def gather_rawmatrices(dataset):
 
 def get_dataset(dataset, geo_study):
 	"""
-	Get dataset object to get dataset metadata for geo study metadata. Also gather all files for a quick sanity check of file count
+	Get dataset object to get dataset metadata for geo study metadata.
+
+	:param dataset: 
+	:param geo_study: dataframe containing metadata for the dataset
+	:return: list of original_files associated with dataset and updates geo_study dataframe with metadata
 	"""
 	dataset_id = '/datasets/{}/'.format(dataset)
 	field_lst = ['dataset_title', 'description', 'libraries', 'donor_count', 'corresponding_contributors', 'internal_contact', 'original_files']
@@ -249,7 +258,7 @@ def get_dataset(dataset, geo_study):
 		vals.append(con1)
 		
 	if results.get('internal_contact',None):
-		obj = lattice.get_object(results.get('internal_contact'), connection)
+		obj = results['internal_contact']
 		con2 = obj.get('first_name','')+' '+obj.get('last_name','')
 		keys.append('contributor')
 		vals.append(con2)
@@ -262,6 +271,10 @@ def get_dataset(dataset, geo_study):
 def get_value(obj, prop):
 	"""
 	Get property value for given object, can only traverse embedded objects that are embedded 2 levels in
+
+	:param obj: the object from which to get property field value
+	:param prop: the property field that is desired
+	:return: the value found for the property field
 	"""
 	path = prop.split('.')
 	if len(path) == 1:
@@ -317,6 +330,12 @@ def get_value(obj, prop):
 def gather_metadata(obj_type, properties, values_to_add, objs):
 	"""
 	Gather object metadata, convert property name to desired field names for geo metadata spreadsheet
+
+	:param obj_type: type of the object
+	:param properties: list of property fields
+	:param values_to_add: dictionary of property fields and values
+	:param objs: list of objects to obtain the property field values from
+	return: None, values_to_add is updated
 	"""
 	obj = objs[0]
 	for prop in properties:
@@ -341,6 +360,9 @@ def gather_metadata(obj_type, properties, values_to_add, objs):
 def get_filename(uri):
 	"""
 	Return last element if split by '/'
+
+	:param uri: uri
+	:return: last string of uri split by '/'
 	"""
 	l = uri.split('/')
 	return l[len(l)-1]
@@ -349,6 +371,12 @@ def get_filename(uri):
 def format_protocols(field, key, value, protocols_results):
 	"""
 	Format protocol metadata to desired geo spreadsheet format
+
+	:param field: the protocols field to be formatted
+	:param key: the key for each field
+	:param value: the value of the key for each field 
+	:param protocols_results: dictionary that contains the summary of the protocols and fields
+	:return protocols_results: the updated dictionary of protocol metadata
 	"""
 	if field in protocols_results.keys():
 		protocols_results[field] += "; "+key+':'+str(value)
@@ -360,6 +388,10 @@ def format_protocols(field, key, value, protocols_results):
 def calculate_protocols(geo_protocols, geo_samples):
 	"""
 	For single values in columns in 'raw_matrix' fields, move over to protocols dataframe
+
+	:param geo_protocols: dataframe containing metadata for the protocols
+	:param geo_samples: dataframe containing metadata for the samples
+	:return geo_protocols: the updated dataframe of protocol metadata
 	"""
 	protocols_input = {}
 	protocols_results = {}
@@ -387,6 +419,12 @@ def calculate_protocols(geo_protocols, geo_samples):
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs):
 	"""
 	Gather metadata for pooled objects, which will be a list within double quotes
+
+	:param obj_type: type of the objects from which metadata is to be gathered
+	:param properties: the list of property fields to be gathered
+	:param values_to_add: dictionary of property fields and values
+	:param objs: list of objects
+	:return: None, the values_to_add is updated
 	"""
 	dev_list = []
 	for prop in properties:
@@ -442,7 +480,6 @@ def main(dataset):
 	all_s3_uri = []
 	matrix_meta = pd.DataFrame()
 
-	# Get dataset metadata
 	all_files = get_dataset(dataset, geo_study)
 	print("Total files: {}".format(len(all_files)))
 
@@ -514,8 +551,7 @@ def main(dataset):
 
 	gc.collect()
 
-	# Merge fastq metadata to raw sequence files
-	# Add sequences to geo_md5
+	# Merge fastq metadata to raw sequence files and add sequences to geo_md5
 	print("MERGING FASTQ METADATA")
 	fastq_meta = pd.DataFrame(fastq_meta_list)
 	fastq_meta.set_index('new_index', inplace=True)
@@ -553,11 +589,11 @@ def main(dataset):
 			geo_samples.drop(columns=[col], inplace=True)
 	geo_samples.replace(fastq_meta['filename'].to_dict(), inplace=True)
 
-	print("CALCULATING PROTOCOLS")
 	# For single values in columns in 'raw_matrix' fields, move over to protocols dataframe
+	print("CALCULATING PROTOCOLS")
 	geo_protocols = calculate_protocols(geo_protocols, geo_samples)
 
-	# Collapse platform
+	# Collapse platform meatadata
 	collapse = []
 	for c in geo_samples.columns:	
 		if c.startswith('instrument model'):
@@ -567,9 +603,7 @@ def main(dataset):
 	ordered_cols = [c for c in geo_samples.columns if not c.startswith(('read_','index_'))] + [c for c in geo_samples.columns if c.startswith(('read_','index_'))]
 	geo_samples = geo_samples[ordered_cols]
 
-	# Write to files
-	# all_df = [geo_study,geo_samples,geo_sequences]
-	with open(output_dir + '/' + dataset+"_metadata.csv",'w') as f:
+	with open(OUTPUT_DIR + '/' + dataset+"_metadata.csv",'w') as f:
 		f.write("STUDY\n")
 		geo_study.to_csv(f, header=False, index=False)
 		f.write('\nSAMPLES\n')
@@ -579,10 +613,10 @@ def main(dataset):
 		f.write('\nPAIRED-END EXPERIMENTS\n')
 		geo_sequences.to_csv(f, index=False)
 
-	with open(output_dir + '/' + dataset+"_s3_uri.csv", "w") as f:
+	with open(OUTPUT_DIR + '/' + dataset+"_s3_uri.csv", "w") as f:
 		f.write('\n'.join(all_s3_uri))	
 
-	with open(output_dir + '/' + dataset+"_md5sum.csv",'w') as f:
+	with open(OUTPUT_DIR + '/' + dataset+"_md5sum.csv",'w') as f:
 		f.write('RAW FILES,,PROCESSED DATA FILES\n')
 		geo_md5.to_csv(f, index=False)
 
