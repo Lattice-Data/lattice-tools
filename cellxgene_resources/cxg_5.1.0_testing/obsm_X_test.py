@@ -3,11 +3,11 @@ QA testing for this issue:
 https://github.com/chanzuckerberg/single-cell-curation/pull/856
 """
 
-import numpy as np
 import pytest
 from fixtures.valid_adatas import (
     validator_with_all_adatas,
     validator_with_spatial_adatas,
+    validator_with_non_spatial_adata,
 )
 
 
@@ -25,17 +25,27 @@ def test_spatial_is_valid(validator_with_spatial_adatas):
     assert validator.errors == []
 
 
-def test_X_spatial_fails(validator_with_spatial_adatas):
+# X_ reserved, other key names should be allowed
+@pytest.mark.parametrize(
+    "obsm_key,expected", 
+    (
+        ("X_spatial", False),
+        ("x_spatial", True),
+        ("X_Spatial", False),
+        ("X__Spatial", False),
+        ("x__Spatial", True),
+        ("x__spatial", True),
+    )
+)
+def test_X_spatial_variations(validator_with_spatial_adatas, obsm_key, expected):
     validator = validator_with_spatial_adatas
-    validator.adata.obsm["X_spatial"] = validator.adata.obsm["spatial"]
-    validator.adata.uns["default_embedding"] = "X_spatial"
+    validator.adata.obsm[obsm_key] = validator.adata.obsm["spatial"]
+    validator.adata.uns["default_embedding"] = obsm_key
     validator.validate_adata()
-    assert validator.is_valid is False
-    assert validator.errors == [
-        "ERROR: Embedding key in 'adata.obsm' X_spatial cannot be used.",
-    ]
+    assert validator.is_valid is expected
 
 
+# will need further tie-in with uns['spatial']['is_single']
 def test_non_spatial_assay(validator_with_spatial_adatas):
     validator = validator_with_spatial_adatas
     validator.adata.obs["assay_ontology_term_id"] = "EFO:0009922"
@@ -46,3 +56,14 @@ def test_non_spatial_assay(validator_with_spatial_adatas):
     assert validator.errors == [
         "ERROR: At least one embedding in 'obsm' has to have a key with an 'X_' prefix.",
     ]
+
+
+@pytest.mark.parametrize("obsm_key", ("spatial", "X_spatial", "random_name"))
+def test_non_spatial_adata(validator_with_non_spatial_adata, obsm_key):
+    validator = validator_with_non_spatial_adata
+    validator.adata.obsm[obsm_key] = validator.adata.obsm["X_umap"]
+    del validator.adata.obsm["X_umap"]
+    del validator.adata.obsm["X_pca"]
+    del validator.adata.obsm["X_varimax"]
+    validator.validate_adata()
+    assert validator.is_valid is False
