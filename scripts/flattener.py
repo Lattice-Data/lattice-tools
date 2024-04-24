@@ -513,11 +513,11 @@ def get_results_filename(mfinal_obj):
 		collection_id = dataset_objs[0].get('cellxgene_urls',[])[0]
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
 	if mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
-		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], fm.FLAT_VERSION)
+		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['cellxgene_uuid'], mfinal_obj['accession'], fm.SCHEMA_VERSION)
 	elif collection_id:
-		results_file = '{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['accession'], fm.FLAT_VERSION)
+		results_file = '{}_{}_v{}.h5ad'.format(collection_id, mfinal_obj['accession'], fm.SCHEMA_VERSION)
 	else:
-		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], fm.FLAT_VERSION)
+		results_file = '{}_v{}.h5ad'.format(mfinal_obj['accession'], fm.SCHEMA_VERSION)
 	return results_file
 
 
@@ -948,11 +948,15 @@ def main(mfinal_id):
 			logging.error("RawMatrixFile: {}, {}".format(er, error_info[er]))
 		sys.exit()
 
-	# get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
+	# Get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = {}
 	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [mfinal_obj], connection)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
+
+	# Check if default_embedding is unreported_value, and if so remove
+	if ds_results['default_embedding'] == fm.UNREPORTED_VALUE:
+		del ds_results['default_embedding']
 
 	del ds_results['is_primary_data']
 

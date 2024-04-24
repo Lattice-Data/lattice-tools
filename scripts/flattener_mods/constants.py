@@ -1,5 +1,5 @@
 UNREPORTED_VALUE = 'unknown'
-FLAT_VERSION = '5'
+SCHEMA_VERSION = '5_1'
 MTX_DIR = 'matrix_files'
 
 # Reference files by which the flattener will filter var features
