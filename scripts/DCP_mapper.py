@@ -694,7 +694,7 @@ def unit_conversion(value, current_u, desired_u):
 	return curr.magnitude
 
 
-def customize_fields(obj, obj_type):
+def customize_fields(obj, obj_type, dataset_id):
 	if obj.get('provenance'):
 		obj['provenance']['submission_date'] = dt
 	else:
@@ -744,7 +744,7 @@ def customize_fields(obj, obj_type):
 					p['official_hca_publication'] = False
 		if obj.get('supplementary_links'):
 			for l in obj['supplementary_links']:
-				if l.startswith('https://data.humancellatlas.org'):
+				if l == f'https://explore.data.humancellatlas.org/projects/{dataset_id}':
 					obj['supplementary_links'].remove(l)
 
 	elif obj_type == 'donor_organism':
@@ -1139,7 +1139,7 @@ def main():
 				file_stats(file_name, o)
 				os.rename(file_name, f'{output_dir}/{dataset_id}/data/{file_name}')
 				file_descript(o, k, dataset_id)
-			customize_fields(o, k)
+			customize_fields(o, k, dataset_id)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_versions[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_versions[k], k)
