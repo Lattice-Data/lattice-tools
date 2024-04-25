@@ -694,7 +694,7 @@ def unit_conversion(value, current_u, desired_u):
 	return curr.magnitude
 
 
-def customize_fields(obj, obj_type):
+def customize_fields(obj, obj_type, dataset_id):
 	if obj.get('provenance'):
 		obj['provenance']['submission_date'] = dt
 	else:
@@ -744,7 +744,7 @@ def customize_fields(obj, obj_type):
 					p['official_hca_publication'] = False
 		if obj.get('supplementary_links'):
 			for l in obj['supplementary_links']:
-				if l.startswith('https://data.humancellatlas.org'):
+				if l == f'https://explore.data.humancellatlas.org/projects/{dataset_id}':
 					obj['supplementary_links'].remove(l)
 
 	elif obj_type == 'donor_organism':
@@ -1015,7 +1015,14 @@ def main():
 	dcp_projects = {
 		'2a13992b-c518-4f12-8536-09c92d51d707': '16e99159-78bc-44aa-b479-55a5e903bf50', # van Zyl et al 2022 (Sanes)
 		'49104d6a-0e30-4180-94b9-bf552b110686': 'dbd836cf-bfc2-41f0-9834-41cc6c0b235a', # Lavaert et al 2020
-		'e62da5d2-33fb-4a3d-bdd7-4daca3a042cd': '9c20a245-f2c0-43ae-82c9-2232ec6b594f' # Chen retina
+		'e62da5d2-33fb-4a3d-bdd7-4daca3a042cd': '9c20a245-f2c0-43ae-82c9-2232ec6b594f', # Chen retina
+		'320f295d-9667-4d64-a58c-e4e9bd051546': 'abe1a013-af7a-45ed-8c26-f3793c24a1f4', # Stewart et al 2019
+		'35c1d480-ceac-452e-b08a-f710029f73d9': '577c946d-6de5-4b55-a854-cd3fde40bff2', # Wilson et al 2019
+		'5efd8bd0-2125-4c61-bc8c-f03dbd8370da': '4bec484d-ca7a-47b4-8d48-8830e06ad6db', # Voigt et al 2019
+		'a4aee8b9-8d32-4e14-91e8-42961671edc1': 'c1810dbc-16d2-45c3-b45e-3e675f88d87b', # Park et al 2020
+		'a52f6a97-a674-4f46-a32d-77ce7b03092c': '8185730f-4113-40d3-9cc3-929271784c2b', # Lukowski et al 2019
+		'bdbe72d3-76f7-4dd7-bb5d-80cd02382399': 'ad98d3cd-26fb-4ee3-99c9-8a2ab085e737', # Litviňuková et al 2020
+		'c9aa45d0-cacd-4c0e-999c-f10df0609a31': '425c2759-db66-4c93-a358-a562c069b1f1'  # Guilliams et al 2022
 		}
 	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
 	ds_obj['uuid'] = dataset_id
@@ -1139,7 +1146,7 @@ def main():
 				file_stats(file_name, o)
 				os.rename(file_name, f'{output_dir}/{dataset_id}/data/{file_name}')
 				file_descript(o, k, dataset_id)
-			customize_fields(o, k)
+			customize_fields(o, k, dataset_id)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_versions[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_versions[k], k)
