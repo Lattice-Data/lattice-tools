@@ -51,8 +51,8 @@ class URIMetaInfo:
         self.bucket_name: str = self.full_uri.split("/")[2]
         self.file_path = self.full_uri.replace("s3://{}/".format(self.bucket_name), "")
         self.file_name = self.full_uri.split("/")[-1]
-        self.new_file_name = self.file_name.replace(".h5ad", "_curated.h5ad")
-        self.new_file_path = self.file_path.replace(".h5ad", "_curated.h5ad")
+        self.new_file_name = self.file_name.replace(".h5ad", "_compressed.h5ad")
+        self.new_file_path = self.file_path.replace(".h5ad", "_compressed.h5ad")
 
 
 def getArgs():
