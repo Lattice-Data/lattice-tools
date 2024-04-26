@@ -249,7 +249,7 @@ def concat_list(anndata_list,column,uns_merge):
 	if len(redundants)>0:
 		logging.error('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
 		sys.exit('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
-	drop_columns = [c for c in concat_result.obs.columns if c!='raw_matrix_accession']
+	drop_columns = [c for c in concat_result.obs.columns if c not in ['raw_matrix_accession','in_tissue','array_row','array_col']]
 	if drop_columns:
 		concat_result.obs.drop(columns=drop_columns, inplace=True)
 	return concat_result
@@ -650,7 +650,7 @@ def drop_cols(celltype_col):
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
 			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
-			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy','in_tissue','array_row','array_col']
+			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
 	for column_drop in  columns_to_drop: 
 		if column_drop in cxg_obs.columns.to_list():
 			cxg_obs.drop(columns=column_drop, inplace=True)
@@ -697,12 +697,72 @@ def check_matrix(m):
 	return m
 
 
+# If spatial transcriptomics, add adata.uns['spatial'] fields and eventually add full res
+def process_spatial():
+	global cxg_adata_raw
+	global cxg_obs
+	global cxg_obsm
+	global mfinal_adata
+	global cxg_uns
+	if cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
+		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
+		spatial_lib = list(cxg_uns['spatial'].keys())[0]
+		# Moving spacial metadata from cxg_uns['spatial']
+		cxg_uns['spatial_metadata'] = cxg_uns['spatial'][spatial_lib]['metadata']
+		# Deleting unwanted spacial information, including metadata, from spatial
+		del cxg_uns['spatial'][spatial_lib]['metadata']
+		del cxg_uns['spatial'][spatial_lib]['images']['lowres']
+		del cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
+		del cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
+
+	if cxg_obs['assay_ontology_term_id'].unique()[0] in ['EFO:0010961','EFO:0030062']:
+		library_id = list(cxg_uns['spatial'].keys())[0]
+		cxg_uns['spatial'][library_id]['is_single'] = True if len(cxg_obs['library_uuid'].unique())==1 else False
+
+
+# Add missing obs to mfinal_adata to match raw and also modify cxg_obsm to include missing obs
+def add_background_spots():
+	global cxg_adata
+	global cxg_adata_raw
+	global mfinal_adata
+	global cxg_obs
+	global cxg_obsm
+	global cxg_var
+
+	cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
+	if mfinal_adata.obs.shape[0] < 4992:
+		missing_barcodes = [i for i in cxg_adata_raw.obs.index.to_list() if i not in list(mfinal_adata.obs.index)]
+		empty_matrix = sparse.csr_matrix((len(missing_barcodes), mfinal_adata.var.shape[0]))
+		missing_adata = ad.AnnData(empty_matrix, var=mfinal_adata.var, obs=pd.DataFrame(index=missing_barcodes))
+		comb_adata = ad.concat([mfinal_adata, missing_adata], uns_merge='first', merge='first')
+		comb_adata = comb_adata[cxg_adata_raw.obs.index.to_list(),:]
+
+		for embed in mfinal_adata.obsm.keys():
+			new_array = np.empty((comb_adata.obs.shape[0], mfinal_adata.obsm[embed].shape[1]))
+			new_array[:] = np.nan
+			for orig_row in range(mfinal_adata.obs.shape[0]):
+				row = comb_adata.obs.index.get_loc(mfinal_adata.obs.iloc[orig_row].name)
+				new_array[row] = mfinal_adata.obsm[embed][orig_row,:]
+			comb_adata.obsm[embed] = new_array
+
+
+
+		mfinal_adata = comb_adata
+		cxg_obsm = mfinal_adata.obsm
+	cxg_obsm['spatial'] = cxg_adata_raw.obsm['spatial']
+	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+
+
+
 def main(mfinal_id):
 	global mfinal_obj
 	global mfinal_adata
 	global cxg_adata
 	global cxg_adata_raw
 	global cxg_obs
+	global cxg_obsm
+	global cxg_uns
+	global cxg_var
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
@@ -841,11 +901,9 @@ def main(mfinal_id):
 					print(mxr_acc + '.h5ad' + ' was found locally')
 				else:
 					download_file(mxr, fm.MTX_DIR)
+
+			mxr_name = '{}.h5'.format(mxr_acc) if mxr['s3_uri'].endswith('h5') else '{}.h5ad'.format(mxr_acc)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
-				if mxr['s3_uri'].endswith('h5'):
-					mxr_name = '{}.h5'.format(mxr_acc)
-				elif mxr['s3_uri'].endswith('h5ad'):
-					mxr_name = '{}.h5ad'.format(mxr_acc)
 				# Checking for presence of spatial directory and redownloading if present
 				if os.path.exists(fm.MTX_DIR + '/spatial'):
 					shutil.rmtree(fm.MTX_DIR + '/spatial')
@@ -858,11 +916,10 @@ def main(mfinal_id):
 				if 'spatial' in mfinal_adata.uns.keys():
 					del mfinal_adata.uns['spatial']
 				adata_raw = sc.read_visium(fm.MTX_DIR, count_file=mxr_name)
+
 			elif mxr['s3_uri'].endswith('h5'):
-				mxr_name = '{}.h5'.format(mxr_acc)
 				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR,mxr_name), gex_only = False)
 			elif mxr['s3_uri'].endswith('h5ad'):
-				mxr_name = '{}.h5ad'.format(mxr_acc)
 				adata_raw = sc.read_h5ad('{}/{}'.format(fm.MTX_DIR,mxr_name))
 			else:
 				logging.error('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
@@ -888,6 +945,7 @@ def main(mfinal_id):
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 			else:
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(adata_raw.obs_names.to_list()))
+
 			# Error check to see that cells in raw matrix match the cell in mfinal_adata
 			cell_mapping_dct = {}
 			if mfinal_obj.get('cell_label_mappings'):
@@ -929,7 +987,8 @@ def main(mfinal_id):
 				error_info[mxr.get('@id')] = mapping_label
 				error_info[mxr.get('@id')] += '; in_adata: {}, in_raw: {}, overlap: {}'.format(len(mfinal_with_label), len(concatenated_ids), len(overlapped_ids))
 			if not mapping_error:
-				adata_raw = adata_raw[overlapped_ids]
+				if not mfinal_obj.get('spatial_s3_uri', None):
+					adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				cxg_adata_lst.append(adata_raw)
        
@@ -995,10 +1054,11 @@ def main(mfinal_id):
 				if cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					logging.error('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
 					sys.exit('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
-		cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
-		if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
-			logging.error('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
-			sys.exit('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
+		if not mfinal_obj.get('spatial_s3_uri', None):
+			cxg_adata_raw = cxg_adata_raw[mfinal_cell_identifiers]
+			if cxg_adata_raw.shape[0] != mfinal_adata.shape[0]:
+				logging.error('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
+				sys.exit('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'CITE':
 		cxg_adata_raw = concat_list(cxg_adata_lst,'none',False)
 		if len(feature_lengths) == 1:
@@ -1031,30 +1091,12 @@ def main(mfinal_id):
 		else:
 			cxg_adata_raw = ad.AnnData(mfinal_adata.raw.X, var = mfinal_adata.var, obs = atac_obs)
 
-	# Set uns and obsm parameters, moving over spatial information if applicable
+	# Set uns and obsm parameters (obsm is originally set from mfinal_adata, since there may be other embeddings)
 	cxg_uns = ds_results
-	if 'spatial' in cxg_adata_raw.uns.keys():
-		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
-		spatial_lib = list(cxg_uns['spatial'].keys())[0]
-		cxg_uns['image'] = cxg_uns['spatial'][spatial_lib]['images']['hires']
-		# Moving spacial metadata from cxg_uns['spatial']
-		cxg_uns['spatial_metadata'] = cxg_uns['spatial'][spatial_lib]['metadata']
-		# Deleting unwanted spacial information, including metadata, from spatial
-		del cxg_uns['spatial'][spatial_lib]['metadata']
-		del cxg_uns['spatial'][spatial_lib]['images']['lowres']
-		del cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
-		del cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
 	cxg_obsm = mfinal_adata.obsm.copy()
-	if mfinal_obj['assays'] == ['spatial transcriptomics']:
-		if 'spatial' in cxg_adata_lst[0].obsm.keys():
-			cxg_obsm['spatial'] = cxg_adata_lst[0][mfinal_adata.obs.index.to_list()].obsm['spatial']
-			if 'X_spatial' not in mfinal_adata.obsm.keys():
-				spatial_lib = list(cxg_uns['spatial'].keys())[0]
-				cxg_obsm['X_spatial'] = cxg_obsm['spatial'] * cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_hires_scalef']
 	if len([i for i in cxg_obsm.keys() if i.startswith('X_')]) < 1:
 		logging.error("ERROR: At least one embedding that starts with 'X_' is required")
 		sys.exit("ERROR: At least one embedding that starts with 'X_' is required")
-
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
@@ -1064,14 +1106,15 @@ def main(mfinal_id):
 	cxg_obs = pd.merge(cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	cxg_obs = pd.merge(cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
-	if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
-		warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
-			format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
-	if cxg_obs[celltype_col].isna().any():
-		logging.error("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
-		sys.exit("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
-	if len([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]) > 0:
-		warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
+	if not mfinal_obj.get('spatial_s3_uri', None):
+		if cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
+			warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
+				format(cxg_obs.loc[cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
+		if cxg_obs[celltype_col].isna().any():
+			logging.error("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
+			sys.exit("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
+		if len([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]) > 0:
+			warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in cxg_obs[celltype_col].unique().tolist()]))
 
 	if 'author_cluster_column' in mfinal_obj:
 		cluster_col = mfinal_obj['author_cluster_column']
@@ -1132,7 +1175,15 @@ def main(mfinal_id):
 	if summary_assay == 'CITE':
 		keep_types.append('object')
 	var_meta = mfinal_adata.var.select_dtypes(include=keep_types)
-	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
+	if mfinal_obj['assays'] == ['spatial transcriptomics']:
+		process_spatial()
+	# Check to see if need to add background spots
+	if len(cxg_obs['library_uuid'].unique()==1) and mfinal_obj.get('spatial_s3_uri', None):
+		add_background_spots()
+		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+	else:
+		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 	cxg_adata.var = cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 	
 	# Removing feature_length column from var if present
@@ -1158,7 +1209,6 @@ def main(mfinal_id):
 
 	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 	# For CITE, standardize antibody index and metadata and no filtering
-
 	if summary_assay == 'RNA':
 		compiled_annot = compile_annotations(fm.REF_FILES)
 		set_ensembl(redundant, mfinal_obj['feature_keys'])
