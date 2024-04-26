@@ -39,6 +39,13 @@ def validator_with_spatial_adatas(request) -> Validator:
 
 
 @pytest.fixture
+def validator_with_visium() -> Validator:
+    validator = Validator()
+    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/visium_human_all_spots.h5ad")
+    return validator
+
+
+@pytest.fixture
 def label_writer(validator_with_all_adatas: Validator) -> AnnDataLabelAppender:
     validator = validator_with_all_adatas
     validator.validate_adata()
