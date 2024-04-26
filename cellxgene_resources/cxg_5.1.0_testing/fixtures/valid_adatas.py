@@ -38,6 +38,13 @@ def validator_with_spatial_adatas(request) -> Validator:
     return validator
 
 
+@pytest.fixture(params=H5ADS[2:])
+def validator_with_slide_seq_adatas(request) -> Validator:
+    validator = Validator()
+    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    return validator
+
+
 @pytest.fixture
 def validator_with_visium() -> Validator:
     validator = Validator()
