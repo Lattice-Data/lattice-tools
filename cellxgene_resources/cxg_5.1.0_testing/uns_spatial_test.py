@@ -118,6 +118,23 @@ def test_multiple_library_ids(validator_with_visium):
     ]
 
 
+def test_add_library_id_keys(validator_with_visium):
+    validator = validator_with_visium
+    validator.adata.uns["spatial"][LIBRARY_ID]["metadata"] = validator.adata.uns["spatial"][LIBRARY_ID]
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert validator.errors == ["ERROR: uns['spatial'][library_id] can only contain the keys 'images' and 'scalefactors'.Detected keys: ['images', 'scalefactors', 'metadata']."]
+
+
+def test_add_library_id_keys_no_fullres(validator_with_visium):
+    validator = validator_with_visium
+    del validator.adata.uns["spatial"][LIBRARY_ID]["images"]["fullres"]
+    validator.adata.uns["spatial"][LIBRARY_ID]["metadata"] = validator.adata.uns["spatial"][LIBRARY_ID]
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert validator.errors == ["ERROR: uns['spatial'][library_id] can only contain the keys 'images' and 'scalefactors'.Detected keys: ['images', 'scalefactors', 'metadata']."]
+
+
 @pytest.mark.parametrize(
     "image,expected",
     (
@@ -132,6 +149,17 @@ def test_delete_images(validator_with_visium, image, expected):
     assert validator.is_valid is expected
     if image == "hires":
         assert validator.errors == ["ERROR: uns['spatial'][library_id]['images'] must contain the key 'hires'."]
+
+
+def test_add_images(validator_with_visium):
+    validator = validator_with_visium
+    validator.adata.uns["spatial"][LIBRARY_ID]["images"]["lowres"] = validator.adata.uns["spatial"][LIBRARY_ID]["images"]["hires"]
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert validator.errors == [
+        "ERROR: uns['spatial'][library_id]['images'] can only contain the keys "
+        "'fullres' and 'hires'.Detected keys: ['fullres', 'hires', 'lowres']."
+    ]
 
 
 def test_images_with_non_visium_assay(validator_with_non_spatial_adata):
@@ -257,4 +285,16 @@ def test_scale_factor_types(validator_with_visium, scalefactor, value):
     assert validator.errors == [
         f"ERROR: uns['spatial'][library_id]['scalefactors']['{scalefactor}'] must be of type float, it is {type(value)}. "
         f"This must be the value of the {scalefactor} field from scalefactors_json.json"
+    ]
+
+
+def test_add_scalefactor(validator_with_visium):
+    validator = validator_with_visium
+    validator.adata.uns["spatial"][LIBRARY_ID]["scalefactors"]["tissue_lowres_scalef"] = 1.234
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert validator.errors == [
+        "ERROR: uns['spatial'][library_id]['scalefactors'] can only contain the keys "
+        "'spot_diameter_fullres' and 'tissue_hires_scalef'.Detected keys: ['spot_diameter_fullres', "
+        "'tissue_hires_scalef', 'tissue_lowres_scalef']."
     ]
