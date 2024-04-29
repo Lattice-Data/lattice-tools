@@ -19,9 +19,8 @@ import matplotlib.colors as mcolors
 import json
 import numbers
 import flattener_mods as fm
-import PIL
 from PIL import Image
-PIL.Image.MAX_IMAGE_PIXELS = 933120000
+Image.MAX_IMAGE_PIXELS = 933120000
 
 # Global variables
 mfinal_obj = None
@@ -689,45 +688,44 @@ def process_spatial():
 	global mfinal_adata
 	global mfinal_obj
 
-	if cxg_obs['assay_ontology_term_id'].unique()[0] in ['EFO:0010961','EFO:0030062']:
-		if len(mfinal_obj.get('libraries'))==1:
-			if cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
-				cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
-				cxg_uns['spatial']['is_single'] = True
-				library_id = list(cxg_uns['spatial'].keys())[0]
-				spatial_lib = list(cxg_uns['spatial'].keys())[0]
-				# Moving spacial metadata from cxg_uns['spatial']
-				cxg_uns['spatial_metadata'] = cxg_uns['spatial'][spatial_lib]['metadata']
-				# Deleting unwanted spacial information, including metadata, from spatial
-				del cxg_uns['spatial'][spatial_lib]['metadata']
-				del cxg_uns['spatial'][spatial_lib]['images']['lowres']
-				del cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
-				del cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
+	if len(mfinal_obj.get('libraries'))==1:
+		if cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
+			cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
+			cxg_uns['spatial']['is_single'] = True
+			library_id = list(cxg_uns['spatial'].keys())[0]
+			spatial_lib = list(cxg_uns['spatial'].keys())[0]
+			# Moving spacial metadata from cxg_uns['spatial']
+			cxg_uns['spatial_metadata'] = cxg_uns['spatial'][spatial_lib]['metadata']
+			# Deleting unwanted spacial information, including metadata, from spatial
+			del cxg_uns['spatial'][spatial_lib]['metadata']
+			del cxg_uns['spatial'][spatial_lib]['images']['lowres']
+			del cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
+			del cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
 
-				if mfinal_obj.get('fullres_s3_uri', None):
-					filename = mfinal_obj.get('fullres_s3_uri').split('/')[-1]
-					if os.path.exists(fm.MTX_DIR+"/"+filename):
-						print("{} was found locally".format(filename))
-					else:
-						download_file(mfinal_obj.get('fullres_s3_uri'), fm.MTX_DIR)
-					if filename.endswith(('tif','tiff','jpg')):
-						fullres_np = np.asarray(Image.open(fm.MTX_DIR+"/"+filename))
-						cxg_uns['spatial'][library_id]['images']['fullres'] = fullres_np
-					else:
-						warning_list.append("WARNING: Did not recognize fullres file format:\t{}".format(mfinal_obj.get('fullres_s3_uri')))
-			else:
-				cxg_uns['spatial'] = {}
-				cxg_uns['spatial']['is_single'] = True
-				if 'X_spatial' not in cxg_obsm:
-					logging.error('ERROR: X_spatial embedding is required for Slide-seqV2')
-					sys.exit('ERROR: X_spatial embedding is required for Slide-seqV2')
+			if mfinal_obj.get('fullres_s3_uri', None):
+				filename = mfinal_obj.get('fullres_s3_uri').split('/')[-1]
+				if os.path.exists(fm.MTX_DIR+"/"+filename):
+					print("{} was found locally".format(filename))
 				else:
-					### WILL NEED TO DELETE X_spatial ONCE WE ARE READY FOR SCHEMA 5.1
-					cxg_obsm['spatial'] = cxg_obsm['X_spatial']
-
+					download_file(mfinal_obj.get('fullres_s3_uri'), fm.MTX_DIR)
+				if filename.endswith(('tif','tiff','jpg')):
+					fullres_np = np.asarray(Image.open(fm.MTX_DIR+"/"+filename))
+					cxg_uns['spatial'][library_id]['images']['fullres'] = fullres_np
+				else:
+					warning_list.append("WARNING: Did not recognize fullres file format:\t{}".format(mfinal_obj.get('fullres_s3_uri')))
 		else:
 			cxg_uns['spatial'] = {}
-			cxg_uns['spatial']['is_single'] = False
+			cxg_uns['spatial']['is_single'] = True
+			if 'X_spatial' not in cxg_obsm:
+				logging.error('ERROR: X_spatial embedding is required for Slide-seqV2')
+				sys.exit('ERROR: X_spatial embedding is required for Slide-seqV2')
+			else:
+				### WILL NEED TO DELETE X_spatial ONCE WE ARE READY FOR SCHEMA 5.1
+				cxg_obsm['spatial'] = cxg_obsm['X_spatial']
+
+	else:
+		cxg_uns['spatial'] = {}
+		cxg_uns['spatial']['is_single'] = False
 
 
 # Add missing obs to mfinal_adata to match raw and also modify cxg_obsm to include missing obs
