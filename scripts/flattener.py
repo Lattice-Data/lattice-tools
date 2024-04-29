@@ -19,6 +19,9 @@ import matplotlib.colors as mcolors
 import json
 import numbers
 import flattener_mods as fm
+import PIL
+from PIL import Image
+PIL.Image.MAX_IMAGE_PIXELS = 933120000
 
 # Global variables
 mfinal_obj = None
@@ -56,43 +59,23 @@ def getArgs():
 
 
 # Download file object from s3
-def download_file(file_obj, directory):
-	if file_obj.get('s3_uri'):
-		download_url = file_obj.get('s3_uri')
-		bucket_name = download_url.split('/')[2]
-		file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
+def download_file(download_url, directory, accession=None):
+	bucket_name = download_url.split('/')[2]
+	file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
+	s3client = boto3.client("s3")
+	if accession:
 		file_ext = download_url.split('.')[-1]
-		s3client = boto3.client("s3")
-		file_name = file_obj.get('accession') + '.' + file_ext
-		print(file_name + ' downloading')
-		try:
-			s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
-		except subprocess.CalledProcessError as e:
-			logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-			sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-		else:
-			print(file_name + ' downloaded')
-	elif file_obj.get('external_uri'):
-		download_url = file_obj.get('external_uri')
-		ftp_server = download_url.split('/')[2]
-		ftp = FTP(ftp_server)
-		ftp.login(user='anonymous', passwd = 'password')
-		file_path = download_url.replace('ftp://{}/'.format(ftp_server), '')
-		file_ext = download_url.split('.')[-1]
-		file_name = file_obj.get('accession') + '.' + file_ext
-		print(file_name + ' downloading')
-		try:
-			ftp.retrbinary('RETR ' + file_path, open(directory + '/' + file_name, 'wb').write)
-		except error_perm as e:
-			os.remove(file_name)
-			logging.error('ERROR: The following error occured while downloading file {}: \n {}'.format(file_name,e))
-			sys.exit('ERROR: The following error occured while downloading file{}: \n {}'.format(file_name,e))
-		else:
-			ftp.quit()
-			print(file_name + ' downloaded')
+		file_name = accession + '.' + file_ext
 	else:
-		logging.error('ERROR: File {} has no uri defined'.format(file_obj['@id']))
-		sys.exit('ERROR: File {} has no uri defined'.format(file_obj['@id']))
+		file_name = download_url.split('/')[-1]
+	print(file_name + ' downloading')
+	try:
+		s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
+	except subprocess.CalledProcessError as e:
+		logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+		sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+	else:
+		print(file_name + ' downloaded')
 
 
 # Download entire directory contents from S3
@@ -702,22 +685,49 @@ def process_spatial():
 	global cxg_adata_raw
 	global cxg_obs
 	global cxg_obsm
-	global mfinal_adata
 	global cxg_uns
-	if cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
-		cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
-		spatial_lib = list(cxg_uns['spatial'].keys())[0]
-		# Moving spacial metadata from cxg_uns['spatial']
-		cxg_uns['spatial_metadata'] = cxg_uns['spatial'][spatial_lib]['metadata']
-		# Deleting unwanted spacial information, including metadata, from spatial
-		del cxg_uns['spatial'][spatial_lib]['metadata']
-		del cxg_uns['spatial'][spatial_lib]['images']['lowres']
-		del cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
-		del cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
+	global mfinal_adata
+	global mfinal_obj
 
 	if cxg_obs['assay_ontology_term_id'].unique()[0] in ['EFO:0010961','EFO:0030062']:
-		library_id = list(cxg_uns['spatial'].keys())[0]
-		cxg_uns['spatial'][library_id]['is_single'] = True if len(cxg_obs['library_uuid'].unique())==1 else False
+		if len(cxg_obs['library_uuid'].unique())==1:
+			if cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
+				cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
+				cxg_uns['spatial']['is_single'] = True
+				library_id = list(cxg_uns['spatial'].keys())[0]
+				spatial_lib = list(cxg_uns['spatial'].keys())[0]
+				# Moving spacial metadata from cxg_uns['spatial']
+				cxg_uns['spatial_metadata'] = cxg_uns['spatial'][spatial_lib]['metadata']
+				# Deleting unwanted spacial information, including metadata, from spatial
+				del cxg_uns['spatial'][spatial_lib]['metadata']
+				del cxg_uns['spatial'][spatial_lib]['images']['lowres']
+				del cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
+				del cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
+
+				if mfinal_obj.get('fullres_s3_uri', None):
+					filename = mfinal_obj.get('fullres_s3_uri').split('/')[-1]
+					if os.path.exists(fm.MTX_DIR+"/"+filename):
+						print("{} was found locally".format(filename))
+					else:
+						download_file(mfinal_obj.get('fullres_s3_uri'), fm.MTX_DIR)
+					if filename.endswith(('tif','tiff','jpg')):
+						fullres_np = np.asarray(Image.open(fm.MTX_DIR+"/"+filename))
+						cxg_uns['spatial'][library_id]['images']['fullres'] = fullres_np
+					else:
+						warning_list.append("WARNING: Did not recognize fullres file format:\t{}".format(mfinal_obj.get('fullres_s3_uri')))
+			else:
+				cxg_uns['spatial'] = {}
+				cxg_uns['spatial']['is_single'] = True
+				if 'X_spatial' not in cxg_obsm:
+					logging.error('ERROR: X_spatial embedding is required for Slide-seqV2')
+					sys.exit('ERROR: X_spatial embedding is required for Slide-seqV2')
+				else:
+					### WILL NEED TO DELETE X_spatial ONCE WE ARE READY FOR SCHEMA 5.1
+					cxg_obsm['spatial'] = cxg_obsm['X_spatial']
+
+		else:
+			cxg_uns['spatial'] = {}
+			cxg_uns['spatial']['is_single'] = False
 
 
 # Add missing obs to mfinal_adata to match raw and also modify cxg_obsm to include missing obs
@@ -727,9 +737,7 @@ def add_background_spots():
 	global mfinal_adata
 	global cxg_obs
 	global cxg_obsm
-	global cxg_var
 
-	cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
 	if mfinal_adata.obs.shape[0] < 4992:
 		missing_barcodes = [i for i in cxg_adata_raw.obs.index.to_list() if i not in list(mfinal_adata.obs.index)]
 		empty_matrix = sparse.csr_matrix((len(missing_barcodes), mfinal_adata.var.shape[0]))
@@ -745,13 +753,10 @@ def add_background_spots():
 				new_array[row] = mfinal_adata.obsm[embed][orig_row,:]
 			comb_adata.obsm[embed] = new_array
 
-
-
 		mfinal_adata = comb_adata
 		cxg_obsm = mfinal_adata.obsm
+		cxg_obs['cell_type_ontology_term_id'] = cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
 	cxg_obsm['spatial'] = cxg_adata_raw.obsm['spatial']
-	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
-
 
 
 def main(mfinal_id):
@@ -762,7 +767,6 @@ def main(mfinal_id):
 	global cxg_obs
 	global cxg_obsm
 	global cxg_uns
-	global cxg_var
 	mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
@@ -804,7 +808,7 @@ def main(mfinal_id):
 	if os.path.exists(fm.MTX_DIR + '/' + mfinal_obj['accession'] + '.h5ad'):
 		print(mfinal_obj['accession'] + '.h5ad' + ' was found locally')
 	else:
-		download_file(mfinal_obj, fm.MTX_DIR)
+		download_file(mfinal_obj.get('s3_uri'), fm.MTX_DIR, mfinal_obj.get('accession'))
 
 	# Get list of unique final cell identifiers
 	file_url = mfinal_obj['s3_uri']
@@ -895,14 +899,15 @@ def main(mfinal_id):
 				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5'):
 					print(mxr_acc + '.h5' + ' was found locally')
 				else:
-					download_file(mxr, fm.MTX_DIR)
+					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 			elif mxr['s3_uri'].endswith('h5ad'):
 				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5ad'):
 					print(mxr_acc + '.h5ad' + ' was found locally')
 				else:
-					download_file(mxr, fm.MTX_DIR)
+					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 
 			mxr_name = '{}.h5'.format(mxr_acc) if mxr['s3_uri'].endswith('h5') else '{}.h5ad'.format(mxr_acc)
+			print(mxr_name)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				# Checking for presence of spatial directory and redownloading if present
 				if os.path.exists(fm.MTX_DIR + '/spatial'):
@@ -1181,9 +1186,9 @@ def main(mfinal_id):
 	# Check to see if need to add background spots
 	if len(cxg_obs['library_uuid'].unique()==1) and mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots()
-		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
-	else:
-		cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
+		# Should delete this after validator 5.1 update
+		cxg_obsm['X_spatial'] = cxg_obsm['spatial']
+	cxg_adata = ad.AnnData(mfinal_adata.X, obs=cxg_obs, obsm=cxg_obsm, var=cxg_var, uns=cxg_uns)
 	cxg_adata.var = cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 	
 	# Removing feature_length column from var if present
