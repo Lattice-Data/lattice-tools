@@ -690,7 +690,7 @@ def process_spatial():
 	global mfinal_obj
 
 	if cxg_obs['assay_ontology_term_id'].unique()[0] in ['EFO:0010961','EFO:0030062']:
-		if len(cxg_obs['library_uuid'].unique())==1:
+		if len(mfinal_obj.get('libraries'))==1:
 			if cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
 				cxg_uns['spatial'] = cxg_adata_raw.uns['spatial']
 				cxg_uns['spatial']['is_single'] = True
@@ -907,7 +907,6 @@ def main(mfinal_id):
 					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 
 			mxr_name = '{}.h5'.format(mxr_acc) if mxr['s3_uri'].endswith('h5') else '{}.h5ad'.format(mxr_acc)
-			print(mxr_name)
 			if mfinal_obj.get('spatial_s3_uri', None) and mfinal_obj['assays'] == ['spatial transcriptomics']:
 				# Checking for presence of spatial directory and redownloading if present
 				if os.path.exists(fm.MTX_DIR + '/spatial'):
@@ -1184,7 +1183,7 @@ def main(mfinal_id):
 	if mfinal_obj['assays'] == ['spatial transcriptomics']:
 		process_spatial()
 	# Check to see if need to add background spots
-	if len(cxg_obs['library_uuid'].unique()==1) and mfinal_obj.get('spatial_s3_uri', None):
+	if len(mfinal_obj.get('libraries'))==1 and mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots()
 		# Should delete this after validator 5.1 update
 		cxg_obsm['X_spatial'] = cxg_obsm['spatial']
