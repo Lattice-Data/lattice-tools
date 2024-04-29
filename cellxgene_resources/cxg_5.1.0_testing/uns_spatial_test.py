@@ -2,6 +2,8 @@
 QA testing for this issue:
 https://github.com/chanzuckerberg/single-cell-curation/issues/827
 https://github.com/chanzuckerberg/single-cell-curation/pull/858
+Further bug fixes here:
+https://github.com/chanzuckerberg/single-cell-curation/issues/862
 """
 
 import numpy as np
@@ -103,6 +105,35 @@ def test_uns_spatial_library_id(validator_with_visium):
     assert validator.errors == [
         "ERROR: uns['spatial'][library_id] is only allowed for obs['assay_ontology_term_id'] "
         "'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True."
+    ]
+
+
+@pytest.mark.parametrize(
+    "value", (None, 1, 1.0, {}, [], np.bool_, np.array([]))
+)
+def test_uns_library_id_type(validator_with_visium, value):
+    validator = validator_with_visium
+    del validator.adata.uns["spatial"][LIBRARY_ID]
+    validator.adata.uns["spatial"][value] = {}
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert validator.errors == [
+        "ERROR: uns['spatial'][library_id] must contain the key 'images'.",
+        "ERROR: uns['spatial'][library_id] must contain the key 'scalefactors'."
+    ]
+
+
+@pytest.mark.parametrize(
+    "value", (None, 1, 1.0, "string", [], np.bool_, np.array([]), pd.DataFrame([]))
+)
+def test_uns_library_id_value_type(validator_with_visium, value):
+    validator = validator_with_visium
+    validator.adata.uns["spatial"][LIBRARY_ID] = value
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert validator.errors == [
+        "ERROR: uns['spatial'][library_id] must contain the key 'images'.",
+        "ERROR: uns['spatial'][library_id] must contain the key 'scalefactors'."
     ]
 
 
