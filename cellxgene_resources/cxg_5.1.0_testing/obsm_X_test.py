@@ -54,7 +54,7 @@ def test_non_spatial_assay(validator_with_spatial_adatas):
     validator.validate_adata()
     assert validator.is_valid is False
     assert validator.errors == [
-        "ERROR: At least one embedding in 'obsm' has to have a key with an 'X_' prefix.",
+        "ERROR: uns['spatial'] is only allowed for obs['assay_ontology_term_id'] values 'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2).",
     ]
 
 
