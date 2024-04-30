@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 from fixtures.valid_adatas import (
     validator_with_all_adatas,
+    validator_with_non_visium_adatas,
     validator_with_slide_seq_adatas,
     validator_with_spatial_adatas,
     validator_with_visium,
@@ -22,6 +23,20 @@ def test_array_col_passes(validator_with_visium):
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
+
+
+@pytest.mark.parametrize(
+    "obs_col", ("array_col", "array_row", "in_tissue")
+)
+def test_slide_seq_obs_cols(validator_with_non_spatial_adata, obs_col):
+    validator = validator_with_non_spatial_adata
+    validator.adata.obs[obs_col] = np.random.randint(0, 1, validator.adata.obs.shape[0])
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert validator.errors == [
+        f"ERROR: obs['{obs_col}'] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' "
+        "(Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True."
+    ]
 
 
 @pytest.mark.parametrize(
