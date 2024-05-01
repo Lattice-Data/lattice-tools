@@ -25,11 +25,21 @@ def test_array_col_passes(validator_with_visium):
     assert validator.errors == []
 
 
+# fails in lots of ways beyond visium-specific obs cols
+def test_change_assay_to_non_spatial(validator_with_visium):
+    validator = validator_with_visium
+    validator.adata.obs["assay_ontology_term_id"].cat.add_categories("EFO:0011025")
+    validator.adata.obs["assay_ontology_term_id"] = "EFO:0011025"
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert len(validator.errors) == 6
+
+
 @pytest.mark.parametrize(
     "obs_col", ("array_col", "array_row", "in_tissue")
 )
-def test_non_spatial_obs_cols(validator_with_non_spatial_adata, obs_col):
-    validator = validator_with_non_spatial_adata
+def test_non_visium_obs_cols(validator_with_non_visium_adatas, obs_col):
+    validator = validator_with_non_visium_adatas
     validator.adata.obs[obs_col] = np.random.randint(0, 1, validator.adata.obs.shape[0])
     validator.validate_adata()
     assert validator.is_valid is False
@@ -39,15 +49,19 @@ def test_non_spatial_obs_cols(validator_with_non_spatial_adata, obs_col):
     ]
 
 
-def test_non_spatial_all_obs_cols(validator_with_non_spatial_adata):
-    validator = validator_with_non_spatial_adata
+def test_non_visium_all_obs_cols(validator_with_non_visium_adatas):
+    validator = validator_with_non_visium_adatas
     validator.adata.obs["in_tissue"] = 1
     validator.adata.obs["array_col"] = 1
     validator.adata.obs["array_row"] = 1
     validator.validate_adata()
     assert validator.is_valid is False
     assert validator.errors == [
-        f"ERROR: obs['{obs_col}'] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' "
+        "ERROR: obs['array_col'] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' "
+        "(Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True.",
+        "ERROR: obs['array_row'] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' "
+        "(Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True.",
+        "ERROR: obs['in_tissue'] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' "
         "(Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True."
     ]
 
