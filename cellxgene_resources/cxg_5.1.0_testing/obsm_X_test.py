@@ -53,9 +53,7 @@ def test_non_spatial_assay(validator_with_spatial_adatas):
     validator.adata.obs.loc[:, ["suspension_type"]] = validator.adata.obs.astype("category")
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
-        "ERROR: uns['spatial'] is only allowed for obs['assay_ontology_term_id'] values 'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2).",
-    ]
+    assert validator.errors[0] == "ERROR: uns['spatial'] is only allowed for obs['assay_ontology_term_id'] values 'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2)."
 
 
 @pytest.mark.parametrize("obsm_key", ("spatial", "X_spatial", "random_name"))

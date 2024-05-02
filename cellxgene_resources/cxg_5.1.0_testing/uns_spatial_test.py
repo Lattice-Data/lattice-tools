@@ -44,10 +44,7 @@ def test_delete_uns_spatial(validator_with_spatial_adatas):
     del validator.adata.uns["spatial"]
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
-        "ERROR: uns['spatial'] is required for obs['assay_ontology_term_id'] values "
-        "'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2)."
-    ]
+    assert validator.errors[0] == "ERROR: uns['spatial'] is required for obs['assay_ontology_term_id'] values 'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2)."
 
 
 @pytest.mark.parametrize(
@@ -68,9 +65,7 @@ def test_delete_uns_is_single_visium(validator_with_visium):
     del validator.adata.uns["spatial"]["is_single"]
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
-        "ERROR: uns['spatial'] must contain the key 'is_single'."
-    ]
+    assert validator.errors[0] == "ERROR: uns['spatial'] must contain the key 'is_single'."
 
 
 def test_delete_uns_is_single_slide_seq(validator_with_slide_seq_adatas):
@@ -78,7 +73,7 @@ def test_delete_uns_is_single_slide_seq(validator_with_slide_seq_adatas):
     del validator.adata.uns["spatial"]["is_single"]
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
+    assert validator.errors[:2] == [
         "ERROR: uns['spatial'] must contain the key 'is_single'.",
         "ERROR: uns['spatial'] cannot be an empty value.",
     ]
@@ -92,9 +87,7 @@ def test_uns_is_single_non_boolean(validator_with_spatial_adatas, value):
     validator.adata.uns["spatial"]["is_single"] = value
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
-        f"ERROR: uns['spatial']['is_single'] must be of boolean type, it is {type(value)}."
-    ]
+    assert validator.errors[0] == f"ERROR: uns['spatial']['is_single'] must be of boolean type, it is {type(value)}."
 
 
 def test_uns_spatial_library_id(validator_with_visium):

@@ -1,7 +1,7 @@
 import tempfile
 from fixtures.valid_adatas import validator_with_all_adatas, label_writer
 
-SCHEMA_VERSION = "5.0.0"
+SCHEMA_VERSION = "5.1.0"
 SCHEMA_REFERENCE = f"https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/{SCHEMA_VERSION}/schema.md"
 
 
