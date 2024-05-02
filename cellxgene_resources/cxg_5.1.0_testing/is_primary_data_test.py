@@ -17,6 +17,23 @@ from fixtures.valid_adatas import (
 LIBRARY_ID = "spaceranger110_count_34914_WS_PLA_S9101764_GRCh38-3_0_0_premrna"
 
 
+def test_is_primary_data_true(validator_with_all_adatas):
+    validator = validator_with_all_adatas
+    validator.adata.obs["is_primary_data"] = True
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
+
+# spatial fixtures start at is_primary_data = True, non-spatial has some False values
+def test_is_primary_data_mixed(validator_with_all_adatas):
+    validator = validator_with_all_adatas
+    validator.adata.obs.loc[validator.adata.obs.index[:100], "is_primary_data"] = False
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
+
 def test_is_primary_data_false_slide_seq(validator_with_slide_seq_adatas):
     validator = validator_with_slide_seq_adatas
     validator.adata.uns["spatial"]["is_single"] = False
