@@ -7,6 +7,7 @@ import pandas as pd
 import re
 import scanpy as sc
 import subprocess
+import sys
 from scipy import sparse
 
 
@@ -40,6 +41,20 @@ portal_obs_fields = [
 non_ontology_fields = ['donor_id','suspension_type','tissue_type','is_primary_data']
 curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_ontology_fields
 full_obs_standards = portal_obs_fields + curator_obs_fields
+
+
+class CxG_API:
+    scc_repo_loc = os.path.expanduser('~/GitClones/CZI/')
+    api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key.txt')
+    sys.path.append(os.path.abspath(scc_repo_loc + 'single-cell-curation/notebooks/curation_api/python/'))
+
+
+    from src.collection import create_collection,create_revision,get_collection,get_collections,update_collection
+    from src.dataset import create_dataset,delete_dataset,get_dataset,get_datasets,upload_datafile_from_link,upload_local_datafile
+    from src.utils.config import set_api_access_config
+
+
+    set_api_access_config(api_key_file_path)
 
 
 def report(mess, level=None):
