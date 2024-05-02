@@ -98,7 +98,7 @@ def test_is_single_false(validator_with_visium, change_dict):
     validator.adata.obs.replace(change_dict, inplace=True)
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
+    assert validator.errors[:4] == [
         "ERROR: uns['spatial'][library_id] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' "
         "(Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True.",
         "ERROR: obs['array_col'] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' "

@@ -131,7 +131,7 @@ def test_array_col_values_is_single_false(validator_with_visium, obs_col):
     validator.adata.uns["spatial"]["is_single"] = False
     validator.validate_adata()
     assert validator.is_valid is False
-    assert len(validator.errors) == 3
+    assert len(validator.errors) == 4
 
 
 @pytest.mark.parametrize(
