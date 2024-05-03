@@ -4,6 +4,7 @@ https://github.com/chanzuckerberg/single-cell-curation/issues/827
 https://github.com/chanzuckerberg/single-cell-curation/pull/858
 Further bug fixes here:
 https://github.com/chanzuckerberg/single-cell-curation/issues/862
+https://github.com/chanzuckerberg/single-cell-curation/pull/875
 """
 
 import numpy as np
@@ -44,7 +45,7 @@ def test_delete_uns_spatial(validator_with_spatial_adatas):
     del validator.adata.uns["spatial"]
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors[0] == "ERROR: uns['spatial'] is required for obs['assay_ontology_term_id'] values 'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2)."
+    assert validator.errors[0] == "ERROR: A dict in uns['spatial'] is required for obs['assay_ontology_term_id'] values 'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2)."
 
 
 @pytest.mark.parametrize(
@@ -55,9 +56,8 @@ def test_uns_spatial_is_not_dict(validator_with_visium, value):
     validator.adata.uns["spatial"] = value
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
-        f"ERROR: uns['spatial']['is_single'] must be of boolean type, it is {type(value)}."
-    ]
+    assert validator.errors[0] == "ERROR: A dict in uns['spatial'] is required for obs['assay_ontology_term_id'] values 'EFO:0010961' (Visium Spatial Gene Expression) and 'EFO:0030062' (Slide-seqV2)."
+    
 
 
 def test_delete_uns_is_single_visium(validator_with_visium):
@@ -95,12 +95,10 @@ def test_uns_spatial_library_id(validator_with_visium):
     validator.adata.uns["spatial"]["is_single"] = False
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
-        "ERROR: uns['spatial'][library_id] is only allowed for obs['assay_ontology_term_id'] "
-        "'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True."
-    ]
+    assert validator.errors[0] == "ERROR: uns['spatial'][library_id] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True."
 
 
+# mutable types raise TypeError: unhashable type, will keep in tests for moment
 @pytest.mark.parametrize(
     "value", (None, 1, 1.0, {}, [], np.bool_, np.array([]))
 )
@@ -276,7 +274,7 @@ def test_scalefactor_type(validator_with_visium, value):
     validator.validate_adata()
     assert validator.is_valid is False
     assert validator.errors == [
-        f"ERROR: uns['spatial']['is_single'] must be of boolean type, it is {type(value)}."
+        "ERROR: uns['spatial'][library_id]['scalefactors'] must be a dictionary."
     ]
 
 
