@@ -45,16 +45,23 @@ full_obs_standards = portal_obs_fields + curator_obs_fields
 
 class CxG_API:
     scc_repo_loc = os.path.expanduser('~/GitClones/CZI/')
-    api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key.txt')
     sys.path.append(os.path.abspath(scc_repo_loc + 'single-cell-curation/notebooks/curation_api/python/'))
 
 
     from src.collection import create_collection,create_revision,get_collection,get_collections,update_collection
     from src.dataset import create_dataset,delete_dataset,get_dataset,get_datasets,upload_datafile_from_link,upload_local_datafile
-    from src.utils.config import set_api_access_config
 
 
-    set_api_access_config(api_key_file_path)
+    def config(env=None):
+        from src.utils.config import set_api_access_config
+
+
+        if env == 'dev':
+            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key-dev.txt')
+            set_api_access_config(api_key_file_path, env='dev')
+        else:
+            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key.txt')
+            set_api_access_config(api_key_file_path)
 
 
 def report(mess, level=None):
