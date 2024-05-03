@@ -35,23 +35,15 @@ For more details:
     python %(prog)s --help
 '''
 
-class GLOBAL:
-	def __init__(self,mfinal_obj,mfinal_adata,cxg_adata,cxg_adata_raw,cxg_obs,cxg_uns,cxg_obsm):
-		self.MFINAL = MFINAL(mfinal_obj,mfinal_adata)
-		self.CXG_PARTS = CXG_PARTS(cxg_obs,cxg_obsm,cxg_uns)
-		self.CXG_ADATA = CXG_ADATA(cxg_adata,cxg_adata_raw)
-
-class MFINAL:
-	def __init__(self,mfinal_obj,mfinal_adata):
-		self.mfinal_obj, self.mfinal_adata = mfinal_obj, mfinal_adata
-
-class CXG_PARTS:
-	def __init__(self,cxg_obs,cxg_uns,cxg_obsm):
-		self.cxg_obs,self.cxg_uns,self.cxg_obsm = cxg_obs, cxg_obsm, cxg_uns
-
-class CXG_ADATA:
-	def __init__(self, cxg_adata, cxg_adata_raw):
-		self.cxg_adata, self.cxg_adata_raw = cxg_adata,cxg_adata_raw
+class GlobVals:
+	def __init__(self, mfinal_obj, mfinal_adata, cxg_adata, cxg_adata_raw, cxg_obs, cxg_uns, cxg_obsm):
+		self.mfinal_obj = mfinal_obj
+		self.mfinal_adata = mfinal_adata
+		self.cxg_adata = cxg_adata
+		self.cxg_adata_raw = cxg_adata_raw
+		self.cxg_obs = cxg_obs
+		self.cxg_uns = cxg_uns
+		self.cxg_obsm = cxg_obsm
 
 def getArgs():
     parser = argparse.ArgumentParser(
@@ -93,7 +85,7 @@ def download_file(download_url, directory, accession=None):
 # Download entire directory contents from S3
 def download_directory(download_url, directory):
 	bucket_name = download_url.split('/')[2]
-	spatial_folder = download_url.replace('s3://{}/'.format(bucket_name),"")
+	spatial_folder = download_url.replace('s3://{}/'.format(bucket_name), "")
 	s3client = boto3.client("s3")
 	results = s3client.list_objects_v2(Bucket=bucket_name, Prefix=spatial_folder, Delimiter='/')
 	os.mkdir(fm.MTX_DIR+"/spatial")
@@ -105,8 +97,8 @@ def download_directory(download_url, directory):
 		try:
 			s3client.download_file(bucket_name, file_path, directory + '/spatial/' + file_name)
 		except subprocess.CalledProcessError as e:
-			logging.error('ERROR: Failed to find file S3://{}/{}'.format(bucket,file_path))
-			sys.exit('ERROR: Failed to find file s3://{}/{}'.format(bucket,file_path))
+			logging.error('ERROR: Failed to find file S3://{}/{}'.format(bucket, file_path))
+			sys.exit('ERROR: Failed to find file s3://{}/{}'.format(bucket, file_path))
 		else:
 			print(file_name + ' downloaded')
 
@@ -119,18 +111,18 @@ def compile_annotations(files):
 		filename = fm.MTX_DIR + "/" + files[key] + ".gz"
 		if os.path.exists(filename) == False:
 			filename = urls + files[key] + '.gz'
-		df = pd.read_csv(filename, names = ['feature_id','symbol','start','stop'], dtype='str')
-		ids = pd.concat([ids,df])
+		df = pd.read_csv(filename, names=['feature_id','symbol','start','stop'], dtype='str')
+		ids = pd.concat([ids, df])
 	return ids
 
 
 # Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
-def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells, GLOBAL_OBJS):
+def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells, glob):
 	new_ids = []
 	flag_removed = False
 	cell_mapping_dct = {}
-	cell_location = GLOBAL_OBJS.MFINAL.mfinal_obj['cell_label_location']
-	for mapping_dict in GLOBAL_OBJS.MFINAL.mfinal_obj['cell_label_mappings']:
+	cell_location = glob.mfinal_obj['cell_label_location']
+	for mapping_dict in glob.mfinal_obj['cell_label_mappings']:
 		cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
 	for final_id in mfinal_cells:
 		if not re.search('[AGCT]+-1', final_id):
@@ -145,42 +137,42 @@ def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells, GLOBAL_OBJS):
 	return(new_ids)
 
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
-def quality_check(GLOBAL_OBJS):
-	if GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs.isnull().values.any():
+def quality_check(glob):
+	if glob.cxg_adata.obs.isnull().values.any():
 		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format\
-			(GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs.columns[GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs.isna().any()].tolist()))
-	elif 'default_visualization' in GLOBAL_OBJS.CXG_ADATA.cxg_adata.uns:
-		if adata.uns['default_visualization'] not in GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs.values:
+			(glob.cxg_adata.obs.columns[glob.cxg_adata.obs.isna().any()].tolist()))
+	elif 'default_visualization' in glob.cxg_adata.uns:
+		if adata.uns['default_visualization'] not in glob.cxg_adata.obs.values:
 			logging.error('ERROR: The default_visualization field is not in the cxg anndata obs dataframe.')
 			sys.exit("ERROR: The default_visualization field is not in the cxg anndata obs dataframe.")
-	elif GLOBAL_OBJS.MFINAL.mfinal_obj['X_normalized'] == True and GLOBAL_OBJS.MFINAL.mfinal_obj['assays'] != ['snATAC-seq']:
-		if len(GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.tolist()) > len(GLOBAL_OBJS.CXG_ADATA.cxg_adata.raw.var.index.tolist()):
+	elif glob.mfinal_obj['X_normalized'] == True and glob.mfinal_obj['assays'] != ['snATAC-seq']:
+		if len(glob.cxg_adata.var.index.tolist()) > len(glob.cxg_adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
 
 
 # Check validity of colors before adding to cxg_adata.uns
-def colors_check(GLOBAL_OBJS, color_column, column_name):
-	column_name = column_name.replace('_colors','')
+def colors_check(glob, color_column, column_name):
+	column_name = column_name.replace('_colors', '')
 	# Check that obs column exists
-	if column_name not in GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs.columns:
+	if column_name not in glob.cxg_adata.obs.columns:
 		error = 'the corresponding column is not present in obs.'
 		return False, error
 	# Check that the corresponding column is the right datatype
-	if column_name in GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs.columns:
-		if GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs[column_name].dtype.name != 'category':
-			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs[column_name].dtype.name)
+	if column_name in glob.cxg_adata.obs.columns:
+		if glob.cxg_adata.obs[column_name].dtype.name != 'category':
+			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(glob.cxg_adata.obs[column_name].dtype.name)
 			return False, error
 	# Verify color_column is a numpy array
 	if color_column is None or not isinstance(color_column, np.ndarray):
 		error = 'the column is not a numpy array.'
 		return False, error
 	# Verify that the numpy array contains strings
-	if not all(isinstance(color,str) for color in color_column):
+	if not all(isinstance(color, str) for color in color_column):
 		error = 'the column does not contain strings.'
 		return False, error
 	# Verify that we have atleast as many colors as unique values in the obs column
-	if len(color_column) < len(GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs[column_name].unique()):
+	if len(color_column) < len(glob.cxg_adata.obs[column_name].unique()):
 		error = 'the column has less colors than unique values in the corresponding obs. column.'
 		return False, error
 	# Verify that either all colors are hex OR all colors are CSS4 named colors strings
@@ -229,21 +221,21 @@ def clean_list(lst, exp_disease):
 
 # Add temporary suffixes to var columns and then concatenate anndata objects in list together
 # temp_anndata_list is created so that original anndata_list does not get suffixes
-def concat_list(anndata_list,column,uns_merge):
+def concat_list(anndata_list, column, uns_merge):
 	if column != 'none':
 		suffix = 0
 		for a in anndata_list:
 			a.var.rename(columns={column:column + '-' + str(suffix)}, inplace=True)
 			suffix += 1
 	if uns_merge == True:
-		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique',  uns_merge='first')
+		concat_result = ad.concat(anndata_list, index_unique=None, join='outer', merge='unique',  uns_merge='first')
 	else:
-		concat_result = ad.concat(anndata_list,index_unique=None, join='outer', merge = 'unique')
+		concat_result = ad.concat(anndata_list, index_unique=None, join='outer', merge='unique')
 	redundants = [i for i,c in collections.Counter(concat_result.obs.index.to_list()).items() if c>1]
 	if len(redundants)>0:
 		logging.error('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
 		sys.exit('ERROR: cell IDs are found in multiple raw matrix files.\t{}'.format(redundants))
-	drop_columns = [c for c in concat_result.obs.columns if c not in ['raw_matrix_accession','in_tissue','array_row','array_col']]
+	drop_columns = [c for c in concat_result.obs.columns if c not in ['raw_matrix_accession', 'in_tissue', 'array_row', 'array_col']]
 	if drop_columns:
 		concat_result.obs.drop(columns=drop_columns, inplace=True)
 	return concat_result
@@ -265,7 +257,7 @@ def report_diseases(mxr_df, exp_disease):
 		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease)
 		exp_disease_aslist = ['[{}]'.format(x['term_name']) for x in exp_disease]
-		exp_disease_aslist.extend(['none','[]'])
+		exp_disease_aslist.extend(['none', '[]'])
 		if len([x for x in total_reported if x not in exp_disease_aslist])==0:
 			mxr_df['reported_diseases'] = '[]'
 
@@ -273,13 +265,13 @@ def report_diseases(mxr_df, exp_disease):
 # Determine overlapping suspension, create library & demultiplexed suspension df
 # get cell_metadata from that suspension, merge in library info
 # merge with mxr_df on library
-def demultiplex(lib_donor_df, library_susp, donor_susp, GLOBAL_OBJS):
+def demultiplex(lib_donor_df, library_susp, donor_susp, glob):
 	susp_df = pd.DataFrame()
 	lattice_donor = {}
 	lattice_donor_col = []
 	demult_susp_lst = []
 
-	for donor_map in GLOBAL_OBJS.MFINAL.mfinal_obj['donor_mappings']:
+	for donor_map in glob.mfinal_obj['donor_mappings']:
 		lattice_donor[donor_map['label']] = donor_map['donor']
 	for author_don in lib_donor_df['author_donor'].to_list():
 		lattice_donor_col.append(lattice_donor[author_don])
@@ -311,7 +303,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, GLOBAL_OBJS):
 	for susp in set(lib_donor_df['suspension_@id'].to_list()):
 		values_to_add = {}
 		susp_obj = lattice.get_object(susp, connection)
-		relevant_objects = fm.gather_objects(susp_obj, GLOBAL_OBJS.MFINAL.mfinal_obj, connection, start_type='suspension')
+		relevant_objects = fm.gather_objects(susp_obj, glob.mfinal_obj, connection, start_type='suspension')
 		for obj_type in obj_type_subset:
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
@@ -320,7 +312,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, GLOBAL_OBJS):
 		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		row_to_add = pd.Series(values_to_add)
-		susp_df = pd.concat([susp_df,row_to_add.to_frame().T], ignore_index=True)
+		susp_df = pd.concat([susp_df, row_to_add.to_frame().T], ignore_index=True)
 	lib_donor_df = lib_donor_df.merge(susp_df, left_on='suspension_@id', right_on='suspension_@id', how='left')
 	return(lib_donor_df)
 
@@ -344,65 +336,64 @@ def get_sex_ontology(donor_df):
 
 # Make sure cxg_adata and cxg_adata_raw have same number of features
 # If not, add implied zeros to csr, and add corresponding 'feature_is_filtered'
-def add_zero(GLOBAL_OBJS):
-	if GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.shape[1] > GLOBAL_OBJS.CXG_ADATA.cxg_adata.shape[1]:
-		genes_add = [x for x in GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.index.to_list() if x not in GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.to_list()]
-		new_matrix = sparse.csr_matrix((GLOBAL_OBJS.CXG_ADATA.cxg_adata.X.data, GLOBAL_OBJS.CXG_ADATA.cxg_adata.X.indices, \
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.X.indptr), shape = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.shape)
-		all_genes = GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.to_list()
+def add_zero(glob):
+	if glob.cxg_adata_raw.shape[1] > glob.cxg_adata.shape[1]:
+		genes_add = [x for x in glob.cxg_adata_raw.var.index.to_list() if x not in glob.cxg_adata.var.index.to_list()]
+		new_matrix = sparse.csr_matrix((glob.cxg_adata.X.data, glob.cxg_adata.X.indices, glob.cxg_adata.X.indptr), shape=glob.cxg_adata_raw.shape)
+		all_genes = glob.cxg_adata.var.index.to_list()
 		all_genes.extend(genes_add)
 		new_var = pd.DataFrame(index=all_genes)
-		new_var = pd.merge(new_var, GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var, left_index=True, right_index=True, how='left')
+		new_var = pd.merge(new_var, glob.cxg_adata_raw.var, left_index=True, right_index=True, how='left')
 		new_var['feature_is_filtered'] = False
 		new_var.loc[genes_add, 'feature_is_filtered'] = True
-		new_adata = ad.AnnData(X=new_matrix, obs=GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs, var=new_var, uns=GLOBAL_OBJS.CXG_ADATA.cxg_adata.uns, obsm=GLOBAL_OBJS.CXG_ADATA.cxg_adata.obsm)
-		if GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers:
-			for layer in GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers:
-				new_layer = sparse.csr_matrix((GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers[layer].data, GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers[layer].indices, \
-					GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers[layer].indptr), shape = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.shape)
+		new_adata = ad.AnnData(X=new_matrix, obs=glob.cxg_adata.obs, var=new_var, uns=glob.cxg_adata.uns, obsm=glob.cxg_adata.obsm)
+		if glob.cxg_adata.layers:
+			for layer in glob.cxg_adata.layers:
+				new_layer = sparse.csr_matrix((glob.cxg_adata.layers[layer].data, glob.cxg_adata.layers[layer].indices, 
+					glob.cxg_adata.layers[layer].indptr), shape=glob.cxg_adata_raw.shape)
 				new_adata.layers[layer] = new_layer
-		new_adata = new_adata[:,GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.index.to_list()]
-		new_adata.var = new_adata.var.merge(GLOBAL_OBJS.CXG_ADATA.cxg_adata.var, left_index=True, right_index=True, how='left')
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata = new_adata
+		new_adata = new_adata[:, glob.cxg_adata_raw.var.index.to_list()]
+		new_adata.var = new_adata.var.merge(glob.cxg_adata.var, left_index=True, right_index=True, how='left')
+		glob.cxg_adata = new_adata
 	else:
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata.var['feature_is_filtered'] = False
+		glob.cxg_adata.var['feature_is_filtered'] = False
 
 
 # Use cxg_adata_raw var to map ensembl IDs and use that as index and drop redundants
 # Make sure the indices are the same order for both anndata objects & clean up var metadata
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
-def set_ensembl(redundant,GLOBAL_OBJS):
-	raw_cols = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.columns.to_list()
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.drop(columns=[i for i in raw_cols if i!='gene_ids'], inplace=True)
-	if GLOBAL_OBJS.MFINAL.mfinal_obj['feature_keys'] == ['gene symbol']:
-		if 'gene_ids' in GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.columns.to_list():
+def set_ensembl(redundant, glob):
+	raw_cols = glob.cxg_adata_raw.var.columns.to_list()
+	glob.cxg_adata_raw.var.drop(columns=[i for i in raw_cols if i!='gene_ids'], inplace=True)
+	if glob.mfinal_obj['feature_keys'] == ['gene symbol']:
+		if 'gene_ids' in glob.cxg_adata_raw.var.columns.to_list():
 			# Drop unmapped genes from normalized matrix
-			norm_index = set(GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.to_list())
-			raw_index = set(GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.index.to_list())
+			norm_index = set(glob.cxg_adata.var.index.to_list())
+			raw_index = set(glob.cxg_adata_raw.var.index.to_list())
 			drop_unmapped = list(norm_index.difference(raw_index))
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata = GLOBAL_OBJS.CXG_ADATA.cxg_adata[:, [i for i in GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.to_list() if i not in drop_unmapped]]
+			glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in drop_unmapped]]
 			if len(drop_unmapped) > 0:
-				warning_list.append('WARNING: {} unmapped gene_symbols were dropped. Full list available in logging file. Preview: {}'.format(len(drop_unmapped),drop_unmapped[:10]))
-				warning_list.append('WARNING: Full list of the {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped),drop_unmapped))
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.var = pd.merge(GLOBAL_OBJS.CXG_ADATA.cxg_adata.var, GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy = True)
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.var = GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.set_index('gene_ids', drop=True)
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var  = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.set_index('gene_ids', drop=True)
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.name = None
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.index.name = None
+				warning_list.append('WARNING: {} unmapped gene_symbols were dropped. Full list available in logging file. Preview: {}'.format(len(drop_unmapped), drop_unmapped[:10]))
+				warning_list.append('WARNING: Full list of the {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped), drop_unmapped))
+			glob.cxg_adata.var = pd.merge(glob.cxg_adata.var, glob.cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy=True)
+			glob.cxg_adata.var = glob.cxg_adata.var.set_index('gene_ids', drop=True)
+			glob.cxg_adata_raw.var  = glob.cxg_adata_raw.var.set_index('gene_ids', drop=True)
+			glob.cxg_adata.var.index.name = None
+			glob.cxg_adata_raw.var.index.name = None
 
 			# Drop redundant by Ensembl ID
-			drop_redundant = list(set(redundant).intersection(set(GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.to_list())))
+			drop_redundant = list(set(redundant).intersection(set(glob.cxg_adata.var.index.to_list())))
 			if len(drop_redundant) > 0:
-				warning_list.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant),drop_redundant))
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata = GLOBAL_OBJS.CXG_ADATA.cxg_adata[:, [i for i in GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.to_list() if i not in redundant]]
+				warning_list.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant), drop_redundant))
+			glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in redundant]]
 
 		else:
 			warning_list.append("WARNING: raw matrix does not have genes_ids column")
-	elif GLOBAL_OBS.MFINAL.mfinal_obj['feature_keys'] == ['Ensembl gene ID']:
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var_names_make_unique()
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var  = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.set_index('gene_ids', drop=True)
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.index.name = None
-		unique_to_norm =  set(GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index.to_list()).difference(set(GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.index.to_list()))
+	elif glob.mfinal_obj['feature_keys'] == ['Ensembl gene ID']:
+		glob.cxg_adata_raw.var_names_make_unique()
+		glob.cxg_adata_raw.var  = glob.cxg_adata_raw.var.set_index('gene_ids', drop=True)
+		glob.cxg_adata_raw.var.index.name = None
+		unique_to_norm =  set(glob.cxg_adata.var.index.to_list()).difference(set(glob.cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
 			warning_list.append("WARNING: normalized matrix contains {} Ensembl IDs not in raw".format(unique_to_norm))
 
@@ -419,18 +410,18 @@ def filter_ensembl(adata, compiled_annot):
 
 # Clean up columns and column names for var, gene name must be gene_id
 # WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
-def clean_var(GLOBAL_OBJS):
-	gene_pd = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var[[i for i in GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.columns.values.tolist() if 'gene_ids' in i]]
+def clean_var(glob):
+	gene_pd = glob.cxg_adata_raw.var[[i for i in glob.cxg_adata_raw.var.columns.values.tolist() if 'gene_ids' in i]]
 	gene_pd = gene_pd.replace('nan', np.nan)
 	gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_ids')
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.drop(columns = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.columns.tolist(), inplace=True)
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.merge(gene_pd, left_index = True, right_index=True, how = 'left')
+	glob.cxg_adata_raw.var.drop(columns=glob.cxg_adata_raw.var.columns.tolist(), inplace=True)
+	glob.cxg_adata_raw.var = glob.cxg_adata_raw.var.merge(gene_pd, left_index=True, right_index=True, how='left')
 
 
 # Reconcile genes if raw matrices annotated to multiple version by merging raw based on Ensembl ID
 # Return raw matrix merged on Ensembl ID and list of gene to drop from normalized matrices
-def reconcile_genes(cxg_adata_lst, GLOBAL_OBJS):
-	mfinal_adata_genes = GLOBAL_OBJS.MFINAL.mfinal_adata.var.index.to_list()
+def reconcile_genes(cxg_adata_lst, glob):
+	mfinal_adata_genes = glob.mfinal_adata.var.index.to_list()
 	redundant = []
 	stats = {}
 
@@ -438,7 +429,7 @@ def reconcile_genes(cxg_adata_lst, GLOBAL_OBJS):
 	for cxg_adata in cxg_adata_lst:
 		cxg_adata.var['gene_symbols'] = cxg_adata.var.index
 		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
-	cxg_adata_raw_ensembl = concat_list(cxg_adata_lst,'gene_symbols',False)
+	cxg_adata_raw_ensembl = concat_list(cxg_adata_lst, 'gene_symbols', False)
 
 	# Join raw matrices on gene symbol, ensembl stored as metadata. Add suffix to make unique, using '.' as to match R default
 	count = 0
@@ -447,7 +438,7 @@ def reconcile_genes(cxg_adata_lst, GLOBAL_OBJS):
 		cxg_adata.var =  cxg_adata.var.set_index('gene_symbols' + '-' + str(count), drop=True)
 		count += 1
 		cxg_adata.var_names_make_unique(join = '.')
-	cxg_adata_raw_symbol = concat_list(cxg_adata_lst,'gene_ids',False)
+	cxg_adata_raw_symbol = concat_list(cxg_adata_lst, 'gene_ids', False)
 
 	# Go through adata indexed on symbol to see which have > 1 Ensembl ID
 	gene_pd_symbol = cxg_adata_raw_symbol.var[[i for i in cxg_adata_raw_symbol.var.columns.values.tolist() if 'gene_ids' in i]]
@@ -473,7 +464,7 @@ def reconcile_genes(cxg_adata_lst, GLOBAL_OBJS):
 	cxg_adata_raw_ensembl.var['gene_symbols'] = gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_symbols')
 	cxg_adata_raw_ensembl.var = cxg_adata_raw_ensembl.var.set_index('gene_symbols', drop=True)
 	cxg_adata_raw_ensembl.var.index.name = None
-	cxg_adata_raw_ensembl.var_names_make_unique(join = '.')
+	cxg_adata_raw_ensembl.var_names_make_unique(join='.')
 
 	all_remove = list(set(stats['multiple_ensembl'] + stats['multiple_symbols']))
 
@@ -481,7 +472,7 @@ def reconcile_genes(cxg_adata_lst, GLOBAL_OBJS):
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
 		warning_list.append("WARNING: Full list of {}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
-		warning_list.append("WARNING: Genes with {}. {} in raw. {} in normalized. Full list available in logging file. Preview of normalized: {}".format(key, \
+		warning_list.append("WARNING: Genes with {}. {} in raw. {} in normalized. Full list available in logging file. Preview of normalized: {}".format(key, 
 			len(stats[key]), len(overlap_norm), list(overlap_norm)[:10]))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
@@ -490,28 +481,28 @@ def reconcile_genes(cxg_adata_lst, GLOBAL_OBJS):
 
 # filename will be collectionuuid_datasetuuid_accession_version.h5ad, collectionuuid_accession_version.h5ad, or accession_version.h5ad
 # depending on what information is available for the dataset
-def get_results_filename(GLOBAL_OBJS):
+def get_results_filename(glob):
 	results_file = None
 	collection_id = None
-	dataset = GLOBAL_OBJS.MFINAL.mfinal_obj.get('dataset',[])
+	dataset = glob.mfinal_obj.get('dataset', [])
 	obj_type, filter_url = lattice.parse_ids([dataset])
 	dataset_objs = lattice.get_report(obj_type, filter_url, ['cellxgene_urls'], connection)
-	if dataset_objs[0].get('cellxgene_urls',[]):
-		collection_id = dataset_objs[0].get('cellxgene_urls',[])[0]
-		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/","")
-	if GLOBAL_OBJS.MFINAL.mfinal_obj.get('cellxgene_uuid',[]) and collection_id:
-		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, GLOBAL_OBJS.MFINAL.mfinal_obj['cellxgene_uuid'], GLOBAL_OBJS.MFINAL.mfinal_obj['accession'], fm.SCHEMA_VERSION)
+	if dataset_objs[0].get('cellxgene_urls', []):
+		collection_id = dataset_objs[0].get('cellxgene_urls', [])[0]
+		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/", "")
+	if glob.mfinal_obj.get('cellxgene_uuid', []) and collection_id:
+		results_file = '{}_{}_{}_v{}.h5ad'.format(collection_id, glob.mfinal_obj['cellxgene_uuid'], glob.mfinal_obj['accession'], fm.SCHEMA_VERSION)
 	elif collection_id:
-		results_file = '{}_{}_v{}.h5ad'.format(collection_id, GLOBAL_OBJS.MFINAL.mfinal_obj['accession'], fm.SCHEMA_VERSION)
+		results_file = '{}_{}_v{}.h5ad'.format(collection_id, glob.mfinal_obj['accession'], fm.SCHEMA_VERSION)
 	else:
-		results_file = '{}_v{}.h5ad'.format(GLOBAL_OBJS.MFINAL.mfinal_obj['accession'], fm.SCHEMA_VERSION)
+		results_file = '{}_v{}.h5ad'.format(glob.mfinal_obj['accession'], fm.SCHEMA_VERSION)
 	return results_file
 
 
 # Add antibody metadata to var and raw.var
-def map_antibody(GLOBAL_OBJS):
+def map_antibody(glob):
 	antibody_meta = pd.DataFrame()
-	for anti_mapping in GLOBAL_OBJS.MFINAL.mfinal_obj.get('antibody_mappings'):
+	for anti_mapping in glob.mfinal_obj.get('antibody_mappings'):
 		values_to_add = {}
 		antibody = anti_mapping.get('antibody')
 		values_to_add = fm.gather_metdata('antibody', fm.ANTIBODY_METADATA['antibody'], values_to_add, [antibody], connection)
@@ -521,7 +512,7 @@ def map_antibody(GLOBAL_OBJS):
 			if len(antibody.get('targets')) > 1:
 				for t in antibody.get('targets'):
 					name = t.get('organism').get('scientific_name')
-					if name == GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs['organism'].unique()[0]:
+					if name == glob.cxg_adata.obs['organism'].unique()[0]:
 						target = [t]
 			else:
 				target = antibody.get('targets')
@@ -535,118 +526,119 @@ def map_antibody(GLOBAL_OBJS):
 				values_to_add[key] = 'na'
 		row_to_add = pd.DataFrame(values_to_add, index=[anti_mapping.get('label')])
 		antibody_meta = pd.concat([antibody_meta, row_to_add])
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.var = pd.merge(GLOBAL_OBJS.CXG_ADATA.cxg_adata.var, antibody_meta, left_index=True, right_index=True, how='left')
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var = pd.merge(GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var, antibody_meta, left_index=True, right_index=True, how='left')
+	glob.cxg_adata.var = pd.merge(glob.cxg_adata.var, antibody_meta, left_index=True, right_index=True, how='left')
+	glob.cxg_adata_raw.var = pd.merge(glob.cxg_adata_raw.var, antibody_meta, left_index=True, right_index=True, how='left')
 	
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.var['author_index'] = GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var['author_index'] = GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.index
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.drop(columns=['genome'], inplace=True)
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.var['feature_biotype'] = 'antibody-derived tags'
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.set_index('feature_name', inplace=True, drop=False)
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.set_index('feature_name', inplace=True, drop=False)
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.var_names_make_unique(join='-')
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var_names_make_unique(join='-')
+	glob.cxg_adata.var['author_index'] = glob.cxg_adata.var.index
+	glob.cxg_adata_raw.var['author_index'] = glob.cxg_adata.var.index
+	glob.cxg_adata_raw.var.drop(columns=['genome'], inplace=True)
+	glob.cxg_adata.var['feature_biotype'] = 'antibody-derived tags'
+	glob.cxg_adata.var.set_index('feature_name', inplace=True, drop=False)
+	glob.cxg_adata_raw.var.set_index('feature_name', inplace=True, drop=False)
+	glob.cxg_adata.var_names_make_unique(join='-')
+	glob.cxg_adata_raw.var_names_make_unique(join='-')
 
 
 # Final touches for obs columns, modifying any Lattice fields to fit cxg schema
-def clean_obs(GLOBAL_OBJS):
+def clean_obs(glob):
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
-	for author_col in GLOBAL_OBJS.MFINAL.mfinal_obj.get('author_columns',[]):
-		if author_col in GLOBAL_OBJS.MFINAL.mfinal_adata.obs.columns.to_list():
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs = pd.merge(GLOBAL_OBJS.CXG_PARTS.cxg_obs, GLOBAL_OBJS.MFINAL.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+	for author_col in glob.mfinal_obj.get('author_columns', []):
+		if author_col in glob.mfinal_adata.obs.columns.to_list():
+			glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
 			warning_list.append("WARNING: author_column not in final matrix: {}".format(author_col))
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
-	if 'suspension_type' not in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns:
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs.insert(len(GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns),'suspension_type', 'na')
-	elif GLOBAL_OBJS.CXG_PARTS.cxg_obs['suspension_type'].isnull().values.any():
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs['suspension_type'].fillna(value='na', inplace=True)
+	if 'suspension_type' not in glob.cxg_obs.columns:
+		glob.cxg_obs.insert(len(glob.cxg_obs.columns), 'suspension_type', 'na')
+	elif glob.cxg_obs['suspension_type'].isnull().values.any():
+		glob.cxg_obs['suspension_type'].fillna(value='na', inplace=True)
 	
 	add_units = {'tissue_section_thickness': 'tissue_section_thickness_units',
 				'suspension_dissociation_time': 'suspension_dissociation_time_units',
 				'library_starting_quantity': 'library_starting_quantity_units'}
 	for field in add_units.keys():
-		if field in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns:
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs[field] = GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].astype(str) + " " + GLOBAL_OBJS.CXG_PARTS.cxg_obs[add_units[field]].astype(str)
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs.drop(columns=add_units[field], inplace=True)
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].replace({'unknown unknown': 'unknown'}, inplace=True)
+		if field in glob.cxg_obs.columns:
+			glob.cxg_obs[field] = glob.cxg_obs[field].astype(str) + " " + glob.cxg_obs[add_units[field]].astype(str)
+			glob.cxg_obs.drop(columns=add_units[field], inplace=True)
+			glob.cxg_obs[field].replace({'unknown unknown':'unknown'}, inplace=True)
 
 	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
 	for field in make_numeric:
-		if field in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns:
-			if True in GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].str.contains('[<>-]|'+fm.UNREPORTED_VALUE+'|'+'pooled', regex=True).to_list():
-				if True not in GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].str.contains('[<>-]', regex=True).to_list():
-					GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].replace({'unknown':np.nan}, inplace=True) 
-					GLOBAL_OBJS.CXG_PARTS.cxg_obs[field][np.where(GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].str.contains('pooled') == True)[0].tolist()] = np.nan
-					GLOBAL_OBJS.CXG_PARTS.cxg_obs[field]  = GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].astype('float')
+		if field in glob.cxg_obs.columns:
+			if True in glob.cxg_obs[field].str.contains('[<>-]|'+fm.UNREPORTED_VALUE+'|'+'pooled', regex=True).to_list():
+				if True not in glob.cxg_obs[field].str.contains('[<>-]', regex=True).to_list():
+					glob.cxg_obs[field].replace({'unknown':np.nan}, inplace=True) 
+					glob.cxg_obs[field][np.where(glob.cxg_obs[field].str.contains('pooled') == True)[0].tolist()] = np.nan
+					glob.cxg_obs[field]  = glob.cxg_obs[field].astype('float')
 			else: 
-				GLOBAL_OBJS.CXG_PARTS.cxg_obs[field]  = GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].astype('float')
+				glob.cxg_obs[field]  = glob.cxg_obs[field].astype('float')
 
-	change_unreported = ['suspension_enriched_cell_types','suspension_depleted_cell_types','suspension_enrichment_factors','suspension_depletion_factors','disease_state','cell_state']
+	change_unreported = ['suspension_enriched_cell_types', 'suspension_depleted_cell_types', 'suspension_enrichment_factors', 
+	'suspension_depletion_factors', 'disease_state', 'cell_state']
 	for field in change_unreported:
-		if field in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns.to_list():
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs[field].replace({fm.UNREPORTED_VALUE: 'na'}, inplace=True)
+		if field in glob.cxg_obs.columns.to_list():
+			glob.cxg_obs[field].replace({fm.UNREPORTED_VALUE: 'na'}, inplace=True)
 	valid_tissue_types = ['tissue', 'organoid', 'cellculture']
-	GLOBAL_OBJS.CXG_PARTS.cxg_obs['tissue_type'] = GLOBAL_OBJS.CXG_PARTS.cxg_obs['tissue_type'].str.lower()
-	for i in GLOBAL_OBJS.CXG_PARTS.cxg_obs['tissue_type'].unique().tolist():
+	glob.cxg_obs['tissue_type'] = glob.cxg_obs['tissue_type'].str.lower()
+	for i in glob.cxg_obs['tissue_type'].unique().tolist():
 		if i == 'cellculture':
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs['tissue_type'].replace({'cellculture':'cell culture'}, inplace=True)
+			glob.cxg_obs['tissue_type'].replace({'cellculture':'cell culture'}, inplace=True)
 		if i not in valid_tissue_types:
 			logging.error('ERROR: not a valid tissue type:\t{}'.format(i))
 			print('ERROR: not a valid tissue type:\t{}'.format(i))
-	if GLOBAL_OBJS.MFINAL.mfinal_obj['is_primary_data'] == 'mixed':
-		primary_portion = GLOBAL_OBJS.MFINAL.mfinal_obj.get('primary_portion')
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs['is_primary_data'] = False
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs.loc[GLOBAL_OBJS.CXG_PARTS.cxg_obs[primary_portion.get('obs_field')].isin(primary_portion.get('values')),'is_primary_data'] = True
+	if glob.mfinal_obj['is_primary_data'] == 'mixed':
+		primary_portion = glob.mfinal_obj.get('primary_portion')
+		glob.cxg_obs['is_primary_data'] = False
+		glob.cxg_obs.loc[glob.cxg_obs[primary_portion.get('obs_field')].isin(primary_portion.get('values')), 'is_primary_data'] = True
 
-	GLOBAL_OBJS.CXG_PARTS.cxg_obs[[i for i in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns.tolist() if i.startswith('family_history_')]] = \
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs[[i for i in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns.tolist() if i.startswith('family_history_')]].fillna(value='unknown')
+	glob.cxg_obs[[i for i in glob.cxg_obs.columns.tolist() if i.startswith('family_history_')]] = \
+		glob.cxg_obs[[i for i in glob.cxg_obs.columns.tolist() if i.startswith('family_history_')]].fillna(value='unknown')
 
 
 # Drop any intermediate or optional fields that are all empty
-def drop_cols(celltype_col, GLOBAL_OBJS):
+def drop_cols(celltype_col, glob):
 	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units','cell_state', 'disease_state',\
+			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units', 'cell_state', 'disease_state',\
 			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk',\
-			'donor_living_at_sample_collection','donor_menopausal_status','donor_smoking_status','sample_derivation_process','suspension_dissociation_reagent',\
-			'suspension_dissociation_time','suspension_depleted_cell_types','suspension_derivation_process','suspension_percent_cell_viability',\
-			'library_starting_quantity','library_starting_quantity_units','tissue_handling_interval','suspension_dissociation_time_units','alignment_software',\
-			'mapped_reference_annotation','mapped_reference_assembly','sequencing_platform','sample_source','donor_cause_of_death', 'growth_medium','genetic_modifications',
+			'donor_living_at_sample_collection', 'donor_menopausal_status', 'donor_smoking_status', 'sample_derivation_process', 'suspension_dissociation_reagent',\
+			'suspension_dissociation_time', 'suspension_depleted_cell_types', 'suspension_derivation_process', 'suspension_percent_cell_viability',\
+			'library_starting_quantity', 'library_starting_quantity_units', 'tissue_handling_interval', 'suspension_dissociation_time_units', 'alignment_software',\
+			'mapped_reference_annotation', 'mapped_reference_assembly', 'sequencing_platform', 'sample_source', 'donor_cause_of_death', 'growth_medium', 'genetic_modifications',
 			'menstrual_phase_at_collection']
 	
-	if 'sequencing_platform' in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns:
-		if GLOBAL_OBJS.CXG_PARTS.cxg_obs['sequencing_platform'].isnull().values.any():
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs['sequencing_platform'].fillna(fm.UNREPORTED_VALUE, inplace=True)
+	if 'sequencing_platform' in glob.cxg_obs.columns:
+		if glob.cxg_obs['sequencing_platform'].isnull().values.any():
+			glob.cxg_obs['sequencing_platform'].fillna(fm.UNREPORTED_VALUE, inplace=True)
 	for col in optional_columns:
-		if col in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns.to_list():
-			col_content = GLOBAL_OBJS.CXG_PARTS.cxg_obs[col].unique()
+		if col in glob.cxg_obs.columns.to_list():
+			col_content = glob.cxg_obs[col].unique()
 			if len(col_content) == 1:
 				if col_content[0] == fm.UNREPORTED_VALUE or col_content[0] == '[' + fm.UNREPORTED_VALUE + ']' or col_content[0] == '[]':
-					GLOBAL_OBJS.CXG_PARTS.cxg_obs.drop(columns=col, inplace=True)
+					glob.cxg_obs.drop(columns=col, inplace=True)
 
-	if len(GLOBAL_OBJS.CXG_PARTS.cxg_obs['donor_age_redundancy'].unique()) == 1:
-		if GLOBAL_OBJS.CXG_PARTS.cxg_obs['donor_age_redundancy'].unique():
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs.drop(columns='donor_age', inplace=True)
+	if len(glob.cxg_obs['donor_age_redundancy'].unique()) == 1:
+		if glob.cxg_obs['donor_age_redundancy'].unique():
+			glob.cxg_obs.drop(columns='donor_age', inplace=True)
 	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
 			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
 			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
-			'sample_summary_development_ontology_at_collection_development_slims','donor_age_redundancy']
-	for column_drop in  columns_to_drop: 
-		if column_drop in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns.to_list():
-			GLOBAL_OBJS.CXG_PARTS.cxg_obs.drop(columns=column_drop, inplace=True)
+			'sample_summary_development_ontology_at_collection_development_slims', 'donor_age_redundancy']
+	for column_drop in columns_to_drop: 
+		if column_drop in glob.cxg_obs.columns.to_list():
+			glob.cxg_obs.drop(columns=column_drop, inplace=True)
 
 
 # Add ontology term names to CXG standardized columns
-def add_labels(GLOBAL_OBJS):
-	obj = lattice.get_report('OntologyTerm', '', ['term_id','term_name'], connection)
+def add_labels(glob):
+	obj = lattice.get_report('OntologyTerm', '', ['term_id', 'term_name'], connection)
 	ontology_df = pd.DataFrame(obj)
-	id_cols = ['assay_ontology_term_id','disease_ontology_term_id','cell_type_ontology_term_id','development_stage_ontology_term_id','sex_ontology_term_id',\
-			'tissue_ontology_term_id','organism_ontology_term_id','self_reported_ethnicity_ontology_term_id']
+	id_cols = ['assay_ontology_term_id', 'disease_ontology_term_id', 'cell_type_ontology_term_id', 'development_stage_ontology_term_id', 'sex_ontology_term_id',\
+			'tissue_ontology_term_id', 'organism_ontology_term_id', 'self_reported_ethnicity_ontology_term_id']
 	for col in id_cols:
-		name_col = col.replace("_ontology_term_id","")
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs[name_col] = GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs[col]
-		for term_id in GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs[name_col].unique():
+		name_col = col.replace("_ontology_term_id", "")
+		glob.cxg_adata.obs[name_col] = glob.cxg_adata.obs[col]
+		for term_id in glob.cxg_adata.obs[name_col].unique():
 			if term_id == 'PATO:0000461':
 				term_name = 'normal'
 			elif term_id == 'PATO:0000384':
@@ -657,12 +649,12 @@ def add_labels(GLOBAL_OBJS):
 				term_name = 'Homo sapiens'
 			elif term_id == 'unknown':
 				term_name = 'unknown'
-			elif len(ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique() == 1):
-				term_name = ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()[0]
+			elif len(ontology_df.loc[ontology_df['term_id']==term_id, 'term_name'].unique() == 1):
+				term_name = ontology_df.loc[ontology_df['term_id']==term_id, 'term_name'].unique()[0]
 			else:
-				logging.error('ERROR: Found more than single ontology term name for id: {}\t{}'.format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
-				sys.exit("ERROR: Found more than single ontology term name for id: {}\t{}".format(term_id, ontology_df.loc[ontology_df['term_id']==term_id,'term_name'].unique()))
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs[name_col].replace(term_id, term_name, inplace=True)
+				logging.error('ERROR: Found more than single ontology term name for id: {}\t{}'.format(term_id, ontology_df.loc[ontology_df['term_id']==term_id, 'term_name'].unique()))
+				sys.exit("ERROR: Found more than single ontology term name for id: {}\t{}".format(term_id, ontology_df.loc[ontology_df['term_id']==term_id, 'term_name'].unique()))
+			glob.cxg_adata.obs[name_col].replace(term_id, term_name, inplace=True)
 
 
 # Look at matrix and only convert to sparse if density is less than 0.5
@@ -676,76 +668,76 @@ def check_matrix(m):
 
 
 # If spatial transcriptomics, add adata.uns['spatial'] fields and eventually add full res
-def process_spatial(GLOBAL_OBJS):
+def process_spatial(glob):
 
-	if len(GLOBAL_OBJS.MFINAL.mfinal_obj.get('libraries'))==1:
-		if GLOBAL_OBJS.CXG_PARTS.cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
-			GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'] = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.uns['spatial']
-			GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial']['is_single'] = True
-			library_id = list(GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'].keys())[0]
-			spatial_lib = list(GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'].keys())[0]
+	if len(glob.mfinal_obj.get('libraries'))==1:
+		if glob.cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
+			glob.cxg_uns['spatial'] = glob.cxg_adata_raw.uns['spatial']
+			glob.cxg_uns['spatial']['is_single'] = True
+			library_id = list(glob.cxg_uns['spatial'].keys())[0]
+			spatial_lib = list(glob.cxg_uns['spatial'].keys())[0]
 			# Moving spacial metadata from cxg_uns['spatial']
-			GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial_metadata'] = GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'][spatial_lib]['metadata']
+			glob.cxg_uns['spatial_metadata'] = glob.cxg_uns['spatial'][spatial_lib]['metadata']
 			# Deleting unwanted spacial information, including metadata, from spatial
-			del GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'][spatial_lib]['metadata']
-			del GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'][spatial_lib]['images']['lowres']
-			del GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
-			del GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
+			del glob.cxg_uns['spatial'][spatial_lib]['metadata']
+			del glob.cxg_uns['spatial'][spatial_lib]['images']['lowres']
+			del glob.cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
+			del glob.cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
 
-			if GLOBAL_OBJS.MFINAL.mfinal_obj.get('fullres_s3_uri', None):
-				filename = GLOBAL_OBJS.MFINAL.mfinal_obj.get('fullres_s3_uri').split('/')[-1]
+			if glob.mfinal_obj.get('fullres_s3_uri', None):
+				filename = glob.mfinal_obj.get('fullres_s3_uri').split('/')[-1]
 				if os.path.exists(fm.MTX_DIR+"/"+filename):
 					print("{} was found locally".format(filename))
 				else:
-					download_file(GLOBAL_OBJS.MFINAL.mfinal_obj.get('fullres_s3_uri'), fm.MTX_DIR)
-				if filename.endswith(('tif','tiff','jpg')):
+					download_file(glob.mfinal_obj.get('fullres_s3_uri'), fm.MTX_DIR)
+				if filename.endswith(('tif', 'tiff', 'jpg')):
 					fullres_np = np.asarray(Image.open(fm.MTX_DIR+"/"+filename))
-					GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'][library_id]['images']['fullres'] = fullres_np
+					glob.cxg_uns['spatial'][library_id]['images']['fullres'] = fullres_np
 				else:
-					warning_list.append("WARNING: Did not recognize fullres file format:\t{}".format(GLOBAL_OBJS.MFINAL.mfinal_obj.get('fullres_s3_uri')))
+					warning_list.append("WARNING: Did not recognize fullres file format:\t{}".format(glob.mfinal_obj.get('fullres_s3_uri')))
 		else:
-			GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'] = {}
-			GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial']['is_single'] = True
-			if 'X_spatial' not in GLOBAL_OBJS.CXG_PARTS.cxg_obsm:
+			glob.cxg_uns['spatial'] = {}
+			glob.cxg_uns['spatial']['is_single'] = True
+			if 'X_spatial' not in glob.cxg_obsm:
 				logging.error('ERROR: X_spatial embedding is required for Slide-seqV2')
 				sys.exit('ERROR: X_spatial embedding is required for Slide-seqV2')
 			else:
 				### WILL NEED TO DELETE X_spatial ONCE WE ARE READY FOR SCHEMA 5.1
-				GLOBAL_OBJS.CXG_PARTS.cxg_obsm['spatial'] = GLOBAL_OBJS.CXG_PARTS.cxg_obsm['X_spatial']
+				glob.cxg_obsm['spatial'] = glob.cxg_obsm['X_spatial']
 
 	else:
-		GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial'] = {}
-		GLOBAL_OBJS.CXG_PARTS.cxg_uns['spatial']['is_single'] = False
+		glob.cxg_uns['spatial'] = {}
+		glob.cxg_uns['spatial']['is_single'] = False
 
 
 # Add missing obs to mfinal_adata to match raw and also modify cxg_obsm to include missing obs
-def add_background_spots(GLOBAL_OBJS):
+def add_background_spots(glob):
 
-	if GLOBAL_OBJS.MFINAL.mfinal_adata.obs.shape[0] < 4992:
-		missing_barcodes = [i for i in GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.obs.index.to_list() if i not in list(GLOBAL_OBJS.MFINAL.mfinal_adata.obs.index)]
-		empty_matrix = sparse.csr_matrix((len(missing_barcodes), GLOBAL_OBJS.MFINAL.mfinal_adata.var.shape[0]))
-		missing_adata = ad.AnnData(empty_matrix, var=GLOBAL_OBJS.MFINAL.mfinal_adata.var, obs=pd.DataFrame(index=missing_barcodes))
-		comb_adata = ad.concat([GLOBAL_OBJS.MFINAL.mfinal_adata, missing_adata], uns_merge='first', merge='first')
-		comb_adata = comb_adata[GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.obs.index.to_list(),:]
+	if glob.mfinal_adata.obs.shape[0] < 4992:
+		missing_barcodes = [i for i in glob.cxg_adata_raw.obs.index.to_list() if i not in list(glob.mfinal_adata.obs.index)]
+		empty_matrix = sparse.csr_matrix((len(missing_barcodes), glob.mfinal_adata.var.shape[0]))
+		missing_adata = ad.AnnData(empty_matrix, var=glob.mfinal_adata.var, obs=pd.DataFrame(index=missing_barcodes))
+		comb_adata = ad.concat([glob.mfinal_adata, missing_adata], uns_merge='first', merge='first')
+		comb_adata = comb_adata[glob.cxg_adata_raw.obs.index.to_list(), :]
 
-		for embed in GLOBAL_OBJS.MFINAL.mfinal_adata.obsm.keys():
-			new_array = np.empty((comb_adata.obs.shape[0], GLOBAL_OBJS.MFINAL.mfinal_adata.obsm[embed].shape[1]))
+		for embed in glob.mfinal_adata.obsm.keys():
+			new_array = np.empty((comb_adata.obs.shape[0], glob.mfinal_adata.obsm[embed].shape[1]))
 			new_array[:] = np.nan
-			for orig_row in range(GLOBAL_OBJS.MFINAL.mfinal_adata.obs.shape[0]):
-				row = comb_adata.obs.index.get_loc(GLOBAL_OBJS.MFINAL.mfinal_adata.obs.iloc[orig_row].name)
-				new_array[row] = GLOBAL_OBJS.MFINAL.mfinal_adata.obsm[embed][orig_row,:]
+			for orig_row in range(glob.mfinal_adata.obs.shape[0]):
+				row = comb_adata.obs.index.get_loc(glob.mfinal_adata.obs.iloc[orig_row].name)
+				new_array[row] = glob.mfinal_adata.obsm[embed][orig_row, :]
 			comb_adata.obsm[embed] = new_array
 
-		GLOBAL_OBJS.MFINAL.mfinal_adata = comb_adata
-		GLOBAL_OBJS.CXG_PARTS.cxg_obsm = GLOBAL_OBJS.MFINAL.mfinal_adata.obsm
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs['cell_type_ontology_term_id'] = GLOBAL_OBJS.CXG_PARTS.cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
-	GLOBAL_OBJS.CXG_PARTS.cxg_obsm['spatial'] = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.obsm['spatial']
+		glob.mfinal_adata = comb_adata
+		glob.cxg_obsm = glob.mfinal_adata.obsm
+		glob.cxg_obs['cell_type_ontology_term_id'] = glob.cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
+	glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
 
 
 def main(mfinal_id):
 
-	GLOBAL_OBJS = GLOBAL(None,None,None,None,None,None,None)
-	GLOBAL_OBJS.MFINAL.mfinal_obj = lattice.get_object(mfinal_id, connection)
+	glob = GlobVals(None, None, None, None, None, None, None)
+	glob.mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
 	# Adding date and time to top of logging file
@@ -755,22 +747,22 @@ def main(mfinal_id):
 	logging.captureWarnings(True)
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
-	mfinal_type = GLOBAL_OBJS.MFINAL.mfinal_obj['@type'][0]
+	mfinal_type = glob.mfinal_obj['@type'][0]
 	summary_assay = ''
 	if mfinal_type != 'ProcessedMatrixFile':
 		logging.error('ERROR: {} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 		sys.exit('ERROR: {} is not a ProcessedMatrixFile, but a {}'.format(mfinal_id, mfinal_type))
 
-	if GLOBAL_OBJS.MFINAL.mfinal_obj['output_types'] == ['gene quantifications']:
-		if GLOBAL_OBJS.MFINAL.mfinal_obj['assays'] == ['snATAC-seq']:
+	if glob.mfinal_obj['output_types'] == ['gene quantifications']:
+		if glob.mfinal_obj['assays'] == ['snATAC-seq']:
 			summary_assay = 'ATAC'
 		else:
 			summary_assay = 'RNA'
-	elif GLOBAL_OBJS.MFINAL.mfinal_obj['output_types'] == ['antibody capture quantifications']:
+	elif glob.mfinal_obj['output_types'] == ['antibody capture quantifications']:
 		summary_assay = 'CITE'
 	else:
-		logging.error('ERROR: Unexpected assay types to generate cxg h5ad: {} {}'.format(GLOBAL_OBJS.MFINAL.mfinal_obj['assays'], GLOBAL_OBJS.MFINAL.mfinal_obj['output_types']))
-		sys.exit("ERROR: Unexpected assay types to generate cxg h5ad: {} {}".format(GLOBAL_OBJS.MFINAL.mfinal_obj['assays'], GLOBAL_OBJS.MFINAL.mfinal_obj['output_types']))
+		logging.error('ERROR: Unexpected assay types to generate cxg h5ad: {} {}'.format(glob.mfinal_obj['assays'], glob.mfinal_obj['output_types']))
+		sys.exit("ERROR: Unexpected assay types to generate cxg h5ad: {} {}".format(glob.mfinal_obj['assays'], glob.mfinal_obj['output_types']))
 
 
 	# Dataframe that contains experimental metadata keyed off of raw matrix
@@ -783,23 +775,23 @@ def main(mfinal_id):
 		os.mkdir(fm.MTX_DIR)
 		
 	# Checking for presence of h5ad, and downloading if not present
-	if os.path.exists(fm.MTX_DIR + '/' + GLOBAL_OBJS.MFINAL.mfinal_obj['accession'] + '.h5ad'):
-		print(GLOBAL_OBJS.MFINAL.mfinal_obj['accession'] + '.h5ad' + ' was found locally')
+	if os.path.exists(fm.MTX_DIR + '/' + glob.mfinal_obj['accession'] + '.h5ad'):
+		print(glob.mfinal_obj['accession'] + '.h5ad' + ' was found locally')
 	else:
-		download_file(GLOBAL_OBJS.MFINAL.mfinal_obj.get('s3_uri'), fm.MTX_DIR, GLOBAL_OBJS.MFINAL.mfinal_obj.get('accession'))
+		download_file(glob.mfinal_obj.get('s3_uri'), fm.MTX_DIR, glob.mfinal_obj.get('accession'))
 
 	# Get list of unique final cell identifiers
-	file_url = GLOBAL_OBJS.MFINAL.mfinal_obj['s3_uri']
+	file_url = glob.mfinal_obj['s3_uri']
 	file_ext = file_url.split('.')[-1]
-	mfinal_local_path = '{}/{}.{}'.format(fm.MTX_DIR, GLOBAL_OBJS.MFINAL.mfinal_obj['accession'], file_ext)
-	GLOBAL_OBJS.MFINAL.mfinal_adata = sc.read_h5ad(mfinal_local_path)
-	mfinal_cell_identifiers = GLOBAL_OBJS.MFINAL.mfinal_adata.obs.index.to_list()
+	mfinal_local_path = '{}/{}.{}'.format(fm.MTX_DIR, glob.mfinal_obj['accession'], file_ext)
+	glob.mfinal_adata = sc.read_h5ad(mfinal_local_path)
+	mfinal_cell_identifiers = glob.mfinal_adata.obs.index.to_list()
 
 	cxg_adata_lst = []
 	redundant = []
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
-	mxraws = fm.gather_rawmatrices(GLOBAL_OBJS.MFINAL.mfinal_obj['derived_from'],connection)
+	mxraws = fm.gather_rawmatrices(glob.mfinal_obj['derived_from'], connection)
 	donor_susp = {}
 	library_susp = {}
 	mapping_error = False
@@ -808,7 +800,7 @@ def main(mfinal_id):
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
-		relevant_objects = fm.gather_objects(mxr, GLOBAL_OBJS.MFINAL.mfinal_obj, connection)
+		relevant_objects = fm.gather_objects(mxr, glob.mfinal_obj, connection)
 		values_to_add = {}
 
 		# Get raw matrix metadata
@@ -817,7 +809,7 @@ def main(mfinal_id):
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
-		if 'demultiplexed_donor_column' in GLOBAL_OBJS.MFINAL.mfinal_obj:
+		if 'demultiplexed_donor_column' in glob.mfinal_obj:
 			lib_obj = relevant_objects.get('library', [])
 			values_to_add = fm.gather_metdata('library', fm.CELL_METADATA['library'], values_to_add, lib_obj, connection)
 			for i in range(len(lib_obj)):
@@ -871,7 +863,7 @@ def main(mfinal_id):
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
-		if summary_assay in ['RNA','CITE']:
+		if summary_assay in ['RNA', 'CITE']:
 			# Checking for presence of mxr file and downloading if not present
 			if mxr['s3_uri'].endswith('h5'):
 				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5'):
@@ -885,44 +877,44 @@ def main(mfinal_id):
 					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 
 			mxr_name = '{}.h5'.format(mxr_acc) if mxr['s3_uri'].endswith('h5') else '{}.h5ad'.format(mxr_acc)
-			if GLOBAL_OBJS.MFINAL.mfinal_obj.get('spatial_s3_uri', None) and GLOBAL_OBJS.MFINAL.mfinal_obj['assays'] == ['spatial transcriptomics']:
+			if glob.mfinal_obj.get('spatial_s3_uri', None) and glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 				# Checking for presence of spatial directory and redownloading if present
 				if os.path.exists(fm.MTX_DIR + '/spatial'):
 					shutil.rmtree(fm.MTX_DIR + '/spatial')
-				download_directory(GLOBAL_OBJS.MFINAL.mfinal_obj['spatial_s3_uri'], fm.MTX_DIR)
+				download_directory(glob.mfinal_obj['spatial_s3_uri'], fm.MTX_DIR)
 				# If tissue_positions is present rename to tissue_positions_list and remove header
 				if os.path.exists(fm.MTX_DIR + '/spatial/tissue_positions.csv') == True:
-					fixed_file = pd.read_csv(fm.MTX_DIR + '/spatial/tissue_positions.csv', skiprows = 1, header = None)
-					fixed_file.to_csv(fm.MTX_DIR + '/spatial/tissue_positions_list.csv', header = False, index = False)
+					fixed_file = pd.read_csv(fm.MTX_DIR + '/spatial/tissue_positions.csv', skiprows=1, header=None)
+					fixed_file.to_csv(fm.MTX_DIR + '/spatial/tissue_positions_list.csv', header=False, index=False)
 					os.remove(fm.MTX_DIR + '/spatial/tissue_positions.csv')
-				if 'spatial' in mfinal_adata.uns.keys():
-					del mfinal_adata.uns['spatial']
+				if 'spatial' in glob.mfinal_adata.uns.keys():
+					del glob.mfinal_adata.uns['spatial']
 				adata_raw = sc.read_visium(fm.MTX_DIR, count_file=mxr_name)
 
 			elif mxr['s3_uri'].endswith('h5'):
-				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR,mxr_name), gex_only = False)
+				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR, mxr_name), gex_only=False)
 			elif mxr['s3_uri'].endswith('h5ad'):
-				adata_raw = sc.read_h5ad('{}/{}'.format(fm.MTX_DIR,mxr_name))
+				adata_raw = sc.read_h5ad('{}/{}'.format(fm.MTX_DIR, mxr_name))
 			else:
 				logging.error('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 
 			if summary_assay == 'RNA':
 				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
-				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Gene Expression']
+				adata_raw = adata_raw[:, adata_raw.var['feature_types']=='Gene Expression']
 			else:
-				adata_raw = adata_raw[:,adata_raw.var['feature_types']=='Antibody Capture']
+				adata_raw = adata_raw[:, adata_raw.var['feature_types']=='Antibody Capture']
 			# only make var unique if all raw matrices are same annotation version
-			if len(GLOBAL_OBJS.MFINAL.mfinal_obj.get('genome_annotations', [])) == 1:
+			if len(glob.mfinal_obj.get('genome_annotations', [])) == 1:
 				for g in [i for i,c in collections.Counter(adata_raw.var.index.to_list()).items() if c > 1]:
 					if True in adata_raw.var.loc[g, 'gene_ids'].str.endswith("PAR_Y").to_list():
-						redundant.extend([i for i in adata_raw.var.loc[g,'gene_ids'] if i.endswith('PAR_Y')])
+						redundant.extend([i for i in adata_raw.var.loc[g, 'gene_ids'] if i.endswith('PAR_Y')])
 					else:
-						redundant.extend(adata_raw.var.loc[g,'gene_ids'].to_list())
-				adata_raw.var_names_make_unique(join = '.')
+						redundant.extend(adata_raw.var.loc[g, 'gene_ids'].to_list())
+				adata_raw.var_names_make_unique(join='.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
-			if GLOBAL_OBJS.MFINAL.mfinal_obj.get('cell_label_mappings', None):
-				concatenated_ids = concatenate_cell_id(mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers,GLOBAL_OBJS)
+			if glob.mfinal_obj.get('cell_label_mappings', None):
+				concatenated_ids = concatenate_cell_id(mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers, glob)
 				adata_raw.obs_names = concatenated_ids
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 			else:
@@ -930,13 +922,13 @@ def main(mfinal_id):
 
 			# Error check to see that cells in raw matrix match the cell in mfinal_adata
 			cell_mapping_dct = {}
-			if GLOBAL_OBJS.MFINAL.mfinal_obj.get('cell_label_mappings'):
-				for mapping_dict in GLOBAL_OBJS.MFINAL.mfinal_obj.get('cell_label_mappings'):
+			if glob.mfinal_obj.get('cell_label_mappings'):
+				for mapping_dict in glob.mfinal_obj.get('cell_label_mappings'):
 					cell_mapping_dct[mapping_dict['raw_matrix']] = mapping_dict['label']
 				mapping_label = cell_mapping_dct[mxr.get('@id')]
-			if GLOBAL_OBJS.MFINAL.mfinal_obj.get('cell_label_location') == 'prefix':
+			if glob.mfinal_obj.get('cell_label_location') == 'prefix':
 				prefixes = []
-				for mapping_dict in GLOBAL_OBJS.MFINAL.mfinal_obj['cell_label_mappings']: # Creating list of all prefixes
+				for mapping_dict in glob.mfinal_obj['cell_label_mappings']: # Creating list of all prefixes
 					prefixes.append(mapping_dict['label'])
 				prefixes.remove(mapping_label) # Removing mapping_label prefix from list of all prefixes
 				# Checking to make sure none of the other prefixes contain the mapping_label prefix, if they do, then make sure there's no false match
@@ -944,12 +936,12 @@ def main(mfinal_id):
 					mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label) and not i.startswith(tuple(prefixes))]
 				else:
 					mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label)]
-			elif GLOBAL_OBJS.MFINAL.mfinal_obj.get('cell_label_location') == 'suffix':
+			elif glob.mfinal_obj.get('cell_label_location') == 'suffix':
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i.endswith(mapping_label)]
 			else: 
 				mfinal_with_label = [i for i in mfinal_cell_identifiers if i in adata_raw.obs_names]
 			if len(overlapped_ids) == 0:
-				if GLOBAL_OBJS.MFINAL.mfinal_obj['cell_label_location'] == 'prefix':
+				if glob.mfinal_obj['cell_label_location'] == 'prefix':
 					if concatenated_ids[0].endswith('-1'):
 						concatenated_ids = [re.sub('-1$', '', i) for i in concatenated_ids]
 					else:
@@ -969,7 +961,7 @@ def main(mfinal_id):
 				error_info[mxr.get('@id')] = mapping_label
 				error_info[mxr.get('@id')] += '; in_adata: {}, in_raw: {}, overlap: {}'.format(len(mfinal_with_label), len(concatenated_ids), len(overlapped_ids))
 			if not mapping_error:
-				if not GLOBAL_OBJS.MFINAL.mfinal_obj.get('spatial_s3_uri', None):
+				if not glob.mfinal_obj.get('spatial_s3_uri', None):
 					adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				cxg_adata_lst.append(adata_raw)
@@ -978,7 +970,7 @@ def main(mfinal_id):
 		redundant = list(set(redundant))
 		
 	# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
-	if not GLOBAL_OBJS.MFINAL.mfinal_obj.get('genome_annotations', None):
+	if not glob.mfinal_obj.get('genome_annotations', None):
 		del df['mapped_reference_annotation']
 
 	if mapping_error:
@@ -991,7 +983,7 @@ def main(mfinal_id):
 
 	# Get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = {}
-	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [GLOBAL_OBJS.MFINAL.mfinal_obj], connection)
+	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [glob.mfinal_obj], connection)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
 
@@ -1009,7 +1001,7 @@ def main(mfinal_id):
 
 	# Set up dataframe for cell annotations keyed off of author_cell_type
 	annot_df = pd.DataFrame()
-	for annot_obj in GLOBAL_OBJS.MFINAL.mfinal_obj['cell_annotations']:
+	for annot_obj in glob.mfinal_obj['cell_annotations']:
 		annot_lst = []
 		annot_lst.append(annot_obj)
 		annot_metadata = {}
@@ -1023,236 +1015,234 @@ def main(mfinal_id):
 	cell_mapping_rev_dct = {}
 	if summary_assay == 'RNA':
 		# If raw matrices are annotated to multiple gencode versions, concatenate on ensembl ID and remove ambiguous symbols
-		if len(GLOBAL_OBJS.MFINAL.mfinal_obj.get('genome_annotations',[])) > 1:
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw, redundant, all_remove  = reconcile_genes(cxg_adata_lst, GLOBAL_OBJS)
-			drop_removes = set(GLOBAL_OBJS.MFINAL.mfinal_adata.var.index.to_list()).intersection(set(all_remove))
+		if len(glob.mfinal_obj.get('genome_annotations', [])) > 1:
+			glob.cxg_adata_raw, redundant, all_remove  = reconcile_genes(cxg_adata_lst, glob)
+			drop_removes = set(glob.mfinal_adata.var.index.to_list()).intersection(set(all_remove))
 			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
-			GLOBAL_OBJS.MFINAL.mfinal_adata = GLOBAL_OBJS.MFINAL.mfinal_adata[:, [i for i in GLOBAL_OBJS.MFINAL.mfinal_adata.var.index.to_list() if i not in all_remove]]
+			glob.mfinal_adata = glob.mfinal_adata[:, [i for i in glob.mfinal_adata.var.index.to_list() if i not in all_remove]]
 		elif len(feature_lengths) > 1:
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = concat_list(cxg_adata_lst,'gene_ids',True)
+			glob.cxg_adata_raw = concat_list(cxg_adata_lst, 'gene_ids', True)
 		else:
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = concat_list(cxg_adata_lst,'none',True)
+			glob.cxg_adata_raw = concat_list(cxg_adata_lst, 'none', True)
 			if len(feature_lengths) == 1:
-				if GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.shape[0] != feature_lengths[0]:
+				if glob.cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 					logging.error('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
 					sys.exit('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
-		if not GLOBAL_OBJS.MFINAL.mfinal_obj.get('spatial_s3_uri', None):
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw[mfinal_cell_identifiers]
-			if GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.shape[0] != GLOBAL_OBJS.MFINAL.mfinal_adata.shape[0]:
+		if not glob.mfinal_obj.get('spatial_s3_uri', None):
+			glob.cxg_adata_raw = glob.cxg_adata_raw[mfinal_cell_identifiers]
+			if glob.cxg_adata_raw.shape[0] != glob.mfinal_adata.shape[0]:
 				logging.error('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
 				sys.exit('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'CITE':
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = concat_list(cxg_adata_lst,'none',False)
+		glob.cxg_adata_raw = concat_list(cxg_adata_lst, 'none', False)
 		if len(feature_lengths) == 1:
-			if GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.var.shape[0] != feature_lengths[0]:
+			if glob.cxg_adata_raw.var.shape[0] != feature_lengths[0]:
 				logging.error('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
 				sys.exit('ERROR: There should be the same genes for raw matrices if only a single genome annotation')
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw[mfinal_cell_identifiers]
-		if GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.shape[0] != GLOBAL_OBJS.MFINAL.mfinal_adata.shape[0]:
+		glob.cxg_adata_raw = glob.cxg_adata_raw[mfinal_cell_identifiers]
+		if glob.cxg_adata_raw.shape[0] != glob.mfinal_adata.shape[0]:
 			logging.error('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
 			sys.exit('ERROR: The number of cells do not match between final matrix and cxg h5ad.')
 	elif summary_assay == 'ATAC':
-		for mapping_dict in GLOBAL_OBJS.MFINAL.mfinal_obj['cell_label_mappings']:
+		for mapping_dict in glob.mfinal_obj['cell_label_mappings']:
 			cell_mapping_rev_dct[mapping_dict['label']] = mapping_dict['raw_matrix']
 		flag_removed = False
 		for final_id in mfinal_cell_identifiers:
 			if not re.search('[AGCT]+-1', final_id):
 				flag_removed = True
 		for cell_id in mfinal_cell_identifiers:
-			if GLOBAL_OBJS.MFINAL.mfinal_obj['cell_label_location'] == 'prefix':
+			if glob.mfinal_obj['cell_label_location'] == 'prefix':
 				label = re.search('^(.*)[AGCT]{16}.*$', cell_id).group(1)
-			elif GLOBAL_OBJS.MFINAL.mfinal_obj['cell_label_location'] == 'suffix':
+			elif glob.mfinal_obj['cell_label_location'] == 'suffix':
 				if flag_removed:
 					label = re.search(r'^[AGCT]+(.*)$', cell_id).group(1)
 				else:
 					label = re.search(r'^[AGCT]+-1(.*)$', cell_id).group(1)
 			raw_matrix_mapping.append(cell_mapping_rev_dct[label])
-		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index = mfinal_cell_identifiers)
-		if GLOBAL_OBJS.MFINAL.mfinal_adata.raw == None:
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = ad.AnnData(sparse.csr_matrix(GLOBAL_OBJS.MFINAL.mfinal_adata.X.shape), var = GLOBAL_OBJS.MFINAL.mfinal_adata.var, obs = atac_obs)
+		atac_obs = pd.DataFrame({'raw_matrix_accession': raw_matrix_mapping}, index=mfinal_cell_identifiers)
+		if glob.mfinal_adata.raw == None:
+			glob.cxg_adata_raw = ad.AnnData(sparse.csr_matrix(glob.mfinal_adata.X.shape), var=glob.mfinal_adata.var, obs=atac_obs)
 		else:
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = ad.AnnData(GLOBAL_OBJS.MFINAL.mfinal_adata.raw.X, var = GLOBAL_OBJS.MFINAL.mfinal_adata.var, obs = atac_obs)
+			glob.cxg_adata_raw = ad.AnnData(glob.mfinal_adata.raw.X, var=glob.mfinal_adata.var, obs=atac_obs)
 
 	# Set uns and obsm parameters (obsm is originally set from mfinal_adata, since there may be other embeddings)
-	GLOBAL_OBJS.CXG_PARTS.cxg_uns = ds_results
-	GLOBAL_OBJS.CXG_PARTS.cxg_obsm = GLOBAL_OBJS.MFINAL.mfinal_adata.obsm.copy()
-	if len([i for i in GLOBAL_OBJS.CXG_PARTS.cxg_obsm.keys() if i.startswith('X_')]) < 1:
+	glob.cxg_uns = ds_results
+	glob.cxg_obsm = glob.mfinal_adata.obsm.copy()
+	if len([i for i in glob.cxg_obsm.keys() if i.startswith('X_')]) < 1:
 		logging.error("ERROR: At least one embedding that starts with 'X_' is required")
 		sys.exit("ERROR: At least one embedding that starts with 'X_' is required")
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
-	celltype_col = GLOBAL_OBJS.MFINAL.mfinal_obj['author_cell_type_column']
-	if GLOBAL_OBJS.MFINAL.mfinal_adata.obs[celltype_col].dtype != 'object':
-		GLOBAL_OBJS.MFINAL.mfinal_adata.obs[celltype_col] = GLOBAL_OBJS.MFINAL.mfinal_adata.obs[celltype_col].astype('string')
-	GLOBAL_OBJS.CXG_PARTS.cxg_obs = pd.merge(GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
-	GLOBAL_OBJS.CXG_PARTS.cxg_obs = pd.merge(GLOBAL_OBJS.CXG_PARTS.cxg_obs, GLOBAL_OBJS.MFINAL.mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
-	GLOBAL_OBJS.CXG_PARTS.cxg_obs = pd.merge(GLOBAL_OBJS.CXG_PARTS.cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
-	if not GLOBAL_OBJS.MFINAL.mfinal_obj.get('spatial_s3_uri', None):
-		if GLOBAL_OBJS.CXG_PARTS.cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
+	celltype_col = glob.mfinal_obj['author_cell_type_column']
+	if glob.mfinal_adata.obs[celltype_col].dtype != 'object':
+		glob.mfinal_adata.obs[celltype_col] = glob.mfinal_adata.obs[celltype_col].astype('string')
+	glob.cxg_obs = pd.merge(glob.cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
+	glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
+	glob.cxg_obs = pd.merge(glob.cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+	if not glob.mfinal_obj.get('spatial_s3_uri', None):
+		if glob.cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
 			warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
-				format(GLOBAL_OBJS.CXG_PARTS.cxg_obs.loc[GLOBAL_OBJS.CXG_PARTS.cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
-		if GLOBAL_OBJS.CXG_PARTS.cxg_obs[celltype_col].isna().any():
+				format(glob.cxg_obs.loc[glob.cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
+		if glob.cxg_obs[celltype_col].isna().any():
 			logging.error("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
 			sys.exit("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
-		if len([i for i in annot_df.index.to_list() if i not in GLOBAL_OBJS.CXG_PARTS.cxg_obs[celltype_col].unique().tolist()]) > 0:
-			warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in GLOBAL_OBJS.CXG_PARTS.cxg_obs[celltype_col].unique().tolist()]))
+		if len([i for i in annot_df.index.to_list() if i not in glob.cxg_obs[celltype_col].unique().tolist()]) > 0:
+			warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in glob.cxg_obs[celltype_col].unique().tolist()]))
 
-	if 'author_cluster_column' in GLOBAL_OBJS.MFINAL.mfinal_obj:
-		cluster_col = GLOBAL_OBJS.MFINAL.mfinal_obj['author_cluster_column']
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs = pd.merge(GLOBAL_OBJS.CXG_PARTS.cxg_obs, GLOBAL_OBJS.MFINAL.mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs['author_cluster'] = GLOBAL_OBJS.CXG_PARTS.cxg_obs['author_cluster'].astype('category')
+	if 'author_cluster_column' in glob.mfinal_obj:
+		cluster_col = glob.mfinal_obj['author_cluster_column']
+		glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[cluster_col]], left_index=True, right_index=True, how='left')
+		glob.cxg_obs.rename(columns={cluster_col: 'author_cluster'}, inplace=True)
+		glob.cxg_obs['author_cluster'] = glob.cxg_obs['author_cluster'].astype('category')
 
 	# After getting experimental metadata keyed off of mxr, if there is demultiplexed_donor_column, run demultiplex
-	if 'demultiplexed_donor_column' in GLOBAL_OBJS.MFINAL.mfinal_obj:
-		donor_col = GLOBAL_OBJS.MFINAL.mfinal_obj['demultiplexed_donor_column']
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs = pd.merge(GLOBAL_OBJS.CXG_PARTS.cxg_obs, GLOBAL_OBJS.MFINAL.mfinal_adata.obs[[donor_col]], left_index=True, right_index=True, how='left')
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs.rename(columns={donor_col: 'author_donor'}, inplace=True)
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs['library_@id'] = GLOBAL_OBJS.CXG_PARTS.cxg_obs['library_@id'].astype(str)
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs['author_donor'] = GLOBAL_OBJS.CXG_PARTS.cxg_obs['author_donor'].astype(str)
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs['library_authordonor'] = GLOBAL_OBJS.CXG_PARTS.cxg_obs['library_@id'] + ',' + GLOBAL_OBJS.CXG_PARTS.cxg_obs['author_donor']
+	if 'demultiplexed_donor_column' in glob.mfinal_obj:
+		donor_col = glob.mfinal_obj['demultiplexed_donor_column']
+		glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[donor_col]], left_index=True, right_index=True, how='left')
+		glob.cxg_obs.rename(columns={donor_col: 'author_donor'}, inplace=True)
+		glob.cxg_obs['library_@id'] = glob.cxg_obs['library_@id'].astype(str)
+		glob.cxg_obs['author_donor'] = glob.cxg_obs['author_donor'].astype(str)
+		glob.cxg_obs['library_authordonor'] = glob.cxg_obs['library_@id'] + ',' + glob.cxg_obs['author_donor']
 
-		lib_donor_df = GLOBAL_OBJS.CXG_PARTS.cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
-		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, GLOBAL_OBJS)
+		lib_donor_df = glob.cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
+		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, glob)
 
-		report_diseases(donor_df, GLOBAL_OBJS.MFINAL.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
+		report_diseases(donor_df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(donor_df)
 
 		# Retain cell identifiers as index
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs = GLOBAL_OBJS.CXG_PARTS.cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
-		if GLOBAL_OBJS.MFINAL.mfinal_adata.X.shape[0] != GLOBAL_OBJS.CXG_PARTS.cxg_obs.shape[0]:
-			logging.error('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(GLOBAL_OBJS.MFINAL.mfinal_adata.X.shape[0], GLOBAL_OBJS.CXG_PARTS.cxg_obs.shape[0]))
-			sys.exit('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(GLOBAL_OBJS.MFINAL.mfinal_adata.X.shape[0], GLOBAL_OBJS.CXG_PARTS.cxg_obs.shape[0]))
+		glob.cxg_obs = glob.cxg_obs.reset_index().merge(donor_df, how='left', on='library_authordonor').set_index('index')
+		if glob.mfinal_adata.X.shape[0] != glob.cxg_obs.shape[0]:
+			logging.error('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(glob.mfinal_adata.X.shape[0], glob.cxg_obs.shape[0]))
+			sys.exit('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(glob.mfinal_adata.X.shape[0], glob.cxg_obs.shape[0]))
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
-		report_diseases(df, GLOBAL_OBJS.MFINAL.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
+		report_diseases(df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(df)
-		GLOBAL_OBJS.CXG_PARTS.cxg_obs = pd.merge(GLOBAL_OBJS.CXG_PARTS.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], \
-			left_on="raw_matrix_accession", right_index=True, how="left" )
+		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
 	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	drop_cols(celltype_col, GLOBAL_OBJS)
-	clean_obs(GLOBAL_OBJS)
+	drop_cols(celltype_col, glob)
+	clean_obs(glob)
 	del cxg_adata_lst
 	gc.collect()
 
 	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
-	if GLOBAL_OBJS.MFINAL.mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
-		primary_portion = GLOBAL_OBJS.MFINAL.mfinal_obj.get('primary_portion')
-		if primary_portion.get('obs_field') not in GLOBAL_OBJS.CXG_PARTS.cxg_obs.columns:
+	if glob.mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
+		primary_portion = glob.mfinal_obj.get('primary_portion')
+		if primary_portion.get('obs_field') not in glob.cxg_obs.columns:
 			logging.error("ERROR: 'obs_field' value '{}' not found in cxg_obs columns".format(primary_portion.get('obs_field')))
 			sys.exit("ERROR: 'obs_field' value '{}' not found in cxg_obs columns".format(primary_portion.get('obs_field')))
 
 		# Check that all primary_portion.values of ProcessedMatrixFile are found in the 'obs_field' column of cxg_obs
-		missing = [f for f in primary_portion.get('values') if f not in GLOBAL_OBJS.CXG_PARTS.cxg_obs[primary_portion.get('obs_field')].tolist()]
+		missing = [f for f in primary_portion.get('values') if f not in glob.cxg_obs[primary_portion.get('obs_field')].tolist()]
 		if missing:
 			logging.error("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 			sys.exit("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 
 	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
-	results_file  = get_results_filename(GLOBAL_OBJS)
-	GLOBAL_OBJS.MFINAL.mfinal_adata.var_names_make_unique()
-	cxg_var = pd.DataFrame(index = GLOBAL_OBJS.MFINAL.mfinal_adata.var.index.to_list())
+	results_file  = get_results_filename(glob)
+	glob.mfinal_adata.var_names_make_unique()
+	cxg_var = pd.DataFrame(index=glob.mfinal_adata.var.index.to_list())
 	keep_types = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
 	if summary_assay == 'CITE':
 		keep_types.append('object')
-	var_meta = GLOBAL_OBJS.MFINAL.mfinal_adata.var.select_dtypes(include=keep_types)
+	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
-	if GLOBAL_OBJS.MFINAL.mfinal_obj['assays'] == ['spatial transcriptomics']:
-		process_spatial(GLOBAL_OBJS)
+	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
+		process_spatial(glob)
 	# Check to see if need to add background spots
-	if len(GLOBAL_OBJS.MFINAL.mfinal_obj.get('libraries'))==1 and GLOBAL_OBJS.MFINAL.mfinal_obj.get('spatial_s3_uri', None):
-		add_background_spots(GLOBAL_OBJS)
+	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
+		add_background_spots(glob)
 		# Should delete this after validator 5.1 update
-		GLOBAL_OBJS.CXG_PARTS.cxg_obsm['X_spatial'] = GLOBAL_OBJS.CXG_PARTS.cxg_obsm['spatial']
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata = ad.AnnData(GLOBAL_OBJS.MFINAL.mfinal_adata.X, obs=GLOBAL_OBJS.CXG_PARTS.cxg_obs, obsm=GLOBAL_OBJS.CXG_PARTS.cxg_obsm, var=cxg_var, uns=GLOBAL_OBJS.CXG_PARTS.cxg_uns)
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.var = GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
+		glob.cxg_obsm['X_spatial'] = glob.cxg_obsm['spatial']
+	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
+	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 	
 	# Removing feature_length column from var if present
-	if 'feature_length' in GLOBAL_OBJS.CXG_ADATA.cxg_adata.var.columns:
+	if 'feature_length' in glob.cxg_adata.var.columns:
 		adata.var.drop(columns=['feature_length'], inplace=True)
 
 	# Check matrix density
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.X = check_matrix(GLOBAL_OBJS.CXG_ADATA.cxg_adata.X)
+	glob.cxg_adata.X = check_matrix(glob.cxg_adata.X)
 
 	# Check that cxg_adata_raw.X is correct datatype
-	if not GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.X.dtype == 'float32':
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.X = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.X.astype(np.float32) 
+	if not glob.cxg_adata_raw.X.dtype == 'float32':
+		glob.cxg_adata_raw.X = glob.cxg_adata_raw.X.astype(np.float32) 
 		
 	# Adding layers from 'layers_to_keep' to cxg_adata.layers	
-	if 'layers_to_keep' in GLOBAL_OBJS.MFINAL.mfinal_obj:
-		for k in GLOBAL_OBJS.MFINAL.mfinal_obj['layers_to_keep']:
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers[k] = GLOBAL_OBJS.MFINAL.mfinal_adata.layers[k]
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers[k] = check_matrix(GLOBAL_OBJS.CXG_ADATA.cxg_adata.layers[k])
+	if 'layers_to_keep' in glob.mfinal_obj:
+		for k in glob.mfinal_obj['layers_to_keep']:
+			glob.cxg_adata.layers[k] = glob.mfinal_adata.layers[k]
+			glob.cxg_adata.layers[k] = check_matrix(glob.cxg_adata.layers[k])
 				
 	# Convert gene symbols to ensembl and filter to approved set
-	if len(feature_lengths) > 1 and len(GLOBAL_OBJS.MFINAL.mfinal_obj['genome_annotations'])==1:
-		clean_var(GLOBAL_OBJS)
+	if len(feature_lengths) > 1 and len(glob.mfinal_obj['genome_annotations'])==1:
+		clean_var(glob)
 
 	# For ATAC gene activity matrices, it is assumed there are no genes that are filtered
 	# For CITE, standardize antibody index and metadata and no filtering
 	if summary_assay == 'RNA':
 		compiled_annot = compile_annotations(fm.REF_FILES)
-		set_ensembl(redundant, GLOBAL_OBJS)
-		add_zero(GLOBAL_OBJS)
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = filter_ensembl(GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw, compiled_annot)
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata = filter_ensembl(GLOBAL_OBJS.CXG_ADATA.cxg_adata, compiled_annot)
+		set_ensembl(redundant, glob)
+		add_zero(glob)
+		glob.cxg_adata_raw = filter_ensembl(glob.cxg_adata_raw, compiled_annot)
+		glob.cxg_adata = filter_ensembl(glob.cxg_adata, compiled_annot)
 	elif summary_assay == 'ATAC':
 		compiled_annot = compile_annotations(fm.REF_FILES)
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw = filter_ensembl(GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw, compiled_annot)
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata = filter_ensembl(GLOBAL_OBJS.CXG_ADATA.cxg_adata, compiled_annot)
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata.var['feature_is_filtered'] = False
+		glob.cxg_adata_raw = filter_ensembl(glob.cxg_adata_raw, compiled_annot)
+		glob.cxg_adata = filter_ensembl(glob.cxg_adata, compiled_annot)
+		glob.cxg_adata.var['feature_is_filtered'] = False
 	elif summary_assay == 'CITE':
-		add_labels(GLOBAL_OBJS)
-		map_antibody(GLOBAL_OBJS)
-		add_zero(GLOBAL_OBJS)
+		add_labels(glob)
+		map_antibody(glob)
+		add_zero(glob)
 
 	# Copy over any additional data from mfinal_adata to cxg_adata
-	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution','schema_reference','citation']
-	for k,v in GLOBAL_OBJS.MFINAL.mfinal_adata.uns.items():
+	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
+	for k,v in glob.mfinal_adata.uns.items():
 		if k == 'batch_condition':
-			if not isinstance(GLOBAL_OBJS.MFINAL.mfinal_adata.uns['batch_condition'], list) and not isinstance(GLOBAL_OBJS.MFINAL.mfinal_adata.uns['batch_condition'], np.ndarray) :
+			if not isinstance(glob.mfinal_adata.uns['batch_condition'], list) and not isinstance(glob.mfinal_adata.uns['batch_condition'], np.ndarray) :
 				warning_list.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
 			else:
-				if len([x for x in GLOBAL_OBJS.MFINAL.mfinal_adata.uns['batch_condition'] if x not in GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs.columns]) > 0:
+				if len([x for x in glob.mfinal_adata.uns['batch_condition'] if x not in glob.cxg_adata.obs.columns]) > 0:
 					warning_list.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
-				elif len(set(GLOBAL_OBJS.MFINAL.mfinal_adata.uns['batch_condition'])) != len(GLOBAL_OBJS.MFINAL.mfinal_adata.uns['batch_condition']):
+				elif len(set(glob.mfinal_adata.uns['batch_condition'])) != len(glob.mfinal_adata.uns['batch_condition']):
 					warning_list.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
 				else:
-					GLOBAL_OBJS.CXG_ADATA.cxg_adata.uns['batch_condition'] = GLOBAL_OBJS.MFINAL.mfinal_adata.uns['batch_condition']
+					glob.cxg_adata.uns['batch_condition'] = glob.mfinal_adata.uns['batch_condition']
 		elif k.endswith('_colors'):
-			colors_result = colors_check(GLOBAL_OBJS, v, k)
+			colors_result = colors_check(glob, v, k)
 			if colors_result[0]:
-				GLOBAL_OBJS.CXG_ADATA.cxg_adata.uns[k] = v
+				glob.cxg_adata.uns[k] = v
 			else:
-				warning_list.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(k,colors_result[1]))
+				warning_list.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(k, colors_result[1]))
 		elif k not in reserved_uns:
 			if check_not_empty(v):
-				GLOBAL_OBJS.CXG_ADATA.cxg_adata.uns[k] = v
+				glob.cxg_adata.uns[k] = v
 			else:
 				warning_list.append("WARNING: The key '{}' has been dropped from uns due to having an empty value\n".format(k))
 		else:
 			warning_list.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(k))
 
-	if GLOBAL_OBJS.MFINAL.mfinal_adata.obsp:
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata.obsp = GLOBAL_OBJS.MFINAL.mfinal_adata.obsp
+	if glob.mfinal_adata.obsp:
+		glob.cxg_adata.obsp = glob.mfinal_adata.obsp
 
 	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
-	if GLOBAL_OBJS.MFINAL.mfinal_obj['X_normalized']:
-		if summary_assay != 'ATAC' or GLOBAL_OBJS.MFINAL.mfinal_adata.raw != None:
-			GLOBAL_OBJS.CXG_ADATA.cxg_adata.raw = GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw
+	if glob.mfinal_obj['X_normalized']:
+		if summary_assay != 'ATAC' or glob.mfinal_adata.raw != None:
+			glob.cxg_adata.raw = glob.cxg_adata_raw
 	else:
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata.var['feature_is_filtered'] = False
-		GLOBAL_OBJS.CXG_ADATA.cxg_adata = ad.AnnData(GLOBAL_OBJS.CXG_ADATA.cxg_adata_raw.X, obs=GLOBAL_OBJS.CXG_ADATA.cxg_adata.obs, obsm=GLOBAL_OBJS.CXG_ADATA.cxg_adata.obsm, \
-			var=GLOBAL_OBJS.CXG_ADATA.cxg_adata.var, uns=GLOBAL_OBJS.CXG_ADATA.cxg_adata.uns)
-	quality_check(GLOBAL_OBJS)
-	GLOBAL_OBJS.CXG_ADATA.cxg_adata.write_h5ad(results_file, compression = 'gzip')
+		glob.cxg_adata.var['feature_is_filtered'] = False
+		glob.cxg_adata = ad.AnnData(glob.cxg_adata_raw.X, obs=glob.cxg_adata.obs, obsm=glob.cxg_adata.obsm, var=glob.cxg_adata.var, uns=glob.cxg_adata.uns)
+	quality_check(glob)
+	glob.cxg_adata.write_h5ad(results_file, compression='gzip')
 
 	# Printing out list of warnings
 	for n in warning_list:
 		if 'WARNING: Full list' not in n:
-			print(n, end = '\n')
+			print(n, end='\n')
 		if 'Full list available in logging file.' not in n:
 			logging.warning(n)
 
