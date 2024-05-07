@@ -49,7 +49,7 @@ def test_delete_uns_spatial(validator_with_spatial_adatas):
 
 
 @pytest.mark.parametrize(
-    "value", (None, 1, 1.0, "string value", "", [], True, False, np.array([]), pd.DataFrame([]))
+    "value", (None, 1, 1.0, "string value", "", [], True, False, np.array([]), pd.DataFrame([1, 2, 3], index=["a", "b", "c"]))
 )
 def test_uns_spatial_is_not_dict(validator_with_visium, value):
     validator = validator_with_visium
