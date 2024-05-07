@@ -115,7 +115,7 @@ def test_uns_library_id_type(validator_with_visium, value):
 
 
 @pytest.mark.parametrize(
-    "value", (None, 1, 1.0, "string", [], np.bool_, np.array([]), pd.DataFrame([]))
+    "value", (None, True, False, 1, 1.0, "string", [], np.bool_, np.array([]), pd.DataFrame([]))
 )
 def test_uns_library_id_value_type(validator_with_visium, value):
     validator = validator_with_visium
@@ -123,8 +123,7 @@ def test_uns_library_id_value_type(validator_with_visium, value):
     validator.validate_adata()
     assert validator.is_valid is False
     assert validator.errors == [
-        "ERROR: uns['spatial'][library_id] must contain the key 'images'.",
-        "ERROR: uns['spatial'][library_id] must contain the key 'scalefactors'."
+        "ERROR: uns['spatial'][library_id] must be a dictionary.",
     ]
 
 
