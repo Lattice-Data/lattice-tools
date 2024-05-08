@@ -5,7 +5,7 @@ import numpy as np
 import os
 import pandas as pd
 import re
-import scanpy as sc
+import squidpy as sq
 import subprocess
 from scipy import sparse
 
@@ -383,8 +383,8 @@ def plot_vis(adata, cellpop_field):
     plt.subplots_adjust(wspace=wspace)
     lib = [k for k in adata.uns['spatial'].keys() if k != 'is_single'][0]
 
-    sc.pl.spatial(adata, ax=axs[0], library_id=lib, color=cellpop_field, show=False)
-    sc.pl.spatial(adata, ax=axs[1], library_id=lib)
+    sq.pl.spatial_scatter(adata, ax=axs[0], library_id=lib, color=cellpop_field, return_ax=False)
+    sq.pl.spatial_scatter(adata, ax=axs[1], library_id=lib)
 
     if 'fullres' in adata.uns['spatial'][lib]['images']:
         fig, axs = plt.subplots(
@@ -393,8 +393,8 @@ def plot_vis(adata, cellpop_field):
             figsize=(ncols * figsize + figsize * wspace * (ncols - 1), nrows * figsize),
         )
         plt.subplots_adjust(wspace=wspace)
-        sc.pl.spatial(adata, ax=axs[0], library_id=lib, img_key='fullres', scale_factor=1, color=cellpop_field, show=False)
-        sc.pl.spatial(adata, ax=axs[1], library_id=lib, img_key='fullres', scale_factor=1)
+        sq.pl.spatial_scatter(adata, ax=axs[0], library_id=lib, img_res_key='fullres', scale_factor=1.0, color=cellpop_field, return_ax=False)
+        sq.pl.spatial_scatter(adata, ax=axs[1], library_id=lib, img_res_key='fullres', scale_factor=1.0)
     else:
         report('fullres image is highly recommended', 'WARNING')
 
