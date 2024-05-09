@@ -235,8 +235,9 @@ def test_image_array_shape(validator_with_visium, image):
     validator.validate_adata()
     assert validator.is_valid is False
     assert validator.errors == [
-        f"ERROR: uns['spatial'][library_id]['images']['{image}'] must have shape (,,3), "
-        f"it has shape {new_image_shape}."
+        f"ERROR: uns['spatial'][library_id]['images']['{image}'] must have a length of 3 and "
+        "either 3 (RGB color model for example) or 4 (RGBA color model for example) for its "
+        f"last dimension, it has shape {new_image_shape}."
     ]
 
 

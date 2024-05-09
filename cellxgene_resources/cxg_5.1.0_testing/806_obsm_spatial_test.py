@@ -64,8 +64,8 @@ def test_less_than_two_cols(validator_with_spatial_adatas):
     validator.validate_adata()
     assert validator.is_valid is False
     assert validator.errors == [
-        f"ERROR: All embeddings must have as many rows as cells, and at least two columns. "
-        f"'adata.obsm['spatial']' has shape of '{validator.adata.obsm['spatial'].shape}'."
+        f"ERROR: All 'X_' and 'spatial' embeddings must have at least two columns. "
+        f"'adata.obsm['spatial']' has columns='{validator.adata.obsm['spatial'].shape[1]}'."
     ]
 
 
