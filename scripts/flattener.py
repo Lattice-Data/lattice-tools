@@ -19,8 +19,6 @@ import matplotlib.colors as mcolors
 import json
 import numbers
 import flattener_mods as fm
-from PIL import Image
-Image.MAX_IMAGE_PIXELS = 933120000
 
 # Creating empty list for warnings
 warning_list = []
@@ -1052,7 +1050,7 @@ def main(mfinal_id):
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
-		process_spatial(glob)
+		fm.process_spatial(glob)
 	# Check to see if need to add background spots
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
