@@ -14,10 +14,10 @@ Scripts used by the Lattice data coordination team for single cell data wranglin
 
 2. Install the following packages
     ```
-    conda install -c conda-forge pint jsonschema boto3 jupyter bs4 squidpy scanpy
+    conda install -c conda-forge pint jsonschema boto3 jupyter bs4 squidpy scanpy python-magic
     ```
     ```
-    pip install cellxgene-schema requests openpyxl Pillow gspread gspread_formatting oauth2client crcmod lxml pyometiff python-magic-bin==0.4.14
+    pip install cellxgene-schema requests openpyxl Pillow gspread gspread_formatting oauth2client crcmod lxml pyometiff
     ```
 
 3. Define variables in your environment based on the various servers you might submit to based on an alias for each server (`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to the production instance of Lattice, you might call this `prod`.
