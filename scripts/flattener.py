@@ -1050,7 +1050,9 @@ def main(mfinal_id):
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
-		fm.process_spatial(glob)
+		warnings = fm.process_spatial(glob)
+		if warnings:
+			warning_list.append(warnings)
 	# Check to see if need to add background spots
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
@@ -1101,7 +1103,8 @@ def main(mfinal_id):
 	# Copy over any additional data from mfinal_adata to cxg_adata
 	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
 	warnings = fm.copy_over_uns(glob, reserved_uns)
-	warning_list.append(warnings)
+	if warnings:
+		warning_list.append(warnings)
 	
 
 	if glob.mfinal_adata.obsp:
