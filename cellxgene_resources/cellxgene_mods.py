@@ -59,6 +59,9 @@ class CxG_API:
         if env == 'dev':
             api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key-dev.txt')
             set_api_access_config(api_key_file_path, env='dev')
+        elif env == 'staging':
+            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key-staging.txt')
+            set_api_access_config(api_key_file_path, env='staging')
         else:
             api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key.txt')
             set_api_access_config(api_key_file_path)
