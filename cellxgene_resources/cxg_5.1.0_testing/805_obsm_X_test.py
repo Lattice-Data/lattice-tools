@@ -9,6 +9,7 @@ from fixtures.valid_adatas import (
     validator_with_all_adatas,
     validator_with_spatial_adatas,
     validator_with_non_spatial_adata,
+    validator_with_slide_seq_adatas
 )
 
 
@@ -21,6 +22,15 @@ def test_obsm_all_is_valid(validator_with_all_adatas):
 
 def test_spatial_is_valid(validator_with_spatial_adatas):
     validator = validator_with_spatial_adatas
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
+
+def test_slide_seq_no_X(validator_with_slide_seq_adatas):
+    validator = validator_with_slide_seq_adatas
+    del validator.adata.obsm['X_pca']
+    del validator.adata.obsm['X_umap']
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
