@@ -18,6 +18,7 @@ from datetime import datetime
 import matplotlib.colors as mcolors
 import json
 import numbers
+import squidpy as sq
 import flattener_mods as fm
 
 # Creating empty list for warnings
@@ -115,7 +116,8 @@ def compile_annotations(files):
 
 
 # Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
-def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells, glob):
+def concatenate_cell_id(mxr_acc, raw_obs_names, glob):
+	mfinal_cells = glob.mfinal_adata.obs.index.to_list()
 	new_ids = []
 	flag_removed = False
 	cell_mapping_dct = {}
@@ -613,7 +615,12 @@ def check_matrix(m):
 def add_background_spots(glob):
 
 	if glob.mfinal_adata.obs.shape[0] < 4992:
-		missing_barcodes = [i for i in glob.cxg_adata_raw.obs.index.to_list() if i not in list(glob.mfinal_adata.obs.index)]
+		all_barcodes = pd.read_csv(fm.MTX_DIR+"/spatial/tissue_positions_list.csv", index_col=0, header=None)
+		if glob.mfinal_obj.get('cell_label_mappings'):
+			all_barcodes_ids = concatenate_cell_id(glob.mfinal_obj.get('derived_from')[0], all_barcodes.index, glob)
+		else:
+			all_barcodes_ids = all_barcodes.index.to_list()
+		missing_barcodes = [i for i in all_barcodes_ids if i not in list(glob.mfinal_adata.obs.index)]
 		empty_matrix = sparse.csr_matrix((len(missing_barcodes), glob.mfinal_adata.var.shape[0]))
 		missing_adata = ad.AnnData(empty_matrix, var=glob.mfinal_adata.var, obs=pd.DataFrame(index=missing_barcodes))
 		comb_adata = ad.concat([glob.mfinal_adata, missing_adata], uns_merge='first', merge='first')
@@ -788,7 +795,7 @@ def main(mfinal_id):
 					os.remove(fm.MTX_DIR + '/spatial/tissue_positions.csv')
 				if 'spatial' in glob.mfinal_adata.uns.keys():
 					del glob.mfinal_adata.uns['spatial']
-				adata_raw = sc.read_visium(fm.MTX_DIR, count_file=mxr_name)
+				adata_raw = sq.read.visium(fm.MTX_DIR, counts_file=mxr_name)
 
 			elif mxr['s3_uri'].endswith('h5'):
 				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR, mxr_name), gex_only=False)
@@ -813,7 +820,7 @@ def main(mfinal_id):
 				adata_raw.var_names_make_unique(join='.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
 			if glob.mfinal_obj.get('cell_label_mappings', None):
-				concatenated_ids = concatenate_cell_id(mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers, glob)
+				concatenated_ids = concatenate_cell_id(mxr['@id'], adata_raw.obs_names, glob)
 				adata_raw.obs_names = concatenated_ids
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 			else:
