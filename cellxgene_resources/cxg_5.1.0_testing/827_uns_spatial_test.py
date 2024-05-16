@@ -98,7 +98,6 @@ def test_uns_spatial_library_id(validator_with_visium):
     assert validator.errors[0] == "ERROR: uns['spatial'][library_id] is only allowed for obs['assay_ontology_term_id'] 'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True."
 
 
-# mutable types raise TypeError: unhashable type, will keep in tests for moment
 @pytest.mark.parametrize(
     "value", (True, False, None, 1, 1.0, np.bool_)
 )
@@ -114,6 +113,7 @@ def test_uns_library_id_type(validator_with_visium, value):
     ]
 
 
+# mutable types raise TypeError: unhashable type
 @pytest.mark.parametrize(
     "value", ({}, [], np.array([]))
 )
