@@ -611,16 +611,25 @@ def check_matrix(m):
 	return m
 
 
+# Add background spots to raw adata, getting obs metadata from tissue_positions_list.csv
+def add_raw_background_spots(adata, glob):
+	adata.var_names_make_unique(join='.')
+	all_barcodes = pd.read_csv(fm.MTX_DIR+"/spatial/tissue_positions_list.csv", index_col=0, header=None)
+	all_barcodes.columns = ['in_tissue','array_row','array_col','pxl_row_in_fullres','pxl_col_in_fullres']
+	missing_barcodes = [i for i in all_barcodes.index.to_list() if i not in list(adata.obs.index)]
+	empty_matrix = sparse.csr_matrix((len(missing_barcodes), adata.var.shape[0]))
+	missing_adata = ad.AnnData(empty_matrix, var=adata.var, obs=pd.DataFrame(index=missing_barcodes))
+	comb_adata = ad.concat([adata, missing_adata], uns_merge='first', merge='first')
+	comb_adata = comb_adata[all_barcodes.index.to_list()]
+	comb_adata.obs = pd.merge(comb_adata.obs, all_barcodes[['in_tissue','array_row','array_col']], left_index=True, right_index=True, how='left')
+	comb_adata.obsm['spatial'] = all_barcodes.loc[:,['pxl_col_in_fullres','pxl_row_in_fullres']].to_numpy()
+	return comb_adata
+
+
 # Add missing obs to mfinal_adata to match raw and also modify cxg_obsm to include missing obs
 def add_background_spots(glob):
-
 	if glob.mfinal_adata.obs.shape[0] < 4992:
-		all_barcodes = pd.read_csv(fm.MTX_DIR+"/spatial/tissue_positions_list.csv", index_col=0, header=None)
-		if glob.mfinal_obj.get('cell_label_mappings'):
-			all_barcodes_ids = concatenate_cell_id(glob.mfinal_obj.get('derived_from')[0], all_barcodes.index, glob)
-		else:
-			all_barcodes_ids = all_barcodes.index.to_list()
-		missing_barcodes = [i for i in all_barcodes_ids if i not in list(glob.mfinal_adata.obs.index)]
+		missing_barcodes = [i for i in glob.cxg_adata_raw.obs.index.to_list() if i not in list(glob.mfinal_adata.obs.index)]
 		empty_matrix = sparse.csr_matrix((len(missing_barcodes), glob.mfinal_adata.var.shape[0]))
 		missing_adata = ad.AnnData(empty_matrix, var=glob.mfinal_adata.var, obs=pd.DataFrame(index=missing_barcodes))
 		comb_adata = ad.concat([glob.mfinal_adata, missing_adata], uns_merge='first', merge='first')
@@ -796,6 +805,8 @@ def main(mfinal_id):
 				if 'spatial' in glob.mfinal_adata.uns.keys():
 					del glob.mfinal_adata.uns['spatial']
 				adata_raw = sq.read.visium(fm.MTX_DIR, counts_file=mxr_name)
+				if adata_raw.obs.shape[0] < 4992 and len(glob.mfinal_obj.get('libraries'))==1:
+					adata_raw = add_raw_background_spots(adata_raw, glob)
 
 			elif mxr['s3_uri'].endswith('h5'):
 				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR, mxr_name), gex_only=False)
@@ -1055,6 +1066,7 @@ def main(mfinal_id):
 	if summary_assay == 'CITE':
 		keep_types.append('object')
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
+
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 		warnings = fm.process_spatial(glob)
