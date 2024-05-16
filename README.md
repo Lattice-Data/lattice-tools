@@ -5,7 +5,7 @@ Scripts used by the Lattice data coordination team for single cell data wranglin
 
 1. Create a virtual environment. This example uses anaconda. Other options would also work, like venv or pyenv
     ```
-    conda create --name lattice python=3.9
+    conda create --name lattice python=3.11
     ```
     You will need to be in this environment for the following instructions
     ```
@@ -14,12 +14,11 @@ Scripts used by the Lattice data coordination team for single cell data wranglin
 
 2. Install the following packages
     ```
-    conda install -c conda-forge pint pandas jsonschema boto3 jupyter bs4
+    conda install -c conda-forge pint jsonschema boto3 jupyter bs4 squidpy scanpy python-magic
     ```
     ```
-    pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy python-magic crcmod cellxgene-schema lxml
+    pip install cellxgene-schema requests openpyxl Pillow gspread gspread_formatting oauth2client crcmod lxml pyometiff
     ```
-    If using Windows, python-magic-bin might be required
 
 3. Define variables in your environment based on the various servers you might submit to based on an alias for each server (`ALIAS_KEY`, `ALIAS_SECRET`, `ALIAS_SERVER`). For example, when submitting to the production instance of Lattice, you might call this `prod`.
 So you'd define the following three variables.
@@ -78,10 +77,6 @@ Requires additional steps:
 
 * **DCP_project_ready.ipynb**
 Validates a project staged for submission to the HCA Data Portal.
-Requires additional step:
-    ```
-    $ conda install -c anaconda more-itertools
-    ```
 
 * **flattener.py**
 Transforms a contributor matrix, raw count data, and Lattice metadata into a cellxgene-approved matrix file [run instructions](docs/flattener.md)
