@@ -18,6 +18,7 @@ from datetime import datetime
 import matplotlib.colors as mcolors
 import json
 import numbers
+import squidpy as sq
 import flattener_mods as fm
 
 # Creating empty list for warnings
@@ -115,7 +116,8 @@ def compile_annotations(files):
 
 
 # Recreated the final matrix ids, also checking to see if '-1' was removed from original cell identifier
-def concatenate_cell_id(mxr_acc, raw_obs_names, mfinal_cells, glob):
+def concatenate_cell_id(mxr_acc, raw_obs_names, glob):
+	mfinal_cells = glob.mfinal_adata.obs.index.to_list()
 	new_ids = []
 	flag_removed = False
 	cell_mapping_dct = {}
@@ -609,9 +611,23 @@ def check_matrix(m):
 	return m
 
 
+# Add background spots to raw adata, getting obs metadata from tissue_positions_list.csv
+def add_raw_background_spots(adata, glob):
+	adata.var_names_make_unique(join='.')
+	all_barcodes = pd.read_csv(fm.MTX_DIR+"/spatial/tissue_positions_list.csv", index_col=0, header=None)
+	all_barcodes.columns = ['in_tissue','array_row','array_col','pxl_row_in_fullres','pxl_col_in_fullres']
+	missing_barcodes = [i for i in all_barcodes.index.to_list() if i not in list(adata.obs.index)]
+	empty_matrix = sparse.csr_matrix((len(missing_barcodes), adata.var.shape[0]))
+	missing_adata = ad.AnnData(empty_matrix, var=adata.var, obs=pd.DataFrame(index=missing_barcodes))
+	comb_adata = ad.concat([adata, missing_adata], uns_merge='first', merge='first')
+	comb_adata = comb_adata[all_barcodes.index.to_list()]
+	comb_adata.obs = pd.merge(comb_adata.obs, all_barcodes[['in_tissue','array_row','array_col']], left_index=True, right_index=True, how='left')
+	comb_adata.obsm['spatial'] = all_barcodes.loc[:,['pxl_col_in_fullres','pxl_row_in_fullres']].to_numpy()
+	return comb_adata
+
+
 # Add missing obs to mfinal_adata to match raw and also modify cxg_obsm to include missing obs
 def add_background_spots(glob):
-
 	if glob.mfinal_adata.obs.shape[0] < 4992:
 		missing_barcodes = [i for i in glob.cxg_adata_raw.obs.index.to_list() if i not in list(glob.mfinal_adata.obs.index)]
 		empty_matrix = sparse.csr_matrix((len(missing_barcodes), glob.mfinal_adata.var.shape[0]))
@@ -788,7 +804,9 @@ def main(mfinal_id):
 					os.remove(fm.MTX_DIR + '/spatial/tissue_positions.csv')
 				if 'spatial' in glob.mfinal_adata.uns.keys():
 					del glob.mfinal_adata.uns['spatial']
-				adata_raw = sc.read_visium(fm.MTX_DIR, count_file=mxr_name)
+				adata_raw = sq.read.visium(fm.MTX_DIR, counts_file=mxr_name)
+				if adata_raw.obs.shape[0] < 4992 and len(glob.mfinal_obj.get('libraries'))==1:
+					adata_raw = add_raw_background_spots(adata_raw, glob)
 
 			elif mxr['s3_uri'].endswith('h5'):
 				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR, mxr_name), gex_only=False)
@@ -813,7 +831,7 @@ def main(mfinal_id):
 				adata_raw.var_names_make_unique(join='.')
 			# Recreate cell_ids and subset raw matrix and add mxr_acc into obs
 			if glob.mfinal_obj.get('cell_label_mappings', None):
-				concatenated_ids = concatenate_cell_id(mxr['@id'], adata_raw.obs_names, mfinal_cell_identifiers, glob)
+				concatenated_ids = concatenate_cell_id(mxr['@id'], adata_raw.obs_names, glob)
 				adata_raw.obs_names = concatenated_ids
 				overlapped_ids = list(set(mfinal_cell_identifiers).intersection(concatenated_ids))
 			else:
@@ -1048,6 +1066,7 @@ def main(mfinal_id):
 	if summary_assay == 'CITE':
 		keep_types.append('object')
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
+
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 		warnings = fm.process_spatial(glob)

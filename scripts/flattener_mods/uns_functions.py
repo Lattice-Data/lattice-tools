@@ -139,7 +139,6 @@ def process_spatial(glob):
 		if glob.cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
 			glob.cxg_uns['spatial'] = glob.cxg_adata_raw.uns['spatial']
 			glob.cxg_uns['spatial']['is_single'] = True
-			library_id = list(glob.cxg_uns['spatial'].keys())[0]
 			spatial_lib = list(glob.cxg_uns['spatial'].keys())[0]
 			# Moving spacial metadata from cxg_uns['spatial']
 			glob.cxg_uns['spatial_metadata'] = glob.cxg_uns['spatial'][spatial_lib]['metadata']
@@ -157,7 +156,7 @@ def process_spatial(glob):
 					download_file(glob.mfinal_obj.get('fullres_s3_uri'), constants.MTX_DIR)
 				if filename.endswith(('tif', 'tiff', 'jpg')):
 					fullres_np = np.asarray(Image.open(constants.MTX_DIR+"/"+filename))
-					glob.cxg_uns['spatial'][library_id]['images']['fullres'] = fullres_np
+					glob.cxg_uns['spatial'][spatial_lib]['images']['fullres'] = fullres_np
 				else:
 					warnings.append("WARNING: Did not recognize fullres file format:\t{}".format(glob.mfinal_obj.get('fullres_s3_uri')))
 		else:
@@ -169,7 +168,6 @@ def process_spatial(glob):
 			else:
 				### WILL NEED TO DELETE X_spatial ONCE WE ARE READY FOR SCHEMA 5.1
 				glob.cxg_obsm['spatial'] = glob.cxg_obsm['X_spatial']
-
 	else:
 		glob.cxg_uns['spatial'] = {}
 		glob.cxg_uns['spatial']['is_single'] = False
