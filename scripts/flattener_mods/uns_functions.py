@@ -5,6 +5,8 @@ from scipy import sparse
 import os
 import numbers
 import logging
+import re
+import matplotlib.colors as mcolors
 import flattener_mods.constants as constants
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = 933120000
