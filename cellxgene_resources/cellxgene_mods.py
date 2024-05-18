@@ -441,3 +441,99 @@ def validate(file):
                 report(line.replace(f'{prefix}:',''), prefix)
             else:
                 report(line)
+
+
+def compare_revision(collection, revision):
+    should_differ_collection = [
+        'collection_id', 'collection_url', 'collection_version_id',
+        'created_at', 'revising_in', 'revision_of', 'visibility'
+    ]
+    should_be_absent = [
+        'processing_status'
+    ]
+    should_differ_dataset = [
+        'dataset_version_id','explorer_url','assets','revised_at','citation','processing_status'
+    ]
+    ont_fields = [
+        'assay','cell_type','development_stage','disease',
+        'self_reported_ethnicity','sex','tissue','organism'
+    ]
+    for k,v in revision.items():
+        if k not in collection.keys():
+            if k not in should_be_absent:
+                print('not present: ' + k)
+        elif collection.get(k) != v and k not in should_differ_collection:
+            if k == 'datasets':
+                diff_props = set()
+                pub_datasets = {d['dataset_id']: d for d in collection[k]}
+                rev_datasets = {d['dataset_id']: d for d in revision[k]}
+                comp = {}
+                new = {}
+                for ds_id,v in rev_datasets.items():
+                    if ds_id not in pub_datasets.keys():
+                        new[ds_id] = {}
+                        for p in ['title','cell_count']:
+                            new[ds_id][p] = v[p]
+                        for p in ['assay','organism','tissue']:
+                            new[ds_id][p] = [a['label'] for a in v[p]]
+                    else:
+                        comp[ds_id] = {'title': v['title']}
+                        for prop,rev_val in v.items():
+                            if prop not in should_differ_dataset:
+                                pub_val = pub_datasets[ds_id].get(prop)
+                                if prop in ont_fields:
+                                    rev_val = [t['label'] for t in rev_val]
+                                    pub_val = [t['label'] for t in pub_val]
+                                if isinstance(rev_val, list) and prop != 'assets':
+                                    rev_val.sort()
+                                    pub_val.sort()
+                                if pub_val != rev_val:
+                                    if prop == 'mean_genes_per_cell' and round(rev_val, 5) == round(pub_val, 5):
+                                        continue
+                                    diff_props.add(prop)
+                                    comp[ds_id][prop + '_REV'] = rev_val
+                                    comp[ds_id][prop + '_PUB'] = pub_val
+            else:
+                print('not same: ' + k)
+                if k not in ['datasets','publisher_metadata']:
+                    if k in ['links']:
+                        diff_in_pub = [l for l in collection[k] if l not in v]
+                        print('--- published: ', diff_in_pub)
+                        diff_in_rev = [l for l in v if l not in collection[k]]
+                        print('----- revised: ', diff_in_rev)
+                    else:
+                        print('--- published: ', str(collection[k]))
+                        print('----- revised: ', v)
+
+
+    comp_df = pd.DataFrame(comp).transpose()
+    comp_df = comp_df.dropna(subset=[c for c in comp_df.columns if c != 'title'], how='all')
+    if not comp_df.empty:
+        print('\033[1mRevised Datasets\033[0m')
+        a = ['title'] + [c[-3:] for c in comp_df.columns if c not in ['title']]
+        b = [''] + [c[:-4] for c in comp_df.columns if c not in ['title']]
+        comp_df.columns = [b, a]
+        display(comp_df.fillna(''))
+
+        print('\033[1mProperty Comparison\033[0m')
+        for f in diff_props:
+            if f == 'title':
+                continue
+            temp = comp_df[(comp_df[f]['REV'] != comp_df[f]['PUB']) & (comp_df[f]['PUB'].isna() == False)]
+            for i,row in temp.iterrows():
+                p = row[f]['PUB']
+                if isinstance(p, (int, float)):
+                    continue
+                r = row[f]['REV']
+                only_in_pub = [str(e) for e in p if e not in r]
+                only_in_rev = [str(e) for e in r if e not in p]
+                print(i + '-' + f)
+                if only_in_pub:
+                    print('only in pub:' + ','.join(only_in_pub))
+                if only_in_rev:
+                    print('only in rev:' + ','.join(only_in_rev))
+                print('---------')
+
+    if new:
+        print('\033[1mNew Datasets\033[0m')
+        display(pd.DataFrame(new).transpose())
