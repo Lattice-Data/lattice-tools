@@ -15,7 +15,6 @@ import logging
 import gc
 from scipy import sparse
 from datetime import datetime
-import matplotlib.colors as mcolors
 import json
 import numbers
 import squidpy as sq
