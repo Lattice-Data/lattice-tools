@@ -447,7 +447,7 @@ def seq_to_susp(links_dict):
 
 			seq_prot = {
 				'instrument_manufacturer_model': {
-					'text': sr_obj.get('platform')
+					'text': ','.join(sr_obj.get('platform',[]))
 				},
 				'method': {
 					'text': seq_method
