@@ -111,6 +111,24 @@ srr_read_name_pattern = re.compile(
     '^(@[S|E]RR[\d.]+)$'
 )
 
+InstrumentIDs = {
+    '^LH[0-9]{5}$' : 'Illumina NovaSeq X Plus',
+    '^A[0-9]{5}$' : 'Illumina NovaSeq 6000',
+    '^A[0-9]{5}R$' : 'Illumina NovaSeq 6000',
+    '^E[0-9]{5}$' : 'Illumina HiSeq X',
+    '^K[0-9]{5}$' : 'Illumina HiSeq 4000',
+    '^K[0-9]{5}R$' : 'Illumina HiSeq 4000',
+    '^J[0-9]{5}$' : 'Illumina HiSeq 3000',
+    '^D[0-9]{5}$' : 'Illumina HiSeq 2500',
+    '^HWI-D[0-9]{5}$' : 'Illumina HiSeq 2500',
+    '^C[0-9]{5}$' : 'Illumina HiSeq 1500',
+    '^HWI-C[0-9]{5}$' : 'Illumina HiSeq 1500',
+    '^VH[0-9]{5}$' : 'Illumina NextSeq 2000',
+    '^VL[0-9]{5}$' : 'Illumina NextSeq 1000',
+    '^(NB|NS)55[0-9]{4}$': 'Illumina NextSeq 550',
+    '^(NB|NS)50[0-9]{4}$': 'Illumina NextSeq 500'
+}
+
 
 def is_path_gzipped(path):
     try:
@@ -319,9 +337,21 @@ def process_fastq_file(job):
                 #results['sample indices'] = all_smp_ins
 
                 flowcell_details = []
+                platforms = set()
                 for flowcell in all_flowcells:
-                    flowcell_details.append({'machine': flowcell[0], 'flowcell': flowcell[1], 'lane': flowcell[2]})
+                    machine = flowcell[0]
+                    plat_flag = False
+                    flowcell_details.append({'machine': machine, 'flowcell': flowcell[1], 'lane': flowcell[2]})
+                    for key,v in InstrumentIDs.items():
+                        if re.search(key,machine):
+                            platforms.add(v)
+                            plat_flag = True
+                    if not plat_flag:
+                        platforms.add('undetermined by machine')
                 results['flowcell_details'] = flowcell_details
+                platforms = list(platforms)
+                platforms.sort()
+                results['platform'] = platforms
             else:
                 flowcell = (sign_array[0], sign_array[1])
                 all_flowcells.add(flowcell)
@@ -330,9 +360,16 @@ def process_fastq_file(job):
                 #results['sample indices'] = all_smp_ins
 
                 flowcell_details = []
+                platforms = []
                 for flowcell in all_flowcells:
-                    flowcell_details.append({'machine': flowcell[0], 'lane': flowcell[1]})
+                    machine = flowcell[0]
+                    flowcell_details.append({'machine': machine, 'lane': flowcell[1]})
+                    for key,v in InstrumentIDs.items():
+                        if re.search(key,machine):
+                            platforms.append(v)
                 results['flowcell_details'] = flowcell_details
+                platforms.sort()
+                results['platform'] = platforms
         results['signature'] = list(signatures_set)
 
 
@@ -729,6 +766,7 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
 
         jobs = []
         for acc in ACCESSIONS:
+            errors = {}
             item_url = urljoin(server, acc + '/?frame=object')
             fileObject = requests.get(item_url, auth=connection.auth)
             if not fileObject.ok:
@@ -762,7 +800,7 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
                     job = {
                         'item': file_json,
                         'results': {},
-                        'errors': {}
+                        'errors': errors
                     }
                     jobs.append(job)
         return jobs
