@@ -337,14 +337,19 @@ def process_fastq_file(job):
                 #results['sample indices'] = all_smp_ins
 
                 flowcell_details = []
-                platforms = []
+                platforms = set()
                 for flowcell in all_flowcells:
                     machine = flowcell[0]
+                    plat_flag = False
                     flowcell_details.append({'machine': machine, 'flowcell': flowcell[1], 'lane': flowcell[2]})
                     for key,v in InstrumentIDs.items():
                         if re.search(key,machine):
-                            platforms.append(v)
+                            platforms.add(v)
+                            plat_flag = True
+                    if not plat_flag:
+                        platforms.add('undetermined by machine')
                 results['flowcell_details'] = flowcell_details
+                platforms = list(platforms)
                 platforms.sort()
                 results['platform'] = platforms
             else:
@@ -761,6 +766,7 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
 
         jobs = []
         for acc in ACCESSIONS:
+            errors = {}
             item_url = urljoin(server, acc + '/?frame=object')
             fileObject = requests.get(item_url, auth=connection.auth)
             if not fileObject.ok:
@@ -794,7 +800,7 @@ def fetch_files(report_out, connection=None, query=None, accessions=None, s3_fil
                     job = {
                         'item': file_json,
                         'results': {},
-                        'errors': {}
+                        'errors': errors
                     }
                     jobs.append(job)
         return jobs
