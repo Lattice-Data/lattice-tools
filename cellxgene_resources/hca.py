@@ -87,13 +87,13 @@ def validate_hca(adata):
         else:
             invalid = [v for v in adata.obs[c].unique() if v not in e]
             if invalid:
-                errors.append(f'{",".join(invalid)} not valid for obs.{c}')
+                errors.append(f'{",".join(map(str, invalid))} not valid for obs.{c}')
 
     for c,p in req_pattern['obs'].items():
         if c not in adata.obs.columns:
             errors.append(f'obs.{c} missing')
         else:
-            invalid = [v for v in adata.obs[c].unique() if not re.match(p, v)]
+            invalid = [str(v) for v in adata.obs[c].unique() if not re.match(p, str(v))]
             if invalid:
                 errors.append(f'{",".join(invalid)} not valid for obs.{c}')
 
