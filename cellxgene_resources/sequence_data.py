@@ -7,11 +7,6 @@ import tarfile
 import xml.etree.ElementTree as ET
 
 
-ncbi_raw_data_formats = ['fastq','TenX','bam']
-hca_raw_data_formats = ['fastq.gz','fastq','fq.gz']
-nemo_raw_data_formats = ['fastq.tar']
-ega_raw_data_formats = ['fastq.gz','bam','cram'] #https://metadata.ega-archive.org/spec
-
 base_urls = {
     'explore.data.humancellatlas.org/projects': 'hca',
     'ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GS': 'geo',
@@ -32,6 +27,9 @@ def parse_url(url):
 
 
 def validate_raw_ega(url):
+    #https://metadata.ega-archive.org/spec
+    raw_data_formats = ['fastq.gz','bam','cram']
+
     acc = url.split('/')[-1]
     obj_type = url.split('/')[-2]
     api_base = 'https://metadata.ega-archive.org'
@@ -46,14 +44,16 @@ def validate_raw_ega(url):
     for d in datasets:
         files_query = f'{api_base}/datasets/{d}/files?limit=100000'
         r = requests.get(files_query).json()
-        raw_files = [f for f in r if f['extension'] in ega_raw_data_formats]
-        if raw_files:
-            return True
+        for f in r:
+            if f['extension'] in raw_data_formats:
+                return True
 
     return False
 
 
 def validate_raw_nemo(url):
+    raw_data_formats = ['fastq.tar']
+
     for df in pd.read_html(url):
         if 'Dataset Collection URL' in df['Field'].unique():
             coll_url = df.loc[df['Field'] == 'Dataset Collection URL']['Value'].iloc[0]
@@ -72,8 +72,7 @@ def validate_raw_nemo(url):
                         os.remove(item.name)
                         os.rmdir(item.name.split('/')[0])
                         os.remove('temp.tgz')
-                #ATTN - is this consistent with others? should others use tuple?
-                raw_files = [f for f in file_list if f.endswith(tuple(nemo_raw_data_formats))]
+                raw_files = [f for f in file_list if f.endswith(tuple(raw_data_formats))]
                 if raw_files:
                     return True
         else:
@@ -115,6 +114,8 @@ def validate_raw_arrex(url):
 
 
 def validate_raw_hca(url):
+    raw_data_formats = ['fastq.gz','fastq','fq.gz']
+
     api_base = 'https://service.azul.data.humancellatlas.org' 
     pj_id = url.split('/')[-1]
     query = {
@@ -127,15 +128,17 @@ def validate_raw_hca(url):
         next_endpoint = r['pagination']['next']
         r = requests.get(next_endpoint).json()
         hits.extend(r['hits'])
-    formats_in_prj = set([f['format'] for h in hits for f in h['files']])
-    present = [f for f in hca_raw_data_formats if f in formats_in_prj]
-    if present:
-        return True
+    for h in hits:
+        for f in h['files']:
+            if f['format'] in raw_data_formats:
+                return True
 
     return False
 
 
 def validate_raw_ncbi(url):
+    raw_data_formats = ['fastq','TenX','bam']
+
     acc = url.split('/')[-1]
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     esearch_base = f'{eutils_base}esearch.fcgi'
@@ -181,7 +184,7 @@ def validate_raw_ncbi(url):
             for ep in rXml.iter('EXPERIMENT_PACKAGE'):
                 for run in ep.iter('RUN'):
                     for cf in run.iter('CloudFile'):
-                        if cf.attrib['filetype'] in ncbi_raw_data_formats:
+                        if cf.attrib['filetype'] in raw_data_formats:
                             return True
 
     return False
