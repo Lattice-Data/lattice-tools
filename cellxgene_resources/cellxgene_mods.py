@@ -443,7 +443,15 @@ def validate(file):
                 report(line)
 
 
-def compare_revision(collection, revision):
+def compare_revision(collection):
+    if collection.get('revising_in'):
+        revision_id = collection['revising_in']
+        revision = CxG_API.get_collection(revision_id)
+    elif collection.get('revision_of'):
+        revision = collection
+        collection_id = collection['revision_of']
+        collection = CxG_API.get_collection(collection_id)
+
     should_differ_collection = [
         'collection_id', 'collection_url', 'collection_version_id',
         'created_at', 'revising_in', 'revision_of', 'visibility'
@@ -537,3 +545,5 @@ def compare_revision(collection, revision):
     if new:
         print('\033[1mNew Datasets\033[0m')
         display(pd.DataFrame(new).transpose())
+
+    return revision

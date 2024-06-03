@@ -30,19 +30,6 @@ def parse_url(url):
             return v
     return 'other'
 
-resource = parse_url(url)
-
-if resource in ['geo','bioproj','ena','dbgap']:
-    raw_present = validate_raw_ncbi(acc)
-elif resource == 'hca':
-    raw_present = validate_raw_hca(url)
-elif resource == 'arrex':
-    raw_present = validate_raw_arrex(url)
-elif resource == 'nemo':
-    raw_present = validate_raw_nemo(url)
-elif resource == 'ega':
-    raw_present = validate_raw_ega(url)
-
 
 def validate_raw_ega(url):
     acc = url.split('/')[-1]
@@ -51,17 +38,18 @@ def validate_raw_ega(url):
 
     if obj_type == 'studies':
         ds_query = f'{api_base}/studies/{acc}/datasets?limit=100000'
-        response = requests.get(ds_query).json()
-        datasets = [d['accession_id'] for d in response]
+        r = requests.get(ds_query).json()
+        datasets = [d['accession_id'] for d in r]
     else:
         datasets = [acc]
 
     for d in datasets:
         files_query = f'{api_base}/datasets/{d}/files?limit=100000'
-        response = requests.get(files_query).json()
-        raw_files = [r for r in response if r['extension'] in ega_raw_data_formats]
+        r = requests.get(files_query).json()
+        raw_files = [f for f in r if f['extension'] in ega_raw_data_formats]
         if raw_files:
             return True
+
     return False
 
 
@@ -84,14 +72,17 @@ def validate_raw_nemo(url):
                         os.remove(item.name)
                         os.rmdir(item.name.split('/')[0])
                         os.remove('temp.tgz')
+                #ATTN - is this consistent with others? should others use tuple?
                 raw_files = [f for f in file_list if f.endswith(tuple(nemo_raw_data_formats))]
                 if raw_files:
                     return True
         else:
             i = df.loc[df['Field'] == 'Identifier']['Value'].iloc[0].split(':')[1]
+            #ATTN - can we just return validate_raw_nemo('https://assets.nemoarchive.org/' + i)?
             raw_present = validate_raw_nemo('https://assets.nemoarchive.org/' + i)
             if raw_present == True:
                 return True
+
     return False
 
 
@@ -105,7 +96,7 @@ def validate_raw_arrex(url):
     ftp = ftplib.FTP('ftp.ebi.ac.uk', 'anonymous', 'anonymous@')
     ftp.cwd(ftp_link.replace('ftp://ftp.ebi.ac.uk','') + '/Files')
 
-    filename = f'{acc}.sdrf.txt' #f'{acc}.sdrf.txt' is a tab-delimited with some fastq names
+    filename = f'{acc}.sdrf.txt'
     with open(filename, 'wb') as file:
         ftp.retrbinary(f'RETR {filename}', file.write)
 
@@ -115,11 +106,11 @@ def validate_raw_arrex(url):
         if '[ENA_EXPERIMENT]' in c:
             erxs.extend(df[c].dropna().unique())
     os.remove(filename)
-
     ftp.quit()
 
     if erxs:
         return True
+
     return False
 
 
@@ -140,34 +131,37 @@ def validate_raw_hca(url):
     present = [f for f in hca_raw_data_formats if f in formats_in_prj]
     if present:
         return True
+
     return False
 
 
-def validate_raw_ncbi(acc):
+def validate_raw_ncbi(url):
+    acc = url.split('/')[-1]
+    eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
+    esearch_base = f'{eutils_base}esearch.fcgi'
+    efetch_base = f'{eutils_base}efetch.fcgi'
     prj_flag = False
     if acc.startswith('GS'):
-        url1 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=bioproject&term={acc}[Project Accession]&retmode=json'
+        url1 = f'{esearch_base}?db=bioproject&term={acc}[Project Accession]&retmode=json'
         r1 = requests.get(url1).json()
         if r1['esearchresult']['idlist']:
             i = r1['esearchresult']['idlist'][0] #list of ids, ideally - only search entry type:Series
-            url2 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=bioproject&id={i}'
+            url2 = f'{efetch_base}?db=bioproject&id={i}'
             r2 = requests.get(url2)
-            responseXml = ET.fromstring(r2.text)
-            for a in responseXml.iter('ArchiveID'):
+            rXml = ET.fromstring(r2.text)
+            for a in rXml.iter('ArchiveID'):
                 prj = a.attrib['accession']
                 prj_flag = True
     else:
         prj = acc
         prj_flag = True
 
-    #some GSE don't return any results searching bioproject - e.g. GSM5027160
     if not prj_flag:
-        url5 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=gds&term={acc}[GEO Accession]&retmode=json'
+        url5 = f'{esearch_base}?db=gds&term={acc}[GEO Accession]&retmode=json'
         r5 = requests.get(url5).json()
         if r5['esearchresult']['idlist']:
             i = r5['esearchresult']['idlist'][0] #list of ids, ideally - only search entry type:Series
-
-            url6 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=gds&id={i}'
+            url6 = f'{efetch_base}?db=gds&id={i}'
             r6 = requests.get(url6)
             for line in r6.text.split('\n'):
                 if line.startswith('SRA Run Selector:'):
@@ -175,19 +169,38 @@ def validate_raw_ncbi(acc):
                     prj = line.split('acc=')[-1]
 
     if prj_flag:
-        url3 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=sra&term={prj}&retmode=json&retmax=100000'
+        url3 = f'{esearch_base}?db=sra&term={prj}&retmode=json&retmax=100000'
         r3 = requests.get(url3).json()
         idlist = r3['esearchresult']['idlist']
         sublists = [idlist[i:i+500] for i in range(0, len(idlist), 500)]
         for sub in sublists:
             ids = ','.join(sub)
-            url4 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=sra&id={ids}'
+            url4 = f'{efetch_base}?db=sra&id={ids}'
             r4 = requests.get(url4)
-            #parse the records for needed information & write report
-            responseXml = ET.fromstring(r4.text)
-            for ep in responseXml.iter('EXPERIMENT_PACKAGE'):
+            rXml = ET.fromstring(r4.text)
+            for ep in rXml.iter('EXPERIMENT_PACKAGE'):
                 for run in ep.iter('RUN'):
                     for cf in run.iter('CloudFile'):
                         if cf.attrib['filetype'] in ncbi_raw_data_formats:
                             return True
+
     return False
+
+
+def detect_sequence_data(url):
+    resource = parse_url(url)
+
+    if resource in ['geo','bioproj','ena','dbgap']:
+        raw_present = validate_raw_ncbi(url)
+    elif resource == 'hca':
+        raw_present = validate_raw_hca(url)
+    elif resource == 'arrex':
+        raw_present = validate_raw_arrex(url)
+    elif resource == 'nemo':
+        raw_present = validate_raw_nemo(url)
+    elif resource == 'ega':
+        raw_present = validate_raw_ega(url)
+    else: #ATTN - what to do w/ undetermined?
+        raw_present = 'undetermined'
+
+    return raw_present
