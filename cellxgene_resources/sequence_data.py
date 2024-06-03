@@ -77,7 +77,6 @@ def validate_raw_nemo(url):
                     return True
         else:
             i = df.loc[df['Field'] == 'Identifier']['Value'].iloc[0].split(':')[1]
-            #ATTN - can we just return validate_raw_nemo('https://assets.nemoarchive.org/' + i)?
             raw_present = validate_raw_nemo('https://assets.nemoarchive.org/' + i)
             if raw_present == True:
                 return True
@@ -203,7 +202,7 @@ def detect_sequence_data(url):
         raw_present = validate_raw_nemo(url)
     elif resource == 'ega':
         raw_present = validate_raw_ega(url)
-    else: #ATTN - what to do w/ undetermined?
+    else:
         raw_present = 'undetermined'
 
     return raw_present
