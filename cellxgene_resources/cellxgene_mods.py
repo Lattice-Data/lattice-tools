@@ -9,6 +9,7 @@ import squidpy as sq
 import subprocess
 import sys
 from scipy import sparse
+from typing import Optional, Union
 
 
 portal_uns_fields = [
@@ -328,11 +329,42 @@ def evaluate_obs(obs, full_obs_standards):
         report(f'long fields: {long_fields}')
 
 
+def _chunk_matrix(
+    matrix: Union[np.ndarray, sparse.spmatrix],
+    obs_chunk_size: Optional[int] = 10_000,
+):
+    """
+    From SSC repo validator, chunk matrix to keep memory in check
+    Only need to return sliced matrix, not the start and end values of tuple
+
+    Iterator which chunks the _named_ or _specified_ matrix by the
+    first (obs) dimension
+
+    The parameter type restrictions are strictly for ensuring that the
+    AnnData read fast-path is used (as of AnnData 0.8.0).
+
+    Iterator produces a sequence of tuples, each containing
+    (chunk, start, end)
+    """
+    start = 0
+    n = matrix.shape[0]
+    for i in range(int(n // obs_chunk_size)):
+        #logger.debug(f"_chunk_matrix [{i} of {math.ceil(n / obs_chunk_size)}]")
+        end = start + obs_chunk_size
+        yield (matrix[start:end], start, end)
+        start = end
+    if start < n:
+        yield (matrix[start:n], start, n)
+
+
 def evaluate_dup_counts(adata):
+    hashes = []
     if adata.raw:
-        hashes = [hash(r.tobytes()) for r in adata.raw.X.toarray()]
+        for chunk, _, _ in _chunk_matrix(adata.raw.X):
+            hashes.extend([hash(r.data.tobytes()) for r in chunk])
     else:
-        hashes = [hash(r.tobytes()) for r in adata.X.toarray()]
+        for chunk, _, _ in _chunk_matrix(adata.X):
+            hashes.extend([hash(r.tobytes()) for r in chunk])
     
     hash_df = adata.obs.copy()
     hash_df['hashes'] = hashes
