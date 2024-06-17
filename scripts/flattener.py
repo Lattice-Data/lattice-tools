@@ -984,6 +984,17 @@ def main(mfinal_id):
 	# Set uns and obsm parameters (obsm is originally set from mfinal_adata, since there may be other embeddings)
 	glob.cxg_uns = ds_results
 	glob.cxg_obsm = glob.mfinal_adata.obsm.copy()
+	drop_obsm = []
+	for embed in glob.cxg_obsm.keys():
+		if type(glob.cxg_obsm[embed]) == np.ndarray:
+			if len(glob.cxg_obsm[embed].shape) != 2:
+				warning_list.append("WARNING: Embedding that is not 2 dimensions is dropped: {}\t{}".format(glob.cxg_obsm[embed].shape, embed))
+				drop_obsm.append(embed)
+		else:
+			warning_list.append("WARNING: Embedding that is not a numpy array is dropped: {}\t{}".format(type(glob.cxg_obsm[embed]), embed))
+			drop_obsm.append(embed)
+	for k in drop_obsm:
+		del glob.cxg_obsm[k]
 	if len([i for i in glob.cxg_obsm.keys() if i.startswith('X_')]) < 1:
 		logging.error("ERROR: At least one embedding that starts with 'X_' is required")
 		sys.exit("ERROR: At least one embedding that starts with 'X_' is required")
@@ -1074,8 +1085,6 @@ def main(mfinal_id):
 	# Check to see if need to add background spots
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
-		# Should delete this after validator 5.1 update
-		glob.cxg_obsm['X_spatial'] = glob.cxg_obsm['spatial']
 	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
 	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 	
