@@ -168,8 +168,8 @@ def process_spatial(glob):
 				logging.error('ERROR: X_spatial embedding is required for Slide-seqV2')
 				sys.exit('ERROR: X_spatial embedding is required for Slide-seqV2')
 			else:
-				### WILL NEED TO DELETE X_spatial ONCE WE ARE READY FOR SCHEMA 5.1
 				glob.cxg_obsm['spatial'] = glob.cxg_obsm['X_spatial']
+				del glob.cxg_obsm['X_spatial']
 	else:
 		glob.cxg_uns['spatial'] = {}
 		glob.cxg_uns['spatial']['is_single'] = False
