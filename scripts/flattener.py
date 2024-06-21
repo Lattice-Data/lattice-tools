@@ -987,7 +987,12 @@ def main(mfinal_id):
 	drop_obsm = []
 	for embed in glob.cxg_obsm.keys():
 		if type(glob.cxg_obsm[embed]) == np.ndarray:
-			if len(glob.cxg_obsm[embed].shape) != 2:
+			if glob.cxg_obsm[embed].ndim >= 2:
+				if embed.startswith('X_'):
+					if glob.cxg_obsm[embed].shape[1] < 2:
+						warning_list.append("WARNING: Embedding starting with 'X_' that has length < 2 for second dimension is dropped: {}\t{}".format(glob.cxg_obsm[embed].shape, embed))
+						drop_obsm.append(embed)
+			else:
 				warning_list.append("WARNING: Embedding that is not 2 dimensions is dropped: {}\t{}".format(glob.cxg_obsm[embed].shape, embed))
 				drop_obsm.append(embed)
 		else:
