@@ -342,6 +342,7 @@ def evaluate_dup_counts(adata):
     if isinstance(matrix, np.ndarray):
         print("Matrix not in sparse format, please convert before hashing")
         return
+
     data_array = matrix.data
     index_array = matrix.indices
     indptr_array = matrix.indptr
