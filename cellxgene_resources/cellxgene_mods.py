@@ -329,47 +329,43 @@ def evaluate_obs(obs, full_obs_standards):
         report(f'long fields: {long_fields}')
 
 
-def _chunk_matrix(
-    matrix: Union[np.ndarray, sparse.spmatrix],
-    obs_chunk_size: Optional[int] = 10_000,
-):
-    """
-    From SSC repo validator, chunk matrix to keep memory in check
-    Only need to return sliced matrix, not the start and end values of tuple
-
-    Iterator which chunks the _named_ or _specified_ matrix by the
-    first (obs) dimension
-
-    The parameter type restrictions are strictly for ensuring that the
-    AnnData read fast-path is used (as of AnnData 0.8.0).
-
-    Iterator produces a sequence of tuples, each containing
-    (chunk, start, end)
-    """
-    start = 0
-    n = matrix.shape[0]
-    for i in range(int(n // obs_chunk_size)):
-        #logger.debug(f"_chunk_matrix [{i} of {math.ceil(n / obs_chunk_size)}]")
-        end = start + obs_chunk_size
-        yield (matrix[start:end], start, end)
-        start = end
-    if start < n:
-        yield (matrix[start:n], start, n)
-
-
 def evaluate_dup_counts(adata):
+    """
+    Hash sparse matrix using np.ndarrays that represent sparse matrix data.
+    First pass will hash all rows via slicing the data array and append to copy of obs df
+    Second pass will hash only duplicate rows in obs copy via the indices array.
+    This will keep only true duplicated matrix rows and not rows with an indicental same
+    ordering of their data arrays
+    """
+    matrix = adata.raw.X if adata.raw else adata.X
+
+    if isinstance(matrix, np.ndarray):
+        print("Matrix not in sparse format, please convert before hashing")
+        return
+    data_array = matrix.data
+    index_array = matrix.indices
+    indptr_array = matrix.indptr
+
+    start, end = 0, matrix.shape[0]
     hashes = []
-    if adata.raw:
-        for chunk, _, _ in _chunk_matrix(adata.raw.X):
-            hashes.extend([hash(r.data.tobytes()) for r in chunk])
-    else:
-        for chunk, _, _ in _chunk_matrix(adata.X):
-            hashes.extend([hash(r.tobytes()) for r in chunk])
+    while start < end:
+        val = hash(data_array[indptr_array[start]:indptr_array[start + 1]].tobytes())
+        hashes.append(val)
+        start += 1
+
+    def index_hash(index):
+        obs_loc = adata.obs.index.get_loc(index)
+        val = hash(index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]].tobytes())
+        return val
     
     hash_df = adata.obs.copy()
-    hash_df['hashes'] = hashes
-    hash_df = hash_df[hash_df.duplicated(subset='hashes',keep=False) == True]
-    hash_df.sort_values('hashes', inplace=True)
+    hash_df['data_array_hash'] = hashes
+    hash_df = hash_df[hash_df.duplicated(subset='data_array_hash',keep=False) == True]
+    hash_df.sort_values('data_array_hash', inplace=True)
+
+    hash_df['index_array_hash'] = [index_hash(row) for row in hash_df.index.to_list()]
+    hash_df = hash_df[hash_df.duplicated(subset=['data_array_hash', 'index_array_hash'], keep=False) == True]
+
     if not hash_df.empty:
         report('duplicated raw counts', 'ERROR')
         return hash_df
