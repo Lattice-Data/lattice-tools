@@ -42,8 +42,6 @@ non_ontology_fields = ['donor_id','suspension_type','tissue_type','is_primary_da
 curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_ontology_fields
 full_obs_standards = portal_obs_fields + curator_obs_fields
 
-VISIUM_ASSAY_TERM_ID = "EFO:0010961"
-
 
 class CxG_API:
     scc_repo_loc = os.path.expanduser('~/GitClones/CZI/')
@@ -100,7 +98,7 @@ def revise_cxg(adata):
 def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
     """
     Adapted from the adata.__sizeof__() method. This version will also return sizes of
-    adata.raw and the visium image arrays(per CXG schema) if they exist. Returns int of 
+    adata.raw and the visium image arrays if they exist. Returns int of 
     size and can print out itemized display
     
     :param: show_stratified: print out attribute sizes if set to True
@@ -108,16 +106,15 @@ def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
     def get_size(X) -> int:
         if isinstance(X, (sparse.csr_matrix, sparse.csc_matrix, sparse.coo_matrix)):
             return X.data.nbytes + X.indptr.nbytes + X.indices.nbytes
+        elif isinstance(X, np.ndarray):
+            return X.nbytes
         else:
             return X.__sizeof__()
 
-    def is_visium_single(adata: ad.AnnData) -> bool:
+    def has_visium_uns_images(adata: ad.AnnData) -> bool:
         return (
-            "assay_ontology_term_id" in adata.obs.columns and
-            VISIUM_ASSAY_TERM_ID in adata.obs["assay_ontology_term_id"].unique() and
-            "spatial" in adata.uns.keys() and
-            "is_single" in adata.uns["spatial"] and
-            adata.uns["spatial"]["is_single"] == True
+            "spatial" in adata.uns and
+            [k for k in adata.uns if "is_single" not in k]
         )
 
     size = 0
@@ -146,7 +143,7 @@ def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
 
         size += s
 
-    if is_visium_single(adata):
+    if has_visium_uns_images(adata):
         library_id = [k for k in adata.uns["spatial"].keys() if "is_single" not in k][0]
         print("Visium image arrays:") if show_stratified else None
         for image_name, image_array in adata.uns["spatial"][library_id]["images"].items():
