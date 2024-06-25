@@ -116,6 +116,7 @@ def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
             "assay_ontology_term_id" in adata.obs.columns and
             VISIUM_ASSAY_TERM_ID in adata.obs["assay_ontology_term_id"].unique() and
             "spatial" in adata.uns.keys() and
+            "is_single" in adata.uns["spatial"] and
             adata.uns["spatial"]["is_single"] == True
         )
 
