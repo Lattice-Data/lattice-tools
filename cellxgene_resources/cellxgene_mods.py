@@ -196,11 +196,11 @@ def evaluate_data(adata):
         report(f'raw min = {raw_min}')
         report(f'raw max = {raw_max}')
         min_maxs['raw'] = f'{raw_min}-{raw_max}'
-        non_integer = np.any(~np.equal(np.mod(adata.raw.X.data, 1), 0))
+        all_integers = np.all(np.round(adata.raw.X.data) == adata.raw.X.data)
     else:
-        non_integer = np.any(~np.equal(np.mod(adata.X.data, 1), 0))
+        all_integers = np.all(np.round(adata.X.data) == adata.X.data)
 
-    if non_integer == False:
+    if all_integers:
         report('raw is all integers', 'GOOD')
     else:
         report('raw contains non-integer values', 'ERROR')
