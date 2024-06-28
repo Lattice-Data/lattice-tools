@@ -765,7 +765,7 @@ def main(mfinal_id):
 							v = fm.get_value(obj, 'protocol.assay_ontology.term_id')
 							value.append(v)
 						if set(value) == {'EFO:0030059'}:
-							if mfinal_obj.get('assays') == ['snATAC-seq']:
+							if glob.mfinal_obj.get('assays') == ['snATAC-seq']:
 								single_obj = [o for o in objs if o.get('assay')=='snATAC-seq']
 							else:
 								single_obj = [o for o in objs if o.get('assay')=='snRNA-seq']

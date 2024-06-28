@@ -103,12 +103,12 @@ def copy_over_uns(glob, reserved_uns):
 	for k,v in glob.mfinal_adata.uns.items():
 		if k == 'batch_condition':
 			if not isinstance(glob.mfinal_adata.uns['batch_condition'], list) and not isinstance(glob.mfinal_adata.uns['batch_condition'], np.ndarray) :
-				warnings.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
+				warnings.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 			else:
 				if len([x for x in glob.mfinal_adata.uns['batch_condition'] if x not in glob.cxg_adata.obs.columns]) > 0:
-					warnings.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
+					warnings.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 				elif len(set(glob.mfinal_adata.uns['batch_condition'])) != len(glob.mfinal_adata.uns['batch_condition']):
-					warnings.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(mfinal_adata.uns['batch_condition']))
+					warnings.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 				else:
 					glob.cxg_adata.uns['batch_condition'] = glob.mfinal_adata.uns['batch_condition']
 		elif k.endswith('_colors'):
