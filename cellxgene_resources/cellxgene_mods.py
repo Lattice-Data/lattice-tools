@@ -702,3 +702,41 @@ def calculate_sex(fm_dict):
         return male_female_df
     except Exception as e:
         print(e)
+
+
+def evaluate_donors_sex(adata):
+    genes_file = 'ref_files/sex_analysis_genes.json'
+    genes = json.load(open(genes_file))
+    female_ids = genes['female']
+    male_ids = genes['male']
+
+    fields_to_include = ['colllection_id','dataset_id','donor_id', 'sex_ontology_term_id']
+    metadata_list = [f for f in fields_to_include if f in adata.obs_keys()]
+
+    smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
+    obs_to_keep = adata.obs.index[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == False]
+    adata_new = adata[obs_to_keep, : ]
+    print(f'Smart-seq removal: {adata.shape[0] - adata_new.shape[0]} obs removed.')
+
+    if adata_new.raw:
+        female_adata = adata_new.raw[:,adata_new.raw.var.index.isin(female_ids)]
+        male_adata = adata_new.raw[:,adata_new.raw.var.index.isin(male_ids)]
+    else:
+        female_adata = adata_new[:,adata_new.var.index.isin(female_ids)]
+        male_adata = adata_new[:,adata_new.var.index.isin(male_ids)]
+
+    genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
+
+    if 0 in genes_found:
+        print('Cannot calculate sex - male/female/both gene set(s) not found in dataset.')
+    else:
+        fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata_new)
+        donor_sex_df = calculate_sex(fm_counts_dict)
+        donor_sex_df = donor_sex_df[['donor_id','male_sum','female_sum','total_sum','male_to_female','scRNAseq_sex']].merge(adata_new.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
+        sex_map = {
+            'PATO:0000383':'female',
+            'PATO:0000384':'male'
+        }
+        donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
+        donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
+        return donor_sex_df
