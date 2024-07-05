@@ -114,7 +114,7 @@ def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
     def has_visium_uns_images(adata: ad.AnnData) -> bool:
         return (
             "spatial" in adata.uns and
-            [k for k in adata.uns if "is_single" not in k]
+            [k for k in adata.uns["spatial"] if "is_single" not in k]
         )
 
     size = 0
