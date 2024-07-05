@@ -607,6 +607,11 @@ def compare_revision(collection):
     comp_df = comp_df.dropna(subset=[c for c in comp_df.columns if c != 'title'], how='all')
     if not comp_df.empty:
         print('\033[1mRevised Datasets\033[0m')
+
+        cols = list(comp_df)
+        cols.insert(0, cols.pop(cols.index('title')))
+        comp_df = comp_df.loc[:, cols]
+
         a = ['title'] + [c[-3:] for c in comp_df.columns if c not in ['title']]
         b = [''] + [c[:-4] for c in comp_df.columns if c not in ['title']]
         comp_df.columns = [b, a]
