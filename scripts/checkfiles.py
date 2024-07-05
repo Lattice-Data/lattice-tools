@@ -327,6 +327,7 @@ def process_fastq_file(job):
         logging.info('Determining read signatures')
         all_flowcells = set()
         all_smp_ins = set()
+        unknown_plat = False
         for sign in signatures_set:
             sign_array = sign.split(':')
             if len(sign_array) > 4:
@@ -340,18 +341,13 @@ def process_fastq_file(job):
                 platforms = set()
                 for flowcell in all_flowcells:
                     machine = flowcell[0]
-                    plat_flag = False
                     flowcell_details.append({'machine': machine, 'flowcell': flowcell[1], 'lane': flowcell[2]})
                     for key,v in InstrumentIDs.items():
                         if re.search(key,machine):
                             platforms.add(v)
-                            plat_flag = True
-                    if not plat_flag:
-                        platforms.add('undetermined by machine')
-                results['flowcell_details'] = flowcell_details
-                platforms = list(platforms)
-                platforms.sort()
-                results['platform'] = platforms
+                            known_plat = True
+                    if not known_plat:
+                        unknown_plat = True
             else:
                 flowcell = (sign_array[0], sign_array[1])
                 all_flowcells.add(flowcell)
@@ -360,14 +356,19 @@ def process_fastq_file(job):
                 #results['sample indices'] = all_smp_ins
 
                 flowcell_details = []
-                platforms = []
+                platforms = set()
                 for flowcell in all_flowcells:
                     machine = flowcell[0]
                     flowcell_details.append({'machine': machine, 'lane': flowcell[1]})
                     for key,v in InstrumentIDs.items():
                         if re.search(key,machine):
-                            platforms.append(v)
-                results['flowcell_details'] = flowcell_details
+                            platforms.add(v)
+                            known_plat = True
+                    if not known_plat:
+                        unknown_plat = True
+            results['flowcell_details'] = flowcell_details
+            if unknown_plat == False:
+                platforms = list(platforms)
                 platforms.sort()
                 results['platform'] = platforms
         results['signature'] = list(signatures_set)
