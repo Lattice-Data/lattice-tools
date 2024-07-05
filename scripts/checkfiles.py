@@ -340,6 +340,7 @@ def process_fastq_file(job):
                 flowcell_details = []
                 platforms = set()
                 for flowcell in all_flowcells:
+                    known_plat = False
                     machine = flowcell[0]
                     flowcell_details.append({'machine': machine, 'flowcell': flowcell[1], 'lane': flowcell[2]})
                     for key,v in InstrumentIDs.items():
@@ -358,6 +359,7 @@ def process_fastq_file(job):
                 flowcell_details = []
                 platforms = set()
                 for flowcell in all_flowcells:
+                    known_plat = False
                     machine = flowcell[0]
                     flowcell_details.append({'machine': machine, 'lane': flowcell[1]})
                     for key,v in InstrumentIDs.items():
