@@ -729,6 +729,7 @@ def evaluate_donors_sex(adata):
 
     if 0 in genes_found:
         print('Cannot calculate sex - male/female/both gene set(s) not found in dataset.')
+        return None
     else:
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata_new)
         donor_sex_df = calculate_sex(fm_counts_dict)
