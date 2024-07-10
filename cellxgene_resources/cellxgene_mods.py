@@ -729,7 +729,7 @@ def evaluate_donors_sex(adata):
     else:
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
         donor_sex_df = calculate_sex(fm_counts_dict)
-        donor_sex_df = donor_sex_df[['donor_id','male_sum','female_sum','total_sum','male_to_female','scRNAseq_sex']]
+        donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
         donor_sex_df = donor_sex_df.merge(adata.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
         sex_map = {
             'PATO:0000383':'female',
