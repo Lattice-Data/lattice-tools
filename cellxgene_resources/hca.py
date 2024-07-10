@@ -3,11 +3,11 @@ import re
 
 req_present = {
     'uns': [
-        'study_PI'
+        'study_pi'
     ],
     'obs': [
-        'sample_ID',
-        'library_ID',
+        'sample_id',
+        'library_id',
         'institute',
         'library_preparation_batch',
         'library_sequencing_run',
@@ -36,7 +36,7 @@ req_enum = {
             'body fluid',
             'other'
         ],
-        'sample_site_condition': [
+        'sampled_site_condition': [
             'healthy',
             'diseased',
             'adjacent'
