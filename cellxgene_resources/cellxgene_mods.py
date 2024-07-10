@@ -734,7 +734,8 @@ def evaluate_donors_sex(adata):
         donor_sex_df = donor_sex_df.merge(adata_new.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
         sex_map = {
             'PATO:0000383':'female',
-            'PATO:0000384':'male'
+            'PATO:0000384':'male',
+            'unknown':'unknown'
         }
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
         donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
