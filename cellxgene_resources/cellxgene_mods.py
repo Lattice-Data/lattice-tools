@@ -709,10 +709,7 @@ def evaluate_donors_sex(adata):
     genes = json.load(open(genes_file))
     female_ids = genes['female']
     male_ids = genes['male']
-
-    fields_to_include = ['colllection_id','dataset_id','donor_id', 'sex_ontology_term_id']
-    metadata_list = [f for f in fields_to_include if f in adata.obs_keys()]
-
+    metadata_list = ['donor_id', 'sex_ontology_term_id']
     smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
     obs_to_keep = adata.obs.index[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == False]
     adata_new = adata[obs_to_keep, : ]
