@@ -711,27 +711,26 @@ def evaluate_donors_sex(adata):
     male_ids = genes['male']
     metadata_list = ['donor_id', 'sex_ontology_term_id']
     smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
-    obs_to_keep = adata.obs.index[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == False]
-    adata_new = adata[obs_to_keep, : ]
-    print(f'Smart-seq removal: {adata.shape[0] - adata_new.shape[0]} obs removed.')
+    adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
+    adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
 
-    if adata_new.raw:
-        female_adata = adata_new.raw[:,adata_new.raw.var.index.isin(female_ids)]
-        male_adata = adata_new.raw[:,adata_new.raw.var.index.isin(male_ids)]
+    if adata.raw:
+        female_adata = adata.raw[:,adata.raw.var.index.isin(female_ids)]
+        male_adata = adata.raw[:,adata.raw.var.index.isin(male_ids)]
     else:
-        female_adata = adata_new[:,adata_new.var.index.isin(female_ids)]
-        male_adata = adata_new[:,adata_new.var.index.isin(male_ids)]
+        female_adata = adata[:,adata.var.index.isin(female_ids)]
+        male_adata = adata[:,adata.var.index.isin(male_ids)]
 
     genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
-    
+
     if 0 in genes_found:
         print('Cannot calculate sex - male/female/both gene set(s) not found in dataset.')
         return None
     else:
-        fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata_new)
+        fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
         donor_sex_df = calculate_sex(fm_counts_dict)
         donor_sex_df = donor_sex_df[['donor_id','male_sum','female_sum','total_sum','male_to_female','scRNAseq_sex']]
-        donor_sex_df = donor_sex_df.merge(adata_new.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
+        donor_sex_df = donor_sex_df.merge(adata.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
         sex_map = {
             'PATO:0000383':'female',
             'PATO:0000384':'male',
