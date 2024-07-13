@@ -70,6 +70,9 @@ req_pattern ={
     }
 }
 
+#ATTN - need to confirm GSM digit count
+library_acc_pattern = '^((EGAX\d{11})|((S|E)RX\d{6,})|(GSM\d{7}))$'
+
 def validate_hca(adata):
     errors = []
 
@@ -80,6 +83,16 @@ def validate_hca(adata):
     for c in req_present['obs']:
         if c not in adata.obs.columns:
             errors.append(f'obs.{c} missing')
+        elif c == 'library_id':
+            invalid = [str(v) for v in adata.obs[c].unique() if not re.match(library_acc_pattern, str(v))]
+            if invalid:
+                c = 'library_id_repository'
+                if c not in adata.obs.columns:
+                    errors.append(f'obs.{c} missing, required if obs.library_id values are not repository accessions')
+                else:
+                    invalid = [str(v) for v in adata.obs[c].unique() if not re.match(library_acc_pattern, str(v))]
+                    if invalid:
+                        errors.append(f'{",".join(invalid)} not valid for obs.{c}')
 
     for c,e in req_enum['obs'].items():
         if c not in adata.obs.columns:
