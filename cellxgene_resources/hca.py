@@ -70,7 +70,7 @@ req_pattern ={
     }
 }
 
-library_acc_pattern = '^((EGAX\d{11})|((S|E)RX\d{6,})|(GSM\d{7}))$'
+library_acc_pattern = '^((EGAX\d{11})|((S|E)RX\d{6,8})|(GSM\d{7}))$'
 
 def validate_hca(adata):
     errors = []
