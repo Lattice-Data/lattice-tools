@@ -70,7 +70,6 @@ req_pattern ={
     }
 }
 
-#ATTN - need to confirm GSM digit count
 library_acc_pattern = '^((EGAX\d{11})|((S|E)RX\d{6,})|(GSM\d{7}))$'
 
 def validate_hca(adata):
