@@ -143,9 +143,10 @@ def process_spatial(glob):
 			glob.cxg_uns['spatial']['is_single'] = True
 			spatial_lib = list(glob.cxg_uns['spatial'].keys())[0]
 			# Moving spacial metadata from cxg_uns['spatial']
-			glob.cxg_uns['spatial_metadata'] = glob.cxg_uns['spatial'][spatial_lib]['metadata']
+			if 'metadata' in glob.cxg_uns['spatial'][spatial_lib].keys():
+				glob.cxg_uns['spatial_metadata'] = glob.cxg_uns['spatial'][spatial_lib]['metadata']
+				del glob.cxg_uns['spatial'][spatial_lib]['metadata']
 			# Deleting unwanted spacial information, including metadata, from spatial
-			del glob.cxg_uns['spatial'][spatial_lib]['metadata']
 			del glob.cxg_uns['spatial'][spatial_lib]['images']['lowres']
 			del glob.cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
 			del glob.cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
