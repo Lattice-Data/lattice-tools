@@ -143,12 +143,16 @@ def process_spatial(glob):
 			glob.cxg_uns['spatial']['is_single'] = True
 			spatial_lib = list(glob.cxg_uns['spatial'].keys())[0]
 			# Moving spacial metadata from cxg_uns['spatial']
-			glob.cxg_uns['spatial_metadata'] = glob.cxg_uns['spatial'][spatial_lib]['metadata']
-			# Deleting unwanted spacial information, including metadata, from spatial
-			del glob.cxg_uns['spatial'][spatial_lib]['metadata']
-			del glob.cxg_uns['spatial'][spatial_lib]['images']['lowres']
-			del glob.cxg_uns['spatial'][spatial_lib]['scalefactors']['tissue_lowres_scalef']
-			del glob.cxg_uns['spatial'][spatial_lib]['scalefactors']['fiducial_diameter_fullres']
+			if 'metadata' in glob.cxg_uns['spatial'][spatial_lib]:
+				glob.cxg_uns['spatial_metadata'] = glob.cxg_uns['spatial'][spatial_lib]['metadata']
+				del glob.cxg_uns['spatial'][spatial_lib]['metadata']
+			# Deleting unwanted spacial information from spatial
+			for i in list(glob.cxg_uns['spatial'][spatial_lib]['images']):
+				if i not in ['hires','fullres']:
+					del glob.cxg_uns['spatial'][spatial_lib]['images'][i]
+			for i in list(glob.cxg_uns['spatial'][spatial_lib]['scalefactors']):
+				if i not in ['spot_diameter_fullres','tissue_hires_scalef']:
+					del glob.cxg_uns['spatial'][spatial_lib]['scalefactors'][i]
 
 			if glob.mfinal_obj.get('fullres_s3_uri', None):
 				filename = glob.mfinal_obj.get('fullres_s3_uri').split('/')[-1]

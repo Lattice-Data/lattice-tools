@@ -615,6 +615,9 @@ def add_raw_background_spots(adata, glob):
 	adata.var_names_make_unique(join='.')
 	all_barcodes = pd.read_csv(fm.MTX_DIR+"/spatial/tissue_positions_list.csv", index_col=0, header=None)
 	all_barcodes.columns = ['in_tissue','array_row','array_col','pxl_row_in_fullres','pxl_col_in_fullres']
+	for c in ['in_tissue', 'array_row','array_col']:
+		if all_barcodes[c].dtype != int:
+			all_barcodes[c] = all_barcodes[c].astype('int64')
 	missing_barcodes = [i for i in all_barcodes.index.to_list() if i not in list(adata.obs.index)]
 	empty_matrix = sparse.csr_matrix((len(missing_barcodes), adata.var.shape[0]))
 	missing_adata = ad.AnnData(empty_matrix, var=adata.var, obs=pd.DataFrame(index=missing_barcodes))
@@ -1001,8 +1004,9 @@ def main(mfinal_id):
 	for k in drop_obsm:
 		del glob.cxg_obsm[k]
 	if len([i for i in glob.cxg_obsm.keys() if i.startswith('X_')]) < 1:
-		logging.error("ERROR: At least one embedding that starts with 'X_' is required")
-		sys.exit("ERROR: At least one embedding that starts with 'X_' is required")
+		if glob.mfinal_obj['assays'] != ['spatial transcriptomics']:
+			logging.error("ERROR: At least one embedding that starts with 'X_' is required")
+			sys.exit("ERROR: At least one embedding that starts with 'X_' is required")
 
 	# Merge df with raw_obs according to raw_matrix_accession, and add additional cell metadata from mfinal_adata if available
 	# Also add calculated fields to df 
