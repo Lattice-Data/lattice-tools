@@ -1,4 +1,5 @@
 import anndata as ad
+import h5py
 import json
 import matplotlib.pyplot as plt
 import numpy as np
@@ -8,6 +9,7 @@ import re
 import squidpy as sq
 import subprocess
 import sys
+from dataclasses import dataclass
 from scipy import sparse
 
 
@@ -154,6 +156,55 @@ def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
             size += s
             
     return size
+
+
+@dataclass
+class Sizes:
+    memory_size: int = 0
+    disk_size: int = 0
+    attr_size_dict = {}
+
+
+def calculate_adata_memory(adata_path: str, print_datasets: bool = True, sizes: Sizes | None = None) -> Sizes:
+    """
+    Calculate size of AnnData object when fully loaded in memory. Reads header/metadata information
+    in h5/h5ad file and returns size of object loaded into RAM and calculated size on disk. 
+    In-memory sizes also loaded into attr_size_dict[dataset_name, nbytes] so further size calculations can be done
+    on specific h5 datasets.
+    
+    :param: adata_path: str path to h5/h5ad file. Will only load header/metadata info, not full file
+    :param: print_datasets: Default True, set to False to only get final RAM and disk size
+
+    :returns: Sizes object
+    """
+    if sizes is None:
+        sizes = Sizes()
+        
+    print_width = 90
+                    
+    def dataset_sizes(name, obj):
+        if isinstance(obj, h5py.Dataset):
+            stor_size = obj.id.get_storage_size()
+            if print_datasets:
+                header = f"RAM Size for {obj.name}:"
+                spaces = print_width - len(header) - len(f"{obj.nbytes:_}") - 6  # 6 for ' bytes'
+                print(f"{header}{' ' * spaces}{obj.nbytes:_} bytes")
+            sizes.memory_size += obj.nbytes
+            sizes.disk_size += stor_size
+            sizes.attr_size_dict[obj.name] = obj.nbytes
+
+    with h5py.File(adata_path, mode='r') as f:
+        f.visititems(dataset_sizes)
+
+    print("-" * print_width)
+    for header, result in {
+        "Size in RAM:": sizes.memory_size, 
+        "Size on disk:": sizes.disk_size
+    }.items():
+        spaces = print_width - len(f"{header}") - len(f"{result:_}") - 6
+        print(f"{header}{' ' * spaces}{result:_} bytes")
+
+    return sizes
 
 
 def determine_sparsity(x):
