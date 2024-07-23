@@ -1016,6 +1016,8 @@ def main(mfinal_id):
 	glob.cxg_obs = pd.merge(glob.cxg_adata_raw.obs, df, left_on='raw_matrix_accession', right_index=True, how='left')
 	glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[celltype_col]], left_index=True, right_index=True, how='left')
 	glob.cxg_obs = pd.merge(glob.cxg_obs, annot_df, left_on=celltype_col, right_index=True, how='left')
+	glob.cxg_obs['cell_state'].fillna(fm.UNREPORTED_VALUE, inplace=True)
+
 	if not glob.mfinal_obj.get('spatial_s3_uri', None):
 		if glob.cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
 			warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
