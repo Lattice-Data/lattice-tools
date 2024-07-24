@@ -705,28 +705,27 @@ def calculate_sex(fm_dict):
 
 
 def evaluate_donors_sex(adata):
-    genes_file = 'ref_files/sex_analysis_genes.json'
-    genes = json.load(open(genes_file))
-    female_ids = genes['female']
-    male_ids = genes['male']
-    metadata_list = ['donor_id', 'sex_ontology_term_id']
-    smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
-    adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
-    adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
-
-    if adata.raw:
-        female_adata = adata.raw[:,adata.raw.var.index.isin(female_ids)]
-        male_adata = adata.raw[:,adata.raw.var.index.isin(male_ids)]
-    else:
-        female_adata = adata[:,adata.var.index.isin(female_ids)]
-        male_adata = adata[:,adata.var.index.isin(male_ids)]
-
-    genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
-
-    if 0 in genes_found:
-        print('Cannot calculate sex - male/female/both gene set(s) not found in dataset.')
+    if 'NCBITaxon:9606' not in adata.obs['organism_ontology_term_id'].unique():
+        print('Cannot calculate sex for non-human data.')
         return None
     else:
+        genes_file = 'ref_files/sex_analysis_genes.json'
+        genes = json.load(open(genes_file))
+        female_ids = genes['female']
+        male_ids = genes['male']
+        metadata_list = ['donor_id', 'sex_ontology_term_id']
+        smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
+        adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
+        adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
+
+        if adata.raw:
+            female_adata = adata.raw[:,adata.raw.var.index.isin(female_ids)]
+            male_adata = adata.raw[:,adata.raw.var.index.isin(male_ids)]
+        else:
+            female_adata = adata[:,adata.var.index.isin(female_ids)]
+            male_adata = adata[:,adata.var.index.isin(male_ids)]
+
+        genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
         donor_sex_df = calculate_sex(fm_counts_dict)
         donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
