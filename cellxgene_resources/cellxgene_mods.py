@@ -641,3 +641,105 @@ def compare_revision(collection):
         display(pd.DataFrame(new).transpose())
 
     return revision
+
+
+def generate_fm_dict(female_ids, female_adata, male_ids, male_adata, adata):
+    """
+    Input: both sets of gene ids, female and male subset anndatas, and original anndata object
+    Output: dictionary containing sex-specific gene_ids, subset anndatas and dataframes of summed raw expression counts per gene per donor
+    """
+    fm_dict = {'female': [female_ids, female_adata], 'male': [male_ids, male_adata]}
+    for k,v in fm_dict.items():
+        sex_specific_adata = v[1]
+        obs_data = pd.DataFrame(sex_specific_adata[:, sex_specific_adata.var.index].X.toarray(), columns=sex_specific_adata.var.index, index=adata.obs.index)
+        obs_donor_data = pd.merge(obs_data,adata.obs['donor_id'], how='left',left_index=True, right_index=True)
+        df = obs_donor_data.groupby(['donor_id'])[obs_donor_data.columns].sum(numeric_only=True).reset_index()
+        missing_genes = [g for g in v[0] if g not in df.columns]
+        df[missing_genes] = np.nan
+        v.append(df)
+    return fm_dict
+
+
+def assign_sex(x):
+    """
+    Input: ratio of male to female raw expression counts summed across all genes
+    Output: assignment of sex
+    """
+    if x > 0.35:
+        return 'male'
+    elif x < 0.05:
+        return 'female'
+    else:
+        return 'unknown'
+
+
+def check_percent(female_adata,male_adata,female_ids,male_ids):
+    """
+    Input: subset adatas and gene_id lists
+    Output: percent of genes found per sex
+    """
+    fem = female_adata.shape[1]/len(female_ids)
+    male = male_adata.shape[1]/len(male_ids)
+    print(f"% Female genes found: {(fem)*100}")
+    print(f"% Male genes found: {(male)*100}\n")
+    return (fem,male)
+
+
+def calculate_sex(fm_dict):
+    """
+    Input: output dictionary from generate_fm_dict()
+    Output: dataframe of both male and female donors that have 100+ total counts and stats
+    """
+    try:
+        female_df = fm_dict['female'][2]
+        female_df['female_sum'] = female_df.sum(numeric_only=True, axis=1)
+        male_df = fm_dict['male'][2]
+        male_df['male_sum'] = male_df.sum(numeric_only=True, axis=1)
+        male_female_df = pd.merge(male_df, female_df, how='left', on='donor_id')
+        male_female_df['total_sum'] = male_female_df[['female_sum','male_sum']].sum(numeric_only=True, axis=1)
+        donors_to_remove = male_female_df[male_female_df.total_sum < 100].donor_id.unique()  # Remove donors that have less than 100 total counts
+        if len(donors_to_remove) > 0:
+            print('Donors with < 100 total counts dropped: ', *(donors_to_remove), sep='\n')
+            male_female_df.drop(male_female_df[male_female_df.total_sum < 100].index, inplace=True)
+        #Calculate ratio and assign sex
+        male_female_df['male_to_female'] = male_female_df['male_sum']/male_female_df['female_sum']
+        male_female_df['scRNAseq_sex'] = male_female_df.apply(lambda x: assign_sex(x['male_to_female']), axis=1)
+        return male_female_df
+    except Exception as e:
+        print(e)
+
+
+def evaluate_donors_sex(adata):
+    if 'NCBITaxon:9606' not in adata.obs['organism_ontology_term_id'].unique():
+        print('Cannot calculate sex for non-human data.')
+        return None
+    else:
+        genes_file = 'ref_files/sex_analysis_genes.json'
+        genes = json.load(open(genes_file))
+        female_ids = genes['female']
+        male_ids = genes['male']
+        metadata_list = ['donor_id', 'sex_ontology_term_id']
+        smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
+        adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
+        adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
+
+        if adata.raw:
+            female_adata = adata.raw[:,adata.raw.var.index.isin(female_ids)]
+            male_adata = adata.raw[:,adata.raw.var.index.isin(male_ids)]
+        else:
+            female_adata = adata[:,adata.var.index.isin(female_ids)]
+            male_adata = adata[:,adata.var.index.isin(male_ids)]
+
+        genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
+        fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
+        donor_sex_df = calculate_sex(fm_counts_dict)
+        donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
+        donor_sex_df = donor_sex_df.merge(adata.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
+        sex_map = {
+            'PATO:0000383':'female',
+            'PATO:0000384':'male',
+            'unknown':'unknown'
+        }
+        donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
+        donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
+        return donor_sex_df
