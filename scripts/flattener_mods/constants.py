@@ -159,3 +159,32 @@ PROP_MAP = {
 	'raw_matrix_assembly': 'mapped_reference_assembly',
 	'seq_run_platform': 'sequencing_platform'
 }
+
+GENCODE_MAP = {
+	'GENCODE 44': 'v110',
+	'GENCODE 43': 'v109',
+	'GENCODE 42': 'v108',
+	'GENCODE 41': 'v107',
+	'GENCODE 40': 'v106',
+	'GENCODE 39': 'v105',
+	'GENCODE 38': 'v104',
+	'GENCODE 37': 'v103',
+	'GENCODE 36': 'v102',
+	'GENCODE 35': 'v101',
+	'GENCODE 34': 'v100',
+	'GENCODE 33': 'v99',
+	'GENCODE 32': 'v98',
+	'GENCODE 31': 'v97',
+	'GENCODE 30': 'v96',
+	'GENCODE 29': 'v94',
+	'GENCODE 28': 'v92',
+	'GENCODE 27': 'v90',
+	'GENCODE 26': 'v88',
+	'GENCODE 25': 'v85',
+	'GENCODE 24': 'v83',
+	'GENCODE 23': 'v81',
+	'GENCODE 22': 'v79',
+	'GENCODE 21': 'v77',
+	'GENCODE 20': 'v76',
+	'GENCODE 19': 'v74',
+}
