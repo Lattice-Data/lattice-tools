@@ -165,7 +165,7 @@ class Sizes:
     attr_size_dict = {}
 
 
-def calculate_adata_memory(adata_path: str, print_datasets: bool = True, sizes: Sizes | None = None) -> Sizes:
+def calculate_adata_memory(adata_path: str, print_datasets: bool = False, sizes: Sizes | None = None) -> Sizes:
     """
     Calculate size of AnnData object when fully loaded in memory. Reads header/metadata information
     in h5/h5ad file and returns size of object loaded into RAM and calculated size on disk. 
@@ -173,7 +173,7 @@ def calculate_adata_memory(adata_path: str, print_datasets: bool = True, sizes: 
     on specific h5 datasets.
     
     :param: adata_path: str path to h5/h5ad file. Will only load header/metadata info, not full file
-    :param: print_datasets: Default True, set to False to only get final RAM and disk size
+    :param: print_datasets: Default False, set to True to get print out of individual datasets
 
     :returns: Sizes object
     """
