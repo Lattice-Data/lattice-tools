@@ -73,7 +73,8 @@ CELL_METADATA = {
 		'protocol.assay_ontology.term_id',
 		'starting_quantity',
 		'starting_quantity_units',
-		'@id'
+		'@id',
+		'lab.institute_name'
 	],
 	'raw_matrix': [
 		'assembly',
@@ -127,6 +128,7 @@ PROP_MAP = {
 	'sample_genetic_modifications': 'genetic_modifications',
 	'sample_menstrual_phase_at_collection': 'menstrual_phase_at_collection',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
+	'library_lab_institute_name': 'institute',
 	'donor_sex': 'sex',
 	'sample_@type': 'tissue_type',
 	'donor_donor_id': 'donor_id',
