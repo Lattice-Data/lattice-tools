@@ -551,7 +551,7 @@ def drop_cols(celltype_col, glob):
 			'donor_living_at_sample_collection', 'donor_menopausal_status', 'donor_smoking_status', 'sample_derivation_process', 'suspension_dissociation_reagent',\
 			'suspension_dissociation_time', 'suspension_depleted_cell_types', 'suspension_derivation_process', 'suspension_percent_cell_viability',\
 			'library_starting_quantity', 'library_starting_quantity_units', 'tissue_handling_interval', 'suspension_dissociation_time_units', 'alignment_software',\
-			'mapped_reference_annotation', 'sequencing_platform', 'sample_source', 'donor_cause_of_death', 'growth_medium', 'genetic_modifications',
+			'mapped_reference_annotation', 'mapped_reference_assembly', 'sequencing_platform', 'sample_source', 'donor_cause_of_death', 'growth_medium', 'genetic_modifications',
 			'menstrual_phase_at_collection']
 	
 	if 'sequencing_platform' in glob.cxg_obs.columns:
