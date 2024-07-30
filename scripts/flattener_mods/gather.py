@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 def gather_rawmatrices(derived_from, connection):
 	'''
 	Utilize lattice parse_ids and get_report to get all the raw matrix objects at once
+    Will return only fields in field_lst
 
 	:param List[str] derived_from: Raw matrices up the experimental graph which the final matrix object is derived from
 	:param obj connection: Information for connecting to lattice database
@@ -37,7 +38,7 @@ def gather_rawmatrices(derived_from, connection):
 	
 	# If object type of the original derived_from ids is not raw matrix file, go another layer down
 	if obj_type != 'RawMatrixFile':
-		objs = lattice.get_report(obj_type,filter_list,['derived_from'],connection)
+		objs = lattice.get_report(obj_type,filter_lst,['derived_from'],connection)
 		for obj in objs:
 			new_derived_from.append(obj['derived_from'])
 		obj_type, filter_lst = lattice.parse_ids(new_derived_from)
