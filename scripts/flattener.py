@@ -494,11 +494,15 @@ def clean_obs(glob):
 				if glob.mfinal_adata.obs[[author_col]].value_counts().values == glob.cxg_obs['sample_uuid'].value_counts().values:
 					glob.cxg_obs.drop(columns='sample_uuid', inplace=True)
 					glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+				else:
+					glob.cxg_obs.rename(columns={'sample_uuid':'sample_id'},inplace=True)
 			if author_col == 'library_id':
 				# Check that library_id and library_uuid have same key-value pairings and length of keys
 				if glob.mfinal_adata.obs[[author_col]].value_counts().values == glob.cxg_obs['library_uuid'].value_counts().values:
 					glob.cxg_obs.drop(columns='library_uuid', inplace=True)
 					glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+				else:
+					glob.cxg_obs.rename(columns={'library_uuid':'library_id'},inplace=True)
 			else:		
 				glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
