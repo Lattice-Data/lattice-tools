@@ -22,7 +22,15 @@ def gather_rawmatrices(derived_from, connection):
 	:returns List[dict] my_raw_matrices: List of raw matrices which the final matrix object is derived from
 	'''
 	new_derived_from = []
-	field_lst = ['@id','accession','s3_uri','genome_annotation','libraries','derived_from']
+	field_lst = [
+        '@id',
+        'accession',
+        's3_uri',
+        'genome_annotation',
+        'assembly',
+        'libraries',
+        'derived_from',
+    ]
 	
 	obj_type, filter_lst = lattice.parse_ids(derived_from)
 	
