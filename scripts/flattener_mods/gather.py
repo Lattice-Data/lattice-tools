@@ -30,6 +30,7 @@ def gather_rawmatrices(derived_from, connection):
         'assembly',
         'libraries',
         'derived_from',
+        'software',
     ]
 	
 	obj_type, filter_lst = lattice.parse_ids(derived_from)
