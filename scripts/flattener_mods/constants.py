@@ -155,8 +155,8 @@ PROP_MAP = {
 	'antibody_host_organism': 'host_organism',
 	'target_organism_scientific_name': 'target_organism',
 	'raw_matrix_software': 'alignment_software',
-	'raw_matrix_genome_annotation': 'mapped_reference_annotation',
-	'raw_matrix_assembly': 'mapped_reference_assembly',
+	'raw_matrix_genome_annotation': 'gene_annotation_version',
+	'raw_matrix_assembly': 'reference_genome',
 	'seq_run_platform': 'sequencing_platform'
 }
 

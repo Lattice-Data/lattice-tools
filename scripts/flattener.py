@@ -539,8 +539,8 @@ def clean_obs(glob):
 		glob.cxg_obs[[i for i in glob.cxg_obs.columns.tolist() if i.startswith('family_history_')]].fillna(value='unknown')
 	
 	# map gencode to ensembl version for HCA tier 1
-	if 'mapped_reference_annotation' in glob.cxg_obs.columns:
-		glob.cxg_obs['gene_annotation_version'] = glob.cxg_obs['mapped_reference_annotation'].map(fm.GENCODE_MAP)
+	if 'gene_annotation_version' in glob.cxg_obs.columns:
+		glob.cxg_obs['gene_annotation_version'] = glob.cxg_obs['gene_annotation_version'].map(fm.GENCODE_MAP)
 
 
 # Drop any intermediate or optional fields that are all empty
@@ -551,7 +551,7 @@ def drop_cols(celltype_col, glob):
 			'donor_living_at_sample_collection', 'donor_menopausal_status', 'donor_smoking_status', 'sample_derivation_process', 'suspension_dissociation_reagent',\
 			'suspension_dissociation_time', 'suspension_depleted_cell_types', 'suspension_derivation_process', 'suspension_percent_cell_viability',\
 			'library_starting_quantity', 'library_starting_quantity_units', 'tissue_handling_interval', 'suspension_dissociation_time_units', 'alignment_software',\
-			'mapped_reference_annotation', 'mapped_reference_assembly', 'sequencing_platform', 'sample_source', 'donor_cause_of_death', 'growth_medium', 'genetic_modifications',
+			'gene_annotation_version', 'reference_genome', 'sequencing_platform', 'sample_source', 'donor_cause_of_death', 'growth_medium', 'genetic_modifications',
 			'menstrual_phase_at_collection']
 	
 	if 'sequencing_platform' in glob.cxg_obs.columns:
@@ -823,7 +823,7 @@ def main(mfinal_id):
 				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 
 			if summary_assay == 'RNA':
-				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
+				row_to_add['gene_annotation_version'] = mxr['genome_annotation']
 				adata_raw = adata_raw[:, adata_raw.var['feature_types']=='Gene Expression']
 			else:
 				adata_raw = adata_raw[:, adata_raw.var['feature_types']=='Antibody Capture']
@@ -892,9 +892,9 @@ def main(mfinal_id):
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
 		
-	# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
+	# Removing gene_annotation_version if genome_annotations from ProcMatrixFile is empty
 	if not glob.mfinal_obj.get('genome_annotations', None):
-		del df['mapped_reference_annotation']
+		del df['gene_annotation_version']
 
 	if mapping_error:
 		logging.error('ERROR: There are {} mapping errors in cell_label_mappings:'.format(len(error_info.keys())))
