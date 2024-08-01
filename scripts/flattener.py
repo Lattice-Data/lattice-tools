@@ -489,27 +489,18 @@ def clean_obs(glob):
 	mfinal_author_cols = glob.mfinal_obj.get('author_columns', [])
 	for author_col in mfinal_author_cols:
 		if author_col in glob.mfinal_adata.obs.columns.to_list():
-			if author_col == 'sample_id':
-				# Check that sample_id and sample_uuid have same key-value pairings and length of keys
-				if len(glob.mfinal_adata.obs[[author_col]].value_counts().values) == len(glob.cxg_obs['sample_uuid'].value_counts().values):
-					if glob.mfinal_adata.obs[[author_col]].value_counts().values == glob.cxg_obs['sample_uuid'].value_counts().values:
-						glob.cxg_obs.drop(columns='sample_uuid', inplace=True)
+			if author_col == 'sample_id' or author_col == 'library_id':
+				uuid_col = author_col.replace('id', 'uuid')
+				# Check that _id and _uuid have same key-value pairings and length of keys
+				if len(glob.mfinal_adata.obs[[author_col]].value_counts().values) == len(glob.cxg_obs[uuid_col].value_counts().values):
+					if (glob.mfinal_adata.obs[[author_col]].value_counts().values == glob.cxg_obs[uuid_col].value_counts().values).all():
+						glob.cxg_obs.drop(columns=uuid_col, inplace=True)
 						glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 					else:
-						glob.cxg_obs.rename(columns={'sample_uuid':'sample_id'},inplace=True)
+						glob.cxg_obs.rename(columns={uuid_col:author_col}, inplace=True)
 				else:
-					glob.cxg_obs.rename(columns={'sample_uuid':'sample_id'},inplace=True)
-			if author_col == 'library_id':
-				# Check that library_id and library_uuid have same key-value pairings and length of keys
-				if len(glob.mfinal_adata.obs[[author_col]].value_counts().values) == len(glob.cxg_obs['library_uuid'].value_counts().values):
-					if glob.mfinal_adata.obs[[author_col]].value_counts().values == glob.cxg_obs['library_uuid'].value_counts().values:
-						glob.cxg_obs.drop(columns='library_uuid', inplace=True)
-						glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
-					else:
-						glob.cxg_obs.rename(columns={'library_uuid':'library_id'},inplace=True)
-				else:
-					glob.cxg_obs.rename(columns={'library_uuid':'library_id'},inplace=True)
-			else:		
+					glob.cxg_obs.rename(columns={uuid_col:author_col}, inplace=True)
+			else:	
 				glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
 			warning_list.append("WARNING: author_column not in final matrix: {}".format(author_col))
