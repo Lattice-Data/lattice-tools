@@ -73,8 +73,6 @@ LIBRARY_METADATA = {
 }
 
 RAW_MATRIX = [
-	'normalized',
-	'value_scale',
 	'feature_keys',
 	'cellranger_assay_chemistry',
 	'background_barcodes_included',
@@ -210,8 +208,16 @@ def gather_rawmatrices(dataset):
 	my_raw_matrices = []
 	unfiltered_matrices = []
 
-	field_lst = RAW_MATRIX+['@id','accession', 'libraries', 'derived_from', 's3_uri', 'status', 'md5sum']
-	filter_url = '&dataset=/datasets/{}/&background_barcodes_included=0&status=in+progress'.format(dataset)
+	field_lst = RAW_MATRIX + [
+		'@id',
+		'accession',
+		'derived_from',
+		'libraries',
+		'md5sum',
+		's3_uri',
+		'status'
+		]
+	filter_url = '&dataset=/datasets/{}/&status=in+progress'.format(dataset)
 	obj_type = 'RawMatrixFile'
 	all_raw_matrices = lattice.get_report(obj_type,filter_url,field_lst,connection)
 	for mtx in all_raw_matrices:
@@ -219,7 +225,10 @@ def gather_rawmatrices(dataset):
 			my_raw_matrices.append(mtx)
 		else:
 			unfiltered_matrices.append(mtx)
-	return my_raw_matrices
+	if len(my_raw_matrices) == 0:
+		return unfiltered_matrices
+	else:
+		return my_raw_matrices
 
 
 def get_dataset(dataset, geo_study):
@@ -231,7 +240,15 @@ def get_dataset(dataset, geo_study):
 	:return: list of original_files associated with dataset and updates geo_study dataframe with metadata
 	"""
 	dataset_id = '/datasets/{}/'.format(dataset)
-	field_lst = ['dataset_title', 'description', 'libraries', 'donor_count', 'corresponding_contributors', 'internal_contact', 'original_files']
+	field_lst = [
+		'corresponding_contributors',
+		'dataset_title',
+		'description',
+		'donor_count',
+		'internal_contact',
+		'libraries',
+		'original_files'
+		]
 	obj_type, filter_url = lattice.parse_ids([dataset_id])
 	results = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 	title = results.get('dataset_title','')
@@ -402,16 +419,27 @@ def calculate_protocols(geo_protocols, geo_samples):
 		if len(geo_samples[col].unique())==1:
 			protocols_input[col]=geo_samples[col].unique()[0]
 			geo_samples.drop(columns=[col], inplace=True)
+	protocols_results = format_protocols('data processing step', 'raw_matrix_normalized', False, protocols_results)
+	protocols_results = format_protocols('data processing step', 'raw_matrix_value_scale', 'linear', protocols_results)
 	for k,v in protocols_input.items():
-		if k in ['raw_matrix_assembly','raw_matrix_genome_annotation']:
-			protocols_results = format_protocols('genome build/assembly',k,v,protocols_results)
-		elif k in ['raw_matrix_normalized','raw_matrix_value_scale','raw_matrix_background_barcodes_included',\
-				'raw_matrix_feature_keys','raw_matrix_cellranger_assay_chemistry']:
-			protocols_results = format_protocols('data processing step',k,v,protocols_results)
-		elif k in ['raw_matrix_file_format','raw_matrix_value_units']:
-			protocols_results = format_protocols('processed data files format and content',k,v,protocols_results)
+		if k in [
+			'raw_matrix_assembly',
+			'raw_matrix_genome_annotation'
+			]:
+			protocols_results = format_protocols('genome build/assembly', k, v, protocols_results)
+		elif k in [
+			'raw_matrix_background_barcodes_included',
+			'raw_matrix_feature_keys',
+			'raw_matrix_cellranger_assay_chemistry'
+			]:
+			protocols_results = format_protocols('data processing step', k, v, protocols_results)
+		elif k in [
+			'raw_matrix_file_format',
+			'raw_matrix_value_units'
+			]:
+			protocols_results = format_protocols('processed data files format and content', k, v, protocols_results)
 		elif k == 'raw_matrix_assays':
-			protocols_results = format_protocols('library strategy',k,v,protocols_results)
+			protocols_results = format_protocols('library strategy', k, v, protocols_results)
 	geo_protocols = pd.DataFrame(protocols_results.items())
 	return geo_protocols
 
@@ -491,8 +519,8 @@ def main(dataset):
 	print("Total raw matrix files: {}".format(len(mxraws)))
 
 	for mxr in mxraws:
-		# get all of the objects necessary to pull the desired metadata
 
+		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
 		print("Processing {}".format(mxr_acc))
 		derived_raw_matrix.append(mxr_acc)
@@ -507,7 +535,7 @@ def main(dataset):
 
 		for obj_type in LIBRARY_METADATA.keys():
 			objs = relevant_objects.get(obj_type, [])
-			# For sequencing run objects, add related sequences to geo_sequences and additional metadata to runs_to_add which are added to all_runs
+			# For sequencing run objects, add related sequences to geo_sequences and metadata to runs_to_add which are added to all_runs
 			if obj_type == 'sequencing_run':
 				i = 1
 				for o in objs:
@@ -565,12 +593,17 @@ def main(dataset):
 		else:
 			geo_sequences = geo_sequences.merge(fastq_meta, left_on=col, right_index=True, how='left')
 			geo_subset = pd.DataFrame(geo_sequences[['filename', 'sequence_file_md5sum']])
-			geo_subset['filename'].replace('', np.nan, inplace=True)
+			geo_subset.replace({'filename':''}, np.nan, inplace=True)
 			geo_subset.dropna(subset=['filename'], inplace=True)
 			geo_seq_md5 = pd.concat([geo_seq_md5, geo_subset], ignore_index=True)
 			geo_sequences.rename(columns={'filename': col+'_filename'}, inplace=True)
 			geo_sequences.drop(columns=[col,'sequence_file_md5sum'], inplace=True)
-	geo_sequences.rename(columns={'read_1_filename':'filename 1', 'read_2_filename':'filename 2', 'index_1_filename':'filename 3', 'index_2_filename':'filename 4'}, inplace=True)
+	geo_sequences.rename(columns={
+		'read_1_filename':'filename 1',
+		'read_2_filename':'filename 2',
+		'index_1_filename':'filename 3',
+		'index_2_filename':'filename 4'
+		}, inplace=True)
 	if 'filename 4' in geo_sequences.columns:
 		geo_sequences = geo_sequences[['filename 1','filename 2', 'filename 3', 'filename 4']]
 	elif 'filename 3' in geo_sequences.columns:
