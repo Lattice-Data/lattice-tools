@@ -8,13 +8,14 @@ import logging
 import re
 import matplotlib.colors as mcolors
 import flattener_mods.constants as constants
+import flattener_mods as fm
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = 933120000
 
 # Backtracking to scripts folder to import download_file from flattener
-sys.path.insert(0, '../')
-from flattener import download_file
-sys.path.pop(0)
+# sys.path.insert(0, '../')
+# from flattener import download_file
+# sys.path.pop(0)
 
 # Attaching logger to Flattener logger
 logger = logging.getLogger(__name__)
@@ -159,7 +160,7 @@ def process_spatial(glob):
 				if os.path.exists(constants.MTX_DIR+"/"+filename):
 					print("{} was found locally".format(filename))
 				else:
-					download_file(glob.mfinal_obj.get('fullres_s3_uri'), constants.MTX_DIR)
+					fm.download_file(glob.mfinal_obj.get('fullres_s3_uri'), constants.MTX_DIR)
 				if filename.endswith(('tif', 'tiff', 'jpg')):
 					fullres_np = np.asarray(Image.open(constants.MTX_DIR+"/"+filename))
 					glob.cxg_uns['spatial'][spatial_lib]['images']['fullres'] = fullres_np

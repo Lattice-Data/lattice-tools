@@ -1,3 +1,4 @@
+import boto3
 import sys
 import pandas as pd
 import numpy as np
@@ -39,6 +40,24 @@ def gather_rawmatrices(derived_from, connection):
 
 	return my_raw_matrices
 
+
+def download_file(download_url, directory, accession=None):
+	bucket_name = download_url.split('/')[2]
+	file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
+	s3client = boto3.client("s3")
+	if accession:
+		file_ext = download_url.split('.')[-1]
+		file_name = accession + '.' + file_ext
+	else:
+		file_name = download_url.split('/')[-1]
+	print(file_name + ' downloading')
+	try:
+		s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
+	except subprocess.CalledProcessError as e:
+		logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+		sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+	else:
+		print(file_name + ' downloaded')
 
 
 def gather_objects(input_object, mfinal_obj, connection, start_type=None):
