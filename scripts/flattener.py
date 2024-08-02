@@ -486,11 +486,29 @@ def map_antibody(glob):
 def clean_obs(glob):
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
-	for author_col in glob.mfinal_obj.get('author_columns', []):
+	mfinal_author_cols = glob.mfinal_obj.get('author_columns', [])
+	for author_col in mfinal_author_cols:
 		if author_col in glob.mfinal_adata.obs.columns.to_list():
-			glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+			if author_col == 'sample_id' or author_col == 'library_id':
+				uuid_col = author_col.replace('id', 'uuid')
+				# Check that _id and _uuid have same key-value pairings and length of keys
+				if len(glob.mfinal_adata.obs[[author_col]].value_counts().values) == len(glob.cxg_obs[uuid_col].value_counts().values):
+					if (glob.mfinal_adata.obs[[author_col]].value_counts().values == glob.cxg_obs[uuid_col].value_counts().values).all():
+						glob.cxg_obs.drop(columns=uuid_col, inplace=True)
+						glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+					else:
+						glob.cxg_obs.rename(columns={uuid_col:author_col}, inplace=True)
+				else:
+					glob.cxg_obs.rename(columns={uuid_col:author_col}, inplace=True)
+			else:	
+				glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
 			warning_list.append("WARNING: author_column not in final matrix: {}".format(author_col))
+	# Still rename uuid terms even if author column not present
+	if 'sample_id' not in mfinal_author_cols:
+		glob.cxg_obs.rename(columns={'sample_uuid':'sample_id'},inplace=True)
+	if 'library_id' not in mfinal_author_cols:
+		glob.cxg_obs.rename(columns={'library_uuid':'library_id'},inplace=True)
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in glob.cxg_obs.columns:
 		glob.cxg_obs.insert(len(glob.cxg_obs.columns), 'suspension_type', 'na')
