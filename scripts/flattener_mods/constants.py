@@ -71,6 +71,7 @@ CELL_METADATA = {
 	'library': [
 		'uuid',
 		'protocol.assay_ontology.term_id',
+		'protocol.end_bias',
 		'starting_quantity',
 		'starting_quantity_units',
 		'@id',
@@ -122,6 +123,7 @@ PROP_MAP = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
 	'sample_summary_development_ontology_at_collection_term_id': 'development_stage_ontology_term_id',
 	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
+	'sample_derivation_process': 'sample_collection_method',
 	'sample_disease_state': 'disease_state',
 	'sample_summary_body_mass_index_at_collection': 'donor_BMI_at_collection',
 	'sample_growth_medium': 'growth_medium',
@@ -129,6 +131,7 @@ PROP_MAP = {
 	'sample_menstrual_phase_at_collection': 'menstrual_phase_at_collection',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'library_lab_institute_name': 'institute',
+	'library_protocol_end_bias': 'sequenced_fragment',
 	'donor_sex': 'sex',
 	'sample_@type': 'tissue_type',
 	'donor_donor_id': 'donor_id',
@@ -190,3 +193,86 @@ GENCODE_MAP = {
 	'GENCODE 20': 'v76',
 	'GENCODE 19': 'v74',
 }
+
+SAMPLE_COLLECTION_MAP = {
+	'percutaneous biopsy': 'biopsy',
+	'open biopsy': 'biopsy',
+	'resection': 'surgical resection',
+	'dissection': 'surgical resection',
+	'swab': 'brush',
+	'bronchoalveolar lavage': 'bodily fluid',
+	'aspiration': 'biopsy',
+	'density centrifugation': 'other',
+	'enzymatic digestion': 'other',
+	'cryosection': 'other'
+}
+
+SAMPLE_PRESERVATION_MAP = {
+	'cyropreservation': 'frozen at -80C',
+	'flash-freezing': 'frozen in liquid nitrogen',
+	'n/a (fresh)': 'fresh',
+	'paraffin embedding': 'paraffin block',
+	'OCT embedding': 'frozen at -80C'
+}
+
+OPTIONAL_COLUMNS = [
+	'alignment_software',
+	'cell_state',
+	'disease_state',
+	'donor_BMI_at_collection',
+	'donor_cause_of_death',
+	'donor_family_medical_history',
+	'donor_living_at_sample_collection',
+	'donor_menopausal_status',
+	'donor_smoking_status',
+	'donor_times_pregnant',
+	'gene_annotation_version',
+	'genetic_modifications',
+	'growth_medium',
+	'library_starting_quantity',
+	'library_starting_quantity_units',
+	'menstrual_phase_at_collection',
+	'reference_genome',
+	'reported_diseases',
+	'sample_source',
+	'sample_treatment_summary',
+	'sequencing_platform',
+	'suspension_dissociation_reagent',
+	'suspension_dissociation_time',
+	'suspension_dissociation_time_units',
+	'suspension_depleted_cell_types',
+	'suspension_derivation_process',
+	'suspension_percent_cell_viability',
+	'suspension_enriched_cell_types',
+	'suspension_enrichment_factors',
+	'suspension_depletion_factors', 
+	'suspension_uuid',
+	'tissue_section_thickness',
+	'tissue_section_thickness_units',
+	'tissue_handling_interval',
+	'tyrer_cuzick_lifetime_risk',
+]
+
+COLUMNS_TO_DROP = [
+	'author_donor_@id',
+	'author_donor_x',
+	'author_donor_y',
+	'batch',
+	'donor_age_redundancy',
+	'donor_diseases_term_id',
+	'donor_diseases_term_name',
+	'library_@id_x',
+	'library_@id_y',
+	'library_authordonor',
+	'library_donor_@id',
+	'library_@id',
+	'raw_matrix_accession',
+	'sample_biosample_ontology_cell_slims',
+	'sample_summary_development_ontology_at_collection_development_slims',
+	'sample_diseases_term_id',
+	'sample_diseases_term_name',
+	'sample_biosample_ontology_organ_slims',
+	'sex',
+	'suspension_@id'
+]
+
