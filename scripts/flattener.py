@@ -515,11 +515,21 @@ def clean_obs(glob):
 			else: 
 				glob.cxg_obs[field]  = glob.cxg_obs[field].astype('float')
 
-	change_unreported = ['suspension_enriched_cell_types', 'suspension_depleted_cell_types', 'suspension_enrichment_factors', 
-	'suspension_depletion_factors', 'disease_state', 'cell_state']
+	# Update unreported values
+	change_unreported = [
+		'sequenced_fragment',
+		'suspension_enriched_cell_types',
+		'suspension_depleted_cell_types',
+		'suspension_enrichment_factors',
+		'suspension_depletion_factors',
+		'disease_state',
+		'cell_state'
+	]
 	for field in change_unreported:
 		if field in glob.cxg_obs.columns.to_list():
 			glob.cxg_obs[field].replace({fm.UNREPORTED_VALUE: 'na'}, inplace=True)
+	glob.cxg_obs['sample_preservation_method'].replace({fm.UNREPORTED_VALUE: 'other'}, inplace=True)
+
 	valid_tissue_types = ['tissue', 'organoid', 'cellculture']
 	glob.cxg_obs['tissue_type'] = glob.cxg_obs['tissue_type'].str.lower()
 	for i in glob.cxg_obs['tissue_type'].unique().tolist():
@@ -540,22 +550,22 @@ def clean_obs(glob):
 	if 'gene_annotation_version' in glob.cxg_obs.columns:
 		glob.cxg_obs['gene_annotation_version'] = glob.cxg_obs['gene_annotation_version'].map(fm.GENCODE_MAP)
 
+	glob.cxg_obs.replace({
+		'sample_collection_method': fm.SAMPLE_COLLECTION_MAP,
+		'sample_preservation_method': fm.SAMPLE_PRESERVATION_MAP,
+		'sequenced_fragment': {
+			"3'":'3 prime tag',
+			"5'": '5 prime tag'
+		}
+	}, inplace=True)
+
 
 # Drop any intermediate or optional fields that are all empty
 def drop_cols(celltype_col, glob):
-	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units', 'cell_state', 'disease_state',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk',\
-			'donor_living_at_sample_collection', 'donor_menopausal_status', 'donor_smoking_status', 'sample_derivation_process', 'suspension_dissociation_reagent',\
-			'suspension_dissociation_time', 'suspension_depleted_cell_types', 'suspension_derivation_process', 'suspension_percent_cell_viability',\
-			'library_starting_quantity', 'library_starting_quantity_units', 'tissue_handling_interval', 'suspension_dissociation_time_units', 'alignment_software',\
-			'gene_annotation_version', 'reference_genome', 'sequencing_platform', 'sample_source', 'donor_cause_of_death', 'growth_medium', 'genetic_modifications',
-			'menstrual_phase_at_collection']
-	
 	if 'sequencing_platform' in glob.cxg_obs.columns:
 		if glob.cxg_obs['sequencing_platform'].isnull().values.any():
 			glob.cxg_obs['sequencing_platform'].fillna(fm.UNREPORTED_VALUE, inplace=True)
-	for col in optional_columns:
+	for col in fm.OPTIONAL_COLUMNS:
 		if col in glob.cxg_obs.columns.to_list():
 			col_content = glob.cxg_obs[col].unique()
 			if len(col_content) == 1:
@@ -565,13 +575,11 @@ def drop_cols(celltype_col, glob):
 	if len(glob.cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if glob.cxg_obs['donor_age_redundancy'].unique():
 			glob.cxg_obs.drop(columns='donor_age', inplace=True)
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
-			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
-			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
-			'sample_summary_development_ontology_at_collection_development_slims', 'donor_age_redundancy']
-	for column_drop in columns_to_drop: 
+	fm.COLUMNS_TO_DROP.append(celltype_col)
+	for column_drop in fm.COLUMNS_TO_DROP:
 		if column_drop in glob.cxg_obs.columns.to_list():
 			glob.cxg_obs.drop(columns=column_drop, inplace=True)
+
 
 
 # Add ontology term names to CXG standardized columns
