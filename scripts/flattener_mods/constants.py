@@ -208,7 +208,7 @@ SAMPLE_COLLECTION_MAP = {
 }
 
 SAMPLE_PRESERVATION_MAP = {
-	'cyropreservation': 'frozen at -80C',
+	'cryopreservation': 'frozen at -80C',
 	'flash-freezing': 'frozen in liquid nitrogen',
 	'n/a (fresh)': 'fresh',
 	'paraffin embedding': 'paraffin block',
