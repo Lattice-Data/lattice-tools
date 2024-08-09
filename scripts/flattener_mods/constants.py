@@ -75,7 +75,8 @@ CELL_METADATA = {
 		'starting_quantity',
 		'starting_quantity_units',
 		'@id',
-		'lab.institute_name'
+		'lab.institute_name',
+		'dbxrefs'
 	],
 	'raw_matrix': [
 		'assembly',
@@ -162,7 +163,8 @@ PROP_MAP = {
 	'raw_matrix_software': 'alignment_software',
 	'raw_matrix_genome_annotation': 'gene_annotation_version',
 	'raw_matrix_assembly': 'reference_genome',
-	'seq_run_platform': 'sequencing_platform'
+	'seq_run_platform': 'sequencing_platform',
+	'library_dbxrefs' : 'library_ID_repository'
 }
 
 GENCODE_MAP = {
@@ -251,6 +253,7 @@ OPTIONAL_COLUMNS = [
 	'tissue_section_thickness_units',
 	'tissue_handling_interval',
 	'tyrer_cuzick_lifetime_risk',
+	'library_ID_repository'
 ]
 
 COLUMNS_TO_DROP = [
@@ -275,4 +278,13 @@ COLUMNS_TO_DROP = [
 	'sex',
 	'suspension_@id'
 ]
+
+
+# Accepted accessions for library dbxrefs
+
+ACCEPTED_ACCESSIONS = {
+	'EGA:EGAX',
+	'SRA:SRX',
+	'ENA:ERX'
+}
 

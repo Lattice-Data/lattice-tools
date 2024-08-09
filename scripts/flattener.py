@@ -589,7 +589,7 @@ def drop_cols(celltype_col, glob):
 		if col in glob.cxg_obs.columns.to_list():
 			col_content = glob.cxg_obs[col].unique()
 			if len(col_content) == 1:
-				if col_content[0] == fm.UNREPORTED_VALUE or col_content[0] == '[' + fm.UNREPORTED_VALUE + ']' or col_content[0] == '[]':
+				if col_content[0] == fm.UNREPORTED_VALUE or col_content[0] == '[' + fm.UNREPORTED_VALUE + ']' or col_content[0] == '[]' or col_content[0] == '':
 					glob.cxg_obs.drop(columns=col, inplace=True)
 
 	if len(glob.cxg_obs['donor_age_redundancy'].unique()) == 1:
