@@ -1,40 +1,58 @@
-import anndata as ad
-from flattener import main
-import gc
 import lattice
-import os
-import sys
+import multiprocessing
+import traceback
+from flattener import main
 
-
-SCC_REPO_LOC = os.path.expanduser("~/GitClones/CZI/")
-sys.path.append(
-    os.path.abspath(SCC_REPO_LOC + "single-cell-curation/cellxgene_schemea_cli/")
-)
-
-from cellxgene_schema.validate import Validator
 
 mode = "demo"
+connection = None
+
+def set_global_connection():
+    global connection
+    if not connection:
+        connection = lattice.Connection(mode)
+
+
+def flatten(file):
+    try:
+        main(file, connection)
+        return (file, "SUCCESS")
+    except Exception as e:
+        return (file, e)
+
+
 files = [
     "LATDF190KNY",
-    "LATDF519CUZ",
-    "LATDF808TGB",
+    "LATDF584NGT",
+    "LATDF742BQI",  # np.bool error fixed on main, not here yet
+    "LATDF329OGL",
+    "LATDF477OUM",
+    "LATDF483VSD",
+    "LATDF994BQY",
+    "LATDF448PLU",
+    "LATDF366MLP",
+    "LATDF216UIK",  # fix merged on main, not yet on this branch
 ]
 
 if __name__ == "__main__":
-    connection = lattice.Connection(mode)
-    for file in files:
-        print(f"Flattening file {file}...")
-        main(file, connection)
-        gc.collect()
+    results = list()
+    with multiprocessing.Pool(initializer=set_global_connection) as pool:
+        iterator = pool.imap(flatten, files)
+        while True:
+            try:
+                results.append(next(iterator))
+            except StopIteration:
+                break
+            except Exception as e:
+                print(e)
+                break
 
-    adatas = [f for f in os.listdir() if ".h5ad" in f]
-
-    for file in adatas:
-        validator = Validator()
-        print(f"Validating file {file}...")
-        validator.adata = ad.read_h5ad(file)
-        validator.validate_adata()
-        if validator.is_valid:
-            print(f"File {file} IS VALID")
+    print("FINAL RESULTS:")
+    print("=" * 80)
+    for file, returned_obj in results:
+        if isinstance(returned_obj, str):
+            print(f"{file}: SUCCESS")
         else:
-            print(f"File {file} NOT VALID")
+            print(f"{file}: FAILURE")
+            traceback.print_exception(None, returned_obj, returned_obj.__traceback__)
+            print("=" * 80)
