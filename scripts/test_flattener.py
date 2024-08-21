@@ -93,10 +93,10 @@ if __name__ == "__main__":
         while True:
             try:
                 results.append(next(iterator))
+            except StopIteration:
+                break
             except Exception as e:
                 print(e)
-                break
-            except StopIteration:
                 break
 
     print("FINAL RESULTS:")
