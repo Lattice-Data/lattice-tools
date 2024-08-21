@@ -4,6 +4,7 @@ import subprocess
 
 
 files = [f for f in os.listdir() if ".h5ad" in f]
+workers = len(files)
 
 
 def validate(file_name):
@@ -19,7 +20,9 @@ def validate(file_name):
 
 
 def validate_all_files(files):
-    with multiprocessing.Pool() as pool:
+    with multiprocessing.Pool(processes=workers) as pool:
         pool.map(validate, files)
 
-validate_all_files(files)
+
+if __name__ == "__main__":
+    validate_all_files(files)
