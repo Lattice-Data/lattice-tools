@@ -3,8 +3,10 @@ import multiprocessing
 import subprocess
 
 
+CPU_COUNT = os.cpu_count()
+
 files = [f for f in os.listdir() if ".h5ad" in f]
-workers = len(files)
+workers = min(len(files), CPU_COUNT)
 
 
 def validate(file_name):
