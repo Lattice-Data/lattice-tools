@@ -71,6 +71,8 @@ def flatten(file):
     try:
         main(file, connection)
         return (file, "SUCCESS")
+    except SystemExit as e:
+        return (file, e)
     except Exception as e:
         return (file, e)
 
@@ -90,14 +92,14 @@ if __name__ == "__main__":
     workers = len(files)
     with multiprocessing.Pool(initializer=set_global_connection, initargs=(args.mode,), processes=workers) as pool:
         iterator = pool.imap(flatten, files)
-        while True:
+        for matrix in iterator:
             try:
-                results.append(next(iterator))
+                results.append(matrix)
             except StopIteration:
                 break
             except Exception as e:
-                print(e)
-                break
+                print(f"ERROR: {e}")
+                results.append((matrix, e))
 
     print("FINAL RESULTS:")
     print("=" * 80)
