@@ -807,6 +807,9 @@ def main(mfinal_id):
 				if 'spatial' in glob.mfinal_adata.uns.keys():
 					del glob.mfinal_adata.uns['spatial']
 				adata_raw = sq.read.visium(fm.MTX_DIR, counts_file=mxr_name)
+				for c in ['in_tissue', 'array_row','array_col']:
+					if adata_raw.obs[c].dtype != int:
+						adata_raw.obs[c] = adata_raw.obs[c].astype('int64')
 				if adata_raw.obs.shape[0] < 4992 and len(glob.mfinal_obj.get('libraries'))==1:
 					adata_raw = add_raw_background_spots(adata_raw, glob)
 
