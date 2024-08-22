@@ -7,11 +7,17 @@ import subprocess
 CPU_COUNT = os.cpu_count()
 DIR = os.path.dirname(os.path.realpath(__file__))
 PRINT_WIDTH = 113
-EPILOG = """
+SCRIPT_NAME = os.path.basename(__file__) 
+
+EPILOG = f"""
 Script to run CXG validation in parallel.
 By default will collect h5ad files from lattice-tools/scripts directory
 Use argument -d --directory to specify other location
 Use argument -r --revised to only collect h5ad files with the '_revised.h5ad' suffix
+
+Examples:
+    python {SCRIPT_NAME} -d /mnt/test_files -r
+    python {SCRIPT_NAME} --revised --directory /Users/me/Documents/curation/files
 """
 
 def getArgs():
@@ -23,7 +29,7 @@ def getArgs():
     parser.add_argument(
         "--directory", 
         "-d",
-        help="Directory to collect h5ad files, default is lattice-tools/scripts or location or this script",
+        help="Directory to collect h5ad files, default is lattice-tools/scripts or location of this script",
         default=DIR,
     )
     parser.add_argument(
@@ -42,7 +48,12 @@ files = [f for f in os.listdir(ARGS.directory) if file_suffix in f]
 workers = min(len(files), CPU_COUNT)
 
 def validate(file_name):
-    validate = subprocess.run(["cellxgene-schema", "validate", os.path.join(ARGS.directory, file_name)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    full_path = os.path.join(ARGS.directory, file_name)
+    validate = subprocess.run(
+        ["cellxgene-schema", "validate", full_path],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
     print(f"Validation for {file_name}...")
     for line in validate.stdout.decode('utf-8').split('\n'):
         print(line)
