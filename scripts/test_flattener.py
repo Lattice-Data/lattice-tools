@@ -24,9 +24,11 @@ Examples:
 
 Default 'python test_flattener.py' == 'python test_flattener.py -m demo -f {DEFAULT_MATRIX_TXT}'
 
-Processes can lock out if exception is raised outside of the main flattener function. Working on better handling
-this situation but may need keyboard interrupt or kill processes if testing does not conclude in a reasonable
-amount of time
+Currently no guarantee for data integrity when using this for actual flattening in parallel.
+Could be race conditions when different processes try to simultaneously
+    read the same RawMatrixFile
+    download the same RawMatrixFile 
+    concurrently test prod and demo with the same set of ProcessedMatrixFiles
 """
 
 connection = None
