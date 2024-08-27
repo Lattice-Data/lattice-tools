@@ -397,6 +397,10 @@ def evaluate_dup_counts(adata):
     This will keep only true duplicated matrix rows and not rows with an indicental same
     ordering of their data arrays
     """
+    if 'in_tissue' in adata.obs.columns:
+        obs_to_keep = adata.obs[adata.obs['in_tissue'] != 0].index
+        adata = adata[obs_to_keep, : ]
+
     matrix = adata.raw.X if adata.raw else adata.X
 
     if isinstance(matrix, np.ndarray):
