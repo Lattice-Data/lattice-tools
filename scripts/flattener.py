@@ -282,7 +282,7 @@ def get_sex_ontology(donor_df):
 def add_zero(glob):
 	if glob.cxg_adata_raw.shape[1] > glob.cxg_adata.shape[1]:
 		genes_add = [x for x in glob.cxg_adata_raw.var.index.to_list() if x not in glob.cxg_adata.var.index.to_list()]
-		new_matrix = sparse.csr_matrix((glob.cxg_adata.X.data, glob.cxg_adata.X.indices, glob.cxg_adata.X.indptr), shape=glob.cxg_adata_raw.shape)
+		new_matrix = sparse.csr_matrix(glob.cxg_adata.X, shape=glob.cxg_adata_raw.shape)
 		all_genes = glob.cxg_adata.var.index.to_list()
 		all_genes.extend(genes_add)
 		new_var = pd.DataFrame(index=all_genes)
