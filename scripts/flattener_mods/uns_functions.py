@@ -12,10 +12,6 @@ import flattener_mods as fm
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = 933120000
 
-# Backtracking to scripts folder to import download_file from flattener
-# sys.path.insert(0, '../')
-# from flattener import download_file
-# sys.path.pop(0)
 
 # Attaching logger to Flattener logger
 logger = logging.getLogger(__name__)
