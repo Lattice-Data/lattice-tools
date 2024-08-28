@@ -582,7 +582,7 @@ def create_aggregated_dict_from_df(dataframe: pd.DataFrame, key_col: str, value_
        .value_counts() \
        .to_frame() \
        .reset_index() \
-       .drop(columns='count') \
+       .drop(columns=0) \
        .groupby(key_col) \
        .aggregate(value_collection) \
        .to_dict()[value_col]
