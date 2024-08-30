@@ -1179,5 +1179,4 @@ def main(mfinal_id, connection):
 if __name__ == '__main__':
 	args = getArgs()
 	connection = lattice.Connection(args.mode)
-	server = connection.server
 	main(args.file, connection)
