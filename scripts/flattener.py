@@ -34,7 +34,7 @@ For more details:
 '''
 
 class GlobVals:
-	def __init__(self, mfinal_obj, mfinal_adata, cxg_adata, cxg_adata_raw, cxg_obs, cxg_uns, cxg_obsm):
+	def __init__(self, mfinal_obj, mfinal_adata, cxg_adata, cxg_adata_raw, cxg_obs, cxg_uns, cxg_obsm, connection):
 		self.mfinal_obj = mfinal_obj
 		self.mfinal_adata = mfinal_adata
 		self.cxg_adata = cxg_adata
@@ -42,6 +42,7 @@ class GlobVals:
 		self.cxg_obs = cxg_obs
 		self.cxg_uns = cxg_uns
 		self.cxg_obsm = cxg_obsm
+		self.connection = connection
 
 def getArgs():
     parser = argparse.ArgumentParser(
@@ -57,27 +58,6 @@ def getArgs():
     	parser.print_help()
     	sys.exit()
     return args
-
-
-
-# Download file object from s3
-def download_file(download_url, directory, accession=None):
-	bucket_name = download_url.split('/')[2]
-	file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
-	s3client = boto3.client("s3")
-	if accession:
-		file_ext = download_url.split('.')[-1]
-		file_name = accession + '.' + file_ext
-	else:
-		file_name = download_url.split('/')[-1]
-	print(file_name + ' downloading')
-	try:
-		s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
-	except subprocess.CalledProcessError as e:
-		logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-		sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-	else:
-		print(file_name + ' downloaded')
 
 
 # Download entire directory contents from S3
@@ -245,12 +225,12 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, glob):
 	obj_type_subset = ['sample', 'suspension', 'donor']
 	for susp in set(lib_donor_df['suspension_@id'].to_list()):
 		values_to_add = {}
-		susp_obj = lattice.get_object(susp, connection)
-		relevant_objects = fm.gather_objects(susp_obj, glob.mfinal_obj, connection, start_type='suspension')
+		susp_obj = lattice.get_object(susp, glob.connection)
+		relevant_objects = fm.gather_objects(susp_obj, glob.mfinal_obj, glob.connection, start_type='suspension')
 		for obj_type in obj_type_subset:
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
-		 		values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+		 		values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 		 	else:
 		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
@@ -429,7 +409,7 @@ def get_results_filename(glob):
 	collection_id = None
 	dataset = glob.mfinal_obj.get('dataset', [])
 	obj_type, filter_url = lattice.parse_ids([dataset])
-	dataset_objs = lattice.get_report(obj_type, filter_url, ['cellxgene_urls'], connection)
+	dataset_objs = lattice.get_report(obj_type, filter_url, ['cellxgene_urls'], glob.connection)
 	if dataset_objs[0].get('cellxgene_urls', []):
 		collection_id = dataset_objs[0].get('cellxgene_urls', [])[0]
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/", "")
@@ -448,7 +428,7 @@ def map_antibody(glob):
 	for anti_mapping in glob.mfinal_obj.get('antibody_mappings'):
 		values_to_add = {}
 		antibody = anti_mapping.get('antibody')
-		values_to_add = fm.gather_metdata('antibody', fm.ANTIBODY_METADATA['antibody'], values_to_add, [antibody], connection)
+		values_to_add = fm.gather_metdata('antibody', fm.ANTIBODY_METADATA['antibody'], values_to_add, [antibody], glob.connection)
 		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		if not antibody.get('control'):
 			target = None
@@ -459,7 +439,7 @@ def map_antibody(glob):
 						target = [t]
 			else:
 				target = antibody.get('targets')
-			values_to_add = fm.gather_metdata('target', fm.ANTIBODY_METADATA['target'], values_to_add, target, connection)
+			values_to_add = fm.gather_metdata('target', fm.ANTIBODY_METADATA['target'], values_to_add, target, glob.connection)
 			values_to_add['feature_name'] = values_to_add['target_label']
 		else:
 			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
@@ -604,7 +584,7 @@ def drop_cols(celltype_col, glob):
 
 # Add ontology term names to CXG standardized columns
 def add_labels(glob):
-	obj = lattice.get_report('OntologyTerm', '', ['term_id', 'term_name'], connection)
+	obj = lattice.get_report('OntologyTerm', '', ['term_id', 'term_name'], glob.connection)
 	ontology_df = pd.DataFrame(obj)
 	id_cols = ['assay_ontology_term_id', 'disease_ontology_term_id', 'cell_type_ontology_term_id', 'development_stage_ontology_term_id', 'sex_ontology_term_id',\
 			'tissue_ontology_term_id', 'organism_ontology_term_id', 'self_reported_ethnicity_ontology_term_id']
@@ -681,9 +661,9 @@ def add_background_spots(glob):
 	glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
 
 
-def main(mfinal_id):
+def main(mfinal_id, connection):
 
-	glob = GlobVals(None, None, None, None, None, None, None)
+	glob = GlobVals(None, None, None, None, None, None, None, connection)
 	glob.mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
@@ -725,7 +705,7 @@ def main(mfinal_id):
 	if os.path.exists(fm.MTX_DIR + '/' + glob.mfinal_obj['accession'] + '.h5ad'):
 		print(glob.mfinal_obj['accession'] + '.h5ad' + ' was found locally')
 	else:
-		download_file(glob.mfinal_obj.get('s3_uri'), fm.MTX_DIR, glob.mfinal_obj.get('accession'))
+		fm.download_file(glob.mfinal_obj.get('s3_uri'), fm.MTX_DIR, glob.mfinal_obj.get('accession'))
 
 	# Get list of unique final cell identifiers
 	file_url = glob.mfinal_obj['s3_uri']
@@ -738,7 +718,7 @@ def main(mfinal_id):
 	redundant = []
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
-	mxraws = fm.gather_rawmatrices(glob.mfinal_obj['derived_from'], connection)
+	mxraws = fm.gather_rawmatrices(glob.mfinal_obj['derived_from'], glob.connection)
 	donor_susp = {}
 	library_susp = {}
 	mapping_error = False
@@ -747,18 +727,18 @@ def main(mfinal_id):
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
-		relevant_objects = fm.gather_objects(mxr, glob.mfinal_obj, connection)
+		relevant_objects = fm.gather_objects(mxr, glob.mfinal_obj, glob.connection)
 		values_to_add = {}
 
 		# Get raw matrix metadata
-		values_to_add = fm.gather_metdata('raw_matrix', fm.CELL_METADATA['raw_matrix'], values_to_add, [mxr], connection)
+		values_to_add = fm.gather_metdata('raw_matrix', fm.CELL_METADATA['raw_matrix'], values_to_add, [mxr], glob.connection)
 
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
 		if 'demultiplexed_donor_column' in glob.mfinal_obj:
 			lib_obj = relevant_objects.get('library', [])
-			values_to_add = fm.gather_metdata('library', fm.CELL_METADATA['library'], values_to_add, lib_obj, connection)
+			values_to_add = fm.gather_metdata('library', fm.CELL_METADATA['library'], values_to_add, lib_obj, glob.connection)
 			for i in range(len(lib_obj)):
 				for single_lib_susp in lib_obj[i]['derived_from']:
 					if lib_obj[i]['@id'] not in library_susp:
@@ -789,7 +769,7 @@ def main(mfinal_id):
 			for obj_type in fm.CELL_METADATA.keys():
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+					values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 				elif len(objs) > 1:
 					# Check to make sure it is not multimodal before determining that it is pooled
 					if obj_type == 'library':
@@ -802,11 +782,11 @@ def main(mfinal_id):
 								single_obj = [o for o in objs if o.get('assay')=='snATAC-seq']
 							else:
 								single_obj = [o for o in objs if o.get('assay')=='snRNA-seq']
-							values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, single_obj, connection)
+							values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, single_obj, glob.connection)
 						else:
-							fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+							fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 					else:
-						fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+						fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
@@ -816,12 +796,12 @@ def main(mfinal_id):
 				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5'):
 					print(mxr_acc + '.h5' + ' was found locally')
 				else:
-					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
+					fm.download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 			elif mxr['s3_uri'].endswith('h5ad'):
 				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5ad'):
 					print(mxr_acc + '.h5ad' + ' was found locally')
 				else:
-					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
+					fm.download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 
 			mxr_name = '{}.h5'.format(mxr_acc) if mxr['s3_uri'].endswith('h5') else '{}.h5ad'.format(mxr_acc)
 			if glob.mfinal_obj.get('spatial_s3_uri', None) and glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
@@ -932,7 +912,7 @@ def main(mfinal_id):
 
 	# Get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = {}
-	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [glob.mfinal_obj], connection)
+	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [glob.mfinal_obj], glob.connection)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
 
@@ -954,7 +934,7 @@ def main(mfinal_id):
 		annot_lst = []
 		annot_lst.append(annot_obj)
 		annot_metadata = {}
-		annot_metadata = fm.gather_metdata('cell_annotation', fm.ANNOT_FIELDS, annot_metadata, annot_lst, connection)
+		annot_metadata = fm.gather_metdata('cell_annotation', fm.ANNOT_FIELDS, annot_metadata, annot_lst, glob.connection)
 		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
 		annot_df = pd.concat([annot_df, annot_row])
 
@@ -1195,9 +1175,8 @@ def main(mfinal_id):
 		if 'Full list available in logging file.' not in n:
 			logging.warning(n)
 
-args = getArgs()
-connection = lattice.Connection(args.mode)
-server = connection.server
 
 if __name__ == '__main__':
-    main(args.file)
+	args = getArgs()
+	connection = lattice.Connection(args.mode)
+	main(args.file, connection)
