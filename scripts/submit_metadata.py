@@ -552,7 +552,7 @@ def main():
 		#read the sheet from csv into pandas
 		g_id = tab_ids[schema_to_load]
 		g_url = f'https://docs.google.com/spreadsheets/d/{args.sheet_id}/export?gid={g_id}&format=csv'
-		df = pd.read_csv(g_url)
+		df = pd.read_csv(g_url, dtype=str)
 
 		#remove columns that are all NaNs
 		if not args.remove:

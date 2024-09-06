@@ -221,12 +221,10 @@ priorityFields = {
 			'notes',
 			'documents',
 			'dbxrefs',
-			'demultiplexed_link',
-			'platform'
+			'demultiplexed_link'
 		],
 		'preferred': [
-			'dbxrefs',
-			'platform'
+			'dbxrefs'
 		]
 	},
 	'raw_sequence_file': {

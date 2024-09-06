@@ -186,7 +186,7 @@ for descriptor in descriptor_list:
 	uber_list.append(this_list)
 
 # write the whole thing to the google sheet
-tab.update('A1',uber_list)
+tab.update(uber_list, 'A1')
 
 # bold the first column & set the whole sheet to clip text
 # shade in the appropriate cells

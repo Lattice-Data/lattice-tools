@@ -194,8 +194,7 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 		if prop == 'family_medical_history':
 			if value != 'unknown':
 				for history in value:
-					ontology = lattice.get_object(history.get('diagnosis'), connection)
-					key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
+					key = 'family_history_' + str(history.get('diagnosis').get('term_name')).replace(' ','_')
 					values_to_add[key] = history.get('present')
 		elif prop == 'ethnicity':
 			ethnicity_list = []
@@ -251,8 +250,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				history_list = get_value(obj, prop)
 				if history_list != 'unknown':
 					for history in history_list:
-						ontology = lattice.get_object(history.get('diagnosis'), connection)
-						key = 'family_history_' + str(ontology.get('term_name')).replace(' ','_')
+						key = 'family_history_' + str(history.get('diagnosis').get('term_name')).replace(' ','_')
 						value = str(history.get('present'))
 						values_df.loc[key,ident] = value
 				else:

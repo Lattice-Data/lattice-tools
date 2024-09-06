@@ -494,13 +494,7 @@ def seq_to_susp(links_dict):
 
 		add_process(link_hash)
 
-	cell_counts = [i for i in lib_cell_counts.values()]
-	if None not in cell_counts:
-		est_cell_count = sum(cell_counts)
-	else:
-		est_cell_count = None
-
-	return all_susps, links, est_cell_count
+	return all_susps, links
 
 
 def handle_doc(doc_id):
@@ -1069,11 +1063,7 @@ def main():
 	# gather all the Suspension objects to traverse next
 	# set up links between sequence_file and suspension as the start of each subgraph
 	logging.info('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
-	susps, links, est_cell_count = seq_to_susp(links_dict)
-
-	#CAN'T INCLUDE AT CURRENT SCHEMA VERSION
-	#if est_cell_count:
-	#	whole_dict['project'][0]['estimated_cell_count'] = est_cell_count
+	susps, links = seq_to_susp(links_dict)
 
 	# walkback graph the rest of the way
 	logging.info('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')
@@ -1087,11 +1077,13 @@ def main():
 				i = identifier[0]
 				obj_type, filter_url = lattice.parse_ids([i])
 				field_lst = [v['lattice'] for v in lattice_to_dcp[obj_type].values() if isinstance(v, dict)]
+				field_lst.extend(['derived_from','derivation_process'])
 				temp_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				get_object(temp_obj, identifier[1])
 			else:
 				obj_type, filter_url = lattice.parse_ids([identifier])
 				field_lst = [v['lattice'] for v in lattice_to_dcp[obj_type].values() if isinstance(v, dict)]
+				field_lst.extend(['derived_from','derivation_process'])
 				temp_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				get_object(temp_obj)
 			get_derived_from(temp_obj, next_remaining, links)

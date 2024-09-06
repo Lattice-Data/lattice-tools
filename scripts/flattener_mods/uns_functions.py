@@ -80,7 +80,7 @@ def check_not_empty(value):
 		value is not None
 		and not isinstance(value, numbers.Number)
 		and type(value) is not bool
-		and not (isinstance(value, (np.bool_, np.bool)))
+		and not (isinstance(value, (np.bool_, bool)))
 		and len(value) == 0
 	):
 		return False

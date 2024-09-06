@@ -156,9 +156,6 @@ lattice_to_dcp = {
 			'EGA': 'ega_accessions',
 			'dbGaP': 'dbgap_accessions'
 		},
-		'estimated_cell_count': {
-			'lattice': 'observation_count'
-		},
 		'funders.organization': {
 			'lattice': 'funding_organizations'
 		},

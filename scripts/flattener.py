@@ -262,7 +262,7 @@ def get_sex_ontology(donor_df):
 def add_zero(glob):
 	if glob.cxg_adata_raw.shape[1] > glob.cxg_adata.shape[1]:
 		genes_add = [x for x in glob.cxg_adata_raw.var.index.to_list() if x not in glob.cxg_adata.var.index.to_list()]
-		new_matrix = sparse.csr_matrix((glob.cxg_adata.X.data, glob.cxg_adata.X.indices, glob.cxg_adata.X.indptr), shape=glob.cxg_adata_raw.shape)
+		new_matrix = sparse.csr_matrix(glob.cxg_adata.X, shape=glob.cxg_adata_raw.shape)
 		all_genes = glob.cxg_adata.var.index.to_list()
 		all_genes.extend(genes_add)
 		new_var = pd.DataFrame(index=all_genes)
@@ -647,18 +647,31 @@ def add_background_spots(glob):
 		comb_adata = ad.concat([glob.mfinal_adata, missing_adata], uns_merge='first', merge='first')
 		comb_adata = comb_adata[glob.cxg_adata_raw.obs.index.to_list(), :]
 
-		for embed in glob.mfinal_adata.obsm.keys():
-			new_array = np.empty((comb_adata.obs.shape[0], glob.mfinal_adata.obsm[embed].shape[1]))
+		for embed in glob.cxg_obsm.keys():
+			new_array = np.empty((comb_adata.obs.shape[0], glob.cxg_obsm[embed].shape[1]))
 			new_array[:] = np.nan
 			for orig_row in range(glob.mfinal_adata.obs.shape[0]):
 				row = comb_adata.obs.index.get_loc(glob.mfinal_adata.obs.iloc[orig_row].name)
-				new_array[row] = glob.mfinal_adata.obsm[embed][orig_row, :]
+				new_array[row] = glob.cxg_obsm[embed][orig_row, :]
 			comb_adata.obsm[embed] = new_array
 
 		glob.mfinal_adata = comb_adata
 		glob.cxg_obsm = glob.mfinal_adata.obsm
 		glob.cxg_obs['cell_type_ontology_term_id'] = glob.cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
 	glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
+
+
+# Check to see if there are any spots with zero counts and swap in_tissue to 0 if needed
+def check_sums(adata_raw, glob):
+	gene_sums = [np.sum(r) for r in adata_raw.X.toarray()]
+	if [gs for gs in gene_sums if gs == 0]:
+		gene_sum_df = adata_raw.obs.copy()
+		gene_sum_df['hashes'] = gene_sums
+		need_flip =  gene_sum_df[(gene_sum_df['hashes'] == 0) & (gene_sum_df['in_tissue'] != 0)].shape[0]
+		if need_flip > 0:
+			adata_raw.obs.loc[(gene_sum_df['hashes'] == 0) & (gene_sum_df['in_tissue'] != 0), "in_tissue"] = 0
+			warning_list.append("WARNING: obs need switch to in_tissue = 0: {}".format(need_flip))
+	return adata_raw
 
 
 def main(mfinal_id, connection):
@@ -817,8 +830,14 @@ def main(mfinal_id, connection):
 				if 'spatial' in glob.mfinal_adata.uns.keys():
 					del glob.mfinal_adata.uns['spatial']
 				adata_raw = sq.read.visium(fm.MTX_DIR, counts_file=mxr_name)
-				if adata_raw.obs.shape[0] < 4992 and len(glob.mfinal_obj.get('libraries'))==1:
-					adata_raw = add_raw_background_spots(adata_raw, glob)
+				for c in ['in_tissue', 'array_row','array_col']:
+					if adata_raw.obs[c].dtype != int:
+						adata_raw.obs[c] = adata_raw.obs[c].astype('int64')
+				if len(glob.mfinal_obj.get('libraries'))==1:
+					if adata_raw.obs.shape[0] < 4992:
+						adata_raw = add_raw_background_spots(adata_raw, glob)
+					adata_raw = check_sums(adata_raw, glob)
+
 
 			elif mxr['s3_uri'].endswith('h5'):
 				adata_raw = sc.read_10x_h5('{}/{}'.format(fm.MTX_DIR, mxr_name), gex_only=False)
@@ -1106,6 +1125,7 @@ def main(mfinal_id, connection):
 	# Check to see if need to add background spots
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
+		glob.cxg_obs.loc[(glob.cxg_obs['in_tissue']==0) & (glob.cxg_obs['cell_type_ontology_term_id']!='unknown'), 'cell_type_ontology_term_id'] = 'unknown'
 	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
 	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 	
