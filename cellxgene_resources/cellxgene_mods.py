@@ -6,6 +6,7 @@ import numpy as np
 import os
 import pandas as pd
 import re
+import scanpy as sc
 import squidpy as sq
 import subprocess
 import sys
@@ -93,7 +94,6 @@ def revise_cxg(adata):
     if adata.raw:
         adata.raw.var.drop(columns=portal_var_fields, inplace=True)
 
-
     return adata
 
 
@@ -154,7 +154,7 @@ def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
                 str_name = image_name + " " * (18 - len(image_name))
                 print(f"Size of {str_name}: {'%3.2f' % (s / (1024 ** 2))} MB")
             size += s
-            
+
     return size
 
 
@@ -349,6 +349,7 @@ def barcode_compare(ref_df, obs_df):
         barcode_results = barcodes.merge(ref_df,on='barcode',how='left')
         barcode_results.fillna(0, inplace=True)
         barcode_results['summary'].replace(0, None, inplace=True)
+
         return barcode_results
 
 
@@ -364,7 +365,7 @@ def evaluate_10x_barcodes(prop, obs):
         r_dict = {'3pv2_5pv1_5pv2': None, '3pv3': None, 'multiome': None,'multiple': None, 'None': None} | r['summary'].value_counts().to_dict()
         r_dict[prop] = a
         results.append(r_dict)
-    
+
     return pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
 
 
@@ -472,6 +473,7 @@ def evaluate_dup_counts(adata):
     def index_hash(index):
         obs_loc = adata.obs.index.get_loc(index)
         val = hash(index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]].tobytes())
+
         return val
     
     hash_df = adata.obs.copy()
@@ -536,6 +538,7 @@ def pick_embed(keys):
             return k
         elif 'umap' in k.lower():
             return k
+
     return keys[0]
 
 
@@ -712,6 +715,7 @@ def generate_fm_dict(female_ids, female_adata, male_ids, male_adata, adata):
         missing_genes = [g for g in v[0] if g not in df.columns]
         df[missing_genes] = np.nan
         v.append(df)
+
     return fm_dict
 
 
@@ -737,6 +741,7 @@ def check_percent(female_adata,male_adata,female_ids,male_ids):
     male = male_adata.shape[1]/len(male_ids)
     print(f"% Female genes found: {(fem)*100}")
     print(f"% Male genes found: {(male)*100}\n")
+
     return (fem,male)
 
 
@@ -759,7 +764,9 @@ def calculate_sex(fm_dict):
         #Calculate ratio and assign sex
         male_female_df['male_to_female'] = male_female_df['male_sum']/male_female_df['female_sum']
         male_female_df['scRNAseq_sex'] = male_female_df.apply(lambda x: assign_sex(x['male_to_female']), axis=1)
+
         return male_female_df
+
     except Exception as e:
         print(e)
 
