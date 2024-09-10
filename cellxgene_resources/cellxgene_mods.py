@@ -591,6 +591,7 @@ def validate(file):
 
 
 def compare_revision(collection):
+    change = False
     if collection.get('revising_in'):
         revision_id = collection['revising_in']
         revision = CxG_API.get_collection(revision_id)
@@ -617,6 +618,7 @@ def compare_revision(collection):
         if k not in collection.keys():
             if k not in should_be_absent:
                 print('not present: ' + k)
+                change = True
         elif collection.get(k) != v and k not in should_differ_collection:
             if k == 'datasets':
                 diff_props = set()
@@ -631,6 +633,7 @@ def compare_revision(collection):
                             new[ds_id][p] = v[p]
                         for p in ['assay','organism','tissue']:
                             new[ds_id][p] = [a['label'] for a in v[p]]
+                        change = True
                     else:
                         comp[ds_id] = {'title': v['title']}
                         for prop,rev_val in v.items():
@@ -646,6 +649,7 @@ def compare_revision(collection):
                                     if prop == 'mean_genes_per_cell' and round(rev_val, 5) == round(pub_val, 5):
                                         continue
                                     diff_props.add(prop)
+                                    change = True
                                     comp[ds_id][prop + '_REV'] = rev_val
                                     comp[ds_id][prop + '_PUB'] = pub_val
             else:
@@ -656,15 +660,18 @@ def compare_revision(collection):
                         print('--- published: ', diff_in_pub)
                         diff_in_rev = [l for l in v if l not in collection[k]]
                         print('----- revised: ', diff_in_rev)
+                        change = True
                     else:
                         print('--- published: ', str(collection[k]))
                         print('----- revised: ', v)
+                        change = True
 
 
     comp_df = pd.DataFrame(comp).transpose()
     comp_df = comp_df.dropna(subset=[c for c in comp_df.columns if c != 'title'], how='all')
     if not comp_df.empty:
         print('\033[1mRevised Datasets\033[0m')
+        change = True
 
         cols = list(comp_df)
         cols.insert(0, cols.pop(cols.index('title')))
@@ -696,7 +703,11 @@ def compare_revision(collection):
 
     if new:
         print('\033[1mNew Datasets\033[0m')
+        change = True
         display(pd.DataFrame(new).transpose())
+
+    if not change:
+        report('no changes changes detectable based on API response')
 
     return revision
 
