@@ -774,12 +774,12 @@ def calculate_sex(fm_dict):
 def evaluate_donors_sex(adata):
     if 'NCBITaxon:9606' not in adata.obs['organism_ontology_term_id'].unique():
         print('Cannot calculate sex for non-human data.')
-        return None
+        return None,None
     else:
         genes_file = 'ref_files/sex_analysis_genes.json'
         genes = json.load(open(genes_file))
-        female_ids = genes['female']
-        male_ids = genes['male']
+        female_ids = genes['female'].keys()
+        male_ids = genes['male'].keys()
         metadata_list = ['donor_id', 'sex_ontology_term_id']
         smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
         adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
@@ -793,6 +793,8 @@ def evaluate_donors_sex(adata):
             male_adata = adata[:,adata.var.index.isin(male_ids)]
 
         genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
+        if genes_found[0] == 0 or genes_found[1] == 0:
+            return None,None
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
         donor_sex_df = calculate_sex(fm_counts_dict)
         donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
@@ -804,4 +806,19 @@ def evaluate_donors_sex(adata):
         }
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
         donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
-        return donor_sex_df
+
+        obs_to_keep = adata.obs[adata.obs['donor_id'].isin(donor_sex_df['donor_id'])].index
+        adata = adata[obs_to_keep, : ]
+        donor_sex_df.sort_values('male_to_female', inplace=True)
+        ratio_order = (donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list()
+        adata.obs['donor_sex'] = adata.obs['donor_id'] + ' ' + adata.obs['sex_ontology_term_id'].map(sex_map).astype(str)
+        adata.var.rename(index=genes['female'], inplace=True)
+        adata.var.rename(index=genes['male'], inplace=True)
+        f_symbs = [g for g in genes['female'].values() if g in adata.var.index]
+        m_symbs = [g for g in genes['male'].values() if g in adata.var.index]
+        dp = sc.pl.dotplot(
+            adata, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
+            use_raw=False, categories_order=ratio_order, return_fig=True
+        )
+
+        return donor_sex_df, dp
