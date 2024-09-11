@@ -348,25 +348,32 @@ def barcode_compare(ref_df, obs_df):
         barcodes.set_index('barcode', inplace=True)
         barcode_results = barcodes.merge(ref_df,on='barcode',how='left')
         barcode_results.fillna(0, inplace=True)
-        barcode_results['summary'].replace(0, None, inplace=True)
+        barcode_results.replace({'summary': {0: None}}, inplace=True)
 
         return barcode_results
 
 
 def evaluate_10x_barcodes(prop, obs):
+    if 'EFO:0010961' in obs['assay_ontology_term_id'].unique():
+        csv = 'ref_files/visium_barcode_table.csv.gz'
+    else:
+        csv = 'ref_files/10X_barcode_table.csv.gz'
+    ref_df = pd.read_csv(csv, sep=',', header=0, index_col='barcode')
 
     results = []
-    csv = 'ref_files/10X_barcode_table.csv.gz'
-    ref_df = pd.read_csv(csv, sep=',', header=0, index_col='barcode')
-    
     for a in obs[prop].unique():
         obs_df = obs[obs[prop] == a]
         r = barcode_compare(ref_df, obs_df)
-        r_dict = {'3pv2_5pv1_5pv2': None, '3pv3': None, 'multiome': None,'multiple': None, 'None': None} | r['summary'].value_counts().to_dict()
+        r_dict = {header: None for header in list(ref_df['summary'].unique()) + ['None']} | r['summary'].value_counts().to_dict()
         r_dict[prop] = a
         results.append(r_dict)
 
-    return pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
+    df = pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
+    df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple','None']]
+            + [c for c in df if df[c].sum() == 0 and c not in ['multiple','None']]
+            + [c for c in df if c in ['multiple','None']]]
+
+    return df
 
 
 def evaluate_obs_schema(obs, labels=False):
