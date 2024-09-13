@@ -829,7 +829,8 @@ def evaluate_donors_sex(adata):
         adata = adata[obs_to_keep, : ]
         donor_sex_df.sort_values('male_to_female', inplace=True)
         ratio_order = (donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list()
-        adata.obs['donor_sex'] = adata.obs['donor_id'] + ' ' + adata.obs['sex_ontology_term_id'].map(sex_map).astype(str)
+        adata.obs['donor_id'] = adata.obs['donor_id'].astype('category')
+        adata.obs['donor_sex'] = adata.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
         adata.var.rename(index=genes['female'], inplace=True)
         adata.var.rename(index=genes['male'], inplace=True)
         f_symbs = [g for g in genes['female'].values() if g in adata.var.index]
