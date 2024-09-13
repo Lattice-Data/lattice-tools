@@ -368,6 +368,7 @@ def evaluate_10x_barcodes(prop, obs):
         r_dict[prop] = a
         results.append(r_dict)
 
+    pd.set_option('future.no_silent_downcasting', True)
     df = pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
     df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple','None']]
             + [c for c in df if df[c].sum() == 0 and c not in ['multiple','None']]
@@ -382,21 +383,13 @@ def evaluate_obs_schema(obs, labels=False):
             if o not in obs.keys():
                 report(f'{o} not in obs\n', 'ERROR')
             else:
-                un = obs[o].unique()
-                if un.dtype == 'category':
-                    report(f'{o} {un.to_list()}\n')
-                else:
-                    report(f'{o} {un.tolist()}\n')
+                report(f'{o} {obs[o].unique().tolist()}\n')
     else:
         for o in curator_obs_fields:
             if o not in obs.keys():
                 report(f'{o} not in obs\n', 'ERROR')
             else:
-                un = obs[o].unique()
-                if un.dtype == 'category':
-                    report(f'{o} {un.to_list()}\n')
-                else:
-                    report(f'{o} {un.tolist()}\n')
+                report(f'{o} {obs[o].unique().tolist()}\n')
         for o in portal_obs_fields:
             if o in obs.keys():
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
@@ -826,7 +819,7 @@ def evaluate_donors_sex(adata):
         donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
 
         obs_to_keep = adata.obs[adata.obs['donor_id'].isin(donor_sex_df['donor_id'])].index
-        adata = adata[obs_to_keep, : ]
+        adata = adata[obs_to_keep, : ].copy()
         donor_sex_df.sort_values('male_to_female', inplace=True)
         ratio_order = (donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list()
         adata.obs['donor_id'] = adata.obs['donor_id'].astype('category')
