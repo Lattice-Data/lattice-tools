@@ -109,7 +109,7 @@ def compile_annotations(files):
 		filename = fm.MTX_DIR + "/" + files[key] + ".gz"
 		if os.path.exists(filename) == False:
 			filename = urls + files[key] + '.gz'
-		df = pd.read_csv(filename, names=['feature_id','symbol','start','stop'], dtype='str')
+		df = pd.read_csv(filename, names=['feature_id','symbol','start','stop','feature_type'], dtype='str')
 		ids = pd.concat([ids, df])
 	return ids
 
