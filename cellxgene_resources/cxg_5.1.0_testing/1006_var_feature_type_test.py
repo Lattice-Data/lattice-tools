@@ -69,7 +69,7 @@ def all_adatas(request) -> ad.AnnData:
     return adata
 
 
-def test_label_write_version_and_reference_is_correct(all_adatas):
+def test_var_feature_type_label_write(all_adatas):
     adata = all_adatas
     zero_matrix = np.zeros(shape=(adata.obs.shape[0], starting_var.shape[0]), dtype=np.float32)
     for row in zero_matrix:
