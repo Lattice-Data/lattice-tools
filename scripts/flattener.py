@@ -1188,6 +1188,19 @@ def main(mfinal_id, connection, hcatier1):
 		warning_list.append(warnings)
 	
 
+	# checks for HCA flag
+	if hcatier1:
+		if 'study_pi' not in glob.cxg_uns:
+			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
+		
+		for column in [
+			"sample_source",
+			"library_preparation_batch",
+			"sampled_site_condition"
+		]:
+			if column not in glob.cxg_obs.columns:
+				warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
+
 	if glob.mfinal_adata.obsp:
 		glob.cxg_adata.obsp = glob.mfinal_adata.obsp
 
