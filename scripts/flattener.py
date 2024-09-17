@@ -49,10 +49,22 @@ def getArgs():
         description=__doc__, epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('--file', '-f',
-                        help='Any identifier for the matrix of interest.')
-    parser.add_argument('--mode', '-m',
-                        help='The machine to run on.')
+    parser.add_argument(
+        '--file', 
+        '-f',
+        help='Any identifier for the matrix of interest.'
+    )
+    parser.add_argument(
+        '--mode',
+        '-m',
+        help='The machine to run on.'
+    )
+    parser.add_argument(
+        "--hcatier1",
+        "-t",
+        help="Add flag to include HCA Tier 1 requirements",
+        action="store_true",
+    )
     args = parser.parse_args()
     if len(sys.argv) == 1:
     	parser.print_help()
@@ -674,7 +686,10 @@ def check_sums(adata_raw, glob):
 	return adata_raw
 
 
-def main(mfinal_id, connection):
+def main(mfinal_id, connection, hcatier1):
+
+	if hcatier1:
+		print("here is the flag")
 
 	glob = GlobVals(None, None, None, None, None, None, None, connection)
 	glob.mfinal_obj = lattice.get_object(mfinal_id, connection)
@@ -1197,4 +1212,4 @@ def main(mfinal_id, connection):
 if __name__ == '__main__':
 	args = getArgs()
 	connection = lattice.Connection(args.mode)
-	main(args.file, connection)
+	main(args.file, connection, args.hcatier1)

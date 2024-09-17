@@ -59,9 +59,17 @@ def getArgs():
         help=f"Txt file with list of ProcessedMatrixFiles to test. One ProcMatrix per line. Default is {DEFAULT_MATRIX_TXT}",
         default=DEFAULT_MATRIX_TXT
     )
+    parser.add_argument(
+        "--hcatier1",
+        "-t",
+        help="Add flag to include HCA Tier 1 requirements",
+        action="store_true",
+    )
     args = parser.parse_args()
     return args
 
+
+args = getArgs()
 
 def set_global_connection(mode):
     global connection
@@ -71,7 +79,7 @@ def set_global_connection(mode):
 
 def flatten(file):
     try:
-        main(file, connection)
+        main(file, connection, args.hcatier1)
         return (file, "SUCCESS")
     except SystemExit as e:
         return (file, e)
@@ -88,7 +96,6 @@ def make_file_list(args):
 
 
 if __name__ == "__main__":
-    args = getArgs()
     results = list()
     files = make_file_list(args)
     workers = len(files)
