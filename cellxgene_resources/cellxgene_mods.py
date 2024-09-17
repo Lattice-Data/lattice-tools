@@ -6,6 +6,7 @@ import numpy as np
 import os
 import pandas as pd
 import re
+import scanpy as sc
 import squidpy as sq
 import subprocess
 import sys
@@ -93,7 +94,6 @@ def revise_cxg(adata):
     if adata.raw:
         adata.raw.var.drop(columns=portal_var_fields, inplace=True)
 
-
     return adata
 
 
@@ -154,7 +154,7 @@ def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
                 str_name = image_name + " " * (18 - len(image_name))
                 print(f"Size of {str_name}: {'%3.2f' % (s / (1024 ** 2))} MB")
             size += s
-            
+
     return size
 
 
@@ -348,24 +348,33 @@ def barcode_compare(ref_df, obs_df):
         barcodes.set_index('barcode', inplace=True)
         barcode_results = barcodes.merge(ref_df,on='barcode',how='left')
         barcode_results.fillna(0, inplace=True)
-        barcode_results['summary'].replace(0, None, inplace=True)
+        barcode_results.replace({'summary': {0: None}}, inplace=True)
+
         return barcode_results
 
 
 def evaluate_10x_barcodes(prop, obs):
+    if 'EFO:0010961' in obs['assay_ontology_term_id'].unique():
+        csv = 'ref_files/visium_barcode_table.csv.gz'
+    else:
+        csv = 'ref_files/10X_barcode_table.csv.gz'
+    ref_df = pd.read_csv(csv, sep=',', header=0, index_col='barcode')
 
     results = []
-    csv = 'ref_files/10X_barcode_table.csv.gz'
-    ref_df = pd.read_csv(csv, sep=',', header=0, index_col='barcode')
-    
     for a in obs[prop].unique():
         obs_df = obs[obs[prop] == a]
         r = barcode_compare(ref_df, obs_df)
-        r_dict = {'3pv2_5pv1_5pv2': None, '3pv3': None, 'multiome': None,'multiple': None, 'None': None} | r['summary'].value_counts().to_dict()
+        r_dict = {header: None for header in list(ref_df['summary'].unique()) + ['None']} | r['summary'].value_counts().to_dict()
         r_dict[prop] = a
         results.append(r_dict)
-    
-    return pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
+
+    pd.set_option('future.no_silent_downcasting', True)
+    df = pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
+    df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple','None']]
+            + [c for c in df if df[c].sum() == 0 and c not in ['multiple','None']]
+            + [c for c in df if c in ['multiple','None']]]
+
+    return df
 
 
 def evaluate_obs_schema(obs, labels=False):
@@ -374,21 +383,13 @@ def evaluate_obs_schema(obs, labels=False):
             if o not in obs.keys():
                 report(f'{o} not in obs\n', 'ERROR')
             else:
-                un = obs[o].unique()
-                if un.dtype == 'category':
-                    report(f'{o} {un.to_list()}\n')
-                else:
-                    report(f'{o} {un.tolist()}\n')
+                report(f'{o} {obs[o].unique().tolist()}\n')
     else:
         for o in curator_obs_fields:
             if o not in obs.keys():
                 report(f'{o} not in obs\n', 'ERROR')
             else:
-                un = obs[o].unique()
-                if un.dtype == 'category':
-                    report(f'{o} {un.to_list()}\n')
-                else:
-                    report(f'{o} {un.tolist()}\n')
+                report(f'{o} {obs[o].unique().tolist()}\n')
         for o in portal_obs_fields:
             if o in obs.keys():
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
@@ -472,6 +473,7 @@ def evaluate_dup_counts(adata):
     def index_hash(index):
         obs_loc = adata.obs.index.get_loc(index)
         val = hash(index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]].tobytes())
+
         return val
     
     hash_df = adata.obs.copy()
@@ -536,6 +538,7 @@ def pick_embed(keys):
             return k
         elif 'umap' in k.lower():
             return k
+
     return keys[0]
 
 
@@ -588,6 +591,7 @@ def validate(file):
 
 
 def compare_revision(collection):
+    change = False
     if collection.get('revising_in'):
         revision_id = collection['revising_in']
         revision = CxG_API.get_collection(revision_id)
@@ -614,6 +618,7 @@ def compare_revision(collection):
         if k not in collection.keys():
             if k not in should_be_absent:
                 print('not present: ' + k)
+                change = True
         elif collection.get(k) != v and k not in should_differ_collection:
             if k == 'datasets':
                 diff_props = set()
@@ -628,6 +633,7 @@ def compare_revision(collection):
                             new[ds_id][p] = v[p]
                         for p in ['assay','organism','tissue']:
                             new[ds_id][p] = [a['label'] for a in v[p]]
+                        change = True
                     else:
                         comp[ds_id] = {'title': v['title']}
                         for prop,rev_val in v.items():
@@ -643,6 +649,7 @@ def compare_revision(collection):
                                     if prop == 'mean_genes_per_cell' and round(rev_val, 5) == round(pub_val, 5):
                                         continue
                                     diff_props.add(prop)
+                                    change = True
                                     comp[ds_id][prop + '_REV'] = rev_val
                                     comp[ds_id][prop + '_PUB'] = pub_val
             else:
@@ -653,15 +660,18 @@ def compare_revision(collection):
                         print('--- published: ', diff_in_pub)
                         diff_in_rev = [l for l in v if l not in collection[k]]
                         print('----- revised: ', diff_in_rev)
+                        change = True
                     else:
                         print('--- published: ', str(collection[k]))
                         print('----- revised: ', v)
+                        change = True
 
 
     comp_df = pd.DataFrame(comp).transpose()
     comp_df = comp_df.dropna(subset=[c for c in comp_df.columns if c != 'title'], how='all')
     if not comp_df.empty:
         print('\033[1mRevised Datasets\033[0m')
+        change = True
 
         cols = list(comp_df)
         cols.insert(0, cols.pop(cols.index('title')))
@@ -693,7 +703,11 @@ def compare_revision(collection):
 
     if new:
         print('\033[1mNew Datasets\033[0m')
+        change = True
         display(pd.DataFrame(new).transpose())
+
+    if not change:
+        report('no changes changes detectable based on API response')
 
     return revision
 
@@ -712,6 +726,7 @@ def generate_fm_dict(female_ids, female_adata, male_ids, male_adata, adata):
         missing_genes = [g for g in v[0] if g not in df.columns]
         df[missing_genes] = np.nan
         v.append(df)
+
     return fm_dict
 
 
@@ -737,6 +752,7 @@ def check_percent(female_adata,male_adata,female_ids,male_ids):
     male = male_adata.shape[1]/len(male_ids)
     print(f"% Female genes found: {(fem)*100}")
     print(f"% Male genes found: {(male)*100}\n")
+
     return (fem,male)
 
 
@@ -759,7 +775,9 @@ def calculate_sex(fm_dict):
         #Calculate ratio and assign sex
         male_female_df['male_to_female'] = male_female_df['male_sum']/male_female_df['female_sum']
         male_female_df['scRNAseq_sex'] = male_female_df.apply(lambda x: assign_sex(x['male_to_female']), axis=1)
+
         return male_female_df
+
     except Exception as e:
         print(e)
 
@@ -767,12 +785,12 @@ def calculate_sex(fm_dict):
 def evaluate_donors_sex(adata):
     if 'NCBITaxon:9606' not in adata.obs['organism_ontology_term_id'].unique():
         print('Cannot calculate sex for non-human data.')
-        return None
+        return None,None
     else:
         genes_file = 'ref_files/sex_analysis_genes.json'
         genes = json.load(open(genes_file))
-        female_ids = genes['female']
-        male_ids = genes['male']
+        female_ids = genes['female'].keys()
+        male_ids = genes['male'].keys()
         metadata_list = ['donor_id', 'sex_ontology_term_id']
         smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
         adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
@@ -786,6 +804,8 @@ def evaluate_donors_sex(adata):
             male_adata = adata[:,adata.var.index.isin(male_ids)]
 
         genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
+        if genes_found[0] == 0 or genes_found[1] == 0:
+            return None,None
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
         donor_sex_df = calculate_sex(fm_counts_dict)
         donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
@@ -797,4 +817,20 @@ def evaluate_donors_sex(adata):
         }
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
         donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
-        return donor_sex_df
+
+        obs_to_keep = adata.obs[adata.obs['donor_id'].isin(donor_sex_df['donor_id'])].index
+        adata = adata[obs_to_keep, : ].copy()
+        donor_sex_df.sort_values('male_to_female', inplace=True)
+        ratio_order = (donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list()
+        adata.obs['donor_id'] = adata.obs['donor_id'].astype('category')
+        adata.obs['donor_sex'] = adata.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
+        adata.var.rename(index=genes['female'], inplace=True)
+        adata.var.rename(index=genes['male'], inplace=True)
+        f_symbs = [g for g in genes['female'].values() if g in adata.var.index]
+        m_symbs = [g for g in genes['male'].values() if g in adata.var.index]
+        dp = sc.pl.dotplot(
+            adata, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
+            use_raw=False, categories_order=ratio_order, return_fig=True
+        )
+
+        return donor_sex_df, dp
