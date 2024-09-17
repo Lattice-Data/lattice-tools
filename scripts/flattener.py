@@ -89,7 +89,7 @@ def compile_annotations(files):
 		filename = fm.MTX_DIR + "/" + files[key] + ".gz"
 		if os.path.exists(filename) == False:
 			filename = urls + files[key] + '.gz'
-		df = pd.read_csv(filename, names=['feature_id','symbol','start','stop'], dtype='str')
+		df = pd.read_csv(filename, names=['feature_id','symbol','start','stop','feature_type'], dtype='str')
 		ids = pd.concat([ids, df])
 	return ids
 
@@ -846,6 +846,8 @@ def main(mfinal_id, connection):
 			else:
 				logging.error('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
 				sys.exit('ERROR: Raw matrix file of unknown file extension: {}'.format(mxr['s3_uri']))
+			if not adata_raw.X.dtype == 'float32':
+				adata_raw.X = adata_raw.X.astype(np.float32)
 
 			if summary_assay == 'RNA':
 				row_to_add['gene_annotation_version'] = mxr['genome_annotation']
@@ -1135,10 +1137,6 @@ def main(mfinal_id, connection):
 
 	# Check matrix density
 	glob.cxg_adata.X = check_matrix(glob.cxg_adata.X)
-
-	# Check that cxg_adata_raw.X is correct datatype
-	if not glob.cxg_adata_raw.X.dtype == 'float32':
-		glob.cxg_adata_raw.X = glob.cxg_adata_raw.X.astype(np.float32) 
 		
 	# Adding layers from 'layers_to_keep' to cxg_adata.layers	
 	if 'layers_to_keep' in glob.mfinal_obj:
