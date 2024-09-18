@@ -688,9 +688,6 @@ def check_sums(adata_raw, glob):
 
 def main(mfinal_id, connection, hcatier1):
 
-	if hcatier1:
-		print("here is the flag")
-
 	glob = GlobVals(None, None, None, None, None, None, None, connection)
 	glob.mfinal_obj = lattice.get_object(mfinal_id, connection)
 
@@ -1190,15 +1187,24 @@ def main(mfinal_id, connection, hcatier1):
 
 	# checks for HCA flag
 	if hcatier1:
-		if 'study_pi' not in glob.cxg_uns:
+
+		if 'study_pi' not in glob.cxg_adata.uns:
 			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
 		
-		for column in [
-			"sample_source",
-			"library_preparation_batch",
-			"sampled_site_condition"
-		]:
-			if column not in glob.cxg_obs.columns:
+		if 'library_preparation_batch' not in glob.cxg_obs.columns:
+			warning_list.append("WARNING: 'library_preparation_batch' not present in obs for HCA Tier 1 requirements")
+
+		column_allowed_values = {
+			"sample_source": ["surgical donor", "postmortem donor", "living organ donor"],
+			"sampled_site_condition": ["healthy", "diseased", "adjacent"]
+		}
+
+		for column, allowed_values in column_allowed_values.items():
+			if column in glob.cxg_obs.columns:
+				not_allowed = [item for item in glob.cxg_obs[column].unique() if item not in allowed_values]
+				for item in not_allowed:
+					warning_list.append(f"WARNING: value '{item}' not allowed for '{column}' according to HCA Tier 1 requirements")
+			else:
 				warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
 
 	if glob.mfinal_adata.obsp:
