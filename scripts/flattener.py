@@ -1203,7 +1203,10 @@ def main(mfinal_id, connection, hcatier1):
 			if column in glob.cxg_obs.columns:
 				not_allowed = [item for item in glob.cxg_obs[column].unique() if item not in allowed_values]
 				for item in not_allowed:
-					warning_list.append(f"WARNING: value '{item}' not allowed for '{column}' according to HCA Tier 1 requirements")
+					warning_list.append(
+						f"WARNING: value '{item}' not allowed for '{column}'. "
+						f"HCA Tier 1 requires one of the following: {allowed_values}"
+					)
 			else:
 				warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
 
