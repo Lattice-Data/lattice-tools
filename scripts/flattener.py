@@ -132,10 +132,9 @@ def quality_check(glob):
 	if glob.cxg_adata.obs.isnull().values.any():
 		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format\
 			(glob.cxg_adata.obs.columns[glob.cxg_adata.obs.isna().any()].tolist()))
-	elif 'default_visualization' in glob.cxg_adata.uns:
-		if adata.uns['default_visualization'] not in glob.cxg_adata.obs.values:
-			logging.error('ERROR: The default_visualization field is not in the cxg anndata obs dataframe.')
-			sys.exit("ERROR: The default_visualization field is not in the cxg anndata obs dataframe.")
+	elif glob.cxg_adata.var.shape[0]==0:
+		logging.error('ERROR: There are no genes in the normalized matrix.')
+		sys.exit("ERROR: There are no genes in the normalized matrix.")
 	elif glob.mfinal_obj['X_normalized'] == True and glob.mfinal_obj['assays'] != ['snATAC-seq']:
 		if len(glob.cxg_adata.var.index.tolist()) > len(glob.cxg_adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
@@ -281,7 +280,7 @@ def add_zero(glob):
 		new_var = pd.merge(new_var, glob.cxg_adata_raw.var, left_index=True, right_index=True, how='left')
 		new_var['feature_is_filtered'] = False
 		new_var.loc[genes_add, 'feature_is_filtered'] = True
-		new_adata = ad.AnnData(X=new_matrix, obs=glob.cxg_adata.obs, var=new_var, uns=glob.cxg_adata.uns, obsm=glob.cxg_adata.obsm)
+		new_adata = ad.AnnData(X=new_matrix, obs=glob.cxg_obs, var=new_var, uns=glob.cxg_uns, obsm=glob.cxg_obsm)
 		if glob.cxg_adata.layers:
 			for layer in glob.cxg_adata.layers:
 				new_layer = sparse.csr_matrix((glob.cxg_adata.layers[layer].data, glob.cxg_adata.layers[layer].indices, 
@@ -1131,6 +1130,12 @@ def main(mfinal_id, connection, hcatier1):
 		keep_types.append('object')
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 
+	# Copy over any additional data from mfinal_adata to cxg_adata
+	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
+	warnings = fm.copy_over_uns(glob, reserved_uns)
+	if warnings:
+		warning_list.append(warnings)
+
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 		warnings = fm.process_spatial(glob)
@@ -1177,21 +1182,25 @@ def main(mfinal_id, connection, hcatier1):
 		add_labels(glob)
 		map_antibody(glob)
 		add_zero(glob)
-
-	# Copy over any additional data from mfinal_adata to cxg_adata
-	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
-	warnings = fm.copy_over_uns(glob, reserved_uns)
-	if warnings:
-		warning_list.append(warnings)
 	
+	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
+	if glob.mfinal_obj['X_normalized']:
+		if summary_assay != 'ATAC' or glob.mfinal_adata.raw != None:
+			glob.cxg_adata.raw = glob.cxg_adata_raw
+	else:
+		glob.cxg_adata.var['feature_is_filtered'] = False
+		glob.cxg_adata = ad.AnnData(glob.cxg_adata_raw.X, obs=glob.cxg_adata.obs, obsm=glob.cxg_adata.obsm, var=glob.cxg_adata.var, uns=glob.cxg_adata.uns)
+	quality_check(glob)
+
 
 	# checks for HCA flag
 	if hcatier1:
 
+		print(glob.cxg_uns)
 		if 'study_pi' not in glob.cxg_adata.uns:
 			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
 		
-		if 'library_preparation_batch' not in glob.cxg_obs.columns:
+		if 'library_preparation_batch' not in glob.cxg_adata.obs.columns:
 			warning_list.append("WARNING: 'library_preparation_batch' not present in obs for HCA Tier 1 requirements")
 
 		column_allowed_values = {
@@ -1200,8 +1209,8 @@ def main(mfinal_id, connection, hcatier1):
 		}
 
 		for column, allowed_values in column_allowed_values.items():
-			if column in glob.cxg_obs.columns:
-				not_allowed = [item for item in glob.cxg_obs[column].unique() if item not in allowed_values]
+			if column in glob.cxg_adata.obs.columns:
+				not_allowed = [item for item in glob.cxg_adata.obs[column].unique() if item not in allowed_values]
 				for item in not_allowed:
 					warning_list.append(
 						f"WARNING: value '{item}' not allowed for '{column}'. "
@@ -1213,14 +1222,6 @@ def main(mfinal_id, connection, hcatier1):
 	if glob.mfinal_adata.obsp:
 		glob.cxg_adata.obsp = glob.mfinal_adata.obsp
 
-	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
-	if glob.mfinal_obj['X_normalized']:
-		if summary_assay != 'ATAC' or glob.mfinal_adata.raw != None:
-			glob.cxg_adata.raw = glob.cxg_adata_raw
-	else:
-		glob.cxg_adata.var['feature_is_filtered'] = False
-		glob.cxg_adata = ad.AnnData(glob.cxg_adata_raw.X, obs=glob.cxg_adata.obs, obsm=glob.cxg_adata.obsm, var=glob.cxg_adata.var, uns=glob.cxg_adata.uns)
-	quality_check(glob)
 	glob.cxg_adata.write_h5ad(results_file, compression='gzip')
 
 	# Printing out list of warnings
