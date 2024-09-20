@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def colors_check(glob, color_column, column_name):
 	'''
-	Check validity of colors before adding to cxg_adata.uns
+	Check validity of colors before adding to cxg_uns
 
 	:param Class glob: Class object containing certain commonly used variables
 	:param df[str] color_column: Anndata dataframe column containing color code strings
@@ -29,11 +29,11 @@ def colors_check(glob, color_column, column_name):
 	'''
 	column_name = column_name.replace('_colors', '')
 	# Check that obs column exists
-	if column_name not in glob.cxg_adata.obs.columns:
+	if column_name not in glob.cxg_obs.columns:
 		error = 'the corresponding column is not present in obs.'
 		return False, error
 	# Check that the corresponding column is the right datatype
-	if column_name in glob.cxg_adata.obs.columns:
+	if column_name in glob.cxg_obs.columns:
 		if glob.cxg_adata.obs[column_name].dtype.name != 'category':
 			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(glob.cxg_adata.obs[column_name].dtype.name)
 			return False, error
@@ -46,7 +46,7 @@ def colors_check(glob, color_column, column_name):
 		error = 'the column does not contain strings.'
 		return False, error
 	# Verify that we have atleast as many colors as unique values in the obs column
-	if len(color_column) < len(glob.cxg_adata.obs[column_name].unique()):
+	if len(color_column) < len(glob.cxg_obs[column_name].unique()):
 		error = 'the column has less colors than unique values in the corresponding obs. column.'
 		return False, error
 	# Verify that either all colors are hex OR all colors are CSS4 named colors strings
@@ -89,7 +89,7 @@ def check_not_empty(value):
 
 def copy_over_uns(glob, reserved_uns):
 	'''
-	Copy over uns information from mfinal_adata to cxg_adata.uns
+	Copy over uns information from mfinal_adata to cxg_uns
 
 	:param Class glob: Class object containing certain commonly used variables
 	:param List[str] reserved_uns: List containing uns column names that are reserved by schema
@@ -102,21 +102,21 @@ def copy_over_uns(glob, reserved_uns):
 			if not isinstance(glob.mfinal_adata.uns['batch_condition'], list) and not isinstance(glob.mfinal_adata.uns['batch_condition'], np.ndarray) :
 				warnings.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 			else:
-				if len([x for x in glob.mfinal_adata.uns['batch_condition'] if x not in glob.cxg_adata.obs.columns]) > 0:
+				if len([x for x in glob.mfinal_adata.uns['batch_condition'] if x not in glob.cxg_obs.columns]) > 0:
 					warnings.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 				elif len(set(glob.mfinal_adata.uns['batch_condition'])) != len(glob.mfinal_adata.uns['batch_condition']):
 					warnings.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 				else:
-					glob.cxg_adata.uns['batch_condition'] = glob.mfinal_adata.uns['batch_condition']
+					glob.cxg_uns['batch_condition'] = glob.mfinal_adata.uns['batch_condition']
 		elif k.endswith('_colors'):
 			colors_result = colors_check(glob, v, k)
 			if colors_result[0]:
-				glob.cxg_adata.uns[k] = v
+				glob.cxg_uns[k] = v
 			else:
 				warnings.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(k, colors_result[1]))
 		elif k not in reserved_uns:
 			if check_not_empty(v):
-				glob.cxg_adata.uns[k] = v
+				glob.cxg_uns[k] = v
 			else:
 				warnings.append("WARNING: The key '{}' has been dropped from uns due to having an empty value\n".format(k))
 		else:
