@@ -1196,7 +1196,6 @@ def main(mfinal_id, connection, hcatier1):
 	# checks for HCA flag
 	if hcatier1:
 
-		print(glob.cxg_uns)
 		if 'study_pi' not in glob.cxg_adata.uns:
 			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
 		
