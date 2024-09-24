@@ -574,16 +574,6 @@ lattice_to_dcp = {
 	}
 }
 
-donor_stages = {
-	'HsapDv:0000002': 'embryonic human stage',
-	'HsapDv:0000037': 'fetal stage',
-	'HsapDv:0000082': 'newborn human stage',
-	'HsapDv:0000083': 'infant stage',
-	'HsapDv:0000081': 'child stage',
-	'HsapDv:0000086': 'adolescent stage',
-	'HsapDv:0000087': 'human adult stage'
-}
-
 dcp_versions = {
   'file_descriptor': '2.0.0',
   'links': '2.1.1',
