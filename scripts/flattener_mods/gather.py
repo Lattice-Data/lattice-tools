@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import logging
 import flattener_mods.constants as constants
+import subprocess
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -60,7 +61,7 @@ def download_file(download_url, directory, accession=None):
 		print(file_name + ' downloaded')
 
 
-def gather_objects(input_object, mfinal_obj, connection, start_type=None):
+def gather_objects(input_object, mfinal_obj, connection, hcatier1, start_type=None):
 	'''
 	Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
 
@@ -119,6 +120,10 @@ def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 		for d in input_object['derived_from']:
 			obj = lattice.get_object(d, connection)
 			if 'RawSequenceFile' in obj.get('@type'):
+				if hcatier1:
+					if obj.get('@id') not in raw_seq_ids:
+						raw_seqs.append(obj)
+						raw_seq_ids.append(obj.get('@id'))
 				for run in obj['derived_from']:
 					if run.get('@id') not in seq_run_ids:
 						seq_runs.append(run)
@@ -166,6 +171,8 @@ def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 		'tissue_section': tissue_sections,
 		'seq_run':  seq_runs
 		}
+	if hcatier1:
+		objs['raw_seq'] = raw_seqs
 	if start_type == None:
 		objs['library'] = libraries
 	if prepooled_susps:

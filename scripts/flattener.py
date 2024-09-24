@@ -199,7 +199,7 @@ def report_diseases(mxr_df, exp_disease):
 # Determine overlapping suspension, create library & demultiplexed suspension df
 # get cell_metadata from that suspension, merge in library info
 # merge with mxr_df on library
-def demultiplex(lib_donor_df, library_susp, donor_susp, glob):
+def demultiplex(lib_donor_df, library_susp, donor_susp, glob, hcatier1):
 	susp_df = pd.DataFrame()
 	lattice_donor = {}
 	lattice_donor_col = []
@@ -237,7 +237,7 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, glob):
 	for susp in set(lib_donor_df['suspension_@id'].to_list()):
 		values_to_add = {}
 		susp_obj = lattice.get_object(susp, glob.connection)
-		relevant_objects = fm.gather_objects(susp_obj, glob.mfinal_obj, glob.connection, start_type='suspension')
+		relevant_objects = fm.gather_objects(susp_obj, glob.mfinal_obj, glob.connection, hcatier1, start_type='suspension')
 		for obj_type in obj_type_subset:
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
@@ -474,7 +474,7 @@ def map_antibody(glob):
 
 
 # Final touches for obs columns, modifying any Lattice fields to fit cxg schema
-def clean_obs(glob):
+def clean_obs(glob, hcatier1):
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
 	mfinal_author_cols = glob.mfinal_obj.get('author_columns', [])
@@ -569,6 +569,27 @@ def clean_obs(glob):
 			"5'": '5 prime tag'
 		}
 	}, inplace=True)
+
+	# Concatenate of flowcell and lane for Tier1 metadata
+	if hcatier1:
+		if 'library_sequencing_run' in glob.cxg_obs.columns:
+			if glob.cxg_obs['library_sequencing_run'].dtype != 'category':
+				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].astype('category')
+			for seq_run in glob.cxg_obs['library_sequencing_run'].cat.categories:
+				runs = []
+				orig_cat = seq_run
+				seq_run = seq_run.replace("pooled ","")
+				seq_run = seq_run.replace("'", '"')
+				seq_run_json = json.loads(seq_run)
+				if type(seq_run_json) == dict:
+					seq_run_json = [seq_run_json]
+				for flowcell in seq_run_json:
+					summary = flowcell['flowcell'] + "_" + flowcell['lane']
+					if summary not in runs:
+						runs.append(summary)
+				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].cat.rename_categories({orig_cat:";".join(runs)})
+		else:
+			glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
 
 # Drop any intermediate or optional fields that are all empty
@@ -751,7 +772,7 @@ def main(mfinal_id, connection, hcatier1):
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
-		relevant_objects = fm.gather_objects(mxr, glob.mfinal_obj, glob.connection)
+		relevant_objects = fm.gather_objects(mxr, glob.mfinal_obj, glob.connection, hcatier1)
 		values_to_add = {}
 
 		# Get raw matrix metadata
@@ -1086,7 +1107,7 @@ def main(mfinal_id, connection, hcatier1):
 		glob.cxg_obs['library_authordonor'] = glob.cxg_obs['library_@id'] + ',' + glob.cxg_obs['author_donor']
 
 		lib_donor_df = glob.cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
-		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, glob)
+		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, glob, hcatier1)
 
 		report_diseases(donor_df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(donor_df)
@@ -1104,7 +1125,7 @@ def main(mfinal_id, connection, hcatier1):
 
 	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
 	drop_cols(celltype_col, glob)
-	clean_obs(glob)
+	clean_obs(glob, hcatier1)
 	del cxg_adata_lst
 	gc.collect()
 
