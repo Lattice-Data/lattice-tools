@@ -205,11 +205,7 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 				v = v.lstrip()
 				if v[:7] in constants.ACCEPTED_ACCESSIONS:
 					value_list.append(v)
-			if len(value_list) > 1:
-				values_to_add[key] = value_list[0]
-			else:
-				values_to_add[key] = ",".join(value_list)
-			# need to do same for at multiplexed.
+			values_to_add[key] = ",".join(value_list)
 		else:
 			if isinstance(value, list):
 				value = ','.join(value)
