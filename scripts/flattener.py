@@ -587,6 +587,7 @@ def clean_obs(glob, hcatier1):
 					summary = flowcell['flowcell'] + "_" + flowcell['lane']
 					if summary not in runs:
 						runs.append(summary)
+				runs.sort()
 				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].cat.rename_categories({orig_cat:";".join(runs)})
 		else:
 			glob.cxg_obs['library_sequencing_run'] = 'unknown'
