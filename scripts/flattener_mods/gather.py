@@ -215,6 +215,18 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 			latkey = (obj_type + '_' + prop).replace('.', '_')
 			key = constants.PROP_MAP.get(latkey, latkey)
 			values_to_add[key] = value
+		elif prop == 'dbxrefs':
+			if value != constants.UNREPORTED_VALUE:
+				latkey = (obj_type + '_' + prop).replace('.', '_')
+				key = constants.PROP_MAP.get(latkey, latkey)
+				value_list = []
+				for v in value:
+					v = v.lstrip()
+					if v[:7] in constants.ACCEPTED_ACCESSIONS:
+						value_list.append(v[4:])
+				if len(value_list) > 1:
+					value_list = sorted(value_list)
+				values_to_add[key] = ",".join(value_list)
 		else:
 			if isinstance(value, list):
 				value = ','.join(value)
