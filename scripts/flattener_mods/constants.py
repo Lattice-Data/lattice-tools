@@ -164,7 +164,7 @@ PROP_MAP = {
 	'raw_matrix_genome_annotation': 'gene_annotation_version',
 	'raw_matrix_assembly': 'reference_genome',
 	'seq_run_platform': 'sequencing_platform',
-	'library_dbxrefs' : 'library_ID_repository'
+	'library_dbxrefs' : 'library_id_repository'
 }
 
 GENCODE_MAP = {
@@ -253,7 +253,7 @@ OPTIONAL_COLUMNS = [
 	'tissue_section_thickness_units',
 	'tissue_handling_interval',
 	'tyrer_cuzick_lifetime_risk',
-	'library_ID_repository'
+	'library_id_repository'
 ]
 
 COLUMNS_TO_DROP = [
