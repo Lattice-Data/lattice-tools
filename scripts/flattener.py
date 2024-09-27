@@ -1232,6 +1232,22 @@ def main(mfinal_id, connection, hcatier1):
 					"'manner_of_death' set to 'unknown'."
 				)
 
+		def map_cell_enrichment(row):
+			append_map = {
+				"suspension_enriched_cell_terms": "+",
+				"suspension_depleted_cell_terms": "-",
+			}
+			results = []
+			for column, addition in append_map.items():
+				if column in glob.cxg_adata.obs.columns and row[column] != "unknown":
+					splits = row[column].split(",")
+					results.extend([split + addition for split in splits])
+			return ";".join(results) if results else "na"
+		
+		
+		glob.cxg_adata.obs["cell_enrichment"] = glob.cxg_adata.obs.apply(map_cell_enrichment, axis=1)
+	
+
 	if glob.mfinal_adata.obsp:
 		glob.cxg_adata.obsp = glob.mfinal_adata.obsp
 
