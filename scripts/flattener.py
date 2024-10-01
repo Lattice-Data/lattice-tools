@@ -1217,14 +1217,18 @@ def main(mfinal_id, connection, hcatier1):
 					)
 			else:
 				warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
-		
-		def map_manner_of_death(value):
-			return "not applicable" if value in [True, "True"] else "unknown"
-
 
 		if "manner_of_death" not in glob.cxg_adata.obs.columns:
 			if "donor_living_at_sample_collection" in glob.cxg_adata.obs.columns: 
-				glob.cxg_adata.obs["manner_of_death"] = glob.cxg_adata.obs["donor_living_at_sample_collection"].apply(map_manner_of_death)
+				glob.cxg_adata.obs["manner_of_death"] = glob.cxg_adata.obs["donor_living_at_sample_collection"]
+				glob.cxg_adata.obs["manner_of_death"].replace({
+					"True": "not applicable",
+					"False": "unknown",
+					"": "unknown",
+					"na": ""
+					},
+					inplace=True
+				)
 			else:
 				glob.cxg_adata.obs["manner_of_death"] = "unknown"
 				warning_list.append(
