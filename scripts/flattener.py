@@ -576,19 +576,21 @@ def clean_obs(glob, hcatier1):
 			if glob.cxg_obs['library_sequencing_run'].dtype != 'category':
 				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].astype('category')
 			for seq_run in glob.cxg_obs['library_sequencing_run'].cat.categories:
-				runs = []
-				orig_cat = seq_run
-				seq_run = seq_run.replace("pooled ","")
-				seq_run = seq_run.replace("'", '"')
-				seq_run_json = json.loads(seq_run)
-				if type(seq_run_json) == dict:
-					seq_run_json = [seq_run_json]
-				for flowcell in seq_run_json:
-					summary = flowcell['flowcell'] + "_" + flowcell['lane']
-					if summary not in runs:
-						runs.append(summary)
-				runs.sort()
-				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].replace({orig_cat:";".join(runs)})
+				if seq_run != 'unknown':
+					runs = []
+					orig_cat = seq_run
+					seq_run = seq_run.replace("pooled ","")
+					seq_run = seq_run.replace("'", '"')
+					print(seq_run)
+					seq_run_json = json.loads(seq_run)
+					if type(seq_run_json) == dict:
+						seq_run_json = [seq_run_json]
+					for flowcell in seq_run_json:
+						summary = flowcell['flowcell'] + "_" + flowcell['lane']
+						if summary not in runs:
+							runs.append(summary)
+					runs.sort()
+					glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].replace({orig_cat:";".join(runs)})
 		else:
 			glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
