@@ -581,7 +581,6 @@ def clean_obs(glob, hcatier1):
 					orig_cat = seq_run
 					seq_run = seq_run.replace("pooled ","")
 					seq_run = seq_run.replace("'", '"')
-					print(seq_run)
 					seq_run_json = json.loads(seq_run)
 					if type(seq_run_json) == dict:
 						seq_run_json = [seq_run_json]
