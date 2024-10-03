@@ -10,8 +10,9 @@ DEFAULT_MATRIX_TXT = "test_processed_matrix_files.txt"
 EPILOG = f"""
 Script to test flattener in parallel.
 Will create new process per each ProcessedMatrixFile given as input
-Can provide txt file with name of one ProcessedMatrixFile per line or
-use -p/--processed-matrices argument to list ProcMatrixFiles on command line
+Can provide txt file with name of one ProcessedMatrixFile per line
+Txt file supports commented lines staring with '#' or inline comments with '#'
+Use -p/--processed-matrices argument to list ProcMatrixFiles on command line
 
 Final terminal print out will show either:
     ProcessedMatrixFile: SUCCESS
@@ -92,7 +93,7 @@ def make_file_list(args):
         return args.matrices
     else:
         with open(args.file, "r") as f:
-            return [line.strip() for line in f]
+            return [line.partition("#")[0].strip() for line in f if not line.startswith("#")]
 
 
 if __name__ == "__main__":

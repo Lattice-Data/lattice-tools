@@ -1,10 +1,11 @@
-LATDF190KNY
-LATDF584NGT
-LATDF742BQI
-LATDF329OGL
-LATDF477OUM
-LATDF483VSD
-LATDF994BQY
-LATDF448PLU
-LATDF366MLP
-LATDF216UIK
+# standard processed matrix files for flattener testing
+LATDF190KNY     # multiple annotation versions
+LATDF584NGT     # Visium
+LATDF742BQI     # layers to keep, w/ + w/o rawseqfile
+LATDF329OGL     # Slide-seq, w/o rawseqfile
+LATDF477OUM     # pooled donors
+LATDF483VSD     # CITE data in rawmxfile, primary:False
+LATDF994BQY     # cell culture
+LATDF448PLU     # primary:mixed
+LATDF366MLP     # ATAC, ENSG index, w/o rawseqfile
+LATDF216UIK     # pooled experiments
