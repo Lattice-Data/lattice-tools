@@ -1241,6 +1241,40 @@ def main(mfinal_id, connection, hcatier1):
 			else:
 				warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
 
+		if "manner_of_death" not in glob.cxg_adata.obs.columns:
+			if "donor_living_at_sample_collection" in glob.cxg_adata.obs.columns: 
+				glob.cxg_adata.obs["manner_of_death"] = glob.cxg_adata.obs["donor_living_at_sample_collection"]
+				glob.cxg_adata.obs["manner_of_death"].replace({
+					"True": "not applicable",
+					"False": "unknown",
+					"": "unknown",
+					"na": ""
+					},
+					inplace=True
+				)
+			else:
+				glob.cxg_adata.obs["manner_of_death"] = "unknown"
+				warning_list.append(
+					"WARNING: column 'donor_living_at_sample_collection' not found. "
+					"'manner_of_death' set to 'unknown'."
+				)
+
+		def map_cell_enrichment(row):
+			append_map = {
+				"suspension_enriched_cell_terms": "+",
+				"suspension_depleted_cell_terms": "-",
+			}
+			results = []
+			for column, addition in append_map.items():
+				if column in glob.cxg_adata.obs.columns and row[column] != "unknown":
+					splits = row[column].split(",")
+					results.extend([split + addition for split in splits])
+			return ";".join(results) if results else "na"
+		
+		
+		glob.cxg_adata.obs["cell_enrichment"] = glob.cxg_adata.obs.apply(map_cell_enrichment, axis=1)
+	
+
 	if glob.mfinal_adata.obsp:
 		glob.cxg_adata.obsp = glob.mfinal_adata.obsp
 
