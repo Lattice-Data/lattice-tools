@@ -28,6 +28,7 @@ portal_var_fields = [
     'feature_name',
     'feature_reference',
     'feature_biotype',
+    'feature_type',
     'feature_length'
 ]
 
@@ -312,6 +313,7 @@ def evaluate_10x_barcodes(prop, obs):
     df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple','None']]
             + [c for c in df if df[c].sum() == 0 and c not in ['multiple','None']]
             + [c for c in df if c in ['multiple','None']]]
+    df.sort_values(list(df.columns), ascending=False, inplace=True)
 
     return df
 
