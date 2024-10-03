@@ -28,6 +28,7 @@ portal_var_fields = [
     'feature_name',
     'feature_reference',
     'feature_biotype',
+    'feature_type',
     'feature_length'
 ]
 
