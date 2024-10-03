@@ -85,6 +85,9 @@ CELL_METADATA = {
 	],
 	'seq_run': [
 		'platform'
+	],
+	'raw_seq': [
+		'flowcell_details'
 	]
 }
 
@@ -165,6 +168,7 @@ PROP_MAP = {
 	'raw_matrix_genome_annotation': 'gene_annotation_version',
 	'raw_matrix_assembly': 'reference_genome',
 	'seq_run_platform': 'sequencing_platform',
+	'raw_seq_flowcell_details': 'library_sequencing_run',
 	'library_dbxrefs' : 'library_id_repository'
 }
 
