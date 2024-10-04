@@ -474,7 +474,7 @@ def map_antibody(glob):
 
 
 # Final touches for obs columns, modifying any Lattice fields to fit cxg schema
-def clean_obs(glob, hcatier1):
+def clean_obs(glob):
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
 	mfinal_author_cols = glob.mfinal_obj.get('author_columns', [])
@@ -570,28 +570,6 @@ def clean_obs(glob, hcatier1):
 		}
 	}, inplace=True)
 
-	# Concatenate of flowcell and lane for Tier1 metadata
-	if hcatier1:
-		if 'library_sequencing_run' in glob.cxg_obs.columns:
-			if glob.cxg_obs['library_sequencing_run'].dtype != 'category':
-				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].astype('category')
-			for seq_run in glob.cxg_obs['library_sequencing_run'].cat.categories:
-				if seq_run != 'unknown':
-					runs = []
-					orig_cat = seq_run
-					seq_run = seq_run.replace("pooled ","")
-					seq_run = seq_run.replace("'", '"')
-					seq_run_json = json.loads(seq_run)
-					if type(seq_run_json) == dict:
-						seq_run_json = [seq_run_json]
-					for flowcell in seq_run_json:
-						summary = flowcell['flowcell'] + "_" + flowcell['lane']
-						if summary not in runs:
-							runs.append(summary)
-					runs.sort()
-					glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].replace({orig_cat:";".join(runs)})
-		else:
-			glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
 
 # Drop any intermediate or optional fields that are all empty
@@ -706,6 +684,87 @@ def check_sums(adata_raw, glob):
 			adata_raw.obs.loc[(gene_sum_df['hashes'] == 0) & (gene_sum_df['in_tissue'] != 0), "in_tissue"] = 0
 			warning_list.append("WARNING: obs need switch to in_tissue = 0: {}".format(need_flip))
 	return adata_raw
+
+# Check that are specific to HCA Tier1 schema
+def hcatier1_check(glob):
+	if 'study_pi' not in glob.cxg_uns:
+			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
+
+	if 'library_preparation_batch' not in glob.cxg_obs.columns:
+		warning_list.append("WARNING: 'library_preparation_batch' not present in obs for HCA Tier 1 requirements")
+
+	column_allowed_values = {
+		"sample_source": ["surgical donor", "postmortem donor", "living organ donor"],
+		"sampled_site_condition": ["healthy", "diseased", "adjacent"]
+	}
+
+	for column, allowed_values in column_allowed_values.items():
+		if column in glob.cxg_obs.columns:
+			not_allowed = [item for item in glob.cxg_obs[column].unique() if item not in allowed_values]
+			for item in not_allowed:
+				warning_list.append(
+					f"WARNING: value '{item}' not allowed for '{column}'. "
+					f"HCA Tier 1 requires one of the following: {allowed_values}"
+				)
+		else:
+			warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
+
+	if "manner_of_death" not in glob.cxg_obs.columns:
+		if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
+			glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
+			glob.cxg_obs["manner_of_death"].replace({
+				"True": "not applicable",
+				"False": "unknown",
+				"": "unknown",
+				"na": ""
+				},
+				inplace=True
+			)
+		else:
+			glob.cxg_obs["manner_of_death"] = "unknown"
+			warning_list.append(
+				"WARNING: column 'donor_living_at_sample_collection' not found. "
+				"'manner_of_death' set to 'unknown'."
+			)
+
+	def map_cell_enrichment(row):
+		append_map = {
+			"suspension_enriched_cell_terms": "+",
+			"suspension_depleted_cell_terms": "-",
+		}
+		results = []
+		for column, addition in append_map.items():
+			if column in glob.cxg_obs.columns and row[column] != "unknown":
+				splits = row[column].split(",")
+				results.extend([split + addition for split in splits])
+		return ";".join(results) if results else "na"
+
+	glob.cxg_obs["cell_enrichment"] = glob.cxg_obs.apply(map_cell_enrichment, axis=1)
+
+	# Concatenate of flowcell and lane for Tier1 metadata
+	if 'library_sequencing_run' in glob.cxg_obs.columns:
+		if glob.cxg_obs['library_sequencing_run'].dtype != 'category':
+			glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].astype('category')
+		for seq_run in glob.cxg_obs['library_sequencing_run'].cat.categories:
+			if seq_run != 'unknown':
+				runs = []
+				orig_cat = seq_run
+				seq_run = seq_run.replace("pooled ","")
+				seq_run = seq_run.replace("'", '"')
+				seq_run_json = json.loads(seq_run)
+				if type(seq_run_json) == dict:
+					seq_run_json = [seq_run_json]
+				for flowcell in seq_run_json:
+					if 'flowcell' in flowcell:
+						summary = flowcell['flowcell'] + "_" + flowcell['lane']
+					else:
+						summary = flowcell['machine'] + "_" + flowcell['lane']
+					if summary not in runs:
+						runs.append(summary)
+				runs.sort()
+				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].replace({orig_cat:";".join(runs)})
+	else:
+		glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
 
 def main(mfinal_id, connection, hcatier1):
@@ -1125,9 +1184,7 @@ def main(mfinal_id, connection, hcatier1):
 		get_sex_ontology(df)
 		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
-	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	drop_cols(celltype_col, glob)
-	clean_obs(glob, hcatier1)
+	# Clean up memory
 	del cxg_adata_lst
 	gc.collect()
 
@@ -1171,6 +1228,12 @@ def main(mfinal_id, connection, hcatier1):
 	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
 	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 	
+	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
+	if hcatier1:
+		hcatier1_check(glob)
+	drop_cols(celltype_col, glob)
+	clean_obs(glob)
+
 	# Removing feature_length column from var if present
 	if 'feature_length' in glob.cxg_adata.var.columns:
 		adata.var.drop(columns=['feature_length'], inplace=True)
@@ -1215,64 +1278,6 @@ def main(mfinal_id, connection, hcatier1):
 		glob.cxg_adata = ad.AnnData(glob.cxg_adata_raw.X, obs=glob.cxg_adata.obs, obsm=glob.cxg_adata.obsm, var=glob.cxg_adata.var, uns=glob.cxg_adata.uns)
 	quality_check(glob)
 
-
-	# checks for HCA flag
-	if hcatier1:
-
-		if 'study_pi' not in glob.cxg_adata.uns:
-			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
-		
-		if 'library_preparation_batch' not in glob.cxg_adata.obs.columns:
-			warning_list.append("WARNING: 'library_preparation_batch' not present in obs for HCA Tier 1 requirements")
-
-		column_allowed_values = {
-			"sample_source": ["surgical donor", "postmortem donor", "living organ donor"],
-			"sampled_site_condition": ["healthy", "diseased", "adjacent"]
-		}
-
-		for column, allowed_values in column_allowed_values.items():
-			if column in glob.cxg_adata.obs.columns:
-				not_allowed = [item for item in glob.cxg_adata.obs[column].unique() if item not in allowed_values]
-				for item in not_allowed:
-					warning_list.append(
-						f"WARNING: value '{item}' not allowed for '{column}'. "
-						f"HCA Tier 1 requires one of the following: {allowed_values}"
-					)
-			else:
-				warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
-
-		if "manner_of_death" not in glob.cxg_adata.obs.columns:
-			if "donor_living_at_sample_collection" in glob.cxg_adata.obs.columns: 
-				glob.cxg_adata.obs["manner_of_death"] = glob.cxg_adata.obs["donor_living_at_sample_collection"]
-				glob.cxg_adata.obs["manner_of_death"].replace({
-					"True": "not applicable",
-					"False": "unknown",
-					"": "unknown",
-					"na": ""
-					},
-					inplace=True
-				)
-			else:
-				glob.cxg_adata.obs["manner_of_death"] = "unknown"
-				warning_list.append(
-					"WARNING: column 'donor_living_at_sample_collection' not found. "
-					"'manner_of_death' set to 'unknown'."
-				)
-
-		def map_cell_enrichment(row):
-			append_map = {
-				"suspension_enriched_cell_terms": "+",
-				"suspension_depleted_cell_terms": "-",
-			}
-			results = []
-			for column, addition in append_map.items():
-				if column in glob.cxg_adata.obs.columns and row[column] != "unknown":
-					splits = row[column].split(",")
-					results.extend([split + addition for split in splits])
-			return ";".join(results) if results else "na"
-		
-		
-		glob.cxg_adata.obs["cell_enrichment"] = glob.cxg_adata.obs.apply(map_cell_enrichment, axis=1)
 	
 
 	if glob.mfinal_adata.obsp:
