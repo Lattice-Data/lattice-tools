@@ -77,7 +77,7 @@ CELL_METADATA = {
 		'starting_quantity_units',
 		'@id',
 		'lab.institute_name',
-		'dbxrefs',
+		'dbxrefs'
 	],
 	'raw_matrix': [
 		'assembly',
