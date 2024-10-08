@@ -231,9 +231,9 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 		elif prop == 'date_obtained':
 			if value != constants.UNREPORTED_VALUE:
 				value = value.split('-')[0]
-				latkey = (obj_type + '_' + prop).replace('.', '_')
-				key = constants.PROP_MAP.get(latkey, latkey)
-				values_to_add[key] = value
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = constants.PROP_MAP.get(latkey, latkey)
+			values_to_add[key] = value
 		elif prop == 'intronic_reads_counted':
 			if value != constants.UNREPORTED_VALUE:
 				value = 'yes' if value else 'no'
@@ -318,6 +318,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					if v == 'NCIT:C17998':
 						v = 'unknown'
 					value.append(v)
+				if prop == 'date_obtained':
+					if v != constants.UNREPORTED_VALUE:
+						v = v.split('-')[0]
 				if isinstance(v, list):
 					value.extend(v)
 				else:
