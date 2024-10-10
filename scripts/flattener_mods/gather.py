@@ -317,7 +317,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				if prop == 'cell_ontology.term_id':
 					if v == 'NCIT:C17998':
 						v = 'unknown'
-					value.append(v)
 				if prop == 'date_obtained':
 					if v != constants.UNREPORTED_VALUE:
 						v = v.split('-')[0]
