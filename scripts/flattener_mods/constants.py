@@ -57,11 +57,13 @@ CELL_METADATA = {
 	'suspension': [
 		'cell_depletion_factors',
 		'depleted_cell_types.term_name',
+		'depleted_cell_types.term_id',
 		'derivation_process',
 		'dissociation_reagent',
 		'dissociation_time',
 		'dissociation_time_units',
 		'enriched_cell_types.term_name',
+		'enriched_cell_types.term_id',
 		'enrichment_factors',
 		'percent_cell_viability',
 		'uuid',
@@ -87,6 +89,9 @@ CELL_METADATA = {
 	],
 	'seq_run': [
 		'platform'
+	],
+	'raw_seq': [
+		'flowcell_details'
 	]
 }
 
@@ -158,6 +163,8 @@ PROP_MAP = {
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
 	'suspension_depleted_cell_types_term_name': 'suspension_depleted_cell_types',
+	'suspension_enriched_cell_types_term_id': 'suspension_enriched_cell_terms',
+	'suspension_depleted_cell_types_term_id': 'suspension_depleted_cell_terms',
 	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
 	'suspension_tissue_handling_interval': 'tissue_handling_interval',
 	'suspension_percent_cell_viability':'cell_viability_percentage',
@@ -173,6 +180,7 @@ PROP_MAP = {
 	'raw_matrix_assembly': 'reference_genome',
 	'raw_matrix_intronic_reads_counted':'intronic_reads_counted',
 	'seq_run_platform': 'sequencing_platform'
+	'raw_seq_flowcell_details': 'library_sequencing_run'
 }
 
 GENCODE_MAP = {
