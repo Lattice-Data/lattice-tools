@@ -508,7 +508,7 @@ def clean_obs(glob, hcatier1):
 	
 	add_units = {'tissue_section_thickness': 'tissue_section_thickness_units',
 				'suspension_dissociation_time': 'suspension_dissociation_time_units',
-				'library_starting_quantity': 'library_starting_quantity_units'}
+				'cell_number_loaded': 'cell_number_loaded_units'}
 	for field in add_units.keys():
 		if field in glob.cxg_obs.columns:
 			glob.cxg_obs[field] = glob.cxg_obs[field].astype(str) + " " + glob.cxg_obs[add_units[field]].astype(str)

@@ -46,7 +46,8 @@ CELL_METADATA = {
 		'treatment_summary',
 		'growth_medium',
 		'genetic_modifications',
-		'@type'
+		'@type',
+		'date_obtained'
 		],
 	'tissue_section': [
 		'uuid',
@@ -83,7 +84,8 @@ CELL_METADATA = {
 	'raw_matrix': [
 		'assembly',
 		'genome_annotation',
-		'software'
+		'software',
+		'intronic_reads_counted'
 	],
 	'seq_run': [
 		'platform'
@@ -136,9 +138,13 @@ PROP_MAP = {
 	'sample_genetic_modifications': 'genetic_modifications',
 	'sample_menstrual_phase_at_collection': 'menstrual_phase_at_collection',
 	'sample_source': 'tissue_source',
+	'sample_date_obtained' : 'sample_collection_year',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
 	'library_lab_institute_name': 'institute',
 	'library_protocol_end_bias': 'sequenced_fragment',
+	'library_dbxrefs' : 'library_id_repository',
+	'library_starting_quantity':'cell_number_loaded',
+	'library_starting_quantity_units':'cell_number_loaded_units',
 	'donor_sex': 'sex',
 	'sample_@type': 'tissue_type',
 	'donor_donor_id': 'donor_id',
@@ -161,6 +167,7 @@ PROP_MAP = {
 	'suspension_depleted_cell_types_term_id': 'suspension_depleted_cell_terms',
 	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
 	'suspension_tissue_handling_interval': 'tissue_handling_interval',
+	'suspension_percent_cell_viability':'cell_viability_percentage',
 	'antibody_oligo_sequence': 'barcode',
 	'antibody_source': 'vendor',
 	'antibody_product_ids': 'vender_product_ids',
@@ -171,9 +178,9 @@ PROP_MAP = {
 	'raw_matrix_software': 'alignment_software',
 	'raw_matrix_genome_annotation': 'gene_annotation_version',
 	'raw_matrix_assembly': 'reference_genome',
-	'seq_run_platform': 'sequencing_platform',
-	'raw_seq_flowcell_details': 'library_sequencing_run',
-	'library_dbxrefs' : 'library_id_repository'
+	'raw_matrix_intronic_reads_counted':'intronic_reads_counted',
+	'seq_run_platform': 'sequencing_platform'
+	'raw_seq_flowcell_details': 'library_sequencing_run'
 }
 
 GENCODE_MAP = {
@@ -229,6 +236,9 @@ SAMPLE_PRESERVATION_MAP = {
 OPTIONAL_COLUMNS = [
 	'alignment_software',
 	'cell_state',
+	'cell_viability_percentage',
+	'cell_number_loaded',
+	'cell_number_loaded_units',
 	'disease_state',
 	'donor_BMI_at_collection',
 	'donor_cause_of_death',
@@ -240,19 +250,17 @@ OPTIONAL_COLUMNS = [
 	'gene_annotation_version',
 	'genetic_modifications',
 	'growth_medium',
-	'library_starting_quantity',
-	'library_starting_quantity_units',
 	'menstrual_phase_at_collection',
 	'reference_genome',
 	'reported_diseases',
 	'sample_treatment_summary',
+	'sample_collection_year',
 	'sequencing_platform',
 	'suspension_dissociation_reagent',
 	'suspension_dissociation_time',
 	'suspension_dissociation_time_units',
 	'suspension_depleted_cell_types',
 	'suspension_derivation_process',
-	'suspension_percent_cell_viability',
 	'suspension_enriched_cell_types',
 	'suspension_enrichment_factors',
 	'suspension_depletion_factors', 
@@ -261,7 +269,8 @@ OPTIONAL_COLUMNS = [
 	'tissue_section_thickness_units',
 	'tissue_handling_interval',
 	'tyrer_cuzick_lifetime_risk',
-	'library_id_repository'
+	'library_id_repository',
+	'intronic_reads_counted'
 ]
 
 COLUMNS_TO_DROP = [

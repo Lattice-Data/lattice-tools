@@ -33,6 +33,7 @@ def gather_rawmatrices(derived_from, connection):
 		'libraries',
 		'derived_from',
 		'software',
+		'intronic_reads_counted'
 	]
 	
 	obj_type, filter_lst = lattice.parse_ids(derived_from)
@@ -234,6 +235,18 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 				if len(value_list) > 1:
 					value_list = sorted(value_list)
 				values_to_add[key] = ",".join(value_list)
+		elif prop == 'date_obtained':
+			if value != constants.UNREPORTED_VALUE:
+				value = value.split('-')[0]
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = constants.PROP_MAP.get(latkey, latkey)
+			values_to_add[key] = value
+		elif prop == 'intronic_reads_counted':
+			if value != constants.UNREPORTED_VALUE:
+				value = 'yes' if value else 'no'
+				latkey = (obj_type + '_' + prop).replace('.', '_')
+				key = constants.PROP_MAP.get(latkey, latkey)
+				values_to_add[key] = value
 		else:
 			if isinstance(value, list):
 				value = ','.join(value)
@@ -311,7 +324,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				if prop == 'cell_ontology.term_id':
 					if v == 'NCIT:C17998':
 						v = 'unknown'
-					value.append(v)
+				if prop == 'date_obtained':
+					if v != constants.UNREPORTED_VALUE:
+						v = v.split('-')[0]
 				if isinstance(v, list):
 					value.extend(v)
 				else:
