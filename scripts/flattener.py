@@ -763,6 +763,10 @@ def hcatier1_check(glob):
 						runs.append(summary)
 				runs.sort()
 				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].replace({orig_cat:";".join(runs)})
+		if glob.cxg_obs['library_sequencing_run'].isnull().values.any():
+			glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].cat.add_categories(['unknown'])
+			glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].fillna('unknown')
+
 	else:
 		glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
