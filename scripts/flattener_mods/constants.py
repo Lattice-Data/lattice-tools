@@ -284,7 +284,9 @@ COLUMNS_TO_DROP = [
 	'sample_diseases_term_name',
 	'sample_biosample_ontology_organ_slims',
 	'sex',
-	'suspension_@id'
+	'suspension_@id',
+	'suspension_depleted_cell_terms',
+	'suspension_enriched_cell_terms'
 ]
 
 
