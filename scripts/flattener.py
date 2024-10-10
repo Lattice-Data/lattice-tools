@@ -1185,6 +1185,8 @@ def main(mfinal_id, connection, hcatier1):
 		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
 	# Clean up memory
+	drop_cols(celltype_col, glob)
+	clean_obs(glob)
 	del cxg_adata_lst
 	gc.collect()
 
@@ -1216,6 +1218,10 @@ def main(mfinal_id, connection, hcatier1):
 	if warnings:
 		warning_list.append(warnings)
 
+	# Check hcatier1 fields if flag is true
+	if hcatier1:
+		hcatier1_check(glob)
+
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 		warnings = fm.process_spatial(glob)
@@ -1227,12 +1233,6 @@ def main(mfinal_id, connection, hcatier1):
 		glob.cxg_obs.loc[(glob.cxg_obs['in_tissue']==0) & (glob.cxg_obs['cell_type_ontology_term_id']!='unknown'), 'cell_type_ontology_term_id'] = 'unknown'
 	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
 	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
-	
-	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	if hcatier1:
-		hcatier1_check(glob)
-	drop_cols(celltype_col, glob)
-	clean_obs(glob)
 
 	# Removing feature_length column from var if present
 	if 'feature_length' in glob.cxg_adata.var.columns:
