@@ -179,7 +179,7 @@ PROP_MAP = {
 	'raw_matrix_genome_annotation': 'gene_annotation_version',
 	'raw_matrix_assembly': 'reference_genome',
 	'raw_matrix_intronic_reads_counted':'intronic_reads_counted',
-	'seq_run_platform': 'sequencing_platform'
+	'seq_run_platform': 'sequencing_platform',
 	'raw_seq_flowcell_details': 'library_sequencing_run'
 }
 
