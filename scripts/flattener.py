@@ -1189,8 +1189,6 @@ def main(mfinal_id, connection, hcatier1):
 		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
 	# Clean up memory
-	drop_cols(celltype_col, glob)
-	clean_obs(glob)
 	del cxg_adata_lst
 	gc.collect()
 
@@ -1207,7 +1205,7 @@ def main(mfinal_id, connection, hcatier1):
 			logging.error("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 			sys.exit("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 
-	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
+	# Create cxg_var and merge relevant metadata
 	results_file  = get_results_filename(glob)
 	glob.mfinal_adata.var_names_make_unique()
 	cxg_var = pd.DataFrame(index=glob.mfinal_adata.var.index.to_list())
@@ -1216,25 +1214,28 @@ def main(mfinal_id, connection, hcatier1):
 		keep_types.append('object')
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 
-	# Copy over any additional data from mfinal_adata to cxg_adata
+	# Copy over adata.uns
 	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
 	warnings = fm.copy_over_uns(glob, reserved_uns)
 	if warnings:
 		warning_list.append(warnings)
 
-	# Check hcatier1 fields if flag is true
+	# Check hcatier1 fields if flag is true and then clean up obs
 	if hcatier1:
 		hcatier1_check(glob)
+	drop_cols(celltype_col, glob)
+	clean_obs(glob)
 
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 		warnings = fm.process_spatial(glob)
 		if warnings:
 			warning_list.append(warnings)
-	# Check to see if need to add background spots
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
 		glob.cxg_obs.loc[(glob.cxg_obs['in_tissue']==0) & (glob.cxg_obs['cell_type_ontology_term_id']!='unknown'), 'cell_type_ontology_term_id'] = 'unknown'
+
+	# Asseemble glob.cxg_adata
 	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
 	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 
