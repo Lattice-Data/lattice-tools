@@ -37,7 +37,15 @@ mappings = {
 				"mean_raw_reads_per_cell": "mean_reads_per_cell",
 				"estimated_number_of_cells": "total_cells_detected",
 				"number_of_reads": "total_reads",
-				"sequenced_read_pairs": "total_reads"
+				"sequenced_read_pairs": "total_reads",
+				"confidently_mapped_reads_in_cells": "frac_reads_in_cells",
+				"confidently_mapped_antisense": "frac_reads_mapped_antisense_to_gene",
+				"confidently_mapped_to_exonic_regions": "frac_reads_mapped_confidently_to_exonic_regions",
+				"confidently_mapped_to_genome": "frac_reads_mapped_confidently_to_genome",
+				"confidently_mapped_to_intergenic_regions": "frac_reads_mapped_confidently_to_intergenic_regions",
+				"confidently_mapped_to_intronic_regions": "frac_reads_mapped_confidently_to_intronic_regions",
+				"confidently_mapped_to_transcriptome": "frac_reads_mapped_confidently_to_transcriptome",
+				"mapped_to_genome": "frac_reads_mapped_to_genome"
 			},
 			"perc_to_frac": [
 				"frac_q30_bases_in_barcode",
