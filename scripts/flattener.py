@@ -688,9 +688,12 @@ def check_sums(adata_raw, glob):
 # Check that are specific to HCA Tier1 schema
 def hcatier1_check(glob):
 	if 'study_pi' not in glob.cxg_uns:
-			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
+		warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
 
-	if 'library_preparation_batch' not in glob.cxg_obs.columns:
+	# these first 3 obs columns depend on the processed matrix file
+	# use glob.mfinal_adata to preserve dependency order of drop_cols() and clean_obs()
+	# see TOOLS-225 for further details
+	if 'library_preparation_batch' not in glob.mfinal_adata.obs.columns:
 		warning_list.append("WARNING: 'library_preparation_batch' not present in obs for HCA Tier 1 requirements")
 
 	column_allowed_values = {
@@ -699,8 +702,8 @@ def hcatier1_check(glob):
 	}
 
 	for column, allowed_values in column_allowed_values.items():
-		if column in glob.cxg_obs.columns:
-			not_allowed = [item for item in glob.cxg_obs[column].unique() if item not in allowed_values]
+		if column in glob.mfinal_adata.obs.columns:
+			not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if item not in allowed_values]
 			for item in not_allowed:
 				warning_list.append(
 					f"WARNING: value '{item}' not allowed for '{column}'. "
@@ -709,6 +712,7 @@ def hcatier1_check(glob):
 		else:
 			warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
 
+	# columns in rest of function depend on Lattice
 	if "manner_of_death" not in glob.cxg_obs.columns:
 		if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
 			glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
