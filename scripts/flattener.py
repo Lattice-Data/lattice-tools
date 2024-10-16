@@ -648,6 +648,9 @@ def add_background_spots(glob):
 		glob.mfinal_adata = comb_adata
 		glob.cxg_obsm = glob.mfinal_adata.obsm
 		glob.cxg_obs['cell_type_ontology_term_id'] = glob.cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
+		for c in glob.cxg_obs.columns:
+			if pd.api.types.infer_dtype(glob.cxg_obs[c]) == 'boolean' and glob.cxg_obs[c].dtype == 'object':
+				glob.cxg_obs[c] = glob.cxg_obs[c].astype(str)
 	glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
 
 
