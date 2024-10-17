@@ -567,6 +567,9 @@ def clean_obs(glob):
 		'sequenced_fragment': {
 			"3'":'3 prime tag',
 			"5'": '5 prime tag'
+		},
+		'reference_genome': {
+			'hg19': 'GRCh37'
 		}
 	}, inplace=True)
 
