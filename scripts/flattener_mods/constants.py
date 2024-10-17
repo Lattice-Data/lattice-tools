@@ -209,7 +209,7 @@ GENCODE_MAP = {
 	'GENCODE 22': 'v79',
 	'GENCODE 21': 'v77',
 	'GENCODE 20': 'v76',
-	'GENCODE 19': 'v74',
+	'GENCODE 19': 'v75',
 }
 
 SAMPLE_COLLECTION_MAP = {
@@ -267,6 +267,7 @@ OPTIONAL_COLUMNS = [
 	'suspension_uuid',
 	'tissue_section_thickness',
 	'tissue_section_thickness_units',
+	'tissue_source',
 	'tissue_handling_interval',
 	'tyrer_cuzick_lifetime_risk',
 	'library_id_repository',

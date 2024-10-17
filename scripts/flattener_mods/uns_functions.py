@@ -34,8 +34,8 @@ def colors_check(glob, color_column, column_name):
 		return False, error
 	# Check that the corresponding column is the right datatype
 	if column_name in glob.cxg_obs.columns:
-		if glob.cxg_adata.obs[column_name].dtype.name != 'category':
-			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(glob.cxg_adata.obs[column_name].dtype.name)
+		if glob.cxg_obs[column_name].dtype.name != 'category':
+			error = 'the corresponding column in obs. is the wrong datatype ({})'.format(glob.cxg_obs[column_name].dtype.name)
 			return False, error
 	# Verify color_column is a numpy array
 	if color_column is None or not isinstance(color_column, np.ndarray):
