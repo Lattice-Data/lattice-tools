@@ -112,21 +112,20 @@ srr_read_name_pattern = re.compile(
 )
 
 InstrumentIDs = {
-    '^LH[0-9]{5}$' : 'Illumina NovaSeq X Plus',
-    '^A[0-9]{5}$' : 'Illumina NovaSeq 6000',
-    '^A[0-9]{5}R$' : 'Illumina NovaSeq 6000',
-    '^E[0-9]{5}$' : 'Illumina HiSeq X',
-    '^K[0-9]{5}$' : 'Illumina HiSeq 4000',
-    '^K[0-9]{5}R$' : 'Illumina HiSeq 4000',
-    '^J[0-9]{5}$' : 'Illumina HiSeq 3000',
-    '^D[0-9]{5}$' : 'Illumina HiSeq 2500',
-    '^HWI-D[0-9]{5}$' : 'Illumina HiSeq 2500',
-    '^C[0-9]{5}$' : 'Illumina HiSeq 1500',
-    '^HWI-C[0-9]{5}$' : 'Illumina HiSeq 1500',
-    '^VH[0-9]{5}$' : 'Illumina NextSeq 2000',
-    '^VL[0-9]{5}$' : 'Illumina NextSeq 1000',
-    '^(NB|NS)55[0-9]{4}$': 'Illumina NextSeq 550',
-    '^(NB|NS)50[0-9]{4}$': 'Illumina NextSeq 500'
+    '^LH[0-9]{5}$' : 'Illumina NovaSeq X Plus (EFO:0022841)',
+    '^A[0-9]{5}$' : 'Illumina NovaSeq 6000 (EFO:0008637)',
+    '^A[0-9]{5}R$' : 'Illumina NovaSeq 6000 (EFO:0008637)',
+    '^E[0-9]{5}$' : 'Illumina HiSeq X (EFO:0008567)',
+    '^K[0-9]{5}$' : 'Illumina HiSeq 4000 (EFO:0008563)',
+    '^K[0-9]{5}R$' : 'Illumina HiSeq 4000 (EFO:0008563)',
+    '^J[0-9]{5}$' : 'Illumina HiSeq 3000 (EFO:0008564)',
+    '^D[0-9]{5}$' : 'Illumina HiSeq 2500 (EFO:0008565)',
+    '^HWI-D[0-9]{5}$' : 'Illumina HiSeq 2500 (EFO:0008565)',
+    '^C[0-9]{5}$' : 'Illumina HiSeq 1500 (EFO:0011027)',
+    '^HWI-C[0-9]{5}$' : 'Illumina HiSeq 1500 (EFO:0011027)',
+    '^VH[0-9]{5}$' : 'Illumina NextSeq 2000 (EFO:0010963)',
+    '^(NB|NS)55[0-9]{4}$': 'Illumina NextSeq 550 (EFO:0008566)',
+    '^(NB|NS)50[0-9]{4}$': 'Illumina NextSeq 500 (EFO:0009173)'
 }
 
 
