@@ -704,7 +704,7 @@ def hcatier1_check(glob):
 		"sample_source": ["surgical donor", "postmortem donor", "living organ donor"],
 		"sampled_site_condition": ["healthy", "diseased", "adjacent"],
 		"manner_of_death": ["not applicable", "unknown", "", "0", "1", "2", "3", "4"],
-		"library_preparation_batch": str
+		"library_preparation_batch": "string or 'unknown'"
 	}
 
 	for column, allowed_values in column_allowed_values.items():
