@@ -690,50 +690,66 @@ def check_sums(adata_raw, glob):
 
 # Check that are specific to HCA Tier1 schema
 def hcatier1_check(glob):
-	if 'study_pi' not in glob.cxg_uns:
-		warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
+	HCA_WARN_PREFIX = "WARNING: HCA Tier 1 Requirements:"
+	author_cols = glob.mfinal_obj.get('author_columns', [])
 
-	# these first 3 obs columns depend on the processed matrix file
+	if 'study_pi' not in glob.cxg_uns:
+		warning_list.append(f"{HCA_WARN_PREFIX} 'study_pi' not in processed matrix file uns")
+
+	# these first 4 obs columns depend on the processed matrix file
 	# use glob.mfinal_adata to preserve dependency order of drop_cols() and clean_obs()
 	# see TOOLS-225 for further details
-	if 'library_preparation_batch' not in glob.mfinal_adata.obs.columns:
-		warning_list.append("WARNING: 'library_preparation_batch' not present in obs for HCA Tier 1 requirements")
 
 	column_allowed_values = {
 		"sample_source": ["surgical donor", "postmortem donor", "living organ donor"],
-		"sampled_site_condition": ["healthy", "diseased", "adjacent"]
+		"sampled_site_condition": ["healthy", "diseased", "adjacent"],
+		"manner_of_death": ["not applicable", "unknown", "", "0", "1", "2", "3", "4"],
+		"library_preparation_batch": str
 	}
 
 	for column, allowed_values in column_allowed_values.items():
+		if column not in author_cols:
+			if column == "manner_of_death":
+				warning_list.append(
+					f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns, "
+					"will map from 'donor_living_at_sample_collection'"
+				)
+			else:
+				warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns")
+		if column == "manner_of_death" and column not in glob.mfinal_adata.obs.columns:
+			if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
+				glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
+				glob.cxg_obs["manner_of_death"].replace({
+					"True": "not applicable",
+					"False": "unknown",
+					"": "unknown",
+					"na": ""
+					},
+					inplace=True
+				)
+			else:
+				glob.cxg_obs["manner_of_death"] = "unknown"
+				warning_list.append(
+					f"{HCA_WARN_PREFIX} column 'donor_living_at_sample_collection' "
+					"not found. 'manner_of_death' set to 'unknown'."
+				)
 		if column in glob.mfinal_adata.obs.columns:
-			not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if item not in allowed_values]
+			if isinstance(allowed_values, list):
+				not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if item not in allowed_values]
+			else:
+				not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if not isinstance(item, str)]
+		
 			for item in not_allowed:
 				warning_list.append(
-					f"WARNING: value '{item}' not allowed for '{column}'. "
+					f"{HCA_WARN_PREFIX} value '{item}' not allowed for '{column}'. "
 					f"HCA Tier 1 requires one of the following: {allowed_values}"
 				)
 		else:
-			warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
+			if column == "manner_of_death" and "donor_living_at_sample_collection" in glob.cxg_obs.columns:
+				continue
+			warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in processed matrix file obs")
 
 	# columns in rest of function depend on Lattice
-	if "manner_of_death" not in glob.cxg_obs.columns:
-		if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
-			glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
-			glob.cxg_obs["manner_of_death"].replace({
-				"True": "not applicable",
-				"False": "unknown",
-				"": "unknown",
-				"na": ""
-				},
-				inplace=True
-			)
-		else:
-			glob.cxg_obs["manner_of_death"] = "unknown"
-			warning_list.append(
-				"WARNING: column 'donor_living_at_sample_collection' not found. "
-				"'manner_of_death' set to 'unknown'."
-			)
-
 	def map_cell_enrichment(row):
 		append_map = {
 			"suspension_enriched_cell_terms": "+",
