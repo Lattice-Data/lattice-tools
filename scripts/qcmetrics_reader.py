@@ -56,9 +56,12 @@ def read_cr_csv(file):
 	with open(file, newline='') as csvfile:
 		spamreader = csv.reader(csvfile)
 		rows = list(spamreader)
-		headers = rows[0]
-		values = rows[1]
-		temp_json = dict(zip(headers, values))
+		if len(rows) == 2 and len(rows[0]) == len(rows[1]):
+			headers = rows[0]
+			values = rows[1]
+			temp_json = dict(zip(headers, values))
+		else:
+			temp_json = {r[-2]:r[-1] for r in rows if r[1] == 'Gene Expression' and r[2] != 'Fastq ID'}
 
 	os.remove(file)
 	print(file + ' removed')
@@ -111,8 +114,11 @@ def read_cr_html(file):
 					pipeline_info_table = data.get('pipeline_info_table')
 				elif data.get('joint_pipeline_info_table'):
 					pipeline_info_table = data.get('joint_pipeline_info_table')
-				else:
+				elif data.get('summary'):
 					pipeline_info_table = data['summary']['summary_tab']['pipeline_info_table']
+				elif data.get('data'):
+					temp_json = data['data']['library_websummary']['header_info']
+					pipeline_info_table = data['data']['sample_websummary']['gex_tab']['content']['parameters_table']
 				info_list = pipeline_info_table['rows']
 				for pair in info_list:
 					temp_json[pair[0]] = pair[1]

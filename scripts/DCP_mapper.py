@@ -15,8 +15,7 @@ import DCP_mods.request_to_gcp as request_to_gcp
 from DCP_mods.DCP_flatten import tsv_report
 from DCP_mods.property_mapping import (
 	dcp_versions,
-	lattice_to_dcp,
-	donor_stages
+	lattice_to_dcp
 )
 from DCP_mods.staging_area_validator import (
 	dcp_validation

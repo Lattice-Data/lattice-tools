@@ -28,6 +28,7 @@ portal_var_fields = [
     'feature_name',
     'feature_reference',
     'feature_biotype',
+    'feature_type',
     'feature_length'
 ]
 
@@ -95,67 +96,6 @@ def revise_cxg(adata):
         adata.raw.var.drop(columns=portal_var_fields, inplace=True)
 
     return adata
-
-
-def get_adata_size(adata: ad.AnnData, show_stratified=True) -> int:
-    """
-    Adapted from the adata.__sizeof__() method. This version will also return sizes of
-    adata.raw and the visium image arrays if they exist. Returns int of 
-    size and can print out itemized display
-    
-    :param: show_stratified: print out attribute sizes if set to True
-    """
-    def get_size(X) -> int:
-        if isinstance(X, (sparse.csr_matrix, sparse.csc_matrix, sparse.coo_matrix)):
-            return X.data.nbytes + X.indptr.nbytes + X.indices.nbytes
-        elif isinstance(X, np.ndarray):
-            return X.nbytes
-        else:
-            return X.__sizeof__()
-
-    def has_visium_uns_images(adata: ad.AnnData) -> bool:
-        return (
-            "spatial" in adata.uns and
-            [k for k in adata.uns["spatial"] if "is_single" not in k]
-        )
-
-    size = 0
-    attrs = list(["_X", "_obs", "_var"])
-    attrs_raw = list(["X", "var"])
-    attrs_multi = list(["_uns", "_obsm", "_varm", "varp", "_obsp", "_layers"])
-    if adata.raw:
-        adata_raw = adata.raw
-        attrs.extend(attrs_raw)
-        
-    for attr in attrs + attrs_multi:
-        if attr in attrs_multi:
-            keys = getattr(adata, attr).keys()
-            s = sum([get_size(getattr(adata, attr)[k]) for k in keys])
-        elif attr in attrs_raw:
-            s = get_size(getattr(adata_raw, attr))
-        else:
-            s = get_size(getattr(adata, attr))
-
-        if s > 0 and show_stratified:
-            if "_" not in attr:
-                str_attr = ".raw." + attr + " " * (13 - len(attr))
-            else:
-                str_attr = attr.replace("_", ".") + " " * (18 - len(attr))
-            print(f"Size of {str_attr}: {'%3.2f' % (s / (1024 ** 2))} MB")
-
-        size += s
-
-    if has_visium_uns_images(adata):
-        library_id = [k for k in adata.uns["spatial"].keys() if "is_single" not in k][0]
-        print("Visium image arrays:") if show_stratified else None
-        for image_name, image_array in adata.uns["spatial"][library_id]["images"].items():
-            s = get_size(image_array)
-            if show_stratified:
-                str_name = image_name + " " * (18 - len(image_name))
-                print(f"Size of {str_name}: {'%3.2f' % (s / (1024 ** 2))} MB")
-            size += s
-
-    return size
 
 
 @dataclass
@@ -373,6 +313,7 @@ def evaluate_10x_barcodes(prop, obs):
     df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple','None']]
             + [c for c in df if df[c].sum() == 0 and c not in ['multiple','None']]
             + [c for c in df if c in ['multiple','None']]]
+    df.sort_values(list(df.columns), ascending=False, inplace=True)
 
     return df
 

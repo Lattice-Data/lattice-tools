@@ -132,13 +132,17 @@ def quality_check(glob):
 	if glob.cxg_adata.obs.isnull().values.any():
 		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format\
 			(glob.cxg_adata.obs.columns[glob.cxg_adata.obs.isna().any()].tolist()))
-	elif glob.cxg_adata.var.shape[0]==0:
+	if glob.cxg_adata.var.shape[0]==0:
 		logging.error('ERROR: There are no genes in the normalized matrix.')
 		sys.exit("ERROR: There are no genes in the normalized matrix.")
-	elif glob.mfinal_obj['X_normalized'] == True and glob.mfinal_obj['assays'] != ['snATAC-seq']:
+	if glob.mfinal_obj['X_normalized'] == True and glob.mfinal_obj['assays'] != ['snATAC-seq']:
 		if len(glob.cxg_adata.var.index.tolist()) > len(glob.cxg_adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
+	if len(glob.cxg_adata.obsm) == 0:
+		logging.error('ERROR: There must be at least one embedding present in the flattened h5ad.')
+		sys.exit("ERROR: There must be at least one embedding present in the flattened h5ad.")
+
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease):
@@ -673,7 +677,13 @@ def add_background_spots(glob):
 		glob.mfinal_adata = comb_adata
 		glob.cxg_obsm = glob.mfinal_adata.obsm
 		glob.cxg_obs['cell_type_ontology_term_id'] = glob.cxg_obs['cell_type_ontology_term_id'].fillna('unknown')
-	glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
+		for c in glob.cxg_obs.columns:
+			if pd.api.types.infer_dtype(glob.cxg_obs[c]) == 'boolean' and glob.cxg_obs[c].dtype == 'object':
+				glob.cxg_obs[c] = glob.cxg_obs[c].astype(str)
+	if len(glob.cxg_obsm) == 0:
+		glob.cxg_obsm = glob.cxg_adata_raw.obsm.copy()
+	else:
+		glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
 
 
 # Check to see if there are any spots with zero counts and swap in_tissue to 0 if needed
