@@ -140,14 +140,14 @@ def quality_check(glob):
 	if glob.cxg_adata.obs.isnull().values.any():
 		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format\
 			(glob.cxg_adata.obs.columns[glob.cxg_adata.obs.isna().any()].tolist()))
-	elif 'default_visualization' in glob.cxg_adata.uns:
-		if adata.uns['default_visualization'] not in glob.cxg_adata.obs.values:
-			logging.error('ERROR: The default_visualization field is not in the cxg anndata obs dataframe.')
-			sys.exit("ERROR: The default_visualization field is not in the cxg anndata obs dataframe.")
-	elif glob.mfinal_obj['X_normalized'] == True and glob.mfinal_obj['assays'] != ['snATAC-seq']:
+	if glob.mfinal_obj['X_normalized'] == True and glob.mfinal_obj['assays'] != ['snATAC-seq']:
 		if len(glob.cxg_adata.var.index.tolist()) > len(glob.cxg_adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
 			sys.exit("ERROR: There are more genes in normalized genes than in raw matrix.")
+	if len(glob.cxg_adata.obsm) == 0:
+		logging.error('ERROR: There must be at least one embedding present in the flattened h5ad.')
+		sys.exit("ERROR: There must be at least one embedding present in the flattened h5ad.")
+
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease):
@@ -651,7 +651,10 @@ def add_background_spots(glob):
 		for c in glob.cxg_obs.columns:
 			if pd.api.types.infer_dtype(glob.cxg_obs[c]) == 'boolean' and glob.cxg_obs[c].dtype == 'object':
 				glob.cxg_obs[c] = glob.cxg_obs[c].astype(str)
-	glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
+	if len(glob.cxg_obsm) == 0:
+		glob.cxg_obsm = glob.cxg_adata_raw.obsm.copy()
+	else:
+		glob.cxg_obsm['spatial'] = glob.cxg_adata_raw.obsm['spatial']
 
 
 # Check to see if there are any spots with zero counts and swap in_tissue to 0 if needed
