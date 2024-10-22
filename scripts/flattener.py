@@ -567,6 +567,9 @@ def clean_obs(glob):
 		'sequenced_fragment': {
 			"3'":'3 prime tag',
 			"5'": '5 prime tag'
+		},
+		'reference_genome': {
+			'hg19': 'GRCh37'
 		}
 	}, inplace=True)
 
@@ -687,46 +690,66 @@ def check_sums(adata_raw, glob):
 
 # Check that are specific to HCA Tier1 schema
 def hcatier1_check(glob):
-	if 'study_pi' not in glob.cxg_uns:
-			warning_list.append("WARNING: 'study_pi' not present in uns for HCA Tier 1 requirements")
+	HCA_WARN_PREFIX = "WARNING: HCA Tier 1 Requirements:"
+	author_cols = glob.mfinal_obj.get('author_columns', [])
 
-	if 'library_preparation_batch' not in glob.cxg_obs.columns:
-		warning_list.append("WARNING: 'library_preparation_batch' not present in obs for HCA Tier 1 requirements")
+	if 'study_pi' not in glob.cxg_uns:
+		warning_list.append(f"{HCA_WARN_PREFIX} 'study_pi' not in processed matrix file uns")
+
+	# these first 4 obs columns depend on the processed matrix file
+	# use glob.mfinal_adata to preserve dependency order of drop_cols() and clean_obs()
+	# see TOOLS-225 for further details
 
 	column_allowed_values = {
 		"sample_source": ["surgical donor", "postmortem donor", "living organ donor"],
-		"sampled_site_condition": ["healthy", "diseased", "adjacent"]
+		"sampled_site_condition": ["healthy", "diseased", "adjacent"],
+		"manner_of_death": ["not applicable", "unknown", "", "0", "1", "2", "3", "4"],
+		"library_preparation_batch": "string or 'unknown'"
 	}
 
 	for column, allowed_values in column_allowed_values.items():
-		if column in glob.cxg_obs.columns:
-			not_allowed = [item for item in glob.cxg_obs[column].unique() if item not in allowed_values]
+		if column not in author_cols:
+			if column == "manner_of_death":
+				warning_list.append(
+					f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns, "
+					"will map from 'donor_living_at_sample_collection'"
+				)
+			else:
+				warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns")
+		if column == "manner_of_death" and column not in glob.mfinal_adata.obs.columns:
+			if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
+				glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
+				glob.cxg_obs["manner_of_death"].replace({
+					"True": "not applicable",
+					"False": "unknown",
+					"": "unknown",
+					"na": ""
+					},
+					inplace=True
+				)
+			else:
+				glob.cxg_obs["manner_of_death"] = "unknown"
+				warning_list.append(
+					f"{HCA_WARN_PREFIX} column 'donor_living_at_sample_collection' "
+					"not found. 'manner_of_death' set to 'unknown'."
+				)
+		if column in glob.mfinal_adata.obs.columns:
+			if isinstance(allowed_values, list):
+				not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if item not in allowed_values]
+			else:
+				not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if not isinstance(item, str)]
+		
 			for item in not_allowed:
 				warning_list.append(
-					f"WARNING: value '{item}' not allowed for '{column}'. "
+					f"{HCA_WARN_PREFIX} value '{item}' not allowed for '{column}'. "
 					f"HCA Tier 1 requires one of the following: {allowed_values}"
 				)
 		else:
-			warning_list.append(f"WARNING: '{column}' not present in obs for HCA Tier 1 requirements")
+			if column == "manner_of_death" and "donor_living_at_sample_collection" in glob.cxg_obs.columns:
+				continue
+			warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in processed matrix file obs")
 
-	if "manner_of_death" not in glob.cxg_obs.columns:
-		if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
-			glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
-			glob.cxg_obs["manner_of_death"].replace({
-				"True": "not applicable",
-				"False": "unknown",
-				"": "unknown",
-				"na": ""
-				},
-				inplace=True
-			)
-		else:
-			glob.cxg_obs["manner_of_death"] = "unknown"
-			warning_list.append(
-				"WARNING: column 'donor_living_at_sample_collection' not found. "
-				"'manner_of_death' set to 'unknown'."
-			)
-
+	# columns in rest of function depend on Lattice
 	def map_cell_enrichment(row):
 		append_map = {
 			"suspension_enriched_cell_terms": "+",
@@ -1189,8 +1212,6 @@ def main(mfinal_id, connection, hcatier1):
 		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
 	# Clean up memory
-	drop_cols(celltype_col, glob)
-	clean_obs(glob)
 	del cxg_adata_lst
 	gc.collect()
 
@@ -1207,7 +1228,7 @@ def main(mfinal_id, connection, hcatier1):
 			logging.error("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 			sys.exit("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 
-	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
+	# Create cxg_var and merge relevant metadata
 	results_file  = get_results_filename(glob)
 	glob.mfinal_adata.var_names_make_unique()
 	cxg_var = pd.DataFrame(index=glob.mfinal_adata.var.index.to_list())
@@ -1216,25 +1237,28 @@ def main(mfinal_id, connection, hcatier1):
 		keep_types.append('object')
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 
-	# Copy over any additional data from mfinal_adata to cxg_adata
+	# Copy over adata.uns
 	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
 	warnings = fm.copy_over_uns(glob, reserved_uns)
 	if warnings:
 		warning_list.append(warnings)
 
-	# Check hcatier1 fields if flag is true
+	# Check hcatier1 fields if flag is true and then clean up obs
 	if hcatier1:
 		hcatier1_check(glob)
+	drop_cols(celltype_col, glob)
+	clean_obs(glob)
 
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 		warnings = fm.process_spatial(glob)
 		if warnings:
 			warning_list.append(warnings)
-	# Check to see if need to add background spots
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
 		glob.cxg_obs.loc[(glob.cxg_obs['in_tissue']==0) & (glob.cxg_obs['cell_type_ontology_term_id']!='unknown'), 'cell_type_ontology_term_id'] = 'unknown'
+
+	# Asseemble glob.cxg_adata
 	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
 	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
 
