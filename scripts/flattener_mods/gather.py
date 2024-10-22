@@ -1,8 +1,10 @@
+import boto3
 import sys
 import pandas as pd
 import numpy as np
 import logging
 import flattener_mods.constants as constants
+import subprocess
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -15,31 +17,52 @@ logger = logging.getLogger(__name__)
 def gather_rawmatrices(derived_from, connection):
 	'''
 	Utilize lattice parse_ids and get_report to get all the raw matrix objects at once
+	Will return only fields in field_lst
 
 	:param List[str] derived_from: Raw matrices up the experimental graph which the final matrix object is derived from
 	:param obj connection: Information for connecting to lattice database
 
 	:returns List[dict] my_raw_matrices: List of raw matrices which the final matrix object is derived from
 	'''
-	new_derived_from = []
-	field_lst = ['@id','accession','s3_uri','genome_annotation','libraries','derived_from']
+	field_lst = [
+		'@id',
+		'accession',
+		's3_uri',
+		'genome_annotation',
+		'assembly',
+		'libraries',
+		'derived_from',
+		'software',
+		'intronic_reads_counted'
+	]
 	
 	obj_type, filter_lst = lattice.parse_ids(derived_from)
 	
-	# If object type of the original derived_from ids is not raw matrix file, go another layer down
-	if obj_type != 'RawMatrixFile':
-		objs = lattice.get_report(obj_type,filter_list,['derived_from'],connection)
-		for obj in objs:
-			new_derived_from.append(obj['derived_from'])
-		obj_type, filter_lst = lattice.parse_ids(new_derived_from)
-		
-	my_raw_matrices = lattice.get_report(obj_type,filter_lst,field_lst,connection)
+	my_raw_matrices = lattice.get_report(obj_type, filter_lst, field_lst, connection)
 
 	return my_raw_matrices
 
 
+def download_file(download_url, directory, accession=None):
+	bucket_name = download_url.split('/')[2]
+	file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
+	s3client = boto3.client("s3")
+	if accession:
+		file_ext = download_url.split('.')[-1]
+		file_name = accession + '.' + file_ext
+	else:
+		file_name = download_url.split('/')[-1]
+	print(file_name + ' downloading')
+	try:
+		s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
+	except subprocess.CalledProcessError as e:
+		logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+		sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
+	else:
+		print(file_name + ' downloaded')
 
-def gather_objects(input_object, mfinal_obj, connection, start_type=None):
+
+def gather_objects(input_object, mfinal_obj, connection, hcatier1, start_type=None):
 	'''
 	Gather all objects up the experimental graph, assuming that there is either a suspension or tissue section
 
@@ -98,6 +121,10 @@ def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 		for d in input_object['derived_from']:
 			obj = lattice.get_object(d, connection)
 			if 'RawSequenceFile' in obj.get('@type'):
+				if hcatier1:
+					if obj.get('@id') not in raw_seq_ids:
+						raw_seqs.append(obj)
+						raw_seq_ids.append(obj.get('@id'))
 				for run in obj['derived_from']:
 					if run.get('@id') not in seq_run_ids:
 						seq_runs.append(run)
@@ -145,6 +172,8 @@ def gather_objects(input_object, mfinal_obj, connection, start_type=None):
 		'tissue_section': tissue_sections,
 		'seq_run':  seq_runs
 		}
+	if hcatier1:
+		objs['raw_seq'] = raw_seqs
 	if start_type == None:
 		objs['library'] = libraries
 	if prepooled_susps:
@@ -194,6 +223,30 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 			latkey = (obj_type + '_' + prop).replace('.', '_')
 			key = constants.PROP_MAP.get(latkey, latkey)
 			values_to_add[key] = value
+		elif prop == 'dbxrefs':
+			if value != constants.UNREPORTED_VALUE:
+				latkey = (obj_type + '_' + prop).replace('.', '_')
+				key = constants.PROP_MAP.get(latkey, latkey)
+				value_list = []
+				for v in value:
+					v = v.lstrip()
+					if v[:7] in constants.ACCEPTED_ACCESSIONS:
+						value_list.append(v[4:])
+				if len(value_list) > 1:
+					value_list = sorted(value_list)
+				values_to_add[key] = ",".join(value_list)
+		elif prop == 'date_obtained':
+			if value != constants.UNREPORTED_VALUE:
+				value = value.split('-')[0]
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = constants.PROP_MAP.get(latkey, latkey)
+			values_to_add[key] = value
+		elif prop == 'intronic_reads_counted':
+			if value != constants.UNREPORTED_VALUE:
+				value = 'yes' if value else 'no'
+				latkey = (obj_type + '_' + prop).replace('.', '_')
+				key = constants.PROP_MAP.get(latkey, latkey)
+				values_to_add[key] = value
 		else:
 			if isinstance(value, list):
 				value = ','.join(value)
@@ -271,7 +324,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				if prop == 'cell_ontology.term_id':
 					if v == 'NCIT:C17998':
 						v = 'unknown'
-					value.append(v)
+				if prop == 'date_obtained':
+					if v != constants.UNREPORTED_VALUE:
+						v = v.split('-')[0]
 				if isinstance(v, list):
 					value.extend(v)
 				else:

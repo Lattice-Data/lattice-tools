@@ -46,7 +46,8 @@ CELL_METADATA = {
 		'treatment_summary',
 		'growth_medium',
 		'genetic_modifications',
-		'@type'
+		'@type',
+		'date_obtained'
 		],
 	'tissue_section': [
 		'uuid',
@@ -56,11 +57,13 @@ CELL_METADATA = {
 	'suspension': [
 		'cell_depletion_factors',
 		'depleted_cell_types.term_name',
+		'depleted_cell_types.term_id',
 		'derivation_process',
 		'dissociation_reagent',
 		'dissociation_time',
 		'dissociation_time_units',
 		'enriched_cell_types.term_name',
+		'enriched_cell_types.term_id',
 		'enrichment_factors',
 		'percent_cell_viability',
 		'uuid',
@@ -71,17 +74,24 @@ CELL_METADATA = {
 	'library': [
 		'uuid',
 		'protocol.assay_ontology.term_id',
+		'protocol.end_bias',
 		'starting_quantity',
 		'starting_quantity_units',
-		'@id'
+		'@id',
+		'lab.institute_name',
+		'dbxrefs'
 	],
 	'raw_matrix': [
 		'assembly',
 		'genome_annotation',
-		'software'
+		'software',
+		'intronic_reads_counted'
 	],
 	'seq_run': [
 		'platform'
+	],
+	'raw_seq': [
+		'flowcell_details'
 	]
 }
 
@@ -121,12 +131,20 @@ PROP_MAP = {
 	'sample_biosample_ontology_term_id': 'tissue_ontology_term_id',
 	'sample_summary_development_ontology_at_collection_term_id': 'development_stage_ontology_term_id',
 	'sample_age_development_stage_redundancy': 'donor_age_redundancy',
+	'sample_derivation_process': 'sample_collection_method',
 	'sample_disease_state': 'disease_state',
 	'sample_summary_body_mass_index_at_collection': 'donor_BMI_at_collection',
 	'sample_growth_medium': 'growth_medium',
 	'sample_genetic_modifications': 'genetic_modifications',
 	'sample_menstrual_phase_at_collection': 'menstrual_phase_at_collection',
+	'sample_source': 'tissue_source',
+	'sample_date_obtained' : 'sample_collection_year',
 	'library_protocol_assay_ontology_term_id': 'assay_ontology_term_id',
+	'library_lab_institute_name': 'institute',
+	'library_protocol_end_bias': 'sequenced_fragment',
+	'library_dbxrefs' : 'library_id_repository',
+	'library_starting_quantity':'cell_number_loaded',
+	'library_starting_quantity_units':'cell_number_loaded_units',
 	'donor_sex': 'sex',
 	'sample_@type': 'tissue_type',
 	'donor_donor_id': 'donor_id',
@@ -145,8 +163,11 @@ PROP_MAP = {
 	'suspension_suspension_type': 'suspension_type',
 	'suspension_enriched_cell_types_term_name': 'suspension_enriched_cell_types',
 	'suspension_depleted_cell_types_term_name': 'suspension_depleted_cell_types',
+	'suspension_enriched_cell_types_term_id': 'suspension_enriched_cell_terms',
+	'suspension_depleted_cell_types_term_id': 'suspension_depleted_cell_terms',
 	'suspension_cell_depletion_factors': 'suspension_depletion_factors',
 	'suspension_tissue_handling_interval': 'tissue_handling_interval',
+	'suspension_percent_cell_viability':'cell_viability_percentage',
 	'antibody_oligo_sequence': 'barcode',
 	'antibody_source': 'vendor',
 	'antibody_product_ids': 'vender_product_ids',
@@ -155,7 +176,135 @@ PROP_MAP = {
 	'antibody_host_organism': 'host_organism',
 	'target_organism_scientific_name': 'target_organism',
 	'raw_matrix_software': 'alignment_software',
-	'raw_matrix_genome_annotation': 'mapped_reference_annotation',
-	'raw_matrix_assembly': 'mapped_reference_assembly',
-	'seq_run_platform': 'sequencing_platform'
+	'raw_matrix_genome_annotation': 'gene_annotation_version',
+	'raw_matrix_assembly': 'reference_genome',
+	'raw_matrix_intronic_reads_counted':'intronic_reads_counted',
+	'seq_run_platform': 'sequencing_platform',
+	'raw_seq_flowcell_details': 'library_sequencing_run'
 }
+
+GENCODE_MAP = {
+	'GENCODE 44': 'v110',
+	'GENCODE 43': 'v109',
+	'GENCODE 42': 'v108',
+	'GENCODE 41': 'v107',
+	'GENCODE 40': 'v106',
+	'GENCODE 39': 'v105',
+	'GENCODE 38': 'v104',
+	'GENCODE 37': 'v103',
+	'GENCODE 36': 'v102',
+	'GENCODE 35': 'v101',
+	'GENCODE 34': 'v100',
+	'GENCODE 33': 'v99',
+	'GENCODE 32': 'v98',
+	'GENCODE 31': 'v97',
+	'GENCODE 30': 'v96',
+	'GENCODE 29': 'v94',
+	'GENCODE 28': 'v92',
+	'GENCODE 27': 'v90',
+	'GENCODE 26': 'v88',
+	'GENCODE 25': 'v85',
+	'GENCODE 24': 'v83',
+	'GENCODE 23': 'v81',
+	'GENCODE 22': 'v79',
+	'GENCODE 21': 'v77',
+	'GENCODE 20': 'v76',
+	'GENCODE 19': 'v75',
+}
+
+SAMPLE_COLLECTION_MAP = {
+	'percutaneous biopsy': 'biopsy',
+	'open biopsy': 'biopsy',
+	'resection': 'surgical resection',
+	'dissection': 'surgical resection',
+	'swab': 'brush',
+	'bronchoalveolar lavage': 'bodily fluid',
+	'aspiration': 'biopsy',
+	'density centrifugation': 'other',
+	'enzymatic digestion': 'other',
+	'cryosection': 'other'
+}
+
+SAMPLE_PRESERVATION_MAP = {
+	'cryopreservation': 'frozen at -80C',
+	'flash-freezing': 'frozen in liquid nitrogen',
+	'n/a (fresh)': 'fresh',
+	'paraffin embedding': 'paraffin block',
+	'OCT embedding': 'frozen at -80C'
+}
+
+OPTIONAL_COLUMNS = [
+	'alignment_software',
+	'cell_state',
+	'cell_viability_percentage',
+	'cell_number_loaded',
+	'cell_number_loaded_units',
+	'disease_state',
+	'donor_BMI_at_collection',
+	'donor_cause_of_death',
+	'donor_family_medical_history',
+	'donor_living_at_sample_collection',
+	'donor_menopausal_status',
+	'donor_smoking_status',
+	'donor_times_pregnant',
+	'gene_annotation_version',
+	'genetic_modifications',
+	'growth_medium',
+	'menstrual_phase_at_collection',
+	'reference_genome',
+	'reported_diseases',
+	'sample_treatment_summary',
+	'sample_collection_year',
+	'sequencing_platform',
+	'suspension_dissociation_reagent',
+	'suspension_dissociation_time',
+	'suspension_dissociation_time_units',
+	'suspension_depleted_cell_types',
+	'suspension_derivation_process',
+	'suspension_enriched_cell_types',
+	'suspension_enrichment_factors',
+	'suspension_depletion_factors', 
+	'suspension_uuid',
+	'tissue_section_thickness',
+	'tissue_section_thickness_units',
+	'tissue_source',
+	'tissue_handling_interval',
+	'tyrer_cuzick_lifetime_risk',
+	'library_id_repository',
+	'intronic_reads_counted'
+]
+
+COLUMNS_TO_DROP = [
+	'author_donor_@id',
+	'author_donor_x',
+	'author_donor_y',
+	'batch',
+	'donor_age_redundancy',
+	'donor_diseases_term_id',
+	'donor_diseases_term_name',
+	'library_@id_x',
+	'library_@id_y',
+	'library_authordonor',
+	'library_donor_@id',
+	'library_@id',
+	'raw_matrix_accession',
+	'sample_biosample_ontology_cell_slims',
+	'sample_summary_development_ontology_at_collection_development_slims',
+	'sample_diseases_term_id',
+	'sample_diseases_term_name',
+	'sample_biosample_ontology_organ_slims',
+	'sex',
+	'suspension_@id',
+	'suspension_depleted_cell_terms',
+	'suspension_enriched_cell_terms'
+]
+
+
+# Accepted accessions for library dbxrefs
+
+ACCEPTED_ACCESSIONS = {
+	'EGA:EGAX',
+	'SRA:SRX',
+	'ENA:ERX'
+}
+

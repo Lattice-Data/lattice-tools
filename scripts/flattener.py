@@ -34,7 +34,7 @@ For more details:
 '''
 
 class GlobVals:
-	def __init__(self, mfinal_obj, mfinal_adata, cxg_adata, cxg_adata_raw, cxg_obs, cxg_uns, cxg_obsm):
+	def __init__(self, mfinal_obj, mfinal_adata, cxg_adata, cxg_adata_raw, cxg_obs, cxg_uns, cxg_obsm, connection):
 		self.mfinal_obj = mfinal_obj
 		self.mfinal_adata = mfinal_adata
 		self.cxg_adata = cxg_adata
@@ -42,42 +42,34 @@ class GlobVals:
 		self.cxg_obs = cxg_obs
 		self.cxg_uns = cxg_uns
 		self.cxg_obsm = cxg_obsm
+		self.connection = connection
 
 def getArgs():
     parser = argparse.ArgumentParser(
         description=__doc__, epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('--file', '-f',
-                        help='Any identifier for the matrix of interest.')
-    parser.add_argument('--mode', '-m',
-                        help='The machine to run on.')
+    parser.add_argument(
+        '--file', 
+        '-f',
+        help='Any identifier for the matrix of interest.'
+    )
+    parser.add_argument(
+        '--mode',
+        '-m',
+        help='The machine to run on.'
+    )
+    parser.add_argument(
+        "--hcatier1",
+        "-t",
+        help="Add flag to include HCA Tier 1 requirements",
+        action="store_true",
+    )
     args = parser.parse_args()
     if len(sys.argv) == 1:
     	parser.print_help()
     	sys.exit()
     return args
-
-
-
-# Download file object from s3
-def download_file(download_url, directory, accession=None):
-	bucket_name = download_url.split('/')[2]
-	file_path = download_url.replace('s3://{}/'.format(bucket_name), '')
-	s3client = boto3.client("s3")
-	if accession:
-		file_ext = download_url.split('.')[-1]
-		file_name = accession + '.' + file_ext
-	else:
-		file_name = download_url.split('/')[-1]
-	print(file_name + ' downloading')
-	try:
-		s3client.download_file(bucket_name, file_path, directory + '/' + file_name)
-	except subprocess.CalledProcessError as e:
-		logging.error('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-		sys.exit('ERROR: Failed to find file {} on s3'.format(file_obj.get('@id')))
-	else:
-		print(file_name + ' downloaded')
 
 
 # Download entire directory contents from S3
@@ -140,6 +132,9 @@ def quality_check(glob):
 	if glob.cxg_adata.obs.isnull().values.any():
 		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format\
 			(glob.cxg_adata.obs.columns[glob.cxg_adata.obs.isna().any()].tolist()))
+	if glob.cxg_adata.var.shape[0]==0:
+		logging.error('ERROR: There are no genes in the normalized matrix.')
+		sys.exit("ERROR: There are no genes in the normalized matrix.")
 	if glob.mfinal_obj['X_normalized'] == True and glob.mfinal_obj['assays'] != ['snATAC-seq']:
 		if len(glob.cxg_adata.var.index.tolist()) > len(glob.cxg_adata.raw.var.index.tolist()):
 			logging.error('ERROR: There are more genes in normalized genes than in raw matrix.')
@@ -208,7 +203,7 @@ def report_diseases(mxr_df, exp_disease):
 # Determine overlapping suspension, create library & demultiplexed suspension df
 # get cell_metadata from that suspension, merge in library info
 # merge with mxr_df on library
-def demultiplex(lib_donor_df, library_susp, donor_susp, glob):
+def demultiplex(lib_donor_df, library_susp, donor_susp, glob, hcatier1):
 	susp_df = pd.DataFrame()
 	lattice_donor = {}
 	lattice_donor_col = []
@@ -245,12 +240,12 @@ def demultiplex(lib_donor_df, library_susp, donor_susp, glob):
 	obj_type_subset = ['sample', 'suspension', 'donor']
 	for susp in set(lib_donor_df['suspension_@id'].to_list()):
 		values_to_add = {}
-		susp_obj = lattice.get_object(susp, connection)
-		relevant_objects = fm.gather_objects(susp_obj, glob.mfinal_obj, connection, start_type='suspension')
+		susp_obj = lattice.get_object(susp, glob.connection)
+		relevant_objects = fm.gather_objects(susp_obj, glob.mfinal_obj, glob.connection, hcatier1, start_type='suspension')
 		for obj_type in obj_type_subset:
 		 	objs = relevant_objects.get(obj_type, [])
 		 	if len(objs) == 1:
-		 		values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+		 		values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 		 	else:
 		 		logging.error('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
 		 		sys.exit('ERROR: Could not find suspension for demultiplexed donor: {}'.format(obj_type))
@@ -289,7 +284,7 @@ def add_zero(glob):
 		new_var = pd.merge(new_var, glob.cxg_adata_raw.var, left_index=True, right_index=True, how='left')
 		new_var['feature_is_filtered'] = False
 		new_var.loc[genes_add, 'feature_is_filtered'] = True
-		new_adata = ad.AnnData(X=new_matrix, obs=glob.cxg_adata.obs, var=new_var, uns=glob.cxg_adata.uns, obsm=glob.cxg_adata.obsm)
+		new_adata = ad.AnnData(X=new_matrix, obs=glob.cxg_obs, var=new_var, uns=glob.cxg_uns, obsm=glob.cxg_obsm)
 		if glob.cxg_adata.layers:
 			for layer in glob.cxg_adata.layers:
 				new_layer = sparse.csr_matrix((glob.cxg_adata.layers[layer].data, glob.cxg_adata.layers[layer].indices, 
@@ -429,7 +424,7 @@ def get_results_filename(glob):
 	collection_id = None
 	dataset = glob.mfinal_obj.get('dataset', [])
 	obj_type, filter_url = lattice.parse_ids([dataset])
-	dataset_objs = lattice.get_report(obj_type, filter_url, ['cellxgene_urls'], connection)
+	dataset_objs = lattice.get_report(obj_type, filter_url, ['cellxgene_urls'], glob.connection)
 	if dataset_objs[0].get('cellxgene_urls', []):
 		collection_id = dataset_objs[0].get('cellxgene_urls', [])[0]
 		collection_id = collection_id.replace("https://cellxgene.cziscience.com/collections/", "")
@@ -448,7 +443,7 @@ def map_antibody(glob):
 	for anti_mapping in glob.mfinal_obj.get('antibody_mappings'):
 		values_to_add = {}
 		antibody = anti_mapping.get('antibody')
-		values_to_add = fm.gather_metdata('antibody', fm.ANTIBODY_METADATA['antibody'], values_to_add, [antibody], connection)
+		values_to_add = fm.gather_metdata('antibody', fm.ANTIBODY_METADATA['antibody'], values_to_add, [antibody], glob.connection)
 		values_to_add['host_organism'] = re.sub(r'/organisms/(.*)/', r'\1', values_to_add['host_organism'])
 		if not antibody.get('control'):
 			target = None
@@ -459,7 +454,7 @@ def map_antibody(glob):
 						target = [t]
 			else:
 				target = antibody.get('targets')
-			values_to_add = fm.gather_metdata('target', fm.ANTIBODY_METADATA['target'], values_to_add, target, connection)
+			values_to_add = fm.gather_metdata('target', fm.ANTIBODY_METADATA['target'], values_to_add, target, glob.connection)
 			values_to_add['feature_name'] = values_to_add['target_label']
 		else:
 			values_to_add['feature_name'] = '{} {} (control)'.format(values_to_add['host_organism'], values_to_add['isotype'])
@@ -486,11 +481,29 @@ def map_antibody(glob):
 def clean_obs(glob):
 	# For columns in mfinal_obj that contain continuous cell metrics, they are transferred to cxg_obs as float datatype
 	# WILL NEED TO REVISIT IF FINAL MATRIX CONTAINS MULTIPLE LAYERS THAT WE ARE WRANGLING
-	for author_col in glob.mfinal_obj.get('author_columns', []):
+	mfinal_author_cols = glob.mfinal_obj.get('author_columns', [])
+	for author_col in mfinal_author_cols:
 		if author_col in glob.mfinal_adata.obs.columns.to_list():
-			glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+			if author_col == 'sample_id' or author_col == 'library_id':
+				uuid_col = author_col.replace('id', 'uuid')
+				# Check that _id and _uuid have same key-value pairings and length of keys
+				if len(glob.mfinal_adata.obs[[author_col]].value_counts().values) == len(glob.cxg_obs[uuid_col].value_counts().values):
+					if (glob.mfinal_adata.obs[[author_col]].value_counts().values == glob.cxg_obs[uuid_col].value_counts().values).all():
+						glob.cxg_obs.drop(columns=uuid_col, inplace=True)
+						glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
+					else:
+						glob.cxg_obs.rename(columns={uuid_col:author_col}, inplace=True)
+				else:
+					glob.cxg_obs.rename(columns={uuid_col:author_col}, inplace=True)
+			else:	
+				glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
 			warning_list.append("WARNING: author_column not in final matrix: {}".format(author_col))
+	# Still rename uuid terms even if author column not present
+	if 'sample_id' not in mfinal_author_cols:
+		glob.cxg_obs.rename(columns={'sample_uuid':'sample_id'},inplace=True)
+	if 'library_id' not in mfinal_author_cols:
+		glob.cxg_obs.rename(columns={'library_uuid':'library_id'},inplace=True)
 	# if obs category suspension_type does not exist in dataset, create column and fill values with na (for spatial assay)
 	if 'suspension_type' not in glob.cxg_obs.columns:
 		glob.cxg_obs.insert(len(glob.cxg_obs.columns), 'suspension_type', 'na')
@@ -499,7 +512,7 @@ def clean_obs(glob):
 	
 	add_units = {'tissue_section_thickness': 'tissue_section_thickness_units',
 				'suspension_dissociation_time': 'suspension_dissociation_time_units',
-				'library_starting_quantity': 'library_starting_quantity_units'}
+				'cell_number_loaded': 'cell_number_loaded_units'}
 	for field in add_units.keys():
 		if field in glob.cxg_obs.columns:
 			glob.cxg_obs[field] = glob.cxg_obs[field].astype(str) + " " + glob.cxg_obs[add_units[field]].astype(str)
@@ -517,11 +530,21 @@ def clean_obs(glob):
 			else: 
 				glob.cxg_obs[field]  = glob.cxg_obs[field].astype('float')
 
-	change_unreported = ['suspension_enriched_cell_types', 'suspension_depleted_cell_types', 'suspension_enrichment_factors', 
-	'suspension_depletion_factors', 'disease_state', 'cell_state']
+	# Update unreported values
+	change_unreported = [
+		'sequenced_fragment',
+		'suspension_enriched_cell_types',
+		'suspension_depleted_cell_types',
+		'suspension_enrichment_factors',
+		'suspension_depletion_factors',
+		'disease_state',
+		'cell_state'
+	]
 	for field in change_unreported:
 		if field in glob.cxg_obs.columns.to_list():
 			glob.cxg_obs[field].replace({fm.UNREPORTED_VALUE: 'na'}, inplace=True)
+	glob.cxg_obs['sample_preservation_method'].replace({fm.UNREPORTED_VALUE: 'other'}, inplace=True)
+
 	valid_tissue_types = ['tissue', 'organoid', 'cellculture']
 	glob.cxg_obs['tissue_type'] = glob.cxg_obs['tissue_type'].str.lower()
 	for i in glob.cxg_obs['tissue_type'].unique().tolist():
@@ -537,23 +560,31 @@ def clean_obs(glob):
 
 	glob.cxg_obs[[i for i in glob.cxg_obs.columns.tolist() if i.startswith('family_history_')]] = \
 		glob.cxg_obs[[i for i in glob.cxg_obs.columns.tolist() if i.startswith('family_history_')]].fillna(value='unknown')
+	
+	# map gencode to ensembl version for HCA tier 1
+	if 'gene_annotation_version' in glob.cxg_obs.columns:
+		glob.cxg_obs['gene_annotation_version'] = glob.cxg_obs['gene_annotation_version'].map(fm.GENCODE_MAP)
+
+	glob.cxg_obs.replace({
+		'sample_collection_method': fm.SAMPLE_COLLECTION_MAP,
+		'sample_preservation_method': fm.SAMPLE_PRESERVATION_MAP,
+		'sequenced_fragment': {
+			"3'":'3 prime tag',
+			"5'": '5 prime tag'
+		},
+		'reference_genome': {
+			'hg19': 'GRCh37'
+		}
+	}, inplace=True)
+
 
 
 # Drop any intermediate or optional fields that are all empty
 def drop_cols(celltype_col, glob):
-	optional_columns = ['donor_BMI_at_collection', 'donor_family_medical_history', 'reported_diseases', 'donor_times_pregnant', 'sample_preservation_method',\
-			'sample_treatment_summary', 'suspension_uuid', 'tissue_section_thickness', 'tissue_section_thickness_units', 'cell_state', 'disease_state',\
-			'suspension_enriched_cell_types', 'suspension_enrichment_factors', 'suspension_depletion_factors', 'tyrer_cuzick_lifetime_risk',\
-			'donor_living_at_sample_collection', 'donor_menopausal_status', 'donor_smoking_status', 'sample_derivation_process', 'suspension_dissociation_reagent',\
-			'suspension_dissociation_time', 'suspension_depleted_cell_types', 'suspension_derivation_process', 'suspension_percent_cell_viability',\
-			'library_starting_quantity', 'library_starting_quantity_units', 'tissue_handling_interval', 'suspension_dissociation_time_units', 'alignment_software',\
-			'mapped_reference_annotation', 'mapped_reference_assembly', 'sequencing_platform', 'sample_source', 'donor_cause_of_death', 'growth_medium', 'genetic_modifications',
-			'menstrual_phase_at_collection']
-	
 	if 'sequencing_platform' in glob.cxg_obs.columns:
 		if glob.cxg_obs['sequencing_platform'].isnull().values.any():
 			glob.cxg_obs['sequencing_platform'].fillna(fm.UNREPORTED_VALUE, inplace=True)
-	for col in optional_columns:
+	for col in fm.OPTIONAL_COLUMNS:
 		if col in glob.cxg_obs.columns.to_list():
 			col_content = glob.cxg_obs[col].unique()
 			if len(col_content) == 1:
@@ -563,18 +594,16 @@ def drop_cols(celltype_col, glob):
 	if len(glob.cxg_obs['donor_age_redundancy'].unique()) == 1:
 		if glob.cxg_obs['donor_age_redundancy'].unique():
 			glob.cxg_obs.drop(columns='donor_age', inplace=True)
-	columns_to_drop = ['raw_matrix_accession', celltype_col, 'sample_diseases_term_id', 'sample_diseases_term_name', 'sample_biosample_ontology_organ_slims',\
-			'donor_diseases_term_id', 'donor_diseases_term_name', 'batch', 'library_@id_x', 'library_@id_y', 'author_donor_x', 'author_donor_y',\
-			'library_authordonor', 'author_donor_@id', 'library_donor_@id', 'suspension_@id', 'library_@id', 'sex', 'sample_biosample_ontology_cell_slims',\
-			'sample_summary_development_ontology_at_collection_development_slims', 'donor_age_redundancy']
-	for column_drop in columns_to_drop: 
+	fm.COLUMNS_TO_DROP.append(celltype_col)
+	for column_drop in fm.COLUMNS_TO_DROP:
 		if column_drop in glob.cxg_obs.columns.to_list():
 			glob.cxg_obs.drop(columns=column_drop, inplace=True)
 
 
+
 # Add ontology term names to CXG standardized columns
 def add_labels(glob):
-	obj = lattice.get_report('OntologyTerm', '', ['term_id', 'term_name'], connection)
+	obj = lattice.get_report('OntologyTerm', '', ['term_id', 'term_name'], glob.connection)
 	ontology_df = pd.DataFrame(obj)
 	id_cols = ['assay_ontology_term_id', 'disease_ontology_term_id', 'cell_type_ontology_term_id', 'development_stage_ontology_term_id', 'sex_ontology_term_id',\
 			'tissue_ontology_term_id', 'organism_ontology_term_id', 'self_reported_ethnicity_ontology_term_id']
@@ -669,10 +698,115 @@ def check_sums(adata_raw, glob):
 			warning_list.append("WARNING: obs need switch to in_tissue = 0: {}".format(need_flip))
 	return adata_raw
 
+# Check that are specific to HCA Tier1 schema
+def hcatier1_check(glob):
+	HCA_WARN_PREFIX = "WARNING: HCA Tier 1 Requirements:"
+	author_cols = glob.mfinal_obj.get('author_columns', [])
 
-def main(mfinal_id):
+	if 'study_pi' not in glob.cxg_uns:
+		warning_list.append(f"{HCA_WARN_PREFIX} 'study_pi' not in processed matrix file uns")
 
-	glob = GlobVals(None, None, None, None, None, None, None)
+	# these first 4 obs columns depend on the processed matrix file
+	# use glob.mfinal_adata to preserve dependency order of drop_cols() and clean_obs()
+	# see TOOLS-225 for further details
+
+	column_allowed_values = {
+		"sample_source": ["surgical donor", "postmortem donor", "living organ donor"],
+		"sampled_site_condition": ["healthy", "diseased", "adjacent"],
+		"manner_of_death": ["not applicable", "unknown", "", "0", "1", "2", "3", "4"],
+		"library_preparation_batch": "string or 'unknown'"
+	}
+
+	for column, allowed_values in column_allowed_values.items():
+		if column not in author_cols:
+			if column == "manner_of_death":
+				warning_list.append(
+					f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns, "
+					"will map from 'donor_living_at_sample_collection'"
+				)
+			else:
+				warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns")
+		if column == "manner_of_death" and column not in glob.mfinal_adata.obs.columns:
+			if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
+				glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
+				glob.cxg_obs["manner_of_death"].replace({
+					"True": "not applicable",
+					"False": "unknown",
+					"": "unknown",
+					"na": ""
+					},
+					inplace=True
+				)
+			else:
+				glob.cxg_obs["manner_of_death"] = "unknown"
+				warning_list.append(
+					f"{HCA_WARN_PREFIX} column 'donor_living_at_sample_collection' "
+					"not found. 'manner_of_death' set to 'unknown'."
+				)
+		if column in glob.mfinal_adata.obs.columns:
+			if isinstance(allowed_values, list):
+				not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if item not in allowed_values]
+			else:
+				not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if not isinstance(item, str)]
+		
+			for item in not_allowed:
+				warning_list.append(
+					f"{HCA_WARN_PREFIX} value '{item}' not allowed for '{column}'. "
+					f"HCA Tier 1 requires one of the following: {allowed_values}"
+				)
+		else:
+			if column == "manner_of_death" and "donor_living_at_sample_collection" in glob.cxg_obs.columns:
+				continue
+			warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in processed matrix file obs")
+
+	# columns in rest of function depend on Lattice
+	def map_cell_enrichment(row):
+		append_map = {
+			"suspension_enriched_cell_terms": "+",
+			"suspension_depleted_cell_terms": "-",
+		}
+		results = []
+		for column, addition in append_map.items():
+			if column in glob.cxg_obs.columns and row[column] != "unknown":
+				splits = row[column].split(",")
+				results.extend([split + addition for split in splits])
+		return ";".join(results) if results else "na"
+
+	glob.cxg_obs["cell_enrichment"] = glob.cxg_obs.apply(map_cell_enrichment, axis=1)
+
+	# Concatenate of flowcell and lane for Tier1 metadata
+	if 'library_sequencing_run' in glob.cxg_obs.columns:
+		if glob.cxg_obs['library_sequencing_run'].dtype != 'category':
+			glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].astype('category')
+		for seq_run in glob.cxg_obs['library_sequencing_run'].cat.categories:
+			if seq_run != 'unknown':
+				runs = []
+				orig_cat = seq_run
+				seq_run = seq_run.replace("pooled ","")
+				seq_run = seq_run.replace("'", '"')
+				seq_run_json = json.loads(seq_run)
+				if type(seq_run_json) == dict:
+					seq_run_json = [seq_run_json]
+				for flowcell in seq_run_json:
+					if 'flowcell' in flowcell:
+						summary = flowcell['flowcell'] + "_" + flowcell['lane']
+					else:
+						summary = flowcell['machine'] + "_" + flowcell['lane']
+					if summary not in runs:
+						runs.append(summary)
+				runs.sort()
+				glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].replace({orig_cat:";".join(runs)})
+		if glob.cxg_obs['library_sequencing_run'].isnull().values.any():
+			glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].cat.add_categories(['unknown'])
+			glob.cxg_obs['library_sequencing_run'] = glob.cxg_obs['library_sequencing_run'].fillna('unknown')
+
+	else:
+		glob.cxg_obs['library_sequencing_run'] = 'unknown'
+
+
+def main(mfinal_id, connection, hcatier1):
+
+	glob = GlobVals(None, None, None, None, None, None, None, connection)
 	glob.mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
@@ -714,7 +848,7 @@ def main(mfinal_id):
 	if os.path.exists(fm.MTX_DIR + '/' + glob.mfinal_obj['accession'] + '.h5ad'):
 		print(glob.mfinal_obj['accession'] + '.h5ad' + ' was found locally')
 	else:
-		download_file(glob.mfinal_obj.get('s3_uri'), fm.MTX_DIR, glob.mfinal_obj.get('accession'))
+		fm.download_file(glob.mfinal_obj.get('s3_uri'), fm.MTX_DIR, glob.mfinal_obj.get('accession'))
 
 	# Get list of unique final cell identifiers
 	file_url = glob.mfinal_obj['s3_uri']
@@ -727,7 +861,7 @@ def main(mfinal_id):
 	redundant = []
 
 	# get the list of matrix files that hold the raw counts corresponding to our Final Matrix
-	mxraws = fm.gather_rawmatrices(glob.mfinal_obj['derived_from'], connection)
+	mxraws = fm.gather_rawmatrices(glob.mfinal_obj['derived_from'], glob.connection)
 	donor_susp = {}
 	library_susp = {}
 	mapping_error = False
@@ -736,18 +870,18 @@ def main(mfinal_id):
 	for mxr in mxraws:
 		# get all of the objects necessary to pull the desired metadata
 		mxr_acc = mxr['accession']
-		relevant_objects = fm.gather_objects(mxr, glob.mfinal_obj, connection)
+		relevant_objects = fm.gather_objects(mxr, glob.mfinal_obj, glob.connection, hcatier1)
 		values_to_add = {}
 
 		# Get raw matrix metadata
-		values_to_add = fm.gather_metdata('raw_matrix', fm.CELL_METADATA['raw_matrix'], values_to_add, [mxr], connection)
+		values_to_add = fm.gather_metdata('raw_matrix', fm.CELL_METADATA['raw_matrix'], values_to_add, [mxr], glob.connection)
 
 		# If there is a demultiplexed_donor_column, assume it is a demuxlet experiment and demultiplex df metadata
 		# Gather library, suspension, and donor associations while iterating through relevant objects
 		# Cannot handle multiple pooling events, so will sys.exit
 		if 'demultiplexed_donor_column' in glob.mfinal_obj:
 			lib_obj = relevant_objects.get('library', [])
-			values_to_add = fm.gather_metdata('library', fm.CELL_METADATA['library'], values_to_add, lib_obj, connection)
+			values_to_add = fm.gather_metdata('library', fm.CELL_METADATA['library'], values_to_add, lib_obj, glob.connection)
 			for i in range(len(lib_obj)):
 				for single_lib_susp in lib_obj[i]['derived_from']:
 					if lib_obj[i]['@id'] not in library_susp:
@@ -778,7 +912,7 @@ def main(mfinal_id):
 			for obj_type in fm.CELL_METADATA.keys():
 				objs = relevant_objects.get(obj_type, [])
 				if len(objs) == 1:
-					values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+					values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 				elif len(objs) > 1:
 					# Check to make sure it is not multimodal before determining that it is pooled
 					if obj_type == 'library':
@@ -791,11 +925,11 @@ def main(mfinal_id):
 								single_obj = [o for o in objs if o.get('assay')=='snATAC-seq']
 							else:
 								single_obj = [o for o in objs if o.get('assay')=='snRNA-seq']
-							values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, single_obj, connection)
+							values_to_add = fm.gather_metdata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, single_obj, glob.connection)
 						else:
-							fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+							fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 					else:
-						fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, connection)
+						fm.gather_pooled_metadata(obj_type, fm.CELL_METADATA[obj_type], values_to_add, objs, glob.connection)
 		row_to_add = pd.DataFrame(values_to_add, index=[mxr['@id']], dtype=str)
 		
 		# Add anndata to list of final raw anndatas, only for RNAseq
@@ -805,12 +939,12 @@ def main(mfinal_id):
 				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5'):
 					print(mxr_acc + '.h5' + ' was found locally')
 				else:
-					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
+					fm.download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 			elif mxr['s3_uri'].endswith('h5ad'):
 				if os.path.exists(fm.MTX_DIR + '/' + mxr_acc + '.h5ad'):
 					print(mxr_acc + '.h5ad' + ' was found locally')
 				else:
-					download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
+					fm.download_file(mxr.get('s3_uri'), fm.MTX_DIR, mxr.get('accession'))
 
 			mxr_name = '{}.h5'.format(mxr_acc) if mxr['s3_uri'].endswith('h5') else '{}.h5ad'.format(mxr_acc)
 			if glob.mfinal_obj.get('spatial_s3_uri', None) and glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
@@ -846,7 +980,7 @@ def main(mfinal_id):
 				adata_raw.X = adata_raw.X.astype(np.float32)
 
 			if summary_assay == 'RNA':
-				row_to_add['mapped_reference_annotation'] = mxr['genome_annotation']
+				row_to_add['gene_annotation_version'] = mxr['genome_annotation']
 				adata_raw = adata_raw[:, adata_raw.var['feature_types']=='Gene Expression']
 			else:
 				adata_raw = adata_raw[:, adata_raw.var['feature_types']=='Antibody Capture']
@@ -915,9 +1049,9 @@ def main(mfinal_id):
 		df = pd.concat([df, row_to_add])
 		redundant = list(set(redundant))
 		
-	# Removing mapped_reference_annotation if genome_annotations from ProcMatrixFile is empty
+	# Removing gene_annotation_version if genome_annotations from ProcMatrixFile is empty
 	if not glob.mfinal_obj.get('genome_annotations', None):
-		del df['mapped_reference_annotation']
+		del df['gene_annotation_version']
 
 	if mapping_error:
 		logging.error('ERROR: There are {} mapping errors in cell_label_mappings:'.format(len(error_info.keys())))
@@ -929,7 +1063,7 @@ def main(mfinal_id):
 
 	# Get dataset-level metadata and set 'is_primary_data' for obs accordingly as boolean
 	ds_results = {}
-	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [glob.mfinal_obj], connection)
+	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [glob.mfinal_obj], glob.connection)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
 
@@ -951,7 +1085,7 @@ def main(mfinal_id):
 		annot_lst = []
 		annot_lst.append(annot_obj)
 		annot_metadata = {}
-		annot_metadata = fm.gather_metdata('cell_annotation', fm.ANNOT_FIELDS, annot_metadata, annot_lst, connection)
+		annot_metadata = fm.gather_metdata('cell_annotation', fm.ANNOT_FIELDS, annot_metadata, annot_lst, glob.connection)
 		annot_row = pd.DataFrame(annot_metadata, index=[annot_obj['author_cell_type']])
 		annot_df = pd.concat([annot_df, annot_row])
 
@@ -1071,7 +1205,7 @@ def main(mfinal_id):
 		glob.cxg_obs['library_authordonor'] = glob.cxg_obs['library_@id'] + ',' + glob.cxg_obs['author_donor']
 
 		lib_donor_df = glob.cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
-		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, glob)
+		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, glob, hcatier1)
 
 		report_diseases(donor_df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(donor_df)
@@ -1087,9 +1221,7 @@ def main(mfinal_id):
 		get_sex_ontology(df)
 		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
-	# Clean up columns in obs to follow cxg schema and drop any unnecessary fields
-	drop_cols(celltype_col, glob)
-	clean_obs(glob)
+	# Clean up memory
 	del cxg_adata_lst
 	gc.collect()
 
@@ -1106,7 +1238,7 @@ def main(mfinal_id):
 			logging.error("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 			sys.exit("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 
-	# If final matrix file is h5ad, take expression matrix from .X to create cxg anndata
+	# Create cxg_var and merge relevant metadata
 	results_file  = get_results_filename(glob)
 	glob.mfinal_adata.var_names_make_unique()
 	cxg_var = pd.DataFrame(index=glob.mfinal_adata.var.index.to_list())
@@ -1115,18 +1247,31 @@ def main(mfinal_id):
 		keep_types.append('object')
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 
+	# Copy over adata.uns
+	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
+	warnings = fm.copy_over_uns(glob, reserved_uns)
+	if warnings:
+		warning_list.append(warnings)
+
+	# Check hcatier1 fields if flag is true and then clean up obs
+	if hcatier1:
+		hcatier1_check(glob)
+	drop_cols(celltype_col, glob)
+	clean_obs(glob)
+
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
 		warnings = fm.process_spatial(glob)
 		if warnings:
 			warning_list.append(warnings)
-	# Check to see if need to add background spots
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
 		glob.cxg_obs.loc[(glob.cxg_obs['in_tissue']==0) & (glob.cxg_obs['cell_type_ontology_term_id']!='unknown'), 'cell_type_ontology_term_id'] = 'unknown'
+
+	# Asseemble glob.cxg_adata
 	glob.cxg_adata = ad.AnnData(glob.mfinal_adata.X, obs=glob.cxg_obs, obsm=glob.cxg_obsm, var=cxg_var, uns=glob.cxg_uns)
 	glob.cxg_adata.var = glob.cxg_adata.var.merge(var_meta, left_index=True, right_index=True, how='left')
-	
+
 	# Removing feature_length column from var if present
 	if 'feature_length' in glob.cxg_adata.var.columns:
 		adata.var.drop(columns=['feature_length'], inplace=True)
@@ -1161,17 +1306,7 @@ def main(mfinal_id):
 		add_labels(glob)
 		map_antibody(glob)
 		add_zero(glob)
-
-	# Copy over any additional data from mfinal_adata to cxg_adata
-	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
-	warnings = fm.copy_over_uns(glob, reserved_uns)
-	if warnings:
-		warning_list.append(warnings)
 	
-
-	if glob.mfinal_adata.obsp:
-		glob.cxg_adata.obsp = glob.mfinal_adata.obsp
-
 	# Check if mfinal_obj matrix is normalized,if so set cxg_adata.raw to raw, if not then place raw in adata.X
 	if glob.mfinal_obj['X_normalized']:
 		if summary_assay != 'ATAC' or glob.mfinal_adata.raw != None:
@@ -1180,6 +1315,12 @@ def main(mfinal_id):
 		glob.cxg_adata.var['feature_is_filtered'] = False
 		glob.cxg_adata = ad.AnnData(glob.cxg_adata_raw.X, obs=glob.cxg_adata.obs, obsm=glob.cxg_adata.obsm, var=glob.cxg_adata.var, uns=glob.cxg_adata.uns)
 	quality_check(glob)
+
+	
+
+	if glob.mfinal_adata.obsp:
+		glob.cxg_adata.obsp = glob.mfinal_adata.obsp
+
 	glob.cxg_adata.write_h5ad(results_file, compression='gzip')
 
 	# Printing out list of warnings
@@ -1189,9 +1330,8 @@ def main(mfinal_id):
 		if 'Full list available in logging file.' not in n:
 			logging.warning(n)
 
-args = getArgs()
-connection = lattice.Connection(args.mode)
-server = connection.server
 
 if __name__ == '__main__':
-    main(args.file)
+	args = getArgs()
+	connection = lattice.Connection(args.mode)
+	main(args.file, connection, args.hcatier1)
