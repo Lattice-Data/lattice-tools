@@ -311,7 +311,6 @@ def evaluate_10x_barcodes(prop, obs, visium=False):
         r_dict[prop] = a
         results.append(r_dict)
 
-    pd.set_option('future.no_silent_downcasting', True)
     df = pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
     df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple','None']]
             + [c for c in df if df[c].sum() == 0 and c not in ['multiple','None']]
