@@ -293,8 +293,11 @@ def barcode_compare(ref_df, obs_df):
         return barcode_results
 
 
-def evaluate_10x_barcodes(prop, obs):
-    if 'EFO:0010961' in obs['assay_ontology_term_id'].unique():
+def evaluate_10x_barcodes(prop, obs, visium=False):
+    if 'assay_ontology_term_id' in obs.columns and 'EFO:0010961' in obs['assay_ontology_term_id'].unique():
+        visium=True
+
+    if visium:
         csv = 'ref_files/visium_barcode_table.csv.gz'
     else:
         csv = 'ref_files/10X_barcode_table.csv.gz'
