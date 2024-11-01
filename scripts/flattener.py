@@ -320,6 +320,7 @@ def set_ensembl(redundant, glob):
 		glob.cxg_adata.var = glob.cxg_adata.var.set_index('gene_ids', drop=True)
 		glob.cxg_adata.var.index.name = None
 		glob.cxg_adata_raw.var.index.name = None
+		glob.cxg_adata_raw.var.drop(columns = ['gene_symbols'], inplace=True)
 
 		# Drop redundant by Ensembl ID
 		drop_redundant = list(set(redundant).intersection(set(glob.cxg_adata.var.index.to_list())))
