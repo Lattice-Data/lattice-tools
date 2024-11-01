@@ -302,34 +302,32 @@ def add_zero(glob):
 # WILL NEED TO ADD NEW BIOTYPE FOR CITE-SEQ
 def set_ensembl(redundant, glob):
 	raw_cols = glob.cxg_adata_raw.var.columns.to_list()
-	glob.cxg_adata_raw.var.drop(columns=[i for i in raw_cols if i!='gene_ids'], inplace=True)
+	glob.cxg_adata_raw.var.drop(columns=[i for i in raw_cols if i!='gene_symbols'], inplace=True)
 	if glob.mfinal_obj['feature_keys'] == ['gene symbol']:
-		if 'gene_ids' in glob.cxg_adata_raw.var.columns.to_list():
-			# Drop unmapped genes from normalized matrix
-			norm_index = set(glob.cxg_adata.var.index.to_list())
-			raw_index = set(glob.cxg_adata_raw.var.index.to_list())
-			drop_unmapped = list(norm_index.difference(raw_index))
-			glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in drop_unmapped]]
-			if len(drop_unmapped) > 0:
-				warning_list.append('WARNING: {} unmapped gene_symbols were dropped. Full list available in logging file. Preview: {}'.format(len(drop_unmapped), drop_unmapped[:10]))
-				warning_list.append('WARNING: Full list of the {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped), drop_unmapped))
-			glob.cxg_adata.var = pd.merge(glob.cxg_adata.var, glob.cxg_adata_raw.var, left_index=True, right_index=True, how='left', copy=True)
-			glob.cxg_adata.var = glob.cxg_adata.var.set_index('gene_ids', drop=True)
-			glob.cxg_adata_raw.var  = glob.cxg_adata_raw.var.set_index('gene_ids', drop=True)
-			glob.cxg_adata.var.index.name = None
-			glob.cxg_adata_raw.var.index.name = None
+		# Drop unmapped genes from normalized matrix, including those that have redundant gene symbols in glob.cxg_adata_raw
+		ensembl_map = glob.cxg_adata_raw.var.copy()
+		ensembl_map.drop_duplicates(keep=False, inplace=True)
+		norm_index = set(glob.cxg_adata.var.index.to_list())
+		raw_index = set(ensembl_map['gene_symbols'].to_list())
+		drop_unmapped = list(norm_index.difference(raw_index))
+		glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in drop_unmapped]]
+		if len(drop_unmapped) > 0:
+			warning_list.append('WARNING: {} unmapped gene_symbols were dropped. Full list available in logging file. Preview: {}'.format(len(drop_unmapped), drop_unmapped[:10]))
+			warning_list.append('WARNING: Full list of the {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped), drop_unmapped))
+		ensembl_map['gene_ids'] = ensembl_map.index
+		ensembl_map = ensembl_map.set_index('gene_symbols', drop=True)
+		glob.cxg_adata.var = pd.merge(glob.cxg_adata.var, ensembl_map, left_index=True, right_index=True, how='left', copy=True)
+		glob.cxg_adata.var = glob.cxg_adata.var.set_index('gene_ids', drop=True)
+		glob.cxg_adata.var.index.name = None
+		glob.cxg_adata_raw.var.index.name = None
 
-			# Drop redundant by Ensembl ID
-			drop_redundant = list(set(redundant).intersection(set(glob.cxg_adata.var.index.to_list())))
-			if len(drop_redundant) > 0:
-				warning_list.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant), drop_redundant))
-			glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in redundant]]
+		# Drop redundant by Ensembl ID
+		drop_redundant = list(set(redundant).intersection(set(glob.cxg_adata.var.index.to_list())))
+		if len(drop_redundant) > 0:
+			warning_list.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant), drop_redundant))
+		glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in redundant]]
 
-		else:
-			warning_list.append("WARNING: raw matrix does not have genes_ids column")
 	elif glob.mfinal_obj['feature_keys'] == ['Ensembl gene ID']:
-		glob.cxg_adata_raw.var_names_make_unique()
-		glob.cxg_adata_raw.var  = glob.cxg_adata_raw.var.set_index('gene_ids', drop=True)
 		glob.cxg_adata_raw.var.index.name = None
 		unique_to_norm =  set(glob.cxg_adata.var.index.to_list()).difference(set(glob.cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
@@ -349,9 +347,9 @@ def filter_ensembl(adata, compiled_annot):
 # Clean up columns and column names for var, gene name must be gene_id
 # WILL NEED TO REVISIT WHEN THERE IS MORE THAN ONE VALUE FOR GENE ID
 def clean_var(glob):
-	gene_pd = glob.cxg_adata_raw.var[[i for i in glob.cxg_adata_raw.var.columns.values.tolist() if 'gene_ids' in i]]
+	gene_pd = glob.cxg_adata_raw.var[[i for i in glob.cxg_adata_raw.var.columns.values.tolist() if 'gene_symbols' in i]]
 	gene_pd = gene_pd.replace('nan', np.nan)
-	gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_ids')
+	gene_pd = gene_pd.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_symbols')
 	glob.cxg_adata_raw.var.drop(columns=glob.cxg_adata_raw.var.columns.tolist(), inplace=True)
 	glob.cxg_adata_raw.var = glob.cxg_adata_raw.var.merge(gene_pd, left_index=True, right_index=True, how='left')
 
@@ -364,9 +362,6 @@ def reconcile_genes(cxg_adata_lst, glob):
 	stats = {}
 
 	# Join raw matrices on ensembl, gene symbols stored as metadata
-	for cxg_adata in cxg_adata_lst:
-		cxg_adata.var['gene_symbols'] = cxg_adata.var.index
-		cxg_adata.var = cxg_adata.var.set_index('gene_ids', drop=True)
 	cxg_adata_raw_ensembl = concat_list(cxg_adata_lst, 'gene_symbols', False)
 
 	# Join raw matrices on gene symbol, ensembl stored as metadata. Add suffix to make unique, using '.' as to match R default
@@ -398,11 +393,9 @@ def reconcile_genes(cxg_adata_lst, glob):
 	redundant = list(set(redundant))
 
 	# Clean up raw.var in outer join on ensembl and switch to gene symbol for index. Run var_names_make_unique and remove redundants after mapping of Ensembl
-	cxg_adata_raw_ensembl.var['gene_ids'] = cxg_adata_raw_ensembl.var.index
+	# Clean up raw.var in outer join on ensembl. Run var_names_make_unique and remove redundants after mapping of Ensembl
 	cxg_adata_raw_ensembl.var['gene_symbols'] = gene_pd_ensembl.stack().groupby(level=0).apply(lambda x: x.unique()[0]).to_frame(name='gene_symbols')
-	cxg_adata_raw_ensembl.var = cxg_adata_raw_ensembl.var.set_index('gene_symbols', drop=True)
 	cxg_adata_raw_ensembl.var.index.name = None
-	cxg_adata_raw_ensembl.var_names_make_unique(join='.')
 
 	all_remove = list(set(stats['multiple_ensembl'] + stats['multiple_symbols']))
 
@@ -1044,6 +1037,8 @@ def main(mfinal_id, connection, hcatier1):
 				if not glob.mfinal_obj.get('spatial_s3_uri', None):
 					adata_raw = adata_raw[overlapped_ids]
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
+				adata_raw.var['gene_symbols'] = adata_raw.var.index
+				adata_raw.var = adata_raw.var.set_index("gene_ids", drop=True)
 				cxg_adata_lst.append(adata_raw)
        
 		df = pd.concat([df, row_to_add])
@@ -1101,7 +1096,7 @@ def main(mfinal_id, connection, hcatier1):
 			logging.info('drop_all_removes:\t{}\t{}'.format(len(drop_removes), drop_removes))
 			glob.mfinal_adata = glob.mfinal_adata[:, [i for i in glob.mfinal_adata.var.index.to_list() if i not in all_remove]]
 		elif len(feature_lengths) > 1:
-			glob.cxg_adata_raw = concat_list(cxg_adata_lst, 'gene_ids', True)
+			glob.cxg_adata_raw = concat_list(cxg_adata_lst, 'gene_symbols', True)
 		else:
 			glob.cxg_adata_raw = concat_list(cxg_adata_lst, 'none', True)
 			if len(feature_lengths) == 1:
