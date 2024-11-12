@@ -275,7 +275,7 @@ class OntologyTerm:
         self.num_ancestors = len(self.ancestors)
 
 
-def find_common_ontology_term(pooled_ontology_terms: list[str], debug=False) -> str:
+def find_common_ontology_term(pooled_ontology_terms: list[str] | set[str], debug=False) -> str:
     """
     Take list input of pooled ontology terms and find the closest common ancestor for all input terms
     Finds intersection of all ancestor terms. Within this intersection, the term with the most
@@ -389,13 +389,12 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			if len(value_set) > 1:
 				if key in cxg_fields:
 					if key == 'development_stage_ontology_term_id':
-						dev_in_all = list(set.intersection(*map(set, dev_list)))
-						if dev_in_all == []:
-							logger.error('ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id')
-							sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
+						if not value_set:
+							logger.error('ERROR: There is no common development terms that can be used for development_stage_ontology_term_id')
+							sys.exit("ERROR: There is no common development terms that can be used for development_stage_ontology_term_id")
 						else:
-							obj = lattice.get_report('OntologyTerm','&status!=deleted&term_name='+dev_in_all[0], ['term_id'], connection)
-							values_to_add[key] = obj[0].get('term_id')
+							common_term = find_common_ontology_term(value_set)
+							values_to_add[key] = common_term
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
 					else:
