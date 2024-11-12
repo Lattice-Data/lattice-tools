@@ -5,6 +5,11 @@ import numpy as np
 import logging
 import flattener_mods.constants as constants
 import subprocess
+from cellxgene_ontology_guide.ontology_parser import OntologyParser 
+from dataclasses import dataclass
+
+# add some constant lookup to keep in sync with current schema version
+ONTOLOGY_PARSER = OntologyParser(schema_version=f"v5.2.0")
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -256,6 +261,50 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 
 	return values_to_add
 
+
+@dataclass
+class OntologyTerm:
+    term_id: str
+
+    def __post_init__(self):
+        self.label = ONTOLOGY_PARSER.get_term_label(self.term_id)
+        self.ancestors = set(
+            ONTOLOGY_PARSER.get_term_ancestors(self.term_id, include_self=True)
+        )
+        self.is_deprecated = ONTOLOGY_PARSER.is_term_deprecated(self.term_id)
+        self.num_ancestors = len(self.ancestors)
+
+
+def find_common_ontology_term(pooled_ontology_terms: list[str], debug=False) -> str:
+    """
+    Take list input of pooled ontology terms and find the closest common ancestor for all input terms
+    Finds intersection of all ancestor terms. Within this intersection, the term with the most
+    ancestor terms will be the narrowest ontology term for all inputs
+
+    pooled_ontology_terms: list[str] = input list of ontology term ids
+    debug: bool = False = set to True to get helpful print out of input, ancestor count, and sorting
+
+    returns str of ontology term that is most narrow for all input terms
+    """
+    ontology_terms = [OntologyTerm(term) for term in pooled_ontology_terms]
+    assert not any(
+        [term.is_deprecated for term in ontology_terms]
+    ), "Deprecated term as input"
+
+    intersection = set.intersection(*[term.ancestors for term in ontology_terms])
+    intersection_ancestors = [OntologyTerm(term) for term in intersection]
+    sorted_list = sorted(
+        intersection_ancestors, key=lambda x: (x.num_ancestors), reverse=True
+    )
+    if debug:
+        print("Input")
+        [print(term.term_id, term.label) for term in ontology_terms]
+        print("Sorted intersection via ancestor number")
+        [print(term.label, term.num_ancestors) for term in sorted_list]
+        print("Final output")
+        print(sorted_list[0].label, sorted_list[0].term_id)
+
+    return sorted_list[0].term_id
 
 
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection):
