@@ -333,7 +333,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 						db_ids = []
 						for db_id in value:
 							db_id = db_id.lstrip()
-							if re.split(r'[0-9]+$', dbid)[0] in constants.ACCEPTED_ACCESSIONS:
+							if re.split(r'[0-9]+$', db_id)[0] in constants.ACCEPTED_ACCESSIONS:
 								db_ids.append(db_id[4:])
 						if len(db_ids) > 1:
 							db_ids = sorted(db_ids)
