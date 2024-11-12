@@ -1225,19 +1225,6 @@ def main(mfinal_id, connection, hcatier1):
 	del cxg_adata_lst
 	gc.collect()
 
-	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
-	if glob.mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
-		primary_portion = glob.mfinal_obj.get('primary_portion')
-		if primary_portion.get('obs_field') not in glob.cxg_obs.columns:
-			logging.error("ERROR: 'obs_field' value '{}' not found in cxg_obs columns".format(primary_portion.get('obs_field')))
-			sys.exit("ERROR: 'obs_field' value '{}' not found in cxg_obs columns".format(primary_portion.get('obs_field')))
-
-		# Check that all primary_portion.values of ProcessedMatrixFile are found in the 'obs_field' column of cxg_obs
-		missing = [f for f in primary_portion.get('values') if f not in glob.cxg_obs[primary_portion.get('obs_field')].tolist()]
-		if missing:
-			logging.error("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
-			sys.exit("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
-
 	# Create cxg_var and merge relevant metadata
 	results_file  = get_results_filename(glob)
 	glob.mfinal_adata.var_names_make_unique()
@@ -1258,6 +1245,19 @@ def main(mfinal_id, connection, hcatier1):
 		hcatier1_check(glob)
 	drop_cols(celltype_col, glob)
 	clean_obs(glob)
+
+	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
+	if glob.mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
+		primary_portion = glob.mfinal_obj.get('primary_portion')
+		if primary_portion.get('obs_field') not in glob.cxg_obs.columns:
+			logging.error("ERROR: 'obs_field' value '{}' not found in cxg_obs columns".format(primary_portion.get('obs_field')))
+			sys.exit("ERROR: 'obs_field' value '{}' not found in cxg_obs columns".format(primary_portion.get('obs_field')))
+
+		# Check that all primary_portion.values of ProcessedMatrixFile are found in the 'obs_field' column of cxg_obs
+		missing = [f for f in primary_portion.get('values') if f not in glob.cxg_obs[primary_portion.get('obs_field')].tolist()]
+		if missing:
+			logging.error("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
+			sys.exit("ERROR: cxg_obs column '{}' doesn't contain values present in 'primary_portion.obs_field' of ProcessedMatrixFile: {}".format(primary_portion.get('obs_field'),missing))
 
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
