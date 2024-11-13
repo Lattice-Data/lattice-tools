@@ -387,19 +387,36 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
 							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
+				donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 				if key in cxg_fields:
 					if key == 'development_stage_ontology_term_id':
 						if not value_set:
-							logger.error('ERROR: There is no common development terms that can be used for development_stage_ontology_term_id')
-							sys.exit("ERROR: There is no common development terms that can be used for development_stage_ontology_term_id")
+							logger.error('ERROR: There are no pooled development terms that can be used for development_stage_ontology_term_id')
+							sys.exit("ERROR: There are no pooled development terms that can be used for development_stage_ontology_term_id")
 						else:
 							common_term = find_common_ontology_term(value_set)
 							values_to_add[key] = common_term
+							pooled_terms = [OntologyTerm(term) for term in value_set]
+							print(f"WARNING: Pooled development stage ontology terms for '{donor_id}': ")
+							[print('\t', term.term_id, term.label) for term in pooled_terms]
+							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
+					elif key == 'disease_ontology_term_id':
+						if 'PATO:0000461' in value_set:
+							logger.error("ERROR: Pooled disease ontology contains PATO:0000461 'normal'")
+							sys.exit("ERROR: Pooled disease ontology contains PATO:0000461 'normal'")
+						else:
+							common_term = find_common_ontology_term(value_set)
+							values_to_add[key] = common_term
+							pooled_terms = [OntologyTerm(term) for term in value_set]
+							print(f"WARNING: Pooled disease stage ontology terms for '{donor_id}': ")
+							[print('\t', term.term_id, term.label) for term in pooled_terms]
+							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
+						print(f"WARNING: Pooled sex terms for '{donor_id}', setting sex to 'unknown'")
 					else:
-						logger.error('ERROR: Cxg field is a list')
-						sys.exit("ERROR: Cxg field is a list")
+						logger.error(f"ERROR: Cxg field '{key}' is a list")
+						sys.exit(f"ERROR: Cxg field '{key}' is a list")
 				else:
 					values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
 			else:
