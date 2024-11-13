@@ -404,6 +404,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 							common_term = find_common_ontology_term(value_set)
 							values_to_add[key] = common_term
 							pooled_terms = [OntologyTerm(term) for term in value_set]
+							# TODO: change to warning list during glob warning refactor
 							print(f"WARNING: Pooled development stage ontology terms for '{donor_id}': ")
 							[print('\t', term.term_id, term.label) for term in pooled_terms]
 							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
@@ -415,11 +416,13 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 							common_term = find_common_ontology_term(value_set)
 							values_to_add[key] = common_term
 							pooled_terms = [OntologyTerm(term) for term in value_set]
-							print(f"WARNING: Pooled disease stage ontology terms for '{donor_id}': ")
+							# TODO: change to warning list during glob warning refactor
+							print(f"WARNING: Pooled disease ontology terms for '{donor_id}': ")
 							[print('\t', term.term_id, term.label) for term in pooled_terms]
 							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
+						# TODO: change to warning list during glob warning refactor
 						print(f"WARNING: Pooled sex terms for '{donor_id}', setting sex to 'unknown'")
 					else:
 						logger.error(f"ERROR: Cxg field '{key}' is a list")
