@@ -391,7 +391,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			key = constants.PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
+			cxg_fields = ['donor_diseases_term_id', 'organism_ontology_term_id',\
 							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
 				donor_id = values_to_add.get('donor_id', 'unknown donor_id')
@@ -408,18 +408,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 							print(f"WARNING: Pooled development stage ontology terms for '{donor_id}': ")
 							[print('\t', term.term_id, term.label) for term in pooled_terms]
 							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
-					elif key == 'disease_ontology_term_id':
-						if 'PATO:0000461' in value_set:
-							logger.error("ERROR: Pooled disease ontology contains PATO:0000461 'normal'")
-							sys.exit("ERROR: Pooled disease ontology contains PATO:0000461 'normal'")
-						else:
-							common_term = find_common_ontology_term(value_set)
-							values_to_add[key] = common_term
-							pooled_terms = [OntologyTerm(term) for term in value_set]
-							# TODO: change to warning list during glob warning refactor
-							print(f"WARNING: Pooled disease ontology terms for '{donor_id}': ")
-							[print('\t', term.term_id, term.label) for term in pooled_terms]
-							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
+					elif key == 'donor_diseases_term_id':
+						logger.error(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
+						sys.exit(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
 						# TODO: change to warning list during glob warning refactor
