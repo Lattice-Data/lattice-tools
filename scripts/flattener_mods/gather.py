@@ -342,6 +342,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			for index, row in values_df.iterrows():
 				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
 		elif prop == 'ethnicity':
+			donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 			values_df = pd.DataFrame()
 			latkey = (obj_type + '_' + prop).replace('.','_')
 			key = constants.PROP_MAP.get(latkey, latkey)
@@ -362,8 +363,14 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				elif len(set(ethnicity_list)) == len(ethnicity_list):
 					value = ethnicity_list[0]
 					values_df.loc[key,ident] = value
-			for index, row in values_df.iterrows():
-				values_to_add[index] = str(row[0])
+			# this dataframe will only ever be one row with ident as columns
+			ethnicity_set = set(values_df.loc[key].to_list())
+			if len(ethnicity_set) > 1:
+				values_to_add[key] = "unknown"
+				# TODO: change to warning list during glob warning refactor
+				print(f"WARNING: Pooled ethnicities '{ethnicity_set}' for '{donor_id}', setting to 'unknown'")
+			else:
+				values_to_add[key] = ethnicity_set.pop()
 		else:
 			value = list()
 			for obj in objs:
