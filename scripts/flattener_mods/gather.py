@@ -5,6 +5,7 @@ import numpy as np
 import logging
 import flattener_mods.constants as constants
 import subprocess
+import re
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -230,7 +231,7 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 				value_list = []
 				for v in value:
 					v = v.lstrip()
-					if v[:7] in constants.ACCEPTED_ACCESSIONS:
+					if re.split(r'[0-9]+$', v)[0] in constants.ACCEPTED_ACCESSIONS:
 						value_list.append(v[4:])
 				if len(value_list) > 1:
 					value_list = sorted(value_list)
@@ -321,12 +322,22 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				v = get_value(obj, prop)
 				if prop == 'summary_development_ontology_at_collection.development_slims':
 					dev_list.append(v)
-				if prop == 'cell_ontology.term_id':
+				elif prop == 'cell_ontology.term_id':
 					if v == 'NCIT:C17998':
 						v = 'unknown'
-				if prop == 'date_obtained':
+				elif prop == 'date_obtained':
 					if v != constants.UNREPORTED_VALUE:
 						v = v.split('-')[0]
+				elif prop == 'dbxrefs':
+					if v != constants.UNREPORTED_VALUE:
+						db_ids = []
+						for db_id in v:
+							db_id = db_id.lstrip()
+							if re.split(r'[0-9]+$', db_id)[0] in constants.ACCEPTED_ACCESSIONS:
+								db_ids.append(db_id[4:])
+						if len(db_ids) > 1:
+							db_ids = sorted(db_ids)
+					v = db_ids
 				if isinstance(v, list):
 					value.extend(v)
 				else:
@@ -335,7 +346,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			key = constants.PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id',\
+			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id', 'library_id_repository',\
 							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
 				if key in cxg_fields:
@@ -349,6 +360,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 							values_to_add[key] = obj[0].get('term_id')
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
+					elif key == 'library_id_repository':
+						values_to_add[key] = ','.join(value_str)
 					else:
 						logger.error('ERROR: Cxg field is a list')
 						sys.exit("ERROR: Cxg field is a list")
