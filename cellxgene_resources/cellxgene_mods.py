@@ -398,8 +398,8 @@ def evaluate_dup_counts(adata):
 
     matrix = adata.raw.X if adata.raw else adata.X
 
-    if isinstance(matrix, np.ndarray):
-        print("Matrix not in sparse format, please convert before hashing")
+    if not isinstance(matrix, sparse.csr_matrix):
+        print("Matrix not in sparse csr format, please convert before hashing")
         return
 
     data_array = matrix.data
