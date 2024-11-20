@@ -290,7 +290,7 @@ def find_common_ontology_term(pooled_ontology_terms: list[str] | set[str], debug
     ontology_terms = [OntologyTerm(term) for term in pooled_ontology_terms]
     assert not any(
         [term.is_deprecated for term in ontology_terms]
-    ), "Deprecated term as input"
+	), f"Deprecated term as input: {pooled_ontology_terms}"
 
     intersection = set.intersection(*[term.ancestors for term in ontology_terms])
     intersection_ancestors = [OntologyTerm(term) for term in intersection]
