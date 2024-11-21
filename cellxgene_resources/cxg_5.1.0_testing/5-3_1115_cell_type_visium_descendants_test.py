@@ -1,0 +1,78 @@
+"""
+QA testing for this issue:
+https://github.com/chanzuckerberg/single-cell-curation/issues/1103
+https://github.com/chanzuckerberg/single-cell-curation/pull/1115/
+"""
+
+import pytest
+from fixtures.valid_adatas import validator_with_all_visiums
+
+
+@pytest.mark.parametrize(
+    "assay_term",
+    (
+        pytest.param("EFO:0010961", id="Visium Spatial Gene Expression"),
+        pytest.param("EFO:0022858", id="Visium CytAssist Spatial Gene Expression V2"),
+        pytest.param("EFO:0022860", id="Visium CytAssist Spatial Gene Expression, 11mm"),
+        pytest.param("EFO:0022859", id="Visium CytAssist Spatial Gene Expression, 6.5mm"),
+        pytest.param("EFO:0022857", id="Visium Spatial Gene Expression V1"),
+    )
+)
+def test_in_tissue_zero_w_cell_type_partial(validator_with_all_visiums, assay_term):
+    validator = validator_with_all_visiums
+    random_cell_type = "CL:0001082"
+
+    validator.adata.obs['assay_ontology_term_id'] = assay_term
+    assert validator._is_visium_including_descendants()
+
+    # set first index in obs to fail
+    validator.adata.obs.iloc[0, validator.adata.obs.columns.get_loc("in_tissue")] = 0
+    
+    if random_cell_type not in validator.adata.obs["cell_type_ontology_term_id"].cat.categories:
+        validator.adata.obs["cell_type_ontology_term_id"] = validator.adata.obs["cell_type_ontology_term_id"].cat.add_categories(random_cell_type)
+
+    validator.adata.obs.iloc[0, validator.adata.obs.columns.get_loc("cell_type_ontology_term_id")] = random_cell_type
+
+    # only partial test to check method works
+    validator._validate_spatial_cell_type_ontology_term_id()
+
+    # ERROR: not added unless .validate_adata() called
+    error = "obs['cell_type_ontology_term_id'] must be 'unknown' when descendants of obs['assay_ontology_term_id'] 'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True and in_tissue is 0."
+
+    assert error in validator.errors
+
+
+@pytest.mark.parametrize(
+    "assay_term",
+    (
+        pytest.param("EFO:0010961", id="Visium Spatial Gene Expression"),
+        pytest.param("EFO:0022858", id="Visium CytAssist Spatial Gene Expression V2"),
+        pytest.param("EFO:0022860", id="Visium CytAssist Spatial Gene Expression, 11mm"),
+        pytest.param("EFO:0022859", id="Visium CytAssist Spatial Gene Expression, 6.5mm"),
+        pytest.param("EFO:0022857", id="Visium Spatial Gene Expression V1"),
+    )
+)
+def test_in_tissue_zero_w_cell_type_full(validator_with_all_visiums, assay_term):
+    validator = validator_with_all_visiums
+    random_cell_type = "CL:0001082"
+
+    validator.adata.obs['assay_ontology_term_id'] = assay_term
+    assert validator._is_visium_including_descendants()
+
+    # set first index in obs to fail
+    validator.adata.obs.iloc[0, validator.adata.obs.columns.get_loc("in_tissue")] = 0
+    
+    if random_cell_type not in validator.adata.obs["cell_type_ontology_term_id"].cat.categories:
+        validator.adata.obs["cell_type_ontology_term_id"] = validator.adata.obs["cell_type_ontology_term_id"].cat.add_categories(random_cell_type)
+
+    validator.adata.obs.iloc[0, validator.adata.obs.columns.get_loc("cell_type_ontology_term_id")] = random_cell_type
+
+    validator.validate_adata()
+
+    # full adata not yet valid due to beginning of 5.3.0 work
+    assert not validator.is_valid
+
+    # just check that specific error is present
+    error = "ERROR: obs['cell_type_ontology_term_id'] must be 'unknown' when descendants of obs['assay_ontology_term_id'] 'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True and in_tissue is 0."
+
+    assert error in validator.errors
