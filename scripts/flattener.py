@@ -305,6 +305,12 @@ def set_ensembl(redundant, glob):
 	glob.cxg_adata_raw.var.drop(columns=[i for i in raw_cols if i!='gene_symbols'], inplace=True)
 	if glob.mfinal_obj['feature_keys'] == ['gene symbol']:
 		# Drop unmapped genes from normalized matrix, including those that have redundant gene symbols in glob.cxg_adata_raw
+		glob.cxg_adata_raw.var['orig_index'] = glob.cxg_adata_raw.var.index
+		glob.cxg_adata_raw.var.set_index('gene_symbols', drop=True, inplace=True)
+		glob.cxg_adata_raw.var_names_make_unique(join='.')
+		glob.cxg_adata_raw.var['gene_symbols'] = glob.cxg_adata_raw.var.index
+		glob.cxg_adata_raw.var.set_index('orig_index', drop=True, inplace=True)
+		glob.cxg_adata_raw.var.name = None
 		ensembl_map = glob.cxg_adata_raw.var.copy()
 		ensembl_map.drop_duplicates(keep=False, inplace=True)
 		norm_index = set(glob.cxg_adata.var.index.to_list())
