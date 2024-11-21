@@ -21,9 +21,14 @@ H5ADS = [
     "valid_mouse.h5ad", 
     "slide_seq_image_human.h5ad",
     "slide_seq_no_image_human.h5ad",
+    "visium_v2_11mm_human.h5ad",    # originally CytAssist_11mm_FFPE_Human_Ovarian_Carcinoma_curated.h5ad from Jenny
     "visium_human_all_spots.h5ad",
     "visium_human_some_spots.h5ad",
 ]
+
+# will add better check for file, maybe to automatically download as well
+if not os.path.isfile(f"{FIXTURES_ROOT}/visium_v2_11mm_human.h5ad"):
+    raise FileNotFoundError('This file lives in S3, please download before running tests')
 
 # fixture exported to other tests, returns and therefor tests with each h5ad
 @pytest.fixture(params=H5ADS)
@@ -68,7 +73,7 @@ def validator_with_visium() -> Validator:
     return validator
 
 
-@pytest.fixture(params=H5ADS[3:])
+@pytest.fixture(params=H5ADS[4:])
 def validator_with_all_visiums(request) -> Validator:
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
