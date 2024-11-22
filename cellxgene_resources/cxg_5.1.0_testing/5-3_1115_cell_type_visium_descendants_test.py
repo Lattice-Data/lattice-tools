@@ -9,6 +9,25 @@ from fixtures.valid_adatas import validator_with_all_visiums
 
 
 @pytest.mark.parametrize(
+    "assay_term,expected",
+    (
+        pytest.param("EFO:0010961", True, id="Visium Spatial Gene Expression"),
+        pytest.param("EFO:0022858", True, id="Visium CytAssist Spatial Gene Expression V2"),
+        pytest.param("EFO:0022860", True, id="Visium CytAssist Spatial Gene Expression, 11mm"),
+        pytest.param("EFO:0022859", True, id="Visium CytAssist Spatial Gene Expression, 6.5mm"),
+        pytest.param("EFO:0022857", True, id="Visium Spatial Gene Expression V1"),
+        pytest.param("EFO:0030005", False, id="spatial transcriptomics by high-throughput sequencing"),
+        pytest.param("EFO:0009922", False, id="10x 3' v3"),
+    )
+)
+def test_visium_descendants(validator_with_all_visiums, assay_term, expected):
+    validator = validator_with_all_visiums
+    validator.adata.obs['assay_ontology_term_id'] = assay_term
+    validator._is_visium_including_descendants() 
+    assert validator.is_visium == expected
+
+
+parameters_visiums = (
     "assay_term",
     (
         pytest.param("EFO:0010961", id="Visium Spatial Gene Expression"),
@@ -18,12 +37,14 @@ from fixtures.valid_adatas import validator_with_all_visiums
         pytest.param("EFO:0022857", id="Visium Spatial Gene Expression V1"),
     )
 )
+
+
+@pytest.mark.parametrize(*parameters_visiums)
 def test_in_tissue_zero_w_cell_type_partial(validator_with_all_visiums, assay_term):
     validator = validator_with_all_visiums
     random_cell_type = "CL:0001082"
 
     validator.adata.obs['assay_ontology_term_id'] = assay_term
-    assert validator._is_visium_including_descendants()
 
     # set first index in obs to fail
     validator.adata.obs.iloc[0, validator.adata.obs.columns.get_loc("in_tissue")] = 0
@@ -42,22 +63,11 @@ def test_in_tissue_zero_w_cell_type_partial(validator_with_all_visiums, assay_te
     assert error in validator.errors
 
 
-@pytest.mark.parametrize(
-    "assay_term",
-    (
-        pytest.param("EFO:0010961", id="Visium Spatial Gene Expression"),
-        pytest.param("EFO:0022858", id="Visium CytAssist Spatial Gene Expression V2"),
-        pytest.param("EFO:0022860", id="Visium CytAssist Spatial Gene Expression, 11mm"),
-        pytest.param("EFO:0022859", id="Visium CytAssist Spatial Gene Expression, 6.5mm"),
-        pytest.param("EFO:0022857", id="Visium Spatial Gene Expression V1"),
-    )
-)
+@pytest.mark.parametrize(*parameters_visiums)
 def test_in_tissue_zero_w_cell_type_full(validator_with_all_visiums, assay_term):
     validator = validator_with_all_visiums
     random_cell_type = "CL:0001082"
-
     validator.adata.obs['assay_ontology_term_id'] = assay_term
-    assert validator._is_visium_including_descendants()
 
     # set first index in obs to fail
     validator.adata.obs.iloc[0, validator.adata.obs.columns.get_loc("in_tissue")] = 0
