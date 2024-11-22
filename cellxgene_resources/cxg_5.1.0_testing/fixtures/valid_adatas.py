@@ -38,7 +38,7 @@ def validator_with_all_adatas(request) -> Validator:
     return validator
 
 
-@pytest.fixture(params=H5ADS[1:])
+@pytest.fixture(params=H5ADS[2:])
 def validator_with_spatial_adatas(request) -> Validator:
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
