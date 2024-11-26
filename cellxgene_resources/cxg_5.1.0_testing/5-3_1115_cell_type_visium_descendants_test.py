@@ -8,6 +8,9 @@ import pytest
 from fixtures.valid_adatas import validator_with_all_visiums
 
 
+# ERROR: not added unless .validate_adata() called
+CT_UNKNOWN_ERROR = "obs['cell_type_ontology_term_id'] must be 'unknown' when obs['assay_ontology_term_id'] is a descendant of 'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True and in_tissue is 0."
+
 @pytest.mark.parametrize(
     "assay_term,expected",
     (
@@ -38,7 +41,6 @@ parameters_visiums = (
     )
 )
 
-
 @pytest.mark.parametrize(*parameters_visiums)
 def test_in_tissue_zero_w_cell_type_partial(validator_with_all_visiums, assay_term):
     validator = validator_with_all_visiums
@@ -57,10 +59,7 @@ def test_in_tissue_zero_w_cell_type_partial(validator_with_all_visiums, assay_te
     # only partial test to check method works
     validator._validate_spatial_cell_type_ontology_term_id()
 
-    # ERROR: not added unless .validate_adata() called
-    error = "obs['cell_type_ontology_term_id'] must be 'unknown' when descendants of obs['assay_ontology_term_id'] 'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True and in_tissue is 0."
-
-    assert error in validator.errors
+    assert CT_UNKNOWN_ERROR in validator.errors
 
 
 @pytest.mark.parametrize(*parameters_visiums)
@@ -83,6 +82,6 @@ def test_in_tissue_zero_w_cell_type_full(validator_with_all_visiums, assay_term)
     assert not validator.is_valid
 
     # just check that specific error is present
-    error = "ERROR: obs['cell_type_ontology_term_id'] must be 'unknown' when descendants of obs['assay_ontology_term_id'] 'EFO:0010961' (Visium Spatial Gene Expression) and uns['spatial']['is_single'] is True and in_tissue is 0."
+    ERROR_WITH_PREFIX = "ERROR: " + CT_UNKNOWN_ERROR
 
-    assert error in validator.errors
+    assert ERROR_WITH_PREFIX in validator.errors
