@@ -85,3 +85,13 @@ def test_in_tissue_zero_w_cell_type_full(validator_with_all_visiums, assay_term)
     ERROR_WITH_PREFIX = "ERROR: " + CT_UNKNOWN_ERROR
 
     assert ERROR_WITH_PREFIX in validator.errors
+
+
+# initial issue with categorical check, making sure fix can work with object, string, category, etc
+@pytest.mark.parametrize(*parameters_visiums)
+def test_assay_term_string(validator_with_all_visiums, assay_term):
+    validator = validator_with_all_visiums
+    validator.adata.obs["assay_ontology_term_id"] = assay_term
+    assert validator.adata.obs["assay_ontology_term_id"].dtype == 'object'
+    validator.validate_adata()
+    assert not validator.is_valid
