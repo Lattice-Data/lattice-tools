@@ -11,7 +11,8 @@ from fixtures.valid_adatas import (
     validator_with_spatial_adatas,
     validator_with_non_spatial_adata,
     validator_with_all_adatas,
-    validator_with_non_visium_adatas
+    validator_with_non_visium_adatas,
+    validator_with_human_adatas
 )
 
 ANCESTORY_COLUMNS = [
@@ -30,15 +31,15 @@ def add_valid_ancestory(adata):
         adata.obs[col] = adata.obs[col].astype("float")
 
 
-def test_valid_with_nan_ancestory(validator_with_non_visium_adatas):
-    validator = validator_with_non_visium_adatas
+def test_valid_with_nan_ancestory(validator_with_human_adatas):
+    validator = validator_with_human_adatas
     add_valid_ancestory(validator.adata)
     validator.validate_adata()
     assert validator.is_valid
 
 
-def test_ancestory_is_one(validator_with_non_visium_adatas):
-    validator = validator_with_non_visium_adatas
+def test_ancestory_is_one(validator_with_human_adatas):
+    validator = validator_with_human_adatas
     add_valid_ancestory(validator.adata)
     values = (0.25, 0.25, 0.25, 0.25, 0, 0)
     first_donor = validator.adata.obs["donor_id"].unique()[0]
