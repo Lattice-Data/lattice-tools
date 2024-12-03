@@ -791,7 +791,7 @@ def evaluate_donors_sex(adata):
         genes = json.load(open(genes_file))
         female_ids = genes['female'].keys()
         male_ids = genes['male'].keys()
-        metadata_list = ['donor_id', 'sex_ontology_term_id']
+        metadata_list = ['donor_id', 'sex_ontology_term_id','assay_ontology_term_id']
         smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
         adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
         adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
