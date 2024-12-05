@@ -38,6 +38,20 @@ def validator_with_all_adatas(request) -> Validator:
     return validator
 
 
+@pytest.fixture()
+def validator_human_adata() -> Validator:
+    validator = Validator()
+    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[0]}")
+    return validator
+
+
+@pytest.fixture()
+def validator_mouse_adata() -> Validator:
+    validator = Validator()
+    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[1]}")
+    return validator
+
+
 @pytest.fixture(params=[file for file in H5ADS if "human" in file])
 def validator_with_human_adatas(request) -> Validator:
     validator = Validator()
