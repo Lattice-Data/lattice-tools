@@ -35,37 +35,37 @@ def add_valid_nan_ancestory(adata, fill_value=float("nan")):
 
 def test_valid_with_nan_ancestory(validator_human_adata):
     validator = validator_human_adata
-    add_valid_nan_ancestory(validator.adata)
     validator.validate_adata()
     assert validator.is_valid
+    assert validator.errors == []
 
 
 def test_valid_mouse_nan_ancestory(validator_mouse_adata):
     validator = validator_mouse_adata
-    add_valid_nan_ancestory(validator.adata)
     validator.validate_adata()
     assert validator.is_valid
+    assert validator.errors == []
 
 
 def test_one_row_different(validator_human_adata):
     validator = validator_human_adata
-    add_valid_nan_ancestory(validator.adata)
     values = (0.25, 0.25, 0.25, 0.25, 0, 0)
     for value, ancestory_col in zip(values, ANCESTORY_COLUMNS):
         validator.adata.obs.loc[validator.adata.obs.index[0], ancestory_col] = value
     validator.validate_adata()
-    assert validator.is_valid
+    assert not validator.is_valid
+    assert validator.errors == []
 
 
 def test_ancestory_is_one(validator_human_adata):
     validator = validator_human_adata
-    add_valid_nan_ancestory(validator.adata)
     values = (0.25, 0.25, 0.25, 0.25, 0, 0)
     first_donor = validator.adata.obs["donor_id"].unique()[0]
     for value, ancestory_col in zip(values, ANCESTORY_COLUMNS):
         validator.adata.obs.loc[validator.adata.obs["donor_id"] == first_donor, ancestory_col] = value
     validator.validate_adata()
     assert validator.is_valid
+    assert validator.errors == []
 
 
 @pytest.mark.parametrize(
@@ -86,7 +86,6 @@ def test_ancestory_is_one(validator_human_adata):
 )
 def test_donor_values_differ(validator_human_adata, new_float):
     validator = validator_human_adata
-    add_valid_nan_ancestory(validator.adata)
     values = (0.25, 0.25, 0.25, 0.25, 0, 0)
     first_donor = validator.adata.obs["donor_id"].unique()[0]
     first_donor_indices = validator.adata.obs[validator.adata.obs["donor_id"] == first_donor].index
@@ -97,24 +96,26 @@ def test_donor_values_differ(validator_human_adata, new_float):
     validator.adata.obs.loc[validator.adata.obs.index == first_donor_indices[1], ANCESTORY_COLUMNS[0]] = new_float
     
     validator.validate_adata()
-    assert validator.is_valid
+    assert not validator.is_valid
+    assert validator.errors == []
 
 
 @pytest.mark.parametrize(
-    "nan_value",
+    "nan_value,expected",
     (
-        pytest.param(float("nan"), id="float nan"),
-        pytest.param(None, id="None"),
-        pytest.param(np.nan, id="np.nan"),
-        pytest.param(pd.NA, id="pd.NA"),
+        pytest.param(float("nan"), True, id="float nan"),
+        pytest.param(None, True, id="None"),
+        pytest.param(np.nan, True, id="np.nan"),
+        pytest.param(pd.NA, False, id="pd.NA"),
     )
 )
-def test_different_nan_values(validator_human_adata, nan_value):
+def test_different_nan_values(validator_human_adata, nan_value, expected):
     validator = validator_human_adata
     add_valid_nan_ancestory(validator.adata, nan_value)
     
     validator.validate_adata()
-    assert validator.is_valid
+    assert validator.is_valid is expected
+    assert validator.errors == []
 
 
 @pytest.mark.parametrize(
@@ -130,9 +131,9 @@ def test_different_nan_values(validator_human_adata, nan_value):
 )
 def test_value_over_one(validator_human_adata, value):
     validator = validator_human_adata
-    add_valid_nan_ancestory(validator.adata)
 
     validator.adata.obs.loc[validator.adata.obs.index[0], ANCESTORY_COLUMNS[0]] = value
     
     validator.validate_adata()
-    assert validator.is_valid
+    assert not validator.is_valid
+    assert validator.errors == []
