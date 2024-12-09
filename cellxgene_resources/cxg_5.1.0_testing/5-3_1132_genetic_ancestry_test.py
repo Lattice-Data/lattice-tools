@@ -18,7 +18,7 @@ from fixtures.valid_adatas import (
     validator_mouse_adata
 )
 
-ANCESTORY_COLUMNS = [
+ANCESTRY_COLUMNS = [
     "genetic_ancestry_African",
     "genetic_ancestry_East_Asian",
     "genetic_ancestry_European",
@@ -27,20 +27,20 @@ ANCESTORY_COLUMNS = [
     "genetic_ancestry_South_Asian",
 ]
 
-def add_valid_nan_ancestory(adata, fill_value=float("nan")):
-    for col in ANCESTORY_COLUMNS:
+def add_valid_nan_ancestry(adata, fill_value=float("nan")):
+    for col in ANCESTRY_COLUMNS:
         adata.obs[col] = fill_value
         adata.obs[col] = adata.obs[col].astype("float")
 
 
-def test_valid_with_nan_ancestory(validator_human_adata):
+def test_valid_with_nan_ancestry(validator_human_adata):
     validator = validator_human_adata
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
 
 
-def test_valid_mouse_nan_ancestory(validator_mouse_adata):
+def test_valid_mouse_nan_ancestry(validator_mouse_adata):
     validator = validator_mouse_adata
     validator.validate_adata()
     assert validator.is_valid
@@ -50,19 +50,19 @@ def test_valid_mouse_nan_ancestory(validator_mouse_adata):
 def test_one_row_different(validator_human_adata):
     validator = validator_human_adata
     values = (0.25, 0.25, 0.25, 0.25, 0, 0)
-    for value, ancestory_col in zip(values, ANCESTORY_COLUMNS):
-        validator.adata.obs.loc[validator.adata.obs.index[0], ancestory_col] = value
+    for value, ancestry_col in zip(values, ANCESTRY_COLUMNS):
+        validator.adata.obs.loc[validator.adata.obs.index[0], ancestry_col] = value
     validator.validate_adata()
     assert not validator.is_valid
     assert validator.errors == []
 
 
-def test_ancestory_is_one(validator_human_adata):
+def test_ancestry_is_one(validator_human_adata):
     validator = validator_human_adata
     values = (0.25, 0.25, 0.25, 0.25, 0, 0)
     first_donor = validator.adata.obs["donor_id"].unique()[0]
-    for value, ancestory_col in zip(values, ANCESTORY_COLUMNS):
-        validator.adata.obs.loc[validator.adata.obs["donor_id"] == first_donor, ancestory_col] = value
+    for value, ancestry_col in zip(values, ANCESTRY_COLUMNS):
+        validator.adata.obs.loc[validator.adata.obs["donor_id"] == first_donor, ancestry_col] = value
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
@@ -90,10 +90,10 @@ def test_donor_values_differ(validator_human_adata, new_float):
     first_donor = validator.adata.obs["donor_id"].unique()[0]
     first_donor_indices = validator.adata.obs[validator.adata.obs["donor_id"] == first_donor].index
     
-    for value, ancestory_col in zip(values, ANCESTORY_COLUMNS):
-        validator.adata.obs.loc[validator.adata.obs["donor_id"] == first_donor, ancestory_col] = value
+    for value, ancestry_col in zip(values, ANCESTRY_COLUMNS):
+        validator.adata.obs.loc[validator.adata.obs["donor_id"] == first_donor, ancestry_col] = value
 
-    validator.adata.obs.loc[validator.adata.obs.index == first_donor_indices[1], ANCESTORY_COLUMNS[0]] = new_float
+    validator.adata.obs.loc[validator.adata.obs.index == first_donor_indices[1], ANCESTRY_COLUMNS[0]] = new_float
     
     validator.validate_adata()
     assert not validator.is_valid
@@ -111,7 +111,7 @@ def test_donor_values_differ(validator_human_adata, new_float):
 )
 def test_different_nan_values(validator_human_adata, nan_value, expected):
     validator = validator_human_adata
-    add_valid_nan_ancestory(validator.adata, nan_value)
+    add_valid_nan_ancestry(validator.adata, nan_value)
     
     validator.validate_adata()
     assert validator.is_valid is expected
@@ -132,7 +132,7 @@ def test_different_nan_values(validator_human_adata, nan_value, expected):
 def test_value_over_one(validator_human_adata, value):
     validator = validator_human_adata
 
-    validator.adata.obs.loc[validator.adata.obs.index[0], ANCESTORY_COLUMNS[0]] = value
+    validator.adata.obs.loc[validator.adata.obs.index[0], ANCESTRY_COLUMNS[0]] = value
     
     validator.validate_adata()
     assert not validator.is_valid
