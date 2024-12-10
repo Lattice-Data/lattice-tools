@@ -5,6 +5,10 @@ https://github.com/chanzuckerberg/single-cell-curation/pull/858
 Further bug fixes here:
 https://github.com/chanzuckerberg/single-cell-curation/issues/862
 https://github.com/chanzuckerberg/single-cell-curation/pull/875
+
+Lots of overlap with updating to visium CytAssist and 11mm, so relevant links:
+https://github.com/chanzuckerberg/single-cell-curation/pull/1129
+https://github.com/chanzuckerberg/single-cell-curation/issues/1107
 """
 
 import numpy as np
