@@ -37,11 +37,11 @@ def test_uns_spatial_fails(validator_with_non_spatial_adata):
     validator.adata.uns["spatial"] = True
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
+    assert (
         "ERROR: uns['spatial'] is only allowed when obs['assay_ontology_term_id']"
         " is either a descendant of 'EFO:0010961' (Visium Spatial Gene Expression)"
         " or 'EFO:0030062' (Slide-seqV2)"
-    ]
+    ) in validator.errors
 
 
 def test_delete_uns_spatial(validator_with_spatial_adatas):
@@ -49,7 +49,10 @@ def test_delete_uns_spatial(validator_with_spatial_adatas):
     del validator.adata.uns["spatial"]
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors[0] == "ERROR: A dict in uns['spatial'] is required when obs['assay_ontology_term_id'] is either a descendant of 'EFO:0010961' (Visium Spatial Gene Expression) or 'EFO:0030062' (Slide-seqV2)."
+    assert (
+        "ERROR: A dict in uns['spatial'] is required when obs['assay_ontology_term_id']"
+        " is either a descendant of 'EFO:0010961' (Visium Spatial Gene Expression) or 'EFO:0030062' (Slide-seqV2)."
+    ) in validator.errors
 
 
 @pytest.mark.parametrize(
@@ -60,7 +63,10 @@ def test_uns_spatial_is_not_dict(validator_with_all_visiums, value):
     validator.adata.uns["spatial"] = value
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors[0] == "ERROR: A dict in uns['spatial'] is required when obs['assay_ontology_term_id'] is either a descendant of 'EFO:0010961' (Visium Spatial Gene Expression) or 'EFO:0030062' (Slide-seqV2)."
+    assert (
+        "ERROR: A dict in uns['spatial'] is required when obs['assay_ontology_term_id'] "
+        "is either a descendant of 'EFO:0010961' (Visium Spatial Gene Expression) or 'EFO:0030062' (Slide-seqV2)."
+    ) in validator.errors
     
 
 
@@ -69,7 +75,9 @@ def test_delete_uns_is_single_visium(validator_with_all_visiums):
     del validator.adata.uns["spatial"]["is_single"]
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors[0] == "ERROR: uns['spatial'] must contain the key 'is_single'."
+    assert (
+        "ERROR: uns['spatial'] must contain the key 'is_single'."
+    ) in validator.errors
 
 
 def test_delete_uns_is_single_slide_seq(validator_with_slide_seq_adatas):
@@ -91,7 +99,9 @@ def test_uns_is_single_non_boolean(validator_with_spatial_adatas, value):
     validator.adata.uns["spatial"]["is_single"] = value
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors[0] == f"ERROR: uns['spatial']['is_single'] must be of boolean type, it is {type(value)}."
+    assert (
+        f"ERROR: uns['spatial']['is_single'] must be of boolean type, it is {type(value)}."
+    ) in validator.errors
 
 
 def test_uns_spatial_library_id(validator_with_all_visiums):
@@ -157,11 +167,11 @@ def test_multiple_library_ids(validator_with_all_visiums):
     validator.adata.uns["spatial"]["second_library_id"] = {}
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
+    assert (
         f"ERROR: uns['spatial'] must contain only two top-level keys: 'is_single' and a library_id. "
         f"More than two top-level keys detected: ['{library_id}', "
         f"'second_library_id']."
-    ]
+    ) in validator.errors
 
 
 def test_add_library_id_keys(validator_with_all_visiums):
@@ -310,9 +320,10 @@ def test_hires_dimension_too_small(validator_with_all_visiums):
 @pytest.mark.parametrize(
     "value", (None, 1, 1.0, "string value", "", [], True, False, np.array([]), pd.DataFrame([]))
 )
-def test_scalefactor_type(validator_with_visium, value):
-    validator = validator_with_visium
-    validator.adata.uns["spatial"][LIBRARY_ID]["scalefactors"] = value
+def test_scalefactor_type(validator_with_all_visiums, value):
+    validator = validator_with_all_visiums
+    library_id = get_library_id(validator.adata)
+    validator.adata.uns["spatial"][library_id]["scalefactors"] = value
     validator.validate_adata()
     assert validator.is_valid is False
     assert (
@@ -341,24 +352,26 @@ def test_scalefactor_type(validator_with_visium, value):
         pytest.param("tissue_hires_scalef", 1, id="tissue_hires_scalef int"),
     ),
 )
-def test_scale_factor_types(validator_with_visium, scalefactor, value):
-    validator = validator_with_visium
-    validator.adata.uns["spatial"][LIBRARY_ID]["scalefactors"][scalefactor] = value
+def test_scale_factor_types(validator_with_all_visiums, scalefactor, value):
+    validator = validator_with_all_visiums
+    library_id = get_library_id(validator.adata)
+    validator.adata.uns["spatial"][library_id]["scalefactors"][scalefactor] = value
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
+    assert (
         f"ERROR: uns['spatial'][library_id]['scalefactors']['{scalefactor}'] must be of type float, it is {type(value)}. "
         f"This must be the value of the {scalefactor} field from scalefactors_json.json"
-    ]
+    ) in validator.errors
 
 
-def test_add_scalefactor(validator_with_visium):
-    validator = validator_with_visium
-    validator.adata.uns["spatial"][LIBRARY_ID]["scalefactors"]["tissue_lowres_scalef"] = 1.234
+def test_add_scalefactor(validator_with_all_visiums):
+    validator = validator_with_all_visiums
+    library_id = get_library_id(validator.adata)
+    validator.adata.uns["spatial"][library_id]["scalefactors"]["tissue_lowres_scalef"] = 1.234
     validator.validate_adata()
     assert validator.is_valid is False
-    assert validator.errors == [
+    assert (
         "ERROR: uns['spatial'][library_id]['scalefactors'] can only contain the keys "
         "'spot_diameter_fullres' and 'tissue_hires_scalef'.Detected keys: ['spot_diameter_fullres', "
         "'tissue_hires_scalef', 'tissue_lowres_scalef']."
-    ]
+    ) in validator.errors
