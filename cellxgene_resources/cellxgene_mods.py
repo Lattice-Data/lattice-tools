@@ -278,23 +278,9 @@ def map_filter_gene_ids(adata):
     return adata
 
 
-def barcode_compare(ref_df, obs_df):
-    obs_df_split = obs_df.index.str.split('([ACTG]{16})')
-    barcodes = pd.DataFrame([b for l in obs_df_split for b in l if re.match(r".*[ACTG]{16}.*", b)])
-    if barcodes.empty:
-        return pd.DataFrame({'summary':['no barcode'] * len(obs_df)})
-    else:
-        barcodes.rename(columns={0:'barcode'},inplace=True)
-        barcodes.set_index('barcode', inplace=True)
-        barcode_results = barcodes.merge(ref_df,on='barcode',how='left')
-        barcode_results.fillna(0, inplace=True)
-        barcode_results.replace({'summary': {0: None}}, inplace=True)
-
-        return barcode_results
-
-
-def evaluate_10x_barcodes(prop, obs, visium=False):
-    if 'assay_ontology_term_id' in obs.columns and 'EFO:0010961' in obs['assay_ontology_term_id'].unique():
+def evaluate_10x_barcodes(obs, visium=False):
+    vis_terms = ['EFO:0010961','EFO:0022857','EFO:0022858','EFO:0022859','EFO:0022860']
+    if 'assay_ontology_term_id' in obs.columns and [e for e in obs['assay_ontology_term_id'].unique() if e in vis_terms]:
         visium=True
 
     if visium:
@@ -302,19 +288,38 @@ def evaluate_10x_barcodes(prop, obs, visium=False):
     else:
         csv = 'ref_files/10X_barcode_table.csv.gz'
     ref_df = pd.read_csv(csv, sep=',', header=0, index_col='barcode')
+    global barcode_headers
+    barcode_headers = ref_df['summary'].unique()
 
-    results = []
-    for a in obs[prop].unique():
-        obs_df = obs[obs[prop] == a]
-        r = barcode_compare(ref_df, obs_df)
-        r_dict = {header: None for header in list(ref_df['summary'].unique()) + ['None']} | r['summary'].value_counts().to_dict()
-        r_dict[prop] = a
-        results.append(r_dict)
+    global no_barcode_v
+    no_barcode_v = 'no barcode'
 
-    df = pd.DataFrame(results).set_index(prop).fillna(0).astype(int)
-    df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple','None']]
-            + [c for c in df if df[c].sum() == 0 and c not in ['multiple','None']]
-            + [c for c in df if c in ['multiple','None']]]
+    obs = obs.copy()
+    obs['barcode'] = obs.index.str.extract(r'([ACTG]{12,})')[0].tolist()
+    obs = obs.merge(ref_df[['summary']],on='barcode',how='left').set_index(obs.index)
+    obs['summary'] = obs.apply(
+        lambda x: no_barcode_v if pd.isna(x['barcode']) else (f"{len(x['barcode'])}nt" if pd.isna(x['summary']) else x['summary']),
+        axis=1
+    )
+
+    return obs
+
+
+def parse_barcode_df(df, field):
+    results = {}
+
+    for a in df[field].unique():
+        temp = df[df[field] == a]
+        results[a] = temp['summary'].value_counts().to_dict()
+
+    df = pd.DataFrame(results).fillna(0).astype(int).transpose()
+    for h in list(barcode_headers) + [no_barcode_v]:
+        if h not in df.columns:
+            df[h] = 0
+    df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple',no_barcode_v] and not c.endswith('nt')]
+            + [c for c in df if df[c].sum() > 0 and c.endswith('nt')]
+            + [c for c in df if df[c].sum() == 0 and c not in ['multiple',no_barcode_v]]
+            + [c for c in ['multiple',no_barcode_v] if c in df]]
     df.sort_values(list(df.columns), ascending=False, inplace=True)
 
     return df
