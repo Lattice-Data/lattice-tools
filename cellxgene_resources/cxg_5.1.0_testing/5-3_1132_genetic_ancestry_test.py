@@ -51,10 +51,19 @@ def test_one_row_different(validator_human_adata):
     validator = validator_human_adata
     values = (0.25, 0.25, 0.25, 0.25, 0, 0)
     for value, ancestry_col in zip(values, ANCESTRY_COLUMNS):
-        validator.adata.obs.loc[validator.adata.obs.index[0], ancestry_col] = value
+        validator.adata.obs.loc[validator.adata.obs.index[100], ancestry_col] = value
+    donor_id = validator.adata.obs.loc[validator.adata.obs.index[100]]["donor_id"]
     validator.validate_adata()
     assert not validator.is_valid
-    assert validator.errors == []
+    assert len(validator.errors) == 1
+    assert (
+        f"ERROR: obs rows with donor ids ['{donor_id}'] have invalid genetic_ancestry_* values. "
+        "All observations with the same donor_id must contain the same genetic_ancestry_* values. "
+        "If organism_ontolology_term_id is NOT 'NCBITaxon:9606' for Homo sapiens, then all geneticancestry "
+        "values MUST be float('nan'). If organism_ontolology_term_id is 'NCBITaxon:9606' for Homo sapiens, "
+        "then the value MUST be a float('nan') if unavailable; otherwise, the sum of all genetic_ancestry_* "
+        "fields must be equal to 1.0"
+    ) in validator.errors
 
 
 def test_ancestry_is_one(validator_human_adata):
@@ -97,7 +106,15 @@ def test_donor_values_differ(validator_human_adata, new_float):
     
     validator.validate_adata()
     assert not validator.is_valid
-    assert validator.errors == []
+    assert len(validator.errors) == 1
+    assert (
+        f"ERROR: obs rows with donor ids ['{first_donor}'] have invalid genetic_ancestry_* values. "
+        "All observations with the same donor_id must contain the same genetic_ancestry_* values. "
+        "If organism_ontolology_term_id is NOT 'NCBITaxon:9606' for Homo sapiens, then all geneticancestry "
+        "values MUST be float('nan'). If organism_ontolology_term_id is 'NCBITaxon:9606' for Homo sapiens, "
+        "then the value MUST be a float('nan') if unavailable; otherwise, the sum of all genetic_ancestry_* "
+        "fields must be equal to 1.0"
+    ) in validator.errors
 
 
 @pytest.mark.parametrize(
@@ -133,7 +150,24 @@ def test_value_over_one(validator_human_adata, value):
     validator = validator_human_adata
 
     validator.adata.obs.loc[validator.adata.obs.index[0], ANCESTRY_COLUMNS[0]] = value
-    
+    first_donor = validator.adata.obs.loc[validator.adata.obs.index[0]]["donor_id"]
+        
     validator.validate_adata()
     assert not validator.is_valid
-    assert validator.errors == []
+    assert len(validator.errors) == 2
+    errors = [
+        (
+            f"ERROR: obs rows with donor ids ['{first_donor}'] have invalid genetic_ancestry_* values. "
+            "All observations with the same donor_id must contain the same genetic_ancestry_* values. "
+            "If organism_ontolology_term_id is NOT 'NCBITaxon:9606' for Homo sapiens, then all geneticancestry "
+            "values MUST be float('nan'). If organism_ontolology_term_id is 'NCBITaxon:9606' for Homo sapiens, "
+            "then the value MUST be a float('nan') if unavailable; otherwise, the sum of all genetic_ancestry_* "
+            "fields must be equal to 1.0"
+        ),
+        (
+            f"ERROR: Column 'genetic_ancestry_African' in obs contains invalid values: [{value}]. "
+            "Valid values are floats between 0 and 1 or float('nan')."
+        )
+    ]
+    for error in errors:
+        assert error in validator.errors
