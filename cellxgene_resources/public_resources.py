@@ -99,12 +99,14 @@ def pubmed_search(search_term):
 
 def publication_search(search_term):
     dois = pubtator_search(search_term)
-    dois.extend(pubmed_search(search_term)
+    dois.extend(pubmed_search(search_term))
 
     return dois
 
+
 def validate_raw_ega(url):
     #https://metadata.ega-archive.org/spec
+    formats = set()
     raw_data_formats = ['fastq.gz','bam','cram']
 
     acc = url.split('/')[-1]
@@ -121,11 +123,10 @@ def validate_raw_ega(url):
     for d in datasets:
         files_query = f'{api_base}/datasets/{d}/files?limit=100000'
         r = requests.get(files_query).json()
-        for f in r:
-            if f['extension'] in raw_data_formats:
-                return True
+        fs = [f['extension'] for f in r if f['extension'] in raw_data_formats]
+        formats.update(fs)
 
-    return False
+    return list(formats)
 
 
 def validate_raw_nemo(url):
@@ -161,35 +162,8 @@ def validate_raw_nemo(url):
     return False
 
 
-def validate_raw_arrex(url):
-    acc = url.split('/')[-1]
-    api_base = 'https://www.ebi.ac.uk/biostudies/api/v1'
-    q_url = f'{api_base}/studies/{acc}/info'
-    r = requests.get(q_url).json()
-    ftp_link = r['ftpLink']
-
-    ftp = ftplib.FTP('ftp.ebi.ac.uk', 'anonymous', 'anonymous@')
-    ftp.cwd(ftp_link.replace('ftp://ftp.ebi.ac.uk','') + '/Files')
-
-    filename = f'{acc}.sdrf.txt'
-    with open(filename, 'wb') as file:
-        ftp.retrbinary(f'RETR {filename}', file.write)
-
-    erxs = []
-    df = pd.read_csv(filename, sep='\t')
-    for c in df.columns:
-        if '[ENA_EXPERIMENT]' in c:
-            erxs.extend(df[c].dropna().unique())
-    os.remove(filename)
-    ftp.quit()
-
-    if erxs:
-        return True
-
-    return False
-
-
 def validate_raw_hca(url):
+    formats = set()
     raw_data_formats = ['fastq.gz','fastq','fq.gz']
 
     api_base = 'https://service.azul.data.humancellatlas.org'
@@ -205,17 +179,33 @@ def validate_raw_hca(url):
         r = requests.get(next_endpoint).json()
         hits.extend(r['hits'])
     for h in hits:
-        for f in h['files']:
-            if f['format'] in raw_data_formats:
-                return True
+        fs = [f['format'] for f in h['files'] if f['format'] in raw_data_formats]
+        formats.update(fs)
 
-    return False
+    return list(formats)
 
 
-def validate_raw_ncbi(url):
-    raw_data_formats = ['fastq','TenX','bam']
+def fetch_sra(idlist, raw_data_formats):
+    formats = set()
+    sublists = [idlist[i:i+450] for i in range(0, len(idlist), 450)]
+    for sub in sublists:
+        ids = ','.join(sub)
+        url4 = f'{efetch_base}?db=sra&id={ids}'
+        r4 = requests.get(url4)
+        rXml = ET.fromstring(r4.text)
+        for ep in rXml.iter('EXPERIMENT_PACKAGE'):
+            for run in ep.iter('RUN'):
+                fs = [cf.attrib['filetype'] for cf in run.iter('CloudFile') if cf.attrib['filetype'] in raw_data_formats]
+                formats.update(fs)
 
-    acc = url.split('/')[-1]
+    return formats
+
+
+def validate_raw_insdc(url):
+    formats = set()
+    raw_data_formats = ['fastq','TenX','bam','cram']
+
+    acc = url.split('/')[-1].split('=')[-1]
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     esearch_base = f'{eutils_base}esearch.fcgi'
     efetch_base = f'{eutils_base}efetch.fcgi'
@@ -231,6 +221,24 @@ def validate_raw_ncbi(url):
             for a in rXml.iter('ArchiveID'):
                 prj = a.attrib['accession']
                 prj_flag = True
+    elif acc.startswith('E-'):
+        srs_list = []
+        url1 = f'{esearch_base}?db=biosample&term={acc}&retmode=json'
+        r1 = requests.get(url1).json()
+        for i in r1['esearchresult']['idlist']:
+            url2 = f'{efetch_base}?db=biosample&id={i}'
+            r2 = requests.get(url2)
+            rXml = ET.fromstring(r2.text)
+            for a in rXml.iter('Id'):
+                if a.attrib['db'] == 'SRA':
+                    srs_list.append(a.text)
+        idlist = set()
+        for srs in srs_list:
+            url3 = f'{esearch_base}?db=sra&term={srs}&retmode=json&retmax=100000'
+            r3 = requests.get(url3).json()
+            idlist.update(r3['esearchresult']['idlist'])
+        formats.update(fetch_sra(list(idlist), raw_data_formats))
+        return list(formats)
     else:
         prj = acc
         prj_flag = True
@@ -251,19 +259,9 @@ def validate_raw_ncbi(url):
         url3 = f'{esearch_base}?db=sra&term={prj}&retmode=json&retmax=100000'
         r3 = requests.get(url3).json()
         idlist = r3['esearchresult']['idlist']
-        sublists = [idlist[i:i+500] for i in range(0, len(idlist), 500)]
-        for sub in sublists:
-            ids = ','.join(sub)
-            url4 = f'{efetch_base}?db=sra&id={ids}'
-            r4 = requests.get(url4)
-            rXml = ET.fromstring(r4.text)
-            for ep in rXml.iter('EXPERIMENT_PACKAGE'):
-                for run in ep.iter('RUN'):
-                    for cf in run.iter('CloudFile'):
-                        if cf.attrib['filetype'] in raw_data_formats:
-                            return True
+        formats.update(fetch_sra(idlist, raw_data_formats))
 
-    return False
+    return list(formats)
 
 
 base_urls = {
