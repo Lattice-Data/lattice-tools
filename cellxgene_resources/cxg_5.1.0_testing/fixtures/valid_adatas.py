@@ -18,6 +18,7 @@ from cellxgene_schema.write_labels import AnnDataLabelAppender
 
 H5ADS = [
     "valid_human.h5ad", 
+    "valid_mouse.h5ad", 
     "slide_seq_image_human.h5ad",
     "slide_seq_no_image_human.h5ad",
     "visium_human_all_spots.h5ad",
@@ -81,8 +82,8 @@ def label_writer(validator_with_all_adatas: Validator) -> AnnDataLabelAppender:
     return AnnDataLabelAppender(validator)
 
 
-@pytest.fixture
-def validator_with_non_spatial_adata() -> Validator:
+@pytest.fixture(params=H5ADS[:2])
+def validator_with_non_spatial_adata(request) -> Validator:
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/valid_human.h5ad")
+    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     return validator
