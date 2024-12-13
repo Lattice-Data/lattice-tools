@@ -4,8 +4,13 @@ import pandas as pd
 import numpy as np
 import logging
 import flattener_mods.constants as constants
-import subprocess
 import re
+import subprocess
+from cellxgene_ontology_guide.ontology_parser import OntologyParser 
+from dataclasses import dataclass
+
+# add some constant lookup to keep in sync with current schema version
+ONTOLOGY_PARSER = OntologyParser(schema_version=f"v5.2.0")
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -258,6 +263,50 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 	return values_to_add
 
 
+@dataclass
+class OntologyTerm:
+    term_id: str
+
+    def __post_init__(self):
+        self.label = ONTOLOGY_PARSER.get_term_label(self.term_id)
+        self.ancestors = set(
+            ONTOLOGY_PARSER.get_term_ancestors(self.term_id, include_self=True)
+        )
+        self.is_deprecated = ONTOLOGY_PARSER.is_term_deprecated(self.term_id)
+        self.num_ancestors = len(self.ancestors)
+
+
+def find_common_ontology_term(pooled_ontology_terms: list[str] | set[str], debug=False) -> str:
+    """
+    Take list input of pooled ontology terms and find the closest common ancestor for all input terms
+    Finds intersection of all ancestor terms. Within this intersection, the term with the most
+    ancestor terms will be the narrowest ontology term for all inputs
+
+    pooled_ontology_terms: list[str] = input list of ontology term ids
+    debug: bool = False = set to True to get helpful print out of input, ancestor count, and sorting
+
+    returns str of ontology term that is most narrow for all input terms
+    """
+    ontology_terms = [OntologyTerm(term) for term in pooled_ontology_terms]
+    assert not any(
+        [term.is_deprecated for term in ontology_terms]
+	), f"Deprecated term as input: {pooled_ontology_terms}"
+
+    intersection = set.intersection(*[term.ancestors for term in ontology_terms])
+    intersection_ancestors = [OntologyTerm(term) for term in intersection]
+    sorted_list = sorted(
+        intersection_ancestors, key=lambda x: (x.num_ancestors), reverse=True
+    )
+    if debug:
+        print("Input")
+        [print(term.term_id, term.label) for term in ontology_terms]
+        print("Sorted intersection via ancestor number")
+        [print(term.label, term.num_ancestors) for term in sorted_list]
+        print("Final output")
+        print(sorted_list[0].label, sorted_list[0].term_id)
+
+    return sorted_list[0].term_id
+
 
 def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection):
 	'''
@@ -294,6 +343,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			for index, row in values_df.iterrows():
 				values_to_add[index] = 'pooled [{}]'.format(','.join(row.to_list()))
 		elif prop == 'ethnicity':
+			donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 			values_df = pd.DataFrame()
 			latkey = (obj_type + '_' + prop).replace('.','_')
 			key = constants.PROP_MAP.get(latkey, latkey)
@@ -314,8 +364,14 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				elif len(set(ethnicity_list)) == len(ethnicity_list):
 					value = ethnicity_list[0]
 					values_df.loc[key,ident] = value
-			for index, row in values_df.iterrows():
-				values_to_add[index] = str(row[0])
+			# this dataframe will only ever be one row with ident as columns
+			ethnicity_set = set(values_df.loc[key].to_list())
+			if len(ethnicity_set) > 1:
+				values_to_add[key] = "unknown"
+				# TODO: change to warning list during glob warning refactor
+				print(f"WARNING: Pooled ethnicities '{ethnicity_set}' for '{donor_id}', setting to 'unknown'")
+			else:
+				values_to_add[key] = ethnicity_set.pop()
 		else:
 			value = list()
 			for obj in objs:
@@ -346,25 +402,35 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			key = constants.PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			cxg_fields = ['disease_ontology_term_id', 'organism_ontology_term_id', 'library_id_repository',\
+			cxg_fields = ['donor_diseases_term_id', 'organism_ontology_term_id', 'library_id_repository',\
 							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
+				donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 				if key in cxg_fields:
 					if key == 'development_stage_ontology_term_id':
-						dev_in_all = list(set.intersection(*map(set, dev_list)))
-						if dev_in_all == []:
-							logger.error('ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id')
-							sys.exit("ERROR: There is no common development_slims that can be used for development_stage_ontology_term_id")
+						if not value_set:
+							logger.error('ERROR: There are no pooled development terms that can be used for development_stage_ontology_term_id')
+							sys.exit("ERROR: There are no pooled development terms that can be used for development_stage_ontology_term_id")
 						else:
-							obj = lattice.get_report('OntologyTerm','&status!=deleted&term_name='+dev_in_all[0], ['term_id'], connection)
-							values_to_add[key] = obj[0].get('term_id')
+							common_term = find_common_ontology_term(value_set)
+							values_to_add[key] = common_term
+							pooled_terms = [OntologyTerm(term) for term in value_set]
+							# TODO: change to warning list during glob warning refactor
+							print(f"WARNING: Pooled development stage ontology terms for '{donor_id}': ")
+							[print('\t', term.term_id, term.label) for term in pooled_terms]
+							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
+					elif key == 'donor_diseases_term_id':
+						logger.error(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
+						sys.exit(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
+						# TODO: change to warning list during glob warning refactor
+						print(f"WARNING: Pooled sex terms for '{donor_id}', setting sex to 'unknown'")
 					elif key == 'library_id_repository':
 						values_to_add[key] = ','.join(value_str)
 					else:
-						logger.error('ERROR: Cxg field is a list')
-						sys.exit("ERROR: Cxg field is a list")
+						logger.error(f"ERROR: Cxg field '{key}' is a list")
+						sys.exit(f"ERROR: Cxg field '{key}' is a list")
 				else:
 					values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
 			else:
