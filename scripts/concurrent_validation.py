@@ -14,10 +14,12 @@ Script to run CXG validation in parallel.
 By default will collect h5ad files from lattice-tools/scripts directory
 Use argument -d --directory to specify other location
 Use argument -r --revised to only collect h5ad files with the '_revised.h5ad' suffix
+Use argument -t --testfile to select h5ads from a test_flattener input txt file
 
 Examples:
     python {SCRIPT_NAME} -d /mnt/test_files -r
     python {SCRIPT_NAME} --revised --directory /Users/me/Documents/curation/files
+    python {SCRIPT_NAME} --testfile test_processed_matrix_files.txt
 """
 
 def getArgs():
@@ -33,6 +35,12 @@ def getArgs():
         default=DIR,
     )
     parser.add_argument(
+        "--testfile", 
+        "-t",
+        help="Filter h5ads based on flattener testing input file",
+        default="",
+    )
+    parser.add_argument(
         "--revised", 
         "-r",
         help="Add -r/--revised flag to filter for only '_revised.h5ad' files in directory",
@@ -42,9 +50,32 @@ def getArgs():
     return args
 
 
+def make_file_list(args):
+    file_suffix = "_revised.h5ad" if args.revised else ".h5ad"
+
+    if args.testfile:
+        assert args.testfile.endswith(".txt"), "Test file needs to be txt file"
+        with open(os.path.join(args.directory, args.testfile), "r") as f:
+            test_files = [line.partition("#")[0].strip() for line in f if not line.startswith("#")]
+
+        tested_h5ads = [
+            f 
+            for f in os.listdir(args.directory) 
+            if any(
+                test_file in f 
+                for test_file in test_files
+            ) 
+            and f.endswith(file_suffix) 
+        ]
+
+        return tested_h5ads
+    else:
+        files = [f for f in os.listdir(args.directory) if file_suffix in f]
+        return files
+
+
 ARGS = getArgs()
-file_suffix = "_revised.h5ad" if ARGS.revised else ".h5ad"
-files = [f for f in os.listdir(ARGS.directory) if file_suffix in f]
+files = make_file_list(ARGS)
 workers = min(len(files), CPU_COUNT)
 
 def validate(file_name):
