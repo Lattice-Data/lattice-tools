@@ -391,7 +391,7 @@ def evaluate_obs(obs, full_obs_standards):
 
 def evaluate_dup_counts(adata):
     """
-    Hash sparse matrix using np.ndarrays that represent sparse matrix data.
+    Hash sparse csr matrix using np.ndarrays that represent sparse matrix data.
     First pass will hash all rows via slicing the data array and append to copy of obs df
     Second pass will hash only duplicate rows in obs copy via the indices array.
     This will keep only true duplicated matrix rows and not rows with an indicental same
@@ -403,9 +403,26 @@ def evaluate_dup_counts(adata):
 
     matrix = adata.raw.X if adata.raw else adata.X
 
-    if isinstance(matrix, np.ndarray):
-        print("Matrix not in sparse format, please convert before hashing")
+    if not isinstance(matrix, sparse.csr_matrix):
+        print("Matrix not in sparse csr format, please convert before hashing")
         return
+
+    nnz = matrix.nnz
+
+    if not matrix.has_canonical_format:
+        print("Csr matrix not in canonical format, converting now...")
+        if adata.raw:
+            adata.raw.X.sort_indices()
+            adata.raw.X.sum_duplicates()
+        else:
+            adata.X.sort_indices()
+            adata.X.sum_duplicates()
+
+    assert matrix.has_canonical_format, "Matrix still in non-canonical format"
+
+    if nnz != matrix.nnz:
+        print(f"{nnz - matrix.nnz} duplicates found during canonical conversion")
+
 
     data_array = matrix.data
     index_array = matrix.indices
