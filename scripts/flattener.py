@@ -177,7 +177,7 @@ def concat_list(anndata_list, column, uns_merge):
 	return concat_result
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
-def report_diseases(mxr_df, exp_disease):
+def report_diseases(mxr_df, exp_disease, glob):
 	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
 	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: '[{}]'.format(','.join([i for i in set(x.split(',')) if i!=fm.UNREPORTED_VALUE])))
 	total_reported = mxr_df['reported_diseases'].unique()
@@ -191,7 +191,7 @@ def report_diseases(mxr_df, exp_disease):
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
 		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
-		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease)
+		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease, glob=glob)
 		exp_disease_aslist = ['[{}]'.format(x['term_name']) for x in exp_disease]
 		exp_disease_aslist.extend(['none', '[]'])
 		if len([x for x in total_reported if x not in exp_disease_aslist])==0:
@@ -407,8 +407,8 @@ def reconcile_genes(cxg_adata_lst, glob):
 	for key in stats:
 		stats[key] = set(stats[key])
 		overlap_norm = set(mfinal_adata_genes).intersection(stats[key])
-		warning_list.append("WARNING: Full list of {}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
-		warning_list.append("WARNING: Genes with {}. {} in raw. {} in normalized. Full list available in logging file. Preview of normalized: {}".format(key, 
+		glob.warnings.append("WARNING: Full list of {}\t{}\t{}\t{}".format(key, len(stats[key]), len(overlap_norm), overlap_norm))
+		glob.warnings.append("WARNING: Genes with {}. {} in raw. {} in normalized. Full list available in logging file. Preview of normalized: {}".format(key, 
 			len(stats[key]), len(overlap_norm), list(overlap_norm)[:10]))
 
 	return cxg_adata_raw_ensembl, redundant, all_remove
@@ -1207,7 +1207,7 @@ def main(mfinal_id, connection, hcatier1):
 		lib_donor_df = glob.cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
 		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, glob, hcatier1)
 
-		report_diseases(donor_df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
+		report_diseases(donor_df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE), glob)
 		get_sex_ontology(donor_df)
 
 		# Retain cell identifiers as index
@@ -1217,7 +1217,7 @@ def main(mfinal_id, connection, hcatier1):
 			sys.exit('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(glob.mfinal_adata.X.shape[0], glob.cxg_obs.shape[0]))
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
-		report_diseases(df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
+		report_diseases(df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE), glob)
 		get_sex_ontology(df)
 		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
