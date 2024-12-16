@@ -804,7 +804,7 @@ def hcatier1_check(glob):
 
 def main(mfinal_id, connection, hcatier1):
 
-	glob = GlobVals(None, None, None, None, None, None, None, connection)
+	glob = GlobVals(None, None, None, None, None, None, None, [], connection)
 	glob.mfinal_obj = lattice.get_object(mfinal_id, connection)
 
 	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
@@ -813,8 +813,6 @@ def main(mfinal_id, connection, hcatier1):
 	logging.info("Date and time of flattener run: " + time_date)
 	# Suppressing specific warnings from anndata
 	logging.captureWarnings(True)
-	# Initializing empty list for flattener warnings
-	glob.warnings = []
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = glob.mfinal_obj['@type'][0]
