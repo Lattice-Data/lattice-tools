@@ -214,12 +214,12 @@ def validate_raw_insdc(url):
         url1 = f'{esearch_base}?db=bioproject&term={acc}[Project Accession]&retmode=json'
         r1 = requests.get(url1).json()
         if r1['esearchresult']['idlist']:
-            i = r1['esearchresult']['idlist'][0] #list of ids, ideally - only search entry type:Series
+            i = r1['esearchresult']['idlist'][0]
             url2 = f'{efetch_base}?db=bioproject&id={i}'
             r2 = requests.get(url2)
             rXml = ET.fromstring(r2.text)
             for a in rXml.iter('ArchiveID'):
-                prj = a.attrib['accession']
+                prj = [a.attrib['accession']]
                 prj_flag = True
     elif acc.startswith('E-'):
         srs_list = []
@@ -234,31 +234,36 @@ def validate_raw_insdc(url):
                     srs_list.append(a.text)
         idlist = set()
         for srs in srs_list:
-            url3 = f'{esearch_base}?db=sra&term={srs}&retmode=json&retmax=100000'
+            url3 = f'{esearch_base}?db=sra&term={srs}&retmode=json&retmax=100'
             r3 = requests.get(url3).json()
             idlist.update(r3['esearchresult']['idlist'])
         formats.update(fetch_sra(list(idlist), raw_data_formats))
         return list(formats)
     else:
-        prj = acc
+        prj = [acc]
         prj_flag = True
 
     if not prj_flag:
-        url5 = f'{esearch_base}?db=gds&term={acc}[GEO Accession]&retmode=json'
+        url5 = f'{esearch_base}?db=gds&term={acc}[Accn]&retmode=json&retmax=100'
         r5 = requests.get(url5).json()
         if r5['esearchresult']['idlist']:
-            i = r5['esearchresult']['idlist'][0] #list of ids, ideally - only search entry type:Series
-            url6 = f'{efetch_base}?db=gds&id={i}'
+            ids = ','.join(r5['esearchresult']['idlist'])
+            url6 = f'{efetch_base}?db=gds&id={ids}'
             r6 = requests.get(url6)
             for line in r6.text.split('\n'):
                 if line.startswith('SRA Run Selector:'):
                     prj_flag = True
                     prj = line.split('acc=')[-1]
+                    prjs.append(prj)
 
     if prj_flag:
-        url3 = f'{esearch_base}?db=sra&term={prj}&retmode=json&retmax=100000'
-        r3 = requests.get(url3).json()
-        idlist = r3['esearchresult']['idlist']
+        idlist = set()
+        for prj in prjs:
+            url3 = f'{esearch_base}?db=sra&term={prj}&retmode=json&retmax=100'
+            r3 = requests.get(url3).json()
+            idlist.update(r3['esearchresult']['idlist'])
+        idlist = list(idlist)
+        formats.update(fetch_sra(idlist, raw_data_formats))
         formats.update(fetch_sra(idlist, raw_data_formats))
 
     return list(formats)
