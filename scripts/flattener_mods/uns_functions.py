@@ -94,18 +94,17 @@ def copy_over_uns(glob, reserved_uns):
 	:param Class glob: Class object containing certain commonly used variables
 	:param List[str] reserved_uns: List containing uns column names that are reserved by schema
 
-	:returns List[str] warnings: Any warnings that occur during the copy over process are returned to append to total warning list
+	:returns None
 	'''
-	warnings = []
 	for k,v in glob.mfinal_adata.uns.items():
 		if k == 'batch_condition':
 			if not isinstance(glob.mfinal_adata.uns['batch_condition'], list) and not isinstance(glob.mfinal_adata.uns['batch_condition'], np.ndarray) :
-				warnings.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
+				glob.warnings.append("WARNING: adata.uns['batch_condition'] is not a list and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 			else:
 				if len([x for x in glob.mfinal_adata.uns['batch_condition'] if x not in glob.cxg_obs.columns]) > 0:
-					warnings.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
+					glob.warnings.append("WARNING: adata.uns['batch_condition'] contains column names not found and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 				elif len(set(glob.mfinal_adata.uns['batch_condition'])) != len(glob.mfinal_adata.uns['batch_condition']):
-					warnings.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
+					glob.warnings.append("WARNING: adata.uns['batch_condition'] contains redundant column names and did not get copied over to flattened h5ad: {}".format(glob.mfinal_adata.uns['batch_condition']))
 				else:
 					glob.cxg_uns['batch_condition'] = glob.mfinal_adata.uns['batch_condition']
 		elif k.endswith('_colors'):
@@ -113,15 +112,14 @@ def copy_over_uns(glob, reserved_uns):
 			if colors_result[0]:
 				glob.cxg_uns[k] = v
 			else:
-				warnings.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(k, colors_result[1]))
+				glob.warnings.append("WARNING: '{}' has been dropped from uns dict due to being invalid because '{}' \n".format(k, colors_result[1]))
 		elif k not in reserved_uns:
 			if check_not_empty(v):
 				glob.cxg_uns[k] = v
 			else:
-				warnings.append("WARNING: The key '{}' has been dropped from uns due to having an empty value\n".format(k))
+				glob.warnings.append("WARNING: The key '{}' has been dropped from uns due to having an empty value\n".format(k))
 		else:
-			warnings.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(k))
-	return warnings
+			glob.warnings.append("WARNING: The key '{}' has been dropped from uns dict due to being reserved \n".format(k))
 
 
 
@@ -131,9 +129,8 @@ def process_spatial(glob):
 
 	:param Class glob: Class object containing certain commonly used variables
 
-	:returns List[str] warnings: Any warnings that occur during the process are returned to append to total warning list
+	:returns None
 	'''
-	warnings = []
 	if len(glob.mfinal_obj.get('libraries'))==1:
 		if glob.cxg_obs['assay_ontology_term_id'].unique()[0] == 'EFO:0010961':
 			glob.cxg_uns['spatial'] = glob.cxg_adata_raw.uns['spatial']
@@ -161,7 +158,7 @@ def process_spatial(glob):
 					fullres_np = np.asarray(Image.open(constants.MTX_DIR+"/"+filename))
 					glob.cxg_uns['spatial'][spatial_lib]['images']['fullres'] = fullres_np
 				else:
-					warnings.append("WARNING: Did not recognize fullres file format:\t{}".format(glob.mfinal_obj.get('fullres_s3_uri')))
+					glob.warnings.append("WARNING: Did not recognize fullres file format:\t{}".format(glob.mfinal_obj.get('fullres_s3_uri')))
 		else:
 			glob.cxg_uns['spatial'] = {}
 			glob.cxg_uns['spatial']['is_single'] = True
@@ -174,5 +171,4 @@ def process_spatial(glob):
 	else:
 		glob.cxg_uns['spatial'] = {}
 		glob.cxg_uns['spatial']['is_single'] = False
-	return warnings
 

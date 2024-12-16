@@ -20,9 +20,6 @@ import numbers
 import squidpy as sq
 import flattener_mods as fm
 
-# Creating empty list for warnings
-warning_list = []
-
 EPILOG = '''
 Examples:
 
@@ -34,7 +31,7 @@ For more details:
 '''
 
 class GlobVals:
-	def __init__(self, mfinal_obj, mfinal_adata, cxg_adata, cxg_adata_raw, cxg_obs, cxg_uns, cxg_obsm, connection):
+	def __init__(self, mfinal_obj, mfinal_adata, cxg_adata, cxg_adata_raw, cxg_obs, cxg_uns, cxg_obsm, warnings, connection):
 		self.mfinal_obj = mfinal_obj
 		self.mfinal_adata = mfinal_adata
 		self.cxg_adata = cxg_adata
@@ -42,6 +39,7 @@ class GlobVals:
 		self.cxg_obs = cxg_obs
 		self.cxg_uns = cxg_uns
 		self.cxg_obsm = cxg_obsm
+		self.warnings = warnings
 		self.connection = connection
 
 def getArgs():
@@ -130,7 +128,7 @@ def concatenate_cell_id(mxr_acc, raw_obs_names, glob):
 # Quality check final anndata created for cxg, sync up gene identifiers if necessary
 def quality_check(glob):
 	if glob.cxg_adata.obs.isnull().values.any():
-		warning_list.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format\
+		glob.warnings.append("WARNING: There is at least one 'NaN' value in the following cxg anndata obs columns: {}".format\
 			(glob.cxg_adata.obs.columns[glob.cxg_adata.obs.isna().any()].tolist()))
 	if glob.cxg_adata.var.shape[0]==0:
 		logging.error('ERROR: There are no genes in the normalized matrix.')
@@ -145,14 +143,14 @@ def quality_check(glob):
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
-def clean_list(lst, exp_disease):
+def clean_list(lst, exp_disease, glob):
 	lst = lst.split(',')
 	exp_disease_list = [i['term_id'] for i in exp_disease]
 	disease_found = [i for i in exp_disease_list if i in lst]
 	if disease_found:
 		disease = disease_found[0]
 		if len(disease_found) > 1:
-			warning_list.append("WARNING: There is at least one sample with more than one experimental variable disease:\t{}".format(disease_found))
+			glob.warnings.append("WARNING: There is at least one sample with more than one experimental variable disease:\t{}".format(disease_found))
 	else:
 		disease = 'PATO:0000461'
 	return disease
@@ -318,8 +316,8 @@ def set_ensembl(redundant, glob):
 		drop_unmapped = list(norm_index.difference(raw_index))
 		glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in drop_unmapped]]
 		if len(drop_unmapped) > 0:
-			warning_list.append('WARNING: {} unmapped gene_symbols were dropped. Full list available in logging file. Preview: {}'.format(len(drop_unmapped), drop_unmapped[:10]))
-			warning_list.append('WARNING: Full list of the {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped), drop_unmapped))
+			glob.warnings.append('WARNING: {} unmapped gene_symbols were dropped. Full list available in logging file. Preview: {}'.format(len(drop_unmapped), drop_unmapped[:10]))
+			glob.warnings.append('WARNING: Full list of the {} unmapped gene_ids dropped:\t{}'.format(len(drop_unmapped), drop_unmapped))
 		ensembl_map['gene_ids'] = ensembl_map.index
 		ensembl_map = ensembl_map.set_index('gene_symbols', drop=True)
 		glob.cxg_adata.var = pd.merge(glob.cxg_adata.var, ensembl_map, left_index=True, right_index=True, how='left', copy=True)
@@ -331,14 +329,14 @@ def set_ensembl(redundant, glob):
 		# Drop redundant by Ensembl ID
 		drop_redundant = list(set(redundant).intersection(set(glob.cxg_adata.var.index.to_list())))
 		if len(drop_redundant) > 0:
-			warning_list.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant), drop_redundant))
+			glob.warnings.append('WARNING: {} redundant gene_ids dropped:\t{}'.format(len(drop_redundant), drop_redundant))
 		glob.cxg_adata = glob.cxg_adata[:, [i for i in glob.cxg_adata.var.index.to_list() if i not in redundant]]
 
 	elif glob.mfinal_obj['feature_keys'] == ['Ensembl gene ID']:
 		glob.cxg_adata_raw.var.index.name = None
 		unique_to_norm =  set(glob.cxg_adata.var.index.to_list()).difference(set(glob.cxg_adata_raw.var.index.to_list()))
 		if len(unique_to_norm) > 0:
-			warning_list.append("WARNING: normalized matrix contains {} Ensembl IDs not in raw".format(unique_to_norm))
+			glob.warnings.append("WARNING: normalized matrix contains {} Ensembl IDs not in raw".format(unique_to_norm))
 
 # Filters the Ensembl IDs based on the compiled list of approved IDs
 def filter_ensembl(adata, compiled_annot):
@@ -695,7 +693,7 @@ def check_sums(adata_raw, glob):
 		need_flip =  gene_sum_df[(gene_sum_df['hashes'] == 0) & (gene_sum_df['in_tissue'] != 0)].shape[0]
 		if need_flip > 0:
 			adata_raw.obs.loc[(gene_sum_df['hashes'] == 0) & (gene_sum_df['in_tissue'] != 0), "in_tissue"] = 0
-			warning_list.append("WARNING: obs need switch to in_tissue = 0: {}".format(need_flip))
+			glob.warnings.append("WARNING: obs need switch to in_tissue = 0: {}".format(need_flip))
 	return adata_raw
 
 # Check that are specific to HCA Tier1 schema
@@ -704,7 +702,7 @@ def hcatier1_check(glob):
 	author_cols = glob.mfinal_obj.get('author_columns', [])
 
 	if 'study_pi' not in glob.cxg_uns:
-		warning_list.append(f"{HCA_WARN_PREFIX} 'study_pi' not in processed matrix file uns")
+		glob.warnings.append(f"{HCA_WARN_PREFIX} 'study_pi' not in processed matrix file uns")
 
 	# these first 4 obs columns depend on the processed matrix file
 	# use glob.mfinal_adata to preserve dependency order of drop_cols() and clean_obs()
@@ -720,12 +718,12 @@ def hcatier1_check(glob):
 	for column, allowed_values in column_allowed_values.items():
 		if column not in author_cols:
 			if column == "manner_of_death":
-				warning_list.append(
+				glob.warnings.append(
 					f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns, "
 					"will map from 'donor_living_at_sample_collection'"
 				)
 			else:
-				warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns")
+				glob.warnings.append(f"{HCA_WARN_PREFIX} '{column}' not in Lattice author_columns")
 		if column == "manner_of_death" and column not in glob.mfinal_adata.obs.columns:
 			if "donor_living_at_sample_collection" in glob.cxg_obs.columns: 
 				glob.cxg_obs["manner_of_death"] = glob.cxg_obs["donor_living_at_sample_collection"]
@@ -739,7 +737,7 @@ def hcatier1_check(glob):
 				)
 			else:
 				glob.cxg_obs["manner_of_death"] = "unknown"
-				warning_list.append(
+				glob.warnings.append(
 					f"{HCA_WARN_PREFIX} column 'donor_living_at_sample_collection' "
 					"not found. 'manner_of_death' set to 'unknown'."
 				)
@@ -750,14 +748,14 @@ def hcatier1_check(glob):
 				not_allowed = [item for item in glob.mfinal_adata.obs[column].unique() if not isinstance(item, str)]
 		
 			for item in not_allowed:
-				warning_list.append(
+				glob.warnings.append(
 					f"{HCA_WARN_PREFIX} value '{item}' not allowed for '{column}'. "
 					f"HCA Tier 1 requires one of the following: {allowed_values}"
 				)
 		else:
 			if column == "manner_of_death" and "donor_living_at_sample_collection" in glob.cxg_obs.columns:
 				continue
-			warning_list.append(f"{HCA_WARN_PREFIX} '{column}' not in processed matrix file obs")
+			glob.warnings.append(f"{HCA_WARN_PREFIX} '{column}' not in processed matrix file obs")
 
 	# columns in rest of function depend on Lattice
 	def map_cell_enrichment(row):
@@ -815,6 +813,8 @@ def main(mfinal_id, connection, hcatier1):
 	logging.info("Date and time of flattener run: " + time_date)
 	# Suppressing specific warnings from anndata
 	logging.captureWarnings(True)
+	# Initializing empty list for flattener warnings
+	glob.warnings = []
 
 	# confirm that the identifier you've provided corresponds to a ProcessedMatrixFile
 	mfinal_type = glob.mfinal_obj['@type'][0]
@@ -1156,13 +1156,13 @@ def main(mfinal_id, connection, hcatier1):
 			if glob.cxg_obsm[embed].ndim >= 2:
 				if embed.startswith('X_'):
 					if glob.cxg_obsm[embed].shape[1] < 2:
-						warning_list.append("WARNING: Embedding starting with 'X_' that has length < 2 for second dimension is dropped: {}\t{}".format(glob.cxg_obsm[embed].shape, embed))
+						glob.warnings.append("WARNING: Embedding starting with 'X_' that has length < 2 for second dimension is dropped: {}\t{}".format(glob.cxg_obsm[embed].shape, embed))
 						drop_obsm.append(embed)
 			else:
-				warning_list.append("WARNING: Embedding that is not 2 dimensions is dropped: {}\t{}".format(glob.cxg_obsm[embed].shape, embed))
+				glob.warnings.append("WARNING: Embedding that is not 2 dimensions is dropped: {}\t{}".format(glob.cxg_obsm[embed].shape, embed))
 				drop_obsm.append(embed)
 		else:
-			warning_list.append("WARNING: Embedding that is not a numpy array is dropped: {}\t{}".format(type(glob.cxg_obsm[embed]), embed))
+			glob.warnings.append("WARNING: Embedding that is not a numpy array is dropped: {}\t{}".format(type(glob.cxg_obsm[embed]), embed))
 			drop_obsm.append(embed)
 	for k in drop_obsm:
 		del glob.cxg_obsm[k]
@@ -1183,13 +1183,13 @@ def main(mfinal_id, connection, hcatier1):
 
 	if not glob.mfinal_obj.get('spatial_s3_uri', None):
 		if glob.cxg_obs['cell_type_ontology_term_id'].isnull().values.any():
-			warning_list.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
+			glob.warnings.append("WARNING: Cells did not sucessfully map to CellAnnotations with author cell type and counts: {}".\
 				format(glob.cxg_obs.loc[glob.cxg_obs['cell_type_ontology_term_id'].isnull()==True, celltype_col].value_counts().to_dict()))
 		if glob.cxg_obs[celltype_col].isna().any():
 			logging.error("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
 			sys.exit("ERROR: author_cell_type column contains 'NA' values, unable to perform CellAnnotation mapping.")
 		if len([i for i in annot_df.index.to_list() if i not in glob.cxg_obs[celltype_col].unique().tolist()]) > 0:
-			warning_list.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in glob.cxg_obs[celltype_col].unique().tolist()]))
+			glob.warnings.append("WARNING: CellAnnotation that is unmapped: {}\n".format([i for i in annot_df.index.to_list() if i not in glob.cxg_obs[celltype_col].unique().tolist()]))
 
 	if 'author_cluster_column' in glob.mfinal_obj:
 		cluster_col = glob.mfinal_obj['author_cluster_column']
@@ -1238,9 +1238,7 @@ def main(mfinal_id, connection, hcatier1):
 
 	# Copy over adata.uns
 	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
-	warnings = fm.copy_over_uns(glob, reserved_uns)
-	if warnings:
-		warning_list.append(warnings)
+	fm.copy_over_uns(glob, reserved_uns)
 
 	# Check hcatier1 fields if flag is true and then clean up obs
 	if hcatier1:
@@ -1263,9 +1261,7 @@ def main(mfinal_id, connection, hcatier1):
 
 	# Add spatial information to adata.uns, which is assay dependent. Assumption is that the spatial dataset is from a single assay
 	if glob.mfinal_obj['assays'] == ['spatial transcriptomics']:
-		warnings = fm.process_spatial(glob)
-		if warnings:
-			warning_list.append(warnings)
+		fm.process_spatial(glob)
 	if len(glob.mfinal_obj.get('libraries'))==1 and glob.mfinal_obj.get('spatial_s3_uri', None):
 		add_background_spots(glob)
 		glob.cxg_obs.loc[(glob.cxg_obs['in_tissue']==0) & (glob.cxg_obs['cell_type_ontology_term_id']!='unknown'), 'cell_type_ontology_term_id'] = 'unknown'
@@ -1326,7 +1322,7 @@ def main(mfinal_id, connection, hcatier1):
 	glob.cxg_adata.write_h5ad(results_file, compression='gzip')
 
 	# Printing out list of warnings
-	for n in warning_list:
+	for n in glob.warnings:
 		if 'WARNING: Full list' not in n:
 			print(n, end='\n')
 		if 'Full list available in logging file.' not in n:
