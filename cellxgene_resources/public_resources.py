@@ -269,7 +269,7 @@ def validate_raw_insdc(url):
     return list(formats)
 
 
-base_urls = {
+data_repo_bases = {
     'explore.data.humancellatlas.org/projects': 'hca',
     'ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GS': 'geo',
     'ncbi.nlm.nih.gov/projects/gap': 'dbgap',
@@ -281,15 +281,15 @@ base_urls = {
 }
 
 
-def parse_url(url):
-    for k,v in base_urls.items():
+def parse_data_repo_url(url):
+    for k,v in data_repo_bases.items():
         if k in url:
             return v
     return 'other'
 
 
 def detect_sequence_data(url):
-    resource = parse_url(url)
+    resource = parse_data_repo_url(url)
 
     if resource in ['geo','bioproj','ena','dbgap']:
         raw_present = validate_raw_ncbi(url)
