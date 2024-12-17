@@ -108,6 +108,33 @@ srr_read_name_pattern = re.compile(
     '^(@[S|E]RR[\d.]+)$'
 )
 
+#ATTN - USE THE COMPILED BARCODE LIST IN CELLXGENE_RESOURCES
+v2_barcodes_uri = 's3://submissions-lattice/cellranger-whitelist/737K-august-2016.txt'
+v3_barcodes_uri = 's3://submissions-lattice/cellranger-whitelist/3M-february-2018.txt'
+
+v2_list = import_txt_to_list(v2_barcodes_uri)
+v3_list = import_txt_to_list(v3_barcodes_uri)
+
+
+def import_txt_to_list(s3_uri):
+    bucket_name = s3_uri.split('/')[2]
+    file_path = s3_uri.replace('s3://{}/'.format(bucket_name), '')
+    file_name = s3_uri.split('/')[-1]
+
+    s3client = boto3.client("s3")
+    logging.info(file_name + ' downloading')
+    try:
+        s3client.download_file(bucket_name, file_path, file_name)
+    except subprocess.CalledProcessError as e:
+        sys.exit('ERROR: {} not found, check uri'.format(file_name))
+    else:
+        logging.info(file_name + ' downloaded')
+
+    barcode_list = [line.strip() for line in open(file_name, 'r')]
+    os.remove(file_name)
+
+    return barcode_list
+
 
 def is_path_gzipped(path):
     try:
@@ -244,6 +271,16 @@ def process_fastq_file(job):
     download_url = item.get('s3_uri', item.get('external_uri'))
     local_path = download_url.split('/')[-1]
 
+    barcode_list = []
+    barcode_counts = {
+        'v2': 0,
+        'v3': 0,
+        'both': 0,
+        'neither': 0
+    }
+    assigned_count = 0
+    assigned_limit = 100
+
     read_numbers_set = set()
     signatures_set = set()
     signatures_no_smp_in_set = set()
@@ -278,6 +315,31 @@ def process_fastq_file(job):
                             errors, False)
                 elif line_index == 2:
                     read_count += 1
+
+                    #ATTN - REWORK THIS LOGIC FOR EFFICIENCY
+                    barcode = line.strip()[0:16]
+                    if barcode not in barcode_list:
+                        v2 = False
+                        v3 = False
+                        if barcode in v2_list:
+                            v2 = True
+                        if barcode in v3_list:
+                            v3 = True
+                        if v2 == True and v3 == True:
+                            barcode_counts['both'] += 1
+                        elif v2 == True:
+                            barcode_counts['v2'] += 1
+                            assigned_count += 1
+                        elif v3 == True:
+                            barcode_counts['v3'] += 1
+                            assigned_count += 1
+                        else:
+                            barcode_counts['neither'] += 1
+                        barcode_list.append(barcode)
+                        if assigned_count == assigned_limit:
+                            break
+                    #ATTN - NEED TO INCLUDE BARCODE SUMMARY IN REPORT
+
                     length = len(line.strip())
                     if length not in read_lengths_dictionary:
                         read_lengths_dictionary[length] = 0
