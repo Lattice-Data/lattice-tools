@@ -1,4 +1,5 @@
 import anndata as ad
+import gc
 import os
 import pytest
 import sys
@@ -33,83 +34,95 @@ if not os.path.isfile(f"{FIXTURES_ROOT}/visium_v2_11mm_human.h5ad"):
 # fixture exported to other tests, returns and therefor tests with each h5ad
 @pytest.fixture(params=H5ADS)
 def validator_with_all_adatas(request) -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return validator
+    yield validator
 
 
 @pytest.fixture()
 def validator_human_adata() -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[0]}")
-    return validator
+    yield validator
 
 
 @pytest.fixture()
 def validator_mouse_adata() -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[1]}")
-    return validator
+    yield validator
 
 
 @pytest.fixture(params=[file for file in H5ADS if "human" in file])
 def validator_with_human_adatas(request) -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return validator
+    yield validator
 
 
 @pytest.fixture(params=H5ADS[2:])
 def validator_with_spatial_adatas(request) -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return validator
+    yield validator
 
 
 @pytest.fixture(params=H5ADS[2:4])
 def validator_with_slide_seq_adatas(request) -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return validator
+    yield validator
 
 
 @pytest.fixture(params=H5ADS[:3])
 def validator_with_non_visium_adatas(request) -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return validator
+    yield validator
 
 
 @pytest.fixture
 def validator_with_visium_some() -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/visium_human_some_spots.h5ad")
-    return validator
+    yield validator
 
 
 @pytest.fixture
 def validator_with_visium() -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/visium_human_all_spots.h5ad")
-    return validator
+    yield validator
 
 
 @pytest.fixture(params=H5ADS[4:])
 def validator_with_all_visiums(request) -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return validator
+    yield validator
 
 
 @pytest.fixture
 def label_writer(validator_with_all_adatas: Validator) -> AnnDataLabelAppender:
+    gc.collect()
     validator = validator_with_all_adatas
     validator.validate_adata()
-    return AnnDataLabelAppender(validator)
+    yield AnnDataLabelAppender(validator)
 
 
 @pytest.fixture(params=H5ADS[:2])
 def validator_with_non_spatial_adata(request) -> Validator:
+    gc.collect()
     validator = Validator()
     validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return validator
+    yield validator
