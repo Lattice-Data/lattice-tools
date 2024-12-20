@@ -74,12 +74,12 @@ def test_non_spatial_assay(validator_with_spatial_adatas):
 def test_non_spatial_adata(validator_with_non_spatial_adata, obsm_key):
     validator = validator_with_non_spatial_adata
     validator.adata.obsm[obsm_key] = validator.adata.obsm["X_umap"]
-    for obsm_key in [
+    for key in [
         "X_umap",
         "X_pca"
         "X_varimax"
     ]:
-        if obsm_key in validator.adata.obsm.keys():
-            del validator.adata.obsm["X_umap"]
+        if key in validator.adata.obsm.keys():
+            del validator.adata.obsm[key]
     validator.validate_adata()
     assert validator.is_valid is False
