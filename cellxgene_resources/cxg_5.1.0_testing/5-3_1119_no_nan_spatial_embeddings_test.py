@@ -51,4 +51,4 @@ def test_spatial_all_nan_embedding_fails(validator_with_spatial_adatas):
     validator.adata.obsm["spatial"] = empty_array
     validator.validate_adata()
     assert not validator.is_valid
-    assert f"ERROR: adata.obs['spatial] contains at least one NaN value." in validator.errors
+    assert f"ERROR: adata.obsm['spatial'] contains at least one NaN value." in validator.errors
