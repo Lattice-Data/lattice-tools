@@ -496,7 +496,7 @@ def clean_obs(glob):
 			else:	
 				glob.cxg_obs = pd.merge(glob.cxg_obs, glob.mfinal_adata.obs[[author_col]], left_index=True, right_index=True, how='left')
 		else:
-			warning_list.append("WARNING: author_column not in final matrix: {}".format(author_col))
+			glob.warnings.append("WARNING: author_column not in final matrix: {}".format(author_col))
 	# Still rename uuid terms even if author column not present
 	if 'sample_id' not in mfinal_author_cols:
 		glob.cxg_obs.rename(columns={'sample_uuid':'sample_id'},inplace=True)
