@@ -1017,3 +1017,50 @@ def evaluate_var_df(adata):
         report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes, fraction: {fraction} (0.60 threshold)','WARNING')
     else:
         report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction}', 'GOOD')
+
+
+def create_batch_download_txt(
+        collection_id: str,
+        output_dir: str = "./", 
+        txt_name: str = "batch_download.txt",
+        seperator: str = " "
+    ) -> None:
+    """
+    Given a collection id, generate a txt file for parallel download with xargs and wget 
+    Will rename the downloaded file as follows:
+    "{dataset_title}.h5ad" 
+    
+    Will replace any spaces in the title with _
+
+    Use outputed txt file with following command:
+
+    cat batch_download.txt | xargs -n 2 -P 4 wget -O
+
+        -n is number of arguments on line to pass to wget, so new file name and download url
+        -P is number of parallel downloads
+
+    In general for using xargs in this manner, each line in the input text file should have:
+        {name for new file}{seperator}{url to download}
+
+    xargs uses space as default seperator, but can change this to something else
+    """
+
+    BASE_URL = "https://datasets.cellxgene.cziscience.com/"
+    full_output_txt = os.path.join(output_dir, txt_name)
+
+    # if API keys not set, this will raise general Exception, seems clear enough to
+    # then run CxG_API.config() to fix this
+    collection_metainfo = CxG_API.get_collection(collection_id)
+    datasets = collection_metainfo["datasets"]
+
+    files_dict = {
+        BASE_URL + dataset["dataset_version_id"] + ".h5ad": 
+        dataset["title"].replace(" ", "_") + ".h5ad" 
+        for dataset in datasets
+    }
+
+    with open(full_output_txt, "w") as output_file:
+        for url, file_name in files_dict.items():
+            output_file.write(f"{file_name}{seperator}{url}\n")
+
+    print(f"Successfully saved {txt_name} to {output_dir}")
