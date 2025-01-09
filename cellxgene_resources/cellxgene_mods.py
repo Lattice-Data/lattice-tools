@@ -11,6 +11,7 @@ import squidpy as sq
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from scipy import sparse
 
 
@@ -45,6 +46,35 @@ portal_obs_fields = [
 non_ontology_fields = ['donor_id','suspension_type','tissue_type','is_primary_data']
 curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_ontology_fields
 full_obs_standards = portal_obs_fields + curator_obs_fields
+
+
+def get_path(search_term: str) -> os.PathLike | str:
+    """
+    Find path of local repos and API keys regardless of source machine. Use Path objects and
+    likely locations instead of glob or rglob to limit search overhead for simple import
+
+    Returns Path when found, otherwise str "Path not found"
+    """
+    # should start at ./lattice-tools/cellxgene_resources/
+    local_path = Path()
+    
+    likely_locations = [
+        local_path.resolve().parent.parent,
+        local_path.home(),
+        local_path.home() / "GitClones",
+        local_path.home() / "GitClones" / "CZI",
+        local_path.home() / "GitClones" / "Lattice-Data",
+        local_path.home() / "Documents" / "keys",
+        local_path.home() / "keys"
+    ]
+
+    for place in likely_locations:
+        if place.exists():
+            for item in place.iterdir():
+                if search_term in item.name:
+                    return item
+
+    return "Path not found"
 
 
 class CxG_API:
