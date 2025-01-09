@@ -78,27 +78,29 @@ def get_path(search_term: str) -> os.PathLike | str:
 
 
 class CxG_API:
-    scc_repo_loc = os.path.expanduser('~/GitClones/CZI/')
-    sys.path.append(os.path.abspath(scc_repo_loc + 'single-cell-curation/notebooks/curation_api/python/'))
+    scc_repo_loc = get_path("single-cell-curation")
 
+    if isinstance(scc_repo_loc, Path):
+        api_source = scc_repo_loc.resolve() / "notebooks" / "curation_api" / "python"
+        sys.path.append(str(api_source))
+    else:
+        print("Path not found for single-cell-curation repo")
+                
 
     from src.collection import create_collection,create_revision,get_collection,get_collections,update_collection
     from src.dataset import create_dataset,delete_dataset,get_dataset,get_datasets,upload_datafile_from_link,upload_local_datafile
 
-
-    def config(env=None):
+    def config(env="prod"):
         from src.utils.config import set_api_access_config
 
+        api_key_files = {
+            "prod": "cxg-api-key.txt",
+            "dev": "cxg-api-key-dev.txt",
+            "staging": "cxg-api-key-staging.txt",
+        }
 
-        if env == 'dev':
-            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key-dev.txt')
-            set_api_access_config(api_key_file_path, env='dev')
-        elif env == 'staging':
-            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key-staging.txt')
-            set_api_access_config(api_key_file_path, env='staging')
-        else:
-            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key.txt')
-            set_api_access_config(api_key_file_path)
+        api_key_file_path = get_path(api_key_files[env])
+        set_api_access_config(api_key_file_path, env=env)
 
 
 def report(mess, level=None):
