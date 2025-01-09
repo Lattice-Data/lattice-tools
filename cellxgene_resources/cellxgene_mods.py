@@ -59,7 +59,6 @@ def get_path(search_term: str) -> os.PathLike | str:
     local_path = Path()
     
     likely_locations = [
-        local_path.resolve(),                               # same level
         local_path.resolve().parent.parent,                 # same level as lattice-tools
         local_path.home(),
         local_path.home() / "CZI",
