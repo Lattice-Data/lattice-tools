@@ -68,6 +68,7 @@ def get_path(search_term: str) -> os.PathLike | str:
         local_path.home() / "GitClones" / "Lattice-Data",   # if other local lattice repos beyond lattice-tools
         local_path.home() / "Documents" / "keys",
         local_path.home() / "keys",
+        local_path.home() / "Documents",
         local_path.home() / "Desktop" / "Curation",
     ]
 
