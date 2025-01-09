@@ -59,13 +59,16 @@ def get_path(search_term: str) -> os.PathLike | str:
     local_path = Path()
     
     likely_locations = [
-        local_path.resolve().parent.parent,
+        local_path.resolve(),                               # same level
+        local_path.resolve().parent.parent,                 # same level as lattice-tools
         local_path.home(),
+        local_path.home() / "CZI",
         local_path.home() / "GitClones",
         local_path.home() / "GitClones" / "CZI",
-        local_path.home() / "GitClones" / "Lattice-Data",
+        local_path.home() / "GitClones" / "Lattice-Data",   # if other local lattice repos beyond lattice-tools
         local_path.home() / "Documents" / "keys",
-        local_path.home() / "keys"
+        local_path.home() / "keys",
+        local_path.home() / "Desktop" / "Curation",
     ]
 
     for place in likely_locations:
