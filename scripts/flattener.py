@@ -579,9 +579,6 @@ def clean_obs(glob):
 
 # Drop any intermediate or optional fields that are all empty
 def drop_cols(celltype_col, glob):
-	if 'sequencing_platform' in glob.cxg_obs.columns:
-		if glob.cxg_obs['sequencing_platform'].isnull().values.any():
-			glob.cxg_obs['sequencing_platform'].fillna(fm.UNREPORTED_VALUE, inplace=True)
 	for col in fm.OPTIONAL_COLUMNS:
 		if col in glob.cxg_obs.columns.to_list():
 			col_content = glob.cxg_obs[col].unique()

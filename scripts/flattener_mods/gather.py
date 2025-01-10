@@ -255,7 +255,10 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 				values_to_add[key] = value
 		else:
 			if isinstance(value, list):
-				value = ','.join(value)
+				if len(value) == 0:
+					value = constants.UNREPORTED_VALUE
+				else:
+					value = ','.join(value)
 			latkey = (obj_type + '_' + prop).replace('.', '_')
 			key = constants.PROP_MAP.get(latkey, latkey)
 			values_to_add[key] = value
@@ -433,6 +436,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 						sys.exit(f"ERROR: Cxg field '{key}' is a list")
 				else:
 					values_to_add[key] = 'pooled [{}]'.format(','.join(value_str))
+			elif len(value_set) == 0:
+				values_to_add[key] = constants.UNREPORTED_VALUE
 			else:
 				values_to_add[key] = next(iter(value_set))
 
