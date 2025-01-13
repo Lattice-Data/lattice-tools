@@ -15,6 +15,7 @@ sys.path.append(
 
 from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
+from cellxgene_schema.utils import read_h5ad
 
 
 H5ADS = [
@@ -36,7 +37,7 @@ if not os.path.isfile(f"{FIXTURES_ROOT}/visium_v2_11mm_human.h5ad"):
 def validator_with_all_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     yield validator
 
 
@@ -44,7 +45,7 @@ def validator_with_all_adatas(request) -> Validator:
 def validator_human_adata() -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[0]}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[0]}")
     yield validator
 
 
@@ -52,7 +53,7 @@ def validator_human_adata() -> Validator:
 def validator_mouse_adata() -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[1]}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[1]}")
     yield validator
 
 
@@ -60,7 +61,7 @@ def validator_mouse_adata() -> Validator:
 def validator_with_human_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     yield validator
 
 
@@ -68,7 +69,7 @@ def validator_with_human_adatas(request) -> Validator:
 def validator_with_spatial_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     yield validator
 
 
@@ -76,7 +77,7 @@ def validator_with_spatial_adatas(request) -> Validator:
 def validator_with_slide_seq_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     yield validator
 
 
@@ -84,7 +85,7 @@ def validator_with_slide_seq_adatas(request) -> Validator:
 def validator_with_non_visium_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     yield validator
 
 
@@ -92,7 +93,7 @@ def validator_with_non_visium_adatas(request) -> Validator:
 def validator_with_visium_some() -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/visium_human_some_spots.h5ad")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/visium_human_some_spots.h5ad")
     yield validator
 
 
@@ -100,7 +101,7 @@ def validator_with_visium_some() -> Validator:
 def validator_with_visium() -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/visium_human_all_spots.h5ad")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/visium_human_all_spots.h5ad")
     yield validator
 
 
@@ -108,7 +109,7 @@ def validator_with_visium() -> Validator:
 def validator_with_all_visiums(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     yield validator
 
 
@@ -124,5 +125,5 @@ def label_writer(validator_with_all_adatas: Validator) -> AnnDataLabelAppender:
 def validator_with_non_spatial_adata(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
     yield validator
