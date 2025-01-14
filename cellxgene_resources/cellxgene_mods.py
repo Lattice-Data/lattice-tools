@@ -11,6 +11,7 @@ import squidpy as sq
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from scipy import sparse
 
 
@@ -47,28 +48,62 @@ curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_
 full_obs_standards = portal_obs_fields + curator_obs_fields
 
 
-class CxG_API:
-    scc_repo_loc = os.path.expanduser('~/GitClones/CZI/')
-    sys.path.append(os.path.abspath(scc_repo_loc + 'single-cell-curation/notebooks/curation_api/python/'))
+def get_path(search_term: str) -> os.PathLike | str:
+    """
+    Find path of local repos and API keys regardless of source machine. Use Path objects and
+    likely locations instead of glob or rglob to limit search overhead for simple import
 
+    Returns Path when found, otherwise str "Path not found"
+    """
+    # should start at ./lattice-tools/cellxgene_resources/
+    local_path = Path()
+    
+    likely_locations = [
+        local_path.resolve().parent.parent,                 # same level as lattice-tools
+        local_path.home(),
+        local_path.home() / "CZI",
+        local_path.home() / "GitClones",
+        local_path.home() / "GitClones" / "CZI",
+        local_path.home() / "GitClones" / "Lattice-Data",   # if other local lattice repos beyond lattice-tools
+        local_path.home() / "Documents" / "keys",
+        local_path.home() / "keys",
+        local_path.home() / "Documents",
+        local_path.home() / "Desktop" / "Curation",
+    ]
+
+    for place in likely_locations:
+        if place.exists():
+            for item in place.iterdir():
+                if search_term in item.name:
+                    return item
+
+    return "Path not found"
+
+
+class CxG_API:
+    scc_repo_loc = get_path("single-cell-curation")
+
+    if isinstance(scc_repo_loc, Path):
+        api_source = scc_repo_loc.resolve() / "notebooks" / "curation_api" / "python"
+        sys.path.append(str(api_source))
+    else:
+        print("Path not found for single-cell-curation repo")
+                
 
     from src.collection import create_collection,create_revision,get_collection,get_collections,update_collection
     from src.dataset import create_dataset,delete_dataset,get_dataset,get_datasets,upload_datafile_from_link,upload_local_datafile
 
-
-    def config(env=None):
+    def config(env="prod"):
         from src.utils.config import set_api_access_config
 
+        api_key_files = {
+            "prod": "cxg-api-key.txt",
+            "dev": "cxg-api-key-dev.txt",
+            "staging": "cxg-api-key-staging.txt",
+        }
 
-        if env == 'dev':
-            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key-dev.txt')
-            set_api_access_config(api_key_file_path, env='dev')
-        elif env == 'staging':
-            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key-staging.txt')
-            set_api_access_config(api_key_file_path, env='staging')
-        else:
-            api_key_file_path = os.path.expanduser('~/Documents/keys/cxg-api-key.txt')
-            set_api_access_config(api_key_file_path)
+        api_key_file_path = get_path(api_key_files[env])
+        set_api_access_config(api_key_file_path, env=env)
 
 
 def report(mess, level=None):

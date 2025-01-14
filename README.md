@@ -59,7 +59,16 @@ Compiles studies from CELLxGENE, HCA Data Portal, HCA Publications, and Bionetwo
 * **upload_local.ipynb**
 Submitting local files to CELLxGENE<br>
 Please note: <br>
-    This script utilizes the [single-cell-curation](https://github.com/chanzuckerberg/single-cell-curation/tree/main) repo which should be cloned to the following directory `~/GitClones/CZI/` and CXG API keys should be stored in `~/Documents/keys/cxg-api-key.txt`
+    Local copies of the [single-cell-curation](https://github.com/chanzuckerberg/single-cell-curation/tree/main) repo and API keys should be stored in these locations:
+    * `~/GitClones/CZI/` 
+    * `~/Documents/keys/cxg-api-key.txt`
+    * Other locations where the script will search for repo and keys:
+        * `~/`
+        * `~/CZI/`
+        * `~/keys/`
+        * `~/Documents/`
+        * `~/GitClones/`
+    
 
 
 ### scripts/<br>*for curating towards or out of [Lattice DB](lattice-data.org)*
