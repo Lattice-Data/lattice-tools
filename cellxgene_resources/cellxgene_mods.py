@@ -820,8 +820,12 @@ def evaluate_donors_sex(adata):
         donor_sex_df.fillna({'smart_seq': False}, inplace=True)
         donor_sex_df.drop(columns=['sex_ontology_term_id','assay_ontology_term_id'], inplace=True)
 
-        if donor_sex_df['smart_seq'].all():  #  check if all data is either smart-seq
+        if donor_sex_df['smart_seq'].all():  #  check if all data is smart-seq (if all == True)
             print('All data is smart-seq.')
+            donor_sex_df.drop(columns='smart_seq',inplace=True)
+
+        elif not any(donor_sex_df['smart_seq']):
+            print('No smart-seq data found.')
             donor_sex_df.drop(columns='smart_seq',inplace=True)
 
         else:
@@ -835,10 +839,12 @@ def evaluate_donors_sex(adata):
                     print('SMART_SEQ scRNAseq_sex: ', smart_seq_sex)
                     print('NON-SMART_SEQ scRNAseq_sex: ', nonsmart_seq_sex)
                     if smart_seq_sex != nonsmart_seq_sex:
-                        print(f'Smart-seq and non-smart-seq data for donor ({d}) do not match - including both in plot.')
+                        print(f'Smart-seq and non-smart-seq ratios for donor ({d}) do not match - including both in plot.')
+
 
                     if smart_seq_sex == nonsmart_seq_sex:
-                        print(f'Dropping Smart-seq from p')
+                         print(f'Smart-seq and non-smart-seq ratios for donor ({d}) match, dropping Smart-seq from plot.')
+
                 #curated:male/female but expression:unknown ->  it should just pass - no action to take.
 
                 #curated:unknown expression:male/female differently -> not wrong, but maybe we can fill in
