@@ -816,7 +816,36 @@ def evaluate_donors_sex(adata):
             'unknown':'unknown'
         }
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
-        donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
+        donor_sex_df.loc[donor_sex_df['assay_ontology_term_id'].isin(smart_assay_list) == True, 'smart_seq'] = True
+        donor_sex_df.fillna({'smart_seq': False}, inplace=True)
+        donor_sex_df.drop(columns=['sex_ontology_term_id','assay_ontology_term_id'], inplace=True)
+
+        if donor_sex_df['smart_seq'].all():  #  check if all data is either smart-seq
+            print('All data is smart-seq.')
+            donor_sex_df.drop(columns='smart_seq',inplace=True)
+
+        else:
+            #if smartseq present, compare smart-seq and non-smartseq ratios of each donor
+            non_smart_seq_df = donor_sex_df[donor_sex_df['smart_seq'] == False]
+            for d in non_smart_seq_df['donor_id'].unique():
+                smart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d + '-smartseq') & (donor_sex_df['smart_seq'] == True)]['scRNAseq_sex'].unique()
+                nonsmart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d) & (donor_sex_df['smart_seq'] == False)]['scRNAseq_sex'].unique()
+                if smart_seq_sex:
+                    print(d)
+                    print('SMART_SEQ scRNAseq_sex: ', smart_seq_sex)
+                    print('NON-SMART_SEQ scRNAseq_sex: ', nonsmart_seq_sex)
+                    if smart_seq_sex != nonsmart_seq_sex:
+                        print(f'Smart-seq and non-smart-seq data for donor ({d}) do not match - including both in plot.')
+
+                    if smart_seq_sex == nonsmart_seq_sex:
+                        print(f'Dropping Smart-seq from p')
+                #curated:male/female but expression:unknown ->  it should just pass - no action to take.
+
+                #curated:unknown expression:male/female differently -> not wrong, but maybe we can fill in
+
+                #curated:male, expression:female - true inconsistencies - which should be top priority to flag/address
+
+
 
         obs_to_keep = adata.obs[adata.obs['donor_id'].isin(donor_sex_df['donor_id'])].index
         adata = adata[obs_to_keep, : ].copy()
