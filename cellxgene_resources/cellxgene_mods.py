@@ -863,8 +863,8 @@ def evaluate_donors_sex(adata):
         f_symbs = [g for g in genes['female'].values() if g in adata_sub.var.index]
         m_symbs = [g for g in genes['male'].values() if g in adata_sub.var.index]
         dp = sc.pl.dotplot(
-            adata, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
-            use_raw=False, categories_order=ratio_order, return_fig=True
-        )
+              adata_sub, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
+              use_raw=False, categories_order=ratio_order[0], return_fig=True
+          )
 
         return donor_sex_df, dp
