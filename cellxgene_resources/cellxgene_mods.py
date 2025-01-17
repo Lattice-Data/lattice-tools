@@ -817,12 +817,10 @@ def evaluate_donors_sex(adata):
         }
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
         donor_sex_df.loc[donor_sex_df['assay_ontology_term_id'].isin(smart_assay_list) == True, 'smart_seq'] = True
-        donor_sex_df.fillna({'smart_seq': False}, inplace=True)
         donor_sex_df.drop(columns=['sex_ontology_term_id','assay_ontology_term_id'], inplace=True)
 
-        if donor_sex_df['smart_seq'].all():  #  check if all data is smart-seq (if all == True)
-            print('All data is smart-seq.')
-            donor_sex_df.drop(columns='smart_seq',inplace=True)
+        if 'smart_seq' in donor_sex_df.columns:
+            donor_sex_df['smart_seq'] = donor_sex_df['smart_seq'].fillna(False).astype('bool')
 
         elif not any(donor_sex_df['smart_seq']):
             print('No smart-seq data found.')
