@@ -818,6 +818,9 @@ def evaluate_donors_sex(adata):
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
         donor_sex_df.loc[donor_sex_df['assay_ontology_term_id'].isin(smart_assay_list) == True, 'smart_seq'] = True
         donor_sex_df.drop(columns=['sex_ontology_term_id','assay_ontology_term_id'], inplace=True)
+        donor_sex_df.sort_values('male_to_female', inplace=True)
+        obs_to_keep = []
+        ratio_order = []
 
         if 'smart_seq' in donor_sex_df.columns:
             donor_sex_df['smart_seq'] = donor_sex_df['smart_seq'].fillna(False).astype('bool')
@@ -841,26 +844,21 @@ def evaluate_donors_sex(adata):
 
 
                     if smart_seq_sex == nonsmart_seq_sex:
-                         print(f'Smart-seq and non-smart-seq ratios for donor ({d}) match, dropping Smart-seq from plot.')
+                        print(f'Smart-seq and non-smart-seq sex for donor ({d}) match, dropping Smart-seq from plot.')
+                        obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['smart_seq'] != True]['donor_id']))].index)
+                        donor_sex_df_ss_drop = donor_sex_df[donor_sex_df['smart_seq'] != True]
+                        ratio_order.append((donor_sex_df_ss_drop['donor_id'] + ' ' + donor_sex_df_ss_drop['author_annotated_sex'].astype('string')).to_list())
 
-                #curated:male/female but expression:unknown ->  it should just pass - no action to take.
-
-                #curated:unknown expression:male/female differently -> not wrong, but maybe we can fill in
-
-                #curated:male, expression:female - true inconsistencies - which should be top priority to flag/address
-
-
-
-        obs_to_keep = adata.obs[adata.obs['donor_id'].isin(donor_sex_df['donor_id'])].index
-        adata = adata[obs_to_keep, : ].copy()
-        donor_sex_df.sort_values('male_to_female', inplace=True)
-        ratio_order = (donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list()
-        adata.obs['donor_id'] = adata.obs['donor_id'].astype('category')
-        adata.obs['donor_sex'] = adata.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
-        adata.var.rename(index=genes['female'], inplace=True)
-        adata.var.rename(index=genes['male'], inplace=True)
-        f_symbs = [g for g in genes['female'].values() if g in adata.var.index]
-        m_symbs = [g for g in genes['male'].values() if g in adata.var.index]
+        adata_sub = adata[obs_to_keep[0], : ].copy()
+        adata_sub.obs['donor_id'] = adata_sub.obs['donor_id'].astype('category')
+        print(f"adata_sub: {adata_sub.obs['donor_id'].unique()}")
+        adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]  # clean up donor_ids in adata
+        donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0] # clean up donor_ids in donor_sex_df
+        adata_sub.obs['donor_sex'] = adata_sub.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
+        adata_sub.var.rename(index=genes['female'], inplace=True)
+        adata_sub.var.rename(index=genes['male'], inplace=True)
+        f_symbs = [g for g in genes['female'].values() if g in adata_sub.var.index]
+        m_symbs = [g for g in genes['male'].values() if g in adata_sub.var.index]
         dp = sc.pl.dotplot(
             adata, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
             use_raw=False, categories_order=ratio_order, return_fig=True
