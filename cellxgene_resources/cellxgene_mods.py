@@ -829,16 +829,12 @@ def evaluate_donors_sex(adata):
             obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['donor_id'].isin(removed_donors)!=True]['donor_id']))].index)
             ratio_order.append((donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list())
 
-        #if there's a mix of data, compare nonsmart and smart to determine if the smartseq data is kept in the plot
         else:
             for d in donor_sex_df['donor_id'].unique():
-                print(d)
                 smart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d + '-smartseq') & (donor_sex_df['smart_seq'] == True)]['scRNAseq_sex'].unique()
 
                 if smart_seq_sex:
-                    print('SMART_SEQ scRNAseq_sex: ', smart_seq_sex)
                     nonsmart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d) & (donor_sex_df['smart_seq'] == False)]['scRNAseq_sex'].unique()
-                    print('NON-SMART_SEQ scRNAseq_sex: ', nonsmart_seq_sex)
 
                     if smart_seq_sex != nonsmart_seq_sex:
                         print(f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) do not match - both will be included in plot.')
@@ -853,9 +849,8 @@ def evaluate_donors_sex(adata):
 
         adata_sub = adata[obs_to_keep[0], : ].copy()
         adata_sub.obs['donor_id'] = adata_sub.obs['donor_id'].astype('category')
-        print(f"adata_sub: {adata_sub.obs['donor_id'].unique()}")
-        adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]  # clean up donor_ids in adata
-        donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0] # clean up donor_ids in donor_sex_df
+        adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]
+        donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0]
         adata_sub.obs['donor_sex'] = adata_sub.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
         adata_sub.var.rename(index=genes['female'], inplace=True)
         adata_sub.var.rename(index=genes['male'], inplace=True)
