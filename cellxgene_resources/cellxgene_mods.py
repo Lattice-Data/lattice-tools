@@ -776,7 +776,7 @@ def calculate_sex(fm_dict):
         male_female_df['male_to_female'] = male_female_df['male_sum']/male_female_df['female_sum']
         male_female_df['scRNAseq_sex'] = male_female_df.apply(lambda x: assign_sex(x['male_to_female']), axis=1)
 
-        return male_female_df
+        return male_female_df,donors_to_remove
 
     except Exception as e:
         print(e)
@@ -807,7 +807,7 @@ def evaluate_donors_sex(adata):
         if genes_found[0] == 0 or genes_found[1] == 0:
             return None,None
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
-        donor_sex_df = calculate_sex(fm_counts_dict)
+        donor_sex_df,removed_donors = calculate_sex(fm_counts_dict)
         donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
         donor_sex_df = donor_sex_df.merge(adata.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
         sex_map = {
@@ -826,8 +826,7 @@ def evaluate_donors_sex(adata):
             donor_sex_df['smart_seq'] = donor_sex_df['smart_seq'].fillna(False).astype('bool')
 
         if donor_sex_df['smart_seq'].all() or not any(donor_sex_df['smart_seq']):
-            print(donor_sex_df)
-            obs_to_keep.append(adata.obs.index)
+            obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['donor_id'].isin(removed_donors)!=True]['donor_id']))].index)
             ratio_order.append((donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list())
 
         #if there's a mix of data, compare nonsmart and smart to determine if the smartseq data is kept in the plot
@@ -842,13 +841,13 @@ def evaluate_donors_sex(adata):
                     print('NON-SMART_SEQ scRNAseq_sex: ', nonsmart_seq_sex)
 
                     if smart_seq_sex != nonsmart_seq_sex:
-                        print(f'Smart-seq and non-smart-seq sex for donor ({d}) do not match - both will be included in plot.')
-                        obs_to_keep.append(adata.obs.index)
+                        print(f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) do not match - both will be included in plot.')
+                        obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['donor_id'].isin(removed_donors)!=True]['donor_id']))].index)
                         ratio_order.append((donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list())
 
                     if smart_seq_sex == nonsmart_seq_sex:
-                        print(f'Smart-seq and non-smart-seq sex for donor ({d}) match, dropping Smart-seq from plot.')
-                        obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['smart_seq'] != True]['donor_id']))].index)
+                        print(f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) match, dropping Smart-seq from plot.')
+                        obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[(donor_sex_df['smart_seq'] != True) & (donor_sex_df['donor_id'].isin(removed_donors)!=True)]['donor_id']))].index)
                         donor_sex_df_ss_drop = donor_sex_df[donor_sex_df['smart_seq'] != True]
                         ratio_order.append((donor_sex_df_ss_drop['donor_id'] + ' ' + donor_sex_df_ss_drop['author_annotated_sex'].astype('string')).to_list())
 
