@@ -104,7 +104,7 @@ biosample = {
 	'dbxrefs': {
 		'lattice': 'dbxrefs',
 		'BioSample': 'biomaterial_core.biosamples_accession',
-		'SRA': 'biomaterial_core.insdc_sample_accession'	
+		'SRA': 'biomaterial_core.insdc_sample_accession'
 	},
 	'provenance.document_id': {
 		'lattice': 'uuid'
