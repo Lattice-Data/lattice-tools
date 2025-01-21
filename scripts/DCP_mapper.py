@@ -691,11 +691,17 @@ def unit_conversion(value, current_u, desired_u):
 	return curr.magnitude
 
 
-def customize_fields(obj, obj_type, dataset_id):
+def customize_fields(obj, obj_type, dataset_id, docid_updates):
 	if obj.get('provenance'):
 		obj['provenance']['submission_date'] = dt
 	else:
 		obj['provenance'] = {'submission_date': dt}
+
+	if obj_type in no_reuse_types:
+		old_docid = obj['provenance']['document_id']
+		new_docid = uuid_make(old_docid + dataset_id)
+		obj['provenance']['document_id'] = uuid_make(old_docid + dataset_id)
+		docid_updates[old_docid] = new_docid
 
 	if obj.get('biomaterial_core'):
 		if obj['biomaterial_core'].get('ncbi_taxon_id'):
@@ -1021,6 +1027,7 @@ def main():
 		'bdbe72d3-76f7-4dd7-bb5d-80cd02382399': 'ad98d3cd-26fb-4ee3-99c9-8a2ab085e737', # Litviňuková et al 2020
 		'c9aa45d0-cacd-4c0e-999c-f10df0609a31': '425c2759-db66-4c93-a358-a562c069b1f1'  # Guilliams et al 2022
 		}
+
 	dataset_id = dcp_projects.get(lattice_dataset_id, lattice_dataset_id)
 	ds_obj['uuid'] = dataset_id
 
@@ -1109,20 +1116,11 @@ def main():
 	for d in dir_to_make:
 		os.mkdir(f'{output_dir}/{dataset_id}/{d}')
 
-	# reformat links to use uuids and convert to DCP schema
-	for i in links:
-		i['schema_type'] = 'links'
-		i['schema_version'] = dcp_versions['links']
-		i['describedBy'] = 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_versions['links'])
-		first_id = i['links'][0]['process_id']
-		with open(f'{output_dir}/{dataset_id}/links/{first_id}_{dt}_{dataset_id}.json', 'w') as outfile:
-			json.dump(i, outfile, indent=4)
-			outfile.close()
-
 	s3_uris = []
 	ftp_uris = []
 
 	# write a json file for each object
+	docid_updates = {}
 	for k in whole_dict.keys():
 		os.mkdir(f'{output_dir}/{dataset_id}/metadata/{k}')
 		for o in whole_dict[k]:
@@ -1141,12 +1139,31 @@ def main():
 				file_stats(file_name, o)
 				os.rename(file_name, f'{output_dir}/{dataset_id}/data/{file_name}')
 				file_descript(o, k, dataset_id)
-			customize_fields(o, k, dataset_id)
+			customize_fields(o, k, dataset_id, docid_updates)
 			o['schema_type'] = dcp_types[k].split('/')[0]
 			o['schema_version'] = dcp_versions[k]
 			o['describedBy'] = 'https://schema.humancellatlas.org/type/{}/{}/{}'.format(dcp_types[k], dcp_versions[k], k)
 			with open(f'{output_dir}/{dataset_id}/metadata/{k}/{o["provenance"]["document_id"]}_{dt}.json', 'w', encoding='utf8') as outfile:
 				json.dump(o, outfile, indent=4, ensure_ascii=False)
+
+	# reformat links to use uuids and convert to DCP schema
+	for i in links:
+		i['schema_type'] = 'links'
+		i['schema_version'] = dcp_versions['links']
+		i['describedBy'] = 'https://schema.humancellatlas.org/system/{}/links'.format(dcp_versions['links'])
+		first_id = i['links'][0]['process_id']
+
+		for l in i['links']:
+			for inp in l['inputs']:
+				inp['input_id'] = docid_updates.get(inp['input_id'],inp['input_id'])
+			for outp in l['outputs']:
+				outp['output_id'] = docid_updates.get(outp['output_id'],outp['output_id'])
+			for prot in l['protocols']:
+				prot['protocol_id'] = docid_updates.get(prot['protocol_id'],prot['protocol_id'])
+
+		with open(f'{output_dir}/{dataset_id}/links/{first_id}_{dt}_{dataset_id}.json', 'w') as outfile:
+			json.dump(i, outfile, indent=4)
+			outfile.close()
 
 	# make a staging_area.json to meet DCP requirements
 	text = {
@@ -1228,6 +1245,19 @@ if __name__ == '__main__':
 		'RNA': 'CHEBI:33697',
 		'protein': 'CHEBI:36080'
 	}
+
+	no_reuse_types = [
+		'cell_suspension',
+		'collection_protocol',
+		'dissociation_protocol',
+		'donor_organism',
+		'enrichment_protocol',
+		'imaged_specimen',
+		'library_preparation_protocol',
+		'protocol',
+		'sequencing_protocol',
+		'specimen_from_organism'
+	]
 
 	args = getArgs()
 	if not args.dataset:
