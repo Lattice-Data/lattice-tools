@@ -385,7 +385,8 @@ def get_derived_from(temp_obj, next_remaining, links):
 def get_links(temp_obj, der_fr, links_dict):
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
-	outs = {'output_type': out_type, 'output_id': temp_obj['uuid']}
+	out_id = temp_obj['uuid']
+	outs = {'output_type': out_type, 'output_id': out_id}
 	if links_dict.get(der_fr):
 		links_dict[der_fr]['outputs'].append(outs)
 	else:
@@ -431,7 +432,8 @@ def seq_to_susp(links_dict):
 				if obj_type == 'Suspension':
 					susps.extend([prepooled_obj['@id']])
 					in_type = lattice_to_dcp[obj_type]['class']
-					ins.append({'input_type': in_type, 'input_id': prepooled_obj['uuid']})
+					in_id = prepooled_obj['uuid']
+					ins.append({'input_type': in_type, 'input_id': in_id})
 					seq_method = 'high throughput sequencing, demultiplexing'
 				# cannot yet handle multiple Tissues pooled into a single Suspension
 				else:
@@ -441,7 +443,8 @@ def seq_to_susp(links_dict):
 				for obj in lib_obj['derived_from']:
 					lat_type = obj['@type'][0]
 					in_type = lattice_to_dcp[lat_type]['class']
-					ins.append({'input_type': in_type, 'input_id': obj['uuid']})
+					in_id = obj['uuid']
+					ins.append({'input_type': in_type, 'input_id': in_id})
 					seq_method = 'high throughput sequencing'
 
 			seq_prot = {
@@ -635,7 +638,8 @@ def add_links(temp_obj, der_fr, links):
 		ins.append({'input_type': in_type, 'input_id': in_id})
 	lat_type = temp_obj['@type'][0]
 	out_type = lattice_to_dcp[lat_type]['class']
-	outs = [{'output_type': out_type, 'output_id': temp_obj['uuid']}]
+	out_id = temp_obj['uuid']
+	outs = [{'output_type': out_type, 'output_id': out_id}]
 	prots = create_protocol(in_type, out_type, temp_obj)
 	link = {
 		'outputs': outs,
