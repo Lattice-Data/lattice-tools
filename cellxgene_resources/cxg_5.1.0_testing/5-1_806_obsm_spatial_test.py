@@ -113,7 +113,7 @@ def test_obsm_np_nan_slide_seq(validator_with_slide_seq_adatas):
     validator.validate_adata()
     assert validator.is_valid is False
     assert validator.errors == [
-        "ERROR: adata.obsm['spatial'] contains all NaN values."
+        "ERROR: adata.obsm['spatial'] contains at least one NaN value."
     ]
 
 
