@@ -18,7 +18,7 @@ def test_spatial_embeddings_nan_fails(validator_with_spatial_adatas):
     validator.adata.obsm["spatial"][0][0] = np.nan
     validator.validate_adata()
     assert not validator.is_valid
-    assert "ERROR: adata.obs['spatial] contains at least one NaN value." in validator.errors
+    assert "ERROR: adata.obsm['spatial'] contains at least one NaN value." in validator.errors
 
 
 def test_non_visium_nan_embedding_passes(validator_with_non_spatial_adata):
