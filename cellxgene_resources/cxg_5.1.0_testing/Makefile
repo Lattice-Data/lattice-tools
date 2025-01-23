@@ -1,11 +1,11 @@
-CONDA_NAME = cxg51testing
+CONDA_NAME = cxg53testing
 CLONE_ENV = lattice
 GIT_REF = main
 PYTHON_VERSION = 3.11
 
 .PHONY: help
 help:
-	@echo "Makefile for 5.1.0 QA testing"
+	@echo "Makefile for 5.3.0 QA testing"
 	@echo "============ Default values ============"
 	@echo "PYTHON_VERSION="$(PYTHON_VERSION)
 	@echo "To create: CONDA_NAME="$(CONDA_NAME)
@@ -23,7 +23,7 @@ help:
 	@echo "Or run defaults:"
 	@echo "========================================"
 	@echo "make conda"
-	@echo "conda activate cxg51testing"
+	@echo "conda activate cxg53testing"
 	@echo "make conda-install"
 	@echo "make tests"
 
@@ -41,8 +41,8 @@ conda:
 	conda create --name $(CONDA_NAME) python=$(PYTHON_VERSION)
 
 conda-install: 
-	conda install -c conda-forge pint pandas jsonschema boto3 jupyter bs4
-	pip install requests openpyxl Pillow gspread gspread_formatting oauth2client scanpy python-magic crcmod lxml pytest
+	conda install -c conda-forge pint jsonschema boto3 jupyter bs4 squidpy scanpy python-magic
+	pip install requests openpyxl Pillow gspread gspread_formatting oauth2client crcmod lxml pyometiff pytest pytest-xdist
 	pip install git+https://github.com/chanzuckerberg/single-cell-curation/@$(GIT_REF)#subdirectory=cellxgene_schema_cli
 
 conda-vars:
