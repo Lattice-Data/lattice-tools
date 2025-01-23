@@ -1,6 +1,6 @@
-Schema 5.1.0 QA Testing
+Schema 5.3.0 QA Testing
 ----------------
-QA validation tests for moving towards schema 5.1.0 migration. Almost all tests will be through pytest; `validate_notebook_workflow.ipynb` checks that validation through the curator notebook workflow does not break.
+QA validation tests for moving towards schema 5.3.0 migration. Almost all tests will be through pytest; `validate_notebook_workflow.ipynb` checks that validation through the curator notebook workflow does not break.
 
 This iteration utilizes a Makefile to help with environment setup, updating the `cellxgene-schema` cli tool, and running all the pytests.
 
@@ -16,7 +16,8 @@ Installation
 To get proper testing environment: 
 - Local, up-to-date [CZI single-cell-curation repo](https://github.com/chanzuckerberg/single-cell-curation)
 - `pytest` is part of test env
-- `cellxgene-schema` pip package is installed/updated to at least 5.0.1 from this repo.
+- `pytest-xdist` plugin for parallel test running
+- `cellxgene-schema` pip package is installed/updated to at least 5.2.3 from this repo.
 
 Create a seperate test environment since schema will be > 5.0.0. This can be done by cloning the lattice env or creating a new one.
 
@@ -80,6 +81,11 @@ You can also use the normal cli pytest commands:
 ```
 pytest -vv
 ```
+By providing the -n arument to `pytest`, tests will be run in parallel with the `pytest-xdist` plugin:
+```
+pytest -vvv -n auto
+```
+
 Cleanup
 ---------------- 
 ```
