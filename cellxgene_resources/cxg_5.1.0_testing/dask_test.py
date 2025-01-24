@@ -59,14 +59,16 @@ def test_np_zeros_from_array(validator_with_non_spatial_adata):
         var=var,
     )
     validator.adata.raw = raw_adata
+
+    nnz = validator.count_matrix_nonzero(validator.adata.raw.X)
+    sparsity = 1 - nnz / np.prod(validator.adata.raw.X.shape)
+
     validator.validate_adata()
     assert not validator.is_valid
-    errors = [
-        "ERROR: Each cell must have at least one non-zero value in its row in the raw matrix.",
-        "ERROR: Raw data may be missing: data in 'raw.X' does not meet schema requirements."
-    ]
-    for error in errors:
-        assert error in validator.errors
+    assert (
+        f"ERROR: Sparsity of 'raw.X' is {sparsity} which is greater than 0.5, and it is "
+        "not a 'scipy.sparse.csr_matrix'. The matrix MUST use this type of matrix for the given sparsity."
+    ) in validator.errors
 
 
 def test_csr_matrix_from_array(validator_with_non_spatial_adata):
@@ -80,6 +82,7 @@ def test_csr_matrix_from_array(validator_with_non_spatial_adata):
         var=var,
     )
     validator.adata.raw = raw_adata
+
     validator.validate_adata()
     assert not validator.is_valid
     errors = [
@@ -96,13 +99,15 @@ def test_only_x_from_array(validator_with_non_spatial_adata):
     del validator.adata.raw
     validator.adata.X = from_array(zeros)
     validator.validate_adata()
+    
+    nnz = validator.count_matrix_nonzero(validator.adata.X)
+    sparsity = 1 - nnz / np.prod(validator.adata.X.shape)
+
     assert not validator.is_valid
-    errors = [
-        "ERROR: Each cell must have at least one non-zero value in its row in the raw matrix.",
-        "ERROR: Raw data is missing: there is only a normalized matrix in X and no raw.X"
-    ]
-    for error in errors:
-        assert error in validator.errors
+    assert (
+        f"ERROR: Sparsity of 'X' is {sparsity} which is greater than 0.5, and it is not a "
+        "'scipy.sparse.csr_matrix'. The matrix MUST use this type of matrix for the given sparsity."
+    ) in validator.errors
 
 
 def test_change_one_matrix_row(validator_with_non_spatial_adata):
@@ -112,13 +117,15 @@ def test_change_one_matrix_row(validator_with_non_spatial_adata):
     del validator.adata.raw
     validator.adata.X = from_array(zeros)
     validator.validate_adata()
+    
+    nnz = validator.count_matrix_nonzero(validator.adata.X)
+    sparsity = 1 - nnz / np.prod(validator.adata.X.shape)
+
     assert not validator.is_valid
-    errors = [
-        "ERROR: Each cell must have at least one non-zero value in its row in the raw matrix.",
-        "ERROR: Raw data is missing: there is only a normalized matrix in X and no raw.X"
-    ]
-    for error in errors:
-        assert error in validator.errors
+    assert (
+        f"ERROR: Sparsity of 'X' is {sparsity} which is greater than 0.5, and it is not a "
+        "'scipy.sparse.csr_matrix'. The matrix MUST use this type of matrix for the given sparsity."
+    ) in validator.errors
 
 
 def test_ones_np_matrix(validator_with_non_spatial_adata):
