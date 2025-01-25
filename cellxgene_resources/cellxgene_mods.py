@@ -826,6 +826,8 @@ def evaluate_donors_sex(adata):
             donor_sex_df['smart_seq'] = donor_sex_df['smart_seq'].fillna(False).astype('bool')
 
         if donor_sex_df['smart_seq'].all() or not any(donor_sex_df['smart_seq']):
+            adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]
+            donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0]
             obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['donor_id'].isin(removed_donors)!=True]['donor_id']))].index)
             ratio_order.append((donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list())
 
