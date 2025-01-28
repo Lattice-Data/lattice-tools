@@ -51,7 +51,6 @@ conda-vars:
 cxg-schema:
 	pip uninstall cellxgene-schema
 	pip install git+https://github.com/chanzuckerberg/single-cell-curation/@$(GIT_REF)#subdirectory=cellxgene_schema_cli
-	pip install cellxgene_ontology_guide -U
 
 tests: cxg-schema
 	pytest -vvv
