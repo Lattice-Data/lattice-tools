@@ -14,7 +14,7 @@ CT_UNKNOWN_ERROR = "obs['cell_type_ontology_term_id'] must be 'unknown' when obs
 @pytest.mark.parametrize(
     "assay_term,expected",
     (
-        pytest.param("EFO:0010961", True, id="Visium Spatial Gene Expression"),
+        pytest.param("EFO:0010961", False, id="Visium Spatial Gene Expression"),
         pytest.param("EFO:0022858", True, id="Visium CytAssist Spatial Gene Expression V2"),
         pytest.param("EFO:0022860", True, id="Visium CytAssist Spatial Gene Expression, 11mm"),
         pytest.param("EFO:0022859", True, id="Visium CytAssist Spatial Gene Expression, 6.5mm"),
@@ -27,7 +27,18 @@ def test_visium_descendants(validator_with_all_visiums, assay_term, expected):
     validator = validator_with_all_visiums
     validator.adata.obs['assay_ontology_term_id'] = assay_term
     validator._is_visium_including_descendants() 
-    assert validator.is_visium == expected
+    assert validator.is_visium is expected
+
+
+def test_visium_parent_with_error(validator_with_all_visiums):
+    validator = validator_with_all_visiums
+    validator.adata.obs['assay_ontology_term_id'] = "EFO:0010961"
+    validator._is_visium_including_descendants() 
+    assert validator.is_visium is False
+    assert (
+        "Invalid spatial assay. obs['assay_ontology_term_id'] must be a descendant of "
+        "EFO:0010961 but NOT EFO:0010961 itself. "
+    ) in validator.errors
 
 
 parameters_visiums = (
@@ -64,6 +75,11 @@ def test_in_tissue_zero_w_cell_type_partial(validator_with_all_visiums, assay_te
 
 @pytest.mark.parametrize(*parameters_visiums)
 def test_in_tissue_zero_w_cell_type_full(validator_with_all_visiums, assay_term):
+    my_keyword_dict ={
+        "validator_with_all_visiums": "my file",
+        "assay_term": "my file",
+    }
+    test_in_tissue_zero_w_cell_type_full(**my_keyword_dict)
     validator = validator_with_all_visiums
     random_cell_type = "CL:0001082"
     validator.adata.obs['assay_ontology_term_id'] = assay_term
