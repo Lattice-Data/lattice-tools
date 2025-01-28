@@ -75,11 +75,6 @@ def test_in_tissue_zero_w_cell_type_partial(validator_with_all_visiums, assay_te
 
 @pytest.mark.parametrize(*parameters_visiums)
 def test_in_tissue_zero_w_cell_type_full(validator_with_all_visiums, assay_term):
-    my_keyword_dict ={
-        "validator_with_all_visiums": "my file",
-        "assay_term": "my file",
-    }
-    test_in_tissue_zero_w_cell_type_full(**my_keyword_dict)
     validator = validator_with_all_visiums
     random_cell_type = "CL:0001082"
     validator.adata.obs['assay_ontology_term_id'] = assay_term
