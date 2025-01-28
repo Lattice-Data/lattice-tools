@@ -3,20 +3,12 @@ import gc
 import os
 import pytest
 import sys
-
-
-# pytest can now discover and successfully run tests from any directory level of repo
-FIXTURES_ROOT = os.path.join(os.path.dirname(__file__))
-
-SCC_REPO_LOC = os.path.expanduser("~/GitClones/CZI/")
-sys.path.append(
-    os.path.abspath(SCC_REPO_LOC + "single-cell-curation/cellxgene_schemea_cli/")
-)
-
 from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from cellxgene_schema.utils import read_h5ad
 
+# pytest can now discover and successfully run tests from any directory level of repo
+FIXTURES_ROOT = os.path.join(os.path.dirname(__file__))
 
 H5ADS = [
     "valid_human.h5ad", 
