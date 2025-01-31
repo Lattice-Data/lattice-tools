@@ -821,6 +821,7 @@ def evaluate_donors_sex(adata):
         donor_sex_df.sort_values('male_to_female', inplace=True)
         obs_to_keep = []
         ratio_order = []
+        smart_seq_donors_rename = {}
 
         if 'smart_seq' in donor_sex_df.columns:
             donor_sex_df['smart_seq'] = donor_sex_df['smart_seq'].fillna(False).astype('bool')
@@ -855,8 +856,10 @@ def evaluate_donors_sex(adata):
 
                         elif len(smart_seq_sex) > 0 and len(nonsmart_seq_sex) == 0:
                             d_df = donor_sex_df[donor_sex_df['donor_id'] == d + '-smartseq']
+                            smart_seq_donors_rename[f'{d}-smartseq'] = d
                             obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
-                            ratio_order.append((d_df['donor_id'] + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+                            ratio_order.append((d_df['donor_id'].str.split('-smartseq').str[0] + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+
 
                         elif len(smart_seq_sex) == 0 and len(nonsmart_seq_sex) > 0:
                             d_df = donor_sex_df[donor_sex_df['donor_id'] == d]
@@ -873,6 +876,7 @@ def evaluate_donors_sex(adata):
         adata_sub.obs['donor_id'] = adata_sub.obs['donor_id'].astype('category')
         adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]
         donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0]
+        adata_sub.obs['donor_id'] = adata_sub.obs['donor_id'].cat.rename_categories(smart_seq_donors_rename)
         adata_sub.obs['donor_sex'] = adata_sub.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
         adata_sub.var.rename(index=genes['female'], inplace=True)
         adata_sub.var.rename(index=genes['male'], inplace=True)
