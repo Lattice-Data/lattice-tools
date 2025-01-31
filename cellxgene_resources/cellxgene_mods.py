@@ -776,7 +776,7 @@ def calculate_sex(fm_dict):
         male_female_df['male_to_female'] = male_female_df['male_sum']/male_female_df['female_sum']
         male_female_df['scRNAseq_sex'] = male_female_df.apply(lambda x: assign_sex(x['male_to_female']), axis=1)
 
-        return male_female_df
+        return male_female_df,donors_to_remove
 
     except Exception as e:
         print(e)
@@ -791,7 +791,7 @@ def evaluate_donors_sex(adata):
         genes = json.load(open(genes_file))
         female_ids = genes['female'].keys()
         male_ids = genes['male'].keys()
-        metadata_list = ['donor_id', 'sex_ontology_term_id']
+        metadata_list = ['donor_id', 'sex_ontology_term_id','assay_ontology_term_id']
         smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
         adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
         adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
@@ -807,7 +807,7 @@ def evaluate_donors_sex(adata):
         if genes_found[0] == 0 or genes_found[1] == 0:
             return None,None
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
-        donor_sex_df = calculate_sex(fm_counts_dict)
+        donor_sex_df,removed_donors = calculate_sex(fm_counts_dict)
         donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
         donor_sex_df = donor_sex_df.merge(adata.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
         sex_map = {
@@ -816,21 +816,75 @@ def evaluate_donors_sex(adata):
             'unknown':'unknown'
         }
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
-        donor_sex_df.drop(columns='sex_ontology_term_id', inplace=True)
-
-        obs_to_keep = adata.obs[adata.obs['donor_id'].isin(donor_sex_df['donor_id'])].index
-        adata = adata[obs_to_keep, : ].copy()
+        donor_sex_df.loc[donor_sex_df['assay_ontology_term_id'].isin(smart_assay_list) == True, 'smart_seq'] = True
+        donor_sex_df.drop(columns=['sex_ontology_term_id','assay_ontology_term_id'], inplace=True)
         donor_sex_df.sort_values('male_to_female', inplace=True)
-        ratio_order = (donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list()
-        adata.obs['donor_id'] = adata.obs['donor_id'].astype('category')
-        adata.obs['donor_sex'] = adata.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
-        adata.var.rename(index=genes['female'], inplace=True)
-        adata.var.rename(index=genes['male'], inplace=True)
-        f_symbs = [g for g in genes['female'].values() if g in adata.var.index]
-        m_symbs = [g for g in genes['male'].values() if g in adata.var.index]
+        obs_to_keep = []
+        ratio_order = []
+        smart_seq_donors_rename = {}
+
+        if 'smart_seq' in donor_sex_df.columns:
+            donor_sex_df['smart_seq'] = donor_sex_df['smart_seq'].fillna(False).astype('bool')
+
+        if donor_sex_df['smart_seq'].all() or not any(donor_sex_df['smart_seq']):
+            adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]
+            donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0]
+            obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['donor_id'].isin(removed_donors)!=True]['donor_id']))].index)
+            ratio_order.append((donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list())
+
+        else:
+            for d in pd.Series(donor_sex_df['donor_id'].str.split('-smartseq').str[0]).unique():
+                if d in removed_donors:
+                    print(f"Donor {d} was removed from analysis, cannot include in plot.")
+                else:
+                    try:
+                        smart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d + '-smartseq') & (donor_sex_df['smart_seq'] == True)]['scRNAseq_sex'].unique()
+                        nonsmart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d) & (donor_sex_df['smart_seq'] == False)]['scRNAseq_sex'].unique()
+
+                        if len(smart_seq_sex) > 0 and len(nonsmart_seq_sex) > 0:
+                            if smart_seq_sex != nonsmart_seq_sex:
+                                print(f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) do not match - both will be included in plot.')
+                                d_df = donor_sex_df[(donor_sex_df['donor_id'] == d) | (donor_sex_df['donor_id'] == d + '-smartseq')]
+                                obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
+                                ratio_order.append((d_df['donor_id']  + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+
+                            if smart_seq_sex == nonsmart_seq_sex:
+                                print(f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) match, dropping Smart-seq from plot.')
+                                d_df = donor_sex_df[donor_sex_df['donor_id'] == d]
+                                obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
+                                ratio_order.append((d_df['donor_id']  + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+
+                        elif len(smart_seq_sex) > 0 and len(nonsmart_seq_sex) == 0:
+                            d_df = donor_sex_df[donor_sex_df['donor_id'] == d + '-smartseq']
+                            smart_seq_donors_rename[f'{d}-smartseq'] = d
+                            obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
+                            ratio_order.append((d_df['donor_id'].str.split('-smartseq').str[0] + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+
+
+                        elif len(smart_seq_sex) == 0 and len(nonsmart_seq_sex) > 0:
+                            d_df = donor_sex_df[donor_sex_df['donor_id'] == d]
+                            obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
+                            ratio_order.append((d_df['donor_id'] + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+
+                    except Exception as e:
+                        print(f"Error: smart-seq and non-smart-seq sex for donor {d} were not calculated. Details: {e}")
+                        obs_to_keep, ratio_order = None, None  # Set to None to indicate failure
+
+        flattened_obs_to_keep = [obs for sublist in obs_to_keep for obs in sublist]
+        flattened_ratio_order = [ro for sublist1 in ratio_order for ro in sublist1]
+        adata_sub = adata[flattened_obs_to_keep, : ].copy()
+        adata_sub.obs['donor_id'] = adata_sub.obs['donor_id'].astype('category')
+        adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]
+        donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0]
+        adata_sub.obs['donor_id'] = adata_sub.obs['donor_id'].cat.rename_categories(smart_seq_donors_rename)
+        adata_sub.obs['donor_sex'] = adata_sub.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
+        adata_sub.var.rename(index=genes['female'], inplace=True)
+        adata_sub.var.rename(index=genes['male'], inplace=True)
+        f_symbs = [g for g in genes['female'].values() if g in adata_sub.var.index]
+        m_symbs = [g for g in genes['male'].values() if g in adata_sub.var.index]
         dp = sc.pl.dotplot(
-            adata, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
-            use_raw=False, categories_order=ratio_order, return_fig=True
-        )
+              adata_sub, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
+              use_raw=False, categories_order=flattened_ratio_order, return_fig=True
+          )
 
         return donor_sex_df, dp
