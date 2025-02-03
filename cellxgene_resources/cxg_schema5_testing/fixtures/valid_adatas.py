@@ -20,6 +20,12 @@ H5ADS = [
     "visium_human_some_spots.h5ad",
 ]
 
+MULTISPECIES_H5ADS = [
+    "valid_fly.h5ad",
+    "valid_worm.h5ad",
+    "valid_zebrafish.h5ad",
+]
+
 # will add better check for file, maybe to automatically download as well
 if not os.path.isfile(f"{FIXTURES_ROOT}/visium_v2_11mm_human.h5ad"):
     raise FileNotFoundError('This file lives in S3, please download before running tests')
@@ -115,6 +121,38 @@ def label_writer(validator_with_all_adatas: Validator) -> AnnDataLabelAppender:
 
 @pytest.fixture(params=H5ADS[:2])
 def validator_with_non_spatial_adata(request) -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    yield validator
+
+
+@pytest.fixture(params=MULTISPECIES_H5ADS)
+def validator_with_multispecies_adatas(request) -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    yield validator
+
+
+@pytest.fixture(params=MULTISPECIES_H5ADS[:1])
+def validator_with_fly_adata(request) -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    yield validator
+
+
+@pytest.fixture(params=MULTISPECIES_H5ADS[1:2])
+def validator_with_worm_adata(request) -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    yield validator
+
+
+@pytest.fixture(params=MULTISPECIES_H5ADS[2:])
+def validator_with_zebrafish_adata(request) -> Validator:
     gc.collect()
     validator = Validator()
     validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
