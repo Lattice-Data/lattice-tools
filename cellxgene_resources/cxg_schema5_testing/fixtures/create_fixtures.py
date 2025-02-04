@@ -47,11 +47,12 @@ class Organism(Enum):
     rhesus = OrganismMeta("Macaca mulatta")
     chimp = OrganismMeta("Pan troglodytes")
     domestic_pig = OrganismMeta("Sus scrofa domesticus")
+    lemur = OrganismMeta("Microcebus murinus")
 
     @property
     def term_id(self):
         return self.value.term_id
-    
+
     @property
     def label(self):
         return self.value.label
