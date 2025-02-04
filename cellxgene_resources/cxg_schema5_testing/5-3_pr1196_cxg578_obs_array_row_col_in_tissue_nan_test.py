@@ -14,15 +14,6 @@ from fixtures.valid_adatas import (
 
 LIBRARY_ID = "spaceranger110_count_34914_WS_PLA_S9101764_GRCh38-3_0_0_premrna"
 
-#Need to test:
-# When there is nan, NaN, null etc. values in all 3 columns or one etc. -> this is done.
-# When one of these columns is missing, does right error come out. -> this is done
-# What if whole array is full of nan or null? -> Done!
-# What if all 3 have nan or null, or only 2?  > DONE!
-# What if adata is non visium but has nan in visium reserved obs column -> Done!
-
-
-
 def test_array_col_passes(validator_with_visium):
     validator = validator_with_visium
     validator.validate_adata()
