@@ -5,6 +5,7 @@ https://github.com/chanzuckerberg/single-cell-curation/pull/1235/
 """
 
 import pytest
+from fixtures.create_fixtures import VAR_META_DF
 from fixtures.valid_adatas import (
     validator_with_multispecies_adatas,
     validator_with_fly_adata,
@@ -18,6 +19,12 @@ def test_all_valid(validator_with_multispecies_adatas):
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
+
+
+def test_var_meta_df():
+    print(VAR_META_DF)
+    assert VAR_META_DF.shape[1] == 2
+    assert VAR_META_DF.shape[0] == 180
 
 
 @pytest.mark.parametrize(
@@ -79,9 +86,8 @@ def test_cl_in_tissue_term_for_cell_culture(validator_with_worm_adata, cell_type
 
 
 CELL_CULTURE_ERROR_SUFFIX = (
-    "When 'tissue_type' is 'cell culture', 'tissue_ontology_term_id' MUST be either a CL term "
-    "(excluding 'CL:0000255' (eukaryotic cell), 'CL:0000257' (Eumycetozoan cell), and 'CL:0000548' "
-    "(animal cell)) or 'unknown'."
+    "When 'tissue_type' is 'cell culture', 'tissue_ontology_term_id' MUST "
+    "follow the validation rules for cell_type_ontology_term_id."
 )
 @pytest.mark.parametrize(
     "cell_type_term,error_variable",
@@ -89,7 +95,7 @@ CELL_CULTURE_ERROR_SUFFIX = (
         pytest.param("CL:0000255", "is not allowed.", id="CL eukaryotic cell forbidden"),
         pytest.param("CL:0000257", "is not allowed.", id="CL Eumycetozoan cell forbidden"),
         pytest.param("CL:0000548", "is a deprecated term id of 'CL'.", id="CL animal cell forbidden"),      # error says this is a deprecated term
-        pytest.param("ZFA:0009000", "is not a valid ontology term id of 'CL'.", id="ZFA cell term forbidden"),   # error slightly different, "not an allowed term id"
+        pytest.param("ZFA:0009000", "is not an allowed term id.", id="ZFA cell term forbidden"),   # error slightly different, "not an allowed term id"
     )
 )
 def test_cl_forbidden_cell_culture(validator_with_worm_adata, cell_type_term, error_variable):
@@ -117,16 +123,19 @@ def test_non_cl_forbidden_for_worm_cell_culture(validator_with_worm_adata, cell_
     validator.validate_adata()
     assert not validator.is_valid
     assert (
-        f"ERROR: '{cell_type_term}' in 'tissue_ontology_term_id' is not a valid ontology term id of 'CL'. "
-        f"{CELL_CULTURE_ERROR_SUFFIX}"
+        "ERROR: When tissue_type is tissue or organoid, tissue_ontology_term_id must be a valid UBERON term. "
+        "If organism is NCBITaxon:6239, it can be a valid UBERON term or a valid WBbt term. "
+        "If organism is NCBITaxon:7955, it can be a valid UBERON term or a valid ZFA term. If organism is "
+        "NCBITaxon:7227, it can be a valid UBERON term or a valid FBbt term. When tissue_type is cell culture, "
+        "tissue_ontology_term_id must follow the validation rules for cell_type_ontology_term_id."
     ) in validator.errors
 
 
 DEV_ERROR_SUFFIX = (
     "When 'organism_ontology_term_id' is 'NCBITaxon:6239' (Caenorhabditis elegans), "
-    "'development_stage_ontology_term_id' MUST be WBls:0000669 for unfertilized egg Ce,\n the most "
-    "accurate descendant of WBls:0000803 for C. elegans life stage occurring\n during embryogenesis, "
-    "or the most accurate descendant of WBls:0000804 for C. elegans\n life stage occurring post embryogenesis."
+    "'development_stage_ontology_term_id' MUST be WBls:0000669 for unfertilized egg Ce, the most "
+    "accurate descendant of WBls:0000803 for C. elegans life stage occurring during embryogenesis, "
+    "or the most accurate descendant of WBls:0000804 for C. elegans life stage occurring post embryogenesis."
 )
 @pytest.mark.parametrize(
     "dev_term,error_variable",
