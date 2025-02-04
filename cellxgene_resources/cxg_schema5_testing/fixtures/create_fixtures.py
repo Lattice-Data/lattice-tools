@@ -48,6 +48,7 @@ class Organism(Enum):
     chimp = OrganismMeta("Pan troglodytes")
     domestic_pig = OrganismMeta("Sus scrofa domesticus")
     lemur = OrganismMeta("Microcebus murinus")
+    rabbit = OrganismMeta("Oryctolagus cuniculus")
 
     @property
     def term_id(self):
