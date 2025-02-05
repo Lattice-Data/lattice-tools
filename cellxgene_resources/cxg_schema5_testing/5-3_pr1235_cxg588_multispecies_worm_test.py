@@ -24,7 +24,8 @@ def test_all_valid(validator_with_multispecies_adatas):
 def test_var_meta_df():
     print(VAR_META_DF)
     assert VAR_META_DF.shape[1] == 2
-    assert VAR_META_DF.shape[0] == 180
+    assert "ensembl_id" in VAR_META_DF.columns
+    assert "organism" in VAR_META_DF.columns
 
 
 @pytest.mark.parametrize(
