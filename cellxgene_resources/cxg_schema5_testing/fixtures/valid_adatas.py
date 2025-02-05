@@ -118,7 +118,15 @@ def label_writer(validator_with_all_adatas: Validator) -> AnnDataLabelAppender:
     gc.collect()
     validator = validator_with_all_adatas
     validator.validate_adata()
-    yield AnnDataLabelAppender(validator)
+    yield AnnDataLabelAppender(validator.adata)
+
+
+@pytest.fixture
+def label_writer_multispecies(validator_with_multispecies_adatas: Validator) -> AnnDataLabelAppender:
+    gc.collect()
+    validator = validator_with_multispecies_adatas
+    validator.validate_adata()
+    yield AnnDataLabelAppender(validator.adata)
 
 
 @pytest.fixture(params=H5ADS[:2])
