@@ -799,7 +799,6 @@ def hcatier1_check(glob):
 		glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
 # Sanity check that all prefixes/suffixes are actually in ProcMatrixFile
-# NEED TO ADD CHECK FOR NO REDUNDANCY IN PREFIXES/SUFFIXES 
 def prefixes_suffixes_presence_and_duplicate_check(glob):
 	mfinal_cell_identifiers = glob.mfinal_adata.obs.index.to_list()
 	if glob.mfinal_obj.get('cell_label_location') == 'prefix':
