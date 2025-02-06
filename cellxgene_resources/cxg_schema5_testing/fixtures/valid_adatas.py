@@ -24,7 +24,8 @@ MULTISPECIES_H5ADS = [
     "valid_fly.h5ad",
     "valid_worm.h5ad",
     "valid_zebrafish.h5ad",
-    "valid_lemur.h5ad"
+    "valid_lemur.h5ad",
+    "valid_rat.h5ad"
 ]
 
 # will add better check for file, maybe to automatically download as well
@@ -136,27 +137,27 @@ def validator_with_multispecies_adatas(request) -> Validator:
     yield validator
 
 
-@pytest.fixture(params=MULTISPECIES_H5ADS[:1])
+@pytest.fixture
 def validator_with_fly_adata(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_fly.h5ad")
     yield validator
 
 
-@pytest.fixture(params=MULTISPECIES_H5ADS[1:2])
+@pytest.fixture
 def validator_with_worm_adata(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_worm.h5ad")
     yield validator
 
 
-@pytest.fixture(params=MULTISPECIES_H5ADS[2:])
+@pytest.fixture
 def validator_with_zebrafish_adata(request) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_zebrafish.h5ad")
     yield validator
 
 
@@ -165,4 +166,11 @@ def validator_with_lemur_adata() -> Validator:
     gc.collect()
     validator = Validator()
     validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_lemur.h5ad")
+    yield validator
+
+@pytest.fixture
+def validator_with_rat_adata() -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_rat.h5ad")
     yield validator

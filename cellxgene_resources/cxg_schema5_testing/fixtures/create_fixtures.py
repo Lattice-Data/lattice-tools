@@ -49,6 +49,7 @@ class Organism(Enum):
     domestic_pig = OrganismMeta("Sus scrofa domesticus")
     lemur = OrganismMeta("Microcebus murinus")
     rabbit = OrganismMeta("Oryctolagus cuniculus")
+    rat = OrganismMeta("Rattus norvegicus")
 
     @property
     def term_id(self):
