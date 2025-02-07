@@ -799,15 +799,15 @@ def hcatier1_check(glob):
 		glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
 # Sanity check that all prefixes/suffixes are actually in ProcMatrixFile
-def prefixes_suffixes_presence_and_duplicate_check(glob):
-	mfinal_cell_identifiers = glob.mfinal_adata.obs.index.to_list()
+def prefixes_suffixes_presence_and_duplicate_check(mfinal_cell_identifiers,glob):
 	if glob.mfinal_obj.get('cell_label_location') == 'prefix':
 		prefixes = []
 		for mapping_dict in glob.mfinal_obj['cell_label_mappings']:
 			prefixes.append(mapping_dict['label'])
 		if len(prefixes) != len(set(prefixes)):
-			logging.error('ERROR: There are duplicate mapping label prefixes present')
-			sys.exit('ERROR: There are duplicate mapping label prefixes present')
+			duplicated = pd.Series(prefixes)[pd.Series(prefixes).duplicated()].values
+			logging.error('ERROR: There are duplicate mapping label prefixes present: {}'.format(duplicated))
+			sys.exit('ERROR: There are duplicate mapping label prefixes present: {}'.format(duplicated))
 		for prefix in prefixes:
 			if not any(i for i in mfinal_cell_identifiers if i.startswith(prefix)):
 				logging.error('ERROR: The following cell label mapping prefix is not found in the ProcMatrixFile: {}'.format(prefix))
@@ -817,8 +817,9 @@ def prefixes_suffixes_presence_and_duplicate_check(glob):
 		for mapping_dict in glob.mfinal_obj['cell_label_mappings']:
 			suffixes.append(mapping_dict['label'])
 		if len(suffixes) != len(set(suffixes)):
-			logging.error('ERROR: There are duplicate mapping label suffixes present')
-			sys.exit('ERROR: There are duplicate mapping label prefixes present')
+			duplicated = pd.Series(suffixes)[pd.Series(suffixes).duplicated()].values
+			logging.error('ERROR: There are duplicate mapping label suffixes present: {}'.format(duplicated))
+			sys.exit('ERROR: There are duplicate mapping label prefixes present: {}'.format(duplicated))
 		for suffix in suffixes:
 			if not any(i for i in mfinal_cell_identifiers if i.endswith(suffix)):
 				logging.error('ERROR: The following cell label mapping suffix is not found in the ProcMatrixFile: {}'.format(suffix))
@@ -877,7 +878,7 @@ def main(mfinal_id, connection, hcatier1):
 	glob.mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = glob.mfinal_adata.obs.index.to_list()
 
-	prefixes_suffixes_presence_and_duplicate_check(glob)
+	prefixes_suffixes_presence_and_duplicate_check(mfinal_cell_identifiers, glob)
 
 	cxg_adata_lst = []
 	redundant = []
