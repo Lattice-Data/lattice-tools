@@ -25,7 +25,13 @@ MULTISPECIES_H5ADS = [
     "valid_worm.h5ad",
     "valid_zebrafish.h5ad",
     "valid_lemur.h5ad",
-    "valid_rat.h5ad"
+    "valid_rat.h5ad",
+    "valid_rabbit.h5ad",
+    "valid_chimp.h5ad",
+    "valid_gorilla.h5ad",
+    "valid_domestic_pig.h5ad",
+    "valid_rhesus.h5ad",
+    "valid_marmoset.h5ad"
 ]
 
 # will add better check for file, maybe to automatically download as well
