@@ -798,6 +798,32 @@ def hcatier1_check(glob):
 	else:
 		glob.cxg_obs['library_sequencing_run'] = 'unknown'
 
+# Sanity check that all prefixes/suffixes are actually in ProcMatrixFile
+def prefixes_suffixes_presence_and_duplicate_check(mfinal_cell_identifiers,glob):
+	if glob.mfinal_obj.get('cell_label_location') == 'prefix':
+		prefixes = []
+		for mapping_dict in glob.mfinal_obj['cell_label_mappings']:
+			prefixes.append(mapping_dict['label'])
+		if len(prefixes) != len(set(prefixes)):
+			duplicated = pd.Series(prefixes)[pd.Series(prefixes).duplicated()].values
+			logging.error('ERROR: There are duplicate mapping label prefixes present: {}'.format(duplicated))
+			sys.exit('ERROR: There are duplicate mapping label prefixes present: {}'.format(duplicated))
+		for prefix in prefixes:
+			if not any(i for i in mfinal_cell_identifiers if i.startswith(prefix)):
+				logging.error('ERROR: The following cell label mapping prefix is not found in the ProcMatrixFile: {}'.format(prefix))
+				sys.exit('ERROR: The following cell label mapping prefix is not found in the ProcMatrixFile: {}'.format(prefix))
+	elif glob.mfinal_obj.get('cell_label_location') == 'suffix':
+		suffixes = []
+		for mapping_dict in glob.mfinal_obj['cell_label_mappings']:
+			suffixes.append(mapping_dict['label'])
+		if len(suffixes) != len(set(suffixes)):
+			duplicated = pd.Series(suffixes)[pd.Series(suffixes).duplicated()].values
+			logging.error('ERROR: There are duplicate mapping label suffixes present: {}'.format(duplicated))
+			sys.exit('ERROR: There are duplicate mapping label prefixes present: {}'.format(duplicated))
+		for suffix in suffixes:
+			if not any(i for i in mfinal_cell_identifiers if i.endswith(suffix)):
+				logging.error('ERROR: The following cell label mapping suffix is not found in the ProcMatrixFile: {}'.format(suffix))
+				sys.exit('ERROR: The following cell label mapping suffix is not found in the ProcMatrixFile: {}'.format(suffix))
 
 def main(mfinal_id, connection, hcatier1):
 
@@ -851,6 +877,8 @@ def main(mfinal_id, connection, hcatier1):
 	mfinal_local_path = '{}/{}.{}'.format(fm.MTX_DIR, glob.mfinal_obj['accession'], file_ext)
 	glob.mfinal_adata = sc.read_h5ad(mfinal_local_path)
 	mfinal_cell_identifiers = glob.mfinal_adata.obs.index.to_list()
+
+	prefixes_suffixes_presence_and_duplicate_check(mfinal_cell_identifiers, glob)
 
 	cxg_adata_lst = []
 	redundant = []
@@ -1008,7 +1036,8 @@ def main(mfinal_id, connection, hcatier1):
 				prefixes.remove(mapping_label) # Removing mapping_label prefix from list of all prefixes
 				# Checking to make sure none of the other prefixes contain the mapping_label prefix, if they do, then make sure there's no false match
 				if any(prefix.startswith(mapping_label) for prefix in prefixes):
-					mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label) and not i.startswith(tuple(prefixes))]
+					false_matches = [prefix for prefix in prefixes if prefix.startswith(mapping_label)]
+					mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label) and not i.startswith(tuple(false_matches))]
 				else:
 					mfinal_with_label = [i for i in mfinal_cell_identifiers if i.startswith(mapping_label)]
 			elif glob.mfinal_obj.get('cell_label_location') == 'suffix':
