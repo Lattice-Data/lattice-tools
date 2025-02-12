@@ -1,6 +1,7 @@
 """
 QA testing for this issue:
 https://github.com/chanzuckerberg/single-cell-curation/issues/1246
+https://github.com/chanzuckerberg/single-cell-curation/pull/1250
 """
 
 import pytest
@@ -65,7 +66,7 @@ def test_descendent_organism_fail(validator_with_rabbit_adata, invalid_organism)
 	) in validator.errors
 
 
-# Fail test for model organism dev stage ontologies
+# Fail test for model organism dev stage ontology terms
 @pytest.mark.parametrize(
 	"invalid_dev_stage",
 	(
@@ -86,3 +87,23 @@ def test_invalid_dev(validator_with_rabbit_adata, invalid_dev_stage):
 		"a descendant term id of 'UBERON:0000105' excluding 'UBERON:0000071', or unknown."
 	) in validator.errors
 
+
+# Fail test for invalid dev stage ontology terms
+@pytest.mark.parametrize(
+	"invalid_uberon_stage, error_wording",
+	(
+		pytest.param("UBERON:0000105", "an allowed term id", id="'life cycle stage' UBERON term is not valid"),
+		pytest.param("UBERON:0000071", "allowed", id="'death stage' UBERON term is not valid")
+	)
+)
+def test_invalid_dev_uberon(validator_with_rabbit_adata, invalid_uberon_stage, error_wording):
+	validator = validator_with_rabbit_adata
+	validator.adata.obs['development_stage_ontology_term_id'] = invalid_uberon_stage
+	validator.validate_adata()
+	assert not validator.is_valid
+	assert (
+		f"ERROR: '{invalid_uberon_stage}' in 'development_stage_ontology_term_id' is not {error_wording}. "
+		"When 'organism_ontology_term_id'-specific requirements are not defined in the schema definition, "
+		"'development_stage_ontology_term_id' MUST be a descendant term id of 'UBERON:0000105' excluding "
+		"'UBERON:0000071', or unknown."
+	) in validator.errors
