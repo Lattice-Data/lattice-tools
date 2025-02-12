@@ -39,7 +39,7 @@ def test_other_species_ensembl(validator_with_rabbit_adata, other_genes):
 		pytest.param("NCBITaxon:568996", id="Oryctolagus cuniculus cuniculus NCBITaxon")
 	)
 )
-def test_descendent_organism(validator_with_rabbit_adata, organism_descendent):
+def test_descendent_organism_pass(validator_with_rabbit_adata, organism_descendent):
 	validator = validator_with_rabbit_adata
 	validator.adata.obs['organism_ontology_term_id'] = organism_descendent
 	validator.validate_adata()
@@ -54,11 +54,35 @@ def test_descendent_organism(validator_with_rabbit_adata, organism_descendent):
 		pytest.param("NCBITaxon:2641529", id="unclassified Oryctolagus NCBITaxon")
 	)
 )
-def test_descendent_organism(validator_with_rabbit_adata, invalid_organism):
+def test_descendent_organism_fail(validator_with_rabbit_adata, invalid_organism):
 	validator = validator_with_rabbit_adata
 	validator.adata.obs['organism_ontology_term_id'] = invalid_organism
 	validator.validate_adata()
 	assert not validator.is_valid
+	assert (
+		f"ERROR: '{invalid_organism}' in 'organism_ontology_term_id' is not an allowed "
+		"term id. Only explicitly enumerated species are allowed. See Schema"
+	) in validator.errors
 
-# Dev stages
-# Organism ontology
+
+# Fail test for model organism dev stage ontologies
+@pytest.mark.parametrize(
+	"invalid_dev_stage",
+	(
+		pytest.param("WBls:0000125", id="C. elegans dev stage not valid"),
+		pytest.param("FBdv:00005336", id="Drosophila dev stage not valid"),
+		pytest.param("ZFS:0000022", id="Zebrafish dev stage not valid")
+	)
+)
+def test_invalid_dev(validator_with_rabbit_adata, invalid_dev_stage):
+	validator = validator_with_rabbit_adata
+	validator.adata.obs['development_stage_ontology_term_id'] = invalid_dev_stage
+	validator.validate_adata()
+	assert not validator.is_valid
+	assert (
+		f"ERROR: '{invalid_dev_stage}' in 'development_stage_ontology_term_id' is not a valid "
+		"ontology term id of 'UBERON'. When 'organism_ontology_term_id'-specific requirements "
+		"are not defined in the schema definition, 'development_stage_ontology_term_id' MUST be "
+		"a descendant term id of 'UBERON:0000105' excluding 'UBERON:0000071', or unknown."
+	) in validator.errors
+
