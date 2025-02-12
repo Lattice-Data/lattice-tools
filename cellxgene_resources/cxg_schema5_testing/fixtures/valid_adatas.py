@@ -182,9 +182,18 @@ def validator_with_lemur_adata() -> Validator:
     validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_lemur.h5ad")
     yield validator
 
+
 @pytest.fixture
 def validator_with_rat_adata() -> Validator:
     gc.collect()
     validator = Validator()
     validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_rat.h5ad")
+    yield validator
+
+
+@pytest.fixture
+def validator_with_rabbit_adata() -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_rabbit.h5ad")
     yield validator
