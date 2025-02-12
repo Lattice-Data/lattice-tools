@@ -9,7 +9,12 @@ import anndata as ad
 from fixtures.create_fixtures import VAR_META_DF
 from fixtures.valid_adatas import (
     validator_with_multispecies_adatas,
-    validator_with_lemur_adata
+    validator_with_lemur_adata,
+    validator_human_adata,
+    validator_mouse_adata,
+    validator_with_worm_adata,
+    validator_with_fly_adata,
+    validator_with_zebrafish_adata
 )
 
 
@@ -60,34 +65,175 @@ def test_feature_ids(validator_with_lemur_adata,ensembl_prefix_term,error_variab
 
 
 @pytest.mark.parametrize(
-    "organism_term,error_variable",
+    "organism_term",
     (
-        pytest.param("NCBITaxon:6239","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for worm"),
-        pytest.param("NCBITaxon:9483","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for marmoset"),
-        pytest.param("NCBITaxon:7955","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for zebrafish"),
-        pytest.param("NCBITaxon:7227","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for fly"),
-        pytest.param("NCBITaxon:9595","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for gorilla"),
-        pytest.param("NCBITaxon:9606","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for human"),
-        pytest.param("NCBITaxon:10090","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for mouse"),
-        pytest.param("NCBITaxon:179238","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for mouse descendant"),
-        pytest.param("NCBITaxon:9986","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for rabbit"),
-        pytest.param("NCBITaxon:230741","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for rabbit descendant"),
-        pytest.param("NCBITaxon:10116","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for rat"),
-        pytest.param("NCBITaxon:947987","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for rat descendant"),
-        pytest.param("NCBITaxon:9598","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for chimp"),
-        pytest.param("NCBITaxon:756884","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for chimp descendant"),
-        pytest.param("NCBITaxon:9823","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for domestic pig"),
-        pytest.param("NCBITaxon:9825","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for domestic pig descendant"),
-        pytest.param("NCBITaxon:9544","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for rhesus"),
-        pytest.param("NCBITaxon:1654737","is not a valid ontology term id of 'NCBITaxon'", id="NCBITaxon term for rhesus descendant")
+        pytest.param("NCBITaxon:6239", id="NCBITaxon term for worm not valid with lemur obs"),
+        pytest.param("NCBITaxon:7955", id="NCBITaxon term for zebrafish not valid with lemur obs"),
+        pytest.param("NCBITaxon:7227", id="NCBITaxon term for fly not valid with lemur obs"),
+        pytest.param("NCBITaxon:9606", id="NCBITaxon term for human not valid with lemur obs"),
+        pytest.param("NCBITaxon:10090", id="NCBITaxon term for mouse not valid with lemur obs"),
+        pytest.param("NCBITaxon:179238", id="NCBITaxon term for mouse descendant not valid with lemur obs")
     )
 )
-def test_ncbi_term(validator_with_lemur_adata,organism_term,error_variable):
+def test_ncbi_term(validator_with_lemur_adata,organism_term):
     validator = validator_with_lemur_adata
     validator.adata.obs["organism_ontology_term_id"] = organism_term
     validator.validate_adata()
     assert not validator.is_valid
+
+
+@pytest.mark.parametrize(
+    "organism_term",
+    (
+        pytest.param("NCBITaxon:9483",id="valid NCBITaxon term for marmoset - no additional obs requirements"),
+        pytest.param("NCBITaxon:9595",id="valid NCBITaxon term for gorilla - no additional obs requirements"),
+        pytest.param("NCBITaxon:9986",id="valid NCBITaxon term for rabbit - no additional obs requirements"),
+        pytest.param("NCBITaxon:230741",id="valid NCBITaxon term for rabbit descendant - no additional obs requirements"),
+        pytest.param("NCBITaxon:10116",id="valid NCBITaxon term for rat - no additional obs requirements"),
+        pytest.param("NCBITaxon:947987",id="valid NCBITaxon term for rat descendant - no additional obs requirements"),
+        pytest.param("NCBITaxon:9598",id="valid NCBITaxon term for chimp - no additional obs requirements"),
+        pytest.param("NCBITaxon:756884",id="valid NCBITaxon term for chimp descendant - no additional obs requirements"),
+        pytest.param("NCBITaxon:9823",id="valid NCBITaxon term for domestic pig - no additional obs requirements"),
+        pytest.param("NCBITaxon:9825",id="valid NCBITaxon term for domestic pig descendant - no additional obs requirements"),
+        pytest.param("NCBITaxon:9544",id="valid NCBITaxon term for rhesus - no additional obs requirements"),
+        pytest.param("NCBITaxon:1654737",id="valid NCBITaxon term for rhesus descendant - no additional obs requirements")
+    )
+)
+def test_orthologs_ncbi_terms(validator_with_lemur_adata,organism_term):
+    validator = validator_with_lemur_adata
+    validator.adata.obs["organism_ontology_term_id"] = organism_term
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
+
+#HUMAN
+@pytest.mark.parametrize(
+    "error_variable",
+    (
+        pytest.param("HANCESTRO:0022", id="self_reported_ethnicity_ontology_term_id invalid for lemur"),
+        pytest.param("HsapDv:0000137", id="development_stage_ontology_term_id invalid for lemur")
+    )
+)
+def test_lemur_ncbi_term_in_human(validator_human_adata,error_variable):
+    validator = validator_human_adata
+    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:30608"
+    validator.validate_adata()
+    assert not validator.is_valid
     assert(
-        f"ERROR: {organism_term} in 'organism_ontology_term_id' {error_variable}."
-        "Only explicitly enumerated species are allowed. See Schema"
+        f"ERROR: '{error_variable}' in 'self_reported_ethnicity_ontology_term_id' is not a valid value of"
+        " 'self_reported_ethnicity_ontology_term_id'. When 'organism_ontology_term_id' is NOT 'NCBITaxon:9606' (Homo sapiens),"
+        " self_reported_ethnicity_ontology_term_id MUST be 'na'."
+    )
+    assert(
+        f"ERROR: '{error_variable}' in 'development_stage_ontology_term_id' is not a valid ontology term id of 'UBERON'."
+        "When 'organism_ontology_term_id'-specific requirements are not defined in the schema definition, 'development_stage_ontology_term_id' MUST be a descendant"
+        "term id of 'UBERON:0000105' excluding 'UBERON:0000071', or unknown."
+    )
+
+#MOUSE
+@pytest.mark.parametrize(
+    "error_variable",
+    (
+        pytest.param("'development_stage_ontology_term_id' is not a valid ontology term id of 'UBERON'", id="development_stage_ontology_term_id species-specific terms are invalid for lemur")
+    )
+)
+def test_lemur_ncbi_term_in_mouse(validator_mouse_adata,error_variable):
+    validator = validator_mouse_adata
+    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:30608"
+    validator.validate_adata()
+    assert not validator.is_valid
+    assert(
+        f"ERROR: 'MmusDv:0000136' in {error_variable}. When 'organism_ontology_term_id'-specific requirements are not defined in the schema definition, "
+        "'development_stage_ontology_term_id' MUST be a descendant term id of 'UBERON:0000105' excluding 'UBERON:0000071', or unknown."
+    )
+
+
+#WORM
+@pytest.mark.parametrize(
+    "error_variable",
+    (
+        pytest.param("tissue_ontology_term_id must be a valid UBERON term", id="tissue_ontology_term_id species-specific terms are invalid for lemur"),
+        pytest.param("cell_type_ontology_term_id must be a valid CL term", id="cell_type_ontology_term_id species-specific terms are invalid for lemur"),
+        pytest.param("development_stage_ontology_term_id' is not a valid ontology term id of 'UBERON'", id="development_stage_ontology_term_id species-specific terms are invalid for lemur")
+    )
+)
+def test_lemur_ncbi_term_in_worm(validator_with_worm_adata,error_variable):
+    validator = validator_with_worm_adata
+    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:30608"
+    validator.validate_adata()
+    assert not validator.is_valid
+    assert(
+        f"ERROR: When tissue_type is tissue or organoid, {error_variable}. If organism is NCBITaxon:6239, it can be a valid UBERON term or a valid WBbt term."
+        "If organism is NCBITaxon:7955, it can be a valid UBERON term or a valid ZFA term. If organism is NCBITaxon:7227,"
+        "it can be a valid UBERON term or a valid FBbt term. When tissue_type is cell culture, "
+        "tissue_ontology_term_id must follow the validation rules for cell_type_ontology_term_id."
+    )
+    assert (
+        f"ERROR: {error_variable}. If organism is NCBITaxon:6239, it can be a valid CL term or a valid WBbt term."
+        "If organism is NCBITaxon:7955, it can be a valid CL term or a valid ZFA term. If organism is NCBITaxon:7227, it can be a valid CL term or a valid FBbt term."
+    )
+    assert(
+        f"ERROR: 'WBls:0000544' in {error_variable}. When 'organism_ontology_term_id'-specific requirements are not defined in the schema definition, "
+        "'development_stage_ontology_term_id' MUST be a descendant term id of 'UBERON:0000105' excluding 'UBERON:0000071', or unknown."
+    )
+
+
+#FLY
+@pytest.mark.parametrize(
+    "error_variable",
+    (
+        pytest.param("tissue_ontology_term_id must be a valid UBERON term", id="tissue_ontology_term_id species-specific terms are invalid for lemur"),
+        pytest.param("cell_type_ontology_term_id must be a valid CL term", id="cell_type_ontology_term_id species-specific terms are invalid for lemur"),
+        pytest.param("development_stage_ontology_term_id' is not a valid ontology term id of 'UBERON'", id="development_stage_ontology_term_id species-specific terms are invalid for lemur")
+    )
+)
+def test_lemur_ncbi_term_in_fly(validator_with_fly_adata,error_variable):
+    validator = validator_with_fly_adata
+    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:30608"
+    validator.validate_adata()
+    assert not validator.is_valid
+    assert(
+        f"ERROR: When tissue_type is tissue or organoid, {error_variable}. If organism is NCBITaxon:6239, it can be a valid UBERON term or a valid WBbt term."
+        "If organism is NCBITaxon:7955, it can be a valid UBERON term or a valid ZFA term. If organism is NCBITaxon:7227,"
+        "it can be a valid UBERON term or a valid FBbt term. When tissue_type is cell culture, "
+        "tissue_ontology_term_id must follow the validation rules for cell_type_ontology_term_id."
+    )
+    assert (
+        f"ERROR: {error_variable}. If organism is NCBITaxon:6239, it can be a valid CL term or a valid WBbt term."
+        "If organism is NCBITaxon:7955, it can be a valid CL term or a valid ZFA term. If organism is NCBITaxon:7227, it can be a valid CL term or a valid FBbt term."
+    )
+    assert(
+        f"ERROR: 'WBls:0000544' in {error_variable}. When 'organism_ontology_term_id'-specific requirements are not defined in the schema definition, "
+        "'development_stage_ontology_term_id' MUST be a descendant term id of 'UBERON:0000105' excluding 'UBERON:0000071', or unknown."
+    )
+
+
+#Zebrafish
+@pytest.mark.parametrize(
+    "error_variable",
+    (
+        pytest.param("tissue_ontology_term_id must be a valid UBERON term", id="tissue_ontology_term_id species-specific terms are invalid for lemur"),
+        pytest.param("cell_type_ontology_term_id must be a valid CL term", id="cell_type_ontology_term_id species-specific terms are invalid for lemur"),
+        pytest.param("development_stage_ontology_term_id' is not a valid ontology term id of 'UBERON'", id="development_stage_ontology_term_id species-specific terms are invalid for lemur")
+    )
+)
+def test_lemur_ncbi_term_in_fish(validator_with_zebrafish_adata,error_variable):
+    validator = validator_with_zebrafish_adata
+    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:30608"
+    validator.validate_adata()
+    assert not validator.is_valid
+    assert(
+        f"ERROR: When tissue_type is tissue or organoid, {error_variable}. If organism is NCBITaxon:6239, it can be a valid UBERON term or a valid WBbt term."
+        "If organism is NCBITaxon:7955, it can be a valid UBERON term or a valid ZFA term. If organism is NCBITaxon:7227,"
+        "it can be a valid UBERON term or a valid FBbt term. When tissue_type is cell culture, "
+        "tissue_ontology_term_id must follow the validation rules for cell_type_ontology_term_id."
+    )
+    assert (
+        f"ERROR: {error_variable}. If organism is NCBITaxon:6239, it can be a valid CL term or a valid WBbt term."
+        "If organism is NCBITaxon:7955, it can be a valid CL term or a valid ZFA term. If organism is NCBITaxon:7227, it can be a valid CL term or a valid FBbt term."
+    )
+    assert(
+        f"ERROR: 'WBls:0000544' in {error_variable}. When 'organism_ontology_term_id'-specific requirements are not defined in the schema definition, "
+        "'development_stage_ontology_term_id' MUST be a descendant term id of 'UBERON:0000105' excluding 'UBERON:0000071', or unknown."
     )
