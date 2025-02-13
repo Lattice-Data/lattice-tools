@@ -107,3 +107,47 @@ def test_invalid_dev_uberon(validator_with_rabbit_adata, invalid_uberon_stage, e
 		"'development_stage_ontology_term_id' MUST be a descendant term id of 'UBERON:0000105' excluding "
 		"'UBERON:0000071', or unknown."
 	) in validator.errors
+
+
+# Fail test for model organism cell type ontology terms
+@pytest.mark.parametrize(
+	"invalid_celltype",
+	(
+		pytest.param("WBbt:0003672", id="'epithelial cell' for C. elegans is not valid"),
+		pytest.param("ZFA:0009277", id="'acinar cell' for Zebrafish is not valid"),
+		pytest.param("FBbt:00007436", id = "'endocrine neuron' for Drosophila")
+	)
+)
+def test_invalid_celltype(validator_with_rabbit_adata, invalid_celltype):
+	validator = validator_with_rabbit_adata
+	validator.adata.obs['cell_type_ontology_term_id'] = invalid_celltype
+	validator.validate_adata()
+	assert not validator.is_valid
+	assert (
+		f"ERROR: cell_type_ontology_term_id must be a valid CL term. If organism is NCBITaxon:6239, it can "
+		"be a valid CL term or a valid WBbt term. If organism is NCBITaxon:7955, it can be a valid CL term or "
+		"a valid ZFA term. If organism is NCBITaxon:7227, it can be a valid CL term or a valid FBbt term."
+	) in validator.errors
+
+
+# Fail test for model organism tissue ontology terms
+@pytest.mark.parametrize(
+	"invalid_tissue",
+	(
+		pytest.param("WBbt:0005742", id="'body wall' for C. elegans is not valid"),
+		pytest.param("ZFA:0001284", id="'optic fissure' for Zebrafish is not valid"),
+		pytest.param("FBbt:00004895", id="'basal stalk' for Drosophila is not valid")
+	)
+)
+def test_invalid_tissue(validator_with_rabbit_adata, invalid_tissue):
+	validator = validator_with_rabbit_adata
+	validator.adata.obs['tissue_ontology_term_id'] = invalid_tissue
+	validator.validate_adata()
+	assert not validator.is_valid
+	assert (
+		f"ERROR: When tissue_type is tissue or organoid, tissue_ontology_term_id must be a valid UBERON term. If "
+		"organism is NCBITaxon:6239, it can be a valid UBERON term or a valid WBbt term. If organism is NCBITaxon:7955, "
+		"it can be a valid UBERON term or a valid ZFA term. If organism is NCBITaxon:7227, it can be a valid UBERON term "
+		"or a valid FBbt term. When tissue_type is cell culture, tissue_ontology_term_id must follow the validation rules "
+		"for cell_type_ontology_term_id."
+	) in validator.errors
