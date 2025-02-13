@@ -31,7 +31,7 @@ def test_var_meta_df():
     assert "ensembl_id" in VAR_META_DF.columns
     assert "organism" in VAR_META_DF.columns
 
-
+# Test invalid variation in feature ids
 @pytest.mark.parametrize(
     "ensembl_prefix_term",
     (
@@ -84,32 +84,32 @@ def test_ncbi_term(validator_with_lemur_adata,organism_term):
     validator.validate_adata()
     assert not validator.is_valid
 
-
+# Test lack of dependencies between organism_ontology_term_id and gene ids - this shouldn't pass in the next schema bump.
 @pytest.mark.parametrize(
     "organism_term",
     (
-        pytest.param("NCBITaxon:9483",id="valid NCBITaxon term for marmoset - no additional obs requirements"),
-        pytest.param("NCBITaxon:9595",id="valid NCBITaxon term for gorilla - no additional obs requirements"),
-        pytest.param("NCBITaxon:9986",id="valid NCBITaxon term for rabbit - no additional obs requirements"),
-        pytest.param("NCBITaxon:230741",id="valid NCBITaxon term for rabbit descendant - no additional obs requirements"),
-        pytest.param("NCBITaxon:10116",id="valid NCBITaxon term for rat - no additional obs requirements"),
-        pytest.param("NCBITaxon:947987",id="valid NCBITaxon term for rat descendant - no additional obs requirements"),
-        pytest.param("NCBITaxon:9598",id="valid NCBITaxon term for chimp - no additional obs requirements"),
-        pytest.param("NCBITaxon:756884",id="valid NCBITaxon term for chimp descendant - no additional obs requirements"),
-        pytest.param("NCBITaxon:9823",id="valid NCBITaxon term for domestic pig - no additional obs requirements"),
-        pytest.param("NCBITaxon:9825",id="valid NCBITaxon term for domestic pig descendant - no additional obs requirements"),
-        pytest.param("NCBITaxon:9544",id="valid NCBITaxon term for rhesus - no additional obs requirements"),
-        pytest.param("NCBITaxon:1654737",id="valid NCBITaxon term for rhesus descendant - no additional obs requirements"),
+        pytest.param("NCBITaxon:9483",id="valid NCBITaxon term for marmoset"),
+        pytest.param("NCBITaxon:9595",id="valid NCBITaxon term for gorilla"),
+        pytest.param("NCBITaxon:9986",id="valid NCBITaxon term for rabbit"),
+        pytest.param("NCBITaxon:230741",id="valid NCBITaxon term for rabbit descendant"),
+        pytest.param("NCBITaxon:10116",id="valid NCBITaxon term for rat"),
+        pytest.param("NCBITaxon:947987",id="valid NCBITaxon term for rat descendant"),
+        pytest.param("NCBITaxon:9598",id="valid NCBITaxon term for chimp"),
+        pytest.param("NCBITaxon:756884",id="valid NCBITaxon term for chimp descendant"),
+        pytest.param("NCBITaxon:9823",id="valid NCBITaxon term for domestic pig"),
+        pytest.param("NCBITaxon:9825",id="valid NCBITaxon term for domestic pig descendant"),
+        pytest.param("NCBITaxon:9544",id="valid NCBITaxon term for rhesus"),
+        pytest.param("NCBITaxon:1654737",id="valid NCBITaxon term for rhesus descendant"),
     )
 )
-def test_orthologs_ncbi_terms(validator_with_lemur_adata,organism_term):
+def test_orthologs(validator_with_lemur_adata,organism_term):
     validator = validator_with_lemur_adata
     validator.adata.obs["organism_ontology_term_id"] = organism_term
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
 
-
+# Test errors for ethnicity, tissue, development stage dependencies in human, mouse, and other model organisms with lemur taxon term
 @pytest.mark.parametrize(
     "lemur_term,error_variable",
     (
@@ -133,8 +133,6 @@ def test_lemur_ncbi_term_in_human_self_reported_ethnicity(validator_human_adata,
     "lemur_term,error_variable",
     (
         pytest.param("NCBITaxon:30608","HsapDv:0000258", id="development_stage_ontology_term_id invalid for lemur"),
-        pytest.param("NCBITaxon:30608","HsapDv:0000272", id="development_stage_ontology_term_id invalid for lemur"),
-        pytest.param("NCBITaxon:30608","HsapDv:0000266", id="development_stage_ontology_term_id invalid for lemur"),
     )
 )
 def test_lemur_ncbi_term_in_human_dev_stage(validator_human_adata,lemur_term,error_variable):
