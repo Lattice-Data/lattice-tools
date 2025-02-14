@@ -95,7 +95,7 @@ def test_life_cycle_stage(validator_with_rat_adata):
     "stages", ('WBls:0000811','ZFS:0000008','FBdv:00007088')
 )
 
-# Should fail, test if invalid stages allowed for development_stage_ontology_term_id
+# Should fail, test if invalid (fly/worm/zebrafish) stages allowed for development_stage_ontology_term_id
 def test_invalid_stage(validator_with_rat_adata, stages):
     validator = validator_with_rat_adata
     validator.adata.obs['development_stage_ontology_term_id'] = \
@@ -112,3 +112,44 @@ def test_invalid_stage(validator_with_rat_adata, stages):
          "unknown."
     ) in validator.errors
 
+@pytest.mark.parametrize(
+    "ctypes", ('WBbt:0003672','ZFA:0009277','FBbt:00007436')
+)
+# Should fail, test if invalid (fly/worm/zebrafish) celltypes allowed for cell_type_ontology_term_id
+def test_invalid_celltype(validator_with_rat_adata, ctypes):
+    validator = validator_with_rat_adata
+    validator.adata.obs['cell_type_ontology_term_id'] = \
+    validator.adata.obs['cell_type_ontology_term_id'].cat.add_categories([ctypes])
+    validator.adata.obs.loc[validator.adata.obs.index[0], "cell_type_ontology_term_id"] = ctypes
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert (
+        f"ERROR: cell_type_ontology_term_id must be a valid CL term. "
+        "If organism is NCBITaxon:6239, it can be a valid CL term or "
+        "a valid WBbt term. If organism is NCBITaxon:7955, it can be "
+        "a valid CL term or a valid ZFA term. If organism is "
+        "NCBITaxon:7227, it can be a valid CL term or a valid FBbt term."
+    ) in validator.errors
+
+
+
+@pytest.mark.parametrize(
+    "tissues", ('WBbt:0005742','ZFA:0001284','FBbt:00004895')
+)
+
+# Should fail, test if invalid (fly/worm/zebrafish) tissue types allowed for tissue_ontology_term_id
+def test_invalid_tissue(validator_with_rat_adata, tissues):
+    validator = validator_with_rat_adata
+    validator.adata.obs['tissue_ontology_term_id'] = \
+    validator.adata.obs['tissue_ontology_term_id'].cat.add_categories([tissues])
+    validator.adata.obs.loc[validator.adata.obs.index[0], "tissue_ontology_term_id"] = tissues
+    validator.validate_adata()
+    assert validator.is_valid is False
+    assert (
+        f"ERROR: When tissue_type is tissue or organoid, tissue_ontology_term_id "
+        "must be a valid UBERON term. If organism is NCBITaxon:6239, it can be a "
+        "valid UBERON term or a valid WBbt term. If organism is NCBITaxon:7955, it "
+        "can be a valid UBERON term or a valid ZFA term. If organism is NCBITaxon:7227, "
+        "it can be a valid UBERON term or a valid FBbt term. When tissue_type is cell "
+        "culture, tissue_ontology_term_id must follow the validation rules for cell_type_ontology_term_id."
+    ) in validator.errors
