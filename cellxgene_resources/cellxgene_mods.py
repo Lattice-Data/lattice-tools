@@ -1231,3 +1231,4 @@ def create_batch_download_txt(
             output_file.write(f"{file_name}{seperator}{url}\n")
 
     print(f"Successfully saved {txt_name} to {output_dir}")
+    print(f"Use this terminal command to start batch download: cat {txt_name} | xargs -n 2 -P 4 wget -O")
