@@ -197,3 +197,10 @@ def validator_with_rabbit_adata() -> Validator:
     validator = Validator()
     validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_rabbit.h5ad")
     yield validator
+
+@pytest.fixture
+def validator_with_gorilla_adata() -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_gorilla.h5ad")
+    yield validator
