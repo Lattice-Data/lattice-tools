@@ -211,3 +211,9 @@ def validator_with_marmoset_adata() -> Validator:
     validator = Validator()
     validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_marmoset.h5ad")
     yield validator
+
+def validator_with_pig_adata() -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_domestic_pig.h5ad")
+    yield validator
