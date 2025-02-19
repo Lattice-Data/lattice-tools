@@ -110,9 +110,19 @@ def test_orthologs(validator_with_chimp_adata,organism_term):
 
 
 # Test chimp descendant
-def test_descendant(validator_with_chimp_adata):
+@pytest.mark.parametrize(
+	"organism_descendant",
+	(
+		pytest.param("NCBITaxon:756884", id="Pan troglodytes ellioti NCBITaxon"),
+		pytest.param("NCBITaxon:37010", id="Pan troglodytes schweinfurthii NCBITaxon"),
+		pytest.param("NCBITaxon:37011", id="Pan troglodytes troglodytes NCBITaxon"),
+		pytest.param("NCBITaxon:37012", id="Pan troglodytes verus NCBITaxon"),
+		pytest.param("NCBITaxon:1294088", id="Pan troglodytes verus x troglodytes NCBITaxon"),
+	)
+)
+def test_descendant_organism_pass(validator_with_chimp_adata, organism_descendant):
     validator = validator_with_chimp_adata
-    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:756884"
+    validator.adata.obs["organism_ontology_term_id"] = organism_descendant
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
