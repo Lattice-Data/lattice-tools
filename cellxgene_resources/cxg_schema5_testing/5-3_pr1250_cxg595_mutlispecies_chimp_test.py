@@ -108,6 +108,16 @@ def test_orthologs(validator_with_chimp_adata,organism_term):
     assert validator.is_valid
     assert validator.errors == []
 
+
+# Test chimp descendant
+def test_descendant(validator_with_chimp_adata):
+    validator = validator_with_chimp_adata
+    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:756884"
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
+
 # Test errors for ethnicity, tissue, development stage dependencies in human, mouse, and other model organisms with chimp taxon term
 @pytest.mark.parametrize(
     "chimp_term,error_variable",
