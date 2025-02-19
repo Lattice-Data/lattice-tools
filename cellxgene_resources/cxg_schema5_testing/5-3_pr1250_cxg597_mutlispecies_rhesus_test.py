@@ -110,9 +110,17 @@ def test_orthologs(validator_with_rhesus_adata,organism_term):
 
 
 # Test rhesus descendant
-def test_descendant(validator_with_rhesus_adata):
+@pytest.mark.parametrize(
+	"organism_descendant",
+	(
+		pytest.param("NCBITaxon:1654737", id="Macaca mulatta brevicaudus NCBITaxon"),
+		pytest.param("NCBITaxon:1449913", id="Macaca mulatta lasiotus NCBITaxon"),
+		pytest.param("NCBITaxon:2008792", id="Macaca mulatta vestita NCBITaxon"),
+	)
+)
+def test_descendant_organism_pass(validator_with_rhesus_adata, organism_descendant):
     validator = validator_with_rhesus_adata
-    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:1654737"
+    validator.adata.obs["organism_ontology_term_id"] = organism_descendant
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
