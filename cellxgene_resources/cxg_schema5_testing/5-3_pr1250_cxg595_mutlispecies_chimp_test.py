@@ -112,8 +112,8 @@ def test_orthologs(validator_with_chimp_adata,organism_term):
 @pytest.mark.parametrize(
     "chimp_term,error_variable",
     (
-        pytest.param("NCBITaxon:30608","unknown", id="self_reported_ethnicity_ontology_term_id invalid for chimp"),
-        pytest.param("NCBITaxon:30608","HANCESTRO:0005", id="self_reported_ethnicity_ontology_term_id invalid for chimp"),
+        pytest.param("NCBITaxon:9598","unknown", id="self_reported_ethnicity_ontology_term_id invalid for chimp"),
+        pytest.param("NCBITaxon:9598","HANCESTRO:0005", id="self_reported_ethnicity_ontology_term_id invalid for chimp"),
     )
 )
 def test_chimp_ncbi_term_in_human_self_reported_ethnicity(validator_human_adata,chimp_term,error_variable):
@@ -131,7 +131,7 @@ def test_chimp_ncbi_term_in_human_self_reported_ethnicity(validator_human_adata,
 @pytest.mark.parametrize(
     "chimp_term,error_variable",
     (
-        pytest.param("NCBITaxon:30608","HsapDv:0000258", id="development_stage_ontology_term_id invalid for chimp"),
+        pytest.param("NCBITaxon:9598","HsapDv:0000258", id="development_stage_ontology_term_id invalid for chimp"),
     )
 )
 def test_chimp_ncbi_term_in_human_dev_stage(validator_human_adata,chimp_term,error_variable):
