@@ -50,6 +50,7 @@ class Organism(Enum):
     lemur = OrganismMeta("Microcebus murinus")
     rabbit = OrganismMeta("Oryctolagus cuniculus")
     rat = OrganismMeta("Rattus norvegicus")
+    crab_eating_macaque = OrganismMeta("Macaca fascicularis")
 
     @property
     def term_id(self):

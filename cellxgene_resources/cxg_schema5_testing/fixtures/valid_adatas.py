@@ -31,7 +31,8 @@ MULTISPECIES_H5ADS = [
     "valid_gorilla.h5ad",
     "valid_domestic_pig.h5ad",
     "valid_rhesus.h5ad",
-    "valid_marmoset.h5ad"
+    "valid_marmoset.h5ad",
+    "valid_crab_eating_macaque.h5ad"
 ]
 
 # will add better check for file, maybe to automatically download as well
@@ -231,4 +232,12 @@ def validator_with_rhesus_adata() -> Validator:
     gc.collect()
     validator = Validator()
     validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_rhesus.h5ad")
+    yield validator
+
+
+@pytest.fixture
+def validator_with_crab_eating_macaque_adata() -> Validator:
+    gc.collect()
+    validator = Validator()
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/valid_crab_eating_macaque.h5ad")
     yield validator
