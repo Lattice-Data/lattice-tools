@@ -108,6 +108,16 @@ def test_orthologs(validator_with_rhesus_adata,organism_term):
     assert validator.is_valid
     assert validator.errors == []
 
+
+# Test rhesus descendant
+def test_descendant(validator_with_rhesus_adata):
+    validator = validator_with_rhesus_adata
+    validator.adata.obs["organism_ontology_term_id"] = "NCBITaxon:1654737"
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
+
 # Test errors for ethnicity, tissue, development stage dependencies in human, mouse, and other model organisms with rhesus taxon term
 @pytest.mark.parametrize(
     "rhesus_term,error_variable",
