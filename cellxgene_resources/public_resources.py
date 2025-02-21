@@ -186,6 +186,8 @@ def validate_raw_hca(url):
 
 
 def fetch_sra(idlist, raw_data_formats):
+    eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
+    efetch_base = f'{eutils_base}efetch.fcgi'
     formats = set()
     sublists = [idlist[i:i+450] for i in range(0, len(idlist), 450)]
     for sub in sublists:
@@ -253,13 +255,13 @@ def validate_raw_insdc(url):
             for line in r6.text.split('\n'):
                 if line.startswith('SRA Run Selector:'):
                     prj_flag = True
-                    prj = line.split('acc=')[-1]
-                    prjs.append(prj)
+                    p = line.split('acc=')[-1]
+                    prj.append(p)
 
     if prj_flag:
         idlist = set()
-        for prj in prjs:
-            url3 = f'{esearch_base}?db=sra&term={prj}&retmode=json&retmax=100'
+        for p in prj:
+            url3 = f'{esearch_base}?db=sra&term={p}&retmode=json&retmax=100'
             r3 = requests.get(url3).json()
             idlist.update(r3['esearchresult']['idlist'])
         idlist = list(idlist)
