@@ -2,6 +2,15 @@
 QA testing for this issue:
 https://github.com/chanzuckerberg/single-cell-curation/issues/1114
 https://github.com/chanzuckerberg/single-cell-curation/pull/1132/
+
+Currently removed from 5.3 with this PR:
+https://github.com/chanzuckerberg/single-cell-curation/pull/1268/
+
+Will keep columns in fixtures and add test here to check any values can
+be added, like with any other author column
+
+Once the genetic ancestry columns make it to the next schema,
+need to update tests to allow for values around 1
 """
 
 import numpy as np
@@ -26,6 +35,18 @@ ANCESTRY_COLUMNS = [
     "genetic_ancestry_Oceanian",
     "genetic_ancestry_South_Asian",
 ]
+
+# should pass for now, will fail when ancestry columns added back to schema
+# double parametrize decorator will do all combos of columns and values
+@pytest.mark.parametrize("column", ANCESTRY_COLUMNS)
+@pytest.mark.parametrize("random_value", ("string", False, True, np.nan, pd.NA, 234.2, 23, None))
+def test_any_value_in_genetic_columns(validator_human_adata, column, random_value):
+    validator = validator_human_adata
+    validator.adata.obs[column] = random_value
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
 
 def add_valid_nan_ancestry(adata, fill_value=float("nan")):
     for col in ANCESTRY_COLUMNS:
