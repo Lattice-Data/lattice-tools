@@ -22,10 +22,16 @@ TODO:
 import anndata as ad
 import gc
 import pandas as pd
+import numpy as np
 import pytest
-from cellxgene_schema.atac_seq import process_fragment
+from cellxgene_schema.atac_seq import (
+    process_fragment,
+    human_chromosome_by_length,
+    mouse_chromosome_by_length
+)
 from dataclasses import dataclass
 from pathlib import Path
+from fixtures.create_fixtures import Organism
 from fixtures.valid_adatas import (
     FIXTURES_ROOT,
     read_h5ad
@@ -179,3 +185,164 @@ def test_against_errors(yeild_atac_fixture_data, tmpdir):
 
     assert "Fragment file has duplicate rows." in results
     assert "Anndata.obs.is_primary_data must all be True." in results
+
+
+class TestIsPrimaryData:
+    def test_all_false(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        test_data.adata.obs["is_primary_data"] = False
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Anndata.obs.is_primary_data must all be True." in results
+
+    def test_mix_true_false(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        half_point = test_data.adata.shape[0] // 2
+        half_index = test_data.adata.obs.iloc[half_point].name
+        test_data.adata.obs.loc[half_index:, "is_primary_data"] = True
+        test_data.adata.obs.loc[:half_index, "is_primary_data"] = False
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Anndata.obs.is_primary_data must all be True." in results
+
+
+@pytest.mark.parametrize("organism_term", [organism.term_id for organism in Organism])
+class TestOrganismTerms:
+    def test_all_wrong_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
+        test_data = yeild_atac_fixture_data
+
+        test_data.adata.obs["organism_ontology_term_id"] = organism_term
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert results == []
+
+    def test_mixed_wrong_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
+        test_data = yeild_atac_fixture_data
+
+        half_point = test_data.adata.shape[0] // 2
+        half_index = test_data.adata.obs.iloc[half_point].name
+        test_data.adata.obs["organism_ontology_term_id"] = \
+        test_data.adata.obs["organism_ontology_term_id"].cat.add_categories(organism_term)
+        test_data.adata.obs.loc[half_index:, "organism_ontology_term_id"] = organism_term
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Anndata.obs.organism_ontology_term_id must have a unique value." in results
+
+    def test_mixed_human_mouse_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
+        _ = organism_term
+        test_data = yeild_atac_fixture_data
+
+        organism_terms = ["NCBITaxon:9606", "NCBITaxon:10090"]
+
+        for organism_term in organism_terms:
+            if organism_term not in test_data.adata.obs["organism_ontology_term_id"].cat.categories:
+                test_data.adata.obs["organism_ontology_term_id"] = \
+                test_data.adata.obs["organism_ontology_term_id"].cat.add_categories(organism_term)
+
+        half_point = test_data.adata.shape[0] // 2
+        half_index = test_data.adata.obs.iloc[half_point].name
+        test_data.adata.obs.loc[half_index:, "organism_ontology_term_id"] = organism_terms[0]
+        test_data.adata.obs.loc[:half_index, "organism_ontology_term_id"] = organism_terms[1]
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Anndata.obs.organism_ontology_term_id must have a unique value." in results
+
+
+class TestFragmentCol1Chr:
+    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize("other_chromosome", ["GL456210.1", "JH584295.1"])
+    def test_mouse_chromosomes_in_human(self, yeild_atac_fixture_data, tmpdir, other_chromosome):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 0] = other_chromosome
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert results == []
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize("other_chromosome", ["KI270442.1", "GL000009.2"])
+    def test_human_chromosomes_in_mouse(self, yeild_atac_fixture_data, tmpdir, other_chromosome):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 0] = other_chromosome
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert results == []
+
+
+class TestFragmentCol2Start:
+    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
+    def test_different_dtypes_in_start(self, yeild_atac_fixture_data, tmpdir, values):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 1] = values
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert results == []
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome_lengths", 
+        [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
+    )
+    def test_over_max_chr_start_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths):
+        test_data = yeild_atac_fixture_data
+        chromosome, length = chromosome_lengths
+
+        test_data.fragment_df.iloc[0, 0] = chromosome
+        test_data.fragment_df.iloc[0, 1] = length + 1
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert results == []
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome", 
+        [chromosome for chromosome in human_chromosome_by_length]
+    )
+    def test_start_under_one_human(self, yeild_atac_fixture_data, tmpdir, chromosome):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 0] = chromosome
+        test_data.fragment_df.iloc[0, 1] = 0
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Start coordinate must be greater than 0." in results
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome", 
+        [chromosome for chromosome in mouse_chromosome_by_length]
+    )
+    def test_start_under_one_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 0] = chromosome
+        test_data.fragment_df.iloc[0, 1] = 0
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Start coordinate must be greater than 0." in results
