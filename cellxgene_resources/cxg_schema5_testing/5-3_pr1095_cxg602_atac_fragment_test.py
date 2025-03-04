@@ -239,6 +239,7 @@ class TestOrganismTerms:
         assert "Anndata.obs.organism_ontology_term_id must have a unique value." in results
 
     def test_mixed_human_mouse_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
+        # all methods in class expcet organism_term with class decorator, throw it away with _ assignment 
         _ = organism_term
         test_data = yeild_atac_fixture_data
 
@@ -287,6 +288,7 @@ class TestFragmentCol1Chr:
 
 
 class TestFragmentCol2Start:
+    # fails with pandas import, seems kind of clear what the error might be?
     @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
     def test_different_dtypes_in_start(self, yeild_atac_fixture_data, tmpdir, values):
         test_data = yeild_atac_fixture_data
@@ -298,6 +300,7 @@ class TestFragmentCol2Start:
 
         assert results == []
 
+    # need to better pull apart what is happening here, error involves stop column and not start
     @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
@@ -346,3 +349,155 @@ class TestFragmentCol2Start:
         results = process_fragment(**temp_files)
 
         assert "Start coordinate must be greater than 0." in results
+
+
+class TestFragmentCol3Stop:
+    def test_stop_equals_start(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        start_value = test_data.fragment_df.iloc[0, 1]
+        test_data.fragment_df.iloc[0, 2] = start_value
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be greater than start coordinate." in results
+
+    def test_stop_less_than_start(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        start_value = test_data.fragment_df.iloc[0, 1]
+        test_data.fragment_df.iloc[0, 2] = start_value - 1
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be greater than start coordinate." in results
+
+    # fails with pandas import, seems kind of clear what the error might be?
+    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
+    def test_different_dtypes_in_stop(self, yeild_atac_fixture_data, tmpdir, values):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 2] = values
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert results == []
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome_lengths", 
+        [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
+    )
+    def test_stop_over_chr_max_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths):
+        test_data = yeild_atac_fixture_data
+        chromosome, length = chromosome_lengths
+
+        test_data.fragment_df.iloc[0, 0] = chromosome
+        test_data.fragment_df.iloc[0, 2] = length + 1
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be less than the chromosome length." in results
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome_lengths", 
+        [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
+    )
+    def test_stop_over_chr_max_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths):
+        test_data = yeild_atac_fixture_data
+        chromosome, length = chromosome_lengths
+
+        test_data.fragment_df.iloc[0, 0] = chromosome
+        test_data.fragment_df.iloc[0, 2] = length + 1
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be less than the chromosome length." in results
+
+    def test_stop_equals_zero(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 2] = 0
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be greater than start coordinate." in results
+
+
+class TestFragmentCol4Barcodes:
+    def test_barcode_in_fragment_not_in_adata(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 3] = "barcode not in obs"
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Barcodes don't match anndata.obs.index" in results
+
+    def test_barcode_in_adata_not_in_fragment(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        test_data.adata.obs.reset_index(inplace=True)
+        test_data.adata.obs["index"][0] = "barcode not in fragment"
+        test_data.adata.obs.set_index("index", inplace=True)
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Barcodes don't match anndata.obs.index" in results
+
+
+    def test_all_barcode_not_in_adata(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+        
+        barcode_to_drop = test_data.fragment_df.iloc[0, 3]
+        test_data.fragment_df = test_data.fragment_df[~test_data.fragment_df[3].isin([barcode_to_drop])]
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Barcodes don't match anndata.obs.index" in results
+
+    def test_all_barcode_not_in_fragment(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+        
+        num_cells = test_data.adata.shape[0]
+        test_data.adata = test_data.adata[:num_cells - 1, :].copy()
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Barcodes don't match anndata.obs.index" in results
+
+
+class TestFragmentCol5ReadSupport:
+    # fails with pandas import, seems kind of clear what the error might be?
+    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
+    def test_different_dtypes_in_read_support(self, yeild_atac_fixture_data, tmpdir, values):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 4] = values
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert results == []
+
+    @pytest.mark.parametrize("values", [0, -1])
+    def test_less_than_one_in_read_support(self, yeild_atac_fixture_data, tmpdir, values):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[0, 4] = values
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Read support must be greater than 0." in results
