@@ -306,17 +306,80 @@ class TestFragmentCol2Start:
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
     )
-    def test_over_max_chr_start_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths):
+    @pytest.mark.parametrize("row_to_change", [0, -1])
+    def test_over_max_chr_start_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
         test_data = yeild_atac_fixture_data
         chromosome, length = chromosome_lengths
 
-        test_data.fragment_df.iloc[0, 0] = chromosome
-        test_data.fragment_df.iloc[0, 1] = length + 1
+        test_data.fragment_df.iloc[row_to_change, 0] = chromosome
+        test_data.fragment_df.iloc[row_to_change, 1] = length + 1
+        test_data.fragment_df.iloc[row_to_change, 2] = length
 
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert results == []
+        assert "Stop coordinate must be greater than start coordinate." in results
+
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome_lengths", 
+        [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
+    )
+    @pytest.mark.parametrize("row_to_change", [0, -1])
+    def test_over_max_chr_start_and_stop_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
+        test_data = yeild_atac_fixture_data
+        chromosome, length = chromosome_lengths
+
+        test_data.fragment_df.iloc[row_to_change, 0] = chromosome
+        test_data.fragment_df.iloc[row_to_change, 1] = length + 1
+        test_data.fragment_df.iloc[row_to_change, 2] = length + 1
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be greater than start coordinate." in results
+        assert "Stop coordinate must be less than the chromosome length." in results
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome_lengths", 
+        [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
+    )
+    @pytest.mark.parametrize("row_to_change", [0, -1])
+    def test_over_max_chr_start_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
+        test_data = yeild_atac_fixture_data
+        chromosome, length = chromosome_lengths
+
+        test_data.fragment_df.iloc[row_to_change, 0] = chromosome
+        test_data.fragment_df.iloc[row_to_change, 1] = length + 1
+        test_data.fragment_df.iloc[row_to_change, 2] = length
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be greater than start coordinate." in results
+
+
+    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize(
+        "chromosome_lengths", 
+        [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
+    )
+    @pytest.mark.parametrize("row_to_change", [0, -1])
+    def test_over_max_chr_start_and_stop_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
+        test_data = yeild_atac_fixture_data
+        chromosome, length = chromosome_lengths
+
+        test_data.fragment_df.iloc[row_to_change, 0] = chromosome
+        test_data.fragment_df.iloc[row_to_change, 1] = length + 1
+        test_data.fragment_df.iloc[row_to_change, 2] = length + 1
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Stop coordinate must be greater than start coordinate." in results
+        assert "Stop coordinate must be less than the chromosome length." in results
 
     @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
