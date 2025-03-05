@@ -55,6 +55,8 @@ def bundle_atac_test_data(h5ad_file_name) -> AtacTestData:
     fragment_file_name = h5ad_file_name.replace(".h5ad", "_fragments.tsv.gz")
 
     adata = read_h5ad(f"{FIXTURES_ROOT}/{h5ad_file_name}")
+    adata.obs["assay_ontology_term_id"] = "EFO:0030059"
+    adata.obs["is_primary_data"] = True
 
     fragments = pd.read_csv(
         f"{FIXTURES_ROOT}/{fragment_file_name}",
@@ -108,7 +110,7 @@ def to_temp_files(test_data: AtacTestData, tmp_path: Path | str) -> dict:
 
 
 # only mouse is valid at the moment, human fragment with duplicates
-@pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+# @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
 def test_mock(yeild_atac_fixture_data, tmpdir):
     """
     get fixture
@@ -222,13 +224,15 @@ class TestOrganismTerms:
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert results == []
+        assert "Anndata.obs.organism_ontology_term_id must be one of ['NCBITaxon:9606', 'NCBITaxon:10090']." in results
 
     def test_mixed_wrong_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
         test_data = yeild_atac_fixture_data
 
+        original_org_term = test_data.adata.obs["organism_ontology_term_id"].unique()[0]
         half_point = test_data.adata.shape[0] // 2
         half_index = test_data.adata.obs.iloc[half_point].name
+
         test_data.adata.obs["organism_ontology_term_id"] = \
         test_data.adata.obs["organism_ontology_term_id"].cat.add_categories(organism_term)
         test_data.adata.obs.loc[half_index:, "organism_ontology_term_id"] = organism_term
@@ -236,7 +240,10 @@ class TestOrganismTerms:
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert "Anndata.obs.organism_ontology_term_id must have a unique value." in results
+        assert (
+            "Anndata.obs.organism_ontology_term_id must have a unique value. "
+            f"Found the following values:\n{original_org_term}\n\t{organism_term}"
+        ) in results
 
     def test_mixed_human_mouse_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
         # all methods in class expcet organism_term with class decorator, throw it away with _ assignment 
@@ -258,7 +265,10 @@ class TestOrganismTerms:
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert "Anndata.obs.organism_ontology_term_id must have a unique value." in results
+        assert (
+            "Anndata.obs.organism_ontology_term_id must have a unique value. "
+            f"Found the following values:\n{organism_terms[1]}\n\t{organism_terms[0]}"
+        ) in results
 
 
 class TestFragmentCol1Chr:
