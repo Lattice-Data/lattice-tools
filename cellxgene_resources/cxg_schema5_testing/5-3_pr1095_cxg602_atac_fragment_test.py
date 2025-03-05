@@ -298,18 +298,6 @@ class TestFragmentCol1Chr:
 
 
 class TestFragmentCol2Start:
-    # fails with pandas import, seems kind of clear what the error might be?
-    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
-    def test_different_dtypes_in_start(self, yeild_atac_fixture_data, tmpdir, values):
-        test_data = yeild_atac_fixture_data
-
-        test_data.fragment_df.iloc[0, 1] = values
-
-        temp_files = to_temp_files(test_data, tmpdir)
-        results = process_fragment(**temp_files)
-
-        assert results == []
-
     # need to better pull apart what is happening here, error involves stop column and not start
     @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
@@ -447,18 +435,6 @@ class TestFragmentCol3Stop:
 
         assert "Stop coordinate must be greater than start coordinate." in results
 
-    # fails with pandas import, seems kind of clear what the error might be?
-    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
-    def test_different_dtypes_in_stop(self, yeild_atac_fixture_data, tmpdir, values):
-        test_data = yeild_atac_fixture_data
-
-        test_data.fragment_df.iloc[0, 2] = values
-
-        temp_files = to_temp_files(test_data, tmpdir)
-        results = process_fragment(**temp_files)
-
-        assert results == []
-
     @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
@@ -527,7 +503,6 @@ class TestFragmentCol4Barcodes:
 
         assert "Barcodes don't match anndata.obs.index" in results
 
-
     def test_all_barcode_not_in_adata(self, yeild_atac_fixture_data, tmpdir):
         test_data = yeild_atac_fixture_data
         
@@ -552,18 +527,6 @@ class TestFragmentCol4Barcodes:
 
 
 class TestFragmentCol5ReadSupport:
-    # fails with pandas import, seems kind of clear what the error might be?
-    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
-    def test_different_dtypes_in_read_support(self, yeild_atac_fixture_data, tmpdir, values):
-        test_data = yeild_atac_fixture_data
-
-        test_data.fragment_df.iloc[0, 4] = values
-
-        temp_files = to_temp_files(test_data, tmpdir)
-        results = process_fragment(**temp_files)
-
-        assert results == []
-
     @pytest.mark.parametrize("values", [0, -1])
     def test_less_than_one_in_read_support(self, yeild_atac_fixture_data, tmpdir, values):
         test_data = yeild_atac_fixture_data
@@ -574,3 +537,19 @@ class TestFragmentCol5ReadSupport:
         results = process_fragment(**temp_files)
 
         assert "Read support must be greater than 0." in results
+
+
+@pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
+@pytest.mark.parametrize("row_to_change", [0, -1])
+class TestFragmentColDtypes:
+    # col 0 and 3 need special tests due to dtype of category and str respectively
+    @pytest.mark.parametrize("column", [1, 2, 4])
+    def test_different_dtypes_in_int_cols(self, yeild_atac_fixture_data, tmpdir, values, column, row_to_change):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[row_to_change, column] = values
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Error converting fragment to parquet." in results
