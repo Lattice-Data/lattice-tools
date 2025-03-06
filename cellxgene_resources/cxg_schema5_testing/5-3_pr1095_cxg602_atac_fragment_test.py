@@ -109,8 +109,6 @@ def to_temp_files(test_data: AtacTestData, tmp_path: Path | str) -> dict:
     }
 
 
-# only mouse is valid at the moment, human fragment with duplicates
-# @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
 def test_mock(yeild_atac_fixture_data, tmpdir):
     """
     get fixture
@@ -125,68 +123,6 @@ def test_mock(yeild_atac_fixture_data, tmpdir):
     results = process_fragment(**temp_files)
 
     assert results == []
-
-
-# human fails at the moment
-@pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
-def test_mock_fails(yeild_atac_fixture_data, tmpdir):
-    """
-    get fixture
-    modify
-    call to_temp_files()
-    run process_fragment
-    assert
-    """
-    test_data = yeild_atac_fixture_data
-
-    temp_files = to_temp_files(test_data, tmpdir)
-    results = process_fragment(**temp_files)
-
-    assert len(results) > 0
-
-
-# edit human files to make valid
-@pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
-def test_mock_with_edits(yeild_atac_fixture_data, tmpdir):
-    """
-    get fixture
-    modify
-    call to_temp_files()
-    run process_fragment
-    assert
-    """
-    # arrange
-    test_data = yeild_atac_fixture_data
-
-    test_data.adata.obs['is_primary_data'] = True
-    test_data.fragment_df = test_data.fragment_df.drop_duplicates(keep="first")
-
-    temp_files = to_temp_files(test_data, tmpdir)
-
-    # act
-    results = process_fragment(**temp_files)
-
-    # assert
-    assert results == []
-
-
-# only human dataset with errors
-@pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
-def test_against_errors(yeild_atac_fixture_data, tmpdir):
-    """
-    get fixture
-    modify
-    call to_temp_files()
-    run process_fragment
-    assert
-    """
-    test_data = yeild_atac_fixture_data
-
-    temp_files = to_temp_files(test_data, tmpdir)
-    results = process_fragment(**temp_files)
-
-    assert "Fragment file has duplicate rows." in results
-    assert "Anndata.obs.is_primary_data must all be True." in results
 
 
 class TestIsPrimaryData:
@@ -224,7 +160,11 @@ class TestOrganismTerms:
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert "Anndata.obs.organism_ontology_term_id must be one of ['NCBITaxon:9606', 'NCBITaxon:10090']." in results
+        assert (
+            "Anndata.obs.organism_ontology_term_id must be one of "
+            f"['NCBITaxon:9606', 'NCBITaxon:10090']. Got {organism_term}."
+        ) in results
+
 
     def test_mixed_wrong_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
         test_data = yeild_atac_fixture_data
@@ -241,7 +181,7 @@ class TestOrganismTerms:
         results = process_fragment(**temp_files)
 
         assert (
-            "Anndata.obs.organism_ontology_term_id must have a unique value. "
+            "Anndata.obs.organism_ontology_term_id must have exactly 1 unique value. "
             f"Found the following values:\n{original_org_term}\n\t{organism_term}"
         ) in results
 
@@ -266,7 +206,7 @@ class TestOrganismTerms:
         results = process_fragment(**temp_files)
 
         assert (
-            "Anndata.obs.organism_ontology_term_id must have a unique value. "
+            "Anndata.obs.organism_ontology_term_id must have exactly 1 unique value. "
             f"Found the following values:\n{organism_terms[1]}\n\t{organism_terms[0]}"
         ) in results
 
@@ -282,7 +222,9 @@ class TestFragmentCol1Chr:
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert results == []
+        assert (
+            f"Chromosomes in the fragment do not match the organism(NCBITaxon:9606).\n{other_chromosome}"
+        ) in results
 
     @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
     @pytest.mark.parametrize("other_chromosome", ["KI270442.1", "GL000009.2"])
@@ -294,7 +236,9 @@ class TestFragmentCol1Chr:
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert results == []
+        assert (
+            f"Chromosomes in the fragment do not match the organism(NCBITaxon:10090).\n{other_chromosome}"
+        ) in results
 
 
 class TestFragmentCol2Start:
@@ -481,10 +425,11 @@ class TestFragmentCol3Stop:
 
 
 class TestFragmentCol4Barcodes:
-    def test_barcode_in_fragment_not_in_adata(self, yeild_atac_fixture_data, tmpdir):
+    @pytest.mark.parametrize("row_to_add", [0, -1])
+    def test_barcode_in_fragment_not_in_adata(self, yeild_atac_fixture_data, tmpdir, row_to_add):
         test_data = yeild_atac_fixture_data
 
-        test_data.fragment_df.iloc[0, 3] = "barcode not in obs"
+        test_data.fragment_df.iloc[row_to_add, 3] = "barcode not in obs"
 
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
@@ -503,10 +448,11 @@ class TestFragmentCol4Barcodes:
 
         assert "Barcodes don't match anndata.obs.index" in results
 
-    def test_all_barcode_not_in_adata(self, yeild_atac_fixture_data, tmpdir):
+    @pytest.mark.parametrize("row_to_add", [0, -1])
+    def test_all_barcode_not_in_adata(self, yeild_atac_fixture_data, tmpdir, row_to_add):
         test_data = yeild_atac_fixture_data
         
-        barcode_to_drop = test_data.fragment_df.iloc[0, 3]
+        barcode_to_drop = test_data.fragment_df.iloc[row_to_add, 3]
         test_data.fragment_df = test_data.fragment_df[~test_data.fragment_df[3].isin([barcode_to_drop])]
 
         temp_files = to_temp_files(test_data, tmpdir)
@@ -525,13 +471,43 @@ class TestFragmentCol4Barcodes:
 
         assert "Barcodes don't match anndata.obs.index" in results
 
+    @pytest.mark.parametrize("null_string", ["", "na", "null", "NA", "NaN", "Na", "none", "None", "pd.NA", "np.nan", "np.NaN"])
+    def test_null_strings_in_obs_index(self, yeild_atac_fixture_data, tmpdir, null_string):
+        test_data = yeild_atac_fixture_data
+        
+        test_data.adata.obs.reset_index(inplace=True)
+        test_data.adata.obs["index"][0] = null_string
+        test_data.adata.obs.set_index("index", inplace=True)
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Barcodes don't match anndata.obs.index" in results
+
+    @pytest.mark.parametrize("row_to_change", [0, -1])
+    @pytest.mark.parametrize("null_string", ["", "na", "null", "NA", "NaN", "Na", "none", "None", "pd.NA", "np.nan", "np.NaN"])
+    def test_null_strings_in_obs_and_fragment_barcode(self, yeild_atac_fixture_data, tmpdir, null_string, row_to_change):
+        test_data = yeild_atac_fixture_data
+        
+        test_data.adata.obs.reset_index(inplace=True)
+        test_data.adata.obs["index"][0] = null_string
+        test_data.adata.obs.set_index("index", inplace=True)
+
+        test_data.fragment_df.iloc[row_to_change, 3] = null_string
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Barcodes don't match anndata.obs.index" in results
+
 
 class TestFragmentCol5ReadSupport:
     @pytest.mark.parametrize("values", [0, -1])
-    def test_less_than_one_in_read_support(self, yeild_atac_fixture_data, tmpdir, values):
+    @pytest.mark.parametrize("row_to_add", [0, -1])
+    def test_less_than_one_in_read_support(self, yeild_atac_fixture_data, tmpdir, values, row_to_add):
         test_data = yeild_atac_fixture_data
 
-        test_data.fragment_df.iloc[0, 4] = values
+        test_data.fragment_df.iloc[row_to_add, 4] = values
 
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
@@ -539,15 +515,39 @@ class TestFragmentCol5ReadSupport:
         assert "Read support must be greater than 0." in results
 
 
-@pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA])
 @pytest.mark.parametrize("row_to_change", [0, -1])
 class TestFragmentColDtypes:
     # col 0 and 3 need special tests due to dtype of category and str respectively
+    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN", np.NaN])
     @pytest.mark.parametrize("column", [1, 2, 4])
     def test_different_dtypes_in_int_cols(self, yeild_atac_fixture_data, tmpdir, values, column, row_to_change):
         test_data = yeild_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_change, column] = values
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Error converting fragment to parquet." in results
+
+    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN", np.NaN])
+    @pytest.mark.parametrize("column", [0, 3])
+    def test_different_dtypes_in_non_int_cols(self, yeild_atac_fixture_data, tmpdir, values, column, row_to_change):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[row_to_change, column] = values
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Error converting fragment to parquet." in results
+
+    @pytest.mark.parametrize("null_string", ["", "na", "null", "NA", "NaN", "Na", "none", "None", "pd.NA", "np.nan", "np.NaN"])
+    @pytest.mark.parametrize("column", [3])
+    def test_null_strings_in_barcode_col(self, yeild_atac_fixture_data, tmpdir, null_string, column, row_to_change):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[row_to_change, column] = null_string
 
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
