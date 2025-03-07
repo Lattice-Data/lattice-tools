@@ -14,9 +14,6 @@ can specify specific fixtures with this:
 @pytest.mark.parametrize("atac_h5ads", [{list specific h5ads}])
 should apply this to other fixtures
 
-TODO:
-    maybe enum for files?
-    flush out other tests
 """
 
 import anndata as ad
@@ -24,7 +21,9 @@ import gc
 import pandas as pd
 import numpy as np
 import pytest
+import pyarrow
 from cellxgene_schema.atac_seq import (
+    check_anndata_requires_fragment,
     process_fragment,
     human_chromosome_by_length,
     mouse_chromosome_by_length
@@ -150,6 +149,101 @@ class TestIsPrimaryData:
         assert "Anndata.obs.is_primary_data must all be True." in results
 
 
+class TestAssayTerms:
+    """
+    through the cli, process_fragment() will first run check_anndata_requires_fragment() and return
+    early if there are errors, but need to specifically call check_anndata_requires_fragment()
+    for pytest
+
+    output is kind of confusing:
+        paired (10x multiome) will return False
+        unpaired (other atac) will return True
+        non-atac raises ValueErrors
+
+    will try standard fixture to get h5ad and fragment file, only will use h5ad in tests
+    """
+    # only 10x multiome should return False as a paired assay that does not need fragment
+    def test_assay_paired_is_false(self, yeild_atac_fixture_data, tmpdir):
+        test_data = yeild_atac_fixture_data
+
+        test_data.adata.obs["assay_ontology_term_id"] = "EFO:0030059"
+
+        temp_adata = _to_anndata_file(test_data, tmpdir)
+        results = check_anndata_requires_fragment(temp_adata)
+
+        assert results is False
+
+    # all of these are descendants of scATAC-seq, except for 10x multiome
+    @pytest.mark.parametrize("assay_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
+    def test_assay_paired_is_true(self, yeild_atac_fixture_data, tmpdir, assay_term):
+        test_data = yeild_atac_fixture_data
+
+        test_data.adata.obs["assay_ontology_term_id"] = assay_term
+
+        temp_adata = _to_anndata_file(test_data, tmpdir)
+        results = check_anndata_requires_fragment(temp_adata)
+
+        assert results is True
+
+    @pytest.mark.parametrize("first_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
+    @pytest.mark.parametrize("second_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
+    def test_assay_mixed_paired_is_true(self, yeild_atac_fixture_data, tmpdir, first_term, second_term):
+        test_data = yeild_atac_fixture_data
+        
+        half_point = test_data.adata.shape[0] // 2
+        half_index = test_data.adata.obs.iloc[half_point].name
+
+        del test_data.adata.obs["assay_ontology_term_id"]
+        test_data.adata.obs.loc[half_index:, "assay_ontology_term_id"] = first_term
+        test_data.adata.obs.loc[:half_index, "assay_ontology_term_id"] = second_term
+
+        temp_adata = _to_anndata_file(test_data, tmpdir)
+        results = check_anndata_requires_fragment(temp_adata)
+
+        assert results is True
+
+    @pytest.mark.parametrize("assay_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
+    def test_assay_paired_and_unpaired_error(self, yeild_atac_fixture_data, tmpdir, assay_term):
+        test_data = yeild_atac_fixture_data
+
+        half_point = test_data.adata.shape[0] // 2
+        half_index = test_data.adata.obs.iloc[half_point].name
+
+        del test_data.adata.obs["assay_ontology_term_id"]
+        test_data.adata.obs.loc[half_index:, "assay_ontology_term_id"] = "EFO:0030059"
+        test_data.adata.obs.loc[:half_index, "assay_ontology_term_id"] = assay_term
+
+        temp_adata = _to_anndata_file(test_data, tmpdir)
+        with pytest.raises(ValueError, match="Anndata.obs.assay_ontology_term_id has mixed paired and unpaired assay terms."):
+            _ = check_anndata_requires_fragment(temp_adata)
+
+    @pytest.mark.parametrize("first_term", ["EFO:0030059", "EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
+    @pytest.mark.parametrize("second_term", ["EFO:0009922", "EFO:0008930", "EFO:0022858"])
+    def test_assay_mixed_atac_non_atac_error(self, yeild_atac_fixture_data, tmpdir, first_term, second_term):
+        test_data = yeild_atac_fixture_data
+        
+        half_point = test_data.adata.shape[0] // 2
+        half_index = test_data.adata.obs.iloc[half_point].name
+
+        del test_data.adata.obs["assay_ontology_term_id"]
+        test_data.adata.obs.loc[half_index:, "assay_ontology_term_id"] = first_term
+        test_data.adata.obs.loc[:half_index, "assay_ontology_term_id"] = second_term
+
+        temp_adata = _to_anndata_file(test_data, tmpdir)
+        with pytest.raises(ValueError, match="Anndata.obs.assay_ontology_term_id are not all descendants of EFO:0010891."):
+            _ = check_anndata_requires_fragment(temp_adata)
+
+    @pytest.mark.parametrize("assay_term", ["EFO:0009922", "EFO:0008930", "EFO:0022858"])
+    def test_assay_not_atac_error(self, yeild_atac_fixture_data, tmpdir, assay_term):
+        test_data = yeild_atac_fixture_data
+
+        test_data.adata.obs["assay_ontology_term_id"] = assay_term
+
+        temp_adata = _to_anndata_file(test_data, tmpdir)
+        with pytest.raises(ValueError, match="Anndata.obs.assay_ontology_term_id are not all descendants of EFO:0010891."):
+            _ = check_anndata_requires_fragment(temp_adata)
+
+
 @pytest.mark.parametrize("organism_term", [organism.term_id for organism in Organism])
 class TestOrganismTerms:
     def test_all_wrong_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
@@ -242,7 +336,7 @@ class TestFragmentCol1Chr:
 
 
 class TestFragmentCol2Start:
-    # need to better pull apart what is happening here, error involves stop column and not start
+    # error message makes sense, will see if this is unclear in practice
     @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
@@ -425,6 +519,20 @@ class TestFragmentCol3Stop:
 
 
 class TestFragmentCol4Barcodes:
+    """
+    Currently no check if a barcode is a null value; this will be valid
+        validation looks for set equivalence of fragment barcodes and obs barcodes
+        dask.count() ignores NA values, so not added to fragment barcode set
+
+    Unclear if this will be an issue
+    To curate, we read in the obs.index from a h5ad; AnnData does not allow null values
+    as an obs index. The curation process might introduce a null value
+
+    Might need to be explicit with read and write to tsv to keep strings literal 
+
+    Some of the tests show that by default pandas will coerce certain stings to null;
+    other similar strings will remain as their string literal
+    """
     @pytest.mark.parametrize("row_to_add", [0, -1])
     def test_barcode_in_fragment_not_in_adata(self, yeild_atac_fixture_data, tmpdir, row_to_add):
         test_data = yeild_atac_fixture_data
@@ -484,6 +592,7 @@ class TestFragmentCol4Barcodes:
 
         assert "Barcodes don't match anndata.obs.index" in results
 
+    # null values in obs will remain string literals, so barcodes will not match
     @pytest.mark.parametrize("row_to_change", [0, -1])
     @pytest.mark.parametrize("null_string", ["", "na", "null", "NA", "NaN", "Na", "none", "None", "pd.NA", "np.nan", "np.NaN"])
     def test_null_strings_in_obs_and_fragment_barcode(self, yeild_atac_fixture_data, tmpdir, null_string, row_to_change):
@@ -517,6 +626,25 @@ class TestFragmentCol5ReadSupport:
 
 @pytest.mark.parametrize("row_to_change", [0, -1])
 class TestFragmentColDtypes:
+    """
+    The error reporting for wrong dtypes in the fragment file is a little sloppy, but 
+    probably managable to figure out what went wrong. 
+    
+    Overall, will need to see how this plays out with real datasets
+
+    The validator will roughly catch exceptions in the error message but through the 
+    cli, the traceback will also be dumped
+
+    The chr column should be categorical; a pyarrow exception is raised during parquet conversion
+    that will roughly point to 'chromosome' column parsing incorrectly
+
+    The int columns raise a pandas exception that is better caught by the validator and lists
+    more information about wrong dtype for a particular column
+
+    The barcodes column will coerce any value to string or null:
+        string literals will cause a validation error for mismatched barcodes
+        strings coerced to null will be valid.
+    """
     # col 0 and 3 need special tests due to dtype of category and str respectively
     @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN", np.NaN])
     @pytest.mark.parametrize("column", [1, 2, 4])
@@ -527,24 +655,27 @@ class TestFragmentColDtypes:
 
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
-
-        assert "Error converting fragment to parquet." in results
+        
+        error_prefix = "Error Parsing the fragment file. Check that columns match schema definition. Error:"
+        assert any(s.startswith(error_prefix) for s in results)
 
     @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN", np.NaN])
-    @pytest.mark.parametrize("column", [0, 3])
-    def test_different_dtypes_in_non_int_cols(self, yeild_atac_fixture_data, tmpdir, values, column, row_to_change):
+    @pytest.mark.parametrize("column", [0])
+    def test_different_dtypes_in_chr_col(self, yeild_atac_fixture_data, tmpdir, values, column, row_to_change):
         test_data = yeild_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_change, column] = values
 
         temp_files = to_temp_files(test_data, tmpdir)
-        results = process_fragment(**temp_files)
 
-        assert "Error converting fragment to parquet." in results
+        with pytest.raises(pyarrow.lib.ArrowInvalid) as e:
+            results = process_fragment(**temp_files)
+            print(e)
 
-    @pytest.mark.parametrize("null_string", ["", "na", "null", "NA", "NaN", "Na", "none", "None", "pd.NA", "np.nan", "np.NaN"])
+    # strings coerced to null will be valid
+    @pytest.mark.parametrize("null_string", ["", "null", "NA", "NaN", "None"])
     @pytest.mark.parametrize("column", [3])
-    def test_null_strings_in_barcode_col(self, yeild_atac_fixture_data, tmpdir, null_string, column, row_to_change):
+    def test_null_strings_in_barcode_col_pass(self, yeild_atac_fixture_data, tmpdir, null_string, column, row_to_change):
         test_data = yeild_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_change, column] = null_string
@@ -552,4 +683,17 @@ class TestFragmentColDtypes:
         temp_files = to_temp_files(test_data, tmpdir)
         results = process_fragment(**temp_files)
 
-        assert "Error converting fragment to parquet." in results
+        assert results == []
+
+    # strings that look like null but are kept literal will cause mismatched barcodes
+    @pytest.mark.parametrize("null_string", ["Na", "na", "none", "pd.NA", "np.nan", "np.NaN"])
+    @pytest.mark.parametrize("column", [3])
+    def test_null_strings_in_barcode_col_fails(self, yeild_atac_fixture_data, tmpdir, null_string, column, row_to_change):
+        test_data = yeild_atac_fixture_data
+
+        test_data.fragment_df.iloc[row_to_change, column] = null_string
+
+        temp_files = to_temp_files(test_data, tmpdir)
+        results = process_fragment(**temp_files)
+
+        assert "Barcodes don't match anndata.obs.index" in results
