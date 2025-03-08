@@ -3,6 +3,9 @@ QA testing for this issue:
 https://github.com/chanzuckerberg/single-cell/issues/721
 https://github.com/chanzuckerberg/single-cell-curation/pull/1095/
 
+Incorporation of feedback on this PR:
+https://github.com/chanzuckerberg/single-cell-curation/pull/1284
+
 For fragment validation, need location of h5ad and fragment file, so need
 to provide temp file location of files before calling process-fragment
 
