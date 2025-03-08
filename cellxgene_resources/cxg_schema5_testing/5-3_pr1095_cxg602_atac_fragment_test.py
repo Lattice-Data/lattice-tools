@@ -32,6 +32,7 @@ from cellxgene_schema.atac_seq import (
     mouse_chromosome_by_length
 )
 from dataclasses import dataclass
+from pandas._libs.parsers import STR_NA_VALUES
 from pathlib import Path
 from fixtures.create_fixtures import Organism
 from fixtures.valid_adatas import (
@@ -676,7 +677,9 @@ class TestFragmentColDtypes:
             print(e)
 
     # strings coerced to null will be valid
-    @pytest.mark.parametrize("null_string", ["", "null", "NA", "NaN", "None"])
+    # STR_NA_VALUES is an unordered set, xdist needs ordered interable to distribute tests to workers
+    # sorted() returns sorted list to allow for parallel test running
+    @pytest.mark.parametrize("null_string", sorted(STR_NA_VALUES))
     @pytest.mark.parametrize("column", [3])
     def test_null_strings_in_barcode_col_pass(self, yeild_atac_fixture_data, tmpdir, null_string, column, row_to_change):
         test_data = yeild_atac_fixture_data
