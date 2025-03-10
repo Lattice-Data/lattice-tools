@@ -185,29 +185,18 @@ def validate_raw_hca(url):
     return list(formats)
 
 
-def fetch_sra(idlist, raw_data_formats):
-    eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
-    efetch_base = f'{eutils_base}efetch.fcgi'
-    formats = set()
-    sublists = [idlist[i:i+450] for i in range(0, len(idlist), 450)]
-    for sub in sublists:
-        ids = ','.join(sub)
-        url4 = f'{efetch_base}?db=sra&id={ids}'
-        r4 = requests.get(url4)
-        rXml = ET.fromstring(r4.text)
-        for ep in rXml.iter('EXPERIMENT_PACKAGE'):
-            for run in ep.iter('RUN'):
-                fs = [cf.attrib['filetype'] for cf in run.iter('CloudFile') if cf.attrib['filetype'] in raw_data_formats]
-                formats.update(fs)
-
-    return formats
-
-
 def validate_raw_insdc(url):
-    formats = set()
     raw_data_formats = ['fastq','TenX','bam','cram']
 
     acc = url.split('/')[-1].split('=')[-1]
+    insdc_attrs = insdc_meta(acc)
+    df = pd.DataFrame(insdc_attrs)
+    formats = [f for c in df.columns for f in df[c].unique() if 'semantic' in c]
+
+    return list(set([f for f in formats if f in raw_data_formats])
+
+
+def insdc_meta(acc):
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     esearch_base = f'{eutils_base}esearch.fcgi'
     efetch_base = f'{eutils_base}efetch.fcgi'
@@ -223,52 +212,67 @@ def validate_raw_insdc(url):
             for a in rXml.iter('ArchiveID'):
                 prj = [a.attrib['accession']]
                 prj_flag = True
-    elif acc.startswith('E-'):
-        srs_list = []
-        url1 = f'{esearch_base}?db=biosample&term={acc}&retmode=json'
-        r1 = requests.get(url1).json()
-        for i in r1['esearchresult']['idlist']:
-            url2 = f'{efetch_base}?db=biosample&id={i}'
-            r2 = requests.get(url2)
-            rXml = ET.fromstring(r2.text)
-            for a in rXml.iter('Id'):
-                if a.attrib['db'] == 'SRA':
-                    srs_list.append(a.text)
-        idlist = set()
-        for srs in srs_list:
-            url3 = f'{esearch_base}?db=sra&term={srs}&retmode=json&retmax=100'
-            r3 = requests.get(url3).json()
-            idlist.update(r3['esearchresult']['idlist'])
-        formats.update(fetch_sra(list(idlist), raw_data_formats))
-        return list(formats)
+        if not prj_flag:
+            url5 = f'{esearch_base}?db=gds&term={acc}[Accn]&retmode=json&retmax=100'
+            r5 = requests.get(url5).json()
+            if r5['esearchresult']['idlist']:
+                ids = ','.join(r5['esearchresult']['idlist'])
+                url6 = f'{efetch_base}?db=gds&id={ids}'
+                r6 = requests.get(url6)
+                for line in r6.text.split('\n'):
+                    if line.startswith('SRA Run Selector:'):
+                        prj_flag = True
+                        p = line.split('acc=')[-1]
+                        prj.append(p)
     else:
         prj = [acc]
         prj_flag = True
 
-    if not prj_flag:
-        url5 = f'{esearch_base}?db=gds&term={acc}[Accn]&retmode=json&retmax=100'
-        r5 = requests.get(url5).json()
-        if r5['esearchresult']['idlist']:
-            ids = ','.join(r5['esearchresult']['idlist'])
-            url6 = f'{efetch_base}?db=gds&id={ids}'
-            r6 = requests.get(url6)
-            for line in r6.text.split('\n'):
-                if line.startswith('SRA Run Selector:'):
-                    prj_flag = True
-                    p = line.split('acc=')[-1]
-                    prj.append(p)
-
     if prj_flag:
+        attributes = []
         idlist = set()
         for p in prj:
             url3 = f'{esearch_base}?db=sra&term={p}&retmode=json&retmax=100'
             r3 = requests.get(url3).json()
             idlist.update(r3['esearchresult']['idlist'])
         idlist = list(idlist)
-        formats.update(fetch_sra(idlist, raw_data_formats))
-        formats.update(fetch_sra(idlist, raw_data_formats))
-
-    return list(formats)
+        sublists = [idlist[i:i+500] for i in range(0, len(idlist), 500)]
+        for sub in sublists:
+            ids = ','.join(sub)
+            url4 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=sra&id={ids}'
+            r4 = requests.get(url4)
+            #parse the records for needed information & write report
+            responseXml = ET.fromstring(r4.text)
+            for ep in responseXml.iter('EXPERIMENT_PACKAGE'):
+                e = ep.find('EXPERIMENT')
+                attr1 = {'Experiment:title': e.find('TITLE').text}
+                for k,v in e.attrib.items():
+                    attr1['Experiment:' + k] = v
+                for p in ['LIBRARY_STRATEGY','LIBRARY_SOURCE','LIBRARY_SELECTION']:
+                    attr1['Experiment:' + p.lower()] = e.find('DESIGN').find('LIBRARY_DESCRIPTOR').find(p).text
+                for s in ep.iter('SAMPLE'):
+                    attr1['Sample:primary_id'] = s.find('IDENTIFIERS').find('PRIMARY_ID').text
+                    attr1['Sample:title'] = s.find('TITLE').text
+                    for ei in s.iter('EXTERNAL_ID'):
+                        attr1['Sample:' + ei.attrib['namespace'] + '_id'] = ei.text
+                    attr1['Sample:taxon_id'] = s.find('SAMPLE_NAME').find('TAXON_ID').text
+                    attr1['Sample:scientific_name'] = s.find('SAMPLE_NAME').find('SCIENTIFIC_NAME').text
+                    for sa in s.iter('SAMPLE_ATTRIBUTE'):
+                        attr1['Sample:' + sa.find('TAG').text] = sa.find('VALUE').text
+                for run in ep.iter('RUN'):
+                    attr2 = attr1.copy()
+                    for k,v in run.attrib.items():
+                        attr2['Run:' + k] = v
+                    file_count = 0
+                    for f in run.iter('SRAFile'):
+                        if 'SRA' not in f.attrib['semantic_name']:
+                            file_count += 1
+                            for k,v in f.attrib.items():
+                                attr2['Run:file_' + str(file_count) + ' ' + k] = v
+                            for alt in f.iter('Alternatives'):
+                                attr2['Run:file_' + str(file_count) + ' url'] = alt.attrib['url']
+                    attributes.append(attr2)
+        return attributes
 
 
 data_repo_bases = {
