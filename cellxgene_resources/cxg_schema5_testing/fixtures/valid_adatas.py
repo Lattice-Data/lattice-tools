@@ -3,48 +3,63 @@ import gc
 import os
 import pytest
 import sys
+from pathlib import Path
 from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from cellxgene_schema.utils import read_h5ad
 
 # pytest can now discover and successfully run tests from any directory level of repo
-FIXTURES_ROOT = os.path.join(os.path.dirname(__file__))
+FIXTURES_ROOT = Path(__file__).absolute().parent
 
-H5ADS = [
-    "valid_human.h5ad", 
-    "valid_mouse.h5ad", 
-    "slide_seq_image_human.h5ad",
-    "slide_seq_no_image_human.h5ad",
-    "visium_v2_11mm_human.h5ad",    # originally CytAssist_11mm_FFPE_Human_Ovarian_Carcinoma_curated.h5ad from Jenny
-    "visium_human_all_spots.h5ad",
-    "visium_human_some_spots.h5ad",
+# few standard lists to select fixtures, can also whitelist for any given test
+ALL_H5ADS = [
+    f.name for f in FIXTURES_ROOT.iterdir() 
+        if f.suffix == ".h5ad"
 ]
-
+SPATIAL_H5ADS = [
+    f for f in ALL_H5ADS 
+        if any(included in f for included in [
+            "slide_seq",
+            "visium"
+        ])
+]
 MULTISPECIES_H5ADS = [
-    "valid_fly.h5ad",
-    "valid_worm.h5ad",
-    "valid_zebrafish.h5ad",
-    "valid_lemur.h5ad",
-    "valid_rat.h5ad",
-    "valid_rabbit.h5ad",
-    "valid_chimp.h5ad",
-    "valid_gorilla.h5ad",
-    "valid_domestic_pig.h5ad",
-    "valid_rhesus.h5ad",
-    "valid_marmoset.h5ad",
-    "valid_crab_eating_macaque.h5ad"
+    f for f in ALL_H5ADS 
+        if not any(excluded in f for excluded in [
+            "human", 
+            "mouse"
+        ])
+]
+MODEL_ORGANISM_H5ADS = [
+    f for f in MULTISPECIES_H5ADS 
+        if any(included in f for included in [
+            "fly", 
+            "worm", 
+            "zebrafish"
+        ])
 ]
 
+print(ALL_H5ADS)
+print(SPATIAL_H5ADS)
+print(MULTISPECIES_H5ADS)
+print(MODEL_ORGANISM_H5ADS)
 # will add better check for file, maybe to automatically download as well
-if not os.path.isfile(f"{FIXTURES_ROOT}/visium_v2_11mm_human.h5ad"):
+if not os.path.isfile(FIXTURES_ROOT / "visium_v2_11mm_human.h5ad"):
     raise FileNotFoundError('This file lives in S3, please download before running tests')
 
+
+# base fixture to get any given h5ad
+@pytest.fixture(params=ALL_H5ADS)
+def test_h5ads(request):
+    yield request.param
+
+
 # fixture exported to other tests, returns and therefor tests with each h5ad
-@pytest.fixture(params=H5ADS)
-def validator_with_all_adatas(request) -> Validator:
+@pytest.fixture
+def validator_with_adatas(test_h5ads) -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
+    validator.adata = read_h5ad(FIXTURES_ROOT / test_h5ads)
     yield validator
 
 
@@ -52,7 +67,7 @@ def validator_with_all_adatas(request) -> Validator:
 def validator_human_adata() -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[0]}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{ALL_H5ADS[0]}")
     yield validator
 
 
@@ -60,11 +75,11 @@ def validator_human_adata() -> Validator:
 def validator_mouse_adata() -> Validator:
     gc.collect()
     validator = Validator()
-    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{H5ADS[1]}")
+    validator.adata = read_h5ad(f"{FIXTURES_ROOT}/{ALL_H5ADS[1]}")
     yield validator
 
 
-@pytest.fixture(params=[file for file in H5ADS if "human" in file])
+@pytest.fixture(params=[file for file in ALL_H5ADS if "human" in file])
 def validator_with_human_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
@@ -72,7 +87,7 @@ def validator_with_human_adatas(request) -> Validator:
     yield validator
 
 
-@pytest.fixture(params=H5ADS[2:])
+@pytest.fixture(params=ALL_H5ADS[2:])
 def validator_with_spatial_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
@@ -80,7 +95,7 @@ def validator_with_spatial_adatas(request) -> Validator:
     yield validator
 
 
-@pytest.fixture(params=H5ADS[2:4])
+@pytest.fixture(params=ALL_H5ADS[2:4])
 def validator_with_slide_seq_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
@@ -88,7 +103,7 @@ def validator_with_slide_seq_adatas(request) -> Validator:
     yield validator
 
 
-@pytest.fixture(params=H5ADS[:3])
+@pytest.fixture(params=ALL_H5ADS[:3])
 def validator_with_non_visium_adatas(request) -> Validator:
     gc.collect()
     validator = Validator()
@@ -112,7 +127,7 @@ def validator_with_visium() -> Validator:
     yield validator
 
 
-@pytest.fixture(params=H5ADS[4:])
+@pytest.fixture(params=ALL_H5ADS[4:])
 def validator_with_all_visiums(request) -> Validator:
     gc.collect()
     validator = Validator()
@@ -136,7 +151,7 @@ def label_writer_multispecies(validator_with_multispecies_adatas: Validator) -> 
     yield AnnDataLabelAppender(validator.adata)
 
 
-@pytest.fixture(params=H5ADS[:2])
+@pytest.fixture(params=ALL_H5ADS[:2])
 def validator_with_non_spatial_adata(request) -> Validator:
     gc.collect()
     validator = Validator()
