@@ -9,12 +9,15 @@ import numpy as np
 import pytest
 from dask.array import from_array
 from scipy import sparse
-from fixtures.valid_adatas import validator_with_all_adatas
+from fixtures.valid_adatas import (
+    test_h5ads,
+    validator_with_adatas
+)
 
 
 # might be memory intensive, probably best not to run in parallel
-def test_np_in_raw_fails(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_np_in_raw_fails(validator_with_adatas):
+    validator = validator_with_adatas
     var = validator.adata.raw.var if validator.adata.raw else validator.adata.var
 
     # .compute() changes from dask array to csr matrix within the validator
@@ -48,8 +51,8 @@ def test_np_in_raw_fails(validator_with_all_adatas):
     ) in validator.errors
 
 
-def test_np_in_x_fails(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_np_in_x_fails(validator_with_adatas):
+    validator = validator_with_adatas
 
     # .compute() changes from dask array to csr matrix within the validator
     matrix = validator.adata.X.compute()
@@ -74,8 +77,8 @@ def test_np_in_x_fails(validator_with_all_adatas):
     ) in validator.errors
 
 
-def test_np_in_layer_fails(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_np_in_layer_fails(validator_with_adatas):
+    validator = validator_with_adatas
 
     # .compute() changes from dask array to csr matrix within the validator
     matrix = validator.adata.X.compute()
@@ -101,8 +104,8 @@ def test_np_in_layer_fails(validator_with_all_adatas):
     ) in validator.errors
 
 
-def test_csc_sparse_in_raw_fails(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_csc_sparse_in_raw_fails(validator_with_adatas):
+    validator = validator_with_adatas
     var = validator.adata.raw.var if validator.adata.raw else validator.adata.var
 
     # .compute() changes from dask array to csr matrix within the validator
@@ -131,8 +134,8 @@ def test_csc_sparse_in_raw_fails(validator_with_all_adatas):
     ) in validator.errors
 
 
-def test_csc_in_x_fails(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_csc_in_x_fails(validator_with_adatas):
+    validator = validator_with_adatas
 
     # .compute() changes from dask array to csr matrix within the validator
     matrix = validator.adata.X.compute()
@@ -152,8 +155,8 @@ def test_csc_in_x_fails(validator_with_all_adatas):
     ) in validator.errors
 
 
-def test_csc_in_layer_fails(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_csc_in_layer_fails(validator_with_adatas):
+    validator = validator_with_adatas
 
     # .compute() changes from dask array to csr matrix within the validator
     matrix = validator.adata.X.compute()
@@ -175,8 +178,8 @@ def test_csc_in_layer_fails(validator_with_all_adatas):
     ) in validator.errors
 
 
-def test_total_dense_in_raw_passes(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_total_dense_in_raw_passes(validator_with_adatas):
+    validator = validator_with_adatas
     var = validator.adata.raw.var if validator.adata.raw else validator.adata.var
 
     matrix = np.ones(shape=validator.adata.shape, dtype=np.float32)
@@ -199,8 +202,8 @@ def test_total_dense_in_raw_passes(validator_with_all_adatas):
     assert validator.errors == []
 
 
-def test_total_dense_x_passes(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_total_dense_x_passes(validator_with_adatas):
+    validator = validator_with_adatas
 
     matrix = np.ones(shape=validator.adata.shape, dtype=np.float32)
     assert isinstance(matrix, np.ndarray)
@@ -216,8 +219,8 @@ def test_total_dense_x_passes(validator_with_all_adatas):
     assert validator.errors == []
 
 
-def test_total_dense_layer_passes(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_total_dense_layer_passes(validator_with_adatas):
+    validator = validator_with_adatas
 
     matrix = np.ones(shape=validator.adata.shape, dtype=np.float32)
     assert isinstance(matrix, np.ndarray)
@@ -230,8 +233,8 @@ def test_total_dense_layer_passes(validator_with_all_adatas):
     assert validator.errors == []
 
 
-def test_half_dense_x(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_half_dense_x(validator_with_adatas):
+    validator = validator_with_adatas
 
     matrix = np.ones(shape=validator.adata.shape, dtype=np.float32)
 
@@ -257,8 +260,8 @@ def test_half_dense_x(validator_with_all_adatas):
     assert validator.errors == []
 
 
-def test_half_dense_raw(validator_with_all_adatas):
-    validator = validator_with_all_adatas
+def test_half_dense_raw(validator_with_adatas):
+    validator = validator_with_adatas
     var = validator.adata.raw.var if validator.adata.raw else validator.adata.var
 
     matrix = np.ones(shape=validator.adata.shape, dtype=np.float32)
