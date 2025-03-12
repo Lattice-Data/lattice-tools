@@ -9,17 +9,10 @@ import pytest
 from fixtures.valid_adatas import (
     ALL_H5ADS,
     SPATIAL_H5ADS,
+    NON_SPATIAL_H5ADS,
     test_h5ads,
     validator_with_adatas
 )
-
-NON_SPATIAL_H5ADS = [
-    f for f in ALL_H5ADS 
-        if not any(included in f for included in [
-            "slide_seq",
-            "visium"
-        ])
-]
 
 
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
