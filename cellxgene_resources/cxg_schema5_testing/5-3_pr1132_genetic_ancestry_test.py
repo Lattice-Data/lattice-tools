@@ -17,15 +17,12 @@ import numpy as np
 import pandas as pd
 import pytest
 from fixtures.valid_adatas import (
-    validator_with_all_visiums,
-    validator_with_spatial_adatas,
-    validator_with_non_spatial_adata,
-    validator_with_all_adatas,
-    validator_with_non_visium_adatas,
-    validator_with_human_adatas,
-    validator_human_adata,
-    validator_mouse_adata
+    ALL_H5ADS,
+    test_h5ads,
+    validator_with_adatas
 )
+
+HUMAN_H5ADS = [file for file in ALL_H5ADS if "human" in file]
 
 ANCESTRY_COLUMNS = [
     "genetic_ancestry_African",
@@ -37,15 +34,21 @@ ANCESTRY_COLUMNS = [
 ]
 
 # should pass for now, will fail when ancestry columns added back to schema
-# double parametrize decorator will do all combos of columns and values
+# triple parametrize decorator will do all combos of human h5ads, ancestry columns, and values
+@pytest.mark.parametrize("test_h5ads", HUMAN_H5ADS)
 @pytest.mark.parametrize("column", ANCESTRY_COLUMNS)
 @pytest.mark.parametrize("random_value", ("string", False, True, np.nan, pd.NA, 234.2, 23, None))
-def test_any_value_in_genetic_columns(validator_human_adata, column, random_value):
-    validator = validator_human_adata
+def test_any_value_in_genetic_columns(validator_with_adatas, column, random_value):
+    validator = validator_with_adatas
     validator.adata.obs[column] = random_value
     validator.validate_adata()
     assert validator.is_valid
     assert validator.errors == []
+
+
+"""
+Commenting out the rest of the tests until added back in 6.0
+Will need further reworking to match new fixtures
 
 
 def add_valid_nan_ancestry(adata, fill_value=float("nan")):
@@ -192,3 +195,4 @@ def test_value_over_one(validator_human_adata, value):
     ]
     for error in errors:
         assert error in validator.errors
+"""
