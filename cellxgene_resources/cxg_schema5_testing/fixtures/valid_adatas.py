@@ -23,6 +23,13 @@ SPATIAL_H5ADS = [
             "visium"
         ])
 ]
+NON_SPATIAL_H5ADS = [
+    f for f in ALL_H5ADS 
+        if not any(excluded in f for excluded in [
+            "slide_seq",
+            "visium"
+        ])
+]
 MULTISPECIES_H5ADS = [
     f for f in ALL_H5ADS 
         if not any(excluded in f for excluded in [
@@ -39,10 +46,6 @@ MODEL_ORGANISM_H5ADS = [
         ])
 ]
 
-print(ALL_H5ADS)
-print(SPATIAL_H5ADS)
-print(MULTISPECIES_H5ADS)
-print(MODEL_ORGANISM_H5ADS)
 # will add better check for file, maybe to automatically download as well
 if not os.path.isfile(FIXTURES_ROOT / "visium_v2_11mm_human.h5ad"):
     raise FileNotFoundError('This file lives in S3, please download before running tests')
