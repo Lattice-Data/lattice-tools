@@ -77,7 +77,7 @@ def bundle_atac_test_data(h5ad_file_name) -> AtacTestData:
 
 @pytest.fixture(params=h5ads)
 def atac_h5ads(request):
-    return request.param
+    yield request.param
 
 
 @pytest.fixture
