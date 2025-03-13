@@ -17,6 +17,7 @@ import pytest
 from fixtures.valid_adatas import (
     test_h5ads,
     validator_with_adatas,
+    get_library_id,
     NON_SPATIAL_H5ADS,
     SPATIAL_H5ADS,
 )
@@ -24,9 +25,6 @@ from fixtures.valid_adatas import (
 LIBRARY_ID = "spaceranger110_count_34914_WS_PLA_S9101764_GRCh38-3_0_0_premrna"
 VISIUM_H5ADS = [file for file in SPATIAL_H5ADS if "visium" in file]
 SLIDE_SEQ_H5ADS = [file for file in SPATIAL_H5ADS if "slide_seq" in file]
-
-def get_library_id(adata):
-    return [key for key in adata.uns['spatial'].keys() if 'is_single' not in key][0]
 
 
 def test_all_passes(validator_with_adatas):
