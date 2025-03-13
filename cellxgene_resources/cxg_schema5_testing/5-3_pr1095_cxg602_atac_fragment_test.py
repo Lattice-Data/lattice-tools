@@ -57,12 +57,12 @@ h5ads = [
 def bundle_atac_test_data(h5ad_file_name) -> AtacTestData:
     fragment_file_name = h5ad_file_name.replace(".h5ad", "_fragments.tsv.gz")
 
-    adata = read_h5ad(f"{FIXTURES_ROOT}/{h5ad_file_name}")
+    adata = read_h5ad(FIXTURES_ROOT / h5ad_file_name)
     adata.obs["assay_ontology_term_id"] = "EFO:0030059"
     adata.obs["is_primary_data"] = True
 
     fragments = pd.read_csv(
-        f"{FIXTURES_ROOT}/{fragment_file_name}",
+        FIXTURES_ROOT / fragment_file_name,
         sep="\t",
         header=None,
     )
