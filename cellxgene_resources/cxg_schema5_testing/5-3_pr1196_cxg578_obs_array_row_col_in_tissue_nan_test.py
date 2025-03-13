@@ -9,14 +9,12 @@ import pandas as pd
 import pytest
 from fixtures.valid_adatas import (
     SPATIAL_H5ADS,
+    get_library_id,
     test_h5ads,
     validator_with_adatas
 )
 
 VISIUM_H5ADS = [file for file in SPATIAL_H5ADS if "visium" in file]
-
-def get_library_id(adata):
-    return [key for key in adata.uns['spatial'].keys() if 'is_single' not in key][0]
 
 
 @pytest.mark.parametrize("test_h5ads", VISIUM_H5ADS)

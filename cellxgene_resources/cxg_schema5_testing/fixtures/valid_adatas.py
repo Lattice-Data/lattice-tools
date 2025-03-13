@@ -46,6 +46,10 @@ MODEL_ORGANISM_H5ADS = [
         ])
 ]
 
+def get_library_id(adata):
+    return [key for key in adata.uns['spatial'].keys() if 'is_single' not in key][0]
+
+
 # will add better check for file, maybe to automatically download as well
 if not os.path.isfile(FIXTURES_ROOT / "visium_v2_11mm_human.h5ad"):
     raise FileNotFoundError('This file lives in S3, please download before running tests')
