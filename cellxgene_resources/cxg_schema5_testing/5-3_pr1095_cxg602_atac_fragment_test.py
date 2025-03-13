@@ -54,10 +54,11 @@ h5ads = [
 ]
 
 
-def bundle_atac_test_data(h5ad_file_name) -> AtacTestData:
+def bundle_atac_test_data(h5ad_file_name: str) -> AtacTestData:
     fragment_file_name = h5ad_file_name.replace(".h5ad", "_fragments.tsv.gz")
 
     adata = read_h5ad(FIXTURES_ROOT / h5ad_file_name)
+    # set to default valid for atac since fixtures used for non-atac tests
     adata.obs["assay_ontology_term_id"] = "EFO:0030059"
     adata.obs["is_primary_data"] = True
 
@@ -81,7 +82,7 @@ def atac_h5ads(request):
 
 
 @pytest.fixture
-def yeild_atac_fixture_data(atac_h5ads) -> AtacTestData:
+def yield_atac_fixture_data(atac_h5ads) -> AtacTestData:
     gc.collect()
     atac_fixture_data = bundle_atac_test_data(atac_h5ads)
     yield atac_fixture_data
@@ -112,7 +113,7 @@ def to_temp_files(test_data: AtacTestData, tmp_path: Path | str) -> dict:
     }
 
 
-def test_mock(yeild_atac_fixture_data, tmpdir):
+def test_mock(yield_atac_fixture_data, tmpdir):
     """
     get fixture
     modify
@@ -120,7 +121,7 @@ def test_mock(yeild_atac_fixture_data, tmpdir):
     run process_fragment
     assert
     """
-    test_data = yeild_atac_fixture_data
+    test_data = yield_atac_fixture_data
 
     temp_files = to_temp_files(test_data, tmpdir)
     results = process_fragment(**temp_files)
@@ -129,8 +130,8 @@ def test_mock(yeild_atac_fixture_data, tmpdir):
 
 
 class TestIsPrimaryData:
-    def test_all_false(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_all_false(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
 
         test_data.adata.obs["is_primary_data"] = False
 
@@ -139,8 +140,8 @@ class TestIsPrimaryData:
 
         assert "Anndata.obs.is_primary_data must all be True." in results
 
-    def test_mix_true_false(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_mix_true_false(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
 
         half_point = test_data.adata.shape[0] // 2
         half_index = test_data.adata.obs.iloc[half_point].name
@@ -167,8 +168,8 @@ class TestAssayTerms:
     will try standard fixture to get h5ad and fragment file, only will use h5ad in tests
     """
     # only 10x multiome should return False as a paired assay that does not need fragment
-    def test_assay_paired_is_false(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_assay_paired_is_false(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
 
         test_data.adata.obs["assay_ontology_term_id"] = "EFO:0030059"
 
@@ -179,8 +180,8 @@ class TestAssayTerms:
 
     # all of these are descendants of scATAC-seq, except for 10x multiome
     @pytest.mark.parametrize("assay_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
-    def test_assay_paired_is_true(self, yeild_atac_fixture_data, tmpdir, assay_term):
-        test_data = yeild_atac_fixture_data
+    def test_assay_paired_is_true(self, yield_atac_fixture_data, tmpdir, assay_term):
+        test_data = yield_atac_fixture_data
 
         test_data.adata.obs["assay_ontology_term_id"] = assay_term
 
@@ -191,8 +192,8 @@ class TestAssayTerms:
 
     @pytest.mark.parametrize("first_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
     @pytest.mark.parametrize("second_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
-    def test_assay_mixed_paired_is_true(self, yeild_atac_fixture_data, tmpdir, first_term, second_term):
-        test_data = yeild_atac_fixture_data
+    def test_assay_mixed_paired_is_true(self, yield_atac_fixture_data, tmpdir, first_term, second_term):
+        test_data = yield_atac_fixture_data
         
         half_point = test_data.adata.shape[0] // 2
         half_index = test_data.adata.obs.iloc[half_point].name
@@ -207,8 +208,8 @@ class TestAssayTerms:
         assert results is True
 
     @pytest.mark.parametrize("assay_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
-    def test_assay_paired_and_unpaired_error(self, yeild_atac_fixture_data, tmpdir, assay_term):
-        test_data = yeild_atac_fixture_data
+    def test_assay_paired_and_unpaired_error(self, yield_atac_fixture_data, tmpdir, assay_term):
+        test_data = yield_atac_fixture_data
 
         half_point = test_data.adata.shape[0] // 2
         half_index = test_data.adata.obs.iloc[half_point].name
@@ -223,8 +224,8 @@ class TestAssayTerms:
 
     @pytest.mark.parametrize("first_term", ["EFO:0030059", "EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
     @pytest.mark.parametrize("second_term", ["EFO:0009922", "EFO:0008930", "EFO:0022858"])
-    def test_assay_mixed_atac_non_atac_error(self, yeild_atac_fixture_data, tmpdir, first_term, second_term):
-        test_data = yeild_atac_fixture_data
+    def test_assay_mixed_atac_non_atac_error(self, yield_atac_fixture_data, tmpdir, first_term, second_term):
+        test_data = yield_atac_fixture_data
         
         half_point = test_data.adata.shape[0] // 2
         half_index = test_data.adata.obs.iloc[half_point].name
@@ -238,8 +239,8 @@ class TestAssayTerms:
             _ = check_anndata_requires_fragment(temp_adata)
 
     @pytest.mark.parametrize("assay_term", ["EFO:0009922", "EFO:0008930", "EFO:0022858"])
-    def test_assay_not_atac_error(self, yeild_atac_fixture_data, tmpdir, assay_term):
-        test_data = yeild_atac_fixture_data
+    def test_assay_not_atac_error(self, yield_atac_fixture_data, tmpdir, assay_term):
+        test_data = yield_atac_fixture_data
 
         test_data.adata.obs["assay_ontology_term_id"] = assay_term
 
@@ -250,8 +251,8 @@ class TestAssayTerms:
 
 @pytest.mark.parametrize("organism_term", [organism.term_id for organism in Organism])
 class TestOrganismTerms:
-    def test_all_wrong_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
-        test_data = yeild_atac_fixture_data
+    def test_all_wrong_organism(self, yield_atac_fixture_data, tmpdir, organism_term):
+        test_data = yield_atac_fixture_data
 
         test_data.adata.obs["organism_ontology_term_id"] = organism_term
 
@@ -264,8 +265,8 @@ class TestOrganismTerms:
         ) in results
 
 
-    def test_mixed_wrong_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
-        test_data = yeild_atac_fixture_data
+    def test_mixed_wrong_organism(self, yield_atac_fixture_data, tmpdir, organism_term):
+        test_data = yield_atac_fixture_data
 
         original_org_term = test_data.adata.obs["organism_ontology_term_id"].unique()[0]
         half_point = test_data.adata.shape[0] // 2
@@ -283,10 +284,10 @@ class TestOrganismTerms:
             f"Found the following values:\n{original_org_term}\n\t{organism_term}"
         ) in results
 
-    def test_mixed_human_mouse_organism(self, yeild_atac_fixture_data, tmpdir, organism_term):
+    def test_mixed_human_mouse_organism(self, yield_atac_fixture_data, tmpdir, organism_term):
         # all methods in class expcet organism_term with class decorator, throw it away with _ assignment 
         _ = organism_term
-        test_data = yeild_atac_fixture_data
+        test_data = yield_atac_fixture_data
 
         organism_terms = ["NCBITaxon:9606", "NCBITaxon:10090"]
 
@@ -312,8 +313,8 @@ class TestOrganismTerms:
 class TestFragmentCol1Chr:
     @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize("other_chromosome", ["GL456210.1", "JH584295.1"])
-    def test_mouse_chromosomes_in_human(self, yeild_atac_fixture_data, tmpdir, other_chromosome):
-        test_data = yeild_atac_fixture_data
+    def test_mouse_chromosomes_in_human(self, yield_atac_fixture_data, tmpdir, other_chromosome):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[0, 0] = other_chromosome
 
@@ -326,8 +327,8 @@ class TestFragmentCol1Chr:
 
     @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
     @pytest.mark.parametrize("other_chromosome", ["KI270442.1", "GL000009.2"])
-    def test_human_chromosomes_in_mouse(self, yeild_atac_fixture_data, tmpdir, other_chromosome):
-        test_data = yeild_atac_fixture_data
+    def test_human_chromosomes_in_mouse(self, yield_atac_fixture_data, tmpdir, other_chromosome):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[0, 0] = other_chromosome
 
@@ -347,8 +348,8 @@ class TestFragmentCol2Start:
         [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
     )
     @pytest.mark.parametrize("row_to_change", [0, -1])
-    def test_over_max_chr_start_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_over_max_chr_start_human(self, yield_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
+        test_data = yield_atac_fixture_data
         chromosome, length = chromosome_lengths
 
         test_data.fragment_df.iloc[row_to_change, 0] = chromosome
@@ -367,8 +368,8 @@ class TestFragmentCol2Start:
         [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
     )
     @pytest.mark.parametrize("row_to_change", [0, -1])
-    def test_over_max_chr_start_and_stop_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_over_max_chr_start_and_stop_human(self, yield_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
+        test_data = yield_atac_fixture_data
         chromosome, length = chromosome_lengths
 
         test_data.fragment_df.iloc[row_to_change, 0] = chromosome
@@ -387,8 +388,8 @@ class TestFragmentCol2Start:
         [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
     )
     @pytest.mark.parametrize("row_to_change", [0, -1])
-    def test_over_max_chr_start_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_over_max_chr_start_mouse(self, yield_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
+        test_data = yield_atac_fixture_data
         chromosome, length = chromosome_lengths
 
         test_data.fragment_df.iloc[row_to_change, 0] = chromosome
@@ -407,8 +408,8 @@ class TestFragmentCol2Start:
         [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
     )
     @pytest.mark.parametrize("row_to_change", [0, -1])
-    def test_over_max_chr_start_and_stop_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_over_max_chr_start_and_stop_mouse(self, yield_atac_fixture_data, tmpdir, chromosome_lengths, row_to_change):
+        test_data = yield_atac_fixture_data
         chromosome, length = chromosome_lengths
 
         test_data.fragment_df.iloc[row_to_change, 0] = chromosome
@@ -426,8 +427,8 @@ class TestFragmentCol2Start:
         "chromosome", 
         [chromosome for chromosome in human_chromosome_by_length]
     )
-    def test_start_under_one_human(self, yeild_atac_fixture_data, tmpdir, chromosome):
-        test_data = yeild_atac_fixture_data
+    def test_start_under_one_human(self, yield_atac_fixture_data, tmpdir, chromosome):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[0, 0] = chromosome
         test_data.fragment_df.iloc[0, 1] = 0
@@ -442,8 +443,8 @@ class TestFragmentCol2Start:
         "chromosome", 
         [chromosome for chromosome in mouse_chromosome_by_length]
     )
-    def test_start_under_one_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome):
-        test_data = yeild_atac_fixture_data
+    def test_start_under_one_mouse(self, yield_atac_fixture_data, tmpdir, chromosome):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[0, 0] = chromosome
         test_data.fragment_df.iloc[0, 1] = 0
@@ -455,8 +456,8 @@ class TestFragmentCol2Start:
 
 
 class TestFragmentCol3Stop:
-    def test_stop_equals_start(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_stop_equals_start(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
 
         start_value = test_data.fragment_df.iloc[0, 1]
         test_data.fragment_df.iloc[0, 2] = start_value
@@ -466,8 +467,8 @@ class TestFragmentCol3Stop:
 
         assert "Stop coordinate must be greater than start coordinate." in results
 
-    def test_stop_less_than_start(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_stop_less_than_start(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
 
         start_value = test_data.fragment_df.iloc[0, 1]
         test_data.fragment_df.iloc[0, 2] = start_value - 1
@@ -482,8 +483,8 @@ class TestFragmentCol3Stop:
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
     )
-    def test_stop_over_chr_max_human(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths):
-        test_data = yeild_atac_fixture_data
+    def test_stop_over_chr_max_human(self, yield_atac_fixture_data, tmpdir, chromosome_lengths):
+        test_data = yield_atac_fixture_data
         chromosome, length = chromosome_lengths
 
         test_data.fragment_df.iloc[0, 0] = chromosome
@@ -499,8 +500,8 @@ class TestFragmentCol3Stop:
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
     )
-    def test_stop_over_chr_max_mouse(self, yeild_atac_fixture_data, tmpdir, chromosome_lengths):
-        test_data = yeild_atac_fixture_data
+    def test_stop_over_chr_max_mouse(self, yield_atac_fixture_data, tmpdir, chromosome_lengths):
+        test_data = yield_atac_fixture_data
         chromosome, length = chromosome_lengths
 
         test_data.fragment_df.iloc[0, 0] = chromosome
@@ -511,8 +512,8 @@ class TestFragmentCol3Stop:
 
         assert "Stop coordinate must be less than the chromosome length." in results
 
-    def test_stop_equals_zero(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_stop_equals_zero(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[0, 2] = 0
 
@@ -538,8 +539,8 @@ class TestFragmentCol4Barcodes:
     other similar strings will remain as their string literal
     """
     @pytest.mark.parametrize("row_to_add", [0, -1])
-    def test_barcode_in_fragment_not_in_adata(self, yeild_atac_fixture_data, tmpdir, row_to_add):
-        test_data = yeild_atac_fixture_data
+    def test_barcode_in_fragment_not_in_adata(self, yield_atac_fixture_data, tmpdir, row_to_add):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_add, 3] = "barcode not in obs"
 
@@ -548,8 +549,8 @@ class TestFragmentCol4Barcodes:
 
         assert "Barcodes don't match anndata.obs.index" in results
 
-    def test_barcode_in_adata_not_in_fragment(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_barcode_in_adata_not_in_fragment(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
 
         test_data.adata.obs.reset_index(inplace=True)
         test_data.adata.obs["index"][0] = "barcode not in fragment"
@@ -561,8 +562,8 @@ class TestFragmentCol4Barcodes:
         assert "Barcodes don't match anndata.obs.index" in results
 
     @pytest.mark.parametrize("row_to_add", [0, -1])
-    def test_all_barcode_not_in_adata(self, yeild_atac_fixture_data, tmpdir, row_to_add):
-        test_data = yeild_atac_fixture_data
+    def test_all_barcode_not_in_adata(self, yield_atac_fixture_data, tmpdir, row_to_add):
+        test_data = yield_atac_fixture_data
         
         barcode_to_drop = test_data.fragment_df.iloc[row_to_add, 3]
         test_data.fragment_df = test_data.fragment_df[~test_data.fragment_df[3].isin([barcode_to_drop])]
@@ -572,8 +573,8 @@ class TestFragmentCol4Barcodes:
 
         assert "Barcodes don't match anndata.obs.index" in results
 
-    def test_all_barcode_not_in_fragment(self, yeild_atac_fixture_data, tmpdir):
-        test_data = yeild_atac_fixture_data
+    def test_all_barcode_not_in_fragment(self, yield_atac_fixture_data, tmpdir):
+        test_data = yield_atac_fixture_data
         
         num_cells = test_data.adata.shape[0]
         test_data.adata = test_data.adata[:num_cells - 1, :].copy()
@@ -584,8 +585,8 @@ class TestFragmentCol4Barcodes:
         assert "Barcodes don't match anndata.obs.index" in results
 
     @pytest.mark.parametrize("null_string", ["", "na", "null", "NA", "NaN", "Na", "none", "None", "pd.NA", "np.nan", "np.NaN"])
-    def test_null_strings_in_obs_index(self, yeild_atac_fixture_data, tmpdir, null_string):
-        test_data = yeild_atac_fixture_data
+    def test_null_strings_in_obs_index(self, yield_atac_fixture_data, tmpdir, null_string):
+        test_data = yield_atac_fixture_data
         
         test_data.adata.obs.reset_index(inplace=True)
         test_data.adata.obs["index"][0] = null_string
@@ -599,8 +600,8 @@ class TestFragmentCol4Barcodes:
     # null values in obs will remain string literals, so barcodes will not match
     @pytest.mark.parametrize("row_to_change", [0, -1])
     @pytest.mark.parametrize("null_string", ["", "na", "null", "NA", "NaN", "Na", "none", "None", "pd.NA", "np.nan", "np.NaN"])
-    def test_null_strings_in_obs_and_fragment_barcode(self, yeild_atac_fixture_data, tmpdir, null_string, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_null_strings_in_obs_and_fragment_barcode(self, yield_atac_fixture_data, tmpdir, null_string, row_to_change):
+        test_data = yield_atac_fixture_data
         
         test_data.adata.obs.reset_index(inplace=True)
         test_data.adata.obs["index"][0] = null_string
@@ -617,8 +618,8 @@ class TestFragmentCol4Barcodes:
 class TestFragmentCol5ReadSupport:
     @pytest.mark.parametrize("values", [0, -1])
     @pytest.mark.parametrize("row_to_add", [0, -1])
-    def test_less_than_one_in_read_support(self, yeild_atac_fixture_data, tmpdir, values, row_to_add):
-        test_data = yeild_atac_fixture_data
+    def test_less_than_one_in_read_support(self, yield_atac_fixture_data, tmpdir, values, row_to_add):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_add, 4] = values
 
@@ -652,8 +653,8 @@ class TestFragmentColDtypes:
     # col 0 and 3 need special tests due to dtype of category and str respectively
     @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN", np.NaN])
     @pytest.mark.parametrize("column", [1, 2, 4])
-    def test_different_dtypes_in_int_cols(self, yeild_atac_fixture_data, tmpdir, values, column, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_different_dtypes_in_int_cols(self, yield_atac_fixture_data, tmpdir, values, column, row_to_change):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_change, column] = values
 
@@ -665,8 +666,8 @@ class TestFragmentColDtypes:
 
     @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN", np.NaN])
     @pytest.mark.parametrize("column", [0])
-    def test_different_dtypes_in_chr_col(self, yeild_atac_fixture_data, tmpdir, values, column, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_different_dtypes_in_chr_col(self, yield_atac_fixture_data, tmpdir, values, column, row_to_change):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_change, column] = values
 
@@ -681,8 +682,8 @@ class TestFragmentColDtypes:
     # sorted() returns sorted list to allow for parallel test running
     @pytest.mark.parametrize("null_string", sorted(STR_NA_VALUES))
     @pytest.mark.parametrize("column", [3])
-    def test_null_strings_in_barcode_col_pass(self, yeild_atac_fixture_data, tmpdir, null_string, column, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_null_strings_in_barcode_col_pass(self, yield_atac_fixture_data, tmpdir, null_string, column, row_to_change):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_change, column] = null_string
 
@@ -694,8 +695,8 @@ class TestFragmentColDtypes:
     # strings that look like null but are kept literal will cause mismatched barcodes
     @pytest.mark.parametrize("null_string", ["Na", "na", "none", "pd.NA", "np.nan", "np.NaN"])
     @pytest.mark.parametrize("column", [3])
-    def test_null_strings_in_barcode_col_fails(self, yeild_atac_fixture_data, tmpdir, null_string, column, row_to_change):
-        test_data = yeild_atac_fixture_data
+    def test_null_strings_in_barcode_col_fails(self, yield_atac_fixture_data, tmpdir, null_string, column, row_to_change):
+        test_data = yield_atac_fixture_data
 
         test_data.fragment_df.iloc[row_to_change, column] = null_string
 
