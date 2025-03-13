@@ -8,13 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from fixtures.valid_adatas import (
-    validator_with_all_adatas,
-    validator_with_slide_seq_adatas,
-    validator_with_spatial_adatas,
-    validator_with_visium,
-    validator_with_all_visiums,
-    validator_with_visium_some,
-    validator_with_non_spatial_adata,
+    test_h5ads,
+    validator_with_adatas,
+    NON_SPATIAL_H5ADS,
+    SPATIAL_H5ADS,
 )
 
 
@@ -32,8 +29,9 @@ from fixtures.valid_adatas import (
         pytest.param("disease_ontology_term_id", "MONDO:0100543", id="clonal hematopoiesis of indeterminate potential"),
     )
 )
-def test_new_ontology_terms(validator_with_non_spatial_adata, col, term):
-    validator = validator_with_non_spatial_adata
+@pytest.mark.parametrize("test_h5ads", NON_SPATIAL_H5ADS)
+def test_new_ontology_terms(validator_with_adatas, col, term):
+    validator = validator_with_adatas
     validator.adata.obs[col] = term
     validator.validate_adata()
     assert validator.is_valid
