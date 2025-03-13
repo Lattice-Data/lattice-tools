@@ -10,10 +10,12 @@ import pytest
 import pandas as pd
 from pandas.testing import assert_frame_equal
 import tempfile
+from dask.array import from_array
 from scipy import sparse
 from fixtures.valid_adatas import (
-    FIXTURES_ROOT,
-    Validator,
+    test_h5ads,
+    validator_with_adatas,
+    ALL_H5ADS,
     AnnDataLabelAppender,
 )
 
@@ -149,7 +151,7 @@ var_expected = pd.DataFrame(
         [False, "ENSG00000228463.10", "NCBITaxon:9606", "gene", 1902, "transcribed_processed_pseudogene"],
         [False, "RNA5SP40", "NCBITaxon:9606", "gene", 110, "rRNA_pseudogene"],
         [False, "IGKV1OR1-1", "NCBITaxon:9606", "gene", 347, "IG_V_pseudogene"],
-        [False, "GNRHR2", "NCBITaxon:9606", "gene", 1132, "transcribed_unitary_pseudogene"],
+        [False, "GNRHR2_ENSG00000211451", "NCBITaxon:9606", "gene", 1132, "transcribed_unitary_pseudogene"],
         [False, "IGKV3OR2-268", "NCBITaxon:9606", "gene", 350, "IG_V_gene"],
         [False, "TRGV11", "NCBITaxon:9606", "gene", 463, "TR_V_gene"],
         [False, "VN1R28P", "NCBITaxon:9606", "gene", 896, "unitary_pseudogene"],
@@ -162,7 +164,7 @@ var_expected = pd.DataFrame(
         [False, "ENSG00000279493.1", "NCBITaxon:9606", "gene", 513, "artifact"],
         [False, "ENSG00000281133.1", "NCBITaxon:9606", "gene", 96, "pseudogene"],
         [False, "IGKJ5", "NCBITaxon:9606", "gene", 38, "IG_J_gene"],
-        [False, "IGKC", "NCBITaxon:9606", "gene", 523, "IG_C_gene"],
+        [False, "IGKC_ENSG00000211592", "NCBITaxon:9606", "gene", 523, "IG_C_gene"],
         [False, "IGHEP2", "NCBITaxon:9606", "gene", 1256, "IG_C_pseudogene"],
         [False, "RPPH1-3P", "NCBITaxon:9606", "gene", 322, "ribozyme"],
         [False, "TRGC2", "NCBITaxon:9606", "gene", 1013, "TR_C_gene"],
@@ -199,37 +201,35 @@ for col in ["feature_name", "feature_reference", "feature_biotype", "feature_typ
     var_expected[col] = var_expected[col].astype("category")
 
 
-@pytest.fixture(params=H5ADS)
-def all_adatas(request) -> ad.AnnData:
-    adata = ad.read_h5ad(f"{FIXTURES_ROOT}/{request.param}")
-    return adata
-
-
-def test_var_feature_type_label_write(all_adatas):
-    adata = all_adatas
-    zero_matrix = np.zeros(shape=(adata.obs.shape[0], starting_var.shape[0]), dtype=np.float32)
+@pytest.mark.parametrize("test_h5ads", H5ADS)
+def test_var_feature_type_label_write(validator_with_adatas):
+    validator = validator_with_adatas
+    zero_matrix = np.zeros(
+        shape=(validator.adata.obs.shape[0], 
+        starting_var.shape[0]), 
+        dtype=np.float32
+    )
     for row in zero_matrix:
         idx = np.random.randint(0, 3)
         row[idx] = 16
     new_adata = ad.AnnData(
-        obs=adata.obs,
+        obs=validator.adata.obs,
         var=starting_var,
-        X=sparse.csr_matrix(zero_matrix),
-        obsm=adata.obsm,
-        uns=adata.uns
+        X=from_array(sparse.csr_matrix(zero_matrix)),
+        obsm=validator.adata.obsm,
+        uns=validator.adata.uns
     )
-    validator = Validator()
     validator.adata = new_adata
     validator.validate_adata()
     assert validator.is_valid
     with tempfile.TemporaryDirectory() as temp_dir:
         labels_path = temp_dir + "labels.h5ad"
-        labels = AnnDataLabelAppender(validator)
-        labels.write_labels(labels_path)
+        labels = AnnDataLabelAppender(validator.adata)
+        result = labels.write_labels(labels_path)
         var = labels.adata.var
 
-        assert labels.was_writing_successful
-        assert labels.adata.shape[0] == adata.shape[0]  # cells remain
+        assert result
+        assert labels.adata.shape[0] == validator.adata.shape[0]  # cells remain
         assert labels.adata.shape[1] == len(var_index)
         assert_frame_equal(var, var_expected)
         assert not labels.errors
