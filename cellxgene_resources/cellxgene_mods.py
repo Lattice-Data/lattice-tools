@@ -797,11 +797,10 @@ def evaluate_donors_sex(adata):
         adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
 
         if adata.raw:
-            female_adata = adata.raw[:,adata.raw.var.index.isin(female_ids)]
-            male_adata = adata.raw[:,adata.raw.var.index.isin(male_ids)]
-        else:
-            female_adata = adata[:,adata.var.index.isin(female_ids)]
-            male_adata = adata[:,adata.var.index.isin(male_ids)]
+            adata = ad.AnnData(sparse.csr_matrix(adata.raw.X), var=adata.raw.var, obs=adata.obs)
+
+        female_adata = adata[:,adata.var.index.isin(female_ids)]
+        male_adata = adata[:,adata.var.index.isin(male_ids)]
 
         genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
         if genes_found[0] == 0 or genes_found[1] == 0:
