@@ -202,21 +202,21 @@ def evaluate_sparsity(adata):
     sparsity = determine_sparsity(adata.X)
     report(f'X sparsity: {sparsity}')
     if sparsity > max_sparsity and type(adata.X) != sparse.csr_matrix:
-        report('X should be converted to sparse', 'ERROR')
+        report('X should be converted to csr sparse', 'ERROR')
         valid = False
     
     if adata.raw:
         sparsity = determine_sparsity(adata.raw.X)
         report(f'raw.X sparsity: {sparsity}')
         if sparsity > max_sparsity and type(adata.raw.X) != sparse.csr_matrix:
-            report('raw.X should be converted to sparse', 'ERROR')
+            report('raw.X should be converted to csr sparse', 'ERROR')
             valid = False
     
     for l in adata.layers:
         sparsity = determine_sparsity(adata.layers[l])
         report(f'layers[{l}] sparsity: {sparsity}')
         if sparsity > max_sparsity and type(adata.layers[l]) != sparse.csr_matrix:
-            report(f'layers[{l}] should be converted to sparse', 'ERROR')
+            report(f'layers[{l}] should be converted to csr sparse', 'ERROR')
             valid = False
 
     if valid:
