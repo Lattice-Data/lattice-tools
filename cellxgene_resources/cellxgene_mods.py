@@ -220,7 +220,7 @@ def evaluate_sparsity(adata):
             valid = False
 
     if valid:
-        report('all matrices are csr', 'GOOD')
+        report('all matrices have passed checks', 'GOOD')
 
 
 def evaluate_data(adata):
@@ -931,14 +931,16 @@ def evaluate_var_df(adata):
 
 
     # Check that this is single organism both in metadata and var index, exit function as does not make sense to check genes with multiple organisms
-    obs_organisms = adata.obs['organism_ontology_term_id'].unique()
+    obs_organisms = adata.obs['organism_ontology_term_id'].unique().tolist()
     var_organisms = {gencode.get_organism_from_feature_id(id).value for id in adata.var.index.to_list()}
     if len(obs_organisms) > 1:
-        report(f'Multiple organisms found in obs metadata: {obs_organisms}', 'ERROR')
-        return
+        if 'NCBITaxon:2697049' not in obs_organisms:
+            report(f'Multiple organisms found in obs metadata: {obs_organisms}', 'ERROR')
+            return
     elif len(var_organisms) > 1:
-        report(f'Multiple organisms found in var index: {obs_organisms}', 'ERROR')
-        return
+        if 'NCBITaxon:2697049' not in obs_organisms:
+            report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
+            return
     else:
         report(f'Single organism found: {var_organisms}', 'GOOD')
 
@@ -950,8 +952,8 @@ def evaluate_var_df(adata):
 
     fraction = len(adata.var.index)/num_genes_biotype 
     if fraction < 0.4:
-        report(f'only {len(adata.var.index)} out of {num_genes_biotype} 10x biotype genes, results in {fraction} (0.40 threshold)', 'ERROR')
+        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction} (0.40 threshold)', 'ERROR')
     elif fraction < 0.6:
-        report(f'{len(adata.var.index)} out of {num_genes_biotype} 10x biotype genes, results in {fraction} (0.60 threshold)','WARNING')
+        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes, fraction: {fraction} (0.60 threshold)','WARNING')
     else:
-        report(f'{len(adata.var.index)} genes out of possible {num_genes_biotype} present', 'GOOD')
+        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction}', 'GOOD')
