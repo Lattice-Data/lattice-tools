@@ -37,7 +37,8 @@ from pathlib import Path
 from fixtures.create_fixtures import Organism
 from fixtures.valid_adatas import (
     FIXTURES_ROOT,
-    read_h5ad
+    read_h5ad,
+    validator_with_adatas
 )
 
 @dataclass
@@ -128,6 +129,63 @@ def test_mock(yield_atac_fixture_data, tmpdir):
 
     assert results == []
 
+
+@pytest.mark.parametrize("test_h5ads", h5ads)
+class TestPairedRawCounts:
+    def test_paired_no_raw(self, validator_with_adatas):
+        validator = validator_with_adatas
+        validator.adata.obs["is_primary_data"] = True
+        validator.adata.obs["assay_ontology_term_id"] = "EFO:0030059"
+        validator.adata.obs["suspension_type"] = "nucleus"
+        for col in ["assay_ontology_term_id", "suspension_type"]:
+            validator.adata.obs[col] = validator.adata.obs[col].astype("category") 
+        del validator.adata.raw
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (
+            "ERROR: Raw data is missing: there is only a normalized matrix in X and no raw.X"
+        ) in validator.errors
+
+    def test_paired_raw_in_X(self, validator_with_adatas):
+        validator = validator_with_adatas
+        validator.adata.obs["is_primary_data"] = True
+        validator.adata.obs["assay_ontology_term_id"] = "EFO:0030059"
+        validator.adata.obs["suspension_type"] = "nucleus"
+        for col in ["assay_ontology_term_id", "suspension_type"]:
+            validator.adata.obs[col] = validator.adata.obs[col].astype("category") 
+        validator.adata.X = validator.adata.raw.X
+        del validator.adata.raw
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+    @pytest.mark.parametrize("assay_term", ["EFO:0022045", "EFO:0030007", "EFO:0008925", "EFO:0008904"])
+    def test_unpaired_no_raw(self, validator_with_adatas, assay_term):
+        validator = validator_with_adatas
+        validator.adata.obs["is_primary_data"] = True
+        validator.adata.obs["assay_ontology_term_id"] = assay_term
+        validator.adata.obs["suspension_type"] = "nucleus"
+        for col in ["assay_ontology_term_id", "suspension_type"]:
+            validator.adata.obs[col] = validator.adata.obs[col].astype("category") 
+        del validator.adata.raw
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+    @pytest.mark.parametrize("assay_term", ["EFO:0009922", "EFO:0009899", "EFO:0009294"])
+    def test_non_atac_no_raw(self, validator_with_adatas, assay_term):
+        validator = validator_with_adatas
+        validator.adata.obs["is_primary_data"] = True
+        validator.adata.obs["assay_ontology_term_id"] = assay_term
+        for col in ["assay_ontology_term_id", "suspension_type"]:
+            validator.adata.obs[col] = validator.adata.obs[col].astype("category") 
+        del validator.adata.raw
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (
+            "ERROR: Raw data is missing: there is only a normalized matrix in X and no raw.X"
+        ) in validator.errors
+        
 
 class TestIsPrimaryData:
     def test_all_false(self, yield_atac_fixture_data, tmpdir):
