@@ -10,7 +10,6 @@ import scanpy as sc
 import squidpy as sq
 import subprocess
 import sys
-import requests
 from dataclasses import dataclass
 from pathlib import Path
 from scipy import sparse
@@ -116,7 +115,7 @@ def report(mess, level=None):
     }
     if level:
         c = colors[level]
-        print(f'\033[1m{c}{level}:{mess}\033[0m')
+        print(f'\033[1m{c}{level}: {mess}\033[0m')
     else:
         print(mess)
 
@@ -930,22 +929,40 @@ def evaluate_var_df(adata):
     ]
 
 
-    # Check that this is single organism both in metadata and var index, exit function as does not make sense to check genes with multiple organisms
+    # Check that this is single organism both in metadata and var index, exit function if multiple organisms or contains invalid var features
+    var_organism_objs = list({gencode.get_organism_from_feature_id(id) for id in adata.var.index.to_list()})
+    if None in var_organism_objs:
+        report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
+        return
+    valid = True
+    var_covid =False
     obs_organisms = adata.obs['organism_ontology_term_id'].unique().tolist()
-    var_organisms = {gencode.get_organism_from_feature_id(id).value for id in adata.var.index.to_list()}
+    var_organisms = [o.value for o in var_organism_objs]
+
+    if 'NCBITaxon:2697049' in var_organisms:
+        report('There are covid genes present in var')
+        var_organisms.remove('NCBITaxon:2697049')
+    if 'NCBITaxon:2697049' in obs_organisms:
+        report('Covid is found in obs metadata', 'ERROR')
+        obs_organisms.remove('NCBITaxon:2697049')
+        valid=False
     if len(obs_organisms) > 1:
-        if 'NCBITaxon:2697049' not in obs_organisms:
-            report(f'Multiple organisms found in obs metadata: {obs_organisms}', 'ERROR')
-            return
-    elif len(var_organisms) > 1:
-        if 'NCBITaxon:2697049' not in obs_organisms:
-            report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
+        report(f'Multiple organisms found in obs metadata: {obs_organisms}', 'ERROR')
+        valid = False
+    if len(var_organisms) > 1:
+        report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
+        valid = False
+    if valid:
+        if obs_organisms[0] == var_organisms[0]:
+            report(f'Single organism found: {var_organisms}', 'GOOD')
+        else:
+            report(f'Different organisms found between var index and obs metadata: {var_organisms[0]}, {obs_organisms[0]}', 'ERROR')
             return
     else:
-        report(f'Single organism found: {var_organisms}', 'GOOD')
+        return
 
     # Check the number of genes threshold base on biotype per specific organism
-    organism = adata.obs['organism_ontology_term_id'].unique()[0]
+    organism = obs_organisms[0]
     org_obj = [i for i in gencode.SupportedOrganisms if i.value==organism][0]
     gene_checker = gencode.GeneChecker(org_obj)
     num_genes_biotype = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
