@@ -19,7 +19,7 @@ This tests everything.
 
 To limit which fixtures to use, provide a decorator for "test_h5ads" with an iterable:
 
-@pytest.mark.parameterize("test_h5ads", SPATIAL_H5ADS)
+@pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 def test_spatial(validator_with_adatas):
     validator = validator_with_adatas 
     ...
@@ -30,7 +30,7 @@ Now only the h5ads in SPATIAL_H5ADS will be tested
 Tests can be grouped into classes to use the same h5ad subset for multiple tests without
 having to repeat the decoration for each test method/function:
 
-@pytest.mark.parameterize("test_h5ads", SPATIAL_H5ADS)
+@pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 class TestSpatial:
     def test_spatial_1(self, validator_with_adatas):
         validator = validator_with_adatas 
