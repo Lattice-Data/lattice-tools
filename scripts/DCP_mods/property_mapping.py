@@ -431,6 +431,9 @@ lattice_to_dcp = {
 		'estimated_count_units': { # deleted before report
 			'lattice': 'starting_quantity_units'
 		},
+		'suspension_type': { # deleted before report
+			'lattice': 'suspension_type'
+		},
 		'growth_conditions.culture_environment': {
 			'lattice': 'medium'
 		},

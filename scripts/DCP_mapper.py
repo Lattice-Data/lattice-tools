@@ -895,6 +895,8 @@ def customize_fields(obj, obj_type, dataset_id, docid_updates):
 			del obj['red_blood_cell_lysis']
 		if obj.get('enrichment_factors'):
 			del obj['enrichment_factors']
+		if obj.get('suspension_type'):
+			del obj['suspension_type']
 		if obj.get('cell_morphology'):
 			if obj['cell_morphology'].get('cell_size'):
 				obj['cell_morphology']['cell_size'] = str(obj['cell_morphology']['cell_size'])
