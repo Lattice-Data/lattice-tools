@@ -91,7 +91,7 @@ class CxG_API:
                 
 
     from src.collection import create_collection,create_revision,get_collection,get_collections,update_collection
-    from src.dataset import create_dataset,delete_dataset,get_dataset,get_datasets,upload_datafile_from_link,upload_local_datafile
+    from src.dataset import create_dataset,delete_dataset,get_dataset,get_datasets,upload_datafile_from_link,upload_local_datafile,upload_datafiles_from_manifest,get_dataset_manifest
 
     def config(env="prod"):
         from src.utils.config import set_api_access_config
