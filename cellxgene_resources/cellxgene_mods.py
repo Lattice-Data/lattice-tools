@@ -13,6 +13,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from scipy import sparse
+import cellxgene_schema.gencode as gencode
 
 
 portal_uns_fields = [
@@ -114,7 +115,7 @@ def report(mess, level=None):
     }
     if level:
         c = colors[level]
-        print(f'\033[1m{c}{level}:{mess}\033[0m')
+        print(f'\033[1m{c}{level}: {mess}\033[0m')
     else:
         print(mess)
 
@@ -196,22 +197,29 @@ def determine_sparsity(x):
 def evaluate_sparsity(adata):
     max_sparsity = 0.5
 
+    valid = True
     sparsity = determine_sparsity(adata.X)
     report(f'X sparsity: {sparsity}')
     if sparsity > max_sparsity and type(adata.X) != sparse.csr_matrix:
-        report('X should be converted to sparse', 'WARNING')
+        report('X should be converted to csr sparse', 'ERROR')
+        valid = False
     
     if adata.raw:
         sparsity = determine_sparsity(adata.raw.X)
         report(f'raw.X sparsity: {sparsity}')
         if sparsity > max_sparsity and type(adata.raw.X) != sparse.csr_matrix:
-            report('raw.X should be converted to sparse', 'WARNING')
+            report('raw.X should be converted to csr sparse', 'ERROR')
+            valid = False
     
     for l in adata.layers:
         sparsity = determine_sparsity(adata.layers[l])
         report(f'layers[{l}] sparsity: {sparsity}')
         if sparsity > max_sparsity and type(adata.layers[l]) != sparse.csr_matrix:
-            report(f'layers[{l}] should be converted to sparse', 'WARNING')
+            report(f'layers[{l}] should be converted to csr sparse', 'ERROR')
+            valid = False
+
+    if valid:
+        report('all matrices have passed checks', 'GOOD')
 
 
 def evaluate_data(adata):
@@ -887,3 +895,79 @@ def evaluate_donors_sex(adata):
           )
 
         return donor_sex_df, dp
+
+
+def evaluate_var_df(adata):
+    """
+    Use single-cell-curation classes and fuctions and report warning/error for organism specific minimum number of gene features. Also, this function 
+    will look that var contains features from only a single organism.
+
+    :param obj adata: AnnData that is being curated
+
+    :return logging: Raises WARNING or ERROR if the number of genes in adata.var and adata.raw.var are fewer than the threshold of 40% or 60%, respectively,
+    of 10x preselected biotype of genes. Will also raise ERROR if dataset contains more than a singel organism.
+    """
+    accepted_biotypes = [
+        'protein_coding',
+        'protein_coding_LoF',
+        'lncRNA',
+        'IG_C_gene',
+        'IG_D_gene',
+        'IG_J_gene',
+        'IG_LV_gene',
+        'IG_V_gene',
+        'IG_V_pseudogene',
+        'IG_J_pseudogene',
+        'IG_C_pseudogene',
+        'TR_C_gene',
+        'TR_D_gene',
+        'TR_J_gene',
+        'TR_V_gene',
+        'TR_V_pseudogene',
+        'TR_J_pseudogene'
+    ]
+
+    # Check that this is single organism both in metadata and var index, exit function if multiple organisms or contains invalid var features
+    var_organism_objs = list({gencode.get_organism_from_feature_id(id) for id in adata.var.index.to_list()})
+    if None in var_organism_objs:
+        report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
+        return
+    valid = True
+    obs_organisms = adata.obs['organism_ontology_term_id'].unique().tolist()
+    var_organisms = [o.value for o in var_organism_objs]
+
+    if 'NCBITaxon:2697049' in var_organisms:
+        report('There are covid genes present in var')
+        var_organisms.remove('NCBITaxon:2697049')
+    if 'NCBITaxon:2697049' in obs_organisms:
+        report('Covid is found in obs metadata', 'ERROR')
+        obs_organisms.remove('NCBITaxon:2697049')
+        valid=False
+    if len(obs_organisms) > 1:
+        report(f'Multiple organisms found in obs metadata: {obs_organisms}', 'ERROR')
+        valid = False
+    if len(var_organisms) > 1:
+        report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
+        valid = False
+    if valid:
+        if obs_organisms[0] == var_organisms[0]:
+            report(f'Single organism found: {var_organisms}', 'GOOD')
+        else:
+            report(f'Different organisms found between var index and obs metadata: {var_organisms[0]}, {obs_organisms[0]}', 'ERROR')
+            return
+    else:
+        return
+
+    # Check the number of genes threshold base on biotype per specific organism
+    organism = obs_organisms[0]
+    org_obj = [i for i in gencode.SupportedOrganisms if i.value==organism][0]
+    gene_checker = gencode.GeneChecker(org_obj)
+    num_genes_biotype = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
+
+    fraction = len(adata.var.index)/num_genes_biotype 
+    if fraction < 0.4:
+        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction} (0.40 threshold)', 'ERROR')
+    elif fraction < 0.6:
+        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes, fraction: {fraction} (0.60 threshold)','WARNING')
+    else:
+        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction}', 'GOOD')
