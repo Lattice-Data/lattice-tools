@@ -89,7 +89,6 @@ class CxG_API:
     else:
         print("Path not found for single-cell-curation repo")
                 
-
     from src.collection import (
         create_collection,create_revision,get_collection,get_collections,update_collection
     )
