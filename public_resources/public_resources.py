@@ -193,7 +193,7 @@ def validate_raw_insdc(url):
     df = pd.DataFrame(insdc_attrs)
     formats = [f for c in df.columns for f in df[c].unique() if 'semantic' in c]
 
-    return list(set([f for f in formats if f in raw_data_formats])
+    return list(set([f for f in formats if f in raw_data_formats]))
 
 
 def insdc_meta(acc):
@@ -276,14 +276,19 @@ def insdc_meta(acc):
 
 
 data_repo_bases = {
-    'explore.data.humancellatlas.org/projects': 'hca',
-    'ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GS': 'geo',
+    'explore.data.humancellatlas.org': 'hca',
+    'ncbi.nlm.nih.gov/geo': 'geo',
     'ncbi.nlm.nih.gov/projects/gap': 'dbgap',
-    'ncbi.nlm.nih.gov/bioproject/?term=PRJ': 'bioproj',
+    'ncbi.nlm.nih.gov/bioproject': 'bioproj',
     'ega-archive.org': 'ega',
-    'ebi.ac.uk/ena/browser/view/': 'ena',
-    'ebi.ac.uk/biostudies/arrayexpress/studies/E-MTAB': 'arrex',
-    'assets.nemoarchive.org/': 'nemo'
+    'ebi.ac.uk/ena/browser/view': 'ena',
+    'ebi.ac.uk/biostudies/arrayexpress': 'arrex',
+    'nemoarchive.org': 'nemo',
+    'ngdc.cncb.ac.cn': 'ngdc',
+    'synapse.org': 'synapse',
+    'zenodo.org': 'zenodo',
+    'registry.opendata.aws': 'aws',
+    'duos': 'duos'
 }
 
 
