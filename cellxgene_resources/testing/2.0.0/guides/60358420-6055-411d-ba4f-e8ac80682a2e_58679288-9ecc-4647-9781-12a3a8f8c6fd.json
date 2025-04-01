@@ -1,0 +1,34 @@
+{
+    "is_primary_data": false,
+    "prop_rename": {},
+    "prop_map": {
+        "assay_ontology_term_id": {
+            "value_map": {
+                "scRNA-seq": "EFO:0009922"
+            },
+            "update_from": "assay"
+        },
+        "ethnicity_ontology_term_id": {
+            "value_map": {
+                "unknown": "unknown"
+            },
+            "update_from": "ethnicity"
+        },
+        "cell_type_ontology_term_id": {
+            "value_map": {
+                "Mesothelium IL18+": "CL:0000077",
+                "Mesothelium SOX6+": "CL:0000077"
+            },
+            "update_from": "cell_type"
+        }
+    },
+    "update_dtypes": {},
+    "add_uns": {
+        "X_normalization": "log1p, base e"
+    },
+    "remove_obs": [
+        "tissue_original",
+        "ontology_term"
+    ],
+    "remove_uns": []
+}
