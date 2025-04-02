@@ -289,7 +289,7 @@ def evaluate_uns_colors(adata):
 def map_filter_gene_ids(adata):
     #map genes
     v44_gene_map = json.load(open('../gene_ID_mapping/gene_map_v44.json'))
-    approved_file = 'ref_files/genes_approved.csv'
+    approved_file = 'ref_files/genes_approved.csv.gz'
     approved = pd.read_csv(approved_file,dtype='str')
 
     my_gene_map = {k:v for k,v in v44_gene_map.items() if k in adata.var.index and v not in adata.var.index}
@@ -500,23 +500,12 @@ def evaluate_dup_counts(adata):
     
 def symbols_to_ids(symbols, var):
     
-    ref_files = [
-        'genes_ercc.csv',
-        'genes_homo_sapiens.csv',
-        'genes_mus_musculus.csv',
-        'genes_sars_cov_2.csv'
-    ]
+    if not os.path.exists(ref_dir + 'genes_approved.csv'):
+        report('There is no genes_approved.csv.gz file present', 'ERROR')
+        return
     
     ref_dir = 'ref_files/'
-    if not os.path.exists(ref_dir + 'genes_approved.csv'):
-        ids = pd.DataFrame()
-        for f in ref_files:
-            df = pd.read_csv(f, names=['feature_id','symb','num','length'],dtype='str',index_col=False)
-            ids = ids.append(df)
-            os.remove(f)
-        ids.to_csv(ref_dir + 'genes_approved.csv', index=False)
-    
-    approved = pd.read_csv(ref_dir + 'genes_approved.csv',dtype='str')
+    approved = pd.read_csv(ref_dir + 'genes_approved.csv.gz',dtype='str')
     
     ensg_list = []
     for s in symbols:
