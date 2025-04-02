@@ -53,7 +53,7 @@ cxg-schema:
 	pip install git+https://github.com/chanzuckerberg/single-cell-curation/@$(GIT_REF)#subdirectory=cellxgene_schema_cli
 
 tests: cxg-schema
-	pytest -vvv
+	pytest -vvv -n auto
 
 clean:
 	rm -rf __pycache__ 

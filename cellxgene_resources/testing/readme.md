@@ -14,7 +14,7 @@ Setup test env, run pytest through the command line, run the notebook.
 Installation
 ---------------- 
 To get proper testing environment: 
-- Local, up-to-date [CZI single-cell-curation repo](https://github.com/chanzuckerberg/single-cell-curation)
+- Local, up-to-date [CZI single-cell-curation repo](https://github.com/chanzuckerberg/single-cell-curation) - this is useful for making changes to build your own version of `cellxgene-schema`. Otherwise, the validators in the local python env will be used.
 - `pytest` is part of test env
 - `pytest-xdist` plugin for parallel test running
 - `cellxgene-schema` pip package is installed/updated to at least 5.2.3 from this repo.
@@ -61,10 +61,7 @@ This uninstalls and reinstalls `cellxgene-schema` to get the latest version from
 ```
 make cxg-schema GIT_REF=your_git_ref_of_choice
 ```
-The tests assume the standard location of cloned repos that Lattice uses:
-```
-~/GitClones/CZI/single-cell-curation/
-```
+
 
 Running tests
 ---------------- 
@@ -72,18 +69,29 @@ Make sure the test env is activated.
 If immediately following the above directions to create a new conda env,
 the env might need to be deactivated and reactivated to make sure pytest uses
 the correct testing env.
+
+IMPORTANT:
+
+For fixture imports to work correctly, pytest MUST be run from the `testing/` directory. 
+```
+pytest 5.3.0/*multi*
+```
+will work and collect all 5.3 test files with multi in the name.
+
+Changing into the `5.3.0` directory and running `pytest *multi*` WILL NOT WORK
 ```
 make tests
 ```
-This will uninstall and reinstall the latest version of `cellxgene-schema` and then run all tests with the `-vvv` flag.
+This will uninstall and reinstall the latest version of `cellxgene-schema` and then run ALL TESTS (~4500 from 5.0 to 5.3) in parallel with the `-vvv` flag.
+
 Navigate to this directory and run pytest from command line with desired flags.
 You can also use the normal cli pytest commands:
 ```
-pytest -vv
+pytest 5.3.0/*multi* -vv
 ```
 By providing the -n arument to `pytest`, tests will be run in parallel with the `pytest-xdist` plugin:
 ```
-pytest -vvv -n auto
+pytest 5.3.0/*atac* -vvv -n auto
 ```
 
 Cleanup
