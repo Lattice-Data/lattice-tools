@@ -96,12 +96,15 @@ MODEL_ORGANISM_H5ADS = [
 
 # helper function for visium datasets to get library_id
 def get_library_id(adata):
-    return [key for key in adata.uns['spatial'].keys() if 'is_single' not in key][0]
+    return [key for key in adata.uns["spatial"].keys() if "is_single" not in key][0]
 
 
 # will add better check for file, maybe to automatically download as well
 if not os.path.isfile(FIXTURES_ROOT / "visium_v2_11mm_human.h5ad"):
-    raise FileNotFoundError('This file lives in S3, please download before running tests')
+    raise FileNotFoundError(
+        "This 2.3 GB file lives on Google Drive, see the QA Fixture Info sheet;"
+        " please download before running tests"
+    )
 
 
 # base fixture to allow for all h5ads by default, whitelist with decorator
