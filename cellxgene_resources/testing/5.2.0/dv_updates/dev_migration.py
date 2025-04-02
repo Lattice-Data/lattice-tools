@@ -1,3 +1,16 @@
+"""
+This is a file used to help gather various data and metadata to assist with the 
+update of the human and mouse development ontology term ids.
+
+At one point, this code mostly worked. It may not work now.
+
+It is a bit overly complicated, mostly served its purpose, and there were
+some edits made on Jupyter Hub (in this file and in notebooks) that did not make
+it here during the final scramble for the 5.2 migration.
+
+This is here for archive purposes and/or future reference.
+"""
+
 import cellxgene_census
 import concurrent.futures
 import h5py
