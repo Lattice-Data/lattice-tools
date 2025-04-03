@@ -186,7 +186,7 @@ def validate_raw_hca(url):
 
 
 def validate_raw_insdc(url):
-    raw_data_formats = ['fastq','TenX','bam','cram']
+    raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
 
     acc = url.split('/')[-1].split('=')[-1]
     insdc_attrs = insdc_meta(acc)
@@ -252,7 +252,8 @@ def insdc_meta(acc):
                     attr1['Experiment:' + p.lower()] = e.find('DESIGN').find('LIBRARY_DESCRIPTOR').find(p).text
                 for s in ep.iter('SAMPLE'):
                     attr1['Sample:primary_id'] = s.find('IDENTIFIERS').find('PRIMARY_ID').text
-                    attr1['Sample:title'] = s.find('TITLE').text
+                    if s.find('title'):
+                        attr1['Sample:title'] = s.find('TITLE').text
                     for ei in s.iter('EXTERNAL_ID'):
                         attr1['Sample:' + ei.attrib['namespace'] + '_id'] = ei.text
                     attr1['Sample:taxon_id'] = s.find('SAMPLE_NAME').find('TAXON_ID').text
