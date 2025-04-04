@@ -6,7 +6,7 @@ There is a  Makefile to help with environment setup, updating the `cellxgene-sch
 
 This Makefile can create both venv and conda envs depending on your preference.
 
-For each schema update, create a new directory in `testing/` and make use of the common `fixtures/` directory
+For each schema update, create a new directory in `validator_testing/` and make use of the common `fixtures/` directory
 
 General process
 ---------------- 
@@ -74,7 +74,7 @@ the correct testing env.
 
 IMPORTANT:
 
-For fixture imports to work correctly, pytest MUST be run from the `testing/` directory. 
+For fixture imports to work correctly, pytest MUST be run from the `validator_testing/` directory. 
 ```
 pytest 5.3.0/*multi*
 ```
