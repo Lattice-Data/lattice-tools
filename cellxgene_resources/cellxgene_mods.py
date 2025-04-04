@@ -384,6 +384,13 @@ def evaluate_obs_schema(obs, labels=False):
         for o in portal_obs_fields:
             if o in obs.keys():
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
+    if 'cell_type_ontology_term_id' in obs.columns\
+            and 'unknown' in obs['cell_type_ontology_term_id'].unique()\
+            and len([i for i in obs['assay_ontology_term_id'].unique() if i in ['EFO:0022860','EFO:0022859','EFO:0022857']])==0:
+        num_unknown = obs[obs['cell_type_ontology_term_id']=='unknown'].shape[0]
+        if num_unknown> 20:
+            report(f'There {num_unknown} cells of unknown cell type in dataset.', 'WARNING')
+
 
 
 def evaluate_obs(obs, full_obs_standards):
@@ -506,25 +513,27 @@ def symbols_to_ids(symbols, var):
     
     ref_dir = 'ref_files/'
     approved = pd.read_csv(ref_dir + 'genes_approved.csv.gz',dtype='str')
+    approved['symbol_only'] = approved['symb'].str.split('_', expand=True)[0]
     
     ensg_list = []
     for s in symbols:
-        if s in approved['symb'].tolist():
-            ensg_id = approved.loc[approved['symb'] == s, 'feature_id'].iloc[0]
-            if ensg_id in var.index:
-                ensg_list.append(ensg_id)
-                report(f'{ensg_id} -- {s}')
-            else:
-                s = s[0] + s[1:].lower()
-                if s in approved['symb'].tolist():
-                    ensg_id = approved.loc[approved['symb'] == s, 'feature_id'].iloc[0]
-                    if ensg_id in var.index:
-                        ensg_list.append(ensg_id)
-                        report(f'{ensg_id} -- {s}')
-                    else:
-                        report(f'{s}/{ensg_id} not found in var')    
+        if s in approved['symbol_only'].tolist():
+            ensg_ids = approved.loc[approved['symbol_only'] == s, 'feature_id']
+            for ensg_id in ensg_ids:
+                if ensg_id in var.index:
+                    ensg_list.append(ensg_id)
+                    report(f'{ensg_id} -- {s}')
                 else:
-                    report(f'{s} not found in gene file')
+                    s = s[0] + s[1:].lower()
+                    if s in approved['symbol_only'].tolist():
+                        ensg_id = approved.loc[approved['symbol_only'] == s, 'feature_id'].iloc[0]
+                        if ensg_id in var.index:
+                            ensg_list.append(ensg_id)
+                            report(f'{ensg_id} -- {s}')
+                        else:
+                            report(f'{s}/{ensg_id} not found in var')
+                    else:
+                        report(f'{s} not found in gene file')
 
     return ensg_list
 
