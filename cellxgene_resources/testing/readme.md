@@ -1,10 +1,12 @@
-Schema 5.3.0 QA Testing
+Schema QA Testing
 ----------------
-QA validation tests for moving towards schema 5.3.0 migration. Almost all tests will be through pytest; `validate_notebook_workflow.ipynb` checks that validation through the curator notebook workflow does not break.
+QA validation tests any given migration. Almost all tests will be through pytest
 
-This iteration utilizes a Makefile to help with environment setup, updating the `cellxgene-schema` cli tool, and running all the pytests.
+There is a  Makefile to help with environment setup, updating the `cellxgene-schema` cli tool, and running all the pytests.
 
 This Makefile can create both venv and conda envs depending on your preference.
+
+For each schema update, create a new directory in `testing/` and make use of the common `fixtures/` directory
 
 General process
 ---------------- 
@@ -17,9 +19,9 @@ To get proper testing environment:
 - Local, up-to-date [CZI single-cell-curation repo](https://github.com/chanzuckerberg/single-cell-curation) - this is useful for making changes to build your own version of `cellxgene-schema`. Otherwise, the validators in the local python env will be used.
 - `pytest` is part of test env
 - `pytest-xdist` plugin for parallel test running
-- `cellxgene-schema` pip package is installed/updated to at least 5.2.3 from this repo.
+- `cellxgene-schema` pip package is installed/updated to at least the latest published version from this repo.
 
-Create a seperate test environment since schema will be > 5.0.0. This can be done by cloning the lattice env or creating a new one.
+Create a seperate test environment from the normal curation env. This can be done by cloning the lattice env or creating a new one.
 
 Running `make` will display a helpful, abbreviated outline of the following steps:
 
@@ -28,7 +30,7 @@ Running `make` will display a helpful, abbreviated outline of the following step
 make venv
 ```
 OR
-#### Create a new conda env named `cxg51testing`
+#### Create a new conda env named `cxg53testing`
 ```
 make conda
 ```
@@ -100,5 +102,3 @@ Cleanup
 make clean
 ```
 This will `rm -rf` the `venv` directory and any `__pycache__` files.
-
-Run `validate_notebook_workflow.ipynb` to make sure CLI interface of validator still works.
