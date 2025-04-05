@@ -507,33 +507,35 @@ def evaluate_dup_counts(adata):
     
 def symbols_to_ids(symbols, var):
     
-    if not os.path.exists(ref_dir + 'genes_approved.csv'):
+    ref_dir = 'ref_files/'
+    if not os.path.exists(ref_dir + 'genes_approved.csv.gz'):
         report('There is no genes_approved.csv.gz file present', 'ERROR')
         return
-    
-    ref_dir = 'ref_files/'
+
     approved = pd.read_csv(ref_dir + 'genes_approved.csv.gz',dtype='str')
     approved['symbol_only'] = approved['symb'].str.split('_', expand=True)[0]
     
     ensg_list = []
     for s in symbols:
+        found = False
         if s in approved['symbol_only'].tolist():
             ensg_ids = approved.loc[approved['symbol_only'] == s, 'feature_id']
             for ensg_id in ensg_ids:
                 if ensg_id in var.index:
                     ensg_list.append(ensg_id)
                     report(f'{ensg_id} -- {s}')
-                else:
-                    s = s[0] + s[1:].lower()
-                    if s in approved['symbol_only'].tolist():
-                        ensg_id = approved.loc[approved['symbol_only'] == s, 'feature_id'].iloc[0]
-                        if ensg_id in var.index:
-                            ensg_list.append(ensg_id)
-                            report(f'{ensg_id} -- {s}')
-                        else:
-                            report(f'{s}/{ensg_id} not found in var')
-                    else:
-                        report(f'{s} not found in gene file')
+                    found = True
+        else:
+            s_lower = s[0] + s[1:].lower()
+            if s_lower in approved['symbol_only'].tolist():
+                ensg_ids_lower = approved.loc[approved['symbol_only'] == s, 'feature_id']
+                for ensg_id_lower in ensg_ids_lower:
+                    if ensg_id_lower in var.index:
+                        ensg_list.append(ensg_id_lower)
+                        report(f'{ensg_id_lower} -- {s_lower}')
+                        found = True
+        if not found:
+            report(f'{s} not found in genes_approved')
 
     return ensg_list
 
