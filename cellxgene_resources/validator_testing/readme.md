@@ -95,7 +95,10 @@ By providing the -n arument to `pytest`, tests will be run in parallel with the 
 ```
 pytest 5.3.0/*atac* -vvv -n auto
 ```
-
+By providing the -k argument to pytest, you can specify which test function or test class to run
+```
+pytest 5.3.0/*atac* -vvv -n auto -k TestFragmentCol1Chr
+```
 Cleanup
 ---------------- 
 ```
