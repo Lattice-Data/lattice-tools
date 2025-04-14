@@ -506,7 +506,17 @@ def evaluate_dup_counts(adata):
 
     
 def symbols_to_ids(symbols, var):
-    
+    """
+    Given a list of gene symbols, look in genes_approved.csv.gz to see if we can map to an Ensembl ID that is found
+    in adata.var. If there not a successful mapping of gene symbols to Ensembl ID, will take the lower case version of 
+    gene symbol and try mapping again.
+
+    :param symbols: List of upper cased gene symbols that would like to find Ensembl ID mapping for
+    :param var: adata.var
+
+    :return ensg_list: List of Ensembl IDs found
+
+    """
     ref_dir = 'ref_files/'
     if not os.path.exists(ref_dir + 'genes_approved.csv.gz'):
         report('There is no genes_approved.csv.gz file present', 'ERROR')
@@ -525,17 +535,17 @@ def symbols_to_ids(symbols, var):
                     ensg_list.append(ensg_id)
                     report(f'{ensg_id} -- {s}')
                     found = True
-        else:
+        if not found:
             s_lower = s[0] + s[1:].lower()
             if s_lower in approved['symbol_only'].tolist():
-                ensg_ids_lower = approved.loc[approved['symbol_only'] == s, 'feature_id']
+                ensg_ids_lower = approved.loc[approved['symbol_only'] == s_lower, 'feature_id']
                 for ensg_id_lower in ensg_ids_lower:
                     if ensg_id_lower in var.index:
                         ensg_list.append(ensg_id_lower)
                         report(f'{ensg_id_lower} -- {s_lower}')
                         found = True
         if not found:
-            report(f'{s} not found in genes_approved')
+            report(f'{s} not found in genes_approved or adata.var')
 
     return ensg_list
 
