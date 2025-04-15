@@ -339,6 +339,9 @@ def evaluate_10x_barcodes(obs, visium=False):
 
     obs = obs.copy()
     obs['barcode'] = obs.index.str.extract(r'([ACTG]{12,})')[0].tolist()
+    if len(set(ref_df.index.to_list()).intersection(set(obs.index.to_list()))) == 0:
+        report('Did not find any barcodes in obs index, cannot evaluate barcodes', 'WARNING')
+        return
     obs = obs.merge(ref_df[['summary']],on='barcode',how='left').set_index(obs.index)
     obs['summary'] = obs.apply(
         lambda x: no_barcode_v if pd.isna(x['barcode']) else (f"{len(x['barcode'])}nt" if pd.isna(x['summary']) else x['summary']),
