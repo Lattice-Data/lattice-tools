@@ -387,12 +387,15 @@ def evaluate_obs_schema(obs, labels=False):
         for o in portal_obs_fields:
             if o in obs.keys():
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
-    if 'cell_type_ontology_term_id' in obs.columns\
-            and 'unknown' in obs['cell_type_ontology_term_id'].unique()\
-            and len([i for i in obs['assay_ontology_term_id'].unique() if i in ['EFO:0022860','EFO:0022859','EFO:0022857']])==0:
-        num_unknown = obs[obs['cell_type_ontology_term_id']=='unknown'].shape[0]
-        if num_unknown> 20:
-            report(f'There {num_unknown} cells of unknown cell type in dataset.', 'WARNING')
+    if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
+        if 'in_tissue' in obs.columns:
+            num_unknown = obs.loc[(obs['in_tissue']==1) & (obs['cell_type_ontology_term_id']=='unknown')].shape[0]
+            perc_unknown = 100*(num_unknown/obs.loc[obs['in_tissue']==1].shape[0])
+        else:
+            num_unknown = obs[obs['cell_type_ontology_term_id']=='unknown'].shape[0]
+            perc_unknown = 100*(num_unknown/obs.shape[0])
+        if num_unknown > 20:
+            report(f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.', 'WARNING')
 
 
 
