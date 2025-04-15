@@ -289,7 +289,7 @@ def evaluate_uns_colors(adata):
 def map_filter_gene_ids(adata):
     #map genes
     v44_gene_map = json.load(open('../gene_ID_mapping/gene_map_v44.json'))
-    approved_file = 'ref_files/genes_approved.csv'
+    approved_file = 'ref_files/genes_approved.csv.gz'
     approved = pd.read_csv(approved_file,dtype='str')
 
     my_gene_map = {k:v for k,v in v44_gene_map.items() if k in adata.var.index and v not in adata.var.index}
@@ -339,6 +339,9 @@ def evaluate_10x_barcodes(obs, visium=False):
 
     obs = obs.copy()
     obs['barcode'] = obs.index.str.extract(r'([ACTG]{12,})')[0].tolist()
+    if len(set(ref_df.index.to_list()).intersection(set(obs.index.to_list()))) == 0:
+        report('Did not find any barcodes in obs index, cannot evaluate barcodes', 'WARNING')
+        return
     obs = obs.merge(ref_df[['summary']],on='barcode',how='left').set_index(obs.index)
     obs['summary'] = obs.apply(
         lambda x: no_barcode_v if pd.isna(x['barcode']) else (f"{len(x['barcode'])}nt" if pd.isna(x['summary']) else x['summary']),
@@ -384,6 +387,16 @@ def evaluate_obs_schema(obs, labels=False):
         for o in portal_obs_fields:
             if o in obs.keys():
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
+    if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
+        if 'in_tissue' in obs.columns:
+            num_unknown = obs.loc[(obs['in_tissue']==1) & (obs['cell_type_ontology_term_id']=='unknown')].shape[0]
+            perc_unknown = 100*(num_unknown/obs.loc[obs['in_tissue']==1].shape[0])
+        else:
+            num_unknown = obs[obs['cell_type_ontology_term_id']=='unknown'].shape[0]
+            perc_unknown = 100*(num_unknown/obs.shape[0])
+        if num_unknown > 20:
+            report(f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.', 'WARNING')
+
 
 
 def evaluate_obs(obs, full_obs_standards):
@@ -499,43 +512,46 @@ def evaluate_dup_counts(adata):
 
     
 def symbols_to_ids(symbols, var):
-    
-    ref_files = [
-        'genes_ercc.csv',
-        'genes_homo_sapiens.csv',
-        'genes_mus_musculus.csv',
-        'genes_sars_cov_2.csv'
-    ]
-    
+    """
+    Given a list of gene symbols, look in genes_approved.csv.gz to see if we can map to an Ensembl ID that is found
+    in adata.var. If there not a successful mapping of gene symbols to Ensembl ID, will take the lower case version of 
+    gene symbol and try mapping again.
+
+    :param symbols: List of upper cased gene symbols that would like to find Ensembl ID mapping for
+    :param var: adata.var
+
+    :return ensg_list: List of Ensembl IDs found
+
+    """
     ref_dir = 'ref_files/'
-    if not os.path.exists(ref_dir + 'genes_approved.csv'):
-        ids = pd.DataFrame()
-        for f in ref_files:
-            df = pd.read_csv(f, names=['feature_id','symb','num','length'],dtype='str',index_col=False)
-            ids = ids.append(df)
-            os.remove(f)
-        ids.to_csv(ref_dir + 'genes_approved.csv', index=False)
-    
-    approved = pd.read_csv(ref_dir + 'genes_approved.csv',dtype='str')
+    if not os.path.exists(ref_dir + 'genes_approved.csv.gz'):
+        report('There is no genes_approved.csv.gz file present', 'ERROR')
+        return
+
+    approved = pd.read_csv(ref_dir + 'genes_approved.csv.gz',dtype='str')
+    approved['symbol_only'] = approved['symb'].str.split('_', expand=True)[0]
     
     ensg_list = []
     for s in symbols:
-        if s in approved['symb'].tolist():
-            ensg_id = approved.loc[approved['symb'] == s, 'feature_id'].iloc[0]
-            if ensg_id in var.index:
-                ensg_list.append(ensg_id)
-                report(f'{ensg_id} -- {s}')
-            else:
-                s = s[0] + s[1:].lower()
-                if s in approved['symb'].tolist():
-                    ensg_id = approved.loc[approved['symb'] == s, 'feature_id'].iloc[0]
-                    if ensg_id in var.index:
-                        ensg_list.append(ensg_id)
-                        report(f'{ensg_id} -- {s}')
-                    else:
-                        report(f'{s}/{ensg_id} not found in var')    
-                else:
-                    report(f'{s} not found in gene file')
+        found = False
+        if s in approved['symbol_only'].tolist():
+            ensg_ids = approved.loc[approved['symbol_only'] == s, 'feature_id']
+            for ensg_id in ensg_ids:
+                if ensg_id in var.index:
+                    ensg_list.append(ensg_id)
+                    report(f'{ensg_id} -- {s}')
+                    found = True
+        if not found:
+            s_lower = s[0] + s[1:].lower()
+            if s_lower in approved['symbol_only'].tolist():
+                ensg_ids_lower = approved.loc[approved['symbol_only'] == s_lower, 'feature_id']
+                for ensg_id_lower in ensg_ids_lower:
+                    if ensg_id_lower in var.index:
+                        ensg_list.append(ensg_id_lower)
+                        report(f'{ensg_id_lower} -- {s_lower}')
+                        found = True
+        if not found:
+            report(f'{s} not found in genes_approved or adata.var')
 
     return ensg_list
 
