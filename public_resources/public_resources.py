@@ -200,7 +200,7 @@ def insdc_meta(acc):
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     esearch_base = f'{eutils_base}esearch.fcgi'
     efetch_base = f'{eutils_base}efetch.fcgi'
-    prj_flag = False
+    prj = []
     if acc.startswith('GS'):
         url1 = f'{esearch_base}?db=bioproject&term={acc}[Project Accession]&retmode=json'
         r1 = requests.get(url1).json()
@@ -211,8 +211,7 @@ def insdc_meta(acc):
             rXml = ET.fromstring(r2.text)
             for a in rXml.iter('ArchiveID'):
                 prj = [a.attrib['accession']]
-                prj_flag = True
-        if not prj_flag:
+        if not prj:
             url5 = f'{esearch_base}?db=gds&term={acc}[Accn]&retmode=json&retmax=100'
             r5 = requests.get(url5).json()
             if r5['esearchresult']['idlist']:
@@ -221,14 +220,12 @@ def insdc_meta(acc):
                 r6 = requests.get(url6)
                 for line in r6.text.split('\n'):
                     if line.startswith('SRA Run Selector:'):
-                        prj_flag = True
                         p = line.split('acc=')[-1]
                         prj.append(p)
     else:
         prj = [acc]
-        prj_flag = True
 
-    if prj_flag:
+    if prj:
         attributes = []
         idlist = set()
         for p in prj:
