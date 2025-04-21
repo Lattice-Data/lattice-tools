@@ -34,7 +34,7 @@ HUMAN_INVALID_VALUES = [
 ERROR_MESSAGES = (
     #*** NEED TO FILL IN ***
 )
-
+@pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
 def test_passes(validator_with_adatas):
         validator = validator_with_adatas
         validator.validate_adata()
