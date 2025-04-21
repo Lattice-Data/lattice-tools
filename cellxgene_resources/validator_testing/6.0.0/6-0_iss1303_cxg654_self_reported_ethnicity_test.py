@@ -35,6 +35,12 @@ ERROR_MESSAGES = (
     #*** NEED TO FILL IN ***
 )
 
+def test_passes(validator_with_adatas):
+        validator = validator_with_adatas
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
 # Testing human h5ads
 @pytest.mark.parametrize("test_h5ads", HUMAN_H5ADS)
 @pytest.mark.parametrize("valid_term", HUMAN_VALID_VALUES)
@@ -78,3 +84,6 @@ def test_ethnicity_invaild_values(validator_with_adatas,invalid_term,error):
     assert (
             f"ERROR: '{invalid_term}' {error}"
         ) in validator.errors
+
+
+# add labels check: obs.self_reported_ethnicity order matches self_reported_ethnicity_ontology_term_id order
