@@ -1190,7 +1190,8 @@ def create_batch_download_txt(
         collection_id: str,
         output_dir: str = "./", 
         txt_name: str = "batch_download.txt",
-        seperator: str = " "
+        seperator: str = " ",
+        env="prod"
     ) -> None:
     """
     Given a collection id, generate a txt file for parallel download with xargs and wget 
@@ -1211,6 +1212,10 @@ def create_batch_download_txt(
 
     xargs uses space as default seperator, but can change this to something else
     """
+
+    # "API_URL_BASE" seems to better persist in a notebook compared to "BASE_URL"
+    if "API_URL_BASE" not in os.environ:
+        CxG_API.config(env=env)
 
     BASE_URL = "https://datasets.cellxgene.cziscience.com/"
     full_output_txt = os.path.join(output_dir, txt_name)
