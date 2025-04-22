@@ -1191,6 +1191,7 @@ def create_batch_download_txt(
         output_dir: str = "./", 
         txt_name: str = "batch_download.txt",
         seperator: str = " ",
+        num_parallel_downloads: int = 4,
         env="prod"
     ) -> None:
     """
@@ -1217,13 +1218,11 @@ def create_batch_download_txt(
     if "API_URL_BASE" not in os.environ:
         CxG_API.config(env=env)
 
-    BASE_URL = "https://datasets.cellxgene.cziscience.com/"
-    full_output_txt = os.path.join(output_dir, txt_name)
-
-    # if API keys not set, this will raise general Exception, seems clear enough to
-    # then run CxG_API.config() to fix this
     collection_metainfo = CxG_API.get_collection(collection_id)
     datasets = collection_metainfo["datasets"]
+
+    BASE_URL = "https://datasets.cellxgene.cziscience.com/"
+    full_output_txt = os.path.join(output_dir, txt_name)
 
     files_dict = {
         BASE_URL + dataset["dataset_version_id"] + ".h5ad": 
@@ -1236,4 +1235,4 @@ def create_batch_download_txt(
             output_file.write(f"{file_name}{seperator}{url}\n")
 
     print(f"Successfully saved {txt_name} to {output_dir}")
-    print(f"Use this terminal command to start batch download: cat {txt_name} | xargs -n 2 -P 4 wget -O")
+    print(f"Use this terminal command to start batch download: cat {txt_name} | xargs -n 2 -P {num_parallel_downloads} wget -O")
