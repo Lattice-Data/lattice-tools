@@ -1214,14 +1214,13 @@ def create_batch_download_txt(
     xargs uses space as default seperator, but can change this to something else
     """
 
-    # "API_URL_BASE" seems to better persist in a notebook compared to "BASE_URL"
-    if "API_URL_BASE" not in os.environ:
-        CxG_API.config(env=env)
+    # just try every time instead of check, espeically if changing envs 
+    CxG_API.config(env=env)
 
     collection_metainfo = CxG_API.get_collection(collection_id)
     datasets = collection_metainfo["datasets"]
 
-    BASE_URL = "https://datasets.cellxgene.cziscience.com/"
+    BASE_URL = os.environ['SITE_URL'].replace("://", "://datasets.") + "/"
     full_output_txt = os.path.join(output_dir, txt_name)
 
     files_dict = {
