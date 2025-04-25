@@ -35,9 +35,9 @@ def test_human_term_in_uns(validator_with_adatas):
 @pytest.mark.parametrize("error", ERROR_MESSAGES)
 def test_organism_invalid_in_obs(validator_with_adatas, error):
     validator = validator_with_adatas
-    validator.adata.obs['organism_ontology_term_id'] = validator.adata.uns['organism_ontology_term_id']  # not sure if this is the best way to assign to obs
-    del validator.adata.uns['organism_ontology_term_id']
+    validator.adata.obs["organism_ontology_term_id"] = validator.adata.uns["organism_ontology_term_id"]
     validator.validate_adata()
+    assert validator.adata.obs["organism_ontology_term_id"] == validator.adata.uns["organism_ontology_term_id"]
     assert not validator.is_valid
     assert (
             f"ERROR: '{validator.adata.obs['organism_ontology_term_id']}' {error}"
@@ -45,9 +45,11 @@ def test_organism_invalid_in_obs(validator_with_adatas, error):
 
 # Test organism in obs is invalid
 @pytest.mark.parametrize("error", ERROR_MESSAGES)
-def test_human_invalid_in_obs(validator_with_adatas, error):
+def test_organism_invalid_in_obs(validator_with_adatas, error):
     validator = validator_with_adatas
-    validator.adata.obs['organism_ontology_term_id'] = "NCBITaxon:9606"  # using fixed term for assignment
+    validator.adata.obs["organism_ontology_term_id"] = validator.adata.uns["organism_ontology_term_id"]
+    assert validator.adata.obs["organism_ontology_term_id"] == validator.adata.uns["organism_ontology_term_id"]
+    del validator.adata.uns["organism_ontology_term_id"]
     validator.validate_adata()
     assert not validator.is_valid
     assert (
