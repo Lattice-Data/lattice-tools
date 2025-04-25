@@ -27,7 +27,7 @@ def test_passes(validator_with_adatas):
 def test_human_term_in_uns(validator_with_adatas):
     validator = validator_with_adatas
     validator.validate_adata()
-    assert "NCBITaxon:9606" in validator.adata.uns['organism_ontology_term_id']
+    assert "NCBITaxon:9606" == validator.adata.uns["organism_ontology_term_id"]
     assert validator.is_valid
     assert validator.errors == []
 
