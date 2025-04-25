@@ -40,7 +40,7 @@ def test_organism_invalid_in_obs(validator_with_adatas, error):
     assert validator.adata.obs["organism_ontology_term_id"] == validator.adata.uns["organism_ontology_term_id"]
     assert not validator.is_valid
     assert (
-            f"ERROR: '{validator.adata.obs['organism_ontology_term_id']}' {error}"
+            f'ERROR: "{validator.adata.obs["organism_ontology_term_id"]}" {error}'
         ) in validator.errors
 
 # Test organism in obs is invalid
@@ -53,5 +53,5 @@ def test_organism_invalid_in_obs(validator_with_adatas, error):
     validator.validate_adata()
     assert not validator.is_valid
     assert (
-            f"ERROR: NCBITaxon:9606 {error}"
+            f'ERROR: "{validator.adata.obs["organism_ontology_term_id"]}" {error}'
         ) in validator.errors
