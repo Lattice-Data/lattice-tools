@@ -22,7 +22,7 @@ def test_passes(validator_with_adatas):
         assert validator.is_valid
         assert validator.errors == []
 
-# Testing human term in uns
+# Testing human term in uns is valid
 @pytest.mark.parametrize("test_h5ads", HUMAN_H5ADS)
 def test_human_term_in_uns(validator_with_adatas):
     validator = validator_with_adatas
@@ -31,7 +31,7 @@ def test_human_term_in_uns(validator_with_adatas):
     assert validator.is_valid
     assert validator.errors == []
 
-# Testing organism in obs
+# Test organism in obs and in uns is invalid
 @pytest.mark.parametrize("error", ERROR_MESSAGES)
 def test_organism_invalid_in_obs(validator_with_adatas, error):
     validator = validator_with_adatas
@@ -43,7 +43,7 @@ def test_organism_invalid_in_obs(validator_with_adatas, error):
             f"ERROR: '{validator.adata.obs['organism_ontology_term_id']}' {error}"
         ) in validator.errors
 
-@pytest.mark.parametrize("test_h5ads", HUMAN_H5ADS)
+# Test organism in obs is invalid
 @pytest.mark.parametrize("error", ERROR_MESSAGES)
 def test_human_invalid_in_obs(validator_with_adatas, error):
     validator = validator_with_adatas
