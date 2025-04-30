@@ -1,4 +1,6 @@
 import anndata as ad
+import dask
+import hashlib
 import h5py
 import json
 import matplotlib.pyplot as plt
@@ -11,6 +13,7 @@ import squidpy as sq
 import subprocess
 import sys
 from dataclasses import dataclass
+from dask.array import map_blocks
 from pathlib import Path
 from scipy import sparse
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
@@ -1034,3 +1037,72 @@ def evaluate_var_df(adata):
             report(f'Less than 50% of genes are filtered', 'GOOD')
     else:
         report('feature_is_filtered not found in var', 'WARNING')
+
+
+def return_duplicates_dask(adata: ad.AnnData, worker_type='processes') -> pd.DataFrame:
+    """
+    Hash raw counts matrix in parallel with dask
+    If there are duplicated rows, return a copy of obs with the duplicate rows' metadata
+    
+    This uses single-cell-curation read_h5ad() to lazily load matrices as dask arrays
+    Dask will schedule out chunks to workers (processes in this case) and return a 
+    properly ordered array of hashes
+
+    Key is to reshape the chunking function output to a columnar array with .reshape() 
+    and then use .ravel() after calling compute to flatten the final desired array. 
+    This avoids exceptions with broadcasting for the final chunk that != chunk_size
+
+    Joyce did further work for the validator implementation to show that the sha224
+    hash seems to be quickest
+    
+    Uses presence of obs "in_tissue" column to default to dense array hashing for
+    visium datasets; this should prevent false positives for spots at the edge of the 
+    tissue borders. A further filtration step will remove obs rows with in_tissue==0
+
+    Stupidly fast and efficient; on M1 Max with 64 GB, can hash the largest dataset
+    (11.4 million cells) in about 3 1/2 minutes. The r5 16xlarge EC2 will take about a
+    minute to 1:15, depending on chunk size. Memory usage is minimal when slicing through
+    the data array.
+
+    This may not work in a script, but storing here for the moment to be in the commit
+    history
+
+    Actually this does work when imported into a notebook
+    """
+
+    matrix = adata.raw.X if adata.raw else adata.X
+
+    def hash_data_array_chunk(matrix_chunk) -> np.array:
+        data_array = matrix_chunk.data
+        indptr_array = matrix_chunk.indptr
+
+        start, end = 0, matrix_chunk.shape[0]
+        chunk_hashes = []
+        while start < end:
+            val = hashlib.sha224(data_array[indptr_array[start]:indptr_array[start + 1]].tobytes()).hexdigest()
+            chunk_hashes.append(val)
+            start += 1
+            
+        return np.array([chunk_hashes]).reshape(-1, 1)
+
+        
+    def hash_dense_chunk(matrix_chunk) -> np.array:
+        chunk_hashes = [hashlib.sha224(r.tobytes()).hexdigest() for r in matrix_chunk.toarray()]
+        return np.array([chunk_hashes]).reshape(-1, 1)
+
+
+    hash_chunk_func = hash_dense_chunk if "in_tissue" in adata.obs.columns else hash_data_array_chunk
+
+    with dask.config.set(scheduler=worker_type):
+        hashes = map_blocks(hash_chunk_func, matrix, dtype=int).compute().ravel()
+
+    hash_df = adata.obs.copy()
+    hash_df["row_hash"] = hashes
+
+    if "in_tissue" in hash_df.columns:
+        obs_to_keep = hash_df[hash_df["in_tissue"] != 0].index
+        hash_df = hash_df[hash_df.index.isin(obs_to_keep)]
+
+    dup_df = hash_df[hash_df.duplicated(subset="row_hash", keep=False)].copy()
+
+    return dup_df
