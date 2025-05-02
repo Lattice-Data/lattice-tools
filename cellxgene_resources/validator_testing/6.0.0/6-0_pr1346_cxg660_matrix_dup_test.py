@@ -32,18 +32,21 @@ def test_valid(validator_with_adatas):
 def test_one_duplication_non_visium(validator_with_adatas):
     validator = validator_with_adatas
     barcode = validator.adata.obs.index[0]
-    print(barcode)
     dup_adata = create_duplications(validator.adata, i=barcode,n=1)
+    raw_loc = []
+
     if validator.adata.raw:
+        raw_loc.append("adata.raw.X")
         validator.adata.raw = dup_adata
     else:
+        raw_loc.append("adata.X")
         validator.adata = dup_adata
+
     validator.validate_adata()
-    print(validator.errors)
     assert not validator.is_valid
-    #assert (
-    #    f"Found {len(dup_df)} duplicated raw counts in obs {matrix_name}."
-    #) in validator.errors
+    assert (
+        f"ERROR: Found 2 duplicated raw counts in obs {raw_loc[0]}."
+    ) in validator.errors
 
 
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
@@ -52,14 +55,21 @@ def test_one_duplication_visium(validator_with_adatas):
 
     if "in_tissue" in validator.adata.obs.columns:
         obs_to_keep = validator.adata.obs[validator.adata.obs["in_tissue"] != 0].index
-        validator.adata = validator.adata[obs_to_keep, :]
+        validator.adata = validator.adata[obs_to_keep, :].copy()
 
     barcode = validator.adata.obs.index[0]
-    print(barcode)
     dup_adata = create_duplications(validator.adata, i=barcode,n=1)
+    raw_loc = []
+
     if validator.adata.raw:
+        raw_loc.append("adata.raw.X")
         validator.adata.raw = dup_adata
     else:
+        raw_loc.append("adata.X")
         validator.adata = dup_adata
+
     validator.validate_adata()
     assert not validator.is_valid
+    assert (
+        f"ERROR: Found 2 duplicated raw counts in obs {raw_loc[0]}."
+    ) in validator.errors
