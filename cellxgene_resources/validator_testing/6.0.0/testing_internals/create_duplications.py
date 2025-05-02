@@ -29,10 +29,8 @@ def create_duplications(adata:ad.AnnData,i:str,n=int):
         for raw_adata in to_validate:
                 raw_matrix = raw_adata.X
                 raw_matrix_row = raw_matrix[obs_loc, :]
-                print(raw_matrix_row.sum())
                 for m_indx in random_indices:
-                        print(raw_matrix[m_indx].sum())
                         raw_matrix[m_indx] = raw_matrix_row
-                        print(raw_matrix[m_indx].sum())
-                raw_adata = ad.AnnData(raw_matrix, obs= adata.obs, var=adata.var, uns=adata.uns, obsm=adata.obsm) # maybe a better way to check for attributes first
+
+                raw_adata = ad.AnnData(raw_matrix, obs=adata.obs, var=adata.var, uns=adata.uns, obsm=adata.obsm)
                 return raw_adata
