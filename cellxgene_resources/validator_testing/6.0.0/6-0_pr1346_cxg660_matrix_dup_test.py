@@ -17,11 +17,6 @@ from fixtures.valid_adatas import (
     SPATIAL_H5ADS,
     test_h5ads,
     validator_with_adatas
-
-)
-
-ERROR_MESSAGES = (
-    #*** NEED TO FILL IN ***
 )
 
 
@@ -34,8 +29,7 @@ def test_valid(validator_with_adatas):
 
 
 @pytest.mark.parametrize("test_h5ads", NON_SPATIAL_H5ADS)
-@pytest.mark.parametrize("error", ERROR_MESSAGES)
-def test_one_duplication_non_visium(validator_with_adatas,error):
+def test_one_duplication_non_visium(validator_with_adatas):
     validator = validator_with_adatas
     barcode = validator.adata.obs.index[0]
     print(barcode)
@@ -45,17 +39,21 @@ def test_one_duplication_non_visium(validator_with_adatas,error):
     else:
         validator.adata = dup_adata
     validator.validate_adata()
+    print(validator.errors)
     assert not validator.is_valid
+    #assert (
+    #    f"Found {len(dup_df)} duplicated raw counts in obs {matrix_name}."
+    #) in validator.errors
 
 
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
-@pytest.mark.parametrize("error", ERROR_MESSAGES)
-def test_one_duplication_visium(validator_with_adatas,error):
+def test_one_duplication_visium(validator_with_adatas):
     validator = validator_with_adatas
+
     if "in_tissue" in validator.adata.obs.columns:
         obs_to_keep = validator.adata.obs[validator.adata.obs["in_tissue"] != 0].index
+        validator.adata = validator.adata[obs_to_keep, :]
 
-    validator.adata = validator.adata[obs_to_keep, :]
     barcode = validator.adata.obs.index[0]
     print(barcode)
     dup_adata = create_duplications(validator.adata, i=barcode,n=1)
