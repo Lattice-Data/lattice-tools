@@ -250,6 +250,11 @@ def determine_sparsity(matrix: DaskArray):
 
 
 def get_matrices_to_evaluate(adata: ad.AnnData) -> list[tuple[Union[np.ndarray, sparse.spmatrix], str]]:
+    """
+    Helper function to return list of tuples of matrix location and matrix name
+
+    Other functions use this to iterate and report matrix name as error/warning message
+    """
     # will always be adata.X, then add other matrices if they exist
     matrices_to_evaluate = [(adata.X, "X")]
 
@@ -262,10 +267,15 @@ def get_matrices_to_evaluate(adata: ad.AnnData) -> list[tuple[Union[np.ndarray, 
 
 
 def evaluate_sparsity(adata: ad.AnnData):
+    """
+    Evaluate sparsity in qa notebook
+
+    Expects matrices as dask array, so make sure to load Anndata with
+    read_h5ad()
+    """
     max_sparsity = 0.5
     valid = True
 
-    # will always be adata.X, then add other matrices if they exist
     matrices_to_evaluate = get_matrices_to_evaluate(adata)
 
     for matrix, matrix_name in matrices_to_evaluate:
@@ -281,6 +291,13 @@ def evaluate_sparsity(adata: ad.AnnData):
 
 
 def evaluate_data(adata):
+    """
+    3 other data checks on matrix: min, max, and if raw matrix, all integer check
+
+    For better efficency, all-integer check only done on raw matrix
+    Probably room for improvement to delay chunks, better call compute(), or
+    other dask optimizations to not chunk through each matrix 2-3 times
+    """
     min_maxs = {}
     matrices_to_evaluate = get_matrices_to_evaluate(adata)
     matrix_names = [name for _, name in matrices_to_evaluate]
@@ -518,7 +535,7 @@ def evaluate_obs(obs, full_obs_standards):
         report(f'long fields: {long_fields}')
 
 
-def evaluate_dup_counts(adata: ad.AnnData, worker_type="processes") -> pd.DataFrame:
+def evaluate_dup_counts(adata: ad.AnnData, worker_type="processes") -> pd.DataFrame | None:
     """
     Hash raw counts matrix in parallel with dask
     If there are duplicated rows, return a copy of obs with the duplicate rows' metadata
