@@ -53,7 +53,7 @@ def test_a_cell_one_dup_non_visium(validator_with_adatas):
 
 
 @pytest.mark.parametrize("test_h5ads", NON_SPATIAL_H5ADS)
-def test_a_cell_one_dup_non_visium_in_NORMAL(validator_with_adatas):
+def test_a_cell_one_dup_non_visium_raw_in_X(validator_with_adatas):
     validator = validator_with_adatas
     barcode = [validator.adata.obs.index[0]]
     dup_adata = create_duplications(validator.adata,barcode,n=1)
@@ -101,7 +101,7 @@ def test_a_cell_one_dup_visium(validator_with_adatas):
 
 
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
-def test_a_cell_one_dup_visium_in_NORMAL(validator_with_adatas):
+def test_a_cell_one_dup_visium_raw_in_X(validator_with_adatas):
     validator = validator_with_adatas
 
     if "in_tissue" in validator.adata.obs.columns:
