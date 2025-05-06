@@ -7,6 +7,8 @@ should not pass:
  - duplicate many cell's raw counts (raw is in .X / raw is in raw.X)
  - duplicate a cell's raw counts many times (raw is in .X / raw is in raw.X)
 
+should pass:
+ - raw counts in raw.X contain no duplicates + normalized in .X contains duplicates
 """
 
 import pytest
@@ -192,3 +194,61 @@ def test_one_cell_many_dups_visium(validator_with_adatas):
     assert (
         f"ERROR: Found {total_duplicates} duplicated raw counts in obs {raw_loc[0]}."
     ) in validator.errors
+
+
+@pytest.mark.parametrize("test_h5ads", NON_SPATIAL_H5ADS)
+def test_dup_in_norm_non_visium(validator_with_adatas):
+    validator = validator_with_adatas
+    n_barcodes = 3
+    barcodes = [validator.adata.obs.index[i] for i in range(n_barcodes)]
+    n_duplications = 2
+    total_duplicates = n_barcodes * (n_duplications + 1)
+
+    if validator.adata.raw is not None:
+        norm_adata = ad.AnnData(X=validator.adata.X.copy(),
+                                obs=validator.adata.obs.copy(),
+                                var=validator.adata.var.copy(),
+                                uns=validator.adata.uns.copy(),
+                                obsm=validator.adata.obsm.copy())
+        dup_adata = create_duplications(norm_adata,barcodes,n=n_duplications)
+        dup_adata.raw = ad.AnnData(X=validator.adata.raw.X.copy(),
+                                   var=validator.adata.raw.var.copy())
+
+        validator.adata = dup_adata
+
+    else:
+        print("No normalized data found in AnnData object.")
+        pass
+
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
+
+
+@pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
+def test_dup_in_norm_visium(validator_with_adatas):
+    validator = validator_with_adatas
+    n_barcodes = 3
+    barcodes = [validator.adata.obs.index[i] for i in range(n_barcodes)]
+    n_duplications = 2
+    total_duplicates = n_barcodes * (n_duplications + 1)
+
+    if validator.adata.raw is not None:
+        norm_adata = ad.AnnData(X=validator.adata.X.copy(),
+                                obs=validator.adata.obs.copy(),
+                                var=validator.adata.var.copy(),
+                                uns=validator.adata.uns.copy(),
+                                obsm=validator.adata.obsm.copy())
+        dup_adata = create_duplications(norm_adata,barcodes,n=n_duplications)
+        dup_adata.raw = ad.AnnData(X=validator.adata.raw.X.copy(),
+                                   var=validator.adata.raw.var.copy())
+
+        validator.adata = dup_adata
+
+    else:
+        print("No normalized data found in AnnData object.")
+        pass
+
+    validator.validate_adata()
+    assert validator.is_valid
+    assert validator.errors == []
