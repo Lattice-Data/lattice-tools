@@ -77,12 +77,10 @@ def test_a_cell_one_dup_non_visium_raw_in_X(validator_with_adatas):
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 def test_a_cell_one_dup_visium(validator_with_adatas):
     validator = validator_with_adatas
-
-    if "in_tissue" in validator.adata.obs.columns:
-        obs_to_keep = validator.adata.obs[validator.adata.obs["in_tissue"]!= 0].index
-        validator.adata = validator.adata[obs_to_keep, :].copy()
-
     barcode = [validator.adata.obs.index[0]]
+    if "in_tissue" in validator.adata.obs.columns:
+        barcode = [validator.adata.obs[validator.adata.obs["in_tissue"]==1].index[0]]
+
     dup_adata = create_duplications(validator.adata,barcode,n=1)
     raw_loc = []
 
@@ -103,12 +101,11 @@ def test_a_cell_one_dup_visium(validator_with_adatas):
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 def test_a_cell_one_dup_visium_raw_in_X(validator_with_adatas):
     validator = validator_with_adatas
+    barcode = [validator.adata.obs.index[0]]
 
     if "in_tissue" in validator.adata.obs.columns:
-        obs_to_keep = validator.adata.obs[validator.adata.obs["in_tissue"]!= 0].index
-        validator.adata = validator.adata[obs_to_keep, :].copy()
+        barcode = [validator.adata.obs[validator.adata.obs["in_tissue"]==1].index[0]]
 
-    barcode = [validator.adata.obs.index[0]]
     dup_adata = create_duplications(validator.adata,barcode,n=1)
     raw_loc = []
 
@@ -157,14 +154,12 @@ def test_many_cells_dup_non_visium(validator_with_adatas):
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 def test_many_cells_dup_visium(validator_with_adatas):
     validator = validator_with_adatas
-
-    if "in_tissue" in validator.adata.obs.columns:
-        obs_to_keep = validator.adata.obs[validator.adata.obs["in_tissue"]!= 0].index
-        validator.adata = validator.adata[obs_to_keep, :].copy()
-
     raw_loc = []
     n_barcodes = 5
     barcodes = [validator.adata.obs.index[i] for i in range(n_barcodes)]
+    if "in_tissue" in validator.adata.obs.columns:
+        barcodes = [validator.adata.obs[validator.adata.obs["in_tissue"]==1].index[i] for i in range(n_barcodes)]
+
     n_duplications = 2
     total_duplicates = n_barcodes * (n_duplications + 1)
 
@@ -216,14 +211,12 @@ def test_one_cell_many_dups_non_visium(validator_with_adatas):
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 def test_one_cell_many_dups_visium(validator_with_adatas):
     validator = validator_with_adatas
-
-    if "in_tissue" in validator.adata.obs.columns:
-        obs_to_keep = validator.adata.obs[validator.adata.obs["in_tissue"]!= 0].index
-        validator.adata = validator.adata[obs_to_keep, :].copy()
-
     raw_loc = []
     n_barcodes = 1
     barcodes = [validator.adata.obs.index[i] for i in range(n_barcodes)]
+    if "in_tissue" in validator.adata.obs.columns:
+        barcodes = [validator.adata.obs[validator.adata.obs["in_tissue"]==1].index[i] for i in range(n_barcodes)]
+
     n_duplications = 8
     total_duplicates = n_barcodes * (n_duplications + 1)
 
@@ -277,13 +270,10 @@ def test_dup_in_norm_non_visium(validator_with_adatas):
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 def test_dup_in_norm_visium(validator_with_adatas):
     validator = validator_with_adatas
-
-    if "in_tissue" in validator.adata.obs.columns:
-        obs_to_keep = validator.adata.obs[validator.adata.obs["in_tissue"]!= 0].index
-        validator.adata = validator.adata[obs_to_keep, :].copy()
-
     n_barcodes = 3
     barcodes = [validator.adata.obs.index[i] for i in range(n_barcodes)]
+    if "in_tissue" in validator.adata.obs.columns:
+        barcodes = [validator.adata.obs[validator.adata.obs["in_tissue"]==1].index[i] for i in range(n_barcodes)]
     n_duplications = 2
     total_duplicates = n_barcodes * (n_duplications + 1)
 
