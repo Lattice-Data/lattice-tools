@@ -16,6 +16,10 @@ def create_duplications(adata:ad.AnnData,barcodes:list[str],n=int):
                 raise ValueError("Not enough rows in the DataFrame to sample without replacement.")
 
         candidate_indices = adata.obs.index[~adata.obs.index.isin(barcodes)].tolist()
+        if "in_tissue" in adata.obs.columns:
+                obs_to_keep_in_tissue = set(adata.obs[adata.obs["in_tissue"]== 1].index)
+                candidate_indices = list(set(candidate_indices) - obs_to_keep_in_tissue)
+
         random_indices = np.random.choice(candidate_indices, size=total_needed, replace=False)  # Sample total unique indices minus those specified in barcodes list
         random_indices_list = [random_indices[i * n:(i + 1) * n].tolist() for i in range(len(barcodes))]
         obs_name_to_index = {name: i for i, name in enumerate(adata.obs_names)}
