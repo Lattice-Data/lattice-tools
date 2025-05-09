@@ -13,12 +13,13 @@ from cellxgene_schema.validate import Validator
 
 def back_to_dask(adata:ad.AnnData) -> Validator:
     adata.X = da.from_array(sparse.csr_matrix(adata.X))
-    raw_adata = ad.AnnData(
-        X = da.from_array(sparse.csr_matrix(adata.raw.X)),
-        obs=adata.obs,
-        var=adata.raw.var,
-    )
-    adata.raw = raw_adata
+    if adata.raw:
+        raw_adata = ad.AnnData(
+            X = da.from_array(sparse.csr_matrix(adata.raw.X)),
+            obs=adata.obs,
+            var=adata.raw.var,
+        )
+        adata.raw = raw_adata
     validator=Validator()
     validator.adata = adata
     return validator
@@ -35,18 +36,18 @@ def subset_adata(fixture_file:str):
     adata = read_h5ad(FIXTURES_ROOT / fixture_file)
     new_adata = adata[:5 , :5].copy()  # subsets all attributes, except adata.raw
     raw_matrix = np.array([
-        [1, 0, 0, 0, 0],
-        [0, 2, 0, 0, 0],
-        [0, 0, 3, 0, 0],
-        [0, 0, 0, 4, 0],
-        [0, 0, 0, 0, 5],
+        [1, 0, 0, 0, 1],
+        [1, 2, 0, 0, 0],
+        [1, 0, 3, 0, 0],
+        [1, 0, 0, 4, 0],
+        [1, 0, 0, 0, 5],
     ],dtype=np.float32)
     norm_matrix = np.array([
-        [1.1, 0, 0, 0, 0],
-        [0, 2.2, 0, 0, 0],
-        [0, 0, 3.3, 0, 0],
-        [0, 0, 0, 4.4, 0],
-        [0, 0, 0, 0, 5.5]
+        [1.1, 0, 0, 0, 1.1],
+        [1.1, 2.2, 0, 0, 0],
+        [1.1, 0, 3.3, 0, 0],
+        [1.1, 0, 0, 4.4, 0],
+        [1.1, 0, 0, 0, 5.5]
     ],dtype=np.float32)
     new_raw_adata = ad.AnnData(
         X = raw_matrix,
