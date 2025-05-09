@@ -21,12 +21,14 @@ raw.X & .X + feature present in raw.X & .X + feature_is_filtered = False + ALL .
 """
 
 import pytest
+import anndata as ad
 from testing_internals.subset_anndata import subset_adata,back_to_dask
 from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from cellxgene_schema.utils import read_h5ad
 from fixtures.valid_adatas import (
     MULTISPECIES_H5ADS,
+    FIXTURES_ROOT,
     test_h5ads,
     validator_with_adatas
 )
@@ -34,7 +36,66 @@ from fixtures.valid_adatas import (
 
 @pytest.mark.parametrize("fixture_file", MULTISPECIES_H5ADS)
 class TestSubset:
-    def test_valid(self,subset_adata):
+    def test_valid(self,fixture_file):
+        adata = read_h5ad(FIXTURES_ROOT / fixture_file)
+        validator = Validator()
+        validator.adata = adata
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+    def test_pass_X_raw_all_false(self,subset_adata):
+        adata = subset_adata
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+    def test_pass_onlyX_all_false(self,subset_adata):
+        '''
+        raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X --> see subset_adata()
+        '''
+        adata = subset_adata
+        del adata.X
+        adata.X = adata.raw.X
+        del adata.raw
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+    def test_pass_1var_all0_x_raw(self,subset_adata):
+        '''
+        raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
+        '''
+        adata = subset_adata
+        print(adata.var['feature_is_filtered'].unique())
+        adata.X[:5, :1] = 0 #modify dense arrays
+        print(adata.X)
+        raw_matrix = adata.raw.X
+        raw_matrix[:5, :1] = 0 #modify = ad.AnnData(modified )
+        adata.raw = ad.AnnData(X=raw_matrix,obs = adata.obs[:5],var = adata.raw.var[:5])
+        print(adata.raw.X)
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+    def test_pass_onlyX(self,subset_adata):
+        '''
+        raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
+        '''
+        adata = subset_adata
+        adata.X[:5, :1] = 0
+        adata.var.iloc[0, adata.var.columns.get_loc('feature_is_filtered')] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+
+''''
+    def test_pass_onlyX(self,subset_adata):
         adata = subset_adata
         adata.X[] = 0 #modify dense arrays
         raw_matrix = adata.raw.X
