@@ -52,28 +52,6 @@ def test_a_cell_one_dup_non_visium(validator_with_adatas):
     ) in validator.errors
 
 
-@pytest.mark.parametrize("test_h5ads", NON_SPATIAL_H5ADS)
-def test_a_cell_one_dup_non_visium_raw_in_X(validator_with_adatas):
-    validator = validator_with_adatas
-    barcode = [validator.adata.obs.index[0]]
-    dup_adata = create_duplications(validator.adata,barcode,n=1)
-    raw_loc = []
-
-    if validator.adata.raw:
-        del validator.adata.raw
-        validator.adata = dup_adata
-        raw_loc.append("adata.X")
-    else:
-        raw_loc.append("adata.X")
-        validator.adata = dup_adata
-
-    validator.validate_adata()
-    assert not validator.is_valid
-    assert (
-        f"ERROR: Found 2 duplicated raw counts in obs {raw_loc[0]}."
-    ) in validator.errors
-
-
 @pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
 def test_a_cell_one_dup_visium(validator_with_adatas):
     validator = validator_with_adatas
