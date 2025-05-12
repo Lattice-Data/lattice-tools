@@ -45,7 +45,7 @@ class TestSubset:
         assert validator.errors == []
 
 
-     def test_pass_onlyX_all_false(self,subset_adata):
+    def test_pass_onlyX_all_false(self,subset_adata):
         '''
         only .X + feature_is_filtered = False for all
         '''
@@ -75,13 +75,11 @@ class TestSubset:
         raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
         '''
         adata = subset_adata
-        print(adata.var['feature_is_filtered'].unique())
-        adata.X[:5, :1] = 0
-        print(adata.X)
+        gene_index = 0
+        adata.X[:, gene_index] = 0
         raw_matrix = adata.raw.X
-        raw_matrix[:5, :1] = 0
-        adata.raw = ad.AnnData(X=raw_matrix,obs = adata.obs[:5],var = adata.raw.var[:5])
-        print(adata.raw.X)
+        raw_matrix[:, gene_index] = 0
+        adata.raw = ad.AnnData(X=raw_matrix,obs = adata.obs[:],var = adata.raw.var[:])
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert validator.is_valid
@@ -92,16 +90,51 @@ class TestSubset:
         raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
         '''
         adata = subset_adata
-        adata.X[:5, :1] = 0
-        adata.var.iloc[0, adata.var.columns.get_loc('feature_is_filtered')] = True
+        gene_index = 0
+        adata.X[:, gene_index] = 0
+        adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert validator.is_valid
         assert validator.errors == []
 
 
-''''
-    def test_pass_onlyX(self,subset_adata):
+    def test_fail_X_true(self,subset_adata):
+        '''
+        only .X + feature_is_filtered = True
+        '''
+        adata = subset_adata
+        adata.X = adata.raw.X
+        del adata.raw
+        adata.var['feature_is_filtered'] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
+        ) in validator.errors
+
+
+    def test_fail_X_true_single_var(self,subset_adata):
+
+        #only .X + feature_is_filtered = True for just a single var that sums to 0 for all cells
+
+        adata = subset_adata
+        adata.X = adata.raw.X
+        del adata.raw
+        gene_index = 0
+        adata.X[:, gene_index] = 0
+        adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
+        ) in validator.errors
+
+'''
+    def test_fail_(self,subset_adata):
+
+        #raw.X & .X - a gene ID in raw.var.index that is not present in var.index, and vice versa
+
         adata = subset_adata
         adata.X[] = 0 #modify dense arrays
         raw_matrix = adata.raw.X
