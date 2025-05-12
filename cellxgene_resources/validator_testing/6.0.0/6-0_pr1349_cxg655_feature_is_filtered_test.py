@@ -4,10 +4,10 @@ PR: https://github.com/chanzuckerberg/single-cell-curation/pull/1349
 
 
 should pass:
-only .X + feature_is_filtered = False for all
-raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X
-raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
-raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
+(Y) only .X + feature_is_filtered = False for all
+(Y) raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X
+(Y) raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
+(Y) raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
 
 should not pass:
 only .X + feature_is_filtered = True
@@ -44,16 +44,10 @@ class TestSubset:
         assert validator.is_valid
         assert validator.errors == []
 
-    def test_pass_X_raw_all_false(self,subset_adata):
-        adata = subset_adata
-        validator = back_to_dask(adata)
-        validator.validate_adata()
-        assert validator.is_valid
-        assert validator.errors == []
 
-    def test_pass_onlyX_all_false(self,subset_adata):
+     def test_pass_onlyX_all_false(self,subset_adata):
         '''
-        raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X --> see subset_adata()
+        only .X + feature_is_filtered = False for all
         '''
         adata = subset_adata
         del adata.X
@@ -64,16 +58,28 @@ class TestSubset:
         assert validator.is_valid
         assert validator.errors == []
 
+
+    def test_pass_X_raw_all_false(self,subset_adata):
+        '''
+        raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X --> see subset_adata()
+        '''
+        adata = subset_adata
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+
     def test_pass_1var_all0_x_raw(self,subset_adata):
         '''
         raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
         '''
         adata = subset_adata
         print(adata.var['feature_is_filtered'].unique())
-        adata.X[:5, :1] = 0 #modify dense arrays
+        adata.X[:5, :1] = 0
         print(adata.X)
         raw_matrix = adata.raw.X
-        raw_matrix[:5, :1] = 0 #modify = ad.AnnData(modified )
+        raw_matrix[:5, :1] = 0
         adata.raw = ad.AnnData(X=raw_matrix,obs = adata.obs[:5],var = adata.raw.var[:5])
         print(adata.raw.X)
         validator = back_to_dask(adata)
@@ -81,7 +87,7 @@ class TestSubset:
         assert validator.is_valid
         assert validator.errors == []
 
-    def test_pass_onlyX(self,subset_adata):
+    def test_pass_0s_in_X_true(self,subset_adata):
         '''
         raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
         '''
