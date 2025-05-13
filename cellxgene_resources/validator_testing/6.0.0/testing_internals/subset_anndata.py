@@ -28,7 +28,7 @@ def back_to_dask(adata:ad.AnnData) -> Validator:
 @pytest.fixture
 def subset_adata(fixture_file:str):
     '''
-    Subsets anndata at both raw.X and .X and replaces matrices with valide matrices according to schema 6.0
+    Subsets anndata at both raw.X and .X and replaces matrices with valid matrices according to schema 6.0
 
     :rtype Anndata n_obs = 5 and n_var = 5.
     '''
