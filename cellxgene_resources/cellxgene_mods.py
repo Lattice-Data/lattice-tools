@@ -1198,7 +1198,7 @@ def create_batch_download_txt(
     """
     Given a collection id, generate a txt file for parallel download with xargs and wget 
     Will rename the downloaded file as follows:
-    "{dataset_title}-{dataset_id}.h5ad" 
+    "{dataset_title}__{dataset_id}__.h5ad" 
 
     Args:
         collection_id: str = CXG collection id
@@ -1238,7 +1238,7 @@ def create_batch_download_txt(
     full_output_txt = os.path.join(output_dir, txt_name)
 
     def new_file_name(dataset_info: dict, include_dataset_id: bool) -> str:
-        id_string = "-" + dataset_info["dataset_id"] if include_dataset_id else ""
+        id_string = "__" + dataset_info["dataset_id"] + "__" if include_dataset_id else ""
         return dataset_info["title"].replace(" ", "_") + id_string + ".h5ad" 
 
         
