@@ -1198,13 +1198,17 @@ def create_batch_download_txt(
     Given a collection id, generate a txt file for parallel download with xargs and wget 
     Will rename the downloaded file as follows:
     "{dataset_title}.h5ad" 
+
+    The first line of the output file will also contain the correct terminal
+    command to start the parallel download
     
     Will replace any spaces in the title with _
 
     Use outputed txt file with following command:
 
-    cat batch_download.txt | xargs -n 2 -P 4 wget -O
+    cat batch_download.txt | sed 1d | xargs -n 2 -P 4 wget -O
 
+        -sed 1d to skip the first line that contains the cli command to start downloading
         -n is number of arguments on line to pass to wget, so new file name and download url
         -P is number of parallel downloads
 
@@ -1229,9 +1233,13 @@ def create_batch_download_txt(
         for dataset in datasets
     }
 
+    cli_command = f"cat {txt_name} | sed 1d | xargs -n 2 -P {num_parallel_downloads} wget -O"
+
     with open(full_output_txt, "w") as output_file:
+        output_file.write(f"{cli_command}\n")
         for url, file_name in files_dict.items():
             output_file.write(f"{file_name}{seperator}{url}\n")
 
     print(f"Successfully saved {txt_name} to {output_dir}")
-    print(f"Use this terminal command to start batch download: cat {txt_name} | xargs -n 2 -P {num_parallel_downloads} wget -O")
+    print(f"Use this terminal command to start batch download: {cli_command}")
+    print(f"The terminal command is also saved in the first line of {txt_name}")
