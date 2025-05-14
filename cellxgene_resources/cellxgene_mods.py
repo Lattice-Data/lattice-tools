@@ -1192,12 +1192,22 @@ def create_batch_download_txt(
         txt_name: str = "batch_download.txt",
         seperator: str = " ",
         num_parallel_downloads: int = 4,
-        env="prod"
+        include_dataset_id: bool = True,
+        env: str = "prod"
     ) -> None:
     """
     Given a collection id, generate a txt file for parallel download with xargs and wget 
     Will rename the downloaded file as follows:
-    "{dataset_title}.h5ad" 
+    "{dataset_title}-{dataset_id}.h5ad" 
+
+    Args:
+        collection_id: str = CXG collection id
+        output_dir: str = path to save txt file with new file names and URLs, default is local directory
+        txt_name: str = name of txt file, default batch_download.txt
+        seperator: str = character to use for seperator with xargs, default is space (" ")
+        num_parallel_downloads: int = simultaneous wget downloads, default 4
+        include_dataset_id: bool = include dataset_id in file name, if False, only inlcude dataset title
+        env: str = CXG env for download, can be "prod", "staging", or "dev"
 
     The first line of the output file will also contain the correct terminal
     command to start the parallel download
@@ -1227,9 +1237,14 @@ def create_batch_download_txt(
     BASE_URL = os.environ['SITE_URL'].replace("://", "://datasets.") + "/"
     full_output_txt = os.path.join(output_dir, txt_name)
 
+    def new_file_name(dataset_info: dict, include_dataset_id: bool) -> str:
+        id_string = "-" + dataset_info["dataset_id"] if include_dataset_id else ""
+        return dataset_info["title"].replace(" ", "_") + id_string + ".h5ad" 
+
+        
     files_dict = {
         BASE_URL + dataset["dataset_version_id"] + ".h5ad": 
-        dataset["title"].replace(" ", "_") + ".h5ad" 
+        new_file_name(dataset, include_dataset_id)
         for dataset in datasets
     }
 
