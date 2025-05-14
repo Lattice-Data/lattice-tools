@@ -53,118 +53,108 @@ ERROR_MESSAGE = [
     "in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'." + error_message_suffix
     ]
 
-
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS[0:1])
-def test_passes(validator_with_adatas):
-    validator = validator_with_adatas
-    validator.validate_adata()
-    assert validator.is_valid
-    assert validator.errors == []
+@pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
+class TestDiseaseOntologyValidation:
+    @pytest.fixture(autouse=True)
+    def setup(self, validator_with_adatas):
+        self.validator = validator_with_adatas
 
 
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS[0:1])
-@pytest.mark.parametrize("valid_term", VALID_VALUES)
-def test_disease_valid_values(validator_with_adatas,valid_term):
-
-    # various lists of valid MONDO terms => valid
-
-    validator = validator_with_adatas
-    validator.adata.obs["disease_ontology_term_id"] = valid_term
-    validator.validate_adata()
-    assert validator.is_valid
-    assert validator.errors == []
+    def test_passes(self):
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
 
 
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS[0:1])
-@pytest.mark.parametrize("invalid_term", INVALID_VALUES[1:2])
-@pytest.mark.parametrize("error", ERROR_MESSAGE[0:1])
-def test_disease_invalid_duplicates(validator_with_adatas,invalid_term,error):
+    @pytest.mark.parametrize("valid_term", VALID_VALUES)
+    def test_disease_valid_values(self, valid_term):
 
-    # valid MONDO terms with duplicates => invalid
+        # various lists of valid MONDO terms => valid
 
-    validator = validator_with_adatas
-    validator.adata.obs["disease_ontology_term_id"] = invalid_term
-    validator.validate_adata()
-    assert not validator.is_valid
-    assert (f"ERROR: '{invalid_term}' {error}"
-        ) in validator.errors
+        self.validator.adata.obs["disease_ontology_term_id"] = valid_term
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
 
 
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS[0:1])
-@pytest.mark.parametrize("invalid_term", INVALID_VALUES[2:3])
-@pytest.mark.parametrize("error", ERROR_MESSAGE[1:2])
-def test_disease_invalid_order(validator_with_adatas,invalid_term,error):
+    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[1:2])
+    @pytest.mark.parametrize("error", ERROR_MESSAGE[0:1])
+    def test_disease_invalid_duplicates(self, invalid_term, error):
 
-    # valid MONDO terms out of lexical order => invalid
+        # valid MONDO terms with duplicates => invalid
 
-    validator = validator_with_adatas
-    validator.adata.obs["disease_ontology_term_id"] = invalid_term
-    validator.validate_adata()
-    assert not validator.is_valid
-    assert (f"ERROR: '{invalid_term}' {error}"
-        ) in validator.errors
+        self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert f"ERROR: '{invalid_term}' {error}" in self.validator.errors
 
 
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS[0:1])
-@pytest.mark.parametrize("invalid_term", INVALID_VALUES[3:5])
-@pytest.mark.parametrize("error", ERROR_MESSAGE[2:3])
-def test_disease_invalid_delimiter(validator_with_adatas,invalid_term,error):
+    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[2:3])
+    @pytest.mark.parametrize("error", ERROR_MESSAGE[1:2])
+    def test_disease_invalid_order(self, invalid_term, error):
 
-    # valid MONDO terms with different delimiters - e.g. || (without spaces and commas) => invalid
+        # valid MONDO terms out of lexical order => invalid
 
-    validator = validator_with_adatas
-    validator.adata.obs["disease_ontology_term_id"] = invalid_term
-    validator.validate_adata()
-    assert not validator.is_valid
-    assert (f"ERROR: '{invalid_term}' {error}"
-        ) in validator.errors
+        self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
 
 
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS[0:1])
-@pytest.mark.parametrize("invalid_term", INVALID_VALUES[5:6])
-@pytest.mark.parametrize("error", ERROR_MESSAGE[2:3])
-def test_disease_valid_term_with_normal_term(validator_with_adatas,invalid_term,error):
+    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[3:5])
+    @pytest.mark.parametrize("error", ERROR_MESSAGE[2:3])
+    def test_disease_invalid_delimiter(self, invalid_term, error):
 
-     # normal term w/ valid MONDO term => invalid
+        # valid MONDO terms with different delimiters - e.g. || (without spaces and commas) => invalid
 
-    ### Validation error is confusing here and should probably be fixed.
+        self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
 
-    # Correct me if I'm wrong, but the error message is slicing out PATO:0000461 as an invalid term and
-    # then also erroring on the lexical order of the terms:
+    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[5:6])
+    @pytest.mark.parametrize("error", ERROR_MESSAGE[2:3])
+    def test_disease_valid_term_with_normal_term(self, invalid_term, error):
 
-        # First error:
-        # "ERROR: 'PATO:0000461' in 'disease_ontology_term_id' is not a valid ontology term id
-        # of 'MONDO'. Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof,
-        # or descendant terms of 'MONDO:0000001' (disease) are allowed. Multiple MONDO terms are supported if in
-        # ascending lexical order with the delimiter ` || `.",
+        # normal term w/ valid MONDO term => invalid
 
-        # Second error:
-        # "ERROR: 'PATO:0000461 || MONDO:0004604'
-        # in 'disease_ontology_term_id' is not in ascending lexical order. Only 'PATO:0000461' (normal),
-        # 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of 'MONDO:0000001' (disease)
-        # are allowed. Multiple MONDO terms are supported if in ascending lexical order with the delimiter ` || `."]"
+        ### Validation error is confusing here and should probably be fixed.
 
-    validator = validator_with_adatas
-    validator.adata.obs["disease_ontology_term_id"] = invalid_term
-    validator.validate_adata()
-    assert not validator.is_valid
-    assert (f"ERROR: '{invalid_term}' {error}"
-        ) in validator.errors
+        # Correct me if I'm wrong, but the error message is slicing out PATO:0000461 as an invalid term and
+        # then also erroring on the lexical order of the terms:
 
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS[0:1])
-@pytest.mark.parametrize("test_term", VALID_VALUES[1:2])
-def test_disease_add_label_order_valid_values(validator_with_adatas,test_term):
+            # First error:
+            # "ERROR: 'PATO:0000461' in 'disease_ontology_term_id' is not a valid ontology term id
+            # of 'MONDO'. Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof,
+            # or descendant terms of 'MONDO:0000001' (disease) are allowed. Multiple MONDO terms are supported if in
+            # ascending lexical order with the delimiter ` || `.",
 
-    # add_labels check: obs.disease order matches disease_ontology_term_id order
+            # Second error:
+            # "ERROR: 'PATO:0000461 || MONDO:0004604'
+            # in 'disease_ontology_term_id' is not in ascending lexical order. Only 'PATO:0000461' (normal),
+            # 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of 'MONDO:0000001' (disease)
+            # are allowed. Multiple MONDO terms are supported if in ascending lexical order with the delimiter ` || `."]"
 
-    validator = validator_with_adatas
-    validator.adata.obs["disease_ontology_term_id"] = validator.adata.obs["disease_ontology_term_id"].cat.add_categories(test_term)
-    validator.adata.obs.loc[validator.adata.obs.index[0], "disease_ontology_term_id"] = test_term
-    validator.validate_adata()
-    labeler = AnnDataLabelAppender(validator.adata)
-    labeler._add_labels()
-    map = { "Hodgkin's lymphoma, lymphocytic-histiocytic predominance":"MONDO:0004604",
-            "Weil's disease":"MONDO:0043004",
-            "atrial fibrillation, familial, 16":"MONDO:0800349",
-            "mitral valve insufficiency":"MONDO:1030008"}
-    assert labeler.adata.obs["disease_ontology_term_id"][0].split(" || ") == [map[t] for t in labeler.adata.obs["disease"][0].split(" || ")]
+        self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
+
+    @pytest.mark.parametrize("test_term", VALID_VALUES[1:2])
+    def test_disease_add_label_order_valid_values(self, test_term):
+
+        # add_labels check: obs.disease order matches disease_ontology_term_id order
+
+        self.validator.adata.obs["disease_ontology_term_id"] = self.validator.adata.obs["disease_ontology_term_id"].cat.add_categories(test_term)
+        self.validator.adata.obs.loc[self.validator.adata.obs.index[0], "disease_ontology_term_id"] = test_term
+        self.validator.validate_adata()
+        labeler = AnnDataLabelAppender(self.validator.adata)
+        labeler._add_labels()
+        map = { "Hodgkin's lymphoma, lymphocytic-histiocytic predominance":"MONDO:0004604",
+                "Weil's disease":"MONDO:0043004",
+                "atrial fibrillation, familial, 16":"MONDO:0800349",
+                "mitral valve insufficiency":"MONDO:1030008"}
+        assert labeler.adata.obs["disease_ontology_term_id"][0].split(" || ") == [map[t] for t in labeler.adata.obs["disease"][0].split(" || ")]
