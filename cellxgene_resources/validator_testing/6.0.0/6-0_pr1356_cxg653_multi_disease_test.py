@@ -27,31 +27,31 @@ from fixtures.valid_adatas import (
     validator_with_adatas
 )
 
-VALID_VALUES = [
-    "PATO:0000461",
-    "MONDO:0004604 || MONDO:0043004 || MONDO:0800349 || MONDO:1030008",  # in lexical order
-    "MONDO:0004604"
-    ]
+VALID_VALUES = {
+    "normal": "PATO:0000461",
+    "in lexical order": "MONDO:0004604 || MONDO:0043004 || MONDO:0800349 || MONDO:1030008",  # in lexical order
+    "valid MONDO": "MONDO:0004604"
+    }
 
-INVALID_VALUES = [
-    "PATO:0000461 ",
-    "MONDO:0004604 || MONDO:0043004 || MONDO:0800349 || MONDO:1030008 || MONDO:1030008",  # last term duplicated
-    "MONDO:0043004 || MONDO:0004604 || MONDO:1030008 || MONDO:0800349",  # out of lexical order
-    "MONDO:0004604 , MONDO:0043004 , MONDO:0800349 , MONDO:1030008",  # different delimiter
-    "MONDO:0004604||MONDO:0043004||MONDO:0800349||MONDO:1030008",  # no spaces
-    "PATO:0000461 || MONDO:0004604",  # normal term w/ valid MONDO term
-    "MONDO:0100355 || MONDO:0043004"  # invalid MONDO term + valid MONDO term
-    ]
+INVALID_VALUES = {
+    "normal term with space": "PATO:0000461 ",
+    "last term duplicated": "MONDO:0004604 || MONDO:0043004 || MONDO:0800349 || MONDO:1030008 || MONDO:1030008",
+    "out of lexical order": "MONDO:0043004 || MONDO:0004604 || MONDO:1030008 || MONDO:0800349",
+    "different delimiter": "MONDO:0004604 , MONDO:0043004 , MONDO:0800349 , MONDO:1030008",
+    "no spaces": "MONDO:0004604||MONDO:0043004||MONDO:0800349||MONDO:1030008",
+    "normal term w/ valid MONDO term": "PATO:0000461 || MONDO:0004604",
+    "invalid MONDO term + valid MONDO term": "MONDO:0100355 || MONDO:0043004"
+    }
 
 error_message_suffix = " Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of " \
     + "'MONDO:0000001' (disease) are allowed. Multiple MONDO terms are supported if in ascending lexical order with the delimiter ` || `."
 
 
-ERROR_MESSAGE = [
-    "in 'disease_ontology_term_id' contains duplicates." + error_message_suffix,
-    "in 'disease_ontology_term_id' is not in ascending lexical order." + error_message_suffix,
-    "in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'." + error_message_suffix
-    ]
+ERROR_MESSAGE = {
+    "contains duplicates": "in 'disease_ontology_term_id' contains duplicates." + error_message_suffix,
+    "not in lexical order": "in 'disease_ontology_term_id' is not in ascending lexical order." + error_message_suffix,
+    "not a valid term": "in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'." + error_message_suffix
+    }
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
 class TestDiseaseOntologyValidation:
@@ -66,7 +66,7 @@ class TestDiseaseOntologyValidation:
         assert self.validator.errors == []
 
 
-    @pytest.mark.parametrize("valid_term", VALID_VALUES)
+    @pytest.mark.parametrize("valid_term", VALID_VALUES.values())
     def test_disease_valid_values(self, valid_term):
 
         # various lists of valid MONDO terms => valid
@@ -77,8 +77,8 @@ class TestDiseaseOntologyValidation:
         assert self.validator.errors == []
 
 
-    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[1:2])
-    @pytest.mark.parametrize("error", ERROR_MESSAGE[0:1])
+    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["last term duplicated"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["contains duplicates"]])
     def test_disease_invalid_duplicates(self, invalid_term, error):
 
         # valid MONDO terms with duplicates => invalid
@@ -89,8 +89,8 @@ class TestDiseaseOntologyValidation:
         assert f"ERROR: '{invalid_term}' {error}" in self.validator.errors
 
 
-    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[2:3])
-    @pytest.mark.parametrize("error", ERROR_MESSAGE[1:2])
+    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["out of lexical order"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not in lexical order"]])
     def test_disease_invalid_order(self, invalid_term, error):
 
         # valid MONDO terms out of lexical order => invalid
@@ -102,8 +102,8 @@ class TestDiseaseOntologyValidation:
             ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[3:5])
-    @pytest.mark.parametrize("error", ERROR_MESSAGE[2:3])
+    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["different delimiter"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not a valid term"]])
     def test_disease_invalid_delimiter(self, invalid_term, error):
 
         # valid MONDO terms with different delimiters - e.g. || (without spaces and commas) => invalid
@@ -114,8 +114,8 @@ class TestDiseaseOntologyValidation:
         assert (f"ERROR: '{invalid_term}' {error}"
             ) in self.validator.errors
 
-    @pytest.mark.parametrize("invalid_term", INVALID_VALUES[5:6])
-    @pytest.mark.parametrize("error", ERROR_MESSAGE[2:3])
+    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["normal term w/ valid MONDO term"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not a valid term"]])
     def test_disease_valid_term_with_normal_term(self, invalid_term, error):
 
         # normal term w/ valid MONDO term => invalid
@@ -143,7 +143,7 @@ class TestDiseaseOntologyValidation:
         assert (f"ERROR: '{invalid_term}' {error}"
             ) in self.validator.errors
 
-    @pytest.mark.parametrize("test_term", VALID_VALUES[1:2])
+    @pytest.mark.parametrize("test_term", [VALID_VALUES["in lexical order"]])
     def test_disease_add_label_order_valid_values(self, test_term):
 
         # add_labels check: obs.disease order matches disease_ontology_term_id order
