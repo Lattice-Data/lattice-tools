@@ -149,11 +149,9 @@ class TestSubset:
         ) in validator.errors
 
 
-    def test_fail_gene_in_X(self,subset_adata):  # VALIDATOR IS ERRORING with IndexError: index 4 is out of bounds for axis 0 with size 4
+    def test_fail_gene_in_X(self,subset_adata):
 
-        # Question: should an error message be implemented here? in _validate_column_feature_is_filtered()
-
-        #raw.X & .X - a gene ID in var.index that is not present in raw.var.index should not pass
+        # raw.X & .X - a gene ID in var.index that is not present in raw.var.index should not pass
 
         adata = subset_adata
         gene_index = 0
@@ -166,12 +164,10 @@ class TestSubset:
         )
         new_raw_adata = raw_adata[:,var_to_keep]
         adata.raw = new_raw_adata
-        print(adata.var)
-        print(adata.raw.var)
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert not validator.is_valid
-        #assert (f"ERROR:" ) in validator.errors
+        assert (f"ERROR: Could not complete full validation of feature_is_filtered because of size differences between var and raw.var.") in validator.errors
 
 
     def test_fail_true_allnot0(self,subset_adata):
