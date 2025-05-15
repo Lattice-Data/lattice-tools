@@ -40,7 +40,7 @@ INVALID_VALUES = {
     "different delimiter": "MONDO:0004604 , MONDO:0043004 , MONDO:0800349 , MONDO:1030008",
     "no spaces": "MONDO:0004604||MONDO:0043004||MONDO:0800349||MONDO:1030008",
     "normal term w/ valid MONDO term": "PATO:0000461 || MONDO:0004604",
-    "invalid MONDO term + valid MONDO term": "MONDO:0100355 || MONDO:0043004"
+    "invalid MONDO term": "MONDO:0100355"
     }
 
 error_message_suffix = " Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of " \
@@ -50,8 +50,8 @@ error_message_suffix = " Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) 
 ERROR_MESSAGE = {
     "contains duplicates": "in 'disease_ontology_term_id' contains duplicates." + error_message_suffix,
     "not in lexical order": "in 'disease_ontology_term_id' is not in ascending lexical order." + error_message_suffix,
-    "not a valid term": "in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'." + error_message_suffix
-    }
+    "not a valid term": "in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'." + error_message_suffix,
+    "not an allowed term": "in 'disease_ontology_term_id' is not an allowed term id." + error_message_suffix}
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
 class TestDiseaseOntologyValidation:
@@ -166,6 +166,21 @@ class TestDiseaseOntologyValidation:
         assert not self.validator.is_valid
         assert (f"ERROR: '{invalid_term}' {error}"
             ) in self.validator.errors
+
+
+    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["invalid MONDO term"]])
+    @pytest.mark.parametrize("valid_term", [VALID_VALUES["valid MONDO"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not an allowed term"]])
+    def test_disease_invalid_valid_terms(self, invalid_term,valid_term, error):
+
+        # invalid MONDO term with valid MONDO term => invalid
+
+        self.validator.adata.obs["disease_ontology_term_id"] = valid_term + " || " + invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
+
 
     @pytest.mark.parametrize("test_term", [VALID_VALUES["in lexical order"]])
     def test_disease_add_label_order_valid_values(self, test_term):
