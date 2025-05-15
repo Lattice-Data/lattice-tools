@@ -76,6 +76,17 @@ class TestDiseaseOntologyValidation:
         assert self.validator.is_valid
         assert self.validator.errors == []
 
+    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["normal term with space"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not a valid term"]])
+    def test_disease_valid_term_with_space(self, invalid_term, error):
+
+        # valid MONDO terms with space => invalid
+
+        self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert f"ERROR: '{invalid_term}' {error}" in self.validator.errors
+
 
     @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["last term duplicated"]])
     @pytest.mark.parametrize("error", [ERROR_MESSAGE["contains duplicates"]])
