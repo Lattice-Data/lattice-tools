@@ -48,11 +48,11 @@ HUMAN_INVALID_VALUES = {
 }
 
 NON_HUMAN_VALID_VALUES = {
-    "non human valid term":"na"
+    "nonhuman valid term":"na"
 }
 
 NON_HUMAN_INVALID_VALUES = {
-    "non human invalid term":"HANCESTRO:0005"
+    "nonhuman invalid term":"HANCESTRO:0005"
 }
 
 error_message_suffix = " When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be formatted as one or more HANCESTRO terms in ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable. Cannot match any forbidden HANCESTRO terms listed in schema definition."
@@ -89,7 +89,7 @@ class TestHumanEthnicityOntologyValidation:
         assert self.validator.errors == []
 
 
-    @pytest.mark.parametrize("invalid_term", HUMAN_INVALID_VALUES["duplicate terms"])
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES["duplicate terms"]])
     @pytest.mark.parametrize("error", ERROR_MESSAGE["contains duplicates"])
     def test_ethnicity_invalid_duplicates(self, invalid_term, error):
 
@@ -102,7 +102,7 @@ class TestHumanEthnicityOntologyValidation:
         assert f"ERROR: '{invalid_term}' {error}" in self.validator.errors
 
 
-    @pytest.mark.parametrize("invalid_term", HUMAN_INVALID_VALUES["out of lexical order"])
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES["out of lexical order"]])
     @pytest.mark.parametrize("error", ERROR_MESSAGE["not in lexical order"])
     def test_ethnicity_invalid_order(self, invalid_term, error):
 
@@ -115,7 +115,7 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("invalid_term", HUMAN_INVALID_VALUES["different delimiter"])
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES["different delimiter"]])
     @pytest.mark.parametrize("error", ERROR_MESSAGE["not a valid term"])
     def test_ethnicity_invalid_delimiter(self, invalid_term, error):
 
@@ -128,7 +128,7 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("invalid_term", HUMAN_INVALID_VALUES["no spaces"])
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES["no spaces"]])
     @pytest.mark.parametrize("error", ERROR_MESSAGE["not a valid term"])
     def test_ethnicity_invalid_space(self, invalid_term, error):
 
@@ -141,7 +141,7 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("invalid_term", HUMAN_INVALID_VALUES["valid term with unknown"])
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES["valid term with unknown"]])
     @pytest.mark.parametrize("error", ERROR_MESSAGE["not a valid term"])
     def test_ethnicity_valid_term_with_unknown(self, invalid_term, error):
 
@@ -165,7 +165,7 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("test_term", HUMAN_VALID_VALUES["multiple valid terms"])
+    @pytest.mark.parametrize("test_term", [HUMAN_VALID_VALUES["multiple valid terms"]])
     def test_ethnicity_add_label_order_valid_values(self, test_term):
 
         # add_labels check: obs.ethnicity order matches self_reported_ethnicity_ontology_term_id order
@@ -193,7 +193,7 @@ class TestNonHumanEthnicityOntologyValidation:
         assert self.validator.errors == []
 
 
-    @pytest.mark.parametrize("valid_term", NON_HUMAN_VALID_VALUES["non human valid term"])
+    @pytest.mark.parametrize("valid_term", [NON_HUMAN_VALID_VALUES["nonhuman valid term"]])
     def test_nonhuman_ethnicity_valid_values(self, valid_term):
 
         # various lists of valid HANCESTRO terms => valid
@@ -203,7 +203,7 @@ class TestNonHumanEthnicityOntologyValidation:
         assert self.validator.is_valid
         assert self.validator.errors == []
 
-    @pytest.mark.parametrize("invalid_term", NON_HUMAN_INVALID_VALUES["non human invalid term"])
+    @pytest.mark.parametrize("invalid_term",[NON_HUMAN_INVALID_VALUES["nonhuman invalid term"]])
     @pytest.mark.parametrize("error", ERROR_MESSAGE["not a valid term"])
     def test_nonhuman_ethnicity_invalid_duplicates(self, invalid_term, error):
 
