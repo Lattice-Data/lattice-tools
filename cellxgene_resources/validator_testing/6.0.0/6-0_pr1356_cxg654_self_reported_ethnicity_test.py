@@ -52,7 +52,6 @@ NON_HUMAN_VALID_VALUES = ["na"] # nonhuman valid term
 NON_HUMAN_INVALID_VALUES = ["HANCESTRO:0005"] # nonhuman invalid term
 
 error_message_suffix = " When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be formatted as one or more HANCESTRO terms in ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable. Cannot match any forbidden HANCESTRO terms listed in schema definition."
-# When 'organism_ontology_term_id' is NOT 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be 'na'.
 
 ERROR_MESSAGE = [
     "in 'self_reported_ethnicity_ontology_term_id' contains duplicates." + error_message_suffix,  # contains duplicates
@@ -60,6 +59,7 @@ ERROR_MESSAGE = [
     "in 'self_reported_ethnicity_ontology_term_id' is not a valid ontology term id of 'HANCESTRO'." + error_message_suffix  # not a valid term
 ]
 
+NON_HUMAN_ERROR_MESSAGE = ["in 'self_reported_ethnicity_ontology_term_id' is not a valid value of 'self_reported_ethnicity_ontology_term_id'. When 'organism_ontology_term_id' is NOT 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be 'na'."]
 
 @pytest.mark.parametrize("test_h5ads", HUMAN_H5ADS)
 class TestHumanEthnicityOntologyValidation:
@@ -158,14 +158,14 @@ class TestHumanEthnicityOntologyValidation:
         # add_labels check: obs.ethnicity order matches self_reported_ethnicity_ontology_term_id order
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].cat.add_categories(test_term)
-        self.validator.adata.obs.loc[self.validator.adata.obs.index[0], " self_reported_ethnicity_ontology_term_id"] = test_term
+        self.validator.adata.obs.loc[self.validator.adata.obs.index[0], "self_reported_ethnicity_ontology_term_id"] = test_term
         self.validator.validate_adata()
         labeler = AnnDataLabelAppender(self.validator.adata)
         labeler._add_labels()
         map = {"European":"HANCESTRO:0005",
                 "Hispanic or Latin American":"HANCESTRO:0014",
-                "Greater Middle Eastern (Middle Eastern or North African or Persian)":"HANCESTRO:0015"}
-        assert labeler.adata.obs["self_reported_ethnicity_ontology_term_id"][0].split(" || ") == [map[t] for t in labeler.adata.obs["ethnicity"][0].split(" || ")]
+                "Greater Middle Eastern  (Middle Eastern or North African or Persian)":"HANCESTRO:0015"}
+        assert labeler.adata.obs["self_reported_ethnicity_ontology_term_id"][0].split(" || ") == [map[t] for t in labeler.adata.obs["self_reported_ethnicity"][0].split(" || ")]
 
 
 @pytest.mark.parametrize("test_h5ads", NON_HUMAN_H5ADS)
@@ -174,7 +174,7 @@ class TestNonHumanEthnicityOntologyValidation:
     def setup(self, validator_with_adatas):
         self.validator = validator_with_adatas
 
-    def test_passes(self):
+    def test_nonhuman_passes(self):
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
@@ -191,8 +191,8 @@ class TestNonHumanEthnicityOntologyValidation:
         assert self.validator.errors == []
 
     @pytest.mark.parametrize("invalid_term",[NON_HUMAN_INVALID_VALUES[0]])
-    @pytest.mark.parametrize("error", ERROR_MESSAGE[2])
-    def test_nonhuman_ethnicity_invalid_duplicates(self, invalid_term, error):
+    @pytest.mark.parametrize("error", [NON_HUMAN_ERROR_MESSAGE[0]])
+    def test_nonhuman_ethnicity_invalid_human(self, invalid_term, error):
 
         # human HANCESTRO term in non-human dataset => invalid
 
