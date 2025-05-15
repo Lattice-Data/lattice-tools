@@ -114,6 +114,19 @@ class TestDiseaseOntologyValidation:
         assert (f"ERROR: '{invalid_term}' {error}"
             ) in self.validator.errors
 
+
+    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["no spaces"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not a valid term"]])
+    def test_disease_invalid_no_spaces(self, invalid_term, error):
+
+        # valid MONDO terms with different delimiters - e.g. || (without spaces and commas) => invalid
+
+        self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
+
     @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["normal term w/ valid MONDO term"]])
     @pytest.mark.parametrize("error", [ERROR_MESSAGE["not a valid term"]])
     def test_disease_valid_term_with_normal_term(self, invalid_term, error):
