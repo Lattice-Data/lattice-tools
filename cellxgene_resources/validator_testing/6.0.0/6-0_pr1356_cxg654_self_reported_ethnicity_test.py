@@ -137,18 +137,17 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[3]])  # valid term with unknown
+    @pytest.mark.parametrize("unknown_valid_term", [HUMAN_VALID_VALUES[1]])  # unknown term
+    @pytest.mark.parametrize("valid_term", [HUMAN_VALID_VALUES[0]])  # valid term
     @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
-    def test_ethnicity_valid_term_with_unknown(self, invalid_term, error):
+    def test_ethnicity_valid_term_with_unknown(self, unknown_valid_term,valid_term, error):
 
         # unknown w/ valid HANCESTRO term => invalid
 
-        ### Validation error is still slightly confusing here in my opinion, but may be good enough?
-
-        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = unknown_valid_term + " || " + valid_term
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        assert (f"ERROR: '{invalid_term}' {error}"
+        assert (f"ERROR: '{unknown_valid_term}' {error}"
             ) in self.validator.errors
 
 
