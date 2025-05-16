@@ -144,23 +144,6 @@ class TestDiseaseOntologyValidation:
 
         # normal term w/ valid MONDO term => invalid
 
-        ### Validation error is confusing here and should probably be fixed.
-
-        # Correct me if I'm wrong, but the error message is slicing out PATO:0000461 as an invalid term and
-        # then also erroring on the lexical order of the terms:
-
-            # First error:
-            # "ERROR: 'PATO:0000461' in 'disease_ontology_term_id' is not a valid ontology term id
-            # of 'MONDO'. Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof,
-            # or descendant terms of 'MONDO:0000001' (disease) are allowed. Multiple MONDO terms are supported if in
-            # ascending lexical order with the delimiter ` || `.",
-
-            # Second error:
-            # "ERROR: 'PATO:0000461 || MONDO:0004604'
-            # in 'disease_ontology_term_id' is not in ascending lexical order. Only 'PATO:0000461' (normal),
-            # 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of 'MONDO:0000001' (disease)
-            # are allowed. Multiple MONDO terms are supported if in ascending lexical order with the delimiter ` || `."]"
-
         self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
         self.validator.validate_adata()
         assert not self.validator.is_valid
