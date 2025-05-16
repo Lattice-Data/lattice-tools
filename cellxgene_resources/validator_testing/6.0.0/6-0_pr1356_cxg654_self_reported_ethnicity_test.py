@@ -32,7 +32,6 @@ NON_HUMAN_H5ADS = [file for file in ALL_H5ADS if "human" not in file]
 HUMAN_VALID_VALUES = [
     "HANCESTRO:0005",  # single valid term
     "unknown",  # valid human unknown
-    "HANCESTRO:0005 || HANCESTRO:0014",  # in lexical order
     "HANCESTRO:0005 || HANCESTRO:0014 || HANCESTRO:0015"  # multiple valid terms
 ]
 
@@ -40,7 +39,6 @@ HUMAN_INVALID_VALUES = [
     "HANCESTRO:0014 || HANCESTRO:00005",  # out of lexical order
     "HANCESTRO:00005,HANCESTRO:0014",  # different delimiter
     "HANCESTRO:00005||HANCESTRO:0014",  # no spaces
-    "HANCESTRO:0005 || unknown",  # valid term with unknown
     "HANCESTRO:0005 || HANCESTRO:0005",  # duplicate terms
     "HANCESTRO:0005 ",  # valid term with whitespace typo
     "HANCESTRO:0031",  # forbidden term
@@ -115,7 +113,7 @@ class TestHumanEthnicityOntologyValidation:
     @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
     def test_ethnicity_invalid_delimiter(self, invalid_term, error):
 
-        # valid HANCESTRO terms with different delimiters - e.g. || (without spaces and commas) => invalid
+        # valid HANCESTRO terms with different delimiters - e.g. commas => invalid
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
         self.validator.validate_adata()
@@ -128,7 +126,7 @@ class TestHumanEthnicityOntologyValidation:
     @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
     def test_ethnicity_invalid_space(self, invalid_term, error):
 
-        # valid HANCESTRO terms with different delimiters - e.g. || (without spaces and commas) => invalid
+        # valid HANCESTRO terms with different delimiters - e.g. || (without spaces) => invalid
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
         self.validator.validate_adata()
@@ -151,7 +149,36 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("test_term", [HUMAN_VALID_VALUES[3]])
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[5]])  # forbidden term
+    @pytest.mark.parametrize("valid_term", [HUMAN_VALID_VALUES[0]])  # valid term
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
+    def test_ethnicity_valid_term_with_forbidden(self, invalid_term,valid_term, error):
+
+        # unknown w/ valid HANCESTRO term => invalid
+
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term + " || " + valid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    @pytest.mark.parametrize("test_term", [HUMAN_VALID_VALUES[2]])
     def test_ethnicity_add_label_order_valid_values(self, test_term):
 
         # add_labels check: obs.ethnicity order matches self_reported_ethnicity_ontology_term_id order
