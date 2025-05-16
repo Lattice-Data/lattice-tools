@@ -10,9 +10,11 @@ Should pass:
 
 Should not pass:
 (Y) valid MONDO terms out of lexical order
-(Y) valid MONDO terms with different delimiters - e.g. || (without spaces)
+(Y) valid MONDO terms with different delimiters - e.g. || without spaces
+(Y) valid MONDO terms with different delimiters - e.g. commas
 (Y) normal term w/ valid MONDO term
-(Q) invalid MONDO term + valid MONDO term
+(Y) invalid MONDO term + valid MONDO term
+(Y) valid MONDO terms with duplicates
 """
 
 
