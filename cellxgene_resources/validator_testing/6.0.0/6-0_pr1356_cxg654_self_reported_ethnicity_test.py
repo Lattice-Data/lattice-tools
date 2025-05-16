@@ -3,16 +3,21 @@ QA testing for this issue: https://github.com/chanzuckerberg/single-cell-curatio
 PR: https://github.com/chanzuckerberg/single-cell-curation/pull/1356
 
 Should pass:
-() various lists of valid HANCESTRO terms
-    () just normal term
-    () just 1 valid HANCESTRO term
-() add labels check: obs.disease order matches  self_reported_ethnicity_ontology_term_id order
+(y) various lists of valid HANCESTRO terms
+    (y) just 1 valid HANCESTRO term
+    (y) just unknown term
+    (y) multiple valid terms in lexical order
+(y) add labels check: obs.self_reported_ethnicity order matches  self_reported_ethnicity_ontology_term_id order
 
 Should not pass:
-() valid HANCESTRO terms out of lexical order
-() valid HANCESTRO terms with different delimiters - e.g. || (without spaces)
-() normal term w/ valid HANCESTRO term
-() invalid HANCESTRO term + valid HANCESTRO term
+(y) valid HANCESTRO terms out of lexical order
+(y) valid HANCESTRO terms with different delimiters - e.g. commas
+(y) valid HANCESTRO terms with different delimiters - e.g. || (without spaces)
+(y) valid terms duplicated
+(y) unknown term w/ valid HANCESTRO term
+(y) invalid HANCESTRO term + valid HANCESTRO term
+(y) forbidden term
+(y) "na" for human
 
 """
 import pytest
@@ -36,9 +41,9 @@ HUMAN_VALID_VALUES = [
 ]
 
 HUMAN_INVALID_VALUES = [
-    "HANCESTRO:0014 || HANCESTRO:00005",  # out of lexical order
-    "HANCESTRO:00005,HANCESTRO:0014",  # different delimiter
-    "HANCESTRO:00005||HANCESTRO:0014",  # no spaces
+    "HANCESTRO:0014 || HANCESTRO:0005",  # out of lexical order
+    "HANCESTRO:0005,HANCESTRO:0014",  # different delimiter
+    "HANCESTRO:0005||HANCESTRO:0014",  # no spaces
     "HANCESTRO:0005 || HANCESTRO:0005",  # duplicate terms
     "HANCESTRO:0005 ",  # valid term with whitespace typo
     "HANCESTRO:0031",  # forbidden term
@@ -54,7 +59,8 @@ error_message_suffix = " When 'organism_ontology_term_id' is 'NCBITaxon:9606' (H
 ERROR_MESSAGE = [
     "in 'self_reported_ethnicity_ontology_term_id' contains duplicates." + error_message_suffix,  # contains duplicates
     "in 'self_reported_ethnicity_ontology_term_id' is not in ascending lexical order." + error_message_suffix,  # not in lexical order
-    "in 'self_reported_ethnicity_ontology_term_id' is not a valid ontology term id of 'HANCESTRO'." + error_message_suffix  # not a valid term
+    "in 'self_reported_ethnicity_ontology_term_id' is not a valid ontology term id of 'HANCESTRO'." + error_message_suffix,  # not a valid term
+    "in 'self_reported_ethnicity_ontology_term_id' is not allowed." + error_message_suffix  # forbidden
 ]
 
 NON_HUMAN_ERROR_MESSAGE = ["in 'self_reported_ethnicity_ontology_term_id' is not a valid value of 'self_reported_ethnicity_ontology_term_id'. When 'organism_ontology_term_id' is NOT 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be 'na'."]
@@ -81,19 +87,6 @@ class TestHumanEthnicityOntologyValidation:
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
-
-
-    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[4]])  # duplicate terms
-    @pytest.mark.parametrize("error", [ERROR_MESSAGE[0]])  # contains duplicates error
-    def test_ethnicity_invalid_duplicates(self, invalid_term, error):
-
-        # valid HANCESTRO terms with duplicates => invalid
-
-        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
-        print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"])
-        self.validator.validate_adata()
-        assert not self.validator.is_valid
-        assert f"ERROR: '{invalid_term}' {error}" in self.validator.errors
 
 
     @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[0]])  # out of lexical order
@@ -135,6 +128,19 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[3]])  # duplicate terms
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE[0]])  # contains duplicates error
+    def test_ethnicity_invalid_duplicates(self, invalid_term, error):
+
+        # valid HANCESTRO terms with duplicates => invalid
+
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
+        print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"])
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert f"ERROR: '{invalid_term}' {error}" in self.validator.errors
+
+
     @pytest.mark.parametrize("unknown_valid_term", [HUMAN_VALID_VALUES[1]])  # unknown term
     @pytest.mark.parametrize("valid_term", [HUMAN_VALID_VALUES[0]])  # valid term
     @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
@@ -148,13 +154,12 @@ class TestHumanEthnicityOntologyValidation:
         assert (f"ERROR: '{unknown_valid_term}' {error}"
             ) in self.validator.errors
 
-
-    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[5]])  # forbidden term
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[4]])  # invalid term
     @pytest.mark.parametrize("valid_term", [HUMAN_VALID_VALUES[0]])  # valid term
     @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
-    def test_ethnicity_valid_term_with_forbidden(self, invalid_term,valid_term, error):
+    def test_ethnicity_invalid_term_with_valid(self, invalid_term,valid_term, error):
 
-        # unknown w/ valid HANCESTRO term => invalid
+        # invalid w/ valid HANCESTRO term => invalid
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term + " || " + valid_term
         self.validator.validate_adata()
@@ -163,19 +168,43 @@ class TestHumanEthnicityOntologyValidation:
             ) in self.validator.errors
 
 
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[4]])  # valid term with whitespace typo
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
+    def test_ethnicity_whitespace_for_human(self, invalid_term, error):
+
+        # whitespace in self_reported_ethnicity_ontology_term_id => invalid
+
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
 
 
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[5]])  # invalid forbidden term
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE[3]])  # not a valid term error
+    def test_ethnicity_forbidden_term(self, invalid_term, error):
+
+        # forbidden in self_reported_ethnicity_ontology_term_id => invalid
+
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
 
 
+    @pytest.mark.parametrize("invalid_term", [HUMAN_INVALID_VALUES[6]])  # na term
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE[2]])  # not a valid term error
+    def test_ethnicity_na_for_human(self, invalid_term, error):
 
+        # na in self_reported_ethnicity_ontology_term_id => invalid
 
-
-
-
-
-
-
-
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = invalid_term
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{invalid_term}' {error}"
+            ) in self.validator.errors
 
 
     @pytest.mark.parametrize("test_term", [HUMAN_VALID_VALUES[2]])
