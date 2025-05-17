@@ -41,19 +41,21 @@ INVALID_VALUES = {
     "out of lexical order": "MONDO:0043004 || MONDO:0004604 || MONDO:1030008 || MONDO:0800349",
     "different delimiter": "MONDO:0004604 , MONDO:0043004 , MONDO:0800349 , MONDO:1030008",
     "no spaces": "MONDO:0004604||MONDO:0043004||MONDO:0800349||MONDO:1030008",
-    "normal term w/ valid MONDO term": "PATO:0000461 || MONDO:0004604",
     "invalid MONDO term": "MONDO:0100355"
     }
 
-error_message_suffix = " Only 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of " \
-    + "'MONDO:0000001' (disease) are allowed. Multiple MONDO terms are supported if in ascending lexical order with the delimiter ` || `."
+error_message_suffix = " Individual terms 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of " \
+    + "'MONDO:0000001' (disease) are allowed. Multiple terms are supported if in ascending lexical order with the delimiter ` || ` if all terms are valid MONDO terms."
 
 
 ERROR_MESSAGE = {
     "contains duplicates": "in 'disease_ontology_term_id' contains duplicates." + error_message_suffix,
     "not in lexical order": "in 'disease_ontology_term_id' is not in ascending lexical order." + error_message_suffix,
     "not a valid term": "in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'." + error_message_suffix,
-    "not an allowed term": "in 'disease_ontology_term_id' is not an allowed term id." + error_message_suffix}
+    "not an allowed term": "in 'disease_ontology_term_id' is not an allowed term id." + error_message_suffix,
+    "not a valid MONDO term": "in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO'." + error_message_suffix
+    }
+
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
 class TestDiseaseOntologyValidation:
@@ -140,16 +142,18 @@ class TestDiseaseOntologyValidation:
         assert (f"ERROR: '{invalid_term}' {error}"
             ) in self.validator.errors
 
-    @pytest.mark.parametrize("invalid_term", [INVALID_VALUES["normal term w/ valid MONDO term"]])
-    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not a valid term"]])
-    def test_disease_valid_term_with_normal_term(self, invalid_term, error):
+
+    @pytest.mark.parametrize("valid_term", [VALID_VALUES["valid MONDO"]])
+    @pytest.mark.parametrize("normal_term", [VALID_VALUES["normal"]])
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not a valid MONDO term"]])
+    def test_disease_valid_term_with_normal_term(self, valid_term,normal_term, error):
 
         # normal term w/ valid MONDO term => invalid
 
-        self.validator.adata.obs["disease_ontology_term_id"] = invalid_term
+        self.validator.adata.obs["disease_ontology_term_id"] = valid_term + " || " + normal_term
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        assert (f"ERROR: '{invalid_term}' {error}"
+        assert (f"ERROR: '{normal_term}' {error}"
             ) in self.validator.errors
 
 
