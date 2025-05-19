@@ -59,9 +59,17 @@ ERROR_MESSAGE = {
     "forbidden":"in 'self_reported_ethnicity_ontology_term_id' is not allowed." + error_message_suffix
 }
 
-NON_HUMAN_VALID_VALUES = {"na":"na"}
-NON_HUMAN_INVALID_VALUES = {"nonhuman invalid term":"HANCESTRO:0005"}
-NON_HUMAN_ERROR_MESSAGE = {"not a valid term":"in 'self_reported_ethnicity_ontology_term_id' is not a valid value of 'self_reported_ethnicity_ontology_term_id'. When 'organism_ontology_term_id' is NOT 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be 'na'."}
+NON_HUMAN_VALID_VALUES = {
+    "na":"na"
+    }
+
+NON_HUMAN_INVALID_VALUES = {
+    "nonhuman invalid term":"HANCESTRO:0005"
+    }
+
+NON_HUMAN_ERROR_MESSAGE = {
+    "not a valid term":"in 'self_reported_ethnicity_ontology_term_id' is not a valid value of 'self_reported_ethnicity_ontology_term_id'. When 'organism_ontology_term_id' is NOT 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be 'na'."
+    }
 
 
 @pytest.mark.parametrize("test_h5ads", HUMAN_H5ADS)
