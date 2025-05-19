@@ -104,8 +104,53 @@ class TestSpatialData:
                 del self.validator.adata.uns["spatial"][library_id]
             except:
                 pass
+
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
 
 
+    def test_invalid_single_false_primary_true(self):
+
+        # is_single:False, is_primary_data:True -> fail
+
+        self.validator.adata.uns["spatial"]["is_single"] = False
+        self.validator.adata.obs["is_primary_data"] = True
+
+        visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
+        if self.validator.adata.obs["assay_ontology_term_id"].isin(visium_assays).all():
+            del self.validator.adata.obs["in_tissue"]
+            del self.validator.adata.obs["array_col"]
+            del self.validator.adata.obs["array_row"]
+            try:
+                library_id = [k for k in self.validator.adata.uns["spatial"].keys() if k != "is_single"][0]
+                del self.validator.adata.uns["spatial"][library_id]
+            except:
+                pass
+
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        #assert self.validator.errors == []
+
+
+    def test_invalid_npbool_single_false_primary_true(self):
+
+            # is_single:False, is_primary_data:True -> fail
+
+            self.validator.adata.uns["spatial"]["is_single"] = np._bool(False)
+            self.validator.adata.obs["is_primary_data"] = True
+
+            visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
+            if self.validator.adata.obs["assay_ontology_term_id"].isin(visium_assays).all():
+                del self.validator.adata.obs["in_tissue"]
+                del self.validator.adata.obs["array_col"]
+                del self.validator.adata.obs["array_row"]
+                try:
+                    library_id = [k for k in self.validator.adata.uns["spatial"].keys() if k != "is_single"][0]
+                    del self.validator.adata.uns["spatial"][library_id]
+                except:
+                    pass
+
+            self.validator.validate_adata()
+            assert not self.validator.is_valid
+            #assert self.validator.errors == []
