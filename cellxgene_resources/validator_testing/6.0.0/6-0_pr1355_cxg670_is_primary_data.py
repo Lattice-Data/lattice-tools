@@ -35,11 +35,8 @@ class TestSpatialData:
 
 
     def test_valid(self):
-        print(self.validator.adata.obs["assay_ontology_term_id"].unique())
-        print(self.validator.adata.obs.columns)
-        print(self.validator.adata.uns["spatial"].keys())
         self.validator.validate_adata()
-        assert not self.validator.is_valid
+        assert self.validator.is_valid
         assert self.validator.errors == []
 
     def test_valid_both_true(self):
