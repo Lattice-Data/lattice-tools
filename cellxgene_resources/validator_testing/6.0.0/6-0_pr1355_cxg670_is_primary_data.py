@@ -88,7 +88,7 @@ class TestSpatialData:
 
         # is_single:False, is_primary_data:False -> pass
 
-        self.validator.adata.uns["spatial"]["is_single"] = np._bool(False)
+        self.validator.adata.uns["spatial"]["is_single"] = np.bool_(False)
         self.validator.adata.obs["is_primary_data"] = False
 
         visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
@@ -134,7 +134,7 @@ class TestSpatialData:
 
             # is_single:False, is_primary_data:True -> fail
 
-            self.validator.adata.uns["spatial"]["is_single"] = np._bool(False)
+            self.validator.adata.uns["spatial"]["is_single"] = np.bool_(False)
             self.validator.adata.obs["is_primary_data"] = True
 
             visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
