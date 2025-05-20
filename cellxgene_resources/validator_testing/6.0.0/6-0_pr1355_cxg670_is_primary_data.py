@@ -43,7 +43,7 @@ class TestNonVisiumData:
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
     def test_nonV_all_false(self, is_single_value):
 
-        # is_single: False (bool), is_primary_data: False -> pass
+        # is_single: False, is_primary_data: False -> pass
 
         self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
         self.validator.adata.uns["spatial"] = {'is_single': is_single_value}
@@ -54,10 +54,11 @@ class TestNonVisiumData:
         assert self.validator.is_valid
         assert self.validator.errors == []
 
+
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
     def test_nonV_ipd_true(self, is_single_value):
 
-        # is_single: False (bool), is_primary_data: True -> fail
+        # is_single: False, is_primary_data: True -> fail
 
         self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
         self.validator.adata.uns["spatial"] = {'is_single': is_single_value}
@@ -82,10 +83,11 @@ class TestVisiumData:
         assert self.validator.is_valid
         assert self.validator.errors == []
 
+
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
     def test_valid_V_all_false(self,is_single_value):
 
-         # is_single: False (bool), is_primary_data: False -> pass
+         # is_single: False, is_primary_data: False -> pass
 
         self.validator.adata.uns["spatial"]["is_single"] = is_single_value
         self.validator.adata.obs["is_primary_data"] = False
@@ -93,10 +95,11 @@ class TestVisiumData:
         assert self.validator.is_valid
         assert self.validator.errors == []
 
+
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
     def test_invalid_V_ipd_true(self, is_single_value):
 
-        # is_single: False (bool), is_primary_data: True -> fail
+        # is_single: False, is_primary_data: True -> fail
 
         self.validator.adata.uns["spatial"]["is_single"] = is_single_value
         self.validator.adata.obs["is_primary_data"] = True
