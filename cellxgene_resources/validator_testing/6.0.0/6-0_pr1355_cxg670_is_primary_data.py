@@ -41,11 +41,12 @@ class TestNonVisiumData:
 
 
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
-    def test_nonV_all_false(self, is_single_value):
+    @pytest.mark.parametrize("assay_ontology_term_id",["EFO:0022857","EFO:0022860","EFO:0022859"])
+    def test_nonV_all_false(self, is_single_value, assay_ontology_term_id):
 
         # is_single: False, is_primary_data: False -> pass
 
-        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
+        self.validator.adata.obs["assay_ontology_term_id"] = assay_ontology_term_id
         self.validator.adata.uns["spatial"] = {'is_single': is_single_value}
         self.validator.adata.obs["is_primary_data"] = False
         self.validator.adata.obs["suspension_type"] = "na"
@@ -56,11 +57,12 @@ class TestNonVisiumData:
 
 
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
-    def test_nonV_ipd_true(self, is_single_value):
+    @pytest.mark.parametrize("assay_ontology_term_id",["EFO:0022857","EFO:0022860","EFO:0022859"])
+    def test_nonV_ipd_true(self, is_single_value, assay_ontology_term_id):
 
         # is_single: False, is_primary_data: True -> fail
 
-        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
+        self.validator.adata.obs["assay_ontology_term_id"] = assay_ontology_term_id
         self.validator.adata.uns["spatial"] = {'is_single': is_single_value}
         self.validator.adata.obs["is_primary_data"] = True
         self.validator.adata.obs["suspension_type"] = "na"
@@ -73,6 +75,9 @@ class TestNonVisiumData:
 
 @pytest.mark.parametrize("test_h5ads", INTEGRATED_VISIUM_H5ADS)
 class TestVisiumData:
+    """
+    This class works with the specific h5ads listed above (line 7) and if the cxg-labels are removed.
+    """
     @pytest.fixture(autouse=True)
     def setup(self, validator_with_adatas):
         self.validator = validator_with_adatas
