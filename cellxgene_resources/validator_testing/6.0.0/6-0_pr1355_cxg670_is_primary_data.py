@@ -8,7 +8,7 @@ Testing conditions for is_single = False (non-spatial and integrated visium data
 
 ##################################
 -> ISSUE with submission of integrated visium datasets: are all dots included in integrated dataset?
-If so, edge dots with the low duplicate counts or all zero counts will be included, and then fail the duplicate check,
+If so, edge dots with the low duplicate counts or non-tissue all zero counts will be included, and then fail the duplicate check,
 or are they filtering for only meaningful dots and the duplicate check should pass?
 
     Currently:
