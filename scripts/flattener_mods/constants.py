@@ -308,3 +308,13 @@ ACCEPTED_ACCESSIONS = {
 	'ENA:ERX'
 }
 
+RESERVED_UNS = [
+	'schema_version',
+	'title',
+	'default_embedding',
+	'X_approximate_distribution',
+	'schema_reference',
+	'citation',
+	'organism_ontology_term_id',
+	'organism'
+]
