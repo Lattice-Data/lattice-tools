@@ -2,33 +2,43 @@
 QA testing for this issue: https://github.com/chanzuckerberg/single-cell-curation/issues/1074
 PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1355
 
-Testing conditions for visium/spatial datasets:
-Datasets that are is_single:FALSE but is_primary_data:TRUE were allowed, contrary to the schema
+Testing conditions for is_single = False (non-spatial and integrated visium datasets):
+- valid_human.h5ad converted to integrated visium (is_single = False)
+- wild integrated visium datasets: https://cellxgene.cziscience.com/e/22ec5e4c-a2db-4769-8c4a-9530b5f6962d.cxg/ and https://cellxgene.cziscience.com/e/83ec9e14-87a4-4d41-aa3b-f7c51af70a64.cxg/
+
+##################################
+-> ISSUE with submission of integrated visium datasets: are all dots included in integrated dataset?
+If so, edge dots with the low duplicate counts or all zero counts will be included, and then fail the duplicate check,
+or are they filtering for only meaningful dots and the duplicate check should pass?
+
+    Currently:
+    - valid_human.h5ad doesn't include duplicates
+    - wild integrated visium datasets don't include duplicates
+##################################
 
 Should pass:
-- is_single:False, is_primary_data:False
-- is_single:True, is_primary_data:True
+    - is_single: False (both bool and npbool), is_primary_data: False
 
-Shoul not pass:
-- is_single:False (bool), is_primary_data:True
-- is_single:False (numpy._bool), is_primary_data:True
+Should not pass:
+    - is_single: False (both bool and npbool), is_primary_data: True
 
 '''
 
 import pytest
 import anndata as ad
 import numpy as np
-from cellxgene_schema.validate import Validator
-from cellxgene_schema.write_labels import AnnDataLabelAppender
-from cellxgene_schema.utils import read_h5ad
 from fixtures.valid_adatas import (
-    SPATIAL_H5ADS,
+    ALL_H5ADS,
     test_h5ads,
     validator_with_adatas
 )
 
-@pytest.mark.parametrize("test_h5ads", SPATIAL_H5ADS)
-class TestSpatialData:
+NON_SPATIAL_HUMAN = [file for file in ALL_H5ADS if "human" in file and "visium" not in file and "slide_seq" not in file]
+INTEGRATED_VISIUM_H5ADS = [file for file in ALL_H5ADS if "integrated" in file]
+
+
+@pytest.mark.parametrize("test_h5ads", NON_SPATIAL_HUMAN)
+class TestNonVisiumData:
     @pytest.fixture(autouse=True)
     def setup(self, validator_with_adatas):
         self.validator = validator_with_adatas
@@ -39,115 +49,119 @@ class TestSpatialData:
         assert self.validator.is_valid
         assert self.validator.errors == []
 
-    def test_valid_both_true(self):
 
-        # is_single:True, is_primary_data:True -> pass
+    def test_nonV_all_false(self):
 
-        self.validator.adata.uns["spatial"]["is_single"] = True
-        self.validator.adata.obs["is_primary_data"] = True
+        # is_single: False (bool), is_primary_data: False -> pass
+
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
+        self.validator.adata.uns["spatial"] = {'is_single': False}
+        self.validator.adata.obs["is_primary_data"] = False
+        self.validator.adata.obs["suspension_type"] = "na"
+        self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
 
 
-    def test_valid_npbool_both_true(self):
+    def test_nonV_all_false_npbool(self):
 
-        # is_single:True, is_primary_data:True -> pass
+        # is_single: False (npbool), is_primary_data: False -> pass
 
-        self.validator.adata.uns["spatial"]["is_single"] = np.bool_(True)
-        self.validator.adata.obs["is_primary_data"] = True
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
+        self.validator.adata.uns["spatial"] = {'is_single': np.bool_(False)}
+        self.validator.adata.obs["is_primary_data"] = False
+        self.validator.adata.obs["suspension_type"] = "na"
+        self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
 
 
-    def test_valid_both_false(self):
+    def test_nonV_ipd_true(self):
 
-        # is_single:False, is_primary_data:False -> pass
+        # is_single: False (bool), is_primary_data: True -> fail
+
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
+        self.validator.adata.uns["spatial"] = {'is_single': False}
+        self.validator.adata.obs["is_primary_data"] = True
+        self.validator.adata.obs["suspension_type"] = "na"
+        self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: When uns['spatial']['is_single'] is {self.validator.adata.uns['spatial']['is_single']}, obs['is_primary_data'] must be False for all rows."
+        ) in self.validator.errors
+
+
+    def test_nonV_ipd_true_npbool(self):
+
+        # is_single: False (npbool), is_primary_data: True -> fail
+
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0022860"
+        self.validator.adata.uns["spatial"] = {'is_single': np.bool_(False)}
+        self.validator.adata.obs["is_primary_data"] = True
+        self.validator.adata.obs["suspension_type"] = "na"
+        self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: When uns['spatial']['is_single'] is {self.validator.adata.uns['spatial']['is_single']}, obs['is_primary_data'] must be False for all rows."
+        ) in self.validator.errors
+
+
+@pytest.mark.parametrize("test_h5ads", INTEGRATED_VISIUM_H5ADS)
+class TestVisiumData:
+    @pytest.fixture(autouse=True)
+    def setup(self, validator_with_adatas):
+        self.validator = validator_with_adatas
+
+
+    def test_V_valid(self):
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
+
+
+    def test_valid_V_all_false(self):
+
+         # is_single: False (bool), is_primary_data: False -> pass
 
         self.validator.adata.uns["spatial"]["is_single"] = False
         self.validator.adata.obs["is_primary_data"] = False
-
-        visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
-        if self.validator.adata.obs["assay_ontology_term_id"].isin(visium_assays).all():
-            del self.validator.adata.obs["in_tissue"]
-            del self.validator.adata.obs["array_col"]
-            del self.validator.adata.obs["array_row"]
-            try:
-                library_id = [k for k in self.validator.adata.uns["spatial"].keys() if k != "is_single"][0]
-                del self.validator.adata.uns["spatial"][library_id]
-            except:
-                pass
-
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
 
 
-    def test_valid_npbool_both_false(self):
+    def test_valid_V_all_false_npbool(self):
 
-        # is_single:False, is_primary_data:False -> pass
+        # is_single: False (npbool), is_primary_data: False -> pass
 
         self.validator.adata.uns["spatial"]["is_single"] = np.bool_(False)
         self.validator.adata.obs["is_primary_data"] = False
-
-        visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
-        if self.validator.adata.obs["assay_ontology_term_id"].isin(visium_assays).all():
-            del self.validator.adata.obs["in_tissue"]
-            del self.validator.adata.obs["array_col"]
-            del self.validator.adata.obs["array_row"]
-            try:
-                library_id = [k for k in self.validator.adata.uns["spatial"].keys() if k != "is_single"][0]
-                del self.validator.adata.uns["spatial"][library_id]
-            except:
-                pass
-
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
 
 
-    def test_invalid_single_false_primary_true(self):
+    def test_invalid_V_ipd_true(self):
 
-        # is_single:False, is_primary_data:True -> fail
+        # is_single: False (bool), is_primary_data: True -> fail
 
         self.validator.adata.uns["spatial"]["is_single"] = False
         self.validator.adata.obs["is_primary_data"] = True
-
-        visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
-        if self.validator.adata.obs["assay_ontology_term_id"].isin(visium_assays).all():
-            del self.validator.adata.obs["in_tissue"]
-            del self.validator.adata.obs["array_col"]
-            del self.validator.adata.obs["array_row"]
-            try:
-                library_id = [k for k in self.validator.adata.uns["spatial"].keys() if k != "is_single"][0]
-                del self.validator.adata.uns["spatial"][library_id]
-            except:
-                pass
-
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        #assert self.validator.errors == []
+        assert (f"ERROR: When uns['spatial']['is_single'] is {self.validator.adata.uns['spatial']['is_single']}, obs['is_primary_data'] must be False for all rows."
+        ) in self.validator.errors
 
 
-    def test_invalid_npbool_single_false_primary_true(self):
+    def test_invalid_V_ipd_true_npbool(self):
 
-            # is_single:False, is_primary_data:True -> fail
+        # is_single: False (npbool), is_primary_data: True -> fail
 
-            self.validator.adata.uns["spatial"]["is_single"] = np.bool_(False)
-            self.validator.adata.obs["is_primary_data"] = True
-
-            visium_assays = ["EFO:0010961","EFO:0022860","EFO:0022859","EFO:0022857"]
-            if self.validator.adata.obs["assay_ontology_term_id"].isin(visium_assays).all():
-                del self.validator.adata.obs["in_tissue"]
-                del self.validator.adata.obs["array_col"]
-                del self.validator.adata.obs["array_row"]
-                try:
-                    library_id = [k for k in self.validator.adata.uns["spatial"].keys() if k != "is_single"][0]
-                    del self.validator.adata.uns["spatial"][library_id]
-                except:
-                    pass
-
-            self.validator.validate_adata()
-            assert not self.validator.is_valid
-            #assert self.validator.errors == []
+        self.validator.adata.uns["spatial"]["is_single"] = np.bool_(False)
+        self.validator.adata.obs["is_primary_data"] = True
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: When uns['spatial']['is_single'] is {self.validator.adata.uns['spatial']['is_single']}, obs['is_primary_data'] must be False for all rows."
+    ) in self.validator.errors
