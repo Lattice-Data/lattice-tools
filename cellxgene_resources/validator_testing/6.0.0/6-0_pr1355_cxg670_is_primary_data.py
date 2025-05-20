@@ -41,14 +41,15 @@ class TestNonVisiumData:
 
 
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
+    @pytest.mark.parametrize("is_primary_data_value", [False, np.bool_(False)])
     @pytest.mark.parametrize("assay_ontology_term_id",["EFO:0022857","EFO:0022860","EFO:0022859"])
-    def test_nonV_all_false(self, is_single_value, assay_ontology_term_id):
+    def test_nonV_all_false(self, is_single_value, is_primary_data_value, assay_ontology_term_id):
 
         # is_single: False, is_primary_data: False -> pass
 
         self.validator.adata.obs["assay_ontology_term_id"] = assay_ontology_term_id
         self.validator.adata.uns["spatial"] = {'is_single': is_single_value}
-        self.validator.adata.obs["is_primary_data"] = False
+        self.validator.adata.obs["is_primary_data"] = is_primary_data_value
         self.validator.adata.obs["suspension_type"] = "na"
         self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
         self.validator.validate_adata()
@@ -57,14 +58,15 @@ class TestNonVisiumData:
 
 
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
+    @pytest.mark.parametrize("is_primary_data_value", [True, np.bool_(True)])
     @pytest.mark.parametrize("assay_ontology_term_id",["EFO:0022857","EFO:0022860","EFO:0022859"])
-    def test_nonV_ipd_true(self, is_single_value, assay_ontology_term_id):
+    def test_nonV_ipd_true(self, is_single_value, is_primary_data_value, assay_ontology_term_id):
 
         # is_single: False, is_primary_data: True -> fail
 
         self.validator.adata.obs["assay_ontology_term_id"] = assay_ontology_term_id
         self.validator.adata.uns["spatial"] = {'is_single': is_single_value}
-        self.validator.adata.obs["is_primary_data"] = True
+        self.validator.adata.obs["is_primary_data"] = is_primary_data_value
         self.validator.adata.obs["suspension_type"] = "na"
         self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
         self.validator.validate_adata()
@@ -90,24 +92,26 @@ class TestVisiumData:
 
 
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
-    def test_valid_V_all_false(self,is_single_value):
+    @pytest.mark.parametrize("is_primary_data_value", [False, np.bool_(False)])
+    def test_valid_V_all_false(self,is_single_value, is_primary_data_value):
 
          # is_single: False, is_primary_data: False -> pass
 
         self.validator.adata.uns["spatial"]["is_single"] = is_single_value
-        self.validator.adata.obs["is_primary_data"] = False
+        self.validator.adata.obs["is_primary_data"] = is_primary_data_value
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
 
 
     @pytest.mark.parametrize("is_single_value", [False, np.bool_(False)])
-    def test_invalid_V_ipd_true(self, is_single_value):
+    @pytest.mark.parametrize("is_primary_data_value", [True, np.bool_(True)])
+    def test_invalid_V_ipd_true(self, is_single_value, is_primary_data_value):
 
         # is_single: False, is_primary_data: True -> fail
 
         self.validator.adata.uns["spatial"]["is_single"] = is_single_value
-        self.validator.adata.obs["is_primary_data"] = True
+        self.validator.adata.obs["is_primary_data"] = is_primary_data_value
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (f"ERROR: When uns['spatial']['is_single'] is {self.validator.adata.uns['spatial']['is_single']}, obs['is_primary_data'] must be False for all rows."
