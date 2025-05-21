@@ -10,7 +10,7 @@ from cellxgene_ontology_guide.ontology_parser import OntologyParser
 from dataclasses import dataclass
 
 # add some constant lookup to keep in sync with current schema version
-ONTOLOGY_PARSER = OntologyParser(schema_version=f"v5.2.0")
+ONTOLOGY_PARSER = OntologyParser(schema_version=f"v5.3.0")
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -219,7 +219,7 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 					else:
 						ethnicity_list.append(ethnicity_dict.get('term_id'))
 				ethnicity_list.sort()
-				value = ','.join(ethnicity_list)
+				value = ' || '.join(ethnicity_list)
 				latkey = (obj_type + '_' + prop).replace('.','_')
 				key = constants.PROP_MAP.get(latkey, latkey)
 				values_to_add[key] = value
@@ -364,8 +364,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					values_df.loc[key,ident] = 'unknown'
 				elif 'unknown' in ethnicity_list:
 					values_df.loc[key,ident] = 'unknown'
-				elif len(set(ethnicity_list)) == len(ethnicity_list):
-					value = ethnicity_list[0]
+				else:
+					value = ' || '.join(ethnicity_list)
 					values_df.loc[key,ident] = value
 			# this dataframe will only ever be one row with ident as columns
 			ethnicity_set = set(values_df.loc[key].to_list())
