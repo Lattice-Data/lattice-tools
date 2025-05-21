@@ -107,7 +107,6 @@ def create_fixture(organism: Organism) -> ad.AnnData:
 
     obs_df = obs_meta_df.copy()
     obs_df.set_index("obs_index", inplace=True)
-    obs_df["organism_ontology_term_id"] = organism.term_id
     for column, fill_value in STATIC_OBS_COLUMNS.items():
         obs_df[column] = fill_value
 
@@ -120,6 +119,7 @@ def create_fixture(organism: Organism) -> ad.AnnData:
     uns = {
         "title": f"{organism.name.capitalize()} Fixture",
         "default_embedding": "X_umap",
+        "organism_ontology_term_id": organism.term_id
     }
 
     raw_matrix = mock_matrix(
