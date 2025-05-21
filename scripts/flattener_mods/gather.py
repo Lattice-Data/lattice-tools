@@ -223,28 +223,6 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 				latkey = (obj_type + '_' + prop).replace('.','_')
 				key = constants.PROP_MAP.get(latkey, latkey)
 				values_to_add[key] = value
-		elif prop == 'diseases.term_id':
-			if value != None:
-				if isinstance(value, list):
-					if len(value) == 0:
-						value = constants.UNREPORTED_VALUE
-					else:
-						value.sort()
-						value = ' || '.join(value)
-				latkey = (obj_type + '_' + prop).replace('.','_')
-				key = constants.PROP_MAP.get(latkey, latkey)
-				values_to_add[key] = value
-		elif prop == 'diseases.term_name':
-			if value != None:
-				if isinstance(value, list):
-					if len(value) == 0:
-						value = constants.UNREPORTED_VALUE
-					else:
-						value.sort()
-						value = ' || '.join(value)
-				latkey = (obj_type + '_' + prop).replace('.','_')
-				key = constants.PROP_MAP.get(latkey, latkey)
-				values_to_add[key] = value
 		elif prop == 'cell_ontology.term_id':
 			if value == 'NCIT:C17998':
 				value = 'unknown'
@@ -406,13 +384,12 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				ident = obj.get('@id')
 				v = get_value(obj, prop)
 				if isinstance(v, list):
-					v.sort()
 					if len(v) == 1 and v[0] == 'unknown':
 						values_df.loc[key,ident] = 'unknown'
 					elif 'unknown' in v:
 						values_df.loc[key,ident] = 'unknown'
 					else:
-						value = ' || '.join(v)
+						value = ','.join(v)
 						values_df.loc[key,ident] = value
 				else:
 					if v != constants.UNREPORTED_VALUE:
@@ -435,13 +412,12 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				ident = obj.get('@id')
 				v = get_value(obj, prop)
 				if isinstance(v, list):
-					v.sort() # Needed for set() checks to be accurate
 					if len(v) == 1 and v[0] == 'unknown':
 						values_df.loc[key,ident] = 'unknown'
 					elif 'unknown' in v:
 						values_df.loc[key,ident] = 'unknown'
 					else:
-						value = ' || '.join(v)
+						value = ','.join(v)
 						values_df.loc[key,ident] = value
 				else:
 					if v != constants.UNREPORTED_VALUE:
@@ -451,7 +427,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			disease_set = set(values_df.loc[key].to_list())
 			if len(disease_set) > 1:
 				values_to_add[key] = constants.UNREPORTED_VALUE
-				print(f"WARNING: Pooled disease term names '{disease_set}' for '{donor_id}', setting to 'unknown'")
 			else:
 				values_to_add[key] = disease_set.pop()
 		else:
