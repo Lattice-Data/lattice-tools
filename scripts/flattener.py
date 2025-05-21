@@ -144,7 +144,7 @@ def quality_check(glob):
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
 def clean_list(lst, exp_disease, glob):
-	lst = lst.split(',')
+	lst = lst.split(' || ')
 	exp_disease_list = [i['term_id'] for i in exp_disease]
 	disease_found = [i for i in exp_disease_list if i in lst]
 	if disease_found:
@@ -178,8 +178,8 @@ def concat_list(anndata_list, column, uns_merge):
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value
 def report_diseases(mxr_df, exp_disease, glob):
-	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: '[{}]'.format(','.join([i for i in set(x.split(',')) if i!=fm.UNREPORTED_VALUE])))
+	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ' || ' + mxr_df['donor_diseases_term_name']
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: '[{}]'.format(' || '.join([i for i in set(x.split(' || ')) if i!=fm.UNREPORTED_VALUE])))
 	total_reported = mxr_df['reported_diseases'].unique()
 	if len(total_reported) == 1:
 		if total_reported[0] == '[]':
@@ -190,7 +190,7 @@ def report_diseases(mxr_df, exp_disease, glob):
 	if exp_disease == fm.UNREPORTED_VALUE:
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
-		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
+		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ' || ' + mxr_df['donor_diseases_term_id']
 		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease, glob=glob)
 		exp_disease_aslist = ['[{}]'.format(x['term_name']) for x in exp_disease]
 		exp_disease_aslist.extend(['none', '[]'])

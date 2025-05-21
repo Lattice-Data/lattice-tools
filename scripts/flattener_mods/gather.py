@@ -10,7 +10,7 @@ from cellxgene_ontology_guide.ontology_parser import OntologyParser
 from dataclasses import dataclass
 
 # add some constant lookup to keep in sync with current schema version
-ONTOLOGY_PARSER = OntologyParser(schema_version=f"v5.2.0")
+ONTOLOGY_PARSER = OntologyParser(schema_version=f"v5.3.0")
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
@@ -223,6 +223,28 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 				latkey = (obj_type + '_' + prop).replace('.','_')
 				key = constants.PROP_MAP.get(latkey, latkey)
 				values_to_add[key] = value
+		elif prop == 'diseases.term_id':
+			if value != None:
+				if isinstance(value, list):
+					if len(value) == 0:
+						value = constants.UNREPORTED_VALUE
+					else:
+						value.sort()
+						value = ' || '.join(value)
+				latkey = (obj_type + '_' + prop).replace('.','_')
+				key = constants.PROP_MAP.get(latkey, latkey)
+				values_to_add[key] = value
+		elif prop == 'diseases.term_name':
+			if value != None:
+				if isinstance(value, list):
+					if len(value) == 0:
+						value = constants.UNREPORTED_VALUE
+					else:
+						value.sort()
+						value = ' || '.join(value)
+				latkey = (obj_type + '_' + prop).replace('.','_')
+				key = constants.PROP_MAP.get(latkey, latkey)
+				values_to_add[key] = value
 		elif prop == 'cell_ontology.term_id':
 			if value == 'NCIT:C17998':
 				value = 'unknown'
@@ -375,6 +397,63 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				print(f"WARNING: Pooled ethnicities '{ethnicity_set}' for '{donor_id}', setting to 'unknown'")
 			else:
 				values_to_add[key] = ethnicity_set.pop()
+		elif prop == 'diseases.term_id':
+			donor_id = values_to_add.get('donor_id', 'unknown donor_id')
+			values_df = pd.DataFrame()
+			latkey = (obj_type + '_' + prop).replace('.','_')
+			key = constants.PROP_MAP.get(latkey, latkey)
+			for obj in objs:
+				ident = obj.get('@id')
+				v = get_value(obj, prop)
+				if isinstance(v, list):
+					v.sort()
+					if len(v) == 1 and v[0] == 'unknown':
+						values_df.loc[key,ident] = 'unknown'
+					elif 'unknown' in v:
+						values_df.loc[key,ident] = 'unknown'
+					else:
+						value = ' || '.join(v)
+						values_df.loc[key,ident] = value
+				else:
+					if v != constants.UNREPORTED_VALUE:
+						values_df.loc[key,ident] = v
+					else:
+						# Could just set values to add here and add warning message?
+						values_df.loc[key,ident] = constants.UNREPORTED_VALUE
+			disease_set = set(values_df.loc[key].to_list())
+			if len(disease_set) > 1:
+				values_to_add[key] = constants.UNREPORTED_VALUE
+				print(f"WARNING: Pooled disease term ids '{disease_set}' for '{donor_id}', setting to 'unknown'")
+			else:
+				values_to_add[key] = disease_set.pop()
+		elif prop == 'diseases.term_name':
+			donor_id = values_to_add.get('donor_id', 'unknown donor_id')
+			values_df = pd.DataFrame()
+			latkey = (obj_type + '_' + prop).replace('.','_')
+			key = constants.PROP_MAP.get(latkey, latkey)
+			for obj in objs:
+				ident = obj.get('@id')
+				v = get_value(obj, prop)
+				if isinstance(v, list):
+					v.sort() # Needed for set() checks to be accurate
+					if len(v) == 1 and v[0] == 'unknown':
+						values_df.loc[key,ident] = 'unknown'
+					elif 'unknown' in v:
+						values_df.loc[key,ident] = 'unknown'
+					else:
+						value = ' || '.join(v)
+						values_df.loc[key,ident] = value
+				else:
+					if v != constants.UNREPORTED_VALUE:
+						values_df.loc[key,ident] = v
+					else:
+						values_df.loc[key,ident] = constants.UNREPORTED_VALUE
+			disease_set = set(values_df.loc[key].to_list())
+			if len(disease_set) > 1:
+				values_to_add[key] = constants.UNREPORTED_VALUE
+				print(f"WARNING: Pooled disease term names '{disease_set}' for '{donor_id}', setting to 'unknown'")
+			else:
+				values_to_add[key] = disease_set.pop()
 		else:
 			value = list()
 			for obj in objs:
@@ -405,7 +484,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			key = constants.PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			cxg_fields = ['donor_diseases_term_id', 'organism_ontology_term_id', 'library_id_repository',\
+			cxg_fields = ['organism_ontology_term_id', 'library_id_repository',\
 							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
 				donor_id = values_to_add.get('donor_id', 'unknown donor_id')
@@ -422,9 +501,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 							print(f"WARNING: Pooled development stage ontology terms for '{donor_id}': ")
 							[print('\t', term.term_id, term.label) for term in pooled_terms]
 							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
-					elif key == 'donor_diseases_term_id':
-						logger.error(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
-						sys.exit(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
 						# TODO: change to warning list during glob warning refactor
