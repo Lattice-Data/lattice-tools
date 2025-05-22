@@ -149,7 +149,7 @@ def clean_list(lst, exp_disease, glob):
 	disease_found = [i for i in exp_disease_list if i in lst]
 	if disease_found:
 		if len(disease_found) > 1:
-			disease = ' || '.join(disease_found.split(','))
+			disease = ' || '.join(disease_found)
 		else:
 			disease = disease_found[0]
 	else:
