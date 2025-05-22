@@ -5,12 +5,12 @@ PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1
 Testing conditions:
 Should not pass
 (Y, but no specific error message) absent uns.organism_ontology_term_id
-(N) present obs.organism - is currently allowed
+* (N) present obs.organism - is currently allowed
 (Y, but no specific error message)present obs.organism_ontology_term_id
-(N) present uns.organism - is currently allowed
+* (N) present uns.organism - is currently allowed
 (Y) present uns.organism_ontology_term_id_colors
 (Y) present uns.organism_ontology_colors
-(Q) uns.organism_ontology_term_id - not on accepted organisms list
+* (Q) uns.organism_ontology_term_id - not on accepted organisms list
 
 Should pass
 (Y) uns.organism_ontology_term_id - from list of accepted organisms
