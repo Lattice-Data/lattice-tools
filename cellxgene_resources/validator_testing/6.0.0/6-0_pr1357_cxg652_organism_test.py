@@ -190,3 +190,35 @@ class TestOrganismValidation:
         assert (
             f"ERROR: '{organism_term}' in 'organism_ontology_term_id' is not a valid ontology term id of 'NCBITaxon'."
         ) in self.validator.errors
+
+
+    def test_invalid_term(self):
+
+        # uns.organism_ontology_term_id - invalid term -> fail
+
+        '''
+        Fails appropriately with same error message as test_exempt_organisms.
+        '''
+
+        self.validator.adata.uns["organism_ontology_term_id"] = 'MONDO:0019140'
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (
+            f"ERROR: 'MONDO:0019140' in 'organism_ontology_term_id' is not a valid ontology term id of 'NCBITaxon'."
+        ) in self.validator.errors
+
+
+    def test_invalid_ncbitaxon_term(self):
+
+        # uns.organism_ontology_term_id - invalid term -> fail
+
+        '''
+        Fails appropriately.
+        '''
+
+        self.validator.adata.uns["organism_ontology_term_id"] = 'NCBITaxon:9925'  # goat
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (
+            f"ERROR: 'NCBITaxon:9925' in 'organism_ontology_term_id' is not an allowed term id."
+        ) in self.validator.errors
