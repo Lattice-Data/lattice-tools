@@ -186,3 +186,14 @@ class TestDiseaseOntologyValidation:
                 "atrial fibrillation, familial, 16":"MONDO:0800349",
                 "mitral valve insufficiency":"MONDO:1030008"}
         assert labeler.adata.obs["disease_ontology_term_id"][0].split(" || ") == [map[t] for t in labeler.adata.obs["disease"][0].split(" || ")]
+
+    @pytest.mark.parametrize("error", [ERROR_MESSAGE["not an allowed term"]])
+    def test_disease_invalid_term(self, error):
+
+        # invalid MONDO term -> fail
+
+        self.validator.adata.obs["disease_ontology_term_id"] = "MONDO:0012153"
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (f"ERROR: '{self.validator.adata.obs['disease_ontology_term_id'].unique()[0]}' {error}"
+        ) in self.validator.errors
