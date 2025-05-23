@@ -148,9 +148,10 @@ def clean_list(lst, exp_disease, glob):
 	exp_disease_list = [i['term_id'] for i in exp_disease]
 	disease_found = [i for i in exp_disease_list if i in lst]
 	if disease_found:
-		disease = disease_found[0]
 		if len(disease_found) > 1:
-			glob.warnings.append("WARNING: There is at least one sample with more than one experimental variable disease:\t{}".format(disease_found))
+			disease = ' || '.join(disease_found)
+		else:
+			disease = disease_found[0]
 	else:
 		disease = 'PATO:0000461'
 	return disease
