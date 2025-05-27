@@ -4,7 +4,7 @@ PR for this issue:
 
 
 Should pass:
-- ENSG00000290826 in var index
+(Y) ENSG00000290826 in var index
 - Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826
 - all genes from organism
 (Y) all genes from organism + covid
@@ -124,7 +124,7 @@ class TestVarIndexValidation:
     @pytest.mark.parametrize("exempt_organism", [EXEMPT_ORGANISMS])
     def test_all_genes_from_organism_both_exempt(self, exempt_organism):
 
-        # all genes from organism + covid + spike-ins -> pass
+        # all genes from organism + covid + spike-ins -> pass ### FAILED with ERROR: Could not infer organism from feature ID 'ERCC-0003' in 'var', make sure it is a valid ID.
 
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: EXEMPT_ORGANISMS["NCBITaxon:2697049"]})
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[1]: EXEMPT_ORGANISMS["NCBITaxon:32630"]})
@@ -142,11 +142,21 @@ class TestVarIndexValidation:
     @pytest.mark.parametrize("test_organism_gene", [ORGANISM_GENE_VALUES])
     def test_var_index_ensembl(self, test_organism_gene):
 
-        # ENSG00000290826 in var index -> pass
+        # ensembl gene ID in var index -> pass
 
         for organism, gene in test_organism_gene.items():
             if organism == self.validator.adata.uns["organism_ontology_term_id"]:
                 self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene})
+
+                if self.validator.adata.raw:
+                    new_var = self.validator.adata.raw.var.rename(index={self.validator.adata.raw.var.index[0]: gene})
+                    raw_adata = ad.AnnData(self.validator.adata.raw.X, var=new_var, obs=self.validator.adata.obs)
+                    self.validator.adata.raw = raw_adata
+
+                else:
+                    pass
+
+                assert self.validator.adata.var.index[0] == gene
                 self.validator.validate_adata()
                 assert self.validator.is_valid
 
@@ -179,7 +189,7 @@ class TestVarIndexValidation:
                 pass
 
 
-    def test_var_index_ensembl(self):
+    def test_human_var_index_ensembl(self):
 
         # ENSG00000290826.1 in var index -> fail
 
