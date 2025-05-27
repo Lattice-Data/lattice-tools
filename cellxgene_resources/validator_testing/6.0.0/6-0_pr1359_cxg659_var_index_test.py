@@ -14,12 +14,11 @@ Should pass:
 Shouldn't pass:
 (Y) ENSG00000290826.1 in var index
 (N) mix-and-match genes -> This is passing - Mixed sets of genes are being allowed.
-- all genes from one organism, different uns.organism
+(C) all genes from one organism, different uns.organism -> Comment for this one - error messageing is not clear.
 
 Edge cases
 
-any gene IDs that contain . that don’t start with ENS
-
+(Y) any gene IDs that contain . that don’t start with ENS -> this is not testing all organisms - just worm and fly.
 any gene names that contain .
 
 """
@@ -239,7 +238,7 @@ class TestVarIndexValidation:
     @pytest.mark.parametrize("edge_case", [EDGE_CASES_gene_ids])
     def test_edge_case_1(self, edge_case):
 
-        # any gene IDs that contain "." that don’t start with ENS -> fail   ### This is not testing all organisms - just those whose ids don't start with ENS (worm and fly).
+        # any gene IDs that contain "." that don’t start with ENS -> fail
 
         for organism, gene in edge_case.items():
             if organism == self.validator.adata.uns["organism_ontology_term_id"]:
@@ -256,6 +255,12 @@ class TestVarIndexValidation:
 
                 self.validator.validate_adata()
                 assert not self.validator.is_valid
+                assert (
+                    f"ERROR: Could not infer organism from feature ID '{gene}' in 'var', make sure it is a valid ID."
+                    ) in self.validator.errors
+                assert (
+                    f"ERROR: Could not infer organism from feature ID '{gene}' in 'raw.var', make sure it is a valid ID."
+                    ) in self.validator.errors
             else:
                 pass
 
