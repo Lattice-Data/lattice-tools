@@ -71,32 +71,26 @@ class TestFeatureNameValidation:
         assert self.validator.is_valid
 
 
-    @pytest.mark.parametrize("test_organism_gene", [ORGANISM_GENE_VALUES])
-    def test_feature_name_add_label(self, test_organism_gene):
+    def test_feature_name_add_label(self):
 
         # add_labels check: var.feature_name should be redundant with the var index value -> pass
 
-        for organism, gene in test_organism_gene.items():
 
-            if organism == self.validator.adata.uns["organism_ontology_term_id"]:
-                self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene})
+        organism = self.validator.adata.uns["organism_ontology_term_id"]
+        self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES[organism]})
 
-                if self.validator.adata.raw:
-                    new_var = self.validator.adata.raw.var.rename(index={self.validator.adata.raw.var.index[0]: gene})
-                    raw_adata = ad.AnnData(self.validator.adata.raw.X, var=new_var, obs=self.validator.adata.obs)
-                    self.validator.adata.raw = raw_adata
+        if self.validator.adata.raw:
+            raw_adata = ad.AnnData(X = da.from_array(self.validator.adata.raw.X.compute(),chunks=self.validator.adata.raw.X.chunks),
+                                    var = self.validator.adata.raw.var.copy(),
+                                    obs = self.validator.adata.obs.copy()
+                                    )
+            raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]:ORGANISM_GENE_VALUES[organism]})
+            self.validator.adata.raw = raw_adata
 
-                else:
-                    pass
-
-                self.validator.validate_adata()
-                assert self.validator.is_valid
-                labeler = AnnDataLabelAppender(self.validator.adata)
-                labeler._add_labels()
-                assert labeler.adata.var.loc[gene, 'feature_name'] == labeler.adata.var.index[0]
-
-            else:
-                pass
-
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        labeler = AnnDataLabelAppender(self.validator.adata)
+        labeler._add_labels()
+        assert labeler.adata.var.loc[ORGANISM_GENE_VALUES[organism], 'feature_name'] == labeler.adata.var.index[0]
 
 
