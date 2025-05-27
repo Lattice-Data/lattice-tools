@@ -12,7 +12,7 @@ Should pass:
 * Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826 -> found in other script: 6-0_pr1359_cxg656_feature_name_test.py
 
 Shouldn't pass:
-- ENSG00000290826.1 in var index
+(Y) ENSG00000290826.1 in var index
 - mix-and-match genes
 - all genes from one organism, different uns.organism
 
@@ -158,17 +158,30 @@ class TestVarIndexValidation:
                 assert self.validator.is_valid
 
 
-    def test_human_var_index_ensembl(self):
+    def test_human_var_index_ensembl_decimal(self):
 
         # ENSG00000290826.1 in var index -> fail
 
         if self.validator.adata.uns["organism_ontology_term_id"] == "NCBITaxon:9606":
-            self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: "ENSG00000290826.1"})
+            decimal_id = "ENSG00000290826.1"
+            self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: decimal_id})
+
+            if self.validator.adata.raw:
+                new_var = self.validator.adata.raw.var.rename(index={self.validator.adata.raw.var.index[0]: decimal_id})
+                raw_adata = ad.AnnData(self.validator.adata.raw.X, var=new_var, obs=self.validator.adata.obs)
+                self.validator.adata.raw = raw_adata
+
             self.validator.validate_adata()
+            assert self.validator.adata.var.index[0] == decimal_id
+            assert (
+                f"ERROR: Could not infer organism from feature ID '{decimal_id}' in 'var', make sure it is a valid ID."
+                ) in self.validator.errors
             assert not self.validator.is_valid
 
         else:
-            pass
+            self.validator.validate_adata()
+            assert self.validator.is_valid
+
 
     @pytest.mark.parametrize("test_organism_gene", [ORGANISM_GENE_VALUES])
     def test_mix_match_genes(self, test_organism_gene):
