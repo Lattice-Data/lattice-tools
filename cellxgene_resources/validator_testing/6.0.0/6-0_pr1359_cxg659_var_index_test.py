@@ -13,7 +13,7 @@ Should pass:
 
 Shouldn't pass:
 (Y) ENSG00000290826.1 in var index
-- mix-and-match genes
+(N) mix-and-match genes -> This is passing - Mixed sets of genes are being allowed.
 - all genes from one organism, different uns.organism
 
 Edge cases
@@ -184,34 +184,35 @@ class TestVarIndexValidation:
 
     def test_mix_match_genes(self):
 
-        # mix-and-match genes -> fail ### FAILED FOR TWO VISIUMS that only contain raw counts.
+        # mix-and-match genes -> fail ### This is not passing validation - Mixed sets of genes are being allowed.
 
         organism = self.validator.adata.uns["organism_ontology_term_id"]
         if organism == "NCBITaxon:9606":
             self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:10090"]})
-            print('X: ', self.validator.adata.var)
 
             if self.validator.adata.raw:
-                new_var = self.validator.adata.raw.var.copy()
-                new_var = new_var.rename(index={new_var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:10090"]})
-                raw_adata = ad.AnnData(self.validator.adata.raw.X.compute(), var=new_var, obs=self.validator.adata.obs)
+                raw_adata = ad.AnnData(X = da.from_array(self.validator.adata.raw.X.compute(),
+                                                         chunks=self.validator.adata.raw.X.chunks),
+                                       var = self.validator.adata.raw.var.copy(),
+                                       obs = self.validator.adata.obs.copy()
+                                       )
+                raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:10090"]})
                 self.validator.adata.raw = raw_adata
-                print('Raw: ', self.validator.adata.raw.var)
 
         else:
             self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
-            print('X: ', self.validator.adata.var)
 
             if self.validator.adata.raw:
-                new_var = new_var = self.validator.adata.raw.var.copy()
-                new_var = new_var.rename(index={new_var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
-                raw_adata = ad.AnnData(self.validator.adata.raw.X.compute(), var=new_var, obs=self.validator.adata.obs)
+                raw_adata = ad.AnnData(X = da.from_array(self.validator.adata.raw.X.compute(),
+                                                         chunks=self.validator.adata.raw.X.chunks),
+                                       var = self.validator.adata.raw.var.copy(),
+                                       obs = self.validator.adata.obs.copy()
+                                       )
+                raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
                 self.validator.adata.raw = raw_adata
-                print('Raw: ', self.validator.adata.raw.var)
-
 
         self.validator.validate_adata()
-        assert self.validator.is_valid
+        assert not self.validator.is_valid
 
 
     @pytest.mark.parametrize("test_organism_gene", [ORGANISM_GENE_VALUES])
