@@ -239,13 +239,25 @@ class TestVarIndexValidation:
     @pytest.mark.parametrize("edge_case", [EDGE_CASES_gene_ids])
     def test_edge_case_1(self, edge_case):
 
-        # any gene IDs that contain . that don’t start with ENS -> fail
+        # any gene IDs that contain "." that don’t start with ENS -> fail   ### This is not testing all organisms - just those whose ids don't start with ENS (worm and fly).
 
         for organism, gene in edge_case.items():
             if organism == self.validator.adata.uns["organism_ontology_term_id"]:
                 self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene})
+
+                if self.validator.adata.raw:
+                    raw_adata = ad.AnnData(X = da.from_array(self.validator.adata.raw.X.compute(),
+                                                            chunks=self.validator.adata.raw.X.chunks),
+                                        var = self.validator.adata.raw.var.copy(),
+                                        obs = self.validator.adata.obs.copy()
+                                        )
+                    raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: gene})
+                    self.validator.adata.raw = raw_adata
+
                 self.validator.validate_adata()
                 assert not self.validator.is_valid
+            else:
+                pass
 
 
     def test_edge_case_2(self):
