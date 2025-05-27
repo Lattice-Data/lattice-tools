@@ -6,10 +6,10 @@ PR for this issue:
 Should pass:
 (Y) ENSG00000290826 in var index
 - Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826
-- all genes from organism
+(Y) all genes from organism - same as fixture_pass
 (Y) all genes from organism + covid
 (N) all genes from organism + spike-ins
-- all genes from organism + covid + spike-ins
+(N) all genes from organism + covid + spike-ins
 
 Shouldn't pass:
 - ENSG00000290826.1 in var index
@@ -76,15 +76,12 @@ class TestVarIndexValidation:
         self.validator = validator_with_adatas
 
 
-    def fixture_pass(self):
+    def test_fixture_pass(self):
+
+        # same as all genes from organism -> pass
+
         self.validator.validate_adata()
         assert self.validator.is_valid
-
-    """@pytest.mark.paramtrize("test_organism_gene", [ORGANISM_GENE_VALUES])
-    def test_all_genes_from_organism(self, test_organism_gene):
-        # maybe redundant with just the fixture_pass test?"""
-
-
 
 
     def test_all_genes_from_organism_covid(self):
