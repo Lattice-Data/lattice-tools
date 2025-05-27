@@ -5,11 +5,11 @@ PR for this issue:
 
 Should pass:
 (Y) ENSG00000290826 in var index
-- Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826
 (Y) all genes from organism - same as fixture_pass
 (Y) all genes from organism + covid
 (N) all genes from organism + spike-ins
 (N) all genes from organism + covid + spike-ins
+* Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826 -> found in other script: 6-0_pr1359_cxg656_feature_name_test.py
 
 Shouldn't pass:
 - ENSG00000290826.1 in var index
@@ -156,34 +156,6 @@ class TestVarIndexValidation:
                 assert self.validator.adata.var.index[0] == gene
                 self.validator.validate_adata()
                 assert self.validator.is_valid
-
-
-    @pytest.mark.parametrize("test_organism_gene", [ORGANISM_GENE_VALUES])
-    def test_feature_name_add_label(self, test_organism_gene):
-
-        # add_labels check: var.feature_name should be redundant with the var index value -> pass
-
-        for organism, gene in test_organism_gene.items():
-
-            if organism == self.validator.adata.uns["organism_ontology_term_id"]:
-                self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene})
-
-                if self.validator.adata.raw:
-                    new_var = self.validator.adata.raw.var.rename(index={self.validator.adata.raw.var.index[0]: gene})
-                    raw_adata = ad.AnnData(self.validator.adata.raw.X, var=new_var, obs=self.validator.adata.obs)
-                    self.validator.adata.raw = raw_adata
-
-                else:
-                    pass
-
-                self.validator.validate_adata()
-                assert self.validator.is_valid
-                labeler = AnnDataLabelAppender(self.validator.adata)
-                labeler._add_labels()
-                assert labeler.adata.var.loc[gene, 'feature_name'] == labeler.adata.var.index[0]
-
-            else:
-                pass
 
 
     def test_human_var_index_ensembl(self):
