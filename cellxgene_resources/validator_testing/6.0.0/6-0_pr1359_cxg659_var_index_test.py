@@ -7,8 +7,8 @@ Should pass:
 (Y) ENSG00000290826 in var index
 (Y) all genes from organism - same as fixture_pass
 (Y) all genes from organism + covid
-(N) all genes from organism + spike-ins -> Erroring on spike-in id.
-(N) all genes from organism + covid + spike-ins -> Erroring on spike-in id.
+(Y) all genes from organism + spike-ins
+(Y) all genes from organism + covid + spike-ins
 (Q) any gene IDs that contain "." that don’t start with ENS (edge case: worm and fly ids) -> Couldn't find any valid ids that contain "." for worm or fly.
         Question: According to the schema, this scenario should pass, correct?
 (Y) any gene names that contain "." (edge case)
@@ -58,7 +58,7 @@ ORGANISM_GENE_VALUES = {'NCBITaxon:9606':'ENSG00000290826',
 
 EXEMPT_ORGANISMS = {
     "NCBITaxon:2697049":"ENSSASG00005000004",  # Severe acute respiratory syndrome coronavirus 2
-    "NCBITaxon:32630":"ERCC-0003"  # synthetic construct
+    "NCBITaxon:32630":"ERCC-00003"  # synthetic construct
 }
 
 EDGE_CASES_GENE_IDS = {
