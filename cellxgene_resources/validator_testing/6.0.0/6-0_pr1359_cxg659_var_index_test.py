@@ -245,7 +245,7 @@ class TestVarIndexValidation:
             assert self.validator.adata.uns["organism_ontology_term_id"] == "NCBITaxon:9606"
 
         self.validator.validate_adata()
-        assert self.validator.is_valid
+        assert not self.validator.is_valid
         #assert (f"ERROR:")
 
 
