@@ -7,20 +7,17 @@ Should pass:
 (Y) ENSG00000290826 in var index
 (Y) all genes from organism - same as fixture_pass
 (Y) all genes from organism + covid
-(N) all genes from organism + spike-ins
-(N) all genes from organism + covid + spike-ins
+(N) all genes from organism + spike-ins -> Erroring on spike-in id.
+(N) all genes from organism + covid + spike-ins -> Erroring on spike-in id.
+(Q) any gene IDs that contain "." that don’t start with ENS (edge case: worm and fly ids) -> Couldn't find any valid ids that contain "." for worm or fly.
+        Question: According to the schema, this scenario should pass, correct?
+(Y) any gene names that contain "." (edge case)
 * Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826 -> found in other script: 6-0_pr1359_cxg656_feature_name_test.py
 
 Shouldn't pass:
 (Y) ENSG00000290826.1 in var index
-(N) mix-and-match genes -> This is passing - Mixed sets of genes are being allowed.
-(C) all genes from one organism, different uns.organism -> Comment for this one - error messageing is not clear.
-
-Edge cases
-
-(Y) any gene IDs that contain . that don’t start with ENS -> this is not testing all organisms - just worm and fly.
-any gene names that contain .
-
+(N) mix-and-match genes -> Mixed sets of genes are being allowed.
+(Q) all genes from one organism, different uns.organism -> Need a clearer error message.
 """
 
 import pytest
@@ -64,9 +61,17 @@ EXEMPT_ORGANISMS = {
     "NCBITaxon:32630":"ERCC-0003"  # synthetic construct
 }
 
-EDGE_CASES_gene_ids = {
+EDGE_CASES_GENE_IDS = {
     "NCBITaxon:7227":"FBtr0304423_df_nrg.1",
     "NCBITaxon:6239": "WBGene00001706.1",
+}
+
+EDGE_CASES_GENE_NAMES = {
+    "NCBITaxon:9606":"ENSG00000245857", # gene_name = GS1-24F4.2 (human)
+    "NCBITaxon:10090":"ENSMUSG00000039337",  # gene_name = Tex19.2 (mouse)
+    "NCBITaxon:9986":"ENSOCUG00000017166",  # gene_name = KAP6.1.1 (rabbit)
+    "NCBITaxon:1747270":"ENSSSCG00000029160", # gene_name = HSP70.2 (Macaca fascicularis aurea)
+    "NCBITaxon:6239":"WBGene00007102"  # B0024.13 (worm)
 }
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
@@ -103,7 +108,7 @@ class TestVarIndexValidation:
 
     def test_all_genes_from_organism_spike_ins(self):
 
-        # all genes from organism + spike-ins -> pass ### FAILED with ERROR: Could not infer organism from feature ID 'ERCC-0003' in 'var', make sure it is a valid ID.
+        # all genes from organism + spike-ins -> pass     ### FAILED with ERROR: Could not infer organism from feature ID 'ERCC-0003' in 'var', make sure it is a valid ID.
 
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: EXEMPT_ORGANISMS["NCBITaxon:32630"]})
         if self.validator.adata.raw:
@@ -121,7 +126,7 @@ class TestVarIndexValidation:
     @pytest.mark.parametrize("exempt_organism", [EXEMPT_ORGANISMS])
     def test_all_genes_from_organism_both_exempt(self, exempt_organism):
 
-        # all genes from organism + covid + spike-ins -> pass ### FAILED with ERROR: Could not infer organism from feature ID 'ERCC-0003' in 'var', make sure it is a valid ID.
+        # all genes from organism + covid + spike-ins -> pass     ### FAILED with ERROR: Could not infer organism from feature ID 'ERCC-0003' in 'var', make sure it is a valid ID.
 
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: EXEMPT_ORGANISMS["NCBITaxon:2697049"]})
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[1]: EXEMPT_ORGANISMS["NCBITaxon:32630"]})
@@ -183,44 +188,43 @@ class TestVarIndexValidation:
 
     def test_mix_match_genes(self):
 
-        # mix-and-match genes -> fail ### ISSUE:This is not passing validation - Mixed sets of genes are being allowed.
+        # mix-and-match genes -> fail    ### ISSUE: Mixed sets of genes are being allowed.
 
         organism = self.validator.adata.uns["organism_ontology_term_id"]
         if organism == "NCBITaxon:9606":
             self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:10090"]})
-
+            assert self.validator.adata.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:10090"]
             if self.validator.adata.raw:
-                raw_adata = ad.AnnData(X = da.from_array(self.validator.adata.raw.X.compute(),
-                                                         chunks=self.validator.adata.raw.X.chunks),
-                                       var = self.validator.adata.raw.var.copy(),
-                                       obs = self.validator.adata.obs.copy()
-                                       )
+                raw_adata = ad.AnnData(
+                    X = da.from_array(self.validator.adata.raw.X.compute(), chunks=self.validator.adata.raw.X.chunks),
+                    var = self.validator.adata.raw.var,
+                    obs = self.validator.adata.obs
+                    )
                 raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:10090"]})
                 self.validator.adata.raw = raw_adata
+                assert self.validator.adata.raw.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:10090"]
 
         else:
             self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
-
+            assert self.validator.adata.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:9606"]
             if self.validator.adata.raw:
-                raw_adata = ad.AnnData(X = da.from_array(self.validator.adata.raw.X.compute(),
-                                                         chunks=self.validator.adata.raw.X.chunks),
-                                       var = self.validator.adata.raw.var.copy(),
-                                       obs = self.validator.adata.obs.copy()
-                                       )
+                raw_adata = ad.AnnData(
+                    X = da.from_array(self.validator.adata.raw.X.compute(), chunks=self.validator.adata.raw.X.chunks),
+                    var = self.validator.adata.raw.var,
+                    obs = self.validator.adata.obs
+                    )
                 raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
                 self.validator.adata.raw = raw_adata
+                assert self.validator.adata.raw.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:9606"]
 
         self.validator.validate_adata()
         assert not self.validator.is_valid
 
 
+
     def test_different_uns_organism(self):
 
-        # all genes from organism, different uns.organism -> fail
-
-        """
-        COMMENT: This is passing but the error messages are just dependency errors. Clearer error message is preferred.
-        """
+        # all genes from organism, different uns.organism -> fail   ###COMMENT: Passing but the error messages are dependency errors. Need clearer error message.
 
         organism = self.validator.adata.uns["organism_ontology_term_id"]
         if organism == "NCBITaxon:9606":
@@ -235,10 +239,10 @@ class TestVarIndexValidation:
         #assert (f"ERROR:")
 
 
-    @pytest.mark.parametrize("edge_case", [EDGE_CASES_gene_ids])
+    @pytest.mark.parametrize("edge_case", [EDGE_CASES_GENE_IDS])
     def test_edge_case_1(self, edge_case):
 
-        # any gene IDs that contain "." that don’t start with ENS -> fail
+        # any gene IDs that contain "." that don’t start with ENS -> pass    ### QUESTION: Couldn't find any valid ids that contain "." for worm or fly.
 
         for organism, gene in edge_case.items():
             if organism == self.validator.adata.uns["organism_ontology_term_id"]:
@@ -265,40 +269,28 @@ class TestVarIndexValidation:
                 pass
 
 
-    def test_edge_case_2(self):
+    @pytest.mark.parametrize("edge_case", [EDGE_CASES_GENE_NAMES])
+    def test_edge_case_2(self, edge_case):
 
-        # any gene names that contain . -> fail # not sure if this is written correctly
+        # any gene names that contain "." -> pass
 
-        labeler = AnnDataLabelAppender(self.validator.adata)
-        labeler._add_labels()
-        self.validator.adata = labeler.adata
-        self.validator.adata.var.rename(columns={"feature_name":"gene_name"}, inplace=True)
-        non_ens_index = self.validator.adata.var[self.validator.adata.var["gene_name"].str.startswith('ENS') == False].index[0]
-        new_gene_name =self.validator.adata.var.loc[non_ens_index, "gene_name"] + ".1"
-        self.validator.adata.var["gene_name"] = self.validator.adata.var["gene_name"].cat.add_categories(new_gene_name)
-        self.validator.adata.var.loc[non_ens_index, "gene_name"] = new_gene_name
-        var_remove = ["feature_reference","feature_biotype","feature_length","feature_type"]
-        self.validator.adata.var.drop(columns=var_remove, inplace=True)
-        self.validator.adata.obs.drop(columns=["cell_type","assay","disease","sex","tissue","self_reported_ethnicity","development_stage"], inplace=True)
+        for organism, gene in edge_case.items():
+            if organism == self.validator.adata.uns["organism_ontology_term_id"]:
+                if gene not in self.validator.adata.var.index:
+                    self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene})
 
-        if self.validator.adata.raw:
-            var = self.validator.adata.raw.var.copy()
-            var.rename(columns={"feature_name":"gene_name"}, inplace=True)
-            var.drop(columns=var_remove, inplace=True)
-            non_ens_index = var[var["gene_name"].str.startswith('ENS') == False].index[0]
-            new_gene_name =var.loc[non_ens_index, "gene_name"] + ".1"
-            var["gene_name"] = var["gene_name"].cat.add_categories(new_gene_name)
-            var.loc[non_ens_index, "gene_name"] = new_gene_name
-            raw_adata = ad.AnnData(self.validator.adata.raw.X, var=var, obs=self.validator.adata.obs)
-            self.validator.adata.raw = raw_adata
+                if self.validator.adata.raw:
+                    if gene not in self.validator.adata.raw.var.index:
+                        raw_adata = ad.AnnData(
+                            X = da.from_array(self.validator.adata.raw.X.compute(), chunks=self.validator.adata.raw.X.chunks),
+                            var = self.validator.adata.raw.var,
+                            obs = self.validator.adata.obs
+                            )
+                        raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: gene})
+                        self.validator.adata.raw = raw_adata
 
-        else:
-            pass
-
-
-        print(self.validator.adata.var)
-        self.validator.validate_adata()
-        assert self.validator.is_valid
-
-
-
+                self.validator.validate_adata()
+                assert self.validator.is_valid
+                labeler = AnnDataLabelAppender(self.validator.adata)
+                labeler._add_labels()
+                assert "." in labeler.adata.var.loc[gene, "feature_name"]
