@@ -194,6 +194,9 @@ class TestVarIndexValidation:
         if organism == "NCBITaxon:9606":
             self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:10090"]})
             assert self.validator.adata.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:10090"]
+            assert not self.validator.adata.var.index[0].startswith("ENSG0")
+            assert self.validator.adata.var.index[1].startswith("ENSG0")
+
             if self.validator.adata.raw:
                 raw_adata = ad.AnnData(
                     X = da.from_array(self.validator.adata.raw.X.compute(), chunks=self.validator.adata.raw.X.chunks),
@@ -203,10 +206,15 @@ class TestVarIndexValidation:
                 raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:10090"]})
                 self.validator.adata.raw = raw_adata
                 assert self.validator.adata.raw.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:10090"]
+                assert not self.validator.adata.raw.var.index[0].startswith("ENSG0")
+                assert self.validator.adata.raw.var.index[1].startswith("ENSG0")
 
         else:
             self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
             assert self.validator.adata.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:9606"]
+            assert self.validator.adata.var.index[0].startswith("ENSG0")
+            assert not self.validator.adata.var.index[1].startswith("ENSG0")
+
             if self.validator.adata.raw:
                 raw_adata = ad.AnnData(
                     X = da.from_array(self.validator.adata.raw.X.compute(), chunks=self.validator.adata.raw.X.chunks),
@@ -216,6 +224,8 @@ class TestVarIndexValidation:
                 raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
                 self.validator.adata.raw = raw_adata
                 assert self.validator.adata.raw.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:9606"]
+                assert self.validator.adata.raw.var.index[0].startswith("ENSG0")
+                assert not self.validator.adata.raw.var.index[1].startswith("ENSG0")
 
         self.validator.validate_adata()
         assert not self.validator.is_valid
