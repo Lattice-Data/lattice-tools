@@ -387,22 +387,18 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					if len(v) == 1 and v[0] == 'unknown':
 						values_df.loc[key,ident] = 'unknown'
 					elif 'unknown' in v:
+						#Actually should error here? Cause then single donor has mix of unknown and disease
 						values_df.loc[key,ident] = 'unknown'
 					else:
-						value = ','.join(v)
+						value = ' || '.join(v)
 						values_df.loc[key,ident] = value
 				else:
 					if v != constants.UNREPORTED_VALUE:
 						values_df.loc[key,ident] = v
 					else:
-						# Could just set values to add here and add warning message?
 						values_df.loc[key,ident] = constants.UNREPORTED_VALUE
 			disease_set = set(values_df.loc[key].to_list())
-			if len(disease_set) > 1:
-				values_to_add[key] = constants.UNREPORTED_VALUE
-				print(f"WARNING: Pooled disease term ids '{disease_set}' for '{donor_id}', setting to 'unknown'")
-			else:
-				values_to_add[key] = disease_set.pop()
+			values_to_add[key] = 'pooled [{}]'.format(';'.join(disease_set))
 		elif prop == 'diseases.term_name':
 			donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 			values_df = pd.DataFrame()
@@ -415,9 +411,10 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					if len(v) == 1 and v[0] == 'unknown':
 						values_df.loc[key,ident] = 'unknown'
 					elif 'unknown' in v:
+						#Actually should error here? Cause then single donor has mix of unknown and disease
 						values_df.loc[key,ident] = 'unknown'
 					else:
-						value = ','.join(v)
+						value = ' || '.join(v)
 						values_df.loc[key,ident] = value
 				else:
 					if v != constants.UNREPORTED_VALUE:
@@ -425,10 +422,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					else:
 						values_df.loc[key,ident] = constants.UNREPORTED_VALUE
 			disease_set = set(values_df.loc[key].to_list())
-			if len(disease_set) > 1:
-				values_to_add[key] = constants.UNREPORTED_VALUE
-			else:
-				values_to_add[key] = disease_set.pop()
+			values_to_add[key] = 'pooled [{}]'.format(';'.join(disease_set))
 		else:
 			value = list()
 			for obj in objs:

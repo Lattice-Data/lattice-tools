@@ -146,7 +146,30 @@ def quality_check(glob):
 def clean_list(lst, exp_disease, glob):
 	lst = lst.split(',')
 	exp_disease_list = [i['term_id'] for i in exp_disease]
-	disease_found = [i for i in exp_disease_list if i in lst]
+	final_diseases = []
+	for i in lst:
+		if 'pooled' in i:
+			pooled_diseases = []
+			pooled_present = True
+			pool_disease_list = i.replace('pooled [', '').replace(']','').split(';')
+			for donor_disease_list in pool_disease_list:
+				if ' || ' in donor_disease_list:
+					donor_specific_disease = donor_disease_list.split(' || ')
+					pooled_diseases.append(' || '.join([k for k in exp_disease_list if k in donor_specific_disease]))
+				else:
+					pooled_diseases.append([k for k in exp_disease_list if k in donor_disease_list])
+			if len(pooled_diseases) == 0:
+				final_diseases.append('PATO:0000461')
+			if '[]' in pooled_diseases:
+				pooled_diseases.replace('[]','PATO:0000461')
+			else:
+				#This is where QA check for pooled diseases would be:
+				#Check if mix of normal and diseased
+				#Check if mix of diseases
+				#and then append pooled_diseases final value to final_diseases
+		else:
+			final_diseases.append(i)
+	disease_found = [i for i in exp_disease_list if i in final_diseases]
 	if disease_found:
 		if len(disease_found) > 1:
 			disease = ' || '.join(disease_found)
