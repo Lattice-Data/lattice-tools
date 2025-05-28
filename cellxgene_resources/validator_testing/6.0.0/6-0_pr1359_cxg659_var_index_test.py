@@ -9,10 +9,10 @@ Should pass:
 (Y) all genes from organism + covid
 (Y) all genes from organism + spike-ins
 (Y) all genes from organism + covid + spike-ins
-(Q) any gene IDs that contain "." that don’t start with ENS (edge case: worm and fly ids) -> Couldn't find any valid ids that contain "." for worm or fly.
-        Question: According to the schema, this scenario should pass, correct?
 (Y) any gene names that contain "." (edge case)
-* Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826 -> found in other script: 6-0_pr1359_cxg656_feature_name_test.py
+
+* Check add-labels: feature_name for ENSG00000290826 is ENSG00000290826 -> found in other script: 6-0_pr1359_cxg656_feature_name_test.py: currently gene_version
+isn't being split from gene_id for slide-seq, visium and valid_human.h5ad
 
 Shouldn't pass:
 (Y) ENSG00000290826.1 in var index
@@ -55,15 +55,9 @@ ORGANISM_GENE_VALUES = {'NCBITaxon:9606':'ENSG00000290826',
                         "NCBITaxon:9825":"ENSSSCG00000057774"
                         }
 
-
 EXEMPT_ORGANISMS = {
     "NCBITaxon:2697049":"ENSSASG00005000004",  # Severe acute respiratory syndrome coronavirus 2
     "NCBITaxon:32630":"ERCC-00003"  # synthetic construct
-}
-
-EDGE_CASES_GENE_IDS = {
-    "NCBITaxon:7227":"FBtr0304423_df_nrg.1",
-    "NCBITaxon:6239": "WBGene00001706.1",
 }
 
 EDGE_CASES_GENE_NAMES = {
@@ -73,6 +67,7 @@ EDGE_CASES_GENE_NAMES = {
     "NCBITaxon:1747270":["ENSSSCG00000029160", "HSP70.2"],
     "NCBITaxon:6239":["WBGene00007102", "B0024.13"]
 }
+
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
 class TestVarIndexValidation:
@@ -249,38 +244,8 @@ class TestVarIndexValidation:
         #assert (f"ERROR:")
 
 
-    @pytest.mark.parametrize("edge_case", [EDGE_CASES_GENE_IDS])
-    def test_edge_case_1(self, edge_case):
-
-        # any gene IDs that contain "." that don’t start with ENS -> pass    ### QUESTION: Couldn't find any valid ids that contain "." for worm or fly.
-
-        for organism, gene in edge_case.items():
-            if organism == self.validator.adata.uns["organism_ontology_term_id"]:
-                self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene})
-
-                if self.validator.adata.raw:
-                    raw_adata = ad.AnnData(X = da.from_array(self.validator.adata.raw.X.compute(),
-                                                            chunks=self.validator.adata.raw.X.chunks),
-                                        var = self.validator.adata.raw.var.copy(),
-                                        obs = self.validator.adata.obs.copy()
-                                        )
-                    raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: gene})
-                    self.validator.adata.raw = raw_adata
-
-                self.validator.validate_adata()
-                assert not self.validator.is_valid
-                assert (
-                    f"ERROR: Could not infer organism from feature ID '{gene}' in 'var', make sure it is a valid ID."
-                    ) in self.validator.errors
-                assert (
-                    f"ERROR: Could not infer organism from feature ID '{gene}' in 'raw.var', make sure it is a valid ID."
-                    ) in self.validator.errors
-            else:
-                pass
-
-
     @pytest.mark.parametrize("edge_case", [EDGE_CASES_GENE_NAMES])
-    def test_edge_case_2(self, edge_case):
+    def test_edge_case(self, edge_case):
 
         # any gene names that contain "." -> pass
 
