@@ -67,11 +67,11 @@ EDGE_CASES_GENE_IDS = {
 }
 
 EDGE_CASES_GENE_NAMES = {
-    "NCBITaxon:9606":"ENSG00000245857", # gene_name = GS1-24F4.2 (human)
-    "NCBITaxon:10090":"ENSMUSG00000039337",  # gene_name = Tex19.2 (mouse)
-    "NCBITaxon:9986":"ENSOCUG00000017166",  # gene_name = KAP6.1.1 (rabbit)
-    "NCBITaxon:1747270":"ENSSSCG00000029160", # gene_name = HSP70.2 (Macaca fascicularis aurea)
-    "NCBITaxon:6239":"WBGene00007102"  # B0024.13 (worm)
+    "NCBITaxon:9606":["ENSG00000245857", "GS1-24F4.2"],
+    "NCBITaxon:10090":["ENSMUSG00000039337", "Tex19.2"],
+    "NCBITaxon:9986":["ENSOCUG00000017166", "KAP6.1.1"],
+    "NCBITaxon:1747270":["ENSSSCG00000029160", "HSP70.2"],
+    "NCBITaxon:6239":["WBGene00007102", "B0024.13"]
 }
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
@@ -284,23 +284,23 @@ class TestVarIndexValidation:
 
         # any gene names that contain "." -> pass
 
-        for organism, gene in edge_case.items():
+        for organism, gene_list in edge_case.items():
             if organism == self.validator.adata.uns["organism_ontology_term_id"]:
-                if gene not in self.validator.adata.var.index:
-                    self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene})
+                if gene_list[0] not in self.validator.adata.var.index:
+                    self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: gene_list[0]})
 
                 if self.validator.adata.raw:
-                    if gene not in self.validator.adata.raw.var.index:
+                    if gene_list[0] not in self.validator.adata.raw.var.index:
                         raw_adata = ad.AnnData(
                             X = da.from_array(self.validator.adata.raw.X.compute(), chunks=self.validator.adata.raw.X.chunks),
                             var = self.validator.adata.raw.var,
                             obs = self.validator.adata.obs
                             )
-                        raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: gene})
+                        raw_adata.var = raw_adata.var.rename(index={raw_adata.var.index[0]: gene_list[0]})
                         self.validator.adata.raw = raw_adata
 
                 self.validator.validate_adata()
                 assert self.validator.is_valid
                 labeler = AnnDataLabelAppender(self.validator.adata)
                 labeler._add_labels()
-                assert "." in labeler.adata.var.loc[gene, "feature_name"]
+                assert labeler.adata.var.loc[gene_list[0], "feature_name"] == gene_list[1]
