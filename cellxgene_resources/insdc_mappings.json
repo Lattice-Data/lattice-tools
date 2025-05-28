@@ -10775,8 +10775,47 @@
             "Ileum-1": "SRX5317410",
             "Ileum-2": "SRX5317411"
         }
+    },
+    "d0e9c47b-4ce7-4f84-b182-eddcfa0b2658": {
+        "ca421096-6240-4cee-8c12-d20899b3e005": {
+            "obs_column": "orig.ident",
+            "H1299-S1-12h-A": "SRX8119811",
+            "H1299-S1-12h-B": "SRX8119812",
+            "H1299-S1-24h-A": "SRX8119813",
+            "H1299-S1-24h-B": "SRX8119814",
+            "H1299-S1-36h-A": "SRX8119815",
+            "H1299-S1-36h-B": "SRX8119816",
+            "H1299-mock-36h-A": "SRX8119807",
+            "H1299-mock-36h-B": "SRX8119808",
+            "H1299-mock-4h-A": "SRX8119809",
+            "H1299-mock-4h-B": "SRX8119810",
+            "H1299-S2-12h-A": "SRX8119817",
+            "H1299-S2-12h-B": "SRX8119818",
+            "H1299-S2-24h-A": "SRX8119819",
+            "H1299-S2-24h-B": "SRX8119820",
+            "H1299-S2-36h-A": "SRX8119821",
+            "H1299-S2-36h-B": "SRX8119822"
+        },
+        "4b9e0a15-c006-45d9-860f-b8a43ccf7d9d": {
+            "obs_column": "orig.ident",
+            "Calu3-S1-12h-A": "SRX8119827",
+            "Calu3-S1-12h-B": "SRX8119828",
+            "Calu3-S1-4h-A": "SRX8119829",
+            "Calu3-S1-4h-B": "SRX8119830",
+            "Calu3-S1-8h-A": "SRX8119831",
+            "Calu3-S1-8h-B": "SRX8119832",
+            "Calu3-mock-12h-A": "SRX8119823",
+            "Calu3-mock-4h-A": "SRX8119825",
+            "Calu3-S2-12h-A": "SRX8119833",
+            "Calu3-S2-12h-B": "SRX8119834",
+            "Calu3-S2-4h-A": "SRX8119835",
+            "Calu3-S2-4h-B": "SRX8119836",
+            "Calu3-S2-8h-A": "SRX8119837",
+            "Calu3-S2-8h-B": "SRX8119838",
+            "Calu3-mock-12h-B": "SRX8119824",
+            "Calu3-mock-4h-B": "SRX8119826"
+        }
     }
-
 
 
 }
