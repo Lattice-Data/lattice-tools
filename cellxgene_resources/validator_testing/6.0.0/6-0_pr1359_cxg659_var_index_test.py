@@ -16,7 +16,7 @@ isn't being split from gene_id for slide-seq, visium and valid_human.h5ad
 
 Shouldn't pass:
 (Y) ENSG00000290826.1 in var index
-(N) mix-and-match genes -> Mixed sets of genes are being allowed.
+(Y) mix-and-match genes
 (Q) all genes from one organism, different uns.organism -> Need a clearer error message.
 """
 
@@ -183,7 +183,7 @@ class TestVarIndexValidation:
 
     def test_mix_match_genes(self):
 
-        # mix-and-match genes -> fail    ### ISSUE: Mixed sets of genes are being allowed.
+        # mix-and-match genes -> fail
 
         organism = self.validator.adata.uns["organism_ontology_term_id"]
         if organism == "NCBITaxon:9606":
@@ -203,6 +203,11 @@ class TestVarIndexValidation:
                 assert self.validator.adata.raw.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:10090"]
                 assert not self.validator.adata.raw.var.index[0].startswith("ENSG0")
                 assert self.validator.adata.raw.var.index[1].startswith("ENSG0")
+                self.validator.validate_adata()
+                assert not self.validator.is_valid
+                assert (
+                    f"ERROR: uns['organism_ontology_term_id'] is '{organism}' but feature_ids are from [<SupportedOrganisms.MUS_MUSCULUS: 'NCBITaxon:10090'>]."
+                    ) in self.validator.errors
 
         else:
             self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: ORGANISM_GENE_VALUES["NCBITaxon:9606"]})
@@ -221,9 +226,12 @@ class TestVarIndexValidation:
                 assert self.validator.adata.raw.var.index[0] == ORGANISM_GENE_VALUES["NCBITaxon:9606"]
                 assert self.validator.adata.raw.var.index[0].startswith("ENSG0")
                 assert not self.validator.adata.raw.var.index[1].startswith("ENSG0")
+                self.validator.validate_adata()
+                assert not self.validator.is_valid
+                assert (
+                    f"ERROR: uns['organism_ontology_term_id'] is '{organism}' but feature_ids are from [<SupportedOrganisms.HOMO_SAPIENS: 'NCBITaxon:9606'>]."
+                    ) in self.validator.errors
 
-        self.validator.validate_adata()
-        assert not self.validator.is_valid
 
 
 
