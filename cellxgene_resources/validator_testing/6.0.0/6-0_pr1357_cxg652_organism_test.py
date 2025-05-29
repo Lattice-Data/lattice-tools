@@ -10,7 +10,7 @@ Should not pass
 (N) - present uns.organism -> * currently allowed
 (Y) - present uns.organism_ontology_term_id_colors
 (Y) - present uns.organism_ontology_colors
-(Q) - uns.organism_ontology_term_id not on accepted organisms list -> * this doesn't pass but this error message could also be more specific
+(Y) - uns.organism_ontology_term_id not on accepted organisms list
 
 Should pass
 (Y) - uns.organism_ontology_term_id - from list of accepted organisms
@@ -174,21 +174,21 @@ class TestOrganismValidation:
             f"ERROR: Colors field uns[organism_colors] does not have a corresponding categorical field in obs. Annotate organism_ontology_term_id_colors instead"
         ) in self.validator.errors
 
+
     @pytest.mark.parametrize("organism_term", EXEMPT_ORGANISMS.values())
     def test_exempt_organisms(self, organism_term):
 
         # uns.organism_ontology_term_id - not on accepted organisms (esp COVID) -> fail
-
-        '''
-        Question: This error message should probably be more specific?
-        '''
 
         self.validator.adata.uns["organism_ontology_term_id"] = organism_term
         assert self.validator.adata.uns["organism_ontology_term_id"] in EXEMPT_ORGANISMS.values()
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: '{organism_term}' in 'organism_ontology_term_id' is not a valid ontology term id of 'NCBITaxon'."
+            f"ERROR: '{organism_term}' in 'organism_ontology_term_id' is not allowed."
+        ) in self.validator.errors
+        assert (
+            f"ERROR: Unexpected validation error: '{organism_term}'"
         ) in self.validator.errors
 
 
