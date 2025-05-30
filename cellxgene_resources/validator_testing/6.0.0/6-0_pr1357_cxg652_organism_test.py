@@ -6,7 +6,7 @@ Testing conditions:
 Should not pass
 (Q) - absent uns.organism_ontology_term_id -> * this doesn't pass but there is no specific error message
 (N) - present obs.organism -> * currently allowed
-(N) - present obs.organism_ontology_term_id -> * this passes if uns.organism_ontology_term_id is also present, do we want to control for this?
+(Y) - present obs.organism_ontology_term_id
 (N) - present uns.organism -> * currently allowed
 (Y) - present uns.organism_ontology_term_id_colors
 (Y) - present uns.organism_ontology_colors
@@ -93,18 +93,16 @@ class TestOrganismValidation:
         del self.validator.adata.uns["organism_ontology_term_id"]
         assert "organism_ontology_term_id" not in self.validator.adata.uns.keys()
         self.validator.validate_adata()
-        assert not self.validator.is_valid
-        #assert (f"ERROR: 'organism_ontology_term_id' is required in uns") in self.validator.errors
+        assert self.validator.is_valid
+        assert (
+            "ERROR: 'organism_ontology_term_id' in 'uns' is not present."
+            ) in self.validator.errors
+
 
 
     def test_organism_in_obs(self):
 
-        # organism in obs -> fail
-
-        '''
-        Issue: DOES NOT FAIL! Organism in obs is allowed.
-
-        '''
+        # organism in obs -> fail  ### Issue: DOES NOT FAIL! Organism in obs is allowed.
 
         organism_term_id = self.validator.adata.uns["organism_ontology_term_id"]
         organism_name = ACCEPTED_ORGANISMS[organism_term_id]
@@ -114,31 +112,24 @@ class TestOrganismValidation:
         assert not self.validator.is_valid
         #assert (f"ERROR: '{organism_name}' {error}") in self.validator.errors
 
+
     def test_organism_term_in_obs(self):
 
         # organism_ontology_term_id in obs -> fail
 
-        '''
-        Issue: DOES NOT FAIL if organism_ontology_term_id is in BOTH uns and obs; if term is removed from uns, it fails with unspecific error message like test_organism_term_not_in_uns
-
-        '''
         organism_term_id = self.validator.adata.uns["organism_ontology_term_id"]
         self.validator.adata.obs["organism_ontology_term_id"] = organism_term_id
         assert "organism_ontology_term_id" in self.validator.adata.obs.columns
-        del self.validator.adata.uns["organism_ontology_term_id"]
-        assert "organism_ontology_term_id" not in self.validator.adata.uns.keys()
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        #assert (f"ERROR: '{organism_name}' {error}") in self.validator.errors
+        assert (
+            f"ERROR: The field 'organism_ontology_term_id' is present in 'obs', but it is deprecated."
+            ) in self.validator.errors
 
 
     def test_organism_in_uns(self):
 
-        # organism in uns -> fail
-
-        '''
-        Issue: DOES NOT FAIL! Organism in uns is allowed.
-        '''
+        # organism in uns -> fail  ### Issue: DOES NOT FAIL! Organism in uns is allowed.
 
         organism_term_id = self.validator.adata.uns["organism_ontology_term_id"]
         assert organism_term_id in ACCEPTED_ORGANISMS.keys()
@@ -148,6 +139,7 @@ class TestOrganismValidation:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         #assert (f'ERROR: "{organism_name}" {error}') in self.validator.errors
+
 
     def test_organism_term_id_colors_in_uns(self):
 
