@@ -405,7 +405,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			key = constants.PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			cxg_fields = ['donor_diseases_term_id', 'library_id_repository','sex',\
+			cxg_fields = ['library_id_repository','sex',\
 							 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
 				donor_id = values_to_add.get('donor_id', 'unknown donor_id')
@@ -422,9 +422,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 							print(f"WARNING: Pooled development stage ontology terms for '{donor_id}': ")
 							[print('\t', term.term_id, term.label) for term in pooled_terms]
 							print(f"\t Using {common_term} '{OntologyTerm(common_term).label}'")
-					elif key == 'donor_diseases_term_id':
-						logger.error(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
-						sys.exit(f"ERROR: Pooled disease ontology for '{donor_id}' contains multiple values {value_set}")
 					elif key == 'sex':
 						values_to_add[key] = 'unknown'
 						# TODO: change to warning list during glob warning refactor
