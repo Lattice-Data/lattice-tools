@@ -103,7 +103,7 @@ class TestVarIndexValidation:
 
     def test_all_genes_from_organism_spike_ins(self):
 
-        # all genes from organism + spike-ins -> pass     ### FAILED with ERROR: Could not infer organism from feature ID 'ERCC-0003' in 'var', make sure it is a valid ID.
+        # all genes from organism + spike-ins -> pass
 
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: EXEMPT_ORGANISMS["NCBITaxon:32630"]})
         if self.validator.adata.raw:
@@ -118,10 +118,9 @@ class TestVarIndexValidation:
         assert self.validator.is_valid
 
 
-    @pytest.mark.parametrize("exempt_organism", [EXEMPT_ORGANISMS])
-    def test_all_genes_from_organism_both_exempt(self, exempt_organism):
+    def test_all_genes_from_organism_both_exempt(self):
 
-        # all genes from organism + covid + spike-ins -> pass     ### FAILED with ERROR: Could not infer organism from feature ID 'ERCC-0003' in 'var', make sure it is a valid ID.
+        # all genes from organism + covid + spike-ins -> pass
 
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[0]: EXEMPT_ORGANISMS["NCBITaxon:2697049"]})
         self.validator.adata.var = self.validator.adata.var.rename(index={self.validator.adata.var.index[1]: EXEMPT_ORGANISMS["NCBITaxon:32630"]})
@@ -231,8 +230,6 @@ class TestVarIndexValidation:
                 assert (
                     f"ERROR: uns['organism_ontology_term_id'] is '{organism}' but feature_ids are from [<SupportedOrganisms.HOMO_SAPIENS: 'NCBITaxon:9606'>]."
                     ) in self.validator.errors
-
-
 
 
     def test_different_uns_organism(self):
