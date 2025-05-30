@@ -3,13 +3,13 @@ QA testing for this issue:
 PR for this issue:
 
 Should pass:
-- CL: new terms ["CL:4052040", "CL:4070016"]
-- MONDO: new terms ["MONDO:0700303", "MONDO:0700293"]
-- UBERON: new terms ["UBERON:8600126", "UBERON:8920001"]
+(N) CL: new terms ["CL:4052040", "CL:4070016"]
+(N) MONDO: new terms ["MONDO:0700303", "MONDO:0700293"]
+(N) UBERON: new terms ["UBERON:8600126", "UBERON:8920001"]
 
 Should not pass:
-- CL: deprecated terms ["CL:0000215", "CL:0000217"]
-- MONDO: deprecated terms ["MONDO:0022577", "MONDO:0800112", "MONDO:0000414"]
+(N) CL: deprecated terms ["CL:0000215", "CL:0000217"]
+(N) MONDO: deprecated terms ["MONDO:0022577", "MONDO:0800112", "MONDO:0000414"]
 
 """
 
