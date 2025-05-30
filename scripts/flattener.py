@@ -230,7 +230,7 @@ def report_diseases(mxr_df, exp_disease, glob):
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
 		mxr_df['disease_ontology_term_id'] = mxr_df.apply(
-			lambda row: row['donor_diseases_term_id'] + [x for x in row['sample_diseases_term_id'] if x not in row['donor_diseases_term_id'] and x!=[fm.UNREPORTED_VALUE]],
+			lambda row: row['donor_diseases_term_id'] + [x for x in row['sample_diseases_term_id'] if re.search(x, str(row['donor_diseases_term_id'])) and x!=[fm.UNREPORTED_VALUE]],
 			axis=1
 		)
 		mxr_df['disease_ontology_term_id'] = mxr_df.apply(
