@@ -376,7 +376,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			else:
 				values_to_add[key] = ethnicity_set.pop()
 		elif prop == 'diseases.term_id':
-			donor_id = values_to_add.get('donor_id', 'unknown donor_id')
+			#donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 			values_df = pd.DataFrame()
 			latkey = (obj_type + '_' + prop).replace('.','_')
 			key = constants.PROP_MAP.get(latkey, latkey)
@@ -398,9 +398,10 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					else:
 						values_df.loc[key,ident] = constants.UNREPORTED_VALUE
 			disease_set = set(values_df.loc[key].to_list())
-			values_to_add[key] = 'pooled [{}]'.format(';'.join(disease_set))
+			values_to_add[key] = 'pooled [{}]'.format(','.join(disease_set))
+			#print(f"HERE1: {key} and value {values_to_add[key]}")
 		elif prop == 'diseases.term_name':
-			donor_id = values_to_add.get('donor_id', 'unknown donor_id')
+			#donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 			values_df = pd.DataFrame()
 			latkey = (obj_type + '_' + prop).replace('.','_')
 			key = constants.PROP_MAP.get(latkey, latkey)
@@ -422,7 +423,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					else:
 						values_df.loc[key,ident] = constants.UNREPORTED_VALUE
 			disease_set = set(values_df.loc[key].to_list())
-			values_to_add[key] = 'pooled [{}]'.format(';'.join(disease_set))
+			values_to_add[key] = 'pooled [{}]'.format(','.join(disease_set))
+			#print(f"HERE2: {key} and value {values_to_add[key]}")
 		else:
 			value = list()
 			for obj in objs:
@@ -485,7 +487,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				values_to_add[key] = constants.UNREPORTED_VALUE
 			else:
 				values_to_add[key] = next(iter(value_set))
-
+    
 	return values_to_add
 
 

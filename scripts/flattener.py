@@ -143,33 +143,25 @@ def quality_check(glob):
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
-def clean_list(lst, exp_disease, glob):
-	lst = lst.split(',')
+def clean_list(row, exp_disease, glob):
+	lst = row['disease_ontology_term_id']
+	pooled = row['pooled']
 	exp_disease_list = [i['term_id'] for i in exp_disease]
-	final_diseases = []
-	for i in lst:
-		if 'pooled' in i:
-			pooled_diseases = []
-			pooled_present = True
-			pool_disease_list = i.replace('pooled [', '').replace(']','').split(';')
-			for donor_disease_list in pool_disease_list:
-				if ' || ' in donor_disease_list:
-					donor_specific_disease = donor_disease_list.split(' || ')
-					pooled_diseases.append(' || '.join([k for k in exp_disease_list if k in donor_specific_disease]))
-				else:
-					pooled_diseases.append([k for k in exp_disease_list if k in donor_disease_list])
-			if len(pooled_diseases) == 0:
-				final_diseases.append('PATO:0000461')
-			if '[]' in pooled_diseases:
-				pooled_diseases.replace('[]','PATO:0000461')
+	disease_found = []
+    
+	if pooled:
+		lst_clean = [x.split(' || ') for x in lst]
+		for exp_disease in exp_disease_list:
+			if all(exp_disease in sublist for sublist in lst_clean):
+				disease_found.append(exp_disease)
+			elif all(exp_disease not in sublist for sublist in lst_clean):
+				pass
 			else:
-				#This is where QA check for pooled diseases would be:
-				#Check if mix of normal and diseased
-				#Check if mix of diseases
-				#and then append pooled_diseases final value to final_diseases
-		else:
-			final_diseases.append(i)
-	disease_found = [i for i in exp_disease_list if i in final_diseases]
+				logging.error(f'ERROR: experimental diseasee inconsistent across donors/samples {exp_disease}')
+				sys.exit(f'ERROR: experimental diseasee inconsistent across donors/samples {exp_disease}')
+	else:
+		disease_found = [x for x in exp_disease_list if x in lst]
+
 	if disease_found:
 		if len(disease_found) > 1:
 			disease = ' || '.join(disease_found)
@@ -177,8 +169,10 @@ def clean_list(lst, exp_disease, glob):
 			disease = disease_found[0]
 	else:
 		disease = 'PATO:0000461'
+
 	return disease
 
+    
 # Add temporary suffixes to var columns and then concatenate anndata objects in list together
 # temp_anndata_list is created so that original anndata_list does not get suffixes
 def concat_list(anndata_list, column, uns_merge):
@@ -200,26 +194,55 @@ def concat_list(anndata_list, column, uns_merge):
 		concat_result.obs.drop(columns=drop_columns, inplace=True)
 	return concat_result
 
-# Determine reported disease as unique of sample and donor diseases, removing unreported value
+
+# Determine reported disease as unique of sample and donor diseases, removing unreported value only for unpooled samples
 def report_diseases(mxr_df, exp_disease, glob):
-	mxr_df['reported_diseases'] = mxr_df['sample_diseases_term_name'] + ',' + mxr_df['donor_diseases_term_name']
-	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: '[{}]'.format(','.join([i for i in set(x.split(',')) if i!=fm.UNREPORTED_VALUE])))
+    # Keep track of pooled status using separate obs column and processes uniquely, as pooled cannot drop fm.UNREPORTED_VALUE and needs to move the string 'pooled' and convert to list
+	mxr_df['pooled'] = False
+	mxr_df.loc[mxr_df['sample_diseases_term_name'].str.startswith('pooled'), 'pooled'] = True
+	mxr_df.loc[mxr_df['donor_diseases_term_name'].str.startswith('pooled'), 'pooled'] = True
+	drop_pooled = ['donor_diseases_term_name','donor_diseases_term_id','sample_diseases_term_name', 'sample_diseases_term_id']
+	for d in drop_pooled:
+		if True in mxr_df['pooled'].to_list():
+			mxr_df[d] = mxr_df[d].str.replace('pooled [','')
+			mxr_df[d] = mxr_df[d].str.replace(']','')
+		mxr_df[d] = mxr_df[d].apply(lambda x: x.split(',') if ',' in x else [x])
+
+	mxr_df['reported_diseases'] = mxr_df.apply(
+		lambda row: row['donor_diseases_term_name'] + [x for x in row['sample_diseases_term_name'] if x not in row['donor_diseases_term_name']],
+		axis=1
+	)
+	mxr_df.loc[~mxr_df['pooled'],'reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: [i for i in list(set(x)) if i!=fm.UNREPORTED_VALUE])
+	mxr_df.loc[mxr_df['pooled'],'reported_diseases'] = mxr_df['reported_diseases'].apply(lambda x: [i.replace(fm.UNREPORTED_VALUE, 'none') for i in x])
+
+    # Do a final check on reported_diseases for formatting
+	mxr_df['reported_diseases'] = mxr_df['reported_diseases'].astype('str')
 	total_reported = mxr_df['reported_diseases'].unique()
 	if len(total_reported) == 1:
 		if total_reported[0] == '[]':
 			mxr_df['reported_diseases'] = '[]'
 	elif '[]' in total_reported:
 		mxr_df['reported_diseases'].replace({'[]':'none'}, inplace=True)
+	mxr_df.loc[mxr_df['pooled'],'reported_diseases'] = 'pooled ' + mxr_df['reported_diseases']
 
+	# calculate disease_ontology_term_id frorm sample and donor disease, using list manipulations to start with the unique disease found in both
 	if exp_disease == fm.UNREPORTED_VALUE:
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
-		mxr_df['disease_ontology_term_id'] = mxr_df['sample_diseases_term_id'] + ',' + mxr_df['donor_diseases_term_id']
-		mxr_df['disease_ontology_term_id'] = mxr_df['disease_ontology_term_id'].apply(clean_list, exp_disease=exp_disease, glob=glob)
+		mxr_df['disease_ontology_term_id'] = mxr_df.apply(
+			lambda row: row['donor_diseases_term_id'] + [x for x in row['sample_diseases_term_id'] if x not in row['donor_diseases_term_id'] and x!=[fm.UNREPORTED_VALUE]],
+			axis=1
+		)
+		mxr_df['disease_ontology_term_id'] = mxr_df.apply(
+			lambda row: clean_list(row, exp_disease=exp_disease, glob=glob),
+			axis=1
+		)
 		exp_disease_aslist = ['[{}]'.format(x['term_name']) for x in exp_disease]
 		exp_disease_aslist.extend(['none', '[]'])
 		if len([x for x in total_reported if x not in exp_disease_aslist])==0:
 			mxr_df['reported_diseases'] = '[]'
+	mxr_df.drop(columns=['pooled'], inplace=True)
+
 
 # Demultiplex experimental metadata by finding demultiplexed suspension 
 # Determine overlapping suspension, create library & demultiplexed suspension df
