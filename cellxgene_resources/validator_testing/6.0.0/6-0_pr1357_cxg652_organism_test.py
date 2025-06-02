@@ -4,10 +4,10 @@ PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1
 
 Testing conditions:
 Should not pass
-(Q) - absent uns.organism_ontology_term_id -> * this doesn't pass but there is no specific error message
-(N) - present obs.organism -> * currently allowed
+(Y) - absent uns.organism_ontology_term_id -> dependency errors are also present
+(Y) - present obs.organism
 (Y) - present obs.organism_ontology_term_id
-(N) - present uns.organism -> * currently allowed
+(Y) - present uns.organism
 (Y) - present uns.organism_ontology_term_id_colors
 (Y) - present uns.organism_ontology_colors
 (Y) - uns.organism_ontology_term_id not on accepted organisms list
@@ -74,26 +74,13 @@ class TestOrganismValidation:
 
     def test_organism_term_not_in_uns(self):
 
-        # uns.organism_ontology_term_id not present -> fail
+        # uns.organism_ontology_term_id not present -> fails but dependency errors are also present
 
-        '''
-        Question: Fails but currently only getting dependency errors for missing uns.organism_ontology_term_id.
-        -> Error message for catching this could be more straight forward. Like ERROR: 'organism_ontology_term_id' is required in uns.
-
-            1)ERROR: Checking values with dependencies failed for adata.obs['sex_ontology_term_id'], likely due to missing column or uns key.
-            2)ERROR: Checking values with dependencies failed for adata.obs['self_reported_ethnicity_ontology_term_id'], likely due to missing column or uns key.
-            3)ERROR: 'HANCESTRO:0022' in 'self_reported_ethnicity_ontology_term_id' is not a valid value of 'self_reported_ethnicity_ontology_term_id'. When
-            'organism_ontology_term_id' is NOT 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be 'na'.
-            4)ERROR: Checking values with dependencies failed for adata.obs['development_stage_ontology_term_id'], likely due to missing column or uns key.
-            5)ERROR: 'HsapDv:0000266' in 'development_stage_ontology_term_id' is not a valid ontology term id of 'UBERON'. When 'organism_ontology_term_id'-specific
-            requirements are not defined in the schema definition, 'development_stage_ontology_term_id' MUST be a descendant term id of 'UBERON:0000105'
-            excluding 'UBERON:0000071', or unknown.
-        '''
 
         del self.validator.adata.uns["organism_ontology_term_id"]
         assert "organism_ontology_term_id" not in self.validator.adata.uns.keys()
         self.validator.validate_adata()
-        assert self.validator.is_valid
+        assert not self.validator.is_valid
         assert (
             "ERROR: 'organism_ontology_term_id' in 'uns' is not present."
             ) in self.validator.errors
@@ -102,7 +89,7 @@ class TestOrganismValidation:
 
     def test_organism_in_obs(self):
 
-        # organism in obs -> fail  ### Issue: DOES NOT FAIL! Organism in obs is allowed.
+        # organism in obs -> fail
 
         organism_term_id = self.validator.adata.uns["organism_ontology_term_id"]
         organism_name = ACCEPTED_ORGANISMS[organism_term_id]
@@ -110,7 +97,9 @@ class TestOrganismValidation:
         assert "organism" in self.validator.adata.obs.columns
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        #assert (f"ERROR: '{organism_name}' {error}") in self.validator.errors
+        assert (
+            f"ERROR: The field 'organism' is present in 'obs', but it is deprecated."
+            ) in self.validator.errors
 
 
     def test_organism_term_in_obs(self):
@@ -123,13 +112,13 @@ class TestOrganismValidation:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: The field 'organism_ontology_term_id' is present in 'obs', but it is deprecated."
+            "ERROR: The field 'organism_ontology_term_id' is present in 'obs', but it is deprecated."
             ) in self.validator.errors
 
 
     def test_organism_in_uns(self):
 
-        # organism in uns -> fail  ### Issue: DOES NOT FAIL! Organism in uns is allowed.
+        # organism in uns -> fail
 
         organism_term_id = self.validator.adata.uns["organism_ontology_term_id"]
         assert organism_term_id in ACCEPTED_ORGANISMS.keys()

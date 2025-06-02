@@ -40,8 +40,8 @@ from fixtures.valid_adatas import (
 )
 
 
-ORGANISM_GENE_VALUES = {'NCBITaxon:9606':'ENSG00000290826',
-                        'NCBITaxon:10090':'ENSMUSG00000121346',
+ORGANISM_GENE_VALUES = {"NCBITaxon:9606":"ENSG00000290826",
+                        "NCBITaxon:10090":"ENSMUSG00000121346",
                         "NCBITaxon:6239": "WBGene00001706",
                         "NCBITaxon:9483": "ENSCJAG00000060785",
                         "NCBITaxon:7955": "ENSDARG00000031930",
@@ -52,10 +52,11 @@ ORGANISM_GENE_VALUES = {'NCBITaxon:9606':'ENSG00000290826',
                         "NCBITaxon:30608": "ENSMICG00000032327",
                         "NCBITaxon:9986": "ENSOCUG00000032260",
                         "NCBITaxon:9598": "ENSPTRG00000045894",
-                        "NCBITaxon:10116": "ENSPTRG00000045894",
+                        "NCBITaxon:10116": "ENSRNOG00000070886",
                         "NCBITaxon:9823": "ENSSSCG00000057774",
                         "NCBITaxon:1747270": "ENSSSCG00000057774",
-                        "NCBITaxon:1654737": "ENSMMUG00000053841"
+                        "NCBITaxon:1654737": "ENSMMUG00000053841",
+                        "NCBITaxon:9825": "ENSSSCG00000059238",
                         }
 
 
