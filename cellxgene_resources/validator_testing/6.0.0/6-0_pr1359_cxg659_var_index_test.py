@@ -1,6 +1,6 @@
 """
 QA testing for this issue:
-PR for this issue:
+PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1374
 
 
 Should pass:
@@ -17,7 +17,7 @@ isn't being split from gene_id for slide-seq, visium and valid_human.h5ad
 Shouldn't pass:
 (Y) ENSG00000290826.1 in var index
 (Y) mix-and-match genes
-(Q) all genes from one organism, different uns.organism -> Need a clearer error message.
+(Y) all genes from one organism, different uns.organism ->  dependency errors are also being listed
 """
 
 import pytest
@@ -54,6 +54,25 @@ ORGANISM_GENE_VALUES = {'NCBITaxon:9606':'ENSG00000290826',
                         "NCBITaxon:1654737": "ENSMMUG00000053841",
                         "NCBITaxon:9825":"ENSSSCG00000057774"
                         }
+
+
+SUPPORTED_ORGANISMS_ERROR_MESSAGE = {
+    "NCBITaxon:10090":"MUS_MUSCULUS",
+    "NCBITaxon:6239": "CAENORHABDITIS_ELEGANS",
+    "NCBITaxon:9483": "CALLITHRIX_JACCHUS",
+    "NCBITaxon:7955": "DANIO_RERIO",
+    "NCBITaxon:7227": "DROSOPHILA_MELANOGASTER",
+    "NCBITaxon:9595": "GORILLA_GORILLA",
+    "NCBITaxon:9541": "MACACA_FASCICULARIS",
+    "NCBITaxon:9544": "MACACA_MULATTA",
+    "NCBITaxon:30608": "MICROCEBUS_MURINUS",
+    "NCBITaxon:9986": "ORYCTOLAGUS_CUNICULUS",
+    "NCBITaxon:9598": "PAN_TROGLODYTES",
+    "NCBITaxon:10116": "RATTUS_NORVEGICUS",
+    "NCBITaxon:9823": "SUS_SCROFA",
+    "NCBITaxon:9825": "SUS_SCROFA"
+}
+
 
 EXEMPT_ORGANISMS = {
     "NCBITaxon:2697049":"ENSSASG00005000004",  # Severe acute respiratory syndrome coronavirus 2
@@ -234,19 +253,23 @@ class TestVarIndexValidation:
 
     def test_different_uns_organism(self):
 
-        # all genes from organism, different uns.organism -> fail   ###COMMENT: Passing but the error messages are dependency errors. Need clearer error message.
+        # all genes from organism, different uns.organism -> fail
 
         organism = self.validator.adata.uns["organism_ontology_term_id"]
         if organism == "NCBITaxon:9606":
             self.validator.adata.uns["organism_ontology_term_id"] = "NCBITaxon:10090"
             assert self.validator.adata.uns["organism_ontology_term_id"] == "NCBITaxon:10090"
+            assert not self.validator.is_valid
+            assert (
+                f"ERROR: uns['organism_ontology_term_id'] is 'NCBITaxon:10090' but feature_ids are from [<SupportedOrganisms.HOMO_SAPIENS: '{organism}'>]."
+                )
         else:
             self.validator.adata.uns["organism_ontology_term_id"] = "NCBITaxon:9606"
             assert self.validator.adata.uns["organism_ontology_term_id"] == "NCBITaxon:9606"
-
-        self.validator.validate_adata()
-        assert not self.validator.is_valid
-        #assert (f"ERROR:")
+            assert not self.validator.is_valid
+            assert (
+                f"ERROR: uns['organism_ontology_term_id'] is 'NCBITaxon:9606' but feature_ids are from [<SupportedOrganisms.{SUPPORTED_ORGANISMS_ERROR_MESSAGE[organism]}: '{organism}'>]."
+                )
 
 
     @pytest.mark.parametrize("edge_case", [EDGE_CASES_GENE_NAMES])
