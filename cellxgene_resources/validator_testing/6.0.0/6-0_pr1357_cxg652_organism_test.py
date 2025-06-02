@@ -98,7 +98,7 @@ class TestOrganismValidation:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: The field 'organism' is present in 'obs', but it is deprecated."
+            "ERROR: The field 'organism' is present in 'obs', but it is deprecated."
             ) in self.validator.errors
 
 
@@ -127,7 +127,9 @@ class TestOrganismValidation:
         assert "organism" in self.validator.adata.uns.keys()
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        #assert (f'ERROR: "{organism_name}" {error}') in self.validator.errors
+        assert (
+            "ERROR: Add labels error: Column 'organism' is a reserved column name of 'uns'. Remove it from h5ad and try again."
+        ) in self.validator.errors
 
 
     def test_organism_term_id_colors_in_uns(self):
@@ -139,7 +141,7 @@ class TestOrganismValidation:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: Colors field uns[organism_ontology_term_id_colors] does not have a corresponding categorical field in obs"
+            "ERROR: Colors field uns[organism_ontology_term_id_colors] does not have a corresponding categorical field in obs"
         ) in self.validator.errors
 
 
@@ -152,7 +154,7 @@ class TestOrganismValidation:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: Colors field uns[organism_colors] does not have a corresponding categorical field in obs. Annotate organism_ontology_term_id_colors instead"
+            "ERROR: Colors field uns[organism_colors] does not have a corresponding categorical field in obs. Annotate organism_ontology_term_id_colors instead"
         ) in self.validator.errors
 
 
@@ -185,7 +187,7 @@ class TestOrganismValidation:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: 'MONDO:0019140' in 'organism_ontology_term_id' is not a valid ontology term id of 'NCBITaxon'."
+            "ERROR: 'MONDO:0019140' in 'organism_ontology_term_id' is not a valid ontology term id of 'NCBITaxon'."
         ) in self.validator.errors
 
 
@@ -201,5 +203,5 @@ class TestOrganismValidation:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: 'NCBITaxon:9925' in 'organism_ontology_term_id' is not an allowed term id."
+            "ERROR: 'NCBITaxon:9925' in 'organism_ontology_term_id' is not an allowed term id."
         ) in self.validator.errors
