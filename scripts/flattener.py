@@ -143,7 +143,7 @@ def quality_check(glob):
 
 
 # Return value to be stored in disease field based on list of diseases from donor and sample
-def clean_list(row, exp_disease, glob):
+def clean_list(row, exp_disease):
 	lst = row['disease_ontology_term_id']
 	pooled = row['pooled']
 	exp_disease_list = [i['term_id'] for i in exp_disease]
@@ -157,8 +157,8 @@ def clean_list(row, exp_disease, glob):
 			elif all(exp_disease not in sublist for sublist in lst_clean):
 				pass
 			else:
-				logging.error(f'ERROR: experimental diseasee inconsistent across donors/samples {exp_disease}')
-				sys.exit(f'ERROR: experimental diseasee inconsistent across donors/samples {exp_disease}')
+				logging.error(f'ERROR: experimental diseasee {exp_disease} inconsistent across donors/samples {row["donor_id"]}')
+				sys.exit(f'ERROR: experimental diseasee {exp_disease} inconsistent across donors/samples {row["donor_id"]}')
 	else:
 		disease_found = [x for x in exp_disease_list if x in lst]
 
@@ -196,7 +196,7 @@ def concat_list(anndata_list, column, uns_merge):
 
 
 # Determine reported disease as unique of sample and donor diseases, removing unreported value only for unpooled samples
-def report_diseases(mxr_df, exp_disease, glob):
+def report_diseases(mxr_df, exp_disease):
     # Keep track of pooled status using separate obs column and processes uniquely, as pooled cannot drop fm.UNREPORTED_VALUE and needs to move the string 'pooled' and convert to list
 	mxr_df['pooled'] = False
 	mxr_df.loc[mxr_df['sample_diseases_term_name'].str.startswith('pooled'), 'pooled'] = True
@@ -234,7 +234,7 @@ def report_diseases(mxr_df, exp_disease, glob):
 			axis=1
 		)
 		mxr_df['disease_ontology_term_id'] = mxr_df.apply(
-			lambda row: clean_list(row, exp_disease=exp_disease, glob=glob),
+			lambda row: clean_list(row, exp_disease=exp_disease),
 			axis=1
 		)
 		exp_disease_aslist = ['[{}]'.format(x['term_name']) for x in exp_disease]
@@ -1280,7 +1280,7 @@ def main(mfinal_id, connection, hcatier1):
 		lib_donor_df = glob.cxg_obs[['library_@id', 'author_donor', 'library_authordonor']].drop_duplicates().reset_index(drop=True)
 		donor_df = demultiplex(lib_donor_df, library_susp, donor_susp, glob, hcatier1)
 
-		report_diseases(donor_df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE), glob)
+		report_diseases(donor_df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(donor_df)
 
 		# Retain cell identifiers as index
@@ -1290,7 +1290,7 @@ def main(mfinal_id, connection, hcatier1):
 			sys.exit('ERROR: cxg_obs does not contain the same number of rows as final matrix: {} vs {}'.format(glob.mfinal_adata.X.shape[0], glob.cxg_obs.shape[0]))
 	else:
 		# Go through donor and biosample diseases and calculate cxg field accordingly
-		report_diseases(df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE), glob)
+		report_diseases(df, glob.mfinal_obj.get('experimental_variable_disease', fm.UNREPORTED_VALUE))
 		get_sex_ontology(df)
 		glob.cxg_obs = pd.merge(glob.cxg_obs, df[['disease_ontology_term_id', 'reported_diseases', 'sex_ontology_term_id']], left_on="raw_matrix_accession", right_index=True, how="left")
 
