@@ -219,7 +219,7 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 					else:
 						ethnicity_list.append(ethnicity_dict.get('term_id'))
 				ethnicity_list.sort()
-				value = ','.join(ethnicity_list)
+				value = ' || '.join(ethnicity_list)
 				latkey = (obj_type + '_' + prop).replace('.','_')
 				key = constants.PROP_MAP.get(latkey, latkey)
 				values_to_add[key] = value
@@ -364,8 +364,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					values_df.loc[key,ident] = 'unknown'
 				elif 'unknown' in ethnicity_list:
 					values_df.loc[key,ident] = 'unknown'
-				elif len(set(ethnicity_list)) == len(ethnicity_list):
-					value = ethnicity_list[0]
+				else:
+					value = ' || '.join(ethnicity_list)
 					values_df.loc[key,ident] = value
 			# this dataframe will only ever be one row with ident as columns
 			ethnicity_set = set(values_df.loc[key].to_list())
@@ -451,8 +451,8 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 			key = constants.PROP_MAP.get(latkey, latkey)
 			value_str = [str(i) for i in value]
 			value_set = set(value_str)
-			cxg_fields = ['organism_ontology_term_id', 'library_id_repository',\
-							 'sex', 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
+			cxg_fields = ['library_id_repository', 'sex',\
+							 'tissue_ontology_term_id', 'development_stage_ontology_term_id']
 			if len(value_set) > 1:
 				donor_id = values_to_add.get('donor_id', 'unknown donor_id')
 				if key in cxg_fields:

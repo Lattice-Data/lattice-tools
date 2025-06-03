@@ -648,7 +648,7 @@ def add_labels(glob):
 	obj = lattice.get_report('OntologyTerm', '', ['term_id', 'term_name'], glob.connection)
 	ontology_df = pd.DataFrame(obj)
 	id_cols = ['assay_ontology_term_id', 'disease_ontology_term_id', 'cell_type_ontology_term_id', 'development_stage_ontology_term_id', 'sex_ontology_term_id',\
-			'tissue_ontology_term_id', 'organism_ontology_term_id', 'self_reported_ethnicity_ontology_term_id']
+			'tissue_ontology_term_id', 'self_reported_ethnicity_ontology_term_id']
 	for col in id_cols:
 		name_col = col.replace("_ontology_term_id", "")
 		glob.cxg_adata.obs[name_col] = glob.cxg_adata.obs[col]
@@ -1139,12 +1139,13 @@ def main(mfinal_id, connection, hcatier1):
 	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [glob.mfinal_obj], glob.connection)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
+	ds_results['organism_ontology_term_id'] = df['organism_ontology_term_id'].unique()[0]
+	del ds_results['is_primary_data']
+	del df['organism_ontology_term_id']
 
 	# Check if default_embedding is unreported_value, and if so remove
 	if ds_results['default_embedding'] == fm.UNREPORTED_VALUE:
 		del ds_results['default_embedding']
-
-	del ds_results['is_primary_data']
 
 	# Should add error checking to make sure all matrices have the same number of vars
 	feature_lengths = []
@@ -1308,8 +1309,7 @@ def main(mfinal_id, connection, hcatier1):
 	var_meta = glob.mfinal_adata.var.select_dtypes(include=keep_types)
 
 	# Copy over adata.uns
-	reserved_uns = ['schema_version', 'title', 'default_embedding', 'X_approximate_distribution', 'schema_reference', 'citation']
-	fm.copy_over_uns(glob, reserved_uns)
+	fm.copy_over_uns(glob, fm.RESERVED_UNS)
 
 	# Check hcatier1 fields if flag is true and then clean up obs
 	if hcatier1:
