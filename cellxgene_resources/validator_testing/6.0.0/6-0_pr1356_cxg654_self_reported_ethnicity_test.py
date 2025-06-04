@@ -31,8 +31,8 @@ from fixtures.valid_adatas import (
     validator_with_adatas
 )
 
-HUMAN_H5ADS = [file for file in ALL_H5ADS if "human" in file]
-NON_HUMAN_H5ADS = [file for file in ALL_H5ADS if "human" not in file]
+HUMAN_H5ADS = [f for f in ALL_H5ADS if any(s in f for s in ["human","integrated"])]
+NON_HUMAN_H5ADS = [f for f in ALL_H5ADS if not any(s in f for s in ["human","integrated"])]
 
 HUMAN_VALID_VALUES = {
     "single valid term":"HANCESTRO:0005",
