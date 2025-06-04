@@ -1,6 +1,7 @@
 import anndata as ad
 import numpy as np
 import dask.array as da
+import scipy.sparse as sp
 
 
 def create_duplications(adata:ad.AnnData,barcodes:list[str],n=int):
@@ -23,7 +24,6 @@ def create_duplications(adata:ad.AnnData,barcodes:list[str],n=int):
         random_indices = np.random.choice(candidate_indices, size=total_needed, replace=False)  # Sample total unique indices minus those specified in barcodes list
         random_indices_list = [random_indices[i * n:(i + 1) * n].tolist() for i in range(len(barcodes))]
         obs_name_to_index = {name: i for i, name in enumerate(adata.obs_names)}
-
         for barcode, target_barcodes in zip(barcodes, random_indices_list):
                 obs_indx = obs_name_to_index[barcode]
                 obs_meta = adata.obs.iloc[obs_indx].copy()
@@ -43,24 +43,26 @@ def create_duplications(adata:ad.AnnData,barcodes:list[str],n=int):
         else:
                 dict_for_mtx["raw_adata"] = adata
 
+        raw_adata = dict_for_mtx["raw_adata"]
         raw_matrix = dict_for_mtx["raw_adata"].X
         is_dask = hasattr(raw_matrix, "compute")
         if is_dask:
+                raw_matrix = raw_matrix.compute().toarray()
                 for key,value in dict_for_mtx.items():
                         if "indices" in key:
-                                raw_matrix_row = raw_matrix[value[0], :].compute()
-                                raw_matrix_numpy = raw_matrix.compute()
-                                original_chunks = raw_matrix.chunks
                                 for i in value[1]:
-                                        raw_matrix_numpy[i] = raw_matrix_row
-                                raw_matrix = da.from_array(raw_matrix_numpy, chunks=original_chunks)
+                                        raw_matrix[i,:] = raw_matrix[value[0], :]
+
+                raw_matrix_csr = sp.csr_matrix(raw_matrix)
+                dup_raw_adata = ad.AnnData(raw_matrix_csr, obs=adata.obs, var=raw_adata.var, uns=adata.uns, obsm=adata.obsm)
+                dup_raw_adata.X = da.from_array(dup_raw_adata.X,chunks=raw_adata.X.chunks)
 
         else:
+                raw_matrix = raw_matrix.toarray()
                 for key,value in dict_for_mtx.items():
                         if "indices" in key:
-                                raw_matrix_row = raw_matrix[value[0], :]
                                 for i in value[1]:
-                                        raw_matrix[i] = raw_matrix_row
+                                        raw_matrix[i,:] = raw_matrix[value[0], :]
 
-        raw_adata = ad.AnnData(raw_matrix, obs=adata.obs, var=adata.var, uns=adata.uns, obsm=adata.obsm)
-        return raw_adata
+                dup_raw_adata = ad.AnnData(raw_matrix, obs=adata.obs, var=raw_adata.var, uns=adata.uns, obsm=adata.obsm)
+        return dup_raw_adata
