@@ -3,13 +3,13 @@ QA testing for this issue:
 PR for this issue:
 
 Should pass:
-(N) CL: new terms ["CL:4052040", "CL:4070016"]
-(N) MONDO: new terms ["MONDO:0700303", "MONDO:0700293"]
-(N) UBERON: new terms ["UBERON:8600126", "UBERON:8920001"]
+(Y) CL: new terms ["CL:4052040", "CL:4070016"]
+(Y) MONDO: new terms ["MONDO:0700303", "MONDO:0700293"]
+(Y) UBERON: new terms ["UBERON:8600126", "UBERON:8920001"]
 
 Should not pass:
-(N) CL: deprecated terms ["CL:0000215", "CL:0000217"]
-(N) MONDO: deprecated terms ["MONDO:0022577", "MONDO:0800112", "MONDO:0000414"]
+(Y) CL: deprecated terms ["CL:0000215", "CL:0000217"]
+(Y) MONDO: deprecated terms ["MONDO:0022577", "MONDO:0800112", "MONDO:0000414"]
 
 """
 
@@ -55,7 +55,7 @@ class TestNewOntologyTerms:
     @pytest.mark.parametrize("new_term", NEW_TERMS["CL"])
     def test_new_CL_terms(self, new_term):
 
-        # new CL terms -> valid   # currently not passing
+        # new CL terms -> valid
 
         self.validator.adata.obs["cell_type_ontology_term_id"] = self.validator.adata.obs["cell_type_ontology_term_id"].cat.add_categories(new_term)
 
@@ -73,7 +73,7 @@ class TestNewOntologyTerms:
     @pytest.mark.parametrize("new_term", NEW_TERMS["MONDO"])
     def test_new_MONDO_terms(self, new_term):
 
-        # new MONDO terms -> valid   # currently not passing
+        # new MONDO terms -> valid
 
         self.validator.adata.obs["disease_ontology_term_id"] = new_term
         self.validator.validate_adata()
@@ -84,7 +84,7 @@ class TestNewOntologyTerms:
     @pytest.mark.parametrize("new_term", NEW_TERMS["UBERON"])
     def test_new_UBERON_terms(self, new_term):
 
-        # new UBERON terms -> valid   # currently not passing
+        # new UBERON terms -> valid
 
         self.validator.adata.obs["tissue_ontology_term_id"] = new_term
         self.validator.validate_adata()
@@ -108,7 +108,7 @@ class TestDeprecatedOntologyTerms:
     @pytest.mark.parametrize("dep_term", DEPRECATED_TERMS["CL"])
     def test_dep_CL_terms(self, dep_term):
 
-        # deprecated CL terms -> invalid   # currently valid
+        # deprecated CL terms -> invalid
 
         self.validator.adata.obs["cell_type_ontology_term_id"] = self.validator.adata.obs["cell_type_ontology_term_id"].cat.add_categories(dep_term)
 
@@ -128,7 +128,7 @@ class TestDeprecatedOntologyTerms:
     @pytest.mark.parametrize("dep_term", DEPRECATED_TERMS["MONDO"])
     def test_dep_MONDO_terms(self, dep_term):
 
-        # deprecated MONDO terms -> invalid   # currently valid
+        # deprecated MONDO terms -> invalid
 
         self.validator.adata.obs["disease_ontology_term_id"] = dep_term
         self.validator.validate_adata()
