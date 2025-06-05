@@ -121,7 +121,7 @@ class TestDeprecatedOntologyTerms:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: '{dep_term}' in 'cell_type_ontology_term_id' is not a valid ontology term id of 'CL, ZFA, FBbt, WBbt'.'"
+            f"ERROR: '{dep_term}' in 'cell_type_ontology_term_id' is a deprecated term id of 'CL'."
             ) in self.validator.errors
 
 
@@ -134,5 +134,5 @@ class TestDeprecatedOntologyTerms:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: '{dep_term}' in 'disease_ontology_term_id' is not a valid ontology term id of 'MONDO, PATO'. Individual terms 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of 'MONDO:0000001' (disease) are allowed. Multiple terms are supported if in ascending lexical order with the delimiter ` || ` if all terms are valid MONDO terms."
+            f"ERROR: '{dep_term}' in 'disease_ontology_term_id' is a deprecated term id of 'MONDO'. Individual terms 'PATO:0000461' (normal), 'MONDO:0021178' (injury) or descendant terms thereof, or descendant terms of 'MONDO:0000001' (disease) are allowed. Multiple terms are supported if in ascending lexical order with the delimiter ` || ` if all terms are valid MONDO terms."
         ) in self.validator.errors
