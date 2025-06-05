@@ -49,12 +49,20 @@ def subset_adata(fixture_file:str):
         [1.1, 0, 0, 4.4, 0],
         [1.1, 0, 0, 0, 5.5]
     ],dtype=np.float32)
+
+    if new_adata.raw:
+        raw_var = new_adata.raw.var
+
+    else:
+        raw_var = new_adata.var
+        raw_var.drop(columns=["feature_is_filtered"],inplace=True)
+
+    new_adata.X = norm_matrix
     new_raw_adata = ad.AnnData(
         X = raw_matrix,
         obs = new_adata.obs[:5],
-        var = new_adata.raw.var[:5]
+        var =  raw_var[:5]
     )
-    new_adata.X = norm_matrix
     new_adata.raw = new_raw_adata
     new_adata.var['feature_is_filtered'] = False
     return new_adata
