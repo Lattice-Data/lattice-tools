@@ -210,6 +210,7 @@ class TestSubset:
         gene_index = 0
         gene_name = adata.var_names[gene_index]
         adata.X[:, gene_index] = 0
+        assert adata.raw.X[:, gene_index].any() != 0
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert not validator.is_valid
