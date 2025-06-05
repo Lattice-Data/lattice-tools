@@ -27,15 +27,16 @@ from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from cellxgene_schema.utils import read_h5ad
 from fixtures.valid_adatas import (
-    MULTISPECIES_H5ADS,
+    NON_SPATIAL_H5ADS,
+    SPATIAL_H5ADS,
     FIXTURES_ROOT,
     test_h5ads,
     validator_with_adatas
 )
 
 
-@pytest.mark.parametrize("fixture_file", MULTISPECIES_H5ADS)
-class TestSubset:
+@pytest.mark.parametrize("fixture_file", NON_SPATIAL_H5ADS)
+class TestNonSpatialSubset:
     def test_valid(self,fixture_file):
         adata = read_h5ad(FIXTURES_ROOT / fixture_file)
         validator = Validator()
@@ -216,3 +217,186 @@ class TestSubset:
                 "or adata.raw.X should be set to all-zero values."
         ) in validator.errors
 
+
+@pytest.mark.parametrize("fixture_file", SPATIAL_H5ADS)
+class TestSpatialSubset:
+    def test_spatial_valid(self,fixture_file):
+        adata = read_h5ad(FIXTURES_ROOT / fixture_file)
+        validator = Validator()
+        validator.adata = adata
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+
+    def test_pass_spatial_onlyX_all_false(self,subset_adata):
+
+        #only .X + feature_is_filtered = False for all
+
+        adata = subset_adata
+        del adata.X
+        adata.X = adata.raw.X
+        del adata.raw
+        print(adata.X)
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+
+    def test_pass_spatial_X_raw_all_false(self,subset_adata):
+
+        #raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X --> see subset_adata()
+
+        adata = subset_adata
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+
+    def test_pass_spatial_1var_all0_x_raw(self,subset_adata):
+
+        #raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
+
+        adata = subset_adata
+        gene_index = 0
+        adata.X[:, gene_index] = 0
+        raw_matrix = adata.raw.X
+        raw_matrix[:, gene_index] = 0
+        adata.raw = ad.AnnData(X=raw_matrix,obs = adata.obs[:],var = adata.raw.var[:])
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+    def test_pass_spatial_0s_in_X_true(self,subset_adata):
+
+        #raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
+
+        adata = subset_adata
+        gene_index = 0
+        adata.X[:, gene_index] = 0
+        adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert validator.is_valid
+        assert validator.errors == []
+
+
+    def test_fail_spatial_X_true(self,subset_adata):
+
+        #only .X + feature_is_filtered = True
+
+        adata = subset_adata
+        adata.X = adata.raw.X
+        del adata.raw
+        adata.var['feature_is_filtered'] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
+        ) in validator.errors
+
+
+    def test_fail_spatial_X_true_1_var(self,subset_adata):
+
+        #only .X + feature_is_filtered = True for just a single var that sums to 0 for all cells
+
+        adata = subset_adata
+        adata.X = adata.raw.X
+        del adata.raw
+        gene_index = 0
+        adata.X[:, gene_index] = 0
+        adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
+        ) in validator.errors
+
+
+    def test_fail_spatial_gene_in_raw(self,subset_adata):
+
+        #raw.X & .X - a gene ID in raw.var.index that is not present in var.index should not pass
+
+        adata = subset_adata
+        gene_index = 0
+        gene_name = adata.var_names[gene_index]
+        var_to_keep = [v for v in adata.var_names if v != gene_name]
+        new_adata = adata[:,var_to_keep]
+        raw_adata = ad.AnnData(X=adata.raw.X,obs=adata.obs,var=adata.raw.var)
+        new_adata.raw = raw_adata
+        validator = back_to_dask(new_adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: Number of genes in X ({len(new_adata.var)}) is different than raw.X ({len(new_adata.raw.var)})."
+        ) in validator.errors
+
+
+    def test_fail_spatial_gene_in_X(self,subset_adata):
+
+        # raw.X & .X - a gene ID in var.index that is not present in raw.var.index should not pass
+
+        adata = subset_adata
+        gene_index = 0
+        gene_name = adata.raw.var_names[gene_index]
+        var_to_keep = [v for v in adata.raw.var_names if v != gene_name]
+        raw_adata = ad.AnnData(
+            X = adata.raw.X,
+            obs = adata.obs,
+            var = adata.raw.var
+        )
+        new_raw_adata = raw_adata[:,var_to_keep]
+        adata.raw = new_raw_adata
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: Could not complete full validation of feature_is_filtered because of size differences between var and raw.var.") in validator.errors
+
+
+    def test_fail_spatial_true_allnot0(self,subset_adata):
+
+        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ALL .X counts != 0
+
+        adata = subset_adata
+        gene_index = 0
+        adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: Some features are 'True' in 'feature_is_filtered' of dataframe 'var', but there are {adata.X.shape[1]} non-zero "
+                "values in the corresponding columns of the matrix 'X'. All values for these features must be 0.") in validator.errors
+
+    @pytest.mark.parametrize("range_end", [1,2])
+    def test_fail_spatial_true_some_1_not0(self,subset_adata,range_end):
+
+        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + SOME .X counts != 0
+        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ONE .X counts != 0
+
+        adata = subset_adata
+        gene_index = 0
+        r = range(0,range_end)
+        adata.X[r, gene_index] = 0
+        adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: Some features are 'True' in 'feature_is_filtered' of dataframe 'var', but there are {adata.X.shape[1] - len(r)} non-zero "
+                "values in the corresponding columns of the matrix 'X'. All values for these features must be 0.") in validator.errors
+
+
+    def test_fail_spatial_false_X0_rawnot0(self,subset_adata):
+
+        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = False + ALL .X counts == 0 + SUM raw.X counts != 0
+
+        adata = subset_adata
+        gene_index = 0
+        gene_name = adata.var_names[gene_index]
+        adata.X[:, gene_index] = 0
+        validator = back_to_dask(adata)
+        validator.validate_adata()
+        assert not validator.is_valid
+        assert (f"ERROR: Gene '{gene_name}' at index {gene_index} has all-zero values in adata.X. Either feature_is_filtered should be set to True "
+                "or adata.raw.X should be set to all-zero values."
+        ) in validator.errors
