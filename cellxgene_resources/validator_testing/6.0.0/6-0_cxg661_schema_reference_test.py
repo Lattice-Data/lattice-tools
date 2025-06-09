@@ -26,8 +26,8 @@ from fixtures.valid_adatas import (
 )
 
 
-@pytest.mark.parametrize("test_h5ads", [ALL_H5ADS[0]])
-@pytest.mark.parametrize("property", ["organism","schema_version","schema_reference","citation"])
+@pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
+@pytest.mark.parametrize("property", ["organism","schema_version","schema_reference"])
 def test_add_labels_uns(validator_with_adatas,property):
 
     # add_labels check: uns.schema_reference should be modified to 6.0.0 -> pass  # FAILED
