@@ -178,7 +178,7 @@ class TestSubset:
             ) in validator.errors
 
 
-    def test_fail_true_allnot0(self,subset_adata):
+    def test_warn_true_allnot0(self,subset_adata):
 
         # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ALL .X counts != 0
 
@@ -187,13 +187,15 @@ class TestSubset:
         adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
         validator = back_to_dask(adata)
         validator.validate_adata()
-        assert not validator.is_valid
-        assert (f"ERROR: Some features are 'True' in 'feature_is_filtered' of dataframe 'var', but there are {adata.X.shape[0]} non-zero "
-                "values in the corresponding columns of the matrix 'X'. All values for these features must be 0.") in validator.errors
+        assert validator.is_valid
+        assert (
+            f"WARNING: Some features are 'True' in 'feature_is_filtered' of dataframe 'var', but there are {adata.X.shape[0]} non-zero "
+                "values in the corresponding columns of the matrix 'X'. All values for these features must be 0."
+                ) in validator.warnings
 
 
     @pytest.mark.parametrize("range_end", [1,2])
-    def test_fail_true_some_1_not0(self,subset_adata,range_end):
+    def test_warn_true_some_1_not0(self,subset_adata,range_end):
 
         # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + SOME .X counts != 0
         # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ONE .X counts != 0
@@ -205,12 +207,14 @@ class TestSubset:
         adata.var.iloc[gene_index, adata.var.columns.get_loc('feature_is_filtered')] = True
         validator = back_to_dask(adata)
         validator.validate_adata()
-        assert not validator.is_valid
-        assert (f"ERROR: Some features are 'True' in 'feature_is_filtered' of dataframe 'var', but there are {adata.X.shape[0] - len(r)} non-zero "
-                "values in the corresponding columns of the matrix 'X'. All values for these features must be 0.") in validator.errors
+        assert validator.is_valid
+        assert (
+            f"WARNING: Some features are 'True' in 'feature_is_filtered' of dataframe 'var', but there are {adata.X.shape[0] - len(r)} non-zero "
+                "values in the corresponding columns of the matrix 'X'. All values for these features must be 0."
+                ) in validator.warnings
 
 
-    def test_fail_false_X0_rawnot0(self,subset_adata):
+    def test_warn_false_X0_rawnot0(self,subset_adata):
 
         # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = False + ALL .X counts == 0 + SUM raw.X counts != 0
 
@@ -221,7 +225,8 @@ class TestSubset:
         assert adata.raw.X[:, gene_index].any() != 0
         validator = back_to_dask(adata)
         validator.validate_adata()
-        assert not validator.is_valid
-        assert (f"ERROR: Gene '{gene_name}' at index {gene_index} has all-zero values in adata.X. Either feature_is_filtered should be set to True "
+        assert validator.is_valid
+        assert (
+            f"WARNING: Gene '{gene_name}' at index {gene_index} has all-zero values in adata.X. Either feature_is_filtered should be set to True "
                 "or adata.raw.X should be set to all-zero values."
-        ) in validator.errors
+                ) in validator.warnings
