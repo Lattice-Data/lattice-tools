@@ -9,14 +9,17 @@ should pass:
 (Y) raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
 (Y) raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
 
-should not pass:
-(Y) only .X + feature_is_filtered = True
-(Y) only .X + feature_is_filtered = True for just a single var that sums to 0 for all cells
-(Q) raw.X & .X - a gene ID in raw.var.index that is not present in var.index, and vice versa
+Warnings:
+(Errors addressed by the following tests were changed to warnings to bypass Visium "background spots" conflict (introduction of normalized data counts=0)
 (Y) raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ALL .X counts != 0
 (Y) raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + SOME .X counts != 0
 (Y) raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ONE .X count != 0
 (Y) raw.X & .X + feature present in raw.X & .X + feature_is_filtered = False + ALL .X counts == 0 + SUM raw.X counts != 0
+
+should not pass:
+(Y) only .X + feature_is_filtered = True
+(Y) only .X + feature_is_filtered = True for just a single var that sums to 0 for all cells
+(Y) raw.X & .X - a gene ID in raw.var.index that is not present in var.index, and vice versa
 
 """
 
@@ -47,7 +50,7 @@ class TestSubset:
 
     def test_pass_onlyX_all_false(self,subset_adata):
 
-        #only .X + feature_is_filtered = False for all
+        # only .X + feature_is_filtered = False for all
 
         adata = subset_adata
         del adata.X
@@ -61,7 +64,7 @@ class TestSubset:
 
     def test_pass_X_raw_all_false(self,subset_adata):
 
-        #raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X --> see subset_adata()
+        # raw.X & .X - feature_is_filtered = False for all, all .X genes have at least 1 non-0 value in .X --> see subset_adata()
 
         adata = subset_adata
         validator = back_to_dask(adata)
@@ -72,7 +75,7 @@ class TestSubset:
 
     def test_pass_1var_all0_x_raw(self,subset_adata):
 
-        #raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
+        # raw.X & .X - feature_is_filtered = False for all, 1 gene have all 0 values in .X & all 0 values in raw.X
 
         adata = subset_adata
         gene_index = 0
@@ -87,7 +90,7 @@ class TestSubset:
 
     def test_pass_0s_in_X_true(self,subset_adata):
 
-        #raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
+        # raw.X & .X - feature_is_filtered = True for 1 gene, which has all 0 values in .X & at least 1 non-0 value in raw.X
 
         adata = subset_adata
         gene_index = 0
@@ -101,7 +104,7 @@ class TestSubset:
 
     def test_fail_X_true(self,subset_adata):
 
-        #only .X + feature_is_filtered = True
+        # only .X + feature_is_filtered = True
 
         adata = subset_adata
         adata.X = adata.raw.X
@@ -110,13 +113,14 @@ class TestSubset:
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert not validator.is_valid
-        assert (f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
-        ) in validator.errors
+        assert (
+            f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
+            ) in validator.errors
 
 
     def test_fail_X_true_1_var(self,subset_adata):
 
-        #only .X + feature_is_filtered = True for just a single var that sums to 0 for all cells
+        # only .X + feature_is_filtered = True for just a single var that sums to 0 for all cells
 
         adata = subset_adata
         adata.X = adata.raw.X
@@ -127,13 +131,14 @@ class TestSubset:
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert not validator.is_valid
-        assert (f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
-        ) in validator.errors
+        assert (
+            f"ERROR: 'feature_is_filtered' must be False for all features if 'adata.raw' is not present."
+            ) in validator.errors
 
 
     def test_fail_gene_in_raw(self,subset_adata):
 
-        #raw.X & .X - a gene ID in raw.var.index that is not present in var.index should not pass
+        # raw.X & .X - a gene ID in raw.var.index that is not present in var.index should not pass
 
         adata = subset_adata
         gene_index = 0
@@ -145,8 +150,9 @@ class TestSubset:
         validator = back_to_dask(new_adata)
         validator.validate_adata()
         assert not validator.is_valid
-        assert (f"ERROR: Number of genes in X ({len(new_adata.var)}) is different than raw.X ({len(new_adata.raw.var)})."
-        ) in validator.errors
+        assert (
+            f"ERROR: Number of genes in X ({len(new_adata.var)}) is different than raw.X ({len(new_adata.raw.var)})."
+            ) in validator.errors
 
 
     def test_fail_gene_in_X(self,subset_adata):
@@ -167,12 +173,14 @@ class TestSubset:
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert not validator.is_valid
-        assert (f"ERROR: Could not complete full validation of feature_is_filtered because of size differences between var and raw.var.") in validator.errors
+        assert (
+            f"ERROR: Could not complete full validation of feature_is_filtered because of size differences between var and raw.var."
+            ) in validator.errors
 
 
     def test_fail_true_allnot0(self,subset_adata):
 
-        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ALL .X counts != 0
+        # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ALL .X counts != 0
 
         adata = subset_adata
         gene_index = 0
@@ -187,8 +195,8 @@ class TestSubset:
     @pytest.mark.parametrize("range_end", [1,2])
     def test_fail_true_some_1_not0(self,subset_adata,range_end):
 
-        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + SOME .X counts != 0
-        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ONE .X counts != 0
+        # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + SOME .X counts != 0
+        # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = True + ONE .X counts != 0
 
         adata = subset_adata
         gene_index = 0
@@ -204,7 +212,7 @@ class TestSubset:
 
     def test_fail_false_X0_rawnot0(self,subset_adata):
 
-        #raw.X & .X + feature present in raw.X & .X + feature_is_filtered = False + ALL .X counts == 0 + SUM raw.X counts != 0
+        # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = False + ALL .X counts == 0 + SUM raw.X counts != 0
 
         adata = subset_adata
         gene_index = 0
