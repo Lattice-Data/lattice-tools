@@ -386,7 +386,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					if len(v) == 1 and v[0] == 'unknown':
 						values_df.loc[key,ident] = 'unknown'
 					elif 'unknown' in v:
-						#Actually should error here? Cause then single donor has mix of unknown and disease
 						values_df.loc[key,ident] = 'unknown'
 					else:
 						value = ' || '.join(v)
@@ -409,7 +408,6 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 					if len(v) == 1 and v[0] == 'unknown':
 						values_df.loc[key,ident] = 'unknown'
 					elif 'unknown' in v:
-						#Actually should error here? Cause then single donor has mix of unknown and disease
 						values_df.loc[key,ident] = 'unknown'
 					else:
 						value = ' || '.join(v)

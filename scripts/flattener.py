@@ -225,7 +225,7 @@ def report_diseases(mxr_df, exp_disease):
 		mxr_df['reported_diseases'].replace({'[]':'none'}, inplace=True)
 	mxr_df.loc[mxr_df['pooled'],'reported_diseases'] = 'pooled ' + mxr_df['reported_diseases']
 
-	# calculate disease_ontology_term_id frorm sample and donor disease, using list manipulations to start with the unique disease found in both
+	# calculate disease_ontology_term_id from sample and donor disease, using list manipulations to start with the unique disease found in both
 	if exp_disease == fm.UNREPORTED_VALUE:
 		mxr_df['disease_ontology_term_id'] = ['PATO:0000461'] * len(mxr_df.index)
 	else:
