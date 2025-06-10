@@ -19,7 +19,8 @@ import cellxgene_schema.gencode as gencode
 portal_uns_fields = [
     'citation',
     'schema_reference',
-    'schema_version'
+    'schema_version',
+    'organism'
 ]
 
 curator_uns_fields = [
@@ -40,7 +41,6 @@ portal_obs_fields = [
     'development_stage',
     'disease',
     'self_reported_ethnicity',
-    'organism',
     'sex',
     'tissue'
 ]
@@ -809,7 +809,7 @@ def calculate_sex(fm_dict):
 
 
 def evaluate_donors_sex(adata):
-    if 'NCBITaxon:9606' not in adata.obs['organism_ontology_term_id'].unique():
+    if 'NCBITaxon:9606' != adata.uns['organism_ontology_term_id']:
         print('Cannot calculate sex for non-human data.')
         return None,None
     else:
@@ -951,7 +951,7 @@ def evaluate_var_df(adata):
         report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
         return
     valid = True
-    obs_organisms = adata.obs['organism_ontology_term_id'].unique().tolist()
+    uns_organism = adata.uns['organism_ontology_term_id']
     var_organisms = [o.value for o in var_organism_objs]
 
     if 'NCBITaxon:2697049' in var_organisms:
