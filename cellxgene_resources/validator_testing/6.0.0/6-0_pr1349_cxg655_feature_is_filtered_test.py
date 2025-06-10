@@ -219,14 +219,17 @@ class TestSubset:
         # raw.X & .X + feature present in raw.X & .X + feature_is_filtered = False + ALL .X counts == 0 + SUM raw.X counts != 0
 
         adata = subset_adata
-        gene_index = 0
-        gene_name = adata.var_names[gene_index]
-        adata.X[:, gene_index] = 0
-        assert adata.raw.X[:, gene_index].any() != 0
+        gene_indices = [0,1]
+        gene_names = []
+        for gene_index in gene_indices:
+            gene_name = adata.var_names[gene_index]
+            gene_names.append(gene_name)
+            adata.X[:, gene_index] = 0
+            assert adata.raw.X[:, gene_index].any() != 0
         validator = back_to_dask(adata)
         validator.validate_adata()
         assert validator.is_valid
         assert (
-            f"WARNING: Gene '{gene_name}' at index {gene_index} has all-zero values in adata.X. Either feature_is_filtered should be set to True "
+            f"WARNING: Genes '{', '.join(gene_names)}' have all-zero values in adata.X. Either feature_is_filtered should be set to True "
                 "or adata.raw.X should be set to all-zero values."
                 ) in validator.warnings
