@@ -960,7 +960,7 @@ def evaluate_var_df(adata):
         var_organisms.remove('NCBITaxon:2697049')
     if 'NCBITaxon:2697049' == uns_organism:
         report('Covid is found in uns metadata', 'ERROR')
-        uns_organism = 'unknown'
+        uns_organism = None
         valid=False
     if len(var_organisms) > 1:
         report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
