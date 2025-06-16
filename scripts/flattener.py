@@ -517,7 +517,7 @@ def clean_obs(glob):
 			glob.cxg_obs.drop(columns=add_units[field], inplace=True)
 			glob.cxg_obs[field].replace({'unknown unknown':'unknown'}, inplace=True)
 
-	make_numeric = ['suspension_percent_cell_viability','donor_BMI_at_collection']
+	make_numeric = ['cell_viability_percentage','donor_BMI_at_collection']
 	for field in make_numeric:
 		if field in glob.cxg_obs.columns:
 			if True in glob.cxg_obs[field].str.contains('[<>-]|'+fm.UNREPORTED_VALUE+'|'+'pooled', regex=True).to_list():
