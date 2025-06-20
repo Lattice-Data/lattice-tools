@@ -945,16 +945,6 @@ def evaluate_var_df(adata):
         'TR_J_pseudogene'
     ]
 
-
-    # Check that this is single organism both in metadata and var index, exit function if multiple organisms or contains invalid var features
-    var_organism_objs = list({gencode.get_organism_from_feature_id(id) for id in adata.var.index.to_list()})
-    if None in var_organism_objs:
-        report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
-        return
-    valid = True
-    uns_organism = adata.uns['organism_ontology_term_id']
-    var_organisms = [o.value for o in var_organism_objs]
-
     organisms_with_descendants = [
         'NCBITaxon:9541',
         'NCBITaxon:9544',
@@ -964,6 +954,15 @@ def evaluate_var_df(adata):
         'NCBITaxon:10116',
         'NCBITaxon:9823'
     ]
+
+    # Check that this is single organism both in metadata and var index, exit function if multiple organisms or contains invalid var features
+    var_organism_objs = list({gencode.get_organism_from_feature_id(id) for id in adata.var.index.to_list()})
+    if None in var_organism_objs:
+        report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
+        return
+    valid = True
+    uns_organism = adata.uns['organism_ontology_term_id']
+    var_organisms = [o.value for o in var_organism_objs]
 
     if 'NCBITaxon:2697049' in var_organisms:
         report('There are covid genes present in var')
