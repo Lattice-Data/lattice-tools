@@ -969,8 +969,7 @@ def evaluate_var_df(adata):
         report('There are covid genes present in var')
         var_organisms.remove('NCBITaxon:2697049')
     if 'NCBITaxon:2697049' == uns_organism:
-        report('Covid is found in uns metadata', 'ERROR')
-        uns_organism = None
+        report('"Covid is not a supported uns.organism"', 'ERROR')
         valid = False
     if len(var_organisms) > 1:
         report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
@@ -991,8 +990,7 @@ def evaluate_var_df(adata):
         return
 
     # Check the number of genes threshold base on biotype per specific organism
-    organism = uns_organism
-    org_obj = [i for i in gencode.SupportedOrganisms if i.value==organism][0]
+    org_obj = [i for i in gencode.SupportedOrganisms if i.value==uns_organism][0]
     gene_checker = gencode.GeneChecker(org_obj)
     num_genes_biotype = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
 
