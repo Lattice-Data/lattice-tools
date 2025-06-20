@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from scipy import sparse
 import cellxgene_schema.gencode as gencode
-
+import cellxgene_schema.utils as utils
 
 portal_uns_fields = [
     'citation',
@@ -945,40 +945,51 @@ def evaluate_var_df(adata):
         'TR_J_pseudogene'
     ]
 
+    organisms_with_descendants = [
+        'NCBITaxon:9541',
+        'NCBITaxon:9544',
+        'NCBITaxon:10090',
+        'NCBITaxon:9986',
+        'NCBITaxon:9598',
+        'NCBITaxon:10116',
+        'NCBITaxon:9823'
+    ]
+
     # Check that this is single organism both in metadata and var index, exit function if multiple organisms or contains invalid var features
     var_organism_objs = list({gencode.get_organism_from_feature_id(id) for id in adata.var.index.to_list()})
     if None in var_organism_objs:
         report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
         return
     valid = True
-    obs_organisms = adata.obs['organism_ontology_term_id'].unique().tolist()
+    uns_organism = adata.uns['organism_ontology_term_id']
     var_organisms = [o.value for o in var_organism_objs]
 
     if 'NCBITaxon:2697049' in var_organisms:
         report('There are covid genes present in var')
         var_organisms.remove('NCBITaxon:2697049')
-    if 'NCBITaxon:2697049' in obs_organisms:
-        report('Covid is found in obs metadata', 'ERROR')
-        obs_organisms.remove('NCBITaxon:2697049')
-        valid=False
-    if len(obs_organisms) > 1:
-        report(f'Multiple organisms found in obs metadata: {obs_organisms}', 'ERROR')
+    if 'NCBITaxon:2697049' == uns_organism:
+        report('"Covid is not a supported uns.organism"', 'ERROR')
         valid = False
     if len(var_organisms) > 1:
         report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
         valid = False
     if valid:
-        if obs_organisms[0] == var_organisms[0]:
+        if var_organisms[0] in organisms_with_descendants:
+            if utils.is_ontological_descendant_of(uns_organism, var_organisms[0]):
+                report(f'Single organism found: {var_organisms}', 'GOOD')
+            else:
+                report(f'Uns metadata contains non-descendant of var index organism: {var_organisms[0]}, {uns_organism}', 'ERROR')
+                return
+        elif uns_organism == var_organisms[0]:
             report(f'Single organism found: {var_organisms}', 'GOOD')
         else:
-            report(f'Different organisms found between var index and obs metadata: {var_organisms[0]}, {obs_organisms[0]}', 'ERROR')
+            report(f'Different organisms found between var index and uns metadata: {var_organisms[0]}, {uns_organism}', 'ERROR')
             return
     else:
         return
 
     # Check the number of genes threshold base on biotype per specific organism
-    organism = obs_organisms[0]
-    org_obj = [i for i in gencode.SupportedOrganisms if i.value==organism][0]
+    org_obj = [i for i in gencode.SupportedOrganisms if i.value==uns_organism][0]
     gene_checker = gencode.GeneChecker(org_obj)
     num_genes_biotype = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
 
