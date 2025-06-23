@@ -13,8 +13,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from scipy import sparse
+from cellxgene_ontology_guide.ontology_parser import OntologyParser
 import cellxgene_schema.gencode as gencode
 import cellxgene_schema.utils as utils
+import cellxgene_schema.schema as schema
 
 portal_uns_fields = [
     'citation',
@@ -47,7 +49,7 @@ portal_obs_fields = [
 non_ontology_fields = ['donor_id','suspension_type','tissue_type','is_primary_data']
 curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_ontology_fields
 full_obs_standards = portal_obs_fields + curator_obs_fields
-
+ONTOLOGY_PARSER = OntologyParser(schema_version=schema.get_current_schema_version())
 
 def get_path(search_term: str) -> os.PathLike | str:
     """
@@ -975,7 +977,7 @@ def evaluate_var_df(adata):
         valid = False
     if valid:
         if var_organisms[0] in organisms_with_descendants:
-            if utils.is_ontological_descendant_of(uns_organism, var_organisms[0]):
+            if utils.is_ontological_descendant_of(ONTOLOGY_PARSER,uns_organism,var_organisms[0]):
                 report(f'Single organism found: {var_organisms}', 'GOOD')
             else:
                 report(f'Uns metadata contains non-descendant of var index organism: {var_organisms[0]}, {uns_organism}', 'ERROR')
@@ -989,7 +991,7 @@ def evaluate_var_df(adata):
         return
 
     # Check the number of genes threshold base on biotype per specific organism
-    org_obj = [i for i in gencode.SupportedOrganisms if i.value==uns_organism][0]
+    org_obj = [i for i in gencode.SupportedOrganisms if i.value==var_organisms[0]][0]
     gene_checker = gencode.GeneChecker(org_obj)
     num_genes_biotype = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
 
