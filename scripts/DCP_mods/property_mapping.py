@@ -530,9 +530,6 @@ lattice_to_dcp = {
 		'insdc_run_accessions': {
 			'lattice': 'derived_from' # DCP_mapper pulls out just dbxrefs
 		},
-		'library_prep_id': {
-			'lattice': 'libraries'
-		},
 		'provenance.document_id': {
 			'lattice': 'uuid'
 		},
