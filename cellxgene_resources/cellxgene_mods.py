@@ -693,7 +693,6 @@ def compare_revision(collection):
                         for p in ['assay','organism','tissue']:
                             removed[ds_id][p] = [a['label'] for a in v[p]]
                         change = True
-
             else:
                 print('not same: ' + k)
                 if k not in ['datasets','publisher_metadata']:
