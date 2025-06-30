@@ -967,11 +967,6 @@ def customize_fields(obj, obj_type, dataset_id, docid_updates):
 		else:
 			del obj['insdc_run_accessions']
 
-		if obj.get('library_prep_id'):
-			lib_id = obj['library_prep_id'][0]
-			lib_obj = lattice.get_report('Library',f'&@id={lib_id}',['uuid'],connection)[0]
-			obj['library_prep_id'] = lib_obj['uuid']
-
 	elif obj_type == 'supplementary_file':
 		file_format = obj['file_core']['file_name'].split('.')[-1]
 		obj['file_core']['format'] = file_format
