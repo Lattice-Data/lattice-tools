@@ -340,6 +340,71 @@ def evaluate_data(adata):
         report(f'possible redundant layers: {poss_dups}','WARNING')
 
 
+def evaluate_all_zero_indices(adata: ad.AnnData, worker_type="processes"):
+    """
+    Function to check if a row/cell contains an all-zero indices array. This can exist
+    in Visium datasets with spots that are in_tissue == 0, but should not exist for
+    in_tissue == 1 or other single cell raw count data.
+    Uses dask to lazily load the raw matrix and to check in parallel
+    """
+    matrix = adata.raw.X if adata.raw else adata.X
+    # check for csr format, need to load small slice to get past dask wrapper
+    matrix_slice = matrix[0:1, 0:1].compute()
+    assert isinstance(
+        matrix_slice, sparse.csr_matrix
+    ), f"Matrix not in CSR Format, found {type(matrix_slice)}"
+
+    def find_all_zero_indices_array_chunk(matrix_chunk) -> np.array:
+        indices_array = matrix_chunk.indices
+        indptr_array = matrix_chunk.indptr
+
+        start, end = 0, matrix_chunk.shape[0]
+        chunk_results = []
+        while start < end:
+            row_indices = indices_array[indptr_array[start] : indptr_array[start + 1]]
+            if np.all(row_indices == 0):
+                chunk_results.append(True)
+            else:
+                chunk_results.append(False)
+            start += 1
+
+        return np.array([chunk_results]).reshape(-1, 1)
+
+    def print_all_zero_results(rows: list[str], adata=adata):
+        for barcode in rows:
+            row_index = adata.obs.index.get_loc(barcode)
+            print(f"Row index: {row_index}")
+            print(f"Row barcode: {barcode}")
+            print(f"Row data array: {matrix[row_index, :].compute().data}")
+            print(f"Row indices array: {matrix[row_index, :].compute().indices}")
+            print("=" * 40)
+
+    with dask.config.set(scheduler=worker_type):
+        bool_mask = (
+            map_blocks(find_all_zero_indices_array_chunk, matrix, dtype=int)
+            .compute()
+            .ravel()
+        )
+
+    barcodes = adata.obs[bool_mask].index
+
+    # visium in_tissue == 0 can have empty indices array, only report in_tissue == 1
+    # wrap in np.array to allow for size attribute check below
+    if "in_tissue" in adata.obs.columns:
+        barcodes = np.array(
+            [barcode for barcode in barcodes if adata.obs.loc[barcode].in_tissue == 1]
+        )
+
+    if barcodes.size > 0:
+        report(
+            "ERROR: All-zero indices array found for the following cell(s):",
+            level="ERROR",
+        )
+        print_all_zero_results(barcodes)
+    else:
+        report("Indices array per cell are not all-zero", level="GOOD")
+
+
 def evaluate_uns_colors(adata):
     numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
 
