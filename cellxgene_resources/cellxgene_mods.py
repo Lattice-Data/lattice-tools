@@ -362,7 +362,8 @@ def evaluate_all_zero_indices(adata: ad.AnnData, worker_type="processes"):
         chunk_results = []
         while start < end:
             row_indices = indices_array[indptr_array[start] : indptr_array[start + 1]]
-            if np.all(row_indices == 0):
+            # need size check to exclude visium spots with empty arrays, only want explicit 0 arrays
+            if np.all(row_indices == 0) and row_indices.size > 0:
                 chunk_results.append(True)
             else:
                 chunk_results.append(False)
