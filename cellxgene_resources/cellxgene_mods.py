@@ -340,6 +340,15 @@ def evaluate_data(adata):
         report(f'possible redundant layers: {poss_dups}','WARNING')
 
 
+@dataclass
+class IndicesResult:
+    index: int
+    barcode: str
+    matrix_slice: sparse.csr_matrix
+    data_array = None
+    indices_array = None
+
+
 def evaluate_all_zero_indices(adata: ad.AnnData, worker_type="processes"):
     """
     Function to check if a row/cell contains an all-zero indices array. This can exist
@@ -371,13 +380,31 @@ def evaluate_all_zero_indices(adata: ad.AnnData, worker_type="processes"):
 
         return np.array([chunk_results]).reshape(-1, 1)
 
-    def print_all_zero_results(rows: list[str], adata=adata):
-        for barcode in rows:
-            row_index = adata.obs.index.get_loc(barcode)
-            print(f"Row index: {row_index}")
-            print(f"Row barcode: {barcode}")
-            print(f"Row data array: {matrix[row_index, :].compute().data}")
-            print(f"Row indices array: {matrix[row_index, :].compute().indices}")
+    def create_indices_class(barcode: str, matrix=matrix, adata=adata):
+        index = adata.obs.index.get_loc(barcode)
+        return IndicesResult(
+            index=index,
+            barcode=barcode,
+            matrix_slice=matrix[index, : ],
+        )
+
+    def create_final_results_list(barcodes: list[str]):
+        final_result = [create_indices_class(barcode) for barcode in barcodes]
+        matrix_slices = dask.compute(final_result)[0]
+        data_arrays = [matrix.matrix_slice.data for matrix in matrix_slices]
+        indices_arrays = [matrix.matrix_slice.indices for matrix in matrix_slices]
+        for result_dc, data_array, indices_array in zip(final_result, data_arrays, indices_arrays):
+            result_dc.data_array = data_array
+            result_dc.indices_array = indices_array
+
+        return final_result
+
+    def print_all_zero_results(rows: list[IndicesResult]):
+        for result in rows:
+            print(f"Row index: {result.index}")
+            print(f"Row barcode: {result.barcode}")
+            print(f"Row data array: {result.data_array}")
+            print(f"Row indices array: {result.indices_array}")
             print("=" * 40)
 
     with dask.config.set(scheduler=worker_type):
@@ -401,7 +428,8 @@ def evaluate_all_zero_indices(adata: ad.AnnData, worker_type="processes"):
             "ERROR: All-zero indices array found for the following cell(s):",
             level="ERROR",
         )
-        print_all_zero_results(barcodes)
+        final_results = create_final_results_list(barcodes)
+        print_all_zero_results(final_results)
     else:
         report("Indices array per cell are not all-zero", level="GOOD")
 
