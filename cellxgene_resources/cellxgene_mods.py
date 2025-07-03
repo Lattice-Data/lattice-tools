@@ -390,6 +390,7 @@ def evaluate_all_zero_indices(adata: ad.AnnData, worker_type="processes"):
 
     def create_final_results_list(barcodes: list[str]):
         final_result = [create_indices_class(barcode) for barcode in barcodes]
+        # dask will most efficiently load slices with this compute instead of using loop
         matrix_slices = dask.compute(final_result)[0]
         data_arrays = [matrix.matrix_slice.data for matrix in matrix_slices]
         indices_arrays = [matrix.matrix_slice.indices for matrix in matrix_slices]
