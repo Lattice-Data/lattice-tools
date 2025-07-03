@@ -15,6 +15,23 @@ def cleanhtml(raw_html):
     return cleantext
 
 
+def query_preprints(doi, jour):
+    r = requests.get(f'https://api.biorxiv.org/details/{jour}/{doi}/na/json')
+    r = r.json()
+    for c in r['collection']:
+        if c['published'] != 'NA':
+            return c['published']
+
+
+def get_journal(r):
+    if r['message']['container-title']:
+        return r['message']['container-title'][0]
+    elif 'institution' in r['message']:
+        return r['message']['institution'][0]['name']
+    else:
+        return r['message'].get('group-title')
+
+
 def doi_checker(doi):
     out = {'DOI': doi}
 
@@ -35,14 +52,18 @@ def doi_checker(doi):
             out['invalid DOI'] = 'outdated'
             r = requests.get('https://api.crossref.org/works/' + str(doi)).json()
 
-    out['Title'] = cleanhtml(r['message']['title'][0])
+    out['Journal'] = get_journal(r)
 
-    if r['message']['container-title']:
-        out['Journal'] = r['message']['container-title'][0]
-    elif 'institution' in r['message']:
-        out['Journal'] = r['message']['institution'][0]['name']
-    else:
-        out['Journal'] = r['message'].get('group-title')
+    #in case bioRxiv API has a published DOI that crossref does not
+    if out.get('Journal') in ['bioRxiv','medRxiv']:
+        jour = out['Journal'].lower()
+        if doi := query_preprints(doi, jour):
+            out['updated_doi'] = doi
+            out['invalid DOI'] = 'outdated'
+            r = requests.get('https://api.crossref.org/works/' + str(doi)).json()
+            out['Journal'] = get_journal(r)
+
+    out['Title'] = cleanhtml(r['message']['title'][0])
 
     if 'published' in r['message']:
         out['Year'] = r['message']['published']['date-parts'][0][0]
