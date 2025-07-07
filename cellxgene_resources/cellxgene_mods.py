@@ -21,11 +21,13 @@ import cellxgene_schema.schema as schema
 portal_uns_fields = [
     'citation',
     'schema_reference',
-    'schema_version'
+    'schema_version',
+    'organism'
 ]
 
 curator_uns_fields = [
-    'title'
+    'title',
+    'organism_ontology_term_id'
 ]
 
 portal_var_fields = [
@@ -42,7 +44,6 @@ portal_obs_fields = [
     'development_stage',
     'disease',
     'self_reported_ethnicity',
-    'organism',
     'sex',
     'tissue'
 ]
@@ -829,7 +830,7 @@ def calculate_sex(fm_dict):
 
 
 def evaluate_donors_sex(adata):
-    if 'NCBITaxon:9606' not in adata.obs['organism_ontology_term_id'].unique():
+    if 'NCBITaxon:9606' != adata.uns['organism_ontology_term_id']:
         print('Cannot calculate sex for non-human data.')
         return None,None
     else:
