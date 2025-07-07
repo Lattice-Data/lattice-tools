@@ -22,7 +22,7 @@ import cellxgene_schema.gencode as gencode
 import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
 from typing import Union
-from cellxgene_schema.utils import SPARSE_MATRIX_TYPES
+from cellxgene_schema.utils import SPARSE_MATRIX_TYPES, read_h5ad
 
 
 portal_uns_fields = [
@@ -266,13 +266,14 @@ def get_matrices_to_evaluate(adata: ad.AnnData) -> list[tuple[Union[np.ndarray, 
     return matrices_to_evaluate
 
 
-def evaluate_sparsity(adata: ad.AnnData):
+def evaluate_sparsity(adata_path: os.PathLike | str):
     """
     Evaluate sparsity in qa notebook
 
     Expects matrices as dask array, so make sure to load Anndata with
     read_h5ad()
     """
+    adata = read_h5ad(adata_path)
     max_sparsity = 0.5
     valid = True
 
@@ -290,7 +291,7 @@ def evaluate_sparsity(adata: ad.AnnData):
         report("All matrices have passed checks", "GOOD")
 
 
-def evaluate_data(adata):
+def evaluate_data(adata_path: os.PathLike | str):
     """
     3 other data checks on matrix: min, max, and if raw matrix, all integer check
 
@@ -298,6 +299,7 @@ def evaluate_data(adata):
     Probably room for improvement to delay chunks, better call compute(), or
     other dask optimizations to not chunk through each matrix 2-3 times
     """
+    adata = read_h5ad(adata_path)
     min_maxs = {}
     matrices_to_evaluate = get_matrices_to_evaluate(adata)
     matrix_names = [name for _, name in matrices_to_evaluate]
@@ -349,13 +351,14 @@ class IndicesResult:
     indices_array = None
 
 
-def evaluate_all_zero_indices(adata: ad.AnnData, worker_type="processes"):
+def evaluate_all_zero_indices(adata_path: os.PathLike | str, worker_type="processes"):
     """
     Function to check if a row/cell contains an all-zero indices array. This can exist
     in Visium datasets with spots that are in_tissue == 0, but should not exist for
     in_tissue == 1 or other single cell raw count data.
     Uses dask to lazily load the raw matrix and to check in parallel
     """
+    adata = read_h5ad(adata_path)
     matrix = adata.raw.X if adata.raw else adata.X
     # check for csr format, need to load small slice to get past dask wrapper
     matrix_slice = matrix[0:1, 0:1].compute()
@@ -630,7 +633,7 @@ def evaluate_obs(obs, full_obs_standards):
         report(f'long fields: {long_fields}')
 
 
-def evaluate_dup_counts(adata: ad.AnnData, worker_type="processes") -> pd.DataFrame | None:
+def evaluate_dup_counts(adata_path: os.PathLike | str, worker_type="processes") -> pd.DataFrame | None:
     """
     Hash raw counts matrix in parallel with dask
     If there are duplicated rows, return a copy of obs with the duplicate rows' metadata
@@ -661,6 +664,7 @@ def evaluate_dup_counts(adata: ad.AnnData, worker_type="processes") -> pd.DataFr
     Actually this does work when imported into a notebook
     """
 
+    adata = read_h5ad(adata_path)
     matrix = adata.raw.X if adata.raw else adata.X
 
     def hash_data_array_chunk(matrix_chunk) -> np.array:
