@@ -1,5 +1,5 @@
 UNREPORTED_VALUE = 'unknown'
-SCHEMA_VERSION = '5_1'
+SCHEMA_VERSION = '6_0'
 MTX_DIR = 'matrix_files'
 
 # Reference files by which the flattener will filter var features
@@ -308,3 +308,13 @@ ACCEPTED_ACCESSIONS = {
 	'ENA:ERX'
 }
 
+RESERVED_UNS = [
+	'schema_version',
+	'title',
+	'default_embedding',
+	'X_approximate_distribution',
+	'schema_reference',
+	'citation',
+	'organism_ontology_term_id',
+	'organism'
+]
