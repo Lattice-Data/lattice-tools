@@ -21,11 +21,13 @@ import cellxgene_schema.schema as schema
 portal_uns_fields = [
     'citation',
     'schema_reference',
-    'schema_version'
+    'schema_version',
+    'organism'
 ]
 
 curator_uns_fields = [
-    'title'
+    'title',
+    'organism_ontology_term_id'
 ]
 
 portal_var_fields = [
@@ -42,7 +44,6 @@ portal_obs_fields = [
     'development_stage',
     'disease',
     'self_reported_ethnicity',
-    'organism',
     'sex',
     'tissue'
 ]
@@ -654,6 +655,7 @@ def compare_revision(collection):
                 rev_datasets = {d['dataset_id']: d for d in revision[k]}
                 comp = {}
                 new = {}
+                removed = {}
                 for ds_id,v in rev_datasets.items():
                     if ds_id not in pub_datasets.keys():
                         new[ds_id] = {}
@@ -680,6 +682,14 @@ def compare_revision(collection):
                                     change = True
                                     comp[ds_id][prop + '_REV'] = rev_val
                                     comp[ds_id][prop + '_PUB'] = pub_val
+                for ds_id,v in pub_datasets.items():
+                    if ds_id not in rev_datasets.keys():
+                        removed[ds_id] = {}
+                        for p in ['title','cell_count']:
+                            removed[ds_id][p] = v[p]
+                        for p in ['assay','organism','tissue']:
+                            removed[ds_id][p] = [a['label'] for a in v[p]]
+                        change = True
             else:
                 print('not same: ' + k)
                 if k not in ['datasets','publisher_metadata']:
@@ -733,6 +743,11 @@ def compare_revision(collection):
         print('\033[1mNew Datasets\033[0m')
         change = True
         display(pd.DataFrame(new).transpose())
+
+    if removed:
+        print('\033[1mRemoved Datasets\033[0m')
+        change = True
+        display(pd.DataFrame(removed).transpose())
 
     if not change:
         report('no changes changes detectable based on API response')
@@ -811,7 +826,7 @@ def calculate_sex(fm_dict):
 
 
 def evaluate_donors_sex(adata):
-    if 'NCBITaxon:9606' not in adata.obs['organism_ontology_term_id'].unique():
+    if 'NCBITaxon:9606' != adata.uns['organism_ontology_term_id']:
         print('Cannot calculate sex for non-human data.')
         return None,None
     else:
