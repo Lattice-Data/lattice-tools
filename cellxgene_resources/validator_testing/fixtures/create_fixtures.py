@@ -68,30 +68,32 @@ class Organism(Enum):
             return "common_ontology_meta"
 
 
-def mock_matrix(
-    cell_num: int, gene_num: int, sparsity: float, float_fill: float | int | None = None
-) -> sparse.csr_matrix:
+def mock_matrix(cell_num: int, gene_num: int, sparsity: float) -> sparse.csr_matrix:
     """
     Create sparse csr matrix in float32 format for test fixtures.
-    Defaults to raw count matrix, will fill with specified float value if
-    that parameter is provided
+    Copy this matrix and change data array to float values to make a
+    normalized matrix with values in the same index locations
     """
     shape = (cell_num, gene_num)
-    int_fill = 1
+    dense_values = np.prod(shape)
+    num_non_zeros = int((1 - sparsity) * dense_values)
 
-    # int cast rounds toward 0
-    step = int(1 / (1 - sparsity))
-    if sparsity < 0.5:
-        ones = np.ones(shape, dtype=np.float32)
-        step = int(1 / sparsity)
-        int_fill = 0
-        ones[:, ::step] = float_fill if float_fill else int_fill
-        matrix = sparse.csr_matrix(ones, dtype=np.float32)
-    else:
-        matrix = sparse.csr_matrix(shape, dtype=np.float32)
-        matrix[:, ::step] = float_fill if float_fill else int_fill
-
-    return matrix
+    values_per_row = round(num_non_zeros / cell_num)
+    index_matrix = np.random.randint(
+        low=0,
+        high=(gene_num - 1),
+        size=(cell_num, values_per_row)
+    )
+    
+    zeros_matrix = np.zeros(shape)
+    for index_row, zeros_row in zip(index_matrix, zeros_matrix):
+        for index in index_row:
+            zeros_row[index] = np.random.randint(1, 1000)
+        
+    return sparse.csr_matrix(
+        zeros_matrix,
+        dtype=np.float32
+    )
 
 
 def create_fixture(organism: Organism) -> ad.AnnData:
@@ -105,7 +107,6 @@ def create_fixture(organism: Organism) -> ad.AnnData:
 
     obs_df = obs_meta_df.copy()
     obs_df.set_index("obs_index", inplace=True)
-    obs_df["organism_ontology_term_id"] = organism.term_id
     for column, fill_value in STATIC_OBS_COLUMNS.items():
         obs_df[column] = fill_value
 
@@ -118,6 +119,7 @@ def create_fixture(organism: Organism) -> ad.AnnData:
     uns = {
         "title": f"{organism.name.capitalize()} Fixture",
         "default_embedding": "X_umap",
+        "organism_ontology_term_id": organism.term_id
     }
 
     raw_matrix = mock_matrix(
@@ -125,13 +127,15 @@ def create_fixture(organism: Organism) -> ad.AnnData:
         gene_num=var_df.shape[0],
         sparsity=0.9,
     )
+    
+    # fill copy of raw matrix with random float values in same indices as raw matrix
+    normalized_matrix = raw_matrix.copy()
+    normalized_matrix.data = np.random.uniform(low=1.0, high=100.0, size=normalized_matrix.data.shape)
+    # uniform creates float64 array, no dtype argument, so convert back to float32
+    normalized_matrix.data = normalized_matrix.data.astype(np.float32)
+
     adata = ad.AnnData(
-        X=mock_matrix(
-            cell_num=obs_df.shape[0],
-            gene_num=var_df.shape[0],
-            sparsity=0.9,
-            float_fill=2.3,
-        ),
+        X=normalized_matrix,
         obs=obs_df,
         var=var_df,
         uns=uns,

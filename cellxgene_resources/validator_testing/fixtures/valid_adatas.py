@@ -50,7 +50,9 @@ Or just import some of the constant lists from below
 import anndata as ad
 import gc
 import os
+import pandas as pd
 import pytest
+from dataclasses import dataclass
 from pathlib import Path
 from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
@@ -130,3 +132,103 @@ def label_writer(validator_with_adatas: Validator) -> AnnDataLabelAppender:
     validator = validator_with_adatas
     validator.validate_adata()
     yield AnnDataLabelAppender(validator.adata)
+
+
+"""
+Fixture setup for ATAC/Multiome testing.
+Need to provide paths of fragment file and h5ad, so this adds further setup
+beyond just referencing the in-memory AnnData object, like for most other 
+validator testing
+
+AtacTestData holds in-memory Anndata object and fragment df, and names of 
+each file
+
+Each test should take in an AtacTestData object, modify AnnData and/or 
+fragment file for the test setup, then call to_temp_files() to save these
+two objects to a temp dir
+
+to_temp_files() saves objects in temp dir and returns temp paths; these paths
+can then be used by process_fragment() to run the test
+
+See 5.3.0/5-3_pr1095_cxg602_atac_fragment_test.py::test_mock() as an example
+of test setup
+"""
+
+@dataclass
+class AtacTestData:
+    h5ad_file_name: str | Path
+    adata: ad.AnnData
+    fragment_df: pd.DataFrame
+    fragment_file_name: str | Path
+
+
+ATAC_H5ADS = [
+    "valid_human.h5ad",
+    "valid_mouse.h5ad",
+]
+
+
+def bundle_atac_test_data(h5ad_file_name: str) -> AtacTestData:
+    fragment_file_name = h5ad_file_name.replace(".h5ad", "_fragments.tsv.gz")
+
+    adata = read_h5ad(FIXTURES_ROOT / h5ad_file_name)
+    # set to default valid for atac since fixtures used for non-atac tests
+    adata.obs["assay_ontology_term_id"] = "EFO:0030059"
+    adata.obs["is_primary_data"] = True
+
+    # will see how this try block works for mixing/matching h5ads with valid fragment
+    # fixtures; need to set appropriate fragment within the test
+    # otherwise, will get various AttributeErrors as other functions attempt to access
+    # None attributes
+    try:
+        fragments = pd.read_csv(
+            FIXTURES_ROOT / fragment_file_name,
+            sep="\t",
+            header=None,
+        )
+    except FileNotFoundError:
+        fragments = None
+
+    return AtacTestData(
+        adata=adata,
+        h5ad_file_name=h5ad_file_name,
+        fragment_df=fragments,
+        fragment_file_name=fragment_file_name
+    )
+
+
+@pytest.fixture(params=ATAC_H5ADS)
+def yield_atac_h5ads(request):
+    yield request.param
+
+
+@pytest.fixture
+def yield_atac_fixture_data(yield_atac_h5ads) -> AtacTestData:
+    gc.collect()
+    atac_fixture_data = bundle_atac_test_data(yield_atac_h5ads)
+    yield atac_fixture_data
+
+
+def _to_anndata_file(atac_data: AtacTestData, tmp_path: Path) -> str | Path:
+    tmp_file_name = tmp_path / atac_data.h5ad_file_name 
+    atac_data.adata.write(tmp_file_name, compression="gzip")
+    return tmp_file_name
+
+    
+def _to_fragment_file(atac_data: AtacTestData, tmp_path: Path) -> str | Path:
+    tmp_file_name = tmp_path / atac_data.fragment_file_name
+    atac_data.fragment_df.to_csv(
+        tmp_file_name, 
+        sep="\t", 
+        header=False, 
+        index=False, 
+        compression="gzip"
+    )
+    return tmp_file_name
+
+
+def to_temp_files(test_data: AtacTestData, tmp_path: Path | str) -> dict:
+    return {
+        "anndata_file": _to_anndata_file(test_data, tmp_path), 
+        "fragment_file": _to_fragment_file(test_data, tmp_path)
+    }

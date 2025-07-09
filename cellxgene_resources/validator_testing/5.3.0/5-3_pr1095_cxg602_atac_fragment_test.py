@@ -14,7 +14,7 @@ delete after
 
 current fixture setup will by default use all fixtures in h5ads list
 can specify specific fixtures with this:
-@pytest.mark.parametrize("atac_h5ads", [{list specific h5ads}])
+@pytest.mark.parametrize("yield_atac_h5ads", [{list specific h5ads}])
 should apply this to other fixtures
 
 """
@@ -31,87 +31,19 @@ from cellxgene_schema.atac_seq import (
     human_chromosome_by_length,
     mouse_chromosome_by_length
 )
-from dataclasses import dataclass
 from pandas._libs.parsers import STR_NA_VALUES
 from pathlib import Path
 from fixtures.create_fixtures import Organism
 from fixtures.valid_adatas import (
+    ATAC_H5ADS,
     FIXTURES_ROOT,
     read_h5ad,
-    validator_with_adatas
+    validator_with_adatas,
+    yield_atac_fixture_data,
+    yield_atac_h5ads,
+    _to_anndata_file,
+    to_temp_files
 )
-
-@dataclass
-class AtacTestData:
-    h5ad_file_name: str | Path
-    adata: ad.AnnData
-    fragment_df: pd.DataFrame
-    fragment_file_name: str | Path
-
-
-h5ads = [
-    "valid_human.h5ad",
-    "valid_mouse.h5ad"
-]
-
-
-def bundle_atac_test_data(h5ad_file_name: str) -> AtacTestData:
-    fragment_file_name = h5ad_file_name.replace(".h5ad", "_fragments.tsv.gz")
-
-    adata = read_h5ad(FIXTURES_ROOT / h5ad_file_name)
-    # set to default valid for atac since fixtures used for non-atac tests
-    adata.obs["assay_ontology_term_id"] = "EFO:0030059"
-    adata.obs["is_primary_data"] = True
-
-    fragments = pd.read_csv(
-        FIXTURES_ROOT / fragment_file_name,
-        sep="\t",
-        header=None,
-    )
-
-    return AtacTestData(
-        adata=adata,
-        h5ad_file_name=h5ad_file_name,
-        fragment_df=fragments,
-        fragment_file_name=fragment_file_name
-    )
-
-
-@pytest.fixture(params=h5ads)
-def atac_h5ads(request):
-    yield request.param
-
-
-@pytest.fixture
-def yield_atac_fixture_data(atac_h5ads) -> AtacTestData:
-    gc.collect()
-    atac_fixture_data = bundle_atac_test_data(atac_h5ads)
-    yield atac_fixture_data
-
-
-def _to_anndata_file(atac_data: AtacTestData, tmp_path: Path) -> str | Path:
-    tmp_file_name = tmp_path / atac_data.h5ad_file_name 
-    atac_data.adata.write(tmp_file_name, compression="gzip")
-    return tmp_file_name
-
-    
-def _to_fragment_file(atac_data: AtacTestData, tmp_path: Path) -> str | Path:
-    tmp_file_name = tmp_path / atac_data.fragment_file_name
-    atac_data.fragment_df.to_csv(
-        tmp_file_name, 
-        sep="\t", 
-        header=False, 
-        index=False, 
-        compression="gzip"
-    )
-    return tmp_file_name
-
-
-def to_temp_files(test_data: AtacTestData, tmp_path: Path | str) -> dict:
-    return {
-        "anndata_file": _to_anndata_file(test_data, tmp_path), 
-        "fragment_file": _to_fragment_file(test_data, tmp_path)
-    }
 
 
 def test_mock(yield_atac_fixture_data, tmpdir):
@@ -130,7 +62,7 @@ def test_mock(yield_atac_fixture_data, tmpdir):
     assert results == []
 
 
-@pytest.mark.parametrize("test_h5ads", h5ads)
+@pytest.mark.parametrize("test_h5ads", ATAC_H5ADS)
 class TestPairedRawCounts:
     def test_paired_no_raw(self, validator_with_adatas):
         validator = validator_with_adatas
@@ -369,7 +301,7 @@ class TestOrganismTerms:
 
 
 class TestFragmentCol1Chr:
-    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize("other_chromosome", ["GL456210.1", "JH584295.1"])
     def test_mouse_chromosomes_in_human(self, yield_atac_fixture_data, tmpdir, other_chromosome):
         test_data = yield_atac_fixture_data
@@ -383,7 +315,7 @@ class TestFragmentCol1Chr:
             f"Chromosomes in the fragment do not match the organism(NCBITaxon:9606).\n{other_chromosome}"
         ) in results
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_mouse.h5ad"])
     @pytest.mark.parametrize("other_chromosome", ["KI270442.1", "GL000009.2"])
     def test_human_chromosomes_in_mouse(self, yield_atac_fixture_data, tmpdir, other_chromosome):
         test_data = yield_atac_fixture_data
@@ -400,7 +332,7 @@ class TestFragmentCol1Chr:
 
 class TestFragmentCol2Start:
     # error message makes sense, will see if this is unclear in practice
-    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
@@ -420,7 +352,7 @@ class TestFragmentCol2Start:
         assert "Stop coordinate must be greater than start coordinate." in results
 
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
@@ -440,7 +372,7 @@ class TestFragmentCol2Start:
         assert "Stop coordinate must be greater than start coordinate." in results
         assert "Stop coordinate must be less than the chromosome length." in results
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_mouse.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
@@ -460,7 +392,7 @@ class TestFragmentCol2Start:
         assert "Stop coordinate must be greater than start coordinate." in results
 
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_mouse.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
@@ -480,7 +412,7 @@ class TestFragmentCol2Start:
         assert "Stop coordinate must be greater than start coordinate." in results
         assert "Stop coordinate must be less than the chromosome length." in results
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
         "chromosome", 
         [chromosome for chromosome in human_chromosome_by_length]
@@ -496,7 +428,7 @@ class TestFragmentCol2Start:
 
         assert "Start coordinate must be greater than 0." in results
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_mouse.h5ad"])
     @pytest.mark.parametrize(
         "chromosome", 
         [chromosome for chromosome in mouse_chromosome_by_length]
@@ -536,7 +468,7 @@ class TestFragmentCol3Stop:
 
         assert "Stop coordinate must be greater than start coordinate." in results
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_human.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_human.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in human_chromosome_by_length.items()]
@@ -553,7 +485,7 @@ class TestFragmentCol3Stop:
 
         assert "Stop coordinate must be less than the chromosome length." in results
 
-    @pytest.mark.parametrize("atac_h5ads", ["valid_mouse.h5ad"])
+    @pytest.mark.parametrize("yield_atac_h5ads", ["valid_mouse.h5ad"])
     @pytest.mark.parametrize(
         "chromosome_lengths", 
         [(chromosome, max) for chromosome, max in mouse_chromosome_by_length.items()]
@@ -722,7 +654,7 @@ class TestFragmentColDtypes:
         error_prefix = f"Error Parsing the fragment file. Check that columns match schema definition. Error:"
         assert any(s.startswith(error_prefix) for s in results)
 
-    @pytest.mark.parametrize("values", [None, np.nan, pd.NA, np.NaN])
+    @pytest.mark.parametrize("values", [None, np.nan, pd.NA])
     @pytest.mark.parametrize("column", [1, 2, 4])
     def test_null_types_in_int_cols(self, yield_atac_fixture_data, tmpdir, values, column, row_to_change):
         test_data = yield_atac_fixture_data
@@ -761,7 +693,7 @@ class TestFragmentColDtypes:
         # null strings for read support now is apparently valid with pyarrow change, except for 'na'
         assert results == []
 
-    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN", np.NaN])
+    @pytest.mark.parametrize("values", [2.3, True, "string", False, None, np.nan, pd.NA, "", "na", "null", "NA", "NaN"])
     @pytest.mark.parametrize("column", [0])
     def test_different_dtypes_in_chr_col(self, yield_atac_fixture_data, tmpdir, values, column, row_to_change):
         test_data = yield_atac_fixture_data
