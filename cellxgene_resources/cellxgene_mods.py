@@ -934,13 +934,14 @@ def evaluate_donors_sex(adata):
 
 def evaluate_var_df(adata):
     """
-    Use single-cell-curation classes and fuctions and report warning/error for organism specific minimum number of gene features. Also, this function 
+    Use single-cell-curation classes and fuctions and report warning/error for organism specific minimum number of gene features. Also, this function
     will look that var contains features from only a single organism.
 
     :param obj adata: AnnData that is being curated
 
     :return logging: Raises WARNING or ERROR if the number of genes in adata.var and adata.raw.var are fewer than the threshold of 40% or 60%, respectively,
-    of 10x preselected biotype of genes. Will also raise ERROR if dataset contains more than a singel organism.
+    of 10x preselected biotype of genes. Will also raise ERROR if dataset contains more than a single organism; and raise a WARNING if the dataset has 50% or
+    more genes filtered.
     """
     accepted_biotypes = [
         'protein_coding',
@@ -1017,3 +1018,13 @@ def evaluate_var_df(adata):
         report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes, fraction: {fraction} (0.60 threshold)','WARNING')
     else:
         report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction}', 'GOOD')
+
+    # Check the number of filtered genes
+    if 'feature_is_filtered' in adata.var.columns:
+        num_filtered_genes = len(adata.var[adata.var.feature_is_filtered == True])
+        if num_filtered_genes/len(adata.var.index) >= 0.5:
+            report(f'50% or more genes are filtered', 'WARNING')
+        else:
+            report(f'Less than 50% of genes are filtered', 'GOOD')
+    else:
+        report('feature_is_filtered not found in var', 'WARNING')
