@@ -157,9 +157,9 @@ def download_parallel_multithreading(files_to_download):
         }
 
         num_all_files = len(files_to_download)
-        num_locally = len(files_to_download)
+        num_locally = num_all_files - len(future_to_key)
         print(f"{num_all_files} fragment files in Lattice")
-        print(f"Found {num_locally} files locally, downloading {num_all_files - num_locally} files")
+        print(f"Found {num_locally} files locally, downloading {len(future_to_key)} files")
 
         if not future_to_key:
             print("All files local, no downloading needed")
@@ -323,6 +323,7 @@ if __name__ == "__main__":
 
     filtered_files = [file.output_path.absolute() for file in results if file.success]
     processes = []
+    print("Starting gzip compression of filtered files...")
     for f in filtered_files:
         p = subprocess.Popen(['gzip',f])
         processes.append(p)
@@ -330,6 +331,7 @@ if __name__ == "__main__":
     for p in processes:
         p.wait()
 
-    ind_frag_files_gz = [f + '.gz' for f in filtered_files]
+    ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
     concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
+    print("Concatenating final file...")
     subprocess.run(['cat ' + ' '.join(ind_frag_files_gz) + ' > ' + str(concat_frags)], shell=True)
