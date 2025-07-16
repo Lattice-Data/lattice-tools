@@ -4,6 +4,7 @@ import boto3.session
 import fsspec
 import h5py
 import matplotlib.pyplot as plt
+import multiprocessing
 import os
 import pandas as pd
 import re
@@ -15,9 +16,6 @@ from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-
-from zarr.storage import multiprocessing
-
 
 from lattice import (
     Connection,
@@ -99,6 +97,9 @@ class FragmentFileMeta:
 
 @dataclass
 class FragmentFilterResult:
+    """
+    Dataclass for returning filter results, plot currently unused
+    """
     accession: str
     success: bool
     stats: dict
@@ -140,7 +141,7 @@ def download_object(s3_client, fragment_meta: FragmentFileMeta):
     return "Success"
 
 
-def download_parallel_multithreading(files_to_download):
+def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
     # Create a session and use it to make our client
     session = boto3.session.Session()
     s3_client = session.client("s3")
@@ -242,6 +243,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentFilterResult:
         names=FRAGMENT_COL_NAMES
     )
 
+    # TODO: figure out how to report QA stuff, initial attempt crashed comp
     #plot for QA
     counts = frags_df["barcode"].value_counts()
     # fig, axes = plt.subplots(1, 2, figsize=(10, 5))
@@ -296,6 +298,22 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentFilterResult:
     )
 
 
+def compress_and_concat(filtered_files: list[FragmentFilterResult]) -> None:
+    processes = []
+    print("Starting gzip compression of filtered files...")
+    for f in filtered_files:
+        p = subprocess.Popen(["gzip",f])
+        processes.append(p)
+
+    for p in processes:
+        p.wait()
+
+    ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
+    concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
+    print("Concatenating final file...")
+    subprocess.run(["cat " + " ".join(ind_frag_files_gz) + " > " + str(concat_frags)], shell=True)
+
+
 if __name__ == "__main__":
     args = getArgs()
     connection = Connection(args.mode)
@@ -320,18 +338,7 @@ if __name__ == "__main__":
         else:
             print("FAILURE")
             traceback.print_exception(None, meta, meta.__traceback__)
+        print("=" * 40)
 
     filtered_files = [file.output_path.absolute() for file in results if file.success]
-    processes = []
-    print("Starting gzip compression of filtered files...")
-    for f in filtered_files:
-        p = subprocess.Popen(['gzip',f])
-        processes.append(p)
-
-    for p in processes:
-        p.wait()
-
-    ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
-    concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
-    print("Concatenating final file...")
-    subprocess.run(['cat ' + ' '.join(ind_frag_files_gz) + ' > ' + str(concat_frags)], shell=True)
+    compress_and_concat(filtered_files)
