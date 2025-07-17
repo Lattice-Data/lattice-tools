@@ -38,7 +38,7 @@ REPLACE_WITH = "B@RCODE"
 FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
 DOWNLOAD_THREADS = 8
-FILTER_WORKERS = os.cpu_count() // 2
+NUM_FILTER_WORKERS = os.cpu_count() // 2
 PROCESSED_MATRIX_ACCESSION = "LATDF393MGJ"
 PROCESSED_MATRIX_FIELD_LIST = [
     "accession",
@@ -175,7 +175,7 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
                 yield key, exception
 
 
-def query_and_download(processed_matrix_accession: str, connection: Connection) -> list[FragmentFileMeta]:
+def query_lattice(processed_matrix_accession: str, connection: Connection) -> list[FragmentFileMeta]:
     processed_matrix_report = get_report(
         "ProcessedMatrixFile",
         f"&@id=/processed-matrix-files/{processed_matrix_accession}/",
@@ -214,14 +214,16 @@ def query_and_download(processed_matrix_accession: str, connection: Connection) 
             )
         )
 
-    files_to_download = master_fragment_file_meta # all the files that you want to download
+    return master_fragment_file_meta
 
+
+def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
     for key, result in download_parallel_multithreading(files_to_download):
-        print(f"{key} result: {result}")
+        print(f"{key} download result: {result}")
 
-    if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in master_fragment_file_meta]):
+    # maybe this check should be out of the function?
+    if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in files_to_download]):
         print("All files local, filtereing fragments now")
-        return master_fragment_file_meta
     else:
         print("Some files not found locally, please rerun")
         sys.exit()
@@ -298,7 +300,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentFilterResult:
     )
 
 
-def compress_and_concat(filtered_files: list[FragmentFilterResult]) -> None:
+def compress_and_concat(filtered_files: list[str | os.PathLike]) -> None:
     processes = []
     print("Starting gzip compression of filtered files...")
     for f in filtered_files:
@@ -317,9 +319,12 @@ def compress_and_concat(filtered_files: list[FragmentFilterResult]) -> None:
 if __name__ == "__main__":
     args = getArgs()
     connection = Connection(args.mode)
-    fragment_meta = query_and_download(args.file, connection)
+
+    fragment_meta = query_lattice(args.file, connection)
+    download_fragment_files(fragment_meta)
+
     results = list()
-    with multiprocessing.Pool(processes=FILTER_WORKERS) as pool:
+    with multiprocessing.Pool(processes=NUM_FILTER_WORKERS) as pool:
         iterator = pool.imap(filter_worker, fragment_meta)
         for meta in iterator:
             try:
