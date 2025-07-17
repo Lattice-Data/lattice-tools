@@ -347,7 +347,10 @@ if __name__ == "__main__":
             traceback.print_exception(None, meta, meta.__traceback__)
         print("=" * 40)
 
-    print(pd.DataFrame([item.stats for item in results]))
+    stats_df = pd.DataFrame([item.stats for item in results])
+    print(stats_df)
+    print(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
+    print(f"AnnData unique barcodes: {fragment_meta[0].barcodes.shape[0]}")
 
     filtered_files = [file.output_path.absolute() for file in results if file.success]
     compress_files(filtered_files)
