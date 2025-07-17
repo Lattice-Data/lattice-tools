@@ -300,7 +300,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentFilterResult:
     )
 
 
-def compress_and_concat(filtered_files: list[str | os.PathLike]) -> None:
+def compress_files(filtered_files: list[str | os.PathLike]) -> None:
     processes = []
     print("Starting gzip compression of filtered files...")
     for f in filtered_files:
@@ -310,6 +310,8 @@ def compress_and_concat(filtered_files: list[str | os.PathLike]) -> None:
     for p in processes:
         p.wait()
 
+
+def concat_files(filtered_files: list[str | os.PathLike]) -> None:
     ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
     concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
     print("Concatenating final file...")
@@ -345,5 +347,8 @@ if __name__ == "__main__":
             traceback.print_exception(None, meta, meta.__traceback__)
         print("=" * 40)
 
+    print(pd.DataFrame([item.stats for item in results]))
+
     filtered_files = [file.output_path.absolute() for file in results if file.success]
-    compress_and_concat(filtered_files)
+    compress_files(filtered_files)
+    concat_files(filtered_files)
