@@ -39,7 +39,7 @@ FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
 DOWNLOAD_THREADS = 8
 NUM_FILTER_WORKERS = os.cpu_count() // 2
-PROCESSED_MATRIX_ACCESSION = "LATDF393MGJ"
+PRINT_WIDTH = 54
 PROCESSED_MATRIX_FIELD_LIST = [
     "accession",
     "s3_uri",
@@ -338,6 +338,7 @@ if __name__ == "__main__":
                 results.append((meta, e))
 
     print("Filter results")
+    print("=" * PRINT_WIDTH)
     for meta in results:
         if isinstance(meta, FragmentFilterResult):
             print(f"Fragment file: {meta.output_path.name}")
@@ -345,7 +346,7 @@ if __name__ == "__main__":
         else:
             print("FAILURE")
             traceback.print_exception(None, meta, meta.__traceback__)
-        print("=" * 40)
+        print("=" * PRINT_WIDTH)
 
     stats_df = pd.DataFrame([item.stats for item in results])
     print(stats_df)
