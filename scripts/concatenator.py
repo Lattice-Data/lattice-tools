@@ -33,7 +33,7 @@ Examples:
 
     python %(prog)s --help
 """
-BARCODE_PATTERN = r"[ACGT]{16}"
+BARCODE_PATTERN = r"[ACGT]{16}([-_]\d{1,2})?"
 REPLACE_WITH = "B@RCODE"
 FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
@@ -233,9 +233,9 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentFilterResult:
     #read in the fragments
     print(f"Starting filtering of {fragment_meta.download_file_name}...")
     if fragment_meta.cell_label_location == "suffix":
-        a = f"{REPLACE_WITH}-1{fragment_meta.label}"
+        a = f"{REPLACE_WITH}{fragment_meta.label}"
     else:
-        a = f"{fragment_meta.label}{REPLACE_WITH}-1"
+        a = f"{fragment_meta.label}{REPLACE_WITH}"
 
     file_path = FRAGMENT_DIR / fragment_meta.download_file_name
     frags_df = pd.read_csv(
