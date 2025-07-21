@@ -131,7 +131,7 @@ def getArgs():
 
 
 def download_object(s3_client, fragment_meta: FragmentFileMeta):
-    download_path = Path(FRAGMENT_DIR) / fragment_meta.download_file_name
+    download_path = FRAGMENT_DIR / fragment_meta.download_file_name
     print(f"Downloading {fragment_meta.download_file_name} to {download_path}")
     s3_client.download_file(
         fragment_meta.uri.bucket_name,
