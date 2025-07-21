@@ -52,9 +52,13 @@ class CxG_API:
     sys.path.append(os.path.abspath(scc_repo_loc + 'single-cell-curation/notebooks/curation_api/python/'))
 
 
-    from src.collection import create_collection,create_revision,get_collection,get_collections,update_collection
-    from src.dataset import create_dataset,delete_dataset,get_dataset,get_datasets,upload_datafile_from_link,upload_local_datafile
-
+    from src.collection import (
+        create_collection,create_revision,get_collection,get_collections,update_collection
+    )
+    from src.dataset import (
+        create_dataset,delete_dataset,get_dataset,get_datasets,get_dataset_versions,
+        upload_datafile_from_link,upload_local_datafile
+    )
 
     def config(env=None):
         from src.utils.config import set_api_access_config
