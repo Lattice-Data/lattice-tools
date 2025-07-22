@@ -172,7 +172,7 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
 
         num_all_files = len(files_to_download)
         num_locally = num_all_files - len(future_to_key)
-        print(f"{num_all_files} fragment files in Lattice")
+        print(f"{num_all_files} raw fragment files in Lattice")
         print(f"Found raw {num_locally} files locally, downloading {len(future_to_key)} files")
 
         if not future_to_key:
