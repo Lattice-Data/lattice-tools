@@ -93,10 +93,10 @@ class FragmentFileMeta:
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
         # probably better to add this logic somewhere else
-        self.filtered_fragment_name = FRAGMENT_DIR / self.download_file_name.replace("fragments.tsv.gz", "filtered_fragments.tsv")
+        self.filtered_fragment_path_name = FRAGMENT_DIR / self.download_file_name.replace("fragments.tsv.gz", "filtered_fragments.tsv")
         self.is_file_local = (FRAGMENT_DIR / self.download_file_name).is_file()
         # saved file will likely be compressed
-        self.is_filtered_file_local = (FRAGMENT_DIR / self.filtered_fragment_name.name.replace("tsv", "tsv.gz")).is_file()
+        self.is_filtered_file_local = self.filtered_fragment_path_name.name.replace("tsv", "tsv.gz").is_file()
 
 
 @dataclass
@@ -294,7 +294,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     figure = "test_string"
 
     #write the filtered fragments file
-    output = fragment_meta.filtered_fragment_name
+    output = fragment_meta.filtered_fragment_path_name
     frags_df.to_csv(
         output,
         sep="\t",
@@ -316,7 +316,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     #read in the fragments
     file_saved = False
-    compressed_file_name = fragment_meta.filtered_fragment_name.name.replace("tsv", "tsv.gz")
+    compressed_file_name = fragment_meta.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")
     print(f"Starting de-duplication of {compressed_file_name}...")
 
     file_path = FRAGMENT_DIR / compressed_file_name
@@ -333,7 +333,7 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     has_duplicates = True if not duplicates.empty else False
     print(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
 
-    output = fragment_meta.filtered_fragment_name
+    output = fragment_meta.filtered_fragment_path_name
 
     # only need to save file again if duplicates found
     if has_duplicates:
@@ -344,7 +344,7 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
             header=False
         )
         file_saved = output.exists()
-        print(f"Finished saving deduplicated {fragment_meta.filtered_fragment_name}. SUCCESS: {file_saved}")
+        print(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
 
     return FragmentWorkerResult(
         accession=fragment_meta.accession,
@@ -376,7 +376,7 @@ def compress_files(filtered_files: list[str | os.PathLike]) -> None:
 def concat_files(filtered_files: list[str | os.PathLike]) -> None:
     ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
     concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
-    print(f"Concatenating {len(ind_frag_files_gz)} filtered files into final file...")
+    print(f"Concatenating {len(ind_frag_files_gz)} compressed filtered files into final file...")
     subprocess.run(["cat " + " ".join(ind_frag_files_gz) + " > " + str(concat_frags)], shell=True)
 
 
