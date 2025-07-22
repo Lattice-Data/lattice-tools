@@ -96,7 +96,7 @@ class FragmentFileMeta:
         self.filtered_fragment_path_name = FRAGMENT_DIR / self.download_file_name.replace("fragments.tsv.gz", "filtered_fragments.tsv")
         self.is_file_local = (FRAGMENT_DIR / self.download_file_name).is_file()
         # saved file will likely be compressed
-        self.is_filtered_file_local = self.filtered_fragment_path_name.name.replace("tsv", "tsv.gz").is_file()
+        self.is_filtered_file_local = (FRAGMENT_DIR / self.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")).is_file()
 
 
 @dataclass
