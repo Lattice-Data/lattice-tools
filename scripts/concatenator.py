@@ -436,7 +436,7 @@ if __name__ == "__main__":
         else:
             print("Rerun concatenator to generate all filtered fragment files")
             print("Missing following files:")
-            print([meta.download_file_name for meta in fragment_meta if not meta.is_filtered_file_local])
+            print([meta.filtered_fragment_path_name.name for meta in fragment_meta if not meta.is_filtered_file_local])
             sys.exit()
 
     results = run_processing_pool(worker_function, fragment_meta)
