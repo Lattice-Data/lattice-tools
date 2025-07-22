@@ -1,5 +1,6 @@
 import argparse
 import traceback
+from typing import Callable
 import boto3.session
 import fsspec
 import h5py
@@ -39,7 +40,7 @@ FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
 DOWNLOAD_THREADS = 8
 NUM_FILTER_WORKERS = os.cpu_count() // 2
-PRINT_WIDTH = 54
+PRINT_WIDTH = 57
 PROCESSED_MATRIX_FIELD_LIST = [
     "accession",
     "s3_uri",
@@ -92,19 +93,25 @@ class FragmentFileMeta:
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
         # probably better to add this logic somewhere else
+        self.filtered_fragment_name = FRAGMENT_DIR / self.download_file_name.replace("fragments.tsv.gz", "filtered_fragments.tsv")
         self.is_file_local = (FRAGMENT_DIR / self.download_file_name).is_file()
+        # saved file will likely be compressed
+        self.is_filtered_file_local = (FRAGMENT_DIR / self.filtered_fragment_name.name.replace("tsv", "tsv.gz")).is_file()
 
 
 @dataclass
-class FragmentFilterResult:
+class FragmentWorkerResult:
     """
     Dataclass for returning filter results, plot currently unused
     """
     accession: str
-    success: bool
+    file_saved: bool
     stats: dict
     plot: plt.figure
     output_path: Path
+    checked_duplicates: bool = False
+    has_duplicates: bool = False
+    duplicates: pd.DataFrame | None = None
 
 
 def getArgs():
@@ -122,6 +129,12 @@ def getArgs():
         "--mode",
         "-m",
         help="The machine to run on."
+    )
+    parser.add_argument(
+        "--deduplicate",
+        "-d",
+        help="Remove duplicates from filtered fragment files",
+        action="store_true",
     )
     args = parser.parse_args()
     if len(sys.argv) == 1:
@@ -223,13 +236,13 @@ def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
 
     # maybe this check should be out of the function?
     if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in files_to_download]):
-        print("All files local, filtereing fragments now")
+        print("All files local, processing fragments now")
     else:
         print("Some files not found locally, please rerun")
         sys.exit()
 
 
-def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentFilterResult:
+def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     #read in the fragments
     print(f"Starting filtering of {fragment_meta.download_file_name}...")
     if fragment_meta.cell_label_location == "suffix":
@@ -281,30 +294,79 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentFilterResult:
     figure = "test_string"
 
     #write the filtered fragments file
-    output = file_path.parent / file_path.name.replace("fragments.tsv.gz", "filtered_fragments.tsv")
+    output = fragment_meta.filtered_fragment_name
     frags_df.to_csv(
         output,
         sep="\t",
         index=False,
         header=False
     )
-    success = True if output.exists() else False
-    print(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {success}")
+    file_saved = True if output.exists() else False
+    print(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
 
-    return FragmentFilterResult(
+    return FragmentWorkerResult(
         accession=fragment_meta.accession,
-        success=success,
+        file_saved=file_saved,
         stats=stats,
         plot=figure,
         output_path=output,
     )
 
 
+def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+    #read in the fragments
+    file_saved = False
+    compressed_file_name = fragment_meta.filtered_fragment_name.name.replace("tsv", "tsv.gz")
+    print(f"Starting de-duplication of {compressed_file_name}...")
+
+    file_path = FRAGMENT_DIR / compressed_file_name
+    filtered_df = pd.read_csv(
+        file_path,
+        comment="#",
+        sep="\t",
+        names=FRAGMENT_COL_NAMES
+    )
+
+    duplicates = filtered_df[filtered_df.duplicated(keep=False)]
+    filtered_df = filtered_df.drop_duplicates(keep="first")
+
+    has_duplicates = True if not duplicates.empty else False
+    print(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
+
+    output = fragment_meta.filtered_fragment_name
+
+    # only need to save file again if duplicates found
+    if has_duplicates:
+        filtered_df.to_csv(
+            output,
+            sep="\t",
+            index=False,
+            header=False
+        )
+        file_saved = output.exists()
+        print(f"Finished saving deduplicated {fragment_meta.filtered_fragment_name}. SUCCESS: {file_saved}")
+
+    return FragmentWorkerResult(
+        accession=fragment_meta.accession,
+        file_saved=file_saved,
+        stats={},
+        plot=None,
+        output_path=output,
+        checked_duplicates=True,
+        has_duplicates=has_duplicates,
+        duplicates=duplicates if not duplicates.empty else None
+    )
+
+
 def compress_files(filtered_files: list[str | os.PathLike]) -> None:
+    if not filtered_files:
+        print("All filtered files already compressed")
+        return
+
     processes = []
-    print("Starting gzip compression of filtered files...")
+    print(f"Starting gzip compression of {len(filtered_files)} filtered files...")
     for f in filtered_files:
-        p = subprocess.Popen(["gzip",f])
+        p = subprocess.Popen(["gzip","-f",f])
         processes.append(p)
 
     for p in processes:
@@ -314,20 +376,14 @@ def compress_files(filtered_files: list[str | os.PathLike]) -> None:
 def concat_files(filtered_files: list[str | os.PathLike]) -> None:
     ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
     concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
-    print("Concatenating final file...")
+    print(f"Concatenating {len(ind_frag_files_gz)} filtered files into final file...")
     subprocess.run(["cat " + " ".join(ind_frag_files_gz) + " > " + str(concat_frags)], shell=True)
 
 
-if __name__ == "__main__":
-    args = getArgs()
-    connection = Connection(args.mode)
-
-    fragment_meta = query_lattice(args.file, connection)
-    download_fragment_files(fragment_meta)
-
+def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentFileMeta]) -> list[FragmentWorkerResult]:
     results = list()
     with multiprocessing.Pool(processes=NUM_FILTER_WORKERS) as pool:
-        iterator = pool.imap(filter_worker, fragment_meta)
+        iterator = pool.imap(worker_function, fragment_meta)
         for meta in iterator:
             try:
                 results.append(meta)
@@ -337,22 +393,56 @@ if __name__ == "__main__":
                 print(f"ERROR: {e}")
                 results.append((meta, e))
 
+    return results
+
+
+def print_results(results: list[FragmentWorkerResult]) -> None:
     print("Filter results")
     print("=" * PRINT_WIDTH)
     for meta in results:
-        if isinstance(meta, FragmentFilterResult):
-            print(f"Fragment file: {meta.output_path.name}")
-            print(f"Filtered file saved: {meta.success}")
+        if isinstance(meta, FragmentWorkerResult):
+            file = meta.output_path.name + ".gz" if meta.checked_duplicates else meta.output_path.name
+            print(f"Fragment file: {file}")
+            print(f"Filtered file saved: {meta.file_saved}")
+            if meta.checked_duplicates:
+                print(f"Duplicates results for {meta.accession}: {meta.has_duplicates}")
+                if meta.duplicates is not None:
+                    print(meta.duplicates)
         else:
             print("FAILURE")
             traceback.print_exception(None, meta, meta.__traceback__)
         print("=" * PRINT_WIDTH)
 
-    stats_df = pd.DataFrame([item.stats for item in results])
-    print(stats_df)
-    print(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
-    print(f"AnnData unique barcodes: {fragment_meta[0].barcodes.shape[0]}")
+    filtered = all(not meta.checked_duplicates for meta in results)
+    if filtered:
+        stats_df = pd.DataFrame([item.stats for item in results])
+        print(stats_df)
+        print(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
+        print(f"AnnData unique barcodes: {fragment_meta[0].barcodes.shape[0]}")
 
-    filtered_files = [file.output_path.absolute() for file in results if file.success]
-    compress_files(filtered_files)
-    concat_files(filtered_files)
+
+if __name__ == "__main__":
+    args = getArgs()
+    connection = Connection(args.mode)
+
+    fragment_meta = query_lattice(args.file, connection)
+    download_fragment_files(fragment_meta)
+
+    worker_function = filter_worker
+    if args.deduplicate:
+        if all([meta for meta in fragment_meta if meta.is_filtered_file_local]):
+            print("Found filtered fragment files for all raw matrices, starting duplicate check...")
+            worker_function = duplicate_worker
+        else:
+            print("Rerun concatenator to generate all filtered fragment files")
+            sys.exit()
+
+    results = run_processing_pool(worker_function, fragment_meta)
+    print_results(results)
+
+    # only need to gzip newly saved files
+    non_compressed_files = [file.output_path.absolute() for file in results if file.file_saved]
+    compress_files(non_compressed_files)
+
+    compressed_files = [file.output_path.absolute() for file in results]
+    concat_files(compressed_files)
