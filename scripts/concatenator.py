@@ -4,6 +4,7 @@ from typing import Callable
 import boto3.session
 import fsspec
 import h5py
+import logging
 import matplotlib.pyplot as plt
 import multiprocessing
 import os
@@ -16,6 +17,11 @@ from anndata._io.specs import read_elem
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from logging.handlers import QueueHandler
+from multiprocessing import (
+    Queue,
+    Manager
+)
 from pathlib import Path
 
 from lattice import (
@@ -39,7 +45,7 @@ REPLACE_WITH = "B@RCODE"
 FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
 DOWNLOAD_THREADS = 8
-NUM_FILTER_WORKERS = os.cpu_count() // 2
+NUM_PROCESS_WORKERS = os.cpu_count() // 2
 PRINT_WIDTH = 57
 PROCESSED_MATRIX_FIELD_LIST = [
     "accession",
@@ -89,6 +95,7 @@ class FragmentFileMeta:
     accession: str
     uri: URIPath
     barcodes: pd.Series
+    queue: Queue
 
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
@@ -143,9 +150,40 @@ def getArgs():
     return args
 
 
+def logger_process(queue: Queue):
+    """
+    Logger queue process to listen and take in logging records
+    Easiest to pass queue as FragmentFileMeta attribute
+    Process workers need logger and queue passed in with create_logger()
+    Thread workers and other functions can look to global scope
+    """
+    logger = logging.getLogger(__name__)
+    logger.addHandler(logging.StreamHandler())
+    logger.setLevel(logging.DEBUG)
+    logger.debug("Logging process running")
+    while True:
+        message = queue.get()
+        if message is None:
+            logger.debug("Logger process shutting down")
+            break
+        logger.handle(message)
+
+
+def create_logger(queue: Queue):
+    """
+    Function to create logger in process workers
+    """
+    logger = logging.getLogger(__name__)
+    if not logger.handlers:
+        logger.addHandler(QueueHandler(queue))
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+
 def download_object(s3_client, fragment_meta: FragmentFileMeta):
     download_path = FRAGMENT_DIR / fragment_meta.download_file_name
-    print(f"Downloading {fragment_meta.download_file_name} to {download_path}")
+    logger.debug(f"Downloading {fragment_meta.download_file_name} to {download_path}")
     s3_client.download_file(
         fragment_meta.uri.bucket_name,
         fragment_meta.uri.file_path,
@@ -172,11 +210,11 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
 
         num_all_files = len(files_to_download)
         num_locally = num_all_files - len(future_to_key)
-        print(f"{num_all_files} raw fragment files in Lattice")
-        print(f"Found {num_locally} raw files locally, downloading {len(future_to_key)} files")
+        logger.debug(f"{num_all_files} raw fragment files in Lattice")
+        logger.debug(f"Found {num_locally} raw files locally, downloading {len(future_to_key)} files")
 
         if not future_to_key:
-            print("All raw files local, no downloading needed")
+            logger.debug("All raw files local, no downloading needed")
 
         for future in futures.as_completed(future_to_key):
             key = future_to_key[future]
@@ -188,7 +226,7 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
                 yield key, exception
 
 
-def query_lattice(processed_matrix_accession: str, connection: Connection) -> list[FragmentFileMeta]:
+def query_lattice(processed_matrix_accession: str, connection: Connection, queue: Queue) -> list[FragmentFileMeta]:
     processed_matrix_report = get_report(
         "ProcessedMatrixFile",
         f"&@id=/processed-matrix-files/{processed_matrix_accession}/",
@@ -223,7 +261,8 @@ def query_lattice(processed_matrix_accession: str, connection: Connection) -> li
                 label=raw_matrix_meta["label"],
                 accession=accession,
                 uri=URIPath(fragment_uri),
-                barcodes=barcodes
+                barcodes=barcodes,
+                queue=queue
             )
         )
 
@@ -232,19 +271,20 @@ def query_lattice(processed_matrix_accession: str, connection: Connection) -> li
 
 def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
     for key, result in download_parallel_multithreading(files_to_download):
-        print(f"{key} download result: {result}")
+        logger.debug(f"{key} download result: {result}")
 
     # maybe this check should be out of the function?
     if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in files_to_download]):
-        print("All raw files local, processing fragments now")
+        logger.debug("All raw files local, processing fragments now")
     else:
-        print("Some raw files not found locally, please rerun")
+        logger.error("Some raw files not found locally, please rerun")
         sys.exit()
 
 
 def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+    logger = create_logger(fragment_meta.queue)
     #read in the fragments
-    print(f"Starting filtering of {fragment_meta.download_file_name}...")
+    logger.debug(f"Starting filtering of {fragment_meta.download_file_name}...")
     if fragment_meta.cell_label_location == "suffix":
         a = f"{REPLACE_WITH}{fragment_meta.label}"
     else:
@@ -302,7 +342,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         header=False
     )
     file_saved = True if output.exists() else False
-    print(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
+    logger.debug(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
 
     return FragmentWorkerResult(
         accession=fragment_meta.accession,
@@ -315,9 +355,10 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 
 def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     #read in the fragments
+    logger = create_logger(fragment_meta.queue)
     file_saved = False
     compressed_file_name = fragment_meta.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")
-    print(f"Starting de-duplication of {compressed_file_name}...")
+    logger.debug(f"Starting de-duplication of {compressed_file_name}...")
 
     file_path = FRAGMENT_DIR / compressed_file_name
     filtered_df = pd.read_csv(
@@ -331,7 +372,7 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     filtered_df = filtered_df.drop_duplicates(keep="first")
 
     has_duplicates = True if not duplicates.empty else False
-    print(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
+    logger.debug(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
 
     output = fragment_meta.filtered_fragment_path_name
 
@@ -344,7 +385,7 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
             header=False
         )
         file_saved = output.exists()
-        print(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
+        logger.debug(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
 
     return FragmentWorkerResult(
         accession=fragment_meta.accession,
@@ -360,11 +401,11 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 
 def compress_files(filtered_files: list[str | os.PathLike]) -> None:
     if not filtered_files:
-        print("All filtered files already compressed")
+        logger.debug("All filtered files already compressed")
         return
 
     processes = []
-    print(f"Starting gzip compression of {len(filtered_files)} filtered files...")
+    logger.debug(f"Starting gzip compression of {len(filtered_files)} filtered files...")
     for f in filtered_files:
         p = subprocess.Popen(["gzip","-f",f])
         processes.append(p)
@@ -376,14 +417,14 @@ def compress_files(filtered_files: list[str | os.PathLike]) -> None:
 def concat_files(filtered_files: list[str | os.PathLike]) -> None:
     ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
     concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
-    print(f"Concatenating {len(ind_frag_files_gz)} compressed filtered files into final file...")
+    logger.debug(f"Concatenating {len(ind_frag_files_gz)} compressed filtered files into final file...")
     subprocess.run(["cat " + " ".join(ind_frag_files_gz) + " > " + str(concat_frags)], shell=True)
-    print(f"Final file saved as {concat_frags.parent / concat_frags.name}")
+    logger.debug(f"Final file saved as {concat_frags.parent / concat_frags.name}")
 
 
 def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentFileMeta]) -> list[FragmentWorkerResult]:
     results = list()
-    with multiprocessing.Pool(processes=NUM_FILTER_WORKERS) as pool:
+    with multiprocessing.Pool(processes=NUM_PROCESS_WORKERS) as pool:
         iterator = pool.imap(worker_function, fragment_meta)
         for meta in iterator:
             try:
@@ -391,66 +432,76 @@ def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentF
             except StopIteration:
                 break
             except Exception as e:
-                print(f"ERROR: {e}")
+                logger.error(f"ERROR: {e}")
                 results.append((meta, e))
 
     return results
 
 
-def print_results(results: list[FragmentWorkerResult]) -> None:
-    print("Filter results")
-    print("=" * PRINT_WIDTH)
+def print_results(results: list[FragmentWorkerResult], queue: Queue) -> None:
+    logger.debug("Filter results")
+    logger.debug("=" * PRINT_WIDTH)
     for meta in results:
         if isinstance(meta, FragmentWorkerResult):
             file = meta.output_path.name + ".gz" if meta.checked_duplicates else meta.output_path.name
-            print(f"Fragment file: {file}")
-            print(f"Filtered file saved: {meta.file_saved}")
+            logger.debug(f"Fragment file: {file}")
+            logger.debug(f"Filtered file saved: {meta.file_saved}")
             if meta.checked_duplicates:
-                print(f"Duplicates results for {meta.accession}: {meta.has_duplicates}")
+                logger.debug(f"Duplicates results for {meta.accession}: {meta.has_duplicates}")
                 if meta.duplicates is not None:
-                    print(meta.duplicates)
+                    logger.debug(meta.duplicates)
         else:
-            print("FAILURE")
+            logger.error("FAILURE")
             traceback.print_exception(None, meta, meta.__traceback__)
-        print("=" * PRINT_WIDTH)
+        logger.debug("=" * PRINT_WIDTH)
 
     filtered = all(not meta.checked_duplicates for meta in results)
     if filtered:
         stats_df = pd.DataFrame([item.stats for item in results])
-        print(stats_df)
-        print(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
-        print(f"AnnData unique barcodes: {fragment_meta[0].barcodes.shape[0]}")
+        logger.debug(stats_df)
+        logger.debug(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
+        logger.debug(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
 
 
 if __name__ == "__main__":
-    args = getArgs()
-    connection = Connection(args.mode)
+    with Manager() as manager:
+        args = getArgs()
+        connection = Connection(args.mode)
 
-    fragment_meta = query_lattice(args.file, connection)
-    download_fragment_files(fragment_meta)
+        queue = manager.Queue()
+        listener = multiprocessing.Process(target=logger_process, args=(queue,))
+        listener.start()
+        logger = logging.getLogger(__name__)
+        logger.addHandler(QueueHandler(queue))
+        logger.setLevel(logging.DEBUG)
 
-    worker_function = filter_worker
-    if args.deduplicate:
-        if all([meta.is_filtered_file_local for meta in fragment_meta]):
-            print("Found filtered fragment files for all raw matrices, starting duplicate check...")
-            worker_function = duplicate_worker
-        else:
-            print("Rerun concatenator to generate all filtered fragment files")
-            missing_files = [
-                meta.filtered_fragment_path_name.name + ".gz" 
-                for meta in fragment_meta if not meta.is_filtered_file_local
-            ]
-            print(f"Missing following filtered files, {len(missing_files)} total:")
-            for file in missing_files:
-                print(file)
-            sys.exit()
+        fragment_meta_list = query_lattice(args.file, connection, queue)
+        download_fragment_files(fragment_meta_list)
 
-    results = run_processing_pool(worker_function, fragment_meta)
-    print_results(results)
+        worker_function = filter_worker
+        if args.deduplicate:
+            if all([meta.is_filtered_file_local for meta in fragment_meta_list]):
+                logger.debug("Found filtered fragment files for all raw matrices, starting duplicate check...")
+                worker_function = duplicate_worker
+            else:
+                logger.error("Rerun concatenator to generate all filtered fragment files")
+                missing_files = [
+                    meta.filtered_fragment_path_name.name + ".gz" 
+                    for meta in fragment_meta_list if not meta.is_filtered_file_local
+                ]
+                logger.error(f"Missing following filtered files, {len(missing_files)} total:")
+                for file in missing_files:
+                    logger.error(file)
+                sys.exit()
 
-    # only need to gzip newly saved files
-    non_compressed_files = [file.output_path.absolute() for file in results if file.file_saved]
-    compress_files(non_compressed_files)
+        results = run_processing_pool(worker_function, fragment_meta_list)
+        print_results(results, queue)
 
-    compressed_files = [file.output_path.absolute() for file in results]
-    concat_files(compressed_files)
+        # only need to gzip newly saved files
+        non_compressed_files = [file.output_path.absolute() for file in results if file.file_saved]
+        compress_files(non_compressed_files)
+
+        compressed_files = [file.output_path.absolute() for file in results]
+        concat_files(compressed_files)
+        queue.put(None)
+        listener.join()
