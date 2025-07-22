@@ -173,10 +173,10 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
         num_all_files = len(files_to_download)
         num_locally = num_all_files - len(future_to_key)
         print(f"{num_all_files} fragment files in Lattice")
-        print(f"Found {num_locally} files locally, downloading {len(future_to_key)} files")
+        print(f"Found raw {num_locally} files locally, downloading {len(future_to_key)} files")
 
         if not future_to_key:
-            print("All files local, no downloading needed")
+            print("All raw files local, no downloading needed")
 
         for future in futures.as_completed(future_to_key):
             key = future_to_key[future]
@@ -236,9 +236,9 @@ def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
 
     # maybe this check should be out of the function?
     if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in files_to_download]):
-        print("All files local, processing fragments now")
+        print("All raw files local, processing fragments now")
     else:
-        print("Some files not found locally, please rerun")
+        print("Some raw files not found locally, please rerun")
         sys.exit()
 
 
@@ -435,11 +435,11 @@ if __name__ == "__main__":
             worker_function = duplicate_worker
         else:
             print("Rerun concatenator to generate all filtered fragment files")
-            print("Missing following files:")
             missing_files = [
                 meta.filtered_fragment_path_name.name + ".gz" 
                 for meta in fragment_meta if not meta.is_filtered_file_local
             ]
+            print(f"Missing following filtered files, {len(missing_files)} total:")
             for file in missing_files:
                 print(file)
             sys.exit()
