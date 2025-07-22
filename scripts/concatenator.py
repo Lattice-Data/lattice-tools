@@ -430,7 +430,7 @@ if __name__ == "__main__":
 
     worker_function = filter_worker
     if args.deduplicate:
-        if all([meta for meta in fragment_meta if meta.is_filtered_file_local]):
+        if all([meta.is_filtered_file_local for meta in fragment_meta]):
             print("Found filtered fragment files for all raw matrices, starting duplicate check...")
             worker_function = duplicate_worker
         else:
