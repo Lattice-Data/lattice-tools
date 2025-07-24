@@ -502,7 +502,7 @@ def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentF
     return results
 
 
-def print_results(results: list[FragmentWorkerResult], queue: Queue) -> None:
+def print_results(results: list[FragmentWorkerResult]) -> None:
     logger.info("Filter results")
     logger.info("=" * PRINT_WIDTH)
     for meta in results:
@@ -562,7 +562,7 @@ if __name__ == "__main__":
                 sys.exit()
 
         results = run_processing_pool(worker_function, fragment_meta_list)
-        print_results(results, queue)
+        print_results(results)
 
         # only need to gzip newly saved files
         non_compressed_files = [file.output_path.absolute() for file in results if file.file_saved]
