@@ -162,7 +162,9 @@ def logger_process(queue: Queue, log_file):
     h = logging.FileHandler(log_file, "w")
     f = logging.Formatter("%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s")
     c = logging.StreamHandler()
+    cf = logging.Formatter("%(levelname)-8s - %(message)s")
     c.setLevel(logging.INFO)
+    c.setFormatter(cf)
     h.setFormatter(f)
     root.addHandler(h)
     root.addHandler(c)
@@ -178,6 +180,22 @@ def logger_process(queue: Queue, log_file):
             import traceback
             print("Whoops! Problem:", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
+            # need to clean up listener to exit infinite exception loop
+            logger_process_shutdown()
+
+
+def logger_process_shutdown():
+    """
+    Shutdown and cleanup to prevent broken process pipe/queue during sys.exit()
+    Call this whenever sys.exit() is needed
+    Prevents infinite loop of exception catching in logger process
+    Can also use atexit callback, but this function seems cleaner in terms of 
+    limiting other exceptions and tracebacks
+    """
+    logger.critical("sys.exit() call, shutting down")
+    logger.critical("Logger process executing error shutdown")
+    queue.put_nowait(None)
+    sys.exit()
 
 
 def create_logger(queue: Queue):
@@ -269,6 +287,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
         barcodes = read_elem(f["obs"]).index.to_series()
 
     master_fragment_file_meta = []
+    files_missing = False
     for raw_matrix_meta in processed_matrix_report["cell_label_mappings"]:
         obj_type, filter_url = parse_ids([raw_matrix_meta["raw_matrix"]])
         raw_matrix_report = get_report(
@@ -279,9 +298,17 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
         )[0]
 
         accession = raw_matrix_report["accession"]
-        fragment_uri = raw_matrix_report["fragment_file_s3_uri"]
+        fragment_uri = raw_matrix_report.get("fragment_file_s3_uri", None)
 
-        assert FS.isfile(fragment_uri), f"raw matrix{accession} does not have fragment file s3"
+        if fragment_uri is None:
+            logger.error(f"raw matrix {accession} does not have fragment file S3 URI")
+            files_missing = True
+
+        if not FS.isfile(fragment_uri):
+            logger.error(f"raw matrix {accession} fragment file does not exist on S3")
+            files_missing = True
+            continue
+
         master_fragment_file_meta.append(
             FragmentFileMeta(
                 cell_label_location=processed_matrix_report["cell_label_location"],
@@ -292,6 +319,10 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
                 queue=queue
             )
         )
+
+    if files_missing:
+        logger.critical("Missing S3 URIs and/or files, exiting...")
+        logger_process_shutdown()
 
     return master_fragment_file_meta
 
@@ -308,7 +339,7 @@ def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
         logger.info("All raw files local, processing fragments now")
     else:
         logger.error("Some raw files not found locally, please rerun")
-        sys.exit()
+        logger_process_shutdown()
 
 
 def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
@@ -525,6 +556,7 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
 
 
 if __name__ == "__main__":
+    # might be able to use just queue and not multiprocesser manager
     with Manager() as manager:
         args = getArgs()
         connection = Connection(args.mode)
@@ -556,7 +588,7 @@ if __name__ == "__main__":
                 logger.error(f"Missing following filtered files, {len(missing_files)} total:")
                 for file in missing_files:
                     logger.error(file)
-                sys.exit()
+                logger_process_shutdown()
 
         results = run_processing_pool(worker_function, fragment_meta_list)
         print_results(results)
