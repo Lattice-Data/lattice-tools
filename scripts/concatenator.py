@@ -181,10 +181,10 @@ def logger_process(queue: Queue, log_file):
             print("Whoops! Problem:", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             # need to clean up listener to exit infinite exception loop
-            logger_process_shutdown()
+            logger_process_shutdown_and_exit()
 
 
-def logger_process_shutdown():
+def logger_process_shutdown_and_exit():
     """
     Shutdown and cleanup to prevent broken process pipe/queue during sys.exit()
     Call this whenever sys.exit() is needed
@@ -322,7 +322,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
 
     if files_missing:
         logger.critical("Missing S3 URIs and/or files, exiting...")
-        logger_process_shutdown()
+        logger_process_shutdown_and_exit()
 
     return master_fragment_file_meta
 
@@ -339,7 +339,7 @@ def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
         logger.info("All raw files local, processing fragments now")
     else:
         logger.error("Some raw files not found locally, please rerun")
-        logger_process_shutdown()
+        logger_process_shutdown_and_exit()
 
 
 def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
@@ -531,6 +531,11 @@ def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentF
 
 
 def print_results(results: list[FragmentWorkerResult]) -> None:
+    """
+    Function to display worker results
+    Could probably be cleaner with logic, works for both filtering
+    and de-duplication results
+    """
     logger.info("Filter results")
     logger.info("=" * PRINT_WIDTH)
     for meta in results:
@@ -561,15 +566,18 @@ if __name__ == "__main__":
         args = getArgs()
         connection = Connection(args.mode)
 
+        # set up queue and logging listener process
         queue = manager.Queue()
         log_file_name = f"{args.file}_outfile_concatenator.log"
         listener = multiprocessing.Process(target=logger_process, args=(queue, log_file_name,))
         listener.start()
 
+        # set up root logger and first log messages
         logger = logging.getLogger(__name__)
         logger.addHandler(QueueHandler(queue))
         logger.setLevel(logging.DEBUG)
         logger.debug("Logger process started")
+        logger.debug(f"Running concatenator on env: {args.mode}")
 
         fragment_meta_list = query_lattice(args.file, connection, queue)
         download_fragment_files(fragment_meta_list)
@@ -588,7 +596,7 @@ if __name__ == "__main__":
                 logger.error(f"Missing following filtered files, {len(missing_files)} total:")
                 for file in missing_files:
                     logger.error(file)
-                logger_process_shutdown()
+                logger_process_shutdown_and_exit()
 
         results = run_processing_pool(worker_function, fragment_meta_list)
         print_results(results)
@@ -597,9 +605,11 @@ if __name__ == "__main__":
         non_compressed_files = [file.output_path.absolute() for file in results if file.file_saved]
         compress_files(non_compressed_files)
 
+        # always concat all compressed filtered files into final file
         compressed_files = [file.output_path.absolute() for file in results]
         concat_files(compressed_files)
 
+        # shut down logger process
         logger.debug("Logger process shutdown")
         queue.put(None)
         listener.join()
