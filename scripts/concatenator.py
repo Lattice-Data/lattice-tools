@@ -5,6 +5,7 @@ import boto3.session
 import fsspec
 import h5py
 import logging
+import logging.handlers
 import matplotlib.pyplot as plt
 import multiprocessing
 import os
@@ -150,40 +151,57 @@ def getArgs():
     return args
 
 
-def logger_process(queue: Queue):
+def logger_process(queue: Queue, log_file):
     """
     Logger queue process to listen and take in logging records
     Easiest to pass queue as FragmentFileMeta attribute
     Process workers need logger and queue passed in with create_logger()
     Thread workers and other functions can look to global scope
     """
-    logger = logging.getLogger(__name__)
-    logger.addHandler(logging.StreamHandler())
-    logger.setLevel(logging.DEBUG)
-    logger.debug("Logging process running")
+    root = logging.getLogger()
+    h = logging.FileHandler(log_file, "w")
+    f = logging.Formatter("%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s")
+    c = logging.StreamHandler()
+    c.setLevel(logging.INFO)
+    h.setFormatter(f)
+    root.addHandler(h)
+    root.addHandler(c)
     while True:
-        message = queue.get()
-        if message is None:
-            logger.debug("Logger process shutting down")
-            break
-        logger.handle(message)
+        try:
+            record = queue.get()
+            if record is None:
+                break
+            logger = logging.getLogger(record.name)
+            logger.handle(record)
+        except Exception:
+            import sys
+            import traceback
+            print("Whoops! Problem:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
 
 
 def create_logger(queue: Queue):
     """
     Function to create logger in process workers
+    For stream and file handling, best to set root logger in process
+    and then let the listener handle logger from queue
+
+    Within workers, use logging.{LEVEL} instead of assigning logger to
+    variable
     """
-    logger = logging.getLogger(__name__)
-    if not logger.handlers:
-        logger.addHandler(QueueHandler(queue))
-    logger.propagate = False
-    logger.setLevel(logging.DEBUG)
-    return logger
+    h = logging.handlers.QueueHandler(queue)
+    root = logging.getLogger()
+    # with worker pool, recycled worker already has handler, don't need to add another
+    # without check, messages will double and triple
+    if not root.handlers:
+        root.addHandler(h)
+    root.setLevel(logging.DEBUG)
+    root.propagate = False
 
 
 def download_object(s3_client, fragment_meta: FragmentFileMeta):
     download_path = FRAGMENT_DIR / fragment_meta.download_file_name
-    logger.debug(f"Downloading {fragment_meta.download_file_name} to {download_path}")
+    logger.info(f"Downloading {fragment_meta.download_file_name} to {download_path}")
     s3_client.download_file(
         fragment_meta.uri.bucket_name,
         fragment_meta.uri.file_path,
@@ -210,11 +228,11 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
 
         num_all_files = len(files_to_download)
         num_locally = num_all_files - len(future_to_key)
-        logger.debug(f"{num_all_files} raw fragment files in Lattice")
-        logger.debug(f"Found {num_locally} raw files locally, downloading {len(future_to_key)} files")
+        logger.info(f"{num_all_files} raw fragment files in Lattice")
+        logger.info(f"Found {num_locally} raw files locally, downloading {len(future_to_key)} files")
 
         if not future_to_key:
-            logger.debug("All raw files local, no downloading needed")
+            logger.info("All raw files local, no downloading needed")
 
         for future in futures.as_completed(future_to_key):
             key = future_to_key[future]
@@ -271,20 +289,20 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
 
 def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
     for key, result in download_parallel_multithreading(files_to_download):
-        logger.debug(f"{key} download result: {result}")
+        logger.info(f"{key} download result: {result}")
 
     # maybe this check should be out of the function?
     if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in files_to_download]):
-        logger.debug("All raw files local, processing fragments now")
+        logger.info("All raw files local, processing fragments now")
     else:
         logger.error("Some raw files not found locally, please rerun")
         sys.exit()
 
 
 def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
-    logger = create_logger(fragment_meta.queue)
+    create_logger(fragment_meta.queue)
     #read in the fragments
-    logger.debug(f"Starting filtering of {fragment_meta.download_file_name}...")
+    logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
     if fragment_meta.cell_label_location == "suffix":
         a = f"{REPLACE_WITH}{fragment_meta.label}"
     else:
@@ -342,7 +360,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         header=False
     )
     file_saved = True if output.exists() else False
-    logger.debug(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
+    logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
 
     return FragmentWorkerResult(
         accession=fragment_meta.accession,
@@ -355,10 +373,10 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 
 def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     #read in the fragments
-    logger = create_logger(fragment_meta.queue)
+    create_logger(fragment_meta.queue)
     file_saved = False
     compressed_file_name = fragment_meta.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")
-    logger.debug(f"Starting de-duplication of {compressed_file_name}...")
+    logging.info(f"Starting de-duplication of {compressed_file_name}...")
 
     file_path = FRAGMENT_DIR / compressed_file_name
     filtered_df = pd.read_csv(
@@ -372,7 +390,7 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     filtered_df = filtered_df.drop_duplicates(keep="first")
 
     has_duplicates = True if not duplicates.empty else False
-    logger.debug(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
+    logging.info(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
 
     output = fragment_meta.filtered_fragment_path_name
 
@@ -385,7 +403,7 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
             header=False
         )
         file_saved = output.exists()
-        logger.debug(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
+        logging.info(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
 
     return FragmentWorkerResult(
         accession=fragment_meta.accession,
@@ -401,14 +419,15 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 
 def compress_files(filtered_files: list[str | os.PathLike]) -> None:
     if not filtered_files:
-        logger.debug("All filtered files already compressed")
+        logger.info("All filtered files already compressed")
         return
 
     processes = []
-    logger.debug(f"Starting gzip compression of {len(filtered_files)} filtered files...")
+    logger.info(f"Starting gzip compression of {len(filtered_files)} filtered files...")
     for f in filtered_files:
         p = subprocess.Popen(["gzip","-f",f])
         processes.append(p)
+        logger.debug(f"Filtered file to compress: {f}")
 
     for p in processes:
         p.wait()
@@ -416,10 +435,12 @@ def compress_files(filtered_files: list[str | os.PathLike]) -> None:
 
 def concat_files(filtered_files: list[str | os.PathLike]) -> None:
     ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
+    for f in ind_frag_files_gz:
+        logger.debug(f"File to add to final concatenated file: {f}")
     concat_frags = FRAGMENT_DIR / f"{args.file}_concatenated_filtered_fragments.tsv.gz"
-    logger.debug(f"Concatenating {len(ind_frag_files_gz)} compressed filtered files into final file...")
+    logger.info(f"Concatenating {len(ind_frag_files_gz)} compressed filtered files into final file...")
     subprocess.run(["cat " + " ".join(ind_frag_files_gz) + " > " + str(concat_frags)], shell=True)
-    logger.debug(f"Final file saved as {concat_frags.parent / concat_frags.name}")
+    logger.info(f"Final file saved as {concat_frags.parent / concat_frags.name}")
 
 
 def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentFileMeta]) -> list[FragmentWorkerResult]:
@@ -439,28 +460,28 @@ def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentF
 
 
 def print_results(results: list[FragmentWorkerResult], queue: Queue) -> None:
-    logger.debug("Filter results")
-    logger.debug("=" * PRINT_WIDTH)
+    logger.info("Filter results")
+    logger.info("=" * PRINT_WIDTH)
     for meta in results:
         if isinstance(meta, FragmentWorkerResult):
             file = meta.output_path.name + ".gz" if meta.checked_duplicates else meta.output_path.name
-            logger.debug(f"Fragment file: {file}")
-            logger.debug(f"Filtered file saved: {meta.file_saved}")
+            logger.info(f"Fragment file: {file}")
+            logger.info(f"Filtered file saved: {meta.file_saved}")
             if meta.checked_duplicates:
-                logger.debug(f"Duplicates results for {meta.accession}: {meta.has_duplicates}")
+                logger.info(f"Duplicates results for {meta.accession}: {meta.has_duplicates}")
                 if meta.duplicates is not None:
-                    logger.debug(meta.duplicates)
+                    logger.info(meta.duplicates)
         else:
             logger.error("FAILURE")
             traceback.print_exception(None, meta, meta.__traceback__)
-        logger.debug("=" * PRINT_WIDTH)
+        logger.info("=" * PRINT_WIDTH)
 
     filtered = all(not meta.checked_duplicates for meta in results)
     if filtered:
         stats_df = pd.DataFrame([item.stats for item in results])
-        logger.debug(stats_df)
-        logger.debug(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
-        logger.debug(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
+        logger.info(stats_df)
+        logger.info(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
+        logger.info(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
 
 
 if __name__ == "__main__":
@@ -469,11 +490,14 @@ if __name__ == "__main__":
         connection = Connection(args.mode)
 
         queue = manager.Queue()
-        listener = multiprocessing.Process(target=logger_process, args=(queue,))
+        log_file_name = f"{args.file}_outfile_concatenator.log"
+        listener = multiprocessing.Process(target=logger_process, args=(queue, log_file_name,))
         listener.start()
+
         logger = logging.getLogger(__name__)
         logger.addHandler(QueueHandler(queue))
         logger.setLevel(logging.DEBUG)
+        logger.debug("Logger process started")
 
         fragment_meta_list = query_lattice(args.file, connection, queue)
         download_fragment_files(fragment_meta_list)
@@ -481,7 +505,7 @@ if __name__ == "__main__":
         worker_function = filter_worker
         if args.deduplicate:
             if all([meta.is_filtered_file_local for meta in fragment_meta_list]):
-                logger.debug("Found filtered fragment files for all raw matrices, starting duplicate check...")
+                logger.info("Found filtered fragment files for all raw matrices, starting duplicate check...")
                 worker_function = duplicate_worker
             else:
                 logger.error("Rerun concatenator to generate all filtered fragment files")
@@ -503,5 +527,7 @@ if __name__ == "__main__":
 
         compressed_files = [file.output_path.absolute() for file in results]
         concat_files(compressed_files)
+
+        logger.debug("Logger process shutdown")
         queue.put(None)
         listener.join()
