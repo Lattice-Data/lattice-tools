@@ -155,7 +155,7 @@ def logger_process(queue: Queue, log_file):
     """
     Logger queue process to listen and take in logging records
     Easiest to pass queue as FragmentFileMeta attribute
-    Process workers need logger and queue passed in with create_logger()
+    Process workers need queue passed in with create_logger()
     Thread workers and other functions can look to global scope
     """
     root = logging.getLogger()
@@ -186,7 +186,7 @@ def create_logger(queue: Queue):
     For stream and file handling, best to set root logger in process
     and then let the listener handle logger from queue
 
-    Within workers, use logging.{LEVEL} instead of assigning logger to
+    Within worker functions, use logging.{LEVEL} instead of assigning logger to
     variable
     """
     h = logging.handlers.QueueHandler(queue)
@@ -200,6 +200,9 @@ def create_logger(queue: Queue):
 
 
 def download_object(s3_client, fragment_meta: FragmentFileMeta):
+    """
+    Thread worker to download files from S3
+    """
     download_path = FRAGMENT_DIR / fragment_meta.download_file_name
     logger.info(f"Downloading {fragment_meta.download_file_name} to {download_path}")
     s3_client.download_file(
@@ -211,6 +214,10 @@ def download_object(s3_client, fragment_meta: FragmentFileMeta):
 
 
 def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
+    """
+    Function to orchestrate thread workers for parallel download
+    Logging looks to global scope
+    """
     # Create a session and use it to make our client
     session = boto3.session.Session()
     s3_client = session.client("s3")
@@ -245,6 +252,11 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
 
 
 def query_lattice(processed_matrix_accession: str, connection: Connection, queue: Queue) -> list[FragmentFileMeta]:
+    """
+    Query Lattice for metadata on processed matrix, raw matrices, fragment file S3 URIs
+
+    Return FragmentFileMeta dataclass for use with downstream functions
+    """
     processed_matrix_report = get_report(
         "ProcessedMatrixFile",
         f"&@id=/processed-matrix-files/{processed_matrix_accession}/",
@@ -288,6 +300,9 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
 
 
 def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
+    """
+    Call multi-threaded download function and check all files are now local
+    """
     for key, result in download_parallel_multithreading(files_to_download):
         logger.info(f"{key} download result: {result}")
 
@@ -300,6 +315,11 @@ def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
 
 
 def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+    """
+    Worker function to filter raw fragment files.
+    Each process needs to initialize logging to report to queue and subsequent
+    handling by the logger listener process
+    """
     create_logger(fragment_meta.queue)
     #read in the fragments
     logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
@@ -307,6 +327,8 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         a = f"{REPLACE_WITH}{fragment_meta.label}"
     else:
         a = f"{fragment_meta.label}{REPLACE_WITH}"
+
+    logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
 
     file_path = FRAGMENT_DIR / fragment_meta.download_file_name
     frags_df = pd.read_csv(
@@ -372,6 +394,11 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 
 
 def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+    """
+    Worker to remove duplicates. Call after concatenator run and CXG validation finds duplicates
+    in the final concatenated fragment file.
+    Like filter worker, need to initialize logger to report to queue and listener process
+    """
     #read in the fragments
     create_logger(fragment_meta.queue)
     file_saved = False
@@ -418,6 +445,11 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 
 
 def compress_files(filtered_files: list[str | os.PathLike]) -> None:
+    """
+    Compress newly saved files. Check currently before calling
+    Uses gzip in terminal, and -f flag to force rewrite if compressed
+    file already exists
+    """
     if not filtered_files:
         logger.info("All filtered files already compressed")
         return
@@ -434,6 +466,10 @@ def compress_files(filtered_files: list[str | os.PathLike]) -> None:
 
 
 def concat_files(filtered_files: list[str | os.PathLike]) -> None:
+    """
+    Concat all filtered, compressed files into final file. Will always run
+    and compress all files associated with Processed Matrix accession
+    """
     ind_frag_files_gz = [str(f) + '.gz' for f in filtered_files]
     for f in ind_frag_files_gz:
         logger.debug(f"File to add to final concatenated file: {f}")
@@ -444,6 +480,11 @@ def concat_files(filtered_files: list[str | os.PathLike]) -> None:
 
 
 def run_processing_pool(worker_function: Callable, fragment_meta: list[FragmentFileMeta]) -> list[FragmentWorkerResult]:
+    """
+    Run process pool for fragment processing.
+    Currently can run pool to filter fragments or remove duplicates.
+    Can add lift over worker function at some point if that is needed
+    """
     results = list()
     with multiprocessing.Pool(processes=NUM_PROCESS_WORKERS) as pool:
         iterator = pool.imap(worker_function, fragment_meta)
