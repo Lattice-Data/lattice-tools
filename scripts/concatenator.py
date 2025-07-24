@@ -278,13 +278,10 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
             connection=connection
         )[0]
 
-        # TODO: current workaround until fragment uris placed in Lattice
-        fragment_uri = raw_matrix_report["s3_uri"].replace("filtered_feature_bc_matrix.h5", "atac_fragments.tsv.gz")
         accession = raw_matrix_report["accession"]
-        raw_matrix_meta["fragment_file_s3_uri"] = fragment_uri
-        raw_matrix_meta["accession"] = raw_matrix_report["accession"]
+        fragment_uri = raw_matrix_report["fragment_file_s3_uri"]
 
-        assert FS.isfile(raw_matrix_meta["fragment_file_s3_uri"]), f"raw matrix{accession} does not have fragment file s3"
+        assert FS.isfile(fragment_uri), f"raw matrix{accession} does not have fragment file s3"
         master_fragment_file_meta.append(
             FragmentFileMeta(
                 cell_label_location=processed_matrix_report["cell_label_location"],
