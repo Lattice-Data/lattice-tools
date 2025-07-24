@@ -329,6 +329,8 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         a = f"{fragment_meta.label}{REPLACE_WITH}"
 
     logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
+    logging.debug(f"{fragment_meta.accession} cell_label_location: {fragment_meta.cell_label_location}")
+    logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
 
     file_path = FRAGMENT_DIR / fragment_meta.download_file_name
     frags_df = pd.read_csv(
