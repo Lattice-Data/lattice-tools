@@ -70,14 +70,15 @@ FRAGMENT_COL_NAMES = [
 
 logging_config = {
     "version": 1,
+    "disable_existing_loggers": True,
     "formatters": {
         "detailed": {
             "class": "logging.Formatter",
-            "format": "%(asctime)-24s %(processName)-18s %(threadName)-11s %(levelname)-8s %(message)s"
+            "format": "%(asctime)-24s %(processName)-19s %(threadName)-11s %(levelname)-8s %(message)s"
         },
         "simple": {
             "class": "logging.Formatter",
-            "format": "%(levelname)-8s - %(message)s"
+            "format": "concatenator - %(levelname)-8s - %(message)s"
         }
     },
     "handlers": {
@@ -96,6 +97,22 @@ logging_config = {
     "root": {
         "level": "DEBUG",
         "handlers": ["console", "file"]
+    },
+    # floods log with tens of thousands debugs if not set
+    # probably better way to do this, will leave for now
+    "loggers": {
+        "s3transfer.utils": {
+            "level": "WARNING",
+        },
+        "s3transfer.tasks": {
+            "level": "WARNING",
+        },
+        "s3transfer.futures": {
+            "level": "WARNING",
+        },
+        "boto3.s3.transfer": {
+            "level": "WARNING",
+        },
     },
 }
 
@@ -141,7 +158,7 @@ class FragmentFileMeta:
 @dataclass
 class FragmentWorkerResult:
     """
-    Dataclass for returning filter results, plot currently unused
+    Dataclass for returning worker results, plot currently unused
     """
     accession: str
     file_saved: bool
@@ -307,6 +324,13 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
     h5ad_uri = URIPath(processed_matrix_report["s3_uri"])
     with h5py.File(FS.open(h5ad_uri.full_uri)) as f:
         barcodes = read_elem(f["obs"]).index.to_series()
+
+    index_patterns = set([re.sub(BARCODE_PATTERN, REPLACE_WITH, b) for b in barcodes])
+
+    logging.debug(f"h5ad for processed matrix file: {h5ad_uri.full_uri}")
+    logging.debug("set of barcode patterns:")
+    for pattern in index_patterns:
+        logging.debug(pattern)
 
     master_fragment_file_meta = []
     files_missing = False
@@ -621,6 +645,7 @@ if __name__ == "__main__":
                     logging.error(file)
                 logger_thread_shutdown_and_exit()
 
+        logging.debug(f"Worker pool function: {worker_function.__name__}()")
         results = run_processing_pool(worker_function, fragment_meta_list)
         print_results(results)
 
