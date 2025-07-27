@@ -90,7 +90,7 @@ class URIPath:
 class WorkerQueues:
     """
     Queues for workers to use
-    Organization for FragmentFileMeta.queue
+    Organization for FragmentFileMeta.queues
     """
     logging_queue: Queue
     compression_queue: Queue
@@ -196,7 +196,7 @@ def logger_thread_shutdown_and_exit():
     """
     logger.critical("sys.exit() call, shutting down")
     logger.critical("Logger thread executing error shutdown")
-    logging_queue.put_nowait(None)
+    queues.logging_queue.put_nowait(None)
     sys.exit()
 
 
@@ -638,7 +638,9 @@ if __name__ == "__main__":
         logger.debug(f"Worker pool function: {worker_function.__name__}()")
         results = run_processing_pool(worker_function, fragment_meta_list)
         print_results(results)
+
         queues.compression_queue.put(None)
+        logger.debug("Put None on compression queue")
         compression_thread.join()
         logger.debug("Compression thread shutdown")
 
