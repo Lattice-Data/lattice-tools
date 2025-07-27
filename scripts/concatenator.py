@@ -87,6 +87,16 @@ class URIPath:
 
 
 @dataclass
+class WorkerQueues:
+    """
+    Queues for workers to use
+    Organization for FragmentFileMeta.queue
+    """
+    logging_queue: Queue
+    compression_queue: Queue
+
+
+@dataclass
 class FragmentFileMeta:
     """
     Dataclass to pass fragment file meta to workers for download and processing
@@ -97,7 +107,7 @@ class FragmentFileMeta:
     accession: str
     uri: URIPath
     barcodes: pd.Series
-    queue: Queue
+    queues: WorkerQueues
 
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
@@ -186,7 +196,7 @@ def logger_thread_shutdown_and_exit():
     """
     logger.critical("sys.exit() call, shutting down")
     logger.critical("Logger thread executing error shutdown")
-    queue.put_nowait(None)
+    logging_queue.put_nowait(None)
     sys.exit()
 
 
@@ -266,7 +276,7 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
                 yield key, exception
 
 
-def query_lattice(processed_matrix_accession: str, connection: Connection, queue: Queue) -> list[FragmentFileMeta]:
+def query_lattice(processed_matrix_accession: str, connection: Connection, queues: WorkerQueues) -> list[FragmentFileMeta]:
     """
     Query Lattice for metadata on processed matrix, raw matrices, fragment file S3 URIs
 
@@ -321,7 +331,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
                 accession=accession,
                 uri=URIPath(fragment_uri),
                 barcodes=barcodes,
-                queue=queue
+                queues=queues
             )
         )
 
@@ -353,7 +363,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     Each process needs to initialize logging to report to queue and subsequent
     handling by the logger listener thread
     """
-    create_logger(fragment_meta.queue)
+    create_logger(fragment_meta.queues.logging_queue)
     #read in the fragments
     logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
     if fragment_meta.cell_label_location == "suffix":
@@ -417,7 +427,12 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         header=False
     )
     file_saved = True if output.exists() else False
+
     logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
+
+    if file_saved:
+        fragment_meta.queues.compression_queue.put(str(output))
+        logging.debug(f"Put {output} on compression queue")
 
     return FragmentWorkerResult(
         accession=fragment_meta.accession,
@@ -435,7 +450,7 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     Like filter worker, need to initialize logger to report to queue and listener thread
     """
     #read in the fragments
-    create_logger(fragment_meta.queue)
+    create_logger(fragment_meta.queues.logging_queue)
     file_saved = False
     compressed_file_name = fragment_meta.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")
     logging.info(f"Starting de-duplication of {compressed_file_name}...")
@@ -466,6 +481,10 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         )
         file_saved = output.exists()
         logging.info(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
+        if file_saved:
+            fragment_meta.queues.compression_queue.put(str(output))
+            logging.debug(f"Put {output} on compression queue")
+
 
     return FragmentWorkerResult(
         accession=fragment_meta.accession,
@@ -479,25 +498,23 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     )
 
 
-def compress_files(filtered_files: list[str | os.PathLike]) -> None:
-    """
-    Compress newly saved files. Check currently before calling
-    Uses gzip in terminal, and -f flag to force rewrite if compressed
-    file already exists
-    """
-    if not filtered_files:
-        logger.info("All filtered files already compressed")
-        return
+def gzip_thread(queue: Queue):
+    logger.debug("Starting compression thread")
+    subprocesses = []
+    while True:
+        file_path = queue.get()
+        if file_path is None:
+            break
+        logger.debug(f"Filtered file to compress: {file_path}")
+        logger.info(f"Gzipping {file_path.split('/')[-1]}")
+        p = subprocess.Popen(["gzip", "-f", file_path])
+        subprocesses.append(p)
 
-    processes = []
-    logger.info(f"Starting gzip compression of {len(filtered_files)} filtered files...")
-    for f in filtered_files:
-        p = subprocess.Popen(["gzip","-f",f])
-        processes.append(p)
-        logger.debug(f"Filtered file to compress: {f}")
-
-    for p in processes:
+    for p in subprocesses:
         p.wait()
+        logger.info(f"{p.args[-1].split('/')[-1]}.gz finished compressing")
+
+    logger.info("All compression completed")
 
 
 def concat_files(filtered_files: list[str | os.PathLike]) -> None:
@@ -573,8 +590,11 @@ if __name__ == "__main__":
         args = getArgs()
         connection = Connection(args.mode)
 
-        # set up queue and logging listener thread
-        queue = manager.Queue()
+        # set up queues and logging listener thread
+        queues = WorkerQueues(
+            logging_queue = manager.Queue(),
+            compression_queue = manager.Queue()
+        )
 
         with open("log_config_concatenator.yaml", "rt") as f:
             logging_config = yaml.safe_load(f.read())
@@ -583,7 +603,7 @@ if __name__ == "__main__":
         logging_config["handlers"]["file"]["filename"] = log_file_name
         logging.config.dictConfig(logging_config)
 
-        listener = threading.Thread(target=logger_thread, args=(queue,))
+        listener = threading.Thread(target=logger_thread, args=(queues.logging_queue,))
         listener.start()
 
         # set up concatenator logger and first log messages
@@ -592,7 +612,7 @@ if __name__ == "__main__":
         logger.debug(f"Command line args: {' '.join(sys.argv)}")
         logger.debug(f"Running concatenator on env: {args.mode}")
 
-        fragment_meta_list = query_lattice(args.file, connection, queue)
+        fragment_meta_list = query_lattice(args.file, connection, queues)
         download_fragment_files(fragment_meta_list)
 
         worker_function = filter_worker
@@ -612,13 +632,15 @@ if __name__ == "__main__":
                     logger.error(file)
                 logger_thread_shutdown_and_exit()
 
+        compression_thread = threading.Thread(target=gzip_thread, args=(queues.compression_queue,))
+        compression_thread.start()
+
         logger.debug(f"Worker pool function: {worker_function.__name__}()")
         results = run_processing_pool(worker_function, fragment_meta_list)
         print_results(results)
-
-        # only need to gzip newly saved files
-        non_compressed_files = [file.output_path.absolute() for file in results if file.file_saved]
-        compress_files(non_compressed_files)
+        queues.compression_queue.put(None)
+        compression_thread.join()
+        logger.debug("Compression thread shutdown")
 
         # always concat all compressed filtered files into final file
         compressed_files = [file.output_path.absolute() for file in results]
@@ -626,5 +648,5 @@ if __name__ == "__main__":
 
         # shut down logger thread
         logger.debug("Logger thread shutdown")
-        queue.put(None)
+        queues.logging_queue.put(None)
         listener.join()
