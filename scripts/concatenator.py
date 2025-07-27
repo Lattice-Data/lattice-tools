@@ -1,6 +1,4 @@
 import argparse
-import traceback
-from typing import Callable
 import boto3.session
 import fsspec
 import h5py
@@ -15,6 +13,7 @@ import re
 import subprocess
 import sys
 import threading
+import traceback
 import yaml
 
 from anndata._io.specs import read_elem
@@ -26,6 +25,7 @@ from multiprocessing import (
     Manager
 )
 from pathlib import Path
+from typing import Callable
 
 from lattice import (
     Connection,
@@ -283,9 +283,10 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
     with h5py.File(FS.open(h5ad_uri.full_uri)) as f:
         barcodes = read_elem(f["obs"]).index.to_series()
 
-    index_patterns = set([re.sub(BARCODE_PATTERN, REPLACE_WITH, b) for b in barcodes])
-
     logger.debug(f"h5ad for processed matrix file: {h5ad_uri.full_uri}")
+
+    index_patterns = {re.sub(BARCODE_PATTERN, REPLACE_WITH, b) for b in barcodes}
+
     logger.debug("set of barcode patterns:")
     for pattern in index_patterns:
         logger.debug(pattern)
