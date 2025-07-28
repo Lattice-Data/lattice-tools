@@ -498,43 +498,21 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     )
 
 
-def compress_worker(file_path: str | os.PathLike) -> None:
-    logger.debug(f"Filtered file to compress: {file_path}")
-    logger.info(f"Started gzipping {file_path}...")
-    s = subprocess.Popen(["gzip", "-f", file_path])
-    s.wait()
-    file_name = f"{s.args[-1].split('/')[-1]}.gz"
-    logger.info(f"Finished gzipping {file_name}")
-
-
-def compress_thread_target(queues: WorkerQueues, worker: Callable):
-    logger.debug("Started compress thread target")
-    while True:
-        file_path = queues.compression_queue.get()
-        if file_path is None:
-            logger.debug("Put None on compression queue from thread target")
-            queues.compression_queue.put(None)
-            logger.debug("Stopped compress thread target")
-            break
-        worker(file_path)
-
-
-def gzip_thread(queues: WorkerQueues, num_threads: int):
+def gzip_thread(queue: Queue):
     logger.debug("Starting compression thread")
+    subprocesses = []
+    while True:
+        file_path = queue.get()
+        if file_path is None:
+            break
+        logger.debug(f"Filtered file to compress: {file_path}")
+        logger.info(f"Gzipping {file_path.split('/')[-1]}")
+        p = subprocess.Popen(["gzip", "-f", file_path])
+        subprocesses.append(p)
 
-    # initialize threads
-    threads = []
-    for _ in range(num_threads):
-        thread = threading.Thread(
-            target=compress_thread_target,
-            args=(queues, compress_worker),
-        )
-        thread.start()
-        threads.append(thread)
-
-    # wait for threads to finish
-    for thread in threads:
-        thread.join()
+    for p in subprocesses:
+        p.wait()
+        logger.info(f"{p.args[-1].split('/')[-1]}.gz finished compressing")
 
     logger.info("All compression completed")
 
@@ -615,7 +593,7 @@ if __name__ == "__main__":
         # set up queues and logging listener thread
         queues = WorkerQueues(
             logging_queue = manager.Queue(),
-            compression_queue = manager.Queue(),
+            compression_queue = manager.Queue()
         )
 
         with open("log_config_concatenator.yaml", "rt") as f:
@@ -654,11 +632,7 @@ if __name__ == "__main__":
                     logger.error(file)
                 logger_thread_shutdown_and_exit()
 
-        total_fragment_files = len(fragment_meta_list)
-        compression_thread = threading.Thread(
-            target=gzip_thread, 
-            args=(queues, total_fragment_files,)
-        )
+        compression_thread = threading.Thread(target=gzip_thread, args=(queues.compression_queue,))
         compression_thread.start()
 
         logger.debug(f"Worker pool function: {worker_function.__name__}()")
@@ -666,7 +640,7 @@ if __name__ == "__main__":
         print_results(results)
 
         queues.compression_queue.put(None)
-        logger.debug("Put None on compression queue from main thread")
+        logger.debug("Put None on compression queue")
         compression_thread.join()
         logger.debug("Compression thread shutdown")
 
