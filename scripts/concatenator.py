@@ -50,6 +50,7 @@ FS = fsspec.filesystem("s3")
 DOWNLOAD_THREADS = 8
 NUM_PROCESS_WORKERS = os.cpu_count() // 2
 PRINT_WIDTH = 57
+STOP_SIGNAL = None
 PROCESSED_MATRIX_FIELD_LIST = [
     "accession",
     "s3_uri",
@@ -173,7 +174,7 @@ def logger_thread(queue: Queue):
     while True:
         try:
             record = queue.get()
-            if record is None:
+            if record is STOP_SIGNAL:
                 break
             logger = logging.getLogger(record.name)
             logger.handle(record)
@@ -196,7 +197,7 @@ def logger_thread_shutdown_and_exit():
     """
     logger.critical("sys.exit() call, shutting down")
     logger.critical("Logger thread executing error shutdown")
-    queues.logging_queue.put_nowait(None)
+    queues.logging_queue.put_nowait(STOP_SIGNAL)
     sys.exit()
 
 
@@ -294,6 +295,9 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
         barcodes = read_elem(f["obs"]).index.to_series()
 
     logger.debug(f"h5ad for processed matrix file: {h5ad_uri.full_uri}")
+    logger.debug("Slice of processed matrix file barcodes:")
+    for barcode in barcodes[:5]:
+        logger.debug(barcode)
 
     index_patterns = {re.sub(BARCODE_PATTERN, REPLACE_WITH, b) for b in barcodes}
 
@@ -499,11 +503,28 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 
 
 def gzip_thread(queue: Queue):
+    """
+    Thread that monitors compression queue and starts subprocess to gzip 
+    as workers finish saving tsv files. 
+
+    Current setup will not immediately report completion of gzipping to 
+    logging queue. First, the listening loop is not broken until putting
+    STOP_SIGNAL onto the queue. This occurs after the process pool closes. Second, the 
+    second loop is blocking, waiting for subprocesses to return. The subprocesses
+    will still start immediately, and it doesn't appear to block in other
+    meaningful ways. Immediate reporting of gzip completion requires either
+    an asyncio solution, another thread pool, or spawning threads. The commit 
+    "Using threads on threads for gzip compression" was a thread solultion that seemed
+    to work, but logging output was chaotic and probably too much, and there might
+    be lots of GIL contention with n compression threads for n input of fragment 
+    files. This current solution is cleaner for implementation and logging output,
+    if not immediately accurate for completion messages/times.
+    """
     logger.debug("Starting compression thread")
     subprocesses = []
     while True:
         file_path = queue.get()
-        if file_path is None:
+        if file_path is STOP_SIGNAL:
             break
         logger.debug(f"Filtered file to compress: {file_path}")
         logger.info(f"Gzipping {file_path.split('/')[-1]}")
@@ -639,8 +660,8 @@ if __name__ == "__main__":
         results = run_processing_pool(worker_function, fragment_meta_list)
         print_results(results)
 
-        queues.compression_queue.put(None)
-        logger.debug("Put None on compression queue")
+        queues.compression_queue.put(STOP_SIGNAL)
+        logger.debug("Put STOP_SIGNAL on compression queue")
         compression_thread.join()
         logger.debug("Compression thread shutdown")
 
@@ -650,5 +671,5 @@ if __name__ == "__main__":
 
         # shut down logger thread
         logger.debug("Logger thread shutdown")
-        queues.logging_queue.put(None)
+        queues.logging_queue.put(STOP_SIGNAL)
         listener.join()
