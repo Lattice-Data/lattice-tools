@@ -501,7 +501,8 @@ def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
 def compress_worker(file_path: str | os.PathLike) -> None:
     logger.debug(f"Filtered file to compress: {file_path}")
     logger.info(f"Started gzipping {file_path}...")
-    s = subprocess.run(["gzip", "-f", file_path])
+    s = subprocess.Popen(["gzip", "-f", file_path])
+    s.wait()
     file_name = f"{s.args[-1].split('/')[-1]}.gz"
     logger.info(f"Finished gzipping {file_name}")
 
