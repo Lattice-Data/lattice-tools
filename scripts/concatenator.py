@@ -634,6 +634,8 @@ if __name__ == "__main__":
         logger.debug("Logger thread started")
         logger.debug(f"Command line args: {' '.join(sys.argv)}")
         logger.debug(f"Running concatenator on env: {args.mode}")
+        logger.debug(f"{BARCODE_PATTERN = }")
+        logger.debug(f"{NUM_PROCESS_WORKERS = }")
 
         fragment_meta_list = query_lattice(args.file, connection, queues)
         download_fragment_files(fragment_meta_list)
