@@ -374,8 +374,10 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
     if fragment_meta.cell_label_location == "suffix":
         a = f"{REPLACE_WITH}{fragment_meta.label}"
+        barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.endswith(fragment_meta.label)]
     else:
         a = f"{fragment_meta.label}{REPLACE_WITH}"
+        barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.startswith(fragment_meta.label)]
 
     logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
     logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
@@ -405,7 +407,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     frags_df["barcode"] = frags_df["barcode"].apply(lambda x: re.sub(REPLACE_WITH, re.search(BARCODE_PATTERN, x).group(), a))
 
     #filter down to only barcodes in the CxG matrix
-    frags_df = frags_df[frags_df["barcode"].isin(fragment_meta.barcodes)]
+    frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
 
     #plot for QA
     counts = frags_df["barcode"].value_counts()
