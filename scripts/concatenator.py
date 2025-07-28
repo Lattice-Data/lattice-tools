@@ -43,7 +43,7 @@ Examples:
 
     python %(prog)s --help
 """
-BARCODE_PATTERN = r"[ACGT]{16}([-_]\d{1,2})?"
+BARCODE_PATTERN = r"[ACGT]+"
 REPLACE_WITH = "B@RCODE"
 FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
@@ -111,6 +111,7 @@ class FragmentFileMeta:
     uri: URIPath
     barcodes: pd.Series
     queues: WorkerQueues
+    use_regex: bool
 
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
@@ -279,6 +280,30 @@ def download_parallel_multithreading(files_to_download: list[FragmentFileMeta]):
                 yield key, exception
 
 
+def use_regex_for_barcodes(barcodes: pd.Series) -> bool:
+    """
+    Determine if regex needs to be used for modifying fragment file barcodes before
+    filtering against obs index, or if simple string replacement can be used.
+
+    This assumes that raw fragment files are likely untouched, and all barcodes within
+    them will follow [ACGT]+-1 pattern. Processed matrix files might retain the -1 after
+    nucleotides, or might not. If all index patterns and all indices have the -1, then the
+    prefix or suffix can just be added in the appropriate place. Regex will only be used
+    when this does not hold true.
+    """
+    index_patterns = {re.sub(BARCODE_PATTERN, REPLACE_WITH, b) for b in barcodes}
+
+    logger.debug("set of barcode patterns:")
+    for pattern in index_patterns:
+        logger.debug(pattern)
+
+    all_barcode_dash_one = (
+        all([True if '-1' in barcode else False for barcode in index_patterns]) and
+        all(barcodes.str.match('.*[AGCT]+-1'))
+    )
+    return False if all_barcode_dash_one else True
+    
+
 def query_lattice(processed_matrix_accession: str, connection: Connection, queues: WorkerQueues) -> list[FragmentFileMeta]:
     """
     Query Lattice for metadata on processed matrix, raw matrices, fragment file S3 URIs
@@ -301,11 +326,8 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
     for barcode in barcodes[:5]:
         logger.debug(barcode)
 
-    index_patterns = {re.sub(BARCODE_PATTERN, REPLACE_WITH, b) for b in barcodes}
-
-    logger.debug("set of barcode patterns:")
-    for pattern in index_patterns:
-        logger.debug(pattern)
+    use_regex = use_regex_for_barcodes(barcodes)
+    logger.debug(f"{use_regex = }")
 
     master_fragment_file_meta = []
     files_missing = False
@@ -337,7 +359,8 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
                 accession=accession,
                 uri=URIPath(fragment_uri),
                 barcodes=barcodes,
-                queues=queues
+                queues=queues,
+                use_regex=use_regex
             )
         )
 
@@ -404,7 +427,14 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     raw_mean = round(counts.mean())
 
     #update the barcode to match the CxG matrix obx index
-    frags_df["barcode"] = frags_df["barcode"].apply(lambda x: re.sub(REPLACE_WITH, re.search(BARCODE_PATTERN, x).group(), a))
+    # trying non-regex use if -1 exists in CxG obs for all indices
+    if fragment_meta.use_regex:
+        frags_df["barcode"] = frags_df["barcode"].apply(lambda x: re.sub(REPLACE_WITH, re.search(BARCODE_PATTERN, x).group(), a))
+    else:
+        if fragment_meta.cell_label_location == "suffix":
+            frags_df["barcode"] = frags_df["barcode"] + fragment_meta.label
+        else:
+            frags_df["barcode"] = fragment_meta.label + frags_df["barcode"]
 
     #filter down to only barcodes in the CxG matrix
     frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
