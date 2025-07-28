@@ -49,8 +49,8 @@ FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
 DOWNLOAD_THREADS = 8
 # EC2 with 512 GB and 64 cores seems to saturate memory at 12-13 workers
-# will cap at 12 for now, use half of cores with local/lesser instances
-NUM_PROCESS_WORKERS = min(12, os.cpu_count() // 2)
+# will cap at 10 for now, use half of cores with local/lesser instances
+NUM_PROCESS_WORKERS = min(10, os.cpu_count() // 2)
 PRINT_WIDTH = 57
 STOP_SIGNAL = None
 PROCESSED_MATRIX_FIELD_LIST = [
