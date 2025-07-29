@@ -436,8 +436,11 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         else:
             frags_df["barcode"] = fragment_meta.label + frags_df["barcode"]
 
+    logging.debug(f"{fragment_meta.accession}: Finished barcode update")
+
     #filter down to only barcodes in the CxG matrix
     frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
+    logging.debug(f"{fragment_meta.accession}: Finished barcode filtering")
 
     #plot for QA
     counts = frags_df["barcode"].value_counts()
