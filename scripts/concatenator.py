@@ -17,6 +17,7 @@ import threading
 import traceback
 import yaml
 
+from abc import ABC, abstractmethod
 from anndata._io.specs import read_elem
 from concurrent import futures
 from concurrent.futures import ThreadPoolExecutor
@@ -138,6 +139,234 @@ class FragmentWorkerResult:
     duplicates: pd.DataFrame | None = None
 
 
+class TheWorkingClass(ABC):
+    """
+    Base class for various process workers. Currently can use a filter
+    worker during a default run, or a deduplicate worker if duplicates
+    found during validation. Would also be possible to add a lift over
+    worker or some other worker child class if there are other tasks 
+    we find need to be done.
+    """
+    @staticmethod
+    def get_args(args):
+        if args.deduplicate:
+            return DeduplicateWorker()
+        return FilterWorker()
+
+    @abstractmethod
+    def verify_local_files(self, meta_list: list[FragmentFileMeta]) -> None:
+        pass
+
+    def create_logger(self, queue: Queue):
+        """
+        Function to create logger in process workers
+        For stream and file handling, best to set root logger in process
+        and then let the listener handle logger from queue
+
+        Now with yaml logger config, and concatenator logger variable for
+        global scope. This allows for main process/main thread level to INFO
+        and concatenator logging to DEBUG. This prevents tens of thousands of 
+        boto3 and s3 debug messages during multithreaded download, and other possible
+        module-level debug messages from flooding the log. Worker module debug messages
+        could also flood logs in this setup, but that seems acceptable to troublshoot
+        any weird parallelism issues within the workers
+        """
+        h = logging.handlers.QueueHandler(queue)
+        root = logging.getLogger()
+        # with worker pool, recycled worker already has handler, don't need to add another
+        # without check, messages will double and triple
+        if not root.handlers:
+            root.addHandler(h)
+        root.setLevel(logging.DEBUG)
+        root.propagate = False
+
+    def read_fragment_file(self, file_path: os.PathLike | str) -> pd.DataFrame:
+        df = pd.read_csv(
+            file_path,
+            comment="#",
+            sep="\t",
+            names=FRAGMENT_COL_NAMES
+        )
+        return df
+
+    @abstractmethod
+    def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+        pass
+
+    def save_processed_fragment(self, df: pd.DataFrame, file_path: os.PathLike | str) -> None:
+        df.to_csv(
+            file_path,
+            sep="\t",
+            index=False,
+            header=False
+        )
+
+
+class FilterWorker(TheWorkingClass):
+    def verify_local_files(self, meta_list: list[FragmentFileMeta]) -> None:
+        """
+        FilterWorker needs to verify downloaded files
+        """
+        if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in meta_list]):
+            logger.info("All raw files local, filtering raw fragments now")
+        else:
+            logger.error("Some raw files not found locally, please rerun")
+            logger_thread_shutdown_and_exit()
+
+    def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+        """
+        Worker function to filter raw fragment files.
+        Each process needs to initialize logging to report to queue and subsequent
+        handling by the logger listener thread
+        """
+        self.create_logger(fragment_meta.queues.logging_queue)
+
+        #read in the fragments
+        logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
+        if fragment_meta.cell_label_location == "suffix":
+            a = f"{REPLACE_WITH}{fragment_meta.label}"
+            barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.endswith(fragment_meta.label)]
+        else:
+            a = f"{fragment_meta.label}{REPLACE_WITH}"
+            barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.startswith(fragment_meta.label)]
+
+        logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
+        logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
+        logging.debug(f"{fragment_meta.accession} cell_label_location: {fragment_meta.cell_label_location}")
+        logging.debug(f"{fragment_meta.accession} fragment file size: {fragment_meta.fragment_file_size:_}")
+        logging.debug(f"{fragment_meta.accession} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
+
+        file_path = FRAGMENT_DIR / fragment_meta.download_file_name
+        frags_df = self.read_fragment_file(file_path)
+
+        # TODO: figure out how to report QA stuff, initial attempt crashed comp
+        #plot for QA
+        counts = frags_df["barcode"].value_counts()
+        # fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        # axes[0].hist(counts, range=(0,1000), bins=200)
+        # axes[0].set_ylim(ymin=0)
+        # axes[0].set_title("raw")
+
+        #store stats for QA
+        raw_min = counts.min()
+        raw_mean = round(counts.mean())
+
+        #update the barcode to match the CxG matrix obx index
+        # trying non-regex use if -1 exists in CxG obs for all indices
+        if fragment_meta.use_regex:
+            frags_df["barcode"] = frags_df["barcode"].apply(lambda x: re.sub(REPLACE_WITH, re.search(BARCODE_PATTERN, x).group(), a))
+        else:
+            if fragment_meta.cell_label_location == "suffix":
+                frags_df["barcode"] = frags_df["barcode"] + fragment_meta.label
+            else:
+                frags_df["barcode"] = fragment_meta.label + frags_df["barcode"]
+
+        logging.debug(f"{fragment_meta.accession}: Finished barcode update")
+
+        #filter down to only barcodes in the CxG matrix
+        frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
+        logging.debug(f"{fragment_meta.accession}: Finished barcode filtering")
+
+        #plot for QA
+        counts = frags_df["barcode"].value_counts()
+        # axes[1].hist(counts, range=(0,1000), bins=200)
+        # axes[1].set_ylim(ymin=0)
+        # axes[1].set_title("filtered")
+
+        #store stats for QA
+        stats = {
+            "raw_matrix": fragment_meta.accession,
+            "raw min": raw_min,
+            "filt min": counts.min(),
+            "raw mean": raw_mean,
+            "filt mean": round(counts.mean()),
+            "unique barcodes": len(counts)
+        }
+        figure = "test_string"
+
+        #write the filtered fragments file
+        output = fragment_meta.filtered_fragment_path_name
+        self.save_processed_fragment(frags_df, output)
+        file_saved = True if output.exists() else False
+
+        logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
+
+        if file_saved:
+            fragment_meta.queues.compression_queue.put(str(output))
+            logging.debug(f"Put {output} on compression queue")
+
+        return FragmentWorkerResult(
+            accession=fragment_meta.accession,
+            file_saved=file_saved,
+            stats=stats,
+            plot=figure,
+            output_path=output,
+        )
+
+
+class DeduplicateWorker(TheWorkingClass):
+    """
+    DeduplicateWorker needs to verify filtered files instead of downloaded files
+    """
+    def verify_local_files(self, meta_list: list[FragmentFileMeta]) -> None:
+        if all([meta.is_filtered_file_local for meta in meta_list]):
+            logger.info("Found filtered fragment files for all raw matrices, starting duplicate check...")
+        else:
+            logger.error("Rerun concatenator to generate all filtered fragment files")
+            missing_files = [
+                meta.filtered_fragment_path_name.name + ".gz" 
+                for meta in meta_list 
+                if not meta.is_filtered_file_local
+            ]
+            logger.error(f"Missing following filtered files, {len(missing_files)} total:")
+            for file in missing_files:
+                logger.error(file)
+            logger_thread_shutdown_and_exit()
+
+    def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+        """
+        Worker to remove duplicates. Call after concatenator run and CXG validation finds duplicates
+        in the final concatenated fragment file.
+        Like filter worker, need to initialize logger to report to queue and listener thread
+        """
+        #read in the fragments
+        self.create_logger(fragment_meta.queues.logging_queue)
+        file_saved = False
+        compressed_file_name = fragment_meta.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")
+        logging.info(f"Starting de-duplication of {compressed_file_name}...")
+
+        file_path = FRAGMENT_DIR / compressed_file_name
+        filtered_df = self.read_fragment_file(file_path)
+
+        duplicates = filtered_df[filtered_df.duplicated(keep=False)]
+        filtered_df = filtered_df.drop_duplicates(keep="first")
+
+        has_duplicates = True if not duplicates.empty else False
+        logging.info(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
+
+        output = fragment_meta.filtered_fragment_path_name
+
+        # only need to save file again if duplicates found
+        if has_duplicates:
+            self.save_processed_fragment(filtered_df, output)
+            file_saved = output.exists()
+            logging.info(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
+            if file_saved:
+                fragment_meta.queues.compression_queue.put(str(output))
+                logging.debug(f"Put {output} on compression queue")
+
+        return FragmentWorkerResult(
+            accession=fragment_meta.accession,
+            file_saved=file_saved,
+            stats={},
+            plot=None,
+            output_path=output,
+            checked_duplicates=True,
+            has_duplicates=has_duplicates,
+            duplicates=duplicates if not duplicates.empty else None
+        )
+
+
 def getArgs():
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -203,30 +432,6 @@ def logger_thread_shutdown_and_exit():
     logger.critical("Logger thread executing error shutdown")
     queues.logging_queue.put_nowait(STOP_SIGNAL)
     sys.exit()
-
-
-def create_logger(queue: Queue):
-    """
-    Function to create logger in process workers
-    For stream and file handling, best to set root logger in process
-    and then let the listener handle logger from queue
-
-    Now with yaml logger config, and concatenator logger variable for
-    global scope. This allows for main process/main thread level to INFO
-    and concatenator logging to DEBUG. This prevents tens of thousands of 
-    boto3 and s3 debug messages during multithreaded download, and other possible
-    module-level debug messages from flooding the log. Worker module debug messages
-    could also flood logs in this setup, but that seems acceptable to troublshoot
-    any weird parallelism issues within the workers
-    """
-    h = logging.handlers.QueueHandler(queue)
-    root = logging.getLogger()
-    # with worker pool, recycled worker already has handler, don't need to add another
-    # without check, messages will double and triple
-    if not root.handlers:
-        root.addHandler(h)
-    root.setLevel(logging.DEBUG)
-    root.propagate = False
 
 
 def download_object(s3_client, fragment_meta: FragmentFileMeta):
@@ -381,172 +586,10 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
 
 def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
     """
-    Call multi-threaded download function and check all files are now local
+    Call multi-threaded download function
     """
     for key, result in download_parallel_multithreading(files_to_download):
         logger.info(f"{key} download result: {result}")
-
-    # maybe this check should be out of the function?
-    if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in files_to_download]):
-        logger.info("All raw files local, processing fragments now")
-    else:
-        logger.error("Some raw files not found locally, please rerun")
-        logger_thread_shutdown_and_exit()
-
-
-def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
-    """
-    Worker function to filter raw fragment files.
-    Each process needs to initialize logging to report to queue and subsequent
-    handling by the logger listener thread
-    """
-    create_logger(fragment_meta.queues.logging_queue)
-    #read in the fragments
-    logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
-    if fragment_meta.cell_label_location == "suffix":
-        a = f"{REPLACE_WITH}{fragment_meta.label}"
-        barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.endswith(fragment_meta.label)]
-    else:
-        a = f"{fragment_meta.label}{REPLACE_WITH}"
-        barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.startswith(fragment_meta.label)]
-
-    logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
-    logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
-    logging.debug(f"{fragment_meta.accession} cell_label_location: {fragment_meta.cell_label_location}")
-    logging.debug(f"{fragment_meta.accession} fragment file size: {fragment_meta.fragment_file_size:_}")
-    logging.debug(f"{fragment_meta.accession} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
-
-    file_path = FRAGMENT_DIR / fragment_meta.download_file_name
-    frags_df = pd.read_csv(
-        file_path,
-        comment="#",
-        sep="\t",
-        names=FRAGMENT_COL_NAMES
-    )
-
-    # TODO: figure out how to report QA stuff, initial attempt crashed comp
-    #plot for QA
-    counts = frags_df["barcode"].value_counts()
-    # fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    # axes[0].hist(counts, range=(0,1000), bins=200)
-    # axes[0].set_ylim(ymin=0)
-    # axes[0].set_title("raw")
-
-    #store stats for QA
-    raw_min = counts.min()
-    raw_mean = round(counts.mean())
-
-    #update the barcode to match the CxG matrix obx index
-    # trying non-regex use if -1 exists in CxG obs for all indices
-    if fragment_meta.use_regex:
-        frags_df["barcode"] = frags_df["barcode"].apply(lambda x: re.sub(REPLACE_WITH, re.search(BARCODE_PATTERN, x).group(), a))
-    else:
-        if fragment_meta.cell_label_location == "suffix":
-            frags_df["barcode"] = frags_df["barcode"] + fragment_meta.label
-        else:
-            frags_df["barcode"] = fragment_meta.label + frags_df["barcode"]
-
-    logging.debug(f"{fragment_meta.accession}: Finished barcode update")
-
-    #filter down to only barcodes in the CxG matrix
-    frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
-    logging.debug(f"{fragment_meta.accession}: Finished barcode filtering")
-
-    #plot for QA
-    counts = frags_df["barcode"].value_counts()
-    # axes[1].hist(counts, range=(0,1000), bins=200)
-    # axes[1].set_ylim(ymin=0)
-    # axes[1].set_title("filtered")
-
-    #store stats for QA
-    stats = {
-        "raw_matrix": fragment_meta.accession,
-        "raw min": raw_min,
-        "filt min": counts.min(),
-        "raw mean": raw_mean,
-        "filt mean": round(counts.mean()),
-        "unique barcodes": len(counts)
-    }
-    figure = "test_string"
-
-    #write the filtered fragments file
-    output = fragment_meta.filtered_fragment_path_name
-    frags_df.to_csv(
-        output,
-        sep="\t",
-        index=False,
-        header=False
-    )
-    file_saved = True if output.exists() else False
-
-    logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
-
-    if file_saved:
-        fragment_meta.queues.compression_queue.put(str(output))
-        logging.debug(f"Put {output} on compression queue")
-
-    return FragmentWorkerResult(
-        accession=fragment_meta.accession,
-        file_saved=file_saved,
-        stats=stats,
-        plot=figure,
-        output_path=output,
-    )
-
-
-def duplicate_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
-    """
-    Worker to remove duplicates. Call after concatenator run and CXG validation finds duplicates
-    in the final concatenated fragment file.
-    Like filter worker, need to initialize logger to report to queue and listener thread
-    """
-    #read in the fragments
-    create_logger(fragment_meta.queues.logging_queue)
-    file_saved = False
-    compressed_file_name = fragment_meta.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")
-    logging.info(f"Starting de-duplication of {compressed_file_name}...")
-
-    file_path = FRAGMENT_DIR / compressed_file_name
-    filtered_df = pd.read_csv(
-        file_path,
-        comment="#",
-        sep="\t",
-        names=FRAGMENT_COL_NAMES
-    )
-
-    duplicates = filtered_df[filtered_df.duplicated(keep=False)]
-    filtered_df = filtered_df.drop_duplicates(keep="first")
-
-    has_duplicates = True if not duplicates.empty else False
-    logging.info(f"For {fragment_meta.accession}, found duplicates: {has_duplicates}")
-
-    output = fragment_meta.filtered_fragment_path_name
-
-    # only need to save file again if duplicates found
-    if has_duplicates:
-        filtered_df.to_csv(
-            output,
-            sep="\t",
-            index=False,
-            header=False
-        )
-        file_saved = output.exists()
-        logging.info(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
-        if file_saved:
-            fragment_meta.queues.compression_queue.put(str(output))
-            logging.debug(f"Put {output} on compression queue")
-
-
-    return FragmentWorkerResult(
-        accession=fragment_meta.accession,
-        file_saved=file_saved,
-        stats={},
-        plot=None,
-        output_path=output,
-        checked_duplicates=True,
-        has_duplicates=has_duplicates,
-        duplicates=duplicates if not duplicates.empty else None
-    )
 
 
 def gzip_thread(queue: Queue):
@@ -656,6 +699,8 @@ def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 1
     Trying to more intelligently pick number of process workers based on memory
     requirements. On EC2, might need 10-15x memory of on-disk gzipped file.
     Will use 15 as default, could change if need-be, or make less for macOS.
+    If running total does not get above available total, will return half of
+    availabe cores.
 
     Want inverse sort for this calculation, but ascending order for running 
     process pool to give more buffer for OOM issues.
@@ -714,28 +759,15 @@ if __name__ == "__main__":
         NUM_PROCESS_WORKERS = get_num_workers(fragment_meta_list)
         logger.debug(f"{NUM_PROCESS_WORKERS = }")
 
-        worker_function = filter_worker
-        if args.deduplicate:
-            if all([meta.is_filtered_file_local for meta in fragment_meta_list]):
-                logger.info("Found filtered fragment files for all raw matrices, starting duplicate check...")
-                worker_function = duplicate_worker
-            else:
-                logger.error("Rerun concatenator to generate all filtered fragment files")
-                missing_files = [
-                    meta.filtered_fragment_path_name.name + ".gz" 
-                    for meta in fragment_meta_list 
-                    if not meta.is_filtered_file_local
-                ]
-                logger.error(f"Missing following filtered files, {len(missing_files)} total:")
-                for file in missing_files:
-                    logger.error(file)
-                logger_thread_shutdown_and_exit()
+        # using classes to clean up some logic for selecting process worker task
+        working_class = TheWorkingClass.get_args(args)
+        working_class.verify_local_files(fragment_meta_list)
 
         compression_thread = threading.Thread(target=gzip_thread, args=(queues.compression_queue,))
         compression_thread.start()
 
-        logger.debug(f"Worker pool function: {worker_function.__name__}()")
-        results = run_processing_pool(worker_function, fragment_meta_list)
+        logger.debug(f"Worker pool class/target: {working_class.__class__.__name__}")
+        results = run_processing_pool(working_class.worker_target_function, fragment_meta_list)
         print_results(results)
 
         queues.compression_queue.put(STOP_SIGNAL)
