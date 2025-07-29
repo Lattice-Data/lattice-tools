@@ -148,7 +148,7 @@ class TheWorkingClass(ABC):
     we find need to be done.
     """
     @staticmethod
-    def get_args(args):
+    def pick_worker(args):
         """
         Determine which child class to use, add logic here as more child
         classes are added
@@ -230,6 +230,7 @@ class FilterWorker(TheWorkingClass):
         handling by the logger listener thread
         """
         self.create_logger(fragment_meta.queues.logging_queue)
+        pid = os.getpid()
 
         #read in the fragments
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
@@ -240,11 +241,11 @@ class FilterWorker(TheWorkingClass):
             a = f"{fragment_meta.label}{REPLACE_WITH}"
             barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.startswith(fragment_meta.label)]
 
-        logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
-        logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
-        logging.debug(f"{fragment_meta.accession} cell_label_location: {fragment_meta.cell_label_location}")
-        logging.debug(f"{fragment_meta.accession} fragment file size: {fragment_meta.fragment_file_size:_}")
-        logging.debug(f"{fragment_meta.accession} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
+        logging.debug(f"{fragment_meta.accession} - {pid}: barcode replace with: {a}")
+        logging.debug(f"{fragment_meta.accession} - {pid}: label: {fragment_meta.label}")
+        logging.debug(f"{fragment_meta.accession} - {pid}: cell_label_location: {fragment_meta.cell_label_location}")
+        logging.debug(f"{fragment_meta.accession} - {pid}: fragment file size: {fragment_meta.fragment_file_size:_}")
+        logging.debug(f"{fragment_meta.accession} - {pid}: raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
         file_path = FRAGMENT_DIR / fragment_meta.download_file_name
         frags_df = self.read_fragment_file(file_path)
@@ -271,11 +272,11 @@ class FilterWorker(TheWorkingClass):
             else:
                 frags_df["barcode"] = fragment_meta.label + frags_df["barcode"]
 
-        logging.debug(f"{fragment_meta.accession}: Finished barcode update")
+        logging.debug(f"{fragment_meta.accession} - {pid}: Finished barcode update")
 
         #filter down to only barcodes in the CxG matrix
         frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
-        logging.debug(f"{fragment_meta.accession}: Finished barcode filtering")
+        logging.debug(f"{fragment_meta.accession} - {pid}: Finished barcode filtering")
 
         #plot for QA
         counts = frags_df["barcode"].value_counts()
@@ -303,7 +304,7 @@ class FilterWorker(TheWorkingClass):
 
         if file_saved:
             fragment_meta.queues.compression_queue.put(str(output))
-            logging.debug(f"Put {output} on compression queue")
+            logging.debug(f"{pid = }: Put {output} on compression queue")
 
         return FragmentWorkerResult(
             accession=fragment_meta.accession,
@@ -341,6 +342,8 @@ class DeduplicateWorker(TheWorkingClass):
         """
         #read in the fragments
         self.create_logger(fragment_meta.queues.logging_queue)
+        pid = os.getpid()
+
         file_saved = False
         compressed_file_name = fragment_meta.filtered_fragment_path_name.name.replace("tsv", "tsv.gz")
         logging.info(f"Starting de-duplication of {compressed_file_name}...")
@@ -363,7 +366,7 @@ class DeduplicateWorker(TheWorkingClass):
             logging.info(f"Finished saving deduplicated {fragment_meta.filtered_fragment_path_name}. SUCCESS: {file_saved}")
             if file_saved:
                 fragment_meta.queues.compression_queue.put(str(output))
-                logging.debug(f"Put {output} on compression queue")
+                logging.debug(f"{pid}: Put {output} on compression queue")
 
         return FragmentWorkerResult(
             accession=fragment_meta.accession,
@@ -770,7 +773,7 @@ if __name__ == "__main__":
         logger.debug(f"{NUM_PROCESS_WORKERS = }")
 
         # using classes to clean up some logic for selecting process worker task
-        working_class = TheWorkingClass.get_args(args)
+        working_class = TheWorkingClass.pick_worker(args)
         working_class.verify_local_files(fragment_meta_list)
 
         compression_thread = threading.Thread(target=gzip_thread, args=(queues.compression_queue,))
