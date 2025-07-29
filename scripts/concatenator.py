@@ -149,6 +149,10 @@ class TheWorkingClass(ABC):
     """
     @staticmethod
     def get_args(args):
+        """
+        Determine which child class to use, add logic here as more child
+        classes are added
+        """
         if args.deduplicate:
             return DeduplicateWorker()
         return FilterWorker()
@@ -181,6 +185,9 @@ class TheWorkingClass(ABC):
         root.propagate = False
 
     def read_fragment_file(self, file_path: os.PathLike | str) -> pd.DataFrame:
+        """
+        Read tsv into dataframe. Pandas can handle gzipped and non-gzipped files
+        """
         df = pd.read_csv(
             file_path,
             comment="#",
@@ -194,6 +201,9 @@ class TheWorkingClass(ABC):
         pass
 
     def save_processed_fragment(self, df: pd.DataFrame, file_path: os.PathLike | str) -> None:
+        """
+        Common save to file method for workers
+        """
         df.to_csv(
             file_path,
             sep="\t",
@@ -586,7 +596,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
 
 def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
     """
-    Call multi-threaded download function
+    Call multi-threaded download function and log results
     """
     for key, result in download_parallel_multithreading(files_to_download):
         logger.info(f"{key} download result: {result}")
