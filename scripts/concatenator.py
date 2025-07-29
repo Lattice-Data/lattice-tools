@@ -413,6 +413,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
     logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
     logging.debug(f"{fragment_meta.accession} cell_label_location: {fragment_meta.cell_label_location}")
+    logging.debug(f"{fragment_meta.accession} fragment file size: {fragment_meta.fragment_file_size:_}")
     logging.debug(f"{fragment_meta.accession} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
     file_path = FRAGMENT_DIR / fragment_meta.download_file_name
