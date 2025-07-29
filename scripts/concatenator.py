@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import multiprocessing
 import os
 import pandas as pd
+import psutil
 import re
 import subprocess
 import sys
@@ -48,9 +49,6 @@ REPLACE_WITH = "B@RCODE"
 FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
 DOWNLOAD_THREADS = 8
-# EC2 with 512 GB and 64 cores seems to saturate memory at 12-13 workers
-# will cap at 10 for now, use half of cores with local/lesser instances
-NUM_PROCESS_WORKERS = min(10, os.cpu_count() // 2)
 PRINT_WIDTH = 57
 STOP_SIGNAL = None
 PROCESSED_MATRIX_FIELD_LIST = [
@@ -113,7 +111,8 @@ class FragmentFileMeta:
     barcodes: pd.Series
     queues: WorkerQueues
     use_regex: bool
-    file_size: int
+    raw_matrix_file_size: int
+    fragment_file_size: int = None
 
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
@@ -363,7 +362,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
                 barcodes=barcodes,
                 queues=queues,
                 use_regex=use_regex,
-                file_size=raw_matrix_report["file_size"]
+                raw_matrix_file_size=raw_matrix_report["file_size"]
             )
         )
 
@@ -374,7 +373,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
     # attempting sort by file_size to have bigger files later in process pool
     fragment_file_meta = sorted(
         master_fragment_file_meta, 
-        key=lambda x: (x.file_size), 
+        key=lambda x: (x.raw_matrix_file_size), 
     )
 
     return fragment_file_meta
@@ -414,7 +413,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
     logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
     logging.debug(f"{fragment_meta.accession} cell_label_location: {fragment_meta.cell_label_location}")
-    logging.debug(f"{fragment_meta.accession} file size: {fragment_meta.file_size}")
+    logging.debug(f"{fragment_meta.accession} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
     file_path = FRAGMENT_DIR / fragment_meta.download_file_name
     frags_df = pd.read_csv(
@@ -651,6 +650,28 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
         logger.info(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
 
 
+def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 15) -> int:
+    """
+    Trying to more intelligently pick number of process workers based on memory
+    requirements. On EC2, might need 10-15x memory of on-disk gzipped file.
+    Will use 15 as default, could change if need-be, or make less for macOS.
+
+    Want inverse sort for this calculation, but ascending order for running 
+    process pool to give more buffer for OOM issues.
+    """
+    fragment_meta = sorted(fragment_meta, key=lambda x: x.fragment_file_size, reverse=True)
+    total_memory = int(psutil.virtual_memory().total * 0.95)
+    count = 0
+    running_total = 0
+    for meta in fragment_meta:
+        running_total += meta.fragment_file_size * scale_factor
+        if running_total > total_memory:
+            return count
+        count += 1
+
+    return os.cpu_count() // 2
+
+
 if __name__ == "__main__":
     # might be able to use just queue and not multiprocesser manager
     # even with thread listener, manager queue best to handle process inheritance
@@ -680,10 +701,17 @@ if __name__ == "__main__":
         logger.debug(f"Command line args: {' '.join(sys.argv)}")
         logger.debug(f"Running concatenator on env: {args.mode}")
         logger.debug(f"{BARCODE_PATTERN = }")
-        logger.debug(f"{NUM_PROCESS_WORKERS = }")
 
         fragment_meta_list = query_lattice(args.file, connection, queues)
         download_fragment_files(fragment_meta_list)
+
+        # get file size for worker num determination
+        for meta in fragment_meta_list:
+            meta.fragment_file_size = (FRAGMENT_DIR / meta.download_file_name).stat().st_size
+        fragment_meta_list = sorted(fragment_meta_list, key=lambda x: x.fragment_file_size)
+
+        NUM_PROCESS_WORKERS = get_num_workers(fragment_meta_list)
+        logger.debug(f"{NUM_PROCESS_WORKERS = }")
 
         worker_function = filter_worker
         if args.deduplicate:
