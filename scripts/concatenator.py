@@ -62,7 +62,8 @@ PROCESSED_MATRIX_FIELD_LIST = [
 RAW_MATRIX_FIELD_LIST = [
     "accession",
     "s3_uri",
-    "fragment_file_s3_uri"
+    "fragment_file_s3_uri",
+    "file_size",
 ]
 FRAGMENT_COL_NAMES = [
     "chrom",
@@ -112,6 +113,7 @@ class FragmentFileMeta:
     barcodes: pd.Series
     queues: WorkerQueues
     use_regex: bool
+    file_size: int
 
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
@@ -360,7 +362,8 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
                 uri=URIPath(fragment_uri),
                 barcodes=barcodes,
                 queues=queues,
-                use_regex=use_regex
+                use_regex=use_regex,
+                file_size=raw_matrix_report["file_size"]
             )
         )
 
@@ -368,7 +371,13 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
         logger.critical("Missing S3 URIs and/or files, exiting...")
         logger_thread_shutdown_and_exit()
 
-    return master_fragment_file_meta
+    # attempting sort by file_size to have bigger files later in process pool
+    fragment_file_meta = sorted(
+        master_fragment_file_meta, 
+        key=lambda x: (x.file_size), 
+    )
+
+    return fragment_file_meta
 
 
 def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
@@ -405,6 +414,7 @@ def filter_worker(fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
     logging.debug(f"{fragment_meta.accession} barcode replace with: {a}")
     logging.debug(f"{fragment_meta.accession} label: {fragment_meta.label}")
     logging.debug(f"{fragment_meta.accession} cell_label_location: {fragment_meta.cell_label_location}")
+    logging.debug(f"{fragment_meta.accession} file size: {fragment_meta.file_size}")
 
     file_path = FRAGMENT_DIR / fragment_meta.download_file_name
     frags_df = pd.read_csv(
