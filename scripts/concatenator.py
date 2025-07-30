@@ -71,6 +71,13 @@ FRAGMENT_COL_NAMES = [
     "barcode",
     "readSupport"
 ]
+FRAG_DTYPE={
+    "chrom": "string[pyarrow]",
+    "start": "int32",
+    "end": "int32",
+    "barcode": "string[pyarrow]",
+    "readSupport": "int32",
+}
 
 @dataclass
 class URIPath:
@@ -192,7 +199,8 @@ class TheWorkingClass(ABC):
             file_path,
             comment="#",
             sep="\t",
-            names=FRAGMENT_COL_NAMES
+            names=FRAGMENT_COL_NAMES,
+            # dtype=FRAG_DTYPE,
         )
         return df
 
@@ -210,6 +218,9 @@ class TheWorkingClass(ABC):
             index=False,
             header=False
         )
+
+    def get_df_mem_total(self, df: pd.DataFrame) -> int:
+        return df.memory_usage(deep=True).sum()
 
 
 class FilterWorker(TheWorkingClass):
@@ -250,6 +261,7 @@ class FilterWorker(TheWorkingClass):
 
         file_path = FRAGMENT_DIR / fragment_meta.download_file_name
         frags_df = self.read_fragment_file(file_path)
+        logging.debug(f"{accession_pid} starting df mem total {self.get_df_mem_total(frags_df):_}")
 
         # TODO: figure out how to report QA stuff, initial attempt crashed comp
         #plot for QA
@@ -274,10 +286,12 @@ class FilterWorker(TheWorkingClass):
                 frags_df["barcode"] = fragment_meta.label + frags_df["barcode"]
 
         logging.debug(f"{accession_pid} Finished barcode update")
+        logging.debug(f"{accession_pid} post-update df mem total {self.get_df_mem_total(frags_df):_}")
 
         #filter down to only barcodes in the CxG matrix
         frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
         logging.debug(f"{accession_pid} Finished barcode filtering")
+        logging.debug(f"{accession_pid} post-filtering df mem total {self.get_df_mem_total(frags_df):_}")
 
         #plot for QA
         counts = frags_df["barcode"].value_counts()
