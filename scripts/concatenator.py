@@ -231,6 +231,7 @@ class FilterWorker(TheWorkingClass):
         """
         self.create_logger(fragment_meta.queues.logging_queue)
         pid = os.getpid()
+        accession_pid = f"{fragment_meta.accession} - {pid}:"
 
         #read in the fragments
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
@@ -241,11 +242,11 @@ class FilterWorker(TheWorkingClass):
             a = f"{fragment_meta.label}{REPLACE_WITH}"
             barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.startswith(fragment_meta.label)]
 
-        logging.debug(f"{fragment_meta.accession} - {pid}: barcode replace with: {a}")
-        logging.debug(f"{fragment_meta.accession} - {pid}: label: {fragment_meta.label}")
-        logging.debug(f"{fragment_meta.accession} - {pid}: cell_label_location: {fragment_meta.cell_label_location}")
-        logging.debug(f"{fragment_meta.accession} - {pid}: fragment file size: {fragment_meta.fragment_file_size:_}")
-        logging.debug(f"{fragment_meta.accession} - {pid}: raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
+        logging.debug(f"{accession_pid} barcode replace with: {a}")
+        logging.debug(f"{accession_pid} label: {fragment_meta.label}")
+        logging.debug(f"{accession_pid} cell_label_location: {fragment_meta.cell_label_location}")
+        logging.debug(f"{accession_pid} fragment file size: {fragment_meta.fragment_file_size:_}")
+        logging.debug(f"{accession_pid} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
         file_path = FRAGMENT_DIR / fragment_meta.download_file_name
         frags_df = self.read_fragment_file(file_path)
@@ -272,11 +273,11 @@ class FilterWorker(TheWorkingClass):
             else:
                 frags_df["barcode"] = fragment_meta.label + frags_df["barcode"]
 
-        logging.debug(f"{fragment_meta.accession} - {pid}: Finished barcode update")
+        logging.debug(f"{accession_pid} Finished barcode update")
 
         #filter down to only barcodes in the CxG matrix
         frags_df = frags_df[frags_df["barcode"].isin(barcode_subset)]
-        logging.debug(f"{fragment_meta.accession} - {pid}: Finished barcode filtering")
+        logging.debug(f"{accession_pid} Finished barcode filtering")
 
         #plot for QA
         counts = frags_df["barcode"].value_counts()
@@ -719,6 +720,7 @@ def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 1
     process pool to give more buffer for OOM issues.
     """
     fragment_meta = sorted(fragment_meta, key=lambda x: x.fragment_file_size, reverse=True)
+    total_files = len(fragment_meta)
     total_memory = int(psutil.virtual_memory().total * 0.95)
     count = 0
     running_total = 0
@@ -728,7 +730,8 @@ def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 1
             return count
         count += 1
 
-    return os.cpu_count() // 2
+    # if no memory limit, return only needed workers up to half the cores
+    return min(total_files, os.cpu_count() // 2)
 
 
 if __name__ == "__main__":
