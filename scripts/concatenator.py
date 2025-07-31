@@ -71,8 +71,9 @@ FRAGMENT_COL_NAMES = [
     "barcode",
     "readSupport"
 ]
+# should have lower mem usage per worker with col dtypes
 FRAG_DTYPE={
-    "chrom": "string[pyarrow]",
+    "chrom": "category",
     "start": "int32",
     "end": "int32",
     "barcode": "string[pyarrow]",
@@ -200,7 +201,7 @@ class TheWorkingClass(ABC):
             comment="#",
             sep="\t",
             names=FRAGMENT_COL_NAMES,
-            # dtype=FRAG_DTYPE,
+            dtype=FRAG_DTYPE,
         )
         return df
 
@@ -262,6 +263,8 @@ class FilterWorker(TheWorkingClass):
         file_path = FRAGMENT_DIR / fragment_meta.download_file_name
         frags_df = self.read_fragment_file(file_path)
         logging.debug(f"{accession_pid} starting df mem total {self.get_df_mem_total(frags_df):_}")
+        num_chrom = len(frags_df["chrom"].cat.categories)
+        logging.debug(f"{accession_pid} chrom categories: {num_chrom}")
 
         # TODO: figure out how to report QA stuff, initial attempt crashed comp
         #plot for QA
