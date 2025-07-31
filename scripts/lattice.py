@@ -156,6 +156,7 @@ def replace_object(obj_id, connection, post_json):
         logging.warning('PUT failure.  Response = %s' % (response.text))
     return response.json()
 
+
 def create_subdirectory(subdirectory):
     if os.path.exists('./outputs') == False:
         os.mkdir('./outputs')
@@ -163,6 +164,7 @@ def create_subdirectory(subdirectory):
         os.mkdir('./outputs/' + subdirectory)
     full_filepath = './outputs/' + subdirectory
     return full_filepath
+
 
 def check_audit(obj):
 	obj_type = obj['@type'][0]
