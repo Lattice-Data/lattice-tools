@@ -54,6 +54,7 @@ PRINT_WIDTH = 57
 STOP_SIGNAL = None
 PROCESSED_MATRIX_FIELD_LIST = [
     "accession",
+    "audit",
     "s3_uri",
     "cell_label_location",
     "cell_label_mappings",
@@ -553,6 +554,34 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
         PROCESSED_MATRIX_FIELD_LIST,
         connection
     )[0]
+
+    # audit check, allow user input exit if desired
+    # adapted from version in lattice.py, but need special handling for 
+    # logging and sys.exit() with processes and threads
+    if (
+        processed_matrix_report.get("audit") and
+        processed_matrix_report["audit"].get("ERROR")
+    ):
+        freq = {}
+        for audit in processed_matrix_report["audit"]["ERROR"]:
+            if audit["category"] in freq:
+                freq[audit["category"]] += 1
+            else:
+                freq[audit["category"]] = 1
+
+        for error_type, error_freq in freq.items():
+            logger.error((
+                f"ERROR audit: {str(error_freq)}x {error_type} on "
+                "ProcessedMatrixFile "
+                f"{processed_matrix_report.get('accession')}"
+            ))
+
+        i = input("Continue? y/n: ")
+        if i.lower() not in ["y", "yes"]:
+            logger.critical("Stopped due to one or more ERROR audits")
+            logger_thread_shutdown_and_exit()
+
+        logger.info("Continuing run with ERROR audits present")
 
     h5ad_uri = URIPath(processed_matrix_report["s3_uri"])
     with h5py.File(FS.open(h5ad_uri.full_uri)) as f:
