@@ -163,3 +163,28 @@ def create_subdirectory(subdirectory):
         os.mkdir('./outputs/' + subdirectory)
     full_filepath = './outputs/' + subdirectory
     return full_filepath
+
+def check_audit(obj):
+	obj_type = obj['@type'][0]
+	if 'accession' in obj:
+		i = obj['accession']
+	else:
+		i = obj.get('uuid')
+    # if there are ERROR-level audits, flag it to stop the script
+	if (obj.get('audit') and obj['audit'].get('ERROR')):
+		freq = {}
+		for a in obj['audit']['ERROR']:
+			if a['category'] in freq:
+				freq[a['category']] += 1
+			else:
+				freq[a['category']] = 1
+		for k,v in freq.items():
+			print('ERROR audit:{}x {} on {} {}'.format(
+				str(v),
+				k,
+				obj_type,
+				i
+			))
+		i = input('Continue? y/n: ')
+		if i.lower() not in ['y','yes']:
+			sys.exit('Stopped due to one or more ERROR audits')
