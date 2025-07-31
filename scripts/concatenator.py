@@ -124,7 +124,7 @@ class FragmentFileMeta:
     queues: WorkerQueues
     use_regex: bool
     raw_matrix_file_size: int
-    fragment_file_size: int = None
+    fragment_file_size: int | None = None
 
     def __post_init__(self):
         self.download_file_name = self.accession + "_" + self.uri.file_name
@@ -767,8 +767,8 @@ def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 1
     loading the end of the pool with the largest files. Likely got a little
     more room by casting chrom column as category and using int32 for int cols
 
-    If running total does not get above available total, will return half of
-    availabe cores.
+    If running total does not get above available total, will return only the
+    needed number of workers, up to half the availabe cores.
 
     Want inverse sort for this calculation, but ascending order for running 
     process pool to give more buffer for OOM issues.
