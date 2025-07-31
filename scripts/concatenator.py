@@ -73,11 +73,13 @@ FRAGMENT_COL_NAMES = [
     "readSupport"
 ]
 # should have lower mem usage per worker with col dtypes
+# string[pyarrow] allows for smaller memory usage than string
+# but some fragment files cause offset overflow error
 FRAG_DTYPE={
     "chrom": "category",
     "start": "int32",
     "end": "int32",
-    "barcode": "string[pyarrow]",
+    "barcode": "string",
     "readSupport": "int32",
 }
 
@@ -754,11 +756,17 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
         logger.info(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
 
 
-def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 15) -> int:
+def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 10) -> int:
     """
     Trying to more intelligently pick number of process workers based on memory
     requirements. On EC2, might need 10-15x memory of on-disk gzipped file.
-    Will use 15 as default, could change if need-be, or make less for macOS.
+
+    Will use 10 as default, could change if need-be, or make less for macOS.
+
+    LATDF181GYW (28 fragment files) worked well with a 10x mem overshoot and
+    loading the end of the pool with the largest files. Likely got a little
+    more room by casting chrom column as category and using int32 for int cols
+
     If running total does not get above available total, will return half of
     availabe cores.
 
