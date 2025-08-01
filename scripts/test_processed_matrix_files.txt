@@ -9,3 +9,4 @@ LATDF994BQY     # cell culture
 LATDF448PLU     # primary:mixed
 LATDF366MLP     # ATAC, ENSG index, w/o rawseqfile
 LATDF216UIK     # pooled experiments
+LATDF642PEG     # demultiplexed experiment
