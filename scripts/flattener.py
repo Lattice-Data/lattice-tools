@@ -1139,9 +1139,7 @@ def main(mfinal_id, connection, hcatier1):
 	ds_results = fm.gather_metdata('matrix', fm.DATASET_METADATA['final_matrix'], ds_results, [glob.mfinal_obj], glob.connection)
 	df['is_primary_data'] = ds_results['is_primary_data']
 	df['is_primary_data'].replace({'True': True, 'False': False}, inplace=True)
-	ds_results['organism_ontology_term_id'] = df['organism_ontology_term_id'].unique()[0]
 	del ds_results['is_primary_data']
-	del df['organism_ontology_term_id']
 
 	# Check if default_embedding is unreported_value, and if so remove
 	if ds_results['default_embedding'] == fm.UNREPORTED_VALUE:
@@ -1316,6 +1314,8 @@ def main(mfinal_id, connection, hcatier1):
 		hcatier1_check(glob)
 	drop_cols(celltype_col, glob)
 	clean_obs(glob)
+	glob.cxg_uns['organism_ontology_term_id'] = glob.cxg_obs['organism_ontology_term_id'].unique()[0]
+	del glob.cxg_obs['organism_ontology_term_id']
 
 	# Check that primary_portion.obs_field of ProcessedMatrixFile is present in cxg_obs
 	if glob.mfinal_obj.get('primary_portion', None): # Checking for presence of 'primary_portion'
