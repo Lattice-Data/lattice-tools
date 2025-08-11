@@ -16,11 +16,11 @@ For each annotation V22 and after, the primary annotation was used. For V19-21, 
 
 The coordinates of the V19 genes were converted from hg19 to GRCh38 coordinates via [liftOver](https://genome.ucsc.edu/FAQ/FAQdownloads.html#liftOver).
 
-Target version 48 was used because it is the pinned annotation version for CELLxGENE Discover starting with [schema 7.0.0](https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/7.0.0/schema.md#required-gene-annotations).
+Target version 44 was used because it is the pinned annotation version for CELLxGENE Discover starting with [schema 5.0.0](https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/5.0.0/schema.md#required-gene-annotations).
 
-The output `gene_map_v48.json` was generated via running
+The output `gene_map_v44.json` was generated via running 
 ```
-python gene_mapping.py -v 48
+python gene_mapping.py -v 44
 ```
 
 Future updates will include mouse annotation comparisons, but preliminary exploration indicated that there are significantly fewer cases that need to be mapped in this manner.
