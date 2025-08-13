@@ -253,6 +253,12 @@ def gather_metdata(obj_type, properties, values_to_add, objs, connection):
 				latkey = (obj_type + '_' + prop).replace('.', '_')
 				key = constants.PROP_MAP.get(latkey, latkey)
 				values_to_add[key] = value
+		elif prop == '@type':
+			if value == 'cell culture':
+				value = 'primary cell culture'
+			latkey = (obj_type + '_' + prop).replace('.', '_')
+			key = constants.PROP_MAP.get(latkey, latkey)
+			values_to_add[key] = value
 		else:
 			if isinstance(value, list):
 				if len(value) == 0:
@@ -425,6 +431,9 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 				v = get_value(obj, prop)
 				if prop == 'summary_development_ontology_at_collection.development_slims':
 					dev_list.append(v)
+				elif prop == '@type':
+					if v == 'cell culture':
+						v = 'primary cell culture'
 				elif prop == 'cell_ontology.term_id':
 					if v == 'NCIT:C17998':
 						v = 'unknown'
