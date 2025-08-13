@@ -594,7 +594,7 @@ def clean_obs(glob):
 	glob.cxg_obs['tissue_type'] = glob.cxg_obs['tissue_type'].str.lower()
 	for i in glob.cxg_obs['tissue_type'].unique().tolist():
 		if i == 'cellculture':
-			glob.cxg_obs['tissue_type'].replace({'cellculture':'cell culture'}, inplace=True)
+			glob.cxg_obs['tissue_type'].replace({'cellculture':'primary cell culture'}, inplace=True)
 		if i not in valid_tissue_types:
 			logging.error('ERROR: not a valid tissue type:\t{}'.format(i))
 			print('ERROR: not a valid tissue type:\t{}'.format(i))
