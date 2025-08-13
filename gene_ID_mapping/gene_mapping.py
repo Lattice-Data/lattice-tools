@@ -14,13 +14,16 @@ def getArgs():
 
     parser.add_argument('--version', '-v',
                         help='The GENCODE version to map previous versions to.')
+    parser.add_argument('--organism', '-o',
+                        help='The GENCODE version to map previous versions to.')
     args = parser.parse_args()
     return args
 
 
 #https://genome.ucsc.edu/FAQ/FAQdownloads.html#liftOver
 #hg19ToHg38.over.chain.gz from http://hgdownload.soe.ucsc.edu/goldenPath/hg19/liftOver/
-def lift_over(df):
+#mm10ToMm39.over.chain.gz from https://hgdownload.soe.ucsc.edu/goldenPath/mm10/liftOver/
+def lift_over(df, chain_file):
     temp_file = 'preLift.tsv'
 
     coord_cols = ['seqname','start','stop']
@@ -30,7 +33,6 @@ def lift_over(df):
     slim_df['seqname'] = slim_df['seqname'].apply(lambda x: 'chr' + str(x) if str(x).isnumeric() else x)
     slim_df.to_csv(temp_file, header=False, index=False, sep='\t')
 
-    chain_file = 'hg19ToHg38.over.chain.gz'
     converted = 'conversions.bed'
     unmapped = 'unMapped'
 
@@ -54,7 +56,7 @@ def lift_over(df):
     return df
 
 
-def create_df(file, hg19=False):
+def create_df(file, assembly=False):
     column_names = ['seqname','source','feature','start','stop','score','strand','frame','expand_me']
     gtf_df = pd.read_table(file, names=column_names, comment='#')
 
@@ -79,8 +81,11 @@ def create_df(file, hg19=False):
     #merge transcript lists to the gene table
     gene_df = gene_df.merge(transcript_df, on='gene_id', how='left')
 
-    if hg19:
-        gene_df = lift_over(gene_df)
+    if assembly == 'hg19':
+        gene_df = lift_over(gene_df, 'hg19ToHg38.over.chain.gz')
+    elif assembly == 'mm10':
+        gene_df = lift_over(gene_df, 'mm10ToMm39.over.chain.gz')
+
     gene_df['coordinates'] = gene_df.apply(
         lambda x: f"{x['seqname']}:{x['start']}-{x['stop']}{x['strand']}",
         axis=1)
@@ -128,17 +133,20 @@ if not args.version:
     sys.exit('ERROR: --version is required')
 schema_v = args.version
 
-schema_ref = f'gencode.v{schema_v}.primary_assembly.annotation.gtf.gz'
-if not os.path.isfile(schema_ref):
-    sys.exit(f'ERROR: {schema_ref} missing')
-
+#DEFINE BASED ON ORGANISM:
 refs = []
-for n in range(19,22):
-    refs.append(f'gencode.v{n}.chr_patch_hapl_scaff.annotation.gtf.gz')
-for n in range(22, int(schema_v)):
-    refs.append(f'gencode.v{n}.primary_assembly.annotation.gtf.gz')
+if args.organism == 'human':
+    for n in range(19,22):
+        refs.append(f'gencode.v{n}.chr_patch_hapl_scaff.annotation.gtf.gz')
+    for n in range(22, int(schema_v)):
+        refs.append(f'gencode.v{n}.primary_assembly.annotation.gtf.gz')
+    schema_ref = f'gencode.v{schema_v}.primary_assembly.annotation.gtf.gz'
+elif args.organism == 'mouse':
+    for n in range(25, int(schema_v)):
+        refs.append(f'gencode.vM{n}.primary_assembly.annotation.gtf.gz')
+    schema_ref = f'gencode.vM{schema_v}.primary_assembly.annotation.gtf.gz'
 
-missing_files = [r for r in refs if r not in os.listdir()]
+missing_files = [r for r in refs + [schema_ref] if r not in os.listdir()]
 if missing_files:
     print(f'ERROR: {len(missing_files)} reference files missing')
     print('\n'.join(missing_files))
@@ -153,7 +161,9 @@ ref_comp = pd.DataFrame()
 for r in refs:
     print(r)
     if 'v19' in r:
-        input_df = create_df(r, hg19=True)
+        input_df = create_df(r, 'hg19')
+    elif 'M25' in r:
+        input_df = create_df(r, 'mm10')
     else:
         input_df = create_df(r)
     input_df['input'] = r
@@ -227,7 +237,7 @@ min_report.fillna('', inplace=True)
 
 min_report = min_report[min_report['new_ENSG in version'] == '']
 
-with open(f'gene_map_v{schema_v}.json', 'w') as f:
+with open(f'gene_map_{args.organism}_v{schema_v}.json', 'w') as f:
     json.dump(
         min_report.set_index('gene_id').to_dict()['new_ENSG'],
         f,
