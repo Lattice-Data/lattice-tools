@@ -877,6 +877,9 @@ def main(mfinal_id, connection, hcatier1):
 	glob = GlobVals(None, None, None, None, None, None, None, [], connection)
 	glob.mfinal_obj = lattice.get_object(mfinal_id, connection)
 
+	# Perform latticeDB audit check
+	lattice.check_audit(glob.mfinal_obj)
+
 	logging.basicConfig(filename="{}_outfile_flattener.log".format(mfinal_id), filemode='w', level=logging.INFO)
 	# Adding date and time to top of logging file
 	time_date = datetime.now().strftime("%m/%d/%Y %H:%M:%S")

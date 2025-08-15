@@ -269,23 +269,7 @@ def file_stats(local_path, obj):
 def get_object(temp_obj, variable_age=False):
 	obj_type = temp_obj['@type'][0]
 
-	# if there are ERROR-level audits, flag it to stop the script
-	if (temp_obj.get('audit') and temp_obj['audit'].get('ERROR')):
-		freq = {}
-		for a in temp_obj['audit']['ERROR']:
-			if a['category'] in freq:
-				freq[a['category']] += 1
-			else:
-				freq[a['category']] = 1
-		for k,v in freq.items():
-			print('ERROR audit:{}x {} on {} {}'.format(
-				str(v),
-				k,
-				obj_type,
-				temp_obj.get('uuid')))
-		i = input('Continue? y/n: ')
-		if i.lower() not in ['y','yes']:
-			sys.exit('Stopped due to one or more ERROR audits')
+	lattice.check_audit(temp_obj)
 
 	# drop unused properties, flatten subobjects
 	temp_obj = flatten_obj(temp_obj)
