@@ -166,6 +166,8 @@ class TheWorkingClass(ABC):
         """
         if args.deduplicate:
             return DeduplicateWorker()
+        if args.golang:
+            return GoLangWorker()
         return FilterWorker()
 
     @abstractmethod
@@ -401,6 +403,87 @@ class DeduplicateWorker(TheWorkingClass):
         )
 
 
+class GoLangWorker(TheWorkingClass):
+    def verify_local_files(self, meta_list: list[FragmentFileMeta]) -> None:
+        """
+        Need unzipped tsv files for this, so use gunzip to decompress
+        Also need to save barcodes.txt file for moment for golang binary
+        """
+        if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in meta_list]):
+            logger.info("All raw files local, unzipping for go filtering")
+
+            subprocesses = []
+            for file in meta_list:
+                logger.debug(f"Filtered file to decompress: {file.download_file_name}")
+                logger.info(f"Unzipping {file.download_file_name}")
+                p = subprocess.Popen(["gunzip", "-k", "-f", f"{FRAGMENT_DIR}/{file.download_file_name}"])
+                subprocesses.append(p)
+
+            for p in subprocesses:
+                p.wait()
+                logger.info(f"{p.args[-1].split('/')[-1]} finished decompressing")
+
+            logger.info("All decompression completed")
+
+            with open("barcodes.txt", "w") as f:
+                for barcode in meta_list[0].barcodes:
+                    f.write(barcode + '\n')
+        else:
+            logger.error("Some raw files not found locally, please rerun")
+            logger_thread_shutdown_and_exit()
+
+    def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
+        """
+        Trying out golang filtering, call subprocess for go binary. Go binary uses one worker to read
+        tsv to a channel. 4 workers then process tsv lines from channel, checking barcode against obs
+        index and passing to write channel with updated barcode. Final worker writes lines to filtered
+        tsv file. Super I/O bound, might cause too much issue with disk read and writes, almost no RAM
+        usage. No regex at the moment, no QA stat reporting, but roughly seems to work.
+        """
+        self.create_logger(fragment_meta.queues.logging_queue)
+        pid = os.getpid()
+        accession_pid = f"{fragment_meta.accession} - {pid}:"
+
+        logging.debug(f"{accession_pid} label: {fragment_meta.label}")
+        logging.debug(f"{accession_pid} cell_label_location: {fragment_meta.cell_label_location}")
+        logging.debug(f"{accession_pid} fragment file size: {fragment_meta.fragment_file_size:_}")
+        logging.debug(f"{accession_pid} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
+
+        decompressed_file = FRAGMENT_DIR / fragment_meta.download_file_name.replace("tsv.gz", "tsv")
+        logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
+        result = subprocess.run(
+            [
+                "./tsv_barcode_filter", 
+                fragment_meta.label, 
+                fragment_meta.cell_label_location, 
+                decompressed_file
+            ],
+            capture_output=True,
+            text=True
+        )
+        if result.stdout:
+            logging.debug(f"{accession_pid} - {result.stdout}")
+        if result.stderr:
+            logging.error(f"{accession_pid} - {result.stderr}")
+
+        output = fragment_meta.filtered_fragment_path_name
+        file_saved  = True if output.exists() else False
+        logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
+
+        if file_saved:
+            fragment_meta.queues.compression_queue.put(str(output))
+            logging.debug(f"{pid = }: Put {output} on compression queue")
+
+        return FragmentWorkerResult(
+            accession=fragment_meta.accession,
+            file_saved=file_saved,
+            stats={},
+            plot=None,
+            output_path=output,
+            checked_duplicates=True,    # True for now until reworking reporting
+        )
+
+
 def getArgs():
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -421,6 +504,12 @@ def getArgs():
         "--deduplicate",
         "-d",
         help="Remove duplicates from filtered fragment files",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--golang",
+        "-g",
+        help="Use golang subprocess for filtering",
         action="store_true",
     )
     args = parser.parse_args()
