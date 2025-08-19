@@ -306,6 +306,7 @@ class FilterWorker(TheWorkingClass):
         # TODO: figure out how to report QA stuff, initial attempt crashed comp
         #plot for QA
         counts = frags_df["barcode"].value_counts()
+        raw_row_num = frags_df.shape[0]
         # fig, axes = plt.subplots(1, 2, figsize=(10, 5))
         # axes[0].hist(counts, range=(0,1000), bins=200)
         # axes[0].set_ylim(ymin=0)
@@ -335,6 +336,7 @@ class FilterWorker(TheWorkingClass):
 
         #plot for QA
         counts = frags_df["barcode"].value_counts()
+        filt_row_num = frags_df.shape[0]
         # axes[1].hist(counts, range=(0,1000), bins=200)
         # axes[1].set_ylim(ymin=0)
         # axes[1].set_title("filtered")
@@ -342,11 +344,13 @@ class FilterWorker(TheWorkingClass):
         #store stats for QA
         stats = {
             "raw_matrix": fragment_meta.accession,
-            "raw min": raw_min,
-            "filt min": counts.min(),
-            "raw mean": raw_mean,
-            "filt mean": round(counts.mean()),
-            "unique barcodes": len(counts)
+            "raw_min": raw_min,
+            "raw_mean": raw_mean,
+            "raw_row_num": raw_row_num,
+            "filt_min": counts.min(),
+            "filt_mean": round(counts.mean()),
+            "filt_row_num": filt_row_num,
+            "unique_barcodes": len(counts)
         }
         figure = "test_string"
 
@@ -523,7 +527,7 @@ class GoLangWorker(TheWorkingClass):
 
         output = fragment_meta.filtered_fragment_path_name
         file_saved  = True if output.exists() else False
-        logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
+        logging.info(f"Finished filtering of {fragment_meta.download_file_name.replace('.gz', '')}. SUCCESS: {file_saved}")
 
         if file_saved:
             fragment_meta.queues.compression_queue.put(str(output))
@@ -896,7 +900,7 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
     if filtered:
         stats_df = pd.DataFrame([item.stats for item in results])
         logger.info(stats_df)
-        logger.info(f"Fragment unique barcodes: {stats_df['unique barcodes'].sum()}")
+        logger.info(f"Fragment unique barcodes: {stats_df['unique_barcodes'].sum()}")
         logger.info(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
 
 

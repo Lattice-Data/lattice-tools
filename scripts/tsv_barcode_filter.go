@@ -23,11 +23,13 @@ var counter = struct {
 type Stats struct {
 	// matching key names in concatenator
 	RawMatrix      string `json:"raw_matrix"`
-	RawMin         int    `json:"raw min"`
-	RawMean        int    `json:"raw mean"`
-	FilterMin      int    `json:"filt min"`
-	FilterMean     int    `json:"filt mean"`
-	UniqueBarcodes int    `json:"unique barcodes"`
+	RawMin         int    `json:"raw_min"`
+	RawMean        int    `json:"raw_mean"`
+	RawRowCount    int    `json:"raw_row_num"`
+	FilterMin      int    `json:"filt_min"`
+	FilterMean     int    `json:"filt_mean"`
+	FilterRowCount int    `json:"filt_row_num"`
+	UniqueBarcodes int    `json:"unique_barcodes"`
 }
 
 // init() will load items for global scope
@@ -110,6 +112,7 @@ func main() {
 	linesChan := make(chan []string)
 	resultsChan := make(chan []string)
 	var wg sync.WaitGroup
+	var rawRowCount int
 
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
@@ -127,6 +130,7 @@ func main() {
 				log.Println("Error reading record:", err)
 				break
 			}
+			rawRowCount++
 			linesChan <- record
 		}
 		close(linesChan) // close channel when all lines read
@@ -156,14 +160,16 @@ func main() {
 			minVal = counts
 		}
 	}
-	mean := sum / uniqueBarcodes
+	filtMean := sum / uniqueBarcodes
 
 	stats := Stats{
 		RawMatrix:      accession,
 		RawMin:         1,
 		RawMean:        1,
+		RawRowCount:    rawRowCount,
 		FilterMin:      minVal,
-		FilterMean:     mean,
+		FilterMean:     filtMean,
+		FilterRowCount: sum,
 		UniqueBarcodes: uniqueBarcodes,
 	}
 	jsonStats, err := json.Marshal(stats)
