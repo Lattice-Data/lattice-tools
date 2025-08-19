@@ -174,6 +174,37 @@ class TheWorkingClass(ABC):
     def verify_local_files(self, meta_list: list[FragmentFileMeta]) -> None:
         pass
 
+    def get_num_workers(self, fragment_meta: list[FragmentFileMeta], scale_factor: int = 10) -> int:
+        """
+        Trying to more intelligently pick number of process workers based on memory
+        requirements. On EC2, might need 10-15x memory of on-disk gzipped file.
+
+        Will use 10 as default, could change if need-be, or make less for macOS.
+
+        LATDF181GYW (28 fragment files) worked well with a 10x mem overshoot and
+        loading the end of the pool with the largest files. Likely got a little
+        more room by casting chrom column as category and using int32 for int cols
+
+        If running total does not get above available total, will return only the
+        needed number of workers, up to half the availabe cores.
+
+        Want inverse sort for this calculation, but ascending order for running 
+        process pool to give more buffer for OOM issues.
+        """
+        fragment_meta = sorted(fragment_meta, key=lambda x: x.fragment_file_size, reverse=True)
+        total_files = len(fragment_meta)
+        total_memory = int(psutil.virtual_memory().total * 0.95)
+        count = 0
+        running_total = 0
+        for meta in fragment_meta:
+            running_total += meta.fragment_file_size * scale_factor
+            if running_total > total_memory:
+                return count
+            count += 1
+
+        # if no memory limit, return only needed workers up to half the cores
+        return min(total_files, os.cpu_count() // 2)
+
     def create_logger(self, queue: Queue):
         """
         Function to create logger in process workers
@@ -409,6 +440,11 @@ class GoLangWorker(TheWorkingClass):
         Need unzipped tsv files for this, so use gunzip to decompress
         Also need to save barcodes.txt file for moment for golang binary
         """
+        # TODO: Implement regex for go filtering? Might not be needed
+        if meta_list[0].use_regex is True:
+            logger.critical("Go filtering does not currently support regex matching")
+            logger_thread_shutdown_and_exit()
+
         if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in meta_list]):
             logger.info("All raw files local, unzipping for go filtering")
 
@@ -431,6 +467,13 @@ class GoLangWorker(TheWorkingClass):
         else:
             logger.error("Some raw files not found locally, please rerun")
             logger_thread_shutdown_and_exit()
+
+    def get_num_workers(self, fragment_meta: list[FragmentFileMeta], scale_factor: int = 10) -> int:
+        """
+        Almost no memory usage for tsv streaming with go filtering
+        Will try 1/4 of cpu cores due to 4-6 threads/workers used per go filtering binary
+        """
+        return os.cpu_count() // 4
 
     def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         """
@@ -845,38 +888,6 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
         logger.info(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
 
 
-def get_num_workers(fragment_meta: list[FragmentFileMeta], scale_factor: int = 10) -> int:
-    """
-    Trying to more intelligently pick number of process workers based on memory
-    requirements. On EC2, might need 10-15x memory of on-disk gzipped file.
-
-    Will use 10 as default, could change if need-be, or make less for macOS.
-
-    LATDF181GYW (28 fragment files) worked well with a 10x mem overshoot and
-    loading the end of the pool with the largest files. Likely got a little
-    more room by casting chrom column as category and using int32 for int cols
-
-    If running total does not get above available total, will return only the
-    needed number of workers, up to half the availabe cores.
-
-    Want inverse sort for this calculation, but ascending order for running 
-    process pool to give more buffer for OOM issues.
-    """
-    fragment_meta = sorted(fragment_meta, key=lambda x: x.fragment_file_size, reverse=True)
-    total_files = len(fragment_meta)
-    total_memory = int(psutil.virtual_memory().total * 0.95)
-    count = 0
-    running_total = 0
-    for meta in fragment_meta:
-        running_total += meta.fragment_file_size * scale_factor
-        if running_total > total_memory:
-            return count
-        count += 1
-
-    # if no memory limit, return only needed workers up to half the cores
-    return min(total_files, os.cpu_count() // 2)
-
-
 if __name__ == "__main__":
     # might be able to use just queue and not multiprocesser manager
     # even with thread listener, manager queue best to handle process inheritance
@@ -915,12 +926,12 @@ if __name__ == "__main__":
             meta.fragment_file_size = (FRAGMENT_DIR / meta.download_file_name).stat().st_size
         fragment_meta_list = sorted(fragment_meta_list, key=lambda x: x.fragment_file_size)
 
-        NUM_PROCESS_WORKERS = get_num_workers(fragment_meta_list)
-        logger.debug(f"{NUM_PROCESS_WORKERS = }")
-
         # using classes to clean up some logic for selecting process worker task
         working_class = TheWorkingClass.pick_worker(args)
         working_class.verify_local_files(fragment_meta_list)
+
+        NUM_PROCESS_WORKERS = working_class.get_num_workers(fragment_meta_list)
+        logger.debug(f"{NUM_PROCESS_WORKERS = }")
 
         compression_thread = threading.Thread(target=gzip_thread, args=(queues.compression_queue,))
         compression_thread.start()
