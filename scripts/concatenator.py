@@ -2,6 +2,7 @@ import argparse
 import boto3.session
 import fsspec
 import h5py
+import json
 import logging
 import logging.config
 import logging.handlers
@@ -448,9 +449,16 @@ class GoLangWorker(TheWorkingClass):
         if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in meta_list]):
             logger.info("All raw files local, unzipping for go filtering")
 
+            to_decompress = [
+                file 
+                for file in meta_list 
+                if not (FRAGMENT_DIR / file.download_file_name.replace(".gz", "")).exists()
+            ]
+
             subprocesses = []
-            for file in meta_list:
-                logger.debug(f"Filtered file to decompress: {file.download_file_name}")
+            logger.info(f"Need to decompress {len(to_decompress)} file(s)...")
+            for file in to_decompress:
+                logger.debug(f"Raw file to decompress: {file.download_file_name}")
                 logger.info(f"Unzipping {file.download_file_name}")
                 p = subprocess.Popen(["gunzip", "-k", "-f", f"{FRAGMENT_DIR}/{file.download_file_name}"])
                 subprocesses.append(p)
@@ -493,7 +501,7 @@ class GoLangWorker(TheWorkingClass):
         logging.debug(f"{accession_pid} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
         decompressed_file = FRAGMENT_DIR / fragment_meta.download_file_name.replace("tsv.gz", "tsv")
-        logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
+        logging.info(f"Starting filtering of {fragment_meta.download_file_name.replace('.gz', '')}...")
         result = subprocess.run(
             [
                 "./tsv_barcode_filter", 
@@ -509,6 +517,10 @@ class GoLangWorker(TheWorkingClass):
         if result.stderr:
             logging.error(f"{accession_pid} - {result.stderr}")
 
+        # weird split for momemt, seems to work
+        json_string = result.stdout.split("||")[-1].lstrip()
+        stats = json.loads(json_string)
+
         output = fragment_meta.filtered_fragment_path_name
         file_saved  = True if output.exists() else False
         logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
@@ -520,10 +532,10 @@ class GoLangWorker(TheWorkingClass):
         return FragmentWorkerResult(
             accession=fragment_meta.accession,
             file_saved=file_saved,
-            stats={},
+            stats=stats,
             plot=None,
             output_path=output,
-            checked_duplicates=True,    # True for now until reworking reporting
+            checked_duplicates=False,
         )
 
 
