@@ -622,7 +622,7 @@ def download_object(s3_client, fragment_meta: FragmentFileMeta):
     Thread worker to download files from S3
     """
     download_path = FRAGMENT_DIR / fragment_meta.download_file_name
-    logger.info(f"Downloading {fragment_meta.download_file_name} to {download_path}")
+    logger.debug(f"Downloading {fragment_meta.download_file_name} to {download_path}")
     response = s3_client.head_object(
         Bucket=fragment_meta.uri.bucket_name,
         Key=fragment_meta.uri.file_path
@@ -813,7 +813,7 @@ def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
     Call multi-threaded download function and log results
     """
     for key, result in download_parallel_multithreading(files_to_download):
-        logger.info(f"{key} download result: {result}")
+        logger.debug(f"{key} download result: {result}")
 
 
 def gzip_thread(queue: Queue):
