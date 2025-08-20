@@ -29,6 +29,7 @@ from multiprocessing import (
 )
 from pathlib import Path
 from typing import Callable
+from tqdm import tqdm
 
 from lattice import (
     Connection,
@@ -622,11 +623,24 @@ def download_object(s3_client, fragment_meta: FragmentFileMeta):
     """
     download_path = FRAGMENT_DIR / fragment_meta.download_file_name
     logger.info(f"Downloading {fragment_meta.download_file_name} to {download_path}")
-    s3_client.download_file(
-        fragment_meta.uri.bucket_name,
-        fragment_meta.uri.file_path,
-        str(download_path)
+    response = s3_client.head_object(
+        Bucket=fragment_meta.uri.bucket_name,
+        Key=fragment_meta.uri.file_path
     )
+    file_size = response["ContentLength"]
+
+    with tqdm(
+        total=file_size,
+        desc=f"Downloading {fragment_meta.download_file_name}",
+        unit="B",
+        unit_scale=True
+    ) as pbar:
+        s3_client.download_file(
+            fragment_meta.uri.bucket_name,
+            fragment_meta.uri.file_path,
+            str(download_path),
+            Callback=pbar.update
+        )
     return "Success"
 
 
