@@ -126,6 +126,9 @@ func main() {
 		go worker(label, location, i, linesChan, resultsChan, &wg)
 	}
 
+	// hashmap for proper raw stats
+	rawBarcodeCounts := make(map[string]int)
+
 	// read lines and send to workers
 	go func() {
 		for {
@@ -138,6 +141,8 @@ func main() {
 				break
 			}
 			rawRowCount++
+			barcode := record[3]
+			rawBarcodeCounts[barcode]++
 			linesChan <- record
 		}
 		close(linesChan) // close channel when all lines read
@@ -158,26 +163,36 @@ func main() {
 	wg.Wait()
 	close(resultsChan)
 
-	var sum int
-	uniqueBarcodes := len(counter.m)
-	minVal := math.MaxInt
+	var filterRowCount int
+	uniqueFiltBarcodes := len(counter.m)
+	uniqueRawBarcodes := len(rawBarcodeCounts)
+
+	filtMinVal := math.MaxInt
 	for _, counts := range counter.m {
-		sum += counts
-		if counts < minVal {
-			minVal = counts
+		filterRowCount += counts
+		if counts < filtMinVal {
+			filtMinVal = counts
 		}
 	}
-	filtMean := sum / uniqueBarcodes
+	filtMean := filterRowCount / uniqueFiltBarcodes
+
+	rawMinVal := math.MaxInt
+	for _, counts := range rawBarcodeCounts {
+		if counts < rawMinVal {
+			rawMinVal = counts
+		}
+	}
+	rawMean := rawRowCount / uniqueRawBarcodes
 
 	stats := Stats{
 		RawMatrix:      accession,
-		RawMin:         1,
-		RawMean:        1,
+		RawMin:         rawMinVal,
+		RawMean:        rawMean,
 		RawRowCount:    rawRowCount,
-		FilterMin:      minVal,
+		FilterMin:      filtMinVal,
 		FilterMean:     filtMean,
-		FilterRowCount: sum,
-		UniqueBarcodes: uniqueBarcodes,
+		FilterRowCount: filterRowCount,
+		UniqueBarcodes: uniqueFiltBarcodes,
 	}
 	jsonStats, err := json.Marshal(stats)
 	if err != nil {
