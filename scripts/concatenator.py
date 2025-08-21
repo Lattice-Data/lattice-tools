@@ -444,7 +444,7 @@ class DeduplicateWorker(TheWorkingClass):
 class GoLangWorker(TheWorkingClass):
     def verify_local_files(self, meta_list: list[FragmentFileMeta]) -> None:
         """
-        Need unzipped tsv files for this, so use gunzip to decompress
+        Trying decompressing within the go binary and using 2 go threads for barcode checks
         Also need to save barcodes.txt file for moment for golang binary
         """
         # TODO: Implement regex for go filtering? Might not be needed
@@ -453,27 +453,7 @@ class GoLangWorker(TheWorkingClass):
             logger_thread_shutdown_and_exit()
 
         if all([(FRAGMENT_DIR / file.download_file_name).exists() for file in meta_list]):
-            logger.info("All raw files local, unzipping for go filtering")
-
-            to_decompress = [
-                file 
-                for file in meta_list 
-                if not (FRAGMENT_DIR / file.download_file_name.replace(".gz", "")).exists()
-            ]
-
-            subprocesses = []
-            logger.info(f"Need to decompress {len(to_decompress)} file(s)...")
-            for file in to_decompress:
-                logger.debug(f"Raw file to decompress: {file.download_file_name}")
-                logger.info(f"Unzipping {file.download_file_name}")
-                p = subprocess.Popen(["gunzip", "-k", "-f", f"{FRAGMENT_DIR}/{file.download_file_name}"])
-                subprocesses.append(p)
-
-            for p in subprocesses:
-                p.wait()
-                logger.info(f"{p.args[-1].split('/')[-1]} finished decompressing")
-
-            logger.info("All decompression completed")
+            logger.info("All raw files local, starting go filtering")
 
             with open("barcodes.txt", "w") as f:
                 for barcode in meta_list[0].barcodes:
@@ -508,8 +488,8 @@ class GoLangWorker(TheWorkingClass):
         logging.debug(f"{accession_pid} fragment file size: {fragment_meta.fragment_file_size:_}")
         logging.debug(f"{accession_pid} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
-        decompressed_file = FRAGMENT_DIR / fragment_meta.download_file_name.replace("tsv.gz", "tsv")
-        logging.info(f"Starting filtering of {fragment_meta.download_file_name.replace('.gz', '')}...")
+        raw_file = FRAGMENT_DIR / fragment_meta.download_file_name
+        logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
 
         go_binary = "./tsv_barcode_filter_linux_amd64" if platform.machine() == "x86_64" else "./tsv_barcode_filter"
         result = subprocess.run(
@@ -517,7 +497,7 @@ class GoLangWorker(TheWorkingClass):
                 go_binary,
                 fragment_meta.label, 
                 fragment_meta.cell_label_location, 
-                decompressed_file
+                raw_file
             ],
             capture_output=True,
             text=True
@@ -533,7 +513,7 @@ class GoLangWorker(TheWorkingClass):
 
         output = fragment_meta.filtered_fragment_path_name
         file_saved  = True if output.exists() else False
-        logging.info(f"Finished filtering of {fragment_meta.download_file_name.replace('.gz', '')}. SUCCESS: {file_saved}")
+        logging.info(f"Finished filtering of {fragment_meta.download_file_name}. SUCCESS: {file_saved}")
 
         if file_saved:
             fragment_meta.queues.compression_queue.put(str(output))
