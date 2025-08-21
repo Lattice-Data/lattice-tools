@@ -181,4 +181,4 @@ func main() {
 
 }
 
-// linux build: GOOS=linux GOARCH=amd64 go build -o tsv_barcode_filter_amd64 tsv_barcode_filter.go
+// linux build: GOOS=linux GOARCH=amd64 go build -o tsv_barcode_filter_linux_amd64 tsv_barcode_filter.go
