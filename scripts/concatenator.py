@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import multiprocessing
 import os
 import pandas as pd
+import platform
 import psutil
 import re
 import subprocess
@@ -507,9 +508,11 @@ class GoLangWorker(TheWorkingClass):
 
         decompressed_file = FRAGMENT_DIR / fragment_meta.download_file_name.replace("tsv.gz", "tsv")
         logging.info(f"Starting filtering of {fragment_meta.download_file_name.replace('.gz', '')}...")
+
+        go_binary = "./tsv_barcode_filter_linux_amd64" if platform.machine() == "x86_64" else "./tsv_barcode_filter"
         result = subprocess.run(
             [
-                "./tsv_barcode_filter", 
+                go_binary,
                 fragment_meta.label, 
                 fragment_meta.cell_label_location, 
                 decompressed_file
