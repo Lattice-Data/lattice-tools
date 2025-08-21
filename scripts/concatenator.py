@@ -465,11 +465,11 @@ class GoLangWorker(TheWorkingClass):
     def get_num_workers(self, fragment_meta: list[FragmentFileMeta], scale_factor: int = 10) -> int:
         """
         Almost no memory usage for tsv streaming with go filtering
-        Will try 1/4 of cpu cores due to 4-6 threads/workers used per go filtering binary
-        Use number of total fragment files up to 1/4 of cores
+        Will try 1/2 of cpu cores due to 2-4 threads/workers used per go filtering binary
+        Use number of total fragment files up to 1/2 of cores
         """
         total_fragment_files = len(fragment_meta)
-        return min(total_fragment_files, os.cpu_count() // 4)
+        return min(total_fragment_files, os.cpu_count() // 2)
 
     def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         """
