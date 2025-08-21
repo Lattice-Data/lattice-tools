@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"compress/gzip"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -83,21 +84,27 @@ func main() {
 	fileName := strings.Split(filePath, "/")[1]
 	accession := strings.Split(fileName, "_")[0]
 
-	numWorkers := 4
+	numWorkers := 2
 
 	file, err := os.Open(filePath)
 	if err != nil {
 		log.Println("Error opening file:", err)
 		return
 	}
-
 	defer file.Close()
 
-	reader := csv.NewReader(file)
+	gzReader, err := gzip.NewReader(file)
+	if err != nil {
+		log.Println("Error with gzip reader: ", err)
+		return
+	}
+	defer gzReader.Close()
+
+	reader := csv.NewReader(gzReader)
 	reader.Comma = '\t'
 	reader.Comment = '#'
 
-	outputFile := strings.Replace(filePath, "fragments.tsv", "filtered_fragments.tsv", 1)
+	outputFile := strings.Replace(filePath, "fragments.tsv.gz", "filtered_fragments.tsv", 1)
 	output, err := os.Create(outputFile)
 	if err != nil {
 		log.Fatalf("failed to create output file: %v", err)
