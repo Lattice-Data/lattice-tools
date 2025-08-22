@@ -440,7 +440,7 @@ def gather_pooled_metadata(obj_type, properties, values_to_add, objs, connection
 								db_ids.append(db_id[4:])
 						if len(db_ids) > 1:
 							db_ids = sorted(db_ids)
-					v = db_ids
+						v = db_ids
 				if isinstance(v, list):
 					value.extend(v)
 				else:
