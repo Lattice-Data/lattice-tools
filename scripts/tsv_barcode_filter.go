@@ -13,13 +13,12 @@ import (
 	"sync"
 )
 
-// no std lib set, can use this type of hashmap
-var barcodeSet map[string]struct{}
-
-var counter = struct {
+// filtered barcode counter needs lock for worker writes, could use this for raw
+// counts too, but lock not needed
+type Counter struct {
 	sync.RWMutex
 	m map[string]int
-}{m: make(map[string]int)}
+}
 
 type Stats struct {
 	// matching key names in concatenator
@@ -33,14 +32,12 @@ type Stats struct {
 	UniqueBarcodes int    `json:"unique_barcodes"`
 }
 
-// init() will load items for global scope
-func init() {
-	barcodeSet = make(map[string]struct{})
+func makeBarcodeMap() map[string]struct{} {
+	barcodeSet := make(map[string]struct{})
 
 	f, err := os.Open("barcodes.txt")
 	if err != nil {
 		log.Println("Error opening barcodes file:", err)
-		return
 	}
 	defer f.Close()
 
@@ -52,9 +49,10 @@ func init() {
 	if err := scanner.Err(); err != nil {
 		log.Println("Error with scanner:", err)
 	}
+	return barcodeSet
 }
 
-func worker(label string, location string, id int, lines <-chan []string, results chan<- []string, wg *sync.WaitGroup) {
+func worker(label string, location string, barcodeSet *map[string]struct{}, counter *Counter, lines <-chan []string, results chan<- []string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var testBarcode string
 	for line := range lines {
@@ -63,7 +61,8 @@ func worker(label string, location string, id int, lines <-chan []string, result
 		} else {
 			testBarcode = line[3] + label
 		}
-		if _, exists := barcodeSet[testBarcode]; exists {
+		// map should pass by reference by default, trying out pointer dereference
+		if _, exists := (*barcodeSet)[testBarcode]; exists {
 			line[3] = testBarcode
 			// processedResult := fmt.Sprintf("Worker %d processed: %v", id, line)
 			// fmt.Println(processedResult)
@@ -84,6 +83,8 @@ func main() {
 	fileName := strings.Split(filePath, "/")[1]
 	accession := strings.Split(fileName, "_")[0]
 
+	// with gzip decompress on the fly, 2 filter workers seems about right
+	// straight tsv file needs 3-4 workers for increased read speeds
 	numWorkers := 2
 
 	file, err := os.Open(filePath)
@@ -120,10 +121,12 @@ func main() {
 	resultsChan := make(chan []string)
 	var wg sync.WaitGroup
 	var rawRowCount int
+	filtBarcodeCounter := Counter{m: make(map[string]int)}
+	barcodeSet := makeBarcodeMap()
 
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go worker(label, location, i, linesChan, resultsChan, &wg)
+		go worker(label, location, &barcodeSet, &filtBarcodeCounter, linesChan, resultsChan, &wg)
 	}
 
 	// hashmap for proper raw stats
@@ -164,11 +167,11 @@ func main() {
 	close(resultsChan)
 
 	var filterRowCount int
-	uniqueFiltBarcodes := len(counter.m)
+	uniqueFiltBarcodes := len(filtBarcodeCounter.m)
 	uniqueRawBarcodes := len(rawBarcodeCounts)
 
 	filtMinVal := math.MaxInt
-	for _, counts := range counter.m {
+	for _, counts := range filtBarcodeCounter.m {
 		filterRowCount += counts
 		if counts < filtMinVal {
 			filtMinVal = counts
@@ -199,6 +202,8 @@ func main() {
 		log.Fatal("Error with json marshal", err)
 	}
 
+	// using this to parse results, current logging shows command line args
+	// plus final results
 	fmt.Println("||", string(jsonStats))
 
 }
