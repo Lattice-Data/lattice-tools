@@ -618,7 +618,8 @@ def download_object(s3_client, fragment_meta: FragmentFileMeta):
         total=file_size,
         desc=f"Downloading {fragment_meta.download_file_name}",
         unit="B",
-        unit_scale=True
+        unit_scale=True,
+        colour="#2c8558"
     ) as pbar:
         s3_client.download_file(
             fragment_meta.uri.bucket_name,
