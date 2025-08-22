@@ -44,7 +44,9 @@ This script will filter and concatenate ATAC fragment files from Lattice.
 This is done in parallel as much as possible.
 
 Examples:
-    Coming soon
+    python %(prog)s -m prod -f LATDF366MLP
+    python %(prog)s -m prod -f LATDF366MLP -d
+    python %(prog)s -m prod -f LATDF366MLP -g
 
     python %(prog)s --help
 """
@@ -536,25 +538,25 @@ def getArgs():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--file",
-        "-f",
-        help="Any identifier for the matrix of interest."
-    )
-    parser.add_argument(
         "--mode",
         "-m",
-        help="The machine to run on."
+        help="The machine to run on, prod or demo"
+    )
+    parser.add_argument(
+        "--file",
+        "-f",
+        help="Accession for the processed matrix of interest."
     )
     parser.add_argument(
         "--deduplicate",
         "-d",
-        help="Remove duplicates from filtered fragment files",
+        help="OPTIONAL - Remove duplicates from filtered fragment files",
         action="store_true",
     )
     parser.add_argument(
         "--golang",
         "-g",
-        help="Use golang subprocess for filtering",
+        help="OPTIONAL - Use golang subprocess for filtering",
         action="store_true",
     )
     args = parser.parse_args()
