@@ -1,11 +1,11 @@
-CONDA_NAME = cxg53testing
+CONDA_NAME = cxg70testing
 CLONE_ENV = lattice
 GIT_REF = main
 PYTHON_VERSION = 3.11
 
 .PHONY: help
 help:
-	@echo "Makefile for 5.3.0 QA testing"
+	@echo "Makefile for QA testing"
 	@echo "============ Default values ============"
 	@echo "PYTHON_VERSION="$(PYTHON_VERSION)
 	@echo "To create: CONDA_NAME="$(CONDA_NAME)
