@@ -20,6 +20,17 @@ type Counter struct {
 	m map[string]int
 }
 
+// trying go idiomatic enum for no col magic number
+type FragmentCols int
+
+const (
+	ColChrom FragmentCols = iota
+	ColStart
+	ColEnd
+	ColBarcode
+	ColreadSupport
+)
+
 type Stats struct {
 	// matching key names in concatenator
 	RawMatrix      string `json:"raw_matrix"`
@@ -57,9 +68,9 @@ func worker(label string, location string, barcodeSet *map[string]struct{}, coun
 	var testBarcode string
 	for line := range lines {
 		if location == "prefix" {
-			testBarcode = label + line[3]
+			testBarcode = label + line[ColBarcode]
 		} else {
-			testBarcode = line[3] + label
+			testBarcode = line[ColBarcode] + label
 		}
 		// map should pass by reference by default, trying out pointer dereference
 		if _, exists := (*barcodeSet)[testBarcode]; exists {
@@ -117,7 +128,7 @@ func main() {
 	// flush here instead of in receiving channel
 	defer writer.Flush()
 
-	linesChan := make(chan []string)
+	linesChan := make(chan []string, 1000)
 	resultsChan := make(chan []string)
 	var wg sync.WaitGroup
 	var rawRowCount int
@@ -144,7 +155,7 @@ func main() {
 				break
 			}
 			rawRowCount++
-			barcode := record[3]
+			barcode := record[ColBarcode]
 			rawBarcodeCounts[barcode]++
 			linesChan <- record
 		}
