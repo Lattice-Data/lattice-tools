@@ -74,7 +74,7 @@ func worker(label string, location string, barcodeSet *map[string]struct{}, coun
 		}
 		// map should pass by reference by default, trying out pointer dereference
 		if _, exists := (*barcodeSet)[testBarcode]; exists {
-			line[3] = testBarcode
+			line[ColBarcode] = testBarcode
 			// processedResult := fmt.Sprintf("Worker %d processed: %v", id, line)
 			// fmt.Println(processedResult)
 			counter.Lock()
