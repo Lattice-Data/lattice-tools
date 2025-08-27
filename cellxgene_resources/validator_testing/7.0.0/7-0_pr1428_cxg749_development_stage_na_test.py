@@ -5,16 +5,18 @@ Testing conditions:
 Should not pass
 (Y) - tissue_type == "cell line" with normal dev terms
 (Y) - tissue_type != "cell line" with na for dev term
+(Y) - tissue_type == "cell line" and dev stage mix of na and unknown
 
 Should pass
-() - tissue_type == "cell line" with na for dev term
-() - tissue_type == "cell line" with na for dev term has na for dev label
+(Y) - tissue_type == "cell line" with na for dev term
+(Y) - tissue_type == "cell line" with na for dev term has na for dev label
 """
 
+import numpy as np
 import pytest
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 # ruff linter/formatter will remove unused imports, need comments below to keep them
-# since pytest arugments shadow imports
+# since pytest arugments/usage shadow imports
 from fixtures.valid_adatas import (
     ALL_H5ADS,
     test_h5ads,                 # noqa: F401
@@ -35,7 +37,7 @@ class TestDevStageValidation:
         self.validator = validator_with_adatas
 
     def test_tissue_cell_line_dev_na_passes(self):
-        # looks like organisms with UBERON dev stages currently fail
+        # all pass, initially organisms with UBERON dev ontology would fail
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
@@ -46,6 +48,31 @@ class TestDevStageValidation:
     def test_tissue_cell_line_with_valid_dev_term_fails(self):
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        # trying assert for common error string ending instead of matching on full error
+        # string for each dev term in test fixture
+        for error in self.validator.errors:
+            assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
+
+    def test_tissue_cell_line_with_unknown_fails(self):
+        self.validator.adata.obs["tissue_type"] = "cell line"
+        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["development_stage_ontology_term_id"] = "unknown"
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        # trying assert for common error string ending instead of matching on full error
+        # string for each dev term in test fixture
+        for error in self.validator.errors:
+            assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
+
+    def test_tissue_cell_line_with_unknown_and_na_fails(self):
+        # UBERON dev stage organisms still fail based on error in first test
+        self.validator.adata.obs["tissue_type"] = "cell line"
+        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+        random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
+        self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "development_stage_ontology_term_id"] = "unknown"
         self.validator.validate_adata()
         assert not self.validator.is_valid
         # trying assert for common error string ending instead of matching on full error
@@ -68,7 +95,7 @@ class TestDevStageValidation:
 
 
     def test_label_na_for_cell_line_dev_stage_na(self):
-        # organisms that use UBERON also fail this test at the moment
+        # all organisms now pass
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
