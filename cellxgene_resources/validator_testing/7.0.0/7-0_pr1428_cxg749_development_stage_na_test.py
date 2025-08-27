@@ -6,6 +6,7 @@ Should not pass
 (Y) - tissue_type == "cell line" with normal dev terms
 (Y) - tissue_type != "cell line" with na for dev term
 (Y) - tissue_type == "cell line" and dev stage mix of na and unknown
+(Y) - all tissue_types with one random 'na' mixed in with valid dev terms
 
 Should pass
 (Y) - tissue_type == "cell line" with na for dev term
@@ -29,12 +30,20 @@ NON_CELL_LINE_TISSUES = [
     "primary cell culture",
     "tissue",
 ]
+ALL_TISSUE_TYPES = [
+    "organoid",
+    "primary cell culture",
+    "tissue",
+    "cell line",
+]
+
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
 class TestDevStageValidation:
     @pytest.fixture(autouse=True)
     def setup(self, validator_with_adatas):
         self.validator = validator_with_adatas
+
 
     def test_tissue_cell_line_dev_na_passes(self):
         # all pass, initially organisms with UBERON dev ontology would fail
@@ -44,6 +53,7 @@ class TestDevStageValidation:
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
+
 
     def test_tissue_cell_line_with_valid_dev_term_fails(self):
         self.validator.adata.obs["tissue_type"] = "cell line"
@@ -55,6 +65,7 @@ class TestDevStageValidation:
         for error in self.validator.errors:
             assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
 
+
     def test_tissue_cell_line_with_unknown_fails(self):
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
@@ -65,6 +76,7 @@ class TestDevStageValidation:
         # string for each dev term in test fixture
         for error in self.validator.errors:
             assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
+
 
     def test_tissue_cell_line_with_unknown_and_na_fails(self):
         # UBERON dev stage organisms still fail based on error in first test
@@ -80,6 +92,7 @@ class TestDevStageValidation:
         for error in self.validator.errors:
             assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
 
+
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
     def test_tissue_not_cell_line_dev_term_na_fails(self, tissue_type):
         # primary cell culture has further rules for tissue terms, need to take account of those
@@ -92,6 +105,28 @@ class TestDevStageValidation:
             "ERROR: 'na' in 'development_stage_ontology_term_id' is not allowed. "
             "When 'tissue_type' is not 'cell line', 'development_stage_ontology_term_id' cannot be 'na'." 
         ) in self.validator.errors
+
+
+    @pytest.mark.parametrize("tissue_type", ALL_TISSUE_TYPES)
+    def test_tissue_not_cell_line_dev_term_one_na_fails(self, tissue_type):
+        # primary cell culture has further rules for tissue terms, need to take account of those
+        self.validator.adata.obs["tissue_type"] = tissue_type
+        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["development_stage_ontology_term_id"] = self.validator.adata.obs["development_stage_ontology_term_id"].cat.add_categories("na")
+        random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
+        self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "development_stage_ontology_term_id"] = "na"
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+
+        # this works, but probably should be 2 tests to have less complicated logic for asserts
+        if tissue_type != "cell line":
+            assert (
+                "ERROR: 'na' in 'development_stage_ontology_term_id' is not allowed. "
+                "When 'tissue_type' is not 'cell line', 'development_stage_ontology_term_id' cannot be 'na'." 
+            ) in self.validator.errors
+        else:
+            for error in self.validator.errors:
+                assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
 
 
     def test_label_na_for_cell_line_dev_stage_na(self):
