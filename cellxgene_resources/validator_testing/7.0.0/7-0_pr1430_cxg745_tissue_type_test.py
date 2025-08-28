@@ -1,13 +1,16 @@
 """
 QA testing for PR: https://github.com/chanzuckerberg/single-cell-curation/pull/1430
 
+→ Note that since we don't have the cellosaurus changes in yet, the "cell line" requirements for tissue_ontology_term_id are not yet implemented.
+
 Should pass:
-(Y) tissue_type == "cell line" → Note that since we don't have the cellosaurus changes in yet, the "cell line" requirements for tissue_ontology_term_id are not yet implemented.
+(N) tissue_type == "cell line" + development_stage_ontology_term_id == "na" + tissue_ontology_term_id == cellosaurus term
 (Y) tissue_type == "primary cell culture"
 (Y) tissue_type == "organoid" + tissue_ontology_term_id == descendant of "UBERON:0001062"
 (Y) tissue_type == "tissue" + tissue_ontology_term_id == descendant of "UBERON:0001062"
 
 Should not pass:
+(N) tissue_type == "cell line" + development_stage_ontology_term_id == "na" + tissue_ontology_term_id != cellosaurus term
 (Y) tissue_type == "cell culture"
 (Y) tissue_type == "organoid" + tissue_ontology_term_id == "UBERON:0000922" for embryo
 (Y) tissue_type == "organoid" + tissue_ontology_term_id != descendant of "UBERON:0001062"
@@ -40,25 +43,27 @@ class TestTissueTypeValidation:
           assert self.validator.errors == []
 
 
-     def test_tissue_type_cell_line_pass(self):
+     def test_tissue_type_cell_line_valid(self):
 
-          # tissue_type == cell line -> pass
+          # tissue_type == cell line + development_stage_ontology_term_id == 'na' + tissue_ontology_term_id == cellosaurus term -> fails currently
 
           self.validator.adata.obs['tissue_type'] = 'cell line'
           self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
+          self.validator.adata.obs['development_stage_ontology_term_id'] = 'na'
+          self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
           self.validator.validate_adata()
           assert self.validator.is_valid
           assert self.validator.errors == []
 
 
-     def test_tissue_type_primarycellculture_pass(self):
+     def test_tissue_type_primarycellculture_valid(self):
 
-          # tissue_type == "primary cell culture" -> pass
+          # tissue_type == "primary cell culture"
 
           self.validator.adata.obs['tissue_type'] = 'primary cell culture'
           self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
-          if self.validator.adata.uns["organism_ontology_term_id"] in MODEL_ORG_CL_TERMS.keys():
-               self.validator.adata.obs['tissue_ontology_term_id'] = MODEL_ORG_CL_TERMS[self.validator.adata.uns["organism_ontology_term_id"]]
+          if self.validator.adata.uns['organism_ontology_term_id'] in MODEL_ORG_CL_TERMS.keys():
+               self.validator.adata.obs['tissue_ontology_term_id'] = MODEL_ORG_CL_TERMS[self.validator.adata.uns['organism_ontology_term_id']]
           else:
                self.validator.adata.obs['tissue_ontology_term_id'] = 'CL:0000738'
           self.validator.validate_adata()
@@ -66,12 +71,12 @@ class TestTissueTypeValidation:
           assert self.validator.errors == []
 
 
-     @pytest.mark.parametrize('type', ['organoid','tissue'])
-     def test_tissue_type_organoid_tissue_pass(self,type):
+     @pytest.mark.parametrize('types', ['organoid','tissue'])
+     def test_tissue_type_organoid_tissue_valid(self,types):
 
-          # tissue_type == "organoid" OR tissue_type == "tissue" + tissue_ontology_term_id == descendant of "UBERON:0001062" -> pass
+          # tissue_type == "organoid" OR tissue_type == "tissue" + tissue_ontology_term_id == descendant of "UBERON:0001062"
 
-          self.validator.adata.obs['tissue_type'] = type
+          self.validator.adata.obs['tissue_type'] = types
           self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
           self.validator.adata.obs['tissue_ontology_term_id'] = 'UBERON:0002048'
           self.validator.validate_adata()
@@ -79,14 +84,26 @@ class TestTissueTypeValidation:
           assert self.validator.errors == []
 
 
-     def test_cell_culture_fail(self):
+     def test_tissue_type_cell_line_invalid(self):
 
-          # tissue_type == "cell culture" -> fail
+          # tissue_type == cell line + development_stage_ontology_term_id == 'na' + tissue_ontology_term_id != cellosaurus term -> currently fails
+
+          self.validator.adata.obs['tissue_type'] = 'cell line'
+          self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
+          self.validator.adata.obs['development_stage_ontology_term_id'] = 'na'
+          self.validator.adata.obs['tissue_ontology_term_id'] = 'UBERON:0002048'
+          self.validator.validate_adata()
+          assert not self.validator.is_valid
+          #assert ("ERROR: ") in self.validator.errors
+
+     def test_cell_culture_invalid(self):
+
+          # tissue_type == "cell culture"
 
           self.validator.adata.obs['tissue_type'] = 'cell culture'
           self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
-          if self.validator.adata.uns["organism_ontology_term_id"] in MODEL_ORG_CL_TERMS.keys():
-               self.validator.adata.obs['tissue_ontology_term_id'] = MODEL_ORG_CL_TERMS[self.validator.adata.uns["organism_ontology_term_id"]]
+          if self.validator.adata.uns['organism_ontology_term_id'] in MODEL_ORG_CL_TERMS.keys():
+               self.validator.adata.obs['tissue_ontology_term_id'] = MODEL_ORG_CL_TERMS[self.validator.adata.uns['organism_ontology_term_id']]
           else:
                self.validator.adata.obs['tissue_ontology_term_id'] = 'CL:0000738'
           self.validator.validate_adata()
@@ -97,7 +114,7 @@ class TestTissueTypeValidation:
                ) in self.validator.errors
 
 
-     def test_tissue_type_organoid_embryo_fail(self):
+     def test_tissue_type_organoid_embryo_invalid(self):
 
           # tissue_type == "organoid" + tissue_ontology_term_id == "UBERON:0000922" for embryo
 
@@ -112,17 +129,17 @@ class TestTissueTypeValidation:
                ) in self.validator.errors
 
 
-     @pytest.mark.parametrize('type', ['organoid','tissue'])
-     def test_tissue_type_organoid_tissue_fail(self,type):
+     @pytest.mark.parametrize('types', ['organoid','tissue'])
+     def test_tissue_type_organoid_tissue_invalid(self,types):
 
           # tissue_type == "organoid" OR tissue_type == "tissue" + tissue_ontology_term_id != descendant of "UBERON:0001062"
 
-          self.validator.adata.obs['tissue_type'] = type
+          self.validator.adata.obs['tissue_type'] = types
           self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
           self.validator.adata.obs['tissue_ontology_term_id'] = 'UBERON:0000104'
           self.validator.validate_adata()
           assert not self.validator.is_valid
           assert (
                "ERROR: 'UBERON:0000104' in 'tissue_ontology_term_id' is not an allowed term id. "
-               f"When 'tissue_type' is '{type}', 'tissue_ontology_term_id' must be a valid UBERON, ZFA, FBbt, or WBbt term."
+               f"When 'tissue_type' is '{types}', 'tissue_ontology_term_id' must be a valid UBERON, ZFA, FBbt, or WBbt term."
                ) in self.validator.errors
