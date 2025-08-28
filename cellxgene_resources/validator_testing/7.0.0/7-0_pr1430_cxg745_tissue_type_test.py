@@ -15,7 +15,7 @@ Should not pass:
 (Y) tissue_type == "organoid" + tissue_ontology_term_id == "UBERON:0000922" for embryo
 (Y) tissue_type == "organoid" + tissue_ontology_term_id != descendant of "UBERON:0001062"
 (Y) tissue_type == "tissue" + tissue_ontology_term_id != descendant of "UBERON:0001062"
-- tissue_type == "primary cell culture" + invalid tissue_ontology_term_id term
+(Y) tissue_type == "primary cell culture" + invalid tissue_ontology_term_id term
 """
 
 import pytest
@@ -156,5 +156,6 @@ class TestTissueTypeValidation:
           self.validator.validate_adata()
           assert not self.validator.is_valid
           for error in self.validator.errors:
-               assert error.endswith(
-                    "When 'tissue_type' is 'primary cell culture', 'tissue_ontology_term_id' MUST follow the validation rules for cell_type_ontology_term_id.")
+               cleaned_error = error.replace("'", "").replace("MUST", "must")
+               assert cleaned_error.endswith(
+                    "When tissue_type is primary cell culture, tissue_ontology_term_id must follow the validation rules for cell_type_ontology_term_id.")
