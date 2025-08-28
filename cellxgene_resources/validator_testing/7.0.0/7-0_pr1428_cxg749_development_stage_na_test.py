@@ -5,6 +5,7 @@ Testing conditions:
 Should not pass
 (Y) - tissue_type == "cell line" with normal dev terms
 (Y) - tissue_type != "cell line" with na for dev term
+(Y) - tissue_type == "cell line" and dev stage unknown
 (Y) - tissue_type == "cell line" and dev stage mix of na and unknown
 (Y) - all tissue_types with one random 'na' mixed in with valid dev terms
 
@@ -46,7 +47,10 @@ class TestDevStageValidation:
 
 
     def test_tissue_cell_line_dev_na_passes(self):
+
+        # tissue_type == "cell line" with na for dev term
         # all pass, initially organisms with UBERON dev ontology would fail
+
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
@@ -56,6 +60,9 @@ class TestDevStageValidation:
 
 
     def test_tissue_cell_line_with_valid_dev_term_fails(self):
+
+        # tissue_type == "cell line" with normal dev terms
+
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.validate_adata()
@@ -67,6 +74,9 @@ class TestDevStageValidation:
 
 
     def test_tissue_cell_line_with_unknown_fails(self):
+
+        # tissue_type == "cell line" and dev stage unknown
+
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = "unknown"
@@ -79,7 +89,10 @@ class TestDevStageValidation:
 
 
     def test_tissue_cell_line_with_unknown_and_na_fails(self):
-        # UBERON dev stage organisms still fail based on error in first test
+
+        # tissue_type == "cell line" and dev stage mix of na and unknown
+        # UBERON dev stage organisms now passing
+
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
@@ -95,7 +108,10 @@ class TestDevStageValidation:
 
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
     def test_tissue_not_cell_line_dev_term_na_fails(self, tissue_type):
+
+        # tissue_type != "cell line" with na for dev term
         # primary cell culture has further rules for tissue terms, need to take account of those
+
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
@@ -109,7 +125,10 @@ class TestDevStageValidation:
 
     @pytest.mark.parametrize("tissue_type", ALL_TISSUE_TYPES)
     def test_tissue_not_cell_line_dev_term_one_na_fails(self, tissue_type):
+
+        # all tissue_types with one random 'na' mixed in with valid dev terms
         # primary cell culture has further rules for tissue terms, need to take account of those
+
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = self.validator.adata.obs["development_stage_ontology_term_id"].cat.add_categories("na")
@@ -130,7 +149,10 @@ class TestDevStageValidation:
 
 
     def test_label_na_for_cell_line_dev_stage_na(self):
+
+        # tissue_type == "cell line" with na for dev term has na for dev label
         # all organisms now pass
+
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
