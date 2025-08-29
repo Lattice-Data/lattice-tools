@@ -57,8 +57,11 @@ def get_report(obj_type, filter_url, field_lst, connection):
 			obj = requests.get(url, auth=connection.auth)
 			obj.raise_for_status()
 		except requests.exceptions.HTTPError as err:
-			print("HTTP Error: ", err)
-			sys.exit()
+			if obj.status_code == 404 and '@graph' in obj.json():
+				graph.extend(obj.json()['@graph'])
+			else:
+				print("HTTP Error: ", err)
+				sys.exit()
 		except requests.exceptions.Timeout as err:
 			print ("Timeout Error: ",err)
 			sys.exit()
