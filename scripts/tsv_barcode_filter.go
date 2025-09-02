@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"encoding/csv"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"math"
@@ -85,20 +86,21 @@ func worker(label string, location string, barcodeSet *map[string]struct{}, coun
 	}
 }
 
+// using specific flags for normal inputs, parsing returns pointers
+var label = flag.String("label", "", "label to prepend or append to barcode")
+var location = flag.String("location", "", "prefix or suffix location or attaching label")
+var filePath = flag.String("filepath", "", "path to raw fragment file")
+
 func main() {
-	args := os.Args
-	fmt.Println(args)
-	label := args[1]
-	location := args[2]
-	filePath := args[3]
-	fileName := strings.Split(filePath, "/")[1]
+	flag.Parse()
+	fileName := strings.Split(*filePath, "/")[1]
 	accession := strings.Split(fileName, "_")[0]
 
 	// with gzip decompress on the fly, 2 filter workers seems about right
 	// straight tsv file needs 3-4 workers for increased read speeds
 	numWorkers := 2
 
-	file, err := os.Open(filePath)
+	file, err := os.Open(*filePath)
 	if err != nil {
 		log.Println("Error opening file:", err)
 		return
@@ -116,7 +118,7 @@ func main() {
 	reader.Comma = '\t'
 	reader.Comment = '#'
 
-	outputFile := strings.Replace(filePath, "fragments.tsv.gz", "filtered_fragments.tsv", 1)
+	outputFile := strings.Replace(*filePath, "fragments.tsv.gz", "filtered_fragments.tsv", 1)
 	output, err := os.Create(outputFile)
 	if err != nil {
 		log.Fatalf("failed to create output file: %v", err)
@@ -137,7 +139,7 @@ func main() {
 
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go worker(label, location, &barcodeSet, &filtBarcodeCounter, linesChan, resultsChan, &wg)
+		go worker(*label, *location, &barcodeSet, &filtBarcodeCounter, linesChan, resultsChan, &wg)
 	}
 
 	// hashmap for proper raw stats
