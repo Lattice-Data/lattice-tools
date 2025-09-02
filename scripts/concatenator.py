@@ -760,6 +760,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
 
         accession = raw_matrix_report["accession"]
         fragment_uri = raw_matrix_report.get("fragment_file_s3_uri", None)
+        logger.debug(f"S3 URI for {accession}: {fragment_uri}")
 
         if fragment_uri is None:
             logger.error(f"raw matrix {accession} does not have fragment file S3 URI")
