@@ -497,9 +497,9 @@ class GoLangWorker(TheWorkingClass):
         result = subprocess.run(
             [
                 go_binary,
-                fragment_meta.label, 
-                fragment_meta.cell_label_location, 
-                raw_file
+                "--label", fragment_meta.label, 
+                "--location", fragment_meta.cell_label_location, 
+                "--filepath", raw_file
             ],
             capture_output=True,
             text=True
