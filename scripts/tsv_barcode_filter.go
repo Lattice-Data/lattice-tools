@@ -10,6 +10,8 @@ import (
 	"log"
 	"math"
 	"os"
+	"runtime/pprof"
+	"runtime/trace"
 	"strings"
 	"sync"
 )
@@ -91,8 +93,37 @@ var label = flag.String("label", "", "label to prepend or append to barcode")
 var location = flag.String("location", "", "prefix or suffix location or attaching label")
 var filePath = flag.String("filepath", "", "path to raw fragment file")
 
+// optional profiling flags
+var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+var traceprofile = flag.String("traceprofile", "", "write trace execution to `file`")
+
 func main() {
 	flag.Parse()
+
+	if *cpuprofile != "" {
+		f, err := os.Create("./profiles/cpu.prof")
+		if err != nil {
+			log.Fatal("could not create CPU profile")
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	if *traceprofile != "" {
+		t, err := os.Create("./profiles/trace.out")
+		if err != nil {
+			log.Fatal("could not create trace execution profile")
+		}
+		defer t.Close()
+		if err := trace.Start(t); err != nil {
+			log.Fatal("could not start trace: ", err)
+		}
+		defer trace.Stop()
+	}
+
 	fileName := strings.Split(*filePath, "/")[1]
 	accession := strings.Split(fileName, "_")[0]
 
