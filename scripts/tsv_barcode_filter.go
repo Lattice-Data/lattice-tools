@@ -129,7 +129,6 @@ func main() {
 
 	// with gzip decompress on the fly, 2 filter workers seems about right
 	// straight tsv file needs 3-4 workers for increased read speeds
-	numWorkers := 2
 
 	file, err := os.Open(*filePath)
 	if err != nil {
@@ -161,24 +160,23 @@ func main() {
 	// flush here instead of in receiving channel
 	defer writer.Flush()
 
-	linesChan := make(chan []string, 1000)
-	resultsChan := make(chan []string)
-	var wg sync.WaitGroup
+	resultsChan := make(chan []string, 1_000_000)
 	var rawRowCount int
 	filtBarcodeCounter := Counter{m: make(map[string]int)}
 	barcodeSet := makeBarcodeMap()
 
-	for i := 1; i <= numWorkers; i++ {
-		wg.Add(1)
-		go worker(*label, *location, &barcodeSet, &filtBarcodeCounter, linesChan, resultsChan, &wg)
-	}
+	var wg sync.WaitGroup
+	wg.Add(1)
+	wg.Add(1)
 
 	// hashmap for proper raw stats
 	rawBarcodeCounts := make(map[string]int)
 
 	// read lines and send to workers
 	go func() {
+		defer wg.Done()
 		for {
+			var testBarcode string
 			record, err := reader.Read()
 			if err != nil {
 				if err.Error() == "EOF" {
@@ -187,16 +185,29 @@ func main() {
 				log.Println("Error reading record:", err)
 				break
 			}
+			if *location == "prefix" {
+				testBarcode = *label + record[ColBarcode]
+			} else {
+				testBarcode = record[ColBarcode] + *label
+			}
+			// map should pass by reference by default, trying out pointer dereference
+			if _, exists := barcodeSet[testBarcode]; exists {
+				record[ColBarcode] = testBarcode
+				// processedResult := fmt.Sprintf("Worker %d processed: %v", id, line)
+				// fmt.Println(processedResult)
+				filtBarcodeCounter.m[testBarcode]++
+				resultsChan <- record
+			}
 			rawRowCount++
 			barcode := record[ColBarcode]
 			rawBarcodeCounts[barcode]++
-			linesChan <- record
 		}
-		close(linesChan) // close channel when all lines read
+		close(resultsChan)
 	}()
 
 	// collect the results
 	go func() {
+		defer wg.Done()
 		for result := range resultsChan {
 			if err := writer.Write(result); err != nil {
 				log.Fatal("Line write error: ", err)
@@ -208,8 +219,6 @@ func main() {
 	}()
 
 	wg.Wait()
-	close(resultsChan)
-
 	var filterRowCount int
 	uniqueFiltBarcodes := len(filtBarcodeCounter.m)
 	uniqueRawBarcodes := len(rawBarcodeCounts)
