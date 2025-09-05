@@ -13,6 +13,7 @@ import pandas as pd
 import platform
 import psutil
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -22,6 +23,7 @@ import yaml
 from abc import ABC, abstractmethod
 from anndata._io.specs import read_elem
 from concurrent import futures
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from multiprocessing import (
@@ -805,17 +807,21 @@ def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
         logger.debug(f"{key} download result: {result}")
 
 
-def gzip_thread(queue: Queue):
+def compression_thread(queue: Queue):
     """
-    Thread that monitors compression queue and starts subprocess to gzip 
-    as workers finish saving tsv files. 
+    Thread that monitors compression queue and starts to pigz or gzip
+    tsv files as workers finish. 
 
-    Current setup will not immediately report completion of gzipping to 
+    pigz is preferred for parallel compression; using half available cores
+    seems to best balance compression speed while not overwhelming compute
+    demand from workers still working in process pool.
+
+    Current setup will not immediately report completion of compression to 
     logging queue. First, the listening loop is not broken until putting
     STOP_SIGNAL onto the queue. This occurs after the process pool closes. Second, the 
     second loop is blocking, waiting for subprocesses to return. The subprocesses
     will still start immediately, and it doesn't appear to block in other
-    meaningful ways. Immediate reporting of gzip completion requires either
+    meaningful ways. Immediate reporting of compression completion requires either
     an asyncio solution, another thread pool, or spawning threads. The commit 
     "Using threads on threads for gzip compression" was a thread solultion that seemed
     to work, but logging output was chaotic and probably too much, and there might
@@ -825,13 +831,24 @@ def gzip_thread(queue: Queue):
     """
     logger.debug("Starting compression thread")
     subprocesses = []
+
+    # use half of cores for pigz to balance with worker pool
+    pigz_threads = os.cpu_count() // 2
+    compression_cmds = ["pigz", "-f", "-p", str(pigz_threads)]
+    if shutil.which("pigz") is None:
+        compression_cmds = ["gzip", "-f"]
+    cmd = compression_cmds[0]
+    logger.debug(f"Compression utility: {cmd}")
+
     while True:
         file_path = queue.get()
         if file_path is STOP_SIGNAL:
             break
         logger.debug(f"Filtered file to compress: {file_path}")
-        logger.info(f"Gzipping {file_path.split('/')[-1]}")
-        p = subprocess.Popen(["gzip", "-f", file_path])
+        logger.info(f"{cmd.title()}-ing {file_path.split('/')[-1]}")
+        cmds = deepcopy(compression_cmds)
+        cmds.append(file_path)
+        p = subprocess.Popen(cmds)
         subprocesses.append(p)
 
     for p in subprocesses:
@@ -952,7 +969,10 @@ if __name__ == "__main__":
         NUM_PROCESS_WORKERS = working_class.get_num_workers(fragment_meta_list)
         logger.debug(f"{NUM_PROCESS_WORKERS = }")
 
-        compression_thread = threading.Thread(target=gzip_thread, args=(queues.compression_queue,))
+        compression_thread = threading.Thread(
+            target=compression_thread, 
+            args=(queues.compression_queue,)
+        )
         compression_thread.start()
 
         logger.debug(f"Worker pool class/target: {working_class.__class__.__name__}")
