@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"os"
@@ -33,6 +34,9 @@ const (
 	ColBarcode
 	ColreadSupport
 )
+
+// [][]string size for results channel
+const batchSize = 1_000_000
 
 type Stats struct {
 	// matching key names in concatenator
@@ -66,6 +70,7 @@ func makeBarcodeMap() map[string]struct{} {
 	return barcodeSet
 }
 
+// will keep worker function for now, not currently used
 func worker(label string, location string, barcodeSet *map[string]struct{}, counter *Counter, lines <-chan []string, results chan<- []string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var testBarcode string
@@ -94,6 +99,7 @@ var location = flag.String("location", "", "prefix or suffix location or attachi
 var filePath = flag.String("filepath", "", "path to raw fragment file")
 
 // optional profiling flags
+// if profiling in parallel, should modify prof and out files to contain above info to not overwrite
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var traceprofile = flag.String("traceprofile", "", "write trace execution to `file`")
 
@@ -127,9 +133,6 @@ func main() {
 	fileName := strings.Split(*filePath, "/")[1]
 	accession := strings.Split(fileName, "_")[0]
 
-	// with gzip decompress on the fly, 2 filter workers seems about right
-	// straight tsv file needs 3-4 workers for increased read speeds
-
 	file, err := os.Open(*filePath)
 	if err != nil {
 		log.Println("Error opening file:", err)
@@ -157,60 +160,71 @@ func main() {
 
 	writer := csv.NewWriter(output)
 	writer.Comma = '\t'
-	// flush here instead of in receiving channel
+	// flush here instead of in receiving channel, could also defer flush in writer goroutine
 	defer writer.Flush()
 
-	resultsChan := make(chan []string, 1_000_000)
+	resultsChan := make(chan [][]string, 100)
 	var rawRowCount int
 	filtBarcodeCounter := Counter{m: make(map[string]int)}
 	barcodeSet := makeBarcodeMap()
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	wg.Add(1)
+	// one for reader, one for writer
+	wg.Add(2)
 
 	// hashmap for proper raw stats
 	rawBarcodeCounts := make(map[string]int)
 
-	// read lines and send to workers
+	// read lines, send in batch over channel
 	go func() {
 		defer wg.Done()
+		var batch [][]string
 		for {
 			var testBarcode string
 			record, err := reader.Read()
 			if err != nil {
-				if err.Error() == "EOF" {
+				if err == io.EOF {
 					break
 				}
 				log.Println("Error reading record:", err)
 				break
 			}
+
 			if *location == "prefix" {
 				testBarcode = *label + record[ColBarcode]
 			} else {
 				testBarcode = record[ColBarcode] + *label
 			}
-			// map should pass by reference by default, trying out pointer dereference
+
 			if _, exists := barcodeSet[testBarcode]; exists {
 				record[ColBarcode] = testBarcode
-				// processedResult := fmt.Sprintf("Worker %d processed: %v", id, line)
-				// fmt.Println(processedResult)
 				filtBarcodeCounter.m[testBarcode]++
-				resultsChan <- record
+				batch = append(batch, record)
+
+				if len(batch) == batchSize {
+					resultsChan <- batch
+					batch = nil
+				}
 			}
 			rawRowCount++
 			barcode := record[ColBarcode]
 			rawBarcodeCounts[barcode]++
 		}
+		// if remaining batch < batchSize, need to send to channel
+		if len(batch) > 0 {
+			resultsChan <- batch
+		}
+		// go idiom for sender to close channel
+		// channel will close after channel buffer is cleared
 		close(resultsChan)
 	}()
 
-	// collect the results
+	// write lines to filtered file, wrtie batchSize
 	go func() {
 		defer wg.Done()
-		for result := range resultsChan {
-			if err := writer.Write(result); err != nil {
-				log.Fatal("Line write error: ", err)
+		for batch := range resultsChan {
+			if err := writer.WriteAll(batch); err != nil {
+				log.Fatal("write error: ", err)
 			}
 		}
 		if err := writer.Error(); err != nil {
@@ -219,6 +233,7 @@ func main() {
 	}()
 
 	wg.Wait()
+
 	var filterRowCount int
 	uniqueFiltBarcodes := len(filtBarcodeCounter.m)
 	uniqueRawBarcodes := len(rawBarcodeCounts)
@@ -261,4 +276,6 @@ func main() {
 
 }
 
+// build commands: macOS could probably have os and arch in name; currently nothing for default
+// macOS build: go build -o tsv_barcode_filter tsv_barcode_filter.go
 // linux build: GOOS=linux GOARCH=amd64 go build -o tsv_barcode_filter_linux_amd64 tsv_barcode_filter.go
