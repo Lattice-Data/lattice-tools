@@ -1,16 +1,17 @@
 """
-QA testing for PR: https://github.com/chanzuckerberg/single-cell-curation/pull/1430
+QA testing for PRs: https://github.com/chanzuckerberg/single-cell-curation/pull/1430,
+https://github.com/chanzuckerberg/single-cell-curation/pull/1443
 
 → Note that since we don't have the cellosaurus changes in yet, the "cell line" requirements for tissue_ontology_term_id are not yet implemented.
 
 Should pass:
-(N) tissue_type == "cell line" + development_stage_ontology_term_id == "na" + tissue_ontology_term_id == cellosaurus term
+(Y) tissue_type == "cell line" + development_stage_ontology_term_id == "na" + tissue_ontology_term_id == cellosaurus term
 (Y) tissue_type == "primary cell culture" + valid tissue_ontology_term_id CL term
 (Y) tissue_type == "organoid" + tissue_ontology_term_id == descendant of "UBERON:0001062"
 (Y) tissue_type == "tissue" + tissue_ontology_term_id == descendant of "UBERON:0001062"
 
 Should not pass:
-(N) tissue_type == "cell line" + development_stage_ontology_term_id == "na" + tissue_ontology_term_id != cellosaurus term
+(Y) tissue_type == "cell line" + development_stage_ontology_term_id == "na" + tissue_ontology_term_id != cellosaurus term
 (Y) tissue_type == "cell culture"
 (Y) tissue_type == "organoid" + tissue_ontology_term_id == "UBERON:0000922" for embryo
 (Y) tissue_type == "organoid" + tissue_ontology_term_id != descendant of "UBERON:0001062"
@@ -46,7 +47,7 @@ class TestTissueTypeValidation:
 
      def test_tissue_type_cell_line_valid(self):
 
-          # tissue_type == cell line + development_stage_ontology_term_id == 'na' + tissue_ontology_term_id == cellosaurus term -> fails currently
+          # tissue_type == cell line + development_stage_ontology_term_id == 'na' + tissue_ontology_term_id == cellosaurus term
 
           self.validator.adata.obs['tissue_type'] = 'cell line'
           self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
@@ -87,7 +88,7 @@ class TestTissueTypeValidation:
 
      def test_tissue_type_cell_line_invalid(self):
 
-          # tissue_type == cell line + development_stage_ontology_term_id == 'na' + tissue_ontology_term_id != cellosaurus term -> currently fails
+          # tissue_type == cell line + development_stage_ontology_term_id == 'na' + tissue_ontology_term_id != cellosaurus term
 
           self.validator.adata.obs['tissue_type'] = 'cell line'
           self.validator.adata.obs['tissue_type'] = self.validator.adata.obs['tissue_type'].astype('category')
@@ -95,7 +96,10 @@ class TestTissueTypeValidation:
           self.validator.adata.obs['tissue_ontology_term_id'] = 'UBERON:0002048'
           self.validator.validate_adata()
           assert not self.validator.is_valid
-          #assert ("ERROR: ") in self.validator.errors
+          assert (
+               "ERROR: 'UBERON:0002048' in 'tissue_ontology_term_id' is not a valid ontology term id of 'CVCL'. "
+               "When 'tissue_type' is 'cell line', 'tissue_ontology_term_id' must be a valid CVCL term."
+               ) in self.validator.errors
 
      def test_cell_culture_invalid(self):
 
