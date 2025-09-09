@@ -12,6 +12,7 @@ Should pass
 (Y) - tissue_type == "cell line" with normal cell terms
 (Y) - tissue_type == "cell line" and cell term all unknown - SHOULD THIS BE ALLOWED?
 (Y) - tissue_type == "cell line" with na for cell term has na for cell label
+(N) - tissue_type == "cell line" with all na for cell term, other tissue_type with normal CL
 """
 
 import numpy as np
@@ -124,6 +125,45 @@ class TestCellTermValidation:
         assert (
             "ERROR: 'na' in 'cell_type_ontology_term_id' is not a valid ontology term id of 'CL, ZFA, FBbt, WBbt'."
         ) in self.validator.errors
+
+
+    @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
+    def test_mix_of_tissue_types_cell_line_na_passes(self, tissue_type):
+
+        # tissue_type == "cell line" with all na for cell term, other tissue_type with normal CL
+        # currently not passing for primary cell culture, not sure if validator issue or slicing issue
+
+        # clear categories for modified cols, re-categorize before validating
+        cols = [
+            "tissue_type",
+            "cell_type_ontology_term_id",
+            "development_stage_ontology_term_id",
+            "tissue_ontology_term_id",
+        ]
+
+        half_point = self.validator.adata.shape[0] // 2
+        half_index = self.validator.adata.obs.iloc[half_point].name
+        for col in cols:
+            self.validator.adata.obs[col] = self.validator.adata.obs[col].astype("object")
+
+        # set first half to not cell line
+        self.validator.adata.obs.loc[:half_index, "tissue_type"] = tissue_type
+
+        # set tissue term to random CL term to pass validation
+        if tissue_type == "primary cell culture":
+            self.validator.adata.obs.loc[:half_index, "tissue_ontology_term_id"] = "CL:0000617"
+
+        # set second half to cell line and cell type na
+        self.validator.adata.obs.loc[half_index:, "tissue_type"] = "cell line"
+        self.validator.adata.obs.loc[half_index:, "cell_type_ontology_term_id"] = "na"
+        self.validator.adata.obs.loc[half_index:, "development_stage_ontology_term_id"] = "na"
+
+        for col in cols:
+            self.validator.adata.obs[col] = self.validator.adata.obs[col].astype("category")
+
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
 
 
     @pytest.mark.parametrize("tissue_type", ALL_TISSUE_TYPES)
