@@ -3,12 +3,13 @@ PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1
 
 Testing conditions:
 Should not pass
-() - tissue_type != "cell line" with na for cell term
-() - tissue_type == "cell line" and cell term mix of na and unknown
+(Y) - tissue_type != "cell line" with na for cell term
+(N) - tissue_type == "cell line" and cell term mix of na and unknown
 (N) - all tissue_types with one random 'na' mixed in with valid cell terms
 
 Should pass
 (Y) - tissue_type == "cell line" with na for all cell terms
+(Y) - tissue_type != "cell line" 
 (Y) - tissue_type == "cell line" with normal cell terms
 (Y) - tissue_type == "cell line" and cell term all unknown - SHOULD THIS BE ALLOWED?
 (Y) - tissue_type == "cell line" with na for cell term has na for cell label
@@ -21,7 +22,7 @@ from cellxgene_schema.write_labels import AnnDataLabelAppender
 # ruff linter/formatter will remove unused imports, need comments below to keep them
 # since pytest arugments/usage shadow imports
 from fixtures.valid_adatas import (
-    ALL_H5ADS,
+    NON_SPATIAL_H5ADS,
     test_h5ads,                 # noqa: F401
     validator_with_adatas,      # noqa: F401
 )
@@ -40,7 +41,8 @@ ALL_TISSUE_TYPES = [
 ]
 
 
-@pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
+# use non-spatial to reduce errors for visium in_tissue == 0
+@pytest.mark.parametrize("test_h5ads", NON_SPATIAL_H5ADS)
 class TestCellTermValidation:
     @pytest.fixture(autouse=True)
     def setup(self, validator_with_adatas):
@@ -50,15 +52,29 @@ class TestCellTermValidation:
     def test_tissue_cell_line_cell_term_na_passes(self):
 
         # tissue_type == "cell line" with na for cell term
-        # visium is_single == True will fail since cell_type should be unknown for in_tissue == 0
-        # i think this is ok, visium slices will almost always be tissue/organoid sections
-        # not sure if we should have tissue_type restrictions for visium is_single
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "na"
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
+
+
+    @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
+    def test_tissue_not_cell_line_passes(self, tissue_type):
+
+        # tissue_type != "cell line" passes
+
+        self.validator.adata.obs["tissue_type"] = tissue_type
+        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+
+        # set tissue term to random CL term to pass validation
+        if tissue_type == "primary cell culture":
+            self.validator.adata.obs["tissue_ontology_term_id"] = "CL:0000617"
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
@@ -70,6 +86,7 @@ class TestCellTermValidation:
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.validate_adata()
@@ -80,11 +97,10 @@ class TestCellTermValidation:
     def test_tissue_cell_line_with_all_unknown_passes(self):
 
         # tissue_type == "cell line" and cell term all unknown
-        # do we want this behavior or instead us na?
-        # some visium fixtures fail on mismatched uns color column after setting cell term to unknown
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "unknown"
@@ -96,11 +112,11 @@ class TestCellTermValidation:
     def test_tissue_cell_line_cell_term_with_unknown_and_na_fails(self):
 
         # tissue_type == "cell line" and cell term mix of na and unknown
-        # currently pass for non-visium datasets
-        # do we need to test split datasets with mix of "cell line" and other tissue_types?
+        # currently passes
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "na"
@@ -131,7 +147,6 @@ class TestCellTermValidation:
     def test_mix_of_tissue_types_cell_line_na_passes(self, tissue_type):
 
         # tissue_type == "cell line" with all na for cell term, other tissue_type with normal CL
-        # currently not passing for primary cell culture, not sure if validator issue or slicing issue
 
         # clear categories for modified cols, re-categorize before validating
         cols = [
@@ -155,6 +170,7 @@ class TestCellTermValidation:
 
         # set second half to cell line and cell type na
         self.validator.adata.obs.loc[half_index:, "tissue_type"] = "cell line"
+        self.validator.adata.obs.loc[half_index:, "tissue_ontology_term_id"] = "CVCL_2830"
         self.validator.adata.obs.loc[half_index:, "cell_type_ontology_term_id"] = "na"
         self.validator.adata.obs.loc[half_index:, "development_stage_ontology_term_id"] = "na"
 
@@ -170,10 +186,13 @@ class TestCellTermValidation:
     def test_tissue_not_cell_line_cell_term_one_na_fails(self, tissue_type):
 
         # all tissue_types with one random 'na' mixed in with valid cell terms
-        # tissue_type == "cell line" fails for missing dev term == na, not due to just one na value
+        # currently passes for tissue_type == "cell line"
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        if tissue_type == "cell line":
+            self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
+            self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
 
         self.validator.adata.obs["cell_type_ontology_term_id"] = self.validator.adata.obs["cell_type_ontology_term_id"].cat.add_categories("na")
         random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
@@ -191,6 +210,7 @@ class TestCellTermValidation:
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "na"
