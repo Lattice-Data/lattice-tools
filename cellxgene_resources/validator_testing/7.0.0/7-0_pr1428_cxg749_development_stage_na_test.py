@@ -53,6 +53,7 @@ class TestDevStageValidation:
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert self.validator.is_valid
@@ -65,6 +66,7 @@ class TestDevStageValidation:
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
         self.validator.validate_adata()
         assert not self.validator.is_valid
         # trying assert for common error string ending instead of matching on full error
@@ -79,6 +81,7 @@ class TestDevStageValidation:
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
         self.validator.adata.obs["development_stage_ontology_term_id"] = "unknown"
         self.validator.validate_adata()
         assert not self.validator.is_valid
@@ -95,6 +98,7 @@ class TestDevStageValidation:
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
         self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "development_stage_ontology_term_id"] = "unknown"
@@ -130,6 +134,8 @@ class TestDevStageValidation:
         # primary cell culture has further rules for tissue terms, need to take account of those
 
         self.validator.adata.obs["tissue_type"] = tissue_type
+        if tissue_type == "cell line":
+            self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["development_stage_ontology_term_id"] = self.validator.adata.obs["development_stage_ontology_term_id"].cat.add_categories("na")
         random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
@@ -155,6 +161,7 @@ class TestDevStageValidation:
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
+        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert self.validator.is_valid
