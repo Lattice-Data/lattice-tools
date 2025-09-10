@@ -4,7 +4,7 @@ PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1
 Testing conditions:
 Should not pass
 (Y) - tissue_type != "cell line" with na for cell term
-(N) - tissue_type == "cell line" and cell term mix of na and unknown
+(Y) - tissue_type == "cell line" and cell term mix of na and unknown
 (N) - all tissue_types with one random 'na' mixed in with valid cell terms
 
 Should pass
@@ -13,7 +13,7 @@ Should pass
 (Y) - tissue_type == "cell line" with normal cell terms
 (Y) - tissue_type == "cell line" and cell term all unknown - SHOULD THIS BE ALLOWED?
 (Y) - tissue_type == "cell line" with na for cell term has na for cell label
-(N) - tissue_type == "cell line" with all na for cell term, other tissue_type with normal CL
+(Y) - tissue_type == "cell line" with all na for cell term, other tissue_type with normal CL
 """
 
 import numpy as np
@@ -112,7 +112,6 @@ class TestCellTermValidation:
     def test_tissue_cell_line_cell_term_with_unknown_and_na_fails(self):
 
         # tissue_type == "cell line" and cell term mix of na and unknown
-        # currently passes
 
         self.validator.adata.obs["tissue_type"] = "cell line"
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
@@ -131,16 +130,24 @@ class TestCellTermValidation:
     def test_tissue_not_cell_line_cell_term_na_fails(self, tissue_type):
 
         # tissue_type != "cell line" with na for cell term
-        # should error message be more specific?
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["cell_type_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        assert (
-            "ERROR: 'na' in 'cell_type_ontology_term_id' is not a valid ontology term id of 'CL, ZFA, FBbt, WBbt'."
-        ) in self.validator.errors
+        if tissue_type == "cell line":
+            assert (
+                "ERROR: When tissue_type is 'cell line', 'na' is allowed for 'cell_type_ontology_term_id' "
+                "but then all observations where tissue_type is 'cell line' MUST be 'na'."
+            ) in self.validator.errors
+        else:
+            assert (
+                "ERROR: 'na' in 'cell_type_ontology_term_id' is not a valid ontology term id of "
+                "'CL, ZFA, FBbt, WBbt'. cell_type_ontology_term_id must be a valid ontology term of "
+                "CL or 'unknown'. WBbt, ZFA, and FBbt terms can be allowed depending on the organism. "
+                "'na' is allowed if tissue_type is 'cell line'."
+            ) in self.validator.errors
 
 
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
@@ -186,7 +193,7 @@ class TestCellTermValidation:
     def test_tissue_not_cell_line_cell_term_one_na_fails(self, tissue_type):
 
         # all tissue_types with one random 'na' mixed in with valid cell terms
-        # currently passes for tissue_type == "cell line"
+        # currently one unexpected test result for tissue_type == "cell line" in valid_mouse.h5ad
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
@@ -199,9 +206,18 @@ class TestCellTermValidation:
         self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "cell_type_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        assert (
-            "ERROR: 'na' in 'cell_type_ontology_term_id' is not a valid ontology term id of 'CL, ZFA, FBbt, WBbt'."
-        ) in self.validator.errors
+        if tissue_type == "cell line":
+            assert (
+                "ERROR: When tissue_type is 'cell line', 'na' is allowed for 'cell_type_ontology_term_id' "
+                "but then all observations where tissue_type is 'cell line' MUST be 'na'."
+            ) in self.validator.errors
+        else:
+            assert (
+                "ERROR: 'na' in 'cell_type_ontology_term_id' is not a valid ontology term id of "
+                "'CL, ZFA, FBbt, WBbt'. cell_type_ontology_term_id must be a valid ontology term of "
+                "CL or 'unknown'. WBbt, ZFA, and FBbt terms can be allowed depending on the organism. "
+                "'na' is allowed if tissue_type is 'cell line'."
+            ) in self.validator.errors
 
 
     def test_label_na_for_cell_line_cell_type_na(self):
