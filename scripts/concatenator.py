@@ -52,7 +52,7 @@ Examples:
 
     python %(prog)s --help
 """
-BARCODE_PATTERN = r"[ACGT]+"
+BARCODE_PATTERN = r"[ACGT]{16}"
 REPLACE_WITH = "B@RCODE"
 FRAGMENT_DIR = Path("atac_fragments/")
 FS = fsspec.filesystem("s3")
@@ -70,7 +70,6 @@ RAW_MATRIX_FIELD_LIST = [
     "accession",
     "s3_uri",
     "fragment_file_s3_uri",
-    "file_size",
 ]
 FRAGMENT_COL_NAMES = [
     "chrom",
@@ -130,7 +129,6 @@ class FragmentFileMeta:
     barcodes: pd.Series
     queues: WorkerQueues
     use_regex: bool
-    raw_matrix_file_size: int
     fragment_file_size: int | None = None
 
     def __post_init__(self):
@@ -301,7 +299,6 @@ class FilterWorker(TheWorkingClass):
         logging.debug(f"{accession_pid} label: {fragment_meta.label}")
         logging.debug(f"{accession_pid} cell_label_location: {fragment_meta.cell_label_location}")
         logging.debug(f"{accession_pid} fragment file size: {fragment_meta.fragment_file_size:_}")
-        logging.debug(f"{accession_pid} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
         file_path = FRAGMENT_DIR / fragment_meta.download_file_name
         frags_df = self.read_fragment_file(file_path)
@@ -490,7 +487,6 @@ class GoLangWorker(TheWorkingClass):
         logging.debug(f"{accession_pid} label: {fragment_meta.label}")
         logging.debug(f"{accession_pid} cell_label_location: {fragment_meta.cell_label_location}")
         logging.debug(f"{accession_pid} fragment file size: {fragment_meta.fragment_file_size:_}")
-        logging.debug(f"{accession_pid} raw matrix file size: {fragment_meta.raw_matrix_file_size:_}")
 
         raw_file = FRAGMENT_DIR / fragment_meta.download_file_name
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
@@ -782,7 +778,6 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
                 barcodes=barcodes,
                 queues=queues,
                 use_regex=use_regex,
-                raw_matrix_file_size=raw_matrix_report["file_size"]
             )
         )
 
@@ -790,13 +785,7 @@ def query_lattice(processed_matrix_accession: str, connection: Connection, queue
         logger.critical("Missing S3 URIs and/or files, exiting...")
         logger_thread_shutdown_and_exit()
 
-    # attempting sort by file_size to have bigger files later in process pool
-    fragment_file_meta = sorted(
-        master_fragment_file_meta, 
-        key=lambda x: (x.raw_matrix_file_size), 
-    )
-
-    return fragment_file_meta
+    return master_fragment_file_meta
 
 
 def download_fragment_files(files_to_download: list[FragmentFileMeta]) -> None:
