@@ -1120,6 +1120,9 @@ def main(mfinal_id, connection, hcatier1):
 				adata_raw.obs['raw_matrix_accession'] = mxr['@id']
 				adata_raw.var['gene_symbols'] = adata_raw.var.index
 				adata_raw.var = adata_raw.var.set_index("gene_ids", drop=True)
+				# In case theres duplicate gene_ids, make var index unique
+				adata_raw.var.index = adata_raw.var.index.astype(str)
+				adata_raw.var_names_make_unique(join='.')
 				cxg_adata_lst.append(adata_raw)
        
 		df = pd.concat([df, row_to_add])
