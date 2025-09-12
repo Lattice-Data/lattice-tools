@@ -58,6 +58,7 @@ class TestCellTermValidation:
         self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+        self.validator.adata.obs["sex_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert self.validator.is_valid
@@ -89,6 +90,7 @@ class TestCellTermValidation:
         self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+        self.validator.adata.obs["sex_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
@@ -104,6 +106,7 @@ class TestCellTermValidation:
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "unknown"
+        self.validator.adata.obs["sex_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
@@ -119,6 +122,7 @@ class TestCellTermValidation:
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "na"
+        self.validator.adata.obs["sex_ontology_term_id"] = "na"
         random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
         self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "cell_type_ontology_term_id"] = "unknown"
         self.validator.validate_adata()
@@ -160,6 +164,7 @@ class TestCellTermValidation:
             "tissue_type",
             "cell_type_ontology_term_id",
             "development_stage_ontology_term_id",
+            "sex_ontology_term_id",
             "tissue_ontology_term_id",
         ]
 
@@ -180,6 +185,7 @@ class TestCellTermValidation:
         self.validator.adata.obs.loc[half_index:, "tissue_ontology_term_id"] = "CVCL_2830"
         self.validator.adata.obs.loc[half_index:, "cell_type_ontology_term_id"] = "na"
         self.validator.adata.obs.loc[half_index:, "development_stage_ontology_term_id"] = "na"
+        self.validator.adata.obs.loc[half_index:, "sex_ontology_term_id"] = "na"
 
         for col in cols:
             self.validator.adata.obs[col] = self.validator.adata.obs[col].astype("category")
@@ -200,6 +206,7 @@ class TestCellTermValidation:
         if tissue_type == "cell line":
             self.validator.adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
             self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+            self.validator.adata.obs["sex_ontology_term_id"] = "na"
 
         self.validator.adata.obs["cell_type_ontology_term_id"] = self.validator.adata.obs["cell_type_ontology_term_id"].cat.add_categories("na")
         random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
@@ -230,6 +237,7 @@ class TestCellTermValidation:
         # need dev stage set to na to be valid
         self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
         self.validator.adata.obs["cell_type_ontology_term_id"] = "na"
+        self.validator.adata.obs["sex_ontology_term_id"] = "na"
         self.validator.validate_adata()
         assert self.validator.is_valid
 
