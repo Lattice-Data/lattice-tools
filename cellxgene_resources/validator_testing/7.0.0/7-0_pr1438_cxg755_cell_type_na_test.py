@@ -5,7 +5,7 @@ Testing conditions:
 Should not pass
 (Y) - tissue_type != "cell line" with na for cell term
 (Y) - tissue_type == "cell line" and cell term mix of na and unknown
-(N) - all tissue_types with one random 'na' mixed in with valid cell terms
+(Y) - all tissue_types with one random 'na' mixed in with valid cell terms
 
 Should pass
 (Y) - tissue_type == "cell line" with na for all cell terms
@@ -127,7 +127,10 @@ class TestCellTermValidation:
         self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "cell_type_ontology_term_id"] = "unknown"
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        assert len(self.validator.errors) > 0
+        assert (
+            "ERROR: When tissue_type is 'cell line', 'na' is allowed for 'cell_type_ontology_term_id' "
+            "but then all observations where tissue_type is 'cell line' MUST be 'na'."
+        ) in self.validator.errors
 
 
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
