@@ -142,8 +142,6 @@ class TestDevStageValidation:
         self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "sex_ontology_term_id"] = "unknown"
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        # trying assert for common error string ending instead of matching on full error
-        # string for each dev term in test fixture
         for error in self.validator.errors:
             assert error.endswith("When 'tissue_type' is 'cell line', 'sex_ontology_term_id' MUST be 'na'.")
 
