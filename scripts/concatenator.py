@@ -157,11 +157,15 @@ class FragmentWorkerResult:
 
 class TheWorkingClass(ABC):
     """
-    Base class for various process workers. Currently can use a filter
-    worker during a default run, or a deduplicate worker if duplicates
-    found during validation. Would also be possible to add a lift over
-    worker or some other worker child class if there are other tasks 
-    we find need to be done.
+    Base class for various process workers. 
+
+    Current child class workers:
+        - FilterWorker = use python/pandas to filter barcodes
+        - DeduplicateWorker = removed duplicates from filtered fragment files
+        - GoLangWorker = use go binary to filter barcodes
+
+    worker_target_function() method will run in process pool
+    Add more child classes as needed for parallel work, like a liftover worker
     """
     @staticmethod
     def pick_worker(args):
@@ -445,8 +449,8 @@ class DeduplicateWorker(TheWorkingClass):
 class GoLangWorker(TheWorkingClass):
     def verify_local_files(self, meta_list: list[FragmentFileMeta]) -> None:
         """
-        Trying decompressing within the go binary and using 2 go threads for barcode checks
-        Also need to save barcodes.txt file for moment for golang binary
+        Go binary will decompress, need to verify raw compressed files present
+        Go binary also uses barcodes.txt file as the set of barcodes to filter against
         """
         # TODO: Implement regex for go filtering? Might not be needed
         if meta_list[0].use_regex is True:
@@ -466,7 +470,9 @@ class GoLangWorker(TheWorkingClass):
     def get_num_workers(self, fragment_meta: list[FragmentFileMeta], scale_factor: int = 10) -> int:
         """
         Almost no memory usage for tsv streaming with go filtering
-        Will try 1/2 of cpu cores due to 2-4 threads/workers used per go filtering binary
+        Will try 1/2 of cpu cores:
+            1 goroutine reads/filters raw fragment file
+            1 goroutine writes in chunks to filtered tsv file
         Use number of total fragment files up to 1/2 of cores
         """
         total_fragment_files = len(fragment_meta)
@@ -474,11 +480,11 @@ class GoLangWorker(TheWorkingClass):
 
     def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         """
-        Trying out golang filtering, call subprocess for go binary. Go binary uses one worker to read
-        tsv to a channel. 4 workers then process tsv lines from channel, checking barcode against obs
-        index and passing to write channel with updated barcode. Final worker writes lines to filtered
-        tsv file. Super I/O bound, might cause too much issue with disk read and writes, almost no RAM
-        usage. No regex at the moment, no QA stat reporting, but roughly seems to work.
+        Trying out golang filtering, call subprocess for go binary. 
+        Go binary uses one goroutine to read and filter tsv to a channel. One goroutine 
+        writes a batch of filtered lines to tsv file. Super I/O bound, might cause too 
+        much issue with disk read and writes, almost no RAM usage.
+        No regex support at the moment.
         """
         self.create_logger(fragment_meta.queues.logging_queue)
         pid = os.getpid()
