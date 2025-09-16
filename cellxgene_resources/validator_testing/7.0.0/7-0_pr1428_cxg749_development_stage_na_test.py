@@ -19,6 +19,10 @@ import pytest
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 # ruff linter/formatter will remove unused imports, need comments below to keep them
 # since pytest arugments/usage shadow imports
+from testing_internals.utils import (
+    make_valid_cell_line_fixture,
+    NA_COLUMNS
+)
 from fixtures.valid_adatas import (
     ALL_H5ADS,
     test_h5ads,                 # noqa: F401
@@ -49,12 +53,8 @@ class TestDevStageValidation:
     def test_tissue_cell_line_dev_na_passes(self):
 
         # tissue_type == "cell line" with na for dev term
-        # all pass, initially organisms with UBERON dev ontology would fail
 
-        self.validator.adata.obs["tissue_type"] = "cell line"
-        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
-        self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
@@ -64,9 +64,11 @@ class TestDevStageValidation:
 
         # tissue_type == "cell line" with normal dev terms
 
-        self.validator.adata.obs["tissue_type"] = "cell line"
-        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
+        # helper function sets dev terms to na, reset to original values in fixture
+        original_dev_terms = self.validator.adata.obs["development_stage_ontology_term_id"]
+        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
+        self.validator.adata.obs["development_stage_ontology_term_id"] = original_dev_terms
+
         self.validator.validate_adata()
         assert not self.validator.is_valid
         # trying assert for common error string ending instead of matching on full error
@@ -79,9 +81,7 @@ class TestDevStageValidation:
 
         # tissue_type == "cell line" and dev stage unknown
 
-        self.validator.adata.obs["tissue_type"] = "cell line"
-        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
+        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
         self.validator.adata.obs["development_stage_ontology_term_id"] = "unknown"
         self.validator.validate_adata()
         assert not self.validator.is_valid
@@ -96,10 +96,7 @@ class TestDevStageValidation:
         # tissue_type == "cell line" and dev stage mix of na and unknown
         # UBERON dev stage organisms now passing
 
-        self.validator.adata.obs["tissue_type"] = "cell line"
-        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
-        self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
         random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
         self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "development_stage_ontology_term_id"] = "unknown"
         self.validator.validate_adata()
@@ -114,7 +111,6 @@ class TestDevStageValidation:
     def test_tissue_not_cell_line_dev_term_na_fails(self, tissue_type):
 
         # tissue_type != "cell line" with na for dev term
-        # primary cell culture has further rules for tissue terms, need to take account of those
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
@@ -131,15 +127,24 @@ class TestDevStageValidation:
     def test_tissue_not_cell_line_dev_term_one_na_fails(self, tissue_type):
 
         # all tissue_types with one random 'na' mixed in with valid dev terms
-        # primary cell culture has further rules for tissue terms, need to take account of those
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         if tissue_type == "cell line":
             self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
+
+        # errors for each unique value in ontologies, generate list of tuples
+        # for error string matching
+        ontology_values = []
+        for ontology in NA_COLUMNS:
+            for value in self.validator.adata.obs[ontology].unique():
+                ontology_values.append((ontology, value))
+
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        self.validator.adata.obs["development_stage_ontology_term_id"] = self.validator.adata.obs["development_stage_ontology_term_id"].cat.add_categories("na")
         random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
-        self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "development_stage_ontology_term_id"] = "na"
+        for col in NA_COLUMNS:
+            self.validator.adata.obs[col] = self.validator.adata.obs[col].cat.add_categories("na")
+            self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], col] = "na"
+
         self.validator.validate_adata()
         assert not self.validator.is_valid
 
@@ -150,8 +155,12 @@ class TestDevStageValidation:
                 "When 'tissue_type' is not 'cell line', 'development_stage_ontology_term_id' cannot be 'na'." 
             ) in self.validator.errors
         else:
-            for error in self.validator.errors:
-                assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
+            for ontology, value in ontology_values:
+                error_string = (
+                    f"ERROR: '{value}' in '{ontology}' is not a valid value of '{ontology}'. "
+                    f"When 'tissue_type' is 'cell line', '{ontology}' MUST be 'na'."
+                )
+                assert error_string in self.validator.errors
 
 
     def test_label_na_for_cell_line_dev_stage_na(self):
@@ -159,10 +168,7 @@ class TestDevStageValidation:
         # tissue_type == "cell line" with na for dev term has na for dev label
         # all organisms now pass
 
-        self.validator.adata.obs["tissue_type"] = "cell line"
-        self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        self.validator.adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
-        self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
         self.validator.validate_adata()
         assert self.validator.is_valid
 
