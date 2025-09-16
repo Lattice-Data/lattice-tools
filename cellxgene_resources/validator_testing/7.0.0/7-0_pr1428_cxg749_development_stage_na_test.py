@@ -140,7 +140,8 @@ class TestDevStageValidation:
                 ontology_values.append((ontology, value))
 
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
+        # single "unknown should be at index 0, start at 1 to avoid replacing one instance"
+        random_index = np.random.randint(1, (self.validator.adata.obs.shape[0] - 1))
         for col in NA_COLUMNS:
             self.validator.adata.obs[col] = self.validator.adata.obs[col].cat.add_categories("na")
             self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], col] = "na"
