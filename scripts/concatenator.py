@@ -491,7 +491,11 @@ class GoLangWorker(TheWorkingClass):
         raw_file = FRAGMENT_DIR / fragment_meta.download_file_name
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
 
-        go_binary = "./tsv_barcode_filter_linux_amd64" if platform.machine() == "x86_64" else "./tsv_barcode_filter"
+        binary_base = "./tsv_barcode_filter_"
+        mac_binary = binary_base + "macos_arm64"
+        linux_binary = binary_base + "linux_amd64"
+        go_binary =  linux_binary if platform.machine() == "x86_64" else mac_binary
+
         result = subprocess.run(
             [
                 go_binary,

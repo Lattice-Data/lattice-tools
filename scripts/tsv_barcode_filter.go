@@ -276,6 +276,5 @@ func main() {
 
 }
 
-// build commands: macOS could probably have os and arch in name; currently nothing for default
-// macOS build: go build -o tsv_barcode_filter tsv_barcode_filter.go
+// macOS build: go build -o tsv_barcode_filter_macos_arm64 tsv_barcode_filter.go
 // linux build: GOOS=linux GOARCH=amd64 go build -o tsv_barcode_filter_linux_amd64 tsv_barcode_filter.go
