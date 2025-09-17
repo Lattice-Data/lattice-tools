@@ -899,7 +899,7 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
     Could probably be cleaner with logic, works for both filtering
     and de-duplication results
     """
-    logger.info("Filter results")
+    logger.info("Filter Save Results:")
     logger.info("=" * PRINT_WIDTH)
     for meta in results:
         if isinstance(meta, FragmentWorkerResult):
@@ -918,9 +918,20 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
     filtered = all(not meta.checked_duplicates for meta in results)
     if filtered:
         stats_df = pd.DataFrame([item.stats for item in results])
-        logger.info(stats_df)
-        logger.info(f"Fragment unique barcodes: {stats_df['unique_barcodes'].sum()}")
-        logger.info(f"AnnData unique barcodes: {fragment_meta_list[0].barcodes.shape[0]}")
+        logger.info(f"Filter Dataframe Results:\n{stats_df.to_string()}")
+
+        fragment_unique_barcodes = stats_df['unique_barcodes'].sum()
+        adata_unique_barcodes = fragment_meta_list[0].barcodes.shape[0]
+        logger.info(f"Fragment unique barcodes: {fragment_unique_barcodes}")
+        logger.info(f"AnnData unique barcodes: {adata_unique_barcodes}")
+
+        if fragment_unique_barcodes != adata_unique_barcodes:
+            # if compression is ongoing, then exit will not happen until compression subprocesses
+            # return. final concatentation will not happen
+            # doesn't seem to cause other exceptions/errors with logging and compression threads
+            logger.critical("Fragment unique barcode count DOES NOT match AnnData obs index")
+            queues.compression_queue.put(STOP_SIGNAL)
+            logger_thread_shutdown_and_exit()
 
 
 if __name__ == "__main__":
