@@ -84,7 +84,7 @@ def make_groups_list(args):
         return args.grouplist
     else:
         with open(args.groupfile, "r") as f:
-            return [line for line in f if not line.startswith("#")]
+            return [line.strip() for line in f if not line.startswith("#")]
 
 
 # Define the script you want to run in parallel
