@@ -4,14 +4,15 @@ import traceback
 import sys
 import subprocess
 import os
+import re
 
 
 EPILOG = f"""
-Script run curate_matrices.py in a parallel fashion
+Script run parallel_curated.py in a parallel fashion
 
 Example:
-    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --groupfile groups.txt
-    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --grouplist CD4i_R1L01 CD4i_R1L02
+    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --groupfile groups.txt
+    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --grouplist CD4i_R1L01 CD4i_R1L02
 
 For more details:
     python %(prog)s --help
@@ -120,21 +121,38 @@ if __name__ == "__main__":
     workers = min(len(groups), 50)
     with multiprocessing.Pool(processes=workers) as pool:
         iterator = pool.imap(run_curate, commands_list)
-        for matrix in iterator:
+        for curate_log in iterator:
             try:
-                results.append(matrix)
+                results.append(curate_log)
             except StopIteration:
                 break
             except Exception as e:
                 print(f"ERROR: {e}")
-                results.append((matrix, e))
+                results.append((curate_log, e))
 
     print("FINAL RESULTS:")
-    success_counts = 0
-    fail_counts = 0
-    for result in results:
-        print(result)
-            
+    print("=" * 80)
+    print("SUCCESS:")
+    log_results = {}
+    log_results['success'] = []
+    log_results['error'] = {}
+    for r in results:
+        match = re.search(r"--group\s(.*?)\`", r)
+        groupid = match.group(1)
+        if r.startswith('SUCCESS'):
+            log_results['success'].append(groupid)
+        elif r.startswith('ERROR'):
+            log_results['error'][groupid] = r
 
+    print(f'Total successful GroupID:\t{len([i for i in results if i.startswith("SUCCESS")])}')
+    print(f'Successful GroupIDs:\t{log_results["success"]}')
+    if log_results['error']:
+        print("FAILURE:")
+        print(f'Total error GroupID:\t{len(log_results["error"].keys())}')
+        for groupid, error in log_results['error'].items():
+            print(f'Error GroupID:\t{groupid}')
+            print(f'Error logging:\t{error}')
+    else:
+        print("NO ERRORS")
 
     

@@ -112,10 +112,10 @@ def gather_crispr(samp):
 
     return df: dataframe containing crispr guide calling
     '''
-    tar = tarfile.open(f'temp_cellranger/{samp}_crispr_analysis.tar.gz', 'r:gz')
-    f = tar.extractfile('protospacer_calls_per_cell.csv')
-    df = pd.read_csv(f).rename(columns={'num_umis':'num_umis_guide_id'})
-    tar.close()
+    df = pd.DataFrame()
+    with tarfile.open(f'temp_cellranger/{samp}_crispr_analysis.tar.gz', 'r:gz') as tar:
+        f = tar.extractfile('protospacer_calls_per_cell.csv')
+        df = pd.read_csv(f).rename(columns={'num_umis':'num_umis_guide_id'})
     df['genetic_perturbation_id'] = df['feature_call'].apply(lambda x: x.replace('|',' || '))
     df = df[['cell_barcode','genetic_perturbation_id','num_umis_guide_id']].set_index('cell_barcode')
 
@@ -316,7 +316,7 @@ def map_ontologies(sample_df):
     
     ### Blank fields in worksheet result in NaN values in dataframe, replacing these with n/a ? 
     ### Could also replace with unknown for certain columns using fillna options?
-    sample_df.fillna('n/a', inplace=True)
+    sample_df.fillna('na', inplace=True)
     return sample_df
 
 
@@ -409,6 +409,7 @@ if __name__ == '__main__':
         adata.uns['organism_ontology_term_id'] = adata.obs['organism_ontology_term_id'].unique()[0]
         adata.uns['title'] = samp
         adata.obs.drop(columns=['organism_ontology_term_id'],inplace=True)
+        adata.obs['is_primary_data'] = True
         
         crispr_df = gather_crispr(samp)
         adata.obs = adata.obs.merge(
@@ -430,9 +431,13 @@ if __name__ == '__main__':
         ### Add guide schema metadata to adata.uns and adata.obs
         adata = add_guide_metadata(adata, args.sheet, guide_gid)
         adata = determine_perturbation_strategy(adata)
+        adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].astype('category')
+        adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].cat.add_categories(['na'])
+        adata.obs['genetic_perturbation_id'].fillna('na', inplace=True)
 
         ### Write to directories: curated and temp
-        adata.write(filename=f'curated_matrices/{lib}__{samp}__curated.h5ad', compression='gzip')
+        order = order.rstrip('/')
+        adata.write(filename=f'curated_matrices/{lib}__{samp}__{order}__curated.h5ad', compression='gzip')
         for file in [f'sample_filtered_feature_bc_matrix.h5', f'crispr_analysis.tar.gz', f'metrics_summary.csv']:
             os.remove(f"temp_cellranger/{samp}_{file}")
 
