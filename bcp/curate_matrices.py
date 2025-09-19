@@ -117,6 +117,7 @@ def gather_crispr(samp):
         f = tar.extractfile('protospacer_calls_per_cell.csv')
         df = pd.read_csv(f).rename(columns={'num_umis':'num_umis_guide_id'})
     df['genetic_perturbation_id'] = df['feature_call'].apply(lambda x: x.replace('|',' || '))
+    df['num_umis_guide_id'] = df['num_umis_guide_id'].apply(lambda x: x.replace('|',' || '))
     df = df[['cell_barcode','genetic_perturbation_id','num_umis_guide_id']].set_index('cell_barcode')
 
     return df
@@ -314,9 +315,10 @@ def map_ontologies(sample_df):
     for c in b_type:
         sample_df[c] = sample_df[c].replace({'FALSE':False, 'TRUE':True})
     
-    ### Blank fields in worksheet result in NaN values in dataframe, replacing these with n/a ? 
+    ### Blank fields in worksheet result in NaN values in dataframe, replacing these with na?
     ### Could also replace with unknown for certain columns using fillna options?
     sample_df.fillna('na', inplace=True)
+    sample_df.drop(columns=[c for c in sample_df.columns if c.startswith('\\')], inplace=True)
     return sample_df
 
 
