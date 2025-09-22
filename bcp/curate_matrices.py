@@ -207,8 +207,9 @@ def add_guide_metadata(adata, sheet, guide_gid):
         genetic_perturbations[row.guide_id]['role'] = 'targeting' if row.guide_role == 'Targeting a Gene' else 'control'
         genetic_perturbations[row.guide_id]['protospacer_sequence'] = row.guide_protospacer
         genetic_perturbations[row.guide_id]['protospacer_adjacent_motif'] = row.guide_PAM
-        chr_loc = str(row.chromosome).replace("chr","") + ":" + str(row.start) + ":" + str(row.end) + "(" + str(row.strand) + ")"
-        genetic_perturbations[row.guide_id]['target_genomic_regions'] = [chr_loc]
+        if not pd.isna([row.start,row.end,row.strand]).all():
+            chr_loc = str(row.chromosome).replace("chr","") + ":" + str(row.start) + "-" + str(row.end) + "(" + str(row.strand) + ")"
+            genetic_perturbations[row.guide_id]['target_genomic_regions'] = [chr_loc]
         if not pd.isna(row.overlapping_gene_ids):
             genetic_perturbations[row.guide_id]['target_features'] = {}
             for i in range(len(row.overlapping_gene_ids.split(";"))):
@@ -264,7 +265,8 @@ def map_ontologies(sample_df):
     col_ont_map = {
         'organism':'NCBITaxon',
         'sex':'PATO',
-        'self_reported_ethnicity':'HANCESTRO',
+        'self_reported_ethnicity':{'NCBITaxon:9606':'HANCESTRO',
+                                   'other':'none'},
         'disease':'MONDO',
         'assay':'EFO',
         'development_stage':{'NCBITaxon:6239':'WBls', # C. Elegans
@@ -287,7 +289,7 @@ def map_ontologies(sample_df):
                 term_id = 'PATO:0000461'
             elif label in ['unknown','n/a']: # unknown and n/a won't be in ontologies, pass along
                 map_dict[label] = label
-            elif col in ['tissue','development_stage']:
+            elif col in ['tissue','development_stage','self_reported_ethnicity']:
                 if col == 'tissue':
                     # Find what tissue type is at label row
                     if sample_df.loc[sample_df[col] == label, 'tissue_type'].tolist()[0] != 'tissue':
@@ -297,10 +299,13 @@ def map_ontologies(sample_df):
                 org_term_id = sample_df.loc[sample_df[col] == label, 'organism_ontology_term_id'].tolist()[0]
                 if org_term_id in col_ont_map[col]:
                     # Get ontology of specific organism and map label
-                    species_ont = col_ont_map[col][sample_df.loc[org_term_id]]
+                    species_ont = col_ont_map[col][org_term_id]
                     term_id = ontology_parser.get_term_id_by_label(label, species_ont)
                 else:
-                    term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col]['other'])
+                    if col_ont_map[col]['other'] == 'none':
+                        map_dict[label] = label
+                    else:
+                        term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col]['other'])
             else:
                 term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col])
             if term_id == None:
