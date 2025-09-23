@@ -2,9 +2,13 @@
 PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1454
 
 Testing conditions:
-Should not pass
-
 Should pass
+(Y) - new suspension_type rules pass on default fixtures
+(Y) - new suspension_type combos work across non-spatial fixtures
+
+Should not pass
+(N) - invalid suspension_type combos are appropriate across non-spatial fixtures
+(Y) - EFO:0010550 sci-rna-seq removed, all suspensions should pass
 """
 
 import pytest
@@ -24,6 +28,8 @@ SUSPENSION_VALUES_SET = {
     "cell",
     "nucleus",
 }
+# parallel test running needs consistent ordering, sets are unordered and different each run
+SUSPENSION_VALUES_LIST = sorted(list(SUSPENSION_VALUES_SET))
 
 
 ASSAY_SUSPENSION_DICT = {
@@ -89,7 +95,7 @@ class TestSuspensionTypeValidation:
     @pytest.mark.parametrize("assay_suspension", VALID_ASSAY_SUSPENSION_VALUES)
     def test_suspension_type_new_rules_pass(self, assay_suspension):
 
-        # new suspension_type combos work across fixtures
+        # new suspension_type combos work across non-spatial fixtures
 
         assay, suspension_type = assay_suspension
         self.validator.adata.obs["assay_ontology_term_id"] = assay
@@ -104,7 +110,7 @@ class TestSuspensionTypeValidation:
     @pytest.mark.parametrize("assay_suspension", INVALID_ASSAY_SUSPENSION_VALUES)
     def test_suspension_type_new_rules_fails(self, assay_suspension):
 
-        # invalid suspension_type combos are appropriate across fixtures
+        # invalid suspension_type combos are appropriate across non-spatial fixtures
         # currently STRT-seq descendants are valid with nucleus and na
 
         assay, invalid_suspension_type = assay_suspension
@@ -125,3 +131,17 @@ class TestSuspensionTypeValidation:
         ) in self.validator.errors
 
 
+    @pytest.mark.parametrize("suspension", SUSPENSION_VALUES_LIST)
+    def test_removed_assay_passes(self, suspension):
+
+        # EFO:0010550 sci-rna-seq removed, all suspensions should pass
+        # currently STRT-seq descendants are valid with nucleus and na
+
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0010550"
+        self.validator.adata.obs["suspension_type"] = suspension
+        for col in ["assay_ontology_term_id", "suspension_type"]:
+            self.validator.adata.obs[col] = self.validator.adata.obs[col].astype("category")
+            self.validator.adata.obs[col] = self.validator.adata.obs[col].cat.remove_unused_categories()
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
