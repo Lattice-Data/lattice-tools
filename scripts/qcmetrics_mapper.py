@@ -67,7 +67,8 @@ mappings = {
 				"frac_reads_in_aggregate_barcodes",
 				"frac_reads_recognized_antibody",
 				"frac_reads_unrecognized_antibody",
-				"frac_reads_usable"
+				"frac_reads_usable",
+				"frac_valid_umis"
 			]
 		},
 		"atac": {
