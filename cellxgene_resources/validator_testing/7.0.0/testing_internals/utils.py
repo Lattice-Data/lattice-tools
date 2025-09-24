@@ -5,6 +5,8 @@ import anndata as ad
 NA_COLUMNS = [
     "development_stage_ontology_term_id",
     "sex_ontology_term_id",
+    "self_reported_ethnicity_ontology_term_id",
+    "donor_id"
 ]
 
 
@@ -27,9 +29,13 @@ def make_valid_cell_line_fixture(adata: ad.AnnData, na_columns: list[str]=NA_COL
     adata.obs["tissue_type"] = "cell line"
     adata.obs["tissue_type"] = adata.obs["tissue_type"].astype("category")
     # random Cellosuarus term to be vaild
-    adata.obs['tissue_ontology_term_id'] = 'CVCL_2830'
+    adata.obs["tissue_ontology_term_id"] = "CVCL_2830"
 
     for column in na_columns:
         adata.obs[column] = "na"
+        adata.obs[column] = adata.obs[column].astype("category")
+
+    if adata.uns["organism_ontology_term_id"] == "NCBITaxon:9606":
+        adata.obs["self_reported_ethnicity_ontology_term_id"] = "unknown"
 
     return adata
