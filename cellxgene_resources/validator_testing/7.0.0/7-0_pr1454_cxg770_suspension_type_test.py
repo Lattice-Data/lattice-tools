@@ -135,7 +135,6 @@ class TestSuspensionTypeValidation:
     def test_removed_assay_passes(self, suspension):
 
         # EFO:0010550 sci-rna-seq removed, all suspensions should pass
-        # currently STRT-seq descendants are valid with nucleus and na
 
         self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0010550"
         self.validator.adata.obs["suspension_type"] = suspension
