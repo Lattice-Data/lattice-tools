@@ -2,15 +2,15 @@
 PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1455
 
 Testing conditions:
-Should not pass
-() - tissue_type == "cell line" with normal donor_id
-() - tissue_type != "cell line" with na for donor_id
-() - tissue_type == "cell line" and dev stage unknown
-() - tissue_type == "cell line" and donor_id mix of na and normal id
-() - all tissue_types with one random 'na' mixed in with normal ids
 
 Should pass
 () - tissue_type == "cell line" with na for donor_id
+
+Should not pass
+() - tissue_type == "cell line" with normal donor_id
+() - tissue_type != "cell line" with na for donor_id
+() - tissue_type == "cell line" and donor_id mix of na and normal id
+() - all tissue_types with one random 'na' mixed in with normal ids
 """
 
 import numpy as np
@@ -59,7 +59,7 @@ class TestDonorIDValidation:
         assert self.validator.errors == []
 
 
-    def test_tissue_cell_line_with_normal_ids_fails(self):
+    def test_tissue_cell_line_with_normal_ids_invalid(self):
 
         # tissue_type == "cell line" with normal donor_ids
 
@@ -67,9 +67,6 @@ class TestDonorIDValidation:
         original_donor_ids = self.validator.adata.obs["donor_id"]
         self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
         self.validator.adata.obs["donor_id"] = original_donor_ids
-        print(self.validator.adata.obs["donor_id"].unique())
-        print(self.validator.adata.obs["tissue_type"].unique())
-
         self.validator.validate_adata()
         assert not self.validator.is_valid
         # trying assert for common error string ending instead of matching on full error
@@ -80,56 +77,42 @@ class TestDonorIDValidation:
             "Values must be one of ['na'] when 'tissue_type' is 'cell line'.")
 
 
-    def test_tissue_cell_line_with_unknown_fails(self):
-
-        # tissue_type == "cell line" and dev stage unknown
-
-        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
-        self.validator.adata.obs["development_stage_ontology_term_id"] = "unknown"
-        self.validator.validate_adata()
-        assert not self.validator.is_valid
-        # trying assert for common error string ending instead of matching on full error
-        # string for each dev term in test fixture
-        for error in self.validator.errors:
-            assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
-
-
-    def test_tissue_cell_line_with_unknown_and_na_fails(self):
-
-        # tissue_type == "cell line" and dev stage mix of na and unknown
-        # UBERON dev stage organisms now passing
-
-        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
-        random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
-        self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "development_stage_ontology_term_id"] = "unknown"
-        self.validator.validate_adata()
-        assert not self.validator.is_valid
-        # trying assert for common error string ending instead of matching on full error
-        # string for each dev term in test fixture
-        for error in self.validator.errors:
-            assert error.endswith("When 'tissue_type' is 'cell line', 'development_stage_ontology_term_id' MUST be 'na'.")
-
-
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
-    def test_tissue_not_cell_line_dev_term_na_fails(self, tissue_type):
+    def test_tissue_not_cell_line_id_na_invalid(self, tissue_type):
 
-        # tissue_type != "cell line" with na for dev term
+        #tissue_type != "cell line" with na for donor_id
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
-        self.validator.adata.obs["development_stage_ontology_term_id"] = "na"
+        self.validator.adata.obs["donor_id"] = "na"
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            "ERROR: 'na' in 'development_stage_ontology_term_id' is not allowed. "
-            "When 'tissue_type' is not 'cell line', 'development_stage_ontology_term_id' cannot be 'na'."
+
         ) in self.validator.errors
 
 
-    @pytest.mark.parametrize("tissue_type", ALL_TISSUE_TYPES)
-    def test_tissue_not_cell_line_dev_term_one_na_fails(self, tissue_type):
+    def test_tissue_cell_line_with_normal_ids_and_na_invalid(self):
 
-        # all tissue_types with one random 'na' mixed in with valid dev terms
+            # tissue_type == "cell line" and donor_id mix of na and normal
+
+            original_donor_ids = self.validator.adata.obs["donor_id"]
+            self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
+            self.validator.adata.obs["donor_id"] = original_donor_ids
+            random_index = np.random.randint(0, (self.validator.adata.obs.shape[0] - 1))
+            self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "donor_id"] = "na"
+            self.validator.validate_adata()
+            assert not self.validator.is_valid
+            # trying assert for common error string ending instead of matching on full error
+            # string for each dev term in test fixture
+            for error in self.validator.errors:
+                assert error.endswith("Values must be one of ['na'] when 'tissue_type' is 'cell line'.")
+
+
+    @pytest.mark.parametrize("tissue_type", ALL_TISSUE_TYPES)
+    def test_tissue_not_cell_line_donor_id_one_na_invalid(self, tissue_type):
+
+        # all tissue_types with one random 'na' mixed in with normal ids
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         if tissue_type == "cell line":
@@ -165,17 +148,3 @@ class TestDonorIDValidation:
                     f"When 'tissue_type' is 'cell line', '{ontology}' MUST be 'na'."
                 )
                 assert error_string in self.validator.errors
-
-
-    def test_label_na_for_cell_line_dev_stage_na(self):
-
-        # tissue_type == "cell line" with na for dev term has na for dev label
-        # all organisms now pass
-
-        self.validator.adata = make_valid_cell_line_fixture(self.validator.adata)
-        self.validator.validate_adata()
-        assert self.validator.is_valid
-
-        labeler = AnnDataLabelAppender(self.validator.adata)
-        labeler._add_labels()
-        assert labeler.adata.obs["development_stage"].unique()[0] == "na"
