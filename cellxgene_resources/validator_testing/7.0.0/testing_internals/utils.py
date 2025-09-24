@@ -35,7 +35,4 @@ def make_valid_cell_line_fixture(adata: ad.AnnData, na_columns: list[str]=NA_COL
         adata.obs[column] = "na"
         adata.obs[column] = adata.obs[column].astype("category")
 
-    if adata.uns["organism_ontology_term_id"] == "NCBITaxon:9606":
-        adata.obs["self_reported_ethnicity_ontology_term_id"] = "unknown"
-
     return adata
