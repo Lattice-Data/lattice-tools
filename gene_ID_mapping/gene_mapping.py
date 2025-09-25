@@ -133,7 +133,6 @@ if not args.version:
     sys.exit('ERROR: --version is required')
 schema_v = args.version
 
-#DEFINE BASED ON ORGANISM:
 refs = []
 if args.organism == 'human':
     for n in range(19,22):
@@ -145,6 +144,11 @@ elif args.organism == 'mouse':
     for n in range(25, int(schema_v)):
         refs.append(f'gencode.vM{n}.primary_assembly.annotation.gtf.gz')
     schema_ref = f'gencode.vM{schema_v}.primary_assembly.annotation.gtf.gz'
+elif args.organism == 'fly':
+    for n in range(100, int(schema_v)):
+        ver_to_file = {f.split('.')[3]:f for f in os.listdir() if f.startswith('Drosophila_melanogaster')}
+        refs.append(ver_to_file[str(n)])
+    schema_ref = ver_to_file[str(schema_v)]
 
 missing_files = [r for r in refs + [schema_ref] if r not in os.listdir()]
 if missing_files:
@@ -173,69 +177,38 @@ for r in refs:
     ref_comp = pd.concat([ref_comp, comparison_df])
 
 min_report = ref_comp[['gene_id','input','new_ENSG']]
+min_report['new_ENSG-input'] = min_report.apply(lambda x: x['new_ENSG'] + '-' + x['input'], axis=1) #needed
+min_report['gene_id-new_ENSG'] = min_report.apply(lambda x: x['gene_id'] + '-' + x['new_ENSG'], axis=1) #needed
 
-min_report['gene_id-input'] = min_report.apply(lambda x: x['gene_id'] + '-' + x['input'], axis=1)
-min_report['new_ENSG-input'] = min_report.apply(lambda x: x['new_ENSG'] + '-' + x['input'], axis=1)
-min_report['gene_id-new_ENSG'] = min_report.apply(lambda x: x['gene_id'] + '-' + x['new_ENSG'], axis=1)
+# remove any cases where two genes map to the same new gene within a version
+remove = min_report[min_report.duplicated(subset='new_ENSG-input',keep=False)]['gene_id-new_ENSG'].unique()
+min_report = min_report[min_report['gene_id-new_ENSG'].isin(remove) == False]
 
-min_report['input'] = min_report['input'].apply(
-    lambda x: x.replace('gencode.','').replace('.annotation.gtf.gz','')
-        .replace('.chr_patch_hapl_scaff','').replace('.primary_assembly','')
-    )
-#remove any where two IDs map to the same target ID in the same old version
-invalid_mappings = min_report[min_report.duplicated(subset='new_ENSG-input',keep=False)]['gene_id-new_ENSG'].unique()
-min_report = min_report[min_report['gene_id-new_ENSG'].isin(invalid_mappings) == False]
+min_report = min_report[['gene_id','new_ENSG','gene_id-new_ENSG']].drop_duplicates()
 
-#remove any where two IDs map to the same target ID amongst all old versions
-invalid_new_ENSG = []
-all_new = [i.split('-')[-1] for i in min_report['gene_id-new_ENSG'].unique()]
+# remove any cases where mappings would create a conflict within a version and two genes could map to the same new gene
+remove = []
+all_new = min_report['new_ENSG'].tolist()
 dup_new = set([i for i in all_new if all_new.count(i) > 1])
 for i in dup_new:
     gene_ids = min_report[min_report['new_ENSG'] == i]['gene_id'].unique()
     input_for_gene_ids = all_inputs[all_inputs['gene_id'].isin(gene_ids)]
-    if len(input_for_gene_ids['input'].unique()) < len(input_for_gene_ids['input']):
-        invalid_new_ENSG.append(i)
-min_report = min_report[min_report['new_ENSG'].isin(invalid_new_ENSG) == False]
+    if input_for_gene_ids['input'].duplicated().any():
+        remove.append(i)
+min_report = min_report[min_report['new_ENSG'].isin(remove) == False]
 
-min_all_inputs = all_inputs[all_inputs['gene_id'].isin(min_report['gene_id'].unique())][['gene_id','input']]
-min_all_inputs['gene_id-input'] = min_all_inputs.apply(lambda x: x['gene_id'] + '-' + x['input'], axis=1)
-min_all_inputs = min_all_inputs[min_all_inputs['gene_id-input'].isin(min_report['gene_id-input']) == False]
-
-min_report = min_report.groupby('gene_id-new_ENSG').agg(','.join).reset_index()
-min_report[['gene_id','new_ENSG']] = min_report['gene_id-new_ENSG'].str.split('-',expand=True)[[0,1]]
+# remove any cases where a single gene id would map to different new genes
 min_report = min_report[min_report.duplicated(subset='gene_id', keep=False) == False]
 
-for i,row in min_all_inputs.iterrows():
-    new_ENSG = min_report.loc[min_report['gene_id'] == row['gene_id'], 'new_ENSG'].iloc[0]
-    full_df = all_inputs[all_inputs['input'] == row['input']]
-    if new_ENSG in full_df['gene_id'].unique():
-        min_all_inputs.loc[i, 'new_ENSG in version'] = row['input']
-        
-min_all_inputs['input'] = min_all_inputs['input'].apply(
-    lambda x: x.replace('gencode.','').replace('.annotation.gtf.gz','')
-        .replace('.chr_patch_hapl_scaff','').replace('.primary_assembly','')
-    )
-
-min_all_inputs.fillna('', inplace=True)
-min_all_inputs['new_ENSG in version'] = min_all_inputs['new_ENSG in version'].apply(
-    lambda x: x.replace('gencode.','').replace('.annotation.gtf.gz','')
-        .replace('.chr_patch_hapl_scaff','').replace('.primary_assembly','')
-    )
-
-min_all_inputs = min_all_inputs.groupby('gene_id').agg(lambda x: ','.join([e for e in x if e != ''])).reset_index()
-min_all_inputs['new_ENSG in version'] = min_all_inputs['new_ENSG in version'].apply(lambda x: '' if x and x[0] == ',' else x)
-min_all_inputs.rename(columns={'input':'present, not mapped'}, inplace=True)
-
-min_report.rename(columns={'input':'mapped in'}, inplace=True)
-min_report = min_report[['gene_id','mapped in','new_ENSG']]
-
-min_report = min_report.merge(schema_df[['gene_id','gene_name']],
-                    how='left', left_on='new_ENSG', right_on='gene_id',
-                    suffixes=(None,'_y'))
-min_report = min_report.merge(min_all_inputs, how='left', on='gene_id')
-min_report.fillna('', inplace=True)
-
-min_report = min_report[min_report['new_ENSG in version'] == '']
+# remove any cases where both the old and new genes appear in the same version
+remove = []
+for i in all_inputs['input'].unique():
+    all_genes = all_inputs[all_inputs['input'] == i]['gene_id'].unique()
+    for m in min_report['gene_id-new_ENSG'].unique():
+        if m not in remove:
+            if m.split('-')[0] in all_genes and m.split('-')[1] in all_genes:
+                remove.append(m)
+min_report = min_report[min_report['gene_id-new_ENSG'].isin(remove) == False]
 
 with open(f'gene_map_{args.organism}_v{schema_v}.json', 'w') as f:
     json.dump(
