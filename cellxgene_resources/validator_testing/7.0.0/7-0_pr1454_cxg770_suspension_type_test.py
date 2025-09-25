@@ -7,7 +7,7 @@ Should pass
 (Y) - new suspension_type combos work across non-spatial fixtures
 
 Should not pass
-(N) - invalid suspension_type combos are appropriate across non-spatial fixtures
+(Y) - invalid suspension_type combos are appropriate across non-spatial fixtures
 (Y) - EFO:0010550 sci-rna-seq removed, all suspensions should pass
 """
 
@@ -111,7 +111,6 @@ class TestSuspensionTypeValidation:
     def test_suspension_type_new_rules_fails(self, assay_suspension):
 
         # invalid suspension_type combos are appropriate across non-spatial fixtures
-        # currently STRT-seq descendants are valid with nucleus and na
 
         assay, invalid_suspension_type = assay_suspension
         self.validator.adata.obs["assay_ontology_term_id"] = assay
