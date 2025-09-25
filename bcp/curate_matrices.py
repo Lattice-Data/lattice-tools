@@ -284,10 +284,12 @@ def map_ontologies(sample_df):
     
     for col in col_ont_map:
         map_dict = {}
+        if col not in sample_df.columns: # If all n/a dropped earlier
+            continue
         for label in sample_df[col].unique():
-            if col == 'disease' and label == 'normal': # normal is not in MONDO ontology
+            if col == 'disease' and label == 'normal': # Normal is not in MONDO ontology
                 term_id = 'PATO:0000461'
-            elif label in ['unknown','n/a']: # unknown and n/a won't be in ontologies, pass along
+            elif label in ['unknown','n/a']: # Unknown and n/a won't be in ontologies, pass along
                 map_dict[label] = label
             elif col in ['tissue','development_stage','self_reported_ethnicity']:
                 if col == 'tissue':
