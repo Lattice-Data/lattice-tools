@@ -61,7 +61,19 @@ def read_cr_csv(file):
 			values = rows[1]
 			temp_json = dict(zip(headers, values))
 		else:
-			temp_json = {r[-2]:r[-1] for r in rows if r[1] == 'Gene Expression' and r[2] != 'Fastq ID'}
+			gexfqs = [r[3] for r in rows if r[1] == 'Gene Expression' and r[2] == 'Fastq ID']
+			if len(set(gexfqs)) > 1:
+				temp_json = {r[-2]:r[-1] for r in rows if r[1] == 'Gene Expression' and r[2] != 'Fastq ID'}
+			else:
+				temp_json = {r[-2]:r[-1] for r in rows if r[1] == 'Gene Expression'}
+
+			adtfqs = [r[3] for r in rows if r[1] == 'Antibody Capture' and r[2] == 'Fastq ID']
+			if len(set(adtfqs)) > 1:
+				ac_json = {f'Antibody: {r[-2]}':r[-1] for r in rows if r[1] == 'Antibody Capture' and r[2] != 'Fastq ID'}
+				temp_json.update(ac_json)
+			elif adtfqs:
+				ac_json = {f'Antibody: {r[-2]}':r[-1] for r in rows if r[1] == 'Antibody Capture'}
+				temp_json.update(ac_json)
 
 	os.remove(file)
 	print(file + ' removed')

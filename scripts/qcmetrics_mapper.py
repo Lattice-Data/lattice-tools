@@ -13,13 +13,17 @@ mappings = {
 		"rna" : {
 			"schema_mapping": {
 				"q30_bases_in_barcode": "frac_q30_bases_in_barcode",
+				"q30_barcodes": "frac_q30_bases_in_barcode",
 				"q30_bases_in_rna_read": "frac_q30_bases_in_rna_read",
+				"q30_rna_read": "frac_q30_bases_in_rna_read",
 				"q30_bases_in_read_2": "frac_q30_bases_in_rna_read2",
+				"q30_rna_read_2": "frac_q30_bases_in_rna_read2",
 				"q30_bases_in_rna_read_2": "frac_q30_bases_in_rna_read2",
 				"q30_bases_in_sample_index": "frac_q30_bases_in_sample_index",
 				"q30_bases_in_sample_index_i1": "frac_q30_bases_in_sample_index",
 				"q30_bases_in_sample_index_i2": "frac_q30_bases_in_sample_index2",
 				"q30_bases_in_umi": "frac_q30_bases_in_umi",
+				"q30_umi": "frac_q30_bases_in_umi",
 				"fraction_reads_in_cells": "frac_reads_in_cells",
 				"reads_mapped_antisense_to_gene": "frac_reads_mapped_antisense_to_gene",
 				"reads_mapped_confidently_to_exonic_regions": "frac_reads_mapped_confidently_to_exonic_regions",
@@ -67,7 +71,8 @@ mappings = {
 				"frac_reads_in_aggregate_barcodes",
 				"frac_reads_recognized_antibody",
 				"frac_reads_unrecognized_antibody",
-				"frac_reads_usable"
+				"frac_reads_usable",
+				"frac_valid_umis"
 			]
 		},
 		"atac": {
@@ -152,11 +157,20 @@ mappings = {
 				"valid_barcodes": "frac_valid_barcodes",
 				"antibody_reads_usable_per_cell": "mean_antibody_reads_usable_per_cell",
 				"median_umis_per_cell_(summed_over_all_recognized_antibody_barcodes)": "median_umi_counts_per_cell",
-				"number_of_reads": "total_reads"
+				"number_of_reads": "total_reads",
+				"estimated_number_of_cells": "total_cells_detected",
+				"median_umi_counts_per_cell": "median_umi_counts_per_cell",
+				"q30_rna_read": "frac_q30_bases_in_antibody_read",
+				"q30_rna_read_2": "frac_q30_bases_in_antibody_read2",
+				"q30_umi": "frac_q30_bases_in_umi",
+				"q30_barcodes": "frac_q30_bases_in_barcode",
+				"fraction_reads_in_cells": "frac_reads_in_cells",
+				"mean_reads_per_cell": "mean_reads_per_cell"
 			},
 			"should_match": {},
 			"perc_to_frac": [
 				"frac_q30_bases_in_antibody_read",
+				"frac_q30_bases_in_antibody_read2",
 				"frac_q30_bases_in_barcode",
 				"frac_q30_bases_in_umi",
 				"frac_reads_in_aggregate_barcodes",
