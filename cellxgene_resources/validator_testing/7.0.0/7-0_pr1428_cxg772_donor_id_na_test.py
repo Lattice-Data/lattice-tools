@@ -4,11 +4,11 @@ PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1
 Testing conditions:
 
 Should pass
-() - tissue_type == "cell line" with na for donor_id
+(Y) - tissue_type == "cell line" with na for donor_id
 
 Should not pass
-() - tissue_type == "cell line" with normal donor_id
-() - tissue_type != "cell line" with na for donor_id
+(Y) - tissue_type == "cell line" with normal donor_id
+(N) - tissue_type != "cell line" with na for donor_id
 () - tissue_type == "cell line" and donor_id mix of na and normal id
 () - all tissue_types with one random 'na' mixed in with normal ids
 """
@@ -80,16 +80,21 @@ class TestDonorIDValidation:
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
     def test_tissue_not_cell_line_id_na_invalid(self, tissue_type):
 
-        #tissue_type != "cell line" with na for donor_id
+        # tissue_type != "cell line" with donor_id == "na" -> currently allowed, shouldn't be
+
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
         self.validator.adata.obs["donor_id"] = "na"
+        self.validator.adata.obs["donor_id"] = self.validator.adata.obs["donor_id"].astype("category")
+        if tissue_type == "primary cell culture":
+            self.validator.adata.obs["tissue_ontology_term_id"] = "CL:0000617"
+
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        assert (
+        '''assert (
 
-        ) in self.validator.errors
+        ) in self.validator.errors'''
 
 
     def test_tissue_cell_line_with_normal_ids_and_na_invalid(self):
