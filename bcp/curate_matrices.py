@@ -306,6 +306,7 @@ def map_ontologies(sample_df):
                 else:
                     if col_ont_map[col]['other'] == 'none':
                         map_dict[label] = label
+                        continue
                     else:
                         term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col]['other'])
             else:
@@ -325,7 +326,7 @@ def map_ontologies(sample_df):
     ### Blank fields in worksheet result in NaN values in dataframe, replacing these with na?
     ### Could also replace with unknown for certain columns using fillna options?
     sample_df.fillna('na', inplace=True)
-    sample_df.drop(columns=[c for c in sample_df.columns if c.startswith('\\')], inplace=True)
+    sample_df.drop(columns=[c for c in sample_df.columns if c.startswith('!')], inplace=True)
     return sample_df
 
 
