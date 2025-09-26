@@ -284,13 +284,13 @@ def map_ontologies(sample_df):
     
     for col in col_ont_map:
         map_dict = {}
-        if col not in sample_df.columns: # If all n/a dropped earlier
-            continue
         for label in sample_df[col].unique():
+            term_id = None
             if col == 'disease' and label == 'normal': # Normal is not in MONDO ontology
                 term_id = 'PATO:0000461'
-            elif label in ['unknown','n/a']: # Unknown and n/a won't be in ontologies, pass along
+            elif label in ['unknown','na']: # Unknown and na won't be in ontologies, pass along
                 map_dict[label] = label
+                continue
             elif col in ['tissue','development_stage','self_reported_ethnicity']:
                 if col == 'tissue':
                     # Find what tissue type is at label row
@@ -313,6 +313,8 @@ def map_ontologies(sample_df):
                 term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col])
             if term_id == None:
                 print(f"Matching '{col_ont_map[col]}' term id not found for label '{label}' in column '{col}'")
+                map_dict[label] = label
+                continue
             map_dict[label] = term_id
         sample_df[col + '_ontology_term_id'] = sample_df[col].map(map_dict)
         del sample_df[col]
