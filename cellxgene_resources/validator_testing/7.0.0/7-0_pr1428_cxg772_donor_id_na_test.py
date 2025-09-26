@@ -11,8 +11,8 @@ Should pass
 Should not pass
 (Y) - tissue_type == "cell line" with all normal donor_ids
 (Y) - tissue_type == "cell line" with donor_id mix of one random 'na' and normal ids
-(N) - tissue_type != "cell line" with all na for donor_ids
-(N) - tissue_type != "cell line"  with donor_id mix of one random 'na' and normal ids
+(Y) - tissue_type != "cell line" with all na for donor_ids
+(Y) - tissue_type != "cell line"  with donor_id mix of one random 'na' and normal ids
 """
 
 import numpy as np
@@ -98,7 +98,7 @@ class TestDonorIDValidation:
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
     def test_tissue_not_cell_line_id_na_invalid(self, tissue_type):
 
-        # tissue_type != "cell line" with donor_id == "na" -> currently passing, shouldn't be allowed
+        # tissue_type != "cell line" with donor_id == "na"
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
@@ -109,7 +109,9 @@ class TestDonorIDValidation:
 
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        '''assert () in self.validator.errors'''
+        assert (
+            "ERROR: Column 'donor_id' in dataframe 'obs' contains forbidden values '['na']'. Values must not be one of ['na']"
+        ) in self.validator.errors
 
 
     def test_tissue_cell_line_with_normal_ids_and_na_invalid(self):
@@ -127,13 +129,15 @@ class TestDonorIDValidation:
         # trying assert for common error string ending instead of matching on full error
         # string for each dev term in test fixture
         for error in self.validator.errors:
-            assert error.endswith("Values must be one of ['na'] when 'tissue_type' is 'cell line'.")
+            assert error.endswith(
+                "Values must be one of ['na'] when 'tissue_type' is 'cell line'."
+                )
 
 
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
     def test_tissue_not_cellline_donor_id_one_na_invalid(self, tissue_type):
 
-        # tissue_type != cell line and donor_id with one random 'na' + normal ids -> currently passing, shouldn't be allowed
+        # tissue_type != cell line and donor_id with one random 'na' + normal ids
 
         self.validator.adata.obs["tissue_type"] = tissue_type
         self.validator.adata.obs["tissue_type"] = self.validator.adata.obs["tissue_type"].astype("category")
@@ -146,7 +150,9 @@ class TestDonorIDValidation:
         self.validator.adata.obs.loc[self.validator.adata.obs.index[random_index], "donor_id"] = "na"
         self.validator.validate_adata()
         assert not self.validator.is_valid
-        '''assert () in self.validator.errors'''
+        assert (
+            "ERROR: Column 'donor_id' in dataframe 'obs' contains forbidden values '['na']'. Values must not be one of ['na']"
+        ) in self.validator.errors
 
 
 
