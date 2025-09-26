@@ -35,28 +35,28 @@ HUMAN_H5ADS = [f for f in ALL_H5ADS if any(s in f for s in ["human","integrated"
 NON_HUMAN_H5ADS = [f for f in ALL_H5ADS if not any(s in f for s in ["human","integrated"])]
 
 HUMAN_VALID_VALUES = {
-    "single valid term":"HANCESTRO:0005",
+    "single valid term":"HANCESTRO:0861",
     "unknown":"unknown",
-    "multiple valid terms":"HANCESTRO:0005 || HANCESTRO:0014 || HANCESTRO:0015"
+    "multiple valid terms":"HANCESTRO:0847 || HANCESTRO:0861 || HANCESTRO:0862"
 }
 
 HUMAN_INVALID_VALUES = {
-    "out of lexical order":"HANCESTRO:0014 || HANCESTRO:0005",
-    "different delimiter":"HANCESTRO:0005,HANCESTRO:0014",
-    "no spaces":"HANCESTRO:0005||HANCESTRO:0014",
-    "duplicate terms":"HANCESTRO:0005 || HANCESTRO:0005",
-    "valid term with whitespace typo":"HANCESTRO:0005 ",
+    "out of lexical order":"HANCESTRO:0861 || HANCESTRO:0847",
+    "different delimiter":"HANCESTRO:0847,HANCESTRO:0861",
+    "no spaces":"HANCESTRO:0847||HANCESTRO:0861",
+    "duplicate terms":"HANCESTRO:0847 || HANCESTRO:0847",
+    "valid term with whitespace typo":"HANCESTRO:0847 ",
     "forbidden term":"HANCESTRO:0031",
     "na":"na"
 }
 
-error_message_suffix = " When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens), self_reported_ethnicity_ontology_term_id MUST be formatted as one or more HANCESTRO terms in ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable. Cannot match any forbidden HANCESTRO terms listed in schema definition."
+error_message_suffix = " When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens) and 'tissue_type' is not 'cell line', self_reported_ethnicity_ontology_term_id MUST be formatted as one or more AfPO or HANCESTRO terms that are descendants of 'HANCESTRO:0601' for ethnicity category or 'HANCESTRO:0602' for geography-based population category, in ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable."
 
 ERROR_MESSAGE = {
     "contains duplicates":"in 'self_reported_ethnicity_ontology_term_id' contains duplicates." + error_message_suffix,
     "not in lexical order":"in 'self_reported_ethnicity_ontology_term_id' is not in ascending lexical order." + error_message_suffix,
-    "not a valid term":"in 'self_reported_ethnicity_ontology_term_id' is not a valid ontology term id of 'HANCESTRO'." + error_message_suffix,
-    "forbidden":"in 'self_reported_ethnicity_ontology_term_id' is not allowed." + error_message_suffix
+    "not a valid term":"in 'self_reported_ethnicity_ontology_term_id' is not a valid ontology term id of 'HANCESTRO, AFPO'." + error_message_suffix,
+    "forbidden":"in 'self_reported_ethnicity_ontology_term_id' is a deprecated term id of 'HANCESTRO'." + error_message_suffix
 }
 
 NON_HUMAN_VALID_VALUES = {
@@ -224,9 +224,9 @@ class TestHumanEthnicityOntologyValidation:
         self.validator.validate_adata()
         labeler = AnnDataLabelAppender(self.validator.adata)
         labeler._add_labels()
-        map = {"European":"HANCESTRO:0005",
-                "Hispanic or Latin American":"HANCESTRO:0014",
-                "Greater Middle Eastern  (Middle Eastern or North African or Persian)":"HANCESTRO:0015"}
+        map = {"Asian":"HANCESTRO:0847",
+                "Black British":"HANCESTRO:0861",
+                "Asian-American":"HANCESTRO:0862"}
         assert labeler.adata.obs["self_reported_ethnicity_ontology_term_id"][0].split(" || ") == [map[t] for t in labeler.adata.obs["self_reported_ethnicity"][0].split(" || ")]
 
 
