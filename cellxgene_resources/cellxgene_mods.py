@@ -291,11 +291,17 @@ def evaluate_uns_colors(adata):
 
 def map_filter_gene_ids(adata):
     #map genes
-    v44_gene_map = json.load(open('../gene_ID_mapping/gene_map_v44.json'))
+    gene_map = {}
+    gene_map_files = ['gene_map_human_v48.json','gene_map_mouse_v37.json','gene_map_fly_v114.json']
+    for file in gene_map_files:
+        with open(f'../gene_ID_mapping/{file}', 'r') as f:
+            data = json.load(f)
+            gene_map.update(data)
+
     approved_file = 'ref_files/genes_approved.csv.gz'
     approved = pd.read_csv(approved_file,dtype='str')
 
-    my_gene_map = {k:v for k,v in v44_gene_map.items() if k in adata.var.index and v not in adata.var.index}
+    my_gene_map = {k:v for k,v in gene_map.items() if k in adata.var.index and v not in adata.var.index}
     adata.var.rename(index=my_gene_map, inplace=True)
 
     #filter out genes
@@ -309,7 +315,7 @@ def map_filter_gene_ids(adata):
 
     if adata.raw:
         raw_adata = ad.AnnData(adata.raw.X, var=adata.raw.var, obs=adata.obs) #do we need to define obs?
-        my_gene_map = {k:v for k,v in v44_gene_map.items() if k in raw_adata.var.index and v not in raw_adata.var.index}
+        my_gene_map = {k:v for k,v in gene_map.items() if k in raw_adata.var.index and v not in raw_adata.var.index}
         raw_adata.var.rename(index=my_gene_map, inplace=True)
         if not raw_adata.var.index.name:
             raw_adata.var.index.name = 'ensembl_id'
