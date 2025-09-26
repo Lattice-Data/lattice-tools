@@ -6,6 +6,7 @@ Testing conditions:
 Should pass
 (Y) - tissue_type != "cell line" with normal donor_ids
 (Y) - tissue_type == "cell line" with na for donor_id
+(Y) -  equal amount of obs as tissue_type != "cell line" + donor_id != "na" and as tissue_type == "cell line" + donor_id == "na"
 
 
 Should not pass
@@ -13,6 +14,7 @@ Should not pass
 (Y) - tissue_type == "cell line" with donor_id mix of one random 'na' and normal ids
 (Y) - tissue_type != "cell line" with all na for donor_ids
 (Y) - tissue_type != "cell line"  with donor_id mix of one random 'na' and normal ids
+() - unequal amount of obs as tissue_type != "cell line" + donor_id != "na" and as tissue_type == "cell line" + donor_id == "na"
 """
 
 import numpy as np
@@ -75,6 +77,38 @@ class TestDonorIDValidation:
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
+
+
+    def test_tissue_cell_line_donor_equal_valid(self):
+
+        # equal amount of obs as tissue_type != "cell line" + donor_id != "na" and as tissue_type == "cell line" + donor_id == "na"
+
+        cell_line_values = {
+            "tissue_type":"cell line",
+            "tissue_ontology_term_id":"CVCL_2830",
+            "donor_id":"na",
+            "development_stage_ontology_term_id":"na",
+            "sex_ontology_term_id":"na",
+            "self_reported_ethnicity_ontology_term_id":"na"
+        }
+
+        original_donor_ids = self.validator.adata.obs["donor_id"]
+        idx = self.validator.adata.obs.sample(frac=0.5, random_state=0).index
+
+        # set tissue rows
+        self.validator.adata.obs.loc[idx, "tissue_type"] = "tissue"
+        self.validator.adata.obs.loc[idx, "donor_id"] = original_donor_ids[idx]
+
+        # set cell line rows
+        for k,v in cell_line_values.items():
+            if v not in self.validator.adata.obs[k].unique():
+                self.validator.adata.obs[k] = self.validator.adata.obs[k].cat.add_categories(v)
+
+            self.validator.adata.obs.loc[self.validator.adata.obs.index.difference(idx), k] = v
+            self.validator.adata.obs[k] = self.validator.adata.obs[k].astype("category")
+
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
 
 
     def test_tissue_cell_line_with_normal_ids_invalid(self):
