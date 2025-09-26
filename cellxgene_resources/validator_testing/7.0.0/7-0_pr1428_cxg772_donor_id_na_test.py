@@ -6,7 +6,7 @@ Testing conditions:
 Should pass
 (Y) - tissue_type != "cell line" with normal donor_ids
 (Y) - tissue_type == "cell line" with na for donor_id
-(Y) -  equal amount of obs as tissue_type != "cell line" + donor_id != "na" and as tissue_type == "cell line" + donor_id == "na"
+(Y) - mixed tissue_types with equal counts of donor_id != "na" and == "na"
 
 
 Should not pass
@@ -14,7 +14,7 @@ Should not pass
 (Y) - tissue_type == "cell line" with donor_id mix of one random 'na' and normal ids
 (Y) - tissue_type != "cell line" with all na for donor_ids
 (Y) - tissue_type != "cell line"  with donor_id mix of one random 'na' and normal ids
-() - unequal amount of obs as tissue_type != "cell line" + donor_id != "na" and as tissue_type == "cell line" + donor_id == "na"
+(Y) - mixed tissue_types with diiferent counts of donor_id != and == "na"
 """
 
 import numpy as np
@@ -79,9 +79,9 @@ class TestDonorIDValidation:
         assert self.validator.errors == []
 
 
-    def test_tissue_cell_line_donor_equal_valid(self):
+    def test_tissue_type_mixed_valid(self):
 
-        # equal amount of obs as tissue_type != "cell line" + donor_id != "na" and as tissue_type == "cell line" + donor_id == "na"
+        # mixed tissue_types with equal counts of donor_id != "na" and == "na"
 
         cell_line_values = {
             "tissue_type":"cell line",
@@ -108,7 +108,7 @@ class TestDonorIDValidation:
             self.validator.adata.obs[k] = self.validator.adata.obs[k].astype("category")
 
         self.validator.validate_adata()
-        assert not self.validator.is_valid
+        assert self.validator.is_valid
 
 
     def test_tissue_cell_line_with_normal_ids_invalid(self):
@@ -189,5 +189,49 @@ class TestDonorIDValidation:
         ) in self.validator.errors
 
 
+    def test_tissue_type_mixed_donor_unequal_invalid(self):
 
+        # mixed tissue_types with diiferent counts of donor_id != and == "na"
+        # this test is not using utils.py to side step conflicts with other tests
+        # I may have overcomplicated this test
 
+        cell_line_values = {
+            "tissue_type":"cell line",
+            "tissue_ontology_term_id":"CVCL_2830",
+            "development_stage_ontology_term_id":"na",
+            "sex_ontology_term_id":"na",
+            "self_reported_ethnicity_ontology_term_id":"na"
+        }
+
+        original_donor_ids = self.validator.adata.obs["donor_id"]
+        idx_tissue = self.validator.adata.obs.sample(frac=0.5, random_state=0).index
+        idx_tissue_donor_id = self.validator.adata.obs.sample(frac=0.5, random_state=1).index
+
+        # set tissue rows
+        self.validator.adata.obs.loc[idx_tissue, "tissue_type"] = "tissue"
+        self.validator.adata.obs.loc[idx_tissue_donor_id, "donor_id"] = original_donor_ids[idx_tissue_donor_id]
+
+        # set cell line rows
+        idx_cl = self.validator.adata.obs.sample(frac=0.5, random_state=2).index
+        idx_cl_donor_id = self.validator.adata.obs.sample(frac=0.5, random_state=3).index
+
+        for k,v in cell_line_values.items():
+            if v not in self.validator.adata.obs[k].unique():
+                self.validator.adata.obs[k] = self.validator.adata.obs[k].cat.add_categories(v)
+
+            self.validator.adata.obs.loc[idx_cl, k] = v
+            self.validator.adata.obs[k] = self.validator.adata.obs[k].astype("category")
+
+        self.validator.adata.obs["donor_id"] = self.validator.adata.obs["donor_id"].cat.add_categories("na")
+        self.validator.adata.obs.loc[idx_cl_donor_id, "donor_id"] = "na"
+        self.validator.adata.obs["donor_id"] = self.validator.adata.obs["donor_id"].astype("category")
+        unique_donors_for_error = [x for x in self.validator.adata.obs.loc[self.validator.adata.obs["tissue_type"] == "cell line"]["donor_id"].unique().tolist() if x != "na"]
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (
+            f"ERROR: Column 'donor_id' in dataframe 'obs' contains invalid values '{unique_donors_for_error}'. "
+            "Values must be one of ['na'] when 'tissue_type' is 'cell line'."
+        ) in self.validator.errors
+        assert (
+            "ERROR: Column 'donor_id' in dataframe 'obs' contains forbidden values '['na']'. Values must not be one of ['na']"
+        ) in self.validator.errors
