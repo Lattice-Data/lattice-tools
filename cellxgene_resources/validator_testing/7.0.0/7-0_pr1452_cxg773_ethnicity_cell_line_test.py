@@ -3,8 +3,18 @@ PR for this issue: https://github.com/chanzuckerberg/single-cell-curation/pull/1
 
 Testing conditions:
 Should not pass
+(Y) - tissue_type != "cell line" + ethnicity term == "na"
+(Y) - tissue_type != cell line and ethnicity with one random 'na' + normal ids
+(N) - human + ethnicity == mix of AfPO and HANCESTRO terms -> not sure if this is allowed?
+(Y) - human + ethnicity == non-descendants of ethnicity or geography-based pop categories
 
 Should pass
+(Y) - tissue_type == "cell line" + ethnicity term == "na"
+(Y) - human + ethnicity term == "unknown"
+(N) - human + ethnicity term == one AfPO or HANCESTRO terms (descendants of ethnicity or geography-based pop categories)
+(N) - human + ethnicity terms == multiple AfPO in lexical order
+
+
 """
 
 import numpy as np
@@ -38,6 +48,15 @@ ALL_TISSUE_TYPES = [
     "primary cell culture",
     "tissue",
     "cell line",
+]
+VALID_CHILDREN = [
+        "HANCESTRO:0861",   # Black British
+        "HANCESTRO:0847",   # Asian
+        "HANCESTRO:0852",   # Middle Eastern
+        "HANCESTRO:0846",   # Native American
+        "HANCESTRO:0862",   # Asian American
+        "AfPO:0000365",     # Egyptian, this term is on OLS, might make it to CXG with COG update
+        "AfPO:0000389"      # Somali, this term is on OLS, might make it to CXG with COG update
 ]
 
 
@@ -96,21 +115,12 @@ class TestEthnicityValidationHuman:
         assert self.validator.errors == []
 
 
-    @pytest.mark.parametrize(
-        "ethnicity_term", 
-        [
-            "HANCESTRO:0861",   # Black British
-            "HANCESTRO:0847",   # Asian
-            "HANCESTRO:0852",   # Middle Eastern
-            "HANCESTRO:0846",   # Native American
-            "HANCESTRO:0862",   # Asian American
-            "AfPO:0000365",     # Egyptian, this term is on OLS, might make it to CXG with COG update
-        ]
-    )
+    @pytest.mark.parametrize("ethnicity_term", VALID_CHILDREN)
     def test_current_cxg_forbidden_passes(self, ethnicity_term):
 
         # not currently allowed but are geography or ethnicity category terms
         # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
+        # Corinn comment - confirmed i see AfPO term not passing, but the rest are
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = ethnicity_term
         self.validator.validate_adata()
@@ -162,6 +172,34 @@ class TestEthnicityValidationHuman:
             "for ethnicity category or 'HANCESTRO:0602' for geography-based population category, in "
             "ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable."
         ) in self.validator.errors
+
+
+    def test_multiple_afpo_current_cxg_forbidden(self):
+
+        # human + ethnicity terms == multiple AfPO in lexical order
+
+        # not currently allowed but are geography or ethnicity category terms
+        # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
+
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = " || ".join(VALID_CHILDREN[-2:])
+        print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
+
+
+    def test_mix_afpo_hancestro_current_cxg_forbidden(self):
+
+        # human + ethnicity == mix of AfPO and HANCESTRO terms -> not sure if this is allowed?
+
+        # not currently allowed but are geography or ethnicity category terms
+        # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
+
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = " || ".join(VALID_CHILDREN[-2:] + VALID_CHILDREN[:1])
+        print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
 
 
     @pytest.mark.parametrize("tissue_type", NON_CELL_LINE_TISSUES)
