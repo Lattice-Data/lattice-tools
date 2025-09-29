@@ -7,6 +7,7 @@ Should not pass
 (Y) - tissue_type != cell line and ethnicity with one random 'na' + normal ids
 (N) - human + ethnicity == mix of AfPO and HANCESTRO terms -> not sure if this is allowed?
 (Y) - human + ethnicity == non-descendants of ethnicity or geography-based pop categories
+(N) - human + ethnicity terms == multiple AfPO out of lexical order
 
 Should pass
 (Y) - tissue_type == "cell line" + ethnicity term == "na"
@@ -182,6 +183,21 @@ class TestEthnicityValidationHuman:
         # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = " || ".join(VALID_CHILDREN[-2:])
+        print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
+
+
+    def test_multiple_afpo_out_of_lexical_order(self):
+
+        # human + ethnicity terms == multiple AfPO out of lexical order
+
+        # not currently allowed but are geography or ethnicity category terms
+        # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
+
+        # python list syntax == [start : stop : step], so begin at the end, move 2 left, step in reverse order
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = " || ".join(VALID_CHILDREN[-1:-3:-1])
         print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
         self.validator.validate_adata()
         assert self.validator.is_valid
