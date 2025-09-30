@@ -284,6 +284,7 @@ lattice_to_dcp = {
 			'value_map': {
 				'n/a (fresh)': 'fresh',
 				'cryopreservation': 'frozen at -80C',
+				'formaldehyde fixed -80C': 'frozen at -80C',
 				'flash-freezing': 'frozen in liquid nitrogen',
 				'paraffin embedding': 'paraffin block'
 			}
