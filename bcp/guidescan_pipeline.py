@@ -48,7 +48,7 @@ class GuidescanPipeline:
         self.max_mismatches = 1
         self.max_off_targets = 1
         
-        # PAM length will be determined from input
+        # PAM length will be determined from input file
         self.pam_length = None
         
         # Set logging level
@@ -63,60 +63,72 @@ class GuidescanPipeline:
         self.best_matches_file = self.output_dir / "best_matches.csv"
         self.final_output_file = self.output_dir / "exact_matches_formatted.csv"
     
-    def detect_pam_length(self) -> int:
+    def validate_and_get_pam_length(self) -> int:
         """
-        Detect PAM length from the guide sequences.
-        Assumes PAM is indicated by 'N' characters followed by 'GG' at the end.
-        Common patterns: NGG (3bp), NNGG (4bp), etc.
+        Validate that all PAMs in the guides file are identical and return PAM length.
+        Reads the PAM column from the CSV file and checks for uniformity.
         
         Returns:
-            Detected PAM length
+            Length of the PAM sequence
+            
+        Raises:
+            ValueError: If PAMs are not uniform across all guides
         """
-        logger.info("Detecting PAM length from input guides...")
+        logger.info("Validating PAM sequences from input guides...")
         
-        pam_lengths = set()
+        pams = set()
         
-        with open(self.guides_file, 'r') as f:
-            for line in f:
-                guide = line.strip()
-                if not guide:
-                    continue
+        try:
+            import csv
+            with open(self.guides_file, 'r') as f:
+                reader = csv.DictReader(f)
                 
-                # Count trailing N's and G's that form the PAM
-                # Common PAMs: NGG, NNGG, NAG, etc.
-                pam_len = 0
-                for i in range(len(guide) - 1, -1, -1):
-                    if guide[i] in ['N', 'G', 'A', 'C', 'T']:
-                        # Check if this looks like part of a PAM
-                        remaining = guide[i:]
-                        if 'N' in remaining or remaining == 'GG' or remaining == 'AG':
-                            pam_len = len(remaining)
-                        else:
-                            break
-                    else:
-                        break
-                
-                # Default to 3 if we can't detect
-                if pam_len == 0:
-                    pam_len = 3
-                
-                pam_lengths.add(pam_len)
-        
-        if len(pam_lengths) > 1:
-            logger.warning(f"Multiple PAM lengths detected: {pam_lengths}. Using most common: 3")
-            return 3
-        elif len(pam_lengths) == 1:
-            detected = pam_lengths.pop()
-            logger.info(f"Detected PAM length: {detected}")
-            return detected
-        else:
-            logger.warning("Could not detect PAM length. Using default: 3")
-            return 3
+                for row in reader:
+                    if 'pam' not in row:
+                        raise ValueError("Input file must have a 'pam' column")
+                    
+                    pam = row['pam'].strip()
+                    if pam:  # Skip empty PAM values
+                        pams.add(pam)
+            
+            if len(pams) == 0:
+                raise ValueError("No PAM sequences found in input file")
+            
+            if len(pams) > 1:
+                raise ValueError(
+                    f"All PAM sequences must be identical. Found multiple PAMs: {sorted(pams)}. "
+                    f"Please ensure all guides use the same PAM sequence."
+                )
+            
+            # All PAMs are identical, get the single PAM
+            pam_sequence = pams.pop()
+            pam_length = len(pam_sequence)
+            
+            logger.info(f"PAM sequence validated: {pam_sequence} (length: {pam_length})")
+            
+            return pam_length
+            
+        except Exception as e:
+            logger.error(f"Failed to validate PAM sequences: {e}")
+            raise
     
     def validate_inputs(self) -> None:
         """Validate input files and parameters."""
-        if not self.genome_index.exists():
-            raise FileNotFoundError(f"Genome index not found: {self.genome_index}")
+        # Check if genome index files exist
+        # For real guidescan indices, check for .forward, .reverse, .gs files
+        # For test/dummy indices, allow simple file existence
+        forward_file = Path(str(self.genome_index) + ".forward")
+        reverse_file = Path(str(self.genome_index) + ".reverse")
+        gs_file = Path(str(self.genome_index) + ".gs")
+        
+        has_real_index = (forward_file.exists() and reverse_file.exists() and gs_file.exists())
+        has_dummy_index = self.genome_index.exists()
+        
+        if not (has_real_index or has_dummy_index):
+            raise FileNotFoundError(
+                f"Genome index not found: {self.genome_index}\n"
+                f"For real indices, expected: {forward_file}, {reverse_file}, {gs_file}"
+            )
         
         if not self.guides_file.exists():
             raise FileNotFoundError(f"Guides file not found: {self.guides_file}")
@@ -129,8 +141,8 @@ class GuidescanPipeline:
         except FileNotFoundError:
             raise RuntimeError("guidescan not found in PATH. Please install guidescan2.")
         
-        # Detect PAM length from input
-        self.pam_length = self.detect_pam_length()
+        # Validate PAM uniformity and get PAM length
+        self.pam_length = self.validate_and_get_pam_length()
     
     def run_guidescan(self) -> None:
         """Run guidescan enumerate command."""
@@ -220,7 +232,7 @@ class GuidescanPipeline:
                 return
             
             # Group by guide ID (first column) and pick best match
-            best = df.groupby(df.columns[0]).apply(
+            best = df.groupby(df.columns[0], group_keys=False).apply(
                 self.pick_best_match
             ).reset_index(drop=True)
             
@@ -273,8 +285,8 @@ class GuidescanPipeline:
                     # Process exact matches only (distance = 0)
                     if chromosome != "NA" and position_str != "NA" and match_distance_str != "NA":
                         try:
-                            match_distance = int(match_distance_str)
-                            position = int(position_str)
+                            match_distance = int(float(match_distance_str))
+                            position = int(float(position_str))
                             
                             if match_distance == 0:
                                 # Calculate genomic coordinates based on strand
