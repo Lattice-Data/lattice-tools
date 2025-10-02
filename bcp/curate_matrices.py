@@ -105,6 +105,38 @@ def custom_var_to_obs(adata):
     return adata
 
 
+def check_standard_presence(sample_df):
+     '''
+    Checks for all required columns in sample sheet dataframe
+
+    :param dataframe sample_df: the sample metadata from given google sheet
+
+    :returns None
+    '''
+    required_columns = ['sample_name', 
+    'sample_probe_barcode', 
+    'is_pilot_data', 
+    'donor_id', 
+    'donor_living_at_sample_collection',
+    'donor_body_mass_index',
+    'organism',
+    'sex',
+    'self_reported_ethnicity',
+    'disease',
+    'tissue',
+    'preservation_method',
+    'dissociation_method',
+    'development_stage',
+    'assay',
+    'tissue_type',
+    'suspension_type']
+    chk_exit = False
+    for col in required_columns and not in sample_df.columns:
+        print(f"ERROR: Column '{col}' not present in sample sheet")
+        chk_exit=True
+    if chk_exit:
+        sys.exit()
+
 
 def gather_crispr(samp):
     '''
@@ -257,6 +289,7 @@ def determine_perturbation_strategy(adata):
 def map_ontologies(sample_df):
     '''
     Takes the sample metadata dataframe and standardizes ontologies
+    Also checks that standard fields are only filled out for appropriate organism
 
     :param dataframe sample_df: the sample metadata from given google sheet
 
@@ -281,6 +314,7 @@ def map_ontologies(sample_df):
                   'other':'UBERON' # For all other organisms, use UBERON
                  }
     }
+    ont_err_lst = []
     
     for col in col_ont_map:
         map_dict = {}
@@ -312,17 +346,31 @@ def map_ontologies(sample_df):
             else:
                 term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col])
             if term_id == None:
-                print(f"Matching '{col_ont_map[col]}' term id not found for label '{label}' in column '{col}'")
+                ont_err_lst.append(f"Error: Matching '{col_ont_map[col]}' term id not found for label '{label}' in column '{col}'")
                 map_dict[label] = label
                 continue
             map_dict[label] = term_id
         sample_df[col + '_ontology_term_id'] = sample_df[col].map(map_dict)
         del sample_df[col]
     
+    ### Print out any errors from ontologizing
+    if ont_err_lst:
+        for e in ont_err_lst:
+            print(e)
+        sys.exit()
+
     ### Convert string to boolean for is_pilot_data and donor_living_at_sample_collection
-    ### Will need to look further into this for next iteration
+    ### Check that donor_living_at_sample_collection is not filled out for non-human
     b_type = ['is_pilot_data','donor_living_at_sample_collection']
     for c in b_type:
+        if c == 'donor_living_at_sample_collection':
+            for val in sample_df[c].value_counts():
+                if val != 'na' and sample_df.loc[sample_df[c] == val, 
+                'organism_ontology_term_id'].tolist()[0] != 'NCBITaxon:9606':
+                    print(f"ERROR: donor_living_at_sample_collection for non-human \
+                            data should be 'na' but '{val}' is present")
+                    sys.exit()
+            if sample_df['organism_ontology_term_id'] != 'NCBITaxon:9606' and 
         sample_df[c] = sample_df[c].replace({'FALSE':False, 'TRUE':True})
     
     ### Blank fields in worksheet result in NaN values in dataframe, replacing these with na?
@@ -364,6 +412,7 @@ if __name__ == '__main__':
     url = f'https://docs.google.com/spreadsheets/d/{args.sheet}/export?format=csv&gid={gid}'
     response = requests.get(url)
     sample_df = pd.read_csv(BytesIO(response.content), comment="#", dtype=str).dropna(axis=1,how='all')
+    check_standard_presence(sample_df)
     sample_df = map_ontologies(sample_df)
 
     ### Obtain subsamples associated with library that matches args.group
