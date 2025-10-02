@@ -107,32 +107,21 @@ def custom_var_to_obs(adata):
 
 
 def check_standard_presence(sample_df):
-     '''
+    '''
     Checks for all required columns in sample sheet dataframe
 
     :param dataframe sample_df: the sample metadata from given google sheet
 
     :returns None
     '''
-    required_columns = ['sample_name', 
-    'sample_probe_barcode', 
-    'is_pilot_data', 
-    'donor_id', 
-    'donor_living_at_sample_collection',
-    'donor_body_mass_index',
-    'organism',
-    'sex',
-    'self_reported_ethnicity',
-    'disease',
-    'tissue',
-    'preservation_method',
-    'dissociation_method',
-    'development_stage',
-    'assay',
-    'tissue_type',
+    required_columns = [
+    'sample_name','sample_probe_barcode','is_pilot_data',
+    'donor_id', 'donor_living_at_sample_collection', 'donor_body_mass_index',
+    'organism', 'sex', 'self_reported_ethnicity', 'disease', 'tissue', 'preservation_method',
+    'dissociation_method', 'development_stage', 'assay', 'tissue_type',
     'suspension_type']
     chk_exit = False
-    for col in required_columns and not in sample_df.columns:
+    for col in (col for col in required_columns if col not in sample_df.columns):
         print(f"ERROR: Column '{col}' not present in sample sheet")
         chk_exit=True
     if chk_exit:
@@ -348,7 +337,13 @@ def map_ontologies(sample_df):
             else:
                 term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col])
             if term_id == None:
-                ont_err_lst.append(f"Error: Matching '{col_ont_map[col]}' term id not found for label '{label}' in column '{col}'")
+                if org_term_id:
+                    if org_term_id in col_ont_map[col]:
+                        ont_err_lst.append(f"Error: Matching '{col_ont_map[col][org_term_id]}' term id not found for label '{label}' in column '{col}'")
+                    else:
+                        ont_err_lst.append(f"Error: Matching '{col_ont_map[col]['other']}' term id not found for label '{label}' in column '{col}'")
+                else:
+                    ont_err_lst.append(f"Error: Matching '{col_ont_map[col]}' term id not found for label '{label}' in column '{col}'")
                 map_dict[label] = label
                 continue
             map_dict[label] = term_id
@@ -366,14 +361,12 @@ def map_ontologies(sample_df):
     b_type = ['is_pilot_data','donor_living_at_sample_collection']
     for c in b_type:
         if c == 'donor_living_at_sample_collection':
-            for val in sample_df[c].value_counts():
+            for val in sample_df[c].unique():
                 if val != 'na' and sample_df.loc[sample_df[c] == val, 
                 'organism_ontology_term_id'].tolist()[0] != 'NCBITaxon:9606':
-                    print(f"ERROR: donor_living_at_sample_collection for non-human \
-                            data should be 'na' but '{val}' is present")
+                    print(f"ERROR: donor_living_at_sample_collection for non-human data should be 'na' but '{val}' is present")
                     sys.exit()
-            if sample_df['organism_ontology_term_id'] != 'NCBITaxon:9606' and 
-        sample_df[c] = sample_df[c].replace({'FALSE':False, 'TRUE':True})
+        sample_df[c] == sample_df[c].replace({'FALSE':False, 'TRUE':True})
     
     ### Blank fields in worksheet result in NaN values in dataframe, replacing these with na?
     ### Could also replace with unknown for certain columns using fillna options?
