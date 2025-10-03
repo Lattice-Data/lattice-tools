@@ -7,13 +7,15 @@ Should not pass
 (Y) - tissue_type != cell line and ethnicity with one random 'na' + normal ids
 (N) - human + ethnicity == mix of AfPO and HANCESTRO terms -> not sure if this is allowed?
 (Y) - human + ethnicity == non-descendants of ethnicity or geography-based pop categories
-(N) - human + ethnicity terms == multiple AfPO out of lexical order
+(Y) - human + ethnicity terms == multiple AfPO out of lexical order
+(Y) - human + ethnicity terms == multiple AfPO and HANCESTRO not in lexical order
 
 Should pass
 (Y) - tissue_type == "cell line" + ethnicity term == "na"
 (Y) - human + ethnicity term == "unknown"
-(N) - human + ethnicity term == one AfPO or HANCESTRO terms (descendants of ethnicity or geography-based pop categories)
-(N) - human + ethnicity terms == multiple AfPO in lexical order
+(Y) - human + ethnicity term == one AfPO or HANCESTRO terms (descendants of ethnicity or geography-based pop categories)
+(Y) - human + ethnicity terms == multiple AfPO in lexical order
+(Y) - human + ethnicity terms == multiple AfPO and HANCESTRO in lexical order
 
 
 """
@@ -51,14 +53,21 @@ ALL_TISSUE_TYPES = [
     "cell line",
 ]
 VALID_CHILDREN = [
-        "HANCESTRO:0861",   # Black British
-        "HANCESTRO:0847",   # Asian
-        "HANCESTRO:0852",   # Middle Eastern
-        "HANCESTRO:0846",   # Native American
-        "HANCESTRO:0862",   # Asian American
-        "AfPO:0000365",     # Egyptian, this term is on OLS, might make it to CXG with COG update
-        "AfPO:0000389"      # Somali, this term is on OLS, might make it to CXG with COG update
+    "HANCESTRO:0861",   # Black British
+    "HANCESTRO:0847",   # Asian
+    "HANCESTRO:0852",   # Middle Eastern
+    "HANCESTRO:0846",   # Native American
+    "HANCESTRO:0862",   # Asian American
+    "AfPO:0000365",     # Egyptian, this term is on OLS, might make it to CXG with COG update
+    "AfPO:0000389"      # Somali, this term is on OLS, might make it to CXG with COG update
 ]
+ETHNICITY_ERROR_SUFFIX = (
+    " When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens) "
+    "and 'tissue_type' is not 'cell line', self_reported_ethnicity_ontology_term_id MUST be "
+    "formatted as one or more AfPO or HANCESTRO terms that are descendants of 'HANCESTRO:0601' "
+    "for ethnicity category or 'HANCESTRO:0602' for geography-based population category, in "
+    "ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable."
+)
 
 
 @pytest.mark.parametrize("test_h5ads", ALL_H5ADS)
@@ -119,9 +128,7 @@ class TestEthnicityValidationHuman:
     @pytest.mark.parametrize("ethnicity_term", VALID_CHILDREN)
     def test_current_cxg_forbidden_passes(self, ethnicity_term):
 
-        # not currently allowed but are geography or ethnicity category terms
-        # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
-        # Corinn comment - confirmed i see AfPO term not passing, but the rest are
+        # with COG update, now 6.0 forbidden terms pass
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = ethnicity_term
         self.validator.validate_adata()
@@ -140,11 +147,7 @@ class TestEthnicityValidationHuman:
         assert not self.validator.is_valid
         assert (
             "ERROR: 'na' in 'self_reported_ethnicity_ontology_term_id' is not a valid ontology term id "
-            "of 'HANCESTRO, AFPO'. When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens) "
-            "and 'tissue_type' is not 'cell line', self_reported_ethnicity_ontology_term_id MUST be "
-            "formatted as one or more AfPO or HANCESTRO terms that are descendants of 'HANCESTRO:0601' "
-            "for ethnicity category or 'HANCESTRO:0602' for geography-based population category, in "
-            "ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable."
+            "of 'HANCESTRO, AFPO'." + ETHNICITY_ERROR_SUFFIX
         ) in self.validator.errors
 
 
@@ -166,21 +169,14 @@ class TestEthnicityValidationHuman:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert (
-            f"ERROR: '{ethnicity_term}' in 'self_reported_ethnicity_ontology_term_id' is not an allowed term id. "
-            "When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens) "
-            "and 'tissue_type' is not 'cell line', self_reported_ethnicity_ontology_term_id MUST be "
-            "formatted as one or more AfPO or HANCESTRO terms that are descendants of 'HANCESTRO:0601' "
-            "for ethnicity category or 'HANCESTRO:0602' for geography-based population category, in "
-            "ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable."
+            f"ERROR: '{ethnicity_term}' in 'self_reported_ethnicity_ontology_term_id' is not an allowed term id."
+            + ETHNICITY_ERROR_SUFFIX
         ) in self.validator.errors
 
 
     def test_multiple_afpo_current_cxg_forbidden(self):
 
         # human + ethnicity terms == multiple AfPO in lexical order
-
-        # not currently allowed but are geography or ethnicity category terms
-        # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = " || ".join(VALID_CHILDREN[-2:])
         print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
@@ -193,23 +189,48 @@ class TestEthnicityValidationHuman:
 
         # human + ethnicity terms == multiple AfPO out of lexical order
 
-        # not currently allowed but are geography or ethnicity category terms
-        # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
-
         # python list syntax == [start : stop : step], so begin at the end, move 2 left, step in reverse order
-        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = " || ".join(VALID_CHILDREN[-1:-3:-1])
+        ethnicity_string = " || ".join(VALID_CHILDREN[-1:-3:-1])
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = ethnicity_string
+        print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (
+            f"ERROR: '{ethnicity_string}' in 'self_reported_ethnicity_ontology_term_id' is not in "
+            "ascending lexical order." + ETHNICITY_ERROR_SUFFIX
+        ) in self.validator.errors
+
+
+    def test_hancestro_afpo_in_lexical_order(self):
+
+        # human + ethnicity terms == multiple AfPO and HANCESTRO not in lexical order
+
+        ethnicity_string = " || ".join([VALID_CHILDREN[-1], VALID_CHILDREN[0]])
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = ethnicity_string
         print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
         self.validator.validate_adata()
         assert self.validator.is_valid
         assert self.validator.errors == []
 
 
+    def test_hancestro_afpo_out_of_lexical_order(self):
+
+        # human + ethnicity terms == multiple AfPO and HANCESTRO not in lexical order
+
+        ethnicity_string = " || ".join([VALID_CHILDREN[0], VALID_CHILDREN[-1]])
+        self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = ethnicity_string
+        print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (
+            f"ERROR: '{ethnicity_string}' in 'self_reported_ethnicity_ontology_term_id' is not in "
+            "ascending lexical order." + ETHNICITY_ERROR_SUFFIX
+        ) in self.validator.errors
+
+
     def test_mix_afpo_hancestro_current_cxg_forbidden(self):
 
         # human + ethnicity == mix of AfPO and HANCESTRO terms -> not sure if this is allowed?
-
-        # not currently allowed but are geography or ethnicity category terms
-        # AfPO term does not pass, unclear if this will make it with latest HANCESTRO COG update
 
         self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"] = " || ".join(VALID_CHILDREN[-2:] + VALID_CHILDREN[:1])
         print(self.validator.adata.obs["self_reported_ethnicity_ontology_term_id"].unique())
@@ -236,9 +257,5 @@ class TestEthnicityValidationHuman:
         assert not self.validator.is_valid
         assert (
             "ERROR: 'na' in 'self_reported_ethnicity_ontology_term_id' is not a valid ontology term id "
-            "of 'HANCESTRO, AFPO'. When 'organism_ontology_term_id' is 'NCBITaxon:9606' (Homo sapiens) "
-            "and 'tissue_type' is not 'cell line', self_reported_ethnicity_ontology_term_id MUST be "
-            "formatted as one or more AfPO or HANCESTRO terms that are descendants of 'HANCESTRO:0601' "
-            "for ethnicity category or 'HANCESTRO:0602' for geography-based population category, in "
-            "ascending lexical order with the delimiter ` || `, or 'unknown' if unavailable."
+            "of 'HANCESTRO, AFPO'." + ETHNICITY_ERROR_SUFFIX
         ) in self.validator.errors
