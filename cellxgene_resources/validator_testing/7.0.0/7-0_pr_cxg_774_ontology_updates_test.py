@@ -37,6 +37,12 @@ NEW_TERMS_DICT = {
         "EFO:0900001",          # Asteria Single-cell RNA-seq Benchtop Kit
         "EFO:0900002",          # HIVE CLX Single-Cell RNAseq Solution
         "EFO:0022962",          # SHARE-seq
+        "EFO:0010058",          # Fluidigm C1-based SMARTer library preparation
+        "EFO:0010184",          # Smart-like
+        "EFO:0920001",          # bead-based spatial transcriptomics
+        "EFO:0920003",          # curio biosciences seeker, 10mm
+        "EFO:0920002",          # curio biosciences seeker, 3mm
+        "EFO:0009920",          # slide-seq
     ],
     "cell_type_ontology_term_id": [
         "CL:4072003",           # mature myelinating oligodendrocyte
@@ -127,6 +133,11 @@ class TestOntologyUpdateValidation:
         # new SHARE-seq term is ATAC and needs nucleus suspension
         if ontology_term == "EFO:0022962":
             self.validator.adata.obs["suspension_type"] = "nucleus"
+            self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
+
+        # if spatial assay, set suspension to na, EFO term is 'spatial transcriptomics'
+        if ontology_term in ONTOLOGY_PARSER.get_term_descendants("EFO:0008994"):
+            self.validator.adata.obs["suspension_type"] = "na"
             self.validator.adata.obs["suspension_type"] = self.validator.adata.obs["suspension_type"].astype("category")
 
         self.validator.validate_adata()
