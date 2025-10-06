@@ -4,12 +4,14 @@ A Python pipeline for processing CRISPR guide sequences using guidescan2 to find
 
 ## Overview
 
-This pipeline takes CRISPR guide sequences as input, uses guidescan2 to find genomic matches, selects the best match for each guide, and outputs formatted genomic coordinates.
+This pipeline takes CRISPR guide sequences as input, uses guidescan2 to find genomic matches, retains all exact matches for each guide, and outputs formatted genomic coordinates.
 
 **Key Features:**
 - Validates PAM uniformity across all guides
 - Supports variable PAM lengths (NGG, NNGG, etc.)
 - Finds exact genomic matches using guidescan2
+- **Retains ALL exact matches** - if a guide has multiple exact genomic matches, all are retained
+- Only exact matches (distance=0) are reported; non-exact matches result in NA
 - Calculates genomic coordinates for both + and - strands
 - Handles guides with no genomic matches
 - Comprehensive error handling and logging
@@ -105,27 +107,30 @@ python guidescan_pipeline.py --help
 
 ### Final Output: `exact_matches_formatted.csv`
 
-Contains genomic coordinates for exact matches:
+Contains genomic coordinates for exact matches. **If a guide has multiple exact matches, multiple rows are output:**
 
 ```csv
 id,sequence,pam,chromosome,start,end,sense
 guide1,TGCCTCGCGCAGCTCGCGG,NGG,1,1000,1018,+
+guide1,TGCCTCGCGCAGCTCGCGG,NGG,5,2340,2358,+
 guide2,GAGTTCGCTGCGCGCTGTT,NGG,3,1982,2000,-
 guide3,GCCCGCTCCCCGCGATCCC,NGG,NA,NA,NA,NA
 ```
 
 **Column descriptions:**
-- `id`: Guide identifier
+- `id`: Guide identifier (can appear multiple times if multiple exact matches exist)
 - `sequence`: Protospacer sequence
 - `pam`: PAM sequence
-- `chromosome`: Chromosome where exact match found (NA if no match)
+- `chromosome`: Chromosome where exact match found (NA if no exact match)
 - `start`, `end`: Genomic coordinates (1-based, inclusive)
-- `sense`: Strand orientation (+ or -, NA if no match)
+- `sense`: Strand orientation (+ or -, NA if no exact match)
+
+**Note:** Only exact matches (distance=0) are included. Guides with no exact matches will have a single row with NA values.
 
 ### Intermediate Files (if `--keep-intermediate` is used)
 
-1. **`all_matches.csv`**: All genomic matches from guidescan
-2. **`best_matches.csv`**: Best match selected for each guide
+1. **`all_matches.csv`**: All genomic matches from guidescan (includes exact and non-exact matches)
+2. **`best_matches.csv`**: All exact matches (distance=0) for each guide; non-exact matches result in NA
 
 ## Example Workflow
 
@@ -167,12 +172,13 @@ grep -v "NA" results/exact_matches_formatted.csv | wc -l
 2025-01-15 10:30:00 - INFO - PAM sequence validated: NGG (length: 3)
 2025-01-15 10:30:00 - INFO - Running guidescan enumerate...
 2025-01-15 10:30:15 - INFO - guidescan completed. Results saved to results/all_matches.csv
-2025-01-15 10:30:15 - INFO - Selecting best matches for each guide...
-2025-01-15 10:30:15 - INFO - Best matches saved to results/best_matches.csv
+2025-01-15 10:30:15 - INFO - Selecting matches for each guide (retaining all exact matches only)...
+2025-01-15 10:30:15 - INFO - Matches saved to results/best_matches.csv
+2025-01-15 10:30:15 - INFO - Processed 3 guides: 5 exact matches, 0 no matches
 2025-01-15 10:30:15 - INFO - Formatting exact matches...
 2025-01-15 10:30:15 - INFO - Processing complete. Output saved to: results/exact_matches_formatted.csv
 2025-01-15 10:30:15 - INFO - Pipeline completed successfully!
-2025-01-15 10:30:15 - INFO - Summary: 3 guides processed, 2 exact matches found
+2025-01-15 10:30:15 - INFO - Summary: 3 guides processed, 5 exact matches found
 ```
 
 ## Using as a Python Module
@@ -193,8 +199,9 @@ pipeline = GuidescanPipeline(
 results_df = pipeline.run()
 
 # Access results
-print(f"Total guides: {len(results_df)}")
-print(f"Exact matches: {len(results_df[results_df['chromosome'] != 'NA'])}")
+print(f"Total output rows: {len(results_df)}")
+print(f"Rows with exact matches: {len(results_df[results_df['chromosome'] != 'NA'])}")
+print(f"Unique guides processed: {results_df['id'].nunique()}")
 
 # Results are also saved to results/exact_matches_formatted.csv
 ```
@@ -232,7 +239,7 @@ pytest -m "" -v
 pytest --cov=. --cov-report=html
 ```
 
-**Test Statistics**: 43 total tests (35 regular + 8 E2E)
+**Test Statistics**: 59 total tests (51 regular + 8 E2E)
 
 ### Test Organization
 
@@ -242,13 +249,15 @@ bcp/tests/
 ├── fixtures/                   # Test data files
 │   ├── test_guides.txt        # Sample guides (5 guides)
 │   ├── toy.fa.index.*         # Toy genome index for E2E tests
+│   ├── genes.gtf              # Gene annotations for testing
 │   ├── all_matches_sample.csv
 │   ├── best_matches_sample.csv
 │   └── expected_all_matches.csv
 ├── test_pam_length.py         # PAM validation tests (7 tests)
-├── test_best_match.py         # Match selection tests (7 tests)
+├── test_best_match.py         # Match selection tests (8 tests)
 ├── test_formatting.py         # Coordinate calculation tests (10 tests)
 ├── test_integration.py        # Integration tests (11 tests)
+├── test_guide_to_gene.py      # Gene annotation tests (15 tests)
 └── test_e2e_real_guidescan.py # E2E tests with real guidescan (8 tests)
 ```
 
@@ -308,17 +317,19 @@ pytest bcp/tests/
      - Max off-targets: 1
      - Mode: complete
 
-3. **Best Match Selection**
+3. **Match Selection**
    - Group matches by guide ID
-   - Select match with lowest edit distance
-   - Prefer actual genomic matches over NA
+   - **Keep ALL exact matches** (distance = 0) for each guide
+   - Non-exact matches (distance > 0) result in NA values
+   - Treats guides without exact matches the same as guides with no genomic matches
 
 4. **Coordinate Formatting**
-   - Filter for exact matches (distance = 0)
+   - Process all exact matches from selection step
    - Split sequence into protospacer + PAM
    - Calculate genomic coordinates:
      - **+ strand**: start = position, end = position + length - 1
      - **- strand**: end = position, start = position - length + 1
+   - Output multiple rows if guide has multiple exact matches
 
 5. **Output Generation**
    - Save formatted results to CSV
@@ -340,6 +351,99 @@ End:      1018  (1000 + 19 - 1)
 Position: 1000
 End:      1000
 Start:    982   (1000 - 19 + 1)
+```
+
+## Gene Annotation with guide_to_gene.py
+
+After running the main pipeline, you can annotate guides with gene identifiers using the `guide_to_gene.py` script. This tool maps guide coordinates to genes using a GTF annotation file.
+
+### Usage
+
+```bash
+python guide_to_gene.py \
+  results/exact_matches_formatted.csv \
+  /path/to/genes.gtf \
+  results/guides_with_genes.csv
+```
+
+### Input Requirements
+
+1. **Guide file**: Output from guidescan_pipeline.py (`exact_matches_formatted.csv`)
+2. **GTF file**: Gene annotation file (e.g., GENCODE, Ensembl)
+3. **Output file**: Path for annotated results
+
+### Output Format
+
+The script creates **one row per guide-gene overlap**. If a guide overlaps multiple genes, multiple rows are created:
+
+```csv
+id,sequence,pam,chromosome,start,end,sense,gene_id,gene_name
+guide1,TGCCTCGCGCAGCTCGCGG,NGG,1,1000,1018,+,ENSG00000123456,BRCA1
+guide1,TGCCTCGCGCAGCTCGCGG,NGG,5,2340,2358,+,ENSG00000234567,TP53
+guide2,GAGTTCGCTGCGCGCTGTT,NGG,3,1982,2000,-,ENSG00000345678,EGFR
+guide3,GCCCGCTCCCCGCGATCCC,NGG,10,5000,5018,+,intergenic,intergenic
+guide4,ATCGATCGATCGATCGATC,NGG,NA,NA,NA,NA,NA,NA
+```
+
+### Annotation Categories
+
+- **Gene overlap**: Includes `gene_id` (Ensembl ID) and `gene_name` (symbol)
+- **Intergenic**: Guides between genes get `intergenic` for both fields
+- **Unmapped**: Guides with NA coordinates (no genomic match) get `NA` for both fields
+- **Invalid coordinates**: Malformed coordinates get `INVALID_COORDS`
+
+### Complete Workflow Example
+
+```bash
+# Step 1: Find genomic matches for guides
+python guidescan_pipeline.py \
+  -i /data/genomes/hg38.fa.index \
+  -g my_guides.csv \
+  -o results/ \
+  --verbose
+
+# Step 2: Annotate with gene information
+python guide_to_gene.py \
+  results/exact_matches_formatted.csv \
+  /data/annotations/gencode.v44.annotation.gtf \
+  results/guides_annotated.csv
+
+# Step 3: View results
+head results/guides_annotated.csv
+```
+
+### Statistics Output
+
+The script provides summary statistics:
+
+```
+Parsing GTF file: gencode.v44.annotation.gtf
+Found genes on 25 chromosomes
+
+Annotating guides from: results/exact_matches_formatted.csv
+
+Annotation complete!
+  Total guides processed: 100
+  Guides with gene overlaps: 85
+  Guides in intergenic regions: 10
+  Guides with unmapped/invalid coordinates: 5
+  Total gene overlaps found: 92
+  Average overlaps per guide (for guides with overlaps): 1.08
+
+Output written to: results/guides_annotated.csv
+```
+
+### Features
+
+- **Chromosome normalization**: Automatically handles chromosome naming (e.g., "1" vs "chr1")
+- **Multiple overlaps**: If a guide overlaps 3 genes, creates 3 output rows
+- **Edge case handling**: Properly handles NA coordinates, invalid values, and intergenic regions
+- **GTF compatibility**: Works with GENCODE, Ensembl, and RefSeq GTF files
+
+### Command-Line Help
+
+```bash
+python guide_to_gene.py --help
 ```
 
 ## Contributing

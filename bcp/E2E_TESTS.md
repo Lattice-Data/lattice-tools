@@ -37,11 +37,11 @@ pytest  # E2E tests automatically skipped
 
 ### 3. Full Pipeline with Real Guidescan (3 tests)
 - ✅ Complete pipeline execution
-- ✅ Output properties validation
+- ✅ Output properties validation (retains all exact matches)
 - ✅ Cleanup functionality with real files
 
 ### 4. Edge Cases (1 test)
-- ✅ Mixed results (guides with and without matches)
+- ✅ Mixed results (guides with and without exact matches)
 
 ## Test Data
 
@@ -77,7 +77,9 @@ Pre-generated guidescan output for comparison and validation.
    - Data types correct
 
 3. **Pipeline Integration**
-   - Guidescan → Best Match → Format workflow
+   - Guidescan → Match Selection → Format workflow
+   - **All exact matches retained** (not just one per guide)
+   - Non-exact matches result in NA
    - Intermediate files created correctly
    - Final output has correct structure
 
@@ -85,10 +87,11 @@ Pre-generated guidescan output for comparison and validation.
    - Start/end positions valid
    - Strand orientation correct
    - Protospacer/PAM splitting works
+   - Multiple rows output for guides with multiple exact matches
 
 5. **Mixed Results**
-   - Handles guides with matches
-   - Handles guides without matches (NA)
+   - Handles guides with exact matches
+   - Handles guides without exact matches (NA)
    - Both types in same output
 
 6. **File Management**
@@ -115,10 +118,10 @@ Pre-generated guidescan output for comparison and validation.
 ## Test Execution Time
 
 - **E2E tests**: ~0.5 seconds total
-- **Regular tests**: ~0.4 seconds total
-- **All tests combined**: ~0.6 seconds total
+- **Regular tests**: ~0.6 seconds total
+- **All tests combined**: ~0.9 seconds total
 
-Very fast because toy genome is small (~500KB).
+Very fast because toy genome is small (~500KB) and tests are well-optimized.
 
 ## CI/CD Integration
 
@@ -152,7 +155,7 @@ tests/test_e2e_real_guidescan.py::TestFullPipelineWithRealGuidescan::test_pipeli
 tests/test_e2e_real_guidescan.py::TestFullPipelineWithRealGuidescan::test_pipeline_with_cleanup PASSED [ 87%]
 tests/test_e2e_real_guidescan.py::TestE2EEdgeCases::test_guides_with_matches_and_no_matches PASSED [100%]
 
-================= 8 passed, 35 deselected, 4 warnings in 0.48s =================
+================= 8 passed, 51 deselected, 4 warnings in 0.48s =================
 ```
 
 ## Troubleshooting
@@ -208,10 +211,10 @@ If guide5 returns NA, check that test_guides.txt includes the 5th guide.
 
 | Test Type | Count | Speed | Default |
 |-----------|-------|-------|---------|
-| Unit Tests | 24 | 0.3s | ✅ Run |
-| Integration Tests (Mocked) | 11 | 0.1s | ✅ Run |
+| Unit Tests | 40 | 0.4s | ✅ Run |
+| Integration Tests (Mocked) | 11 | 0.2s | ✅ Run |
 | **E2E Tests (Real Guidescan)** | **8** | **0.5s** | **❌ Skip** |
-| **Total** | **43** | **0.6s** | **35 run, 8 skip** |
+| **Total** | **59** | **0.9s** | **51 run, 8 skip** |
 
 ## Future Enhancements
 

@@ -1,5 +1,6 @@
 """
 Tests for best match selection logic in the guidescan pipeline.
+Tests the new behavior: retains ALL exact matches, or single best non-exact match.
 """
 
 import pytest
@@ -15,7 +16,7 @@ from guidescan_pipeline import GuidescanPipeline
 
 
 class TestBestMatchSelection:
-    """Test the pick_best_match method that selects optimal genomic matches."""
+    """Test the select_best_matches method that retains all exact matches."""
     
     @pytest.fixture
     def temp_dir(self):
@@ -37,6 +38,7 @@ class TestBestMatchSelection:
         )
         
         output_dir = temp_dir / "output"
+        output_dir.mkdir(parents=True, exist_ok=True)
         
         pipeline = GuidescanPipeline(
             genome_index=str(genome_index),
@@ -46,157 +48,157 @@ class TestBestMatchSelection:
         
         return pipeline
     
+    def create_all_matches_file(self, pipeline, content):
+        """Helper to create an all_matches.csv file with given content."""
+        pipeline.all_matches_file.write_text(content)
+    
+    def run_and_read_results(self, pipeline):
+        """Helper to run select_best_matches and read results."""
+        pipeline.select_best_matches()
+        return pd.read_csv(pipeline.best_matches_file)
+    
     def test_single_exact_match(self, pipeline):
         """Test with a single exact match (distance=0)."""
-        data = {
-            'id': ['guide1'],
-            'sequence': ['TGCCTCGCGCAGCTCGCGGNGG'],
-            'match_chrm': ['1'],
-            'match_position': [1000],
-            'match_strand': ['+'],
-            'match_distance': [0]
-        }
-        df = pd.DataFrame(data)
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance
+guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,+,0"""
         
-        result = pipeline.pick_best_match(df)
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
         
-        assert result['id'] == 'guide1'
-        assert result['match_distance'] == 0
-        assert result['match_chrm'] == '1'
+        assert len(result_df) == 1
+        assert result_df.iloc[0]['id'] == 'guide1'
+        assert result_df.iloc[0]['match_distance'] == 0
+        assert str(result_df.iloc[0]['match_chrm']) == '1'
     
-    def test_multiple_matches_pick_smallest_distance(self, pipeline):
-        """Test that smallest distance match is selected from multiple matches."""
-        data = {
-            'id': ['guide1', 'guide1', 'guide1'],
-            'sequence': ['TGCCTCGCGCAGCTCGCGGNGG', 'TGCCTCGCGCAGCTCGCGGNGG', 'TGCCTCGCGCAGCTCGCGGNGG'],
-            'match_chrm': ['1', '2', '3'],
-            'match_position': [1000, 2000, 3000],
-            'match_strand': ['+', '+', '-'],
-            'match_distance': [2, 0, 1]
-        }
-        df = pd.DataFrame(data)
+    def test_multiple_exact_matches_keep_all(self, pipeline):
+        """Test that ALL exact matches are retained when multiple exist."""
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance
+guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,+,0
+guide1,TGCCTCGCGCAGCTCGCGGNGG,2,2000,-,0
+guide1,TGCCTCGCGCAGCTCGCGGNGG,3,3000,+,0"""
         
-        result = pipeline.pick_best_match(df)
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
         
-        # Should pick the match with distance=0 (chr2)
-        assert result['match_distance'] == 0
-        assert result['match_chrm'] == '2'
-        assert result['match_position'] == 2000
+        # Should keep ALL 3 exact matches
+        assert len(result_df) == 3
+        guide1_matches = result_df[result_df['id'] == 'guide1']
+        assert len(guide1_matches) == 3
+        assert all(guide1_matches['match_distance'] == 0)
+        chromosomes = set(str(c) for c in guide1_matches['match_chrm'])
+        assert chromosomes == {'1', '2', '3'}
+    
+    def test_mixed_exact_and_nonexact_keep_only_exact(self, pipeline):
+        """Test that only exact matches are kept when both exact and non-exact exist."""
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance
+guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,+,0
+guide1,TGCCTCGCGCAGCTCGCGGNGG,2,2000,-,1
+guide1,TGCCTCGCGCAGCTCGCGGNGG,3,3000,+,0"""
+        
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
+        
+        # Should keep only the 2 exact matches (chr1 and chr3), not chr2 with distance=1
+        assert len(result_df) == 2
+        guide1_matches = result_df[result_df['id'] == 'guide1']
+        assert len(guide1_matches) == 2
+        assert all(guide1_matches['match_distance'] == 0)
+        chromosomes = set(str(c) for c in guide1_matches['match_chrm'])
+        assert chromosomes == {'1', '3'}
+    
+    def test_only_nonexact_matches_result_in_na(self, pipeline):
+        """Test that guides with only non-exact matches result in NA (treated as no match)."""
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance
+guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,+,2
+guide1,TGCCTCGCGCAGCTCGCGGNGG,2,2000,-,1
+guide1,TGCCTCGCGCAGCTCGCGGNGG,3,3000,+,3"""
+        
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
+        
+        # Should have NA result since no exact matches exist
+        assert len(result_df) == 1
+        assert result_df.iloc[0]['id'] == 'guide1'
+        # Check for NA - can be string 'NA' or NaN
+        assert result_df.iloc[0]['match_chrm'] == 'NA' or pd.isna(result_df.iloc[0]['match_chrm'])
+        assert result_df.iloc[0]['match_distance'] == 'NA' or pd.isna(result_df.iloc[0]['match_distance'])
     
     def test_prefer_actual_match_over_na(self, pipeline):
         """Test that actual genomic match is preferred over NA (no match) result."""
-        data = {
-            'id': ['guide1', 'guide1'],
-            'sequence': ['TGCCTCGCGCAGCTCGCGGNGG', 'TGCCTCGCGCAGCTCGCGGNGG'],
-            'match_chrm': ['NA', '1'],
-            'match_position': ['NA', 1000],
-            'match_strand': ['+', '+'],
-            'match_distance': ['NA', 0]
-        }
-        df = pd.DataFrame(data)
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance
+guide1,TGCCTCGCGCAGCTCGCGGNGG,NA,NA,+,NA
+guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,+,0"""
         
-        result = pipeline.pick_best_match(df)
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
         
-        # Should prefer the actual match (chr1) over NA
-        assert result['match_chrm'] == '1'
-        assert result['match_distance'] == 0
-        assert result['match_position'] == 1000
+        # Should prefer the actual exact match (chr1) over NA
+        assert len(result_df) == 1
+        # Chromosome can be '1', 1, or 1.0 depending on pandas parsing
+        chrm = str(result_df.iloc[0]['match_chrm'])
+        assert chrm == '1' or chrm == '1.0'
+        assert result_df.iloc[0]['match_distance'] == 0
+        assert result_df.iloc[0]['match_position'] == 1000
     
     def test_all_na_matches(self, pipeline):
         """Test handling when all matches are NA (no genomic matches found)."""
-        data = {
-            'id': ['guide1'],
-            'sequence': ['TGCCTCGCGCAGCTCGCGGNGG'],
-            'match_chrm': ['NA'],
-            'match_position': ['NA'],
-            'match_strand': ['+'],
-            'match_distance': ['NA']
-        }
-        df = pd.DataFrame(data)
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance
+guide1,TGCCTCGCGCAGCTCGCGGNGG,NA,NA,+,NA"""
         
-        result = pipeline.pick_best_match(df)
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
         
-        # Should return the NA row
-        assert result['id'] == 'guide1'
-        assert result['match_chrm'] == 'NA'
+        # Should return one NA row
+        assert len(result_df) == 1
+        assert result_df.iloc[0]['id'] == 'guide1'
+        assert result_df.iloc[0]['match_chrm'] == 'NA' or pd.isna(result_df.iloc[0]['match_chrm'])
     
     def test_distance_comparison_with_invalid_values(self, pipeline):
-        """Test that invalid distance values are handled (treated as infinity)."""
-        data = {
-            'id': ['guide1', 'guide1'],
-            'sequence': ['TGCCTCGCGCAGCTCGCGGNGG', 'TGCCTCGCGCAGCTCGCGGNGG'],
-            'match_chrm': ['1', '2'],
-            'match_position': [1000, 2000],
-            'match_strand': ['+', '+'],
-            'match_distance': ['invalid', 1]
-        }
-        df = pd.DataFrame(data)
+        """Test that invalid distance values are handled correctly - treated as non-exact matches."""
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance
+guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,+,invalid
+guide1,TGCCTCGCGCAGCTCGCGGNGG,2,2000,+,1"""
         
-        result = pipeline.pick_best_match(df)
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
         
-        # Should pick the match with valid distance=1 (chr2)
-        assert result['match_distance'] == 1
-        assert result['match_chrm'] == '2'
+        # Should result in NA since neither is an exact match (distance=0)
+        assert len(result_df) == 1
+        assert result_df.iloc[0]['id'] == 'guide1'
+        # Check for NA - can be string 'NA' or NaN
+        assert result_df.iloc[0]['match_chrm'] == 'NA' or pd.isna(result_df.iloc[0]['match_chrm'])
+        assert result_df.iloc[0]['match_distance'] == 'NA' or pd.isna(result_df.iloc[0]['match_distance'])
     
-    def test_exact_match_preferred_over_near_match(self, pipeline):
-        """Test that exact match (distance=0) is preferred over near matches."""
-        data = {
-            'id': ['guide1', 'guide1', 'guide1'],
-            'sequence': ['TGCCTCGCGCAGCTCGCGGNGG', 'TGCCTCGCGCAGCTCGCGGNGG', 'TGCCTCGCGCAGCTCGCGGNGG'],
-            'match_chrm': ['1', '2', '3'],
-            'match_position': [1000, 2000, 3000],
-            'match_strand': ['+', '-', '+'],
-            'match_distance': [1, 0, 2]
-        }
-        df = pd.DataFrame(data)
-        
-        result = pipeline.pick_best_match(df)
-        
-        # Should pick exact match (distance=0, chr2)
-        assert result['match_distance'] == 0
-        assert result['match_chrm'] == '2'
-        assert result['match_strand'] == '-'
-    
-    def test_select_best_matches_integration(self, pipeline, temp_dir):
-        """Test the full select_best_matches workflow with fixture data."""
-        # Create all_matches.csv with multiple matches per guide
-        all_matches_file = temp_dir / "output" / "all_matches.csv"
-        all_matches_file.parent.mkdir(exist_ok=True)
-        
-        all_matches_content = """id,sequence,match_chrm,match_position,match_strand,match_distance,match_sequence,rna_bulges,dna_bulges,specificity
+    def test_multiple_guides_integration(self, pipeline):
+        """Test the full select_best_matches workflow with multiple guides."""
+        content = """id,sequence,match_chrm,match_position,match_strand,match_distance,match_sequence,rna_bulges,dna_bulges,specificity
 guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,+,0,TGCCTCGCGCAGCTCGCGGCGG,0,0,0.500000
 guide1,TGCCTCGCGCAGCTCGCGGNGG,2,2000,-,1,TGCCTCGCGCAGCTCGCGGTGG,0,0,0.400000
 guide2,GAGTTCGCTGCGCGCTGTTNGG,1,5000,+,0,GAGTTCGCTGCGCGCTGTTGGG,0,0,0.500000
+guide2,GAGTTCGCTGCGCGCTGTTNGG,5,6000,+,0,GAGTTCGCTGCGCGCTGTTGGG,0,0,0.500000
 guide3,GCCCGCTCCCCGCGATCCCNGG,NA,NA,+,NA,NA,NA,NA,NA"""
         
-        all_matches_file.write_text(all_matches_content)
+        self.create_all_matches_file(pipeline, content)
+        result_df = self.run_and_read_results(pipeline)
         
-        # Update pipeline to use this file
-        pipeline.all_matches_file = all_matches_file
-        pipeline.best_matches_file = temp_dir / "output" / "best_matches.csv"
+        # guide1: has 1 exact and 1 non-exact match -> keep only exact (chr1)
+        guide1_matches = result_df[result_df['id'] == 'guide1']
+        assert len(guide1_matches) == 1
+        assert guide1_matches.iloc[0]['match_distance'] == 0
+        # Chromosome can be '1', 1, or 1.0 depending on pandas parsing
+        chrm = str(guide1_matches.iloc[0]['match_chrm'])
+        assert chrm == '1' or chrm == '1.0'
         
-        # Run select_best_matches
-        pipeline.select_best_matches()
+        # guide2: has 2 exact matches -> keep BOTH
+        guide2_matches = result_df[result_df['id'] == 'guide2']
+        assert len(guide2_matches) == 2
+        assert all(guide2_matches['match_distance'] == 0)
+        # Chromosome can be parsed as int or float, handle both
+        chromosomes = set(str(c).rstrip('0').rstrip('.') for c in guide2_matches['match_chrm'])
+        assert chromosomes == {'1', '5'}
         
-        # Read the result
-        result_df = pd.read_csv(pipeline.best_matches_file)
-        
-        # Verify results
-        assert len(result_df) == 3, "Should have 3 guides"
-        
-        # guide1 should have exact match from chr1 (distance=0, not chr2 with distance=1)
-        guide1_row = result_df[result_df['id'] == 'guide1'].iloc[0]
-        assert guide1_row['match_distance'] == 0
-        # Chromosome can be read as int or string, both are valid
-        assert str(guide1_row['match_chrm']) == '1' or guide1_row['match_chrm'] == 1
-        
-        # guide2 should have its only match
-        guide2_row = result_df[result_df['id'] == 'guide2'].iloc[0]
-        assert guide2_row['match_distance'] == 0
-        assert str(guide2_row['match_chrm']) == '1' or guide2_row['match_chrm'] == 1
-        
-        # guide3 should have NA (no match)
-        guide3_row = result_df[result_df['id'] == 'guide3'].iloc[0]
-        # NA can be read as string 'NA' or NaN
-        assert guide3_row['match_chrm'] == 'NA' or pd.isna(guide3_row['match_chrm'])
+        # guide3: has only NA -> keep 1 NA result
+        guide3_matches = result_df[result_df['id'] == 'guide3']
+        assert len(guide3_matches) == 1
+        assert guide3_matches.iloc[0]['match_chrm'] == 'NA' or pd.isna(guide3_matches.iloc[0]['match_chrm'])
 

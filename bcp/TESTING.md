@@ -50,14 +50,15 @@ bcp/tests/
 
 ## Test Coverage
 
-### Total: 43 tests, all passing ✅
+### Total: 51 tests (regular) + 8 E2E tests, all passing ✅
 
 | Test File | Tests | Focus Area | Default |
 |-----------|-------|------------|----------|
 | `test_pam_length.py` | 7 | PAM validation, length calculation | ✅ Run |
-| `test_best_match.py` | 7 | Match selection algorithm | ✅ Run |
+| `test_best_match.py` | 8 | Match selection algorithm (retain all exact matches) | ✅ Run |
 | `test_formatting.py` | 10 | Sequence splitting, coordinate calculation | ✅ Run |
 | `test_integration.py` | 11 | Pipeline orchestration, file management | ✅ Run |
+| `test_guide_to_gene.py` | 15 | Gene annotation from GTF files | ✅ Run |
 | `test_e2e_real_guidescan.py` | 8 | Real guidescan execution, E2E workflow | ❌ Opt-in |
 
 **Note**: E2E tests are skipped by default. Run with `pytest -m e2e` to include them.
@@ -73,13 +74,13 @@ bcp/tests/
    - Missing column error detection
    - Length calculation from PAM string
 
-2. **Best Match Selection** (`test_best_match.py`)
+2. **Match Selection** (`test_best_match.py`)
    - Single exact match selection
-   - Multiple matches - picks lowest distance
-   - Prefers actual matches over NA
+   - **Multiple exact matches - retains ALL** (not just one)
+   - **Non-exact matches result in NA** (treated as no match)
+   - Prefers exact matches over any non-exact matches
    - Handles all NA results
    - Invalid distance value handling
-   - Exact match preference (distance=0)
 
 3. **Coordinate Formatting** (`test_formatting.py`)
    - Sequence splitting (protospacer + PAM)
@@ -306,9 +307,9 @@ Current test suite performance:
 
 | Test Suite | Tests | Time | Default |
 |------------|-------|------|----------|
-| **Regular (Unit + Integration)** | 35 | ~0.4s | ✅ Run |
+| **Regular (Unit + Integration)** | 51 | ~0.6s | ✅ Run |
 | **E2E (Real Guidescan)** | 8 | ~0.5s | ❌ Skip |
-| **Total** | 43 | ~0.6s | 35 run, 8 skip |
+| **Total** | 59 | ~0.9s | 51 run, 8 skip |
 
 - All tests use temporary directories (auto-cleanup)
 - Regular tests use mocked guidescan (fast)

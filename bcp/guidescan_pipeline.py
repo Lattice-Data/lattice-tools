@@ -179,48 +179,15 @@ class GuidescanPipeline:
             logger.error(f"Error output: {e.stderr}")
             raise RuntimeError(f"guidescan enumeration failed: {e.stderr}")
     
-    def pick_best_match(self, group: pd.DataFrame) -> pd.Series:
-        """
-        Pick the best match for a guide group.
-        
-        Args:
-            group: DataFrame group for a single guide
-            
-        Returns:
-            Best row as a Series
-        """
-        best_row = None
-        best_distance = None
-        is_no_match_result = None
-        
-        for _, row in group.iterrows():
-            is_no_match = (row.iloc[2] == "NA")
-            
-            # Distance is column 6 (index 5)
-            try:
-                distance = float(row.iloc[5])
-            except (ValueError, IndexError):
-                distance = float("inf")
-            
-            if best_row is None:
-                best_row = row
-                best_distance = distance
-                is_no_match_result = is_no_match
-            elif is_no_match_result and not is_no_match:
-                # Prefer actual matches over NA results
-                best_row = row
-                best_distance = distance
-                is_no_match_result = is_no_match
-            elif not is_no_match_result and not is_no_match and distance < best_distance:
-                # Among actual matches, prefer smaller distance
-                best_row = row
-                best_distance = distance
-        
-        return best_row
-    
     def select_best_matches(self) -> None:
-        """Select best matches from all matches."""
-        logger.info("Selecting best matches for each guide...")
+        """
+        Select matches for each guide.
+        
+        For each guide:
+        - If exact matches exist (distance = 0): Keep ALL exact matches
+        - If no exact matches exist: Keep one NA result (treat as no match)
+        """
+        logger.info("Selecting matches for each guide (retaining all exact matches only)...")
         
         try:
             df = pd.read_csv(self.all_matches_file)
@@ -231,16 +198,64 @@ class GuidescanPipeline:
                 df.to_csv(self.best_matches_file, index=False)
                 return
             
-            # Group by guide ID (first column) and pick best match
-            best = df.groupby(df.columns[0], group_keys=False).apply(
-                self.pick_best_match
-            ).reset_index(drop=True)
+            # Distance is column 6 (index 5)
+            distance_col = df.columns[5]
+            guide_id_col = df.columns[0]
+            chromosome_col = df.columns[2]
             
-            best.to_csv(self.best_matches_file, index=False)
-            logger.info(f"Best matches saved to {self.best_matches_file}")
+            # Convert distance to numeric for comparison
+            df['distance_numeric'] = pd.to_numeric(df[distance_col], errors='coerce')
+            
+            results = []
+            for guide_id, group in df.groupby(guide_id_col):
+                # Check for NA matches (no genomic match found)
+                has_na_only = (group[chromosome_col] == "NA").all()
+                
+                if has_na_only:
+                    # Keep one NA result
+                    results.append(group.head(1))
+                else:
+                    # Filter out NA results
+                    real_matches = group[group[chromosome_col] != "NA"]
+                    
+                    # Filter for exact matches (distance = 0)
+                    exact_matches = real_matches[real_matches['distance_numeric'] == 0]
+                    
+                    if len(exact_matches) > 0:
+                        # Keep ALL exact matches
+                        results.append(exact_matches)
+                    else:
+                        # No exact matches - keep one NA result (treat as no match)
+                        # Use the first NA row if available, otherwise create NA result
+                        na_rows = group[group[chromosome_col] == "NA"]
+                        if len(na_rows) > 0:
+                            results.append(na_rows.head(1))
+                        else:
+                            # Create a NA result from the first real match by replacing match data with NA
+                            na_result = real_matches.head(1).copy()
+                            na_result[chromosome_col] = "NA"
+                            # Set position, distance to NA (columns 3, 5)
+                            na_result[df.columns[3]] = "NA"
+                            na_result[distance_col] = "NA"
+                            na_result['distance_numeric'] = pd.NA
+                            results.append(na_result)
+            
+            result_df = pd.concat(results, ignore_index=True)
+            
+            # Drop the temporary numeric distance column before saving
+            result_df = result_df.drop(columns=['distance_numeric'])
+            
+            result_df.to_csv(self.best_matches_file, index=False)
+            
+            # Log statistics
+            guide_count = df[guide_id_col].nunique()
+            result_count = len(result_df)
+            exact_match_count = len(result_df[result_df[chromosome_col] != "NA"])
+            logger.info(f"Matches saved to {self.best_matches_file}")
+            logger.info(f"Processed {guide_count} guides: {exact_match_count} exact matches, {guide_count - exact_match_count} no matches")
             
         except Exception as e:
-            logger.error(f"Failed to select best matches: {e}")
+            logger.error(f"Failed to select matches: {e}")
             raise
     
     def format_exact_matches(self) -> pd.DataFrame:
