@@ -335,7 +335,7 @@ def flatten_obj(obj):
 	return new_obj
 
 
-def get_derived_from(temp_obj, next_remaining, links):
+def get_derived_from(temp_obj, next_remaining, links, dataset_id):
 	uuid = temp_obj['uuid']
 	# get identifiers for any object that referenced by this one
 	if temp_obj.get('derived_from'):
@@ -348,22 +348,22 @@ def get_derived_from(temp_obj, next_remaining, links):
 			if variable_age:
 				identifier = [(temp_obj['derived_from'][0], variable_age)]
 				next_remaining.update(identifier)
-				add_links(temp_obj, tuple(identifier), links)
+				add_links(temp_obj, tuple(identifier), links, dataset_id)
 			else:
 				next_remaining.update(temp_obj['derived_from'])
-				add_links(temp_obj, tuple(temp_obj['derived_from']), links)
+				add_links(temp_obj, tuple(temp_obj['derived_from']), links, dataset_id)
 		elif isinstance(temp_obj['derived_from'][0], dict): #object is embedded
 			if variable_age:
 				identifier = [(temp_obj['derived_from'][0]['@id'], variable_age)]
 				next_remaining.update(identifier)
-				add_links(temp_obj, tuple(identifier), links)
+				add_links(temp_obj, tuple(identifier), links, dataset_id)
 
 			else:
 				der_fr = ()
 				for o in temp_obj['derived_from']:
 					next_remaining.add(o['@id'])
 					der_fr = der_fr + (o['@id'],)
-				add_links(temp_obj, der_fr, links)
+				add_links(temp_obj, der_fr, links, dataset_id)
 
 
 def get_links(temp_obj, der_fr, links_dict):
@@ -389,7 +389,7 @@ def uuid_make(value):
 		])
 
 
-def seq_to_susp(links_dict):
+def seq_to_susp(links_dict, dataset_id):
 	links = []
 	lib_cell_counts = {}
 	all_susps = set()
@@ -471,7 +471,7 @@ def seq_to_susp(links_dict):
 			'inputs': ins,
 			'outputs': links_dict[seqruns]['outputs']
 			}
-		link_hash = uuid_make(l)
+		link_hash = uuid_make(str(l) + dataset_id)
 		l['link_type'] = 'process_link'
 		l['process_type'] = 'process'
 		l['process_id'] = link_hash
@@ -609,7 +609,7 @@ def create_protocol(in_type, out_type, out_obj):
 	return prots
 
 
-def add_links(temp_obj, der_fr, links):
+def add_links(temp_obj, der_fr, links, dataset_id):
 	ins = []
 	for i in der_fr:
 		if isinstance(i, tuple): #donor ID + variable_age
@@ -630,7 +630,7 @@ def add_links(temp_obj, der_fr, links):
 		'inputs': ins,
 		'protocols': prots
 		}
-	link_hash = uuid_make(link)
+	link_hash = uuid_make(str(link) + dataset_id)
 	link['link_type'] = 'process_link'
 	link['process_type'] = 'process'
 	link['process_id'] = link_hash
@@ -1054,7 +1054,7 @@ def main():
 	# gather all the Suspension objects to traverse next
 	# set up links between sequence_file and suspension as the start of each subgraph
 	logging.info('GETTING THE GRAPH FROM RAW SEQUENCE FILES BACK TO SUSPENSIONS')
-	susps, links = seq_to_susp(links_dict)
+	susps, links = seq_to_susp(links_dict, dataset_id)
 
 	# walkback graph the rest of the way
 	logging.info('GETTING THE GRAPH FROM SUSPENSIONS BACK TO DONORS')
@@ -1077,7 +1077,7 @@ def main():
 				field_lst.extend(['derived_from','derivation_process'])
 				temp_obj = lattice.get_report(obj_type, filter_url, field_lst, connection)[0]
 				get_object(temp_obj)
-			get_derived_from(temp_obj, next_remaining, links)
+			get_derived_from(temp_obj, next_remaining, links, dataset_id)
 		remaining = next_remaining - seen
 
 	dir_to_make = ['', 'metadata', 'links', 'data', 'descriptors', 'descriptors/sequence_file']
