@@ -1,4 +1,12 @@
 priorityFields = {
+	'publication': {
+		'order': [],
+		'preferred': []
+	},
+	'dataset': {
+		'order': [],
+		'preferred': []
+	},
 	'human_postnatal_donor': {
 		'order': [
 			'donor_id',
@@ -195,6 +203,10 @@ priorityFields = {
 			'dbxrefs',
 		]
 	},
+	'tissue_section': {
+		'order': [],
+		'preferred': []
+	},
 	'library': {
 		'order': [
 			'derived_from',
@@ -270,6 +282,18 @@ priorityFields = {
 			'value_units'
 		]
 	},
+	'processed_matrix_file': {
+		'order': [],
+		'preferred': []
+	},
+	'cell_annotation': {
+		'order': [],
+		'preferred': []
+	},
+	'library_protocol': {
+		'order': [],
+		'preferred': []
+	},
 	'treatment': {
 		'order': [
 			'treatment_type',
@@ -279,6 +303,18 @@ priorityFields = {
 		'preferred': [
 			'treatment_term_id'
 		]
+	},
+	'antibody': {
+		'order': [],
+		'preferred': []
+	},
+	'target': {
+		'order': [],
+		'preferred': []
+	},
+	'lab': {
+		'order': [],
+		'preferred': []
 	},
 	'user': {
 		'order': [
