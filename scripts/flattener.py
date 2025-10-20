@@ -388,8 +388,8 @@ def set_ensembl(redundant, glob):
 # Filters the Ensembl IDs based on the compiled list of approved IDs
 def filter_ensembl(adata, compiled_annot):
 	# Using map file to map old ensembl_ids to new ensembl_ids before filtering
-	v44_gene_map = json.load(open('../gene_ID_mapping/gene_map_v44.json'))
-	new_gene_map = {k:v for k,v in v44_gene_map.items() if k in adata.var.index and v not in adata.var.index}
+	v48_gene_map = json.load(open('../gene_ID_mapping/gene_map_human_v48.json'))
+	new_gene_map = {k:v for k,v in v48_gene_map.items() if k in adata.var.index and v not in adata.var.index}
 	adata.var.rename(index=new_gene_map, inplace=True)
 	var_in_approved = adata.var.index[adata.var.index.isin(compiled_annot['feature_id'])]
 	adata = adata[:, var_in_approved]
@@ -594,7 +594,7 @@ def clean_obs(glob):
 	glob.cxg_obs['tissue_type'] = glob.cxg_obs['tissue_type'].str.lower()
 	for i in glob.cxg_obs['tissue_type'].unique().tolist():
 		if i == 'cellculture':
-			glob.cxg_obs['tissue_type'].replace({'cellculture':'cell culture'}, inplace=True)
+			glob.cxg_obs['tissue_type'].replace({'cellculture':'primary cell culture'}, inplace=True)
 		if i not in valid_tissue_types:
 			logging.error('ERROR: not a valid tissue type:\t{}'.format(i))
 			print('ERROR: not a valid tissue type:\t{}'.format(i))
