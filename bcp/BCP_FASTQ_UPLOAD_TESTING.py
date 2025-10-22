@@ -3,11 +3,13 @@ import argparse
 import subprocess
 from dataclasses import dataclass, astuple
 import csv
-import asyncio
-
-#subprocess.run(['ls','-l'])
-
-#subprocess.run(['aws','s3','cp', filepath])
+import boto3
+# Need to add checks for presence of these before importing
+try:
+    import asyncio
+except ImportError:
+    print('asyncio not installed') # Or eventually just add automatic installation
+from aiobotocore.session import get_session
 
 def getArgs():
     parser = argparse.ArgumentParser(
@@ -181,50 +183,92 @@ def sort_files(project, bucket, group, initial_file_list):
                 if parts[3].endswith('.fastq.gz'):
                     file_list.append({'filename':parts[3],'size':parts[2]})
 
-async def splitter(file):
-    while True:
-        original_file = await split_queue.get()
-        output_files = [original_file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz') for i in range(0,original_file.split_amount)]
-        output_file_command = [('-o ' + o_file) for o_file in output_files]
-        output_file_command = ' '.join(output_files)
-        await asyncio.run(run('fastqsplitter ' + '-i ' + original_file.file_name + ' ' + output_file_command))
-        # This is where you could print out message saying file is getting split
-        return file.file_name, output_files # Need to return the original filename and list of split files to then send to uploader
+async def splitter(original_file):
+    output_files = [(original_file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz') for i in range(0,original_file.split_amount)]
+    output_file_command = [('-o ' + o_file) for o_file in output_files]
+    output_file_command = ' '.join(output_files)
+    split = await asyncio.create_subprocess_exec(
+        'fastqsplitter', '-i', original_file.file_name, output_file_command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    stdout, stderr = await split.communicate()
+    return_code = split.returncode
+    
+    if return_code == 0:
+        print(f"{file.file_name} split successfully")
+        return file.file_name, output_files
+    else:
+        print(f"Failed to split {original_file.file_name}")
+        print(f"Error output:\n{stderr.decode().strip()}")
+        return None
+
+    return file.file_name, output_files # Need to return the original filename and list of split files to then send to uploader
 
 
 async def downloader(file):
-    # Probably want to multithread for this, ask BrianM
-    return file
+    download = await asyncio.create_subprocess_exec(
+        'aws', 's3', 'cp', ('s3://' + file.S3_Path), ('./' + file.file_name),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    stdout, stderr = await download.communicate()
+    return_code = download.returncode
+    
+    if return_code == 0:
+        size_result = subprocess.run(['ls', '-l', '422015-CD4i_R2L03_GEX-Z0150-CGCGCAGATGGCATGAT_S1_L001_R1_001.fastq.gz'],capture_output=True,text=True, check=True)
+        if size_result.split()[4] == file.size:
+            print(f"Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
+            return file
+        else:
+            print(f"File sizes between S3 and local do not match for file {file.S3_Path}")
+            return None
+    else:
+        print(f"Failed to download: {s3_path} -> {local_path} with return code {return_code}")
+        print(f"Error output:\n{stderr.decode().strip()}")
+        return None
 
 
 async def uploader(ftp_server_info, file_name):
-    # Probably want to multithread for this, ask BrianM
-    # file_name is just local name of file upload directly to FTP
-    # Return file name so can delete local copy
+    upload = await asyncio.create_subprocess_exec(
+        'ncftpput', '-u', ftp_server_info.username, '-p', ftp_server_info.password, ftp_server_info.address, ftp_server_info.folder, file_name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    
+    stdout, stderr = await upload.communicate()
+    return_code = upload.returncode
+    
+    if return_code == 0:
+        print(f"Upload of {file_name} Completed successfully")
+        return file_name
+    else:
+        print(f"Failed to Upload {file_name}")
+        print(f"Error output:\n{stderr.decode().strip()}")
+        return None
         
 
 
 async def Path_Setter(ftp_server_info, Full_File_List):
     split_tasks = []
     upload_tasks = []
-    download_tasks = [downloader(file)) for file in Full_File_List]
-
-    # Need to make it so checking when download tasks are complete
-    # When download task complete, either add to split_tasks or upload_tasks and then be checking if those are complete
-    # When split_task complete add to upload task
-    # When upload task complete delete local copy of file
+    download_tasks = [asyncio.create_task(downloader(file)) for file in Full_File_List]
     for completed_download in asyncio.as_completed(download_tasks):
         downloaded_file = await completed_download
         if downloaded_file.split_amount == None:
-            upload_tasks.append(uploader(ftp_server_info, downloaded_file))
+            pass
+            upload_tasks.append(asyncio.create_task(uploader(ftp_server_info, downloaded_file.file_name)))
         else:
-            split_tasks.append(splitter(downloaded_file))
+            split_tasks.append(asyncio.create_task(splitter(downloaded_file)))
 
     for completed_split in asyncio.as_completed(split_tasks):
         file_to_delete, split_files = await completed_split
         subprocess.run('rm',file_to_delete) # Remove original file to save space? Check if works
         for split_file in split_files:
-            upload_tasks.append(uploader(ftp_server_info, split_file))
+            pass
+            upload_tasks.append(asyncio.create_task(uploader(ftp_server_info, split_file)))
 
     for completed_upload in asyncio.as_completed(upload_tasks):
         file_to_delete = await completed_upload
@@ -244,11 +288,6 @@ def main(ftp_server_info, csv_file):
             Full_File_List.append(pair.file_1)
             Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
     asyncio.run(Path_Setter(ftp_server_info, Full_File_List))
-    #original_file = Full_File_List[2]
-    #output_files = [('-o ' + original_file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz') for i in range(0,original_file.split_amount)]
-    #output_files = ' '.join(output_files)
-    #print(output_files)
-    #Path_Setter(ftp_server_info, Full_File_List)
     
 
 if __name__ == '__main__':
