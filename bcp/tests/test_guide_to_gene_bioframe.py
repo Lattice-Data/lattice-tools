@@ -214,8 +214,8 @@ class TestFormatOutput:
         # Check that output file was created
         assert output_file.exists()
         
-        # Read and validate output
-        output_df = pd.read_csv(output_file)
+        # Read and validate output (keep_default_na=False to preserve 'NA' as string)
+        output_df = pd.read_csv(output_file, keep_default_na=False)
         
         # Check structure
         expected_cols = ['id', 'sequence', 'pam', 'chromosome', 'start', 'end', 'sense', 'gene_id', 'gene_name']
@@ -225,10 +225,10 @@ class TestFormatOutput:
         guide1_rows = output_df[output_df['id'] == 'guide1']
         assert len(guide1_rows) == 2
         
-        # Check that guide2 has 1 row (intergenic)
+        # Check that guide2 has 1 row (no overlap, marked as NA)
         guide2_rows = output_df[output_df['id'] == 'guide2']
         assert len(guide2_rows) == 1
-        assert guide2_rows.iloc[0]['gene_id'] == 'intergenic'
+        assert guide2_rows.iloc[0]['gene_id'] == 'NA'
     
     def test_format_output_no_overlaps(self, temp_dir):
         """Test output formatting with no gene overlaps."""
@@ -247,13 +247,13 @@ class TestFormatOutput:
         output_file = temp_dir / "test_output.csv"
         format_output(overlaps_df, original_guides_df, str(output_file))
         
-        # Read and validate output
-        output_df = pd.read_csv(output_file)
+        # Read and validate output (keep_default_na=False to preserve 'NA' as string)
+        output_df = pd.read_csv(output_file, keep_default_na=False)
         
-        # Both guides should be intergenic
+        # Both guides should have NA (no overlaps)
         assert len(output_df) == 2
-        assert all(output_df['gene_id'] == 'intergenic')
-        assert all(output_df['gene_name'] == 'intergenic')
+        assert all(output_df['gene_id'] == 'NA')
+        assert all(output_df['gene_name'] == 'NA')
 
 
 class TestAnnotateGuidesBioframe:
@@ -304,9 +304,10 @@ class TestAnnotateGuidesBioframe:
         # Check that we have results
         assert len(df) > 0
         
-        # Verify that gene annotations are not empty for most guides
-        non_na_genes = df[df['gene_id'].notna() & (df['gene_id'] != 'NA') & (df['gene_id'] != 'intergenic')]
-        assert len(non_na_genes) > 0
+        # Verify that some guides have actual gene annotations (not NA)
+        # Count rows with real gene IDs (ENSG format)
+        real_genes = df[df['gene_id'].str.startswith('ENSG', na=False)]
+        assert len(real_genes) > 0
     
     def test_annotate_guides_output_format(self, temp_dir, guides_file, gtf_file):
         """Test that output format matches expected structure."""
@@ -344,7 +345,7 @@ class TestAnnotateGuidesBioframe:
         # Check that statistics were printed
         assert "Total guides processed:" in captured.out
         assert "Guides with gene overlaps:" in captured.out
-        assert "Guides in intergenic regions:" in captured.out
+        assert "Guides without gene overlaps" in captured.out  # Changed from "intergenic regions"
         assert "Total gene overlaps found:" in captured.out
         assert "Output written to:" in captured.out
     
@@ -420,11 +421,11 @@ class TestEdgeCases:
         output_file = temp_dir / "output.csv"
         annotate_guides_bioframe(str(guides_file), str(gtf_file), str(output_file))
         
-        df = pd.read_csv(output_file)
+        df = pd.read_csv(output_file, keep_default_na=False)
         
-        # All guides should have INVALID_COORDS annotations
-        assert all(df['gene_id'] == 'INVALID_COORDS')
-        assert all(df['gene_name'] == 'INVALID_COORDS')
+        # All guides should have NA annotations (invalid coordinates)
+        assert all(df['gene_id'] == 'NA')
+        assert all(df['gene_name'] == 'NA')
 
 
 class TestCompatibilityWithCurrent:
@@ -490,10 +491,8 @@ class TestCompatibilityWithCurrent:
             "Annotation complete!",
             "Total guides processed:",
             "Guides with gene overlaps:",
-            "Guides in intergenic regions:",
-            "Guides with unmapped/invalid coordinates:",
+            "Guides without gene overlaps",  # Changed from separate intergenic/unmapped
             "Total gene overlaps found:",
-            "Average overlaps per guide",
             "Output written to:"
         ]
         

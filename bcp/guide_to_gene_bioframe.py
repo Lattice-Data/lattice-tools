@@ -220,8 +220,8 @@ def format_output(overlaps_df, original_guides_df, output_file):
                         'start': start,
                         'end': end,
                         'sense': original_guide['sense'],
-                        'gene_id': 'intergenic',
-                        'gene_name': 'intergenic'
+                        'gene_id': 'NA',
+                        'gene_name': 'NA'
                     }
                 except ValueError:
                     # Invalid coordinates
@@ -233,8 +233,8 @@ def format_output(overlaps_df, original_guides_df, output_file):
                         'start': start,
                         'end': end,
                         'sense': original_guide['sense'],
-                        'gene_id': 'INVALID_COORDS',
-                        'gene_name': 'INVALID_COORDS'
+                        'gene_id': 'NA',
+                        'gene_name': 'NA'
                     }
             
             output_data.append(output_row)
@@ -245,7 +245,8 @@ def format_output(overlaps_df, original_guides_df, output_file):
         # Ensure all columns are strings to match current implementation output
         for col in output_df.columns:
             output_df[col] = output_df[col].astype(str)
-        output_df.to_csv(output_file, index=False)
+        # Write CSV with explicit NA representation to avoid pandas NaN conversion
+        output_df.to_csv(output_file, index=False, na_rep='NA')
     else:
         # Create empty CSV with headers
         fieldnames = ['id', 'sequence', 'pam', 'chromosome', 'start', 'end', 'sense', 'gene_id', 'gene_name']
@@ -266,8 +267,17 @@ def annotate_guides_bioframe(guide_file, gtf_file, output_file):
     """
     print(f"\nAnnotating guides from: {guide_file}")
     
-    # Load original guide data for reference
-    original_guides_df = pd.read_csv(guide_file)
+    # Load original guide data for reference with explicit dtypes to ensure strings
+    dtype_spec = {
+        'id': str,
+        'sequence': str,
+        'pam': str,
+        'chromosome': str,  # Force chromosome to be string
+        'start': str,       # Keep as string to handle 'NA'
+        'end': str,         # Keep as string to handle 'NA'
+        'sense': str
+    }
+    original_guides_df = pd.read_csv(guide_file, dtype=dtype_spec, keep_default_na=False)
     
     # Convert guides to BED format
     guides_bed_df = csv_to_bed_dataframe(guide_file)
@@ -286,38 +296,19 @@ def annotate_guides_bioframe(guide_file, gtf_file, output_file):
     guides_with_genes = len(overlaps_df['name'].unique()) if not overlaps_df.empty else 0
     total_overlaps = len(overlaps_df) if not overlaps_df.empty else 0
     
-    # Count intergenic guides
+    # Count guides without gene overlaps (intergenic, invalid coords, or unmapped)
     processed_guide_ids = set(overlaps_df['name']) if not overlaps_df.empty else set()
-    guides_intergenic = 0
-    guides_unmapped = 0
+    guides_without_genes = 0
     
     for _, row in original_guides_df.iterrows():
         guide_id = row['id']
         if guide_id not in processed_guide_ids:
-            chrom = str(row['chromosome'])
-            start = str(row['start'])
-            end = str(row['end'])
-            
-            # Check for NA values (as string or pandas NA)
-            is_na = (chrom == 'NA' or chrom == 'nan' or pd.isna(row['chromosome']) or
-                     start == 'NA' or start == 'nan' or pd.isna(row['start']) or
-                     end == 'NA' or end == 'nan' or pd.isna(row['end']))
-            
-            if is_na:
-                guides_unmapped += 1
-            else:
-                try:
-                    int(start)
-                    int(end)
-                    guides_intergenic += 1
-                except ValueError:
-                    guides_unmapped += 1
+            guides_without_genes += 1
     
     print(f"\nAnnotation complete!")
     print(f"  Total guides processed: {guides_processed}")
     print(f"  Guides with gene overlaps: {guides_with_genes}")
-    print(f"  Guides in intergenic regions: {guides_intergenic}")
-    print(f"  Guides with unmapped/invalid coordinates: {guides_unmapped}")
+    print(f"  Guides without gene overlaps (intergenic/unmapped/invalid): {guides_without_genes}")
     print(f"  Total gene overlaps found: {total_overlaps}")
     if guides_with_genes > 0:
         print(f"  Average overlaps per guide (for guides with overlaps): {total_overlaps/guides_with_genes:.2f}")
