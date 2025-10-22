@@ -219,7 +219,7 @@ async def downloader(file):
     
     if return_code == 0:
         size_result = subprocess.run(['ls', '-l', file.file_name],capture_output=True,text=True, check=True)
-        if size_result.stdout.split()[4] == file.size:
+        if int(size_result.stdout.split()[4]) == int(file.size):
             print(f"Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
             return file
         else:
