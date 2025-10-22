@@ -219,11 +219,11 @@ async def downloader(file):
     
     if return_code == 0:
         size_result = subprocess.run(['ls', '-l', file.file_name],capture_output=True,text=True, check=True)
-        if size_result.split()[4] == file.size:
+        if size_result.stdout.split()[4] == file.size:
             print(f"Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
             return file
         else:
-            print(f"File sizes between S3 and local do not match for file {file.S3_Path}")
+            print(f"File sizes between S3 {file.size} and local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}")
             return None
     else:
         print(f"Failed to download: {s3_path} -> {local_path} with return code {return_code}")
