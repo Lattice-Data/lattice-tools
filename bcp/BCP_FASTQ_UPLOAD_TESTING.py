@@ -218,7 +218,7 @@ async def downloader(file):
     return_code = download.returncode
     
     if return_code == 0:
-        size_result = subprocess.run(['ls', '-l', '422015-CD4i_R2L03_GEX-Z0150-CGCGCAGATGGCATGAT_S1_L001_R1_001.fastq.gz'],capture_output=True,text=True, check=True)
+        size_result = subprocess.run(['ls', '-l', file.file_name],capture_output=True,text=True, check=True)
         if size_result.split()[4] == file.size:
             print(f"Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
             return file
