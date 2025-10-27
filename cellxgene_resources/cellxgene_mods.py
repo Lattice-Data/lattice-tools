@@ -700,7 +700,7 @@ def viz_spatial_per_field(sdata, library_id, res, field):
 
     # Left: Image only
     sdata.pl.render_images(res).pl.show(ax=axes[0])
-    axes[0].set_title('H&E Stained Tissue', fontsize=12)
+    axes[0].set_title(f'{res} image', fontsize=12)
     axes[0].axis('off')
 
     # Right: Image first, then add points
@@ -709,7 +709,7 @@ def viz_spatial_per_field(sdata, library_id, res, field):
         f'{library_id}_{res}',
         color=field
     ).pl.show(ax=axes[1])
-    axes[1].set_title('Overlay: Tissue + Spots', fontsize=12)
+    axes[1].set_title(f'{res} image + {field}', fontsize=12)
     axes[1].axis('off')
 
     plt.tight_layout()
