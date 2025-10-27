@@ -14,7 +14,7 @@ Scripts used by the Lattice data coordination team for single cell data wranglin
 
 2. Install the following packages
     ```
-    conda install -c conda-forge pint jsonschema boto3 jupyter bs4 squidpy scanpy python-magic
+    conda install -c conda-forge pint jsonschema boto3 jupyter bs4 scanpy python-magic
     ```
     ```
     pip install cellxgene-schema requests openpyxl Pillow gspread gspread_formatting oauth2client crcmod lxml pyometiff
