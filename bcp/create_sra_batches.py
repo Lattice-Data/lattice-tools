@@ -37,6 +37,7 @@ class FastqMeta:
 
     TODO:
         Validation
+        Logic for dealing with key or full S3 URI; currently only key works
         Maybe base class and childs for other CZI bucket schema/SOP
         Mechanism for dealing/tracking paired files?
         Better operability with upload script
@@ -231,17 +232,23 @@ if __name__ == "__main__":
         s3_uris = [line.strip() for line in f]
     
     fastq_metas = [FastqMeta(uri) for uri in s3_uris]
+    print("Found base file fastq metadata")
+
     split_fastq_metas = create_split_file_meta(s3_uris)
+    print("Created split file fastq metadata")
 
     uploader_batches = create_fastq_batches(fastq_metas)
     sra_meta_batches = create_fastq_batches(split_fastq_metas)
+    print("Created batches")
 
     final_sra_meta_df = create_final_sra_meta_df(split_fastq_metas, sra_meta_df)
     final_sra_meta_df.to_csv("final_sra_metadata.csv")
+    print("Saved updated SRA_metadata as 'final_sra_metadata.csv'")
 
     last_name = fastq_metas[0].lastname
     project_name = fastq_metas[0].projectname
 
+    print("Writing to batch files")
     for batch, metas in uploader_batches.items():
         # does this need to be csv? could just be txt with one item per row
         with open(f"{last_name}_{project_name}_batch{batch}.csv", "w", newline="") as f:
