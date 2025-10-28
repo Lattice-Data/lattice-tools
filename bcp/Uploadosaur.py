@@ -210,11 +210,11 @@ async def splitter(original_file, sem):
         return_code = split.returncode
     
         if return_code == 0:
-            print(f'{file.file_name} split successfully')
-            logging.info(f'{file.file_name} split successfully')
+            print(f'{original_file.file_name} split successfully')
+            logging.info(f'{original_file.file_name} split successfully')
             await asyncio.create_subprocess_exec('rm','./'+file.file_name)
-            logging.info(f'{file.file_name} removed from local directory')
-            print(f'{file.file_name} removed from local directory')
+            logging.info(f'{original_file.file_name} removed from local directory')
+            print(f'{original_file.file_name} removed from local directory')
             return output_files
         else:
             print(f'Failed to split {original_file.file_name}')
