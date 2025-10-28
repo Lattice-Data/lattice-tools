@@ -243,7 +243,8 @@ if __name__ == "__main__":
     project_name = fastq_metas[0].projectname
 
     for batch, metas in uploader_batches.items():
+        # does this need to be csv? could just be txt with one item per row
         with open(f"{last_name}_{project_name}_batch{batch}.csv", "w", newline="") as f:
             writer = csv.writer(f)
             for meta in metas:
-                writer.writerow(meta.name)
+                writer.writerow([meta.name])
