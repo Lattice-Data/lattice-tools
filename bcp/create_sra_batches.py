@@ -229,7 +229,7 @@ if __name__ == "__main__":
     s3_uri_path = Path(args.s3uris)
 
     with open(s3_uri_path, "r") as f:
-        s3_uris = [line.strip("s3://") for line in f]
+        s3_uris = [line.lstrip("s3://").strip() for line in f]
     
     fastq_metas = [FastqMeta(uri) for uri in s3_uris]
     print("Found base file fastq metadata")
