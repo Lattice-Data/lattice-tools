@@ -2,6 +2,7 @@ import argparse
 import csv
 import fsspec
 import pandas as pd
+import requests
 import sys
 
 from collections import defaultdict
@@ -95,7 +96,7 @@ def getArgs():
     parser.add_argument(
         '--s3uris',
         '-s',
-        dest='s3uirs',
+        dest='s3uris',
         help='File with list of S3 URIs'
     )
     parser.add_argument(
@@ -244,4 +245,5 @@ if __name__ == "__main__":
     for batch, metas in uploader_batches.items():
         with open(f"{last_name}_{project_name}_batch{batch}.csv", "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerows([meta.name for meta in metas])
+            for meta in metas:
+                writer.writerow(meta.name)
