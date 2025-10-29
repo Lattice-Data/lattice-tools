@@ -198,7 +198,11 @@ def create_fastq_batches(fastq_metas: list[FastqMeta]) -> dict[int, list[FastqMe
     return batches
 
 
-def create_final_sra_meta_df(fastq_split_meta: list[FastqMeta], sra_meta_df: pd.DataFrame) -> pd.DataFrame:
+def create_final_sra_meta_df(
+    fastq_split_meta: list[FastqMeta], 
+    sra_meta_df: pd.DataFrame, 
+    split_batches: dict[int, list[FastqMeta]]
+) -> pd.DataFrame:
     """
     Create the final df for the wrangling sheet that takes into account the predicted split files
     """
@@ -220,6 +224,14 @@ def create_final_sra_meta_df(fastq_split_meta: list[FastqMeta], sra_meta_df: pd.
     file_df = pd.DataFrame(df_list)
     stripped_sra_meta = sra_meta_df.loc[ : , "sample_name": "filetype"]
     final_sra_meta_df = stripped_sra_meta.merge(file_df, on="sample_name", how="left")
+
+    batch_column_dict = {}
+    for batch, metas in split_batches.items():
+        sample_name_set = {meta.sample_name for meta in metas}
+        for sample_name in sample_name_set:
+            batch_column_dict[sample_name] = batch
+
+    final_sra_meta_df["batch"] = final_sra_meta_df["sample_name"].map(batch_column_dict)
     return final_sra_meta_df
 
  
@@ -241,7 +253,7 @@ if __name__ == "__main__":
     sra_meta_batches = create_fastq_batches(split_fastq_metas)
     print("Created batches")
 
-    final_sra_meta_df = create_final_sra_meta_df(split_fastq_metas, sra_meta_df)
+    final_sra_meta_df = create_final_sra_meta_df(split_fastq_metas, sra_meta_df, sra_meta_batches)
     final_sra_meta_df.to_csv("final_sra_metadata.csv")
     print("Saved updated SRA_metadata as 'final_sra_metadata.csv'")
 
