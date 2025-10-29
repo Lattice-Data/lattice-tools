@@ -270,7 +270,7 @@ async def uploader(ftp_server_info, file_name, sem):
         logging.info(f'Starting upload of {file_name}')
         print(f'Starting upload of {file_name}')
         upload = await asyncio.create_subprocess_exec(
-            'ncftpput', '-t', '600', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
+            'ncftpput', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
             ftp_server_info.address, ftp_server_info.folder, file_name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
