@@ -229,9 +229,9 @@ async def downloader(file, sem):
     Asynchronous function that downloads file from S3, checking that downloaded file size matches expected
     Returns same SingleFastQFile object that was input if download was successful, None if not.
     """
-    logging.info(f'Starting download of {file.file_name}')
-    print(f'Starting download of {file.file_name}')
     async with sem:
+        logging.info(f'Starting download of {file.file_name}')
+        print(f'Starting download of {file.file_name}')
         session = aioboto3.Session()
         bucket_name = file.S3_Path.split('/',1)[0]
         key = file.S3_Path.split('/',1)[1]
