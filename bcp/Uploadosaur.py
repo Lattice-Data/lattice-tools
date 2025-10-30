@@ -16,7 +16,7 @@ except ImportError:
     print('aioboto3 not installed')
 
 """
-Uploadasaur expects the following packages to be installed prior to running:
+Uploadosaur expects the following packages to be installed prior to running:
  - fastqsplitter: https://fastqsplitter.readthedocs.io/en/stable/#fastqsplitter
  - ncftp: https://www.ncftp.com/ncftp/
 
@@ -229,6 +229,7 @@ async def downloader(file, sem):
     Asynchronous function that downloads file from S3, checking that downloaded file size matches expected
     Returns same SingleFastQFile object that was input if download was successful, None if not.
     """
+    
     async with sem:
         logging.info(f'Starting download of {file.file_name}')
         print(f'Starting download of {file.file_name}')
@@ -270,7 +271,7 @@ async def uploader(ftp_server_info, file_name, sem):
         logging.info(f'Starting upload of {file_name}')
         print(f'Starting upload of {file_name}')
         upload = await asyncio.create_subprocess_exec(
-            'ncftpput', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
+            'ncftpput','-p','-z', '-B', '33554432', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
             ftp_server_info.address, ftp_server_info.folder, file_name,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
