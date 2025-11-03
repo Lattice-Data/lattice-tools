@@ -6,6 +6,8 @@ import csv
 import boto3
 from botocore.exceptions import ClientError, BotoCoreError
 import logging
+import os.path
+import ftplib
 try:
     import asyncio
 except ImportError:
@@ -185,6 +187,29 @@ def split_setter(file_list, paired = False):
                 file.split_amount = -(-file.size // split_amount)
     return file_list
 
+def Final_Check(ftp_server_info, Full_File_List):
+    '''
+    Checks that all files are present and correct size on the FTP server.
+    Prints/Logs out any files that are not present, or size not correct.
+    '''
+    print('Starting Final Check of uploaded files:')
+    logging.info('Starting Final Check of uploaded files:')
+    try:
+        with ftplib.FTP(ftp_server_info.address) as ftp:
+            ftp.login(user=ftp_server_info.username, passwd=ftp_server_info.password)
+        if directory != ftp_server_info.folder:
+            ftp.cwd(ftp_server_info.folder)
+        for file in Full_File_List:
+            if ftp.size(file.file_name) != file.size:
+                print(f'The size of file {file.file_name} is not the same on FTP and S3: \n')
+                print(f'{ftp.size(file.file_name)} bytes on FTP \n {file.size} bytes on S3')
+                logging.info(f'The size of file {file.file_name} is not the same on FTP and S3: \n')
+                logging.info(f'{ftp.size(file.file_name)} bytes on FTP \n {file.size} bytes on S3')
+    except ftplib.all_errors as e:
+        print(f'Error occured obtaining size of file {file.file_name} on FTP: \n {e}')
+        logging.info(f'Error occured obtaining size of file {file.file_name} on FTP: \n {e}')
+        
+
 
 async def splitter(original_file, sem):
     """
@@ -228,38 +253,45 @@ async def downloader(file, sem):
     """
     Asynchronous function that downloads file from S3, checking that downloaded file size matches expected
     Returns same SingleFastQFile object that was input if download was successful, None if not.
+
+    Prior to downloading, checks for presence of file locally, if present sends directly to upload.
     """
     
     async with sem:
-        logging.info(f'Starting download of {file.file_name}')
-        print(f'Starting download of {file.file_name}')
-        session = aioboto3.Session()
-        bucket_name = file.S3_Path.split('/',1)[0]
-        key = file.S3_Path.split('/',1)[1]
-        async with session.client("s3") as s3_client:
-            try:
-                await s3_client.download_file(bucket_name, key, ('./' + file.file_name))
-                size_result = subprocess.run(['ls', '-l', file.file_name],capture_output=True,text=True, check=True) # Might need to improve this
-                if int(size_result.stdout.split()[4]) == int(file.size):
-                    logging.info(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
-                    print(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
-                    return file
-                else:
-                    logging.error(f'File sizes between S3 {file.size} and local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
-                    print(f'File sizes between S3 {file.size} and local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
+        if ((os.path.exists(file.file_name)) and (os.path.getsize(file.file_name)) == file.file_size)):
+            logging.info(f'{file.file_name} already present locally, skipping download')
+            print(f'{file.file_name} already present locally, skipping download')
+            return file
+        else:
+            logging.info(f'Starting download of {file.file_name}')
+            print(f'Starting download of {file.file_name}')
+            session = aioboto3.Session()
+            bucket_name = file.S3_Path.split('/',1)[0]
+            key = file.S3_Path.split('/',1)[1]
+            async with session.client("s3") as s3_client:
+                try:
+                    await s3_client.download_file(bucket_name, key, ('./' + file.file_name))
+                    size_result = subprocess.run(['ls', '-l', file.file_name],capture_output=True,text=True, check=True) # Might need to improve this
+                    if int(size_result.stdout.split()[4]) == int(file.size):
+                        logging.info(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
+                        print(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
+                        return file
+                    else:
+                        logging.error(f'File sizes between S3 {file.size} and local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
+                        print(f'File sizes between S3 {file.size} and local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
+                        return None
+                except ClientError as e:
+                    logging.error(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
+                    print(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
                     return None
-            except ClientError as e:
-                logging.error(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
-                print(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
-                return None
-            except BotoCoreError as e:
-                logging.error(f'BotoCoreError for file {file.S3_Path} during download: {e}')
-                print(f'BotoCoreError for file {file.S3_Path} during download: {e}')
-                return None
-            except Exception as e:
-                logging.error(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
-                print(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
-                return None
+                except BotoCoreError as e:
+                    logging.error(f'BotoCoreError for file {file.S3_Path} during download: {e}')
+                    print(f'BotoCoreError for file {file.S3_Path} during download: {e}')
+                    return None
+                except Exception as e:
+                    logging.error(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
+                    print(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
+                    return None
 
 
 async def uploader(ftp_server_info, file_name, sem):
@@ -270,12 +302,19 @@ async def uploader(ftp_server_info, file_name, sem):
     async with sem:
         logging.info(f'{file_name} sent to upload')
         print(f'{file_name} sent to upload')
-        upload = await asyncio.create_subprocess_exec(
-            'ncftpput','-z', '-V', '-B', '33554432', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
-            ftp_server_info.address, ftp_server_info.folder, file_name)
+        try:
+            upload = await asyncio.create_subprocess_exec(
+                'ncftpput','-z', '-V', '-B', '33554432', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
+                ftp_server_info.address, ftp_server_info.folder, file_name)
         
-        await upload.wait()
-        await asyncio.create_subprocess_exec('rm','./'+file_name)
+            await upload.wait()
+            await asyncio.create_subprocess_exec('rm','./'+file_name)
+            logging.info(f'{file_name} appears to have successfully uploaded, file removed from local')
+            print(f'{file_name} appears to have successfully uploaded, file removed from local')
+        except Exception as e:
+            logging.info(f'An error occured uploading {file_name} to ftp. Further info: {e}')
+            print(f'An error occured uploading {file_name} to ftp. Further info: {e}')
+            
 
 
 async def Path_Setter(ftp_server_info, Full_File_List):
@@ -331,6 +370,7 @@ def main(ftp_server_info, csv_file):
             Full_File_List.append(pair.file_1)
             Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
     asyncio.run(Path_Setter(ftp_server_info, Full_File_List))
+    Final_Check(ftp_server_info, Full_File_List)
 
 
 if __name__ == '__main__':
