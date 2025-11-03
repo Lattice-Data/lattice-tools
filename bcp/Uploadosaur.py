@@ -268,28 +268,14 @@ async def uploader(ftp_server_info, file_name, sem):
     Removes local copy of file upon successful upload
     """
     async with sem:
-        logging.info(f'Starting upload of {file_name}')
-        print(f'Starting upload of {file_name}')
+        logging.info(f'{file_name} sent to upload')
+        print(f'{file_name} sent to upload')
         upload = await asyncio.create_subprocess_exec(
-            'ncftpput','-p','-z', '-B', '33554432', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
-            ftp_server_info.address, ftp_server_info.folder, file_name,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await upload.communicate()
-        return_code = upload.returncode
-    
-        if return_code == 0:
-            logging.info(f'Upload of {file_name} Completed successfully')
-            print(f'Upload of {file_name} Completed successfully')
-            await asyncio.create_subprocess_exec('rm','./'+file_name)
-            logging.info(f'{file_name} removed from local directory')
-            print(f'{file_name} removed from local directory')
-        else:
-            logging.info(f'Failed to Upload {file_name}')
-            logging.info(f'Error output:\n{stderr.decode().strip()}')
-            print(f'Failed to Upload {file_name}')
-            print(f'Error output:\n{stderr.decode().strip()}')
+            'ncftpput','-z', '-V', '-B', '33554432', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
+            ftp_server_info.address, ftp_server_info.folder, file_name)
+        
+        await upload.wait()
+        await asyncio.create_subprocess_exec('rm','./'+file_name)
 
 
 async def Path_Setter(ftp_server_info, Full_File_List):
