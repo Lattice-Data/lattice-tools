@@ -68,6 +68,12 @@ def getArgs():
         help="the GroupID of the sample that for curated matrices generation",
         required=True
     )
+    parser.add_argument(
+        "--csvofguidescan",
+        "-c",
+        help="Guidescan output CSV",
+        required=True
+    )
     args = parser.parse_args()
     if len(sys.argv) < 4:
     	parser.print_help()
@@ -210,20 +216,20 @@ def cxg_add_labels(adata):
     adata.uns['schema_reference'] = labeler._build_schema_reference_url(schema_v)
 
 
-def add_guide_metadata(adata, sheet, guide_gid):
+def add_guide_metadata(guidescan_output)
     '''
-    Add guide metadata into adata.uns from Lattice wrangling sheet
-    
+    Add guide metadata into adata.uns from guidescan_pipeline.py output
+
     :param obj adata: the anndata object that is being transformed into the curated matrix
-    :param obj guide_df: the dataframe containing guide metadata from wrangling sheet
-    
+    :param str guidescan_output: File containing output from guidescan_pipeline.py
+
     :returns obj adata: modified adata to contain guide metadata
+
     '''
-    url = f'https://docs.google.com/spreadsheets/d/{sheet}/export?format=csv&gid={guide_gid}'
-    response = requests.get(url)
-    guide_df = pd.read_csv(BytesIO(response.content), comment="#", dtype=str)
+
+    guide_df = pd.read_csv(guidescan_output, dtype=str)
     genetic_perturbations = {}
-    
+
     for row in guide_df.itertuples():
         genetic_perturbations[row.guide_id] = {}
         genetic_perturbations[row.guide_id]['role'] = 'targeting' if row.guide_role == 'Targeting a Gene' else 'control'
@@ -236,10 +242,8 @@ def add_guide_metadata(adata, sheet, guide_gid):
             genetic_perturbations[row.guide_id]['target_features'] = {}
             for i in range(len(row.overlapping_gene_ids.split(";"))):
                 genetic_perturbations[row.guide_id]['target_features'][row.overlapping_gene_ids.split(";")[i]] = row.overlapping_gene_names.split(";")[i]
-                                                                             
-            
+
     adata.uns['genetic_perturbations'] = genetic_perturbations
-    
     return adata
 
 
@@ -486,7 +490,7 @@ if __name__ == '__main__':
         sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], inplace=True)
         
         ### Add guide schema metadata to adata.uns and adata.obs
-        adata = add_guide_metadata(adata, args.sheet, guide_gid)
+        adata = add_guide_metadata(adata, args.csvofguidescan)
         adata = determine_perturbation_strategy(adata)
         adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].astype('category')
         adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].cat.add_categories(['na'])
