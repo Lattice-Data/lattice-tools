@@ -186,28 +186,6 @@ def split_setter(file_list, paired = False):
                 print(file.file_name)
                 file.split_amount = -(-file.size // split_amount)
     return file_list
-
-def Final_Check(ftp_server_info, Full_File_List):
-    '''
-    Checks that all files are present and correct size on the FTP server.
-    Prints/Logs out any files that are not present, or size not correct.
-    '''
-    print('Starting Final Check of uploaded files:')
-    logging.info('Starting Final Check of uploaded files:')
-    try:
-        with ftplib.FTP(ftp_server_info.address) as ftp:
-            ftp.login(user=ftp_server_info.username, passwd=ftp_server_info.password)
-        if directory != ftp_server_info.folder:
-            ftp.cwd(ftp_server_info.folder)
-        for file in Full_File_List:
-            if ftp.size(file.file_name) != file.size:
-                print(f'The size of file {file.file_name} is not the same on FTP and S3: \n')
-                print(f'{ftp.size(file.file_name)} bytes on FTP \n {file.size} bytes on S3')
-                logging.info(f'The size of file {file.file_name} is not the same on FTP and S3: \n')
-                logging.info(f'{ftp.size(file.file_name)} bytes on FTP \n {file.size} bytes on S3')
-    except ftplib.all_errors as e:
-        print(f'Error occured obtaining size of file {file.file_name} on FTP: \n {e}')
-        logging.info(f'Error occured obtaining size of file {file.file_name} on FTP: \n {e}')
         
 
 
@@ -219,7 +197,7 @@ async def splitter(original_file, sem):
     print(f'Starting split of {original_file.file_name}')
     logging.info(f'Starting split of {original_file.file_name}')
     output_files = [(original_file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz') for i in range(0,original_file.split_amount)]
-    split_command = ['fastqsplitter','-i', original_file.file_name]
+    split_command = ['fastqsplitter','-c', '7', '-t', '3', '-i', original_file.file_name]
     for o in output_files:
         split_command.append('-o')
         split_command.append(o)
@@ -325,7 +303,7 @@ async def Path_Setter(ftp_server_info, Full_File_List):
     """
     download_sem = asyncio.Semaphore(10) # How many download processes can occur at once
     upload_sem = asyncio.Semaphore(5) # How many upload processes can occur at once
-    split_sem = asyncio.Semaphore(5) # How many splitting processes can occur at once
+    split_sem = asyncio.Semaphore(3) # How many splitting processes can occur at once
     split_tasks = []
     upload_tasks = []
     download_tasks = [asyncio.create_task(downloader(file, download_sem)) for file in Full_File_List]
@@ -370,7 +348,6 @@ def main(ftp_server_info, csv_file):
             Full_File_List.append(pair.file_1)
             Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
     asyncio.run(Path_Setter(ftp_server_info, Full_File_List))
-    Final_Check(ftp_server_info, Full_File_List)
 
 
 if __name__ == '__main__':
