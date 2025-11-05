@@ -236,7 +236,7 @@ async def downloader(file, sem):
     """
     
     async with sem:
-        if ((os.path.exists(file.file_name)) and (os.path.getsize(file.file_name)) == file.file_size)):
+        if ((os.path.exists(file.file_name)) and (os.path.getsize(file.file_name)) == file.file_size):
             logging.info(f'{file.file_name} already present locally, skipping download')
             print(f'{file.file_name} already present locally, skipping download')
             return file
