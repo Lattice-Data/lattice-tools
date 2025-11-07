@@ -8,10 +8,9 @@ import re
 import subprocess
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
 from dataclasses import dataclass
-import cellxgene_schema.schema as schema
 
 # add some constant lookup to keep in sync with current schema version
-ONTOLOGY_PARSER = OntologyParser(schema_version=schema.get_current_schema_version())
+ONTOLOGY_PARSER = OntologyParser()
 
 # Backtracking to scripts folder to import lattice.py
 sys.path.insert(0, '../')
