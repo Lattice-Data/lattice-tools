@@ -7,7 +7,7 @@ import tarfile
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from urllib.parse import quote
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
-ontology_parser = OntologyParser(schema_version="v6.0.0")
+ontology_parser = OntologyParser(schema_version="v7.0.0")
 from cellxgene_ontology_guide.supported_versions import CXGSchema, load_supported_versions
 import requests
 from io import BytesIO
@@ -353,6 +353,34 @@ def get_gid(sheet, tab_name):
     return tab_ids[tab_name]
 
 
+def map_filter_gene_ids(adata):
+    '''
+    map Ensembl IDs for persistency for specific subset, and then filter to approved genes
+    '''
+    gene_map = {}
+    gene_map_files = ['gene_map_human_v48.json','gene_map_mouse_v37.json','gene_map_fly_v114.json']
+    for file in gene_map_files:
+        with open(f'../gene_ID_mapping/{file}', 'r') as f:
+            data = json.load(f)
+            gene_map.update(data)
+
+    approved_file = '../cellxgene_resources/ref_files/genes_approved.csv.gz'
+    approved = pd.read_csv(approved_file,dtype='str')
+
+    my_gene_map = {k:v for k,v in gene_map.items() if k in adata.var.index and v not in adata.var.index}
+    adata.var.rename(index=my_gene_map, inplace=True)
+
+    #filter out genes
+    if not adata.var.index.name:
+        adata.var.index.name = 'ensembl_id'
+    index_name = adata.var.index.name
+    adata.var.reset_index(inplace=True)
+    var_to_keep = adata.var[adata.var[index_name].isin(approved['feature_id'])].index #what if it's not called 'gene_ids'
+    adata = adata[:, var_to_keep]
+    adata.var.set_index(index_name, inplace=True)
+    return adata
+
+
 args = getArgs()
 s3client = boto3.client('s3')
 
@@ -432,6 +460,7 @@ if __name__ == '__main__':
         for c in metrics_df.columns:
             adata.obs[c] = metrics_df[c].values[0]
         
+        adata = map_filter_gene_ids(adata)
         cxg_add_labels(adata)
         adata.var.drop(columns=['feature_types','genome'], inplace=True)
         adata.var['feature_is_filtered'] = False
