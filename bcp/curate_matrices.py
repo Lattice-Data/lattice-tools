@@ -7,7 +7,6 @@ import tarfile
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from urllib.parse import quote
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
-ontology_parser = OntologyParser(schema_version="v6.0.0")
 from cellxgene_ontology_guide.supported_versions import CXGSchema, load_supported_versions
 import requests
 from io import BytesIO
@@ -17,6 +16,8 @@ import re
 import json
 import argparse
 import sys
+sys.path.append(os.path.dirname(os.path.abspath('../cellxgene_resources')))
+from cellxgene_resources.cellxgene_mods import map_filter_gene_ids
 
 
 
@@ -281,6 +282,7 @@ def map_ontologies(sample_df):
                   'other':'UBERON' # For all other organisms, use UBERON
                  }
     }
+    ontology_parser = OntologyParser()
     
     for col in col_ont_map:
         map_dict = {}
@@ -432,6 +434,7 @@ if __name__ == '__main__':
         for c in metrics_df.columns:
             adata.obs[c] = metrics_df[c].values[0]
         
+        adata = map_filter_gene_ids(adata)
         cxg_add_labels(adata)
         adata.var.drop(columns=['feature_types','genome'], inplace=True)
         adata.var['feature_is_filtered'] = False
