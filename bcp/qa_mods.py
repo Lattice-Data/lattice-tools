@@ -135,11 +135,13 @@ def parse_met_summ(f):
     lib_reads.loc[:, 'Metric Value'] = lib_reads['Metric Value'].str.replace(',', '').astype(int)
 
     gex_reads = lib_reads[lib_reads['Library Type'] == 'Gene Expression']
-    print('GEX', gex_reads['Metric Value'].sum())
+    report = {'GEX_reads': gex_reads['Metric Value'].sum()}
 
     if 'CRISPR Guide Capture' in lib_reads['Library Type'].unique():
         cri_reads = lib_reads[lib_reads['Library Type'] == 'CRISPR Guide Capture']
-        print('CRI', cri_reads['Metric Value'].sum())
+        report['CRI_reads'] = cri_reads['Metric Value'].sum()
+
+    return report
 
 
 def parse_web_summ(f):
