@@ -298,7 +298,8 @@ def map_filter_gene_ids(adata):
             data = json.load(f)
             gene_map.update(data)
 
-    approved_file = 'ref_files/genes_approved.csv.gz'
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    approved_file = os.path.join(module_dir, 'ref_files', 'genes_approved.csv.gz')
     approved = pd.read_csv(approved_file,dtype='str')
 
     my_gene_map = {k:v for k,v in gene_map.items() if k in adata.var.index and v not in adata.var.index}

@@ -16,7 +16,7 @@ import re
 import json
 import argparse
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath('../cellxgene_resources'))))
+sys.path.append(os.path.dirname(os.path.abspath('../cellxgene_resources')))
 from cellxgene_resources.cellxgene_mods import map_filter_gene_ids
 
 
