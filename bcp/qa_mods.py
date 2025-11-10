@@ -102,12 +102,16 @@ raw_expected = {
         '_unmatched.json',
         '_S1_L001_R1_001.csv',
         '_S1_L001_R1_001.fastq.gz',
+        '_S1_L001_R1_001.fastq.gz-metadata.json',
         '_S1_L001_R1_001.json',
         '_S1_L001_R1_001_sample.fastq.gz',
+        '_S1_L001_R1_001_sample.fastq.gz-metadata.json',
         '_S1_L001_R2_001.csv',
         '_S1_L001_R2_001.fastq.gz',
+        '_S1_L001_R2_001.fastq.gz-metadata.json',
         '_S1_L001_R2_001.json',
-        '_S1_L001_R2_001_sample.fastq.gz'
+        '_S1_L001_R2_001_sample.fastq.gz',
+        '_S1_L001_R2_001_sample.fastq.gz-metadata.json'
     ],
     'viralORF': [
         '.csv',
@@ -115,6 +119,7 @@ raw_expected = {
         '_trimmer-failure_codes.csv',
         '_trimmer-stats.csv',
         '.cram',
+        '.cram-metadata.json',
         '_FlowQ.metric',
         '_SNVQ.metric'
     ]
