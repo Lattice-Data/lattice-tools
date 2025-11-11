@@ -17,6 +17,7 @@ Script to break SRA uploads into smaller batches below the 5 TB limit
 Inputs:
     txt/csv of Fastq S3 URIs for upload
     Wrangling Sheet ID
+    Tab name that contains SRA metadata
 
 Outputs:
     txts/csvs of batches for upload
@@ -106,6 +107,12 @@ def getArgs():
         dest='googlesheet',
         help='google sheet ID of wrangling sheet'
     )
+    parser.add_argument(
+        '--tabname',
+        '-t',
+        dest='tabname',
+        help='tab name of the google sheet that contains SRA metadata'
+    )
     args = parser.parse_args()
     if len(sys.argv) == 1:
         parser.print_help()
@@ -114,7 +121,7 @@ def getArgs():
 
 
 def get_wrangling_sheet(sheet_id: str, tab_name: str = "SRA_metadata") -> pd.DataFrame:
-    """Get SRA_metadat wrangling sheet"""
+    """Get SRA_metadata wrangling sheet"""
     url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={quote(tab_name)}'
     sra_meta = pd.read_csv(url)
     return sra_meta
@@ -237,7 +244,7 @@ def create_final_sra_meta_df(
  
 if __name__ == "__main__":
     args = getArgs()
-    sra_meta_df = get_wrangling_sheet(args.googlesheet)
+    sra_meta_df = get_wrangling_sheet(args.googlesheet, args.tabname)
     s3_uri_path = Path(args.s3uris)
 
     with open(s3_uri_path, "r") as f:
