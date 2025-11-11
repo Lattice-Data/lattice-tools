@@ -28,7 +28,7 @@ The current assumption is that this is run on 10x Flex data, and will need to
 update anticipated directory structure if it is another 10x assay.
 
 Example:
-    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --group CD4i_R1L01
+    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --group CD4i_R1L01 --csvofguidescan guidescan_out.csv
 
 For more details:
     python %(prog)s --help
@@ -215,7 +215,7 @@ def cxg_add_labels(adata):
     adata.uns['schema_reference'] = labeler._build_schema_reference_url(schema_v)
 
 
-def add_guide_metadata(guidescan_output)
+def add_guide_metadata(adata, sheet, guide_gid, guidescan_output):
     '''
     Add guide metadata into adata.uns from guidescan_pipeline.py output
 
@@ -226,21 +226,27 @@ def add_guide_metadata(guidescan_output)
 
     '''
 
+    url = f'https://docs.google.com/spreadsheets/d/{sheet}/export?format=csv&gid={guide_gid}'
+    response = requests.get(url)
+    guide_sheet_df = pd.read_csv(BytesIO(response.content), comment="#", dtype=str)
     guide_df = pd.read_csv(guidescan_output, dtype=str)
     genetic_perturbations = {}
 
     for row in guide_df.itertuples():
-        genetic_perturbations[row.guide_id] = {}
+        if row.id not in genetic_perturbations.keys():
+            genetic_perturbations[row.id] = {}
+            genetic_perturbations[row.id]['sequence'] = row.sequence
+            if not pd.isna([row.start,row.end,row.sense]).all():
+                chr_loc = str(row.chromosome).replace("chr","") + ":" + str(row.start) + "-" + str(row.end) + "(" + str(row.sense) + ")"
+                genetic_perturbations[row.id]['target_genomic_regions'] = [chr_loc]
+        if not pd.isna(row.gene_id):
+            if 'target_features' not in genetic_perturbations[row.id].keys():
+                genetic_perturbations[row.id]['target_features'] = {}
+            genetic_perturbations[row.id]['target_features'][row.gene_id] = row.gene_name
+
+    for row in guide_sheet_df.itertuples():
         genetic_perturbations[row.guide_id]['role'] = 'targeting' if row.guide_role == 'Targeting a Gene' else 'control'
-        genetic_perturbations[row.guide_id]['protospacer_sequence'] = row.guide_protospacer
         genetic_perturbations[row.guide_id]['protospacer_adjacent_motif'] = row.guide_PAM
-        if not pd.isna([row.start,row.end,row.strand]).all():
-            chr_loc = str(row.chromosome).replace("chr","") + ":" + str(row.start) + "-" + str(row.end) + "(" + str(row.strand) + ")"
-            genetic_perturbations[row.guide_id]['target_genomic_regions'] = [chr_loc]
-        if not pd.isna(row.overlapping_gene_ids):
-            genetic_perturbations[row.guide_id]['target_features'] = {}
-            for i in range(len(row.overlapping_gene_ids.split(";"))):
-                genetic_perturbations[row.guide_id]['target_features'][row.overlapping_gene_ids.split(";")[i]] = row.overlapping_gene_names.split(";")[i]
 
     adata.uns['genetic_perturbations'] = genetic_perturbations
     return adata
@@ -487,7 +493,7 @@ if __name__ == '__main__':
         sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], inplace=True)
         
         ### Add guide schema metadata to adata.uns and adata.obs
-        adata = add_guide_metadata(adata, args.csvofguidescan)
+        adata = add_guide_metadata(adata, args.sheet, guide_gid, args.csvofguidescan)
         adata = determine_perturbation_strategy(adata)
         adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].astype('category')
         adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].cat.add_categories(['na'])
