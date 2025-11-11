@@ -39,7 +39,7 @@ const (
 const batchSize = 1_000_000
 
 type Stats struct {
-	// matching key names in concatenator
+	// matching key names in fragment curator
 	RawMatrix      string `json:"raw_matrix"`
 	RawMin         int    `json:"raw_min"`
 	RawMean        int    `json:"raw_mean"`

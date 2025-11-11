@@ -220,9 +220,9 @@ class TheWorkingClass(ABC):
         For stream and file handling, best to set root logger in process
         and then let the listener handle logger from queue
 
-        Now with yaml logger config, and concatenator logger variable for
+        Now with yaml logger config, and fragment curator logger variable for
         global scope. This allows for main process/main thread level to INFO
-        and concatenator logging to DEBUG. This prevents tens of thousands of 
+        and fragment curator logging to DEBUG. This prevents tens of thousands of 
         boto3 and s3 debug messages during multithreaded download, and other possible
         module-level debug messages from flooding the log. Worker module debug messages
         could also flood logs in this setup, but that seems acceptable to troublshoot
@@ -389,7 +389,7 @@ class DeduplicateWorker(TheWorkingClass):
         if all([meta.is_filtered_file_local for meta in meta_list]):
             logger.info("Found filtered fragment files for all raw matrices, starting duplicate check...")
         else:
-            logger.error("Rerun concatenator to generate all filtered fragment files")
+            logger.error("Rerun fragment curator to generate all filtered fragment files")
             missing_files = [
                 meta.filtered_fragment_path_name.name + ".gz" 
                 for meta in meta_list 
@@ -402,7 +402,7 @@ class DeduplicateWorker(TheWorkingClass):
 
     def worker_target_function(self, fragment_meta: FragmentFileMeta) -> FragmentWorkerResult:
         """
-        Worker to remove duplicates. Call after concatenator run and CXG validation finds duplicates
+        Worker to remove duplicates. Call after fragment curator run and CXG validation finds duplicates
         in the final concatenated fragment file.
         Like filter worker, need to initialize logger to report to queue and listener thread
         """
@@ -497,7 +497,7 @@ class GoLangWorker(TheWorkingClass):
         raw_file = FRAGMENT_DIR / fragment_meta.download_file_name
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
 
-        binary_base = "./tsv_barcode_filter_"
+        binary_base = "./fragment_curator_mods/tsv_barcode_filter_"
         mac_binary = binary_base + "macos_arm64"
         linux_binary = binary_base + "linux_amd64"
         go_binary =  linux_binary if platform.machine() == "x86_64" else mac_binary
@@ -947,21 +947,21 @@ if __name__ == "__main__":
             compression_queue = manager.Queue()
         )
 
-        with open("log_config_concatenator.yaml", "rt") as f:
+        with open("fragment_curator_mods/log_config_fragment_curator.yaml", "rt") as f:
             logging_config = yaml.safe_load(f.read())
 
-        log_file_name = f"{args.file}_outfile_concatenator.log"
+        log_file_name = f"{args.file}_outfile_fragment_curator.log"
         logging_config["handlers"]["file"]["filename"] = log_file_name
         logging.config.dictConfig(logging_config)
 
         listener = threading.Thread(target=logger_thread, args=(queues.logging_queue,))
         listener.start()
 
-        # set up concatenator logger and first log messages
-        logger = logging.getLogger("concatenator")
+        # set up fragment curator logger and first log messages
+        logger = logging.getLogger("fragment_curator")
         logger.debug("Logger thread started")
         logger.debug(f"Command line args: {' '.join(sys.argv)}")
-        logger.debug(f"Running concatenator on env: {args.mode}")
+        logger.debug(f"Running fragment curator on env: {args.mode}")
         logger.debug(f"{BARCODE_PATTERN = }")
 
         fragment_meta_list = query_lattice(args.file, connection, queues)

@@ -4,10 +4,10 @@ disable_existing_loggers: True
 formatters:
   detailed:
     class: logging.Formatter
-    format: '%(asctime)-24s %(processName)-19s %(threadName)-11s %(name)-13s %(levelname)-8s %(message)s'
+    format: '%(asctime)-24s %(processName)-19s %(threadName)-11s %(name)-17s %(levelname)-8s %(message)s'
   simple: 
     class: logging.Formatter
-    format: 'concatenator - %(levelname)-8s - %(message)s'
+    format: 'fragment curator - %(levelname)-8s - %(message)s'
 
 handlers: 
   console: 
@@ -16,12 +16,12 @@ handlers:
     formatter: simple
   file: 
     class: logging.FileHandler
-    filename: concatenator.log
+    filename: fragment_curator.log
     mode: w
     formatter: detailed
 
 loggers:
-  concatenator:
+  fragment_curator:
     level: DEBUG
     handlers: [console, file]
     propagate: False
