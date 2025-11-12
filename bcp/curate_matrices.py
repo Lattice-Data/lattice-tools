@@ -128,8 +128,12 @@ def check_standard_presence(sample_df):
     'suspension_type']
     chk_exit = False
     for col in (col for col in required_columns if col not in sample_df.columns):
-        print(f"ERROR: Column '{col}' not present in sample sheet")
-        chk_exit=True
+        if sample_df['organism'].unique()[0] == 'Homo sapiens':
+            print(f"ERROR: Column '{col}' not present in sample sheet")
+            chk_exit=True
+        elif col not in ['donor_living_at_sample_collection', 'donor_body_mass_index']:
+            print(f"ERROR: Column '{col}' not present in sample sheet")
+            chk_exit=True
     if chk_exit:
         sys.exit()
 
@@ -370,13 +374,14 @@ def map_ontologies(sample_df):
     ### Check that donor_living_at_sample_collection is not filled out for non-human
     b_type = ['is_pilot_data','donor_living_at_sample_collection']
     for c in b_type:
-        if c == 'donor_living_at_sample_collection':
-            for val in sample_df[c].unique():
-                if val != 'na' and sample_df.loc[sample_df[c] == val, 
-                'organism_ontology_term_id'].tolist()[0] != 'NCBITaxon:9606':
-                    print(f"ERROR: donor_living_at_sample_collection for non-human data should be 'na' but '{val}' is present")
-                    sys.exit()
-        sample_df[c] == sample_df[c].replace({'FALSE':False, 'TRUE':True})
+        if c in sample_df.columns:
+            if c == 'donor_living_at_sample_collection':
+                for val in sample_df[c].unique():
+                    if val != 'na' and sample_df.loc[sample_df[c] == val, 
+                    'organism_ontology_term_id'].tolist()[0] != 'NCBITaxon:9606':
+                        print(f"ERROR: donor_living_at_sample_collection for non-human data should be 'na' but '{val}' is present")
+                        sys.exit()
+            sample_df[c] == sample_df[c].replace({'FALSE':False, 'TRUE':True})
     
     ### Blank fields in worksheet result in NaN values in dataframe, replacing these with na?
     ### Could also replace with unknown for certain columns using fillna options?
