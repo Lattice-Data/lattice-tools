@@ -330,6 +330,7 @@ def main(ftp_server_info, csv_file):
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
+    logging.info('STARTING NEW RUN OF UPLOADOSAUR')
     Full_File_List = []
     Single_File_List, Paired_File_List = parse_file_list(csv_file)
     if Single_File_List:
