@@ -20,7 +20,7 @@ except ImportError:
 """
 Uploadosaur expects the following packages to be installed prior to running:
  - fastqsplitter: https://fastqsplitter.readthedocs.io/en/stable/#fastqsplitter
- - ncftp: https://www.ncftp.com/ncftp/
+ - Aspera: https://www.ibm.com/support/fixcentral/swg/selectFixes?parent=ibm%7EOther%20software&product=ibm/Other+software/IBM+Aspera+High-Speed+Transfer+Server&release=4.4.7&platform=All&function=all
 
 Logging will be sent to Uploadosaur.log
 
@@ -38,34 +38,22 @@ def getArgs():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        '--address',
-        '-a',
-        dest='address',
-        help='FTP address'
-    )
-    parser.add_argument(
-        '--username',
-        '-u',
-        dest='username',
-        help='Username for FTP'
-    )
-    parser.add_argument(
-        '--password',
-        '-p',
-        dest='password',
-        help='Password for FTP'
+        '--key_path',
+        '-k',
+        dest='key_path',
+        help='FULL path to Aspera openssh key'
     )
     parser.add_argument(
         '--folder',
         '-f',
         dest='folder',
-        help='New folder to put files in'
+        help='New folder to put files in, this should include the full path, ex. uploads/jlz_stanford.edu_xxxxxxx/upload_folder/'
     )
     parser.add_argument(
         '--list',
         '-l',
         dest='input_file_list',
-        help='CSV file list'
+        help='CSV file list containing full URI S3 paths of files'
     )
     args = parser.parse_args()
     if len(sys.argv) == 1:
@@ -76,11 +64,9 @@ def getArgs():
 @dataclass
 class FTPUploadInfo:
     """
-    Dataclass for storing server connection information for connecting to FTP server via ncftpput
+    Dataclass for storing server connection information for connecting to FTP server via Aspera
     """
-    address: str
-    username: str
-    password: str
+    key_path: str
     folder: str
     
 @dataclass
@@ -132,7 +118,7 @@ def parse_file_list(S3_list):
     Outputs list of SingleFastQFile and list of PairedFastQFile dataclasses
     """
     file_list = []
-    with open(S3_list, encoding='utf-8-sig', newline='') as f:
+    with open(S3_list, encoding='utf-8', newline='') as f:
         reader = csv.reader(f)
         for row in reader:
             file_list.extend(row)
@@ -274,24 +260,31 @@ async def downloader(file, sem):
 
 async def uploader(ftp_server_info, file_name, sem):
     """
-    Asynchronous function for uploading FastQ file to FTP server using ncftpput
+    Asynchronous function for uploading FastQ file to FTP server using Aspera
     Removes local copy of file upon successful upload
     """
     async with sem:
         logging.info(f'{file_name} sent to upload')
         print(f'{file_name} sent to upload')
+        full_aspera_dest = 'subasp@upload.ncbi.nlm.nih.gov:' + ftp_server_info.folder
         try:
-            upload = await asyncio.create_subprocess_exec(
-                'ncftpput','-z', '-V', '-B', '33554432', '-u', ftp_server_info.username, '-p', ftp_server_info.password, 
-                ftp_server_info.address, ftp_server_info.folder, file_name)
-        
+            upload = await asyncio.create_subprocess_exec('/home/jovyan/.aspera/connect/bin/ascp', '-q', '-i', 
+                                                          ftp_server_info.key_path, '-QT', '-l600m', '-k1', 
+                                                          file_name, full_aspera_dest)
+            
             await upload.wait()
-            await asyncio.create_subprocess_exec('rm','./'+file_name)
-            logging.info(f'{file_name} appears to have successfully uploaded, file removed from local')
-            print(f'{file_name} appears to have successfully uploaded, file removed from local')
+            
+            if upload.returncode == 0:
+                await asyncio.create_subprocess_exec('rm','./'+file_name)
+                logging.info(f'{file_name} appears to have successfully uploaded, file removed from local')
+                print(f'{file_name} appears to have successfully uploaded, file removed from local')
+            else:
+                logging.info(f'An error occured during the upload of {file_name}')
+                print(f'An error occured during the upload of {file_name}')
+                
         except Exception as e:
-            logging.info(f'An error occured uploading {file_name} to ftp. Further info: {e}')
-            print(f'An error occured uploading {file_name} to ftp. Further info: {e}')
+            logging.info(f'An error occured when trying to upload {file_name} \n Further info: {e}')
+            print(f'An error occured when trying to upload {file_name} \n Further info: {e}')
             
 
 
@@ -301,8 +294,8 @@ async def Path_Setter(ftp_server_info, Full_File_List):
     results to next step in workflow. Files are downloaded, then either split and uploaded or just directly uploaded.
     Semaphores are used to limit number of coprocesses occuring for any step.
     """
-    download_sem = asyncio.Semaphore(10) # How many download processes can occur at once
-    upload_sem = asyncio.Semaphore(5) # How many upload processes can occur at once
+    download_sem = asyncio.Semaphore(5) # How many download processes can occur at once
+    upload_sem = asyncio.Semaphore(3) # How many upload processes can occur at once
     split_sem = asyncio.Semaphore(3) # How many splitting processes can occur at once
     split_tasks = []
     upload_tasks = []
@@ -353,8 +346,6 @@ def main(ftp_server_info, csv_file):
 if __name__ == '__main__':
     args = getArgs()
     ftp_info = FTPUploadInfo(
-        address = args.address,
-        username = args.username,
-        password = args.password,
+        key_path = args.key_path,
         folder = args.folder)
     main(ftp_info,args.input_file_list)
