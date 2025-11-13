@@ -1,13 +1,13 @@
 import sys
 import argparse
 import subprocess
-from dataclasses import dataclass, astuple
+from dataclasses import dataclass, astuple, is_dataclass
 import csv
 import boto3
 from botocore.exceptions import ClientError, BotoCoreError
 import logging
 import os.path
-import ftplib
+import shutil
 try:
     import asyncio
 except ImportError:
@@ -27,7 +27,7 @@ Logging will be sent to Uploadosaur.log
 Files will be downloaded to the same directory that Uploadosaur is run from
 
 To Run:
-python Uploadosaur.py -a [Address of FTP Server] -u [Username] -p [Password] -f [FTP Upload Folder] -l [List of S3_Links]
+python Uploadosaur.py -k [Full path to Aspera Key file] -f [full upload path ex. uploads/jlz_stanford.edu_xxxxxx/upload_folder/] -l [List of S3_Links]
 
 Please direct complaints about Uploadosaur to anyone except Jim Chaffer and Brian Mott
 """
@@ -62,7 +62,7 @@ def getArgs():
     return args
 
 @dataclass
-class FTPUploadInfo:
+class AsperaUploadInfo:
     """
     Dataclass for storing server connection information for connecting to FTP server via Aspera
     """
@@ -138,7 +138,7 @@ def parse_file_list(S3_list):
                         char_before = file_1[i-1]
                         diff_count += 1
                         if diff_count > 1 and file_index_2 == (len(sorted_file_list) - 1):
-                            if sorted_file_list[file_index_1] not in paired_files:
+                            if sorted_file_list[file_index_1] not in [pair[1] for pair in paired_files]:
                                 single_files.append(get_file_info(sorted_file_list[file_index_1]))
                                 break
                         elif diff_count > 1:
@@ -169,21 +169,33 @@ def split_setter(file_list, paired = False):
     else:
         for file in file_list:
             if file.size >= split_amount:
-                print(file.file_name)
                 file.split_amount = -(-file.size // split_amount)
     return file_list
         
 
 
-async def splitter(original_file, sem):
+async def splitter(original_file, download_folder, split_folder, sem):
     """
     Asynchronous function that splits fastq file according to split amount set in split_setter()
     Returns list of new split file names, and removes original file to save space
     """
     print(f'Starting split of {original_file.file_name}')
     logging.info(f'Starting split of {original_file.file_name}')
-    output_files = [(original_file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz') for i in range(0,original_file.split_amount)]
-    split_command = ['fastqsplitter','-c', '7', '-t', '3', '-i', original_file.file_name]
+    try:
+        if not os.path.exists(split_folder):
+            os.makedirs(split_folder)
+        shutil.move(download_folder + original_file.file_name, split_folder)
+        logging.info(f"File '{original_file.file_name}' moved successfully from '{download_folder}' to '{split_folder}'")
+    except FileNotFoundError:
+        print(f"Error: Original file '{original_file.file_name}' not found in '{download_folder}'")
+        logging.info(f"Error: Original file '{original_file.file_name}' not found in '{download_folder}'")
+    except Exception as e:
+        print(f"An error occurred in moving '{original_file.file_name}' from download folder ",
+        f"'{download_folder}' to split folder '{split_folder}': {e}")
+        logging.info(f"An error occurred in moving '{original_file.file_name}' from download folder ",
+        f"'{download_folder}' to split folder '{split_folder}': {e}")
+    output_files = [(download_folder + original_file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz') for i in range(0,original_file.split_amount)]
+    split_command = ['fastqsplitter','-c', '7', '-t', '3', '-i', split_folder + original_file.file_name]
     for o in output_files:
         split_command.append('-o')
         split_command.append(o)
@@ -201,19 +213,16 @@ async def splitter(original_file, sem):
         if return_code == 0:
             print(f'{original_file.file_name} split successfully')
             logging.info(f'{original_file.file_name} split successfully')
-            await asyncio.create_subprocess_exec('rm','./'+original_file.file_name)
-            logging.info(f'{original_file.file_name} removed from local directory')
-            print(f'{original_file.file_name} removed from local directory')
             return output_files
         else:
             print(f'Failed to split {original_file.file_name}')
             print(f'Error output:\n{stderr.decode().strip()}')
             logging.error(f'Failed to split {original_file.file_name}')
             logging.error(f'Error output:\n{stderr.decode().strip()}')
-            return None
+            return original_file.file_name
 
 
-async def downloader(file, sem):
+async def downloader(file, download_folder, sem):
     """
     Asynchronous function that downloads file from S3, checking that downloaded file size matches expected
     Returns same SingleFastQFile object that was input if download was successful, None if not.
@@ -222,109 +231,106 @@ async def downloader(file, sem):
     """
     
     async with sem:
-        if ((os.path.exists(file.file_name)) and (os.path.getsize(file.file_name)) == file.size):
-            logging.info(f'{file.file_name} already present locally, skipping download')
-            print(f'{file.file_name} already present locally, skipping download')
+        if ((os.path.exists(download_folder + file.file_name)) and (os.path.getsize(download_folder + file.file_name)) == file.size):
+            logging.info(f'{file.file_name} already present in {download_folder}, skipping download')
+            print(f'{file.file_name} already present in {download_folder}, skipping download')
             return file
         else:
-            logging.info(f'Starting download of {file.file_name}')
-            print(f'Starting download of {file.file_name}')
+            logging.info(f'Starting download of {file.file_name} to {download_folder}')
+            print(f'Starting download of {file.file_name} to {download_folder}')
             session = aioboto3.Session()
             bucket_name = file.S3_Path.split('/',1)[0]
             key = file.S3_Path.split('/',1)[1]
             async with session.client("s3") as s3_client:
                 try:
-                    await s3_client.download_file(bucket_name, key, ('./' + file.file_name))
-                    size_result = subprocess.run(['ls', '-l', file.file_name],capture_output=True,text=True, check=True) # Might need to improve this
+                    await s3_client.download_file(bucket_name, key, (download_folder + file.file_name))
+                    size_result = subprocess.run(['ls', '-l', download_folder + file.file_name],capture_output=True,text=True, check=True)
                     if int(size_result.stdout.split()[4]) == int(file.size):
-                        logging.info(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
-                        print(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {'./' + file.file_name}")
+                        logging.info(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {download_folder + file.file_name}")
+                        print(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {download_folder + file.file_name}")
                         return file
                     else:
-                        logging.error(f'File sizes between S3 {file.size} and local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
-                        print(f'File sizes between S3 {file.size} and local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
-                        return None
+                        logging.error(f'File sizes between S3 {file.size} and ',
+                        f'local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
+                        print(f'File sizes between S3 {file.size} and local ',
+                        f'{size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
+                        return file.file_name
                 except ClientError as e:
                     logging.error(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
                     print(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
-                    return None
+                    return file.file_name
                 except BotoCoreError as e:
                     logging.error(f'BotoCoreError for file {file.S3_Path} during download: {e}')
                     print(f'BotoCoreError for file {file.S3_Path} during download: {e}')
-                    return None
+                    return file.file_name
                 except Exception as e:
                     logging.error(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
                     print(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
-                    return None
+                    return file.file_name
 
 
-async def uploader(ftp_server_info, file_name, sem):
+def uploader(ftp_server_info, download_folder):
     """
-    Asynchronous function for uploading FastQ file to FTP server using Aspera
-    Removes local copy of file upon successful upload
+    Synchronous function for uploading FastQ file directory using Aspera
+    Uploads all files in directory, does not delete after upload
     """
-    async with sem:
-        logging.info(f'{file_name} sent to upload')
-        print(f'{file_name} sent to upload')
-        full_aspera_dest = 'subasp@upload.ncbi.nlm.nih.gov:' + ftp_server_info.folder
-        try:
-            upload = await asyncio.create_subprocess_exec('/home/jovyan/.aspera/connect/bin/ascp', '-q', '-i', 
-                                                          ftp_server_info.key_path, '-QT', '-l600m', '-k1', 
-                                                          file_name, full_aspera_dest)
-            
-            await upload.wait()
-            
-            if upload.returncode == 0:
-                await asyncio.create_subprocess_exec('rm','./'+file_name)
-                logging.info(f'{file_name} appears to have successfully uploaded, file removed from local')
-                print(f'{file_name} appears to have successfully uploaded, file removed from local')
-            else:
-                logging.info(f'An error occured during the upload of {file_name}')
-                print(f'An error occured during the upload of {file_name}')
+    logging.info(f'Starting upload of all files in {download_folder}')
+    print(f'Starting upload of all files in {download_folder}')
+    full_aspera_dest = 'subasp@upload.ncbi.nlm.nih.gov:' + ftp_server_info.folder
+    try:
+        upload = subprocess.run('/home/jovyan/.aspera/connect/bin/ascp', '-i', ftp_server_info.key_path, '-QT', 
+                                '-l600m', '-k1', '-d', download_folder, full_aspera_dest) 
+        if upload.returncode == 0:
+            logging.info(f'The upload of all files has completed')
+            print(f'The upload of all files has completed')
+        else:
+            logging.info(f'An error occured during the upload')
+            print(f'An error occured during the upload')
                 
-        except Exception as e:
-            logging.info(f'An error occured when trying to upload {file_name} \n Further info: {e}')
-            print(f'An error occured when trying to upload {file_name} \n Further info: {e}')
+    except Exception as e:
+        logging.info(f'An error occured when trying to upload \n Further info: {e}')
+        print(f'An error occured when trying to upload \n Further info: {e}')
             
 
 
-async def Path_Setter(ftp_server_info, Full_File_List):
+async def Path_Setter(Full_File_List):
     """
     Main asynchronous handling function. Awaits completion of various coprocesses, upon completion, sends
     results to next step in workflow. Files are downloaded, then either split and uploaded or just directly uploaded.
     Semaphores are used to limit number of coprocesses occuring for any step.
     """
     download_sem = asyncio.Semaphore(5) # How many download processes can occur at once
-    upload_sem = asyncio.Semaphore(3) # How many upload processes can occur at once
+    download_folder = './Downloaded_Files/'
+    split_folder = './Need_Splitting/'
+    os.makedirs(download_folder, exist_ok=True)
     split_sem = asyncio.Semaphore(3) # How many splitting processes can occur at once
     split_tasks = []
-    upload_tasks = []
-    download_tasks = [asyncio.create_task(downloader(file, download_sem)) for file in Full_File_List]
+    failed_downloads = []
+    failed_splits = []
+    download_tasks = [asyncio.create_task(downloader(file, download_folder, download_sem)) for file in Full_File_List]
     for completed_download in asyncio.as_completed(download_tasks):
         downloaded_file = await completed_download
-        if downloaded_file == None:
+        if is_dataclass(downloaded_file) != True:
             logging.error('No downloaded file returned to path setter. Nothing to pass to upload or splitter')
             print(f'Some sort of issue with file, not passing to upload or splitter')
+            failed_downloads.append(downloaded_file)
             pass
         elif downloaded_file.split_amount == None:
-            upload_tasks.append(asyncio.create_task(uploader(ftp_server_info, downloaded_file.file_name, upload_sem)))
+            pass
         else:
-            split_tasks.append(asyncio.create_task(splitter(downloaded_file, split_sem)))
+            split_tasks.append(asyncio.create_task(splitter(downloaded_file, download_folder, split_folder, split_sem)))
 
     for completed_split in asyncio.as_completed(split_tasks):
         split_files = await completed_split
-        if split_files == None:
-            logging.error(f'An error occured while splitting {file_to_delete.file_name}')
-            print(f'An error occured while splitting {file_to_delete.file_name}')
+        if not is_instance(split_files, list):
+            logging.error(f'An error occured while splitting {split_files}')
+            print(f'An error occured while splitting {split_files}')
+            failed_splits.append(split_files)
             pass
-        for split_file in split_files:
-            upload_tasks.append(asyncio.create_task(uploader(ftp_server_info, split_file, upload_sem)))
-
-    for completed_upload in asyncio.as_completed(upload_tasks):
-        await completed_upload
+    return failed_downloads, failed_splits, download_folder
 
 
-def main(ftp_server_info, csv_file):
+def main(aspera_info, csv_file):
     logging.basicConfig(
         filename='Uploadosaur.log',
         level=logging.INFO,
@@ -341,12 +347,37 @@ def main(ftp_server_info, csv_file):
         for pair in Paired_File_List:
             Full_File_List.append(pair.file_1)
             Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
-    asyncio.run(Path_Setter(ftp_server_info, Full_File_List))
+    failed_downloads, failed_splits, download_folder = asyncio.run(Path_Setter(Full_File_List))
+    if failed_downloads or failed_splits:
+        if failed_downloads:
+            print('The following files had download failures: \n')
+            logging.info('The following files had download failures: \n')
+            for f in failed_downloads:
+                print(f'{f} \n')
+                logging.info(f'{f} \n')
+        if failed_splits:
+            print('The following files failed during splitting: \n')
+            logging.info('The following files failed during splitting: \n')
+            for f in failed_splits:
+                print(f'{f} \n')
+                logging.info(f'{f} \n')
+        while True:
+            user_choice = input("With this in mind, do you still want to upload? (y/n): ").lower()
+            if user_choice == 'y':
+                print("Proceeding to upload")
+                uploader(aspera_info, download_folder)
+                break 
+            elif user_choice == 'n':
+                print("Not proceeding with upload, terminating.")
+                break
+            else:
+                print_help("Invalid input. Please enter 'y' or 'n'.")
+    
 
 
 if __name__ == '__main__':
     args = getArgs()
-    ftp_info = FTPUploadInfo(
+    aspera_info = AsperaUploadInfo(
         key_path = args.key_path,
         folder = args.folder)
-    main(ftp_info,args.input_file_list)
+    main(aspera_info,args.input_file_list)
