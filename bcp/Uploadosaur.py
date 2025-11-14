@@ -138,7 +138,7 @@ def parse_file_list(S3_list):
                         char_before = file_1[i-1]
                         diff_count += 1
                         if diff_count > 1 and file_index_2 == (len(sorted_file_list) - 1):
-                            if sorted_file_list[file_index_1] not in [pair[1] for pair in paired_files]:
+                            if sorted_file_list[file_index_1] not in [pair.file_2.S3_Path for pair in paired_files]:
                                 single_files.append(get_file_info(sorted_file_list[file_index_1]))
                                 break
                         elif diff_count > 1:
@@ -362,16 +362,38 @@ def main(aspera_info, csv_file):
                 print(f'{f} \n')
                 logging.info(f'{f} \n')
         while True:
-            user_choice = input("With this in mind, do you still want to upload? (y/n): ").lower()
+            user_choice = input('With this in mind, do you still want to upload? (y/n): ').lower()
+            logging.info('With this in mind, do you still want to upload? (y/n): ')
+            logging.info(user_choice)
+            if user_choice == 'y':
+                print('Proceeding to upload')
+                logging.info('Proceeding to upload')
+                uploader(aspera_info, download_folder)
+                break 
+            elif user_choice == 'n':
+                print('Not proceeding with upload, terminating.')
+                logging.info('Not proceeding with upload, terminating')
+                break
+            else:
+                print_help("Invalid input. Please enter 'y' or 'n'.")
+                logging.info("Invalid input. Please enter 'y' or 'n'.")
+    else:
+        while True:
+            user_choice = input('No download or split failures, proceed with upload? (y/n): ').lower()
+            logging.info('No download or split failures, proceed with upload? (y/n): ')
             if user_choice == 'y':
                 print("Proceeding to upload")
+                logging.info('Proceeding to upload')
                 uploader(aspera_info, download_folder)
                 break 
             elif user_choice == 'n':
                 print("Not proceeding with upload, terminating.")
+                logging.info('Not proceeding with upload, terminating')
                 break
             else:
                 print_help("Invalid input. Please enter 'y' or 'n'.")
+                logging.info("Invalid input. Please enter 'y' or 'n'.")
+        
     
 
 
