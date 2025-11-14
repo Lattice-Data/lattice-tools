@@ -29,7 +29,7 @@ The current assumption is that this is run on 10x Flex data, and will need to
 update anticipated directory structure if it is another 10x assay.
 
 Example:
-    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --group CD4i_R1L01
+    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --group CD4i_R1L01 --csvofguidescan guidescan_out.csv
 
 For more details:
     python %(prog)s --help
@@ -66,6 +66,12 @@ def getArgs():
         "--group",
         "-g",
         help="the GroupID of the sample that for curated matrices generation",
+        required=True
+    )
+    parser.add_argument(
+        "--csvofguidescan",
+        "-c",
+        help="Guidescan output CSV",
         required=True
     )
     args = parser.parse_args()
@@ -105,6 +111,31 @@ def custom_var_to_obs(adata):
 
     return adata
 
+
+def check_standard_presence(sample_df):
+    '''
+    Checks for all required columns in sample sheet dataframe
+
+    :param dataframe sample_df: the sample metadata from given google sheet
+
+    :returns None
+    '''
+    required_columns = [
+    'sample_name','sample_probe_barcode','is_pilot_data',
+    'donor_id', 'donor_living_at_sample_collection', 'donor_body_mass_index',
+    'organism', 'sex', 'self_reported_ethnicity', 'disease', 'tissue', 'preservation_method',
+    'dissociation_method', 'development_stage', 'assay', 'tissue_type',
+    'suspension_type']
+    chk_exit = False
+    for col in (col for col in required_columns if col not in sample_df.columns):
+        if sample_df['organism'].unique()[0] == 'Homo sapiens':
+            print(f"ERROR: Column '{col}' not present in sample sheet")
+            chk_exit=True
+        elif col not in ['donor_living_at_sample_collection', 'donor_body_mass_index']:
+            print(f"ERROR: Column '{col}' not present in sample sheet")
+            chk_exit=True
+    if chk_exit:
+        sys.exit()
 
 
 def gather_crispr(samp):
@@ -189,36 +220,40 @@ def cxg_add_labels(adata):
     adata.uns['schema_reference'] = labeler._build_schema_reference_url(schema_v)
 
 
-def add_guide_metadata(adata, sheet, guide_gid):
+def add_guide_metadata(adata, sheet, guide_gid, guidescan_output):
     '''
-    Add guide metadata into adata.uns from Lattice wrangling sheet
-    
+    Add guide metadata into adata.uns from guidescan_pipeline.py output
+
     :param obj adata: the anndata object that is being transformed into the curated matrix
-    :param obj guide_df: the dataframe containing guide metadata from wrangling sheet
-    
+    :param str guidescan_output: File containing output from guidescan_pipeline.py
+
     :returns obj adata: modified adata to contain guide metadata
+
     '''
+
     url = f'https://docs.google.com/spreadsheets/d/{sheet}/export?format=csv&gid={guide_gid}'
     response = requests.get(url)
-    guide_df = pd.read_csv(BytesIO(response.content), comment="#", dtype=str)
+    guide_sheet_df = pd.read_csv(BytesIO(response.content), comment="#", dtype=str)
+    guide_df = pd.read_csv(guidescan_output, dtype=str)
     genetic_perturbations = {}
-    
+
     for row in guide_df.itertuples():
-        genetic_perturbations[row.guide_id] = {}
+        if row.id not in genetic_perturbations.keys():
+            genetic_perturbations[row.id] = {}
+            genetic_perturbations[row.id]['sequence'] = row.sequence
+            if not pd.isna([row.start,row.end,row.sense]).all():
+                chr_loc = str(row.chromosome).replace("chr","") + ":" + str(row.start) + "-" + str(row.end) + "(" + str(row.sense) + ")"
+                genetic_perturbations[row.id]['target_genomic_regions'] = [chr_loc]
+        if not pd.isna(row.gene_id):
+            if 'target_features' not in genetic_perturbations[row.id].keys():
+                genetic_perturbations[row.id]['target_features'] = {}
+            genetic_perturbations[row.id]['target_features'][row.gene_id] = row.gene_name
+
+    for row in guide_sheet_df.itertuples():
         genetic_perturbations[row.guide_id]['role'] = 'targeting' if row.guide_role == 'Targeting a Gene' else 'control'
-        genetic_perturbations[row.guide_id]['protospacer_sequence'] = row.guide_protospacer
         genetic_perturbations[row.guide_id]['protospacer_adjacent_motif'] = row.guide_PAM
-        if not pd.isna([row.start,row.end,row.strand]).all():
-            chr_loc = str(row.chromosome).replace("chr","") + ":" + str(row.start) + "-" + str(row.end) + "(" + str(row.strand) + ")"
-            genetic_perturbations[row.guide_id]['target_genomic_regions'] = [chr_loc]
-        if not pd.isna(row.overlapping_gene_ids):
-            genetic_perturbations[row.guide_id]['target_features'] = {}
-            for i in range(len(row.overlapping_gene_ids.split(";"))):
-                genetic_perturbations[row.guide_id]['target_features'][row.overlapping_gene_ids.split(";")[i]] = row.overlapping_gene_names.split(";")[i]
-                                                                             
-            
+
     adata.uns['genetic_perturbations'] = genetic_perturbations
-    
     return adata
 
 
@@ -258,6 +293,7 @@ def determine_perturbation_strategy(adata):
 def map_ontologies(sample_df):
     '''
     Takes the sample metadata dataframe and standardizes ontologies
+    Also checks that standard fields are only filled out for appropriate organism
 
     :param dataframe sample_df: the sample metadata from given google sheet
 
@@ -283,6 +319,7 @@ def map_ontologies(sample_df):
                  }
     }
     ontology_parser = OntologyParser()
+    ont_err_lst = []
     
     for col in col_ont_map:
         map_dict = {}
@@ -314,18 +351,37 @@ def map_ontologies(sample_df):
             else:
                 term_id = ontology_parser.get_term_id_by_label(label, col_ont_map[col])
             if term_id == None:
-                print(f"Matching '{col_ont_map[col]}' term id not found for label '{label}' in column '{col}'")
+                if org_term_id:
+                    if org_term_id in col_ont_map[col]:
+                        ont_err_lst.append(f"Error: Matching '{col_ont_map[col][org_term_id]}' term id not found for label '{label}' in column '{col}'")
+                    else:
+                        ont_err_lst.append(f"Error: Matching '{col_ont_map[col]['other']}' term id not found for label '{label}' in column '{col}'")
+                else:
+                    ont_err_lst.append(f"Error: Matching '{col_ont_map[col]}' term id not found for label '{label}' in column '{col}'")
                 map_dict[label] = label
                 continue
             map_dict[label] = term_id
         sample_df[col + '_ontology_term_id'] = sample_df[col].map(map_dict)
         del sample_df[col]
     
+    ### Print out any errors from ontologizing
+    if ont_err_lst:
+        for e in ont_err_lst:
+            print(e)
+        sys.exit()
+
     ### Convert string to boolean for is_pilot_data and donor_living_at_sample_collection
-    ### Will need to look further into this for next iteration
+    ### Check that donor_living_at_sample_collection is not filled out for non-human
     b_type = ['is_pilot_data','donor_living_at_sample_collection']
     for c in b_type:
-        sample_df[c] = sample_df[c].replace({'FALSE':False, 'TRUE':True})
+        if c in sample_df.columns:
+            if c == 'donor_living_at_sample_collection':
+                for val in sample_df[c].unique():
+                    if val != 'na' and sample_df.loc[sample_df[c] == val, 
+                    'organism_ontology_term_id'].tolist()[0] != 'NCBITaxon:9606':
+                        print(f"ERROR: donor_living_at_sample_collection for non-human data should be 'na' but '{val}' is present")
+                        sys.exit()
+            sample_df[c] == sample_df[c].replace({'FALSE':False, 'TRUE':True})
     
     ### Blank fields in worksheet result in NaN values in dataframe, replacing these with na?
     ### Could also replace with unknown for certain columns using fillna options?
@@ -366,6 +422,7 @@ if __name__ == '__main__':
     url = f'https://docs.google.com/spreadsheets/d/{args.sheet}/export?format=csv&gid={gid}'
     response = requests.get(url)
     sample_df = pd.read_csv(BytesIO(response.content), comment="#", dtype=str).dropna(axis=1,how='all')
+    check_standard_presence(sample_df)
     sample_df = map_ontologies(sample_df)
 
     ### Obtain subsamples associated with library that matches args.group
@@ -444,7 +501,7 @@ if __name__ == '__main__':
         sc.pp.calculate_qc_metrics(adata, qc_vars=['mt'], inplace=True)
         
         ### Add guide schema metadata to adata.uns and adata.obs
-        adata = add_guide_metadata(adata, args.sheet, guide_gid)
+        adata = add_guide_metadata(adata, args.sheet, guide_gid, args.csvofguidescan)
         adata = determine_perturbation_strategy(adata)
         adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].astype('category')
         adata.obs['genetic_perturbation_id'] = adata.obs['genetic_perturbation_id'].cat.add_categories(['na'])
