@@ -96,6 +96,7 @@ raw_expected = {
         '_trimmer-failure_codes.csv',
         '_trimmer-stats.csv',
         '_unmatched.cram',
+        '_unmatched.cram-metadata.json',
         '_unmatched.csv',
         '_unmatched.json',
         '_S1_L001_R1_001.csv',
