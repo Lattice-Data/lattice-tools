@@ -25,8 +25,7 @@ cellranger_expected = {
             'multi/count/raw_feature_bc_matrix.tar.gz',
             'multi/count/raw_molecule_info.h5',
             'multi/count/unassigned_alignments.bam',
-            'multi/count/unassigned_alignments.bam.bai',
-            'multi/multiplexing_analysis.tar.gz'
+            'multi/count/unassigned_alignments.bam.bai'
         ],
         'per_sample': [
             'count/analysis.tar.gz',
@@ -49,8 +48,7 @@ cellranger_expected = {
             'multi/count/raw_feature_bc_matrix.h5',
             'multi/count/raw_feature_bc_matrix.tar.gz',
             'multi/count/raw_molecule_info.h5',
-            'multi/count/raw_probe_bc_matrix.h5',
-            'multi/multiplexing_analysis.tar.gz'
+            'multi/count/raw_probe_bc_matrix.h5'
         ],
         'per_sample': [
             'count/analysis.tar.gz',
@@ -169,6 +167,10 @@ def parse_web_summ(f):
     if data['library']['data']['antibody_tab']:
         report['extra'].append('Antibody')
     for line in data['experimental_design']['csv'].split('\n'):
+        if line.startswith('['):
+            cat = line
+            if cat == '[samples]':
+                report['multiplex'] = True
         if ',' in line:
             path = line.strip().split(',')
             if path[0] == 'skip-cell-annotation' and path[1] == 'false':
