@@ -180,6 +180,8 @@ def parse_web_summ(f):
                 report['min-crispr-umi'] = path[1]
             elif path[0] == 'create-bam':
                 report['create-bam'] = path[1]
+            elif path[0] == 'reference' and cat == '[gene-expression]':
+                report['ref'] = path[1]
 
     #location of some additional info to QA
     report['ref'] = gex_tab['Transcriptome']
