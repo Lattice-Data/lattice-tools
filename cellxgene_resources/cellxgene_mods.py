@@ -588,63 +588,54 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
     Convert Visium AnnData object to SpatialData object with proper coordinate transformations.
     '''
     # Extract spatial coordinates and scale factors
-    spatial_coords = adata.obsm['spatial'].copy()
+    # Extract scalefactors and coordinates
     scalefactors = adata.uns['spatial'][library_id]['scalefactors']
-    spot_radius_fullres = scalefactors['spot_diameter_fullres'] / 2
     tissue_hires_scalef = scalefactors['tissue_hires_scalef']
-
-    circles = []
-    for i, (x, y) in enumerate(spatial_coords):
-        circle = Point(x, y).buffer(spot_radius_fullres)
-        circles.append(circle)
-
-    shapes_df = gpd.GeoDataFrame({
-        'geometry': circles,
-        'in_tissue': adata.obs['in_tissue'].values,
-        'spot_id': adata.obs.index
-    })
-    if cellpop_field:
-        shapes_df[cellpop_field] = adata.obs[cellpop_field].values
-
-    # Create shapes for hires coordinates (scaled)
+    spot_radius_fullres = scalefactors['spot_diameter_fullres'] / 2
     spot_radius_hires = spot_radius_fullres * tissue_hires_scalef
-    hires_coords = spatial_coords * tissue_hires_scalef
 
-    circles_hires = []
-    for i, (x, y) in enumerate(hires_coords):
-        circle = Point(x, y).buffer(spot_radius_hires)
-        circles_hires.append(circle)
+    coords_fullres = adata.obsm['spatial'].copy()
+    coords_hires = coords_fullres * tissue_hires_scalef
 
-    shapes_hires_df = gpd.GeoDataFrame({
-        'geometry': circles_hires,
-        'in_tissue': adata.obs['in_tissue'].values,
-        'spot_id': adata.obs.index
-    })
-    if cellpop_field:
-        shapes_hires_df[cellpop_field] = adata.obs[cellpop_field].values
-
-    shapes_hires = sd.models.ShapesModel.parse(shapes_hires_df, transformations={'global': Identity()})
+    shapes_dfs = {}
+    radii_and_coords = [
+        # hires first, since will always be present
+        (spot_radius_hires, coords_hires, 'hires'),
+        (spot_radius_fullres, coords_fullres, 'fullres'),
+    ]
+    
+    for spot_radius, coords, name in radii_and_coords:
+        circles = [Point(x, y).buffer(spot_radius) for x, y in coords]
+        shapes_df = gpd.GeoDataFrame({
+            'geometry': circles,
+            'in_tissue': adata.obs['in_tissue'].values,
+            'spot_id': adata.obs.index
+        })
+        if cellpop_field:
+            shapes_df[cellpop_field] = adata.obs[cellpop_field].values
+        shapes_dfs[name] = shapes_df
 
     # Process images
     images = {}
     shapes = {}
+    visium_images = adata.uns['spatial'][library_id]['images']
+    images_to_process = ['hires', 'fullres'] if 'fullres' in visium_images else ['hires']
 
-    hires_img = adata.uns['spatial'][library_id]['images']['hires']
-    if len(hires_img.shape) == 3:
-        hires_img = np.transpose(hires_img, (2, 0, 1))
-    hires_da = da.from_array(hires_img, chunks=hires_img.shape)
-    images['hires'] = sd.models.Image2DModel.parse(hires_da, transformations={'global': Identity()})
-    shapes[f'{library_id}_hires'] = shapes_hires
+    for image in images_to_process:
+        img = visium_images[image]
+        if len(img.shape) == 3:
+            img = np.transpose(img, (2, 0, 1))
+        dask_array = da.from_array(img, chunks=img.shape)
+        images[image] = sd.models.Image2DModel.parse(
+            dask_array, 
+            transformations={'global': Identity()}
+        )
+        shapes_img = sd.models.ShapesModel.parse(
+            shapes_dfs[image], 
+            transformations={'global': Identity()}
+        )
+        shapes[f'{library_id}_{image}'] = shapes_img
 
-    # Create shapes for fullres coordinates
-    if 'fullres' in adata.uns['spatial'][library_id]['images']:
-        fullres_img = adata.uns['spatial'][library_id]['images']['fullres']
-        if len(fullres_img.shape) == 3:
-            fullres_img = np.transpose(fullres_img, (2, 0, 1))
-        fullres_da = da.from_array(fullres_img, chunks=fullres_img.shape)
-        images['fullres'] = sd.models.Image2DModel.parse(fullres_da, transformations={'global': Identity()})
-        shapes_fullres = sd.models.ShapesModel.parse(shapes_df, transformations={'global': Identity()})
-        shapes[f'{library_id}_fullres'] = shapes_fullres
 
     # Create table (linked to hires by default)
     table_obs = adata.obs.copy()
