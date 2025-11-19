@@ -757,7 +757,7 @@ def compare_revision(collection):
         display(pd.DataFrame(new).transpose())
 
     if removed:
-        print('\033[1mREMOVED Datasets\033[0m')
+        print('\033[1mRemoved Datasets\033[0m')
         change = True
         display(pd.DataFrame(removed).transpose())
 
