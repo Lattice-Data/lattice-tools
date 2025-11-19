@@ -98,7 +98,8 @@ class CxG_API:
     )
     from src.dataset import (
         create_dataset,delete_dataset,get_dataset,get_datasets,get_dataset_versions,
-        upload_datafile_from_link,upload_local_datafile
+        upload_datafile_from_link,upload_local_datafile,upload_datafiles_from_manifest,
+        get_dataset_manifest
     )
 
     def config(env="prod"):
