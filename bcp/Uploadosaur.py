@@ -27,7 +27,7 @@ Logging will be sent to Uploadosaur.log
 Files will be downloaded to the same directory that Uploadosaur is run from
 
 To Run:
-python Uploadosaur.py -k [Full path to Aspera Key file] -f [full upload path ex. uploads/jlz_stanford.edu_xxxxxx/upload_folder/] -l [List of S3_Links]
+python Uploadosaur.py -k [Full path to Aspera Key file] -a [account folder ex. uploads/jlz_stanford.edu_xxxxxx/]  -f [name of final destination folder within the account folder ex. upload_folder_1] -l [List of S3_Links]
 
 Please direct complaints about Uploadosaur to anyone except Jim Chaffer and Brian Mott
 """
@@ -44,10 +44,16 @@ def getArgs():
         help='FULL path to Aspera openssh key'
     )
     parser.add_argument(
+        '--account',
+        '-a',
+        dest='account',
+        help='Account folder for aspera ex. uploads/jlz_stanford.edu_xxxxxxx/'
+    )
+    parser.add_argument(
         '--folder',
         '-f',
         dest='folder',
-        help='New folder to put files in, this should include the full path, ex. uploads/jlz_stanford.edu_xxxxxxx/upload_folder/'
+        help='Name of upload destination folder ex. upload_folder_1'
     )
     parser.add_argument(
         '--list',
@@ -67,6 +73,7 @@ class AsperaUploadInfo:
     Dataclass for storing server connection information for connecting to FTP server via Aspera
     """
     key_path: str
+    account: str
     folder: str
     
 @dataclass
@@ -227,7 +234,7 @@ async def downloader(file, download_folder, sem):
     Asynchronous function that downloads file from S3, checking that downloaded file size matches expected
     Returns same SingleFastQFile object that was input if download was successful, None if not.
 
-    Prior to downloading, checks for presence of file locally, if present sends directly to upload.
+    Prior to downloading, checks for presence of file locally, if present skips.
     """
     
     async with sem:
@@ -272,35 +279,40 @@ async def downloader(file, download_folder, sem):
 def uploader(ftp_server_info, download_folder):
     """
     Synchronous function for uploading FastQ file directory using Aspera
-    Uploads all files in directory, does not delete after upload
+    Uploads all files in download folder directory to same name directory made on Aspera
+    Does not delete local directory after upload
     """
     logging.info(f'Starting upload of all files in {download_folder}')
     print(f'Starting upload of all files in {download_folder}')
-    full_aspera_dest = 'subasp@upload.ncbi.nlm.nih.gov:' + ftp_server_info.folder
-    try:
-        upload = subprocess.run('/home/jovyan/.aspera/connect/bin/ascp', '-i', ftp_server_info.key_path, '-QT', 
-                                '-l600m', '-k1', '-d', download_folder, full_aspera_dest) 
-        if upload.returncode == 0:
-            logging.info(f'The upload of all files has completed')
-            print(f'The upload of all files has completed')
-        else:
-            logging.info(f'An error occured during the upload')
-            print(f'An error occured during the upload')
+    full_aspera_dest = 'subasp@upload.ncbi.nlm.nih.gov:' + ftp_server_info.account
+    upload_complete = False
+    while upload_complete != True:
+        try:
+            upload = subprocess.run(['/home/jovyan/.aspera/connect/bin/ascp', '-i', ftp_server_info.key_path, '-QT', 
+                                '-l', '600m', '-k1', '-d', download_folder, full_aspera_dest]) 
+            if upload.returncode == 0:
+                logging.info(f'The upload of all files has completed')
+                upload_complete = True
+                print(f'The upload of all files has completed')
+            else:
+                logging.info(f'An error occured during the upload, restarting')
+                print(f'An error occured during the upload, restarting')
                 
-    except Exception as e:
-        logging.info(f'An error occured when trying to upload \n Further info: {e}')
-        print(f'An error occured when trying to upload \n Further info: {e}')
+        except Exception as e:
+            logging.info(f'An error occured when trying to upload \n Further info: {e}')
+            print(f'An error occured when trying to upload \n Further info: {e}')
             
 
 
-async def Path_Setter(Full_File_List):
+async def Path_Setter(Full_File_List, download_folder):
     """
-    Main asynchronous handling function. Awaits completion of various coprocesses, upon completion, sends
-    results to next step in workflow. Files are downloaded, then either split and uploaded or just directly uploaded.
+    Main asynchronous handling function. 
+    Awaits completion of various coprocesses, upon completion, sends results to next step in workflow. 
+    Files are downloaded, then either split and uploaded or just directly uploaded.
     Semaphores are used to limit number of coprocesses occuring for any step.
     """
     download_sem = asyncio.Semaphore(5) # How many download processes can occur at once
-    download_folder = './Downloaded_Files/'
+    download_folder = './' + download_folder + '/'
     split_folder = './Need_Splitting/'
     os.makedirs(download_folder, exist_ok=True)
     split_sem = asyncio.Semaphore(3) # How many splitting processes can occur at once
@@ -347,7 +359,7 @@ def main(aspera_info, csv_file):
         for pair in Paired_File_List:
             Full_File_List.append(pair.file_1)
             Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
-    failed_downloads, failed_splits, download_folder = asyncio.run(Path_Setter(Full_File_List))
+    failed_downloads, failed_splits, download_folder = asyncio.run(Path_Setter(Full_File_List, aspera_info.folder))
     if failed_downloads or failed_splits:
         if failed_downloads:
             print('The following files had download failures: \n')
@@ -401,5 +413,7 @@ if __name__ == '__main__':
     args = getArgs()
     aspera_info = AsperaUploadInfo(
         key_path = args.key_path,
-        folder = args.folder)
+        account = args.account,
+        folder = args.folder
+        )
     main(aspera_info,args.input_file_list)
