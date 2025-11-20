@@ -1,7 +1,12 @@
+import boto3
 import json
+import os
 import pandas as pd
 import re
 from bs4 import BeautifulSoup
+
+
+s3client = boto3.client('s3')
 
 
 chemistries = {
@@ -11,6 +16,11 @@ chemistries = {
     "Single Cell 3' v3": "3p",
     "Flex Gene Expression": "flex"
 }
+
+valid_assays = [
+    'CRI','GEX','ATAC','viral_ORF',
+    'GEX_hash_oligo','hash_oligo'
+]
 
 #https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-3p-outputs-cellplex
 #https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-flex-outputs-frp
@@ -200,3 +210,54 @@ def parse_web_summ(f):
         report['crispr_alerts'] = data['library']['data']['crispr_tab']['alerts']
 
     return report
+
+def grab_read_stats(file_read_counts, read_counts, rf, bucket):
+    s3client.download_file(bucket, rf, 'metadata.json')
+    metadata = json.load(open('metadata.json'))
+    file_read_counts[metadata['filename']] = metadata['read_count']
+    if '_R2_' not in rf:
+        assay = parse_raw_filename(rf)[2]
+        if assay in read_counts:
+            read_counts[assay] += metadata['read_count']
+        else:
+            read_counts[assay] = metadata['read_count']
+    os.remove('metadata.json')
+
+
+def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
+    exp = '/'.join(rf.split('/')[1:3])
+    if exp not in trimmer_failure_stats:
+        trimmer_failure_stats[exp] = {'rsq': [], 'trimmer_fail': []}
+    s3client.download_file(bucket, rf, 'trimmer-failure_codes.csv')
+    trimmer_fail = 0
+    stats_df = pd.read_csv('trimmer-failure_codes.csv')
+    stats_df.columns = stats_df.columns.str.replace(' ', '_')
+    for row in stats_df.itertuples():
+        total_reads = row.total_read_count
+        if row.reason == 'rsq file':
+            trimmer_failure_stats[exp]['rsq'].append(100*row.failed_read_count/total_reads)
+        else:
+            trimmer_fail += row.failed_read_count
+    trimmer_fail_pct = trimmer_fail/total_reads
+    trimmer_failure_stats[exp]['trimmer_fail'].append(100*trimmer_fail_pct)
+    os.remove('trimmer-failure_codes.csv')
+
+
+def parse_raw_filename(f):
+    path = f.split('/')[-1].split('-')
+    if len(path) > 1:
+        run = path[0]
+        group_assay = path[1]
+        if group_assay.endswith('GEX_hash_oligo'):
+            assay = 'GEX_hash_oligo'
+        else:
+            match = False
+            for v_a in valid_assays:
+                if group_assay.endswith(v_a):
+                    assay = v_a
+                    match = True
+            if not match:
+                assay = group_assay.split('_')[-1]
+        group = group_assay.replace(f'_{assay}','')
+
+    return run,group,assay
