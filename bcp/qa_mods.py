@@ -211,19 +211,6 @@ def parse_web_summ(f):
 
     return report
 
-def grab_read_stats(file_read_counts, read_counts, rf, bucket):
-    s3client.download_file(bucket, rf, 'metadata.json')
-    metadata = json.load(open('metadata.json'))
-    file_read_counts[metadata['filename']] = metadata['read_count']
-    if '_R2_' not in rf:
-        assay = parse_raw_filename(rf)[2]
-        if assay in read_counts:
-            read_counts[assay] += metadata['read_count']
-        else:
-            read_counts[assay] = metadata['read_count']
-    os.remove('metadata.json')
-
-
 def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
     exp = '/'.join(rf.split('/')[1:3])
     if exp not in trimmer_failure_stats:
