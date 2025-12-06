@@ -310,8 +310,11 @@ class GuidescanPipeline:
                                     end_pos = position + protospacer_length - 1
                                     sense = "+"
                                 else:
-                                    end_pos = position
-                                    start_pos = position - protospacer_length + 1
+                                    # For negative strand, guidescan reports (PAM_start + 1)
+                                    # which is 2 bases to the LEFT of the protospacer start
+                                    # So we add 2 to get the actual protospacer start position
+                                    start_pos = position + 2
+                                    end_pos = position + 2 + protospacer_length - 1
                                     sense = "-"
                                 
                                 results.append([
