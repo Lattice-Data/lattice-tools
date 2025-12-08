@@ -2,7 +2,7 @@
 Unit tests for reverse strand coordinate calculation.
 
 These tests verify the critical fix for negative strand coordinate handling
-where guidescan reports position as (PAM_start + 1), requiring a +2 adjustment
+where guidescan reports position as (PAM_start), requiring a +3 adjustment
 to get the actual protospacer start position.
 """
 
@@ -67,20 +67,20 @@ class TestReverseStrandCoordinates:
         """
         Test that negative strand coordinates are calculated correctly.
 
-        Guidescan reports position as (PAM_start + 1) for negative strand.
-        For a 19bp protospacer, we need to add 2 to get the actual start.
+        Guidescan reports position as (PAM_start) for negative strand.
+        For a 19bp protospacer, we need to add 3 to get the actual start.
 
         Example: CD24-1
         - Guidescan position: 18992714
-        - PAM location: 18992713-18992715 (3bp)
-        - Protospacer start: 18992716 (position + 2)
-        - Protospacer end: 18992734 (start + 19 - 1)
+        - PAM location: 18992714-18992716 (3bp)
+        - Protospacer start: 18992717 (position + 3)
+        - Protospacer end: 18992735 (start + 19 - 1)
         """
         # Create test data - simulating CD24-1
         guide_id = "CD24-1"
         sequence = "ACGCGCCGCGCACCGACGTNGG"  # 19bp + NGG
         chromosome = "Y"
-        guidescan_position = 18992714  # This is PAM_start + 1
+        guidescan_position = 18992714  # This is PAM_start
         strand = "-"
 
         self.create_best_matches_file(
@@ -95,9 +95,9 @@ class TestReverseStrandCoordinates:
         assert len(result_df) == 1
         row = result_df.iloc[0]
 
-        # Expected: start = position + 2, end = position + 2 + 19 - 1
-        expected_start = 18992716
-        expected_end = 18992734
+        # Expected: start = position + 3, end = position + 3 + 19 - 1
+        expected_start = 18992717
+        expected_end = 18992735
 
         assert int(row['start']) == expected_start, \
             f"Expected start={expected_start}, got {row['start']}"
@@ -153,9 +153,9 @@ class TestReverseStrandCoordinates:
         """Test multiple negative strand guides to ensure consistent calculation."""
         test_cases = [
             # (guide_id, guidescan_pos, expected_start, expected_end)
-            ("DDB1-1", 61333045, 61333047, 61333065),
-            ("AP3S1-1", 115842122, 115842124, 115842142),
-            ("CD24-1", 18992714, 18992716, 18992734),
+            ("DDB1-1", 61333045, 61333048, 61333066),
+            ("AP3S1-1", 115842122, 115842125, 115842143),
+            ("CD24-1", 18992714, 18992717, 18992735),
         ]
 
         for guide_id, gs_pos, exp_start, exp_end in test_cases:
@@ -176,13 +176,13 @@ class TestReverseStrandCoordinates:
                 f"{guide_id}: Expected end={exp_end}, got {row['end']}"
             assert row['sense'] == "-"
 
-    def test_negative_strand_offset_is_exactly_20bp(self, pipeline):
+    def test_negative_strand_offset_is_exactly_21bp(self, pipeline):
         """
-        Verify that the coordinate shift for negative strand is exactly 20bp.
+        Verify that the coordinate shift for negative strand is exactly 21bp.
 
         Old calculation: start = position - 19 + 1 = position - 18
-        New calculation: start = position + 2
-        Difference: (position + 2) - (position - 18) = 20
+        New calculation: start = position + 3
+        Difference: (position + 3) - (position - 18) = 21
         """
         guide_id = "test_guide"
         sequence = "ACGCGCCGCGCACCGACGTNGG"
@@ -204,11 +204,11 @@ class TestReverseStrandCoordinates:
         new_start = int(row['start'])
         new_end = int(row['end'])
 
-        # Verify the offset is exactly 20bp
-        assert new_start - old_start == 20, \
-            f"Expected 20bp offset, got {new_start - old_start}bp"
-        assert new_end - old_end == 20, \
-            f"Expected 20bp offset for end, got {new_end - old_end}bp"
+        # Verify the offset is exactly 21bp
+        assert new_start - old_start == 21, \
+            f"Expected 21bp offset, got {new_start - old_start}bp"
+        assert new_end - old_end == 21, \
+            f"Expected 21bp offset for end, got {new_end - old_end}bp"
 
     def test_protospacer_length_variations(self, pipeline):
         """Test that coordinate calculation works for different protospacer lengths."""
@@ -231,9 +231,9 @@ class TestReverseStrandCoordinates:
             result_df = pipeline.format_exact_matches()
             row = result_df.iloc[0]
 
-            # For negative strand: start = position + 2, end = position + 2 + length - 1
-            expected_start = guidescan_position + 2
-            expected_end = guidescan_position + 2 + length - 1
+            # For negative strand: start = position + 3, end = position + 3 + length - 1
+            expected_start = guidescan_position + 3
+            expected_end = guidescan_position + 3 + length - 1
 
             assert int(row['start']) == expected_start
             assert int(row['end']) == expected_end
@@ -277,12 +277,12 @@ class TestCoordinateSystemDocumentation:
         For negative strand Cas9 guides, the genomic structure is:
         5'---[PAM 3bp][Protospacer Nbp]---3'
 
-        Guidescan reports: position = PAM_start + 1 (the 2nd base of PAM)
+        Guidescan reports: position = PAM_start (the 1st base of PAM)
 
         To get protospacer coordinates:
-        - Protospacer starts 2 bases to the RIGHT of guidescan position
-        - start = position + 2
-        - end = position + 2 + protospacer_length - 1
+        - Protospacer starts 3 bases to the RIGHT of guidescan position
+        - start = position + 3
+        - end = position + 3 + protospacer_length - 1
         """
         # This test documents the expected behavior
         guidescan_position = 100
@@ -290,12 +290,12 @@ class TestCoordinateSystemDocumentation:
         protospacer_length = 19
 
         # PAM location
-        pam_start = guidescan_position - 1
-        pam_end = guidescan_position + 1
+        pam_start = guidescan_position
+        pam_end = guidescan_position + 2
         assert pam_end - pam_start + 1 == pam_length
 
         # Protospacer location
-        protospacer_start = guidescan_position + 2
+        protospacer_start = guidescan_position + 3
         protospacer_end = protospacer_start + protospacer_length - 1
         assert protospacer_end - protospacer_start + 1 == protospacer_length
 

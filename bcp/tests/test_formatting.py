@@ -93,17 +93,17 @@ class TestExactMatchFormatting:
     
     def test_coordinate_calculation_minus_strand(self, pipeline):
         """Test genomic coordinate calculation for - strand match."""
-        position = 1000  # Match position from guidescan (PAM_start + 1)
+        position = 1000  # Match position from guidescan (PAM_start)
         protospacer_length = 19
         strand = "-"
 
-        # For - strand: guidescan reports position as (PAM_start + 1)
-        # Protospacer starts 2 bases to the RIGHT of this position
-        start_pos = position + 2
-        end_pos = position + 2 + protospacer_length - 1
+        # For - strand: guidescan reports position as (PAM_start)
+        # Protospacer starts 3 bases to the RIGHT of this position
+        start_pos = position + 3
+        end_pos = position + 3 + protospacer_length - 1
 
-        assert start_pos == 1002
-        assert end_pos == 1020
+        assert start_pos == 1003
+        assert end_pos == 1021
         assert end_pos - start_pos + 1 == protospacer_length
     
     def test_exact_match_only_distance_zero(self, pipeline, temp_dir):
@@ -190,8 +190,8 @@ guide1,TGCCTCGCGCAGCTCGCGGNGG,1,1000,-,0,TGCCTCGCGCAGCTCGCGGCGG,0,0,0.500000"""
         assert row['sequence'] == 'TGCCTCGCGCAGCTCGCGG'
         assert row['pam'] == 'NGG'
         assert str(row['chromosome']) == '1' or row['chromosome'] == 1
-        assert row['start'] == 1002  # position + 2
-        assert row['end'] == 1020  # position + 2 + 19 - 1
+        assert row['start'] == 1003  # position + 3
+        assert row['end'] == 1021  # position + 3 + 19 - 1
         assert row['sense'] == '-'
     
     def test_format_exact_matches_mixed_results(self, pipeline, temp_dir):
@@ -218,8 +218,8 @@ guide4,CTGTGGGGCCCTGTCCATGNGG,NA,NA,+,NA,NA,NA,NA,NA"""
         # guide2: exact match, - strand
         g2 = result_df[result_df['id'] == 'guide2'].iloc[0]
         assert g2['chromosome'] != 'NA'
-        assert g2['start'] == 2002  # position + 2
-        assert g2['end'] == 2020  # position + 2 + 19 - 1
+        assert g2['start'] == 2003  # position + 3
+        assert g2['end'] == 2021  # position + 3 + 19 - 1
         assert g2['sense'] == '-'
         
         # guide3: near match (distance=1), should have NA
