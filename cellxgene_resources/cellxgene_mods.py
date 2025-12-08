@@ -579,152 +579,152 @@ def pick_embed(keys):
     return keys[0]
 
 
-class SpatialPlotting:
-    """
-    Class to organize spatial plotting into restricted scope/namespace
-    Spatial data modules will only be imported when trying to call spatial plotting
-    functions. This allows the rest of cellxgene_mods to work without dependency conflicts
-    """
-    def anndata_to_spatialdata_visium(self, adata, library_id, cellpop_field):
-        '''
-        Convert Visium AnnData object to SpatialData object with proper coordinate transformations.
-        '''
-        try:
-            import geopandas as gpd
-            import spatialdata as sd
-            import spatialdata_plot
-            from shapely.geometry import Point
-            from spatialdata.transformations import Identity
-        except ImportError as e:
-            print(f"Cannot plot spatial data due to import error: {e}")
-            print("Please create local conda env according to lattice-tools readme")
-            return
+def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
+    '''
+    Convert Visium AnnData object to SpatialData object with proper coordinate transformations.
+    
+    Due to complex package dependencies that prevent installing the below packages on JupyterHub,
+    this function will import only in this scope to allow the rest of cellxgene_mods to work
+    without issue.
+    '''
+    try:
+        import geopandas as gpd
+        import spatialdata as sd
+        import spatialdata_plot
+        from shapely.geometry import Point
+        from spatialdata.transformations import Identity
+    except ImportError as e:
+        print(f"Cannot plot spatial data due to import error: {e}")
+        print("Please create local conda env according to lattice-tools readme")
+        return
 
-        # Extract spatial coordinates and scale factors
-        # Extract scalefactors and coordinates
-        scalefactors = adata.uns['spatial'][library_id]['scalefactors']
-        tissue_hires_scalef = scalefactors['tissue_hires_scalef']
-        spot_radius_fullres = scalefactors['spot_diameter_fullres'] / 2
-        spot_radius_hires = spot_radius_fullres * tissue_hires_scalef
+    # Extract spatial coordinates and scale factors
+    # Extract scalefactors and coordinates
+    scalefactors = adata.uns['spatial'][library_id]['scalefactors']
+    tissue_hires_scalef = scalefactors['tissue_hires_scalef']
+    spot_radius_fullres = scalefactors['spot_diameter_fullres'] / 2
+    spot_radius_hires = spot_radius_fullres * tissue_hires_scalef
 
-        coords_fullres = adata.obsm['spatial'].copy()
-        coords_hires = coords_fullres * tissue_hires_scalef
+    coords_fullres = adata.obsm['spatial'].copy()
+    coords_hires = coords_fullres * tissue_hires_scalef
 
-        shapes_dfs = {}
-        radii_and_coords = [
-            # hires first, since will always be present
-            (spot_radius_hires, coords_hires, 'hires'),
-            (spot_radius_fullres, coords_fullres, 'fullres'),
-        ]
-        
-        for spot_radius, coords, name in radii_and_coords:
-            circles = [Point(x, y).buffer(spot_radius) for x, y in coords]
-            shapes_df = gpd.GeoDataFrame({
-                'geometry': circles,
-                'in_tissue': adata.obs['in_tissue'].values,
-                'spot_id': adata.obs.index
-            })
-            if cellpop_field:
-                shapes_df[cellpop_field] = adata.obs[cellpop_field].values
-            shapes_dfs[name] = shapes_df
-
-        # Process images
-        images = {}
-        shapes = {}
-        visium_images = adata.uns['spatial'][library_id]['images']
-        images_to_process = ['hires', 'fullres'] if 'fullres' in visium_images else ['hires']
-
-        for image in images_to_process:
-            img = visium_images[image]
-            if len(img.shape) == 3:
-                img = np.transpose(img, (2, 0, 1))
-            dask_array = da.from_array(img, chunks=img.shape)
-            images[image] = sd.models.Image2DModel.parse(
-                dask_array, 
-                transformations={'global': Identity()}
-            )
-            shapes_img = sd.models.ShapesModel.parse(
-                shapes_dfs[image], 
-                transformations={'global': Identity()}
-            )
-            shapes[f'{library_id}_{image}'] = shapes_img
-
-
-        # Create table (linked to hires by default)
-        table_obs = adata.obs.copy()
-        table_obs.drop(columns=[c for c in table_obs.columns if c not in ['in_tissue',cellpop_field]],inplace=True)
-        table_obs['region'] = f'{library_id}_hires'
-        table_obs['region'] = table_obs['region'].astype('category')
-        table_obs['instance_key'] = range(len(adata.obs))
-
-        table_adata = adata.copy()
-        table_adata.obs = table_obs
-
-        table = sd.models.TableModel.parse(
-            table_adata,
-            region=f'{library_id}_hires',
-            region_key='region',
-            instance_key='instance_key'
-        )
-
-        # Create SpatialData object
-        sdata = sd.SpatialData(
-            images=images,
-            shapes=shapes,
-            tables=table
-        )
-        sdata.attrs['scalefactors'] = scalefactors
-
-        return sdata
-
-    def visualize_spatial(self, sdata, library_id, cellpop_field):
-        self.viz_spatial_per_res(sdata, library_id, 'hires', cellpop_field)
-        if f'{library_id}_fullres' in sdata.shapes:
-            self.viz_spatial_per_res(sdata, library_id, 'fullres', cellpop_field)
-
-
-    def viz_spatial_per_res(self, sdata, library_id, res, cellpop_field):
-        self.viz_spatial_per_field(sdata, library_id, res, 'in_tissue')
+    shapes_dfs = {}
+    radii_and_coords = [
+        # hires first, since will always be present
+        (spot_radius_hires, coords_hires, 'hires'),
+        (spot_radius_fullres, coords_fullres, 'fullres'),
+    ]
+    
+    for spot_radius, coords, name in radii_and_coords:
+        circles = [Point(x, y).buffer(spot_radius) for x, y in coords]
+        shapes_df = gpd.GeoDataFrame({
+            'geometry': circles,
+            'in_tissue': adata.obs['in_tissue'].values,
+            'spot_id': adata.obs.index
+        })
         if cellpop_field:
-            self.viz_spatial_per_field(sdata, library_id, res, cellpop_field)
+            shapes_df[cellpop_field] = adata.obs[cellpop_field].values
+        shapes_dfs[name] = shapes_df
 
-    def viz_spatial_per_field(self, sdata, library_id, res, field):
-        ncols = 2
-        nrows = 1
-        figsize = 4
-        wspace = 0.5
-        fig, axes = plt.subplots(
-            nrows=nrows,
-            ncols=ncols,
-            figsize=(ncols * figsize + figsize * wspace * (ncols - 1), nrows * figsize),
+    # Process images
+    images = {}
+    shapes = {}
+    visium_images = adata.uns['spatial'][library_id]['images']
+    images_to_process = ['hires', 'fullres'] if 'fullres' in visium_images else ['hires']
+
+    for image in images_to_process:
+        img = visium_images[image]
+        if len(img.shape) == 3:
+            img = np.transpose(img, (2, 0, 1))
+        dask_array = da.from_array(img, chunks=img.shape)
+        images[image] = sd.models.Image2DModel.parse(
+            dask_array, 
+            transformations={'global': Identity()}
         )
-        plt.subplots_adjust(wspace=wspace)
+        shapes_img = sd.models.ShapesModel.parse(
+            shapes_dfs[image], 
+            transformations={'global': Identity()}
+        )
+        shapes[f'{library_id}_{image}'] = shapes_img
 
-        # Left: Image only
-        sdata.pl.render_images(res).pl.show(ax=axes[0])
-        axes[0].set_title(f'{res} image', fontsize=12)
-        axes[0].axis('off')
+    # Create table (linked to hires by default)
+    table_obs = adata.obs.copy()
+    table_obs.drop(columns=[c for c in table_obs.columns if c not in ['in_tissue',cellpop_field]],inplace=True)
+    table_obs['region'] = f'{library_id}_hires'
+    table_obs['region'] = table_obs['region'].astype('category')
+    table_obs['instance_key'] = range(len(adata.obs))
 
-        # Right: Image first, then add points
-        sdata.pl.render_images(res).pl.show(ax=axes[1])
-        sdata.pl.render_shapes(
-            f'{library_id}_{res}',
-            color=field
-        ).pl.show(ax=axes[1])
-        axes[1].set_title(f'{res} image + {field}', fontsize=12)
-        axes[1].axis('off')
+    table_adata = adata.copy()
+    table_adata.obs = table_obs
 
-        plt.tight_layout()
-        plt.show()
+    table = sd.models.TableModel.parse(
+        table_adata,
+        region=f'{library_id}_hires',
+        region_key='region',
+        instance_key='instance_key'
+    )
 
-    def plot_vis(self, adata, cellpop_field=None):
-        spatial_keys = [k for k in adata.uns['spatial'].keys() if k != 'is_single']
-        if len(spatial_keys) != 1:
-            report(f'Found {len(spatial_keys)} keys in uns.spatial: {spatial_keys}', 'ERROR')
-            return None
-        library_id = [k for k in adata.uns['spatial'].keys() if k != 'is_single'][0]
-        sdata = self.anndata_to_spatialdata_visium(adata, library_id, cellpop_field)
-        self.visualize_spatial(sdata, library_id, cellpop_field)
+    # Create SpatialData object
+    sdata = sd.SpatialData(
+        images=images,
+        shapes=shapes,
+        tables=table
+    )
+    sdata.attrs['scalefactors'] = scalefactors
+
+    return sdata
+
+
+def visualize_spatial(sdata, library_id, cellpop_field):
+    viz_spatial_per_res(sdata, library_id, 'hires', cellpop_field)
+    if f'{library_id}_fullres' in sdata.shapes:
+        viz_spatial_per_res(sdata, library_id, 'fullres', cellpop_field)
+
+
+def viz_spatial_per_res(sdata, library_id, res, cellpop_field):
+    viz_spatial_per_field(sdata, library_id, res, 'in_tissue')
+    if cellpop_field:
+        viz_spatial_per_field(sdata, library_id, res, cellpop_field)
+
+
+def viz_spatial_per_field(sdata, library_id, res, field):
+    ncols = 2
+    nrows = 1
+    figsize = 4
+    wspace = 0.5
+    fig, axes = plt.subplots(
+        nrows=nrows,
+        ncols=ncols,
+        figsize=(ncols * figsize + figsize * wspace * (ncols - 1), nrows * figsize),
+    )
+    plt.subplots_adjust(wspace=wspace)
+
+    # Left: Image only
+    sdata.pl.render_images(res).pl.show(ax=axes[0])
+    axes[0].set_title(f'{res} image', fontsize=12)
+    axes[0].axis('off')
+
+    # Right: Image first, then add points
+    sdata.pl.render_images(res).pl.show(ax=axes[1])
+    sdata.pl.render_shapes(
+        f'{library_id}_{res}',
+        color=field
+    ).pl.show(ax=axes[1])
+    axes[1].set_title(f'{res} image + {field}', fontsize=12)
+    axes[1].axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_vis(adata, cellpop_field=None):
+    spatial_keys = [k for k in adata.uns['spatial'].keys() if k != 'is_single']
+    if len(spatial_keys) != 1:
+        report(f'Found {len(spatial_keys)} keys in uns.spatial: {spatial_keys}', 'ERROR')
+        return None
+    library_id = [k for k in adata.uns['spatial'].keys() if k != 'is_single'][0]
+    sdata = anndata_to_spatialdata_visium(adata, library_id, cellpop_field)
+    visualize_spatial(sdata, library_id, cellpop_field)
 
 
 def validate(file):
