@@ -255,19 +255,23 @@ def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
 
 def parse_raw_filename(f):
     path = f.split('/')[-1].split('-')
-    if len(path) > 1:
-        run = path[0]
-        group_assay = path[1]
-        if group_assay.endswith('GEX_hash_oligo'):
-            assay = 'GEX_hash_oligo'
-        else:
-            match = False
-            for v_a in valid_assays:
-                if group_assay.endswith(v_a):
-                    assay = v_a
-                    match = True
-            if not match:
-                assay = group_assay.split('_')[-1]
-        group = group_assay.replace(f'_{assay}','')
+    if len(path) < 3:
+        return None
 
-    return run,group,assay
+    run = path[0]
+    group_assay = path[1]
+    if group_assay.endswith('GEX_hash_oligo'):
+        assay = 'GEX_hash_oligo'
+    else:
+        match = False
+        for v_a in valid_assays:
+            if group_assay.endswith(v_a):
+                assay = v_a
+                match = True
+        if not match:
+            assay = group_assay.split('_')[-1]
+    group = group_assay.replace(f'_{assay}','')
+    ug = path[2]
+    barcode = path[3].split('_')[0].split('.')[0]
+
+    return run,group,assay,ug,barcode
