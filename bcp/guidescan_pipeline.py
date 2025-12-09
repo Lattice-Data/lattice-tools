@@ -241,11 +241,12 @@ class GuidescanPipeline:
                             results.append(na_result)
             
             result_df = pd.concat(results, ignore_index=True)
-            
+
             # Drop the temporary numeric distance column before saving
             result_df = result_df.drop(columns=['distance_numeric'])
-            
-            result_df.to_csv(self.best_matches_file, index=False)
+
+            # Write to CSV with na_rep='NA' to preserve "NA" strings instead of empty strings
+            result_df.to_csv(self.best_matches_file, index=False, na_rep='NA')
             
             # Log statistics
             guide_count = df[guide_id_col].nunique()
@@ -310,8 +311,11 @@ class GuidescanPipeline:
                                     end_pos = position + protospacer_length - 1
                                     sense = "+"
                                 else:
-                                    end_pos = position
-                                    start_pos = position - protospacer_length + 1
+                                    # For negative strand, guidescan reports (PAM_start)
+                                    # which is 3 bases to the LEFT of the protospacer start
+                                    # So we add 3 to get the actual protospacer start position
+                                    start_pos = position + 3
+                                    end_pos = position + 3 + protospacer_length - 1
                                     sense = "-"
                                 
                                 results.append([
