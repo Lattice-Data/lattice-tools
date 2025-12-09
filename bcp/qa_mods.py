@@ -160,6 +160,13 @@ raw_optional = {
 
 def parse_met_summ(f):
     df = pd.read_csv(f)
+    if len(df) == 1:
+        report = {
+            'GEX_reads': int(df['Number of Reads'].iloc[0].replace(',',''))
+        }
+
+        return report
+
     lib_reads = df[
         (df['Metric Name'].isin(['Number of reads','Number of short reads skipped'])) &
         (df['Grouped By'] == 'Fastq ID')
@@ -188,51 +195,59 @@ def parse_web_summ(f):
         if match:
             end = match.end()
             data = json.loads(x.string[end:])
-
-    report['sub'] = data['sample']['subcommand']
-    gex_tab = {row[0]:row[1] for row in data['library']['data']['gex_tab']['content']['parameters_table']['rows']}
-    chem = gex_tab['Chemistry']
-    report['chem'] = chemistries.get(chem, chem)
     
+    if 'summary' in data:
+        report['sub'] = data['summary']['sample']['subcommand']
+        gex_tab = {row[0].lower():row[1] for row in data['summary']['summary_tab']['pipeline_info_table']['rows']}
+    else:
+        report['sub'] = data['sample']['subcommand']
+        gex_tab = {row[0].lower():row[1] for row in data['library']['data']['gex_tab']['content']['parameters_table']['rows']}
+
+    chem = gex_tab['chemistry']
+    report['chem'] = chemistries.get(chem, chem)
+
     report['extra'] = []
-    if data['library']['data']['crispr_tab']:
-        report['extra'].append('CRISPR')
-        crispr_tab = {f'crispr {row[0]}':row[1] for row in data['library']['data']['crispr_tab']['content']['parameters_table']['rows']}
-    if data['library']['data']['antibody_tab']:
-        report['extra'].append('Antibody')
-    for line in data['experimental_design']['csv'].split('\n'):
-        if line.startswith('['):
-            cat = line
-            if cat == '[samples]':
-                report['multiplex'] = True
-        if ',' in line:
-            path = line.strip().split(',')
-            if path[0] == 'skip-cell-annotation' and path[1] == 'false':
-                report['extra'].append('CellAnnotate')
-            elif path[0] == 'min-crispr-umi':
-                report['min-crispr-umi'] = path[1]
-            elif path[0] == 'create-bam':
-                report['create-bam'] = path[1]
-            elif path[0] == 'reference' and cat == '[gene-expression]':
-                report['ref'] = path[1]
+    if 'library' in data:
+        if data['library']['data']['crispr_tab']:
+            report['extra'].append('CRISPR')
+            crispr_tab = {f'crispr {row[0]}':row[1] for row in data['library']['data']['crispr_tab']['content']['parameters_table']['rows']}
+        if data['library']['data']['antibody_tab']:
+            report['extra'].append('Antibody')
+    if 'experimental_design' in data:
+        for line in data['experimental_design']['csv'].split('\n'):
+            if line.startswith('['):
+                cat = line
+                if cat == '[samples]':
+                    report['multiplex'] = True
+            if ',' in line:
+                path = line.strip().split(',')
+                if path[0] == 'skip-cell-annotation' and path[1] == 'false':
+                    report['extra'].append('CellAnnotate')
+                elif path[0] == 'min-crispr-umi':
+                    report['min-crispr-umi'] = path[1]
+                elif path[0] == 'create-bam':
+                    report['create-bam'] = path[1]
+                elif path[0] == 'reference' and cat == '[gene-expression]':
+                    report['ref'] = path[1]
 
     #location of some additional info to QA
-    report['ref'] = gex_tab['Transcriptome']
+    report['ref'] = gex_tab['transcriptome']
     if chem != 'Flex Gene Expression':
-        report['incl_int'] = gex_tab['Include Introns']
+        report['incl_int'] = gex_tab['include introns'].lower()
 
-    report['software'] = data['library']['data']['header_info']['Pipeline Version']
+    if 'pipeline version' in gex_tab:
+        report['software'] = gex_tab['pipeline version']
+    elif 'library' in data:
+        report['software'] = data['library']['data']['header_info']['Pipeline Version']
+        report['gex_alerts'] = data['library']['data']['gex_tab']['alerts']
+        if data['library']['data']['crispr_tab']:
+            report['crispr_alerts'] = data['library']['data']['crispr_tab']['alerts']
 
-    for m in data['library']['metrics']:
-        if m['key'] == 'number_of_reads' and m['grouping_key'] not in ['GEX_1','CGC_1']:
-            report[m['grouping_key']] = m['value']
-
-    report['gex_alerts'] = data['library']['data']['gex_tab']['alerts']
-
-    if data['library']['data']['crispr_tab']:
-        report['crispr_alerts'] = data['library']['data']['crispr_tab']['alerts']
+    if 'summary' in data:
+        report['gex_alerts'] = data['summary']['alarms']['alarms']
 
     return report
+
 
 def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
     exp = '/'.join(rf.split('/')[1:3])
