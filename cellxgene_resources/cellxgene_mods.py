@@ -1,6 +1,5 @@
 import anndata as ad
 import dask.array as da
-import geopandas as gpd
 import h5py
 import json
 import matplotlib.pyplot as plt
@@ -9,8 +8,6 @@ import os
 import pandas as pd
 import re
 import scanpy as sc
-import spatialdata as sd
-import spatialdata_plot
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -20,8 +17,6 @@ from cellxgene_ontology_guide.ontology_parser import OntologyParser
 import cellxgene_schema.gencode as gencode
 import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
-from shapely.geometry import Point
-from spatialdata.transformations import Identity
 
 
 portal_uns_fields = [
@@ -587,7 +582,22 @@ def pick_embed(keys):
 def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
     '''
     Convert Visium AnnData object to SpatialData object with proper coordinate transformations.
+    
+    Due to complex package dependencies that prevent installing the below packages on JupyterHub,
+    this function will import only in this scope to allow the rest of cellxgene_mods to work
+    without issue.
     '''
+    try:
+        import geopandas as gpd
+        import spatialdata as sd
+        import spatialdata_plot
+        from shapely.geometry import Point
+        from spatialdata.transformations import Identity
+    except ImportError as e:
+        print(f"Cannot plot spatial data due to import error: {e}")
+        print("Please create local conda env according to lattice-tools readme")
+        return
+
     # Extract spatial coordinates and scale factors
     # Extract scalefactors and coordinates
     scalefactors = adata.uns['spatial'][library_id]['scalefactors']
@@ -636,7 +646,6 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
             transformations={'global': Identity()}
         )
         shapes[f'{library_id}_{image}'] = shapes_img
-
 
     # Create table (linked to hires by default)
     table_obs = adata.obs.copy()
