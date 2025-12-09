@@ -93,16 +93,27 @@ cellranger_expected = {
 }
 
 raw_expected = {
-    'standard': [
+    'sci_jumbo': [
+        '.cram',
+        '.cram-metadata.json',
         '.csv',
         '.json',
-        '.scRNA.applicationQC.h5',
-        '.scRNA.applicationQC.html',
-        '_Log.final.out',
-        '_Log.out',
-        '_Log.progress.out',
-        '_ReadsPerGene.out.tab',
-        '_SJ.out.tab',
+        '_trimmer-failure_codes.csv',
+        '_trimmer-stats.csv',
+        '_FlowQ.metric',
+        '_SNVQ.metric'
+    ],
+    'sci_plex': [
+        '.cram',
+        '.cram-metadata.json',
+        '.csv',
+        '.json',
+        '_trimmer-failure_codes.csv',
+        '_trimmer-stats.csv'
+    ],
+    '10x': [
+        '.csv',
+        '.json',
         '_trimmer-failure_codes.csv',
         '_trimmer-stats.csv',
         '_unmatched.cram',
@@ -122,7 +133,7 @@ raw_expected = {
         '_S1_L001_R2_001_sample.fastq.gz',
         '_S1_L001_R2_001_sample.fastq.gz-metadata.json'
     ],
-    'viralORF': [
+    '10x_viral_ORF': [
         '.csv',
         '.json',
         '_trimmer-failure_codes.csv',
@@ -131,6 +142,18 @@ raw_expected = {
         '.cram-metadata.json',
         '_FlowQ.metric',
         '_SNVQ.metric'
+    ]
+}
+
+raw_optional = {
+    '10x': [
+        '.scRNA.applicationQC.h5',
+        '.scRNA.applicationQC.html',
+        '_Log.final.out',
+        '_Log.out',
+        '_Log.progress.out',
+        '_ReadsPerGene.out.tab',
+        '_SJ.out.tab'
     ]
 }
 
