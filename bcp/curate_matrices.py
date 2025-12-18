@@ -124,7 +124,7 @@ def check_standard_presence(sample_df):
     'sample_name','sample_probe_barcode','is_pilot_data',
     'donor_id', 'donor_living_at_sample_collection', 'donor_body_mass_index',
     'organism', 'sex', 'self_reported_ethnicity', 'disease', 'tissue', 'preservation_method',
-    'dissociation_method', 'development_stage', 'assay', 'tissue_type',
+    'development_stage', 'assay', 'tissue_type',
     'suspension_type']
     chk_exit = False
     for col in (col for col in required_columns if col not in sample_df.columns):
@@ -243,11 +243,11 @@ def add_guide_metadata(adata, sheet, guide_gid, guidescan_output):
             genetic_perturbations[row.id]['sequence'] = row.sequence
             if not pd.isna([row.start,row.end,row.sense]).all():
                 chr_loc = str(row.chromosome).replace("chr","") + ":" + str(row.start) + "-" + str(row.end) + "(" + str(row.sense) + ")"
-                genetic_perturbations[row.id]['target_genomic_regions'] = [chr_loc]
+                genetic_perturbations[row.id]['derived_genomic_regions'] = [chr_loc]
         if not pd.isna(row.gene_id):
-            if 'target_features' not in genetic_perturbations[row.id].keys():
-                genetic_perturbations[row.id]['target_features'] = {}
-            genetic_perturbations[row.id]['target_features'][row.gene_id] = row.gene_name
+            if 'derived_features' not in genetic_perturbations[row.id].keys():
+                genetic_perturbations[row.id]['derived_features'] = {}
+            genetic_perturbations[row.id]['derived_features'][row.gene_id.split(".")[0]] = row.gene_name
 
     for row in guide_sheet_df.itertuples():
         genetic_perturbations[row.guide_id]['role'] = 'targeting' if row.guide_role == 'Targeting a Gene' else 'control'
@@ -430,7 +430,7 @@ if __name__ == '__main__':
     r = s3client.list_objects(Bucket=args.bucket, Prefix=my_dir, Delimiter="/")
     orders = [o['Prefix'].replace(my_dir,'') for o in r['CommonPrefixes']]
     samples = []
-    for o in orders:
+    for o in [i for i in orders if i.startswith(('AN','NV'))]:
         r = s3client.list_objects(Bucket=args.bucket, Prefix=f'{my_dir}{o}', Delimiter='/')
         libs = [l['Prefix'].replace(f'{my_dir}{o}','') for l in r['CommonPrefixes']]
         for l in libs:
