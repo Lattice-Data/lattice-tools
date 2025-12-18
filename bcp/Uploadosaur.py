@@ -135,6 +135,8 @@ def parse_file_list(S3_list):
     sorted_file_list = sorted(file_list)
 
     for file_index_1 in range(len(sorted_file_list)):
+        if sorted_file_list[file_index_1] in [pair.file_2.S3_Path for pair in paired_files]:
+            continue # Don't compare second file to third if second file is already in a pair
         for file_index_2 in range(file_index_1 + 1,len(sorted_file_list)):
             file_1 = sorted_file_list[file_index_1]
             file_2 = sorted_file_list[file_index_2]
@@ -144,11 +146,7 @@ def parse_file_list(S3_list):
                     if file_1[i] != file_2[i]:
                         char_before = file_1[i-1]
                         diff_count += 1
-                        if diff_count > 1 and file_index_2 == (len(sorted_file_list) - 1):
-                            if sorted_file_list[file_index_1] not in [pair.file_2.S3_Path for pair in paired_files]:
-                                single_files.append(get_file_info(sorted_file_list[file_index_1]))
-                                break
-                        elif diff_count > 1:
+                        if diff_count > 1:
                             break
                 if diff_count == 1 and char_before == 'R':
                     paired_files.append(PairedFastQFiles(
@@ -311,11 +309,11 @@ async def Path_Setter(Full_File_List, download_folder):
     Files are downloaded, then either split and uploaded or just directly uploaded.
     Semaphores are used to limit number of coprocesses occuring for any step.
     """
-    download_sem = asyncio.Semaphore(5) # How many download processes can occur at once
+    download_sem = asyncio.Semaphore(14) # How many download processes can occur at once
     download_folder = './' + download_folder + '/'
     split_folder = './Need_Splitting/'
     os.makedirs(download_folder, exist_ok=True)
-    split_sem = asyncio.Semaphore(3) # How many splitting processes can occur at once
+    split_sem = asyncio.Semaphore(8) # How many splitting processes can occur at once
     split_tasks = []
     failed_downloads = []
     failed_splits = []
@@ -334,7 +332,7 @@ async def Path_Setter(Full_File_List, download_folder):
 
     for completed_split in asyncio.as_completed(split_tasks):
         split_files = await completed_split
-        if not is_instance(split_files, list):
+        if not isinstance(split_files, list):
             logging.error(f'An error occured while splitting {split_files}')
             print(f'An error occured while splitting {split_files}')
             failed_splits.append(split_files)
@@ -387,24 +385,12 @@ def main(aspera_info, csv_file):
                 logging.info('Not proceeding with upload, terminating')
                 break
             else:
-                print_help("Invalid input. Please enter 'y' or 'n'.")
+                print("Invalid input. Please enter 'y' or 'n'.")
                 logging.info("Invalid input. Please enter 'y' or 'n'.")
     else:
-        while True:
-            user_choice = input('No download or split failures, proceed with upload? (y/n): ').lower()
-            logging.info('No download or split failures, proceed with upload? (y/n): ')
-            if user_choice == 'y':
-                print("Proceeding to upload")
-                logging.info('Proceeding to upload')
-                uploader(aspera_info, download_folder)
-                break 
-            elif user_choice == 'n':
-                print("Not proceeding with upload, terminating.")
-                logging.info('Not proceeding with upload, terminating')
-                break
-            else:
-                print_help("Invalid input. Please enter 'y' or 'n'.")
-                logging.info("Invalid input. Please enter 'y' or 'n'.")
+            print('No download or split failures, proceeding with upload.')
+            logging.info('No download or split failures, proceeding with upload.')
+            uploader(aspera_info, download_folder)
         
     
 
