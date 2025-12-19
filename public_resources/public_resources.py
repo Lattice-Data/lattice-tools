@@ -211,18 +211,43 @@ def validate_raw_hca(url):
     return list(formats)
 
 
-def validate_raw_insdc(url):
+def validate_raw_insdc(url, arrex=False):
     raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
 
     acc = url.split('/')[-1].split('=')[-1]
-    insdc_attrs = insdc_meta(acc)
+    insdc_attrs = insdc_meta(acc, arrex)
     df = pd.DataFrame(insdc_attrs)
     formats = [f for c in df.columns for f in df[c].unique() if 'semantic' in c]
 
     return list(set([f for f in formats if f in raw_data_formats]))
 
 
-def insdc_meta(acc):
+def validate_raw_dbgap(url):
+    formats = set()
+    eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
+    esearch_base = f'{eutils_base}esearch.fcgi'
+    raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
+    acc = url.split('/')[-1].split('=')[-1]
+    if '.' in acc:
+        print('dbGaP URL with version included')
+        acc = acc.split('.')[0]
+
+    url3 = f'{esearch_base}?db=sra&term={acc}&retmode=json&retmax=100'
+    r3 = requests.get(url3).json()
+    idlist = r3['esearchresult']['idlist']
+    sublists = [idlist[i:i+500] for i in range(0, len(idlist), 500)]
+    for sub in sublists:
+        ids = ','.join(sub)
+        url4 = f'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=sra&id={ids}'
+        r4 = requests.get(url4)
+        responseXml = ET.fromstring(r4.text)
+        for ep in responseXml.iter('EXPERIMENT_PACKAGE'):
+            formats.update([f.attrib['filetype'] for f in ep.iter('CloudFile')])
+
+    return list(set([f for f in formats if f in raw_data_formats]))
+
+
+def insdc_meta(acc, arrex=False):
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     esearch_base = f'{eutils_base}esearch.fcgi'
     efetch_base = f'{eutils_base}efetch.fcgi'
@@ -267,6 +292,10 @@ def insdc_meta(acc):
             #parse the records for needed information & write report
             responseXml = ET.fromstring(r4.text)
             for ep in responseXml.iter('EXPERIMENT_PACKAGE'):
+                if arrex:
+                    s = ep.find('STUDY')
+                    if s.attrib['alias'] != prj[0]:
+                        continue
                 e = ep.find('EXPERIMENT')
                 attr1 = {'Experiment:title': e.find('TITLE').text}
                 for k,v in e.attrib.items():
@@ -296,6 +325,7 @@ def insdc_meta(acc):
                             for alt in f.iter('Alternatives'):
                                 attr2['Run:file_' + str(file_count) + ' url'] = alt.attrib['url']
                     attributes.append(attr2)
+
         return attributes
 
 
@@ -326,12 +356,14 @@ def parse_data_repo_url(url):
 def detect_sequence_data(url):
     resource = parse_data_repo_url(url)
 
-    if resource in ['geo','bioproj','ena','dbgap']:
-        raw_present = validate_raw_ncbi(url)
+    if resource in ['geo','bioproj','ena']:
+        raw_present = validate_raw_insdc(url)
+    elif resource == 'dbgap':
+        raw_present = validate_raw_dbgap(url)
     elif resource == 'hca':
         raw_present = validate_raw_hca(url)
     elif resource == 'arrex':
-        raw_present = validate_raw_arrex(url)
+        raw_present = validate_raw_insdc(url, arrex=True)
     elif resource == 'nemo':
         raw_present = validate_raw_nemo(url)
     elif resource == 'ega':
