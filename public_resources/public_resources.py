@@ -271,7 +271,7 @@ def validate_raw_arrex(url):
     raw_files = []
     df = pd.read_csv(filename, sep='\t')
     if 'Comment[FASTQ_URI]' in df.columns:
-        raw_files = [f for f in df['Comment[FASTQ_URI]'] if f.endswith(tuple(raw_data_formats))]
+        raw_files = [f for f in df['Comment[FASTQ_URI]'] if str(f).endswith(tuple(raw_data_formats))]
     os.remove(filename)
     ftp.quit()
 
