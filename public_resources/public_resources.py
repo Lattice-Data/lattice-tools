@@ -228,6 +228,7 @@ def validate_raw_dbgap(url):
     esearch_base = f'{eutils_base}esearch.fcgi'
     raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
     acc = url.split('/')[-1].split('=')[-1]
+    errors = None
     if '.' in acc:
         new_acc = acc.split('.')[0]
         errors = f'remove version from dbGaP URL: {url.replace(acc, new_acc)}'
