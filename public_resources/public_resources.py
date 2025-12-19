@@ -247,6 +247,33 @@ def validate_raw_dbgap(url):
     return list(set([f for f in formats if f in raw_data_formats]))
 
 
+def validate_raw_arrex(url):
+    acc = url.split('/')[-1]
+    api_base = 'https://www.ebi.ac.uk/biostudies/api/v1'
+    q_url = f'{api_base}/studies/{acc}/info'
+    r = requests.get(q_url).json()
+    ftp_link = r['ftpLink']
+
+    ftp = ftplib.FTP('ftp.ebi.ac.uk', 'anonymous', 'anonymous@')
+    ftp.cwd(ftp_link.replace('ftp://ftp.ebi.ac.uk','') + '/Files')
+
+    filename = f'{acc}.sdrf.txt'
+    with open(filename, 'wb') as file:
+        ftp.retrbinary(f'RETR {filename}', file.write)
+
+    raw_files = []
+    df = pd.read_csv(filename, sep='\t')
+    if 'Comment[FASTQ_URI]' in df.columns:
+        raw_files = [f for f in df['Comment[FASTQ_URI]'] if f.endswith(tuple(raw_data_formats))]
+    os.remove(filename)
+    ftp.quit()
+
+    if raw_files:
+        return True
+
+    return False
+
+
 def insdc_meta(acc, arrex=False):
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     esearch_base = f'{eutils_base}esearch.fcgi'
@@ -360,6 +387,8 @@ def detect_sequence_data(url):
         raw_present = validate_raw_insdc(url)
     elif resource == 'arrex':
         raw_present = validate_raw_insdc(url, arrex=True)
+        if not raw_present:
+            raw_present = validate_raw_arrex(url)
     elif resource == 'dbgap':
         raw_present = validate_raw_dbgap(url)
     elif resource == 'hca':
