@@ -154,30 +154,35 @@ def validate_raw_nemo(url):
     raw_data_formats = ['fastq.tar']
 
     for df in pd.read_html(url):
-        if 'Dataset Collection URL' in df['Field'].unique():
-            coll_url = df.loc[df['Field'] == 'Dataset Collection URL']['Value'].iloc[0]
-            if str(coll_url).endswith('.tgz'):
-                r = requests.get(coll_url)
-                with open('temp.tgz','wb') as f:
-                    f.write(r.content)
-                file_list = []
-                tar = tarfile.open('temp.tgz', 'r:gz')
-                for item in tar:
-                    if item.name.endswith('fetch.txt'):
-                        tar.extract(item)
-                        with open(item.name, 'r') as f:
-                            for line in (f.read().split('\n')):
-                                file_list.append(line.split('\t')[0])
-                        os.remove(item.name)
-                        os.rmdir(item.name.split('/')[0])
-                        os.remove('temp.tgz')
-                raw_files = [f for f in file_list if f.endswith(tuple(raw_data_formats))]
-                if raw_files:
+        if 'Field' in df.columns:
+            if 'Dataset Collection URL' in df['Field'].unique():
+                coll_url = df.loc[df['Field'] == 'Dataset Collection URL']['Value'].iloc[0]
+                if str(coll_url).endswith('.tgz'):
+                    r = requests.get(coll_url)
+                    with open('temp.tgz','wb') as f:
+                        f.write(r.content)
+                    file_list = []
+                    tar = tarfile.open('temp.tgz', 'r:gz')
+                    for item in tar:
+                        if item.name.endswith('fetch.txt'):
+                            tar.extract(item)
+                            with open(item.name, 'r') as f:
+                                for line in (f.read().split('\n')):
+                                    file_list.append(line.split('\t')[0])
+                            os.remove(item.name)
+                            os.rmdir(item.name.split('/')[0])
+                            os.remove('temp.tgz')
+                    raw_files = [f for f in file_list if f.endswith(tuple(raw_data_formats))]
+                    if raw_files:
+                        return True
+            else:
+                i = df.loc[df['Field'] == 'Identifier']['Value'].iloc[0].split(':')[1]
+                raw_present = validate_raw_nemo('https://assets.nemoarchive.org/' + i)
+                if raw_present == True:
                     return True
-        else:
-            i = df.loc[df['Field'] == 'Identifier']['Value'].iloc[0].split(':')[1]
-            raw_present = validate_raw_nemo('https://assets.nemoarchive.org/' + i)
-            if raw_present == True:
+        elif 'Name' in df.columns:
+            raw_files = [f for f in df['Name'].unique() if str(f).endswith(tuple(raw_data_formats))]
+            if raw_files:
                 return True
 
     return False
