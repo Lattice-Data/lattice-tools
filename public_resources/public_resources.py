@@ -128,7 +128,7 @@ def publication_search(search_term):
 def validate_raw_ega(url):
     #https://metadata.ega-archive.org/spec
     formats = set()
-    raw_data_formats = ['fastq.gz','bam','cram']
+    raw_data_formats = ['fastq.gz','fq.gz','bam','cram']
 
     acc = url.split('/')[-1]
     obj_type = url.split('/')[-2]
