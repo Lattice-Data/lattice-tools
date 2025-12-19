@@ -229,8 +229,9 @@ def validate_raw_dbgap(url):
     raw_data_formats = ['fastq','TenX','bam','cram','10X Genomics bam file']
     acc = url.split('/')[-1].split('=')[-1]
     if '.' in acc:
-        print('dbGaP URL with version included')
-        acc = acc.split('.')[0]
+        new_acc = acc.split('.')[0]
+        errors = f'remove version from dbGaP URL: {url.replace(acc, new_acc)}'
+        acc = new_acc
 
     url3 = f'{esearch_base}?db=sra&term={acc}&retmode=json&retmax=100'
     r3 = requests.get(url3).json()
@@ -244,7 +245,12 @@ def validate_raw_dbgap(url):
         for ep in responseXml.iter('EXPERIMENT_PACKAGE'):
             formats.update([f.attrib['filetype'] for f in ep.iter('CloudFile')])
 
-    return list(set([f for f in formats if f in raw_data_formats]))
+    raw_formats = list(set([f for f in formats if f in raw_data_formats]))
+
+    if errors:
+        return raw_formats, errors
+
+    return raw_formats
 
 
 def validate_raw_arrex(url):
