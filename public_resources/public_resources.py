@@ -358,12 +358,12 @@ def detect_sequence_data(url):
 
     if resource in ['geo','bioproj','ena']:
         raw_present = validate_raw_insdc(url)
+    elif resource == 'arrex':
+        raw_present = validate_raw_insdc(url, arrex=True)
     elif resource == 'dbgap':
         raw_present = validate_raw_dbgap(url)
     elif resource == 'hca':
         raw_present = validate_raw_hca(url)
-    elif resource == 'arrex':
-        raw_present = validate_raw_insdc(url, arrex=True)
     elif resource == 'nemo':
         raw_present = validate_raw_nemo(url)
     elif resource == 'ega':
