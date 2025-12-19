@@ -11,8 +11,8 @@ EPILOG = f"""
 Script run parallel_curated.py in a parallel fashion
 
 Example:
-    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --groupfile groups.txt
-    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --grouplist CD4i_R1L01 CD4i_R1L02
+    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --groupfile groups.txt --csvofguidescan guidescan_output.csv
+    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --csvofguidescan guidescan_output.csv --grouplist CD4i_R1L01 CD4i_R1L02
 
 For more details:
     python %(prog)s --help
@@ -54,6 +54,11 @@ def getArgs():
         nargs="+",
         default=list()
     )
+    parser.add_argument(
+        "--csvofguidescan",
+        "-c",
+        help="the file containing the output of guidescan analysis",
+    )
     args = parser.parse_args()
     if len(sys.argv) == 1:
     	parser.print_help()
@@ -69,7 +74,7 @@ def create_arguments(args, groups):
     '''
     commands_list = []
     for i in range(len(groups)):
-        new_tuple = ("--bucket", args.bucket, "--sheet", args.sheet, "--project", args.project, "--group", groups[i])
+        new_tuple = ("--bucket", args.bucket, "--sheet", args.sheet, "--project", args.project, "--group", groups[i], "--csvofguidescan", args.csvofguidescan)
         commands_list.append(new_tuple)
     return commands_list
 
