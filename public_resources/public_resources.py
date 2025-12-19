@@ -254,8 +254,9 @@ def validate_raw_dbgap(url):
 
 
 def validate_raw_arrex(url):
-    acc = url.split('/')[-1]
     api_base = 'https://www.ebi.ac.uk/biostudies/api/v1'
+    raw_data_formats = ['.fastq.gz']
+    acc = url.split('/')[-1]
     q_url = f'{api_base}/studies/{acc}/info'
     r = requests.get(q_url).json()
     ftp_link = r['ftpLink']
