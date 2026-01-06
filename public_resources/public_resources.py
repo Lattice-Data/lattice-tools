@@ -5,6 +5,7 @@ import pandas as pd
 import re
 import requests
 import tarfile
+import time
 import xml.etree.ElementTree as ET
 
 
@@ -318,6 +319,7 @@ def insdc_meta(acc, arrex=False):
             url3 = f'{esearch_base}?db=sra&term={p}&retmode=json&retmax=100'
             r3 = requests.get(url3).json()
             idlist.update(r3['esearchresult']['idlist'])
+            time.sleep(1)
         idlist = list(idlist)
         sublists = [idlist[i:i+500] for i in range(0, len(idlist), 500)]
         for sub in sublists:
