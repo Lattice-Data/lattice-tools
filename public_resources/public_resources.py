@@ -7,6 +7,30 @@ import requests
 import tarfile
 import time
 import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
+
+def get_url_with_retry(url, max_retries=3, timeout=30, backoff_factor=2):
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            return response
+
+        except requests.exceptions.Timeout:
+            wait_time = backoff_factor ** attempt
+            if attempt < max_retries - 1:
+                time.sleep(wait_time)
+            else:
+                print(f'{max_retries} attempts')
+                return None
+
+        except requests.exceptions.RequestException as e:
+            print(f'Request error: {e}')
+            return None
+
+    return None
 
 
 def cleanhtml(raw_html):
@@ -151,40 +175,70 @@ def validate_raw_ega(url):
     return list(formats)
 
 
-def validate_raw_nemo(url):
-    raw_data_formats = ['fastq.tar']
+def get_nemo_bdbag(url):
+    r = requests.get(url)
+    with open('temp.tgz','wb') as f:
+        f.write(r.content)
+    file_list = []
+    tar = tarfile.open('temp.tgz', 'r:gz')
+    for item in tar:
+        if item.name.endswith('fetch.txt'):
+            tar.extract(item)
+            with open(item.name, 'r') as f:
+                for line in (f.read().split('\n')):
+                    file_list.append(line.split('\t')[0])
+            os.remove(item.name)
+            os.rmdir(item.name.split('/')[0])
+            os.remove('temp.tgz')
 
+    return file_list
+
+
+def gather_nemo_ids(url):
+    accs = []
     for df in pd.read_html(url):
-        if 'Field' in df.columns:
-            if 'Dataset Collection URL' in df['Field'].unique():
-                coll_url = df.loc[df['Field'] == 'Dataset Collection URL']['Value'].iloc[0]
-                if str(coll_url).endswith('.tgz'):
-                    r = requests.get(coll_url)
-                    with open('temp.tgz','wb') as f:
-                        f.write(r.content)
-                    file_list = []
-                    tar = tarfile.open('temp.tgz', 'r:gz')
-                    for item in tar:
-                        if item.name.endswith('fetch.txt'):
-                            tar.extract(item)
-                            with open(item.name, 'r') as f:
-                                for line in (f.read().split('\n')):
-                                    file_list.append(line.split('\t')[0])
-                            os.remove(item.name)
-                            os.rmdir(item.name.split('/')[0])
-                            os.remove('temp.tgz')
+        for c in ['ID','Collection ID']:
+            if c in df.columns:
+                accs.extend([i.split(':')[1] for i in df[c].unique()])
+
+    return accs
+
+
+def validate_raw_nemo(url):
+    raw_data_formats = ['fastq.gz','fastq.tar']
+    r = get_url_with_retry(url)
+    soup = BeautifulSoup(r.text, 'html.parser')
+
+    if 'data.nemoarchive.org' in url:
+        file_list = [a.get('href') for a in soup.find_all('a') if not a.get('href','?').startswith('?')]
+        raw_files = [f for f in file_list if f.endswith(tuple(raw_data_formats))]
+        if raw_files:
+            return True
+
+        subdirs = [urljoin(url, f) for f in file_list if f.endswith('/') and f not in url]
+        for s in subdirs:
+            if validate_raw_nemo(s):
+                return True
+
+    elif 'assets.nemoarchive.org' in url:
+        for a in soup.find_all('a'):
+            if 'Download BDBag' in a.text:
+                file_list = get_nemo_bdbag(a['href'])
+                raw_files = [f for f in file_list if f.endswith(tuple(raw_data_formats))]
+                if raw_files:
+                    return True
+
+        accs = gather_nemo_ids(url)
+        for a in accs:
+            url = 'https://assets.nemoarchive.org/' + a
+            r = requests.get(url)
+            soup = BeautifulSoup(r.text, 'html.parser')
+            for a in soup.find_all('a'):
+                if 'Download BDBag' in a.text:
+                    file_list = get_nemo_bdbag(a['href'])
                     raw_files = [f for f in file_list if f.endswith(tuple(raw_data_formats))]
                     if raw_files:
                         return True
-            else:
-                i = df.loc[df['Field'] == 'Identifier']['Value'].iloc[0].split(':')[1]
-                raw_present = validate_raw_nemo('https://assets.nemoarchive.org/' + i)
-                if raw_present == True:
-                    return True
-        elif 'Name' in df.columns:
-            raw_files = [f for f in df['Name'].unique() if str(f).endswith(tuple(raw_data_formats))]
-            if raw_files:
-                return True
 
     return False
 
