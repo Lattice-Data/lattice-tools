@@ -1,6 +1,5 @@
 import anndata as ad
 import dask.array as da
-import geopandas as gpd
 import h5py
 import json
 import matplotlib.pyplot as plt
@@ -9,8 +8,6 @@ import os
 import pandas as pd
 import re
 import scanpy as sc
-import spatialdata as sd
-import spatialdata_plot
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -20,8 +17,6 @@ from cellxgene_ontology_guide.ontology_parser import OntologyParser
 import cellxgene_schema.gencode as gencode
 import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
-from shapely.geometry import Point
-from spatialdata.transformations import Identity
 
 
 portal_uns_fields = [
@@ -594,7 +589,22 @@ def pick_embed(keys):
 def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
     '''
     Convert Visium AnnData object to SpatialData object with proper coordinate transformations.
+    
+    Due to complex package dependencies that prevent installing the below packages on JupyterHub,
+    this function will import only in this scope to allow the rest of cellxgene_mods to work
+    without issue.
     '''
+    try:
+        import geopandas as gpd
+        import spatialdata as sd
+        import spatialdata_plot
+        from shapely.geometry import Point
+        from spatialdata.transformations import Identity
+    except ImportError as e:
+        print(f"Cannot plot spatial data due to import error: {e}")
+        print("Please create local conda env according to lattice-tools readme")
+        return
+
     # Extract spatial coordinates and scale factors
     # Extract scalefactors and coordinates
     scalefactors = adata.uns['spatial'][library_id]['scalefactors']
@@ -643,7 +653,6 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
             transformations={'global': Identity()}
         )
         shapes[f'{library_id}_{image}'] = shapes_img
-
 
     # Create table (linked to hires by default)
     table_obs = adata.obs.copy()
@@ -1131,25 +1140,47 @@ def evaluate_var_df(adata):
     else:
         return
 
-    # Check the number of genes threshold base on biotype per specific organism
-    org_obj = [i for i in gencode.SupportedOrganisms if i.value==var_organisms[0]][0]
-    gene_checker = gencode.GeneChecker(org_obj)
-    num_genes_biotype = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
+    gene_count = len(adata.var)
+    # unpaired ATAC have no gene count criteria
+    if adata.obs['assay_ontology_term_id'].unique()[0] in ['EFO:0010891','EFO:0030007','EFO:0008925','EFO:0008904','EFO:0022045']:
+        return
+    elif 'EFO:0022606' in adata.obs['assay_ontology_term_id'].unique():
+        count_type = 'Flex'
+        warn_cut = 0.9
+        err_cut = 0.7
+        if var_organisms[0] == 'NCBITaxon:9606':
+            flex_v2_count = 18132
+            target_count = 18082
+        elif var_organisms[0] == 'NCBITaxon:10090':
+            flex_v2_count = 19070
+            target_count = 19059
 
-    fraction = len(adata.var.index)/num_genes_biotype 
-    if fraction < 0.4:
-        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction} (0.40 threshold)', 'ERROR')
-    elif fraction < 0.6:
-        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes, fraction: {fraction} (0.60 threshold)','WARNING')
+        if gene_count > flex_v2_count:
+            report(f'{gene_count} genes present, expecting at most {flex_v2_count} for Flex V2', 'ERROR')
+            return
     else:
-        report(f'{len(adata.var.index)} genes present, compared against {num_genes_biotype} 10x biotype genes; fraction: {fraction}', 'GOOD')
+        # Check the number of genes threshold base on biotype per specific organism
+        org_obj = [i for i in gencode.SupportedOrganisms if i.value==var_organisms[0]][0]
+        gene_checker = gencode.GeneChecker(org_obj)
+        target_count = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
+        count_type = '10x biotype'
+        warn_cut = 0.6
+        err_cut = 0.4
+
+    fraction = gene_count / target_count
+    percent = fraction * 100
+    if fraction < err_cut:
+        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}% ({err_cut} threshold)', 'ERROR')
+    elif fraction < warn_cut:
+        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}% ({warn_cut} threshold)','WARNING')
+    else:
+        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}%', 'GOOD')
 
     # Check the number of filtered genes
     if 'feature_is_filtered' in adata.var.columns:
-        num_filtered_genes = len(adata.var[adata.var.feature_is_filtered == True])
-        if num_filtered_genes/len(adata.var.index) >= 0.5:
-            report(f'50% or more genes are filtered', 'WARNING')
-        else:
-            report(f'Less than 50% of genes are filtered', 'GOOD')
+        if True in adata.var.feature_is_filtered.unique():
+            num_filtered_genes = len(adata.var[adata.var.feature_is_filtered == True])
+            frac_filtered = num_filtered_genes / gene_count * 100
+            print(f'{num_filtered_genes} ({frac_filtered:.1f}%) genes are filtered')
     else:
-        report('feature_is_filtered not found in var', 'WARNING')
+        report('feature_is_filtered not found in var', 'ERROR')
