@@ -1,0 +1,6 @@
+original_path,s3_path,notes
+/orig/path1,s3://czi-novogene/proj/order/GROUP1/raw/RUN01-GROUP1_GEX-UG01-BC01.csv,raw file
+/orig/path2,s3://czi-novogene/proj/order/GROUP1/raw/RUN01-GROUP1_GEX-UG01-BC01.json,raw file
+/orig/path3,s3://czi-novogene/proj/order/GROUP1/processed/cellranger/Run_2025-01-10/outs/web_summary.html,processed file
+/orig/path4,s3://czi-novogene/proj/order/GROUP2/raw/RUN01-GROUP2_GEX-UG01-BC02.csv,raw file
+/orig/path5,s3://czi-novogene/proj/order/GROUP2/processed/cellranger/Run_2025-01-10/outs/metrics_summary.csv,processed file

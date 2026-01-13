@@ -320,3 +320,55 @@ def parse_raw_filename(f):
     barcode = path[3].split('_')[0].split('.')[0]
 
     return run,group,assay,ug,barcode
+
+
+def load_files_from_manifest(
+    manifest_path: str,
+    delimiter: str,
+    s3_column: int,
+    has_header: bool = False
+):
+    """
+    Load S3 file paths from a CSV/TSV manifest file.
+
+    Args:
+        manifest_path: Path to the manifest file
+        delimiter: Field delimiter (',' for CSV, '\t' for TSV)
+        s3_column: Column index (0-based) containing S3 URIs
+        has_header: Whether the file has a header row to skip
+
+    Returns:
+        Tuple of:
+        - all_raw_files: List of raw file S3 keys (paths containing '/raw/')
+        - all_proc_files: Dict of {group: [processed file keys]} (paths containing '/processed/')
+    """
+    df = pd.read_csv(manifest_path, sep=delimiter, header=0 if has_header else None)
+    s3_uris = df.iloc[:, s3_column].tolist()
+
+    all_raw_files = []
+    all_proc_files = {}
+
+    for uri in s3_uris:
+        # Strip 's3://bucket-name/' prefix to get just the key
+        if uri.startswith('s3://'):
+            # s3://bucket-name/path/to/file -> path/to/file
+            parts = uri[5:].split('/', 1)  # Remove 's3://', split on first '/'
+            if len(parts) > 1:
+                key = parts[1]  # The key (path after bucket)
+            else:
+                continue  # Invalid URI, skip
+        else:
+            key = uri  # Assume it's already a key
+
+        # Separate into raw vs processed
+        if '/raw/' in key:
+            all_raw_files.append(key)
+        elif '/processed/' in key:
+            # Extract group name from path: .../GROUP/processed/...
+            path_before_processed = key.split('/processed/')[0]
+            group = path_before_processed.split('/')[-1]
+            if group not in all_proc_files:
+                all_proc_files[group] = []
+            all_proc_files[group].append(key)
+
+    return all_raw_files, all_proc_files
