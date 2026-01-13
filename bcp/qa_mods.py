@@ -380,26 +380,46 @@ def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
     os.remove('trimmer-failure_codes.csv')
 
 
-def parse_raw_filename(f):
-    path = f.split('/')[-1].split('-')
+def parse_raw_filename(f, raw_assay):
+    '''
+    For scale data, use regex for determining assay, and "group" is replaced by "experiment", and there is no "barcode". This is because
+    for scale data, all cram files within a single experiment will be used as input for a single run of SeqSuite.
+    Otherwise, parse filename, split by '-'
+    '''
+    filename = f.split('/')[-1]
+    path = filename.split('-')
     if len(path) < 3:
         return None
-
     run = path[0]
-    group_assay = path[1]
-    if group_assay.endswith('GEX_hash_oligo'):
-        assay = 'GEX_hash_oligo'
+
+    if raw_assay=='scale':
+        group = f.split('/')[2]
+        if re.search('GEX_hash_oligo', filename):
+            assay = 'GEX_hash_oligo'
+        elif re.search('oligo_hash', filename):
+            assay = 'hash_oligo'
+        elif re.search('hash_oligo', filename):
+            assay = 'hash_oligo'
+        elif re.search('GEX', filename):
+            assay = 'GEX'
+        ug = filename.split('_')[-2]
+        barcode = None
+
     else:
-        match = False
-        for v_a in valid_assays:
-            if group_assay.endswith(v_a):
-                assay = v_a
-                match = True
-        if not match:
-            assay = group_assay.split('_')[-1]
-    group = group_assay.replace(f'_{assay}','')
-    ug = path[2]
-    barcode = path[3].split('_')[0].split('.')[0]
+        group_assay = path[1]
+        if group_assay.endswith('GEX_hash_oligo'):
+            assay = 'GEX_hash_oligo'
+        else:
+            match = False
+            for v_a in valid_assays:
+                if group_assay.endswith(v_a):
+                    assay = v_a
+                    match = True
+            if not match:
+                assay = group_assay.split('_')[-1]
+        group = group_assay.replace(f'_{assay}','')
+        ug = path[2]
+        barcode = path[3].split('_')[0].split('.')[0]
 
     return run,group,assay,ug,barcode
 
