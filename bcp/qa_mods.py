@@ -96,7 +96,7 @@ cellranger_expected = {
                 'raw_feature_bc_matrix.h5',
                 'raw_molecule_info.h5'
             ],
-            'per_sample_outs': [
+            'per_sample': [
                 'sample_filtered_feature_bc_matrix/barcodes.tsv.gz',
                 'sample_filtered_feature_bc_matrix/features.tsv.gz',
                 'sample_filtered_feature_bc_matrix/matrix.mtx.gz',
@@ -134,7 +134,7 @@ cellranger_expected = {
                 'raw_molecule_info.h5',
                 'raw_probe_bc_matrix.h5'
             ],
-            'per_sample_outs': [
+            'per_sample': [
                 'crispr_analysis/protospacer_calls_per_cell.csv',
                 'metrics_summary.csv',
                 'sample_cloupe.cloupe',
@@ -321,8 +321,9 @@ def parse_web_summ(f):
         if data['library']['data']['crispr_tab']:
             report['extra'].append('CRISPR')
             crispr_tab = {f'crispr {row[0]}':row[1] for row in data['library']['data']['crispr_tab']['content']['parameters_table']['rows']}
-        if data['library']['data']['antibody_tab']:
-            report['extra'].append('Antibody')
+        if 'antibody_tab' in data['library']['data'].keys():
+            if data['library']['data']['antibody_tab']:
+                report['extra'].append('Antibody')
     if 'experimental_design' in data:
         for line in data['experimental_design']['csv'].split('\n'):
             if line.startswith('['):
@@ -344,13 +345,14 @@ def parse_web_summ(f):
     report['ref'] = gex_tab['transcriptome']
     if chem != 'Flex Gene Expression':
         report['incl_int'] = gex_tab['include introns'].lower()
-
+        
     if 'pipeline version' in gex_tab:
         report['software'] = gex_tab['pipeline version']
     elif 'pipeline_version' in data:
         report['software'] = 'cellranger-'+data['pipeline_version']
-    elif 'library' in data:
-        report['software'] = data['library']['data']['header_info']['Pipeline Version']
+    if 'library' in data:
+        if 'software' not in report:
+            report['software'] = data['library']['data']['header_info']['Pipeline Version']
         report['gex_alerts'] = data['library']['data']['gex_tab']['alerts']
         if data['library']['data']['crispr_tab']:
             report['crispr_alerts'] = data['library']['data']['crispr_tab']['alerts']
