@@ -398,8 +398,6 @@ def parse_raw_filename(f, raw_assay):
         group = f.split('/')[2]
         if re.search('GEX_hash_oligo', filename):
             assay = 'GEX_hash_oligo'
-        elif re.search('oligo_hash', filename):
-            assay = 'hash_oligo'
         elif re.search('hash_oligo', filename):
             assay = 'hash_oligo'
         elif re.search('GEX', filename):
