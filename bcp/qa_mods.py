@@ -26,54 +26,132 @@ valid_assays = [
 #https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-flex-outputs-frp
 #https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-outputs-gex-overview
 cellranger_expected = {
-    'nonflex': {
-        'outs': [
-            'config.csv',
-            'multi/count/feature_reference.csv',
-            'multi/count/raw_cloupe.cloupe',
-            'multi/count/raw_feature_bc_matrix.h5',
-            'multi/count/raw_feature_bc_matrix.tar.gz',
-            'multi/count/raw_molecule_info.h5',
-            'multi/count/unassigned_alignments.bam',
-            'multi/count/unassigned_alignments.bam.bai'
-        ],
-        'per_sample': [
-            'count/analysis.tar.gz',
-            'count/feature_reference.csv',
-            'count/sample_cloupe.cloupe',
-            'count/sample_alignments.bam',
-            'count/sample_alignments.bam.bai',
-            'count/sample_filtered_barcodes.csv',
-            'count/sample_filtered_feature_bc_matrix.h5',
-            'count/sample_filtered_feature_bc_matrix.tar.gz',
-            'count/sample_molecule_info.h5',
-            'metrics_summary.csv',
-            'web_summary.html'
-        ]
+    'cellranger-9.0.1':{
+        'nonflex': {
+            'outs': [
+                'config.csv',
+                'multi/count/feature_reference.csv',
+                'multi/count/raw_cloupe.cloupe',
+                'multi/count/raw_feature_bc_matrix.h5',
+                'multi/count/raw_feature_bc_matrix.tar.gz',
+                'multi/count/raw_molecule_info.h5',
+                'multi/count/unassigned_alignments.bam',
+                'multi/count/unassigned_alignments.bam.bai'
+            ],
+            'per_sample': [
+                'count/analysis.tar.gz',
+                'count/feature_reference.csv',
+                'count/sample_cloupe.cloupe',
+                'count/sample_alignments.bam',
+                'count/sample_alignments.bam.bai',
+                'count/sample_filtered_barcodes.csv',
+                'count/sample_filtered_feature_bc_matrix.h5',
+                'count/sample_filtered_feature_bc_matrix.tar.gz',
+                'count/sample_molecule_info.h5',
+                'metrics_summary.csv',
+                'web_summary.html'
+            ]
+        },
+        'flex': {
+            'outs': [
+                'config.csv',
+                'multi/count/raw_cloupe.cloupe',
+                'multi/count/raw_feature_bc_matrix.h5',
+                'multi/count/raw_feature_bc_matrix.tar.gz',
+                'multi/count/raw_molecule_info.h5',
+                'multi/count/raw_probe_bc_matrix.h5'
+            ],
+            'per_sample': [
+                'count/analysis.tar.gz',
+                'count/probe_set.csv',
+                'count/sample_cloupe.cloupe',
+                'count/sample_filtered_barcodes.csv',
+                'count/sample_filtered_feature_bc_matrix.h5',
+                'count/sample_filtered_feature_bc_matrix.tar.gz',
+                'count/sample_molecule_info.h5',
+                'count/sample_raw_feature_bc_matrix.h5',
+                'count/sample_raw_feature_bc_matrix.tar.gz',
+                'count/sample_raw_probe_bc_matrix.h5',
+                'metrics_summary.csv',
+                'web_summary.html'
+            ]
+        }
     },
-    'flex': {
-        'outs': [
-            'config.csv',
-            'multi/count/raw_cloupe.cloupe',
-            'multi/count/raw_feature_bc_matrix.h5',
-            'multi/count/raw_feature_bc_matrix.tar.gz',
-            'multi/count/raw_molecule_info.h5',
-            'multi/count/raw_probe_bc_matrix.h5'
-        ],
-        'per_sample': [
-            'count/analysis.tar.gz',
-            'count/probe_set.csv',
-            'count/sample_cloupe.cloupe',
-            'count/sample_filtered_barcodes.csv',
-            'count/sample_filtered_feature_bc_matrix.h5',
-            'count/sample_filtered_feature_bc_matrix.tar.gz',
-            'count/sample_molecule_info.h5',
-            'count/sample_raw_feature_bc_matrix.h5',
-            'count/sample_raw_feature_bc_matrix.tar.gz',
-            'count/sample_raw_probe_bc_matrix.h5',
-            'metrics_summary.csv',
-            'web_summary.html'
-        ]
+    'cellranger-10.0.0': {
+        'nonflex': {
+            'outs': [
+                'config.csv',
+                'filtered_feature_bc_matrix/barcodes.tsv.gz',
+                'filtered_feature_bc_matrix/features.tsv.gz',
+                'filtered_feature_bc_matrix/matrix.mtx.gz',
+                'filtered_feature_bc_matrix.h5',
+                'multiplexing_analysis/cells_per_tag.json',
+                'qc_library_metrics.csv',
+                'qc_report.html',
+                'qc_sample_metrics.csv',
+                'raw_cloupe.cloupe',
+                'raw_feature_bc_matrix/barcodes.tsv.gz',
+                'raw_feature_bc_matrix/features.tsv.gz',
+                'raw_feature_bc_matrix/matrix.mtx.gz',
+                'raw_feature_bc_matrix.h5',
+                'raw_molecule_info.h5'
+            ],
+            'per_sample': [
+                'sample_filtered_feature_bc_matrix/barcodes.tsv.gz',
+                'sample_filtered_feature_bc_matrix/features.tsv.gz',
+                'sample_filtered_feature_bc_matrix/matrix.mtx.gz',
+                'sample_raw_feature_bc_matrix/barcodes.tsv.gz',
+                'sample_raw_feature_bc_matrix/features.tsv.gz',
+                'sample_raw_feature_bc_matrix/matrix.mtx.gz',
+                'metrics_summary.csv',
+                'sample_cloupe.cloupe',
+                'sample_filtered_barcodes.csv',
+                'sample_filtered_feature_bc_matrix.h5',
+                'sample_molecule_info.h5',
+                'sample_raw_feature_bc_matrix.h5',
+                'web_summary.html'
+            ]
+        },
+        'flex': {
+            'outs':[
+                'config.csv',
+                'feature_reference.csv',
+                'filtered_feature_bc_matrix/barcodes.tsv.gz',
+                'filtered_feature_bc_matrix/features.tsv.gz',
+                'filtered_feature_bc_matrix/matrix.mtx.gz',
+                'filtered_feature_bc_matrix.h5',
+                'multiplexing_analysis/cells_per_tag.json',
+                'multiplexing_analysis/frp_gem_barcode_overlap.csv',
+                'probe_set.csv',
+                'qc_library_metrics.csv',
+                'qc_report.html',
+                'qc_sample_metrics.csv',
+                'raw_cloupe.cloupe',
+                'raw_feature_bc_matrix/barcodes.tsv.gz',
+                'raw_feature_bc_matrix/features.tsv.gz',
+                'raw_feature_bc_matrix/matrix.mtx.gz',
+                'raw_feature_bc_matrix.h5',
+                'raw_molecule_info.h5',
+                'raw_probe_bc_matrix.h5'
+            ],
+            'per_sample': [
+                'crispr_analysis/protospacer_calls_per_cell.csv',
+                'metrics_summary.csv',
+                'sample_cloupe.cloupe',
+                'sample_filtered_barcodes.csv',
+                'sample_filtered_feature_bc_matrix.h5',
+                'sample_filtered_feature_bc_matrix/barcodes.tsv.gz',
+                'sample_filtered_feature_bc_matrix/features.tsv.gz',
+                'sample_filtered_feature_bc_matrix/matrix.mtx.gz',
+                'sample_molecule_info.h5',
+                'sample_raw_feature_bc_matrix.h5',
+                'sample_raw_feature_bc_matrix/barcodes.tsv.gz',
+                'sample_raw_feature_bc_matrix/features.tsv.gz',
+                'sample_raw_feature_bc_matrix/matrix.mtx.gz',
+                'sample_raw_probe_bc_matrix.h5',
+                'web_summary.html'
+            ]
+        }
     },
     'count': {
         'outs': [
@@ -230,8 +308,10 @@ def parse_web_summ(f):
         report['sub'] = data['summary']['sample']['subcommand']
         gex_tab = {row[0].lower():row[1] for row in data['summary']['summary_tab']['pipeline_info_table']['rows']}
     else:
-        report['sub'] = data['sample']['subcommand']
         gex_tab = {row[0].lower():row[1] for row in data['library']['data']['gex_tab']['content']['parameters_table']['rows']}
+        if 'sample' in data:
+            report['sub'] = data['sample']['subcommand']
+
 
     chem = gex_tab['chemistry']
     report['chem'] = chemistries.get(chem, chem)
@@ -241,8 +321,9 @@ def parse_web_summ(f):
         if data['library']['data']['crispr_tab']:
             report['extra'].append('CRISPR')
             crispr_tab = {f'crispr {row[0]}':row[1] for row in data['library']['data']['crispr_tab']['content']['parameters_table']['rows']}
-        if data['library']['data']['antibody_tab']:
-            report['extra'].append('Antibody')
+        if 'antibody_tab' in data['library']['data'].keys():
+            if data['library']['data']['antibody_tab']:
+                report['extra'].append('Antibody')
     if 'experimental_design' in data:
         for line in data['experimental_design']['csv'].split('\n'):
             if line.startswith('['):
@@ -264,11 +345,14 @@ def parse_web_summ(f):
     report['ref'] = gex_tab['transcriptome']
     if chem != 'Flex Gene Expression':
         report['incl_int'] = gex_tab['include introns'].lower()
-
+        
     if 'pipeline version' in gex_tab:
         report['software'] = gex_tab['pipeline version']
-    elif 'library' in data:
-        report['software'] = data['library']['data']['header_info']['Pipeline Version']
+    elif 'pipeline_version' in data:
+        report['software'] = 'cellranger-'+data['pipeline_version']
+    if 'library' in data:
+        if 'software' not in report:
+            report['software'] = data['library']['data']['header_info']['Pipeline Version']
         report['gex_alerts'] = data['library']['data']['gex_tab']['alerts']
         if data['library']['data']['crispr_tab']:
             report['crispr_alerts'] = data['library']['data']['crispr_tab']['alerts']
@@ -298,26 +382,44 @@ def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
     os.remove('trimmer-failure_codes.csv')
 
 
-def parse_raw_filename(f):
-    path = f.split('/')[-1].split('-')
+def parse_raw_filename(f, raw_assay):
+    '''
+    For scale data, use regex for determining assay, and "group" is replaced by "experiment", and there is no "barcode". This is because
+    for scale data, all cram files within a single experiment will be used as input for a single run of SeqSuite.
+    Otherwise, parse filename, split by '-'
+    '''
+    filename = f.split('/')[-1]
+    path = filename.split('-')
     if len(path) < 3:
         return None
-
     run = path[0]
-    group_assay = path[1]
-    if group_assay.endswith('GEX_hash_oligo'):
-        assay = 'GEX_hash_oligo'
+
+    if raw_assay=='scale':
+        group = f.split('/')[2]
+        if re.search('GEX_hash_oligo', filename):
+            assay = 'GEX_hash_oligo'
+        elif re.search('hash_oligo', filename):
+            assay = 'hash_oligo'
+        elif re.search('GEX', filename):
+            assay = 'GEX'
+        ug = filename.split('_')[-2]
+        barcode = None
+
     else:
-        match = False
-        for v_a in valid_assays:
-            if group_assay.endswith(v_a):
-                assay = v_a
-                match = True
-        if not match:
-            assay = group_assay.split('_')[-1]
-    group = group_assay.replace(f'_{assay}','')
-    ug = path[2]
-    barcode = path[3].split('_')[0].split('.')[0]
+        group_assay = path[1]
+        if group_assay.endswith('GEX_hash_oligo'):
+            assay = 'GEX_hash_oligo'
+        else:
+            match = False
+            for v_a in valid_assays:
+                if group_assay.endswith(v_a):
+                    assay = v_a
+                    match = True
+            if not match:
+                assay = group_assay.split('_')[-1]
+        group = group_assay.replace(f'_{assay}','')
+        ug = path[2]
+        barcode = path[3].split('_')[0].split('.')[0]
 
     return run,group,assay,ug,barcode
 
