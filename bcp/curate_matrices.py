@@ -83,14 +83,44 @@ def getArgs():
 
 
 def download_files(s_dir, bucket, samp):
-    mx_h5 = f'{s_dir}/count/sample_filtered_feature_bc_matrix.h5'
+    """
+    Download needed cellranger files from S3. For cellranger v10, there is no "count" subdirectory
+    and crispr analysis is no longer tarred.
+    """
+    if s3_directory_exists(bucket, f'{s_dir}/count/'):
+        mx_h5 = f'{s_dir}/count/sample_filtered_feature_bc_matrix.h5'
+        cri_file = f'{s_dir}/count/crispr_analysis.tar.gz'
+    else:
+        mx_h5 = f'{s_dir}/sample_filtered_feature_bc_matrix.h5'
+        cri_file = f'{s_dir}/crispr_analysis/protospacer_calls_per_cell.csv'
+
     metrics_csv = f'{s_dir}/metrics_summary.csv'
-    cri_tar = f'{s_dir}/count/crispr_analysis.tar.gz'
     
-    for file_path in [mx_h5, metrics_csv, cri_tar]:
+    for file_path in [mx_h5, metrics_csv, cri_file]:
         f = file_path.split('/')[-1]
         full_path = os.path.join("temp_cellranger/",f"{samp}_{f}")
-        s3client.download_file(bucket, file_path, full_path)
+        if not os.path.isfile(full_path):
+            s3client.download_file(bucket, file_path, full_path)
+
+
+def s3_directory_exists(bucket_name, directory_path):
+    """
+    Checks if a 'directory' (prefix) is present in an S3 bucket.
+    """
+    s3_client = boto3.client('s3')
+    # Ensure the directory path ends with a slash if it's meant to be a folder
+    if not directory_path.endswith('/'):
+        directory_path += '/'
+
+    response = s3_client.list_objects_v2(
+        Bucket=bucket_name,
+        Prefix=directory_path,
+        MaxKeys=1
+    )
+
+    # The directory exists if the 'Contents' key is in the response
+    # and has at least one item, or if 'CommonPrefixes' is present.
+    return 'Contents' in response or 'CommonPrefixes' in response
 
 
 def custom_var_to_obs(adata):
@@ -122,7 +152,7 @@ def check_standard_presence(sample_df):
     '''
     required_columns = [
     'sample_name','sample_probe_barcode','is_pilot_data',
-    'donor_id', 'donor_living_at_sample_collection', 'donor_body_mass_index',
+    'donor_id', #'donor_living_at_sample_collection', 'donor_body_mass_index',
     'organism', 'sex', 'self_reported_ethnicity', 'disease', 'tissue', 'preservation_method',
     'development_stage', 'assay', 'tissue_type',
     'suspension_type']
@@ -145,9 +175,12 @@ def gather_crispr(samp):
     return df: dataframe containing crispr guide calling
     '''
     df = pd.DataFrame()
-    with tarfile.open(f'temp_cellranger/{samp}_crispr_analysis.tar.gz', 'r:gz') as tar:
-        f = tar.extractfile('protospacer_calls_per_cell.csv')
-        df = pd.read_csv(f).rename(columns={'num_umis':'num_umis_guide_id'})
+    if os.path.isfile(f'temp_cellranger/{samp}_protospacer_calls_per_cell.csv'):
+        df = pd.read_csv(f'temp_cellranger/{samp}_protospacer_calls_per_cell.csv').rename(columns={'num_umis':'num_umis_guide_id'})
+    else:
+        with tarfile.open(f'temp_cellranger/{samp}_crispr_analysis.tar.gz', 'r:gz') as tar:
+            f = tar.extractfile('protospacer_calls_per_cell.csv')
+            df = pd.read_csv(f).rename(columns={'num_umis':'num_umis_guide_id'})
     df['genetic_perturbation_id'] = df['feature_call'].apply(lambda x: x.replace('|',' || '))
     df['num_umis_guide_id'] = df['num_umis_guide_id'].apply(lambda x: x.replace('|',' || '))
     df = df[['cell_barcode','genetic_perturbation_id','num_umis_guide_id']].set_index('cell_barcode')
@@ -176,6 +209,8 @@ def gather_metrics(samp):
             df[c] = df[c].apply(lambda x: float(x.rstrip('%')) / 100)
         elif '%' in v:
             df.drop(columns=c, inplace=True)
+        elif v.startswith('0.'):
+            df[c] = df[c].apply(lambda x: float(x.replace(',','')))
         else:
             df[c] = df[c].apply(lambda x: int(x.replace(',','')))
 
@@ -387,6 +422,7 @@ def map_ontologies(sample_df):
     ### Could also replace with unknown for certain columns using fillna options?
     sample_df.fillna('na', inplace=True)
     sample_df.drop(columns=[c for c in sample_df.columns if c.startswith('!')], inplace=True)
+
     return sample_df
 
 
@@ -510,8 +546,9 @@ if __name__ == '__main__':
         ### Write to directories: curated and temp
         order = order.rstrip('/')
         adata.write(filename=f'curated_matrices/{lib}__{samp}__{order}__curated.h5ad', compression='gzip')
-        for file in [f'sample_filtered_feature_bc_matrix.h5', f'crispr_analysis.tar.gz', f'metrics_summary.csv']:
-            os.remove(f"temp_cellranger/{samp}_{file}")
+        # for file in [f'sample_filtered_feature_bc_matrix.h5', f'crispr_analysis.tar.gz', f'metrics_summary.csv', f'protospacer_calls_per_cell.csv']:
+        #     if os.path.isfile(f"temp_cellranger/{samp}_{file}"):
+        #         os.remove(f"temp_cellranger/{samp}_{file}")
 
 
 
