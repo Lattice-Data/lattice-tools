@@ -82,7 +82,7 @@ def getArgs():
     return args
 
 
-def download_files(s_dir, bucket, samp):
+def download_files(s_dir, bucket, lib_samp):
     """
     Download needed cellranger files from S3. For cellranger v10, there is no "count" subdirectory
     and crispr analysis is no longer tarred.
@@ -98,7 +98,7 @@ def download_files(s_dir, bucket, samp):
     
     for file_path in [mx_h5, metrics_csv, cri_file]:
         f = file_path.split('/')[-1]
-        full_path = os.path.join("temp_cellranger/",f"{samp}_{f}")
+        full_path = os.path.join("temp_cellranger/",f"{lib_samp}_{f}")
         if not os.path.isfile(full_path):
             s3client.download_file(bucket, file_path, full_path)
 
@@ -188,8 +188,8 @@ def gather_crispr(samp):
     return df
 
 
-def gather_metrics(samp):
-    df = pd.read_csv(f'temp_cellranger/{samp}_metrics_summary.csv')
+def gather_metrics(samp, lib_samp):
+    df = pd.read_csv(f'temp_cellranger/{lib_samp}_metrics_summary.csv')
     df['Metric'] = df.apply(lambda x: f"{x['Metric Name']}, {x['Library Type']}, {x['Category']}", axis=1)
 
     probe_barcodes = ' || '.join(df[
@@ -498,8 +498,9 @@ if __name__ == '__main__':
             if os.path.exists(d) == False:
                 os.mkdir(d)
         s_dir = f'{args.project}/{order}{lib}/processed/cellranger/{run_date}outs/per_sample_outs/{samp}'
-        download_files(s_dir, args.bucket, samp)
-        h5_file = f'temp_cellranger/{samp}_sample_filtered_feature_bc_matrix.h5'
+        lib_samp = f'{lib}_{samp}'
+        download_files(s_dir, args.bucket, lib_samp)
+        h5_file = f'temp_cellranger/{lib_samp}_sample_filtered_feature_bc_matrix.h5'
         adata = sc.read_10x_h5(h5_file, gex_only=True)
 
         ### Track additional tab gids from Lattice wrangling sheet
@@ -514,16 +515,16 @@ if __name__ == '__main__':
         
         adata.obs = adata.obs.merge(sample_df, on='sample_name', how='left').set_index(adata.obs.index)
         adata.uns['organism_ontology_term_id'] = adata.obs['organism_ontology_term_id'].unique()[0]
-        adata.uns['title'] = samp
+        adata.uns['title'] = lib_samp
         adata.obs.drop(columns=['organism_ontology_term_id'],inplace=True)
         adata.obs['is_primary_data'] = True
         
-        crispr_df = gather_crispr(samp)
+        crispr_df = gather_crispr(lib_samp)
         adata.obs = adata.obs.merge(
             crispr_df, left_index=True, right_index=True, how='left'
         ).set_index(adata.obs.index)
         
-        metrics_df = gather_metrics(samp)
+        metrics_df = gather_metrics(samp, lib_samp)
         for c in metrics_df.columns:
             adata.obs[c] = metrics_df[c].values[0]
         
@@ -546,9 +547,9 @@ if __name__ == '__main__':
         ### Write to directories: curated and temp
         order = order.rstrip('/')
         adata.write(filename=f'curated_matrices/{lib}__{samp}__{order}__curated.h5ad', compression='gzip')
-        # for file in [f'sample_filtered_feature_bc_matrix.h5', f'crispr_analysis.tar.gz', f'metrics_summary.csv', f'protospacer_calls_per_cell.csv']:
-        #     if os.path.isfile(f"temp_cellranger/{samp}_{file}"):
-        #         os.remove(f"temp_cellranger/{samp}_{file}")
+        for file in [f'sample_filtered_feature_bc_matrix.h5', f'crispr_analysis.tar.gz', f'metrics_summary.csv', f'protospacer_calls_per_cell.csv']:
+            if os.path.isfile(f"temp_cellranger/{samp}_{file}"):
+                os.remove(f"temp_cellranger/{samp}_{file}")
 
 
 
