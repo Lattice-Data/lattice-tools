@@ -548,8 +548,8 @@ if __name__ == '__main__':
         order = order.rstrip('/')
         adata.write(filename=f'curated_matrices/{lib}__{samp}__{order}__curated.h5ad', compression='gzip')
         for file in [f'sample_filtered_feature_bc_matrix.h5', f'crispr_analysis.tar.gz', f'metrics_summary.csv', f'protospacer_calls_per_cell.csv']:
-            if os.path.isfile(f"temp_cellranger/{samp}_{file}"):
-                os.remove(f"temp_cellranger/{samp}_{file}")
+            if os.path.isfile(f"temp_cellranger/{lib_samp}_{file}"):
+                os.remove(f"temp_cellranger/{lib_samp}_{file}")
 
 
 
