@@ -61,6 +61,13 @@ def getArgs():
         dest='input_file_list',
         help='CSV file list containing full URI S3 paths of files'
     )
+    parser.add_argument(
+        '--skip_down',
+        '-s',
+        action='store_true',
+        help = 'If present, script skips directly to uploading step' 
+        # For situations where uploads with split files fail, bypass re-splitting etc.
+    )
     args = parser.parse_args()
     if len(sys.argv) == 1:
         parser.print_help()
@@ -129,30 +136,42 @@ def parse_file_list(S3_list):
         reader = csv.reader(f)
         for row in reader:
             file_list.extend(row)
-        
-    single_files = []
+    
     paired_files = []
+    paired_file_paths = set()
     sorted_file_list = sorted(file_list)
-
+    
     for file_index_1 in range(len(sorted_file_list)):
-        if sorted_file_list[file_index_1] in [pair.file_2.S3_Path for pair in paired_files]:
-            continue # Don't compare second file to third if second file is already in a pair
-        for file_index_2 in range(file_index_1 + 1,len(sorted_file_list)):
-            file_1 = sorted_file_list[file_index_1]
+        file_1 = sorted_file_list[file_index_1]
+        if file_1 in paired_file_paths:
+            continue
+        for file_index_2 in range(file_index_1 + 1, len(sorted_file_list)):
             file_2 = sorted_file_list[file_index_2]
+            if file_2 in paired_file_paths:
+                continue
             if len(file_1) == len(file_2):
                 diff_count = 0
+                diff_index = -1
                 for i in range(len(file_1)):
                     if file_1[i] != file_2[i]:
-                        char_before = file_1[i-1]
                         diff_count += 1
+                        diff_index = i
                         if diff_count > 1:
                             break
-                if diff_count == 1 and char_before == 'R':
+                if diff_count == 1 and diff_index > 0 and file_1[diff_index - 1] == 'R':
                     paired_files.append(PairedFastQFiles(
-                        file_1 = get_file_info(sorted_file_list[file_index_1]),
-                        file_2 = get_file_info(sorted_file_list[file_index_2])
+                        file_1=get_file_info(file_1),
+                        file_2=get_file_info(file_2)
                     ))
+                    paired_file_paths.add(file_1)
+                    paired_file_paths.add(file_2)
+                    break
+    single_files = [
+        get_file_info(file_path) 
+        for file_path in sorted_file_list 
+        if file_path not in paired_file_paths
+    ]
+    
     return single_files, paired_files
 
 
@@ -340,57 +359,63 @@ async def Path_Setter(Full_File_List, download_folder):
     return failed_downloads, failed_splits, download_folder
 
 
-def main(aspera_info, csv_file):
+def main(aspera_info, csv_file, skip_download):
     logging.basicConfig(
         filename='Uploadosaur.log',
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
     logging.info('STARTING NEW RUN OF UPLOADOSAUR')
-    Full_File_List = []
-    Single_File_List, Paired_File_List = parse_file_list(csv_file)
-    if Single_File_List:
-        Single_File_List = split_setter(Single_File_List)
-        Full_File_List.extend(Single_File_List)
-    if Paired_File_List:
-        Paired_File_List = split_setter(Paired_File_List, paired=True)
-        for pair in Paired_File_List:
-            Full_File_List.append(pair.file_1)
-            Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
-    failed_downloads, failed_splits, download_folder = asyncio.run(Path_Setter(Full_File_List, aspera_info.folder))
-    if failed_downloads or failed_splits:
-        if failed_downloads:
-            print('The following files had download failures: \n')
-            logging.info('The following files had download failures: \n')
-            for f in failed_downloads:
-                print(f'{f} \n')
-                logging.info(f'{f} \n')
-        if failed_splits:
-            print('The following files failed during splitting: \n')
-            logging.info('The following files failed during splitting: \n')
-            for f in failed_splits:
-                print(f'{f} \n')
-                logging.info(f'{f} \n')
-        while True:
-            user_choice = input('With this in mind, do you still want to upload? (y/n): ').lower()
-            logging.info('With this in mind, do you still want to upload? (y/n): ')
-            logging.info(user_choice)
-            if user_choice == 'y':
-                print('Proceeding to upload')
-                logging.info('Proceeding to upload')
-                uploader(aspera_info, download_folder)
-                break 
-            elif user_choice == 'n':
-                print('Not proceeding with upload, terminating.')
-                logging.info('Not proceeding with upload, terminating')
-                break
-            else:
-                print("Invalid input. Please enter 'y' or 'n'.")
-                logging.info("Invalid input. Please enter 'y' or 'n'.")
-    else:
+    if not skip_download:
+        Full_File_List = []
+        Single_File_List, Paired_File_List = parse_file_list(csv_file)
+        if Single_File_List:
+            Single_File_List = split_setter(Single_File_List)
+            Full_File_List.extend(Single_File_List)
+        if Paired_File_List:
+            Paired_File_List = split_setter(Paired_File_List, paired=True)
+            for pair in Paired_File_List:
+                Full_File_List.append(pair.file_1)
+                Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
+        failed_downloads, failed_splits, download_folder = asyncio.run(Path_Setter(Full_File_List, aspera_info.folder))
+        if failed_downloads or failed_splits:
+            if failed_downloads:
+                print('The following files had download failures: \n')
+                logging.info('The following files had download failures: \n')
+                for f in failed_downloads:
+                    print(f'{f} \n')
+                    logging.info(f'{f} \n')
+            if failed_splits:
+                print('The following files failed during splitting: \n')
+                logging.info('The following files failed during splitting: \n')
+                for f in failed_splits:
+                    print(f'{f} \n')
+                    logging.info(f'{f} \n')
+            while True:
+                user_choice = input('With this in mind, do you still want to upload? (y/n): ').lower()
+                logging.info('With this in mind, do you still want to upload? (y/n): ')
+                logging.info(user_choice)
+                if user_choice == 'y':
+                    print('Proceeding to upload')
+                    logging.info('Proceeding to upload')
+                    uploader(aspera_info, download_folder)
+                    break 
+                elif user_choice == 'n':
+                    print('Not proceeding with upload, terminating.')
+                    logging.info('Not proceeding with upload, terminating')
+                    break
+                else:
+                    print("Invalid input. Please enter 'y' or 'n'.")
+                    logging.info("Invalid input. Please enter 'y' or 'n'.")
+        else:
             print('No download or split failures, proceeding with upload.')
             logging.info('No download or split failures, proceeding with upload.')
             uploader(aspera_info, download_folder)
+    else:
+        print('Skip download flag is present, skipping to upload')
+        logging.info('Skip download flag is present, skipping to upload')
+        download_folder = './' + aspera_info.folder + '/'
+        uploader(aspera_info, download_folder)
         
     
 
@@ -402,4 +427,4 @@ if __name__ == '__main__':
         account = args.account,
         folder = args.folder
         )
-    main(aspera_info,args.input_file_list)
+    main(aspera_info,args.input_file_list,args.skip_down)
