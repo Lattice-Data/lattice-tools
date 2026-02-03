@@ -8,6 +8,7 @@ from cellxgene_schema.write_labels import AnnDataLabelAppender
 from urllib.parse import quote
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
 from cellxgene_ontology_guide.supported_versions import CXGSchema, load_supported_versions
+from botocore.exceptions import ClientError
 import requests
 from io import BytesIO
 from urllib.request import Request,urlopen
@@ -110,20 +111,22 @@ def s3_directory_exists(bucket_name, directory_path):
     """
     Checks if a 'directory' (prefix) is present in an S3 bucket.
     """
-    s3_client = boto3.client('s3')
     # Ensure the directory path ends with a slash if it's meant to be a folder
-    if not directory_path.endswith('/'):
-        directory_path += '/'
-
-    response = s3_client.list_objects_v2(
-        Bucket=bucket_name,
-        Prefix=directory_path,
-        MaxKeys=1
-    )
-
-    # The directory exists if the 'Contents' key is in the response
-    # and has at least one item, or if 'CommonPrefixes' is present.
-    return 'Contents' in response or 'CommonPrefixes' in response
+    if directory_path.endswith('/'):
+        response = s3client.list_objects_v2(
+            Bucket=bucket_name,
+            Prefix=directory_path,
+            MaxKeys=1
+        )
+        # The directory exists if the 'Contents' key is in the response
+        # and has at least one item, or if 'CommonPrefixes' is present.
+        return 'Contents' in response or 'CommonPrefixes' in response
+    else:
+        try:
+            s3client.head_object(Bucket=bucket_name, Key=directory_path)
+            return True
+        except ClientError:
+            return False
 
 
 def custom_var_to_obs(adata):
