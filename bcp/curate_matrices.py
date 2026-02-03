@@ -89,7 +89,10 @@ def download_files(s_dir, bucket, lib_samp):
     """
     if s3_directory_exists(bucket, f'{s_dir}/count/'):
         mx_h5 = f'{s_dir}/count/sample_filtered_feature_bc_matrix.h5'
-        cri_file = f'{s_dir}/count/crispr_analysis.tar.gz'
+        if s3_directory_exists(bucket, f'{s_dir}/count/crispr_analysis.tar.gz'):
+            cri_file = f'{s_dir}/count/crispr_analysis.tar.gz'
+        else:
+            cri_file = f'{s_dir}/count/crispr_analysis/protospacer_calls_per_cell.csv'
     else:
         mx_h5 = f'{s_dir}/sample_filtered_feature_bc_matrix.h5'
         cri_file = f'{s_dir}/crispr_analysis/protospacer_calls_per_cell.csv'
