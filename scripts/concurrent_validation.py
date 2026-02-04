@@ -17,11 +17,14 @@ By default will collect h5ad files from lattice-tools/scripts directory
 Use argument -d --directory to specify other location
 Use argument -r --revised to only collect h5ad files with the '_revised.h5ad' suffix
 Use argument -t --testfile to select h5ads from a test_flattener input txt file
+Use argument -pa --pre-analysis to run pre-analysis validation
+Use arugment -i --ignore-labels to ignore ontological labels when validating
 
 Examples:
     python {SCRIPT_NAME} -d /mnt/test_files -r
     python {SCRIPT_NAME} --revised --directory /Users/me/Documents/curation/files
     python {SCRIPT_NAME} --testfile test_processed_matrix_files.txt
+    python {SCRIPT_NAME} --directory /home/shared/home/curated_matrices --pre-analysis --ignore-labels
 """
 
 def getArgs() -> argparse.Namespace:
@@ -48,6 +51,22 @@ def getArgs() -> argparse.Namespace:
         "-r",
         help="Add -r/--revised flag to filter for only '_revised.h5ad' files in directory",
         action="store_true",
+    )
+    parser.add_argument(
+        "--ignore-labels", 
+        "-i",
+        help="Ignore ontology labels when validating",
+        action="store_const",
+        const="-i",
+        default="",
+    )
+    parser.add_argument(
+        "--pre-analysis", 
+        "-pa",
+        help="Include pre-analysis validation requirements in validating the data",
+        action="store_const",
+        const="-pa",
+        default="",
     )
     args = parser.parse_args()
     return args
@@ -84,8 +103,16 @@ workers = min(len(files), CPU_COUNT)
 
 def validate(file_name: Path | str) -> None:
     full_path = ARGS.directory / file_name
+
+    # only add pre-analysis and ignore-labels if they exist, otherwise validtor errors
+    command = ["cellxgene-schema", "validate"]
+    for arg in [ARGS.pre_analysis, ARGS.ignore_labels]:
+        if arg:
+            command.append(arg)
+    command.append(full_path)
+
     validate = subprocess.run(
-        ["cellxgene-schema", "validate", full_path],
+        command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
