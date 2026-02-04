@@ -2,12 +2,14 @@ import argparse
 import multiprocessing
 import os
 import subprocess
+from pathlib import Path
 
 
 CPU_COUNT = os.cpu_count()
-DIR = os.path.dirname(os.path.realpath(__file__))
+FILE = Path(__file__).resolve()
+DIR = FILE.parent
+SCRIPT_NAME = FILE.name 
 PRINT_WIDTH = 113
-SCRIPT_NAME = os.path.basename(__file__) 
 
 EPILOG = f"""
 Script to run CXG validation in parallel.
@@ -31,6 +33,7 @@ def getArgs():
     parser.add_argument(
         "--directory", 
         "-d",
+        type=Path,
         help="Directory to collect h5ad files, default is lattice-tools/scripts or location of this script",
         default=DIR,
     )
@@ -54,23 +57,24 @@ def make_file_list(args):
     file_suffix = "_revised.h5ad" if args.revised else ".h5ad"
 
     if args.testfile:
-        assert args.testfile.endswith(".txt"), "Test file needs to be txt file"
-        with open(os.path.join(args.directory, args.testfile), "r") as f:
+        testfile_path = Path(DIR) / args.testfile
+        assert testfile_path.suffix == ".txt", "Test file needs to be txt file"
+        with open(testfile_path, "r") as f:
             test_files = [line.partition("#")[0].strip() for line in f if not line.startswith("#")]
 
         tested_h5ads = [
             f 
-            for f in os.listdir(args.directory) 
+            for f in args.directory.iterdir() 
             if any(
                 test_file in f 
                 for test_file in test_files
             ) 
-            and f.endswith(file_suffix) 
+            and f.name.endswith(file_suffix) 
         ]
 
         return tested_h5ads
     else:
-        files = [f for f in os.listdir(args.directory) if file_suffix in f]
+        files = [f for f in args.directory.iterdir() if f.name.endswith(file_suffix)]
         return files
 
 
@@ -79,7 +83,7 @@ files = make_file_list(ARGS)
 workers = min(len(files), CPU_COUNT)
 
 def validate(file_name):
-    full_path = os.path.join(ARGS.directory, file_name)
+    full_path = ARGS.directory / file_name
     validate = subprocess.run(
         ["cellxgene-schema", "validate", full_path],
         stdout=subprocess.PIPE,
