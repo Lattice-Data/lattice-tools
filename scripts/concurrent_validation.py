@@ -43,7 +43,7 @@ def getArgs() -> argparse.Namespace:
     parser.add_argument(
         "--testfile", 
         "-t",
-        help="Filter h5ads based on flattener testing input file",
+        help="Filter h5ads based on flattener testing input file. Test file should be in same directory as h5ads",
         default="",
     )
     parser.add_argument(
