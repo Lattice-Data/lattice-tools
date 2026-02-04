@@ -8,7 +8,7 @@ from pathlib import Path
 CPU_COUNT = os.cpu_count()
 FILE = Path(__file__).resolve()
 DIR = FILE.parent
-SCRIPT_NAME = FILE.name 
+SCRIPT_NAME = FILE.name
 PRINT_WIDTH = 113
 
 EPILOG = f"""
@@ -53,7 +53,7 @@ def getArgs() -> argparse.Namespace:
         action="store_true",
     )
     parser.add_argument(
-        "--ignore-labels", 
+        "--ignore-labels",
         "-i",
         help="Ignore ontology labels when validating",
         action="store_const",
@@ -61,7 +61,7 @@ def getArgs() -> argparse.Namespace:
         default="",
     )
     parser.add_argument(
-        "--pre-analysis", 
+        "--pre-analysis",
         "-pa",
         help="Include pre-analysis validation requirements in validating the data",
         action="store_const",
@@ -83,12 +83,12 @@ def make_file_list(args: argparse.Namespace) -> list[Path]:
 
         tested_h5ads = [
             f 
-            for f in args.directory.iterdir() 
+            for f in args.directory.iterdir()
             if any(
                 test_file in f 
                 for test_file in test_files
             ) 
-            and f.name.endswith(file_suffix) 
+            and f.name.endswith(file_suffix)
         ]
 
         return tested_h5ads
