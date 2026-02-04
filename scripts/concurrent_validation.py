@@ -76,7 +76,7 @@ def make_file_list(args: argparse.Namespace) -> list[Path]:
     file_suffix = "_revised.h5ad" if args.revised else ".h5ad"
 
     if args.testfile:
-        testfile_path = Path(DIR) / args.testfile
+        testfile_path = Path(args.directory) / args.testfile
         assert testfile_path.suffix == ".txt", "Test file needs to be txt file"
         with open(testfile_path, "r") as f:
             test_files = [line.partition("#")[0].strip() for line in f if not line.startswith("#")]
