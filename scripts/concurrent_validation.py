@@ -24,7 +24,7 @@ Examples:
     python {SCRIPT_NAME} --testfile test_processed_matrix_files.txt
 """
 
-def getArgs():
+def getArgs() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, 
         epilog=EPILOG,
@@ -53,7 +53,7 @@ def getArgs():
     return args
 
 
-def make_file_list(args):
+def make_file_list(args: argparse.Namespace) -> list[Path]:
     file_suffix = "_revised.h5ad" if args.revised else ".h5ad"
 
     if args.testfile:
@@ -82,7 +82,7 @@ ARGS = getArgs()
 files = make_file_list(ARGS)
 workers = min(len(files), CPU_COUNT)
 
-def validate(file_name):
+def validate(file_name: Path | str) -> None:
     full_path = ARGS.directory / file_name
     validate = subprocess.run(
         ["cellxgene-schema", "validate", full_path],
@@ -97,7 +97,7 @@ def validate(file_name):
     print("=" * PRINT_WIDTH + "\n")
 
 
-def validate_all_files(files):
+def validate_all_files(files: list[Path]) -> None:
     with multiprocessing.Pool(processes=workers) as pool:
         pool.map(validate, files)
 
