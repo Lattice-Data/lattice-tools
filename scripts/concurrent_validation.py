@@ -85,7 +85,7 @@ def make_file_list(args: argparse.Namespace) -> list[Path]:
             f 
             for f in args.directory.iterdir()
             if any(
-                test_file in f 
+                test_file in f.name 
                 for test_file in test_files
             ) 
             and f.name.endswith(file_suffix)
