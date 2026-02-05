@@ -1,7 +1,9 @@
 import argparse
+import logging
 import multiprocessing
 import os
 import subprocess
+from datetime import datetime
 from pathlib import Path
 
 
@@ -68,6 +70,12 @@ def getArgs() -> argparse.Namespace:
         const="-pa",
         default="",
     )
+    parser.add_argument(
+        "--log-output", 
+        "-lo",
+        help="Log validation output to file",
+        action="store_true",
+    )
     args = parser.parse_args()
     return args
 
@@ -101,6 +109,25 @@ ARGS = getArgs()
 files = make_file_list(ARGS)
 workers = min(len(files), CPU_COUNT)
 
+logger = logging.getLogger("concurrent_validation")
+time_date = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
+log_file = f"{time_date}_outfile_concurrent_validation.log"
+logger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler(log_file, mode='w')
+fh.setLevel(logging.INFO)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+
+file_formatter = logging.Formatter("%(message)s")
+console_formatter = logging.Formatter("%(message)s")
+ch.setFormatter(console_formatter)
+fh.setFormatter(file_formatter)
+
+logger.addHandler(ch)
+logger.addHandler(fh)
+
 def validate(file_name: Path | str) -> None:
     full_path = ARGS.directory / file_name
 
@@ -116,12 +143,12 @@ def validate(file_name: Path | str) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
-    print(f"Validation for {file_name}...")
+    logger.info(f"Validation for {file_name}...")
     for line in validate.stdout.decode('utf-8').split('\n'):
-        print(line)
+        logger.info(line)
     for line in validate.stderr.decode('utf-8').split('\n'):
-        print(line)
-    print("=" * PRINT_WIDTH + "\n")
+        logger.info(line)
+    logger.info("=" * PRINT_WIDTH + "\n")
 
 
 def validate_all_files(files: list[Path]) -> None:
@@ -131,6 +158,6 @@ def validate_all_files(files: list[Path]) -> None:
 
 if __name__ == "__main__":
     revised_str = " REVISED" if ARGS.revised else ""
-    print(f"\nFound {len(files)}{revised_str} h5ad(s) in {ARGS.directory} to validate")
-    print("=" * PRINT_WIDTH + "\n")
+    logger.info(f"\nFound {len(files)}{revised_str} h5ad(s) in {ARGS.directory} to validate")
+    logger.info("=" * PRINT_WIDTH + "\n")
     validate_all_files(files)
