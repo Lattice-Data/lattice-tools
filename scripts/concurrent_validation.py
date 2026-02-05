@@ -234,7 +234,6 @@ if __name__ == "__main__":
     # set up concurrent validation logger and first log messages
     logger = logging.getLogger("concurrent_validation")
     logger.debug("Logger thread started")
-    logger.debug(logging_config)
 
     revised_str = " REVISED" if ARGS.revised else ""
     logger.info(f"\nFound {len(files)}{revised_str} h5ad(s) in {ARGS.directory} to validate")
