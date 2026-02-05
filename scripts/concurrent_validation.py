@@ -128,6 +128,9 @@ def worker_init(queue: Queue):
 
 
 def make_file_list(args: argparse.Namespace) -> list[Path]:
+    """
+    Create list of paths for h5ad files to be validated
+    """
     file_suffix = "_revised.h5ad" if args.revised else ".h5ad"
 
     if args.testfile:
@@ -153,6 +156,10 @@ def make_file_list(args: argparse.Namespace) -> list[Path]:
 
 
 def validate(file_name: Path) -> None:
+    """
+    Worker function to validate with CXG validator
+    Supports pass-through pre-analysis and ignore labels flags
+    """
     full_path = ARGS.directory / file_name
 
     # only add pre-analysis and ignore-labels if they exist, otherwise validtor errors
@@ -177,6 +184,10 @@ def validate(file_name: Path) -> None:
 
 
 def validate_all_files(files: list[Path]) -> None:
+    """
+    Function to create worker pool.
+    Uses init function to allow workers access to logging queue
+    """
     with multiprocessing.Pool(
         processes=workers,
         initializer=worker_init,
@@ -198,7 +209,7 @@ if __name__ == "__main__":
     with open(DIR / "fragment_curator_mods" / "log_config_fragment_curator.yaml", "rt") as f:
         logging_config = yaml.safe_load(f.read())
 
-    time_date = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
+    time_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_file_name = f"{time_date}_outfile_concurrent_validation.log"
     logging_config["handlers"]["file"]["filename"] = log_file_name
     # no message format to just pass CXG validation logging to console and file
@@ -220,7 +231,7 @@ if __name__ == "__main__":
     )
     listener.start()
 
-    # set up fragment curator logger and first log messages
+    # set up concurrent validation logger and first log messages
     logger = logging.getLogger("concurrent_validation")
     logger.debug("Logger thread started")
     logger.debug(logging_config)
@@ -234,3 +245,7 @@ if __name__ == "__main__":
     logger.debug("Logger thread shutdown")
     logging_queue.put(STOP_SIGNAL)
     listener.join()
+
+    # just remove log file at end if unwanted, instead of complicated logging config modification
+    if not ARGS.log_output:
+        Path(log_file_name).unlink()
