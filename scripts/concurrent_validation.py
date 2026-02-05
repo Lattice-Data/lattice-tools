@@ -28,12 +28,14 @@ Use argument -r --revised to only collect h5ad files with the '_revised.h5ad' su
 Use argument -t --testfile to select h5ads from a test_flattener input txt file
 Use argument -pa --pre-analysis to run pre-analysis validation
 Use arugment -i --ignore-labels to ignore ontological labels when validating
+Use arugment -lo --log-output to log validation output to file
 
 Examples:
     python {SCRIPT_NAME} -d /mnt/test_files -r
     python {SCRIPT_NAME} --revised --directory /Users/me/Documents/curation/files
     python {SCRIPT_NAME} --testfile test_processed_matrix_files.txt
     python {SCRIPT_NAME} --directory /home/shared/home/curated_matrices --pre-analysis --ignore-labels
+    python {SCRIPT_NAME} --directory /home/shared/home/curated_matrices -pa -i --log-output
 """
 
 def getArgs() -> argparse.Namespace:
