@@ -89,7 +89,7 @@ def getArgs() -> argparse.Namespace:
     return args
 
 
-def logger_thread(queue: Queue):
+def logger_thread(queue: Queue) -> None:
     """
     Cleaned up logger thread that does not use manager (like in fragment curator)
     No exception handling, but seems to work for now
@@ -102,7 +102,7 @@ def logger_thread(queue: Queue):
         logger.handle(record)
 
 
-def create_logger(queue: Queue):
+def create_logger(queue: Queue) -> None:
     """
     Function to create logger in process workers
     For stream and file handling, best to set root logger in process
@@ -119,7 +119,7 @@ def create_logger(queue: Queue):
     root.propagate = False
 
 
-def worker_init(queue: Queue):
+def worker_init(queue: Queue) -> None:
     """
     Init function to get logging queue to individual process workers.
     Different from fragment curator where manager is used
