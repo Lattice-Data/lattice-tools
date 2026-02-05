@@ -1,16 +1,23 @@
 import argparse
 import logging
+import logging.config
+import logging.handlers
 import multiprocessing
 import os
 import subprocess
+import threading
 from datetime import datetime
+from multiprocessing import Queue
 from pathlib import Path
 
+import yaml
 
 CPU_COUNT = os.cpu_count()
 FILE = Path(__file__).resolve()
 DIR = FILE.parent
+LOG_QUEUE = None
 SCRIPT_NAME = FILE.name
+STOP_SIGNAL = None
 PRINT_WIDTH = 113
 
 EPILOG = f"""
@@ -80,6 +87,46 @@ def getArgs() -> argparse.Namespace:
     return args
 
 
+def logger_thread(queue: Queue):
+    """
+    Cleaned up logger thread that does not use manager (like in fragment curator)
+    No exception handling, but seems to work for now
+    """
+    while True:
+        record = queue.get()
+        if record is STOP_SIGNAL:
+            break
+        logger = logging.getLogger(record.name)
+        logger.handle(record)
+
+
+def create_logger(queue: Queue):
+    """
+    Function to create logger in process workers
+    For stream and file handling, best to set root logger in process
+    and then let the listener handle logger from queue
+
+    Now with yaml logger config, using fragment curator yaml with some 
+    modifications in the final __main__ block
+    """
+    handler = logging.handlers.QueueHandler(queue)
+    root = logging.getLogger()
+    root.handlers.clear()
+    root.addHandler(handler)
+    root.setLevel(logging.DEBUG)
+    root.propagate = False
+
+
+def worker_init(queue: Queue):
+    """
+    Init function to get logging queue to individual process workers.
+    Different from fragment curator where manager is used
+    """
+    global LOG_QUEUE
+    LOG_QUEUE = queue
+    create_logger(LOG_QUEUE)
+
+
 def make_file_list(args: argparse.Namespace) -> list[Path]:
     file_suffix = "_revised.h5ad" if args.revised else ".h5ad"
 
@@ -105,30 +152,7 @@ def make_file_list(args: argparse.Namespace) -> list[Path]:
         return files
 
 
-ARGS = getArgs()
-files = make_file_list(ARGS)
-workers = min(len(files), CPU_COUNT)
-
-logger = logging.getLogger("concurrent_validation")
-time_date = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
-log_file = f"{time_date}_outfile_concurrent_validation.log"
-logger.setLevel(logging.DEBUG)
-
-fh = logging.FileHandler(log_file, mode='w')
-fh.setLevel(logging.INFO)
-
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-
-file_formatter = logging.Formatter("%(message)s")
-console_formatter = logging.Formatter("%(message)s")
-ch.setFormatter(console_formatter)
-fh.setFormatter(file_formatter)
-
-logger.addHandler(ch)
-logger.addHandler(fh)
-
-def validate(file_name: Path | str) -> None:
+def validate(file_name: Path) -> None:
     full_path = ARGS.directory / file_name
 
     # only add pre-analysis and ignore-labels if they exist, otherwise validtor errors
@@ -140,24 +164,73 @@ def validate(file_name: Path | str) -> None:
 
     validate = subprocess.run(
         command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE
+        capture_output=True,
+        text=True,
     )
-    logger.info(f"Validation for {file_name}...")
-    for line in validate.stdout.decode('utf-8').split('\n'):
-        logger.info(line)
-    for line in validate.stderr.decode('utf-8').split('\n'):
-        logger.info(line)
-    logger.info("=" * PRINT_WIDTH + "\n")
+    logging.info(f"Validation for {file_name}...")
+    for line in validate.stdout.splitlines():
+        logging.info(line)
+    for line in validate.stderr.splitlines():
+        logging.info(line)
+
+    logging.info("=" * PRINT_WIDTH + "\n")
 
 
 def validate_all_files(files: list[Path]) -> None:
-    with multiprocessing.Pool(processes=workers) as pool:
+    with multiprocessing.Pool(
+        processes=workers,
+        initializer=worker_init,
+        initargs=(logging_queue,),
+    ) as pool:
         pool.map(validate, files)
 
 
+# need in global namespace for process workers to access values
+ARGS = getArgs()
+
+
 if __name__ == "__main__":
+    files = make_file_list(ARGS)
+    workers = min(len(files), CPU_COUNT)
+    logging_queue = Queue()
+
+    # resuing fragment curator logger with some changes for here
+    with open(DIR / "fragment_curator_mods" / "log_config_fragment_curator.yaml", "rt") as f:
+        logging_config = yaml.safe_load(f.read())
+
+    time_date = datetime.now().strftime("%m-%d-%Y_%H:%M:%S")
+    log_file_name = f"{time_date}_outfile_concurrent_validation.log"
+    logging_config["handlers"]["file"]["filename"] = log_file_name
+    # no message format to just pass CXG validation logging to console and file
+    logging_config["formatters"]["detailed"]["format"] = "%(message)s"
+    logging_config["formatters"]["simple"]["format"] = "%(message)s"
+    logging_config["loggers"] = {
+        "concurrent_validation": {
+            "level": "DEBUG",
+            "handlers": ["console", "file"],
+            "propagate": False
+        }
+    }
+    logging.config.dictConfig(logging_config)
+
+    listener = threading.Thread(
+        target=logger_thread, 
+        args=(logging_queue,),
+        daemon=True,
+    )
+    listener.start()
+
+    # set up fragment curator logger and first log messages
+    logger = logging.getLogger("concurrent_validation")
+    logger.debug("Logger thread started")
+    logger.debug(logging_config)
+
     revised_str = " REVISED" if ARGS.revised else ""
     logger.info(f"\nFound {len(files)}{revised_str} h5ad(s) in {ARGS.directory} to validate")
     logger.info("=" * PRINT_WIDTH + "\n")
+
     validate_all_files(files)
+
+    logger.debug("Logger thread shutdown")
+    logging_queue.put(STOP_SIGNAL)
+    listener.join()
