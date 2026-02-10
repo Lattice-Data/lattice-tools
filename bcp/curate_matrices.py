@@ -81,11 +81,18 @@ def getArgs():
         required=True
     )
     args = parser.parse_args()
-    # only exit if no args, since can now parse args from txt file
-    # sys.argv returns ['curate_matrices.py', {plus other args}]
-    if len(sys.argv) < 2:
-    	parser.print_help()
-    	sys.exit()
+
+    match sys.argv:
+        case ["%(prog)s", txt_input] if txt_input.startswith("@"):
+            print(f"Using args from {txt_input[1:]}")
+        case ["%(prog)s"]: 
+            parser.print_help()
+            print("No arguments provided")
+            sys.exit()
+        case ["%(prog)s", *other_args] if len(other_args) > 10:   # 5 required args + 5 required values
+            print("Too many arguments provided")
+            parser.print_help()
+            sys.exit()
 
     return args
 
