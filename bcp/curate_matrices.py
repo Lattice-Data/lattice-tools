@@ -8,6 +8,7 @@ from cellxgene_schema.write_labels import AnnDataLabelAppender
 from urllib.parse import quote
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
 from cellxgene_ontology_guide.supported_versions import CXGSchema, load_supported_versions
+from botocore.exceptions import ClientError
 import requests
 from io import BytesIO
 from urllib.request import Request,urlopen
@@ -15,6 +16,7 @@ from bs4 import BeautifulSoup
 import re
 import json
 import argparse
+import fsspec
 import sys
 sys.path.append(os.path.dirname(os.path.abspath('../cellxgene_resources')))
 from cellxgene_resources.cellxgene_mods import map_filter_gene_ids
@@ -87,9 +89,9 @@ def download_files(s_dir, bucket, lib_samp):
     Download needed cellranger files from S3. For cellranger v10, there is no "count" subdirectory
     and crispr analysis is no longer tarred.
     """
-    if s3_directory_exists(bucket, f'{s_dir}/count/'):
+    if FS.isdir(f'{bucket}/{s_dir}/count'):
         mx_h5 = f'{s_dir}/count/sample_filtered_feature_bc_matrix.h5'
-        if s3_directory_exists(bucket, f'{s_dir}/count/crispr_analysis.tar.gz'):
+        if FS.isfile(f'{bucket}/{s_dir}/count/crispr_analysis.tar.gz'):
             cri_file = f'{s_dir}/count/crispr_analysis.tar.gz'
         else:
             cri_file = f'{s_dir}/count/crispr_analysis/protospacer_calls_per_cell.csv'
@@ -104,26 +106,6 @@ def download_files(s_dir, bucket, lib_samp):
         full_path = os.path.join("temp_cellranger/",f"{lib_samp}_{f}")
         if not os.path.isfile(full_path):
             s3client.download_file(bucket, file_path, full_path)
-
-
-def s3_directory_exists(bucket_name, directory_path):
-    """
-    Checks if a 'directory' (prefix) is present in an S3 bucket.
-    """
-    s3_client = boto3.client('s3')
-    # Ensure the directory path ends with a slash if it's meant to be a folder
-    if not directory_path.endswith('/'):
-        directory_path += '/'
-
-    response = s3_client.list_objects_v2(
-        Bucket=bucket_name,
-        Prefix=directory_path,
-        MaxKeys=1
-    )
-
-    # The directory exists if the 'Contents' key is in the response
-    # and has at least one item, or if 'CommonPrefixes' is present.
-    return 'Contents' in response or 'CommonPrefixes' in response
 
 
 def custom_var_to_obs(adata):
@@ -452,6 +434,7 @@ def get_gid(sheet, tab_name):
 
 args = getArgs()
 s3client = boto3.client('s3')
+FS = fsspec.filesystem("s3")
 
 if __name__ == '__main__':
     
