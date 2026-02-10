@@ -164,6 +164,7 @@ def clean_list(row, exp_disease):
 
 	if disease_found:
 		if len(disease_found) > 1:
+			disease_found.sort()
 			disease = ' || '.join(disease_found)
 		else:
 			disease = disease_found[0]
