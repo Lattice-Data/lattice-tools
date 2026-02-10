@@ -1,29 +1,26 @@
-import boto3
-import numpy as np
-import os
-import pandas as pd
-import scanpy as sc
-import tarfile
-from cellxgene_schema.write_labels import AnnDataLabelAppender
-from urllib.parse import quote
-from cellxgene_ontology_guide.ontology_parser import OntologyParser
-from cellxgene_ontology_guide.supported_versions import CXGSchema, load_supported_versions
-from botocore.exceptions import ClientError
-import requests
-from io import BytesIO
-from urllib.request import Request,urlopen
-from bs4 import BeautifulSoup
-import re
-import json
 import argparse
-import fsspec
+import json
+import os
+import re
 import sys
+import tarfile
+from io import BytesIO
+from urllib.request import Request, urlopen
+
+import boto3
+import fsspec
+import numpy as np
+import pandas as pd
+import requests
+import scanpy as sc
+from bs4 import BeautifulSoup
+from cellxgene_ontology_guide.ontology_parser import OntologyParser
+from cellxgene_schema.write_labels import AnnDataLabelAppender
+
 sys.path.append(os.path.dirname(os.path.abspath('../cellxgene_resources')))
 from cellxgene_resources.cellxgene_mods import map_filter_gene_ids
 
-
-
-EPILOG = f"""
+EPILOG = """
 Script will take a single GroupID from a project on CZI S3 as input
 and create curated matrices for all subsamples of this GroupID. This will need to be
 run on JupyterHub to allow access to CZI S3 buckets and reference indices for Guidescan.
@@ -533,7 +530,7 @@ if __name__ == '__main__':
         ### Write to directories: curated and temp
         order = order.rstrip('/')
         adata.write(filename=f'curated_matrices/{lib}__{samp}__{order}__curated.h5ad', compression='gzip')
-        for file in [f'sample_filtered_feature_bc_matrix.h5', f'crispr_analysis.tar.gz', f'metrics_summary.csv', f'protospacer_calls_per_cell.csv']:
+        for file in ['sample_filtered_feature_bc_matrix.h5', 'crispr_analysis.tar.gz', 'metrics_summary.csv', 'protospacer_calls_per_cell.csv']:
             if os.path.isfile(f"temp_cellranger/{lib_samp}_{file}"):
                 os.remove(f"temp_cellranger/{lib_samp}_{file}")
 
