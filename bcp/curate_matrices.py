@@ -27,8 +27,14 @@ run on JupyterHub to allow access to CZI S3 buckets and reference indices for Gu
 The current assumption is that this is run on 10x Flex data, and will need to
 update anticipated directory structure if it is another 10x assay.
 
+Can also pass txt file with args in the following format within the txt file:
+One arg per line, with '=' between arg and value like follows:
+--bucket=czi-psomagen
+--project=marson-mapping-grns-perturb-seq
+
 Example:
     python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --group CD4i_R1L01 --csvofguidescan guidescan_out.csv
+    python curate_matrices.py @args.txt
 
 For more details:
     python %(prog)s --help
@@ -41,6 +47,7 @@ def getArgs():
         description=__doc__, 
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        fromfile_prefix_chars="@",
     )
     parser.add_argument(
         "--bucket", 
@@ -74,7 +81,9 @@ def getArgs():
         required=True
     )
     args = parser.parse_args()
-    if len(sys.argv) < 4:
+    # only exit if no args, since can now parse args from txt file
+    # sys.argv returns ['curate_matrices.py', {plus other args}]
+    if len(sys.argv) < 2:
     	parser.print_help()
     	sys.exit()
 
