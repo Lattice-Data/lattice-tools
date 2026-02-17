@@ -4,7 +4,10 @@ import os
 import re
 import sys
 import tarfile
+from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
+from urllib.parse import ParseResult, urlparse
 from urllib.request import Request, urlopen
 
 import anndata as ad
@@ -41,6 +44,39 @@ For more details:
     python %(prog)s --help
 
 """
+@dataclass
+class URIPath:
+    """
+    Dataclass to deal with S3 URIs and common metadata associated with them.
+    full_uri should be in the format {s3://bucket/key/...}
+    """
+    full_uri: str
+
+    def __post_init__(self):
+        self._parsed: ParseResult = urlparse(self.full_uri)
+        self.info: dict = FS.info(self.full_uri)
+        self.type: str = self.info["type"]
+        self.size: int = self.info["size"]
+
+    @property
+    def bucket(self) -> str:
+        return self._parsed.netloc
+    
+    @property
+    def key(self) -> str:
+        return self._parsed.path.lstrip("/")
+    
+    @property
+    def file_name(self) -> str | None:
+        if self.type == "file":
+            return self.full_uri.split("/")[-1]
+        return None
+
+    @property
+    def local_path(self) -> Path:
+        if self.file_name:
+            return TEMP_DIR / self.file_name
+        return TEMP_DIR
 
 
 def getArgs():
@@ -450,6 +486,7 @@ def get_gid(sheet, tab_name):
 args = getArgs()
 s3client = boto3.client('s3')
 FS = fsspec.filesystem("s3")
+TEMP_DIR = Path("temp_cellranger/")
 
 if __name__ == '__main__':
     
