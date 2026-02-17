@@ -7,6 +7,7 @@ import tarfile
 from io import BytesIO
 from urllib.request import Request, urlopen
 
+import anndata as ad
 import boto3
 import fsspec
 import numpy as np
@@ -290,7 +291,7 @@ def add_guide_metadata(adata, sheet, guide_gid, guidescan_output):
     return adata
 
 
-def determine_perturbation_strategy(adata):
+def determine_perturbation_strategy(adata: ad.AnnData) -> ad.AnnData:
     '''
     Assess feature_call from protospacer_calls_per_cell.csv, where if all guides
     assigned to a single cell are all control, then 'control'. Otherwise, it is "no perturbations"
@@ -304,21 +305,22 @@ def determine_perturbation_strategy(adata):
 
     :returns obj adata: modified adata to contain perturbation_strategy as cell metadata
     '''
-    adata.obs['genetic_perturbation_strategy_calculated'] = adata.obs['genetic_perturbation_id']
-    adata.obs['genetic_perturbation_strategy_calculated'] = adata.obs['genetic_perturbation_strategy_calculated'].apply(
-        lambda x: x.split(' || ') if pd.notna(x) else 'no perturbations'
-    )
-    adata.obs['genetic_perturbation_strategy_calculated'] = adata.obs['genetic_perturbation_strategy_calculated'].apply(
-        lambda x: [adata.uns['genetic_perturbations'][i]['role'] for i in x] if isinstance(x, list)
-            else x        
-    )
-    adata.obs['genetic_perturbation_strategy_calculated'] = adata.obs['genetic_perturbation_strategy_calculated'].apply(
-         lambda x: 'control' if isinstance(x, list) and 'targeting' not in set(x)
-            else x
-    )
-    adata.obs.loc[adata.obs['genetic_perturbation_strategy_calculated']=='control', 'genetic_perturbation_strategy'] = 'control'
-    adata.obs.loc[adata.obs['genetic_perturbation_strategy_calculated']=='no perturbations', 'genetic_perturbation_strategy'] = 'no perturbations'
-    adata.obs.drop(columns=['genetic_perturbation_strategy_calculated'], inplace=True)
+    calculated_col = "strategy_calculated"
+    adata.obs[calculated_col] = adata.obs['genetic_perturbation_id']
+
+    lambdas = [
+        lambda x: x.split(' || ') if pd.notna(x) else 'no perturbations',
+        lambda x: [adata.uns['genetic_perturbations'][i]['role'] for i in x] if isinstance(x, list) else x,
+        lambda x: 'control' if isinstance(x, list) and 'targeting' not in set(x) else x
+    ]
+
+    for rule in lambdas:
+        adata.obs[calculated_col] = adata.obs[calculated_col].apply(rule)
+
+    for value in ["control", "no perturbations"]:
+        adata.obs.loc[adata.obs[calculated_col]==value, 'genetic_perturbation_strategy'] = value
+
+    adata.obs.drop(columns=[calculated_col], inplace=True)
     
     return adata
 
