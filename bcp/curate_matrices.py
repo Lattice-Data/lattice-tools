@@ -44,6 +44,11 @@ For more details:
     python %(prog)s --help
 
 """
+
+
+TEMP_DIR = Path("temp_cellranger/")
+
+
 @dataclass
 class URIPath:
     """
@@ -51,6 +56,7 @@ class URIPath:
     full_uri should be in the format {s3://bucket/key/...}
     """
     full_uri: str
+    local_dir: Path = TEMP_DIR
 
     def __post_init__(self):
         self._parsed: ParseResult = urlparse(self.full_uri)
@@ -75,8 +81,8 @@ class URIPath:
     @property
     def local_path(self) -> Path:
         if self.file_name:
-            return TEMP_DIR / self.file_name
-        return TEMP_DIR
+            return self.local_dir / self.file_name
+        return self.local_dir
 
 
 def getArgs():
