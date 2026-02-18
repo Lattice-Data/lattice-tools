@@ -543,7 +543,6 @@ def get_gid(sheet, tab_name):
 args = getArgs()
 s3client = boto3.client('s3')
 FS = fsspec.filesystem("s3")
-TEMP_DIR = Path("temp_cellranger/")
 
 if __name__ == '__main__':
     
