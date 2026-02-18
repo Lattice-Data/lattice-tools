@@ -196,20 +196,19 @@ def download_files(s_dir, bucket, lib_samp):
     Download needed cellranger files from S3. For cellranger v10, there is no "count" subdirectory
     and crispr analysis is no longer tarred.
     """
-    if FS.isdir(f'{bucket}/{s_dir}/count'):
-        mx_h5 = f'{s_dir}/count/sample_filtered_feature_bc_matrix.h5'
-        if FS.isfile(f'{bucket}/{s_dir}/count/crispr_analysis.tar.gz'):
-            cri_file = f'{s_dir}/count/crispr_analysis.tar.gz'
-        else:
-            cri_file = f'{s_dir}/count/crispr_analysis/protospacer_calls_per_cell.csv'
-    else:
-        mx_h5 = f'{s_dir}/sample_filtered_feature_bc_matrix.h5'
-        cri_file = f'{s_dir}/crispr_analysis/protospacer_calls_per_cell.csv'
+    uri_stem = s_dir
+    mx_h5_file = "sample_filtered_feature_bc_matrix.h5"
+    cri_file = "crispr_analysis/protospacer_calls_per_cell.csv"
+    metrics_csv = "metrics_summary.csv"
 
-    metrics_csv = f'{s_dir}/metrics_summary.csv'
-    
-    for file_path in [mx_h5, metrics_csv, cri_file]:
+    if FS.isdir(f"{bucket}/{uri_stem}/count/"):
+        uri_stem = f"{uri_stem}/count"
+    if FS.isfile(f'{bucket}/{uri_stem}/crispr_analysis.tar.gz'):
+        cri_file = "crispr_analysis.tar.gz"
+
+    for file_path in [mx_h5_file, metrics_csv, cri_file]:
         f = file_path.split('/')[-1]
+        file_path = f"{uri_stem}/{file_path}"
         full_path = os.path.join("temp_cellranger/",f"{lib_samp}_{f}")
         if not os.path.isfile(full_path):
             s3client.download_file(bucket, file_path, full_path)
