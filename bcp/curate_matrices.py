@@ -85,6 +85,57 @@ class URIPath:
         return self.local_dir
 
 
+@dataclass
+class LatticeMetadata:
+    '''
+    Dataclass to hold and map ontologies to a Lattice metadata spreadsheet.
+    The functions allow for this object to read in a specific tab for a google sheet into a dataframe
+    Subset should be a dict with key as column to subset, and value to filter column on
+    '''
+    
+    sheet_id: str
+    tab_name: str
+    subset: dict[str, str] | None = None
+
+    def get_gid(self):
+        '''
+        Given sheet id and tab name, return gid
+        '''
+        sheet_url = f'https://docs.google.com/spreadsheets/d/{self.sheet_id}'
+        req = Request(sheet_url, headers={'User-Agent' : "Magic Browser"})
+        s = urlopen(req)
+        soup = BeautifulSoup(s, 'html.parser')
+        tab_ids = {}
+        pattern = re.compile('var bootstrapData = (.*?)};')
+        for s in soup.find_all('script'):
+            if pattern.search(str(s)):
+                d = pattern.search(str(s)).group()[20:-1]
+                data = json.loads(d)
+                for t in data['changes']['topsnapshot']:
+                    u = t[1].split('"')
+                    if len(u) > 5:
+                        tab_ids[u[5]] = u[1]
+        return tab_ids[self.tab_name]
+
+    def get_metadata_df(self):
+        '''
+        Given sheet id and gid, return lattice metadata in a dataframe
+        Subset if subset dictionary is present
+        '''
+        url = f'https://docs.google.com/spreadsheets/d/{self.sheet_id}/export?format=csv&gid={self.gid}'
+        response = requests.get(url)
+        sample_df = pd.read_csv(BytesIO(response.content), comment="#", dtype=str).dropna(axis=1,how='all')
+
+        if self.subset:
+            sample_df = sample_df[sample_df[self.subset["column"]] == self.subset["filter_value"]]
+
+        return sample_df
+
+    def __post_init__(self):
+        self.gid = self.get_gid()
+        self.metadata_df = self.get_metadata_df()
+
+
 def getArgs():
     parser = argparse.ArgumentParser(
         description=__doc__, 
