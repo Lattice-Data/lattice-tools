@@ -70,8 +70,13 @@ class URIPath:
     
     @property
     def key(self) -> str:
-        return self._parsed.path.lstrip("/")
+        return self._parsed.path.strip("/")
     
+    @property
+    def parts(self) -> list[str]:
+        """All S3 URI parts, including bucket and key"""
+        return [self.bucket, *[part.strip("/") for part in self.key.split("/")]]   
+
     @property
     def file_name(self) -> str | None:
         if self.type == "file":
