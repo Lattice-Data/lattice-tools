@@ -50,7 +50,7 @@ TEMP_DIR = Path("temp_cellranger/")
 
 
 @dataclass
-class PathMetadata:
+class BCPPathMetadata:
     """
     Dataclass to hold basic metadata for S3 URIs involved with BCP
     Extend as needed, currently these are the first 2-3 parts that
@@ -103,13 +103,13 @@ class URIPath:
         return self.local_dir
 
     @property
-    def path_metadata(self) -> PathMetadata | None:
+    def bcp_path_metadata(self) -> BCPPathMetadata | None:
         if (
             len(self.parts) > 2 and
             self.parts[0].startswith("czi-") and
             self.parts[2].startswith(["AN", "NV"])
         ):
-            return PathMetadata(
+            return BCPPathMetadata(
                 full_provider=self.parts[0],
                 provider=self.parts[0].strip("czi-"),
                 project_name=self.parts[1],
