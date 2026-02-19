@@ -107,7 +107,7 @@ class URIPath:
         if (
             len(self.parts) > 2 and
             self.parts[0].startswith("czi-") and
-            self.parts[2].startswith(["AN", "NV"])
+            self.parts[2].startswith(("AN", "NV"))
         ):
             return BCPPathMetadata(
                 full_provider=self.parts[0],
