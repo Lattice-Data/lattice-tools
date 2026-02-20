@@ -5,6 +5,7 @@ import sys
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+from typing import Self
 from urllib.parse import ParseResult, urlparse
 from urllib.request import Request, urlopen
 
@@ -23,7 +24,7 @@ class BCPBasePathMetadata:
     order_number: str
 
     @staticmethod
-    def pick_metadata_class(uri_parts: list[str]) -> BCPBasePathMetadata:
+    def pick_metadata_class(uri_parts: list[str]) -> Self:
         if "cellranger" in uri_parts:
             return TenXProcessedPathMeta
 
