@@ -23,15 +23,15 @@ class BCPBasePathMetadata:
     order_number: str
 
     @staticmethod
-    def pick_metadata_class(uri_path: URIPath) -> BCPBasePathMetadata:
-        if "cellranger" in uri_path.parts:
+    def pick_metadata_class(uri_parts: list[str]) -> BCPBasePathMetadata:
+        if "cellranger" in uri_parts:
             return TenXProcessedPathMeta
 
-        if "processed" in uri_path.parts:
+        if "processed" in uri_parts:
             return ScaleProcessedPathMeta
         
-        if "raw" in uri_path.parts:
-            if len(uri_path.parts) > 6:
+        if "raw" in uri_parts:
+            if len(uri_parts) > 6:
                 return ScaleRawPathMeta
             return TenXRawPathMeta
 
@@ -134,7 +134,7 @@ class URIPath:
             self.parts[2].startswith(("AN", "NV"))
         ):
             # pick class to generate standards input list
-            unbound_class = BCPBasePathMetadata.pick_metadata_class(self)
+            unbound_class = BCPBasePathMetadata.pick_metadata_class(self.parts)
 
             # pull args from correct class to get ordered standards input list
             standards_input = unbound_class.__dict__["__match_args__"]
