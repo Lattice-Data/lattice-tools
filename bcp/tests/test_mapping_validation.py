@@ -7,12 +7,16 @@ from pathlib import Path
 import pytest
 
 from mapping_validation import (
+    ASSAYS_10X,
     ASSAYS_SCALE,
     CANONICAL_ASSAY,
     MappingRow,
     _is_run_metadata,
     _normalize_sif_groupid,
+    build_assay_regex,
+    compare_groupid_assays,
     find_unmatched_sif_paths_10x,
+    get_assays,
     load_sif_library_assays,
     load_sif_scale_group_assays,
     parse_mapping_file,
@@ -767,4 +771,63 @@ def test_validate_s3_local_consistency_scale_qsr_partial_overlap_warning() -> No
     assert not res["errors"]
     warn_types = {w["type"] for w in res["warnings"]}
     assert "qsr_partial_mismatch_s3_local" in warn_types
+
+
+# ---------------------------------------------------------------------------
+# Refactored constants / helpers tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_assays_returns_base_set_for_10x() -> None:
+    """get_assays('10x') should return the family base without provider extras."""
+    assays = get_assays("10x")
+    assert assays == ASSAYS_10X
+    assert assays == {"GEX", "CRI", "ATAC"}
+
+
+def test_get_assays_extends_with_provider_extras() -> None:
+    """get_assays('10x', 'psomagen') should include viral_ORF."""
+    assays = get_assays("10x", "psomagen")
+    assert "viral_ORF" in assays
+    assert assays == {"GEX", "CRI", "ATAC", "viral_ORF"}
+
+
+def test_get_assays_novogene_equals_base_10x() -> None:
+    """Novogene has no extras for 10x, so result equals the base set."""
+    assert get_assays("10x", "novogene") == ASSAYS_10X
+
+
+def test_get_assays_unknown_family_raises() -> None:
+    """Unknown assay family should raise ValueError."""
+    with pytest.raises(ValueError, match="Unknown assay family"):
+        get_assays("unknown_family")
+
+
+def test_build_assay_regex_longest_first() -> None:
+    """build_assay_regex should sort longest-first to avoid partial matches."""
+    import re
+
+    regex = build_assay_regex(ASSAYS_SCALE)
+    m = re.match(regex, "GEX_hash_oligo")
+    assert m is not None
+    assert m.group(0) == "GEX_hash_oligo"
+
+
+def test_compare_groupid_assays_detects_missing_and_extra() -> None:
+    """compare_groupid_assays should report missing/extra GroupIDs and assays."""
+    expected = {
+        "G1": {"gex", "cri"},
+        "G2": {"gex"},
+    }
+    actual = {
+        "G1": {"gex"},
+        "G3": {"atac"},
+    }
+
+    result = compare_groupid_assays(expected, actual)
+
+    assert result["missing_groupids"] == {"G2"}
+    assert result["extra_groupids"] == {"G3"}
+    assert "G1" in result["missing_assays"]
+    assert result["missing_assays"]["G1"] == {"cri"}
 

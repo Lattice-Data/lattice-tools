@@ -4,19 +4,16 @@ import os
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Iterable, List, Set, Tuple
 
 from .constants import (
-    ASSAYS_10X_NOVOGENE,
-    ASSAYS_10X_PSOMAGEN,
     ASSAYS_SCALE,
     CANONICAL_ASSAY,
-    _10X_NOVOGENE_ASSAY_RE,
-    _10X_PSOMAGEN_ASSAY_RE,
-    _NOVOGENE_ORDER_RE,
-    _PSOMAGEN_ORDER_RE,
+    PROVIDER_BUCKET,
     _RUN_METADATA_RE,
-    _SCALE_ASSAY_RE,
+    build_assay_regex,
+    get_assays,
+    get_order_pattern,
 )
 from .parsing import MappingRow
 from .sif_io import load_sif_group_assays
@@ -25,6 +22,21 @@ from .sif_io import load_sif_group_assays
 def _is_run_metadata(s3_path: str) -> bool:
     """Return True if the S3 path's filename is a known run-level metadata file."""
     return bool(_RUN_METADATA_RE.match(os.path.basename(s3_path)))
+
+
+def _validate_provider(provider: str) -> str:
+    """Normalise and validate a provider name."""
+    provider = provider.lower()
+    if provider not in PROVIDER_BUCKET:
+        raise ValueError(
+            f"Unknown provider '{provider}', expected one of {sorted(PROVIDER_BUCKET)}"
+        )
+    return provider
+
+
+# ---------------------------------------------------------------------------
+# 10x raw S3 validation
+# ---------------------------------------------------------------------------
 
 
 def _build_10x_raw_s3_regex(provider: str, order_pattern: str, assay_re: str) -> re.Pattern[str]:
@@ -39,6 +51,16 @@ def _build_10x_raw_s3_regex(provider: str, order_pattern: str, assay_re: str) ->
     )
 
 
+def _get_10x_s3_regex(provider: str) -> Tuple[re.Pattern[str], set[str]]:
+    """Return (compiled_regex, valid_assays) for 10x raw S3 paths."""
+    provider = _validate_provider(provider)
+    valid_assays = get_assays("10x", provider)
+    assay_re = build_assay_regex(valid_assays)
+    order_pattern = get_order_pattern(provider)
+    regex = _build_10x_raw_s3_regex(provider, order_pattern, assay_re)
+    return regex, valid_assays
+
+
 def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     """
     Validate 10x-style raw S3 paths against the SOP for a given provider.
@@ -50,28 +72,12 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
 
     Where:
     - provider: 'novogene' or 'psomagen'
-    - order:
-        - novogene: NVUS#########-NN
-        - psomagen: ANNNNN...
-    - Assay:
-        - novogene: GEX, CRI, ATAC
-        - psomagen: GEX, CRI, ATAC, viral_ORF
+    - order: provider-specific pattern
+    - Assay: family-level assay set, optionally extended by provider
     - UG-BC: Z####-BARCODE (BARCODE is A/C/G/T only)
     """
-    provider = provider.lower()
-    if provider not in {"novogene", "psomagen"}:
-        raise ValueError(f"Unknown provider '{provider}', expected 'novogene' or 'psomagen'")
-
-    if provider == "novogene":
-        order_pattern = _NOVOGENE_ORDER_RE
-        valid_assays = ASSAYS_10X_NOVOGENE
-        assay_re = _10X_NOVOGENE_ASSAY_RE
-    else:
-        order_pattern = _PSOMAGEN_ORDER_RE
-        valid_assays = ASSAYS_10X_PSOMAGEN
-        assay_re = _10X_PSOMAGEN_ASSAY_RE
-
-    s3_regex = _build_10x_raw_s3_regex(provider, order_pattern, assay_re)
+    provider = _validate_provider(provider)
+    s3_regex, valid_assays = _get_10x_s3_regex(provider)
 
     errors: List[dict] = []
     warnings: List[dict] = []
@@ -83,7 +89,6 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     for row in mappings:
         total += 1
 
-        # Recognise run-level metadata files (not sample data)
         if _is_run_metadata(row.s3_path):
             metadata_count += 1
             continue
@@ -104,7 +109,6 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
         gd = m.groupdict()
         group_assays[gd["groupid"]].add(gd["assay"])
 
-        # GroupID consistency between path segment and filename prefix
         expected_prefix = f"/{gd['groupid']}/raw/{gd['runid']}-{gd['groupid']}_"
         if expected_prefix not in row.s3_path:
             errors.append(
@@ -128,7 +132,6 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
                 }
             )
 
-        # UG format is enforced by the regex; double-check barcode is A/C/G/T only (already enforced)
         if not re.fullmatch(r"[ACGT]+", gd["barcode"]):
             errors.append(
                 {
@@ -139,7 +142,6 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
                 }
             )
 
-        # Project naming convention: lower-case and hyphen-delimited per SOP
         project = gd["project"]
         if project != project.lower() or "_" in project:
             warnings.append(
@@ -173,15 +175,8 @@ def find_unmatched_sif_paths_10x(
     is absent, and paths that cannot be parsed at all (excluding known
     run-level metadata files), are collected and returned.
     """
-    provider = provider.lower()
-    if provider == "novogene":
-        order_pattern = _NOVOGENE_ORDER_RE
-        assay_re = _10X_NOVOGENE_ASSAY_RE
-    else:
-        order_pattern = _PSOMAGEN_ORDER_RE
-        assay_re = _10X_PSOMAGEN_ASSAY_RE
-
-    s3_regex = _build_10x_raw_s3_regex(provider, order_pattern, assay_re)
+    provider = _validate_provider(provider)
+    s3_regex, _ = _get_10x_s3_regex(provider)
 
     unmatched_by_group: dict[str, List[MappingRow]] = defaultdict(list)
     unparsed: List[MappingRow] = []
@@ -211,6 +206,241 @@ def find_unmatched_sif_paths_10x(
         "matched_sif": matched_sif,
         "metadata": metadata,
     }
+
+
+# ---------------------------------------------------------------------------
+# Scale raw validation
+# ---------------------------------------------------------------------------
+
+
+def _build_scale_s3_patterns() -> Tuple[re.Pattern[str], re.Pattern[str]]:
+    """Build and return the (sop_pattern, index_pattern) for Scale raw S3 paths."""
+    order_re = get_order_pattern("novogene")
+    assay_re = build_assay_regex(ASSAYS_SCALE)
+    sop = re.compile(
+        r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
+        rf"(?P<order>{order_re})/(?P<experiment_id>[^/]+)/raw/"
+        r"(?P<runid>\d+)/"
+        rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{assay_re})_(?P<ug_rt>QSR-\d+(?:-SCALEPLEX)?)"
+        r"(?P<suffix>.*)$"
+    )
+    idx = re.compile(
+        r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
+        rf"(?P<order>{order_re})/(?P<experiment_id>[^/]+)/raw/"
+        r"(?P<runid>\d+)/"
+        rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{assay_re})_(?P<index_seq>[ACGT]+)"
+        r"(?P<suffix>.*)$"
+    )
+    return sop, idx
+
+
+def validate_s3_scale_raw(mappings: Iterable[MappingRow]) -> dict:
+    """
+    Validate Novogene Scale/Quantum raw S3 paths against the SOP.
+
+    Two naming conventions are supported for the filename component:
+
+    1. SOP / UG_RT form:
+       {RunID}-{GroupID}_{Assay}_QSR-{N}[-SCALEPLEX]{suffix}
+
+    2. Index-direct form:
+       {RunID}-{GroupID}_{Assay}_{IndexSequence}{suffix}
+    """
+    sop_pattern, index_pattern = _build_scale_s3_patterns()
+
+    errors: List[dict] = []
+    warnings: List[dict] = []
+    total = 0
+    matched = 0
+    metadata_count = 0
+
+    for row in mappings:
+        total += 1
+        s3 = row.s3_path
+
+        if _is_run_metadata(s3):
+            metadata_count += 1
+            continue
+
+        if "hash_oliga" in s3.lower():
+            errors.append(
+                {
+                    "type": "invalid_assay",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "assay 'hash_oliga' is not valid (did you mean 'hash_oligo'?)",
+                }
+            )
+
+        m = sop_pattern.match(s3)
+        form = "sop"
+        if not m:
+            m = index_pattern.match(s3)
+            form = "index"
+
+        if not m:
+            warnings.append(
+                {
+                    "type": "parse_miss",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "S3 path does not match expected Scale raw SOP or index-direct pattern",
+                }
+            )
+            continue
+
+        matched += 1
+        gd = m.groupdict()
+        literal_assay = gd["assay"]
+
+        canonical = CANONICAL_ASSAY.get(literal_assay.lower())
+        if canonical and literal_assay != canonical:
+            errors.append(
+                {
+                    "type": "assay_casing",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"assay '{literal_assay}' violates SOP spelling '{canonical}'",
+                }
+            )
+
+        assay = canonical or literal_assay.lower()
+
+        if assay.lower() not in {a.lower() for a in ASSAYS_SCALE}:
+            errors.append(
+                {
+                    "type": "invalid_assay",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"assay '{assay}' is not valid for Scale "
+                    f"(expected one of {sorted(ASSAYS_SCALE)})",
+                }
+            )
+
+        if gd["runid"] != gd["runid2"]:
+            errors.append(
+                {
+                    "type": "runid_mismatch",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"runid mismatch between path '{gd['runid']}' and filename '{gd['runid2']}'",
+                }
+            )
+
+        if form == "sop":
+            ug_rt = gd["ug_rt"]
+            has_scaleplex = "SCALEPLEX" in ug_rt
+
+            if assay in {"hash_oligo", "GEX_hash_oligo"} and not has_scaleplex:
+                errors.append(
+                    {
+                        "type": "hash_oligo_scaleplex_mismatch",
+                        "line": row.line_num,
+                        "s3_path": s3,
+                        "detail": f"assay '{assay}' requires SCALEPLEX in UG_RT, got '{ug_rt}'",
+                    }
+                )
+
+            if assay == "GEX" and has_scaleplex:
+                errors.append(
+                    {
+                        "type": "gex_scaleplex_violation",
+                        "line": row.line_num,
+                        "s3_path": s3,
+                        "detail": f"assay 'GEX' must not include SCALEPLEX in UG_RT, got '{ug_rt}'",
+                    }
+                )
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "metadata_files": metadata_count,
+        "total": total,
+        "matched": matched,
+    }
+
+
+# ---------------------------------------------------------------------------
+# SIF completeness (shared + Scale-specific)
+# ---------------------------------------------------------------------------
+
+
+def compare_groupid_assays(
+    expected_group_assays: dict[str, set[str]],
+    actual_group_assays: dict[str, set[str]],
+) -> dict:
+    """Compare expected vs actual GroupID → assay-type mappings.
+
+    This is the core comparison logic shared between 10x and Scale SIF
+    validation.  Both sides use lower-cased assay names.
+
+    Returns a dict with:
+    - expected_groupids, actual_groupids
+    - missing_groupids, extra_groupids
+    - missing_assays, extra_assays  (per-GroupID)
+    - expected_group_assays, actual_group_assays  (pass-through)
+    """
+    expected_groupids = set(expected_group_assays.keys())
+    actual_groupids = set(actual_group_assays.keys())
+
+    missing_groupids = expected_groupids - actual_groupids
+    extra_groupids = actual_groupids - expected_groupids
+
+    missing_assays: dict[str, set[str]] = {}
+    extra_assays: dict[str, set[str]] = {}
+
+    for gid in expected_groupids & actual_groupids:
+        expected_a = expected_group_assays.get(gid, set())
+        actual_a = actual_group_assays.get(gid, set())
+        miss = expected_a - actual_a
+        extra = actual_a - expected_a
+        if miss:
+            missing_assays[gid] = miss
+        if extra:
+            extra_assays[gid] = extra
+
+    return {
+        "expected_groupids": expected_groupids,
+        "actual_groupids": actual_groupids,
+        "missing_groupids": missing_groupids,
+        "extra_groupids": extra_groupids,
+        "expected_group_assays": dict(expected_group_assays),
+        "actual_group_assays": dict(actual_group_assays),
+        "missing_assays": missing_assays,
+        "extra_assays": extra_assays,
+    }
+
+
+def validate_sif_completeness_scale(
+    mappings: Iterable[MappingRow], sif_path: str | Path
+) -> dict:
+    """
+    Compare Scale SIF GroupIDs and their assay types against S3 paths.
+
+    Each SIF row represents one assay for a GroupID (e.g. R112A/GEX and
+    R112A/Hash_oligo are two rows sharing the same GroupID).  This
+    validator checks that:
+    - Every GroupID in the SIF has at least one S3 path.
+    - Every assay type listed in the SIF for a GroupID is represented
+      in the S3 paths for that GroupID.
+    - No unexpected GroupIDs or assay types appear in S3.
+    """
+    expected_group_assays = load_sif_group_assays(sif_path)
+
+    sop_pattern, index_pattern = _build_scale_s3_patterns()
+
+    actual_group_assays: dict[str, set[str]] = defaultdict(set)
+    for row in mappings:
+        s3 = row.s3_path
+        m = sop_pattern.match(s3) or index_pattern.match(s3)
+        if not m:
+            continue
+        gd = m.groupdict()
+        group_id = gd["group_id"]
+        assay = gd["assay"].lower()
+        actual_group_assays[group_id].add(assay)
+
+    return compare_groupid_assays(expected_group_assays, dict(actual_group_assays))
 
 
 def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
@@ -311,7 +541,6 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
                     }
                 )
 
-            # QSR number consistency within directory level
             if gd["qsr_compact"] != gd["qsr_dash"]:
                 errors.append(
                     {
@@ -323,7 +552,6 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
                     }
                 )
 
-            # QSR number consistency within filename level
             if gd["qsr_compact2"] != gd["qsr_dash2"]:
                 errors.append(
                     {
@@ -335,7 +563,6 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
                     }
                 )
 
-            # Directory stem must match filename stem
             if gd["dir_stem"] != gd["file_stem"]:
                 errors.append(
                     {
@@ -347,7 +574,6 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
                     }
                 )
 
-            # SCALEPLEX consistency within each level
             if bool(gd["sp_compact"]) != bool(gd["sp_dash"]):
                 errors.append(
                     {
@@ -363,219 +589,6 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
         "warnings": warnings,
         "total": total,
         "matched": matched,
-    }
-
-
-def _build_scale_s3_patterns() -> Tuple[re.Pattern[str], re.Pattern[str]]:
-    """Build and return the (sop_pattern, index_pattern) for Scale raw S3 paths."""
-    sop = re.compile(
-        r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
-        rf"(?P<order>{_NOVOGENE_ORDER_RE})/(?P<experiment_id>[^/]+)/raw/"
-        r"(?P<runid>\d+)/"
-        rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{_SCALE_ASSAY_RE})_(?P<ug_rt>QSR-\d+(?:-SCALEPLEX)?)"
-        r"(?P<suffix>.*)$"
-    )
-    idx = re.compile(
-        r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
-        rf"(?P<order>{_NOVOGENE_ORDER_RE})/(?P<experiment_id>[^/]+)/raw/"
-        r"(?P<runid>\d+)/"
-        rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{_SCALE_ASSAY_RE})_(?P<index_seq>[ACGT]+)"
-        r"(?P<suffix>.*)$"
-    )
-    return sop, idx
-
-
-def validate_s3_scale_raw(mappings: Iterable[MappingRow]) -> dict:
-    """
-    Validate Novogene Scale/Quantum raw S3 paths against the SOP.
-
-    Two naming conventions are supported for the filename component:
-
-    1. SOP / UG_RT form:
-       {RunID}-{GroupID}_{Assay}_QSR-{N}[-SCALEPLEX]{suffix}
-
-    2. Index-direct form:
-       {RunID}-{GroupID}_{Assay}_{IndexSequence}{suffix}
-    """
-    sop_pattern, index_pattern = _build_scale_s3_patterns()
-
-    errors: List[dict] = []
-    warnings: List[dict] = []
-    total = 0
-    matched = 0
-    metadata_count = 0
-
-    for row in mappings:
-        total += 1
-        s3 = row.s3_path
-
-        # Recognise run-level metadata files (not sample data)
-        if _is_run_metadata(s3):
-            metadata_count += 1
-            continue
-
-        # Check for known typos early (before regex, since the typo prevents matching)
-        if "hash_oliga" in s3.lower():
-            errors.append(
-                {
-                    "type": "invalid_assay",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": "assay 'hash_oliga' is not valid (did you mean 'hash_oligo'?)",
-                }
-            )
-
-        m = sop_pattern.match(s3)
-        form = "sop"
-        if not m:
-            m = index_pattern.match(s3)
-            form = "index"
-
-        if not m:
-            warnings.append(
-                {
-                    "type": "parse_miss",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": "S3 path does not match expected Scale raw SOP or index-direct pattern",
-                }
-            )
-            continue
-
-        matched += 1
-        gd = m.groupdict()
-        literal_assay = gd["assay"]
-
-        # The regex anchors guarantee the assay is a known name.
-        # Check SOP canonical casing — any deviation is an SOP violation.
-        canonical = CANONICAL_ASSAY.get(literal_assay.lower())
-        if canonical and literal_assay != canonical:
-            errors.append(
-                {
-                    "type": "assay_casing",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": f"assay '{literal_assay}' violates SOP spelling '{canonical}'",
-                }
-            )
-
-        # Normalise for downstream SOP rule checks
-        assay = canonical or literal_assay.lower()
-
-        # Validate assay is in the Scale-allowed set
-        if assay.lower() not in {a.lower() for a in ASSAYS_SCALE}:
-            errors.append(
-                {
-                    "type": "invalid_assay",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": f"assay '{assay}' is not valid for Scale "
-                    f"(expected one of {sorted(ASSAYS_SCALE)})",
-                }
-            )
-
-        # RunID consistency between path segment and filename prefix
-        if gd["runid"] != gd["runid2"]:
-            errors.append(
-                {
-                    "type": "runid_mismatch",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": f"runid mismatch between path '{gd['runid']}' and filename '{gd['runid2']}'",
-                }
-            )
-
-        # UG_RT-specific SOP checks
-        if form == "sop":
-            ug_rt = gd["ug_rt"]
-            has_scaleplex = "SCALEPLEX" in ug_rt
-
-            if assay in {"hash_oligo", "GEX_hash_oligo"} and not has_scaleplex:
-                errors.append(
-                    {
-                        "type": "hash_oligo_scaleplex_mismatch",
-                        "line": row.line_num,
-                        "s3_path": s3,
-                        "detail": f"assay '{assay}' requires SCALEPLEX in UG_RT, got '{ug_rt}'",
-                    }
-                )
-
-            if assay == "GEX" and has_scaleplex:
-                errors.append(
-                    {
-                        "type": "gex_scaleplex_violation",
-                        "line": row.line_num,
-                        "s3_path": s3,
-                        "detail": f"assay 'GEX' must not include SCALEPLEX in UG_RT, got '{ug_rt}'",
-                    }
-                )
-
-    return {
-        "errors": errors,
-        "warnings": warnings,
-        "metadata_files": metadata_count,
-        "total": total,
-        "matched": matched,
-    }
-
-
-def validate_sif_completeness_scale(
-    mappings: Iterable[MappingRow], sif_path: str | Path
-) -> dict:
-    """
-    Compare Scale SIF GroupIDs and their assay types against S3 paths.
-
-    Each SIF row represents one assay for a GroupID (e.g. R112A/GEX and
-    R112A/Hash_oligo are two rows sharing the same GroupID).  This
-    validator checks that:
-    - Every GroupID in the SIF has at least one S3 path.
-    - Every assay type listed in the SIF for a GroupID is represented
-      in the S3 paths for that GroupID.
-    - No unexpected GroupIDs or assay types appear in S3.
-    """
-    expected_group_assays = load_sif_group_assays(sif_path)
-    expected_groupids = set(expected_group_assays.keys())
-
-    sop_pattern, index_pattern = _build_scale_s3_patterns()
-
-    actual_group_assays: dict[str, set[str]] = defaultdict(set)
-    for row in mappings:
-        s3 = row.s3_path
-        m = sop_pattern.match(s3) or index_pattern.match(s3)
-        if not m:
-            continue
-        gd = m.groupdict()
-        group_id = gd["group_id"]
-        assay = gd["assay"].lower()
-        actual_group_assays[group_id].add(assay)
-
-    actual_groupids = set(actual_group_assays.keys())
-    missing_groupids = expected_groupids - actual_groupids
-    extra_groupids = actual_groupids - expected_groupids
-
-    # Per-GroupID assay completeness
-    missing_assays: dict[str, set[str]] = {}
-    extra_assays: dict[str, set[str]] = {}
-
-    for gid in expected_groupids & actual_groupids:
-        expected_a = expected_group_assays.get(gid, set())
-        actual_a = actual_group_assays.get(gid, set())
-        miss = expected_a - actual_a
-        extra = actual_a - expected_a
-        if miss:
-            missing_assays[gid] = miss
-        if extra:
-            extra_assays[gid] = extra
-
-    return {
-        "expected_groupids": expected_groupids,
-        "actual_groupids": actual_groupids,
-        "missing_groupids": missing_groupids,
-        "extra_groupids": extra_groupids,
-        "expected_group_assays": dict(expected_group_assays),
-        "actual_group_assays": dict(actual_group_assays),
-        "missing_assays": missing_assays,
-        "extra_assays": extra_assays,
     }
 
 
@@ -605,27 +618,23 @@ def validate_s3_local_consistency_scale(mappings: Iterable[MappingRow]) -> dict:
         s3_lower = s3.lower()
         local_lower = local.lower()
 
-        # Extract run ID from S3 and wafer-like ID from local
         m_run = runid_pattern.search(s3)
         s3_runid = m_run.group(1) if m_run else None
 
         m_wafer = local_wafer_pattern.search(local)
         local_wafer = m_wafer.group(1) if m_wafer else None
 
-        # Extract all QSR numbers
         s3_qsr_nums = {int(n) for n in qsr_pattern.findall(s3)}
         local_qsr_nums = {int(n) for n in qsr_pattern.findall(local)}
 
         s3_scaleplex = "scaleplex" in s3_lower
         local_scaleplex = "scaleplex" in local_lower
 
-        # Decide whether this pair is "matched" enough to reason about
         if any([s3_runid, local_wafer, s3_qsr_nums, local_qsr_nums, s3_scaleplex, local_scaleplex]):
             matched += 1
         else:
             continue
 
-        # RunID vs wafer
         if s3_runid and local_wafer and s3_runid != local_wafer:
             errors.append(
                 {
@@ -637,7 +646,6 @@ def validate_s3_local_consistency_scale(mappings: Iterable[MappingRow]) -> dict:
                 }
             )
 
-        # QSR numbers
         if s3_qsr_nums and local_qsr_nums:
             inter = s3_qsr_nums & local_qsr_nums
             if not inter:
@@ -663,7 +671,6 @@ def validate_s3_local_consistency_scale(mappings: Iterable[MappingRow]) -> dict:
                     }
                 )
         elif s3_qsr_nums or local_qsr_nums:
-            # Only one side has QSR numbers – fuzzy warning.
             side = "S3" if s3_qsr_nums else "local"
             warnings.append(
                 {
@@ -676,7 +683,6 @@ def validate_s3_local_consistency_scale(mappings: Iterable[MappingRow]) -> dict:
                 }
             )
 
-        # SCALEPLEX presence
         if s3_scaleplex and not local_scaleplex:
             warnings.append(
                 {
@@ -706,19 +712,21 @@ def validate_s3_local_consistency_scale(mappings: Iterable[MappingRow]) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Library-assay consistency (10x)
+# ---------------------------------------------------------------------------
+
+
 def validate_library_assay_consistency(
     mappings: Iterable[MappingRow],
     lib_assays: dict[str, str],
     provider: str,
 ) -> dict:
     """Cross-check library names in local paths against S3 paths."""
-    provider = provider.lower()
-    if provider == "novogene":
-        order_pattern = _NOVOGENE_ORDER_RE
-        assay_re = _10X_NOVOGENE_ASSAY_RE
-    else:
-        order_pattern = _PSOMAGEN_ORDER_RE
-        assay_re = _10X_PSOMAGEN_ASSAY_RE
+    provider = _validate_provider(provider)
+    order_pattern = get_order_pattern(provider)
+    valid_assays = get_assays("10x", provider)
+    assay_re = build_assay_regex(valid_assays)
 
     s3_regex = re.compile(
         rf"^s3://czi-{re.escape(provider)}/[a-z0-9-]+/"
@@ -756,7 +764,6 @@ def validate_library_assay_consistency(
 
         checked += 1
 
-        # Check 1: library name must appear in the S3 GroupID
         if found_lib not in s3_groupid:
             groupid_mismatches.append(
                 {
@@ -768,7 +775,6 @@ def validate_library_assay_consistency(
                 }
             )
 
-        # Check 2: assay in S3 must match SIF expectation for this library
         expected_assay = lib_assays[found_lib]
         if s3_assay != expected_assay:
             assay_mismatches.append(
@@ -792,6 +798,7 @@ def validate_library_assay_consistency(
 
 __all__ = [
     "_is_run_metadata",
+    "compare_groupid_assays",
     "validate_s3_10x_raw",
     "find_unmatched_sif_paths_10x",
     "validate_local_paths_scale_raw",
@@ -800,4 +807,3 @@ __all__ = [
     "validate_s3_local_consistency_scale",
     "validate_library_assay_consistency",
 ]
-
