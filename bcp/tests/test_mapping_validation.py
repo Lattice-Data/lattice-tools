@@ -7,12 +7,17 @@ from pathlib import Path
 import pytest
 
 from mapping_validation import (
+    ASSAYS_SCALE,
+    CANONICAL_ASSAY,
     MappingRow,
+    _is_run_metadata,
+    load_sif_scale_group_assays,
     parse_mapping_file,
     validate_local_paths_scale_raw,
     validate_sif_completeness_scale,
     validate_s3_scale_raw,
     validate_s3_10x_raw,
+    validate_s3_local_consistency_scale,
     validate_uniqueness,
 )
 
@@ -187,7 +192,10 @@ def test_validate_local_paths_scale_raw_detects_qsr_mismatch() -> None:
 
 
 def test_validate_s3_scale_raw_flags_hash_oliga_typo() -> None:
-    """S3 Scale raw paths with 'Hash_oliga' should be treated as invalid assay."""
+    """S3 Scale raw paths with 'Hash_oliga' should be treated as invalid assay.
+
+    The typo prevents regex matching, but the error must still be reported.
+    """
     row = MappingRow(
         s3_path=(
             "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
@@ -199,7 +207,8 @@ def test_validate_s3_scale_raw_flags_hash_oliga_typo() -> None:
 
     result = validate_s3_scale_raw([row])
 
-    assert result["matched"] == 1
+    # The typo means the regex won't match, but the error is still captured
+    assert result["matched"] == 0
     error_types = {e["type"] for e in result["errors"]}
     assert "invalid_assay" in error_types
 
@@ -250,3 +259,312 @@ def test_validate_sif_completeness_scale_flags_missing_groupid(tmp_path: Path) -
 
     assert "R096B" in result["actual_groupids"]
     assert "R096A" in result["missing_groupids"]
+
+
+def test_validate_s3_local_consistency_scale_qsr_mismatch() -> None:
+    """Clearly different QSR numbers between S3 and local should be an error."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "441969-R096G_GEX_QSR-1-7A.json"
+        ),
+        local_path=(
+            "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
+            "441969-QSR7_QSR-7/441969-QSR7_QSR-7_7A.json"
+        ),
+        line_num=10,
+    )
+
+    res = validate_s3_local_consistency_scale([row])
+
+    error_types = {e["type"] for e in res["errors"]}
+    assert "qsr_mismatch_s3_local" in error_types
+
+
+def test_validate_s3_local_consistency_scale_scaleplex_warning() -> None:
+    """SCALEPLEX on S3 but not on local should be a warning, not an error."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "441969-R096A_hash_oligo_QSR-1-SCALEPLEX-8G.cram"
+        ),
+        local_path=(
+            "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
+            "441969-QSR1_QSR-1/441969-QSR1_QSR-1_8G.cram"
+        ),
+        line_num=11,
+    )
+
+    res = validate_s3_local_consistency_scale([row])
+
+    assert not res["errors"]
+    warn_types = {w["type"] for w in res["warnings"]}
+    assert "scaleplex_missing_in_local" in warn_types
+
+
+# --- V2 local path pattern tests ---
+
+
+def test_validate_local_paths_scale_raw_v2_gex_happy_path() -> None:
+    """V2 compact-QSR GEX local path should match and produce no errors."""
+    row = MappingRow(
+        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+        "439774-R112A_GEX_QSR-1-7A.json",
+        local_path=(
+            "/ORPROJ1/DATA1/V129/439774-20260220_2053/"
+            "439774-QSR1_QSR-1/439774-QSR1_QSR-1_7A.json"
+        ),
+        line_num=1,
+    )
+
+    result = validate_local_paths_scale_raw([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
+def test_validate_local_paths_scale_raw_v2_scaleplex_happy_path() -> None:
+    """V2 compact-QSR SCALEPLEX local path should match and produce no errors."""
+    row = MappingRow(
+        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+        "439774-R112A_Hash_oligo_QSR-1-SCALEPLEX-8G.cram",
+        local_path=(
+            "/ORPROJ1/DATA1/V129/439774-20260220_2053/"
+            "439774-QSR1SCALEPLEX_QSR-1-SCALEPLEX/"
+            "439774-QSR1SCALEPLEX_QSR-1-SCALEPLEX_8G.cram"
+        ),
+        line_num=6,
+    )
+
+    result = validate_local_paths_scale_raw([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
+def test_validate_local_paths_scale_raw_v2_detects_dir_file_mismatch() -> None:
+    """V2 path where directory stem differs from filename stem should be flagged."""
+    row = MappingRow(
+        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+        "439774-R112A_GEX_QSR-1-7A.json",
+        local_path=(
+            "/ORPROJ1/DATA1/V129/439774-20260220_2053/"
+            "439774-QSR1_QSR-1/439774-QSR2_QSR-2_7A.json"
+        ),
+        line_num=2,
+    )
+
+    result = validate_local_paths_scale_raw([row])
+
+    assert result["matched"] == 1
+    error_types = {e["type"] for e in result["errors"]}
+    assert "dir_file_mismatch" in error_types
+
+
+# --- Assay-anchored regex tests ---
+
+
+def test_validate_s3_scale_raw_correctly_parses_hash_oligo_group_id() -> None:
+    """Hash_oligo paths should parse group_id as R112A, not R112A_Hash.
+
+    The path uses 'Hash_oligo' (capital H) which violates SOP spelling
+    'hash_oligo', so an assay_casing error is expected — but the group_id
+    must still be correctly extracted as 'R112A'.
+    """
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+            "439774-R112A_Hash_oligo_QSR-1-SCALEPLEX-8G.cram"
+        ),
+        local_path="/local/path",
+        line_num=6,
+    )
+
+    result = validate_s3_scale_raw([row])
+
+    assert result["matched"] == 1
+    # Only error should be the casing violation — no structural errors
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["type"] == "assay_casing"
+    assert "'Hash_oligo' violates SOP spelling 'hash_oligo'" in result["errors"][0]["detail"]
+
+
+def test_validate_sif_completeness_scale_correct_group_ids(tmp_path: Path) -> None:
+    """SIF completeness should correctly parse GroupIDs from Hash_oligo paths."""
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
+    )
+    sif_path = tmp_path / "SIF.csv"
+    sif_path.write_text(sif_text)
+
+    mappings = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "439774-R112A_GEX_QSR-1-7A.json"
+            ),
+            local_path="/local/path",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "439774-R112A_Hash_oligo_QSR-1-SCALEPLEX-8G.cram"
+            ),
+            local_path="/local/path2",
+            line_num=6,
+        ),
+    ]
+
+    result = validate_sif_completeness_scale(mappings, sif_path)
+
+    # Both GEX and Hash_oligo should parse group_id as R112A (not R112A_Hash)
+    assert result["actual_groupids"] == {"R112A"}
+    assert result["missing_groupids"] == set()
+    assert result["extra_groupids"] == set()
+    # Both assay types present → no missing assays
+    assert result["missing_assays"] == {}
+    assert result["extra_assays"] == {}
+
+
+# --- SIF per-GroupID assay completeness tests ---
+
+
+def test_load_sif_scale_group_assays_returns_assay_mapping(tmp_path: Path) -> None:
+    """SIF loader should return a dict of GroupID → set of assay types."""
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
+        "R112B,QSR2,CGCATATCA,trapnell-seahub-bcp,GENE8-R112,R112B,GEX\n"
+        "R112B,QSR2SCALEPLEX,CTGCAGTGA,trapnell-seahub-bcp,GENE8-R112,R112B,Hash_oligo\n"
+    )
+    sif_path = tmp_path / "SIF.csv"
+    sif_path.write_text(sif_text)
+
+    result = load_sif_scale_group_assays(sif_path)
+
+    assert result == {
+        "R112A": {"gex", "hash_oligo"},
+        "R112B": {"gex", "hash_oligo"},
+    }
+
+
+def test_validate_sif_completeness_flags_missing_assay(tmp_path: Path) -> None:
+    """If GEX exists but Hash_oligo is missing for a GroupID, flag it."""
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
+    )
+    sif_path = tmp_path / "SIF.csv"
+    sif_path.write_text(sif_text)
+
+    # Only GEX is in S3 — Hash_oligo is missing
+    mappings = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "439774-R112A_GEX_QSR-1-7A.json"
+            ),
+            local_path="/local/path",
+            line_num=1,
+        ),
+    ]
+
+    result = validate_sif_completeness_scale(mappings, sif_path)
+
+    assert result["missing_groupids"] == set()
+    assert "R112A" in result["missing_assays"]
+    assert "hash_oligo" in result["missing_assays"]["R112A"]
+
+
+def test_validate_sif_completeness_no_missing_when_all_assays_present(tmp_path: Path) -> None:
+    """No missing assays when all SIF assay types are in S3."""
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
+    )
+    sif_path = tmp_path / "SIF.csv"
+    sif_path.write_text(sif_text)
+
+    mappings = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "439774-R112A_GEX_QSR-1-7A.json"
+            ),
+            local_path="/local/path",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "439774-R112A_hash_oligo_QSR-1-SCALEPLEX-8G.cram"
+            ),
+            local_path="/local/path2",
+            line_num=6,
+        ),
+    ]
+
+    result = validate_sif_completeness_scale(mappings, sif_path)
+
+    assert result["missing_assays"] == {}
+    assert result["extra_assays"] == {}
+
+
+# --- Metadata file recognition tests ---
+
+
+def test_is_run_metadata_recognizes_known_files() -> None:
+    """Known run-level metadata files should be recognized."""
+    assert _is_run_metadata("s3://bucket/path/raw/439774/439774_LibraryInfo.xml")
+    assert _is_run_metadata("s3://bucket/path/raw/439774/439774_SequencingInfo.json")
+    assert _is_run_metadata("s3://bucket/path/raw/439774/UploadCompleted.json")
+    assert _is_run_metadata("s3://bucket/path/raw/439774/merged_trimmer-stats.csv")
+    assert _is_run_metadata("s3://bucket/path/raw/439774/run_SecondaryAnalysis.txt")
+
+
+def test_is_run_metadata_rejects_sample_files() -> None:
+    """Sample data files should not be recognized as metadata."""
+    assert not _is_run_metadata(
+        "s3://bucket/path/raw/439774/439774-R112A_GEX_QSR-1-7A.json"
+    )
+    assert not _is_run_metadata(
+        "s3://bucket/path/raw/439774/439774-R112A_Hash_oligo_QSR-1-SCALEPLEX-8G.cram"
+    )
+
+
+def test_validate_s3_scale_raw_separates_metadata_files() -> None:
+    """Metadata files should be counted separately, not as parse misses."""
+    rows = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "439774-R112A_GEX_QSR-1-7A.json"
+            ),
+            local_path="/local/path1",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "439774_LibraryInfo.xml"
+            ),
+            local_path="/local/path2",
+            line_num=2,
+        ),
+    ]
+
+    result = validate_s3_scale_raw(rows)
+
+    assert result["matched"] == 1
+    assert result["metadata_files"] == 1
+    assert len(result["warnings"]) == 0
