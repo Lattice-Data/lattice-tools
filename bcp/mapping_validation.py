@@ -29,6 +29,7 @@ CLI entrypoint (examples):
 from __future__ import annotations
 
 import os
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +37,13 @@ from typing import Iterable, List, Tuple
 import argparse
 import re
 import sys
+
+warnings.filterwarnings(
+    "ignore",
+    message="Data Validation extension is not supported",
+    category=UserWarning,
+    module="openpyxl",
+)
 import pandas as pd
 
 # ---------------------------------------------------------------------------
@@ -58,23 +66,43 @@ CANONICAL_ASSAY: dict[str, str] = {
 
 # Regex alternation fragments used to anchor assay names inside S3 path
 # regexes. Longest alternatives come first to avoid partial matches.
-# [Hh] tolerates the common Hash_oligo vs hash_oligo casing variation.
-_SCALE_ASSAY_RE = r"GEX_[Hh]ash_oligo|[Hh]ash_oligo|GEX"
-_10X_NOVOGENE_ASSAY_RE = r"ATAC|CRI|GEX"
-_10X_PSOMAGEN_ASSAY_RE = r"viral_ORF|ATAC|CRI|GEX"
+# Case-insensitive matching via (?i:...) so that ANY casing variant is
+# captured (and then checked against the canonical SOP spelling).
+_SCALE_ASSAY_RE = r"(?i:GEX_hash_oligo|hash_oligo|GEX)"
+_10X_NOVOGENE_ASSAY_RE = r"(?i:ATAC|CRI|GEX)"
+_10X_PSOMAGEN_ASSAY_RE = r"(?i:viral_ORF|ATAC|CRI|GEX)"
 
-# Run-level metadata filenames expected alongside sample data in raw/ dirs.
+# Order number patterns (Novogene allows sub-order suffixes like -28-4)
+_NOVOGENE_ORDER_RE = r"NVUS\d+-\d+(?:-\d+)*"
+_PSOMAGEN_ORDER_RE = r"AN\d+"
+
+# Run-level metadata filenames expected alongside sample data.
+# The optional \d+_ prefix handles files placed at the order level
+# with a RunID prefix (e.g. 439844_UploadCompleted.json).
 _RUN_METADATA_RE = re.compile(
-    r"^(?:\d+_(?:LibraryInfo\.xml|SequencingInfo\.json)"
+    r"^(?:\d+_)?(?:"
+    r"LibraryInfo\.xml"
+    r"|SequencingInfo\.json"
     r"|UploadCompleted\.json"
     r"|merged_trimmer-(?:failure_codes|stats)\.csv"
-    r"|run_(?:SecondaryAnalysis|VariantCalling)\.txt)$"
+    r"|run_(?:SecondaryAnalysis|VariantCalling)\.txt"
+    r")$"
 )
 
 
 def _is_run_metadata(s3_path: str) -> bool:
     """Return True if the S3 path's filename is a known run-level metadata file."""
     return bool(_RUN_METADATA_RE.match(os.path.basename(s3_path)))
+
+
+def _normalize_sif_groupid(gid: str) -> str:
+    """Normalise a SIF Group Identifier to match the S3 directory convention.
+
+    SIF files for 10x use ``A + AF`` style (space-plus-space) while S3
+    paths join the same parts with underscores: ``A_AF``.  Scale SIFs
+    already use plain identifiers, so this is a no-op for them.
+    """
+    return gid.replace(" + ", "_")
 
 
 @dataclass(frozen=True)
@@ -204,13 +232,11 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
         raise ValueError(f"Unknown provider '{provider}', expected 'novogene' or 'psomagen'")
 
     if provider == "novogene":
-        # NVUS order numbers are of the form NVUS{digits}-{batch},
-        # but the exact digit count can vary, so keep this permissive.
-        order_pattern = r"NVUS\d+-\d+"
-        valid_assays = {"GEX", "CRI", "ATAC"}
+        order_pattern = _NOVOGENE_ORDER_RE
+        valid_assays = ASSAYS_10X_NOVOGENE
     else:
-        order_pattern = r"AN\d+"
-        valid_assays = {"GEX", "CRI", "ATAC", "viral_ORF"}
+        order_pattern = _PSOMAGEN_ORDER_RE
+        valid_assays = ASSAYS_10X_PSOMAGEN
 
     s3_regex = re.compile(
         rf"^s3://(?P<bucket>czi-{re.escape(provider)})/"
@@ -226,12 +252,19 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     warnings: List[dict] = []
     total = 0
     matched = 0
+    metadata_count = 0
+    group_assays: dict[str, set[str]] = defaultdict(set)
 
     for row in mappings:
         total += 1
+
+        # Recognise run-level metadata files (not sample data)
+        if _is_run_metadata(row.s3_path):
+            metadata_count += 1
+            continue
+
         m = s3_regex.match(row.s3_path)
         if not m:
-            # Not every mapping in a file must be 10x raw; record as a parse warning.
             warnings.append(
                 {
                     "type": "parse_miss",
@@ -244,6 +277,7 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
 
         matched += 1
         gd = m.groupdict()
+        group_assays[gd["groupid"]].add(gd["assay"])
 
         # GroupID consistency between path segment and filename prefix
         expected_prefix = f"/{gd['groupid']}/raw/{gd['runid']}-{gd['groupid']}_"
@@ -295,8 +329,10 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     return {
         "errors": errors,
         "warnings": warnings,
+        "metadata_files": metadata_count,
         "total": total,
         "matched": matched,
+        "group_assays": dict(group_assays),
     }
 
 
@@ -497,11 +533,9 @@ def validate_s3_scale_raw(mappings: Iterable[MappingRow]) -> dict:
     - total: number of mappings inspected
     - matched: number of S3 paths that matched either pattern
     """
-    order_pattern = r"NVUS\d+-\d+"
-
     sop_pattern = re.compile(
         r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
-        rf"(?P<order>{order_pattern})/(?P<experiment_id>[^/]+)/raw/"
+        rf"(?P<order>{_NOVOGENE_ORDER_RE})/(?P<experiment_id>[^/]+)/raw/"
         r"(?P<runid>\d+)/"
         rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{_SCALE_ASSAY_RE})_(?P<ug_rt>QSR-\d+(?:-SCALEPLEX)?)"
         r"(?P<suffix>.*)$"
@@ -509,7 +543,7 @@ def validate_s3_scale_raw(mappings: Iterable[MappingRow]) -> dict:
 
     index_pattern = re.compile(
         r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
-        rf"(?P<order>{order_pattern})/(?P<experiment_id>[^/]+)/raw/"
+        rf"(?P<order>{_NOVOGENE_ORDER_RE})/(?P<experiment_id>[^/]+)/raw/"
         r"(?P<runid>\d+)/"
         rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{_SCALE_ASSAY_RE})_(?P<index_seq>[ACGT]+)"
         r"(?P<suffix>.*)$"
@@ -635,19 +669,20 @@ def validate_s3_scale_raw(mappings: Iterable[MappingRow]) -> dict:
     }
 
 
-def load_sif_scale_group_assays(sif_path: str | Path) -> dict[str, set[str]]:
+def load_sif_group_assays(sif_path: str | Path) -> dict[str, set[str]]:
     """
     Load expected GroupID → {assay types} mapping from a SIF file.
 
     Each row in the SIF represents a sublibrary for a group identifier.
     The same group identifier appears once per assay type (e.g. GEX and
-    Hash_oligo for the same library).  This function returns a dict
-    mapping each GroupID to its set of assay types (normalised to lower-case).
+    CRI for 10x, or GEX and hash_oligo for Scale).  Returns a dict
+    mapping each GroupID (as it appears in the SIF) to its set of assay
+    types (normalised to lower-case).
 
     Falls back through three parsing strategies:
     1. Excel (.xlsx/.xlsm/.xls) with pandas
     2. Well-formed CSV with DictReader
-    3. Heuristic Ultima intake-style CSV
+    3. Heuristic Ultima intake-style CSV (Scale-specific)
     """
     import csv
 
@@ -732,29 +767,172 @@ def load_sif_scale_group_assays(sif_path: str | Path) -> dict[str, set[str]]:
     return dict(result)
 
 
+load_sif_scale_group_assays = load_sif_group_assays
+
+
 def load_sif_scale_groupids(sif_path: str | Path) -> set[str]:
     """
     Load expected GroupIDs for Scale libraries from a SIF file.
 
-    Convenience wrapper around :func:`load_sif_scale_group_assays` that
+    Convenience wrapper around :func:`load_sif_group_assays` that
     returns just the set of GroupIDs.
     """
-    return set(load_sif_scale_group_assays(sif_path).keys())
+    return set(load_sif_group_assays(sif_path).keys())
+
+
+def load_sif_library_assays(sif_path: str | Path) -> dict[str, str]:
+    """Load a Library-Name → assay-type mapping from a SIF file.
+
+    Returns a dict mapping each individual library name to its assay type
+    (lower-cased).  For 10x data the SIF typically has one row per
+    library, so ``FTF1732A`` → ``gex`` and ``FTF1732AF`` → ``cri``.
+    """
+    p = Path(sif_path)
+    result: dict[str, str] = {}
+
+    def _find_col(cols_lower: dict[str, str], keyword: str) -> str | None:
+        for key, name in cols_lower.items():
+            if keyword in key:
+                return name
+        return None
+
+    if p.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
+        try:
+            df = pd.read_excel(p)
+        except Exception:
+            df = None
+        if df is not None and not df.empty:
+            cols = {str(c).strip().lower(): c for c in df.columns}
+            lib_col = _find_col(cols, "library name")
+            assay_col = _find_col(cols, "assay type")
+            if lib_col is not None and assay_col is not None:
+                for _, row_data in df.iterrows():
+                    lib = str(row_data.get(lib_col, "")).strip()
+                    assay = str(row_data.get(assay_col, "")).strip()
+                    if lib and lib != "nan" and assay and assay != "nan":
+                        result[lib] = assay.lower()
+        if result:
+            return result
+
+    import csv
+    with p.open("r", encoding="utf-8", errors="ignore") as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames:
+            field_map = {name.lower(): name for name in reader.fieldnames}
+            lib_col_name = _find_col(field_map, "library name")
+            assay_col_name = _find_col(field_map, "assay type")
+            if lib_col_name is not None and assay_col_name is not None:
+                for row in reader:
+                    lib = (row.get(lib_col_name) or "").strip()
+                    assay = (row.get(assay_col_name) or "").strip()
+                    if lib and assay:
+                        result[lib] = assay.lower()
+
+    return result
+
+
+def validate_library_assay_consistency(
+    mappings: Iterable[MappingRow],
+    lib_assays: dict[str, str],
+    provider: str,
+) -> dict:
+    """Cross-check library names in local paths against S3 paths.
+
+    For each mapping row the function:
+    1. Parses the S3 path to extract the GroupID directory and assay.
+    2. Searches the local path for a SIF library name (longest-first
+       to avoid partial matches like ``FTF1732J`` inside ``FTF1732JF``).
+    3. Checks that the library name appears in the S3 GroupID (e.g.
+       ``FTF1732G`` must be part of ``FTF1732G_FTF1732GF``).
+    4. Compares the S3 assay with the expected assay from the SIF.
+
+    Returns a dict with ``checked``, ``assay_mismatches``,
+    ``groupid_mismatches``, and ``skipped``.
+    """
+    provider = provider.lower()
+    if provider == "novogene":
+        order_pattern = _NOVOGENE_ORDER_RE
+    else:
+        order_pattern = _PSOMAGEN_ORDER_RE
+
+    s3_regex = re.compile(
+        rf"^s3://czi-{re.escape(provider)}/[a-z0-9-]+/"
+        rf"{order_pattern}/(?P<groupid>[^/]+)/raw/"
+        r"\d+-.+?_(?P<assay>[A-Za-z_]+)-Z\d{4}-[ACGT]+"
+    )
+
+    libs_by_length = sorted(lib_assays.keys(), key=len, reverse=True)
+    lib_patterns = {lib: f"-{lib}-" for lib in libs_by_length}
+
+    assay_mismatches: List[dict] = []
+    groupid_mismatches: List[dict] = []
+    checked = 0
+    skipped = 0
+
+    for row in mappings:
+        if _is_run_metadata(row.s3_path):
+            continue
+        m = s3_regex.match(row.s3_path)
+        if not m:
+            continue
+
+        s3_assay = m.group("assay").lower()
+        s3_groupid = m.group("groupid")
+
+        found_lib: str | None = None
+        for lib in libs_by_length:
+            if lib_patterns[lib] in row.local_path:
+                found_lib = lib
+                break
+
+        if found_lib is None:
+            skipped += 1
+            continue
+
+        checked += 1
+
+        # Check 1: library name must appear in the S3 GroupID
+        if found_lib not in s3_groupid:
+            groupid_mismatches.append({
+                "line": row.line_num,
+                "library": found_lib,
+                "s3_groupid": s3_groupid,
+                "local_path": row.local_path,
+                "s3_path": row.s3_path,
+            })
+
+        # Check 2: assay in S3 must match SIF expectation for this library
+        expected_assay = lib_assays[found_lib]
+        if s3_assay != expected_assay:
+            assay_mismatches.append({
+                "line": row.line_num,
+                "library": found_lib,
+                "s3_assay": m.group("assay"),
+                "expected_assay": CANONICAL_ASSAY.get(expected_assay, expected_assay),
+                "local_path": row.local_path,
+                "s3_path": row.s3_path,
+            })
+
+    return {
+        "checked": checked,
+        "assay_mismatches": assay_mismatches,
+        "groupid_mismatches": groupid_mismatches,
+        "skipped": skipped,
+    }
 
 
 def _build_scale_s3_patterns() -> Tuple[re.Pattern, re.Pattern]:
     """Build and return the (sop_pattern, index_pattern) for Scale raw S3 paths."""
-    order_pattern = r"NVUS\d+-\d+"
     sop = re.compile(
         r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
-        rf"(?P<order>{order_pattern})/(?P<experiment_id>[^/]+)/raw/"
+        rf"(?P<order>{_NOVOGENE_ORDER_RE})/(?P<experiment_id>[^/]+)/raw/"
         r"(?P<runid>\d+)/"
         rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{_SCALE_ASSAY_RE})_(?P<ug_rt>QSR-\d+(?:-SCALEPLEX)?)"
         r"(?P<suffix>.*)$"
     )
     idx = re.compile(
         r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
-        rf"(?P<order>{order_pattern})/(?P<experiment_id>[^/]+)/raw/"
+        rf"(?P<order>{_NOVOGENE_ORDER_RE})/(?P<experiment_id>[^/]+)/raw/"
         r"(?P<runid>\d+)/"
         rf"(?P<runid2>\d+)-(?P<group_id>[A-Za-z0-9_-]+)_(?P<assay>{_SCALE_ASSAY_RE})_(?P<index_seq>[ACGT]+)"
         r"(?P<suffix>.*)$"
@@ -776,7 +954,7 @@ def validate_sif_completeness_scale(
       in the S3 paths for that GroupID.
     - No unexpected GroupIDs or assay types appear in S3.
     """
-    expected_group_assays = load_sif_scale_group_assays(sif_path)
+    expected_group_assays = load_sif_group_assays(sif_path)
     expected_groupids = set(expected_group_assays.keys())
 
     sop_pattern, index_pattern = _build_scale_s3_patterns()
@@ -1047,13 +1225,148 @@ def main() -> None:
     provider = args.provider
     if args.data == "raw" and args.assay == "10x":
         res = validate_s3_10x_raw(provider, mappings)
-        print(f"10x raw SOP: matched {res['matched']} S3 paths, "
-              f"{len(res['errors'])} errors, {len(res['warnings'])} warnings")
+        meta_count = res.get("metadata_files", 0)
+        s3_ga: dict[str, set[str]] = res.get("group_assays", {})
+        print(
+            f"10x raw SOP: matched {res['matched']} S3 paths, "
+            f"{len(res['errors'])} errors, {len(res['warnings'])} warnings"
+            + (f", {meta_count} run-metadata files" if meta_count else "")
+        )
         _print_issue_examples("10x raw SOP", res["errors"], "errors")
         _print_issue_examples("10x raw SOP", res["warnings"], "warnings")
+        if res["matched"] == 0:
+            print(
+                "  WARNING: none of the S3 paths matched the 10x raw pattern. "
+                "Check that the S3 paths follow the SOP naming convention."
+            )
+            fail_reasons.append("no S3 paths matched the 10x raw pattern (0 matched)")
+            exit_code = 1
         if res["errors"]:
             exit_code = 1
             fail_reasons.append(f"{len(res['errors'])} 10x S3 SOP errors")
+
+        # --- sanity printouts: GroupIDs and assays from S3 ---
+        if s3_ga:
+            print(f"S3 GroupIDs found: {len(s3_ga)}")
+            for gid in sorted(s3_ga):
+                assays_str = ", ".join(sorted(s3_ga[gid]))
+                print(f"  {gid}: {assays_str}")
+
+        # --- SIF comparison (when provided) ---
+        if args.sif:
+            sif_ga = load_sif_group_assays(args.sif)
+            sif_norm: dict[str, set[str]] = {
+                _normalize_sif_groupid(k): v for k, v in sif_ga.items()
+            }
+            sif_ids = set(sif_norm.keys())
+            s3_ids = set(s3_ga.keys())
+            missing_ids = sif_ids - s3_ids
+            extra_ids = s3_ids - sif_ids
+
+            print(
+                f"SIF completeness: expected={len(sif_ids)} GroupIDs, "
+                f"found={len(s3_ids)} in S3, "
+                f"missing={len(missing_ids)}, extra={len(extra_ids)}"
+            )
+
+            if missing_ids:
+                print("  Missing GroupIDs from S3 (in SIF but not S3): "
+                      + ", ".join(sorted(missing_ids)))
+                exit_code = 1
+                fail_reasons.append(
+                    f"{len(missing_ids)} SIF GroupIDs missing from S3: "
+                    + ", ".join(sorted(missing_ids))
+                )
+            if extra_ids:
+                print("  Extra GroupIDs in S3 (not in SIF): "
+                      + ", ".join(sorted(extra_ids)))
+                exit_code = 1
+                fail_reasons.append(
+                    f"{len(extra_ids)} extra GroupIDs in S3 not in SIF: "
+                    + ", ".join(sorted(extra_ids))
+                )
+
+            # Per-GroupID assay comparison
+            missing_assays: dict[str, set[str]] = {}
+            extra_assays: dict[str, set[str]] = {}
+            for gid in sif_ids & s3_ids:
+                expected = sif_norm[gid]
+                actual = {a.lower() for a in s3_ga.get(gid, set())}
+                m_diff = expected - actual
+                e_diff = actual - expected
+                if m_diff:
+                    missing_assays[gid] = m_diff
+                if e_diff:
+                    extra_assays[gid] = e_diff
+
+            if missing_assays:
+                print("  GroupIDs with missing assay types in S3:")
+                for gid in sorted(missing_assays):
+                    print(f"    {gid}: missing {sorted(missing_assays[gid])}")
+                exit_code = 1
+                fail_reasons.append(
+                    f"{len(missing_assays)} GroupIDs have missing assay types in S3"
+                )
+            if extra_assays:
+                print("  GroupIDs with unexpected assay types in S3 (not in SIF):")
+                for gid in sorted(extra_assays):
+                    print(f"    {gid}: unexpected {sorted(extra_assays[gid])}")
+
+            # Summary of expected SIF structure
+            unique_combos: set[frozenset[str]] = set()
+            for assays in sif_norm.values():
+                unique_combos.add(frozenset(assays))
+            combos_desc = [
+                " + ".join(CANONICAL_ASSAY.get(a, a) for a in sorted(c))
+                for c in sorted(unique_combos, key=sorted)
+            ]
+            print(f"  SIF assay combinations: {', '.join(combos_desc)}")
+
+            # Library-level cross-checks (assay + GroupID consistency)
+            lib_assays = load_sif_library_assays(args.sif)
+            if lib_assays:
+                lib_res = validate_library_assay_consistency(
+                    mappings, lib_assays, provider
+                )
+                n_assay = len(lib_res["assay_mismatches"])
+                n_gid = len(lib_res["groupid_mismatches"])
+                print(
+                    f"Library consistency: checked {lib_res['checked']} paths, "
+                    f"{n_assay} assay mismatches, {n_gid} GroupID mismatches"
+                    + (f", {lib_res['skipped']} skipped (no library name found)"
+                       if lib_res["skipped"] else "")
+                )
+                if n_gid:
+                    print("  GroupID mismatches (library in local path not in S3 GroupID):")
+                    for item in lib_res["groupid_mismatches"][:10]:
+                        print(
+                            f"    line {item['line']}: local has '{item['library']}' "
+                            f"but S3 GroupID is '{item['s3_groupid']}'"
+                        )
+                    if n_gid > 10:
+                        print(f"    ... and {n_gid - 10} more")
+                    exit_code = 1
+                    fail_reasons.append(
+                        f"{n_gid} GroupID mismatches "
+                        "(local library name not found in S3 GroupID)"
+                    )
+                if n_assay:
+                    print("  Assay mismatches (library in local path vs assay in S3):")
+                    for item in lib_res["assay_mismatches"][:10]:
+                        print(
+                            f"    line {item['line']}: local has '{item['library']}' "
+                            f"(SIF expects {item['expected_assay']}) "
+                            f"but S3 assay is {item['s3_assay']}"
+                        )
+                    if n_assay > 10:
+                        print(f"    ... and {n_assay - 10} more")
+                    exit_code = 1
+                    fail_reasons.append(
+                        f"{n_assay} library-assay mismatches "
+                        "(local library name doesn't match S3 assay per SIF)"
+                    )
+        else:
+            print("10x mode: no --sif provided, skipping SIF completeness checks.")
 
     elif args.data == "raw" and args.assay == "scale" and provider == "novogene":
         # Local path sanity
@@ -1131,10 +1444,13 @@ def main() -> None:
             # Summary of expected SIF structure
             expected_ga = sif_res.get("expected_group_assays", {})
             if expected_ga:
-                unique_combos = set()
+                unique_combos: set[frozenset[str]] = set()
                 for gid, assays in expected_ga.items():
                     unique_combos.add(frozenset(assays))
-                combos_desc = [" + ".join(sorted(c)) for c in sorted(unique_combos, key=sorted)]
+                combos_desc = [
+                    " + ".join(CANONICAL_ASSAY.get(a, a) for a in sorted(c))
+                    for c in sorted(unique_combos, key=sorted)
+                ]
                 print(f"  SIF assay combinations: {', '.join(combos_desc)}")
         else:
             print("Scale mode: no --sif provided, skipping SIF completeness checks.")

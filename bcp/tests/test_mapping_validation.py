@@ -11,8 +11,10 @@ from mapping_validation import (
     CANONICAL_ASSAY,
     MappingRow,
     _is_run_metadata,
+    load_sif_library_assays,
     load_sif_scale_group_assays,
     parse_mapping_file,
+    validate_library_assay_consistency,
     validate_local_paths_scale_raw,
     validate_sif_completeness_scale,
     validate_s3_scale_raw,
@@ -568,3 +570,66 @@ def test_validate_s3_scale_raw_separates_metadata_files() -> None:
     assert result["matched"] == 1
     assert result["metadata_files"] == 1
     assert len(result["warnings"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Library-assay consistency (10x)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_library_assay_consistency_happy_path() -> None:
+    """Matching library name → assay and GroupID yields zero mismatches."""
+    lib_assays = {"LIB1": "gex", "LIB1F": "cri"}
+    rows = [
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
+            local_path="/data/100-20260101_0000/100-LIB1-Z0001-ACGT/100-LIB1-Z0001-ACGT_R1.fastq.gz",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/101-LIB1_LIB1F_CRI-Z0002-TGCA_R1.fastq.gz",
+            local_path="/data/101-20260101_0000/101-LIB1F-Z0002-TGCA/101-LIB1F-Z0002-TGCA_R1.fastq.gz",
+            line_num=2,
+        ),
+    ]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene")
+    assert res["checked"] == 2
+    assert len(res["assay_mismatches"]) == 0
+    assert len(res["groupid_mismatches"]) == 0
+
+
+def test_validate_library_assay_consistency_detects_assay_mismatch() -> None:
+    """CRI library appearing under GEX assay is flagged."""
+    lib_assays = {"LIB1": "gex", "LIB1F": "cri"}
+    rows = [
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
+            local_path="/data/100-20260101_0000/100-LIB1F-Z0001-ACGT/100-LIB1F-Z0001-ACGT_R1.fastq.gz",
+            line_num=1,
+        ),
+    ]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene")
+    assert res["checked"] == 1
+    assert len(res["assay_mismatches"]) == 1
+    m = res["assay_mismatches"][0]
+    assert m["library"] == "LIB1F"
+    assert m["s3_assay"] == "GEX"
+    assert m["expected_assay"] == "CRI"
+
+
+def test_validate_library_assay_consistency_detects_groupid_mismatch() -> None:
+    """Library in local path must appear in the S3 GroupID."""
+    lib_assays = {"LIB1": "gex", "LIB1F": "cri", "LIB2": "gex", "LIB2F": "cri"}
+    rows = [
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB2_LIB2F/raw/100-LIB2_LIB2F_GEX-Z0001-ACGT_R1.fastq.gz",
+            local_path="/data/100-20260101_0000/100-LIB1-Z0001-ACGT/100-LIB1-Z0001-ACGT_R1.fastq.gz",
+            line_num=1,
+        ),
+    ]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene")
+    assert res["checked"] == 1
+    assert len(res["groupid_mismatches"]) == 1
+    m = res["groupid_mismatches"][0]
+    assert m["library"] == "LIB1"
+    assert m["s3_groupid"] == "LIB2_LIB2F"
