@@ -234,17 +234,18 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     if provider == "novogene":
         order_pattern = _NOVOGENE_ORDER_RE
         valid_assays = ASSAYS_10X_NOVOGENE
+        assay_re = _10X_NOVOGENE_ASSAY_RE
     else:
         order_pattern = _PSOMAGEN_ORDER_RE
         valid_assays = ASSAYS_10X_PSOMAGEN
+        assay_re = _10X_PSOMAGEN_ASSAY_RE
 
     s3_regex = re.compile(
         rf"^s3://(?P<bucket>czi-{re.escape(provider)})/"
         r"(?P<project>[a-z0-9-]+)/"
         rf"(?P<order>{order_pattern})/"
         r"(?P<groupid>[^/]+)/raw/"
-        # After raw/ we expect <RunID>-<something>_<Assay>-Z####-BARCODE...
-        r"(?P<runid>\d+)-(?P<file_stem>.+?)_(?P<assay>[A-Za-z_]+)-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)"
+        rf"(?P<runid>\d+)-(?P<file_stem>.+?)_(?P<assay>{assay_re})-(?P<ug>Z\d{{4}})-(?P<barcode>[ACGT]+)"
         r"(?P<suffix>.*)$"
     )
 
@@ -333,6 +334,72 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
         "total": total,
         "matched": matched,
         "group_assays": dict(group_assays),
+    }
+
+
+def find_unmatched_sif_paths_10x(
+    mappings: Iterable[MappingRow],
+    sif_groupids: set[str],
+    provider: str,
+) -> dict:
+    """Find S3 paths not covered by any SIF GroupID.
+
+    For each mapping row, extracts the GroupID from the S3 path and
+    checks whether it appears in ``sif_groupids``.  Paths whose GroupID
+    is absent, and paths that cannot be parsed at all (excluding known
+    run-level metadata files), are collected and returned.
+
+    Returns a dict with:
+    - unmatched_by_group: {groupid: [MappingRow, ...]}
+    - unparsed: [MappingRow, ...]
+    - total: number of rows checked
+    - matched_sif: number of rows whose GroupID is in the SIF
+    - metadata: number of known metadata files skipped
+    """
+    provider = provider.lower()
+    if provider == "novogene":
+        order_pattern = _NOVOGENE_ORDER_RE
+        assay_re = _10X_NOVOGENE_ASSAY_RE
+    else:
+        order_pattern = _PSOMAGEN_ORDER_RE
+        assay_re = _10X_PSOMAGEN_ASSAY_RE
+
+    s3_regex = re.compile(
+        rf"^s3://(?P<bucket>czi-{re.escape(provider)})/"
+        r"(?P<project>[a-z0-9-]+)/"
+        rf"(?P<order>{order_pattern})/"
+        r"(?P<groupid>[^/]+)/raw/"
+        rf"(?P<runid>\d+)-(?P<file_stem>.+?)_(?P<assay>{assay_re})-(?P<ug>Z\d{{4}})-(?P<barcode>[ACGT]+)"
+        r"(?P<suffix>.*)$"
+    )
+
+    unmatched_by_group: dict[str, List[MappingRow]] = defaultdict(list)
+    unparsed: List[MappingRow] = []
+    total = 0
+    matched_sif = 0
+    metadata = 0
+
+    for row in mappings:
+        total += 1
+        if _is_run_metadata(row.s3_path):
+            metadata += 1
+            continue
+        m = s3_regex.match(row.s3_path)
+        if not m:
+            unparsed.append(row)
+            continue
+        groupid = m.group("groupid")
+        if groupid in sif_groupids:
+            matched_sif += 1
+        else:
+            unmatched_by_group[groupid].append(row)
+
+    return {
+        "unmatched_by_group": dict(unmatched_by_group),
+        "unparsed": unparsed,
+        "total": total,
+        "matched_sif": matched_sif,
+        "metadata": metadata,
     }
 
 
@@ -852,13 +919,15 @@ def validate_library_assay_consistency(
     provider = provider.lower()
     if provider == "novogene":
         order_pattern = _NOVOGENE_ORDER_RE
+        assay_re = _10X_NOVOGENE_ASSAY_RE
     else:
         order_pattern = _PSOMAGEN_ORDER_RE
+        assay_re = _10X_PSOMAGEN_ASSAY_RE
 
     s3_regex = re.compile(
         rf"^s3://czi-{re.escape(provider)}/[a-z0-9-]+/"
         rf"{order_pattern}/(?P<groupid>[^/]+)/raw/"
-        r"\d+-.+?_(?P<assay>[A-Za-z_]+)-Z\d{4}-[ACGT]+"
+        rf"\d+-.+?_(?P<assay>{assay_re})-Z\d{{4}}-[ACGT]+"
     )
 
     libs_by_length = sorted(lib_assays.keys(), key=len, reverse=True)
@@ -1365,6 +1434,45 @@ def main() -> None:
                         f"{n_assay} library-assay mismatches "
                         "(local library name doesn't match S3 assay per SIF)"
                     )
+
+            # Per-path SIF coverage
+            sif_cov = find_unmatched_sif_paths_10x(mappings, sif_ids, provider)
+            n_unmatched_groups = len(sif_cov["unmatched_by_group"])
+            n_unmatched_paths = sum(
+                len(rows) for rows in sif_cov["unmatched_by_group"].values()
+            )
+            n_unparsed = len(sif_cov["unparsed"])
+            print(
+                f"SIF path coverage: {sif_cov['matched_sif']} paths matched SIF, "
+                f"{n_unmatched_paths} paths in {n_unmatched_groups} extra GroupIDs, "
+                f"{n_unparsed} unparsed"
+                + (f", {sif_cov['metadata']} metadata skipped"
+                   if sif_cov["metadata"] else "")
+            )
+            if sif_cov["unmatched_by_group"]:
+                print("  S3 paths with GroupIDs not in SIF:")
+                for gid in sorted(sif_cov["unmatched_by_group"]):
+                    rows = sif_cov["unmatched_by_group"][gid]
+                    print(f"    {gid}: {len(rows)} files")
+                    for r in rows[:3]:
+                        print(f"      {r.s3_path}")
+                    if len(rows) > 3:
+                        print(f"      ... and {len(rows) - 3} more")
+                exit_code = 1
+                fail_reasons.append(
+                    f"{n_unmatched_paths} S3 paths in {n_unmatched_groups} "
+                    "GroupIDs not found in SIF"
+                )
+            if sif_cov["unparsed"]:
+                print("  S3 paths that could not be parsed (not metadata):")
+                for r in sif_cov["unparsed"][:5]:
+                    print(f"    line {r.line_num}: {r.s3_path}")
+                if n_unparsed > 5:
+                    print(f"    ... and {n_unparsed - 5} more")
+                exit_code = 1
+                fail_reasons.append(
+                    f"{n_unparsed} S3 paths could not be parsed"
+                )
         else:
             print("10x mode: no --sif provided, skipping SIF completeness checks.")
 

@@ -1,0 +1,88 @@
+"Library name
+(REQUIRED)
+
+
+17 character MAX
+
+Must start with a letter
+ 
+Only alphanumeric, no special characters (no +, -, $, etc.)","Sublibrary name
+(REQUIRED)
+
+
+
+Name must start with a letter
+
+Names must be < 17 characters, 
+
+Alphanumeric only
+ 
+NO special characters (no +, -, $, etc.)","Ultima Index Sequence
+(REQUIRED)
+
+Barcode ID is okay, but please provide us with a list of corresponding nucleotide sequences","Project Identifier
+
+Letters/Numbers only, dashes & underscores OKAY
+
+Recommend to start with PI last name (e.g. Davis-embryo_trace)
+
+This should have been confirmed with lattice team (let us know if not!)","Experiement Identifier
+
+Letters/Numbers only, dashes & underscores OKAY
+
+Needed for Scale/Sci libraries (NOT required for 10X libraries)","Group Identifier 
+
+The identifier of a group  libraries generated from the same sample, like GEX + CRISPR for perturb-seq or GEX  ATAC for multiome
+
+If not created from the same sample, use the same ""library Name"" in this field","Assay Type 
+
+Select one of: GEX, CRI, ATAC, hash_oligo, GEX_hash_oligo)","Library Kit 
+
+For example 10x 3' v4, 10x FLEX v1, 10X FLEX v2, …)
+
+Please be as specific as possible and include the version of the kit used, if applicable","Data Delivery Method
+(REQUIRED)
+
+Please choose UG-Fastq, UG-CRAM, or UG-uCRAM only","
+P5 index sequences
+(NOT REQUIRED)","Insert size
+(bp)
+
+(REQUIRED)","Data Amount per Library (M reads)
+(REQUIRED)
+
+Unit is M reads.
+
+","Data Unit
+
+(Choose M reads)
+
+","Wafer #
+(REQUIRED)
+Indicate which wafer (#1, #2, etc.) the sample should be sequenced on. If only 1 wafer, not required. 
+
+Reminder: Each wafer has a mximum amount of 10B reads","Library status
+(REQUIRED)
+
+","Concentration
+(ng/uL)
+(REQUIRED)","Volume
+(uL)
+(REQUIRED)","Peak Size
+(Not Required)","qPCR
+(nM)
+(Optional)",NOTES
+R096A,QSR1,CGATGCGCA,trapnell-seahub-bcp,CHEM13-R096,R096A,GEX,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,1,EB or EBT,,,,,
+R096A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,CHEM13-R096,R096A,Hash_oligo,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,1,EB or EBT,,,,,
+R096C,QSR3,CTATGTGCA,trapnell-seahub-bcp,CHEM13-R096,R096C,GEX,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,2,EB or EBT,,,,,
+R096C,QSR3SCALEPLEX,CACAGATCA,trapnell-seahub-bcp,CHEM13-R096,R096C,Hash_oligo,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,2,EB or EBT,,,,,
+R096D,QSR4,CGCTGAGCA,trapnell-seahub-bcp,CHEM13-R096,R096D,GEX,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,3,EB or EBT,,,,,
+R096D,QSR4SCALEPLEX,CACTGCTCA,trapnell-seahub-bcp,CHEM13-R096,R096D,Hash_oligo,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,3,EB or EBT,,,,,
+R096E,QSR5,CTACATGCA,trapnell-seahub-bcp,CHEM13-R096,R096E,GEX,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,4,EB or EBT,,,,,
+R096E,QSR5SCALEPLEX,CACTATGCA,trapnell-seahub-bcp,CHEM13-R096,R096E,Hash_oligo,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,4,EB or EBT,,,,,
+R096F,QSR6,CTCTGCAGA,trapnell-seahub-bcp,CHEM13-R096,R096F,GEX,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,5,EB or EBT,,,,,
+R096F,QSR6SCALEPLEX,CTGAGCAGA,trapnell-seahub-bcp,CHEM13-R096,R096F,Hash_oligo,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,5,EB or EBT,,,,,
+R096G,QSR7,CTATGCACA,trapnell-seahub-bcp,CHEM13-R096,R096G,GEX,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,6,EB or EBT,,,,,
+R096G,QSR7SCALEPLEX,CTGCTCATA,trapnell-seahub-bcp,CHEM13-R096,R096G,Hash_oligo,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,6,EB or EBT,,,,,
+R098A,QSR8,CGAGATGCA,trapnell-seahub-bcp,CHEM13-R096,R098A,GEX,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,7,EB or EBT,,,,,
+R098A,QSR8SCALEPLEX,CTGAGCTCA,trapnell-seahub-bcp,CHEM13-R096,R098A,Hash_oligo,SCALE Quantum + ScalePlex,UG - uCRAM,,,10000,M raw reads,7,EB or EBT,,,,,
