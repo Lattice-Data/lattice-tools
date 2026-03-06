@@ -306,9 +306,15 @@ def parse_web_summ(f):
     
     if 'summary' in data:
         report['sub'] = data['summary']['sample']['subcommand']
-        gex_tab = {row[0].lower():row[1] for row in data['summary']['summary_tab']['pipeline_info_table']['rows']}
+        summary_rows = data['summary']['summary_tab']['pipeline_info_table']['rows']
+        gex_tab = {row[0].lower():row[1] for row in summary_rows}
+        for info in [l for l in summary_rows if l[0] in ('Transcriptome','Probe Set Name')]:
+            report[info[0]] = info[1]
     else:
-        gex_tab = {row[0].lower():row[1] for row in data['library']['data']['gex_tab']['content']['parameters_table']['rows']}
+        summary_rows = data['library']['data']['gex_tab']['content']['parameters_table']['rows']
+        gex_tab = {row[0].lower():row[1] for row in summary_rows}
+        for info in [l for l in summary_rows if l[0] in ('Transcriptome','Probe Set Name')]:
+            report[info[0]] = info[1]
         if 'sample' in data:
             report['sub'] = data['sample']['subcommand']
 
