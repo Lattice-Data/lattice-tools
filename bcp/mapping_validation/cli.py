@@ -226,6 +226,7 @@ def _validate_10x_raw(
     res = validate_s3_10x_raw(provider, mappings)
     meta_count = res.get("metadata_files", 0)
     s3_ga: dict[str, Set[str]] = res.get("group_assays", {})
+    s3_run_ids: set[str] = res.get("run_ids", set())
     print(
         f"10x raw SOP: matched {res['matched']} S3 paths, "
         f"{len(res['errors'])} errors, {len(res['warnings'])} warnings"
@@ -243,6 +244,11 @@ def _validate_10x_raw(
     if res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(res['errors'])} 10x S3 SOP errors")
+
+    if s3_run_ids:
+        print(f"Unique RunIDs (wafer identifiers): {len(s3_run_ids)}")
+        for rid in sorted(s3_run_ids):
+            print(f"  {rid}")
 
     if s3_ga:
         print(f"S3 GroupIDs found: {len(s3_ga)}")
@@ -415,6 +421,7 @@ def _validate_seahub_raw(
     s3_res = validate_s3_seahub_raw(family, mappings)
     meta_count = s3_res.get("metadata_files", 0)
     s3_ga: dict[str, Set[str]] = s3_res.get("group_assays", {})
+    s3_run_ids: set[str] = s3_res.get("run_ids", set())
     print(
         f"{family} raw (S3): matched {s3_res['matched']} paths, "
         f"{len(s3_res['errors'])} errors, {len(s3_res['warnings'])} warnings"
@@ -432,6 +439,11 @@ def _validate_seahub_raw(
     if s3_res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(s3_res['errors'])} {family} S3 SOP errors")
+
+    if s3_run_ids:
+        print(f"Unique RunIDs (wafer identifiers): {len(s3_run_ids)}")
+        for rid in sorted(s3_run_ids):
+            print(f"  {rid}")
 
     if s3_ga:
         print(f"S3 GroupIDs found: {len(s3_ga)}")

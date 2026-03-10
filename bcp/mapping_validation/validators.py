@@ -87,6 +87,7 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     matched = 0
     metadata_count = 0
     group_assays: dict[str, set[str]] = defaultdict(set)
+    run_ids: set[str] = set()
 
     for row in mappings:
         total += 1
@@ -110,6 +111,7 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
         matched += 1
         gd = m.groupdict()
         group_assays[gd["groupid"]].add(gd["assay"])
+        run_ids.add(gd["runid"])
 
         expected_prefix = f"/{gd['groupid']}/raw/{gd['runid']}-{gd['groupid']}_"
         if expected_prefix not in row.s3_path:
@@ -162,6 +164,7 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
         "total": total,
         "matched": matched,
         "group_assays": dict(group_assays),
+        "run_ids": run_ids,
     }
 
 
@@ -341,6 +344,7 @@ def validate_s3_seahub_raw(
     matched = 0
     metadata_count = 0
     group_assays: dict[str, set[str]] = defaultdict(set)
+    run_ids: set[str] = set()
 
     for row in mappings:
         total += 1
@@ -382,6 +386,7 @@ def validate_s3_seahub_raw(
         matched += 1
         gd = m.groupdict()
         group_assays[gd["group_id"]].add(gd["assay"])
+        run_ids.add(gd["runid"])
 
         literal_assay = gd["assay"]
         canonical = CANONICAL_ASSAY.get(literal_assay.lower())
@@ -438,6 +443,7 @@ def validate_s3_seahub_raw(
         "total": total,
         "matched": matched,
         "group_assays": dict(group_assays),
+        "run_ids": run_ids,
     }
 
 
