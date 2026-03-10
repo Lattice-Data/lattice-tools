@@ -1111,13 +1111,267 @@ def validate_library_assay_consistency(
     }
 
 
+# ---------------------------------------------------------------------------
+# 10x processed S3 validation
+# ---------------------------------------------------------------------------
+
+_VALID_10X_PIPELINES: set[str] = {"cellranger"}
+_RUN_DATE_RE: re.Pattern[str] = re.compile(r"^Run_\d{4}-\d{2}-\d{2}$")
+
+
+def _build_10x_processed_s3_regex(
+    provider: str, order_pattern: str
+) -> re.Pattern[str]:
+    """Build the regex for 10x processed S3 paths per the SOP.
+
+    Expected layout::
+
+        s3://czi-{provider}/{project}/{order}/{group_id}/processed/
+            {pipeline}/{run_date}/outs/{file_path}
+    """
+    return re.compile(
+        rf"^s3://(?P<bucket>czi-{re.escape(provider)})/"
+        r"(?P<project>[^/]+)/"
+        rf"(?P<order>{order_pattern})/"
+        r"(?P<group_id>[^/]+)/processed/"
+        r"(?P<pipeline>[^/]+)/"
+        r"(?P<run_date>[^/]+)/"
+        r"(?P<outs_marker>outs)/"
+        r"(?P<file_path>.+)$"
+    )
+
+
+def validate_s3_10x_processed(
+    provider: str, mappings: Iterable[MappingRow]
+) -> dict:
+    """Validate 10x processed S3 paths against the SOP.
+
+    Expected S3 layout::
+
+        s3://czi-{provider}/{project}/{order}/{GroupID}/processed/
+            cellranger/{Run_YYYY-MM-DD}/outs/{file_path}
+    """
+    provider = _validate_provider(provider)
+    order_pattern = get_order_pattern(provider)
+    s3_regex = _build_10x_processed_s3_regex(provider, order_pattern)
+
+    errors: List[dict] = []
+    warnings: List[dict] = []
+    total = 0
+    matched = 0
+    group_ids: set[str] = set()
+    pipelines: set[str] = set()
+    run_dates: set[str] = set()
+
+    for row in mappings:
+        total += 1
+        s3 = row.s3_path
+
+        m = s3_regex.match(s3)
+        if not m:
+            warnings.append(
+                {
+                    "type": "parse_miss",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "S3 path does not match expected 10x processed pattern",
+                }
+            )
+            continue
+
+        matched += 1
+        gd = m.groupdict()
+        group_ids.add(gd["group_id"])
+        pipelines.add(gd["pipeline"])
+        run_dates.add(gd["run_date"])
+
+        pipeline = gd["pipeline"]
+        if pipeline not in _VALID_10X_PIPELINES:
+            errors.append(
+                {
+                    "type": "invalid_pipeline",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": (
+                        f"pipeline '{pipeline}' is not valid for 10x processed "
+                        f"(expected one of {sorted(_VALID_10X_PIPELINES)})"
+                    ),
+                }
+            )
+
+        run_date = gd["run_date"]
+        if not _RUN_DATE_RE.match(run_date):
+            warnings.append(
+                {
+                    "type": "run_date_format",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": (
+                        f"run date '{run_date}' does not match expected "
+                        "format Run_YYYY-MM-DD"
+                    ),
+                }
+            )
+
+        project = gd["project"]
+        if project != project.lower() or "_" in project:
+            warnings.append(
+                {
+                    "type": "project_naming",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": (
+                        "project should be lower-case with hyphen "
+                        "delimiters (per SOP)"
+                    ),
+                }
+            )
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "total": total,
+        "matched": matched,
+        "group_ids": group_ids,
+        "pipelines": pipelines,
+        "run_dates": run_dates,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 10x processed SIF completeness
+# ---------------------------------------------------------------------------
+
+
+def validate_sif_completeness_10x_processed(
+    provider: str,
+    mappings: Iterable[MappingRow],
+    sif_path: str,
+) -> dict:
+    """Compare GroupIDs found in processed S3 paths against SIF identifiers.
+
+    Tries to load Group Identifiers from the SIF first.  If the SIF lacks
+    a "Group Identifier" column (e.g. Ultima intake forms), falls back to
+    the "Library name" column via :func:`load_sif_library_names`.
+    """
+    from .sif_io import _normalize_sif_groupid, load_sif_library_names
+
+    s3_res = validate_s3_10x_processed(provider, mappings)
+    s3_group_ids: set[str] = s3_res["group_ids"]
+
+    sif_ga = load_sif_group_assays(sif_path)
+    if sif_ga:
+        sif_ids: set[str] = {_normalize_sif_groupid(k) for k in sif_ga}
+    else:
+        sif_ids = load_sif_library_names(sif_path)
+
+    missing = sorted(sif_ids - s3_group_ids)
+    extra = sorted(s3_group_ids - sif_ids)
+
+    return {
+        "sif_count": len(sif_ids),
+        "s3_count": len(s3_group_ids),
+        "missing": missing,
+        "extra": extra,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 10x processed S3/local consistency
+# ---------------------------------------------------------------------------
+
+
+def validate_s3_local_consistency_10x_processed(
+    provider: str, mappings: Iterable[MappingRow]
+) -> dict:
+    """Cross-check processed S3 and local paths for consistency.
+
+    Checks:
+    1. The GroupID from the S3 path appears in the local path.
+    2. The file path after ``outs/`` matches between S3 and local.
+    """
+    provider = _validate_provider(provider)
+    order_pattern = get_order_pattern(provider)
+    s3_regex = _build_10x_processed_s3_regex(provider, order_pattern)
+
+    errors: List[dict] = []
+    warnings: List[dict] = []
+    total = 0
+    matched = 0
+
+    for row in mappings:
+        total += 1
+        s3 = row.s3_path
+        local = row.local_path
+
+        m = s3_regex.match(s3)
+        if not m:
+            continue
+
+        matched += 1
+        gd = m.groupdict()
+        group_id = gd["group_id"]
+        s3_file_path = gd["file_path"]
+
+        if group_id not in local:
+            errors.append(
+                {
+                    "type": "group_id_missing_local",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "local_path": local,
+                    "detail": (
+                        f"GroupID '{group_id}' from S3 not found in "
+                        f"local path"
+                    ),
+                }
+            )
+
+        outs_idx = local.find("/outs/")
+        if outs_idx >= 0:
+            local_file_path = local[outs_idx + len("/outs/"):]
+            if s3_file_path != local_file_path:
+                errors.append(
+                    {
+                        "type": "file_path_mismatch",
+                        "line": row.line_num,
+                        "s3_path": s3,
+                        "local_path": local,
+                        "detail": (
+                            f"file path after outs/ differs: "
+                            f"S3='{s3_file_path}' vs local='{local_file_path}'"
+                        ),
+                    }
+                )
+        else:
+            warnings.append(
+                {
+                    "type": "no_outs_in_local",
+                    "line": row.line_num,
+                    "local_path": local,
+                    "detail": "local path does not contain '/outs/' marker",
+                }
+            )
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "total": total,
+        "matched": matched,
+    }
+
+
 __all__ = [
     "_is_run_metadata",
     "compare_groupid_assays",
-    # 10x
+    # 10x raw
     "validate_s3_10x_raw",
     "find_unmatched_sif_paths_10x",
     "validate_library_assay_consistency",
+    # 10x processed
+    "validate_s3_10x_processed",
+    "validate_sif_completeness_10x_processed",
+    "validate_s3_local_consistency_10x_processed",
     # Seahub (Scale + sci unified)
     "validate_s3_seahub_raw",
     "validate_sif_completeness_seahub",

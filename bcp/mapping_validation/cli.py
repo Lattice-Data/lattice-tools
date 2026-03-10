@@ -19,10 +19,13 @@ from .validators import (
     validate_library_assay_consistency,
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
+    validate_s3_10x_processed,
     validate_s3_10x_raw,
+    validate_s3_local_consistency_10x_processed,
     validate_s3_local_consistency_scale,
     validate_s3_local_consistency_sci,
     validate_s3_seahub_raw,
+    validate_sif_completeness_10x_processed,
     validate_sif_completeness_seahub,
 )
 
@@ -192,6 +195,9 @@ def main() -> None:
 
     elif args.data == "raw" and args.assay in ("scale", "sci") and provider == "novogene":
         exit_code |= _validate_seahub_raw(args.assay, mappings, args.sif, fail_reasons)
+
+    elif args.data == "processed" and args.assay == "10x":
+        exit_code |= _validate_10x_processed(provider, mappings, args.sif, fail_reasons)
 
     else:
         print(
@@ -494,6 +500,109 @@ def _validate_seahub_raw(
     if cons_res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(cons_res['errors'])} S3/local consistency errors")
+
+    return exit_code
+
+
+# ---------------------------------------------------------------------------
+# 10x processed orchestrator
+# ---------------------------------------------------------------------------
+
+
+def _validate_10x_processed(
+    provider: str,
+    mappings: list,
+    sif_path: str | None,
+    fail_reasons: List[str],
+) -> int:
+    """Run all 10x processed validation checks, return non-zero on failure."""
+    exit_code = 0
+
+    # S3 SOP checks
+    s3_res = validate_s3_10x_processed(provider, mappings)
+    group_ids: set[str] = s3_res.get("group_ids", set())
+    pipelines: set[str] = s3_res.get("pipelines", set())
+    run_dates: set[str] = s3_res.get("run_dates", set())
+    print(
+        f"10x processed (S3): matched {s3_res['matched']} paths, "
+        f"{len(s3_res['errors'])} errors, {len(s3_res['warnings'])} warnings"
+    )
+    _print_issue_examples("10x processed (S3)", s3_res["errors"], "errors")
+    _print_issue_examples("10x processed (S3)", s3_res["warnings"], "warnings")
+    if s3_res["matched"] == 0:
+        print(
+            "  WARNING: none of the S3 paths matched the 10x processed pattern. "
+            "Check that the S3 paths follow the SOP naming convention."
+        )
+        fail_reasons.append(
+            "no S3 paths matched the 10x processed pattern (0 matched)"
+        )
+        exit_code = 1
+    if s3_res["errors"]:
+        exit_code = 1
+        fail_reasons.append(f"{len(s3_res['errors'])} 10x processed S3 SOP errors")
+
+    if pipelines:
+        print(f"Pipelines found: {', '.join(sorted(pipelines))}")
+    if run_dates:
+        print(f"Run dates found: {', '.join(sorted(run_dates))}")
+    if group_ids:
+        print(f"Unique GroupIDs found: {len(group_ids)}")
+        for gid in sorted(group_ids):
+            print(f"  {gid}")
+
+    # SIF completeness
+    if sif_path:
+        sif_res = validate_sif_completeness_10x_processed(
+            provider, mappings, sif_path
+        )
+        sif_count = sif_res["sif_count"]
+        s3_count = sif_res["s3_count"]
+        missing = sif_res["missing"]
+        extra = sif_res["extra"]
+        print(
+            f"SIF completeness: expected={sif_count} identifiers, "
+            f"found={s3_count} in S3, "
+            f"missing={len(missing)}, extra={len(extra)}"
+        )
+        if missing:
+            print(
+                f"  Missing from S3 (in SIF but not mapping): "
+                f"{', '.join(missing)}"
+            )
+            exit_code = 1
+            fail_reasons.append(
+                f"{len(missing)} SIF identifiers missing from S3: "
+                f"{', '.join(missing)}"
+            )
+        if extra:
+            print(
+                f"  Extra in S3 (in mapping but not SIF): "
+                f"{', '.join(extra)}"
+            )
+    else:
+        print(
+            "10x processed mode: no --sif provided, "
+            "skipping SIF completeness checks."
+        )
+
+    # S3/local consistency
+    cons_res = validate_s3_local_consistency_10x_processed(provider, mappings)
+    print(
+        f"10x processed S3/local consistency: matched {cons_res['matched']} pairs, "
+        f"{len(cons_res['errors'])} errors, {len(cons_res['warnings'])} warnings"
+    )
+    _print_issue_examples(
+        "10x processed S3/local consistency", cons_res["errors"], "errors"
+    )
+    _print_issue_examples(
+        "10x processed S3/local consistency", cons_res["warnings"], "warnings"
+    )
+    if cons_res["errors"]:
+        exit_code = 1
+        fail_reasons.append(
+            f"{len(cons_res['errors'])} S3/local consistency errors"
+        )
 
     return exit_code
 

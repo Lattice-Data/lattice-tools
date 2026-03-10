@@ -189,11 +189,55 @@ def load_sif_library_assays(sif_path: str | Path) -> dict[str, str]:
     return result
 
 
+def load_sif_library_names(sif_path: str | Path) -> set[str]:
+    """Load the set of unique Library Names from a SIF file.
+
+    This is a fallback for SIFs that lack a "Group Identifier" column
+    (e.g. Ultima intake forms where each library is a standalone sample).
+    Searches for a column whose name contains "library name" and returns
+    the set of non-empty values.
+    """
+    import csv
+
+    p = Path(sif_path)
+    result: set[str] = set()
+
+    if p.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
+        try:
+            df = pd.read_excel(p)
+        except Exception:
+            df = None
+        if df is not None and not df.empty:
+            cols = {str(c).strip().lower(): c for c in df.columns}
+            lib_col = _find_col(cols, "library name")
+            if lib_col is not None:
+                for _, row_data in df.iterrows():
+                    lib = str(row_data.get(lib_col, "")).strip()
+                    if lib and lib != "nan":
+                        result.add(lib)
+        if result:
+            return result
+
+    with p.open("r", encoding="utf-8", errors="ignore") as fh:
+        reader = csv.DictReader(fh)
+        if reader.fieldnames:
+            field_map = {name.lower(): name for name in reader.fieldnames}
+            lib_col_name = _find_col(field_map, "library name")
+            if lib_col_name is not None:
+                for row in reader:
+                    lib = (row.get(lib_col_name) or "").strip()
+                    if lib:
+                        result.add(lib)
+
+    return result
+
+
 __all__ = [
     "_normalize_sif_groupid",
     "load_sif_group_assays",
     "load_sif_scale_group_assays",
     "load_sif_scale_groupids",
     "load_sif_library_assays",
+    "load_sif_library_names",
 ]
 

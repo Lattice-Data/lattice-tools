@@ -20,6 +20,7 @@ from .sif_io import (
     _normalize_sif_groupid,
     load_sif_group_assays,
     load_sif_library_assays,
+    load_sif_library_names,
     load_sif_scale_group_assays,
     load_sif_scale_groupids,
 )
@@ -27,10 +28,14 @@ from .uniqueness import validate_uniqueness
 from .validators import (
     _is_run_metadata,
     compare_groupid_assays,
-    # 10x
+    # 10x raw
     find_unmatched_sif_paths_10x,
     validate_library_assay_consistency,
     validate_s3_10x_raw,
+    # 10x processed
+    validate_s3_10x_processed,
+    validate_s3_local_consistency_10x_processed,
+    validate_sif_completeness_10x_processed,
     # Seahub (Scale + sci unified)
     validate_s3_seahub_raw,
     validate_sif_completeness_seahub,
@@ -74,10 +79,14 @@ __all__ = [
     # Shared validators
     "compare_groupid_assays",
     "_is_run_metadata",
-    # 10x validators
+    # 10x raw validators
     "validate_s3_10x_raw",
     "validate_library_assay_consistency",
     "find_unmatched_sif_paths_10x",
+    # 10x processed validators
+    "validate_s3_10x_processed",
+    "validate_sif_completeness_10x_processed",
+    "validate_s3_local_consistency_10x_processed",
     # Seahub validators (Scale + sci unified)
     "validate_s3_seahub_raw",
     "validate_sif_completeness_seahub",
@@ -97,6 +106,7 @@ __all__ = [
     "load_sif_scale_group_assays",
     "load_sif_scale_groupids",
     "load_sif_library_assays",
+    "load_sif_library_names",
     # CLI
     "main",
 ]

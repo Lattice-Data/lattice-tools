@@ -23,6 +23,8 @@ from mapping_validation import (
     validate_library_assay_consistency,
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
+    validate_s3_10x_processed,
+    validate_s3_local_consistency_10x_processed,
     validate_s3_local_consistency_sci,
     validate_s3_seahub_raw,
     validate_sif_completeness_scale,
@@ -1040,4 +1042,207 @@ def test_validate_s3_local_consistency_sci_detects_groupid_mismatch() -> None:
     assert result["matched"] == 1
     error_types = {e["type"] for e in result["errors"]}
     assert "groupid_mismatch_s3_local" in error_types
+
+
+# ---------------------------------------------------------------------------
+# 10x processed S3 validation
+# ---------------------------------------------------------------------------
+
+_PROC_S3_NOVO = (
+    "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+    "e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/"
+)
+_PROC_LOCAL_NOVO = (
+    "/ORPROJ1/GB/USER/liguo/Ultima/projects_202602/"
+    "X202SC25127893-Z01-F001_GRCm39-vM37_10xcellranger_v9.0/"
+    "Data_process/sampleMatrix/e10_rep1_t13/outs/"
+)
+
+_PROC_S3_PSOM = (
+    "s3://czi-psomagen/weissman-perturb/AN00012345/"
+    "CD4i_R1L01/processed/cellranger/Run_2025-02-01/outs/"
+)
+_PROC_LOCAL_PSOM = (
+    "/data/process/CD4i_R1L01/outs/"
+)
+
+
+def test_validate_s3_10x_processed_novogene_basic() -> None:
+    """Valid novogene processed paths should match and produce no errors."""
+    rows = [
+        MappingRow(
+            s3_path=_PROC_S3_NOVO + "filtered_feature_bc_matrix.h5",
+            local_path=_PROC_LOCAL_NOVO + "filtered_feature_bc_matrix.h5",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path=_PROC_S3_NOVO + "metrics_summary.csv",
+            local_path=_PROC_LOCAL_NOVO + "metrics_summary.csv",
+            line_num=2,
+        ),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["matched"] == 2
+    assert res["errors"] == []
+    assert res["warnings"] == []
+    assert "e10_rep1_t13" in res["group_ids"]
+    assert "cellranger" in res["pipelines"]
+    assert "Run_2025-03-10" in res["run_dates"]
+
+
+def test_validate_s3_10x_processed_psomagen_basic() -> None:
+    """Valid psomagen processed paths should match."""
+    rows = [
+        MappingRow(
+            s3_path=_PROC_S3_PSOM + "multi/count/raw_feature_bc_matrix.h5",
+            local_path=_PROC_LOCAL_PSOM + "multi/count/raw_feature_bc_matrix.h5",
+            line_num=1,
+        ),
+    ]
+    res = validate_s3_10x_processed("psomagen", rows)
+    assert res["matched"] == 1
+    assert res["errors"] == []
+    assert "CD4i_R1L01" in res["group_ids"]
+
+
+def test_validate_s3_10x_processed_invalid_pipeline() -> None:
+    """An unexpected pipeline should produce an error."""
+    bad_s3 = (
+        "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+        "e10_rep1_t13/processed/starsolo/Run_2025-03-10/outs/file.h5"
+    )
+    rows = [
+        MappingRow(s3_path=bad_s3, local_path="/local/file.h5", line_num=1),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert any(e["type"] == "invalid_pipeline" for e in res["errors"])
+
+
+def test_validate_s3_10x_processed_bad_run_date_format() -> None:
+    """A non-standard run date should produce a warning."""
+    bad_s3 = (
+        "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+        "e10_rep1_t13/processed/cellranger/2025-03-10/outs/file.h5"
+    )
+    rows = [
+        MappingRow(s3_path=bad_s3, local_path="/local/file.h5", line_num=1),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert any(w["type"] == "run_date_format" for w in res["warnings"])
+
+
+def test_validate_s3_10x_processed_project_naming_warning() -> None:
+    """Non-lowercase project names should produce a warning."""
+    bad_s3 = (
+        "s3://czi-novogene/Weissman_Embryo/NVUS2024101701-19/"
+        "e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/file.h5"
+    )
+    rows = [
+        MappingRow(s3_path=bad_s3, local_path="/local/file.h5", line_num=1),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert any(w["type"] == "project_naming" for w in res["warnings"])
+
+
+def test_validate_s3_10x_processed_unmatched_path() -> None:
+    """A path that doesn't follow the processed pattern produces a warning."""
+    bad_s3 = (
+        "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+        "e10_rep1_t13/raw/440021-e10_rep1_t13_GEX-Z0035-CTGAATGATCTCGAT.csv"
+    )
+    rows = [
+        MappingRow(s3_path=bad_s3, local_path="/local/file.csv", line_num=1),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["matched"] == 0
+    assert any(w["type"] == "parse_miss" for w in res["warnings"])
+
+
+def test_validate_s3_10x_processed_multiple_group_ids() -> None:
+    """Multiple GroupIDs should all be collected."""
+    rows = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+                "e9_rep1_t1/processed/cellranger/Run_2025-03-10/outs/file.h5"
+            ),
+            local_path="/local/e9_rep1_t1/outs/file.h5",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+                "e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/file.h5"
+            ),
+            local_path="/local/e10_rep1_t13/outs/file.h5",
+            line_num=2,
+        ),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["group_ids"] == {"e9_rep1_t1", "e10_rep1_t13"}
+
+
+# ---------------------------------------------------------------------------
+# 10x processed S3/local consistency
+# ---------------------------------------------------------------------------
+
+
+def test_s3_local_consistency_10x_processed_match() -> None:
+    """Consistent S3 and local paths should produce no errors."""
+    rows = [
+        MappingRow(
+            s3_path=_PROC_S3_NOVO + "filtered_feature_bc_matrix.h5",
+            local_path=_PROC_LOCAL_NOVO + "filtered_feature_bc_matrix.h5",
+            line_num=1,
+        ),
+    ]
+    res = validate_s3_local_consistency_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert res["errors"] == []
+    assert res["warnings"] == []
+
+
+def test_s3_local_consistency_10x_processed_group_id_missing() -> None:
+    """GroupID from S3 not in local should produce an error."""
+    rows = [
+        MappingRow(
+            s3_path=_PROC_S3_NOVO + "filtered_feature_bc_matrix.h5",
+            local_path="/data/process/wrong_sample/outs/filtered_feature_bc_matrix.h5",
+            line_num=1,
+        ),
+    ]
+    res = validate_s3_local_consistency_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+
+
+def test_s3_local_consistency_10x_processed_file_path_mismatch() -> None:
+    """Different file paths after outs/ should produce an error."""
+    rows = [
+        MappingRow(
+            s3_path=_PROC_S3_NOVO + "filtered_feature_bc_matrix.h5",
+            local_path=_PROC_LOCAL_NOVO + "raw_feature_bc_matrix.h5",
+            line_num=1,
+        ),
+    ]
+    res = validate_s3_local_consistency_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert any(e["type"] == "file_path_mismatch" for e in res["errors"])
+
+
+def test_s3_local_consistency_10x_processed_no_outs_in_local() -> None:
+    """Local path without /outs/ should produce a warning."""
+    rows = [
+        MappingRow(
+            s3_path=_PROC_S3_NOVO + "filtered_feature_bc_matrix.h5",
+            local_path="/data/e10_rep1_t13/filtered_feature_bc_matrix.h5",
+            line_num=1,
+        ),
+    ]
+    res = validate_s3_local_consistency_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert any(w["type"] == "no_outs_in_local" for w in res["warnings"])
 
