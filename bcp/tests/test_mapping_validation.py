@@ -22,7 +22,11 @@ from mapping_validation import (
     parse_mapping_file,
     validate_library_assay_consistency,
     validate_local_paths_scale_raw,
+    validate_local_paths_sci_raw,
+    validate_s3_local_consistency_sci,
+    validate_s3_seahub_raw,
     validate_sif_completeness_scale,
+    validate_sif_completeness_seahub,
     validate_s3_scale_raw,
     validate_s3_10x_raw,
     validate_s3_local_consistency_scale,
@@ -830,4 +834,210 @@ def test_compare_groupid_assays_detects_missing_and_extra() -> None:
     assert result["extra_groupids"] == {"G3"}
     assert "G1" in result["missing_assays"]
     assert result["missing_assays"]["G1"] == {"cri"}
+
+
+# ---------------------------------------------------------------------------
+# Seahub unified validator tests
+# ---------------------------------------------------------------------------
+
+
+def test_validate_s3_seahub_raw_scale_happy_path() -> None:
+    """Seahub unified validator with scale family should match SOP form."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "441969-R096G_GEX_CTATGCACA.json"
+        ),
+        local_path="/local/path.json",
+        line_num=1,
+    )
+
+    result = validate_s3_seahub_raw("scale", [row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
+def test_validate_s3_seahub_raw_sci_happy_path() -> None:
+    """Seahub unified validator with sci family should match Z-barcode form."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        local_path="/local/path",
+        line_num=1,
+    )
+
+    result = validate_s3_seahub_raw("sci", [row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+    assert result["group_assays"] == {"R100E": {"GEX_hash_oligo"}}
+
+
+def test_validate_s3_seahub_raw_sci_tracks_group_assays() -> None:
+    """Seahub sci mode should collect group_assays from parsed paths."""
+    rows = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
+            ),
+            local_path="/local/a",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441908/"
+                "441908-R100D_GEX_hash_oligo-Z0155-CTTCATATCTGAGAT.csv"
+            ),
+            local_path="/local/b",
+            line_num=2,
+        ),
+    ]
+
+    result = validate_s3_seahub_raw("sci", rows)
+
+    assert result["matched"] == 2
+    assert "R100E" in result["group_assays"]
+    assert "R100D" in result["group_assays"]
+
+
+def test_validate_s3_seahub_raw_sci_metadata_separated() -> None:
+    """Metadata files in sci mode should be counted separately."""
+    rows = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
+            ),
+            local_path="/local/data",
+            line_num=1,
+        ),
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "441389_LibraryInfo.xml"
+            ),
+            local_path="/local/meta",
+            line_num=2,
+        ),
+    ]
+
+    result = validate_s3_seahub_raw("sci", rows)
+
+    assert result["matched"] == 1
+    assert result["metadata_files"] == 1
+
+
+def test_validate_sif_completeness_seahub_sci(tmp_path: Path) -> None:
+    """Seahub SIF completeness for sci should detect missing GroupIDs."""
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "CHEM3-R100,R100E,Z0028,hamazaki-seahub-bcp,CHEM3-R100,R100E,GEX_hash_oligo\n"
+        "CHEM3-R100,R100D,Z0155,hamazaki-seahub-bcp,CHEM3-R100,R100D,GEX_hash_oligo\n"
+    )
+    sif_path = tmp_path / "SIF_sci.csv"
+    sif_path.write_text(sif_text)
+
+    mappings = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
+            ),
+            local_path="/local/path",
+            line_num=1,
+        ),
+    ]
+
+    result = validate_sif_completeness_seahub("sci", mappings, sif_path)
+
+    assert "R100E" in result["actual_groupids"]
+    assert "R100D" in result["missing_groupids"]
+
+
+def test_validate_local_paths_sci_raw_happy_path() -> None:
+    """Well-formed sci local path should produce no errors."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
+            "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        line_num=1,
+    )
+
+    result = validate_local_paths_sci_raw([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
+def test_validate_local_paths_sci_raw_detects_barcode_mismatch() -> None:
+    """Mismatched barcode between directory and filename should be flagged."""
+    row = MappingRow(
+        s3_path="s3://czi-novogene/proj/NVUS2024101701-32/EXP/raw/441389/441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json",
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
+            "441389-R100E_Z0028-Z0028-AAAAAAAAAAAAGAT_SNVQ.metric"
+        ),
+        line_num=2,
+    )
+
+    result = validate_local_paths_sci_raw([row])
+
+    assert result["matched"] == 1
+    error_types = {e["type"] for e in result["errors"]}
+    assert "barcode_mismatch" in error_types
+
+
+def test_validate_s3_local_consistency_sci_happy_path() -> None:
+    """Consistent S3 and local paths should produce no errors."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
+            "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        line_num=1,
+    )
+
+    result = validate_s3_local_consistency_sci([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
+def test_validate_s3_local_consistency_sci_detects_groupid_mismatch() -> None:
+    """Mismatched GroupID between S3 and local should be an error."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
+        ),
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "441389-R100F_Z0028-Z0028-CAGACTTGCTGCGAT/"
+            "441389-R100F_Z0028-Z0028-CAGACTTGCTGCGAT.json"
+        ),
+        line_num=3,
+    )
+
+    result = validate_s3_local_consistency_sci([row])
+
+    assert result["matched"] == 1
+    error_types = {e["type"] for e in result["errors"]}
+    assert "groupid_mismatch_s3_local" in error_types
 

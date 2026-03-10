@@ -27,12 +27,22 @@ from .uniqueness import validate_uniqueness
 from .validators import (
     _is_run_metadata,
     compare_groupid_assays,
+    # 10x
     find_unmatched_sif_paths_10x,
     validate_library_assay_consistency,
-    validate_local_paths_scale_raw,
     validate_s3_10x_raw,
+    # Seahub (Scale + sci unified)
+    validate_s3_seahub_raw,
+    validate_sif_completeness_seahub,
+    # Scale-specific
+    validate_local_paths_scale_raw,
     validate_s3_local_consistency_scale,
+    # sci-specific
+    validate_local_paths_sci_raw,
+    validate_s3_local_consistency_sci,
+    # Backward-compatible wrappers
     validate_s3_scale_raw,
+    validate_s3_sci_raw,
     validate_sif_completeness_scale,
 )
 from .cli import main
@@ -61,16 +71,26 @@ __all__ = [
     "parse_mapping_file",
     # Uniqueness
     "validate_uniqueness",
-    # Validators
+    # Shared validators
     "compare_groupid_assays",
+    "_is_run_metadata",
+    # 10x validators
     "validate_s3_10x_raw",
-    "validate_local_paths_scale_raw",
-    "validate_s3_scale_raw",
-    "validate_sif_completeness_scale",
-    "validate_s3_local_consistency_scale",
     "validate_library_assay_consistency",
     "find_unmatched_sif_paths_10x",
-    "_is_run_metadata",
+    # Seahub validators (Scale + sci unified)
+    "validate_s3_seahub_raw",
+    "validate_sif_completeness_seahub",
+    # Scale-specific
+    "validate_local_paths_scale_raw",
+    "validate_s3_local_consistency_scale",
+    # sci-specific
+    "validate_local_paths_sci_raw",
+    "validate_s3_local_consistency_sci",
+    # Backward-compatible wrappers
+    "validate_s3_scale_raw",
+    "validate_s3_sci_raw",
+    "validate_sif_completeness_scale",
     # SIF helpers
     "_normalize_sif_groupid",
     "load_sif_group_assays",

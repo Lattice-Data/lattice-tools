@@ -18,10 +18,12 @@ from .validators import (
     find_unmatched_sif_paths_10x,
     validate_library_assay_consistency,
     validate_local_paths_scale_raw,
+    validate_local_paths_sci_raw,
     validate_s3_10x_raw,
     validate_s3_local_consistency_scale,
-    validate_s3_scale_raw,
-    validate_sif_completeness_scale,
+    validate_s3_local_consistency_sci,
+    validate_s3_seahub_raw,
+    validate_sif_completeness_seahub,
 )
 
 
@@ -141,7 +143,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Validate S3/local mapping files against SOP rules.")
     parser.add_argument("--mapping", required=True, help="Path to mapping CSV/TSV file")
-    parser.add_argument("--sif", help="Path to SIF CSV/XLSX for completeness checks (Scale)")
+    parser.add_argument("--sif", help="Path to SIF CSV/XLSX for completeness checks (Scale/sci)")
     parser.add_argument(
         "--provider",
         required=True,
@@ -188,8 +190,8 @@ def main() -> None:
     if args.data == "raw" and args.assay == "10x":
         exit_code |= _validate_10x_raw(provider, mappings, args.sif, fail_reasons)
 
-    elif args.data == "raw" and args.assay == "scale" and provider == "novogene":
-        exit_code |= _validate_scale_raw(mappings, args.sif, fail_reasons)
+    elif args.data == "raw" and args.assay in ("scale", "sci") and provider == "novogene":
+        exit_code |= _validate_seahub_raw(args.assay, mappings, args.sif, fail_reasons)
 
     else:
         print(
@@ -388,65 +390,94 @@ def _report_sif_path_coverage(
     return exit_code
 
 
-def _validate_scale_raw(
+_SEAHUB_LOCAL_VALIDATORS: dict = {
+    "scale": validate_local_paths_scale_raw,
+    "sci": validate_local_paths_sci_raw,
+}
+
+_SEAHUB_CONSISTENCY_VALIDATORS: dict = {
+    "scale": validate_s3_local_consistency_scale,
+    "sci": validate_s3_local_consistency_sci,
+}
+
+
+def _validate_seahub_raw(
+    assay_family: str,
     mappings: list,
     sif_path: str | None,
     fail_reasons: List[str],
 ) -> int:
-    """Run all Scale raw validation checks, return non-zero on failure."""
+    """Run all seahub (Scale or sci) raw validation checks."""
+    family = assay_family.lower()
     exit_code = 0
 
-    # Local path sanity
-    local_res = validate_local_paths_scale_raw(mappings)
+    # S3 SOP checks
+    s3_res = validate_s3_seahub_raw(family, mappings)
+    meta_count = s3_res.get("metadata_files", 0)
+    s3_ga: dict[str, Set[str]] = s3_res.get("group_assays", {})
     print(
-        f"Scale raw (local): matched {local_res['matched']} paths, "
+        f"{family} raw (S3): matched {s3_res['matched']} paths, "
+        f"{len(s3_res['errors'])} errors, {len(s3_res['warnings'])} warnings"
+        + (f", {meta_count} run-metadata files" if meta_count else "")
+    )
+    _print_issue_examples(f"{family} raw (S3)", s3_res["errors"], "errors")
+    _print_issue_examples(f"{family} raw (S3)", s3_res["warnings"], "warnings")
+    if s3_res["matched"] == 0:
+        print(
+            f"  WARNING: none of the S3 paths matched the {family} raw pattern. "
+            "Check that the S3 paths follow the SOP naming convention."
+        )
+        fail_reasons.append(f"no S3 paths matched the {family} raw pattern (0 matched)")
+        exit_code = 1
+    if s3_res["errors"]:
+        exit_code = 1
+        fail_reasons.append(f"{len(s3_res['errors'])} {family} S3 SOP errors")
+
+    if s3_ga:
+        print(f"S3 GroupIDs found: {len(s3_ga)}")
+        for gid in sorted(s3_ga):
+            assays_str = ", ".join(sorted(s3_ga[gid]))
+            print(f"  {gid}: {assays_str}")
+
+    # Local path sanity (family-specific)
+    local_validator = _SEAHUB_LOCAL_VALIDATORS[family]
+    local_res = local_validator(mappings)
+    print(
+        f"{family} raw (local): matched {local_res['matched']} paths, "
         f"{len(local_res['errors'])} errors, {len(local_res['warnings'])} warnings"
     )
-    _print_issue_examples("Scale raw (local)", local_res["errors"], "errors")
-    _print_issue_examples("Scale raw (local)", local_res["warnings"], "warnings")
+    _print_issue_examples(f"{family} raw (local)", local_res["errors"], "errors")
+    _print_issue_examples(f"{family} raw (local)", local_res["warnings"], "warnings")
     if local_res["matched"] == 0:
         print(
-            "  WARNING: none of the local paths matched any recognised Scale pattern. "
+            f"  WARNING: none of the local paths matched any recognised {family} pattern. "
             "Local-path consistency checks were NOT applied."
         )
-        fail_reasons.append("no local paths matched Scale pattern (0 matched)")
+        fail_reasons.append(f"no local paths matched {family} pattern (0 matched)")
         exit_code = 1
     if local_res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(local_res['errors'])} local-path errors")
 
-    # S3 SOP checks
-    s3_res = validate_s3_scale_raw(mappings)
-    meta_count = s3_res.get("metadata_files", 0)
-    print(
-        f"Scale raw (S3): matched {s3_res['matched']} paths, "
-        f"{len(s3_res['errors'])} errors, {len(s3_res['warnings'])} warnings"
-        + (f", {meta_count} run-metadata files" if meta_count else "")
-    )
-    _print_issue_examples("Scale raw (S3)", s3_res["errors"], "errors")
-    _print_issue_examples("Scale raw (S3)", s3_res["warnings"], "warnings")
-    if s3_res["errors"]:
-        exit_code = 1
-        fail_reasons.append(f"{len(s3_res['errors'])} S3 SOP errors")
-
     # SIF completeness
     if sif_path:
-        sif_res = validate_sif_completeness_scale(mappings, sif_path)
+        sif_res = validate_sif_completeness_seahub(family, mappings, sif_path)
         exit_code |= _report_sif_comparison(sif_res, fail_reasons)
     else:
-        print("Scale mode: no --sif provided, skipping SIF completeness checks.")
+        print(f"{family} mode: no --sif provided, skipping SIF completeness checks.")
 
-    # Fuzzy S3/local consistency
-    cons_res = validate_s3_local_consistency_scale(mappings)
+    # S3/local consistency (family-specific)
+    consistency_validator = _SEAHUB_CONSISTENCY_VALIDATORS[family]
+    cons_res = consistency_validator(mappings)
     print(
-        f"Scale S3/local consistency: matched {cons_res['matched']} pairs, "
+        f"{family} S3/local consistency: matched {cons_res['matched']} pairs, "
         f"{len(cons_res['errors'])} errors, {len(cons_res['warnings'])} warnings"
     )
     _print_issue_examples(
-        "Scale S3/local consistency", cons_res["errors"], "errors"
+        f"{family} S3/local consistency", cons_res["errors"], "errors"
     )
     _print_issue_examples(
-        "Scale S3/local consistency", cons_res["warnings"], "warnings"
+        f"{family} S3/local consistency", cons_res["warnings"], "warnings"
     )
     if cons_res["errors"]:
         exit_code = 1
