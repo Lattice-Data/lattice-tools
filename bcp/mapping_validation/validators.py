@@ -242,32 +242,34 @@ def _build_seahub_s3_patterns(
     valid_assays = ASSAYS_BY_FAMILY[family]
     assay_re = build_assay_regex(valid_assays)
 
-    # Scale GroupIDs may contain underscores/hyphens (e.g. R096G, R112A-B);
-    # sci GroupIDs are purely alphanumeric (e.g. R100E).
-    group_id_re = r"[A-Za-z0-9_-]+" if family == "scale" else r"[A-Za-z0-9]+"
-    prefix = (
+    s3_prefix = (
         r"^s3://(?P<bucket>czi-novogene)/(?P<project>[a-z0-9-]+)/"
         rf"(?P<order>{order_re})/(?P<experiment_id>[^/]+)/raw/"
         r"(?P<runid>\d+)/"
-        rf"(?P<runid2>\d+)-(?P<group_id>{group_id_re})_(?P<assay>{assay_re})"
     )
 
     if family == "scale":
+        # Scale GroupIDs may contain underscores/hyphens (e.g. R096G, R112A-B).
+        group_id_re = r"[A-Za-z0-9_-]+"
+        stem = s3_prefix + rf"(?P<runid2>\d+)-(?P<group_id>{group_id_re})_(?P<assay>{assay_re})"
         sop = re.compile(
-            prefix
+            stem
             + r"_(?P<ug_rt>QSR-\d+(?:-SCALEPLEX)?)"
             + r"(?P<suffix>.*)$"
         )
         idx = re.compile(
-            prefix
+            stem
             + r"_(?P<index_seq>[ACGT]+)"
             + r"(?P<suffix>.*)$"
         )
         return [(sop, "sop"), (idx, "index")]
 
-    # sci
+    # sci: use non-greedy group_id (.+?) so underscored IDs like
+    # CHEM16_P07_F3 are parsed correctly.  The -Z\d{4}-[ACGT]+ anchor
+    # after the assay prevents ambiguity.
     sci_pat = re.compile(
-        prefix
+        s3_prefix
+        + rf"(?P<runid2>\d+)-(?P<group_id>.+?)_(?P<assay>{assay_re})"
         + r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)"
         + r"(?P<suffix>.*)$"
     )
