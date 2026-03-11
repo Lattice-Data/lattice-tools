@@ -1,0 +1,3 @@
+s3://czi-novogene/Weissman_Scaling/NVUS2024101701-29/CD4i_R1L01/raw/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAX_S1_L001_R1_001.fastq.gz,/local/invalid_barcode.fastq.gz
+s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/NVUS2024101701-29/CD4i_R1L01/raw/416640-CD4i_R1L02_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,/local/group_mismatch.fastq.gz
+

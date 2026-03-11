@@ -1,0 +1,5 @@
+s3://bucket/a,/local/a
+s3://bucket/a,/local/b
+s3://bucket/b,/local/c
+s3://bucket/c,/local/c
+

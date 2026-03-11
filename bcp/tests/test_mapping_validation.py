@@ -411,7 +411,12 @@ def test_validate_s3_scale_raw_correctly_parses_hash_oligo_group_id() -> None:
 
 
 def test_validate_sif_completeness_scale_correct_group_ids(tmp_path: Path) -> None:
-    """SIF completeness should correctly parse GroupIDs from Hash_oligo paths."""
+    """SIF completeness should correctly parse GroupIDs from Hash_oligo paths.
+
+    This case intentionally uses the non-SOP assay spelling 'Hash_oligo';
+    the neighbouring test with 'hash_oligo' in the SIF ensures both the
+    casing error path and the group-id extraction behaviour are exercised.
+    """
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
@@ -687,6 +692,47 @@ def test_validate_s3_10x_raw_counts_metadata_files() -> None:
     assert result["metadata_files"] == 1
 
 
+def test_validate_s3_10x_raw_invalid_barcode_and_project_naming() -> None:
+    """10x raw validator should flag invalid barcodes and project naming."""
+    rows = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/Weissman_Scaling/NVUS2024101701-29/CD4i_R1L01/raw/"
+                "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAX_S1_L001_R1_001.fastq.gz"
+            ),
+            local_path="/local/file.fastq.gz",
+            line_num=1,
+        )
+    ]
+
+    result = validate_s3_10x_raw("novogene", rows)
+
+    error_types = {e["type"] for e in result["errors"]}
+    warn_types = {w["type"] for w in result["warnings"]}
+    assert "invalid_barcode" in error_types
+    assert "project_naming" in warn_types
+
+
+def test_validate_s3_10x_raw_group_mismatch_error() -> None:
+    """10x raw validator should flag group_mismatch when GroupID disagrees."""
+    rows = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
+                "NVUS2024101701-29/CD4i_R1L01/raw/"
+                "416640-CD4i_R1L02_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz"
+            ),
+            local_path="/local/file.fastq.gz",
+            line_num=2,
+        )
+    ]
+
+    result = validate_s3_10x_raw("novogene", rows)
+
+    error_types = {e["type"] for e in result["errors"]}
+    assert "group_mismatch" in error_types
+
+
 def test_find_unmatched_sif_paths_10x_reports_unmatched_groupids() -> None:
     """find_unmatched_sif_paths_10x should separate matched and unmatched GroupIDs."""
     base = (
@@ -721,7 +767,12 @@ def test_find_unmatched_sif_paths_10x_reports_unmatched_groupids() -> None:
 
 
 def test_validate_s3_scale_raw_index_pattern_happy_path() -> None:
-    """Scale S3 index-direct form should match and have no errors."""
+    """Scale S3 index-direct form should match and have no errors.
+
+    This exercises the backward-compatible wrapper validate_s3_scale_raw;
+    a separate test below covers the unified validate_s3_seahub_raw("scale", ...)
+    entrypoint so both call paths stay wired up.
+    """
     row = MappingRow(
         s3_path=(
             "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
@@ -809,6 +860,12 @@ def test_get_assays_unknown_family_raises() -> None:
         get_assays("unknown_family")
 
 
+def test_get_order_pattern_unknown_provider_raises() -> None:
+    """Unknown provider for order pattern should raise ValueError."""
+    with pytest.raises(ValueError, match="Unknown provider"):
+        get_order_pattern("unknown_provider")
+
+
 def test_build_assay_regex_longest_first() -> None:
     """build_assay_regex should sort longest-first to avoid partial matches."""
     import re
@@ -860,6 +917,26 @@ def test_validate_s3_seahub_raw_scale_happy_path() -> None:
     assert result["errors"] == []
 
 
+def test_validate_s3_seahub_raw_scale_runid_and_gex_scaleplex_mismatch() -> None:
+    """Scale S3 validator should flag runid and GEX/SCALEPLEX violations."""
+    # runid in directory (441969) disagrees with runid2 in filename (441970)
+    # and GEX assay is incorrectly combined with SCALEPLEX in UG_RT.
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "441970-R096A_GEX_QSR-1-SCALEPLEX-8G.cram"
+        ),
+        local_path="/local/path.cram",
+        line_num=2,
+    )
+
+    result = validate_s3_seahub_raw("scale", [row])
+
+    error_types = {e["type"] for e in result["errors"]}
+    assert "runid_mismatch" in error_types
+    assert "gex_scaleplex_violation" in error_types
+
+
 def test_validate_s3_seahub_raw_sci_happy_path() -> None:
     """Seahub unified validator with sci family should match Z-barcode form."""
     row = MappingRow(
@@ -876,6 +953,25 @@ def test_validate_s3_seahub_raw_sci_happy_path() -> None:
     assert result["matched"] == 1
     assert result["errors"] == []
     assert result["group_assays"] == {"R100E": {"GEX_hash_oligo"}}
+
+
+def test_validate_s3_seahub_raw_sci_invalid_barcode_and_project_naming() -> None:
+    """sci S3 validator should flag invalid barcode and project naming."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/Hamazaki-Seahub-BCP/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAX.json"
+        ),
+        local_path="/local/path",
+        line_num=2,
+    )
+
+    result = validate_s3_seahub_raw("sci", [row])
+
+    error_types = {e["type"] for e in result["errors"]}
+    warn_types = {w["type"] for w in result["warnings"]}
+    assert "invalid_barcode" in error_types
+    assert "project_naming" in warn_types
 
 
 def test_validate_s3_seahub_raw_sci_tracks_group_assays() -> None:
@@ -1001,6 +1097,30 @@ def test_validate_local_paths_sci_raw_detects_barcode_mismatch() -> None:
     assert "barcode_mismatch" in error_types
 
 
+def test_validate_local_paths_sci_raw_detects_runid_groupid_ug_mismatch() -> None:
+    """sci local validator should flag runid, groupid and UG inconsistencies."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441388-20260224_2053/"
+            "441387-R100F_Z0028-Z0029-CAGACTTGCTGCGAT/"
+            "441386-R100G_Z0030-Z0031-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        line_num=3,
+    )
+
+    result = validate_local_paths_sci_raw([row])
+
+    assert result["matched"] == 1
+    error_types = {e["type"] for e in result["errors"]}
+    assert "runid_mismatch" in error_types
+    assert "groupid_mismatch" in error_types
+    assert "ug_mismatch" in error_types
+
+
 def test_validate_s3_local_consistency_sci_happy_path() -> None:
     """Consistent S3 and local paths should produce no errors."""
     row = MappingRow(
@@ -1042,6 +1162,30 @@ def test_validate_s3_local_consistency_sci_detects_groupid_mismatch() -> None:
     assert result["matched"] == 1
     error_types = {e["type"] for e in result["errors"]}
     assert "groupid_mismatch_s3_local" in error_types
+
+
+def test_validate_s3_local_consistency_sci_detects_runid_ug_barcode_mismatch() -> None:
+    """sci S3/local consistency should flag runid, UG and barcode mismatches."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441388-20260224_2053/"
+            "441388-R100E_Z0029-Z0029-AAAAAAAAAAAAAAA/"
+            "441388-R100E_Z0029-Z0029-AAAAAAAAAAAAAAA_SNVQ.metric"
+        ),
+        line_num=4,
+    )
+
+    result = validate_s3_local_consistency_sci([row])
+
+    assert result["matched"] == 1
+    error_types = {e["type"] for e in result["errors"]}
+    assert "runid_mismatch_s3_local" in error_types
+    assert "ug_mismatch_s3_local" in error_types
+    assert "barcode_mismatch_s3_local" in error_types
 
 
 # ---------------------------------------------------------------------------
