@@ -1,4 +1,3 @@
 Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,Experiement Identifier,Group Identifier,Assay Type
-CHEM16_P04,CHEM16_P04_A1,CAGCTCGAATGCGAT,trapnell-seahub-bcp,CHEM16,CHEM16_P04_A1,GEX_hash_oligo
-CHEM16_P04,CHEM16_P04_D4,CAGACTTGCTGCGAT,trapnell-seahub-bcp,CHEM16,CHEM16_P04_D4,GEX_hash_oligo
-
+CHEM13-R096,CHEM13-R096_GEX,CAGCTCGAATGCGAT,trapnell-seahub-bcp,CHEM13-R096,R096A,GEX
+CHEM13-R096,CHEM13-R096_hash_oligo,CAGACTTGCTGCGAT,trapnell-seahub-bcp,CHEM13-R096,R096A,hash_oligo

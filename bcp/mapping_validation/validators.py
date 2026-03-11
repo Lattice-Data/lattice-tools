@@ -48,7 +48,7 @@ def _build_10x_raw_s3_regex(provider: str, order_pattern: str, assay_re: str) ->
         r"(?P<project>[a-z0-9-]+)/"
         rf"(?P<order>{order_pattern})/"
         r"(?P<groupid>[^/]+)/raw/"
-        rf"(?P<runid>\d+)-(?P<file_stem>.+?)_(?P<assay>{assay_re})-(?P<ug>Z\d{{4}})-(?P<barcode>[ACGT]+)"
+        rf"(?P<runid>\d+)-(?P<file_stem>.+?)_(?P<assay>{assay_re})-(?P<ug>Z\d{{4}})-(?P<barcode>[A-Za-z]+)"
         r"(?P<suffix>.*)$"
     )
 
@@ -270,7 +270,7 @@ def _build_seahub_s3_patterns(
     sci_pat = re.compile(
         s3_prefix
         + rf"(?P<runid2>\d+)-(?P<group_id>.+?)_(?P<assay>{assay_re})"
-        + r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)"
+        + r"-(?P<ug>Z\d{4})-(?P<barcode>[A-Za-z]+)"
         + r"(?P<suffix>.*)$"
     )
     return [(sci_pat, "sci")]

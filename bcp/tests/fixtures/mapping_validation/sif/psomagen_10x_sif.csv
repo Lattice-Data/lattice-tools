@@ -1,4 +1,3 @@
 Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,Experiement Identifier,Group Identifier,Assay Type
-Single_1_GEX,Single_1_GEX,TCAGAACTTT,reed-ward-psomagen-bcp,S1_redo-UG100,Single_1,GEX
-Single_1_CRISPR,Single_1_CRISPR,CACCGCACCA,reed-ward-psomagen-bcp,S1_redo-UG100,Single_1,CRI
-
+CD4i_R1L01,CD4i_R1L01_GEX,TCAGAACTTT,weissman-test-project,NVUS2024101701-29,CD4i_R1L01,GEX
+CD4i_R1L01,CD4i_R1L01_viral_ORF,CACCGCACCA,weissman-test-project,NVUS2024101701-29,CD4i_R1L01,viral_ORF

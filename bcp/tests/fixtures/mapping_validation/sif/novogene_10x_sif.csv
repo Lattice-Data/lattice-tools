@@ -1,3 +1,3 @@
 Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,Experiement Identifier,Group Identifier,Assay Type
-e10_rep1_t13,e10_rep1_t13,QSR1,weissman-embryo-tracing,NVUS2024101701-19,e10_rep1_t13,GEX
-
+LIB1,LIB1,QSR1,weissman-test-project,NVUS2024101701-29,LIB1_LIB1F,GEX
+LIB1F,LIB1F,QSR2,weissman-test-project,NVUS2024101701-29,LIB1_LIB1F,CRI

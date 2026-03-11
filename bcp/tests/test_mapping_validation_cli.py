@@ -87,14 +87,17 @@ def test_cli_scale_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> N
     """CLI should pass for a minimal valid Scale raw mapping with SIF."""
     mapping_text = (
         "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
-        "441969-R096G_GEX_CTATGCACA.json,/local/441969-R096G_GEX_CTATGCACA.json\n"
+        "441969-R096A_GEX_QSR-1-7A.json,"
+        "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
+        "441969-QSR1_QSR-1/441969-QSR1_QSR-1_7A.json\n"
     )
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
 
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "R096G,QSR1,CTATGCACA,trapnell-seahub-bcp,CHEM13-R096,R096G,GEX\n"
+        "CHEM13-R096,CHEM13-R096_GEX,CTATGCACA,trapnell-seahub-bcp,"
+        "CHEM13-R096,R096A,GEX\n"
     )
     sif_path = tmp_path / "scale_sif.csv"
     sif_path.write_text(sif_text)

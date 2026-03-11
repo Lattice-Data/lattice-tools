@@ -225,10 +225,10 @@ class TestFormatOutput:
         guide1_rows = output_df[output_df['id'] == 'guide1']
         assert len(guide1_rows) == 2
         
-        # Check that guide2 has 1 row (no overlap, marked as NA)
+        # Check that guide2 has 1 row (no overlap, marked as intergenic)
         guide2_rows = output_df[output_df['id'] == 'guide2']
         assert len(guide2_rows) == 1
-        assert guide2_rows.iloc[0]['gene_id'] == 'NA'
+        assert guide2_rows.iloc[0]['gene_id'] == 'intergenic'
     
     def test_format_output_no_overlaps(self, temp_dir):
         """Test output formatting with no gene overlaps."""
@@ -250,10 +250,10 @@ class TestFormatOutput:
         # Read and validate output (keep_default_na=False to preserve 'NA' as string)
         output_df = pd.read_csv(output_file, keep_default_na=False)
         
-        # Both guides should have NA (no overlaps)
+        # Both guides should be marked as intergenic (no overlaps)
         assert len(output_df) == 2
-        assert all(output_df['gene_id'] == 'NA')
-        assert all(output_df['gene_name'] == 'NA')
+        assert all(output_df['gene_id'] == 'intergenic')
+        assert all(output_df['gene_name'] == 'intergenic')
 
 
 class TestAnnotateGuidesBioframe:
@@ -423,9 +423,9 @@ class TestEdgeCases:
         
         df = pd.read_csv(output_file, keep_default_na=False)
         
-        # All guides should have NA annotations (invalid coordinates)
-        assert all(df['gene_id'] == 'NA')
-        assert all(df['gene_name'] == 'NA')
+        # All guides should be marked as INVALID_COORDS (invalid coordinates)
+        assert all(df['gene_id'] == 'INVALID_COORDS')
+        assert all(df['gene_name'] == 'INVALID_COORDS')
 
 
 class TestCompatibilityWithCurrent:
