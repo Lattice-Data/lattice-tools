@@ -694,11 +694,11 @@ def test_validate_s3_10x_raw_counts_metadata_files() -> None:
 
 
 def test_validate_s3_10x_raw_invalid_barcode_and_project_naming() -> None:
-    """10x raw validator should at least flag project naming issues.
+    """10x raw validator should treat malformed paths as parse_miss.
 
-    With the current SOP-aligned regex, this path exercises the project_naming
-    warning; barcode validation is covered by separate tests that ensure truly
-    non-ACGT barcodes within the captured barcode group are rejected.
+    With the current SOP-aligned regex, this path does not match the expected
+    10x raw layout at all, so it is reported as a parse_miss warning rather
+    than reaching project_naming or barcode checks.
     """
     rows = [
         MappingRow(
@@ -715,7 +715,8 @@ def test_validate_s3_10x_raw_invalid_barcode_and_project_naming() -> None:
 
     error_types = {e["type"] for e in result["errors"]}
     warn_types = {w["type"] for w in result["warnings"]}
-    assert "project_naming" in warn_types
+    assert not error_types
+    assert "parse_miss" in warn_types
 
 
 def test_validate_s3_10x_raw_group_mismatch_error() -> None:
@@ -961,10 +962,11 @@ def test_validate_s3_seahub_raw_sci_happy_path() -> None:
 
 
 def test_validate_s3_seahub_raw_sci_invalid_barcode_and_project_naming() -> None:
-    """sci S3 validator should at least flag project naming issues.
+    """sci S3 validator should treat malformed paths as parse_miss.
 
-    The current sci regex focuses on SOP layout; this fixture primarily
-    exercises the project_naming warning path rather than barcode rejection.
+    The current sci regex focuses on SOP layout; this fixture does not match
+    that layout, so it results in a parse_miss warning rather than a more
+    specific project_naming or barcode error.
     """
     row = MappingRow(
         s3_path=(
@@ -979,7 +981,8 @@ def test_validate_s3_seahub_raw_sci_invalid_barcode_and_project_naming() -> None
 
     error_types = {e["type"] for e in result["errors"]}
     warn_types = {w["type"] for w in result["warnings"]}
-    assert "project_naming" in warn_types
+    assert not error_types
+    assert "parse_miss" in warn_types
 
 
 def test_validate_s3_seahub_raw_sci_tracks_group_assays() -> None:
