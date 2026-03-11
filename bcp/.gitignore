@@ -102,3 +102,6 @@ Temporary Items
 # Local documentation / data files (mapping CSVs, SIFs, SOPs, etc.)
 docs/
 
+# QA test fixtures from internal runs — keep local only, do not push
+tests/fixtures/qa/
+
