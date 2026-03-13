@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, Set
+from typing import Dict
 
 import warnings
 
 import pandas as pd
-
-from .constants import CANONICAL_ASSAY
 
 
 warnings.filterwarnings(
@@ -75,7 +73,9 @@ def load_sif_group_assays(sif_path: str | Path) -> dict[str, set[str]]:
                     gid = str(row_data.get(group_col, "")).strip()
                     if not gid or gid == "nan":
                         continue
-                    assay_val = str(row_data.get(assay_col, "")).strip() if assay_col else ""
+                    assay_val = (
+                        str(row_data.get(assay_col, "")).strip() if assay_col else ""
+                    )
                     if assay_val and assay_val != "nan":
                         result[gid].add(assay_val.lower())
                     else:
@@ -97,7 +97,11 @@ def load_sif_group_assays(sif_path: str | Path) -> dict[str, set[str]]:
                     gid = (row.get(group_col_name) or "").strip()
                     if not gid:
                         continue
-                    assay_val = (row.get(assay_col_name) or "").strip() if assay_col_name else ""
+                    assay_val = (
+                        (row.get(assay_col_name) or "").strip()
+                        if assay_col_name
+                        else ""
+                    )
                     if assay_val:
                         result[gid].add(assay_val.lower())
                     else:
@@ -240,4 +244,3 @@ __all__ = [
     "load_sif_library_assays",
     "load_sif_library_names",
 ]
-

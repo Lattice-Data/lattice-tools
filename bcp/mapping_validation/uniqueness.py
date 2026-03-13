@@ -35,4 +35,3 @@ def validate_uniqueness(mappings: Iterable[MappingRow]) -> dict:
 
 
 __all__ = ["validate_uniqueness"]
-

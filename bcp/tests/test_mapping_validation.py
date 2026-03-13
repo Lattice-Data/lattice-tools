@@ -9,7 +9,6 @@ import pytest
 from mapping_validation import (
     ASSAYS_10X,
     ASSAYS_SCALE,
-    CANONICAL_ASSAY,
     MappingRow,
     _is_run_metadata,
     _normalize_sif_groupid,
@@ -18,7 +17,6 @@ from mapping_validation import (
     find_unmatched_sif_paths_10x,
     get_assays,
     get_order_pattern,
-    load_sif_library_assays,
     load_sif_scale_group_assays,
     parse_mapping_file,
     validate_library_assay_consistency,
@@ -408,7 +406,10 @@ def test_validate_s3_scale_raw_correctly_parses_hash_oligo_group_id() -> None:
     # Only error should be the casing violation — no structural errors
     assert len(result["errors"]) == 1
     assert result["errors"][0]["type"] == "assay_casing"
-    assert "'Hash_oligo' violates SOP spelling 'hash_oligo'" in result["errors"][0]["detail"]
+    assert (
+        "'Hash_oligo' violates SOP spelling 'hash_oligo'"
+        in result["errors"][0]["detail"]
+    )
 
 
 def test_validate_sif_completeness_scale_correct_group_ids(tmp_path: Path) -> None:
@@ -511,7 +512,9 @@ def test_validate_sif_completeness_flags_missing_assay(tmp_path: Path) -> None:
     assert "hash_oligo" in result["missing_assays"]["R112A"]
 
 
-def test_validate_sif_completeness_no_missing_when_all_assays_present(tmp_path: Path) -> None:
+def test_validate_sif_completeness_no_missing_when_all_assays_present(
+    tmp_path: Path,
+) -> None:
     """No missing assays when all SIF assay types are in S3."""
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
@@ -748,15 +751,13 @@ def test_find_unmatched_sif_paths_10x_reports_unmatched_groupids() -> None:
     # One mapping with GroupID present in SIF, one with GroupID missing from SIF
     rows = [
         MappingRow(
-            s3_path=base
-            + "CD4i_R1L01/raw/"
+            s3_path=base + "CD4i_R1L01/raw/"
             "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz",
             local_path="/local/ok.fastq.gz",
             line_num=1,
         ),
         MappingRow(
-            s3_path=base
-            + "CD4i_R1L02/raw/"
+            s3_path=base + "CD4i_R1L02/raw/"
             "416640-CD4i_R1L02_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz",
             local_path="/local/extra.fastq.gz",
             line_num=2,
@@ -802,8 +803,7 @@ def test_validate_s3_local_consistency_scale_qsr_only_one_side_warning() -> None
             "441969-R096G_GEX_QSR-1-7A.json"
         ),
         local_path=(
-            "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
-            "441969-run/441969-run_7A.json"
+            "/ORPROJ1/DATA1/V129/441969-20260220_2053/441969-run/441969-run_7A.json"
         ),
         line_num=12,
     )
@@ -1259,9 +1259,7 @@ _PROC_S3_PSOM = (
     "s3://czi-psomagen/weissman-perturb/AN00012345/"
     "CD4i_R1L01/processed/cellranger/Run_2025-02-01/outs/"
 )
-_PROC_LOCAL_PSOM = (
-    "/data/process/CD4i_R1L01/outs/"
-)
+_PROC_LOCAL_PSOM = "/data/process/CD4i_R1L01/outs/"
 
 
 def test_validate_s3_10x_processed_novogene_basic() -> None:
@@ -1442,4 +1440,3 @@ def test_s3_local_consistency_10x_processed_no_outs_in_local() -> None:
     res = validate_s3_local_consistency_10x_processed("novogene", rows)
     assert res["matched"] == 1
     assert any(w["type"] == "no_outs_in_local" for w in res["warnings"])
-

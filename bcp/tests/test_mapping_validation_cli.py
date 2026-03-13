@@ -56,10 +56,7 @@ def test_cli_fails_on_duplicate_mappings(tmp_path: Path, monkeypatch, capsys) ->
     """CLI should fail (exit 1) when duplicate mappings are present."""
     # The S3 paths here are not 10x SOP-compliant on purpose – we only
     # care that uniqueness fails and the CLI reports a non-zero status.
-    mapping_text = (
-        "s3://bucket/a,/local/a\n"
-        "s3://bucket/a,/local/b\n"
-    )
+    mapping_text = "s3://bucket/a,/local/a\ns3://bucket/a,/local/b\n"
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
 
     argv = [
@@ -179,7 +176,7 @@ def test_cli_10x_processed_with_sif_passes(tmp_path: Path, monkeypatch, capsys) 
     )
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
 
-    sif_text = "Library name,Group Identifier,Assay Type\n" "LIB1,e10_rep1_t13,GEX\n"
+    sif_text = "Library name,Group Identifier,Assay Type\nLIB1,e10_rep1_t13,GEX\n"
     sif_path = tmp_path / "tenx_proc_sif.csv"
     sif_path.write_text(sif_text)
 
@@ -262,4 +259,3 @@ def test_cli_unsupported_mode_fails(tmp_path: Path, monkeypatch, capsys) -> None
     captured = capsys.readouterr()
     assert "VERDICT: FAIL" in captured.out
     assert "unsupported validation mode" in captured.out
-
