@@ -826,20 +826,36 @@ def validate_local_paths_sci_raw(mappings: Iterable[MappingRow]) -> dict:
     """
     Validate local paths for Novogene sci raw data.
 
-    Local layout:
+    Supports two local layouts:
+
+    1. Double-UG (original):
         {base}/{RunID}-{date}_{time}/{RunID}-{GroupID}_{UG}-{UG}-{Barcode}/
             {RunID}-{GroupID}_{UG}-{UG}-{Barcode}{suffix}
 
+    2. Single-UG (sci-plex style):
+        {base}/{RunID}-{date}_{time}/{RunID}-{GroupID}-{UG}-{Barcode}/
+            {RunID}-{GroupID}-{UG}-{Barcode}{suffix}
+
+    GroupID may contain letters, digits, and underscores (e.g. CHEM16_P07_F3).
     Checks internal consistency of RunID, GroupID, UG, and Barcode between
     directory components and filename.
     """
-    pattern = re.compile(
+    # Double-UG: GroupID_UG-UG-Barcode (underscore before UG, two UG codes)
+    pattern_double_ug = re.compile(
         r"(?P<base>.+)/"
         r"(?P<runid>\d+)-(?P<date>\d+_\d+)/"
-        r"(?P<runid2>\d+)-(?P<groupid>[A-Za-z0-9]+)"
+        r"(?P<runid2>\d+)-(?P<groupid>[A-Za-z0-9_]+)"
         r"_(?P<ug>Z\d{4})-(?P<ug2>Z\d{4})-(?P<barcode>[ACGT]+)/"
-        r"(?P<runid3>\d+)-(?P<groupid2>[A-Za-z0-9]+)"
+        r"(?P<runid3>\d+)-(?P<groupid2>[A-Za-z0-9_]+)"
         r"_(?P<ug3>Z\d{4})-(?P<ug4>Z\d{4})-(?P<barcode2>[ACGT]+)"
+        r"(?P<suffix>.*)"
+    )
+    # Single-UG: GroupID-UG-Barcode (hyphen after GroupID, one UG)
+    pattern_single_ug = re.compile(
+        r"(?P<base>.+)/"
+        r"(?P<runid>\d+)-(?P<date>\d+_\d+)/"
+        r"(?P<runid2>\d+)-(?P<groupid>[A-Za-z0-9_]+)-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)/"
+        r"(?P<runid3>\d+)-(?P<groupid2>[A-Za-z0-9_]+)-(?P<ug3>Z\d{4})-(?P<barcode2>[ACGT]+)"
         r"(?P<suffix>.*)"
     )
 
@@ -855,7 +871,12 @@ def validate_local_paths_sci_raw(mappings: Iterable[MappingRow]) -> dict:
         if _is_run_metadata(row.s3_path):
             continue
 
-        m = pattern.match(local)
+        m = pattern_double_ug.match(local)
+        single_ug = False
+        if not m:
+            m = pattern_single_ug.match(local)
+            if m:
+                single_ug = True
         if not m:
             continue
 
@@ -884,36 +905,37 @@ def validate_local_paths_sci_raw(mappings: Iterable[MappingRow]) -> dict:
                 }
             )
 
-        if gd["ug"] != gd["ug2"]:
-            errors.append(
-                {
-                    "type": "ug_mismatch",
-                    "line": row.line_num,
-                    "local_path": local,
-                    "detail": f"UG codes differ in directory: {gd['ug']} vs {gd['ug2']}",
-                }
-            )
+        if not single_ug:
+            if gd["ug"] != gd["ug2"]:
+                errors.append(
+                    {
+                        "type": "ug_mismatch",
+                        "line": row.line_num,
+                        "local_path": local,
+                        "detail": f"UG codes differ in directory: {gd['ug']} vs {gd['ug2']}",
+                    }
+                )
 
-        if gd["ug3"] != gd["ug4"]:
-            errors.append(
-                {
-                    "type": "ug_mismatch",
-                    "line": row.line_num,
-                    "local_path": local,
-                    "detail": f"UG codes differ in filename: {gd['ug3']} vs {gd['ug4']}",
-                }
-            )
+            if gd["ug3"] != gd["ug4"]:
+                errors.append(
+                    {
+                        "type": "ug_mismatch",
+                        "line": row.line_num,
+                        "local_path": local,
+                        "detail": f"UG codes differ in filename: {gd['ug3']} vs {gd['ug4']}",
+                    }
+                )
 
-        if gd["ug"] != gd["ug3"]:
-            errors.append(
-                {
-                    "type": "ug_mismatch",
-                    "line": row.line_num,
-                    "local_path": local,
-                    "detail": f"UG code in directory '{gd['ug']}' does not match "
-                    f"filename '{gd['ug3']}'",
-                }
-            )
+            if gd["ug"] != gd["ug3"]:
+                errors.append(
+                    {
+                        "type": "ug_mismatch",
+                        "line": row.line_num,
+                        "local_path": local,
+                        "detail": f"UG code in directory '{gd['ug']}' does not match "
+                        f"filename '{gd['ug3']}'",
+                    }
+                )
 
         if gd["barcode"] != gd["barcode2"]:
             errors.append(
@@ -942,10 +964,16 @@ def validate_s3_local_consistency_sci(mappings: Iterable[MappingRow]) -> dict:
     the corresponding local path on each mapping row.
     """
     s3_patterns = _build_seahub_s3_patterns("sci")
-    local_regex = re.compile(
+    # Double-UG local: RunID-GroupID_UG-UG-Barcode
+    local_regex_double_ug = re.compile(
         r"/(?P<runid>\d+)-\d+_\d+/"
-        r"(?P<runid2>\d+)-(?P<groupid>[A-Za-z0-9]+)"
+        r"(?P<runid2>\d+)-(?P<groupid>[A-Za-z0-9_]+)"
         r"_(?P<ug>Z\d{4})-Z\d{4}-(?P<barcode>[ACGT]+)/"
+    )
+    # Single-UG local (sci-plex style): RunID-GroupID-UG-Barcode
+    local_regex_single_ug = re.compile(
+        r"/(?P<runid>\d+)-\d+_\d+/"
+        r"(?P<runid2>\d+)-(?P<groupid>[A-Za-z0-9_]+)-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)/"
     )
 
     errors: List[dict] = []
@@ -964,7 +992,9 @@ def validate_s3_local_consistency_sci(mappings: Iterable[MappingRow]) -> dict:
             s3_m = pat.match(row.s3_path)
             if s3_m:
                 break
-        local_m = local_regex.search(row.local_path)
+        local_m = local_regex_double_ug.search(row.local_path)
+        if not local_m:
+            local_m = local_regex_single_ug.search(row.local_path)
 
         if not s3_m or not local_m:
             continue

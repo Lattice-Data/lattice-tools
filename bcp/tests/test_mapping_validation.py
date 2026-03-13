@@ -1089,6 +1089,27 @@ def test_validate_local_paths_sci_raw_happy_path() -> None:
     assert result["errors"] == []
 
 
+def test_validate_local_paths_sci_raw_single_ug_sci_plex_style() -> None:
+    """Single-UG sci-plex local path (RunID-GroupID-UG-Barcode) should match and validate."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-30/CHEM16/raw/441588/"
+            "441588-CHEM16_P07_F3_GEX_hash_oligo-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
+        ),
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-754-001/441588-20260218_1318/"
+            "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT/"
+            "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
+        ),
+        line_num=1,
+    )
+
+    result = validate_local_paths_sci_raw([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
 def test_validate_local_paths_sci_raw_detects_barcode_mismatch() -> None:
     """Mismatched barcode between directory and filename should be flagged."""
     row = MappingRow(
@@ -1143,6 +1164,27 @@ def test_validate_s3_local_consistency_sci_happy_path() -> None:
             "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
             "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
             "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
+        ),
+        line_num=1,
+    )
+
+    result = validate_s3_local_consistency_sci([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
+def test_validate_s3_local_consistency_sci_single_ug_sci_plex_style() -> None:
+    """Single-UG sci-plex local path should match S3 for consistency check."""
+    row = MappingRow(
+        s3_path=(
+            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-30/CHEM16/raw/441588/"
+            "441588-CHEM16_P07_F3_GEX_hash_oligo-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
+        ),
+        local_path=(
+            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-754-001/441588-20260218_1318/"
+            "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT/"
+            "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
         ),
         line_num=1,
     )
