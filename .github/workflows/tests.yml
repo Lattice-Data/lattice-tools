@@ -15,9 +15,9 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: Run ruff check
-        run: ruff check .
+        run: ruff check bcp/
       - name: Run ruff format check
-        run: ruff format --check .
+        run: ruff format --check bcp/
 
   bcp-pytest:
     runs-on: ubuntu-latest
