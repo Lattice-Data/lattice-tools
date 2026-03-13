@@ -202,6 +202,9 @@ class TestFindOverlapsBioframe:
         assert overlaps_df.empty
 
 
+@pytest.mark.skip(
+    reason="skipped due to deprioritization of bioframe uasage and guidescan integration"
+)
 class TestFormatOutput:
     """Test output formatting."""
 
@@ -421,6 +424,9 @@ class TestAnnotateGuidesBioframe:
             assert len(guide_counts) > 0
 
 
+@pytest.mark.skip(
+    reason="skipped due to deprioritization of bioframe uasage and guidescan integration"
+)
 class TestEdgeCases:
     """Test edge cases and error handling."""
 

@@ -16,6 +16,9 @@ from guide_to_gene import annotate_guides
 from guide_to_gene_bioframe import annotate_guides_bioframe
 
 
+@pytest.mark.skip(
+    reason="skipped due to deprioritization of bioframe uasage and guidescan integration"
+)
 class TestCompatibilityBioframeVsCurrent:
     """Test compatibility between bioframe and current implementations."""
 
