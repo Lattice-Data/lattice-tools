@@ -2,15 +2,32 @@
 Tests for PAM validation and length calculation in the guidescan pipeline.
 """
 
-import pytest
-from pathlib import Path
-import tempfile
+import subprocess
 import sys
+import tempfile
+from pathlib import Path
+
+import pytest
 
 # Add parent directory to path to import the pipeline module
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from guidescan_pipeline import GuidescanPipeline
+
+def is_guidescan_available() -> bool:
+    """Return True if the guidescan executable is available in PATH."""
+    try:
+        subprocess.run(["guidescan", "--help"], capture_output=True, check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not is_guidescan_available(), reason="guidescan not available in PATH"
+)
+
+
+from guidescan_pipeline import GuidescanPipeline  # noqa: E402
 
 
 class TestPAMValidation:
