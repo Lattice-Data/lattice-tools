@@ -1,266 +1,34 @@
-import boto3
+"""
+QA parsing helpers. Constants live in qa_constants; re-exported here for backward compatibility.
+"""
+
 import json
-import os
-import pandas as pd
 import re
+from pathlib import Path
+
+import pandas as pd
 from bs4 import BeautifulSoup
 
+from qa_constants import (
+    cellranger_expected,
+    chemistries,
+    raw_expected,
+    raw_optional,
+    valid_assays,
+)
 
-s3client = boto3.client("s3")
-
-
-chemistries = {
-    "Single Cell 5' R2-only v3": "5p",
-    "Single Cell 5' R2-only": "5p",
-    "Single Cell 3' v4 (polyA)": "3p",
-    "Single Cell 3' v3": "3p",
-    "Flex Gene Expression": "flex",
-}
-
-valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo"]
-
-# https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-3p-outputs-cellplex
-# https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-flex-outputs-frp
-# https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-outputs-gex-overview
-cellranger_expected = {
-    "cellranger-9.0.1": {
-        "nonflex": {
-            "outs": [
-                "config.csv",
-                "multi/count/feature_reference.csv",
-                "multi/count/raw_cloupe.cloupe",
-                "multi/count/raw_feature_bc_matrix.h5",
-                "multi/count/raw_feature_bc_matrix.tar.gz",
-                "multi/count/raw_molecule_info.h5",
-                "multi/count/unassigned_alignments.bam",
-                "multi/count/unassigned_alignments.bam.bai",
-            ],
-            "per_sample": [
-                "count/analysis.tar.gz",
-                "count/feature_reference.csv",
-                "count/sample_cloupe.cloupe",
-                "count/sample_alignments.bam",
-                "count/sample_alignments.bam.bai",
-                "count/sample_filtered_barcodes.csv",
-                "count/sample_filtered_feature_bc_matrix.h5",
-                "count/sample_filtered_feature_bc_matrix.tar.gz",
-                "count/sample_molecule_info.h5",
-                "metrics_summary.csv",
-                "web_summary.html",
-            ],
-        },
-        "flex": {
-            "outs": [
-                "config.csv",
-                "multi/count/raw_cloupe.cloupe",
-                "multi/count/raw_feature_bc_matrix.h5",
-                "multi/count/raw_feature_bc_matrix.tar.gz",
-                "multi/count/raw_molecule_info.h5",
-                "multi/count/raw_probe_bc_matrix.h5",
-            ],
-            "per_sample": [
-                "count/analysis.tar.gz",
-                "count/probe_set.csv",
-                "count/sample_cloupe.cloupe",
-                "count/sample_filtered_barcodes.csv",
-                "count/sample_filtered_feature_bc_matrix.h5",
-                "count/sample_filtered_feature_bc_matrix.tar.gz",
-                "count/sample_molecule_info.h5",
-                "count/sample_raw_feature_bc_matrix.h5",
-                "count/sample_raw_feature_bc_matrix.tar.gz",
-                "count/sample_raw_probe_bc_matrix.h5",
-                "metrics_summary.csv",
-                "web_summary.html",
-            ],
-        },
-    },
-    "cellranger-10.0.0": {
-        "nonflex": {
-            "outs": [
-                "config.csv",
-                "filtered_feature_bc_matrix/barcodes.tsv.gz",
-                "filtered_feature_bc_matrix/features.tsv.gz",
-                "filtered_feature_bc_matrix/matrix.mtx.gz",
-                "filtered_feature_bc_matrix.h5",
-                "multiplexing_analysis/cells_per_tag.json",
-                "qc_library_metrics.csv",
-                "qc_report.html",
-                "qc_sample_metrics.csv",
-                "raw_cloupe.cloupe",
-                "raw_feature_bc_matrix/barcodes.tsv.gz",
-                "raw_feature_bc_matrix/features.tsv.gz",
-                "raw_feature_bc_matrix/matrix.mtx.gz",
-                "raw_feature_bc_matrix.h5",
-                "raw_molecule_info.h5",
-            ],
-            "per_sample": [
-                "sample_filtered_feature_bc_matrix/barcodes.tsv.gz",
-                "sample_filtered_feature_bc_matrix/features.tsv.gz",
-                "sample_filtered_feature_bc_matrix/matrix.mtx.gz",
-                "sample_raw_feature_bc_matrix/barcodes.tsv.gz",
-                "sample_raw_feature_bc_matrix/features.tsv.gz",
-                "sample_raw_feature_bc_matrix/matrix.mtx.gz",
-                "metrics_summary.csv",
-                "sample_cloupe.cloupe",
-                "sample_filtered_barcodes.csv",
-                "sample_filtered_feature_bc_matrix.h5",
-                "sample_molecule_info.h5",
-                "sample_raw_feature_bc_matrix.h5",
-                "web_summary.html",
-            ],
-        },
-        "flex": {
-            "outs": [
-                "config.csv",
-                "feature_reference.csv",
-                "filtered_feature_bc_matrix/barcodes.tsv.gz",
-                "filtered_feature_bc_matrix/features.tsv.gz",
-                "filtered_feature_bc_matrix/matrix.mtx.gz",
-                "filtered_feature_bc_matrix.h5",
-                "multiplexing_analysis/cells_per_tag.json",
-                "multiplexing_analysis/frp_gem_barcode_overlap.csv",
-                "probe_set.csv",
-                "qc_library_metrics.csv",
-                "qc_report.html",
-                "qc_sample_metrics.csv",
-                "raw_cloupe.cloupe",
-                "raw_feature_bc_matrix/barcodes.tsv.gz",
-                "raw_feature_bc_matrix/features.tsv.gz",
-                "raw_feature_bc_matrix/matrix.mtx.gz",
-                "raw_feature_bc_matrix.h5",
-                "raw_molecule_info.h5",
-                "raw_probe_bc_matrix.h5",
-            ],
-            "per_sample": [
-                "crispr_analysis/protospacer_calls_per_cell.csv",
-                "metrics_summary.csv",
-                "sample_cloupe.cloupe",
-                "sample_filtered_barcodes.csv",
-                "sample_filtered_feature_bc_matrix.h5",
-                "sample_filtered_feature_bc_matrix/barcodes.tsv.gz",
-                "sample_filtered_feature_bc_matrix/features.tsv.gz",
-                "sample_filtered_feature_bc_matrix/matrix.mtx.gz",
-                "sample_molecule_info.h5",
-                "sample_raw_feature_bc_matrix.h5",
-                "sample_raw_feature_bc_matrix/barcodes.tsv.gz",
-                "sample_raw_feature_bc_matrix/features.tsv.gz",
-                "sample_raw_feature_bc_matrix/matrix.mtx.gz",
-                "sample_raw_probe_bc_matrix.h5",
-                "web_summary.html",
-            ],
-        },
-    },
-    "count": {
-        "outs": [
-            "analysis/clustering/gene_expression_graphclust/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_10_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_2_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_3_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_4_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_5_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_6_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_7_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_8_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_9_clusters/clusters.csv",
-            "analysis/diffexp/gene_expression_graphclust/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_10_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_2_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_3_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_4_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_5_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_6_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_7_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_8_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_9_clusters/differential_expression.csv",
-            "analysis/pca/gene_expression_10_components/components.csv",
-            "analysis/pca/gene_expression_10_components/dispersion.csv",
-            "analysis/pca/gene_expression_10_components/features_selected.csv",
-            "analysis/pca/gene_expression_10_components/projection.csv",
-            "analysis/pca/gene_expression_10_components/variance.csv",
-            "analysis/tsne/gene_expression_2_components/projection.csv",
-            "analysis/umap/gene_expression_2_components/projection.csv",
-            "cloupe.cloupe",
-            "filtered_feature_bc_matrix/barcodes.tsv.gz",
-            "filtered_feature_bc_matrix/features.tsv.gz",
-            "filtered_feature_bc_matrix/matrix.mtx.gz",
-            "filtered_feature_bc_matrix.h5",
-            "metrics_summary.csv",
-            "molecule_info.h5",
-            "possorted_genome_bam.bam",
-            "possorted_genome_bam.bam.bai",
-            "raw_feature_bc_matrix/barcodes.tsv.gz",
-            "raw_feature_bc_matrix/features.tsv.gz",
-            "raw_feature_bc_matrix/matrix.mtx.gz",
-            "raw_feature_bc_matrix.h5",
-            "web_summary.html",
-        ]
-    },
-}
-
-raw_expected = {
-    "sci_jumbo": [
-        ".cram",
-        ".cram-metadata.json",
-        ".csv",
-        ".json",
-        "_trimmer-failure_codes.csv",
-        "_trimmer-stats.csv",
-        "_FlowQ.metric",
-        "_SNVQ.metric",
-    ],
-    "sci_plex": [
-        ".cram",
-        ".cram-metadata.json",
-        ".csv",
-        ".json",
-        "_trimmer-failure_codes.csv",
-        "_trimmer-stats.csv",
-    ],
-    "10x": [
-        ".csv",
-        ".json",
-        "_trimmer-failure_codes.csv",
-        "_trimmer-stats.csv",
-        "_unmatched.cram",
-        "_unmatched.cram-metadata.json",
-        "_unmatched.csv",
-        "_unmatched.json",
-        "_S1_L001_R1_001.csv",
-        "_S1_L001_R1_001.fastq.gz",
-        "_S1_L001_R1_001.fastq.gz-metadata.json",
-        "_S1_L001_R1_001.json",
-        "_S1_L001_R1_001_sample.fastq.gz",
-        "_S1_L001_R1_001_sample.fastq.gz-metadata.json",
-        "_S1_L001_R2_001.csv",
-        "_S1_L001_R2_001.fastq.gz",
-        "_S1_L001_R2_001.fastq.gz-metadata.json",
-        "_S1_L001_R2_001.json",
-        "_S1_L001_R2_001_sample.fastq.gz",
-        "_S1_L001_R2_001_sample.fastq.gz-metadata.json",
-    ],
-    "10x_viral_ORF": [
-        ".csv",
-        ".json",
-        "_trimmer-failure_codes.csv",
-        "_trimmer-stats.csv",
-        ".cram",
-        ".cram-metadata.json",
-        "_FlowQ.metric",
-        "_SNVQ.metric",
-    ],
-}
-
-raw_optional = {
-    "10x": [
-        ".scRNA.applicationQC.h5",
-        ".scRNA.applicationQC.html",
-        "_Log.final.out",
-        "_Log.out",
-        "_Log.progress.out",
-        "_ReadsPerGene.out.tab",
-        "_SJ.out.tab",
-    ]
-}
+__all__ = [
+    "cellranger_expected",
+    "chemistries",
+    "raw_expected",
+    "raw_optional",
+    "valid_assays",
+    "parse_met_summ",
+    "parse_web_summ",
+    "grab_trimmer_stats",
+    "parse_raw_filename",
+    "load_files_from_manifest",
+]
 
 
 def parse_met_summ(f):
@@ -369,14 +137,22 @@ def parse_web_summ(f):
     return report
 
 
-def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
-    exp = "/".join(rf.split("/")[1:3])
+def grab_trimmer_stats(
+    trimmer_failure_stats: dict,
+    exp: str,
+    csv_path: str | Path,
+) -> None:
+    """
+    Parse a trimmer-failure_codes CSV and update trimmer_failure_stats in place.
+    Caller is responsible for downloading the file from S3 (if needed) and cleanup.
+    exp is typically "/".join(s3_key.split("/")[1:3]) for the experiment identifier.
+    """
     if exp not in trimmer_failure_stats:
         trimmer_failure_stats[exp] = {"rsq": [], "trimmer_fail": []}
-    s3client.download_file(bucket, rf, "trimmer-failure_codes.csv")
-    trimmer_fail = 0
-    stats_df = pd.read_csv("trimmer-failure_codes.csv")
+    stats_df = pd.read_csv(csv_path)
     stats_df.columns = stats_df.columns.str.replace(" ", "_")
+    trimmer_fail = 0
+    total_reads = 0
     for row in stats_df.itertuples():
         total_reads = row.total_read_count
         if row.reason == "rsq file":
@@ -385,9 +161,9 @@ def grab_trimmer_stats(trimmer_failure_stats, rf, bucket):
             )
         else:
             trimmer_fail += row.failed_read_count
-    trimmer_fail_pct = trimmer_fail / total_reads
-    trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail_pct)
-    os.remove("trimmer-failure_codes.csv")
+    if total_reads > 0:
+        trimmer_fail_pct = trimmer_fail / total_reads
+        trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail_pct)
 
 
 def parse_raw_filename(f, raw_assay):
