@@ -6,6 +6,7 @@ structured results (errors, missing/extra file lists, etc.).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from qa_mods import (
@@ -26,33 +27,70 @@ def validate_fastq_counts(
     fastq_log: dict[str, dict[str, list[str]]], raw_assay: str
 ) -> list[str]:
     """
-    Check for mismatching number of files across modalities (e.g. CRI vs GEX).
+    Check for mismatching number of files across modalities per sample.
+
+    - scale: GEX vs hash_oligo must have equal counts when both present.
+    - sci_plex: GEX vs hash_oligo when both present; GEX_hash_oligo only → no check.
+    - sci_jumbo: No validation; logs that sci_jumbo is not validated.
+    - 10x: GEX–CRI and GEX–ATAC pairs must have equal counts when present;
+      GEX-only or ATAC-only → no check. Logs when CRI+ATAC present (future QA).
+    - 10x_viral_ORF: No validation (legacy); logs that it is not validated.
+
     Returns list of error messages.
     """
+    logger = logging.getLogger(__name__)
     errors: list[str] = []
+
+    if raw_assay == "sci_jumbo":
+        logger.warning("Not validating fastq counts for sci_jumbo at the moment.")
+        return errors
+
+    if raw_assay == "10x_viral_ORF":
+        logger.warning(
+            "Not validating fastq counts for 10x_viral_ORF (legacy/outlier)."
+        )
+        return errors
+
     for sample, v in fastq_log.items():
         if raw_assay == "scale":
-            if len(v.get("GEX", [])) != len(v.get("hash_oligo", [])):
-                e = (
-                    f"MISMATCH FQ COUNTS: {sample}: {len(v.get('GEX', []))} GEX, "
-                    f"{len(v.get('hash_oligo', []))} hash_oligo"
+            gex_list = v.get("GEX", [])
+            hash_list = v.get("hash_oligo", [])
+            if gex_list and hash_list and len(gex_list) != len(hash_list):
+                errors.append(
+                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
+                    f"{len(hash_list)} hash_oligo"
                 )
-                errors.append(e)
-        elif len(v.get("viral_ORF", [])) > 0:
-            gex_count = len(v.get("GEX", []))
-            viral_count = len(v.get("viral_ORF", []))
-            if gex_count / 2 != viral_count:
-                e = (
-                    f"MISMATCH FQ COUNTS: {sample}: {gex_count} GEX, "
-                    f"{viral_count} viral_ORF"
+        elif raw_assay == "sci_plex":
+            gex_list = v.get("GEX", [])
+            hash_list = v.get("hash_oligo", [])
+            if gex_list and hash_list and len(gex_list) != len(hash_list):
+                errors.append(
+                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
+                    f"{len(hash_list)} hash_oligo"
                 )
-                errors.append(e)
-        elif len(v.get("CRI", [])) != len(v.get("GEX", [])):
-            e = (
-                f"MISMATCH FQ COUNTS: {sample}: {len(v.get('CRI', []))} CRI, "
-                f"{len(v.get('GEX', []))} GEX"
-            )
-            errors.append(e)
+            # GEX_hash_oligo only or single modality → no comparison
+        elif raw_assay == "10x":
+            cri_list = v.get("CRI", [])
+            atac_list = v.get("ATAC", [])
+            gex_list = v.get("GEX", [])
+            if cri_list and atac_list:
+                logger.warning(
+                    "Unexpected: CRI+ATAC present for sample %s; "
+                    "QA expansion needed in the future.",
+                    sample,
+                )
+            if gex_list and cri_list and len(gex_list) != len(cri_list):
+                errors.append(
+                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
+                    f"{len(cri_list)} CRI"
+                )
+            if gex_list and atac_list and len(gex_list) != len(atac_list):
+                errors.append(
+                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
+                    f"{len(atac_list)} ATAC"
+                )
+            # GEX-only or ATAC-only → no comparison
+
     return errors
 
 

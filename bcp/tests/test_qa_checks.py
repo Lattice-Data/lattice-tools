@@ -2,6 +2,8 @@
 Tests for qa_checks validation functions.
 """
 
+import logging
+
 from qa_checks import (
     check_expected_raw_files,
     check_extra_raw_files,
@@ -26,7 +28,7 @@ class TestValidateFastqCounts:
         errors = validate_fastq_counts(fastq_log, "10x")
         assert len(errors) == 1
         assert "MISMATCH FQ COUNTS" in errors[0]
-        assert "2 CRI" in errors[0] or "1 CRI" in errors[0]
+        assert "2 GEX" in errors[0] and "1 CRI" in errors[0]
         assert "G1" in errors[0]
 
     def test_scale_gex_hash_oligo_mismatch(self):
@@ -42,18 +44,111 @@ class TestValidateFastqCounts:
         errors = validate_fastq_counts(fastq_log, "scale")
         assert errors == []
 
-    def test_viral_orf_gex_half_of_viral(self):
-        """viral_ORF: no error when GEX count / 2 == viral_ORF count."""
-        fastq_log = {"G1": {"GEX": ["a", "b", "c", "d"], "viral_ORF": ["e", "f"]}}
+    def test_scale_gex_only_no_error(self):
+        """Scale: only GEX present → no comparison, no error."""
+        fastq_log = {"E1": {"GEX": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "scale")
+        assert errors == []
+
+    def test_scale_hash_oligo_only_no_error(self):
+        """Scale: only hash_oligo present → no comparison, no error."""
+        fastq_log = {"E1": {"hash_oligo": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "scale")
+        assert errors == []
+
+    def test_sci_plex_gex_hash_oligo_match(self):
+        """sci_plex: no error when GEX and hash_oligo counts match."""
+        fastq_log = {"S1": {"GEX": ["a", "b"], "hash_oligo": ["c", "d"]}}
+        errors = validate_fastq_counts(fastq_log, "sci_plex")
+        assert errors == []
+
+    def test_sci_plex_gex_hash_oligo_mismatch(self):
+        """sci_plex: error when GEX and hash_oligo both present and counts differ."""
+        fastq_log = {"S1": {"GEX": ["a"], "hash_oligo": ["b", "c"]}}
+        errors = validate_fastq_counts(fastq_log, "sci_plex")
+        assert len(errors) == 1
+        assert "GEX" in errors[0] and "hash_oligo" in errors[0]
+        assert "S1" in errors[0]
+
+    def test_sci_plex_gex_hash_oligo_only_no_error(self):
+        """sci_plex: only GEX_hash_oligo present → no comparison, no error."""
+        fastq_log = {"S1": {"GEX_hash_oligo": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "sci_plex")
+        assert errors == []
+
+    def test_sci_plex_gex_only_no_error(self):
+        """sci_plex: only GEX present → no error."""
+        fastq_log = {"S1": {"GEX": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "sci_plex")
+        assert errors == []
+
+    def test_sci_plex_hash_oligo_only_no_error(self):
+        """sci_plex: only hash_oligo present → no error."""
+        fastq_log = {"S1": {"hash_oligo": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "sci_plex")
+        assert errors == []
+
+    def test_sci_jumbo_no_validation_returns_no_errors(self, caplog):
+        """sci_jumbo: no validation; returns no errors and logs message."""
+        fastq_log = {"J1": {"GEX": ["a"], "hash_oligo": ["b", "c"]}}
+        with caplog.at_level(logging.WARNING):
+            errors = validate_fastq_counts(fastq_log, "sci_jumbo")
+        assert errors == []
+        assert "sci_jumbo" in caplog.text
+        assert "not validating" in caplog.text.lower()
+
+    def test_10x_gex_atac_match(self):
+        """10x: GEX and ATAC counts match → no errors."""
+        fastq_log = {"G1": {"GEX": ["a", "b"], "ATAC": ["c", "d"]}}
         errors = validate_fastq_counts(fastq_log, "10x")
         assert errors == []
 
-    def test_viral_orf_mismatch(self):
-        """viral_ORF: error when GEX/2 != viral_ORF count."""
-        fastq_log = {"G1": {"GEX": ["a", "b"], "viral_ORF": ["c", "d", "e"]}}
+    def test_10x_gex_atac_mismatch(self):
+        """10x: GEX and ATAC counts differ → error."""
+        fastq_log = {"G1": {"GEX": ["a", "b"], "ATAC": ["c"]}}
         errors = validate_fastq_counts(fastq_log, "10x")
         assert len(errors) == 1
-        assert "viral_ORF" in errors[0]
+        assert "GEX" in errors[0] and "ATAC" in errors[0]
+
+    def test_10x_gex_only_no_error(self):
+        """10x: GEX only → no comparison, no error."""
+        fastq_log = {"G1": {"GEX": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "10x")
+        assert errors == []
+
+    def test_10x_atac_only_no_error(self):
+        """10x: ATAC only → no comparison, no error."""
+        fastq_log = {"G1": {"ATAC": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "10x")
+        assert errors == []
+
+    def test_10x_viral_orf_present_no_validation(self):
+        """10x: viral_ORF present is no longer validated; no error (legacy)."""
+        fastq_log = {"G1": {"GEX": ["a", "b"], "viral_ORF": ["c", "d", "e"]}}
+        errors = validate_fastq_counts(fastq_log, "10x")
+        assert errors == []
+
+    def test_10x_cri_atac_present_logs_warning(self, caplog):
+        """10x: CRI+ATAC present logs unexpected / QA expansion needed."""
+        fastq_log = {
+            "G1": {"GEX": ["a", "b"], "CRI": ["c", "d"], "ATAC": ["e", "f"]},
+        }
+        with caplog.at_level(logging.WARNING):
+            errors = validate_fastq_counts(fastq_log, "10x")
+        assert errors == []
+        assert "CRI" in caplog.text and "ATAC" in caplog.text
+        assert "expansion" in caplog.text.lower() or "unexpected" in caplog.text.lower()
+
+    def test_10x_viral_orf_assay_no_validation_returns_no_errors(self, caplog):
+        """10x_viral_ORF: no validation; returns no errors and logs legacy message."""
+        fastq_log = {"G1": {"GEX": ["a", "b"], "viral_ORF": ["c"]}}
+        with caplog.at_level(logging.WARNING):
+            errors = validate_fastq_counts(fastq_log, "10x_viral_ORF")
+        assert errors == []
+        assert "10x_viral_ORF" in caplog.text
+        assert (
+            "not validating" in caplog.text.lower() or "legacy" in caplog.text.lower()
+        )
 
 
 class TestValidateReadMetadata:
