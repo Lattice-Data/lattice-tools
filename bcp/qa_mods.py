@@ -91,7 +91,10 @@ def parse_web_summ(f):
 
     report["extra"] = []
     if "library" in data:
-        if data["library"]["data"]["crispr_tab"]:
+        if (
+            "crispr_tab" in data["library"]["data"]
+            and data["library"]["data"]["crispr_tab"]
+        ):
             report["extra"].append("CRISPR")
         if "antibody_tab" in data["library"]["data"].keys():
             if data["library"]["data"]["antibody_tab"]:
@@ -128,7 +131,10 @@ def parse_web_summ(f):
                 "Pipeline Version"
             ]
         report["gex_alerts"] = data["library"]["data"]["gex_tab"]["alerts"]
-        if data["library"]["data"]["crispr_tab"]:
+        if (
+            "crispr_tab" in data["library"]["data"]
+            and data["library"]["data"]["crispr_tab"]
+        ):
             report["crispr_alerts"] = data["library"]["data"]["crispr_tab"]["alerts"]
 
     if "summary" in data:
