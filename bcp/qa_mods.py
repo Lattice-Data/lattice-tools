@@ -42,16 +42,15 @@ def parse_met_summ(f):
         (df["Metric Name"].isin(["Number of reads", "Number of short reads skipped"]))
         & (df["Grouped By"] == "Fastq ID")
     ]
-    lib_reads.loc[:, "Metric Value"] = (
-        lib_reads["Metric Value"].str.replace(",", "").astype(int)
-    )
+    # Keep numeric values in a separate series to avoid assigning int into string column
+    metric_value_int = lib_reads["Metric Value"].str.replace(",", "").astype(int)
 
-    gex_reads = lib_reads[lib_reads["Library Type"] == "Gene Expression"]
-    report = {"GEX_reads": gex_reads["Metric Value"].sum()}
+    gex_mask = lib_reads["Library Type"] == "Gene Expression"
+    report = {"GEX_reads": int(metric_value_int[gex_mask].sum())}
 
     if "CRISPR Guide Capture" in lib_reads["Library Type"].unique():
-        cri_reads = lib_reads[lib_reads["Library Type"] == "CRISPR Guide Capture"]
-        report["CRI_reads"] = cri_reads["Metric Value"].sum()
+        cri_mask = lib_reads["Library Type"] == "CRISPR Guide Capture"
+        report["CRI_reads"] = int(metric_value_int[cri_mask].sum())
 
     return report
 
