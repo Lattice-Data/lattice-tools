@@ -79,17 +79,25 @@ def validate_fastq_counts(
                     "QA expansion needed in the future.",
                     sample,
                 )
-            if gex_list and cri_list and len(gex_list) != len(cri_list):
+            # Only compare when both modalities have at least one file (GEX-only or CRI-only → no check)
+            if (
+                len(gex_list) > 0
+                and len(cri_list) > 0
+                and len(gex_list) != len(cri_list)
+            ):
                 errors.append(
                     f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
                     f"{len(cri_list)} CRI"
                 )
-            if gex_list and atac_list and len(gex_list) != len(atac_list):
+            if (
+                len(gex_list) > 0
+                and len(atac_list) > 0
+                and len(gex_list) != len(atac_list)
+            ):
                 errors.append(
                     f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
                     f"{len(atac_list)} ATAC"
                 )
-            # GEX-only or ATAC-only → no comparison
 
     return errors
 
