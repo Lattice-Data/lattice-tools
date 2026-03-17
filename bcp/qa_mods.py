@@ -29,6 +29,9 @@ __all__ = [
     "parse_raw_filename",
     "load_files_from_manifest",
     "extract_run_id_from_trimmer_filename",
+    "extract_run_id_from_merged_trimmer_path",
+    "grab_merged_trimmer_stats",
+    "grab_merged_trimmer_q30",
 ]
 
 
@@ -197,6 +200,115 @@ def extract_run_id_from_trimmer_filename(filename: str) -> str | None:
     if run_id.isdigit() and 6 <= len(run_id) <= 8:
         return run_id
     return None
+
+
+def extract_run_id_from_merged_trimmer_path(s3_key: str) -> str | None:
+    """
+    Extract RunID (wafer id) from an S3 key pointing to a merged trimmer file.
+
+    - Scale/sci: path like .../raw/438761/merged_trimmer-failure_codes.csv
+      → RunID = path parent (438761). Parent segment must be 6–8 digit numeric.
+    - 10x: path under order folder (no /raw/), e.g. .../order/438761_merged_...
+      → RunID = 6–8 digit prefix from filename.
+
+    Args:
+        s3_key: S3 object key (path without bucket).
+
+    Returns:
+        RunID string if determinable, else None.
+    """
+    parts = s3_key.split("/")
+    name = parts[-1] if parts else ""
+
+    # Must look like a merged trimmer file
+    if (
+        "merged_trimmer-failure_codes.csv" not in name
+        and "merged_trimmer-stats.csv" not in name
+    ):
+        return None
+
+    # 10x: merged files under {order}/ — no "raw" in path; filename has optional run_id prefix
+    if "/raw/" not in s3_key:
+        # Filename: 438761_merged_trimmer-failure_codes.csv or merged_trimmer-failure_codes.csv
+        if name.startswith("merged_"):
+            return None  # Single-wafer, no prefix
+        prefix = name.split("_merged_")[0]
+        if prefix.isdigit() and 6 <= len(prefix) <= 8:
+            return prefix
+        return None
+
+    # Scale/sci: .../raw/{run_id}/merged_trimmer-*.csv — run_id = parent dir
+    if len(parts) < 2:
+        return None
+    run_id = parts[-2]
+    if run_id.isdigit() and 6 <= len(run_id) <= 8:
+        return run_id
+    return None
+
+
+def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
+    """
+    Parse a merged trimmer-failure_codes CSV and return TT-level RSQ and trimmer fail percentages.
+
+    Only rows with read_group == "TT" are used. Same reason logic as per-sample:
+    reason "rsq file" → rsq_pct; all other reasons summed → trimmer_fail_pct.
+
+    Args:
+        csv_path: Path to the merged trimmer-failure CSV.
+
+    Returns:
+        {"rsq_pct": float, "trimmer_fail_pct": float} or None if no TT row.
+    """
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.replace(" ", "_")
+    if "read_group" not in df.columns:
+        return None
+    tt = df[df["read_group"] == "TT"]
+    if tt.empty:
+        return None
+    # Use total_read_count from first TT row as wafer-level total
+    total_reads = tt["total_read_count"].iloc[0]
+    if total_reads <= 0:
+        return None
+    rsq_failed = tt.loc[tt["reason"] == "rsq file", "failed_read_count"].sum()
+    other_failed = tt.loc[tt["reason"] != "rsq file", "failed_read_count"].sum()
+    return {
+        "rsq_pct": 100.0 * rsq_failed / total_reads,
+        "trimmer_fail_pct": 100.0 * other_failed / total_reads,
+    }
+
+
+def grab_merged_trimmer_q30(csv_path: str | Path) -> float | None:
+    """
+    Parse a merged trimmer-stats CSV and return TT-level Q30 percentage.
+
+    Uses the "low quality bases" segment for read_group "TT":
+    Q30 % = 100 * num_matched_bases / (num_matched_bases + num_failures).
+
+    Args:
+        csv_path: Path to the merged trimmer-stats CSV.
+
+    Returns:
+        Q30 percentage (0–100) or None if TT row or segment missing.
+    """
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.replace(" ", "_")
+    for col in ("read_group", "segment_label", "num_matched_bases", "num_failures"):
+        if col not in df.columns:
+            return None
+    tt = df[df["read_group"] == "TT"]
+    if tt.empty:
+        return None
+    low_qual = tt[tt["segment_label"] == "low quality bases"]
+    if low_qual.empty:
+        return None
+    row = low_qual.iloc[0]
+    matched = row["num_matched_bases"]
+    failures = row["num_failures"]
+    total = matched + failures
+    if total <= 0:
+        return None
+    return 100.0 * matched / total
 
 
 def parse_raw_filename(f, raw_assay):

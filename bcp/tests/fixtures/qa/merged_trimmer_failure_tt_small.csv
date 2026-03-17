@@ -1,0 +1,4 @@
+read group,code,format,segment,reason,failed read count,total read count
+TT,8,trim TT preamble and native adapter and filter lengths,preamble,rsq file,24911820,158267504
+TT,101,trim TT preamble and native adapter and filter lengths,insert,sequence was too short,355,158267504
+TT,102,trim TT preamble and native adapter and filter lengths,insert,sequence was too long,6,158267504

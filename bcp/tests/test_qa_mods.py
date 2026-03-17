@@ -9,7 +9,10 @@ import os
 import pytest
 
 from qa_mods import (
+    extract_run_id_from_merged_trimmer_path,
     extract_run_id_from_trimmer_filename,
+    grab_merged_trimmer_q30,
+    grab_merged_trimmer_stats,
     grab_trimmer_stats,
     parse_met_summ,
     parse_raw_filename,
@@ -288,6 +291,109 @@ class TestExtractRunIdFromTrimmerFilename:
             )
             is None
         )
+
+
+class TestExtractRunIdFromMergedTrimmerPath:
+    """Tests for extract_run_id_from_merged_trimmer_path."""
+
+    def test_scale_sci_path_parent_run_id(self):
+        """Scale/sci: run_id from path parent (raw/438761/merged_*)."""
+        path = "proj/order/RNA3_098/raw/438761/merged_trimmer-failure_codes.csv"
+        assert extract_run_id_from_merged_trimmer_path(path) == "438761"
+        path2 = "proj/order/RNA3_098/raw/438761/merged_trimmer-stats.csv"
+        assert extract_run_id_from_merged_trimmer_path(path2) == "438761"
+
+    def test_scale_sci_filename_in_run_dir(self):
+        """Scale/sci: run_id from path parent when filename has run_id prefix."""
+        path = "proj/order/R097/raw/436012/436012_merged_trimmer-failure_codes.csv"
+        assert extract_run_id_from_merged_trimmer_path(path) == "436012"
+
+    def test_10x_order_level_filename_prefix(self):
+        """10x: merged files under order/; run_id from filename prefix."""
+        path = "proj/order/438761_merged_trimmer-failure_codes.csv"
+        assert extract_run_id_from_merged_trimmer_path(path) == "438761"
+        path2 = (
+            "czi-novogene/weissman/NVUS2024101701-29/438761_merged_trimmer-stats.csv"
+        )
+        assert extract_run_id_from_merged_trimmer_path(path2) == "438761"
+
+    def test_invalid_or_non_merged_returns_none(self):
+        """Non-merged paths or missing run_id return None."""
+        assert (
+            extract_run_id_from_merged_trimmer_path("proj/order/raw/file.csv") is None
+        )
+        assert (
+            extract_run_id_from_merged_trimmer_path(
+                "proj/order/group/raw/438761/sample_trimmer-failure_codes.csv"
+            )
+            is None
+        )
+        # 10x order-level but no prefix (single wafer)
+        assert (
+            extract_run_id_from_merged_trimmer_path(
+                "proj/order/merged_trimmer-failure_codes.csv"
+            )
+            is None
+        )
+
+
+class TestGrabMergedTrimmerStats:
+    """Tests for grab_merged_trimmer_stats."""
+
+    def test_tt_rsq_and_trimmer_fail_from_fixture(self, tmp_path):
+        """TT row: rsq_pct and trimmer_fail_pct from fixture."""
+        src = os.path.join(QA_FIXTURES_DIR, "merged_trimmer_failure_tt_small.csv")
+        dst = tmp_path / "merged_trimmer_failure.csv"
+        with open(src, "r") as f_in, open(dst, "w") as f_out:
+            f_out.write(f_in.read())
+        result = grab_merged_trimmer_stats(str(dst))
+        assert result is not None
+        # rsq: 24911820/158267504; other: (355+6)/158267504
+        assert abs(result["rsq_pct"] - (100.0 * 24911820 / 158267504)) < 0.001
+        assert abs(result["trimmer_fail_pct"] - (100.0 * 361 / 158267504)) < 0.0001
+
+    def test_no_tt_row_returns_none(self, tmp_path):
+        """CSV without TT read_group returns None."""
+        path = tmp_path / "no_tt.csv"
+        path.write_text(
+            "read group,reason,failed read count,total read count\n"
+            "UGAv3-1000,rsq file,100,1000\n"
+        )
+        assert grab_merged_trimmer_stats(str(path)) is None
+
+
+class TestGrabMergedTrimmerQ30:
+    """Tests for grab_merged_trimmer_q30."""
+
+    def test_tt_low_quality_bases_from_fixture(self, tmp_path):
+        """TT row with low quality bases segment returns Q30 percentage."""
+        src = os.path.join(QA_FIXTURES_DIR, "merged_trimmer_stats_tt_small.csv")
+        dst = tmp_path / "merged_trimmer_stats.csv"
+        with open(src, "r") as f_in, open(dst, "w") as f_out:
+            f_out.write(f_in.read())
+        result = grab_merged_trimmer_q30(str(dst))
+        assert result is not None
+        # 3807451195 / (3807451195 + 7211)
+        expected = 100.0 * 3807451195 / (3807451195 + 7211)
+        assert abs(result - expected) < 0.0001
+
+    def test_no_tt_row_returns_none(self, tmp_path):
+        """CSV without TT read_group returns None."""
+        path = tmp_path / "no_tt.csv"
+        path.write_text(
+            "read group,segment label,num matched bases,num failures\n"
+            "Z0003,low quality bases,1000,50\n"
+        )
+        assert grab_merged_trimmer_q30(str(path)) is None
+
+    def test_no_low_quality_segment_returns_none(self, tmp_path):
+        """TT row without low quality bases segment returns None."""
+        path = tmp_path / "no_segment.csv"
+        path.write_text(
+            "read group,segment label,num matched bases,num failures\n"
+            "TT,insert,1000,50\n"
+        )
+        assert grab_merged_trimmer_q30(str(path)) is None
 
 
 class TestGrabTrimmerStats:
