@@ -28,6 +28,7 @@ __all__ = [
     "grab_trimmer_stats",
     "parse_raw_filename",
     "load_files_from_manifest",
+    "extract_run_id_from_trimmer_filename",
 ]
 
 
@@ -169,6 +170,33 @@ def grab_trimmer_stats(
     if total_reads > 0:
         trimmer_fail_pct = trimmer_fail / total_reads
         trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail_pct)
+
+
+def extract_run_id_from_trimmer_filename(filename: str) -> str | None:
+    """
+    Extract the RunID / wafer identifier from a trimmer statistics filename.
+
+    Filenames follow the same leading convention as raw FASTQs/CRAMs:
+    `{RunID}-{GroupID}_{Assay}-..._trimmer-failure_codes.csv`
+    or `{RunID}-..._trimmer-stats.csv`.
+
+    RunID is usually 6 digits but may grow to up to 8 digits. We therefore
+    accept any numeric prefix of length 6–8 characters as a valid RunID.
+
+    Args:
+        filename: Basename or full path to the trimmer CSV.
+
+    Returns:
+        The RunID string if it can be parsed, otherwise None.
+    """
+    name = filename.split("/")[-1]
+    parts = name.split("-")
+    if not parts:
+        return None
+    run_id = parts[0]
+    if run_id.isdigit() and 6 <= len(run_id) <= 8:
+        return run_id
+    return None
 
 
 def parse_raw_filename(f, raw_assay):

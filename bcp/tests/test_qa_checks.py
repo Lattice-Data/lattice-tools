@@ -5,6 +5,7 @@ Tests for qa_checks validation functions.
 import logging
 
 from qa_checks import (
+    build_wafer_failure_stats,
     check_expected_raw_files,
     check_extra_raw_files,
     validate_fastq_counts,
@@ -334,3 +335,32 @@ class TestValidateProcessedGroup:
         result = validate_processed_group("G1", proc_files, report, {})
         assert len(result["proc_missing"]) >= 1
         assert any("group" in m and m["group"] == "G1" for m in result["proc_missing"])
+
+
+class TestBuildWaferFailureStats:
+    """Tests for build_wafer_failure_stats."""
+
+    def test_aggregates_multiple_experiments_into_single_wafer(self):
+        trimmer_failure_stats = {
+            "order1/groupA": {"rsq": [1.0, 2.0], "trimmer_fail": [5.0]},
+            "order1/groupB": {"rsq": [3.0], "trimmer_fail": [10.0]},
+        }
+        exp_to_run_map = {
+            "order1/groupA": "439047",
+            "order1/groupB": "439047",
+        }
+        wafer_stats = build_wafer_failure_stats(trimmer_failure_stats, exp_to_run_map)
+        assert set(wafer_stats.keys()) == {"439047"}
+        assert wafer_stats["439047"]["rsq"] == [1.0, 2.0, 3.0]
+        assert wafer_stats["439047"]["trimmer_fail"] == [5.0, 10.0]
+
+    def test_skips_experiments_without_run_mapping(self):
+        trimmer_failure_stats = {
+            "order1/groupA": {"rsq": [1.0], "trimmer_fail": [5.0]},
+            "order1/groupB": {"rsq": [2.0], "trimmer_fail": [6.0]},
+        }
+        exp_to_run_map = {"order1/groupA": "439047"}  # groupB unmapped
+        wafer_stats = build_wafer_failure_stats(trimmer_failure_stats, exp_to_run_map)
+        assert set(wafer_stats.keys()) == {"439047"}
+        assert wafer_stats["439047"]["rsq"] == [1.0]
+        assert wafer_stats["439047"]["trimmer_fail"] == [5.0]

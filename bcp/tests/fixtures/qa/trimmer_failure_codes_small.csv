@@ -1,0 +1,5 @@
+reason,failed_read_count,total_read_count
+rsq file,100,1000
+adapter trimmed,50,1000
+low complexity,50,1000
+

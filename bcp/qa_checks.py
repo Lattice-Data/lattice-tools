@@ -401,3 +401,45 @@ def validate_processed_group(
         "proc_missing": proc_missing,
         "process_extra": process_extra,
     }
+
+
+def build_wafer_failure_stats(
+    trimmer_failure_stats: dict[str, dict[str, list[float]]],
+    exp_to_run_map: dict[str, str],
+) -> dict[str, dict[str, list[float]]]:
+    """
+    Aggregate experiment-level trimmer failure statistics into wafer-level stats.
+
+    Existing logic accumulates trimmer_failure_stats keyed by an experiment
+    identifier (typically "/".join(s3_key.split("/")[1:3]) in the notebook).
+    For wafer-level QA, we instead want to summarize by RunID (wafer id).
+
+    This helper is pure: callers provide the mapping from experiment id to
+    RunID, which is constructed at data-gathering time (e.g. when iterating
+    over S3 keys).
+
+    Args:
+        trimmer_failure_stats:
+            Dict mapping experiment id -> {"rsq": [...], "trimmer_fail": [...]}.
+        exp_to_run_map:
+            Dict mapping the same experiment ids to RunID strings.
+
+    Returns:
+        Dict mapping RunID (wafer) -> {"rsq": [...], "trimmer_fail": [...]}.
+    """
+    wafer_failure_stats: dict[str, dict[str, list[float]]] = {}
+
+    for exp, stats in trimmer_failure_stats.items():
+        run_id = exp_to_run_map.get(exp)
+        if not run_id:
+            continue
+        if run_id not in wafer_failure_stats:
+            wafer_failure_stats[run_id] = {"rsq": [], "trimmer_fail": []}
+
+        rsq_vals = stats.get("rsq", [])
+        trim_vals = stats.get("trimmer_fail", [])
+
+        wafer_failure_stats[run_id]["rsq"].extend(rsq_vals)
+        wafer_failure_stats[run_id]["trimmer_fail"].extend(trim_vals)
+
+    return wafer_failure_stats

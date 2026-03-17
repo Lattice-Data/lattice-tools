@@ -8,7 +8,13 @@ import os
 
 import pytest
 
-from qa_mods import parse_met_summ, parse_raw_filename, parse_web_summ
+from qa_mods import (
+    extract_run_id_from_trimmer_filename,
+    grab_trimmer_stats,
+    parse_met_summ,
+    parse_raw_filename,
+    parse_web_summ,
+)
 
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -228,6 +234,81 @@ class TestParseRawFilename:
         path = "any/prefix/439047-Br1_A5_GEX-Z0273-CTGCATGTTGCTGAGAT.csv"
         result = parse_raw_filename(path, "10x")
         assert result == ("439047", "Br1_A5", "GEX", "Z0273", "CTGCATGTTGCTGAGAT")
+
+
+class TestExtractRunIdFromTrimmerFilename:
+    """Tests for extract_run_id_from_trimmer_filename."""
+
+    def test_valid_6_digit_run_id_examples(self):
+        # Real-style examples from SOP / docs
+        assert (
+            extract_run_id_from_trimmer_filename(
+                "434902-pilot_preandpostinj_tech_rep2_CRI-Z0028-CAGACTTGCTGCGAT_trimmer-failure_codes.csv"
+            )
+            == "434902"
+        )
+        assert (
+            extract_run_id_from_trimmer_filename(
+                "436073-R100A_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT_trimmer-failure_codes.csv"
+            )
+            == "436073"
+        )
+        assert (
+            extract_run_id_from_trimmer_filename(
+                "438761-t_fb_GEX-Z0003-CATCACACATGAATGAT_trimmer-failure_codes.csv"
+            )
+            == "438761"
+        )
+
+    def test_valid_8_digit_run_id_example(self):
+        # 8-digit wafer id
+        assert (
+            extract_run_id_from_trimmer_filename(
+                "43434720-Mac_L01_CRI-Z0002-CATGTGCAGCCATCGAT_trimmer-failure_codes.csv"
+            )
+            == "43434720"
+        )
+
+    def test_non_numeric_prefix_returns_none(self):
+        name = "RUNX1-Br1_A5_GEX-Z0273-CTGCATGTTGCTGAGAT_trimmer-failure_codes.csv"
+        assert extract_run_id_from_trimmer_filename(name) is None
+
+    def test_too_short_or_too_long_prefix_returns_none(self):
+        # 4 digits: too short
+        assert (
+            extract_run_id_from_trimmer_filename(
+                "1234-Br1_A5_GEX-Z0273-CTGC_trimmer-failure_codes.csv"
+            )
+            is None
+        )
+        # 9 digits: too long
+        assert (
+            extract_run_id_from_trimmer_filename(
+                "123456789-Br1_A5_GEX-Z0273-CTGC_trimmer-failure_codes.csv"
+            )
+            is None
+        )
+
+
+class TestGrabTrimmerStats:
+    """Tests for grab_trimmer_stats."""
+
+    def test_aggregates_rsq_and_trimmer_fail_percentages(self, tmp_path):
+        # Use a small synthetic CSV fixture
+        src = os.path.join(QA_FIXTURES_DIR, "trimmer_failure_codes_small.csv")
+        dst = tmp_path / "trimmer_failure_codes_small.csv"
+        with open(src, "r") as f_in, open(dst, "w") as f_out:
+            f_out.write(f_in.read())
+
+        trimmer_failure_stats: dict = {}
+        grab_trimmer_stats(trimmer_failure_stats, "exp1", str(dst))
+
+        assert "exp1" in trimmer_failure_stats
+        stats = trimmer_failure_stats["exp1"]
+        # rsq row: 100 failed of 1000 total => 10%
+        assert stats["rsq"] == [10.0]
+        # other reasons: 50 + 50 = 100 failed of 1000 total => 10%
+        assert stats["trimmer_fail"] == [10.0]
 
 
 class TestParseMetSumm:
