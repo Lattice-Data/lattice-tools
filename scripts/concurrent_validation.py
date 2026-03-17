@@ -6,7 +6,6 @@ import multiprocessing
 import os
 import subprocess
 import sys
-import threading
 from datetime import datetime
 from multiprocessing import Queue
 from pathlib import Path
@@ -18,8 +17,8 @@ FILE = Path(__file__).resolve()
 DIR = FILE.parent
 LOG_QUEUE = None
 SCRIPT_NAME = FILE.name
-STOP_SIGNAL = None
 PRINT_WIDTH = 113
+TERMINAL_ERROR_LIMIT = 100
 
 EPILOG = f"""
 Script to run CXG validation in parallel.
@@ -90,19 +89,6 @@ def getArgs() -> argparse.Namespace:
     return args
 
 
-def logger_thread(queue: Queue) -> None:
-    """
-    Cleaned up logger thread that does not use manager (like in fragment curator)
-    No exception handling, but seems to work for now
-    """
-    while True:
-        record = queue.get()
-        if record is STOP_SIGNAL:
-            break
-        logger = logging.getLogger(record.name)
-        logger.handle(record)
-
-
 def create_logger(queue: Queue) -> None:
     """
     Function to create logger in process workers
@@ -158,7 +144,7 @@ def make_file_list(args: argparse.Namespace) -> list[Path]:
         return files
 
 
-def validate(file_name: Path) -> None:
+def validate(file_name: Path) -> subprocess.CompletedProcess | None:
     """
     Worker function to validate with CXG validator
     Supports pass-through pre-analysis and ignore labels flags
@@ -172,21 +158,28 @@ def validate(file_name: Path) -> None:
             command.append(arg)
     command.append(full_path)
 
-    validate = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-    )
-    logging.info(f"Validation for {file_name}...")
-    for line in validate.stdout.splitlines():
-        logging.info(line)
-    for line in validate.stderr.splitlines():
-        logging.info(line)
+    try:
+        validate = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        logging.exception(f"Error with subprocess: {e}")
+    except Exception as e:
+        logging.exception(f"Exception occurred: {e}")
+
+    if validate:
+        logging.info(f"Validation for {file_name}...")
+        validation_status = validate.stderr.splitlines()[-1]
+        logging.info(validation_status)
 
     logging.info("=" * PRINT_WIDTH + "\n")
 
+    return validate
 
-def validate_all_files(files: list[Path]) -> None:
+
+def validate_all_files(files: list[Path]) -> list[subprocess.CompletedProcess]:
     """
     Function to create worker pool.
     Uses init function to allow workers access to logging queue
@@ -196,7 +189,9 @@ def validate_all_files(files: list[Path]) -> None:
         initializer=worker_init,
         initargs=(logging_queue,),
     ) as pool:
-        pool.map(validate, files)
+        results = pool.map(validate, files)
+
+    return results
 
 
 # need in global namespace for process workers to access values
@@ -206,7 +201,7 @@ ARGS = getArgs()
 if __name__ == "__main__":
     files = make_file_list(ARGS)
     workers = min(len(files), CPU_COUNT)
-    logging_queue = Queue()
+    logging_queue = Queue(maxsize=-1)
 
     # resuing fragment curator logger with some changes for here
     with open(DIR / "fragment_curator_mods" / "log_config_fragment_curator.yaml", "rt") as f:
@@ -227,28 +222,44 @@ if __name__ == "__main__":
     }
     logging.config.dictConfig(logging_config)
 
-    listener = threading.Thread(
-        target=logger_thread, 
-        args=(logging_queue,),
-        daemon=True,
-    )
-    listener.start()
-
     # set up concurrent validation logger and first log messages
     logger = logging.getLogger("concurrent_validation")
+    listener = logging.handlers.QueueListener(logging_queue, *logger.handlers, respect_handler_level=True)
+    listener.start()
     logger.debug("Logger thread started")
     logger.debug(f"Command line args: {' '.join(sys.argv)}")
 
     revised_str = " REVISED" if ARGS.revised else ""
     logger.info(f"\nFound {len(files)}{revised_str} h5ad(s) in {ARGS.directory} to validate")
     logger.info("=" * PRINT_WIDTH + "\n")
+    logger.info("===== Summary Validation Results =====\n")
 
-    validate_all_files(files)
+    results = validate_all_files(files)
+
+    logger.info("===== Final Validation Results =====\n")
+    over_error_limit = False
+    for completed in results:
+        # file will be last arg in args list, preserved as Path, so get name attribute
+        file_name = completed.args[-1].name
+        errors = completed.stderr.splitlines()
+        num_errors = len(errors)
+        logger.info(f"Validation for {file_name}...")
+        for error in errors[:TERMINAL_ERROR_LIMIT]:
+            print(error)
+        if num_errors > TERMINAL_ERROR_LIMIT:
+            over_error_limit = True
+            print("...")
+            print(f"{num_errors} total validation errors")
+            print(f"Full error log available in log file '{log_file_name}'")
+        for error in errors:
+            logger.debug(error)
+
+        logger.info("=" * PRINT_WIDTH + "\n")
 
     logger.debug("Logger thread shutdown")
-    logging_queue.put(STOP_SIGNAL)
-    listener.join()
+    listener.stop()
 
     # just remove log file at end if unwanted, instead of complicated logging config modification
-    if not ARGS.log_output:
+    delete_log = (not ARGS.log_output) and (not over_error_limit)
+    if delete_log:
         Path(log_file_name).unlink()
