@@ -9,6 +9,7 @@ from qa_checks import (
     check_expected_raw_files,
     check_extra_raw_files,
     validate_fastq_counts,
+    summarize_fastq_count_validation,
     validate_processed_group,
     validate_read_metadata,
 )
@@ -150,6 +151,66 @@ class TestValidateFastqCounts:
         assert (
             "not validating" in caplog.text.lower() or "legacy" in caplog.text.lower()
         )
+
+
+class TestSummarizeFastqCountValidation:
+    """Tests for summarize_fastq_count_validation."""
+
+    def test_scale_all_matched(self):
+        fastq_log = {
+            "E1": {"GEX": ["a", "b"], "hash_oligo": ["c", "d"]},
+            "E2": {"GEX": ["x"], "hash_oligo": ["y"]},
+        }
+        errors = validate_fastq_counts(fastq_log, "scale")
+        assert errors == []
+
+        summary = summarize_fastq_count_validation(fastq_log, "scale", errors)
+        assert "checked 2" in summary
+        assert "mismatches: 0" in summary
+        assert "All matched." in summary
+
+    def test_scale_only_gex_present(self):
+        fastq_log = {"E1": {"GEX": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "scale")
+        assert errors == []
+
+        summary = summarize_fastq_count_validation(fastq_log, "scale", errors)
+        assert "checked 0" in summary
+        assert "mismatches: 0" in summary
+        assert "Only GEX present" in summary
+
+    def test_scale_mismatch_reports_mismatches(self):
+        fastq_log = {"E1": {"GEX": ["a", "b"], "hash_oligo": ["c"]}}
+        errors = validate_fastq_counts(fastq_log, "scale")
+        assert len(errors) == 1
+
+        summary = summarize_fastq_count_validation(fastq_log, "scale", errors)
+        assert "mismatches: 1" in summary
+        assert "Mismatches found" in summary
+
+    def test_10x_all_matched(self):
+        fastq_log = {
+            "G1": {"GEX": ["a", "b"], "CRI": ["c", "d"], "ATAC": ["e", "f"]},
+            "G2": {"GEX": ["x"], "CRI": ["y"], "ATAC": ["z"]},
+        }
+        errors = validate_fastq_counts(fastq_log, "10x")
+        assert errors == []
+
+        summary = summarize_fastq_count_validation(fastq_log, "10x", errors)
+        assert "Fastq count validation (10x)" in summary
+        assert "checked 4" in summary
+        assert "mismatches: 0" in summary
+        assert "All matched." in summary
+
+    def test_10x_only_gex_present(self):
+        fastq_log = {"G1": {"GEX": ["a", "b"]}}
+        errors = validate_fastq_counts(fastq_log, "10x")
+        assert errors == []
+
+        summary = summarize_fastq_count_validation(fastq_log, "10x", errors)
+        assert "checked 0" in summary
+        assert "mismatches: 0" in summary
+        assert "Only GEX present" in summary
 
 
 class TestValidateReadMetadata:

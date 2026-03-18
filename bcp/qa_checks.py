@@ -102,6 +102,116 @@ def validate_fastq_counts(
     return errors
 
 
+def summarize_fastq_count_validation(
+    fastq_log: dict[str, dict[str, list[str]]],
+    raw_assay: str,
+    errors: list[str],
+) -> str:
+    """
+    Create a short, single-line report for fastq count validation.
+
+    This is intentionally summary-only (no per-file lists). It reports both:
+    - whether any mismatches were found (via `errors`)
+    - whether comparisons were actually applicable (via `fastq_log`)
+    """
+
+    mismatches = len(errors)
+
+    if raw_assay == "sci_jumbo":
+        return (
+            "Fastq count validation (sci_jumbo): not validated by design; "
+            f"mismatches: {mismatches}. No comparisons performed."
+        )
+
+    if raw_assay == "10x_viral_ORF":
+        return (
+            "Fastq count validation (10x_viral_ORF): not validated by design; "
+            f"mismatches: {mismatches}. No comparisons performed."
+        )
+
+    if not fastq_log:
+        return (
+            f"Fastq count validation ({raw_assay}): checked 0; mismatches: "
+            f"{mismatches}. No fastq_log data (nothing to compare)."
+        )
+
+    if raw_assay in ("scale", "sci_plex"):
+        checked = sum(
+            1
+            for _sample, v in fastq_log.items()
+            if v.get("GEX") and v.get("hash_oligo")
+        )
+        gex_only = sum(
+            1
+            for _sample, v in fastq_log.items()
+            if v.get("GEX") and not v.get("hash_oligo")
+        )
+        hash_only = sum(
+            1
+            for _sample, v in fastq_log.items()
+            if v.get("hash_oligo") and not v.get("GEX")
+        )
+
+        if checked > 0 and mismatches == 0:
+            result = "All matched."
+        elif checked == 0 and mismatches == 0:
+            if gex_only > 0 and hash_only == 0:
+                result = "Only GEX present (missing hash_oligo)."
+            elif hash_only > 0 and gex_only == 0:
+                result = "Only hash_oligo present (missing GEX)."
+            else:
+                result = "No comparable pairs (missing modality pairs)."
+        elif mismatches > 0:
+            result = "Mismatches found (see details above)."
+        else:
+            result = "No comparisons performed."
+
+        return (
+            f"Fastq count validation ({raw_assay}): checked {checked} "
+            f"(GEX<->hash_oligo); mismatches: {mismatches}. {result}"
+        )
+
+    if raw_assay == "10x":
+        checked_gex_cri = sum(
+            1 for _sample, v in fastq_log.items() if v.get("GEX") and v.get("CRI")
+        )
+        checked_gex_atac = sum(
+            1 for _sample, v in fastq_log.items() if v.get("GEX") and v.get("ATAC")
+        )
+        checked_total = checked_gex_cri + checked_gex_atac
+
+        if checked_total > 0 and mismatches == 0:
+            result = "All matched."
+        elif checked_total == 0 and mismatches == 0:
+            gex_present = sum(1 for _sample, v in fastq_log.items() if v.get("GEX"))
+            cri_or_atac_present = sum(
+                1 for _sample, v in fastq_log.items() if v.get("CRI") or v.get("ATAC")
+            )
+            if gex_present > 0 and cri_or_atac_present == 0:
+                result = "Only GEX present (missing CRI/ATAC)."
+            elif gex_present == 0 and cri_or_atac_present > 0:
+                result = "Missing GEX (CRI/ATAC present)."
+            elif gex_present > 0 and cri_or_atac_present > 0:
+                result = "No comparable pairs (GEX groups differ from CRI/ATAC groups)."
+            else:
+                result = "No comparable pairs (missing modality pairs)."
+        elif mismatches > 0:
+            result = "Mismatches found (see details above)."
+        else:
+            result = "No comparisons performed."
+
+        return (
+            "Fastq count validation (10x): checked "
+            f"{checked_total} (GEX<->CRI: {checked_gex_cri}, GEX<->ATAC: {checked_gex_atac}); "
+            f"mismatches: {mismatches}. {result}"
+        )
+
+    return (
+        f"Fastq count validation ({raw_assay}): checked 0; mismatches: "
+        f"{mismatches}. Unsupported assay."
+    )
+
+
 def validate_read_metadata(
     read_metadata: dict[str, Any], raw_assay: str
 ) -> tuple[dict[str, dict[str, int]], list[str]]:
