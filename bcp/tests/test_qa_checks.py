@@ -336,6 +336,92 @@ class TestValidateProcessedGroup:
         assert len(result["proc_missing"]) >= 1
         assert any("group" in m and m["group"] == "G1" for m in result["proc_missing"])
 
+    def test_count_index_csi_only_is_accepted(self):
+        """When BAI is missing but CSI is present, the run is accepted."""
+        from qa_constants import cellranger_expected
+
+        bai = "possorted_genome_bam.bam.bai"
+        csi = "possorted_genome_bam.bam.csi"
+        expected_outs = list(cellranger_expected["count"]["outs"])
+        assert bai in expected_outs
+        assert csi not in expected_outs
+
+        base = "proj/g/processed/cellranger/run/outs/"
+        proc_files = [f"{base}{f}" for f in expected_outs if f != bai]
+        proc_files.append(f"{base}{csi}")
+
+        report = {
+            "chem": "5p",
+            "extra": [],
+            "software": "cellranger-9.0.1",
+            "sub": "count",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["errors"] == []
+        assert result["proc_missing"] == []
+        assert result["process_extra"] == []
+
+    def test_count_index_neither_bai_nor_csi_is_reported_as_missing(self):
+        """When neither BAI nor CSI exists, both are flagged in proc_missing."""
+        from qa_constants import cellranger_expected
+
+        bai = "possorted_genome_bam.bam.bai"
+        csi = "possorted_genome_bam.bam.csi"
+        expected_outs = list(cellranger_expected["count"]["outs"])
+
+        base = "proj/g/processed/cellranger/run/outs/"
+        proc_files = [f"{base}{f}" for f in expected_outs if f != bai]
+        # Do not add CSI either
+
+        report = {
+            "chem": "5p",
+            "extra": [],
+            "software": "cellranger-9.0.1",
+            "sub": "count",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+
+        assert any(
+            "missing both" in e and bai in e and csi in e for e in result["errors"]
+        )
+        assert len(result["proc_missing"]) == 1
+        row = result["proc_missing"][0]
+        assert row["group"] == "G1"
+        assert row[bai] == "Y"
+        assert row[csi] == "Y"
+
+    def test_count_index_both_bai_and_csi_is_an_error(self):
+        """When both BAI and CSI exist, it is an error (not accepted)."""
+        from qa_constants import cellranger_expected
+
+        bai = "possorted_genome_bam.bam.bai"
+        csi = "possorted_genome_bam.bam.csi"
+        expected_outs = list(cellranger_expected["count"]["outs"])
+        assert bai in expected_outs
+
+        base = "proj/g/processed/cellranger/run/outs/"
+        proc_files = [f"{base}{f}" for f in expected_outs]
+        proc_files.append(f"{base}{csi}")
+
+        report = {
+            "chem": "5p",
+            "extra": [],
+            "software": "cellranger-9.0.1",
+            "sub": "count",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+
+        assert any("has both" in e and bai in e and csi in e for e in result["errors"])
+        assert len(result["proc_missing"]) == 1
+        row = result["proc_missing"][0]
+        assert row["group"] == "G1"
+        assert row[bai] == "Y"
+        assert row[csi] == "Y"
+        assert result["process_extra"] == []
+
 
 class TestBuildWaferFailureStats:
     """Tests for build_wafer_failure_stats."""

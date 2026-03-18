@@ -342,12 +342,62 @@ def validate_processed_group(
             "process_extra": process_extra,
         }
 
-    missing = [f for f in expected if f not in actual]
+    actual_set = set(actual)
+
+    # Cell Ranger v7+ may output either a BAI or a CSI index depending on
+    # reference genome size. We require exactly one of the two files.
+    bai_filename = "possorted_genome_bam.bam.bai"
+    csi_filename = "possorted_genome_bam.bam.csi"
+    bai_present = bai_filename in actual_set
+    csi_present = csi_filename in actual_set
+    bai_csi_case: str | None = None
+
+    if bai_filename in expected:
+        if bai_present and not csi_present:
+            bai_csi_case = "bai_only"
+        elif csi_present and not bai_present:
+            bai_csi_case = "csi_only"
+        elif not bai_present and not csi_present:
+            bai_csi_case = "neither"
+        else:
+            bai_csi_case = "both"
+
+    missing = [f for f in expected if f not in actual_set]
+
+    # If Cell Ranger produced CSI instead of the expected BAI, don't report
+    # BAI as missing (but still don't treat CSI as an "extra").
+    if bai_csi_case == "csi_only":
+        missing = [f for f in missing if f != bai_filename]
+
+    if bai_csi_case == "neither":
+        errors.append(
+            f"CR ERROR: {group_name} missing both {bai_filename} and "
+            f"{csi_filename}; expected exactly one"
+        )
+
+    if bai_csi_case == "both":
+        errors.append(
+            f"CR ERROR: {group_name} has both {bai_filename} and {csi_filename}; "
+            "expected exactly one"
+        )
+
     if missing:
         temp_missing: dict[str, Any] = {"group": group_name}
         for m in missing:
             temp_missing[m] = "Y"
+
+        # Surface the BAI/CSI protocol failure in the notebook table too.
+        if bai_csi_case == "neither":
+            temp_missing[csi_filename] = "Y"
+        elif bai_csi_case == "both":
+            temp_missing[bai_filename] = "Y"
+            temp_missing[csi_filename] = "Y"
+
         proc_missing.append(temp_missing)
+    elif bai_csi_case == "both":
+        # No other missing outputs, but we still want the notebook to show
+        # BAI/CSI conflict.
+        proc_missing.append({"group": group_name, bai_filename: "Y", csi_filename: "Y"})
 
     if per_samp_expected:
         # actual entries are paths under outs, e.g. per_sample_outs/SAMPLE/count/...
@@ -367,8 +417,15 @@ def validate_processed_group(
                 proc_missing.append(temp_missing)
             expected.extend(expected_samp)
 
+    expected_set_for_extra = set(expected)
+    # Suppress CSI from being flagged as an extra when BAI was expected.
+    if bai_filename in expected and csi_present:
+        expected_set_for_extra.add(csi_filename)
+
     extra_files = [
-        f for f in actual if f not in expected and not f.endswith("manifest.json")
+        f
+        for f in actual
+        if f not in expected_set_for_extra and not f.endswith("manifest.json")
     ]
     if extra_files:
         process_extra.extend(extra_files)

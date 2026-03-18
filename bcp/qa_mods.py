@@ -78,9 +78,8 @@ def parse_web_summ(f):
         ]:
             report[info[0]] = info[1]
     else:
-        summary_rows = data["library"]["data"]["gex_tab"]["content"][
-            "parameters_table"
-        ]["rows"]
+        gex_content = data["library"]["data"]["gex_tab"]["content"]
+        summary_rows = gex_content["parameters_table"]["rows"]
         gex_tab = {row[0].lower(): row[1] for row in summary_rows}
         for info in [
             row for row in summary_rows if row[0] in ("Transcriptome", "Probe Set Name")
@@ -130,9 +129,8 @@ def parse_web_summ(f):
         report["software"] = "cellranger-" + data["pipeline_version"]
     if "library" in data:
         if "software" not in report:
-            report["software"] = data["library"]["data"]["header_info"][
-                "Pipeline Version"
-            ]
+            header_info = data["library"]["data"]["header_info"]
+            report["software"] = header_info["Pipeline Version"]
         report["gex_alerts"] = data["library"]["data"]["gex_tab"]["alerts"]
         if (
             "crispr_tab" in data["library"]["data"]
