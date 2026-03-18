@@ -213,7 +213,11 @@ def summarize_fastq_count_validation(
 
 
 def validate_read_metadata(
-    read_metadata: dict[str, Any], raw_assay: str
+    read_metadata: dict[str, Any],
+    raw_assay: str,
+    *,
+    print_success: bool = False,
+    success_print_limit: int = 5,
 ) -> tuple[dict[str, dict[str, int]], list[str]]:
     """
     Build group read counts from metadata and check R1/R2 consistency.
@@ -222,6 +226,14 @@ def validate_read_metadata(
     """
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
+
+    # Optional instrumentation for stdout-only reporting.
+    matched_examples: list[str] = []
+    compared_pairs = 0
+    matched_pairs = 0
+    mismatched_pairs = 0
+    skipped_no_r2 = 0
+    r2_metadata_error = 0
 
     for f, meta in read_metadata.items():
         if "_R2_" in f:
@@ -248,14 +260,34 @@ def validate_read_metadata(
             if r2file in read_metadata:
                 r2meta = read_metadata[r2file]
                 if r2meta.get("errors"):
+                    r2_metadata_error += 1
                     errors.append(
                         f"METADATA.JSON ERROR: {r2file} has error in "
                         f"metadata.json:{r2meta['errors']}"
                     )
                     continue
                 r2reads = r2meta.get("read_count")
+                compared_pairs += 1
                 if reads != r2reads:
                     errors.append(f"READ COUNT ERROR:{f}-{reads},{r2file}-{r2reads}")
+                    mismatched_pairs += 1
+                else:
+                    matched_pairs += 1
+                    if print_success and len(matched_examples) < success_print_limit:
+                        matched_examples.append(
+                            f"MATCH: {f} ({reads}) == {r2file} ({r2reads})"
+                        )
+            else:
+                skipped_no_r2 += 1
+
+    if print_success:
+        print(
+            f"validate_read_metadata({raw_assay}): compared={compared_pairs}, "
+            f"matched={matched_pairs}, mismatched={mismatched_pairs}, "
+            f"skipped_no_r2={skipped_no_r2}, r2_metadata_error={r2_metadata_error}"
+        )
+        for line in matched_examples:
+            print(line)
 
     return group_read_counts, errors
 

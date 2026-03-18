@@ -242,6 +242,31 @@ class TestValidateReadMetadata:
         counts, errors = validate_read_metadata(read_metadata, "10x")
         assert any("READ COUNT ERROR" in e for e in errors)
 
+    def test_r1_r2_success_print_summary(self, capsys):
+        """When R1/R2 match, optionally print a success summary to stdout."""
+        read_metadata = {
+            "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz": {
+                "read_count": 100,
+                "errors": [],
+            },
+            "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz": {
+                "read_count": 100,
+                "errors": [],
+            },
+        }
+        validate_read_metadata(
+            read_metadata,
+            "10x",
+            print_success=True,
+            success_print_limit=5,
+        )
+        out = capsys.readouterr().out
+        assert "validate_read_metadata(10x):" in out
+        assert "compared=1" in out
+        assert "matched=1" in out
+        assert "mismatched=0" in out
+        assert "MATCH:" in out
+
     def test_metadata_errors_appended(self):
         """Metadata with errors list adds to errors."""
         read_metadata = {
