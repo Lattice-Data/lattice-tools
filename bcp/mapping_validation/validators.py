@@ -4,7 +4,7 @@ import os
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable, List, Set, Tuple
+from typing import Iterable, List, Tuple
 
 from .constants import (
     ASSAYS_BY_FAMILY,
@@ -15,10 +15,10 @@ from .constants import (
     get_assays,
     get_order_pattern,
 )
-
-_SEAHUB_FAMILIES: set[str] = {"scale", "sci"}
 from .parsing import MappingRow
 from .sif_io import load_sif_group_assays
+
+_SEAHUB_FAMILIES: set[str] = {"scale", "sci"}
 
 
 def _is_run_metadata(s3_path: str) -> bool:
@@ -41,7 +41,9 @@ def _validate_provider(provider: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _build_10x_raw_s3_regex(provider: str, order_pattern: str, assay_re: str) -> re.Pattern[str]:
+def _build_10x_raw_s3_regex(
+    provider: str, order_pattern: str, assay_re: str
+) -> re.Pattern[str]:
     """Build the canonical 10x raw S3 regex for a provider."""
     return re.compile(
         rf"^s3://(?P<bucket>czi-{re.escape(provider)})/"
@@ -251,17 +253,14 @@ def _build_seahub_s3_patterns(
     if family == "scale":
         # Scale GroupIDs may contain underscores/hyphens (e.g. R096G, R112A-B).
         group_id_re = r"[A-Za-z0-9_-]+"
-        stem = s3_prefix + rf"(?P<runid2>\d+)-(?P<group_id>{group_id_re})_(?P<assay>{assay_re})"
+        stem = (
+            s3_prefix
+            + rf"(?P<runid2>\d+)-(?P<group_id>{group_id_re})_(?P<assay>{assay_re})"
+        )
         sop = re.compile(
-            stem
-            + r"_(?P<ug_rt>QSR-\d+(?:-SCALEPLEX)?)"
-            + r"(?P<suffix>.*)$"
+            stem + r"_(?P<ug_rt>QSR-\d+(?:-SCALEPLEX)?)" + r"(?P<suffix>.*)$"
         )
-        idx = re.compile(
-            stem
-            + r"_(?P<index_seq>[ACGT]+)"
-            + r"(?P<suffix>.*)$"
-        )
+        idx = re.compile(stem + r"_(?P<index_seq>[ACGT]+)" + r"(?P<suffix>.*)$")
         return [(sop, "sop"), (idx, "index")]
 
     # sci: use non-greedy group_id (.+?) so underscored IDs like
@@ -320,9 +319,7 @@ def _seahub_post_match_checks(
             )
 
 
-def validate_s3_seahub_raw(
-    assay_family: str, mappings: Iterable[MappingRow]
-) -> dict:
+def validate_s3_seahub_raw(assay_family: str, mappings: Iterable[MappingRow]) -> dict:
     """
     Validate seahub-style (Scale or sci) raw S3 paths against the SOP.
 
@@ -735,7 +732,16 @@ def validate_s3_local_consistency_scale(mappings: Iterable[MappingRow]) -> dict:
         s3_scaleplex = "scaleplex" in s3_lower
         local_scaleplex = "scaleplex" in local_lower
 
-        if any([s3_runid, local_wafer, s3_qsr_nums, local_qsr_nums, s3_scaleplex, local_scaleplex]):
+        if any(
+            [
+                s3_runid,
+                local_wafer,
+                s3_qsr_nums,
+                local_qsr_nums,
+                s3_scaleplex,
+                local_scaleplex,
+            ]
+        ):
             matched += 1
         else:
             continue
@@ -1129,7 +1135,9 @@ def validate_library_assay_consistency(
                     "line": row.line_num,
                     "library": found_lib,
                     "s3_assay": m.group("assay"),
-                    "expected_assay": CANONICAL_ASSAY.get(expected_assay, expected_assay),
+                    "expected_assay": CANONICAL_ASSAY.get(
+                        expected_assay, expected_assay
+                    ),
                     "local_path": row.local_path,
                     "s3_path": row.s3_path,
                 }
@@ -1151,9 +1159,7 @@ _VALID_10X_PIPELINES: set[str] = {"cellranger"}
 _RUN_DATE_RE: re.Pattern[str] = re.compile(r"^Run_\d{4}-\d{2}-\d{2}$")
 
 
-def _build_10x_processed_s3_regex(
-    provider: str, order_pattern: str
-) -> re.Pattern[str]:
+def _build_10x_processed_s3_regex(provider: str, order_pattern: str) -> re.Pattern[str]:
     """Build the regex for 10x processed S3 paths per the SOP.
 
     Expected layout::
@@ -1173,9 +1179,7 @@ def _build_10x_processed_s3_regex(
     )
 
 
-def validate_s3_10x_processed(
-    provider: str, mappings: Iterable[MappingRow]
-) -> dict:
+def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> dict:
     """Validate 10x processed S3 paths against the SOP.
 
     Expected S3 layout::
@@ -1253,8 +1257,7 @@ def validate_s3_10x_processed(
                     "line": row.line_num,
                     "s3_path": s3,
                     "detail": (
-                        "project should be lower-case with hyphen "
-                        "delimiters (per SOP)"
+                        "project should be lower-case with hyphen delimiters (per SOP)"
                     ),
                 }
             )
@@ -1352,16 +1355,13 @@ def validate_s3_local_consistency_10x_processed(
                     "line": row.line_num,
                     "s3_path": s3,
                     "local_path": local,
-                    "detail": (
-                        f"GroupID '{group_id}' from S3 not found in "
-                        f"local path"
-                    ),
+                    "detail": (f"GroupID '{group_id}' from S3 not found in local path"),
                 }
             )
 
         outs_idx = local.find("/outs/")
         if outs_idx >= 0:
-            local_file_path = local[outs_idx + len("/outs/"):]
+            local_file_path = local[outs_idx + len("/outs/") :]
             if s3_file_path != local_file_path:
                 errors.append(
                     {

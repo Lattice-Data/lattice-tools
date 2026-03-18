@@ -30,7 +30,9 @@ from .validators import (
 )
 
 
-def _print_issue_examples(label: str, issues: List[dict], kind: str, max_examples: int = 5) -> None:
+def _print_issue_examples(
+    label: str, issues: List[dict], kind: str, max_examples: int = 5
+) -> None:
     """
     Print a short, grouped summary of errors or warnings with a few examples.
 
@@ -48,7 +50,7 @@ def _print_issue_examples(label: str, issues: List[dict], kind: str, max_example
         print(f"  - {t}: {count}")
 
     print(f"  Showing up to {max_examples} example {kind}:")
-    for item in issues[: max_examples]:
+    for item in issues[:max_examples]:
         line = item.get("line", "?")
         s3_path = item.get("s3_path")
         local_path = item.get("local_path")
@@ -95,13 +97,10 @@ def _report_sif_comparison(
             + ", ".join(sorted(missing))
         )
     if extra:
-        print(
-            "  Extra GroupIDs in S3 (not in SIF): " + ", ".join(sorted(extra))
-        )
+        print("  Extra GroupIDs in S3 (not in SIF): " + ", ".join(sorted(extra)))
         exit_code = 1
         fail_reasons.append(
-            f"{len(extra)} extra GroupIDs in S3 not in SIF: "
-            + ", ".join(sorted(extra))
+            f"{len(extra)} extra GroupIDs in S3 not in SIF: " + ", ".join(sorted(extra))
         )
 
     if missing_assays:
@@ -144,9 +143,13 @@ def main() -> None:
         --sif PATH
     """
 
-    parser = argparse.ArgumentParser(description="Validate S3/local mapping files against SOP rules.")
+    parser = argparse.ArgumentParser(
+        description="Validate S3/local mapping files against SOP rules."
+    )
     parser.add_argument("--mapping", required=True, help="Path to mapping CSV/TSV file")
-    parser.add_argument("--sif", help="Path to SIF CSV/XLSX for completeness checks (Scale/sci)")
+    parser.add_argument(
+        "--sif", help="Path to SIF CSV/XLSX for completeness checks (Scale/sci)"
+    )
     parser.add_argument(
         "--provider",
         required=True,
@@ -170,7 +173,10 @@ def main() -> None:
 
     mappings = parse_mapping_file(args.mapping)
     if not mappings:
-        print("No mappings parsed from file (check delimiter and content).", file=sys.stderr)
+        print(
+            "No mappings parsed from file (check delimiter and content).",
+            file=sys.stderr,
+        )
         raise SystemExit(1)
 
     exit_code = 0
@@ -186,14 +192,18 @@ def main() -> None:
     )
     if dup_local_count or dup_s3_count:
         exit_code = 1
-        fail_reasons.append(f"duplicate mappings ({dup_local_count} local, {dup_s3_count} S3)")
+        fail_reasons.append(
+            f"duplicate mappings ({dup_local_count} local, {dup_s3_count} S3)"
+        )
 
     # 2. Mode-specific validation
     provider = args.provider
     if args.data == "raw" and args.assay == "10x":
         exit_code |= _validate_10x_raw(provider, mappings, args.sif, fail_reasons)
 
-    elif args.data == "raw" and args.assay in ("scale", "sci") and provider == "novogene":
+    elif (
+        args.data == "raw" and args.assay in ("scale", "sci") and provider == "novogene"
+    ):
         exit_code |= _validate_seahub_raw(args.assay, mappings, args.sif, fail_reasons)
 
     elif args.data == "processed" and args.assay == "10x":
@@ -263,7 +273,9 @@ def _validate_10x_raw(
             print(f"  {gid}: {assays_str}")
 
     if sif_path:
-        exit_code |= _validate_10x_sif(provider, mappings, sif_path, s3_ga, fail_reasons)
+        exit_code |= _validate_10x_sif(
+            provider, mappings, sif_path, s3_ga, fail_reasons
+        )
     else:
         print("10x mode: no --sif provided, skipping SIF completeness checks.")
 
@@ -338,8 +350,7 @@ def _report_library_consistency(
             print(f"    ... and {n_gid - 10} more")
         exit_code = 1
         fail_reasons.append(
-            f"{n_gid} GroupID mismatches "
-            "(local library name not found in S3 GroupID)"
+            f"{n_gid} GroupID mismatches (local library name not found in S3 GroupID)"
         )
     if n_assay:
         print("  Assay mismatches (library in local path vs assay in S3):")
@@ -369,7 +380,9 @@ def _report_sif_path_coverage(
     exit_code = 0
     sif_cov = find_unmatched_sif_paths_10x(mappings, sif_ids, provider)
     n_unmatched_groups = len(sif_cov["unmatched_by_group"])
-    n_unmatched_paths = sum(len(rows) for rows in sif_cov["unmatched_by_group"].values())
+    n_unmatched_paths = sum(
+        len(rows) for rows in sif_cov["unmatched_by_group"].values()
+    )
     n_unparsed = len(sif_cov["unparsed"])
     print(
         f"SIF path coverage: {sif_cov['matched_sif']} paths matched SIF, "
@@ -534,9 +547,7 @@ def _validate_10x_processed(
             "  WARNING: none of the S3 paths matched the 10x processed pattern. "
             "Check that the S3 paths follow the SOP naming convention."
         )
-        fail_reasons.append(
-            "no S3 paths matched the 10x processed pattern (0 matched)"
-        )
+        fail_reasons.append("no S3 paths matched the 10x processed pattern (0 matched)")
         exit_code = 1
     if s3_res["errors"]:
         exit_code = 1
@@ -553,9 +564,7 @@ def _validate_10x_processed(
 
     # SIF completeness
     if sif_path:
-        sif_res = validate_sif_completeness_10x_processed(
-            provider, mappings, sif_path
-        )
+        sif_res = validate_sif_completeness_10x_processed(provider, mappings, sif_path)
         sif_count = sif_res["sif_count"]
         s3_count = sif_res["s3_count"]
         missing = sif_res["missing"]
@@ -566,24 +575,16 @@ def _validate_10x_processed(
             f"missing={len(missing)}, extra={len(extra)}"
         )
         if missing:
-            print(
-                f"  Missing from S3 (in SIF but not mapping): "
-                f"{', '.join(missing)}"
-            )
+            print(f"  Missing from S3 (in SIF but not mapping): {', '.join(missing)}")
             exit_code = 1
             fail_reasons.append(
-                f"{len(missing)} SIF identifiers missing from S3: "
-                f"{', '.join(missing)}"
+                f"{len(missing)} SIF identifiers missing from S3: {', '.join(missing)}"
             )
         if extra:
-            print(
-                f"  Extra in S3 (in mapping but not SIF): "
-                f"{', '.join(extra)}"
-            )
+            print(f"  Extra in S3 (in mapping but not SIF): {', '.join(extra)}")
     else:
         print(
-            "10x processed mode: no --sif provided, "
-            "skipping SIF completeness checks."
+            "10x processed mode: no --sif provided, skipping SIF completeness checks."
         )
 
     # S3/local consistency
@@ -600,9 +601,7 @@ def _validate_10x_processed(
     )
     if cons_res["errors"]:
         exit_code = 1
-        fail_reasons.append(
-            f"{len(cons_res['errors'])} S3/local consistency errors"
-        )
+        fail_reasons.append(f"{len(cons_res['errors'])} S3/local consistency errors")
 
     return exit_code
 

@@ -7,7 +7,6 @@ to get the actual protospacer start position.
 """
 
 import pytest
-import pandas as pd
 from pathlib import Path
 import tempfile
 import csv
@@ -46,22 +45,46 @@ class TestReverseStrandCoordinates:
         pipeline = GuidescanPipeline(
             genome_index=str(genome_index),
             guides_file=str(guides_file),
-            output_dir=str(output_dir)
+            output_dir=str(output_dir),
         )
 
         pipeline.pam_length = 3
         return pipeline
 
-    def create_best_matches_file(self, pipeline, guide_id, sequence, chromosome,
-                                 position, strand, distance):
+    def create_best_matches_file(
+        self, pipeline, guide_id, sequence, chromosome, position, strand, distance
+    ):
         """Helper to create a best_matches.csv file for testing."""
-        with open(pipeline.best_matches_file, 'w', newline='') as f:
+        with open(pipeline.best_matches_file, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(['id', 'sequence', 'match_chrm', 'match_position',
-                           'match_strand', 'match_distance', 'match_sequence',
-                           'rna_bulges', 'dna_bulges', 'specificity'])
-            writer.writerow([guide_id, sequence, chromosome, position, strand,
-                           distance, sequence.replace('N', 'A'), 0, 0, 0.5])
+            writer.writerow(
+                [
+                    "id",
+                    "sequence",
+                    "match_chrm",
+                    "match_position",
+                    "match_strand",
+                    "match_distance",
+                    "match_sequence",
+                    "rna_bulges",
+                    "dna_bulges",
+                    "specificity",
+                ]
+            )
+            writer.writerow(
+                [
+                    guide_id,
+                    sequence,
+                    chromosome,
+                    position,
+                    strand,
+                    distance,
+                    sequence.replace("N", "A"),
+                    0,
+                    0,
+                    0.5,
+                ]
+            )
 
     def test_negative_strand_coordinate_calculation(self, pipeline):
         """
@@ -84,8 +107,13 @@ class TestReverseStrandCoordinates:
         strand = "-"
 
         self.create_best_matches_file(
-            pipeline, guide_id, sequence, chromosome,
-            guidescan_position, strand, distance=0
+            pipeline,
+            guide_id,
+            sequence,
+            chromosome,
+            guidescan_position,
+            strand,
+            distance=0,
         )
 
         # Run format_exact_matches
@@ -99,15 +127,17 @@ class TestReverseStrandCoordinates:
         expected_start = 18992717
         expected_end = 18992735
 
-        assert int(row['start']) == expected_start, \
+        assert int(row["start"]) == expected_start, (
             f"Expected start={expected_start}, got {row['start']}"
-        assert int(row['end']) == expected_end, \
+        )
+        assert int(row["end"]) == expected_end, (
             f"Expected end={expected_end}, got {row['end']}"
-        assert row['sense'] == "-"
-        assert row['chromosome'] == chromosome
+        )
+        assert row["sense"] == "-"
+        assert row["chromosome"] == chromosome
 
         # Verify span is correct (19bp protospacer)
-        span = int(row['end']) - int(row['start']) + 1
+        span = int(row["end"]) - int(row["start"]) + 1
         assert span == 19, f"Expected span of 19bp, got {span}bp"
 
     def test_positive_strand_coordinate_calculation(self, pipeline):
@@ -128,8 +158,13 @@ class TestReverseStrandCoordinates:
         strand = "+"
 
         self.create_best_matches_file(
-            pipeline, guide_id, sequence, chromosome,
-            guidescan_position, strand, distance=0
+            pipeline,
+            guide_id,
+            sequence,
+            chromosome,
+            guidescan_position,
+            strand,
+            distance=0,
         )
 
         result_df = pipeline.format_exact_matches()
@@ -141,12 +176,12 @@ class TestReverseStrandCoordinates:
         expected_start = 31459567
         expected_end = 31459585
 
-        assert int(row['start']) == expected_start
-        assert int(row['end']) == expected_end
-        assert row['sense'] == "+"
-        assert row['chromosome'] == chromosome
+        assert int(row["start"]) == expected_start
+        assert int(row["end"]) == expected_end
+        assert row["sense"] == "+"
+        assert row["chromosome"] == chromosome
 
-        span = int(row['end']) - int(row['start']) + 1
+        span = int(row["end"]) - int(row["start"]) + 1
         assert span == 19
 
     def test_multiple_negative_strand_guides(self, pipeline):
@@ -163,18 +198,19 @@ class TestReverseStrandCoordinates:
             chromosome = "test"
 
             self.create_best_matches_file(
-                pipeline, guide_id, sequence, chromosome,
-                gs_pos, "-", distance=0
+                pipeline, guide_id, sequence, chromosome, gs_pos, "-", distance=0
             )
 
             result_df = pipeline.format_exact_matches()
             row = result_df.iloc[0]
 
-            assert int(row['start']) == exp_start, \
+            assert int(row["start"]) == exp_start, (
                 f"{guide_id}: Expected start={exp_start}, got {row['start']}"
-            assert int(row['end']) == exp_end, \
+            )
+            assert int(row["end"]) == exp_end, (
                 f"{guide_id}: Expected end={exp_end}, got {row['end']}"
-            assert row['sense'] == "-"
+            )
+            assert row["sense"] == "-"
 
     def test_negative_strand_offset_is_exactly_21bp(self, pipeline):
         """
@@ -194,21 +230,22 @@ class TestReverseStrandCoordinates:
 
         # New (correct) calculation via pipeline
         self.create_best_matches_file(
-            pipeline, guide_id, sequence, "chr1",
-            guidescan_position, "-", distance=0
+            pipeline, guide_id, sequence, "chr1", guidescan_position, "-", distance=0
         )
 
         result_df = pipeline.format_exact_matches()
         row = result_df.iloc[0]
 
-        new_start = int(row['start'])
-        new_end = int(row['end'])
+        new_start = int(row["start"])
+        new_end = int(row["end"])
 
         # Verify the offset is exactly 21bp
-        assert new_start - old_start == 21, \
+        assert new_start - old_start == 21, (
             f"Expected 21bp offset, got {new_start - old_start}bp"
-        assert new_end - old_end == 21, \
+        )
+        assert new_end - old_end == 21, (
             f"Expected 21bp offset for end, got {new_end - old_end}bp"
+        )
 
     def test_protospacer_length_variations(self, pipeline):
         """Test that coordinate calculation works for different protospacer lengths."""
@@ -224,8 +261,13 @@ class TestReverseStrandCoordinates:
             guidescan_position = 1000000
 
             self.create_best_matches_file(
-                pipeline, f"guide_{length}bp", sequence, "chr1",
-                guidescan_position, "-", distance=0
+                pipeline,
+                f"guide_{length}bp",
+                sequence,
+                "chr1",
+                guidescan_position,
+                "-",
+                distance=0,
             )
 
             result_df = pipeline.format_exact_matches()
@@ -235,12 +277,13 @@ class TestReverseStrandCoordinates:
             expected_start = guidescan_position + 3
             expected_end = guidescan_position + 3 + length - 1
 
-            assert int(row['start']) == expected_start
-            assert int(row['end']) == expected_end
+            assert int(row["start"]) == expected_start
+            assert int(row["end"]) == expected_end
 
-            span = int(row['end']) - int(row['start']) + 1
-            assert span == expected_span, \
+            span = int(row["end"]) - int(row["start"]) + 1
+            assert span == expected_span, (
                 f"Expected {expected_span}bp span, got {span}bp"
+            )
 
     def test_na_handling_preserved(self, pipeline):
         """Verify that NA values are handled correctly in coordinate calculation."""
@@ -248,23 +291,35 @@ class TestReverseStrandCoordinates:
         sequence = "ACGCGCCGCGCACCGACGTNGG"
 
         # Create best_matches with NA values
-        with open(pipeline.best_matches_file, 'w', newline='') as f:
+        with open(pipeline.best_matches_file, "w", newline="") as f:
             writer = csv.writer(f)
-            writer.writerow(['id', 'sequence', 'match_chrm', 'match_position',
-                           'match_strand', 'match_distance', 'match_sequence',
-                           'rna_bulges', 'dna_bulges', 'specificity'])
-            writer.writerow([guide_id, sequence, "NA", "NA", "NA", "NA",
-                           "NA", "NA", "NA", "1.0"])
+            writer.writerow(
+                [
+                    "id",
+                    "sequence",
+                    "match_chrm",
+                    "match_position",
+                    "match_strand",
+                    "match_distance",
+                    "match_sequence",
+                    "rna_bulges",
+                    "dna_bulges",
+                    "specificity",
+                ]
+            )
+            writer.writerow(
+                [guide_id, sequence, "NA", "NA", "NA", "NA", "NA", "NA", "NA", "1.0"]
+            )
 
         result_df = pipeline.format_exact_matches()
 
         assert len(result_df) == 1
         row = result_df.iloc[0]
 
-        assert row['chromosome'] == "NA"
-        assert row['start'] == "NA"
-        assert row['end'] == "NA"
-        assert row['sense'] == "NA"
+        assert row["chromosome"] == "NA"
+        assert row["start"] == "NA"
+        assert row["end"] == "NA"
+        assert row["sense"] == "NA"
 
 
 class TestCoordinateSystemDocumentation:

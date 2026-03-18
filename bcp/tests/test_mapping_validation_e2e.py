@@ -16,18 +16,88 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "mapping_validation"
     "mapping_name,sif_name,provider,data,assay,expected_code",
     [
         # Happy paths
-        ("novogene_10x_raw_valid.csv", "novogene_10x_sif.csv", "novogene", "raw", "10x", 0),
-        ("psomagen_10x_raw_valid.csv", "psomagen_10x_sif.csv", "psomagen", "raw", "10x", 0),
-        ("novogene_sci_raw_valid.csv", "novogene_sci_sif.csv", "novogene", "raw", "sci", 0),
-        ("novogene_scale_raw_sop_valid.csv", "novogene_scale_sif.csv", "novogene", "raw", "scale", 0),
-        ("novogene_10x_processed_valid.csv", "novogene_10x_processed_sif.csv", "novogene", "processed", "10x", 0),
+        (
+            "novogene_10x_raw_valid.csv",
+            "novogene_10x_sif.csv",
+            "novogene",
+            "raw",
+            "10x",
+            0,
+        ),
+        (
+            "psomagen_10x_raw_valid.csv",
+            "psomagen_10x_sif.csv",
+            "psomagen",
+            "raw",
+            "10x",
+            0,
+        ),
+        (
+            "novogene_sci_raw_valid.csv",
+            "novogene_sci_sif.csv",
+            "novogene",
+            "raw",
+            "sci",
+            0,
+        ),
+        (
+            "novogene_scale_raw_sop_valid.csv",
+            "novogene_scale_sif.csv",
+            "novogene",
+            "raw",
+            "scale",
+            0,
+        ),
+        (
+            "novogene_10x_processed_valid.csv",
+            "novogene_10x_processed_sif.csv",
+            "novogene",
+            "processed",
+            "10x",
+            0,
+        ),
         # Error paths
         ("duplicates.csv", None, "novogene", "raw", "10x", 1),
-        ("novogene_10x_raw_errors.csv", "novogene_10x_sif.csv", "novogene", "raw", "10x", 1),
-        ("novogene_sci_raw_errors.csv", "novogene_sci_sif.csv", "novogene", "raw", "sci", 1),
-        ("novogene_scale_raw_errors.csv", "novogene_scale_sif.csv", "novogene", "raw", "scale", 1),
-        ("novogene_10x_processed_errors.csv", "novogene_10x_processed_sif.csv", "novogene", "processed", "10x", 1),
-        ("novogene_sci_raw_missing_groupid.csv", "novogene_sci_sif.csv", "novogene", "raw", "sci", 1),
+        (
+            "novogene_10x_raw_errors.csv",
+            "novogene_10x_sif.csv",
+            "novogene",
+            "raw",
+            "10x",
+            1,
+        ),
+        (
+            "novogene_sci_raw_errors.csv",
+            "novogene_sci_sif.csv",
+            "novogene",
+            "raw",
+            "sci",
+            1,
+        ),
+        (
+            "novogene_scale_raw_errors.csv",
+            "novogene_scale_sif.csv",
+            "novogene",
+            "raw",
+            "scale",
+            1,
+        ),
+        (
+            "novogene_10x_processed_errors.csv",
+            "novogene_10x_processed_sif.csv",
+            "novogene",
+            "processed",
+            "10x",
+            1,
+        ),
+        (
+            "novogene_sci_raw_missing_groupid.csv",
+            "novogene_sci_sif.csv",
+            "novogene",
+            "raw",
+            "sci",
+            1,
+        ),
     ],
 )
 def test_mapping_validation_e2e(
@@ -83,4 +153,3 @@ def test_mapping_validation_e2e(
         assert "VERDICT: PASS" in captured.out
     else:
         assert "VERDICT: FAIL" in captured.out
-

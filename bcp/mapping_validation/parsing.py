@@ -43,7 +43,11 @@ def _split_mapping_line(line: str) -> Tuple[str, str] | None:
         # Find the first space that precedes an absolute local path
         # e.g. "s3://...   /ORPROJ1/..." or "s3://... /mnt/..."
         for idx in range(len(stripped)):
-            if stripped[idx] == " " and idx + 1 < len(stripped) and stripped[idx + 1] == "/":
+            if (
+                stripped[idx] == " "
+                and idx + 1 < len(stripped)
+                and stripped[idx + 1] == "/"
+            ):
                 s3 = stripped[:idx]
                 local = stripped[idx + 1 :]
                 return s3.strip(), local.strip()
@@ -78,4 +82,3 @@ __all__ = [
     "MappingRow",
     "parse_mapping_file",
 ]
-

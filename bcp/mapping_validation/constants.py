@@ -79,7 +79,9 @@ def get_assays(assay_family: str, provider: str | None = None) -> set[str]:
         )
     assays = set(base)
     if provider:
-        extras = PROVIDER_EXTRA_ASSAYS.get(assay_family, {}).get(provider.lower(), set())
+        extras = PROVIDER_EXTRA_ASSAYS.get(assay_family, {}).get(
+            provider.lower(), set()
+        )
         assays |= extras
     return assays
 

@@ -1,0 +1,35 @@
+# Pre-commit: runs before each commit. Same checks as CI (lint + optional pytest).
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+#
+# Ruff uses config from pyproject.toml (target-version, line-length, exclude).
+# These hooks run the same commands as .github/workflows/tests.yml.
+
+repos:
+  # 1) Ruff lint on bcp/ (same as CI: ruff check bcp/)
+  - repo: local
+    hooks:
+      - id: ruff-check-bcp
+        name: ruff check bcp/
+        entry: ruff check bcp/
+        language: system
+        pass_filenames: false
+
+  # 2) Ruff format check on bcp/ (same as CI: ruff format --check bcp/)
+  - repo: local
+    hooks:
+      - id: ruff-format-bcp
+        name: ruff format --check bcp/
+        entry: bash -c "ruff format --check bcp/"
+        language: system
+        pass_filenames: false
+
+  # 3) Optional: pytest bcp/tests (same as CI). Uncomment to run on every commit.
+  #    Requires: conda activate <env> and bcp deps installed (pip install -r bcp/requirements.txt).
+  # - repo: local
+  #   hooks:
+  #     - id: pytest-bcp
+  #       name: pytest bcp/tests
+  #       entry: bash -c "cd bcp && pytest tests/"
+  #       language: system
+  #       pass_filenames: false

@@ -11,7 +11,7 @@ from pathlib import Path
 def temp_dir():
     """
     Create a temporary directory for test files.
-    
+
     Yields:
         Path: Temporary directory path that will be cleaned up after test.
     """
@@ -23,10 +23,10 @@ def temp_dir():
 def dummy_genome_index(temp_dir):
     """
     Create a dummy genome index file for testing.
-    
+
     Args:
         temp_dir: Temporary directory fixture
-        
+
     Returns:
         Path: Path to dummy genome index file
     """
@@ -39,10 +39,10 @@ def dummy_genome_index(temp_dir):
 def sample_guides_file_ngg(temp_dir):
     """
     Create a sample guides file with uniform NGG PAM.
-    
+
     Args:
         temp_dir: Temporary directory fixture
-        
+
     Returns:
         Path: Path to guides file
     """
@@ -60,10 +60,10 @@ def sample_guides_file_ngg(temp_dir):
 def sample_all_matches_csv(temp_dir):
     """
     Create a sample all_matches.csv file (simulating guidescan output).
-    
+
     Args:
         temp_dir: Temporary directory fixture
-        
+
     Returns:
         Path: Path to all_matches.csv file
     """
@@ -81,10 +81,10 @@ guide3,GCCCGCTCCCCGCGATCCCNGG,NA,NA,+,NA,NA,NA,NA,NA"""
 def sample_best_matches_csv(temp_dir):
     """
     Create a sample best_matches.csv file.
-    
+
     Args:
         temp_dir: Temporary directory fixture
-        
+
     Returns:
         Path: Path to best_matches.csv file
     """
@@ -102,13 +102,6 @@ def pytest_configure(config):
     """
     Register custom pytest markers.
     """
-    config.addinivalue_line(
-        "markers", "integration: mark test as an integration test"
-    )
-    config.addinivalue_line(
-        "markers", "unit: mark test as a unit test"
-    )
-    config.addinivalue_line(
-        "markers", "slow: mark test as slow running"
-    )
-
+    config.addinivalue_line("markers", "integration: mark test as an integration test")
+    config.addinivalue_line("markers", "unit: mark test as a unit test")
+    config.addinivalue_line("markers", "slow: mark test as slow running")
