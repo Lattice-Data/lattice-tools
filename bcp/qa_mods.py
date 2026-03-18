@@ -246,35 +246,60 @@ def extract_run_id_from_merged_trimmer_path(s3_key: str) -> str | None:
     return None
 
 
+# TT failure reasons used for "TT failing" (failed TT reads) in merged file.
+TT_FAIL_REASONS = ("rsq file", "sequence was too short", "sequence was too long")
+
+
 def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
     """
-    Parse a merged trimmer-failure_codes CSV and return TT-level RSQ and trimmer fail percentages.
+    Parse a merged trimmer-failure_codes CSV and return wafer-level RSQ and TT pass/fail
+    percentages and read counts.
 
-    Only rows with read_group == "TT" are used. Same reason logic as per-sample:
-    reason "rsq file" → rsq_pct; all other reasons summed → trimmer_fail_pct.
-
-    Args:
-        csv_path: Path to the merged trimmer-failure CSV.
+    - Wafer total: total_read_count from the first TT row (not summed across rows).
+    - RSQ failed: sum of failed_read_count over ALL rows where reason == "rsq file".
+    - TT failed: sum of failed_read_count over TT rows only where reason is one of
+      "rsq file", "sequence was too short", "sequence was too long".
 
     Returns:
-        {"rsq_pct": float, "trimmer_fail_pct": float} or None if no TT row.
+        Dict with wafer_total_reads, rsq_failed_reads, rsq_fail_pct, rsq_pass_pct,
+        rsq_pass_reads, tt_failed_reads, tt_fail_pct, tt_pass_pct, tt_pass_reads,
+        or None if no TT row.
     """
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.replace(" ", "_")
-    if "read_group" not in df.columns:
+    if "read_group" not in df.columns or "reason" not in df.columns:
         return None
     tt = df[df["read_group"] == "TT"]
     if tt.empty:
         return None
-    # Use total_read_count from first TT row as wafer-level total
-    total_reads = tt["total_read_count"].iloc[0]
-    if total_reads <= 0:
+    # Wafer total from first TT row (total is per read group, do not sum across rows)
+    wafer_total = int(tt["total_read_count"].iloc[0])
+    if wafer_total <= 0:
         return None
-    rsq_failed = tt.loc[tt["reason"] == "rsq file", "failed_read_count"].sum()
-    other_failed = tt.loc[tt["reason"] != "rsq file", "failed_read_count"].sum()
+
+    # RSQ: sum failed over ALL rows (all read groups) with reason "rsq file"
+    rsq_failed = int(df.loc[df["reason"] == "rsq file", "failed_read_count"].sum())
+    rsq_fail_pct = 100.0 * rsq_failed / wafer_total
+    rsq_pass_pct = 100.0 * (wafer_total - rsq_failed) / wafer_total
+    rsq_pass_reads = wafer_total - rsq_failed
+
+    # TT failed: TT rows only, reasons rsq file + sequence too short/long
+    tt_mask = (df["read_group"] == "TT") & (df["reason"].isin(TT_FAIL_REASONS))
+    tt_failed = int(df.loc[tt_mask, "failed_read_count"].sum())
+    tt_fail_pct = 100.0 * tt_failed / wafer_total
+    tt_pass_pct = 100.0 * (wafer_total - tt_failed) / wafer_total
+    tt_pass_reads = wafer_total - tt_failed
+
     return {
-        "rsq_pct": 100.0 * rsq_failed / total_reads,
-        "trimmer_fail_pct": 100.0 * other_failed / total_reads,
+        "wafer_total_reads": wafer_total,
+        "rsq_failed_reads": rsq_failed,
+        "rsq_fail_pct": rsq_fail_pct,
+        "rsq_pass_pct": rsq_pass_pct,
+        "rsq_pass_reads": rsq_pass_reads,
+        "tt_failed_reads": tt_failed,
+        "tt_fail_pct": tt_fail_pct,
+        "tt_pass_pct": tt_pass_pct,
+        "tt_pass_reads": tt_pass_reads,
     }
 
 

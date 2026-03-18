@@ -340,17 +340,54 @@ class TestExtractRunIdFromMergedTrimmerPath:
 class TestGrabMergedTrimmerStats:
     """Tests for grab_merged_trimmer_stats."""
 
-    def test_tt_rsq_and_trimmer_fail_from_fixture(self, tmp_path):
-        """TT row: rsq_pct and trimmer_fail_pct from fixture."""
+    def test_merged_rsq_and_tt_pass_fail_from_fixture(self, tmp_path):
+        """Fixture has only TT rows: RSQ = all rsq file failed; TT = rsq + too short + too long."""
         src = os.path.join(QA_FIXTURES_DIR, "merged_trimmer_failure_tt_small.csv")
         dst = tmp_path / "merged_trimmer_failure.csv"
         with open(src, "r") as f_in, open(dst, "w") as f_out:
             f_out.write(f_in.read())
         result = grab_merged_trimmer_stats(str(dst))
         assert result is not None
-        # rsq: 24911820/158267504; other: (355+6)/158267504
-        assert abs(result["rsq_pct"] - (100.0 * 24911820 / 158267504)) < 0.001
-        assert abs(result["trimmer_fail_pct"] - (100.0 * 361 / 158267504)) < 0.0001
+        total = 158267504
+        rsq_failed = 24911820
+        tt_failed = 24911820 + 355 + 6  # rsq + sequence too short + sequence too long
+        assert result["wafer_total_reads"] == total
+        assert result["rsq_failed_reads"] == rsq_failed
+        assert result["rsq_fail_pct"] == pytest.approx(
+            100.0 * rsq_failed / total, rel=1e-5
+        )
+        assert result["rsq_pass_pct"] == pytest.approx(
+            100.0 * (total - rsq_failed) / total, rel=1e-5
+        )
+        assert result["rsq_pass_reads"] == total - rsq_failed
+        assert result["tt_failed_reads"] == tt_failed
+        assert result["tt_fail_pct"] == pytest.approx(
+            100.0 * tt_failed / total, rel=1e-5
+        )
+        assert result["tt_pass_pct"] == pytest.approx(
+            100.0 * (total - tt_failed) / total, rel=1e-5
+        )
+        assert result["tt_pass_reads"] == total - tt_failed
+
+    def test_merged_rsq_sums_all_read_groups(self, tmp_path):
+        """RSQ failed is sum over ALL rows with reason rsq file, not just TT."""
+        path = tmp_path / "merged.csv"
+        path.write_text(
+            "read group,code,format,segment,reason,failed read count,total read count\n"
+            "TT,8,trim,preamble,rsq file,100,1000\n"
+            "TT,101,trim,insert,sequence was too short,10,1000\n"
+            "UGAv3-1000,8,no trimming,insert,rsq file,50,500\n"
+        )
+        result = grab_merged_trimmer_stats(str(path))
+        assert result is not None
+        # Wafer total from first TT row = 1000
+        assert result["wafer_total_reads"] == 1000
+        # RSQ failed = 100 + 50 (all rows with reason rsq file)
+        assert result["rsq_failed_reads"] == 150
+        assert result["rsq_fail_pct"] == pytest.approx(15.0, rel=1e-5)
+        # TT failed = 100 + 10 (TT rows only: rsq file + sequence too short)
+        assert result["tt_failed_reads"] == 110
+        assert result["tt_fail_pct"] == pytest.approx(11.0, rel=1e-5)
 
     def test_no_tt_row_returns_none(self, tmp_path):
         """CSV without TT read_group returns None."""
