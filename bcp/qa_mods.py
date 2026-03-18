@@ -246,24 +246,23 @@ def extract_run_id_from_merged_trimmer_path(s3_key: str) -> str | None:
     return None
 
 
-# TT failure reasons used for "TT failing" (failed TT reads) in merged file.
-TT_FAIL_REASONS = ("rsq file", "sequence was too short", "sequence was too long")
-
-
 def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
     """
-    Parse a merged trimmer-failure_codes CSV and return wafer-level RSQ and TT pass/fail
-    percentages and read counts.
+    Parse a merged trimmer-failure_codes CSV and return TT and RSQ pass/fail stats.
 
-    - Wafer total: total_read_count from the first TT row (not summed across rows).
-    - RSQ failed: sum of failed_read_count over ALL rows where reason == "rsq file".
-    - TT failed: sum of failed_read_count over TT rows only where reason is one of
-      "rsq file", "sequence was too short", "sequence was too long".
+    TT (read_group == "TT"):
+      - tt_total_reads: total_read_count from first TT row.
+      - tt_failed_reads: sum of failed_read_count across ALL TT rows (all reasons).
+      - tt_pass_reads, tt_fail_pct, tt_pass_pct derived from above.
+
+    RSQ (reason == "rsq file", all read groups):
+      - rsq_total_reads: sum of total_read_count across all rows with reason "rsq file"
+        (each read group has its own total).
+      - rsq_failed_reads: sum of failed_read_count across all rows with reason "rsq file".
+      - rsq_pass_reads, rsq_fail_pct, rsq_pass_pct derived from above.
 
     Returns:
-        Dict with wafer_total_reads, rsq_failed_reads, rsq_fail_pct, rsq_pass_pct,
-        rsq_pass_reads, tt_failed_reads, tt_fail_pct, tt_pass_pct, tt_pass_reads,
-        or None if no TT row.
+        Dict with tt and rsq metrics, or None if no TT row.
     """
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.replace(" ", "_")
@@ -272,34 +271,31 @@ def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
     tt = df[df["read_group"] == "TT"]
     if tt.empty:
         return None
-    # Wafer total from first TT row (total is per read group, do not sum across rows)
-    wafer_total = int(tt["total_read_count"].iloc[0])
-    if wafer_total <= 0:
+
+    # TT: all rows with read_group == "TT", all reasons
+    tt_total = int(tt["total_read_count"].iloc[0])
+    if tt_total <= 0:
         return None
+    tt_failed = int(tt["failed_read_count"].sum())
+    tt_pass = tt_total - tt_failed
 
-    # RSQ: sum failed over ALL rows (all read groups) with reason "rsq file"
-    rsq_failed = int(df.loc[df["reason"] == "rsq file", "failed_read_count"].sum())
-    rsq_fail_pct = 100.0 * rsq_failed / wafer_total
-    rsq_pass_pct = 100.0 * (wafer_total - rsq_failed) / wafer_total
-    rsq_pass_reads = wafer_total - rsq_failed
-
-    # TT failed: TT rows only, reasons rsq file + sequence too short/long
-    tt_mask = (df["read_group"] == "TT") & (df["reason"].isin(TT_FAIL_REASONS))
-    tt_failed = int(df.loc[tt_mask, "failed_read_count"].sum())
-    tt_fail_pct = 100.0 * tt_failed / wafer_total
-    tt_pass_pct = 100.0 * (wafer_total - tt_failed) / wafer_total
-    tt_pass_reads = wafer_total - tt_failed
+    # RSQ: all rows with reason == "rsq file" across all read groups
+    rsq_rows = df[df["reason"] == "rsq file"]
+    rsq_total = int(rsq_rows["total_read_count"].sum()) if not rsq_rows.empty else 0
+    rsq_failed = int(rsq_rows["failed_read_count"].sum()) if not rsq_rows.empty else 0
+    rsq_pass = rsq_total - rsq_failed if rsq_total > 0 else 0
 
     return {
-        "wafer_total_reads": wafer_total,
-        "rsq_failed_reads": rsq_failed,
-        "rsq_fail_pct": rsq_fail_pct,
-        "rsq_pass_pct": rsq_pass_pct,
-        "rsq_pass_reads": rsq_pass_reads,
+        "tt_total_reads": tt_total,
         "tt_failed_reads": tt_failed,
-        "tt_fail_pct": tt_fail_pct,
-        "tt_pass_pct": tt_pass_pct,
-        "tt_pass_reads": tt_pass_reads,
+        "tt_pass_reads": tt_pass,
+        "tt_fail_pct": 100.0 * tt_failed / tt_total,
+        "tt_pass_pct": 100.0 * tt_pass / tt_total,
+        "rsq_total_reads": rsq_total,
+        "rsq_failed_reads": rsq_failed,
+        "rsq_pass_reads": rsq_pass,
+        "rsq_fail_pct": 100.0 * rsq_failed / rsq_total if rsq_total > 0 else None,
+        "rsq_pass_pct": 100.0 * rsq_pass / rsq_total if rsq_total > 0 else None,
     }
 
 
