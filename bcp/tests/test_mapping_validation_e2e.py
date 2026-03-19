@@ -56,6 +56,14 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "mapping_validation"
             "10x",
             0,
         ),
+        (
+            "psomagen_10x_processed_valid.csv",
+            "psomagen_10x_processed_sif.csv",
+            "psomagen",
+            "processed",
+            "10x",
+            0,
+        ),
         # Error paths
         ("duplicates.csv", None, "novogene", "raw", "10x", 1),
         (

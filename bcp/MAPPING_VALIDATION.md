@@ -12,6 +12,16 @@ The validator is implemented in `mapping_validation.cli.main` and is exercised e
   - **Format**: text file with **two columns per non‑empty line**:
     - column 1: S3 path
     - column 2: local filesystem path
+  - **Provider-specific column order**:
+    - Novogene exports are typically `S3 path,local path`.
+    - Psomagen exports are sometimes `Local path,S3 path` and may include a header row
+      like `Local Path,S3 Path`.
+    - The parser uses `--provider` as a hint, and falls back to heuristics based on
+      which column starts with `s3://`.
+  - **Ignored lines**:
+    - empty lines
+    - header/meta rows starting with `@` (e.g. `@NVUS...mapping_processed.csv`)
+    - header rows like `Local Path,S3 Path` / `S3 Path,Local Path`
   - **Separators supported**:
     - comma: `s3://...,/ORPROJ1/...`
     - tab: `s3://...\t/ORPROJ1/...`
