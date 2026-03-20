@@ -631,15 +631,15 @@ def parse_raw_filename(f, raw_assay):
     """
     For scale data, use regex for determining assay, and "group" is replaced by "experiment", and there is no "barcode". This is because
     for scale data, all cram files within a single experiment will be used as input for a single run of SeqSuite.
-    Otherwise, parse filename, split by '-'
+    Otherwise, parse 10x/sci filenames from the right so group IDs can include hyphens.
     """
     filename = f.split("/")[-1]
-    path = filename.split("-")
-    if len(path) < 3:
-        return None
-    run = path[0]
 
     if raw_assay == "scale":
+        path = filename.split("-")
+        if len(path) < 3:
+            return None
+        run = path[0]
         group = f.split("/")[2]
         if re.search("GEX_hash_oligo", filename):
             assay = "GEX_hash_oligo"
@@ -651,20 +651,40 @@ def parse_raw_filename(f, raw_assay):
         barcode = None
 
     else:
-        group_assay = path[1]
-        if group_assay.endswith("GEX_hash_oligo"):
-            assay = "GEX_hash_oligo"
+        assay_pat = "|".join(
+            sorted(map(re.escape, valid_assays), key=len, reverse=True)
+        )
+        known_pat = re.compile(
+            rf"^(?P<run>[^-]+)-(?P<group>.+?)_(?P<assay>{assay_pat})-(?P<ug>[^-]+)-(?P<barcode>[^_.-]+)(?:[._-].*)?$"
+        )
+        m = known_pat.match(filename)
+        if m:
+            run = m.group("run")
+            group = m.group("group")
+            assay = m.group("assay")
+            ug = m.group("ug")
+            barcode = m.group("barcode")
         else:
-            match = False
-            for v_a in valid_assays:
-                if group_assay.endswith(v_a):
-                    assay = v_a
-                    match = True
-            if not match:
-                assay = group_assay.split("_")[-1]
-        group = group_assay.replace(f"_{assay}", "")
-        ug = path[2]
-        barcode = path[3].split("_")[0].split(".")[0]
+            path = filename.split("-")
+            if len(path) < 3:
+                return None
+            run = path[0]
+            group_assay = path[1]
+            if group_assay.endswith("GEX_hash_oligo"):
+                assay = "GEX_hash_oligo"
+            else:
+                match = False
+                for v_a in valid_assays:
+                    if group_assay.endswith(v_a):
+                        assay = v_a
+                        match = True
+                if not match:
+                    assay = group_assay.split("_")[-1]
+            group = group_assay.replace(f"_{assay}", "")
+            ug = path[2]
+            if len(path) < 4:
+                return None
+            barcode = path[3].split("_")[0].split(".")[0]
 
     return run, group, assay, ug, barcode
 

@@ -245,6 +245,68 @@ class TestParseRawFilename:
         result = parse_raw_filename(path, "10x")
         assert result == ("438586", "CH13", "GEX", "Z0005", "CATGTATCCTCTGAT")
 
+    def test_10x_hyphenated_group_gex_csv(self):
+        """10x parser accepts hyphens inside group IDs."""
+        path = (
+            "wang-tetrapod-atlas/NVUS2024101701-43/fbf_1-1/raw/"
+            "440261-fbf_1-1_GEX-Z0052-CTATGCCACAGCATGAT.csv"
+        )
+        assert parse_raw_filename(path, "10x") == (
+            "440261",
+            "fbf_1-1",
+            "GEX",
+            "Z0052",
+            "CTATGCCACAGCATGAT",
+        )
+
+    def test_10x_hyphenated_group_gex_variants(self):
+        """Hyphenated-group parsing stays stable across common 10x suffix variants."""
+        base = "440261-fbf_1-1_GEX-Z0052-CTATGCCACAGCATGAT"
+        suffixes = [
+            ".json",
+            "_S1_L001_R1_001.csv",
+            "_S1_L001_R1_001.fastq.gz",
+            "_S1_L001_R2_001.fastq.gz",
+            ".scRNA.applicationQC.h5",
+            ".scRNA.applicationQC.html",
+            "_Log.final.out",
+            "_Log.out",
+            "_Log.progress.out",
+            "_ReadsPerGene.out.tab",
+            "_unmatched.cram",
+        ]
+        for suffix in suffixes:
+            path = f"proj/order/fbf_1-1/raw/{base}{suffix}"
+            assert parse_raw_filename(path, "10x") == (
+                "440261",
+                "fbf_1-1",
+                "GEX",
+                "Z0052",
+                "CTATGCCACAGCATGAT",
+            )
+
+    def test_10x_hyphenated_group_other_assays(self):
+        """Hyphenated-group parsing works for CRI and ATAC assays."""
+        cri = "proj/order/fbf_1-1/raw/440261-fbf_1-1_CRI-Z0052-CTATGCCACAGCATGAT.csv"
+        atac = (
+            "proj/order/fbf_1-1/raw/"
+            "440261-fbf_1-1_ATAC-Z0052-CTATGCCACAGCATGAT_S1_L001_R1_001.fastq.gz"
+        )
+        assert parse_raw_filename(cri, "10x") == (
+            "440261",
+            "fbf_1-1",
+            "CRI",
+            "Z0052",
+            "CTATGCCACAGCATGAT",
+        )
+        assert parse_raw_filename(atac, "10x") == (
+            "440261",
+            "fbf_1-1",
+            "ATAC",
+            "Z0052",
+            "CTATGCCACAGCATGAT",
+        )
+
     def test_sci_plex_gex_hash_oligo_cram(self):
         """sci_plex: GEX_hash_oligo CRAM in a run subdirectory."""
         path = (
