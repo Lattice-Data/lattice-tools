@@ -230,16 +230,22 @@ def validate_read_metadata(
     *,
     print_success: bool = False,
     success_print_limit: int = 5,
-) -> tuple[dict[str, dict[str, int]], list[str]]:
+    pairing_paths_print_limit: int = 100,
+) -> tuple[dict[str, dict[str, int]], list[str], dict[str, list[str]]]:
     """
     Build group read counts from metadata and check R1/R2 consistency.
-    Returns (group_read_counts, errors).
-    group_read_counts: {group: {assay: total_reads}}
 
-    R1/R2 pairing only applies to keys whose path contains ``_R1_`` (typical GEX/CRI R1
-    FASTQs). Index reads (I1/I2), R2-only keys (skipped as walk start), R1 rows without
-    ``read_count``, and R1 with no matching ``_R2_`` metadata entry are not counted in
-    ``r1_r2_pairs_compared``; see the printed ``skipped_no_r2`` and metadata error counts.
+    Returns ``(group_read_counts, errors, pairing)`` where ``pairing`` has:
+
+    - ``r1_without_r2_metadata``: R1 paths (``_R1_``) with ``read_count`` but no R2 key
+    - ``r2_without_r1_metadata``: R2 paths (``_R2_``) with no corresponding R1 key
+
+    Those issues are also appended to ``errors`` with a ``READ METADATA PAIRING:`` prefix
+    so notebook callers can log them like other messages.
+
+    R1/R2 read-count comparison only runs for R1 keys with ``_R1_`` that have
+    ``read_count`` and a matching R2 entry; see printed counters when
+    ``print_success`` is True.
     """
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
@@ -251,6 +257,7 @@ def validate_read_metadata(
     mismatched_pairs = 0
     skipped_no_r2 = 0
     r2_metadata_error = 0
+    r1_without_r2_metadata: list[str] = []
 
     for f, meta in read_metadata.items():
         if "_R2_" in f:
@@ -296,18 +303,64 @@ def validate_read_metadata(
                         )
             else:
                 skipped_no_r2 += 1
+                r1_without_r2_metadata.append(f)
+
+    r2_without_r1_metadata: list[str] = []
+    for f in read_metadata:
+        if "_R2_" not in f:
+            continue
+        r1file = f.replace("_R2_", "_R1_")
+        if r1file not in read_metadata:
+            r2_without_r1_metadata.append(f)
+
+    for path in r1_without_r2_metadata:
+        errors.append(f"READ METADATA PAIRING: R1 present, no R2 metadata key: {path}")
+    for path in r2_without_r1_metadata:
+        errors.append(f"READ METADATA PAIRING: R2 present, no R1 metadata key: {path}")
+
+    pairing: dict[str, list[str]] = {
+        "r1_without_r2_metadata": r1_without_r2_metadata,
+        "r2_without_r1_metadata": r2_without_r1_metadata,
+    }
 
     if print_success:
         print(
             f"validate_read_metadata({raw_assay}): "
             f"r1_r2_pairs_compared={compared_pairs} "
             f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
-            f"r1_missing_r2_metadata={skipped_no_r2}, r2_metadata_errors={r2_metadata_error}"
+            f"r1_missing_r2_metadata={skipped_no_r2}, "
+            f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
+            f"r2_metadata_errors={r2_metadata_error}"
         )
         for line in matched_examples:
             print(line)
+        _print_pairing_path_lists(
+            r1_without_r2_metadata,
+            r2_without_r1_metadata,
+            pairing_paths_print_limit,
+        )
 
-    return group_read_counts, errors
+    return group_read_counts, errors, pairing
+
+
+def _print_pairing_path_lists(
+    r1_missing_r2: list[str],
+    r2_missing_r1: list[str],
+    limit: int,
+) -> None:
+    """Print paths for R1/R2 orphan metadata keys (truncated per ``limit`` per side)."""
+    if r1_missing_r2:
+        print(f"R1 paths with no R2 metadata entry ({len(r1_missing_r2)}):")
+        for p in r1_missing_r2[:limit]:
+            print(f"  {p}")
+        if len(r1_missing_r2) > limit:
+            print(f"  ... and {len(r1_missing_r2) - limit} more")
+    if r2_missing_r1:
+        print(f"R2 paths with no R1 metadata entry ({len(r2_missing_r1)}):")
+        for p in r2_missing_r1[:limit]:
+            print(f"  {p}")
+        if len(r2_missing_r1) > limit:
+            print(f"  ... and {len(r2_missing_r1) - limit} more")
 
 
 def check_expected_raw_files(

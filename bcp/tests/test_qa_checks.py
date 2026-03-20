@@ -221,8 +221,10 @@ class TestValidateReadMetadata:
         read_metadata = {
             "run-G1_GEX-UG01-R1.fastq.gz": {"read_count": 100, "errors": []},
         }
-        counts, errors = validate_read_metadata(read_metadata, "10x")
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
         assert errors == []
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
         assert "G1" in counts
         assert counts["G1"]["GEX"] == 100
 
@@ -239,7 +241,7 @@ class TestValidateReadMetadata:
                 "errors": [],
             },
         }
-        counts, errors = validate_read_metadata(read_metadata, "10x")
+        counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
         assert any("READ COUNT ERROR" in e for e in errors)
 
     def test_r1_r2_success_print_summary(self, capsys):
@@ -265,14 +267,31 @@ class TestValidateReadMetadata:
         assert "r1_r2_pairs_compared=1" in out
         assert "matched=1" in out
         assert "mismatched=0" in out
+        assert "r2_missing_r1_metadata=0" in out
         assert "MATCH:" in out
+
+    def test_r1_without_r2_lists_path_and_errors(self):
+        r1 = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        read_metadata = {r1: {"read_count": 100, "errors": []}}
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r1_without_r2_metadata"] == [r1]
+        assert pairing["r2_without_r1_metadata"] == []
+        assert any(r1 in e and "no R2 metadata" in e for e in errors)
+
+    def test_r2_without_r1_lists_path_and_errors(self):
+        r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        read_metadata = {r2: {"read_count": 100, "errors": []}}
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r2_without_r1_metadata"] == [r2]
+        assert pairing["r1_without_r2_metadata"] == []
+        assert any(r2 in e and "no R1 metadata" in e for e in errors)
 
     def test_metadata_errors_appended(self):
         """Metadata with errors list adds to errors."""
         read_metadata = {
             "run-G1_GEX-UG01_R1.fastq.gz": {"read_count": 100, "errors": ["bad"]},
         }
-        counts, errors = validate_read_metadata(read_metadata, "10x")
+        counts, errors, _p = validate_read_metadata(read_metadata, "10x")
         assert any("METADATA.JSON ERROR" in e for e in errors)
         assert "G1" not in counts or counts.get("G1", {}).get("GEX") != 100
 
