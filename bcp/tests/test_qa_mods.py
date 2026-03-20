@@ -14,14 +14,97 @@ from qa_mods import (
     grab_merged_trimmer_q30,
     grab_merged_trimmer_stats,
     grab_trimmer_stats,
+    normalize_raw_assay,
     parse_met_summ,
     parse_raw_filename,
     parse_web_summ,
+    resolve_qa_run_context,
 )
 
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 QA_FIXTURES_DIR = os.path.join(FIXTURES_DIR, "qa")
+
+
+class TestNormalizeRawAssay:
+    def test_10x_case_insensitive(self):
+        assert normalize_raw_assay("10X") == "10x"
+
+    def test_10x_viral_orf_case(self):
+        assert normalize_raw_assay("10x_viral_orf") == "10x_viral_ORF"
+
+    def test_empty_raises(self):
+        with pytest.raises(ValueError, match="raw_assay"):
+            normalize_raw_assay("")
+        with pytest.raises(ValueError, match="raw_assay"):
+            normalize_raw_assay("   ")
+
+    def test_unknown_raises(self):
+        with pytest.raises(ValueError, match="not recognized"):
+            normalize_raw_assay("unknown_assay")
+
+
+class TestResolveQaRunContext:
+    def test_s3_from_full_uri(self):
+        ctx = resolve_qa_run_context(
+            data_source="s3",
+            raw_assay="10x",
+            s3_path="s3://czi-novogene/myproj/NVUS2024101701-01/",
+        )
+        assert ctx.bucket == "czi-novogene"
+        assert ctx.provider == "novogene"
+        assert ctx.proj == "myproj"
+        assert ctx.order == "NVUS2024101701-01"
+        assert ctx.output_label == "NVUS2024101701-01"
+        assert ctx.listing_prefix == "myproj/NVUS2024101701-01/"
+
+    def test_s3_from_components(self):
+        ctx = resolve_qa_run_context(
+            data_source="s3",
+            raw_assay="scale",
+            provider="novogene",
+            proj="p",
+            order="o1",
+        )
+        assert ctx.bucket == "czi-novogene"
+        assert ctx.output_label == "o1"
+
+    def test_s3_run_label_override_output(self):
+        ctx = resolve_qa_run_context(
+            data_source="s3",
+            raw_assay="10x",
+            s3_path="s3://czi-novogene/myproj/NVUS2024101701-01/",
+            run_label="my_run",
+        )
+        assert ctx.output_label == "my_run"
+
+    def test_manifest_requires_run_label(self):
+        path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")
+        with pytest.raises(ValueError, match="run_label"):
+            resolve_qa_run_context(
+                data_source="manifest",
+                raw_assay="10x",
+                manifest_path=path,
+                manifest_delimiter="\t",
+                manifest_s3_column=0,
+                manifest_has_header=False,
+                run_label="",
+            )
+
+    def test_manifest_resolves_bucket(self):
+        path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")
+        ctx = resolve_qa_run_context(
+            data_source="manifest",
+            raw_assay="sci_plex",
+            manifest_path=path,
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+            run_label="NVUS2024101701-test",
+        )
+        assert ctx.bucket == "czi-novogene"
+        assert ctx.output_label == "NVUS2024101701-test"
+        assert ctx.data_source == "manifest"
 
 
 class TestParseRawFilename:
@@ -652,9 +735,8 @@ class TestParseWebSumm:
     def test_multiome_arc_format_raises_error(self):
         """
         Multiome (ARC) web_summary uses a different JSON schema.
-        parse_web_summ raises KeyError (expects 'summary' or 'library' keys).
-        Documents known limitation for refactoring.
+        Either no ``const data =`` payload (ValueError) or wrong shape (KeyError).
         """
         path = os.path.join(QA_FIXTURES_DIR, "web_summary-1.html")
-        with pytest.raises(KeyError):
+        with pytest.raises((ValueError, KeyError)):
             parse_web_summ(path)

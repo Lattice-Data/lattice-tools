@@ -2,14 +2,21 @@
 QA parsing helpers. Constants live in qa_constants; re-exported here for backward compatibility.
 """
 
+from __future__ import annotations
+
 import json
 import re
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import urlparse
 
 import pandas as pd
 from bs4 import BeautifulSoup
 
 from qa_constants import (
+    ALLOWED_RAW_ASSAYS,
     cellranger_expected,
     chemistries,
     raw_expected,
@@ -18,10 +25,15 @@ from qa_constants import (
 )
 
 __all__ = [
+    "ALLOWED_RAW_ASSAYS",
+    "QARunContext",
     "cellranger_expected",
     "chemistries",
+    "ingest_merged_trimmer_from_s3",
+    "normalize_raw_assay",
     "raw_expected",
     "raw_optional",
+    "resolve_qa_run_context",
     "valid_assays",
     "parse_met_summ",
     "parse_web_summ",
@@ -33,6 +45,190 @@ __all__ = [
     "grab_merged_trimmer_stats",
     "grab_merged_trimmer_q30",
 ]
+
+
+def normalize_raw_assay(value: str | None) -> str:
+    """
+    Strip whitespace, fix common casing for 10x assays, and validate against ALLOWED_RAW_ASSAYS.
+
+    Raises:
+        ValueError: if missing or not a supported raw assay type.
+    """
+    if value is None or not str(value).strip():
+        raise ValueError(
+            "ERROR: raw_assay is not specified. "
+            "Set it to one of: '10x', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+        )
+    s = str(value).strip()
+    lower = s.lower()
+    if lower == "10x":
+        s = "10x"
+    elif lower == "10x_viral_orf":
+        s = "10x_viral_ORF"
+    if s not in ALLOWED_RAW_ASSAYS:
+        raise ValueError(
+            f"HUGE ERROR: raw_assay='{s}' is not recognized. "
+            "Update the parameter to one of: "
+            "'10x', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+        )
+    return s
+
+
+def _split_s3_uri(uri: str) -> tuple[str | None, str]:
+    """Return (bucket, key) for s3:// URIs; else (None, uri as key)."""
+    u = str(uri).strip()
+    if not u.startswith("s3://"):
+        return None, u
+    rest = u[5:]
+    if "/" not in rest:
+        return rest, ""
+    bucket, key = rest.split("/", 1)
+    return bucket or None, key
+
+
+def _manifest_buckets_from_column(
+    manifest_path: str,
+    delimiter: str,
+    s3_column: int,
+    has_header: bool,
+) -> frozenset[str]:
+    df = pd.read_csv(manifest_path, sep=delimiter, header=0 if has_header else None)
+    buckets: set[str] = set()
+    for cell in df.iloc[:, s3_column]:
+        if cell is None or (isinstance(cell, float) and pd.isna(cell)):
+            continue
+        b, _ = _split_s3_uri(str(cell).strip())
+        if b:
+            buckets.add(b)
+    return frozenset(buckets)
+
+
+@dataclass(frozen=True)
+class QARunContext:
+    """Resolved QA run identity: S3 bucket, listing prefix, output file stem, normalized assay."""
+
+    data_source: Literal["s3", "manifest"]
+    raw_assay: str
+    bucket: str
+    provider: str
+    proj: str
+    order: str
+    output_label: str
+    listing_prefix: str
+    manifest_path: str = ""
+    manifest_delimiter: str = "\t"
+    manifest_s3_column: int = 0
+    manifest_has_header: bool = False
+
+
+def resolve_qa_run_context(
+    *,
+    data_source: str,
+    raw_assay: str,
+    s3_path: str = "",
+    provider: str = "",
+    proj: str = "",
+    order: str = "",
+    run_label: str = "",
+    manifest_path: str = "",
+    manifest_delimiter: str = "\t",
+    manifest_s3_column: int = 0,
+    manifest_has_header: bool = False,
+) -> QARunContext:
+    """
+    Validate notebook parameters and return a single context for gathering and output paths.
+
+    * **s3** mode: require either ``s3://czi-*/proj/order`` or ``provider`` + ``proj`` + ``order``.
+      Output files use ``run_label`` if set, else ``order``.
+    * **manifest** mode: require ``manifest_path`` and non-empty ``run_label`` for output names.
+      ``bucket`` is inferred from ``s3://czi-*`` URIs in the manifest column (single bucket).
+    """
+    ds = str(data_source).strip().lower()
+    if ds not in ("s3", "manifest"):
+        raise ValueError(
+            f"Invalid data_source: {data_source!r}. Must be 'manifest' or 's3'."
+        )
+
+    assay = normalize_raw_assay(raw_assay)
+
+    if ds == "manifest":
+        mp = str(manifest_path).strip()
+        if not mp:
+            raise ValueError("manifest mode requires a non-empty manifest_path.")
+        rl = str(run_label).strip()
+        if not rl:
+            raise ValueError(
+                "manifest mode requires run_label (used for output files, e.g. *_errors.txt)."
+            )
+        buckets = _manifest_buckets_from_column(
+            mp, manifest_delimiter, manifest_s3_column, manifest_has_header
+        )
+        if not buckets:
+            raise ValueError(
+                "No s3:// URIs with a bucket found in the manifest column; cannot infer bucket."
+            )
+        if len(buckets) > 1:
+            raise ValueError(
+                f"Manifest lists multiple S3 buckets {sorted(buckets)}; expected a single bucket."
+            )
+        bucket = next(iter(buckets))
+        if not bucket.startswith("czi-"):
+            raise ValueError(f"Invalid bucket in manifest (expected czi-*): {bucket!r}")
+        provider_name = bucket[len("czi-") :]
+        return QARunContext(
+            data_source="manifest",
+            raw_assay=assay,
+            bucket=bucket,
+            provider=provider_name,
+            proj="",
+            order="",
+            output_label=rl,
+            listing_prefix="",
+            manifest_path=mp,
+            manifest_delimiter=manifest_delimiter,
+            manifest_s3_column=manifest_s3_column,
+            manifest_has_header=manifest_has_header,
+        )
+
+    # --- s3 ---
+    sp = str(s3_path).strip()
+    prov = str(provider).strip()
+    p = str(proj).strip()
+    ord_seg = str(order).strip()
+
+    if sp:
+        u = urlparse(sp)
+        if u.scheme != "s3" or not u.netloc:
+            raise ValueError(f"Invalid s3_path (expected s3://...): {sp}")
+        bucket = u.netloc
+        if not bucket.startswith("czi-"):
+            raise ValueError(f"Invalid bucket in s3_path (expected czi-*): {bucket}")
+        provider_name = bucket[len("czi-") :]
+        parts = [x for x in u.path.split("/") if x]
+        if len(parts) < 2:
+            raise ValueError(f"S3 path must include proj + order segments: {sp}")
+        p = parts[-2]
+        ord_seg = parts[-1]
+    else:
+        if not prov or not p or not ord_seg:
+            raise ValueError(
+                "s3 mode: set s3_path, or set all of provider, proj, and order."
+            )
+        bucket = f"czi-{prov}"
+        provider_name = prov
+
+    out = str(run_label).strip() or ord_seg
+    listing = f"{p}/{ord_seg}/"
+    return QARunContext(
+        data_source="s3",
+        raw_assay=assay,
+        bucket=bucket,
+        provider=provider_name,
+        proj=p,
+        order=ord_seg,
+        output_label=out,
+        listing_prefix=listing,
+    )
 
 
 def parse_met_summ(f):
@@ -61,13 +257,22 @@ def parse_met_summ(f):
 
 def parse_web_summ(f):
     report = {"extra": [], "alerts": []}
+    data = None
     with open(f) as html_doc:
         soup = BeautifulSoup(html_doc, "html.parser")
     for x in soup.find_all("script"):
+        if not x.string:
+            continue
         match = re.search("const data = ", x.string)
         if match:
             end = match.end()
             data = json.loads(x.string[end:])
+            break
+
+    if data is None:
+        raise ValueError(
+            f"No embedded Cell Ranger JSON ('const data = ...') found in {f!r}"
+        )
 
     if "summary" in data:
         report["sub"] = data["summary"]["sample"]["subcommand"]
@@ -91,7 +296,6 @@ def parse_web_summ(f):
     chem = gex_tab["chemistry"]
     report["chem"] = chemistries.get(chem, chem)
 
-    report["extra"] = []
     if "library" in data:
         if (
             "crispr_tab" in data["library"]["data"]
@@ -118,7 +322,8 @@ def parse_web_summ(f):
                 elif path[0] == "reference" and cat == "[gene-expression]":
                     report["ref"] = path[1]
 
-    # location of some additional info to QA
+    # Transcriptome from pipeline table is the canonical QA reference (overrides
+    # experimental_design [gene-expression] reference when both exist).
     report["ref"] = gex_tab["transcriptome"]
     if chem != "Flex Gene Expression":
         report["incl_int"] = gex_tab["include introns"].lower()
@@ -330,6 +535,44 @@ def grab_merged_trimmer_q30(csv_path: str | Path) -> float | None:
     return 100.0 * matched / total
 
 
+def ingest_merged_trimmer_from_s3(
+    bucket: str,
+    key: str,
+    merged_wafer_stats: dict[str, Any],
+    s3_client: Any,
+) -> None:
+    """
+    Download a merged trimmer CSV under ``key``, parse TT/RSQ or Q30, and update ``merged_wafer_stats``.
+    No-op if the key is not a merged trimmer file or RunID cannot be determined.
+    """
+    run_id = extract_run_id_from_merged_trimmer_path(key)
+    if not run_id:
+        return
+    name = key.split("/")[-1]
+    if (
+        "merged_trimmer-failure_codes.csv" not in name
+        and "merged_trimmer-stats.csv" not in name
+    ):
+        return
+
+    with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
+        local = tf.name
+    try:
+        s3_client.download_file(bucket, key, local)
+        if "merged_trimmer-failure_codes.csv" in name:
+            merged = grab_merged_trimmer_stats(local)
+            if merged:
+                merged_wafer_stats[run_id] = merged_wafer_stats.get(run_id, {})
+                merged_wafer_stats[run_id].update(merged)
+        else:
+            q30 = grab_merged_trimmer_q30(local)
+            if q30 is not None:
+                merged_wafer_stats.setdefault(run_id, {})
+                merged_wafer_stats[run_id]["tt_q30_pct"] = q30
+    finally:
+        Path(local).unlink(missing_ok=True)
+
+
 def parse_raw_filename(f, raw_assay):
     """
     For scale data, use regex for determining assay, and "group" is replaced by "experiment", and there is no "barcode". This is because
@@ -388,22 +631,26 @@ def load_files_from_manifest(
         Tuple of:
         - all_raw_files: List of raw file S3 keys (paths containing '/raw/')
         - all_proc_files: Dict of {group: [processed file keys]} (paths containing '/processed/')
+        - manifest_bucket: Bucket from ``s3://`` URIs, or None if none found
     """
     df = pd.read_csv(manifest_path, sep=delimiter, header=0 if has_header else None)
     s3_uris = df.iloc[:, s3_column].tolist()
 
     all_raw_files = []
     all_proc_files = {}
+    buckets_seen: set[str] = set()
 
     for uri in s3_uris:
+        if uri is None or (isinstance(uri, float) and pd.isna(uri)):
+            continue
+        uri = str(uri).strip()
         # Strip 's3://bucket-name/' prefix to get just the key
         if uri.startswith("s3://"):
-            # s3://bucket-name/path/to/file -> path/to/file
-            parts = uri[5:].split("/", 1)  # Remove 's3://', split on first '/'
-            if len(parts) > 1:
-                key = parts[1]  # The key (path after bucket)
-            else:
-                continue  # Invalid URI, skip
+            b, key = _split_s3_uri(uri)
+            if b:
+                buckets_seen.add(b)
+            if not key:
+                continue
         else:
             key = uri  # Assume it's already a key
 
@@ -418,4 +665,10 @@ def load_files_from_manifest(
                 all_proc_files[group] = []
             all_proc_files[group].append(key)
 
-    return all_raw_files, all_proc_files
+    if len(buckets_seen) > 1:
+        raise ValueError(
+            f"Manifest mixes S3 buckets {sorted(buckets_seen)}; expected a single bucket."
+        )
+    manifest_bucket = next(iter(buckets_seen)) if buckets_seen else None
+
+    return all_raw_files, all_proc_files, manifest_bucket

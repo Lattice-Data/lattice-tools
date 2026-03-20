@@ -12,6 +12,11 @@ chemistries = {
 
 valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo"]
 
+# Raw pipeline types supported by qa.ipynb / qa_checks (normalize casing via qa_mods.normalize_raw_assay)
+ALLOWED_RAW_ASSAYS = frozenset(
+    ("10x", "10x_viral_ORF", "sci_jumbo", "sci_plex", "scale")
+)
+
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-3p-outputs-cellplex
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-flex-outputs-frp
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-outputs-gex-overview

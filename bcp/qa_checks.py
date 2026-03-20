@@ -23,6 +23,17 @@ VALID_PROBES = [
 ]
 
 
+def _fastq_count_mode(raw_assay: str) -> str:
+    """Internal: assay policy for fastq count validation and summaries."""
+    if raw_assay in ("sci_jumbo", "10x_viral_ORF"):
+        return "skip"
+    if raw_assay in ("scale", "sci_plex"):
+        return "gex_hash"
+    if raw_assay == "10x":
+        return "10x"
+    return "unknown"
+
+
 def validate_fastq_counts(
     fastq_log: dict[str, dict[str, list[str]]], raw_assay: str
 ) -> list[str]:
@@ -41,14 +52,14 @@ def validate_fastq_counts(
     logger = logging.getLogger(__name__)
     errors: list[str] = []
 
-    if raw_assay == "sci_jumbo":
-        logger.warning("Not validating fastq counts for sci_jumbo at the moment.")
-        return errors
-
-    if raw_assay == "10x_viral_ORF":
-        logger.warning(
-            "Not validating fastq counts for 10x_viral_ORF (legacy/outlier)."
-        )
+    mode = _fastq_count_mode(raw_assay)
+    if mode == "skip":
+        if raw_assay == "sci_jumbo":
+            logger.warning("Not validating fastq counts for sci_jumbo at the moment.")
+        else:
+            logger.warning(
+                "Not validating fastq counts for 10x_viral_ORF (legacy/outlier)."
+            )
         return errors
 
     for sample, v in fastq_log.items():
@@ -116,16 +127,11 @@ def summarize_fastq_count_validation(
     """
 
     mismatches = len(errors)
+    mode = _fastq_count_mode(raw_assay)
 
-    if raw_assay == "sci_jumbo":
+    if mode == "skip":
         return (
-            "Fastq count validation (sci_jumbo): not validated by design; "
-            f"mismatches: {mismatches}. No comparisons performed."
-        )
-
-    if raw_assay == "10x_viral_ORF":
-        return (
-            "Fastq count validation (10x_viral_ORF): not validated by design; "
+            f"Fastq count validation ({raw_assay}): not validated by design; "
             f"mismatches: {mismatches}. No comparisons performed."
         )
 
@@ -348,6 +354,7 @@ def check_extra_raw_files(
     Returns list of extra file paths.
     """
     raw_found_set = set(raw_found)
+    all_raw_set = set(all_raw_files)
     optional_endings = raw_optional.get(raw_assay, [])
     if raw_assay == "10x_viral_ORF":
         optional_endings = raw_optional.get("10x", [])
@@ -357,7 +364,7 @@ def check_extra_raw_files(
         if f in raw_found_set:
             continue
         if f.endswith("-metadata.json") and (
-            f.replace("-metadata.json", "") in set(all_raw_files)
+            f.replace("-metadata.json", "") in all_raw_set
         ):
             continue
         if (raw_assay in raw_optional or raw_assay == "10x_viral_ORF") and (
