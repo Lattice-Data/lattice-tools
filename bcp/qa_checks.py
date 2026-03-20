@@ -168,7 +168,10 @@ def summarize_fastq_count_validation(
             else:
                 result = "No comparable pairs (missing modality pairs)."
         elif mismatches > 0:
-            result = "Mismatches found (see details above)."
+            result = (
+                "Mismatches found (see preceding MISMATCH FQ COUNTS lines in stdout "
+                "and the errors log)."
+            )
         else:
             result = "No comparisons performed."
 
@@ -202,7 +205,10 @@ def summarize_fastq_count_validation(
             else:
                 result = "No comparable pairs (missing modality pairs)."
         elif mismatches > 0:
-            result = "Mismatches found (see details above)."
+            result = (
+                "Mismatches found (see preceding MISMATCH FQ COUNTS lines in stdout "
+                "and the errors log)."
+            )
         else:
             result = "No comparisons performed."
 

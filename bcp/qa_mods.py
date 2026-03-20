@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -30,6 +31,7 @@ __all__ = [
     "cellranger_expected",
     "chemistries",
     "ingest_merged_trimmer_from_s3",
+    "is_valid_cellranger_run_dir_name",
     "normalize_raw_assay",
     "raw_expected",
     "raw_optional",
@@ -72,6 +74,38 @@ def normalize_raw_assay(value: str | None) -> str:
             "'10x', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
         )
     return s
+
+
+# Run folder under processed/cellranger/: ISO date or legacy underscores, optional tag suffix.
+_RUN_DIR_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("%Y-%m-%d", re.compile(r"^(\d{4}-\d{2}-\d{2})(?:_.*)?$")),
+    ("%Y_%m_%d", re.compile(r"^(\d{4}_\d{2}_\d{2})(?:_.*)?$")),
+)
+
+
+def is_valid_cellranger_run_dir_name(name: str) -> bool:
+    """
+    True if ``name`` looks like a Cell Ranger run directory under ``processed/cellranger/``.
+
+    Accepts:
+
+    - ``Run_2025-01-10``
+    - ``Run_2026-02-28_biohub`` (date + optional ``_tag`` suffix)
+    - ``Run_2025_12_31`` (underscore-separated date, as used by some providers)
+    """
+    if not name.startswith("Run_") or "/" in name:
+        return False
+    rest = name[4:]
+    for fmt, pat in _RUN_DIR_PATTERNS:
+        m = pat.match(rest)
+        if not m:
+            continue
+        try:
+            datetime.strptime(m.group(1), fmt)
+        except ValueError:
+            return False
+        return True
+    return False
 
 
 def _split_s3_uri(uri: str) -> tuple[str | None, str]:

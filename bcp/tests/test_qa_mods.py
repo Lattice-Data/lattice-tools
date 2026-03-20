@@ -14,6 +14,7 @@ from qa_mods import (
     grab_merged_trimmer_q30,
     grab_merged_trimmer_stats,
     grab_trimmer_stats,
+    is_valid_cellranger_run_dir_name,
     normalize_raw_assay,
     parse_met_summ,
     parse_raw_filename,
@@ -24,6 +25,26 @@ from qa_mods import (
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 QA_FIXTURES_DIR = os.path.join(FIXTURES_DIR, "qa")
+
+
+class TestIsValidCellrangerRunDirName:
+    def test_iso_date_only(self):
+        assert is_valid_cellranger_run_dir_name("Run_2025-01-10") is True
+
+    def test_iso_date_2026_with_suffix(self):
+        assert is_valid_cellranger_run_dir_name("Run_2026-02-28_biohub") is True
+
+    def test_underscore_separated_date(self):
+        assert is_valid_cellranger_run_dir_name("Run_2025_12_31") is True
+
+    def test_rejects_wrong_month(self):
+        assert is_valid_cellranger_run_dir_name("Run_2025-13-01") is False
+
+    def test_rejects_no_run_prefix(self):
+        assert is_valid_cellranger_run_dir_name("2025-01-10") is False
+
+    def test_rejects_path_with_slash(self):
+        assert is_valid_cellranger_run_dir_name("Run_2025-01-10/extra") is False
 
 
 class TestNormalizeRawAssay:
