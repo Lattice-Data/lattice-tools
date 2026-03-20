@@ -3,6 +3,9 @@ Tests for loading file manifests from CSV/TSV files.
 """
 
 import os
+
+import pytest
+
 from qa_mods import load_files_from_manifest
 
 
@@ -16,10 +19,11 @@ class TestLoadFilesFromManifest:
         """Test loading TSV manifest without header, S3 in column 0."""
         manifest_path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")
 
-        all_raw_files, all_proc_files = load_files_from_manifest(
+        all_raw_files, all_proc_files, manifest_bucket = load_files_from_manifest(
             manifest_path=manifest_path, delimiter="\t", s3_column=0, has_header=False
         )
 
+        assert manifest_bucket == "czi-novogene"
         # Should have 6 raw files (4 from GROUP1, 2 from GROUP2)
         assert len(all_raw_files) == 6
 
@@ -37,10 +41,11 @@ class TestLoadFilesFromManifest:
         """Test loading CSV manifest with header, S3 in column 1."""
         manifest_path = os.path.join(FIXTURES_DIR, "test_manifest_with_header.csv")
 
-        all_raw_files, all_proc_files = load_files_from_manifest(
+        all_raw_files, all_proc_files, manifest_bucket = load_files_from_manifest(
             manifest_path=manifest_path, delimiter=",", s3_column=1, has_header=True
         )
 
+        assert manifest_bucket == "czi-novogene"
         # Should have 3 raw files
         assert len(all_raw_files) == 3
 
@@ -53,7 +58,7 @@ class TestLoadFilesFromManifest:
         """Verify s3://bucket/ prefix is correctly removed."""
         manifest_path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")
 
-        all_raw_files, all_proc_files = load_files_from_manifest(
+        all_raw_files, all_proc_files, _mb = load_files_from_manifest(
             manifest_path=manifest_path, delimiter="\t", s3_column=0, has_header=False
         )
 
@@ -74,7 +79,7 @@ class TestLoadFilesFromManifest:
         """Verify raw files go to list, processed files grouped by group name."""
         manifest_path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")
 
-        all_raw_files, all_proc_files = load_files_from_manifest(
+        all_raw_files, all_proc_files, _mb = load_files_from_manifest(
             manifest_path=manifest_path, delimiter="\t", s3_column=0, has_header=False
         )
 
@@ -93,7 +98,7 @@ class TestLoadFilesFromManifest:
         """Verify group name is correctly extracted from processed file paths."""
         manifest_path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")
 
-        all_raw_files, all_proc_files = load_files_from_manifest(
+        all_raw_files, all_proc_files, _mb = load_files_from_manifest(
             manifest_path=manifest_path, delimiter="\t", s3_column=0, has_header=False
         )
 
@@ -117,12 +122,28 @@ class TestLoadFilesFromManifest:
         other_manifest = tmp_path / "other.tsv"
         other_manifest.write_text("s3://bucket/some/other/path.txt\t/orig\n")
 
-        all_raw_files, all_proc_files = load_files_from_manifest(
+        all_raw_files, all_proc_files, mb = load_files_from_manifest(
             manifest_path=str(other_manifest),
             delimiter="\t",
             s3_column=0,
             has_header=False,
         )
 
+        assert mb == "bucket"
         assert len(all_raw_files) == 0
         assert len(all_proc_files) == 0
+
+    def test_mixed_buckets_raises(self, tmp_path):
+        """Manifest must not list more than one S3 bucket."""
+        mixed = tmp_path / "mixed.tsv"
+        mixed.write_text(
+            "s3://czi-novogene/proj/o/G1/raw/a.csv\n"
+            "s3://czi-psomagen/proj/o/G1/raw/b.csv\n"
+        )
+        with pytest.raises(ValueError, match="mixes S3 buckets"):
+            load_files_from_manifest(
+                manifest_path=str(mixed),
+                delimiter="\t",
+                s3_column=0,
+                has_header=False,
+            )
