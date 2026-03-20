@@ -262,7 +262,7 @@ class TestValidateReadMetadata:
         )
         out = capsys.readouterr().out
         assert "validate_read_metadata(10x):" in out
-        assert "compared=1" in out
+        assert "r1_r2_pairs_compared=1" in out
         assert "matched=1" in out
         assert "mismatched=0" in out
         assert "MATCH:" in out

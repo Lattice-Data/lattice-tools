@@ -14,6 +14,7 @@ from qa_mods import (
     grab_merged_trimmer_q30,
     grab_merged_trimmer_stats,
     grab_trimmer_stats,
+    is_order_level_processed_folder,
     is_valid_cellranger_run_dir_name,
     normalize_raw_assay,
     parse_met_summ,
@@ -25,6 +26,25 @@ from qa_mods import (
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 QA_FIXTURES_DIR = os.path.join(FIXTURES_DIR, "qa")
+
+
+class TestIsOrderLevelProcessedFolder:
+    def test_processed_under_order(self):
+        o = "ny-biohub-califano/NVUS2024101701-17/"
+        g = "ny-biohub-califano/NVUS2024101701-17/processed/"
+        assert is_order_level_processed_folder(o, g) is True
+
+    def test_raw_under_order_not_special_cased(self):
+        assert is_order_level_processed_folder("a/b/", "a/b/raw/") is False
+
+    def test_sample_group_not_skipped(self):
+        assert (
+            is_order_level_processed_folder("ny/NVUS1/", "ny/NVUS1/MS116A_MS116AF/")
+            is False
+        )
+
+    def test_case_insensitive_processed(self):
+        assert is_order_level_processed_folder("o/", "o/PROCESSED/") is True
 
 
 class TestIsValidCellrangerRunDirName:

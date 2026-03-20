@@ -235,6 +235,11 @@ def validate_read_metadata(
     Build group read counts from metadata and check R1/R2 consistency.
     Returns (group_read_counts, errors).
     group_read_counts: {group: {assay: total_reads}}
+
+    R1/R2 pairing only applies to keys whose path contains ``_R1_`` (typical GEX/CRI R1
+    FASTQs). Index reads (I1/I2), R2-only keys (skipped as walk start), R1 rows without
+    ``read_count``, and R1 with no matching ``_R2_`` metadata entry are not counted in
+    ``r1_r2_pairs_compared``; see the printed ``skipped_no_r2`` and metadata error counts.
     """
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
@@ -294,9 +299,10 @@ def validate_read_metadata(
 
     if print_success:
         print(
-            f"validate_read_metadata({raw_assay}): compared={compared_pairs}, "
-            f"matched={matched_pairs}, mismatched={mismatched_pairs}, "
-            f"skipped_no_r2={skipped_no_r2}, r2_metadata_error={r2_metadata_error}"
+            f"validate_read_metadata({raw_assay}): "
+            f"r1_r2_pairs_compared={compared_pairs} "
+            f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
+            f"r1_missing_r2_metadata={skipped_no_r2}, r2_metadata_errors={r2_metadata_error}"
         )
         for line in matched_examples:
             print(line)

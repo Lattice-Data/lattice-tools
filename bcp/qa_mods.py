@@ -31,6 +31,7 @@ __all__ = [
     "cellranger_expected",
     "chemistries",
     "ingest_merged_trimmer_from_s3",
+    "is_order_level_processed_folder",
     "is_valid_cellranger_run_dir_name",
     "normalize_raw_assay",
     "raw_expected",
@@ -106,6 +107,25 @@ def is_valid_cellranger_run_dir_name(name: str) -> bool:
             return False
         return True
     return False
+
+
+def is_order_level_processed_folder(
+    order_listing_prefix: str, group_prefix: str
+) -> bool:
+    """
+    True if ``group_prefix`` is an immediate child of ``order_listing_prefix`` named
+    ``processed/`` — i.e. ``{proj}/{order}/processed/`` rather than
+    ``{proj}/{order}/{sample_group}/processed/``.
+
+    Only this case is skipped with a warning; other top-level names still go through
+    normal raw/processed checks.
+    """
+    if not order_listing_prefix or not group_prefix.startswith(order_listing_prefix):
+        return False
+    name = group_prefix[len(order_listing_prefix) :].rstrip("/")
+    if not name or "/" in name:
+        return False
+    return name.lower() == "processed"
 
 
 def _split_s3_uri(uri: str) -> tuple[str | None, str]:
