@@ -78,6 +78,35 @@ def test_parse_mapping_file_ignores_malformed_lines(tmp_path: Path) -> None:
     ]
 
 
+def test_parse_mapping_file_psomagen_local_first_header(tmp_path: Path) -> None:
+    """psomagen exports may use `Local Path,S3 Path` column order."""
+    mapping_text = (
+        "Local Path,S3 Path\n"
+        "/local/path/file.h5,s3://czi-psomagen/proj/order/AN00012345/processed/file.h5\n"
+    )
+    path = _write_temp_mapping(tmp_path, mapping_text)
+
+    rows = parse_mapping_file(path, provider="psomagen")
+
+    assert len(rows) == 1
+    assert rows[0].local_path == "/local/path/file.h5"
+    assert rows[0].s3_path.startswith("s3://czi-psomagen/")
+
+
+def test_parse_mapping_file_skips_at_metadata_lines(tmp_path: Path) -> None:
+    """Mapping exports may include `@...` metadata lines that are not rows."""
+    mapping_text = (
+        "@NVUS2024101701-19-mapping_processed.csv (1-3)\ns3://bucket/a,/local/a\n"
+    )
+    path = _write_temp_mapping(tmp_path, mapping_text)
+
+    rows = parse_mapping_file(path, provider="novogene")
+
+    assert len(rows) == 1
+    assert rows[0].s3_path == "s3://bucket/a"
+    assert rows[0].local_path == "/local/a"
+
+
 def test_validate_uniqueness_detects_duplicate_local_and_s3() -> None:
     """validate_uniqueness should flag many-to-one and one-to-many mappings."""
     rows = [

@@ -171,7 +171,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    mappings = parse_mapping_file(args.mapping)
+    mappings = parse_mapping_file(args.mapping, provider=args.provider)
     if not mappings:
         print(
             "No mappings parsed from file (check delimiter and content).",

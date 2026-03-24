@@ -1,0 +1,4 @@
+Local Path,S3 Path
+/data/process/CD4i_R1L01/outs/filtered_feature_bc_matrix.h5,s3://czi-psomagen/weissman-perturb/AN00012345/CD4i_R1L01/processed/cellranger/Run_2025-02-01/outs/filtered_feature_bc_matrix.h5
+/data/process/CD4i_R1L01/outs/metrics_summary.csv,s3://czi-psomagen/weissman-perturb/AN00012345/CD4i_R1L01/processed/cellranger/Run_2025-02-01/outs/metrics_summary.csv
+
