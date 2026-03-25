@@ -240,6 +240,59 @@ def test_validate_local_paths_scale_raw_detects_qsr_mismatch() -> None:
     assert "qsr_mismatch" in error_types
 
 
+def test_validate_local_paths_scale_raw_accepts_v2_lane_variant() -> None:
+    """Local v2 paths may include `_lane` between wafer digits and `-QSR`."""
+    row = MappingRow(
+        s3_path="s3://example-bucket/some/prefix",
+        local_path=(
+            "/ORPROJ1/DATA1/V129/440115-20260319_2239/"
+            "440115_1-QSR8_QSR-8/440115_1-QSR8_QSR-8_7A.csv"
+        ),
+        line_num=1,
+    )
+
+    result = validate_local_paths_scale_raw([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
+def test_validate_local_paths_scale_raw_v2_lane_variant_detects_qsr_mismatch() -> None:
+    """QSR numbers between directory and filename must match."""
+    row = MappingRow(
+        s3_path="s3://example-bucket/some/prefix",
+        local_path=(
+            "/ORPROJ1/DATA1/V129/440115-20260319_2239/"
+            "440115_1-QSR8_QSR-8/440115_1-QSR9_QSR-9_7A.csv"
+        ),
+        line_num=2,
+    )
+
+    result = validate_local_paths_scale_raw([row])
+
+    assert result["matched"] == 1
+    error_types = {e["type"] for e in result["errors"]}
+    assert "qsr_mismatch" in error_types
+
+
+def test_validate_local_paths_scale_raw_accepts_v2_lane_variant_scaleplex() -> None:
+    """Lane variant should also work for SCALEPLEX compact/dashed forms."""
+    row = MappingRow(
+        s3_path="s3://example-bucket/some/prefix",
+        local_path=(
+            "/ORPROJ1/DATA1/V129/440115-20260319_2239/"
+            "440115_1-QSR8SCALEPLEX_QSR-8-SCALEPLEX/"
+            "440115_1-QSR8SCALEPLEX_QSR-8-SCALEPLEX_12G.json"
+        ),
+        line_num=3,
+    )
+
+    result = validate_local_paths_scale_raw([row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+
+
 def test_validate_s3_scale_raw_flags_hash_oliga_typo() -> None:
     """S3 Scale raw paths with 'Hash_oliga' should be treated as invalid assay.
 
@@ -407,7 +460,7 @@ def test_validate_local_paths_scale_raw_v2_detects_dir_file_mismatch() -> None:
 
     assert result["matched"] == 1
     error_types = {e["type"] for e in result["errors"]}
-    assert "dir_file_mismatch" in error_types
+    assert "qsr_mismatch" in error_types
 
 
 # --- Assay-anchored regex tests ---
