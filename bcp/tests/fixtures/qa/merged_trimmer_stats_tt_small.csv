@@ -1,0 +1,2 @@
+read group,format,segment index,segment label,is required,is trimmed,num input reads,num prefiltered reads,num failed reads,num discarded reads,num filtered reads,num trimmed reads,num failures,num matches,num matched bases
+TT,10x V4 3p,6,low quality bases,True,True,1315410269,0,553920030,0,0,761490239,7211,761490239,3807451195
