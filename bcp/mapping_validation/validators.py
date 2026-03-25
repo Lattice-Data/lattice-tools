@@ -564,9 +564,9 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
     v2_pattern = re.compile(
         r"(?P<base_path>.+)/"
         r"(?P<wafer>\d+)-(?P<date>\d+_\d+)/"
-        r"(?P<dir_stem>(?P<wafer2>\d+)-QSR(?P<qsr_compact>\d+)(?P<sp_compact>SCALEPLEX)?"
+        r"(?P<dir_stem>(?P<wafer2>\d+)(?:_(?P<lane2>\d+))?-QSR(?P<qsr_compact>\d+)(?P<sp_compact>SCALEPLEX)?"
         r"_QSR-(?P<qsr_dash>\d+)(?P<sp_dash>-SCALEPLEX)?)/"
-        r"(?P<file_stem>(?P<wafer3>\d+)-QSR(?P<qsr_compact2>\d+)(?P<sp_compact2>SCALEPLEX)?"
+        r"(?P<file_stem>(?P<wafer3>\d+)(?:_(?P<lane3>\d+))?-QSR(?P<qsr_compact2>\d+)(?P<sp_compact2>SCALEPLEX)?"
         r"_QSR-(?P<qsr_dash2>\d+)(?P<sp_dash2>-SCALEPLEX)?)"
         r"_(?P<wellcode>[A-Za-z0-9]+)"
         r"(?P<suffix>.*)"
@@ -665,14 +665,24 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
                     }
                 )
 
-            if gd["dir_stem"] != gd["file_stem"]:
+            # Compare parsed, stable components rather than requiring the
+            # directory stem string to equal the filename prefix string.
+            # In particular, some datasets include an additional `_\<lane\>_`
+            # element between wafer digits and `-QSR`.
+            if (
+                gd["qsr_compact"] != gd["qsr_compact2"]
+                or gd["qsr_dash"] != gd["qsr_dash2"]
+            ):
                 errors.append(
                     {
-                        "type": "dir_file_mismatch",
+                        "type": "qsr_mismatch",
                         "line": row.line_num,
                         "local_path": local,
-                        "detail": f"directory name '{gd['dir_stem']}' does not match "
-                        f"filename prefix '{gd['file_stem']}'",
+                        "detail": (
+                            "QSR numbers mismatch between directory and filename: "
+                            f"compact QSR{gd['qsr_compact']} vs QSR{gd['qsr_compact2']}; "
+                            f"dashed QSR-{gd['qsr_dash']} vs QSR-{gd['qsr_dash2']}"
+                        ),
                     }
                 )
 
@@ -683,6 +693,25 @@ def validate_local_paths_scale_raw(mappings: Iterable[MappingRow]) -> dict:
                         "line": row.line_num,
                         "local_path": local,
                         "detail": "SCALEPLEX present in one part of the directory name but not the other",
+                    }
+                )
+            if bool(gd["sp_compact2"]) != bool(gd["sp_dash2"]):
+                errors.append(
+                    {
+                        "type": "scaleplex_mismatch",
+                        "line": row.line_num,
+                        "local_path": local,
+                        "detail": "SCALEPLEX present in one part of the filename but not the other",
+                    }
+                )
+
+            if bool(gd["sp_compact"]) != bool(gd["sp_compact2"]):
+                errors.append(
+                    {
+                        "type": "scaleplex_mismatch",
+                        "line": row.line_num,
+                        "local_path": local,
+                        "detail": "SCALEPLEX presence differs between directory and filename",
                     }
                 )
 
