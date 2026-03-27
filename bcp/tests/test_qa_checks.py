@@ -12,6 +12,10 @@ from qa_checks import (
     summarize_fastq_count_validation,
     validate_processed_group,
     validate_read_metadata,
+    validate_scale_cb_tag,
+    validate_scale_processed_files,
+    validate_scale_samples_csv,
+    validate_scale_workflow_info,
 )
 
 
@@ -555,3 +559,193 @@ class TestBuildWaferFailureStats:
         assert set(wafer_stats.keys()) == {"439047"}
         assert wafer_stats["439047"]["rsq"] == [1.0]
         assert wafer_stats["439047"]["trimmer_fail"] == [5.0]
+
+
+class TestValidateScaleWorkflowInfo:
+    """Tests for validate_scale_workflow_info."""
+
+    def test_all_params_correct_no_errors(self):
+        """No errors when all required params match expected values."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, info = validate_scale_workflow_info(params)
+        assert errors == []
+        assert any("SCALE GENOME" in m for m in info)
+
+    def test_bamout_false_is_error(self):
+        """Error when bamOut != 'true'."""
+        params = {
+            "bamOut": "false",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, _ = validate_scale_workflow_info(params)
+        assert len(errors) == 1
+        assert "bamOut" in errors[0]
+        assert "'false'" in errors[0]
+
+    def test_scaleplex_false_is_error(self):
+        """Error when scalePlex != 'true'."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "false",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, _ = validate_scale_workflow_info(params)
+        assert len(errors) == 1
+        assert "scalePlex" in errors[0]
+
+    def test_assignment_method_wrong_is_error(self):
+        """Error when scalePlexAssignmentMethod != 'fc'."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "other",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, _ = validate_scale_workflow_info(params)
+        assert len(errors) == 1
+        assert "scalePlexAssignmentMethod" in errors[0]
+
+    def test_genome_in_info_messages(self):
+        """Genome value appears in info messages."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        _, info = validate_scale_workflow_info(params)
+        assert any("GRCh38" in m for m in info)
+
+
+class TestValidateScaleSamplesCsv:
+    """Tests for validate_scale_samples_csv."""
+
+    def test_no_forbidden_columns_passes(self):
+        """No errors when forbidden columns are absent."""
+        columns = ["sample", "barcodes", "libIndex2", "scalePlexLibIndex2"]
+        errors = validate_scale_samples_csv(columns)
+        assert errors == []
+
+    def test_scaleplexbarcodes_column_is_error(self):
+        """Error when scalePlexBarcodes column is present."""
+        columns = ["sample", "barcodes", "libIndex2", "scalePlexBarcodes"]
+        errors = validate_scale_samples_csv(columns)
+        assert len(errors) == 1
+        assert "scalePlexBarcodes" in errors[0]
+
+
+class TestValidateScaleCbTag:
+    """Tests for validate_scale_cb_tag."""
+
+    def test_all_true_passes(self):
+        """No errors when all CRAM files have cb_tag=True."""
+        read_metadata = {
+            "sample1.cram": {"cb_tag": True},
+            "sample2.cram": {"cb_tag": True},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert errors == []
+
+    def test_false_cb_tag_is_error(self):
+        """Error reported when cb_tag is False."""
+        read_metadata = {
+            "sample1.cram": {"cb_tag": True},
+            "sample2.cram": {"cb_tag": False},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert len(errors) == 1
+        assert "sample2.cram" in errors[0]
+        assert "cb_tag=False" in errors[0]
+
+    def test_missing_cb_tag_key_is_error(self):
+        """Error when cb_tag key is absent from metadata."""
+        read_metadata = {
+            "sample1.cram": {"read_count": 100},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert len(errors) == 1
+        assert "sample1.cram" in errors[0]
+        assert "cb_tag=None" in errors[0]
+
+    def test_cram_metadata_json_skipped(self):
+        """Files ending in .cram-metadata.json are not checked."""
+        read_metadata = {
+            "sample1.cram-metadata.json": {"cb_tag": False},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert errors == []
+
+
+class TestValidateScaleProcessedFiles:
+    """Tests for validate_scale_processed_files."""
+
+    def test_all_files_present(self):
+        """No missing files when all expected per-sample and sublibrary files exist."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1", "QSR-2"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.merged.allCells.csv",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.QSR-2_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert result["errors"] == []
+        assert result["missing_files"] == []
+
+    def test_merged_anndata_missing(self):
+        """Merged anndata missing is flagged."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1.merged.allCells.csv",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert any("S1_anndata.h5ad" in e for e in result["errors"])
+        assert any(m["file"] == "S1_anndata.h5ad" for m in result["missing_files"])
+
+    def test_sublibrary_anndata_missing(self):
+        """Per-sublibrary anndata missing is flagged."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1", "QSR-2"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.merged.allCells.csv",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert any("S1.QSR-2_anndata.h5ad" in e for e in result["errors"])
+        assert any(
+            m["file"] == "S1.QSR-2_anndata.h5ad" for m in result["missing_files"]
+        )
+
+    def test_allcells_csv_missing(self):
+        """Merged allCells.csv missing is flagged."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert any("S1.merged.allCells.csv" in e for e in result["errors"])
+        assert any(
+            m["file"] == "S1.merged.allCells.csv" for m in result["missing_files"]
+        )

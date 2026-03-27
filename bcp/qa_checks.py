@@ -9,6 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from qa_constants import (
+    SCALE_SAMPLES_FORBIDDEN_COLUMNS,
+    SCALE_WORKFLOW_REQUIRED_PARAMS,
+)
 from qa_mods import (
     cellranger_expected,
     parse_raw_filename,
@@ -714,3 +718,102 @@ def build_wafer_failure_stats(
         wafer_failure_stats[run_id]["trimmer_fail"].extend(trim_vals)
 
     return wafer_failure_stats
+
+
+def validate_scale_workflow_info(params: dict) -> tuple[list[str], list[str]]:
+    """
+    Validate Scale workflow parameters extracted by ``parse_scale_workflow_info``.
+
+    Returns ``(errors, info_messages)``.  Each required parameter in
+    ``SCALE_WORKFLOW_REQUIRED_PARAMS`` is checked against the parsed dict;
+    genome value is reported as an informational message.
+    """
+    errors: list[str] = []
+    info_messages: list[str] = []
+
+    for key, expected in SCALE_WORKFLOW_REQUIRED_PARAMS.items():
+        actual = params.get(key)
+        if actual != expected:
+            errors.append(
+                f"SCALE WORKFLOW ERROR: {key} is '{actual}' but should be '{expected}'"
+            )
+
+    info_messages.append(f"SCALE GENOME: {params.get('genome', 'N/A')}")
+
+    return errors, info_messages
+
+
+def validate_scale_samples_csv(columns: list[str]) -> list[str]:
+    """
+    Validate that a Scale ``samples.csv`` does not contain forbidden columns.
+
+    Returns list of errors (one per forbidden column found).
+    """
+    errors: list[str] = []
+    for col in SCALE_SAMPLES_FORBIDDEN_COLUMNS:
+        if col in columns:
+            errors.append(
+                f"SCALE SAMPLES ERROR: forbidden column '{col}' is present in samples.csv"
+            )
+    return errors
+
+
+def validate_scale_cb_tag(read_metadata: dict[str, Any]) -> list[str]:
+    """
+    Validate that all Scale CRAM files have ``cb_tag=True`` in their metadata.
+
+    Only inspects entries whose filename ends with ``.cram`` (not ``.cram-metadata.json``).
+    Returns list of errors for files where ``cb_tag`` is not ``True``.
+    """
+    errors: list[str] = []
+    for filename, metadata in read_metadata.items():
+        if not filename.endswith(".cram"):
+            continue
+        cb_tag = metadata.get("cb_tag")
+        if cb_tag is not True:
+            errors.append(f"SCALE CB_TAG ERROR: {filename} has cb_tag={cb_tag}")
+    return errors
+
+
+def validate_scale_processed_files(
+    proc_files: list[str], samples_info: dict
+) -> dict[str, Any]:
+    """
+    Validate that expected Scale processed per-sample files are present.
+
+    Checks under the ``samples/`` directory within ``proc_files`` for:
+    - ``{sample}_anndata.h5ad`` (merged anndata per sample)
+    - ``{sample}.merged.allCells.csv`` (merged cell metrics per sample)
+    - ``{sample}.{sublib}_anndata.h5ad`` (per-sublibrary anndata)
+
+    Returns ``{"errors": [...], "missing_files": [...]}``.
+    """
+    errors: list[str] = []
+    missing_files: list[dict[str, str]] = []
+
+    samples_dir_files: set[str] = set()
+    for f in proc_files:
+        if "/samples/" in f:
+            samples_dir_files.add(f.split("/samples/")[-1])
+
+    samples = samples_info.get("samples", [])
+    sublibraries = samples_info.get("sublibraries", {})
+
+    for sample in samples:
+        merged_anndata = f"{sample}_anndata.h5ad"
+        if merged_anndata not in samples_dir_files:
+            errors.append(f"SCALE PROCESSED ERROR: missing {merged_anndata}")
+            missing_files.append({"sample": sample, "file": merged_anndata})
+
+        allcells = f"{sample}.merged.allCells.csv"
+        if allcells not in samples_dir_files:
+            errors.append(f"SCALE PROCESSED ERROR: missing {allcells}")
+            missing_files.append({"sample": sample, "file": allcells})
+
+        for sublib in sublibraries.get(sample, []):
+            sublib_anndata = f"{sample}.{sublib}_anndata.h5ad"
+            if sublib_anndata not in samples_dir_files:
+                errors.append(f"SCALE PROCESSED ERROR: missing {sublib_anndata}")
+                missing_files.append({"sample": sample, "file": sublib_anndata})
+
+    return {"errors": errors, "missing_files": missing_files}

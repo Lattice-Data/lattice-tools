@@ -259,3 +259,11 @@ raw_optional = {
         "_SJ.out.tab",
     ]
 }
+
+SCALE_WORKFLOW_REQUIRED_PARAMS = {
+    "bamOut": "true",
+    "scalePlex": "true",
+    "scalePlexAssignmentMethod": "fc",
+}
+
+SCALE_SAMPLES_FORBIDDEN_COLUMNS = frozenset({"scalePlexBarcodes"})

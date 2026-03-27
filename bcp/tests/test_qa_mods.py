@@ -19,6 +19,8 @@ from qa_mods import (
     normalize_raw_assay,
     parse_met_summ,
     parse_raw_filename,
+    parse_scale_samples_csv,
+    parse_scale_workflow_info,
     parse_web_summ,
     resolve_qa_run_context,
 )
@@ -843,3 +845,76 @@ class TestParseWebSumm:
         path = os.path.join(QA_FIXTURES_DIR, "web_summary-1.html")
         with pytest.raises((ValueError, KeyError)):
             parse_web_summ(path)
+
+
+class TestParseScaleWorkflowInfo:
+    """Tests for parse_scale_workflow_info."""
+
+    def test_parses_parameters_and_manifest(self):
+        """Happy path: all expected keys are present and correctly extracted."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_workflow_info_good.json")
+        result = parse_scale_workflow_info(path)
+        assert result["bamOut"] == "true"
+        assert result["scalePlex"] == "true"
+        assert result["scalePlexAssignmentMethod"] == "fc"
+        assert result["workflow_name"] == "ScaleRna"
+        assert result["workflow_version"] == "2.1.0"
+        assert result["execution_status"] == "OK"
+
+    def test_missing_parameters_raises(self):
+        """ValueError raised when Parameters section is absent."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_workflow_info_bad_no_params.json")
+        # Create a fixture missing Parameters
+        import json
+
+        data = {"Workflow Manifest": {"name": "ScaleRna", "version": "2.1.0"}}
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(data, f)
+        try:
+            with pytest.raises(ValueError, match="Parameters"):
+                parse_scale_workflow_info(path)
+        finally:
+            os.remove(path)
+
+    def test_genome_value_extracted(self):
+        """Genome S3 path is extracted correctly from Parameters."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_workflow_info_good.json")
+        result = parse_scale_workflow_info(path)
+        assert result["genome"] is not None
+        assert "GRCh38" in result["genome"]
+
+
+class TestParseScaleSamplesCsv:
+    """Tests for parse_scale_samples_csv."""
+
+    def test_extracts_columns_and_samples(self):
+        """Happy path: columns and samples are correctly extracted."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_samples_good.csv")
+        result = parse_scale_samples_csv(path)
+        assert "sample" in result["columns"]
+        assert "libIndex2" in result["columns"]
+        assert len(result["samples"]) > 0
+        assert "SAMP-01-0001" in result["samples"]
+
+    def test_sublibraries_parsed_from_libindex2(self):
+        """Semicolon-delimited libIndex2 is correctly split into sublibrary IDs."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_samples_good.csv")
+        result = parse_scale_samples_csv(path)
+        sublibs = result["sublibraries"]["SAMP-01-0001"]
+        assert sublibs == [
+            "QSR-1",
+            "QSR-2",
+            "QSR-3",
+            "QSR-4",
+            "QSR-5",
+            "QSR-6",
+            "QSR-7",
+            "QSR-8",
+        ]
+
+    def test_sample_count_matches(self):
+        """Number of samples matches the number of rows in the CSV."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_samples_good.csv")
+        result = parse_scale_samples_csv(path)
+        assert len(result["samples"]) == 4
