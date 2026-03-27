@@ -22,6 +22,7 @@ from .validators import (
     validate_s3_10x_processed,
     validate_10x_multiome_processed_outs,
     validate_s3_10x_raw,
+    validate_10x_raw_fastq_read_mates,
     validate_s3_local_consistency_10x_processed,
     validate_s3_local_consistency_scale,
     validate_s3_local_consistency_sci,
@@ -290,6 +291,19 @@ def _validate_10x_raw(
         for gid in sorted(s3_ga):
             assays_str = ", ".join(sorted(s3_ga[gid]))
             print(f"  {gid}: {assays_str}")
+
+    mate_res = validate_10x_raw_fastq_read_mates(provider, mappings)
+    n_skip_illum = mate_res.get("skipped_non_illumina", 0)
+    print(
+        f"10x raw FASTQ read mates: {mate_res['groups_checked']} Illumina groups, "
+        f"{len(mate_res['errors'])} errors, {len(mate_res['warnings'])} warnings"
+        + (f", {n_skip_illum} non-Illumina FASTQ tails skipped" if n_skip_illum else "")
+    )
+    _print_issue_examples("10x FASTQ read mates", mate_res["errors"], "errors")
+    _print_issue_examples("10x FASTQ read mates", mate_res["warnings"], "warnings")
+    if mate_res["errors"]:
+        exit_code = 1
+        fail_reasons.append(f"{len(mate_res['errors'])} FASTQ read-mate errors")
 
     if sif_path:
         exit_code |= _validate_10x_sif(
