@@ -31,6 +31,7 @@ from mapping_validation import (
     validate_sif_completeness_seahub,
     validate_s3_scale_raw,
     validate_s3_10x_raw,
+    validate_10x_raw_fastq_read_mates,
     validate_10x_multiome_processed_outs,
     validate_s3_local_consistency_scale,
     validate_uniqueness,
@@ -1675,3 +1676,153 @@ def test_validate_10x_multiome_processed_skips_non_processed_paths() -> None:
     res = validate_10x_multiome_processed_outs("novogene", rows)
     assert res["groups_checked"] == 0
     assert res["skipped_unparsed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# 10x FASTQ read mates (Novogene + Psomagen)
+# ---------------------------------------------------------------------------
+
+
+def _mate_row(s3: str, line: int = 1) -> MappingRow:
+    return MappingRow(s3_path=s3, local_path="/local/x", line_num=line)
+
+
+def test_validate_10x_raw_fastq_read_mates_gex_pair_novogene_ok() -> None:
+    base = (
+        "s3://czi-novogene/p/NVUS2024101701-29/G/raw/"
+        "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_{read}_001.fastq.gz"
+    )
+    rows = [
+        _mate_row(base.format(read="R1"), 1),
+        _mate_row(base.format(read="R2"), 2),
+    ]
+    res = validate_10x_raw_fastq_read_mates("novogene", rows)
+    assert res["errors"] == []
+    assert res["groups_checked"] == 1
+
+
+def test_validate_10x_raw_fastq_read_mates_gex_pair_psomagen_ok() -> None:
+    base = (
+        "s3://czi-psomagen/p/AN00012345/G/raw/"
+        "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_{read}_001.fastq.gz"
+    )
+    rows = [_mate_row(base.format(read="R1")), _mate_row(base.format(read="R2"), 2)]
+    res = validate_10x_raw_fastq_read_mates("psomagen", rows)
+    assert res["errors"] == []
+    assert res["groups_checked"] == 1
+
+
+def test_validate_10x_raw_fastq_read_mates_gex_r1_only_fails() -> None:
+    s3 = (
+        "s3://czi-novogene/p/NVUS2024101701-29/G/raw/"
+        "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz"
+    )
+    res = validate_10x_raw_fastq_read_mates("novogene", [_mate_row(s3)])
+    assert len(res["errors"]) == 1
+    assert res["errors"][0]["type"] == "fastq_incomplete_reads"
+
+
+def test_validate_10x_raw_fastq_read_mates_atac_triple_i2_ok() -> None:
+    stem = (
+        "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+        "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_{read}_001.fastq.gz"
+    )
+    rows = [
+        _mate_row(stem.format(read="R1"), 1),
+        _mate_row(stem.format(read="R2"), 2),
+        _mate_row(stem.format(read="I2"), 3),
+    ]
+    res = validate_10x_raw_fastq_read_mates("novogene", rows)
+    assert res["errors"] == []
+
+
+def test_validate_10x_raw_fastq_read_mates_atac_triple_r3_ok() -> None:
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R1_001.fastq.gz",
+            "/l",
+            1,
+        ),
+        MappingRow(
+            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R2_001.fastq.gz",
+            "/l",
+            2,
+        ),
+        MappingRow(
+            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R3_001.fastq.gz",
+            "/l",
+            3,
+        ),
+    ]
+    res = validate_10x_raw_fastq_read_mates("novogene", rows)
+    assert res["errors"] == []
+
+
+def test_validate_10x_raw_fastq_read_mates_atac_r1_r2_only_fails() -> None:
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R1_001.fastq.gz",
+            "/l",
+            1,
+        ),
+        MappingRow(
+            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R2_001.fastq.gz",
+            "/l",
+            2,
+        ),
+    ]
+    res = validate_10x_raw_fastq_read_mates("novogene", rows)
+    assert len(res["errors"]) == 1
+    assert "I2|R3" in res["errors"][0]["detail"]
+
+
+def test_validate_10x_raw_fastq_read_mates_gex_extra_r3_fails() -> None:
+    stem = (
+        "s3://czi-novogene/p/NVUS2024101701-29/G/raw/"
+        "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_{tail}"
+    )
+    rows = [
+        MappingRow(stem.format(tail="R1_001.fastq.gz"), "/l", 1),
+        MappingRow(stem.format(tail="R2_001.fastq.gz"), "/l", 2),
+        MappingRow(stem.format(tail="R3_001.fastq.gz"), "/l", 3),
+    ]
+    res = validate_10x_raw_fastq_read_mates("novogene", rows)
+    assert len(res["errors"]) == 1
+
+
+def test_validate_10x_raw_fastq_read_mates_skips_non_illumina_legacy_names() -> None:
+    """Paths like ..._R1.fastq.gz without _S_L_ tail are skipped with warning."""
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/"
+            "100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
+            "/l",
+            1,
+        ),
+    ]
+    res = validate_10x_raw_fastq_read_mates("novogene", rows)
+    assert res["errors"] == []
+    assert res["skipped_non_illumina"] == 1
+    assert any(
+        w["type"] == "fastq_mate_check_skipped_non_illumina" for w in res["warnings"]
+    )
+
+
+def test_validate_10x_raw_fastq_read_mates_ignores_sample_fastq() -> None:
+    base = (
+        "s3://czi-psomagen/p/AN1/G/raw/"
+        "1-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_{read}_001{sample}.fastq.gz"
+    )
+    rows = [
+        MappingRow(base.format(read="R1", sample=""), "/l", 1),
+        MappingRow(base.format(read="R2", sample=""), "/l", 2),
+        MappingRow(base.format(read="R1", sample="_sample"), "/l", 3),
+    ]
+    res = validate_10x_raw_fastq_read_mates("psomagen", rows)
+    assert res["errors"] == []
+    assert res["groups_checked"] == 1

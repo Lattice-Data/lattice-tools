@@ -170,6 +170,130 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     }
 
 
+# Illumina-style FASTQ filename tail (BCL2fastq / Cell Ranger mkfastq naming).
+_ILLUMINA_FASTQ_TAIL_RE: re.Pattern[str] = re.compile(
+    r"^(?P<prefix>.+)_S(?P<s>\d+)_L(?P<lane>\d+)_(?P<read>R[123]|I[12])_(?P<seg>\d+)"
+    r"\.fastq\.gz$"
+)
+
+
+def validate_10x_raw_fastq_read_mates(
+    provider: str, mappings: Iterable[MappingRow]
+) -> dict:
+    """
+    For 10x raw Novogene **or** Psomagen mappings, ensure FASTQs are not single-ended.
+
+    Only rows that match the 10x raw SOP and whose basename matches
+    ``_S*_L*_(R[123]|I[12])_*.fastq.gz`` are checked. Downsampled
+    ``*_sample.fastq.gz`` files are skipped. FASTQs without the Illumina tail
+    (e.g. legacy ``..._R1.fastq.gz``) are skipped and reported in aggregate.
+
+    Rules **per** (GroupID, RunID, assay, UG, barcode, sample index S, lane L,
+    and filename prefix before ``_S``):
+
+    - **ATAC:** must include ``R1``, ``R2``, and at least one of ``I2`` or ``R3``.
+    - **All other 10x assays** (GEX, CRI, ``viral_ORF``, …): must be exactly
+      ``R1`` and ``R2`` (no extra index/read types in v1).
+    """
+    provider = _validate_provider(provider)
+    s3_regex, _ = _get_10x_s3_regex(provider)
+
+    groups: dict[tuple[str, str, str, str, str, str, str, str], set[str]] = defaultdict(
+        set
+    )
+    example_row: dict[tuple[str, str, str, str, str, str, str, str], MappingRow] = {}
+    skipped_non_illumina = 0
+    non_illumina_example_paths: list[str] = []
+    skipped_non_fastq = 0
+
+    for row in mappings:
+        if _is_run_metadata(row.s3_path):
+            continue
+        base = os.path.basename(row.s3_path)
+        if not base.endswith(".fastq.gz"):
+            skipped_non_fastq += 1
+            continue
+        if base.endswith("_sample.fastq.gz"):
+            continue
+
+        m10 = s3_regex.match(row.s3_path)
+        if not m10:
+            continue
+
+        ill = _ILLUMINA_FASTQ_TAIL_RE.match(base)
+        if not ill:
+            skipped_non_illumina += 1
+            if len(non_illumina_example_paths) < 3:
+                non_illumina_example_paths.append(row.s3_path)
+            continue
+
+        gd = m10.groupdict()
+        assay_l = gd["assay"].lower()
+        key = (
+            gd["groupid"],
+            gd["runid"],
+            assay_l,
+            gd["ug"],
+            gd["barcode"],
+            ill.group("s"),
+            ill.group("lane"),
+            ill.group("prefix"),
+        )
+        groups[key].add(ill.group("read"))
+        if key not in example_row:
+            example_row[key] = row
+
+    errors: List[dict] = []
+    warnings: List[dict] = []
+
+    if skipped_non_illumina:
+        ex = "; ".join(non_illumina_example_paths) if non_illumina_example_paths else ""
+        warnings.append(
+            {
+                "type": "fastq_mate_check_skipped_non_illumina",
+                "detail": (
+                    f"{skipped_non_illumina} FASTQ path(s) match 10x raw SOP but lack "
+                    "standard Illumina tail "
+                    "`_S*_L*_(R1|R2|R3|I1|I2)_*.fastq.gz` — read-mate rules not applied. "
+                    f"Examples: {ex}"
+                ),
+            }
+        )
+
+    for key, reads in sorted(groups.items()):
+        assay_l = key[2]
+        if assay_l == "atac":
+            expected_desc = "R1+R2+(I2|R3)"
+            ok = "R1" in reads and "R2" in reads and bool(reads & {"I2", "R3"})
+        else:
+            expected_desc = "R1+R2 only"
+            ok = reads == {"R1", "R2"}
+
+        if not ok:
+            row0 = example_row[key]
+            obs = ",".join(sorted(reads))
+            errors.append(
+                {
+                    "type": "fastq_incomplete_reads",
+                    "line": row0.line_num,
+                    "s3_path": row0.s3_path,
+                    "detail": (
+                        f"Incomplete FASTQ read set for {expected_desc} "
+                        f"(groupid={key[0]}, runid={key[1]}, assay={assay_l}, "
+                        f"S{key[5]} L{key[6]}): observed {{{obs}}}"
+                    ),
+                }
+            )
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "groups_checked": len(groups),
+        "skipped_non_illumina": skipped_non_illumina,
+        "skipped_non_fastq": skipped_non_fastq,
+    }
+
+
 def find_unmatched_sif_paths_10x(
     mappings: Iterable[MappingRow],
     sif_groupids: set[str],
@@ -1539,6 +1663,7 @@ __all__ = [
     "compare_groupid_assays",
     # 10x raw
     "validate_s3_10x_raw",
+    "validate_10x_raw_fastq_read_mates",
     "find_unmatched_sif_paths_10x",
     "validate_library_assay_consistency",
     # 10x processed
