@@ -34,6 +34,7 @@ from .validators import (
     validate_s3_10x_raw,
     # 10x processed
     validate_s3_10x_processed,
+    validate_10x_multiome_processed_outs,
     validate_s3_local_consistency_10x_processed,
     validate_sif_completeness_10x_processed,
     # Seahub (Scale + sci unified)
@@ -85,6 +86,7 @@ __all__ = [
     "find_unmatched_sif_paths_10x",
     # 10x processed validators
     "validate_s3_10x_processed",
+    "validate_10x_multiome_processed_outs",
     "validate_sif_completeness_10x_processed",
     "validate_s3_local_consistency_10x_processed",
     # Seahub validators (Scale + sci unified)

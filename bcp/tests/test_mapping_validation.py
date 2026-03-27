@@ -17,6 +17,7 @@ from mapping_validation import (
     find_unmatched_sif_paths_10x,
     get_assays,
     get_order_pattern,
+    load_sif_group_assays,
     load_sif_scale_group_assays,
     parse_mapping_file,
     validate_library_assay_consistency,
@@ -30,6 +31,7 @@ from mapping_validation import (
     validate_sif_completeness_seahub,
     validate_s3_scale_raw,
     validate_s3_10x_raw,
+    validate_10x_multiome_processed_outs,
     validate_s3_local_consistency_scale,
     validate_uniqueness,
 )
@@ -1538,3 +1540,138 @@ def test_s3_local_consistency_10x_processed_no_outs_in_local() -> None:
     res = validate_s3_local_consistency_10x_processed("novogene", rows)
     assert res["matched"] == 1
     assert any(w["type"] == "no_outs_in_local" for w in res["warnings"])
+
+
+# ---------------------------------------------------------------------------
+# 10x Multiome (raw + processed)
+# ---------------------------------------------------------------------------
+
+_MULTIOME_PROC_BASE = (
+    "s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/"
+    "processed/cellranger/Run_2026-02-02/outs/"
+)
+
+
+def test_validate_s3_10x_raw_multiome_gex_atac_novogene() -> None:
+    """Multiome-style raw keys (dual run IDs, ATAC I2) match 10x raw SOP."""
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/raw/"
+            "436665-CH01_GEX-Z0073-CATGGCTATGCACTGAT_S1_L001_R1_001.fastq.gz",
+            "/local/a",
+            1,
+        ),
+        MappingRow(
+            "s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/raw/"
+            "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_I2_001.fastq.gz",
+            "/local/b",
+            2,
+        ),
+    ]
+    res = validate_s3_10x_raw("novogene", rows)
+    assert res["matched"] == 2
+    assert res["errors"] == []
+    assert res["group_assays"]["CH01"] == {"ATAC", "GEX"}
+
+
+def test_compare_groupid_assays_multiome_sif(tmp_path: Path) -> None:
+    """SIF with GEX + ATAC rows per group should match S3-derived group assays."""
+    sif_path = tmp_path / "multiome.csv"
+    sif_path.write_text(
+        "Library name,Group Identifier,Assay Type\n"
+        "CH01GEX,CH01,GEX\n"
+        "CH01ATAC,CH01,ATAC\n",
+        encoding="utf-8",
+    )
+    sif_ga = load_sif_group_assays(sif_path)
+    sif_norm = {_normalize_sif_groupid(k): v for k, v in sif_ga.items()}
+    actual = {"CH01": {"gex", "atac"}}
+    cmp = compare_groupid_assays(sif_norm, actual)
+    assert not cmp["missing_groupids"]
+    assert not cmp["extra_groupids"]
+    assert not cmp["missing_assays"]
+    assert not cmp["extra_assays"]
+
+
+def test_validate_10x_multiome_processed_outs_complete() -> None:
+    """All required ARC-style outs present -> no errors."""
+    rows = [
+        MappingRow(_MULTIOME_PROC_BASE + rel, "/l/" + rel, i)
+        for i, rel in enumerate(
+            (
+                "filtered_feature_bc_matrix.h5",
+                "raw_feature_bc_matrix.h5",
+                "atac_fragments.tsv.gz",
+                "atac_peaks.bed",
+                "summary.csv",
+            ),
+            1,
+        )
+    ]
+    res = validate_10x_multiome_processed_outs("novogene", rows)
+    assert res["errors"] == []
+    assert res["groups_checked"] == 1
+    assert "CH01" in res["group_paths"]
+    assert res["missing_by_group"] == {}
+
+
+def test_validate_10x_multiome_processed_outs_accepts_matrix_directories() -> None:
+    """Matrix may be directory-style under outs/ instead of .h5 only."""
+    rows = [
+        MappingRow(
+            _MULTIOME_PROC_BASE + "filtered_feature_bc_matrix/barcodes.tsv.gz",
+            "/l/barcodes.tsv.gz",
+            1,
+        ),
+        MappingRow(
+            _MULTIOME_PROC_BASE + "raw_feature_bc_matrix/matrix.mtx.gz",
+            "/l/matrix.mtx.gz",
+            2,
+        ),
+        MappingRow(
+            _MULTIOME_PROC_BASE + "atac_fragments.tsv.gz",
+            "/l/atac_fragments.tsv.gz",
+            3,
+        ),
+        MappingRow(_MULTIOME_PROC_BASE + "atac_peaks.bed", "/l/atac_peaks.bed", 4),
+        MappingRow(_MULTIOME_PROC_BASE + "summary.csv", "/l/summary.csv", 5),
+    ]
+    res = validate_10x_multiome_processed_outs("novogene", rows)
+    assert res["errors"] == []
+    assert res["missing_by_group"] == {}
+
+
+def test_validate_10x_multiome_processed_outs_missing_fragment() -> None:
+    """Missing atac_fragments.tsv.gz -> multiome_missing_outs."""
+    rows = [
+        MappingRow(_MULTIOME_PROC_BASE + rel, "/l/" + rel, i)
+        for i, rel in enumerate(
+            (
+                "filtered_feature_bc_matrix.h5",
+                "raw_feature_bc_matrix.h5",
+                "atac_peaks.bed",
+                "summary.csv",
+            ),
+            1,
+        )
+    ]
+    res = validate_10x_multiome_processed_outs("novogene", rows)
+    assert len(res["errors"]) == 1
+    assert res["errors"][0]["type"] == "multiome_missing_outs"
+    assert "atac_fragments.tsv.gz" in res["errors"][0]["detail"]
+    assert "CH01" in res["missing_by_group"]
+
+
+def test_validate_10x_multiome_processed_skips_non_processed_paths() -> None:
+    """Raw S3 rows do not match processed regex and are skipped."""
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/p/o/NVUS2024101701-16/CH01/raw/"
+            "436665-CH01_GEX-Z0073-CATGGCTATGCACTGAT_R1.fastq.gz",
+            "/a",
+            1,
+        ),
+    ]
+    res = validate_10x_multiome_processed_outs("novogene", rows)
+    assert res["groups_checked"] == 0
+    assert res["skipped_unparsed"] == 1

@@ -4,7 +4,7 @@ import os
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Callable, Iterable, List, Tuple
 
 from .constants import (
     ASSAYS_BY_FAMILY,
@@ -1302,6 +1302,95 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
     }
 
 
+def _paths_have_filtered_feature_matrix(paths: set[str]) -> bool:
+    """True if outs include 10x matrix bundle (.h5 and/or mtx directory)."""
+    if "filtered_feature_bc_matrix.h5" in paths:
+        return True
+    return any(p.startswith("filtered_feature_bc_matrix/") for p in paths)
+
+
+def _paths_have_raw_feature_matrix(paths: set[str]) -> bool:
+    """True if outs include raw feature matrix (.h5 and/or mtx directory)."""
+    if "raw_feature_bc_matrix.h5" in paths:
+        return True
+    return any(p.startswith("raw_feature_bc_matrix/") for p in paths)
+
+
+# (label for messages, predicate on normalized file_path set under outs/)
+_MULTIOME_PROCESSED_OUTS_RULES: tuple[tuple[str, Callable[[set[str]], bool]], ...] = (
+    (
+        "filtered_feature_bc_matrix (.h5 or filtered_feature_bc_matrix/)",
+        _paths_have_filtered_feature_matrix,
+    ),
+    (
+        "raw_feature_bc_matrix (.h5 or raw_feature_bc_matrix/)",
+        _paths_have_raw_feature_matrix,
+    ),
+    ("atac_fragments.tsv.gz", lambda ps: "atac_fragments.tsv.gz" in ps),
+    ("atac_peaks.bed", lambda ps: "atac_peaks.bed" in ps),
+    ("summary.csv", lambda ps: "summary.csv" in ps),
+)
+
+
+def validate_10x_multiome_processed_outs(
+    provider: str, mappings: Iterable[MappingRow]
+) -> dict:
+    """
+    For processed 10x Multiome (Cell Ranger ARC) deliveries, require core outs per GroupID.
+
+    Aggregates relative paths under ``outs/`` from each row's S3 key (same regex as
+    :func:`validate_s3_10x_processed`).  Each GroupID must include ATAC fragments/peaks,
+    GEX feature matrices, and run ``summary.csv``.
+
+    Rows whose S3 path does not match the processed pattern are skipped
+    (``skipped_unparsed``).
+    """
+    provider = _validate_provider(provider)
+    order_pattern = get_order_pattern(provider)
+    s3_regex = _build_10x_processed_s3_regex(provider, order_pattern)
+
+    group_paths: dict[str, set[str]] = defaultdict(set)
+    skipped_unparsed = 0
+
+    for row in mappings:
+        m = s3_regex.match(row.s3_path)
+        if not m:
+            skipped_unparsed += 1
+            continue
+        gid = m.group("group_id")
+        fp = m.group("file_path").replace("\\", "/").lstrip("./")
+        group_paths[gid].add(fp)
+
+    errors: List[dict] = []
+    missing_by_group: dict[str, list[str]] = {}
+
+    for gid in sorted(group_paths.keys()):
+        paths = group_paths[gid]
+        missing: list[str] = []
+        for label, pred in _MULTIOME_PROCESSED_OUTS_RULES:
+            if not pred(paths):
+                missing.append(label)
+        if missing:
+            missing_by_group[gid] = missing
+            errors.append(
+                {
+                    "type": "multiome_missing_outs",
+                    "group_id": gid,
+                    "detail": "missing required outs for multiome: "
+                    + ", ".join(missing),
+                    "missing": missing,
+                }
+            )
+
+    return {
+        "errors": errors,
+        "missing_by_group": missing_by_group,
+        "group_paths": {k: set(v) for k, v in group_paths.items()},
+        "groups_checked": len(group_paths),
+        "skipped_unparsed": skipped_unparsed,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 10x processed SIF completeness
 # ---------------------------------------------------------------------------
@@ -1454,6 +1543,7 @@ __all__ = [
     "validate_library_assay_consistency",
     # 10x processed
     "validate_s3_10x_processed",
+    "validate_10x_multiome_processed_outs",
     "validate_sif_completeness_10x_processed",
     "validate_s3_local_consistency_10x_processed",
     # Seahub (Scale + sci unified)

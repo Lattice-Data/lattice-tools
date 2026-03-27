@@ -64,6 +64,14 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "mapping_validation"
             "10x",
             0,
         ),
+        (
+            "novogene_10x_raw_multiome_valid.csv",
+            "novogene_10x_multiome_sif.csv",
+            "novogene",
+            "raw",
+            "10x",
+            0,
+        ),
         # Error paths
         ("duplicates.csv", None, "novogene", "raw", "10x", 1),
         (
@@ -161,3 +169,87 @@ def test_mapping_validation_e2e(
         assert "VERDICT: PASS" in captured.out
     else:
         assert "VERDICT: FAIL" in captured.out
+
+
+def test_mapping_validation_e2e_10x_processed_multiome_pass(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Processed Multiome mapping with --tenx-profile multiome should pass."""
+    mapping_path = tmp_path / "m.csv"
+    mapping_path.write_text(
+        (
+            FIXTURES_DIR / "mappings" / "novogene_10x_processed_multiome_valid.csv"
+        ).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    df = pd.read_csv(FIXTURES_DIR / "sif" / "novogene_10x_multiome_sif.csv")
+    sif_path = tmp_path / "multiome_sif.xlsx"
+    df.to_excel(sif_path, index=False)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "processed",
+        "--assay",
+        "10x",
+        "--tenx-profile",
+        "multiome",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    assert "multiome processed outs" in capsys.readouterr().out.lower()
+
+
+def test_mapping_validation_e2e_10x_processed_multiome_incomplete_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Missing required ATAC outs with --tenx-profile multiome should fail."""
+    mapping_path = tmp_path / "m.csv"
+    mapping_path.write_text(
+        (
+            FIXTURES_DIR / "mappings" / "novogene_10x_processed_multiome_incomplete.csv"
+        ).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    df = pd.read_csv(FIXTURES_DIR / "sif" / "novogene_10x_multiome_sif.csv")
+    sif_path = tmp_path / "multiome_sif.xlsx"
+    df.to_excel(sif_path, index=False)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "processed",
+        "--assay",
+        "10x",
+        "--tenx-profile",
+        "multiome",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    out = capsys.readouterr().out
+    assert "VERDICT: FAIL" in out
+    assert "multiome" in out.lower()
