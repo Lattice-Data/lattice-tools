@@ -20,6 +20,7 @@ from .validators import (
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
     validate_s3_10x_processed,
+    validate_10x_multiome_processed_outs,
     validate_s3_10x_raw,
     validate_s3_local_consistency_10x_processed,
     validate_s3_local_consistency_scale,
@@ -141,6 +142,9 @@ def main() -> None:
 
     For Scale raw validation, a SIF file is strongly recommended:
         --sif PATH
+
+    For 10x processed Multiome (Cell Ranger ARC) mappings, also pass:
+        --tenx-profile multiome
     """
 
     parser = argparse.ArgumentParser(
@@ -167,6 +171,15 @@ def main() -> None:
         required=True,
         choices=["10x", "sci", "scale"],
         help="High-level assay family for SOP selection",
+    )
+    parser.add_argument(
+        "--tenx-profile",
+        choices=["default", "multiome"],
+        default="default",
+        help=(
+            "For --assay 10x --data processed: 'multiome' enforces Cell Ranger ARC-style "
+            "core outs (ATAC + feature matrices + summary) per GroupID."
+        ),
     )
 
     args = parser.parse_args()
@@ -207,7 +220,13 @@ def main() -> None:
         exit_code |= _validate_seahub_raw(args.assay, mappings, args.sif, fail_reasons)
 
     elif args.data == "processed" and args.assay == "10x":
-        exit_code |= _validate_10x_processed(provider, mappings, args.sif, fail_reasons)
+        exit_code |= _validate_10x_processed(
+            provider,
+            mappings,
+            args.sif,
+            fail_reasons,
+            tenx_profile=args.tenx_profile,
+        )
 
     else:
         print(
@@ -527,6 +546,8 @@ def _validate_10x_processed(
     mappings: list,
     sif_path: str | None,
     fail_reasons: List[str],
+    *,
+    tenx_profile: str = "default",
 ) -> int:
     """Run all 10x processed validation checks, return non-zero on failure."""
     exit_code = 0
@@ -602,6 +623,23 @@ def _validate_10x_processed(
     if cons_res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(cons_res['errors'])} S3/local consistency errors")
+
+    if tenx_profile == "multiome":
+        mo_res = validate_10x_multiome_processed_outs(provider, mappings)
+        n_miss = len(mo_res["missing_by_group"])
+        skip = mo_res["skipped_unparsed"]
+        print(
+            f"10x multiome processed outs: checked {mo_res['groups_checked']} GroupIDs, "
+            f"{n_miss} with missing required files"
+            + (f", {skip} S3 rows skipped (not processed paths)" if skip else "")
+        )
+        for err in mo_res["errors"]:
+            print(f"  {err['group_id']}: {err['detail']}")
+        if mo_res["errors"]:
+            exit_code = 1
+            fail_reasons.append(
+                f"{n_miss} GroupIDs missing required multiome processed outs"
+            )
 
     return exit_code
 
