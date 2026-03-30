@@ -49,7 +49,34 @@ __all__ = [
     "grab_merged_trimmer_q30",
     "parse_scale_workflow_info",
     "parse_scale_samples_csv",
+    "extract_read_indicator",
+    "make_read_partner",
 ]
+
+
+_READ_INDICATOR_RE = re.compile(r"_(R[123]|I[12])_\d+\.(?:fastq\.gz|cram)$")
+
+
+def extract_read_indicator(filename: str) -> str | None:
+    """Extract the Illumina read indicator (R1, R2, I1, I2, R3) from the
+    tail of a filename, ignoring any R1/R2 that may appear in the group ID.
+
+    Returns None if the filename has no standard read indicator suffix.
+    """
+    m = _READ_INDICATOR_RE.search(filename)
+    return m.group(1) if m else None
+
+
+def make_read_partner(filename: str, from_read: str, to_read: str) -> str:
+    """Replace the Illumina read indicator at the tail of a filename.
+
+    Only the anchored read indicator (before the final ``_NNN.fastq.gz``) is
+    changed; any earlier ``_R1_`` / ``_R2_`` inside the group ID is preserved.
+    """
+    return _READ_INDICATOR_RE.sub(
+        lambda m: m.group(0).replace(from_read, to_read),
+        filename,
+    )
 
 
 def normalize_raw_assay(value: str | None) -> str:

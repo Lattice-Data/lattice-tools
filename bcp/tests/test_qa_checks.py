@@ -299,6 +299,47 @@ class TestValidateReadMetadata:
         assert any("METADATA.JSON ERROR" in e for e in errors)
         assert "G1" not in counts or counts.get("G1", {}).get("GEX") != 100
 
+    def test_r2_in_group_id_pairs_correctly(self):
+        """R2 in the group name (q_pcf_R2) must not confuse R1/R2 pairing."""
+        r1 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        r2 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            r1: {"read_count": 500, "errors": []},
+            r2: {"read_count": 500, "errors": []},
+        }
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert not any("PAIRING" in e for e in errors)
+        assert "q_pcf_R2" in counts
+        assert counts["q_pcf_R2"]["GEX"] == 500
+
+    def test_r1_in_group_id_pairs_correctly(self):
+        """R1 in the group name (q_hf_R1) must not confuse R1/R2 pairing."""
+        r1 = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R1_001.fastq.gz"
+        r2 = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            r1: {"read_count": 300, "errors": []},
+            r2: {"read_count": 300, "errors": []},
+        }
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert not any("PAIRING" in e for e in errors)
+        assert "q_hf_R1" in counts
+        assert counts["q_hf_R1"]["GEX"] == 300
+
+    def test_r2_in_group_id_mismatch_detected(self):
+        """Read count mismatch is still detected with R2 in the group name."""
+        r1 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        r2 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            r1: {"read_count": 500, "errors": []},
+            r2: {"read_count": 999, "errors": []},
+        }
+        _counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
+        assert any("READ COUNT ERROR" in e for e in errors)
+
 
 class TestCheckExpectedRawFiles:
     """Tests for check_expected_raw_files."""

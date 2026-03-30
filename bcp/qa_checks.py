@@ -15,6 +15,8 @@ from qa_constants import (
 )
 from qa_mods import (
     cellranger_expected,
+    extract_read_indicator,
+    make_read_partner,
     parse_raw_filename,
     raw_expected,
     raw_optional,
@@ -241,15 +243,15 @@ def validate_read_metadata(
 
     Returns ``(group_read_counts, errors, pairing)`` where ``pairing`` has:
 
-    - ``r1_without_r2_metadata``: R1 paths (``_R1_``) with ``read_count`` but no R2 key
-    - ``r2_without_r1_metadata``: R2 paths (``_R2_``) with no corresponding R1 key
+    - ``r1_without_r2_metadata``: R1 paths with ``read_count`` but no R2 key
+    - ``r2_without_r1_metadata``: R2 paths with no corresponding R1 key
 
     Those issues are also appended to ``errors`` with a ``READ METADATA PAIRING:`` prefix
     so notebook callers can log them like other messages.
 
-    R1/R2 read-count comparison only runs for R1 keys with ``_R1_`` that have
-    ``read_count`` and a matching R2 entry; see printed counters when
-    ``print_success`` is True.
+    R1/R2 classification uses ``extract_read_indicator()`` which matches the
+    Illumina read indicator at the *end* of the filename (e.g. ``_R1_001.fastq.gz``),
+    so ``_R1_`` / ``_R2_`` embedded in a group ID (e.g. ``q_pcf_R2``) is ignored.
     """
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
@@ -264,7 +266,7 @@ def validate_read_metadata(
     r1_without_r2_metadata: list[str] = []
 
     for f, meta in read_metadata.items():
-        if "_R2_" in f:
+        if extract_read_indicator(f) == "R2":
             continue
         if meta.get("errors"):
             errors.append(
@@ -283,8 +285,8 @@ def validate_read_metadata(
                 group_read_counts[group][assay] = reads
             else:
                 group_read_counts[group][assay] += reads
-        if "_R1_" in f:
-            r2file = f.replace("_R1_", "_R2_")
+        if extract_read_indicator(f) == "R1":
+            r2file = make_read_partner(f, "R1", "R2")
             if r2file in read_metadata:
                 r2meta = read_metadata[r2file]
                 if r2meta.get("errors"):
@@ -311,9 +313,9 @@ def validate_read_metadata(
 
     r2_without_r1_metadata: list[str] = []
     for f in read_metadata:
-        if "_R2_" not in f:
+        if extract_read_indicator(f) != "R2":
             continue
-        r1file = f.replace("_R2_", "_R1_")
+        r1file = make_read_partner(f, "R2", "R1")
         if r1file not in read_metadata:
             r2_without_r1_metadata.append(f)
 

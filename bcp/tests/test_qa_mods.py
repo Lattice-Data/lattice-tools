@@ -9,6 +9,7 @@ import os
 import pytest
 
 from qa_mods import (
+    extract_read_indicator,
     extract_run_id_from_merged_trimmer_path,
     extract_run_id_from_trimmer_filename,
     grab_merged_trimmer_q30,
@@ -16,6 +17,7 @@ from qa_mods import (
     grab_trimmer_stats,
     is_order_level_processed_folder,
     is_valid_cellranger_run_dir_name,
+    make_read_partner,
     normalize_raw_assay,
     parse_met_summ,
     parse_raw_filename,
@@ -918,3 +920,80 @@ class TestParseScaleSamplesCsv:
         path = os.path.join(QA_FIXTURES_DIR, "scale_samples_good.csv")
         result = parse_scale_samples_csv(path)
         assert len(result["samples"]) == 4
+
+
+class TestExtractReadIndicator:
+    """Tests for extract_read_indicator — Illumina read indicator from filename tail."""
+
+    def test_standard_r1(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        assert extract_read_indicator(f) == "R1"
+
+    def test_standard_r2(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        assert extract_read_indicator(f) == "R2"
+
+    def test_index_read_i1(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_I1_001.fastq.gz"
+        assert extract_read_indicator(f) == "I1"
+
+    def test_index_read_i2(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_I2_001.fastq.gz"
+        assert extract_read_indicator(f) == "I2"
+
+    def test_r3_read(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R3_001.fastq.gz"
+        assert extract_read_indicator(f) == "R3"
+
+    def test_r2_in_group_id_returns_tail_r1(self):
+        """R2 in group ID is ignored; the tail R1 indicator is returned."""
+        f = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        assert extract_read_indicator(f) == "R1"
+
+    def test_r1_in_group_id_returns_tail_r2(self):
+        """R1 in group ID is ignored; the tail R2 indicator is returned."""
+        f = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R2_001.fastq.gz"
+        assert extract_read_indicator(f) == "R2"
+
+    def test_no_indicator_returns_none(self):
+        assert extract_read_indicator("439047-G1_GEX-Z0273-BC01.csv") is None
+
+    def test_cram_file_returns_none(self):
+        assert extract_read_indicator("426971-RNA3-098C_GEX_QSR-7_10C.cram") is None
+
+
+class TestMakeReadPartner:
+    """Tests for make_read_partner — swap Illumina read indicator at tail only."""
+
+    def test_simple_r1_to_r2(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        expected = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        assert make_read_partner(f, "R1", "R2") == expected
+
+    def test_simple_r2_to_r1(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        expected = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        assert make_read_partner(f, "R2", "R1") == expected
+
+    def test_preserves_r2_in_group_id(self):
+        """Only the tail indicator is swapped; R2 in the group ID is untouched."""
+        f = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        result = make_read_partner(f, "R1", "R2")
+        assert (
+            result
+            == "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
+        )
+        assert result.count("_R2_") == 2  # group ID R2 + tail R2
+
+    def test_preserves_r1_in_group_id(self):
+        """Only the tail indicator is swapped; R1 in the group ID is untouched."""
+        f = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R2_001.fastq.gz"
+        result = make_read_partner(f, "R2", "R1")
+        assert (
+            result == "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R1_001.fastq.gz"
+        )
+        assert result.count("_R1_") == 2  # group ID R1 + tail R1
+
+    def test_no_indicator_returns_unchanged(self):
+        f = "439047-G1_GEX-Z0273-BC01.csv"
+        assert make_read_partner(f, "R1", "R2") == f
