@@ -716,6 +716,16 @@ class TestValidateScaleCbTag:
         assert "sample1.cram" in errors[0]
         assert "cb_tag=None" in errors[0]
 
+    def test_unmatched_cram_skipped(self):
+        """Unmatched CRAMs (*-unmatched.cram) are not checked for cb_tag."""
+        read_metadata = {
+            "sample1_GEX_QSR-5-unmatched.cram": {"cb_tag": False},
+            "sample1_hash_oligo_QSR-5-SCALEPLEX-unmatched.cram": {"cb_tag": False},
+            "sample1_GEX_QSR-5.cram": {"cb_tag": True},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert errors == []
+
     def test_cram_metadata_json_skipped(self):
         """Files ending in .cram-metadata.json are not checked."""
         read_metadata = {

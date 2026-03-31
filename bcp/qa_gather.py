@@ -199,7 +199,11 @@ class QADataGatherer:
             "_sample.fastq.gz-metadata.json"
         ):
             self._download_metadata_json(rf)
-        elif rf.endswith(".cram-metadata.json") and self.raw_assay == "scale":
+        elif (
+            rf.endswith(".cram-metadata.json")
+            and self.raw_assay == "scale"
+            and "-unmatched.cram-metadata.json" not in rf
+        ):
             self._download_metadata_json(rf)
         elif rf.endswith(
             ("trimmer-failure_codes.csv", "trimmer-failure-codes.csv")

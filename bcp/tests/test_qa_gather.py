@@ -468,6 +468,29 @@ class TestGatherScaleRaw:
         gex_files = data.fastq_log.get("RNA3_098", {}).get("GEX", [])
         assert len(gex_files) == 0
 
+    def test_scale_unmatched_cram_metadata_not_downloaded(self):
+        """Unmatched CRAM metadata JSON files are not ingested into read_metadata."""
+        unmatched_cram = "426971-RNA3-098C_GEX_QSR-7_10C-unmatched.cram"
+        unmatched_meta_key = f"{self._RUN_DIR}426971-RNA3-098C_GEX_QSR-7_10C-unmatched.cram-metadata.json"
+        matched_cram = "426971-RNA3-098C_GEX_QSR-7_10C.cram"
+        matched_meta_key = (
+            f"{self._RUN_DIR}426971-RNA3-098C_GEX_QSR-7_10C.cram-metadata.json"
+        )
+        keys = self._listing_keys() + [
+            f"{self._RUN_DIR}426971-RNA3-098C_GEX_QSR-7_10C-unmatched.cram",
+            unmatched_meta_key,
+            matched_meta_key,
+        ]
+        file_contents = {
+            unmatched_meta_key: self._cram_metadata(unmatched_cram, cb_tag=False),
+            matched_meta_key: self._cram_metadata(matched_cram, cb_tag=True),
+        }
+        ctx = _make_ctx(raw_assay="scale")
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        assert matched_cram in data.read_metadata
+        assert unmatched_cram not in data.read_metadata
+
     def test_scale_no_wrong_group_error(self):
         """Scale files don't check group match (is_10x=False), so no WRONG GROUP."""
         keys = self._listing_keys()

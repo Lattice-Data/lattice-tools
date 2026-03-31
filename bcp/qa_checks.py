@@ -765,11 +765,15 @@ def validate_scale_cb_tag(read_metadata: dict[str, Any]) -> list[str]:
     Validate that all Scale CRAM files have ``cb_tag=True`` in their metadata.
 
     Only inspects entries whose filename ends with ``.cram`` (not ``.cram-metadata.json``).
+    Unmatched CRAMs (``*-unmatched.cram``) are skipped — they inherently lack
+    cell barcodes so ``cb_tag=False`` is expected.
     Returns list of errors for files where ``cb_tag`` is not ``True``.
     """
     errors: list[str] = []
     for filename, metadata in read_metadata.items():
         if not filename.endswith(".cram"):
+            continue
+        if "-unmatched.cram" in filename:
             continue
         cb_tag = metadata.get("cb_tag")
         if cb_tag is not True:
