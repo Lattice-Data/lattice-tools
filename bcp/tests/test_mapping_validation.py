@@ -1496,6 +1496,28 @@ def test_s3_local_consistency_10x_processed_group_id_missing() -> None:
     assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
 
 
+def test_s3_local_consistency_10x_processed_group_id_normalized_match() -> None:
+    """Hyphen/underscore GroupID variation should produce a warning, not error."""
+    rows = [
+        MappingRow(
+            s3_path=(
+                "s3://czi-novogene/test-project/NVUS2024101701-43/"
+                "fbm_1-2/processed/cellranger/Run_2026-03-31/outs/"
+                "filtered_feature_bc_matrix.h5"
+            ),
+            local_path=(
+                "/ORPROJ1/GB/USER/pennyyang/projects_3_2026/X202SC26024624-Z01-F001/"
+                "Data_process/sampleMatrix/fbm_1_2/outs/filtered_feature_bc_matrix.h5"
+            ),
+            line_num=1,
+        ),
+    ]
+    res = validate_s3_local_consistency_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert not any(e["type"] == "group_id_missing_local" for e in res["errors"])
+    assert any(w["type"] == "group_id_normalized_match" for w in res["warnings"])
+
+
 def test_s3_local_consistency_10x_processed_file_path_mismatch() -> None:
     """Different file paths after outs/ should produce an error."""
     rows = [

@@ -203,6 +203,47 @@ def test_cli_10x_processed_with_sif_passes(tmp_path: Path, monkeypatch, capsys) 
     assert "VERDICT: PASS" in captured.out
 
 
+def test_cli_10x_processed_reports_normalized_groupid_warning(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """CLI should explicitly report '-'/'_' normalized GroupID warning counts."""
+    mapping_text = (
+        "s3://czi-novogene/test-project/NVUS2024101701-43/"
+        "fbm_1-2/processed/cellranger/Run_2026-03-31/outs/"
+        "filtered_feature_bc_matrix.h5,"
+        "/ORPROJ1/GB/USER/pennyyang/projects_3_2026/X202SC26024624-Z01-F001/"
+        "Data_process/sampleMatrix/fbm_1_2/outs/filtered_feature_bc_matrix.h5\n"
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    sif_text = "Library name,Group Identifier,Assay Type\nLIB1,fbm_1-2,GEX\n"
+    sif_path = tmp_path / "tenx_proc_sif_norm.csv"
+    sif_path.write_text(sif_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "processed",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "group_id_normalized_match: 1" in captured.out
+    assert "matched after '-'/'_' normalization" in captured.out
+    assert "VERDICT: PASS" in captured.out
+
+
 def test_cli_psomagen_10x_raw_passes(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should pass for a minimal valid 10x Psomagen raw mapping."""
     mapping_text = (

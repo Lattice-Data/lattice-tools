@@ -1345,6 +1345,11 @@ def validate_sif_completeness_10x_processed(
 # ---------------------------------------------------------------------------
 
 
+def _group_id_hyphen_underscore_variants(group_id: str) -> set[str]:
+    """Return common GroupID variants for '-' vs '_' inconsistencies."""
+    return {group_id, group_id.replace("-", "_"), group_id.replace("_", "-")}
+
+
 def validate_s3_local_consistency_10x_processed(
     provider: str, mappings: Iterable[MappingRow]
 ) -> dict:
@@ -1378,15 +1383,33 @@ def validate_s3_local_consistency_10x_processed(
         s3_file_path = gd["file_path"]
 
         if group_id not in local:
-            errors.append(
-                {
-                    "type": "group_id_missing_local",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "local_path": local,
-                    "detail": (f"GroupID '{group_id}' from S3 not found in local path"),
-                }
-            )
+            variants = _group_id_hyphen_underscore_variants(group_id)
+            normalized_match = any(v in local for v in variants if v != group_id)
+            if normalized_match:
+                warnings.append(
+                    {
+                        "type": "group_id_normalized_match",
+                        "line": row.line_num,
+                        "s3_path": s3,
+                        "local_path": local,
+                        "detail": (
+                            f"GroupID '{group_id}' from S3 is not an exact local match; "
+                            "a '-'/'_' normalized variant was found"
+                        ),
+                    }
+                )
+            else:
+                errors.append(
+                    {
+                        "type": "group_id_missing_local",
+                        "line": row.line_num,
+                        "s3_path": s3,
+                        "local_path": local,
+                        "detail": (
+                            f"GroupID '{group_id}' from S3 not found in local path"
+                        ),
+                    }
+                )
 
         outs_idx = local.find("/outs/")
         if outs_idx >= 0:

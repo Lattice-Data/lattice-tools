@@ -64,6 +64,11 @@ def _print_issue_examples(
             print(f"      detail: {detail}")
 
 
+def _count_issue_type(issues: List[dict], issue_type: str) -> int:
+    """Count issues of a specific type."""
+    return sum(1 for item in issues if item.get("type") == issue_type)
+
+
 def _report_sif_comparison(
     cmp: dict,
     fail_reasons: List[str],
@@ -589,10 +594,19 @@ def _validate_10x_processed(
 
     # S3/local consistency
     cons_res = validate_s3_local_consistency_10x_processed(provider, mappings)
+    normalized_groupid_count = _count_issue_type(
+        cons_res["warnings"], "group_id_normalized_match"
+    )
     print(
         f"10x processed S3/local consistency: matched {cons_res['matched']} pairs, "
         f"{len(cons_res['errors'])} errors, {len(cons_res['warnings'])} warnings"
     )
+    if normalized_groupid_count:
+        print(
+            "  NOTE: "
+            f"{normalized_groupid_count} GroupID warning(s) matched after '-'/'_' "
+            "normalization."
+        )
     _print_issue_examples(
         "10x processed S3/local consistency", cons_res["errors"], "errors"
     )
