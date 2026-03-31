@@ -340,6 +340,56 @@ class TestValidateReadMetadata:
         _counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
         assert any("READ COUNT ERROR" in e for e in errors)
 
+    def test_metadata_filename_mismatch_warns_but_pairing_uses_actual_filename(self):
+        """Filename mismatch in metadata content is warning-only.
+
+        Pairing/count comparison continues using the canonical metadata key.
+        """
+        actual_r1 = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        actual_r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            actual_r1: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r1,
+                "__reported_filename": "s3://bucket/WRONG_R1.fastq.gz",
+            },
+            actual_r2: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r2,
+                "__reported_filename": actual_r2,
+            },
+        }
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert any("METADATA FILENAME WARNING:" in e for e in errors)
+        assert not any("READ METADATA PAIRING" in e for e in errors)
+        assert counts["G1"]["GEX"] == 100
+
+    def test_mismatch_warning_printed_in_summary(self, capsys):
+        """Summary line includes mismatch warning count for observability."""
+        actual_r1 = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        actual_r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            actual_r1: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r1,
+                "__reported_filename": "s3://bucket/WRONG_R1.fastq.gz",
+            },
+            actual_r2: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r2,
+                "__reported_filename": actual_r2,
+            },
+        }
+        validate_read_metadata(read_metadata, "10x", print_success=True)
+        out = capsys.readouterr().out
+        assert "metadata_filename_mismatch_warnings=1" in out
+
 
 class TestCheckExpectedRawFiles:
     """Tests for check_expected_raw_files."""

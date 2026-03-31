@@ -350,6 +350,32 @@ class TestGather10xRaw:
         assert r1_filename in data.read_metadata
         assert data.read_metadata[r1_filename]["read_count"] == 5000
 
+    def test_metadata_prefers_actual_s3_filename_over_reported_filename(self):
+        """read_metadata keys are canonicalized to actual object filename.
+
+        When metadata payload filename differs from the object key, the gatherer
+        keeps the object-derived filename as the dictionary key and stores both
+        values for downstream diagnostics.
+        """
+        r1_meta_key = f"{self._BASE}_S1_L001_R1_001.fastq.gz-metadata.json"
+        reported = "s3://czi-psomagen/other/other/WRONG_R1.fastq.gz"
+        expected_actual = (
+            "s3://czi-novogene/"
+            "testproj/ORD01/G1/raw/439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        )
+        keys = self._listing_keys() + [r1_meta_key]
+        file_contents = {
+            r1_meta_key: self._metadata_json(reported, 5000),
+        }
+        ctx = _make_ctx()
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        assert expected_actual in data.read_metadata
+        entry = data.read_metadata[expected_actual]
+        assert entry["__actual_filename"] == expected_actual
+        assert entry["__reported_filename"] == reported
+        assert entry["read_count"] == 5000
+
     def test_wrong_assay_error(self):
         """File with unrecognised assay produces a gathering error."""
         keys = [

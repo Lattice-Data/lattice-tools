@@ -246,8 +246,10 @@ def validate_read_metadata(
     - ``r1_without_r2_metadata``: R1 paths with ``read_count`` but no R2 key
     - ``r2_without_r1_metadata``: R2 paths with no corresponding R1 key
 
-    Those issues are also appended to ``errors`` with a ``READ METADATA PAIRING:`` prefix
-    so notebook callers can log them like other messages.
+    Pairing issues are appended to ``errors`` with a ``READ METADATA PAIRING:``
+    prefix. Metadata filename/content mismatches are appended as
+    ``METADATA FILENAME WARNING: ...`` entries so callers can log them as
+    warnings without failing count comparisons.
 
     R1/R2 classification uses ``extract_read_indicator()`` which matches the
     Illumina read indicator at the *end* of the filename (e.g. ``_R1_001.fastq.gz``),
@@ -264,8 +266,19 @@ def validate_read_metadata(
     skipped_no_r2 = 0
     r2_metadata_error = 0
     r1_without_r2_metadata: list[str] = []
+    filename_mismatch_warnings = 0
 
     for f, meta in read_metadata.items():
+        reported_filename = str(
+            meta.get("__reported_filename", meta.get("filename", ""))
+        )
+        if reported_filename and reported_filename != f:
+            filename_mismatch_warnings += 1
+            errors.append(
+                "METADATA FILENAME WARNING: "
+                f"metadata filename does not match source object; "
+                f"reported={reported_filename} actual={f}"
+            )
         if extract_read_indicator(f) == "R2":
             continue
         if meta.get("errors"):
@@ -336,7 +349,8 @@ def validate_read_metadata(
             f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
             f"r1_missing_r2_metadata={skipped_no_r2}, "
             f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
-            f"r2_metadata_errors={r2_metadata_error}"
+            f"r2_metadata_errors={r2_metadata_error}, "
+            f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
         )
         for line in matched_examples:
             print(line)

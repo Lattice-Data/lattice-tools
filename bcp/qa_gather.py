@@ -379,9 +379,35 @@ class QADataGatherer:
             self.s3.download_file(self.bucket, rf, local)
             with open(local) as fh:
                 metadata = json.load(fh)
-            self._data.read_metadata[metadata["filename"]] = metadata
+            reported_filename = str(metadata.get("filename", ""))
+            actual_filename = self._canonical_metadata_filename(
+                source_key=rf,
+                reported_filename=reported_filename,
+            )
+            metadata["__actual_filename"] = actual_filename
+            metadata["__reported_filename"] = reported_filename
+            metadata["__source_key"] = rf
+            self._data.read_metadata[actual_filename] = metadata
         finally:
             Path(local).unlink(missing_ok=True)
+
+    def _canonical_metadata_filename(
+        self, *, source_key: str, reported_filename: str
+    ) -> str:
+        """Choose a stable metadata key derived from actual S3 object location.
+
+        If the payload reports an s3 URI in ``filename``, keep that shape by
+        using ``s3://{bucket}/{source_key}``. Otherwise, use basename form to
+        preserve behavior for local/test-style metadata payloads.
+        """
+        data_key = (
+            source_key[: -len("-metadata.json")]
+            if source_key.endswith("-metadata.json")
+            else source_key
+        )
+        if reported_filename.startswith("s3://"):
+            return f"s3://{self.bucket}/{data_key}"
+        return data_key.split("/")[-1]
 
     def _download_trimmer_stats(self, rf: str) -> None:
         exp = "/".join(rf.split("/")[1:3])
