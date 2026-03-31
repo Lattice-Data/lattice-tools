@@ -396,6 +396,26 @@ class TestGather10xRaw:
         data = gather_qa_data(ctx, s3)
         assert any("WRONG GROUP" in e for e in data.gathering_errors)
 
+    def test_group_separator_variants_do_not_error_for_10x(self):
+        """Hyphen/underscore variants of the same group ID are treated as equal."""
+        keys = [
+            "testproj/ORD01/CUIMC-001/raw/439047-CUIMC_001_GEX-Z0273-BC01.csv",
+        ]
+        ctx = _make_ctx()
+        s3 = MockS3Client(keys=keys)
+        data = gather_qa_data(ctx, s3)
+        assert not any("WRONG GROUP" in e for e in data.gathering_errors)
+
+    def test_true_group_mismatch_still_errors_for_10x(self):
+        """Normalization must not hide real group mismatches."""
+        keys = [
+            "testproj/ORD01/CUIMC-001/raw/439047-CUIMC_999_GEX-Z0273-BC01.csv",
+        ]
+        ctx = _make_ctx()
+        s3 = MockS3Client(keys=keys)
+        data = gather_qa_data(ctx, s3)
+        assert any("WRONG GROUP" in e for e in data.gathering_errors)
+
     def test_trimmer_stats_downloaded(self):
         """Trimmer failure codes CSV is downloaded and parsed into trimmer_failure_stats."""
         trimmer_key = f"{self._BASE}_trimmer-failure_codes.csv"

@@ -626,6 +626,16 @@ When modifying the pipeline:
 3. Update this README if adding features
 4. Follow existing code style (use Ruff for linting)
 
+### QA validation note (S3 gather)
+
+For `bcp/qa.ipynb` and `qa_gather` raw-file validation, 10x group comparisons now normalize group IDs before checking equality:
+
+- `-` and `_` are treated as equivalent (for example, `CUIMC-001` equals `CUIMC_001`)
+- comparison is case-insensitive
+- true mismatches still produce `WRONG GROUP` errors
+
+This avoids false-positive group errors when providers use different separators between folder names and file names.
+
 ## Version
 
 Current version: 1.0.0

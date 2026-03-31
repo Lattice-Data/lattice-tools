@@ -29,6 +29,17 @@ from qa_mods import (
 )
 
 
+def _normalize_group_id_for_compare(group_id: str) -> str:
+    """Normalize group IDs for equality checks.
+
+    Group identifiers may be represented with either hyphens or underscores
+    across directory names and raw filenames (for example ``CUIMC-001`` vs
+    ``CUIMC_001``). For validation, treat these as equivalent while preserving
+    original values in logs and gathered output.
+    """
+    return group_id.replace("-", "_").upper()
+
+
 @dataclass
 class QAGatheredData:
     """All data collected during the gathering phase of QA."""
@@ -185,7 +196,11 @@ class QADataGatherer:
             _run, group, assay, _ug, _barcode = parsed
             if assay not in valid_assays:
                 self._data.gathering_errors.append(f"WRONG ASSAY: {assay} {rf}")
-            if group != group_name and is_10x:
+            if (
+                _normalize_group_id_for_compare(group)
+                != _normalize_group_id_for_compare(group_name)
+                and is_10x
+            ):
                 self._data.gathering_errors.append(
                     f"WRONG GROUP: {group} {group_name} {rf}"
                 )
