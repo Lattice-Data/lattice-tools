@@ -24,8 +24,8 @@ def _write_temp_mapping(tmp_path: Path, contents: str) -> Path:
 def test_cli_passes_for_valid_10x_mapping(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should exit 0 for a simple valid 10x Novogene mapping."""
     mapping_text = (
-        "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "NVUS2024101701-29/CD4i_R1L01/raw/"
+        "s3://czi-novogene/project-scaling-alpha/"
+        "NVUS0000000000-29/CD4i_R1L01/raw/"
         "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,"
         "/local/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz\n"
     )
@@ -83,9 +83,9 @@ def test_cli_fails_on_duplicate_mappings(tmp_path: Path, monkeypatch, capsys) ->
 def test_cli_scale_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should pass for a minimal valid Scale raw mapping with SIF."""
     mapping_text = (
-        "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+        "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
         "441969-R096A_GEX_QSR-1-7A.json,"
-        "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
+        "/local_root/data1/V129/441969-20260220_2053/"
         "441969-QSR1_QSR-1/441969-QSR1_QSR-1_7A.json\n"
     )
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
@@ -93,7 +93,7 @@ def test_cli_scale_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> N
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "CHEM13-R096,CHEM13-R096_GEX,CTATGCACA,trapnell-seahub-bcp,"
+        "CHEM13-R096,CHEM13-R096_GEX,CTATGCACA,lab-seahub-alpha,"
         "CHEM13-R096,R096A,GEX\n"
     )
     sif_path = tmp_path / "scale_sif.csv"
@@ -125,9 +125,9 @@ def test_cli_scale_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> N
 def test_cli_sci_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should pass for a minimal valid sci raw mapping with SIF."""
     mapping_text = (
-        "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+        "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
         "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric,"
-        "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+        "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
         "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
         "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT_SNVQ.metric\n"
     )
@@ -136,7 +136,7 @@ def test_cli_sci_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> Non
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "CHEM3-R100,R100E,Z0028,hamazaki-seahub-bcp,CHEM3-R100,R100E,GEX_hash_oligo\n"
+        "CHEM3-R100,R100E,Z0028,lab-seahub-beta,CHEM3-R100,R100E,GEX_hash_oligo\n"
     )
     sif_path = tmp_path / "sci_sif.csv"
     sif_path.write_text(sif_text)
@@ -167,10 +167,10 @@ def test_cli_sci_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> Non
 def test_cli_10x_processed_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should pass for a minimal valid 10x processed mapping with SIF."""
     mapping_text = (
-        "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
-        "e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/"
+        "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
+        "e10_rep1_t13/processed/cellranger/Run_2000-03-10/outs/"
         "filtered_feature_bc_matrix.h5,"
-        "/ORPROJ1/GB/USER/liguo/Ultima/projects_202602/X202SC25127893-Z01-F001_"
+        "/local/user_001/Ultima/projects_202602/X000SC00000000-Z00-F000_"
         "GRCm39-vM37_10xcellranger_v9.0/Data_process/sampleMatrix/e10_rep1_t13/outs/"
         "filtered_feature_bc_matrix.h5\n"
     )
@@ -208,10 +208,10 @@ def test_cli_10x_processed_reports_normalized_groupid_warning(
 ) -> None:
     """CLI should explicitly report '-'/'_' normalized GroupID warning counts."""
     mapping_text = (
-        "s3://czi-novogene/test-project/NVUS2024101701-43/"
-        "fbm_1-2/processed/cellranger/Run_2026-03-31/outs/"
+        "s3://czi-novogene/test-project/NVUS0000000000-43/"
+        "fbm_1-2/processed/cellranger/Run_2001-03-31/outs/"
         "filtered_feature_bc_matrix.h5,"
-        "/ORPROJ1/GB/USER/pennyyang/projects_3_2026/X202SC26024624-Z01-F001/"
+        "/local/user_002/projects_3_2026/X000SC00000000-Z00-F000/"
         "Data_process/sampleMatrix/fbm_1_2/outs/filtered_feature_bc_matrix.h5\n"
     )
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
@@ -247,8 +247,8 @@ def test_cli_10x_processed_reports_normalized_groupid_warning(
 def test_cli_psomagen_10x_raw_passes(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should pass for a minimal valid 10x Psomagen raw mapping."""
     mapping_text = (
-        "s3://czi-psomagen/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "AN00012345/CD4i_R1L01/raw/"
+        "s3://czi-psomagen/project-scaling-alpha/"
+        "AN00000001/CD4i_R1L01/raw/"
         "416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,"
         "/local/416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz\n"
     )

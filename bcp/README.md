@@ -239,6 +239,20 @@ pytest -m "" -v
 pytest --cov=. --cov-report=html
 ```
 
+### Test Data Sanitization
+
+Test fixtures and inline test literals in `bcp/tests` must use anonymized identifiers only.
+
+- Use synthetic bucket/provider names such as `vendor-novogene` and `vendor-psomagen`.
+- Use synthetic project/lab slugs such as `project-*` or `lab-*`; avoid real surnames or institution names.
+- Use format-preserving sanitized order IDs:
+  - `NVUS0000000000-<suffix>`
+  - `AN0000000<digit>`
+- Use sanitized local paths like `/local/user_001/...`; do not use real usernames or internal mount roots.
+- Keep path structure and file naming shape intact so parser/validator behavior remains realistic.
+
+An anti-regression test (`bcp/tests/test_sanitized_identifiers.py`) enforces these rules and fails when blocked patterns are reintroduced.
+
 **Test Statistics**: 59 total tests (51 regular + 8 E2E)
 
 ### Test Organization

@@ -258,7 +258,7 @@ class TestGatherS3Warnings:
 
     def test_missing_raw_dir_warning(self):
         """Group without raw/ subdirectory produces a warning."""
-        keys = ["testproj/ORD01/G1/processed/cellranger/Run_2025-01-10/outs/config.csv"]
+        keys = ["testproj/ORD01/G1/processed/cellranger/Run_2000-01-10/outs/config.csv"]
         ctx = _make_ctx()
         s3 = MockS3Client(keys=keys)
         data = gather_qa_data(ctx, s3)
@@ -276,7 +276,7 @@ class TestGatherS3Warnings:
         """Group with more than 2 subdirectories produces a warning."""
         keys = [
             "testproj/ORD01/G1/raw/file.csv",
-            "testproj/ORD01/G1/processed/cellranger/Run_2025-01-10/outs/config.csv",
+            "testproj/ORD01/G1/processed/cellranger/Run_2000-01-10/outs/config.csv",
             "testproj/ORD01/G1/extra/something.txt",
         ]
         ctx = _make_ctx()
@@ -508,7 +508,7 @@ class TestGatherScaleRaw:
 class TestGatherCellrangerProcessed:
     def _cr_keys(self):
         """Minimal CellRanger processed file set."""
-        outs = "testproj/ORD01/G1/processed/cellranger/Run_2025-01-10/outs/"
+        outs = "testproj/ORD01/G1/processed/cellranger/Run_2000-01-10/outs/"
         return [
             f"{outs}config.csv",
             f"{outs}web_summary.html",
@@ -549,7 +549,7 @@ class TestGatherCellrangerProcessed:
     def test_missing_outs_dir_warning(self):
         """Run dir without outs/ produces a warning."""
         raw_key = "testproj/ORD01/G1/raw/439047-G1_GEX-Z0273-BC01.csv"
-        no_outs = "testproj/ORD01/G1/processed/cellranger/Run_2025-01-10/other/file.csv"
+        no_outs = "testproj/ORD01/G1/processed/cellranger/Run_2000-01-10/other/file.csv"
         keys = [raw_key, no_outs]
         ctx = _make_ctx()
         s3 = MockS3Client(keys=keys)
@@ -585,7 +585,7 @@ class TestGatherScaleProcessed:
 
     def _scale_processed_keys(self):
         """Minimal Scale processed file set."""
-        run = "testproj/ORD01/RNA3_098/processed/Run_2026-01-13/"
+        run = "testproj/ORD01/RNA3_098/processed/Run_2001-01-13/"
         return [
             f"{run}workflow_info.json",
             f"{run}samples.csv",
@@ -601,7 +601,7 @@ class TestGatherScaleProcessed:
             "testproj/ORD01/RNA3_098/raw/426971/426971-RNA3-098C_GEX_QSR-7_10C.cram"
         )
         proc_keys = self._scale_processed_keys()
-        run_prefix = "testproj/ORD01/RNA3_098/processed/Run_2026-01-13/"
+        run_prefix = "testproj/ORD01/RNA3_098/processed/Run_2001-01-13/"
         file_contents = {
             f"{run_prefix}workflow_info.json": self._workflow_info_json(),
             f"{run_prefix}samples.csv": self._samples_csv(),
@@ -688,7 +688,7 @@ class TestHasRawHasProcessed:
         """Only processed/ data → has_raw=False, has_processed=True."""
         keys = [
             "testproj/ORD01/G1/raw/placeholder",
-            "testproj/ORD01/G1/processed/cellranger/Run_2025-01-10/outs/config.csv",
+            "testproj/ORD01/G1/processed/cellranger/Run_2000-01-10/outs/config.csv",
         ]
         ctx = _make_ctx()
         s3 = MockS3Client(keys=keys)
@@ -701,7 +701,7 @@ class TestHasRawHasProcessed:
         """Both raw/ and processed/ → both flags True."""
         keys = [
             "testproj/ORD01/G1/raw/439047-G1_GEX-Z0273-BC01.csv",
-            "testproj/ORD01/G1/processed/cellranger/Run_2025-01-10/outs/config.csv",
+            "testproj/ORD01/G1/processed/cellranger/Run_2000-01-10/outs/config.csv",
         ]
         ctx = _make_ctx()
         s3 = MockS3Client(keys=keys)

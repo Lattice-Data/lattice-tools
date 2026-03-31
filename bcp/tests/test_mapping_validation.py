@@ -82,7 +82,7 @@ def test_parse_mapping_file_psomagen_local_first_header(tmp_path: Path) -> None:
     """psomagen exports may use `Local Path,S3 Path` column order."""
     mapping_text = (
         "Local Path,S3 Path\n"
-        "/local/path/file.h5,s3://czi-psomagen/proj/order/AN00012345/processed/file.h5\n"
+        "/local/path/file.h5,s3://czi-psomagen/proj/order/AN00000001/processed/file.h5\n"
     )
     path = _write_temp_mapping(tmp_path, mapping_text)
 
@@ -96,7 +96,7 @@ def test_parse_mapping_file_psomagen_local_first_header(tmp_path: Path) -> None:
 def test_parse_mapping_file_skips_at_metadata_lines(tmp_path: Path) -> None:
     """Mapping exports may include `@...` metadata lines that are not rows."""
     mapping_text = (
-        "@NVUS2024101701-19-mapping_processed.csv (1-3)\ns3://bucket/a,/local/a\n"
+        "@NVUS0000000000-19-mapping_processed.csv (1-3)\ns3://bucket/a,/local/a\n"
     )
     path = _write_temp_mapping(tmp_path, mapping_text)
 
@@ -148,8 +148,8 @@ def test_validate_s3_10x_raw_novogene_happy_path() -> None:
     """A correctly formatted Novogene 10x raw S3 path should produce no errors."""
     rows = [
         MappingRow(
-            "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-            "NVUS2024101701-29/CD4i_R1L01/raw/"
+            "s3://czi-novogene/project-scaling-alpha/"
+            "NVUS0000000000-29/CD4i_R1L01/raw/"
             "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz",
             "/local/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz",
             1,
@@ -172,8 +172,8 @@ def test_validate_s3_10x_raw_flags_invalid_assay_and_group_mismatch() -> None:
     """
     # groupid in path is CD4i_R1L01, but filename uses CD4i_R1L02 and assay typo 'Hash_oliga'
     row = MappingRow(
-        "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "NVUS2024101701-29/CD4i_R1L01/raw/"
+        "s3://czi-novogene/project-scaling-alpha/"
+        "NVUS0000000000-29/CD4i_R1L01/raw/"
         "416640-CD4i_R1L02_Hash_oliga-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz",
         "/local/path",
         5,
@@ -190,8 +190,8 @@ def test_validate_s3_10x_raw_flags_invalid_assay_and_group_mismatch() -> None:
 def test_validate_s3_10x_raw_psomagen_allows_viral_orf() -> None:
     """Psomagen 10x validator should accept viral_ORF assay."""
     row = MappingRow(
-        "s3://czi-psomagen/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "AN00012345/CD4i_R1L01/raw/"
+        "s3://czi-psomagen/project-scaling-alpha/"
+        "AN00000001/CD4i_R1L01/raw/"
         "416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz",
         "/local/path",
         10,
@@ -206,10 +206,10 @@ def test_validate_s3_10x_raw_psomagen_allows_viral_orf() -> None:
 def test_validate_local_paths_scale_raw_happy_path() -> None:
     """Well-formed Scale local path should produce no errors."""
     row = MappingRow(
-        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+        s3_path="s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
         "441969-R096G_GEX_CTATGCACA.json",
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441969-20260220_0135/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441969-20260220_0135/"
             "441969-QSR-7-CTATGCACA/441969-QSR-7-CTATGCACA.json"
         ),
         line_num=1,
@@ -224,10 +224,10 @@ def test_validate_local_paths_scale_raw_happy_path() -> None:
 def test_validate_local_paths_scale_raw_detects_qsr_mismatch() -> None:
     """Mismatched QSR number between directory and filename should be flagged."""
     row = MappingRow(
-        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+        s3_path="s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
         "441969-R096G_GEX_CTATGCACA.json",
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441969-20260220_0135/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441969-20260220_0135/"
             "441969-QSR-7-CTATGCACA/441969-QSR-8-CTATGCACA.json"
         ),
         line_num=2,
@@ -245,7 +245,7 @@ def test_validate_local_paths_scale_raw_accepts_v2_lane_variant() -> None:
     row = MappingRow(
         s3_path="s3://example-bucket/some/prefix",
         local_path=(
-            "/ORPROJ1/DATA1/V129/440115-20260319_2239/"
+            "/local_root/data1/V129/440115-20260319_2239/"
             "440115_1-QSR8_QSR-8/440115_1-QSR8_QSR-8_7A.csv"
         ),
         line_num=1,
@@ -262,7 +262,7 @@ def test_validate_local_paths_scale_raw_v2_lane_variant_detects_qsr_mismatch() -
     row = MappingRow(
         s3_path="s3://example-bucket/some/prefix",
         local_path=(
-            "/ORPROJ1/DATA1/V129/440115-20260319_2239/"
+            "/local_root/data1/V129/440115-20260319_2239/"
             "440115_1-QSR8_QSR-8/440115_1-QSR9_QSR-9_7A.csv"
         ),
         line_num=2,
@@ -280,7 +280,7 @@ def test_validate_local_paths_scale_raw_accepts_v2_lane_variant_scaleplex() -> N
     row = MappingRow(
         s3_path="s3://example-bucket/some/prefix",
         local_path=(
-            "/ORPROJ1/DATA1/V129/440115-20260319_2239/"
+            "/local_root/data1/V129/440115-20260319_2239/"
             "440115_1-QSR8SCALEPLEX_QSR-8-SCALEPLEX/"
             "440115_1-QSR8SCALEPLEX_QSR-8-SCALEPLEX_12G.json"
         ),
@@ -300,7 +300,7 @@ def test_validate_s3_scale_raw_flags_hash_oliga_typo() -> None:
     """
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096D_Hash_oliga_CACTGCTCA.json"
         ),
         local_path="/local/path",
@@ -319,7 +319,7 @@ def test_validate_s3_scale_raw_requires_scaleplex_for_hash_oligo() -> None:
     """Hash_oligo SOP form without SCALEPLEX in UG_RT should be flagged."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096G_Hash_oligo_QSR-7.json"
         ),
         local_path="/local/path",
@@ -339,8 +339,8 @@ def test_validate_sif_completeness_scale_flags_missing_groupid(tmp_path: Path) -
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,Experiement Identifier,"
         "Group Identifier,Assay Type\n"
-        "CHEM13-R096,R096A,QSR1,trapnell-seahub-bcp,CHEM13-R096,R096A,GEX\n"
-        "CHEM13-R096,R096B,QSR2,trapnell-seahub-bcp,CHEM13-R096,R096B,GEX\n"
+        "CHEM13-R096,R096A,QSR1,lab-seahub-alpha,CHEM13-R096,R096A,GEX\n"
+        "CHEM13-R096,R096B,QSR2,lab-seahub-alpha,CHEM13-R096,R096B,GEX\n"
     )
     sif_path = tmp_path / "SIF_scale.csv"
     sif_path.write_text(sif_text)
@@ -349,7 +349,7 @@ def test_validate_sif_completeness_scale_flags_missing_groupid(tmp_path: Path) -
     mappings = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
                 "441969-R096B_GEX_CTATGCACA.json"
             ),
             local_path="/local/path",
@@ -367,11 +367,11 @@ def test_validate_s3_local_consistency_scale_qsr_mismatch() -> None:
     """Clearly different QSR numbers between S3 and local should be an error."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096G_GEX_QSR-1-7A.json"
         ),
         local_path=(
-            "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
+            "/local_root/data1/V129/441969-20260220_2053/"
             "441969-QSR7_QSR-7/441969-QSR7_QSR-7_7A.json"
         ),
         line_num=10,
@@ -387,11 +387,11 @@ def test_validate_s3_local_consistency_scale_scaleplex_warning() -> None:
     """SCALEPLEX on S3 but not on local should be a warning, not an error."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096A_hash_oligo_QSR-1-SCALEPLEX-8G.cram"
         ),
         local_path=(
-            "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
+            "/local_root/data1/V129/441969-20260220_2053/"
             "441969-QSR1_QSR-1/441969-QSR1_QSR-1_8G.cram"
         ),
         line_num=11,
@@ -410,10 +410,10 @@ def test_validate_s3_local_consistency_scale_scaleplex_warning() -> None:
 def test_validate_local_paths_scale_raw_v2_gex_happy_path() -> None:
     """V2 compact-QSR GEX local path should match and produce no errors."""
     row = MappingRow(
-        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+        s3_path="s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
         "439774-R112A_GEX_QSR-1-7A.json",
         local_path=(
-            "/ORPROJ1/DATA1/V129/439774-20260220_2053/"
+            "/local_root/data1/V129/439774-20260220_2053/"
             "439774-QSR1_QSR-1/439774-QSR1_QSR-1_7A.json"
         ),
         line_num=1,
@@ -428,10 +428,10 @@ def test_validate_local_paths_scale_raw_v2_gex_happy_path() -> None:
 def test_validate_local_paths_scale_raw_v2_scaleplex_happy_path() -> None:
     """V2 compact-QSR SCALEPLEX local path should match and produce no errors."""
     row = MappingRow(
-        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+        s3_path="s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
         "439774-R112A_Hash_oligo_QSR-1-SCALEPLEX-8G.cram",
         local_path=(
-            "/ORPROJ1/DATA1/V129/439774-20260220_2053/"
+            "/local_root/data1/V129/439774-20260220_2053/"
             "439774-QSR1SCALEPLEX_QSR-1-SCALEPLEX/"
             "439774-QSR1SCALEPLEX_QSR-1-SCALEPLEX_8G.cram"
         ),
@@ -447,10 +447,10 @@ def test_validate_local_paths_scale_raw_v2_scaleplex_happy_path() -> None:
 def test_validate_local_paths_scale_raw_v2_detects_dir_file_mismatch() -> None:
     """V2 path where directory stem differs from filename stem should be flagged."""
     row = MappingRow(
-        s3_path="s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+        s3_path="s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
         "439774-R112A_GEX_QSR-1-7A.json",
         local_path=(
-            "/ORPROJ1/DATA1/V129/439774-20260220_2053/"
+            "/local_root/data1/V129/439774-20260220_2053/"
             "439774-QSR1_QSR-1/439774-QSR2_QSR-2_7A.json"
         ),
         line_num=2,
@@ -475,7 +475,7 @@ def test_validate_s3_scale_raw_correctly_parses_hash_oligo_group_id() -> None:
     """
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
             "439774-R112A_Hash_oligo_QSR-1-SCALEPLEX-8G.cram"
         ),
         local_path="/local/path",
@@ -504,8 +504,8 @@ def test_validate_sif_completeness_scale_correct_group_ids(tmp_path: Path) -> No
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
-        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
+        "R112A,QSR1,CGATGCGCA,lab-seahub-alpha,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,lab-seahub-alpha,GENE8-R112,R112A,Hash_oligo\n"
     )
     sif_path = tmp_path / "SIF.csv"
     sif_path.write_text(sif_text)
@@ -513,7 +513,7 @@ def test_validate_sif_completeness_scale_correct_group_ids(tmp_path: Path) -> No
     mappings = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
                 "439774-R112A_GEX_QSR-1-7A.json"
             ),
             local_path="/local/path",
@@ -521,7 +521,7 @@ def test_validate_sif_completeness_scale_correct_group_ids(tmp_path: Path) -> No
         ),
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
                 "439774-R112A_Hash_oligo_QSR-1-SCALEPLEX-8G.cram"
             ),
             local_path="/local/path2",
@@ -548,10 +548,10 @@ def test_load_sif_scale_group_assays_returns_assay_mapping(tmp_path: Path) -> No
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
-        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
-        "R112B,QSR2,CGCATATCA,trapnell-seahub-bcp,GENE8-R112,R112B,GEX\n"
-        "R112B,QSR2SCALEPLEX,CTGCAGTGA,trapnell-seahub-bcp,GENE8-R112,R112B,Hash_oligo\n"
+        "R112A,QSR1,CGATGCGCA,lab-seahub-alpha,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,lab-seahub-alpha,GENE8-R112,R112A,Hash_oligo\n"
+        "R112B,QSR2,CGCATATCA,lab-seahub-alpha,GENE8-R112,R112B,GEX\n"
+        "R112B,QSR2SCALEPLEX,CTGCAGTGA,lab-seahub-alpha,GENE8-R112,R112B,Hash_oligo\n"
     )
     sif_path = tmp_path / "SIF.csv"
     sif_path.write_text(sif_text)
@@ -569,8 +569,8 @@ def test_validate_sif_completeness_flags_missing_assay(tmp_path: Path) -> None:
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
-        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
+        "R112A,QSR1,CGATGCGCA,lab-seahub-alpha,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,lab-seahub-alpha,GENE8-R112,R112A,Hash_oligo\n"
     )
     sif_path = tmp_path / "SIF.csv"
     sif_path.write_text(sif_text)
@@ -579,7 +579,7 @@ def test_validate_sif_completeness_flags_missing_assay(tmp_path: Path) -> None:
     mappings = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
                 "439774-R112A_GEX_QSR-1-7A.json"
             ),
             local_path="/local/path",
@@ -601,8 +601,8 @@ def test_validate_sif_completeness_no_missing_when_all_assays_present(
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "R112A,QSR1,CGATGCGCA,trapnell-seahub-bcp,GENE8-R112,R112A,GEX\n"
-        "R112A,QSR1SCALEPLEX,CACATCACA,trapnell-seahub-bcp,GENE8-R112,R112A,Hash_oligo\n"
+        "R112A,QSR1,CGATGCGCA,lab-seahub-alpha,GENE8-R112,R112A,GEX\n"
+        "R112A,QSR1SCALEPLEX,CACATCACA,lab-seahub-alpha,GENE8-R112,R112A,Hash_oligo\n"
     )
     sif_path = tmp_path / "SIF.csv"
     sif_path.write_text(sif_text)
@@ -610,7 +610,7 @@ def test_validate_sif_completeness_no_missing_when_all_assays_present(
     mappings = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
                 "439774-R112A_GEX_QSR-1-7A.json"
             ),
             local_path="/local/path",
@@ -618,7 +618,7 @@ def test_validate_sif_completeness_no_missing_when_all_assays_present(
         ),
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
                 "439774-R112A_hash_oligo_QSR-1-SCALEPLEX-8G.cram"
             ),
             local_path="/local/path2",
@@ -659,7 +659,7 @@ def test_validate_s3_scale_raw_separates_metadata_files() -> None:
     rows = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
                 "439774-R112A_GEX_QSR-1-7A.json"
             ),
             local_path="/local/path1",
@@ -667,7 +667,7 @@ def test_validate_s3_scale_raw_separates_metadata_files() -> None:
         ),
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-35/GENE8-R112/raw/439774/"
+                "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-35/GENE8-R112/raw/439774/"
                 "439774_LibraryInfo.xml"
             ),
             local_path="/local/path2",
@@ -692,12 +692,12 @@ def test_validate_library_assay_consistency_happy_path() -> None:
     lib_assays = {"LIB1": "gex", "LIB1F": "cri"}
     rows = [
         MappingRow(
-            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-28/LIB1_LIB1F/raw/100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
             local_path="/data/100-20260101_0000/100-LIB1-Z0001-ACGT/100-LIB1-Z0001-ACGT_R1.fastq.gz",
             line_num=1,
         ),
         MappingRow(
-            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/101-LIB1_LIB1F_CRI-Z0002-TGCA_R1.fastq.gz",
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-28/LIB1_LIB1F/raw/101-LIB1_LIB1F_CRI-Z0002-TGCA_R1.fastq.gz",
             local_path="/data/101-20260101_0000/101-LIB1F-Z0002-TGCA/101-LIB1F-Z0002-TGCA_R1.fastq.gz",
             line_num=2,
         ),
@@ -713,7 +713,7 @@ def test_validate_library_assay_consistency_detects_assay_mismatch() -> None:
     lib_assays = {"LIB1": "gex", "LIB1F": "cri"}
     rows = [
         MappingRow(
-            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-28/LIB1_LIB1F/raw/100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
             local_path="/data/100-20260101_0000/100-LIB1F-Z0001-ACGT/100-LIB1F-Z0001-ACGT_R1.fastq.gz",
             line_num=1,
         ),
@@ -732,7 +732,7 @@ def test_validate_library_assay_consistency_detects_groupid_mismatch() -> None:
     lib_assays = {"LIB1": "gex", "LIB1F": "cri", "LIB2": "gex", "LIB2F": "cri"}
     rows = [
         MappingRow(
-            s3_path="s3://czi-novogene/proj/NVUS2024101701-28/LIB2_LIB2F/raw/100-LIB2_LIB2F_GEX-Z0001-ACGT_R1.fastq.gz",
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-28/LIB2_LIB2F/raw/100-LIB2_LIB2F_GEX-Z0001-ACGT_R1.fastq.gz",
             local_path="/data/100-20260101_0000/100-LIB1-Z0001-ACGT/100-LIB1-Z0001-ACGT_R1.fastq.gz",
             line_num=1,
         ),
@@ -754,10 +754,7 @@ def test_normalize_sif_groupid_rewrites_space_plus() -> None:
 
 def test_validate_s3_10x_raw_counts_metadata_files() -> None:
     """10x validator should count run-level metadata separately from data files."""
-    base = (
-        "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "NVUS2024101701-29/CD4i_R1L01/raw/"
-    )
+    base = "s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
     rows = [
         MappingRow(
             s3_path=base
@@ -788,7 +785,7 @@ def test_validate_s3_10x_raw_invalid_barcode_and_project_naming() -> None:
     rows = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/Weissman_Scaling/NVUS2024101701-29/CD4i_R1L01/raw/"
+                "s3://czi-novogene/Project_Scaling_Alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
                 "416640-CD4i_R1L01_GEX-Z0238-CTGCAXTATTGTAGAT_S1_L001_R1_001.fastq.gz"
             ),
             local_path="/local/file.fastq.gz",
@@ -809,8 +806,8 @@ def test_validate_s3_10x_raw_group_mismatch_error() -> None:
     rows = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-                "NVUS2024101701-29/CD4i_R1L01/raw/"
+                "s3://czi-novogene/project-scaling-alpha/"
+                "NVUS0000000000-29/CD4i_R1L01/raw/"
                 "416640-CD4i_R1L02_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz"
             ),
             local_path="/local/file.fastq.gz",
@@ -826,10 +823,7 @@ def test_validate_s3_10x_raw_group_mismatch_error() -> None:
 
 def test_find_unmatched_sif_paths_10x_reports_unmatched_groupids() -> None:
     """find_unmatched_sif_paths_10x should separate matched and unmatched GroupIDs."""
-    base = (
-        "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "NVUS2024101701-29/"
-    )
+    base = "s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/"
     # One mapping with GroupID present in SIF, one with GroupID missing from SIF
     rows = [
         MappingRow(
@@ -864,7 +858,7 @@ def test_validate_s3_scale_raw_index_pattern_happy_path() -> None:
     """
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096G_GEX_CTATGCACA.json"
         ),
         local_path="/local/path.json",
@@ -881,11 +875,11 @@ def test_validate_s3_local_consistency_scale_qsr_only_one_side_warning() -> None
     """When QSR numbers appear only on S3 side, warn but do not error."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096G_GEX_QSR-1-7A.json"
         ),
         local_path=(
-            "/ORPROJ1/DATA1/V129/441969-20260220_2053/441969-run/441969-run_7A.json"
+            "/local_root/data1/V129/441969-20260220_2053/441969-run/441969-run_7A.json"
         ),
         line_num=12,
     )
@@ -901,11 +895,11 @@ def test_validate_s3_local_consistency_scale_qsr_partial_overlap_warning() -> No
     """Overlapping but non-identical QSR sets should yield a partial-mismatch warning."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096G_GEX_QSR-1-7A.json"
         ),
         local_path=(
-            "/ORPROJ1/DATA1/V129/441969-20260220_2053/"
+            "/local_root/data1/V129/441969-20260220_2053/"
             "441969-QSR1_QSR-1_QSR-2/441969-QSR1_QSR-1_QSR-2_7A.json"
         ),
         line_num=13,
@@ -992,7 +986,7 @@ def test_validate_s3_seahub_raw_scale_happy_path() -> None:
     """Seahub unified validator with scale family should match SOP form."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441969-R096G_GEX_CTATGCACA.json"
         ),
         local_path="/local/path.json",
@@ -1011,7 +1005,7 @@ def test_validate_s3_seahub_raw_scale_runid_and_gex_scaleplex_mismatch() -> None
     # and GEX assay is incorrectly combined with SCALEPLEX in UG_RT.
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
             "441970-R096A_GEX_QSR-1-SCALEPLEX-8G.cram"
         ),
         local_path="/local/path.cram",
@@ -1029,7 +1023,7 @@ def test_validate_s3_seahub_raw_sci_happy_path() -> None:
     """Seahub unified validator with sci family should match Z-barcode form."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
             "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
         local_path="/local/path",
@@ -1052,7 +1046,7 @@ def test_validate_s3_seahub_raw_sci_invalid_barcode_and_project_naming() -> None
     """
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/Hamazaki-Seahub-BCP/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "s3://czi-novogene/Lab-Seahub-Beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
             "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCXAT.json"
         ),
         local_path="/local/path",
@@ -1072,7 +1066,7 @@ def test_validate_s3_seahub_raw_sci_tracks_group_assays() -> None:
     rows = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
                 "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
             ),
             local_path="/local/a",
@@ -1080,7 +1074,7 @@ def test_validate_s3_seahub_raw_sci_tracks_group_assays() -> None:
         ),
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441908/"
+                "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441908/"
                 "441908-R100D_GEX_hash_oligo-Z0155-CTTCATATCTGAGAT.csv"
             ),
             local_path="/local/b",
@@ -1100,7 +1094,7 @@ def test_validate_s3_seahub_raw_sci_metadata_separated() -> None:
     rows = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
                 "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
             ),
             local_path="/local/data",
@@ -1108,7 +1102,7 @@ def test_validate_s3_seahub_raw_sci_metadata_separated() -> None:
         ),
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
                 "441389_LibraryInfo.xml"
             ),
             local_path="/local/meta",
@@ -1127,8 +1121,8 @@ def test_validate_sif_completeness_seahub_sci(tmp_path: Path) -> None:
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
         "Experiement Identifier,Group Identifier,Assay Type\n"
-        "CHEM3-R100,R100E,Z0028,hamazaki-seahub-bcp,CHEM3-R100,R100E,GEX_hash_oligo\n"
-        "CHEM3-R100,R100D,Z0155,hamazaki-seahub-bcp,CHEM3-R100,R100D,GEX_hash_oligo\n"
+        "CHEM3-R100,R100E,Z0028,lab-seahub-beta,CHEM3-R100,R100E,GEX_hash_oligo\n"
+        "CHEM3-R100,R100D,Z0155,lab-seahub-beta,CHEM3-R100,R100D,GEX_hash_oligo\n"
     )
     sif_path = tmp_path / "SIF_sci.csv"
     sif_path.write_text(sif_text)
@@ -1136,7 +1130,7 @@ def test_validate_sif_completeness_seahub_sci(tmp_path: Path) -> None:
     mappings = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+                "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
                 "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
             ),
             local_path="/local/path",
@@ -1154,11 +1148,11 @@ def test_validate_local_paths_sci_raw_happy_path() -> None:
     """Well-formed sci local path should produce no errors."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
             "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
             "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
             "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
@@ -1175,11 +1169,11 @@ def test_validate_local_paths_sci_raw_single_ug_sci_plex_style() -> None:
     """Single-UG sci-plex local path (RunID-GroupID-UG-Barcode) should match and validate."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-30/CHEM16/raw/441588/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-30/CHEM16/raw/441588/"
             "441588-CHEM16_P07_F3_GEX_hash_oligo-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
         ),
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-754-001/441588-20260218_1318/"
+            "/local_root/newsftp/S3/ultima/CR0-754-001/441588-20260218_1318/"
             "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT/"
             "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
         ),
@@ -1195,9 +1189,9 @@ def test_validate_local_paths_sci_raw_single_ug_sci_plex_style() -> None:
 def test_validate_local_paths_sci_raw_detects_barcode_mismatch() -> None:
     """Mismatched barcode between directory and filename should be flagged."""
     row = MappingRow(
-        s3_path="s3://czi-novogene/proj/NVUS2024101701-32/EXP/raw/441389/441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json",
+        s3_path="s3://czi-novogene/proj/NVUS0000000000-32/EXP/raw/441389/441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json",
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
             "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
             "441389-R100E_Z0028-Z0028-AAAAAAAAAAAAGAT_SNVQ.metric"
         ),
@@ -1215,11 +1209,11 @@ def test_validate_local_paths_sci_raw_detects_runid_groupid_ug_mismatch() -> Non
     """sci local validator should flag runid, groupid and UG inconsistencies."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
             "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441388-20260224_2053/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441388-20260224_2053/"
             "441387-R100F_Z0028-Z0029-CAGACTTGCTGCGAT/"
             "441386-R100G_Z0030-Z0031-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
@@ -1239,11 +1233,11 @@ def test_validate_s3_local_consistency_sci_happy_path() -> None:
     """Consistent S3 and local paths should produce no errors."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
             "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
             "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
             "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
@@ -1260,11 +1254,11 @@ def test_validate_s3_local_consistency_sci_single_ug_sci_plex_style() -> None:
     """Single-UG sci-plex local path should match S3 for consistency check."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-30/CHEM16/raw/441588/"
+            "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-30/CHEM16/raw/441588/"
             "441588-CHEM16_P07_F3_GEX_hash_oligo-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
         ),
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-754-001/441588-20260218_1318/"
+            "/local_root/newsftp/S3/ultima/CR0-754-001/441588-20260218_1318/"
             "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT/"
             "441588-CHEM16_P07_F3-Z0310-CATGACAGTAATGAT_trimmer-stats.csv"
         ),
@@ -1281,11 +1275,11 @@ def test_validate_s3_local_consistency_sci_detects_groupid_mismatch() -> None:
     """Mismatched GroupID between S3 and local should be an error."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
             "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT.json"
         ),
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441389-20260224_2053/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
             "441389-R100F_Z0028-Z0028-CAGACTTGCTGCGAT/"
             "441389-R100F_Z0028-Z0028-CAGACTTGCTGCGAT.json"
         ),
@@ -1303,11 +1297,11 @@ def test_validate_s3_local_consistency_sci_detects_runid_ug_barcode_mismatch() -
     """sci S3/local consistency should flag runid, UG and barcode mismatches."""
     row = MappingRow(
         s3_path=(
-            "s3://czi-novogene/hamazaki-seahub-bcp/NVUS2024101701-32/CHEM3-R100/raw/441389/"
+            "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
             "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric"
         ),
         local_path=(
-            "/ORPROJ1/NEWSFTP/S3/ultima/CR0-789/441388-20260224_2053/"
+            "/local_root/newsftp/S3/ultima/CR0-789/441388-20260224_2053/"
             "441388-R100E_Z0029-Z0029-AAAAAAAAAAAAAAA/"
             "441388-R100E_Z0029-Z0029-AAAAAAAAAAAAAAA_SNVQ.metric"
         ),
@@ -1328,18 +1322,18 @@ def test_validate_s3_local_consistency_sci_detects_runid_ug_barcode_mismatch() -
 # ---------------------------------------------------------------------------
 
 _PROC_S3_NOVO = (
-    "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
-    "e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/"
+    "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
+    "e10_rep1_t13/processed/cellranger/Run_2000-03-10/outs/"
 )
 _PROC_LOCAL_NOVO = (
-    "/ORPROJ1/GB/USER/liguo/Ultima/projects_202602/"
-    "X202SC25127893-Z01-F001_GRCm39-vM37_10xcellranger_v9.0/"
+    "/local/user_001/Ultima/projects_202602/"
+    "X000SC00000000-Z00-F000_GRCm39-vM37_10xcellranger_v9.0/"
     "Data_process/sampleMatrix/e10_rep1_t13/outs/"
 )
 
 _PROC_S3_PSOM = (
-    "s3://czi-psomagen/weissman-perturb/AN00012345/"
-    "CD4i_R1L01/processed/cellranger/Run_2025-02-01/outs/"
+    "s3://czi-psomagen/project-perturb-alpha/AN00000001/"
+    "CD4i_R1L01/processed/cellranger/Run_2000-02-01/outs/"
 )
 _PROC_LOCAL_PSOM = "/data/process/CD4i_R1L01/outs/"
 
@@ -1364,7 +1358,7 @@ def test_validate_s3_10x_processed_novogene_basic() -> None:
     assert res["warnings"] == []
     assert "e10_rep1_t13" in res["group_ids"]
     assert "cellranger" in res["pipelines"]
-    assert "Run_2025-03-10" in res["run_dates"]
+    assert "Run_2000-03-10" in res["run_dates"]
 
 
 def test_validate_s3_10x_processed_psomagen_basic() -> None:
@@ -1385,8 +1379,8 @@ def test_validate_s3_10x_processed_psomagen_basic() -> None:
 def test_validate_s3_10x_processed_invalid_pipeline() -> None:
     """An unexpected pipeline should produce an error."""
     bad_s3 = (
-        "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
-        "e10_rep1_t13/processed/starsolo/Run_2025-03-10/outs/file.h5"
+        "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
+        "e10_rep1_t13/processed/starsolo/Run_2000-03-10/outs/file.h5"
     )
     rows = [
         MappingRow(s3_path=bad_s3, local_path="/local/file.h5", line_num=1),
@@ -1399,7 +1393,7 @@ def test_validate_s3_10x_processed_invalid_pipeline() -> None:
 def test_validate_s3_10x_processed_bad_run_date_format() -> None:
     """A non-standard run date should produce a warning."""
     bad_s3 = (
-        "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+        "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
         "e10_rep1_t13/processed/cellranger/2025-03-10/outs/file.h5"
     )
     rows = [
@@ -1413,8 +1407,8 @@ def test_validate_s3_10x_processed_bad_run_date_format() -> None:
 def test_validate_s3_10x_processed_project_naming_warning() -> None:
     """Non-lowercase project names should produce a warning."""
     bad_s3 = (
-        "s3://czi-novogene/Weissman_Embryo/NVUS2024101701-19/"
-        "e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/file.h5"
+        "s3://czi-novogene/Project_Embryo_Alpha/NVUS0000000000-19/"
+        "e10_rep1_t13/processed/cellranger/Run_2000-03-10/outs/file.h5"
     )
     rows = [
         MappingRow(s3_path=bad_s3, local_path="/local/file.h5", line_num=1),
@@ -1427,7 +1421,7 @@ def test_validate_s3_10x_processed_project_naming_warning() -> None:
 def test_validate_s3_10x_processed_unmatched_path() -> None:
     """A path that doesn't follow the processed pattern produces a warning."""
     bad_s3 = (
-        "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
+        "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
         "e10_rep1_t13/raw/440021-e10_rep1_t13_GEX-Z0035-CTGAATGATCTCGAT.csv"
     )
     rows = [
@@ -1443,16 +1437,16 @@ def test_validate_s3_10x_processed_multiple_group_ids() -> None:
     rows = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
-                "e9_rep1_t1/processed/cellranger/Run_2025-03-10/outs/file.h5"
+                "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
+                "e9_rep1_t1/processed/cellranger/Run_2000-03-10/outs/file.h5"
             ),
             local_path="/local/e9_rep1_t1/outs/file.h5",
             line_num=1,
         ),
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/"
-                "e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/file.h5"
+                "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
+                "e10_rep1_t13/processed/cellranger/Run_2000-03-10/outs/file.h5"
             ),
             local_path="/local/e10_rep1_t13/outs/file.h5",
             line_num=2,
@@ -1501,12 +1495,12 @@ def test_s3_local_consistency_10x_processed_group_id_normalized_match() -> None:
     rows = [
         MappingRow(
             s3_path=(
-                "s3://czi-novogene/test-project/NVUS2024101701-43/"
-                "fbm_1-2/processed/cellranger/Run_2026-03-31/outs/"
+                "s3://czi-novogene/test-project/NVUS0000000000-43/"
+                "fbm_1-2/processed/cellranger/Run_2001-03-31/outs/"
                 "filtered_feature_bc_matrix.h5"
             ),
             local_path=(
-                "/ORPROJ1/GB/USER/pennyyang/projects_3_2026/X202SC26024624-Z01-F001/"
+                "/local/user_002/projects_3_2026/X000SC00000000-Z00-F000/"
                 "Data_process/sampleMatrix/fbm_1_2/outs/filtered_feature_bc_matrix.h5"
             ),
             line_num=1,

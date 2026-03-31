@@ -34,8 +34,8 @@ QA_FIXTURES_DIR = os.path.join(FIXTURES_DIR, "qa")
 
 class TestIsOrderLevelProcessedFolder:
     def test_processed_under_order(self):
-        o = "ny-biohub-califano/NVUS2024101701-17/"
-        g = "ny-biohub-califano/NVUS2024101701-17/processed/"
+        o = "project-cityhub-alpha/NVUS0000000000-17/"
+        g = "project-cityhub-alpha/NVUS0000000000-17/processed/"
         assert is_order_level_processed_folder(o, g) is True
 
     def test_raw_under_order_not_special_cased(self):
@@ -53,22 +53,22 @@ class TestIsOrderLevelProcessedFolder:
 
 class TestIsValidCellrangerRunDirName:
     def test_iso_date_only(self):
-        assert is_valid_cellranger_run_dir_name("Run_2025-01-10") is True
+        assert is_valid_cellranger_run_dir_name("Run_2000-01-10") is True
 
     def test_iso_date_2026_with_suffix(self):
-        assert is_valid_cellranger_run_dir_name("Run_2026-02-28_biohub") is True
+        assert is_valid_cellranger_run_dir_name("Run_2001-02-28_biohub") is True
 
     def test_underscore_separated_date(self):
         assert is_valid_cellranger_run_dir_name("Run_2025_12_31") is True
 
     def test_rejects_wrong_month(self):
-        assert is_valid_cellranger_run_dir_name("Run_2025-13-01") is False
+        assert is_valid_cellranger_run_dir_name("Run_2000-13-01") is False
 
     def test_rejects_no_run_prefix(self):
         assert is_valid_cellranger_run_dir_name("2025-01-10") is False
 
     def test_rejects_path_with_slash(self):
-        assert is_valid_cellranger_run_dir_name("Run_2025-01-10/extra") is False
+        assert is_valid_cellranger_run_dir_name("Run_2000-01-10/extra") is False
 
 
 class TestNormalizeRawAssay:
@@ -94,14 +94,14 @@ class TestResolveQaRunContext:
         ctx = resolve_qa_run_context(
             data_source="s3",
             raw_assay="10x",
-            s3_path="s3://czi-novogene/myproj/NVUS2024101701-01/",
+            s3_path="s3://czi-novogene/myproj/NVUS0000000000-01/",
         )
         assert ctx.bucket == "czi-novogene"
         assert ctx.provider == "novogene"
         assert ctx.proj == "myproj"
-        assert ctx.order == "NVUS2024101701-01"
-        assert ctx.output_label == "NVUS2024101701-01"
-        assert ctx.listing_prefix == "myproj/NVUS2024101701-01/"
+        assert ctx.order == "NVUS0000000000-01"
+        assert ctx.output_label == "NVUS0000000000-01"
+        assert ctx.listing_prefix == "myproj/NVUS0000000000-01/"
 
     def test_s3_from_components(self):
         ctx = resolve_qa_run_context(
@@ -118,7 +118,7 @@ class TestResolveQaRunContext:
         ctx = resolve_qa_run_context(
             data_source="s3",
             raw_assay="10x",
-            s3_path="s3://czi-novogene/myproj/NVUS2024101701-01/",
+            s3_path="s3://czi-novogene/myproj/NVUS0000000000-01/",
             run_label="my_run",
         )
         assert ctx.output_label == "my_run"
@@ -164,7 +164,7 @@ class TestParseRawFilename:
     def test_10x_gex_r1_fastq(self):
         """GEX R1 FASTQ file from a 10x run."""
         path = (
-            "lange-human-embryogenesis/AN00028026/Br1_A5/raw/"
+            "project-devdelta/AN00000003/Br1_A5/raw/"
             "439047-Br1_A5_GEX-Z0273-CTGCATGTTGCTGAGAT_S1_L001_R1_001.fastq.gz"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -184,7 +184,7 @@ class TestParseRawFilename:
     def test_10x_cri_r2_fastq(self):
         """CRI R2 FASTQ file from a 10x run."""
         path = (
-            "marson-macrophages-tregs-pilot/AN00027127/Treg_L01/raw/"
+            "project-immune-gamma/AN00000002/Treg_L01/raw/"
             "438523-Treg_L01_CRI-Z0012-CTGCCATAGCACGAT_S1_L001_R2_001.fastq.gz"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -198,7 +198,7 @@ class TestParseRawFilename:
     def test_10x_gex_r2_json(self):
         """GEX R2 JSON metadata file (group name contains underscore)."""
         path = (
-            "lange-human-embryogenesis/AN00028026/Br1_A5/raw/"
+            "project-devdelta/AN00000003/Br1_A5/raw/"
             "439047-Br1_A5_GEX-Z0273-CTGCATGTTGCTGAGAT_S1_L001_R2_001.json"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -212,7 +212,7 @@ class TestParseRawFilename:
     def test_10x_gex_unmatched_cram(self):
         """GEX unmatched CRAM — suffix after barcode is _unmatched.cram."""
         path = (
-            "marson-macrophages-tregs-pilot/AN00027127/Treg_L01/raw/"
+            "project-immune-gamma/AN00000002/Treg_L01/raw/"
             "438523-Treg_L01_GEX-Z0011-CACGCACTGCCAGAT_unmatched.cram"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -232,7 +232,7 @@ class TestParseRawFilename:
     def test_10x_atac_i2_fastq(self):
         """ATAC I2 FASTQ — assay ATAC, group has no underscore."""
         path = (
-            "ucsf-killifish-atlas/NVUS2024101701-20/CH13/raw/"
+            "project-killifish/NVUS0000000000-20/CH13/raw/"
             "439048-CH13_ATAC-Z0050-CACATGGCAGCACAGAT_S1_L001_I2_001.fastq.gz"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -245,14 +245,14 @@ class TestParseRawFilename:
 
     def test_10x_gex_novogene_style_path(self):
         """Parse 10x GEX path (Novogene style from multiome_raw)."""
-        path = "czi-novogene/ucsf-killifish-atlas/NVUS2024101701-20/CH13/raw/438586-CH13_GEX-Z0005-CATGTATCCTCTGAT.csv"
+        path = "czi-novogene/project-killifish/NVUS0000000000-20/CH13/raw/438586-CH13_GEX-Z0005-CATGTATCCTCTGAT.csv"
         result = parse_raw_filename(path, "10x")
         assert result == ("438586", "CH13", "GEX", "Z0005", "CATGTATCCTCTGAT")
 
     def test_10x_hyphenated_group_gex_csv(self):
         """10x parser accepts hyphens inside group IDs."""
         path = (
-            "wang-tetrapod-atlas/NVUS2024101701-43/fbf_1-1/raw/"
+            "project-tetrapod/NVUS0000000000-43/fbf_1-1/raw/"
             "440261-fbf_1-1_GEX-Z0052-CTATGCCACAGCATGAT.csv"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -314,7 +314,7 @@ class TestParseRawFilename:
     def test_sci_plex_gex_hash_oligo_cram(self):
         """sci_plex: GEX_hash_oligo CRAM in a run subdirectory."""
         path = (
-            "hamazaki-seahub-bcp/NVUS2024101701-09/R097/raw/436012/"
+            "lab-seahub-beta/NVUS0000000000-09/R097/raw/436012/"
             "436012-R097C_GEX_hash_oligo-Z0002-CATGTGCAGCCATCGAT.cram"
         )
         assert parse_raw_filename(path, "sci_plex") == (
@@ -328,7 +328,7 @@ class TestParseRawFilename:
     def test_sci_plex_trimmer_stats_dash_in_suffix(self):
         """trimmer-stats.csv has a dash in suffix; barcode extraction still correct."""
         path = (
-            "hamazaki-seahub-bcp/NVUS2024101701-09/R097/raw/436012/"
+            "lab-seahub-beta/NVUS0000000000-09/R097/raw/436012/"
             "436012-R097C_GEX_hash_oligo-Z0046-CTCTCGCATGCAATGAT_trimmer-stats.csv"
         )
         assert parse_raw_filename(path, "sci_plex") == (
@@ -348,7 +348,7 @@ class TestParseRawFilename:
     def test_scale_gex_cram_real_path(self):
         """Scale GEX CRAM — group from path, assay from regex, ug from filename."""
         path = (
-            "trapnell-seahub-bcp/NVUS2024101701-04/RNA3_098/raw/426971/"
+            "lab-seahub-alpha/NVUS0000000000-04/RNA3_098/raw/426971/"
             "426971-RNA3-098C_GEX_QSR-7_10C.cram"
         )
         run, group, assay, ug, barcode = parse_raw_filename(path, "scale")
@@ -361,7 +361,7 @@ class TestParseRawFilename:
     def test_scale_hash_oligo_cram_real_path(self):
         """Scale hash_oligo CRAM — assay detected by hash_oligo regex."""
         path = (
-            "trapnell-seahub-bcp/NVUS2024101701-04/RNA3_098/raw/426971/"
+            "lab-seahub-alpha/NVUS0000000000-04/RNA3_098/raw/426971/"
             "426971-RNA3-098C_hash_oligo_QSR-7-SCALEPLEX_1E.cram"
         )
         run, group, assay, ug, barcode = parse_raw_filename(path, "scale")
@@ -374,7 +374,7 @@ class TestParseRawFilename:
     def test_scale_group_comes_from_path_not_filename(self):
         """Group for scale comes from path[2], independent of filename."""
         path = (
-            "trapnell-seahub-bcp/NVUS2024101701-04/RNA3_098/raw/426971/"
+            "lab-seahub-alpha/NVUS0000000000-04/RNA3_098/raw/426971/"
             "426971-RNA3-098C_GEX_QSR-7_10C.cram"
         )
         _, group, _, _, _ = parse_raw_filename(path, "scale")
@@ -502,9 +502,7 @@ class TestExtractRunIdFromMergedTrimmerPath:
         """10x: merged files under order/; run_id from filename prefix."""
         path = "proj/order/438761_merged_trimmer-failure_codes.csv"
         assert extract_run_id_from_merged_trimmer_path(path) == "438761"
-        path2 = (
-            "czi-novogene/weissman/NVUS2024101701-29/438761_merged_trimmer-stats.csv"
-        )
+        path2 = "czi-novogene/project-persona/NVUS0000000000-29/438761_merged_trimmer-stats.csv"
         assert extract_run_id_from_merged_trimmer_path(path2) == "438761"
 
     def test_invalid_or_non_merged_returns_none(self):
