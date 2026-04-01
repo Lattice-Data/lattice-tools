@@ -787,7 +787,7 @@ def validate_scale_cb_tag(read_metadata: dict[str, Any]) -> list[str]:
     for filename, metadata in read_metadata.items():
         if not filename.endswith(".cram"):
             continue
-        if "-unmatched.cram" in filename:
+        if "-unmatched.cram" in filename or "_unmatched.cram" in filename:
             continue
         cb_tag = metadata.get("cb_tag")
         if cb_tag is not True:

@@ -218,6 +218,7 @@ class QADataGatherer:
             rf.endswith(".cram-metadata.json")
             and self.raw_assay == "scale"
             and "-unmatched.cram-metadata.json" not in rf
+            and "_unmatched.cram-metadata.json" not in rf
         ):
             self._download_metadata_json(rf)
         elif rf.endswith(
