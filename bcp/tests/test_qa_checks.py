@@ -446,6 +446,161 @@ class TestCheckExtraRawFiles:
         extra = check_extra_raw_files(all_raw, raw_found, "10x")
         assert f"{base}_unknown_suffix.xyz" in extra
 
+    # --- Scale-specific extra-file tests ---
+
+    _SCALE_BASE = "proj/NVUS123/GENE9-R115/raw/440115"
+
+    def test_scale_per_rt_gex_cram_not_extra(self):
+        """Per-RT GEX CRAM files are recognized as known Scale files."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_gex_csv_not_extra(self):
+        """Per-RT GEX CSV files are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_gex_json_not_extra(self):
+        """Per-RT GEX JSON files are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.json"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_hash_oligo_cram_not_extra(self):
+        """Per-RT hash_oligo CRAM files are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_double_digit_well_not_extra(self):
+        """Per-RT files with double-digit row (e.g. 12H) are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-12H.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_trimmer_failure_codes_not_extra(self):
+        """Aggregate trimmer-failure-codes.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-trimmer-failure-codes.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_trimmer_stats_not_extra(self):
+        """Aggregate trimmer-stats.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-trimmer-stats.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_unmatched_cram_not_extra(self):
+        """Aggregate unmatched.cram is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-unmatched.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_unmatched_csv_not_extra(self):
+        """Aggregate unmatched.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-unmatched.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_unmatched_json_not_extra(self):
+        """Aggregate unmatched.json is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-unmatched.json"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_hash_oligo_aggregate_trimmer_not_extra(self):
+        """hash_oligo aggregate trimmer files are recognized."""
+        raw = [
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-failure-codes.csv",
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-stats.csv",
+        ]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_hash_oligo_aggregate_unmatched_not_extra(self):
+        """hash_oligo aggregate unmatched files are recognized."""
+        raw = [
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.cram",
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.csv",
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.json",
+        ]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_wafer_sequencing_info_not_extra(self):
+        """Wafer-level SequencingInfo.json is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115_SequencingInfo.json"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_wafer_library_info_not_extra(self):
+        """Wafer-level LibraryInfo.xml is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115_LibraryInfo.xml"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_merged_trimmer_failure_codes_not_extra(self):
+        """Merged trimmer-failure_codes.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/merged_trimmer-failure_codes.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_merged_trimmer_stats_not_extra(self):
+        """Merged trimmer-stats.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/merged_trimmer-stats.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_cram_metadata_sidecar_not_extra(self):
+        """CRAM metadata sidecar is handled by existing sidecar logic."""
+        cram = f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.cram"
+        sidecar = f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.cram-metadata.json"
+        assert check_extra_raw_files([cram, sidecar], [], "scale") == []
+
+    def test_scale_unknown_extension_is_extra(self):
+        """Unrecognized file extension IS flagged as extra."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.bam"]
+        extra = check_extra_raw_files(raw, [], "scale")
+        assert len(extra) == 1
+
+    def test_scale_unknown_filename_is_extra(self):
+        """Completely unrecognized filename IS flagged as extra."""
+        raw = [f"{self._SCALE_BASE}/random_unknown_file.txt"]
+        extra = check_extra_raw_files(raw, [], "scale")
+        assert len(extra) == 1
+
+    def test_scale_comprehensive_wafer(self):
+        """A realistic set of Scale raw files: nothing should be extra."""
+        base = self._SCALE_BASE
+        files = [
+            f"{base}/440115-R115H_GEX_QSR-8-1A.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-1A.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-1A.json",
+            f"{base}/440115-R115H_GEX_QSR-8-1A.cram-metadata.json",
+            f"{base}/440115-R115H_GEX_QSR-8-12H.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-12H.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-12H.json",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.cram",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.json",
+            f"{base}/440115-R115H_GEX_QSR-8-trimmer-failure-codes.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-trimmer-stats.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.json",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.cram-metadata.json",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-failure-codes.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-stats.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.cram",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.json",
+            f"{base}/440115_SequencingInfo.json",
+            f"{base}/440115_LibraryInfo.xml",
+            f"{base}/merged_trimmer-failure_codes.csv",
+            f"{base}/merged_trimmer-stats.csv",
+        ]
+        assert check_extra_raw_files(files, [], "scale") == []
+
+    def test_scale_comprehensive_wafer_with_unknown_file(self):
+        """A realistic set plus one unknown file: only the unknown is extra."""
+        base = self._SCALE_BASE
+        unknown = f"{base}/unexpected_report.pdf"
+        files = [
+            f"{base}/440115-R115H_GEX_QSR-8-1A.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-trimmer-failure-codes.csv",
+            f"{base}/440115_SequencingInfo.json",
+            f"{base}/merged_trimmer-failure_codes.csv",
+            unknown,
+        ]
+        extra = check_extra_raw_files(files, [], "scale")
+        assert extra == [unknown]
+
 
 class TestValidateProcessedGroup:
     """Tests for validate_processed_group."""

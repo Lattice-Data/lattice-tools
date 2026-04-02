@@ -10,7 +10,10 @@ import logging
 from typing import Any
 
 from qa_constants import (
+    SCALE_AGGREGATE_FILE_RE,
+    SCALE_RT_FILE_RE,
     SCALE_SAMPLES_FORBIDDEN_COLUMNS,
+    SCALE_WAFER_MISC_RE,
     SCALE_WORKFLOW_REQUIRED_PARAMS,
 )
 from qa_mods import (
@@ -429,6 +432,32 @@ def check_expected_raw_files(
     return all_good, raw_lost, raw_found
 
 
+def _is_known_scale_raw_file(filepath: str) -> bool:
+    """Return True if *filepath* matches a recognised Scale raw file pattern.
+
+    Scale filenames don't follow the ``{beginning}{suffix}`` layout used by
+    10x / sci assays, so they are validated here with compiled regexes
+    (see ``qa_constants.SCALE_*_RE``).
+
+    Recognised categories:
+    * Per-RT files  – one per reaction tube / well (e.g. ``-5B.cram``)
+    * Aggregate files – trimmer stats, failure codes, unmatched reads
+    * Wafer-level misc – ``SequencingInfo.json``, ``LibraryInfo.xml``,
+      ``merged_trimmer-*.csv``
+
+    ``.cram-metadata.json`` sidecars are handled separately by the existing
+    metadata-sidecar logic in :func:`check_extra_raw_files`.
+    """
+    filename = filepath.split("/")[-1]
+    if SCALE_RT_FILE_RE.search(filename):
+        return True
+    if SCALE_AGGREGATE_FILE_RE.search(filename):
+        return True
+    if SCALE_WAFER_MISC_RE.match(filename):
+        return True
+    return False
+
+
 def check_extra_raw_files(
     all_raw_files: list[str],
     raw_found: list[str],
@@ -451,6 +480,8 @@ def check_extra_raw_files(
         if f.endswith("-metadata.json") and (
             f.replace("-metadata.json", "") in all_raw_set
         ):
+            continue
+        if raw_assay == "scale" and _is_known_scale_raw_file(f):
             continue
         if (raw_assay in raw_optional or raw_assay == "10x_viral_ORF") and (
             optional_endings
