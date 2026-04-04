@@ -273,13 +273,14 @@ raw_optional = {
 # ---------------------------------------------------------------------------
 
 # Per-RT file: well position (row 1-12, column A-H) before the extension.
-# Matches e.g. -5B.cram, -12H.csv, -1A.json  (GEX and hash_oligo alike).
-SCALE_RT_FILE_RE = re.compile(r"-\d{1,2}[A-H]\.(cram|csv|json)$")
+# Production uses underscore (e.g. _5B.cram); some paths use hyphen (-12H.csv).
+SCALE_RT_FILE_RE = re.compile(r"[_-]\d{1,2}[A-H]\.(cram|csv|json)$")
 
 # Aggregate file produced per sublibrary: trimmer stats, trimmer failure codes,
-# and unmatched reads.
+# and unmatched reads. Prefix may be _ or -; failure codes file may use
+# trimmer-failure-codes or trimmer-failure_codes (underscore before "codes").
 SCALE_AGGREGATE_FILE_RE = re.compile(
-    r"-(trimmer-failure-codes\.csv|trimmer-stats\.csv"
+    r"[_-](trimmer-failure-codes\.csv|trimmer-failure_codes\.csv|trimmer-stats\.csv"
     r"|unmatched\.(cram|csv|json))$"
 )
 

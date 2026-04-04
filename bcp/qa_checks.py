@@ -440,7 +440,7 @@ def _is_known_scale_raw_file(filepath: str) -> bool:
     (see ``qa_constants.SCALE_*_RE``).
 
     Recognised categories:
-    * Per-RT files  – one per reaction tube / well (e.g. ``-5B.cram``)
+    * Per-RT files  – one per reaction tube / well (e.g. ``_5B.cram`` or ``-5B.cram``)
     * Aggregate files – trimmer stats, failure codes, unmatched reads
     * Wafer-level misc – ``SequencingInfo.json``, ``LibraryInfo.xml``,
       ``merged_trimmer-*.csv``

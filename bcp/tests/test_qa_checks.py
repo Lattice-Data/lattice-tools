@@ -475,6 +475,14 @@ class TestCheckExtraRawFiles:
         raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-12H.cram"]
         assert check_extra_raw_files(raw, [], "scale") == []
 
+    def test_scale_per_rt_underscore_well_not_extra(self):
+        """Production-style per-RT names use underscore before well (e.g. _5B)."""
+        raw = [
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_5B.cram",
+            f"{self._SCALE_BASE}/426971-RNA3-098C_hash_oligo_QSR-7-SCALEPLEX_5B.json",
+        ]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
     def test_scale_aggregate_trimmer_failure_codes_not_extra(self):
         """Aggregate trimmer-failure-codes.csv is recognized."""
         raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-trimmer-failure-codes.csv"]
@@ -483,6 +491,15 @@ class TestCheckExtraRawFiles:
     def test_scale_aggregate_trimmer_stats_not_extra(self):
         """Aggregate trimmer-stats.csv is recognized."""
         raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-trimmer-stats.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_trimmer_failure_codes_underscore_form_not_extra(self):
+        """Production uses _trimmer-failure_codes.csv (underscore before codes)."""
+        raw = [
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_trimmer-failure_codes.csv",
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_trimmer-stats.csv",
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_unmatched.cram",
+        ]
         assert check_extra_raw_files(raw, [], "scale") == []
 
     def test_scale_aggregate_unmatched_cram_not_extra(self):
