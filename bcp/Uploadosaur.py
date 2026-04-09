@@ -195,8 +195,54 @@ def split_setter(file_list, paired = False):
             if file.size >= split_amount:
                 file.split_amount = -(-file.size // split_amount)
     return file_list
-        
 
+def check_if_downloaded(file_list, download_folder, paired = False):
+    """
+    Function to determine if files, including split files, have already been downloaded and are in the upload folder
+    """
+    if paired:
+        for pair in file_list.copy():
+            if pair.file_1.split_amount:
+                file_1_split_names = [(pair.file_1.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz')
+                                        for i in range(0,pair.file_1.split_amount)]
+                file_2_split_names = [(pair.file_2.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz')
+                                        for i in range(0,pair.file_2.split_amount)]
+                file_1_exists = all(os.path.isfile(os.path.join(download_folder, f)) for f in file_1_split_names)
+                file_2_exists = all(os.path.isfile(os.path.join(download_folder, f)) for f in file_2_split_names)
+                if file_1_exists and file_2_exists: # If only one file is present, still re-download, because otherwise split number might not be same
+                    print(f'All split files for paired files {pair.file_1.file_name} and {pair.file_2.file_name} '
+                          f'already present in {download_folder}, skipping download')
+                    logging.info(f'All split files for paired files {pair.file_1.file_name} and {pair.file_2.file_name} '
+                                 f'already present in {download_folder}, skipping download')
+                    file_list.remove(pair)
+            else:
+                file_1_exists = ((os.path.exists(os.path.join(download_folder, pair.file_1.file_name))) and 
+                                 (os.path.getsize(os.path.join(download_folder, pair.file_1.file_name)) == pair.file_1.size))
+                file_2_exists = ((os.path.exists(os.path.join(download_folder, pair.file_2.file_name))) and 
+                                 (os.path.getsize(os.path.join(download_folder, pair.file_2.file_name)) == pair.file_2.size))
+                if file_1_exists and file_2_exists: # If only one file is present, still re-download
+                    print(f'Paired files {pair.file_1.file_name} and {pair.file_2.file_name} '
+                          f'already present in {download_folder}, skipping download')
+                    logging.info(f'Paired files {pair.file_1.file_name} and {pair.file_2.file_name} '
+                                 f'already present in {download_folder}, skipping download')
+                    file_list.remove(pair)
+        return file_list
+
+    else:
+        for file in file_list.copy():
+            if file.split_amount:
+                split_file_names = [(file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz')
+                                    for i in range(0,file.split_amount)]
+                if all(os.path.isfile(os.path.join(download_folder, f)) for f in split_file_names): # Check if all the splitfiles are present in the final folder
+                    print(f'All split files for {file.file_name} already present in {download_folder}, skipping download')
+                    logging.info(f'All split files for {file.file_name} already present in {download_folder}, skipping download')
+                    file_list.remove(file)
+            else:
+                if ((os.path.exists(os.path.join(download_folder, file.file_name))) and (os.path.getsize(os.path.join(download_folder, file.file_name)) == file.size)):
+                    logging.info(f'{file.file_name} already present in {download_folder}, skipping download')
+                    print(f'{file.file_name} already present in {download_folder}, skipping download')
+                    file_list.remove(file)
+        return file_list
 
 async def splitter(original_file, download_folder, split_folder, sem):
     """
@@ -214,10 +260,10 @@ async def splitter(original_file, download_folder, split_folder, sem):
         print(f"Error: Original file '{original_file.file_name}' not found in '{download_folder}'")
         logging.info(f"Error: Original file '{original_file.file_name}' not found in '{download_folder}'")
     except Exception as e:
-        print(f"An error occurred in moving '{original_file.file_name}' from download folder ",
-        f"'{download_folder}' to split folder '{split_folder}': {e}")
-        logging.info(f"An error occurred in moving '{original_file.file_name}' from download folder ",
-        f"'{download_folder}' to split folder '{split_folder}': {e}")
+        print(f"An error occurred in moving '{original_file.file_name}' from download folder "
+              f"'{download_folder}' to split folder '{split_folder}': {e}")
+        logging.info(f"An error occurred in moving '{original_file.file_name}' from download folder "
+                     f"'{download_folder}' to split folder '{split_folder}': {e}")
     output_files = [(download_folder + original_file.file_name.split('.')[0] + '_split' + str(i+1) + '.fastq.gz') for i in range(0,original_file.split_amount)]
     split_command = ['fastqsplitter','-c', '7', '-t', '3', '-i', split_folder + original_file.file_name]
     for o in output_files:
@@ -237,12 +283,18 @@ async def splitter(original_file, download_folder, split_folder, sem):
         if return_code == 0:
             print(f'{original_file.file_name} split successfully')
             logging.info(f'{original_file.file_name} split successfully')
+            # Remove original file from download folder in case it's present (leftover from failed earlier run)
+            if os.path.isfile(os.path.join(download_folder, original_file.file_name)):
+                os.remove(os.path.join(download_folder, original_file.file_name))
             return output_files
         else:
             print(f'Failed to split {original_file.file_name}')
             print(f'Error output:\n{stderr.decode().strip()}')
             logging.error(f'Failed to split {original_file.file_name}')
             logging.error(f'Error output:\n{stderr.decode().strip()}')
+            # Remove leftover original file from the split folder
+            if os.path.isfile(os.path.join(split_folder, original_file.file_name)):
+                os.remove(os.path.join(split_folder, original_file.file_name))
             return original_file.file_name
 
 
@@ -250,47 +302,40 @@ async def downloader(file, download_folder, sem):
     """
     Asynchronous function that downloads file from S3, checking that downloaded file size matches expected
     Returns same SingleFastQFile object that was input if download was successful, None if not.
-
-    Prior to downloading, checks for presence of file locally, if present skips.
     """
     
     async with sem:
-        if ((os.path.exists(download_folder + file.file_name)) and (os.path.getsize(download_folder + file.file_name)) == file.size):
-            logging.info(f'{file.file_name} already present in {download_folder}, skipping download')
-            print(f'{file.file_name} already present in {download_folder}, skipping download')
-            return file
-        else:
-            logging.info(f'Starting download of {file.file_name} to {download_folder}')
-            print(f'Starting download of {file.file_name} to {download_folder}')
-            session = aioboto3.Session()
-            bucket_name = file.S3_Path.split('/',1)[0]
-            key = file.S3_Path.split('/',1)[1]
-            async with session.client("s3") as s3_client:
-                try:
-                    await s3_client.download_file(bucket_name, key, (download_folder + file.file_name))
-                    size_result = subprocess.run(['ls', '-l', download_folder + file.file_name],capture_output=True,text=True, check=True)
-                    if int(size_result.stdout.split()[4]) == int(file.size):
-                        logging.info(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {download_folder + file.file_name}")
-                        print(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {download_folder + file.file_name}")
-                        return file
-                    else:
-                        logging.error(f'File sizes between S3 {file.size} and ',
-                        f'local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
-                        print(f'File sizes between S3 {file.size} and local ',
-                        f'{size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
-                        return file.file_name
-                except ClientError as e:
-                    logging.error(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
-                    print(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
+        logging.info(f'Starting download of {file.file_name} to {download_folder}')
+        print(f'Starting download of {file.file_name} to {download_folder}')
+        session = aioboto3.Session()
+        bucket_name = file.S3_Path.split('/',1)[0]
+        key = file.S3_Path.split('/',1)[1]
+        async with session.client("s3") as s3_client:
+            try:
+                await s3_client.download_file(bucket_name, key, (download_folder + file.file_name))
+                size_result = subprocess.run(['ls', '-l', download_folder + file.file_name],capture_output=True,text=True, check=True)
+                if int(size_result.stdout.split()[4]) == int(file.size):
+                    logging.info(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {download_folder + file.file_name}")
+                    print(f"Download Completed successfully: {'s3://' + file.S3_Path} -> {download_folder + file.file_name}")
+                    return file
+                else:
+                    logging.error(f'File sizes between S3 {file.size} and ',
+                    f'local {size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
+                    print(f'File sizes between S3 {file.size} and local ',
+                    f'{size_result.stdout.split()[4]} do not match for file {file.S3_Path}')
                     return file.file_name
-                except BotoCoreError as e:
-                    logging.error(f'BotoCoreError for file {file.S3_Path} during download: {e}')
-                    print(f'BotoCoreError for file {file.S3_Path} during download: {e}')
-                    return file.file_name
-                except Exception as e:
-                    logging.error(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
-                    print(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
-                    return file.file_name
+            except ClientError as e:
+                logging.error(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
+                print(f'An AWS error occured for file {file.S3_Path} during download: {e.response.get("Error", {}).get("Code")}')
+                return file.file_name
+            except BotoCoreError as e:
+                logging.error(f'BotoCoreError for file {file.S3_Path} during download: {e}')
+                print(f'BotoCoreError for file {file.S3_Path} during download: {e}')
+                return file.file_name
+            except Exception as e:
+                logging.error(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
+                print(f'Some sort of AWS Error occured for file {file.S3_Path} during download: {e}')
+                return file.file_name
 
 
 def uploader(ftp_server_info, download_folder):
@@ -371,9 +416,11 @@ def main(aspera_info, csv_file, skip_download):
         Single_File_List, Paired_File_List = parse_file_list(csv_file)
         if Single_File_List:
             Single_File_List = split_setter(Single_File_List)
+            Single_File_List = check_if_downloaded(Single_File_List, aspera_info.folder)
             Full_File_List.extend(Single_File_List)
         if Paired_File_List:
             Paired_File_List = split_setter(Paired_File_List, paired=True)
+            Paired_File_List = check_if_downloaded(Paired_File_List, aspera_info.folder, paired=True)
             for pair in Paired_File_List:
                 Full_File_List.append(pair.file_1)
                 Full_File_List.append(pair.file_2)# Breaking up pairs now that have same split amounts
