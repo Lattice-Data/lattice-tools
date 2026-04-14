@@ -4,7 +4,7 @@ import os
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import Callable, Iterable, List, Tuple
 
 from .constants import (
     ASSAYS_BY_FAMILY,
@@ -167,6 +167,130 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
         "matched": matched,
         "group_assays": dict(group_assays),
         "run_ids": run_ids,
+    }
+
+
+# Illumina-style FASTQ filename tail (BCL2fastq / Cell Ranger mkfastq naming).
+_ILLUMINA_FASTQ_TAIL_RE: re.Pattern[str] = re.compile(
+    r"^(?P<prefix>.+)_S(?P<s>\d+)_L(?P<lane>\d+)_(?P<read>R[123]|I[12])_(?P<seg>\d+)"
+    r"\.fastq\.gz$"
+)
+
+
+def validate_10x_raw_fastq_read_mates(
+    provider: str, mappings: Iterable[MappingRow]
+) -> dict:
+    """
+    For 10x raw Novogene **or** Psomagen mappings, ensure FASTQs are not single-ended.
+
+    Only rows that match the 10x raw SOP and whose basename matches
+    ``_S*_L*_(R[123]|I[12])_*.fastq.gz`` are checked. Downsampled
+    ``*_sample.fastq.gz`` files are skipped. FASTQs without the Illumina tail
+    (e.g. legacy ``..._R1.fastq.gz``) are skipped and reported in aggregate.
+
+    Rules **per** (GroupID, RunID, assay, UG, barcode, sample index S, lane L,
+    and filename prefix before ``_S``):
+
+    - **ATAC:** must include ``R1``, ``R2``, and at least one of ``I2`` or ``R3``.
+    - **All other 10x assays** (GEX, CRI, ``viral_ORF``, …): must be exactly
+      ``R1`` and ``R2`` (no extra index/read types in v1).
+    """
+    provider = _validate_provider(provider)
+    s3_regex, _ = _get_10x_s3_regex(provider)
+
+    groups: dict[tuple[str, str, str, str, str, str, str, str], set[str]] = defaultdict(
+        set
+    )
+    example_row: dict[tuple[str, str, str, str, str, str, str, str], MappingRow] = {}
+    skipped_non_illumina = 0
+    non_illumina_example_paths: list[str] = []
+    skipped_non_fastq = 0
+
+    for row in mappings:
+        if _is_run_metadata(row.s3_path):
+            continue
+        base = os.path.basename(row.s3_path)
+        if not base.endswith(".fastq.gz"):
+            skipped_non_fastq += 1
+            continue
+        if base.endswith("_sample.fastq.gz"):
+            continue
+
+        m10 = s3_regex.match(row.s3_path)
+        if not m10:
+            continue
+
+        ill = _ILLUMINA_FASTQ_TAIL_RE.match(base)
+        if not ill:
+            skipped_non_illumina += 1
+            if len(non_illumina_example_paths) < 3:
+                non_illumina_example_paths.append(row.s3_path)
+            continue
+
+        gd = m10.groupdict()
+        assay_l = gd["assay"].lower()
+        key = (
+            gd["groupid"],
+            gd["runid"],
+            assay_l,
+            gd["ug"],
+            gd["barcode"],
+            ill.group("s"),
+            ill.group("lane"),
+            ill.group("prefix"),
+        )
+        groups[key].add(ill.group("read"))
+        if key not in example_row:
+            example_row[key] = row
+
+    errors: List[dict] = []
+    warnings: List[dict] = []
+
+    if skipped_non_illumina:
+        ex = "; ".join(non_illumina_example_paths) if non_illumina_example_paths else ""
+        warnings.append(
+            {
+                "type": "fastq_mate_check_skipped_non_illumina",
+                "detail": (
+                    f"{skipped_non_illumina} FASTQ path(s) match 10x raw SOP but lack "
+                    "standard Illumina tail "
+                    "`_S*_L*_(R1|R2|R3|I1|I2)_*.fastq.gz` — read-mate rules not applied. "
+                    f"Examples: {ex}"
+                ),
+            }
+        )
+
+    for key, reads in sorted(groups.items()):
+        assay_l = key[2]
+        if assay_l == "atac":
+            expected_desc = "R1+R2+(I2|R3)"
+            ok = "R1" in reads and "R2" in reads and bool(reads & {"I2", "R3"})
+        else:
+            expected_desc = "R1+R2 only"
+            ok = reads == {"R1", "R2"}
+
+        if not ok:
+            row0 = example_row[key]
+            obs = ",".join(sorted(reads))
+            errors.append(
+                {
+                    "type": "fastq_incomplete_reads",
+                    "line": row0.line_num,
+                    "s3_path": row0.s3_path,
+                    "detail": (
+                        f"Incomplete FASTQ read set for {expected_desc} "
+                        f"(groupid={key[0]}, runid={key[1]}, assay={assay_l}, "
+                        f"S{key[5]} L{key[6]}): observed {{{obs}}}"
+                    ),
+                }
+            )
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "groups_checked": len(groups),
+        "skipped_non_illumina": skipped_non_illumina,
+        "skipped_non_fastq": skipped_non_fastq,
     }
 
 
@@ -1302,6 +1426,95 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
     }
 
 
+def _paths_have_filtered_feature_matrix(paths: set[str]) -> bool:
+    """True if outs include 10x matrix bundle (.h5 and/or mtx directory)."""
+    if "filtered_feature_bc_matrix.h5" in paths:
+        return True
+    return any(p.startswith("filtered_feature_bc_matrix/") for p in paths)
+
+
+def _paths_have_raw_feature_matrix(paths: set[str]) -> bool:
+    """True if outs include raw feature matrix (.h5 and/or mtx directory)."""
+    if "raw_feature_bc_matrix.h5" in paths:
+        return True
+    return any(p.startswith("raw_feature_bc_matrix/") for p in paths)
+
+
+# (label for messages, predicate on normalized file_path set under outs/)
+_MULTIOME_PROCESSED_OUTS_RULES: tuple[tuple[str, Callable[[set[str]], bool]], ...] = (
+    (
+        "filtered_feature_bc_matrix (.h5 or filtered_feature_bc_matrix/)",
+        _paths_have_filtered_feature_matrix,
+    ),
+    (
+        "raw_feature_bc_matrix (.h5 or raw_feature_bc_matrix/)",
+        _paths_have_raw_feature_matrix,
+    ),
+    ("atac_fragments.tsv.gz", lambda ps: "atac_fragments.tsv.gz" in ps),
+    ("atac_peaks.bed", lambda ps: "atac_peaks.bed" in ps),
+    ("summary.csv", lambda ps: "summary.csv" in ps),
+)
+
+
+def validate_10x_multiome_processed_outs(
+    provider: str, mappings: Iterable[MappingRow]
+) -> dict:
+    """
+    For processed 10x Multiome (Cell Ranger ARC) deliveries, require core outs per GroupID.
+
+    Aggregates relative paths under ``outs/`` from each row's S3 key (same regex as
+    :func:`validate_s3_10x_processed`).  Each GroupID must include ATAC fragments/peaks,
+    GEX feature matrices, and run ``summary.csv``.
+
+    Rows whose S3 path does not match the processed pattern are skipped
+    (``skipped_unparsed``).
+    """
+    provider = _validate_provider(provider)
+    order_pattern = get_order_pattern(provider)
+    s3_regex = _build_10x_processed_s3_regex(provider, order_pattern)
+
+    group_paths: dict[str, set[str]] = defaultdict(set)
+    skipped_unparsed = 0
+
+    for row in mappings:
+        m = s3_regex.match(row.s3_path)
+        if not m:
+            skipped_unparsed += 1
+            continue
+        gid = m.group("group_id")
+        fp = m.group("file_path").replace("\\", "/").lstrip("./")
+        group_paths[gid].add(fp)
+
+    errors: List[dict] = []
+    missing_by_group: dict[str, list[str]] = {}
+
+    for gid in sorted(group_paths.keys()):
+        paths = group_paths[gid]
+        missing: list[str] = []
+        for label, pred in _MULTIOME_PROCESSED_OUTS_RULES:
+            if not pred(paths):
+                missing.append(label)
+        if missing:
+            missing_by_group[gid] = missing
+            errors.append(
+                {
+                    "type": "multiome_missing_outs",
+                    "group_id": gid,
+                    "detail": "missing required outs for multiome: "
+                    + ", ".join(missing),
+                    "missing": missing,
+                }
+            )
+
+    return {
+        "errors": errors,
+        "missing_by_group": missing_by_group,
+        "group_paths": {k: set(v) for k, v in group_paths.items()},
+        "groups_checked": len(group_paths),
+        "skipped_unparsed": skipped_unparsed,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 10x processed SIF completeness
 # ---------------------------------------------------------------------------
@@ -1450,10 +1663,12 @@ __all__ = [
     "compare_groupid_assays",
     # 10x raw
     "validate_s3_10x_raw",
+    "validate_10x_raw_fastq_read_mates",
     "find_unmatched_sif_paths_10x",
     "validate_library_assay_consistency",
     # 10x processed
     "validate_s3_10x_processed",
+    "validate_10x_multiome_processed_outs",
     "validate_sif_completeness_10x_processed",
     "validate_s3_local_consistency_10x_processed",
     # Seahub (Scale + sci unified)
