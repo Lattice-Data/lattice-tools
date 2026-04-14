@@ -9,6 +9,7 @@ import os
 import pytest
 
 from qa_mods import (
+    extract_read_indicator,
     extract_run_id_from_merged_trimmer_path,
     extract_run_id_from_trimmer_filename,
     grab_merged_trimmer_q30,
@@ -16,9 +17,12 @@ from qa_mods import (
     grab_trimmer_stats,
     is_order_level_processed_folder,
     is_valid_cellranger_run_dir_name,
+    make_read_partner,
     normalize_raw_assay,
     parse_met_summ,
     parse_raw_filename,
+    parse_scale_samples_csv,
+    parse_scale_workflow_info,
     parse_web_summ,
     resolve_qa_run_context,
 )
@@ -30,8 +34,8 @@ QA_FIXTURES_DIR = os.path.join(FIXTURES_DIR, "qa")
 
 class TestIsOrderLevelProcessedFolder:
     def test_processed_under_order(self):
-        o = "ny-biohub-califano/NVUS2024101701-17/"
-        g = "ny-biohub-califano/NVUS2024101701-17/processed/"
+        o = "project-cityhub-alpha/NVUS0000000000-17/"
+        g = "project-cityhub-alpha/NVUS0000000000-17/processed/"
         assert is_order_level_processed_folder(o, g) is True
 
     def test_raw_under_order_not_special_cased(self):
@@ -49,22 +53,22 @@ class TestIsOrderLevelProcessedFolder:
 
 class TestIsValidCellrangerRunDirName:
     def test_iso_date_only(self):
-        assert is_valid_cellranger_run_dir_name("Run_2025-01-10") is True
+        assert is_valid_cellranger_run_dir_name("Run_2000-01-10") is True
 
     def test_iso_date_2026_with_suffix(self):
-        assert is_valid_cellranger_run_dir_name("Run_2026-02-28_biohub") is True
+        assert is_valid_cellranger_run_dir_name("Run_2001-02-28_biohub") is True
 
     def test_underscore_separated_date(self):
         assert is_valid_cellranger_run_dir_name("Run_2025_12_31") is True
 
     def test_rejects_wrong_month(self):
-        assert is_valid_cellranger_run_dir_name("Run_2025-13-01") is False
+        assert is_valid_cellranger_run_dir_name("Run_2000-13-01") is False
 
     def test_rejects_no_run_prefix(self):
         assert is_valid_cellranger_run_dir_name("2025-01-10") is False
 
     def test_rejects_path_with_slash(self):
-        assert is_valid_cellranger_run_dir_name("Run_2025-01-10/extra") is False
+        assert is_valid_cellranger_run_dir_name("Run_2000-01-10/extra") is False
 
 
 class TestNormalizeRawAssay:
@@ -90,14 +94,14 @@ class TestResolveQaRunContext:
         ctx = resolve_qa_run_context(
             data_source="s3",
             raw_assay="10x",
-            s3_path="s3://czi-novogene/myproj/NVUS2024101701-01/",
+            s3_path="s3://czi-novogene/myproj/NVUS0000000000-01/",
         )
         assert ctx.bucket == "czi-novogene"
         assert ctx.provider == "novogene"
         assert ctx.proj == "myproj"
-        assert ctx.order == "NVUS2024101701-01"
-        assert ctx.output_label == "NVUS2024101701-01"
-        assert ctx.listing_prefix == "myproj/NVUS2024101701-01/"
+        assert ctx.order == "NVUS0000000000-01"
+        assert ctx.output_label == "NVUS0000000000-01"
+        assert ctx.listing_prefix == "myproj/NVUS0000000000-01/"
 
     def test_s3_from_components(self):
         ctx = resolve_qa_run_context(
@@ -114,7 +118,7 @@ class TestResolveQaRunContext:
         ctx = resolve_qa_run_context(
             data_source="s3",
             raw_assay="10x",
-            s3_path="s3://czi-novogene/myproj/NVUS2024101701-01/",
+            s3_path="s3://czi-novogene/myproj/NVUS0000000000-01/",
             run_label="my_run",
         )
         assert ctx.output_label == "my_run"
@@ -160,7 +164,7 @@ class TestParseRawFilename:
     def test_10x_gex_r1_fastq(self):
         """GEX R1 FASTQ file from a 10x run."""
         path = (
-            "lange-human-embryogenesis/AN00028026/Br1_A5/raw/"
+            "project-devdelta/AN00000003/Br1_A5/raw/"
             "439047-Br1_A5_GEX-Z0273-CTGCATGTTGCTGAGAT_S1_L001_R1_001.fastq.gz"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -180,7 +184,7 @@ class TestParseRawFilename:
     def test_10x_cri_r2_fastq(self):
         """CRI R2 FASTQ file from a 10x run."""
         path = (
-            "marson-macrophages-tregs-pilot/AN00027127/Treg_L01/raw/"
+            "project-immune-gamma/AN00000002/Treg_L01/raw/"
             "438523-Treg_L01_CRI-Z0012-CTGCCATAGCACGAT_S1_L001_R2_001.fastq.gz"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -194,7 +198,7 @@ class TestParseRawFilename:
     def test_10x_gex_r2_json(self):
         """GEX R2 JSON metadata file (group name contains underscore)."""
         path = (
-            "lange-human-embryogenesis/AN00028026/Br1_A5/raw/"
+            "project-devdelta/AN00000003/Br1_A5/raw/"
             "439047-Br1_A5_GEX-Z0273-CTGCATGTTGCTGAGAT_S1_L001_R2_001.json"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -208,7 +212,7 @@ class TestParseRawFilename:
     def test_10x_gex_unmatched_cram(self):
         """GEX unmatched CRAM — suffix after barcode is _unmatched.cram."""
         path = (
-            "marson-macrophages-tregs-pilot/AN00027127/Treg_L01/raw/"
+            "project-immune-gamma/AN00000002/Treg_L01/raw/"
             "438523-Treg_L01_GEX-Z0011-CACGCACTGCCAGAT_unmatched.cram"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -228,7 +232,7 @@ class TestParseRawFilename:
     def test_10x_atac_i2_fastq(self):
         """ATAC I2 FASTQ — assay ATAC, group has no underscore."""
         path = (
-            "ucsf-killifish-atlas/NVUS2024101701-20/CH13/raw/"
+            "project-killifish/NVUS0000000000-20/CH13/raw/"
             "439048-CH13_ATAC-Z0050-CACATGGCAGCACAGAT_S1_L001_I2_001.fastq.gz"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -241,14 +245,14 @@ class TestParseRawFilename:
 
     def test_10x_gex_novogene_style_path(self):
         """Parse 10x GEX path (Novogene style from multiome_raw)."""
-        path = "czi-novogene/ucsf-killifish-atlas/NVUS2024101701-20/CH13/raw/438586-CH13_GEX-Z0005-CATGTATCCTCTGAT.csv"
+        path = "czi-novogene/project-killifish/NVUS0000000000-20/CH13/raw/438586-CH13_GEX-Z0005-CATGTATCCTCTGAT.csv"
         result = parse_raw_filename(path, "10x")
         assert result == ("438586", "CH13", "GEX", "Z0005", "CATGTATCCTCTGAT")
 
     def test_10x_hyphenated_group_gex_csv(self):
         """10x parser accepts hyphens inside group IDs."""
         path = (
-            "wang-tetrapod-atlas/NVUS2024101701-43/fbf_1-1/raw/"
+            "project-tetrapod/NVUS0000000000-43/fbf_1-1/raw/"
             "440261-fbf_1-1_GEX-Z0052-CTATGCCACAGCATGAT.csv"
         )
         assert parse_raw_filename(path, "10x") == (
@@ -310,7 +314,7 @@ class TestParseRawFilename:
     def test_sci_plex_gex_hash_oligo_cram(self):
         """sci_plex: GEX_hash_oligo CRAM in a run subdirectory."""
         path = (
-            "hamazaki-seahub-bcp/NVUS2024101701-09/R097/raw/436012/"
+            "lab-seahub-beta/NVUS0000000000-09/R097/raw/436012/"
             "436012-R097C_GEX_hash_oligo-Z0002-CATGTGCAGCCATCGAT.cram"
         )
         assert parse_raw_filename(path, "sci_plex") == (
@@ -324,7 +328,7 @@ class TestParseRawFilename:
     def test_sci_plex_trimmer_stats_dash_in_suffix(self):
         """trimmer-stats.csv has a dash in suffix; barcode extraction still correct."""
         path = (
-            "hamazaki-seahub-bcp/NVUS2024101701-09/R097/raw/436012/"
+            "lab-seahub-beta/NVUS0000000000-09/R097/raw/436012/"
             "436012-R097C_GEX_hash_oligo-Z0046-CTCTCGCATGCAATGAT_trimmer-stats.csv"
         )
         assert parse_raw_filename(path, "sci_plex") == (
@@ -344,7 +348,7 @@ class TestParseRawFilename:
     def test_scale_gex_cram_real_path(self):
         """Scale GEX CRAM — group from path, assay from regex, ug from filename."""
         path = (
-            "trapnell-seahub-bcp/NVUS2024101701-04/RNA3_098/raw/426971/"
+            "lab-seahub-alpha/NVUS0000000000-04/RNA3_098/raw/426971/"
             "426971-RNA3-098C_GEX_QSR-7_10C.cram"
         )
         run, group, assay, ug, barcode = parse_raw_filename(path, "scale")
@@ -357,7 +361,7 @@ class TestParseRawFilename:
     def test_scale_hash_oligo_cram_real_path(self):
         """Scale hash_oligo CRAM — assay detected by hash_oligo regex."""
         path = (
-            "trapnell-seahub-bcp/NVUS2024101701-04/RNA3_098/raw/426971/"
+            "lab-seahub-alpha/NVUS0000000000-04/RNA3_098/raw/426971/"
             "426971-RNA3-098C_hash_oligo_QSR-7-SCALEPLEX_1E.cram"
         )
         run, group, assay, ug, barcode = parse_raw_filename(path, "scale")
@@ -370,7 +374,7 @@ class TestParseRawFilename:
     def test_scale_group_comes_from_path_not_filename(self):
         """Group for scale comes from path[2], independent of filename."""
         path = (
-            "trapnell-seahub-bcp/NVUS2024101701-04/RNA3_098/raw/426971/"
+            "lab-seahub-alpha/NVUS0000000000-04/RNA3_098/raw/426971/"
             "426971-RNA3-098C_GEX_QSR-7_10C.cram"
         )
         _, group, _, _, _ = parse_raw_filename(path, "scale")
@@ -498,9 +502,7 @@ class TestExtractRunIdFromMergedTrimmerPath:
         """10x: merged files under order/; run_id from filename prefix."""
         path = "proj/order/438761_merged_trimmer-failure_codes.csv"
         assert extract_run_id_from_merged_trimmer_path(path) == "438761"
-        path2 = (
-            "czi-novogene/weissman/NVUS2024101701-29/438761_merged_trimmer-stats.csv"
-        )
+        path2 = "czi-novogene/project-persona/NVUS0000000000-29/438761_merged_trimmer-stats.csv"
         assert extract_run_id_from_merged_trimmer_path(path2) == "438761"
 
     def test_invalid_or_non_merged_returns_none(self):
@@ -843,3 +845,153 @@ class TestParseWebSumm:
         path = os.path.join(QA_FIXTURES_DIR, "web_summary-1.html")
         with pytest.raises((ValueError, KeyError)):
             parse_web_summ(path)
+
+
+class TestParseScaleWorkflowInfo:
+    """Tests for parse_scale_workflow_info."""
+
+    def test_parses_parameters_and_manifest(self):
+        """Happy path: all expected keys are present and correctly extracted."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_workflow_info_good.json")
+        result = parse_scale_workflow_info(path)
+        assert result["bamOut"] == "true"
+        assert result["scalePlex"] == "true"
+        assert result["scalePlexAssignmentMethod"] == "fc"
+        assert result["workflow_name"] == "ScaleRna"
+        assert result["workflow_version"] == "2.1.0"
+        assert result["execution_status"] == "OK"
+
+    def test_missing_parameters_raises(self):
+        """ValueError raised when Parameters section is absent."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_workflow_info_bad_no_params.json")
+        # Create a fixture missing Parameters
+        import json
+
+        data = {"Workflow Manifest": {"name": "ScaleRna", "version": "2.1.0"}}
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(data, f)
+        try:
+            with pytest.raises(ValueError, match="Parameters"):
+                parse_scale_workflow_info(path)
+        finally:
+            os.remove(path)
+
+    def test_genome_value_extracted(self):
+        """Genome S3 path is extracted correctly from Parameters."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_workflow_info_good.json")
+        result = parse_scale_workflow_info(path)
+        assert result["genome"] is not None
+        assert "GRCh38" in result["genome"]
+
+
+class TestParseScaleSamplesCsv:
+    """Tests for parse_scale_samples_csv."""
+
+    def test_extracts_columns_and_samples(self):
+        """Happy path: columns and samples are correctly extracted."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_samples_good.csv")
+        result = parse_scale_samples_csv(path)
+        assert "sample" in result["columns"]
+        assert "libIndex2" in result["columns"]
+        assert len(result["samples"]) > 0
+        assert "SAMP-01-0001" in result["samples"]
+
+    def test_sublibraries_parsed_from_libindex2(self):
+        """Semicolon-delimited libIndex2 is correctly split into sublibrary IDs."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_samples_good.csv")
+        result = parse_scale_samples_csv(path)
+        sublibs = result["sublibraries"]["SAMP-01-0001"]
+        assert sublibs == [
+            "QSR-1",
+            "QSR-2",
+            "QSR-3",
+            "QSR-4",
+            "QSR-5",
+            "QSR-6",
+            "QSR-7",
+            "QSR-8",
+        ]
+
+    def test_sample_count_matches(self):
+        """Number of samples matches the number of rows in the CSV."""
+        path = os.path.join(QA_FIXTURES_DIR, "scale_samples_good.csv")
+        result = parse_scale_samples_csv(path)
+        assert len(result["samples"]) == 4
+
+
+class TestExtractReadIndicator:
+    """Tests for extract_read_indicator — Illumina read indicator from filename tail."""
+
+    def test_standard_r1(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        assert extract_read_indicator(f) == "R1"
+
+    def test_standard_r2(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        assert extract_read_indicator(f) == "R2"
+
+    def test_index_read_i1(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_I1_001.fastq.gz"
+        assert extract_read_indicator(f) == "I1"
+
+    def test_index_read_i2(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_I2_001.fastq.gz"
+        assert extract_read_indicator(f) == "I2"
+
+    def test_r3_read(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R3_001.fastq.gz"
+        assert extract_read_indicator(f) == "R3"
+
+    def test_r2_in_group_id_returns_tail_r1(self):
+        """R2 in group ID is ignored; the tail R1 indicator is returned."""
+        f = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        assert extract_read_indicator(f) == "R1"
+
+    def test_r1_in_group_id_returns_tail_r2(self):
+        """R1 in group ID is ignored; the tail R2 indicator is returned."""
+        f = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R2_001.fastq.gz"
+        assert extract_read_indicator(f) == "R2"
+
+    def test_no_indicator_returns_none(self):
+        assert extract_read_indicator("439047-G1_GEX-Z0273-BC01.csv") is None
+
+    def test_cram_file_returns_none(self):
+        assert extract_read_indicator("426971-RNA3-098C_GEX_QSR-7_10C.cram") is None
+
+
+class TestMakeReadPartner:
+    """Tests for make_read_partner — swap Illumina read indicator at tail only."""
+
+    def test_simple_r1_to_r2(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        expected = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        assert make_read_partner(f, "R1", "R2") == expected
+
+    def test_simple_r2_to_r1(self):
+        f = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        expected = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        assert make_read_partner(f, "R2", "R1") == expected
+
+    def test_preserves_r2_in_group_id(self):
+        """Only the tail indicator is swapped; R2 in the group ID is untouched."""
+        f = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        result = make_read_partner(f, "R1", "R2")
+        assert (
+            result
+            == "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
+        )
+        assert result.count("_R2_") == 2  # group ID R2 + tail R2
+
+    def test_preserves_r1_in_group_id(self):
+        """Only the tail indicator is swapped; R1 in the group ID is untouched."""
+        f = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R2_001.fastq.gz"
+        result = make_read_partner(f, "R2", "R1")
+        assert (
+            result == "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R1_001.fastq.gz"
+        )
+        assert result.count("_R1_") == 2  # group ID R1 + tail R1
+
+    def test_no_indicator_returns_unchanged(self):
+        f = "439047-G1_GEX-Z0273-BC01.csv"
+        assert make_read_partner(f, "R1", "R2") == f

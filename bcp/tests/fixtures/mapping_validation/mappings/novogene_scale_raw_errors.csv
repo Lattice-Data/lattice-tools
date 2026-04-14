@@ -1,4 +1,4 @@
-s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/441969-R096A_Hash_oliga_QSR-1-7A.json,/local/hash_oliga_typo.json
-s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/441969-R096A_hash_oligo_QSR-1-8G.cram,/local/hash_oligo_without_scaleplex.cram
-s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-26/CHEM13-R096/raw/441969/441970-R096A_GEX_QSR-1-SCALEPLEX-8G.cram,/local/gex_with_scaleplex_and_runid_mismatch.cram
+s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/441969-R096A_Hash_oliga_QSR-1-7A.json,/local/hash_oliga_typo.json
+s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/441969-R096A_hash_oligo_QSR-1-8G.cram,/local/hash_oligo_without_scaleplex.cram
+s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/441970-R096A_GEX_QSR-1-SCALEPLEX-8G.cram,/local/gex_with_scaleplex_and_runid_mismatch.cram
 

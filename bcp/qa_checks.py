@@ -9,8 +9,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from qa_constants import (
+    SCALE_AGGREGATE_FILE_RE,
+    SCALE_RT_FILE_RE,
+    SCALE_SAMPLES_FORBIDDEN_COLUMNS,
+    SCALE_WAFER_MISC_RE,
+    SCALE_WORKFLOW_REQUIRED_PARAMS,
+)
 from qa_mods import (
     cellranger_expected,
+    extract_read_indicator,
+    make_read_partner,
     parse_raw_filename,
     raw_expected,
     raw_optional,
@@ -237,15 +246,17 @@ def validate_read_metadata(
 
     Returns ``(group_read_counts, errors, pairing)`` where ``pairing`` has:
 
-    - ``r1_without_r2_metadata``: R1 paths (``_R1_``) with ``read_count`` but no R2 key
-    - ``r2_without_r1_metadata``: R2 paths (``_R2_``) with no corresponding R1 key
+    - ``r1_without_r2_metadata``: R1 paths with ``read_count`` but no R2 key
+    - ``r2_without_r1_metadata``: R2 paths with no corresponding R1 key
 
-    Those issues are also appended to ``errors`` with a ``READ METADATA PAIRING:`` prefix
-    so notebook callers can log them like other messages.
+    Pairing issues are appended to ``errors`` with a ``READ METADATA PAIRING:``
+    prefix. Metadata filename/content mismatches are appended as
+    ``METADATA FILENAME WARNING: ...`` entries so callers can log them as
+    warnings without failing count comparisons.
 
-    R1/R2 read-count comparison only runs for R1 keys with ``_R1_`` that have
-    ``read_count`` and a matching R2 entry; see printed counters when
-    ``print_success`` is True.
+    R1/R2 classification uses ``extract_read_indicator()`` which matches the
+    Illumina read indicator at the *end* of the filename (e.g. ``_R1_001.fastq.gz``),
+    so ``_R1_`` / ``_R2_`` embedded in a group ID (e.g. ``q_pcf_R2``) is ignored.
     """
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
@@ -258,9 +269,20 @@ def validate_read_metadata(
     skipped_no_r2 = 0
     r2_metadata_error = 0
     r1_without_r2_metadata: list[str] = []
+    filename_mismatch_warnings = 0
 
     for f, meta in read_metadata.items():
-        if "_R2_" in f:
+        reported_filename = str(
+            meta.get("__reported_filename", meta.get("filename", ""))
+        )
+        if reported_filename and reported_filename != f:
+            filename_mismatch_warnings += 1
+            errors.append(
+                "METADATA FILENAME WARNING: "
+                f"metadata filename does not match source object; "
+                f"reported={reported_filename} actual={f}"
+            )
+        if extract_read_indicator(f) == "R2":
             continue
         if meta.get("errors"):
             errors.append(
@@ -279,8 +301,8 @@ def validate_read_metadata(
                 group_read_counts[group][assay] = reads
             else:
                 group_read_counts[group][assay] += reads
-        if "_R1_" in f:
-            r2file = f.replace("_R1_", "_R2_")
+        if extract_read_indicator(f) == "R1":
+            r2file = make_read_partner(f, "R1", "R2")
             if r2file in read_metadata:
                 r2meta = read_metadata[r2file]
                 if r2meta.get("errors"):
@@ -307,9 +329,9 @@ def validate_read_metadata(
 
     r2_without_r1_metadata: list[str] = []
     for f in read_metadata:
-        if "_R2_" not in f:
+        if extract_read_indicator(f) != "R2":
             continue
-        r1file = f.replace("_R2_", "_R1_")
+        r1file = make_read_partner(f, "R2", "R1")
         if r1file not in read_metadata:
             r2_without_r1_metadata.append(f)
 
@@ -330,7 +352,8 @@ def validate_read_metadata(
             f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
             f"r1_missing_r2_metadata={skipped_no_r2}, "
             f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
-            f"r2_metadata_errors={r2_metadata_error}"
+            f"r2_metadata_errors={r2_metadata_error}, "
+            f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
         )
         for line in matched_examples:
             print(line)
@@ -409,6 +432,32 @@ def check_expected_raw_files(
     return all_good, raw_lost, raw_found
 
 
+def _is_known_scale_raw_file(filepath: str) -> bool:
+    """Return True if *filepath* matches a recognised Scale raw file pattern.
+
+    Scale filenames don't follow the ``{beginning}{suffix}`` layout used by
+    10x / sci assays, so they are validated here with compiled regexes
+    (see ``qa_constants.SCALE_*_RE``).
+
+    Recognised categories:
+    * Per-RT files  – one per reaction tube / well (e.g. ``_5B.cram`` or ``-5B.cram``)
+    * Aggregate files – trimmer stats, failure codes, unmatched reads
+    * Wafer-level misc – ``SequencingInfo.json``, ``LibraryInfo.xml``,
+      ``merged_trimmer-*.csv``
+
+    ``.cram-metadata.json`` sidecars are handled separately by the existing
+    metadata-sidecar logic in :func:`check_extra_raw_files`.
+    """
+    filename = filepath.split("/")[-1]
+    if SCALE_RT_FILE_RE.search(filename):
+        return True
+    if SCALE_AGGREGATE_FILE_RE.search(filename):
+        return True
+    if SCALE_WAFER_MISC_RE.match(filename):
+        return True
+    return False
+
+
 def check_extra_raw_files(
     all_raw_files: list[str],
     raw_found: list[str],
@@ -431,6 +480,8 @@ def check_extra_raw_files(
         if f.endswith("-metadata.json") and (
             f.replace("-metadata.json", "") in all_raw_set
         ):
+            continue
+        if raw_assay == "scale" and _is_known_scale_raw_file(f):
             continue
         if (raw_assay in raw_optional or raw_assay == "10x_viral_ORF") and (
             optional_endings
@@ -714,3 +765,106 @@ def build_wafer_failure_stats(
         wafer_failure_stats[run_id]["trimmer_fail"].extend(trim_vals)
 
     return wafer_failure_stats
+
+
+def validate_scale_workflow_info(params: dict) -> tuple[list[str], list[str]]:
+    """
+    Validate Scale workflow parameters extracted by ``parse_scale_workflow_info``.
+
+    Returns ``(errors, info_messages)``.  Each required parameter in
+    ``SCALE_WORKFLOW_REQUIRED_PARAMS`` is checked against the parsed dict;
+    genome value is reported as an informational message.
+    """
+    errors: list[str] = []
+    info_messages: list[str] = []
+
+    for key, expected in SCALE_WORKFLOW_REQUIRED_PARAMS.items():
+        actual = params.get(key)
+        if actual != expected:
+            errors.append(
+                f"SCALE WORKFLOW ERROR: {key} is '{actual}' but should be '{expected}'"
+            )
+
+    info_messages.append(f"SCALE GENOME: {params.get('genome', 'N/A')}")
+
+    return errors, info_messages
+
+
+def validate_scale_samples_csv(columns: list[str]) -> list[str]:
+    """
+    Validate that a Scale ``samples.csv`` does not contain forbidden columns.
+
+    Returns list of errors (one per forbidden column found).
+    """
+    errors: list[str] = []
+    for col in SCALE_SAMPLES_FORBIDDEN_COLUMNS:
+        if col in columns:
+            errors.append(
+                f"SCALE SAMPLES ERROR: forbidden column '{col}' is present in samples.csv"
+            )
+    return errors
+
+
+def validate_scale_cb_tag(read_metadata: dict[str, Any]) -> list[str]:
+    """
+    Validate that all Scale CRAM files have ``cb_tag=True`` in their metadata.
+
+    Only inspects entries whose filename ends with ``.cram`` (not ``.cram-metadata.json``).
+    Unmatched CRAMs (``*-unmatched.cram``) are skipped — they inherently lack
+    cell barcodes so ``cb_tag=False`` is expected.
+    Returns list of errors for files where ``cb_tag`` is not ``True``.
+    """
+    errors: list[str] = []
+    for filename, metadata in read_metadata.items():
+        if not filename.endswith(".cram"):
+            continue
+        if "-unmatched.cram" in filename or "_unmatched.cram" in filename:
+            continue
+        cb_tag = metadata.get("cb_tag")
+        if cb_tag is not True:
+            errors.append(f"SCALE CB_TAG ERROR: {filename} has cb_tag={cb_tag}")
+    return errors
+
+
+def validate_scale_processed_files(
+    proc_files: list[str], samples_info: dict
+) -> dict[str, Any]:
+    """
+    Validate that expected Scale processed per-sample files are present.
+
+    Checks under the ``samples/`` directory within ``proc_files`` for:
+    - ``{sample}_anndata.h5ad`` (merged anndata per sample)
+    - ``{sample}.merged.allCells.csv`` (merged cell metrics per sample)
+    - ``{sample}.{sublib}_anndata.h5ad`` (per-sublibrary anndata)
+
+    Returns ``{"errors": [...], "missing_files": [...]}``.
+    """
+    errors: list[str] = []
+    missing_files: list[dict[str, str]] = []
+
+    samples_dir_files: set[str] = set()
+    for f in proc_files:
+        if "/samples/" in f:
+            samples_dir_files.add(f.split("/samples/")[-1])
+
+    samples = samples_info.get("samples", [])
+    sublibraries = samples_info.get("sublibraries", {})
+
+    for sample in samples:
+        merged_anndata = f"{sample}_anndata.h5ad"
+        if merged_anndata not in samples_dir_files:
+            errors.append(f"SCALE PROCESSED ERROR: missing {merged_anndata}")
+            missing_files.append({"sample": sample, "file": merged_anndata})
+
+        allcells = f"{sample}.merged.allCells.csv"
+        if allcells not in samples_dir_files:
+            errors.append(f"SCALE PROCESSED ERROR: missing {allcells}")
+            missing_files.append({"sample": sample, "file": allcells})
+
+        for sublib in sublibraries.get(sample, []):
+            sublib_anndata = f"{sample}.{sublib}_anndata.h5ad"
+            if sublib_anndata not in samples_dir_files:
+                errors.append(f"SCALE PROCESSED ERROR: missing {sublib_anndata}")
+                missing_files.append({"sample": sample, "file": sublib_anndata})
+
+    return {"errors": errors, "missing_files": missing_files}

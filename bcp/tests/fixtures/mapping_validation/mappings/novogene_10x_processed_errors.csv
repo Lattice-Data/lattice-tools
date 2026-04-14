@@ -1,4 +1,4 @@
-s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/e10_rep1_t13/processed/starsolo/Run_2025-03-10/outs/file.h5,/data/e10_rep1_t13/outs/file.h5
-s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/e10_rep1_t13/processed/cellranger/2025-03-10/outs/file.h5,/data/e10_rep1_t13/outs/file.h5
-s3://czi-novogene/weissman-embryo-tracing/NVUS2024101701-19/e10_rep1_t13/processed/cellranger/Run_2025-03-10/outs/filtered_feature_bc_matrix.h5,/data/e10_rep1_t13/outs/raw_feature_bc_matrix.h5
+s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/e10_rep1_t13/processed/starsolo/Run_2000-03-10/outs/file.h5,/data/e10_rep1_t13/outs/file.h5
+s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/e10_rep1_t13/processed/cellranger/2025-03-10/outs/file.h5,/data/e10_rep1_t13/outs/file.h5
+s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/e10_rep1_t13/processed/cellranger/Run_2000-03-10/outs/filtered_feature_bc_matrix.h5,/data/e10_rep1_t13/outs/raw_feature_bc_matrix.h5
 

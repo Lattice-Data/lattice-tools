@@ -2,6 +2,8 @@
 Constants for QA pipeline: chemistries, assays, expected cellranger and raw file patterns.
 """
 
+import re
+
 chemistries = {
     "Single Cell 5' R2-only v3": "5p",
     "Single Cell 5' R2-only": "5p",
@@ -246,6 +248,7 @@ raw_expected = {
         "_FlowQ.metric",
         "_SNVQ.metric",
     ],
+    "scale": [],
 }
 
 raw_optional = {
@@ -257,5 +260,40 @@ raw_optional = {
         "_Log.progress.out",
         "_ReadsPerGene.out.tab",
         "_SJ.out.tab",
-    ]
+    ],
+    "scale": [],
 }
+
+# ---------------------------------------------------------------------------
+# Scale raw file patterns
+#
+# Scale filenames do not follow the "{beginning}{suffix}" convention used by
+# 10x / sci assays, so we validate them via regex in check_extra_raw_files
+# instead of the raw_expected suffix mechanism.
+# ---------------------------------------------------------------------------
+
+# Per-RT file: well position (row 1-12, column A-H) before the extension.
+# Production uses underscore (e.g. _5B.cram); some paths use hyphen (-12H.csv).
+SCALE_RT_FILE_RE = re.compile(r"[_-]\d{1,2}[A-H]\.(cram|csv|json)$")
+
+# Aggregate file produced per sublibrary: trimmer stats, trimmer failure codes,
+# and unmatched reads. Prefix may be _ or -; failure codes file may use
+# trimmer-failure-codes or trimmer-failure_codes (underscore before "codes").
+SCALE_AGGREGATE_FILE_RE = re.compile(
+    r"[_-](trimmer-failure-codes\.csv|trimmer-failure_codes\.csv|trimmer-stats\.csv"
+    r"|unmatched\.(cram|csv|json))$"
+)
+
+# Wafer-level housekeeping files (no sublibrary / assay prefix).
+SCALE_WAFER_MISC_RE = re.compile(
+    r"^(\d{6,8}_(SequencingInfo\.json|LibraryInfo\.xml)"
+    r"|merged_trimmer-(failure_codes|stats)\.csv)$"
+)
+
+SCALE_WORKFLOW_REQUIRED_PARAMS = {
+    "bamOut": "true",
+    "scalePlex": "true",
+    "scalePlexAssignmentMethod": "fc",
+}
+
+SCALE_SAMPLES_FORBIDDEN_COLUMNS = frozenset({"scalePlexBarcodes"})

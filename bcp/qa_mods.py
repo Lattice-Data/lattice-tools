@@ -47,7 +47,36 @@ __all__ = [
     "extract_run_id_from_merged_trimmer_path",
     "grab_merged_trimmer_stats",
     "grab_merged_trimmer_q30",
+    "parse_scale_workflow_info",
+    "parse_scale_samples_csv",
+    "extract_read_indicator",
+    "make_read_partner",
 ]
+
+
+_READ_INDICATOR_RE = re.compile(r"_(R[123]|I[12])_\d+\.(?:fastq\.gz|cram)$")
+
+
+def extract_read_indicator(filename: str) -> str | None:
+    """Extract the Illumina read indicator (R1, R2, I1, I2, R3) from the
+    tail of a filename, ignoring any R1/R2 that may appear in the group ID.
+
+    Returns None if the filename has no standard read indicator suffix.
+    """
+    m = _READ_INDICATOR_RE.search(filename)
+    return m.group(1) if m else None
+
+
+def make_read_partner(filename: str, from_read: str, to_read: str) -> str:
+    """Replace the Illumina read indicator at the tail of a filename.
+
+    Only the anchored read indicator (before the final ``_NNN.fastq.gz``) is
+    changed; any earlier ``_R1_`` / ``_R2_`` inside the group ID is preserved.
+    """
+    return _READ_INDICATOR_RE.sub(
+        lambda m: m.group(0).replace(from_read, to_read),
+        filename,
+    )
 
 
 def normalize_raw_assay(value: str | None) -> str:
@@ -687,6 +716,66 @@ def parse_raw_filename(f, raw_assay):
             barcode = path[3].split("_")[0].split(".")[0]
 
     return run, group, assay, ug, barcode
+
+
+def parse_scale_workflow_info(json_path: str | Path) -> dict:
+    """
+    Parse a Scale ``workflow_info.json`` and return a flat dict of QA-relevant fields.
+
+    Extracted keys:
+    - From ``Parameters``: ``genome``, ``scalePlexAssignmentMethod``, ``bamOut``, ``scalePlex``
+    - From ``Workflow Manifest``: ``workflow_name``, ``workflow_version``
+    - From ``Nextflow Information``: ``execution_status``
+
+    Raises:
+        ValueError: if the ``Parameters`` section is missing from the JSON.
+    """
+    with open(json_path) as fh:
+        data = json.load(fh)
+
+    params = data.get("Parameters")
+    if params is None:
+        raise ValueError(
+            f"workflow_info.json at {json_path!r} is missing the 'Parameters' section"
+        )
+
+    manifest = data.get("Workflow Manifest", {})
+    nf_info = data.get("Nextflow Information", {})
+
+    return {
+        "genome": params.get("genome"),
+        "scalePlexAssignmentMethod": params.get("scalePlexAssignmentMethod"),
+        "bamOut": params.get("bamOut"),
+        "scalePlex": params.get("scalePlex"),
+        "workflow_name": manifest.get("name"),
+        "workflow_version": manifest.get("version"),
+        "execution_status": nf_info.get("Execution status"),
+    }
+
+
+def parse_scale_samples_csv(csv_path: str | Path) -> dict:
+    """
+    Parse a Scale ``samples.csv`` and return structured sample/sublibrary info.
+
+    Returns a dict with:
+    - ``columns``: list of column names
+    - ``samples``: list of sample names from the ``sample`` column
+    - ``sublibraries``: dict mapping each sample name to a list of sublibrary IDs
+      parsed from the ``libIndex2`` column (semicolon-delimited)
+    """
+    df = pd.read_csv(csv_path)
+    columns = list(df.columns)
+    samples = list(df["sample"])
+    sublibraries: dict[str, list[str]] = {}
+    for _, row in df.iterrows():
+        sample = row["sample"]
+        lib_index2 = str(row.get("libIndex2", ""))
+        sublibraries[sample] = [s.strip() for s in lib_index2.split(";") if s.strip()]
+    return {
+        "columns": columns,
+        "samples": samples,
+        "sublibraries": sublibraries,
+    }
 
 
 def load_files_from_manifest(

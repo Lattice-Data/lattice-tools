@@ -1,0 +1,15 @@
+{
+    "Workflow Manifest": {
+        "name": "ScaleRna",
+        "version": "2.1.0"
+    },
+    "Nextflow Information": {
+        "Execution status": "OK"
+    },
+    "Parameters": {
+        "scalePlexAssignmentMethod": "fc",
+        "bamOut": "false",
+        "scalePlex": "false",
+        "genome": "s3://example-bucket/reference/Scale/Human/hg38/GRCh38_genome.json"
+    }
+}

@@ -12,6 +12,10 @@ from qa_checks import (
     summarize_fastq_count_validation,
     validate_processed_group,
     validate_read_metadata,
+    validate_scale_cb_tag,
+    validate_scale_processed_files,
+    validate_scale_samples_csv,
+    validate_scale_workflow_info,
 )
 
 
@@ -295,6 +299,97 @@ class TestValidateReadMetadata:
         assert any("METADATA.JSON ERROR" in e for e in errors)
         assert "G1" not in counts or counts.get("G1", {}).get("GEX") != 100
 
+    def test_r2_in_group_id_pairs_correctly(self):
+        """R2 in the group name (q_pcf_R2) must not confuse R1/R2 pairing."""
+        r1 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        r2 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            r1: {"read_count": 500, "errors": []},
+            r2: {"read_count": 500, "errors": []},
+        }
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert not any("PAIRING" in e for e in errors)
+        assert "q_pcf_R2" in counts
+        assert counts["q_pcf_R2"]["GEX"] == 500
+
+    def test_r1_in_group_id_pairs_correctly(self):
+        """R1 in the group name (q_hf_R1) must not confuse R1/R2 pairing."""
+        r1 = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R1_001.fastq.gz"
+        r2 = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            r1: {"read_count": 300, "errors": []},
+            r2: {"read_count": 300, "errors": []},
+        }
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert not any("PAIRING" in e for e in errors)
+        assert "q_hf_R1" in counts
+        assert counts["q_hf_R1"]["GEX"] == 300
+
+    def test_r2_in_group_id_mismatch_detected(self):
+        """Read count mismatch is still detected with R2 in the group name."""
+        r1 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
+        r2 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            r1: {"read_count": 500, "errors": []},
+            r2: {"read_count": 999, "errors": []},
+        }
+        _counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
+        assert any("READ COUNT ERROR" in e for e in errors)
+
+    def test_metadata_filename_mismatch_warns_but_pairing_uses_actual_filename(self):
+        """Filename mismatch in metadata content is warning-only.
+
+        Pairing/count comparison continues using the canonical metadata key.
+        """
+        actual_r1 = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        actual_r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            actual_r1: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r1,
+                "__reported_filename": "s3://bucket/WRONG_R1.fastq.gz",
+            },
+            actual_r2: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r2,
+                "__reported_filename": actual_r2,
+            },
+        }
+        counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert any("METADATA FILENAME WARNING:" in e for e in errors)
+        assert not any("READ METADATA PAIRING" in e for e in errors)
+        assert counts["G1"]["GEX"] == 100
+
+    def test_mismatch_warning_printed_in_summary(self, capsys):
+        """Summary line includes mismatch warning count for observability."""
+        actual_r1 = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        actual_r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
+        read_metadata = {
+            actual_r1: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r1,
+                "__reported_filename": "s3://bucket/WRONG_R1.fastq.gz",
+            },
+            actual_r2: {
+                "read_count": 100,
+                "errors": [],
+                "__actual_filename": actual_r2,
+                "__reported_filename": actual_r2,
+            },
+        }
+        validate_read_metadata(read_metadata, "10x", print_success=True)
+        out = capsys.readouterr().out
+        assert "metadata_filename_mismatch_warnings=1" in out
+
 
 class TestCheckExpectedRawFiles:
     """Tests for check_expected_raw_files."""
@@ -350,6 +445,178 @@ class TestCheckExtraRawFiles:
         raw_found = [f"{base}.csv"]
         extra = check_extra_raw_files(all_raw, raw_found, "10x")
         assert f"{base}_unknown_suffix.xyz" in extra
+
+    # --- Scale-specific extra-file tests ---
+
+    _SCALE_BASE = "proj/NVUS123/GENE9-R115/raw/440115"
+
+    def test_scale_per_rt_gex_cram_not_extra(self):
+        """Per-RT GEX CRAM files are recognized as known Scale files."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_gex_csv_not_extra(self):
+        """Per-RT GEX CSV files are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_gex_json_not_extra(self):
+        """Per-RT GEX JSON files are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.json"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_hash_oligo_cram_not_extra(self):
+        """Per-RT hash_oligo CRAM files are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_double_digit_well_not_extra(self):
+        """Per-RT files with double-digit row (e.g. 12H) are recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-12H.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_per_rt_underscore_well_not_extra(self):
+        """Production-style per-RT names use underscore before well (e.g. _5B)."""
+        raw = [
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_5B.cram",
+            f"{self._SCALE_BASE}/426971-RNA3-098C_hash_oligo_QSR-7-SCALEPLEX_5B.json",
+        ]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_trimmer_failure_codes_not_extra(self):
+        """Aggregate trimmer-failure-codes.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-trimmer-failure-codes.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_trimmer_stats_not_extra(self):
+        """Aggregate trimmer-stats.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-trimmer-stats.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_trimmer_failure_codes_underscore_form_not_extra(self):
+        """Production uses _trimmer-failure_codes.csv (underscore before codes)."""
+        raw = [
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_trimmer-failure_codes.csv",
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_trimmer-stats.csv",
+            f"{self._SCALE_BASE}/426971-RNA3-098C_GEX_QSR-7_unmatched.cram",
+        ]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_unmatched_cram_not_extra(self):
+        """Aggregate unmatched.cram is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-unmatched.cram"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_unmatched_csv_not_extra(self):
+        """Aggregate unmatched.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-unmatched.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_aggregate_unmatched_json_not_extra(self):
+        """Aggregate unmatched.json is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-unmatched.json"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_hash_oligo_aggregate_trimmer_not_extra(self):
+        """hash_oligo aggregate trimmer files are recognized."""
+        raw = [
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-failure-codes.csv",
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-stats.csv",
+        ]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_hash_oligo_aggregate_unmatched_not_extra(self):
+        """hash_oligo aggregate unmatched files are recognized."""
+        raw = [
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.cram",
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.csv",
+            f"{self._SCALE_BASE}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.json",
+        ]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_wafer_sequencing_info_not_extra(self):
+        """Wafer-level SequencingInfo.json is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115_SequencingInfo.json"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_wafer_library_info_not_extra(self):
+        """Wafer-level LibraryInfo.xml is recognized."""
+        raw = [f"{self._SCALE_BASE}/440115_LibraryInfo.xml"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_merged_trimmer_failure_codes_not_extra(self):
+        """Merged trimmer-failure_codes.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/merged_trimmer-failure_codes.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_merged_trimmer_stats_not_extra(self):
+        """Merged trimmer-stats.csv is recognized."""
+        raw = [f"{self._SCALE_BASE}/merged_trimmer-stats.csv"]
+        assert check_extra_raw_files(raw, [], "scale") == []
+
+    def test_scale_cram_metadata_sidecar_not_extra(self):
+        """CRAM metadata sidecar is handled by existing sidecar logic."""
+        cram = f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.cram"
+        sidecar = f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.cram-metadata.json"
+        assert check_extra_raw_files([cram, sidecar], [], "scale") == []
+
+    def test_scale_unknown_extension_is_extra(self):
+        """Unrecognized file extension IS flagged as extra."""
+        raw = [f"{self._SCALE_BASE}/440115-R115H_GEX_QSR-8-5B.bam"]
+        extra = check_extra_raw_files(raw, [], "scale")
+        assert len(extra) == 1
+
+    def test_scale_unknown_filename_is_extra(self):
+        """Completely unrecognized filename IS flagged as extra."""
+        raw = [f"{self._SCALE_BASE}/random_unknown_file.txt"]
+        extra = check_extra_raw_files(raw, [], "scale")
+        assert len(extra) == 1
+
+    def test_scale_comprehensive_wafer(self):
+        """A realistic set of Scale raw files: nothing should be extra."""
+        base = self._SCALE_BASE
+        files = [
+            f"{base}/440115-R115H_GEX_QSR-8-1A.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-1A.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-1A.json",
+            f"{base}/440115-R115H_GEX_QSR-8-1A.cram-metadata.json",
+            f"{base}/440115-R115H_GEX_QSR-8-12H.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-12H.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-12H.json",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.cram",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.json",
+            f"{base}/440115-R115H_GEX_QSR-8-trimmer-failure-codes.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-trimmer-stats.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.csv",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.json",
+            f"{base}/440115-R115H_GEX_QSR-8-unmatched.cram-metadata.json",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-failure-codes.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-trimmer-stats.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.cram",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.csv",
+            f"{base}/440115-R115H_hash_oligo_QSR-8-SCALEPLEX-unmatched.json",
+            f"{base}/440115_SequencingInfo.json",
+            f"{base}/440115_LibraryInfo.xml",
+            f"{base}/merged_trimmer-failure_codes.csv",
+            f"{base}/merged_trimmer-stats.csv",
+        ]
+        assert check_extra_raw_files(files, [], "scale") == []
+
+    def test_scale_comprehensive_wafer_with_unknown_file(self):
+        """A realistic set plus one unknown file: only the unknown is extra."""
+        base = self._SCALE_BASE
+        unknown = f"{base}/unexpected_report.pdf"
+        files = [
+            f"{base}/440115-R115H_GEX_QSR-8-1A.cram",
+            f"{base}/440115-R115H_GEX_QSR-8-trimmer-failure-codes.csv",
+            f"{base}/440115_SequencingInfo.json",
+            f"{base}/merged_trimmer-failure_codes.csv",
+            unknown,
+        ]
+        extra = check_extra_raw_files(files, [], "scale")
+        assert extra == [unknown]
 
 
 class TestValidateProcessedGroup:
@@ -555,3 +822,205 @@ class TestBuildWaferFailureStats:
         assert set(wafer_stats.keys()) == {"439047"}
         assert wafer_stats["439047"]["rsq"] == [1.0]
         assert wafer_stats["439047"]["trimmer_fail"] == [5.0]
+
+
+class TestValidateScaleWorkflowInfo:
+    """Tests for validate_scale_workflow_info."""
+
+    def test_all_params_correct_no_errors(self):
+        """No errors when all required params match expected values."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, info = validate_scale_workflow_info(params)
+        assert errors == []
+        assert any("SCALE GENOME" in m for m in info)
+
+    def test_bamout_false_is_error(self):
+        """Error when bamOut != 'true'."""
+        params = {
+            "bamOut": "false",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, _ = validate_scale_workflow_info(params)
+        assert len(errors) == 1
+        assert "bamOut" in errors[0]
+        assert "'false'" in errors[0]
+
+    def test_scaleplex_false_is_error(self):
+        """Error when scalePlex != 'true'."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "false",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, _ = validate_scale_workflow_info(params)
+        assert len(errors) == 1
+        assert "scalePlex" in errors[0]
+
+    def test_assignment_method_wrong_is_error(self):
+        """Error when scalePlexAssignmentMethod != 'fc'."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "other",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        errors, _ = validate_scale_workflow_info(params)
+        assert len(errors) == 1
+        assert "scalePlexAssignmentMethod" in errors[0]
+
+    def test_genome_in_info_messages(self):
+        """Genome value appears in info messages."""
+        params = {
+            "bamOut": "true",
+            "scalePlex": "true",
+            "scalePlexAssignmentMethod": "fc",
+            "genome": "s3://bucket/ref/GRCh38.json",
+        }
+        _, info = validate_scale_workflow_info(params)
+        assert any("GRCh38" in m for m in info)
+
+
+class TestValidateScaleSamplesCsv:
+    """Tests for validate_scale_samples_csv."""
+
+    def test_no_forbidden_columns_passes(self):
+        """No errors when forbidden columns are absent."""
+        columns = ["sample", "barcodes", "libIndex2", "scalePlexLibIndex2"]
+        errors = validate_scale_samples_csv(columns)
+        assert errors == []
+
+    def test_scaleplexbarcodes_column_is_error(self):
+        """Error when scalePlexBarcodes column is present."""
+        columns = ["sample", "barcodes", "libIndex2", "scalePlexBarcodes"]
+        errors = validate_scale_samples_csv(columns)
+        assert len(errors) == 1
+        assert "scalePlexBarcodes" in errors[0]
+
+
+class TestValidateScaleCbTag:
+    """Tests for validate_scale_cb_tag."""
+
+    def test_all_true_passes(self):
+        """No errors when all CRAM files have cb_tag=True."""
+        read_metadata = {
+            "sample1.cram": {"cb_tag": True},
+            "sample2.cram": {"cb_tag": True},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert errors == []
+
+    def test_false_cb_tag_is_error(self):
+        """Error reported when cb_tag is False."""
+        read_metadata = {
+            "sample1.cram": {"cb_tag": True},
+            "sample2.cram": {"cb_tag": False},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert len(errors) == 1
+        assert "sample2.cram" in errors[0]
+        assert "cb_tag=False" in errors[0]
+
+    def test_missing_cb_tag_key_is_error(self):
+        """Error when cb_tag key is absent from metadata."""
+        read_metadata = {
+            "sample1.cram": {"read_count": 100},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert len(errors) == 1
+        assert "sample1.cram" in errors[0]
+        assert "cb_tag=None" in errors[0]
+
+    def test_unmatched_cram_skipped(self):
+        """Unmatched CRAMs (both hyphen and underscore forms) are not checked for cb_tag."""
+        read_metadata = {
+            "sample1_GEX_QSR-5-unmatched.cram": {"cb_tag": False},
+            "sample1_hash_oligo_QSR-5-SCALEPLEX-unmatched.cram": {"cb_tag": False},
+            "sample1_GEX_QSR-5_unmatched.cram": {"cb_tag": False},
+            "sample1_hash_oligo_QSR-5-SCALEPLEX_unmatched.cram": {"cb_tag": False},
+            "sample1_GEX_QSR-5.cram": {"cb_tag": True},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert errors == []
+
+    def test_cram_metadata_json_skipped(self):
+        """Files ending in .cram-metadata.json are not checked."""
+        read_metadata = {
+            "sample1.cram-metadata.json": {"cb_tag": False},
+        }
+        errors = validate_scale_cb_tag(read_metadata)
+        assert errors == []
+
+
+class TestValidateScaleProcessedFiles:
+    """Tests for validate_scale_processed_files."""
+
+    def test_all_files_present(self):
+        """No missing files when all expected per-sample and sublibrary files exist."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1", "QSR-2"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.merged.allCells.csv",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.QSR-2_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert result["errors"] == []
+        assert result["missing_files"] == []
+
+    def test_merged_anndata_missing(self):
+        """Merged anndata missing is flagged."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1.merged.allCells.csv",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert any("S1_anndata.h5ad" in e for e in result["errors"])
+        assert any(m["file"] == "S1_anndata.h5ad" for m in result["missing_files"])
+
+    def test_sublibrary_anndata_missing(self):
+        """Per-sublibrary anndata missing is flagged."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1", "QSR-2"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.merged.allCells.csv",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert any("S1.QSR-2_anndata.h5ad" in e for e in result["errors"])
+        assert any(
+            m["file"] == "S1.QSR-2_anndata.h5ad" for m in result["missing_files"]
+        )
+
+    def test_allcells_csv_missing(self):
+        """Merged allCells.csv missing is flagged."""
+        samples_info = {
+            "samples": ["S1"],
+            "sublibraries": {"S1": ["QSR-1"]},
+        }
+        proc_files = [
+            "proj/group/processed/run/samples/S1_anndata.h5ad",
+            "proj/group/processed/run/samples/S1.QSR-1_anndata.h5ad",
+        ]
+        result = validate_scale_processed_files(proc_files, samples_info)
+        assert any("S1.merged.allCells.csv" in e for e in result["errors"])
+        assert any(
+            m["file"] == "S1.merged.allCells.csv" for m in result["missing_files"]
+        )

@@ -20,6 +20,7 @@ The validator is implemented in `mapping_validation.cli.main` and is exercised e
       which column starts with `s3://`.
   - **Ignored lines**:
     - empty lines
+    - lines starting with `#` (comments)
     - header/meta rows starting with `@` (e.g. `@NVUS...mapping_processed.csv`)
     - header rows like `Local Path,S3 Path` / `S3 Path,Local Path`
   - **Separators supported**:
@@ -53,17 +54,20 @@ The validator is implemented in `mapping_validation.cli.main` and is exercised e
 
 ## CLI entry point
 
-The main entry point is the `mapping_validation` module:
+The package lives under `bcp/mapping_validation`. Run the module from the **`bcp` directory** (so Python resolves the package), or set `PYTHONPATH` to include `bcp`:
 
 ```bash
+cd bcp
 python -m mapping_validation --help
 ```
 
-or, when installed as a console script:
+If your environment installs a console entry point named `mapping_validation`, you can use that instead:
 
 ```bash
 mapping_validation --help
 ```
+
+(The root `lattice-tools` `pyproject.toml` does not define that script; local runs typically use `python -m mapping_validation` from `bcp`.)
 
 **Required arguments:**
 
@@ -107,7 +111,8 @@ Regardless of mode, the CLI runs the following phases in order:
    - Selected based on the `(provider, data, assay)` combination.
    - Currently implemented modes:
      - `provider in {novogene, psomagen}, data=raw, assay=10x`
-     - `provider=novogene, data=raw, assay in {scale,sci}`
+     - `provider=novogene, data=raw, assay in {scale,sci}`  
+       (**Scale and sci raw are Novogene-only**; `psomagen` with `scale` or `sci` is not implemented.)
      - `provider in {novogene, psomagen}, data=processed, assay=10x`
    - For any other combination, the tool prints:
      - `Mode (provider=..., data=..., assay=...) is not implemented yet.`
@@ -129,12 +134,14 @@ Exit code semantics:
 
 ## Supported modes and what they validate
 
+In the command shapes below, run from **`bcp`** and use `python -m mapping_validation` (or a `mapping_validation` executable if installed).
+
 ### 10x raw data (Novogene and Psomagen)
 
 Command shape:
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping PATH_TO_MAPPING.csv \
   --provider {novogene|psomagen} \
   --data raw \
@@ -173,12 +180,14 @@ Checks run:
     - Uses SIF to build expected GroupID → set of assays.
     - Normalizes SIF GroupIDs (e.g. `A + AF` → `A_AF`) and assay names to lower case.
     - Compares with actual S3 GroupID → assay mapping.
-    - Flags:
-      - GroupIDs present in SIF but missing from S3.
-      - GroupIDs present in S3 but absent from SIF.
-      - Missing or extra assay types per GroupID.
+    - **Fails the run** when:
+      - GroupIDs are present in SIF but missing from S3.
+      - GroupIDs are present in S3 but absent from SIF.
+      - A GroupID is in both, but S3 is **missing** assay types that the SIF expects.
+    - **Reports only (does not fail)** when S3 has **extra** assay types for a GroupID that the SIF does not list (still printed under “unexpected assay types”).
 
   - **Library‑assay consistency (`validate_library_assay_consistency`)**
+    - Runs only when the SIF can supply both **Library name** and **Assay type** columns (Excel or CSV); otherwise this step is skipped with no summary line.
     - Loads `Library name → assay type` from SIF.
     - Infers library names from local paths.
     - Validates:
@@ -207,7 +216,7 @@ Checks run:
 Command shape:
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping PATH_TO_MAPPING.csv \
   --provider novogene \
   --data raw \
@@ -238,7 +247,7 @@ Checks run:
 - **SIF completeness (if `--sif` provided) (`validate_sif_completeness_seahub`)**
   - Loads expected GroupID → assays from Scale SIF.
   - Compares against GroupID → assays derived from S3 paths.
-  - Flags missing/extra GroupIDs and missing/extra assays per GroupID.
+  - **Fails** on missing/extra GroupIDs and on **missing** assays per GroupID; **extra** assays in S3 vs SIF are printed but do not fail the run (same rules as 10x raw SIF comparison above).
 
 - **S3/local fuzzy consistency (`validate_s3_local_consistency_scale`)**
   - Compares high‑level attributes extracted from S3 and local paths:
@@ -259,7 +268,7 @@ Checks run:
 Command shape:
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping PATH_TO_MAPPING.csv \
   --provider novogene \
   --data raw \
@@ -286,7 +295,7 @@ Checks run:
 - **SIF completeness (if `--sif` provided) (`validate_sif_completeness_seahub`)**
   - Same pattern as Scale:
     - SIF GroupID → assays vs S3 GroupID → assays.
-    - Flags missing/extra GroupIDs and assays.
+    - **Fails** on missing/extra GroupIDs and **missing** assays; **extra** S3 assays vs SIF are informational only.
 
 - **S3/local consistency (`validate_s3_local_consistency_sci`)**
   - Cross‑checks S3 vs local for:
@@ -308,7 +317,7 @@ Checks run:
 Command shape:
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping PATH_TO_MAPPING.csv \
   --provider {novogene|psomagen} \
   --data processed \
@@ -332,18 +341,18 @@ Checks run:
 
 - **SIF completeness (if `--sif` provided) (`validate_sif_completeness_10x_processed`)**
   - Uses SIF to derive expected identifiers:
-    - Prefer `Group Identifier` column when present.
-    - Fall back to `Library name` when Group Identifier is missing.
+    - Prefer rows keyed by **Group Identifier** (plus **Assay type**) when those columns exist.
+    - If that structure is not present, fall back to unique **Library name** values (Ultima-style SIFs).
   - Compares SIF identifiers vs GroupIDs present in processed S3.
-  - Flags:
-    - Identifiers present in SIF but missing from S3.
-    - Extra identifiers found in S3 but not listed in SIF.
+  - **Fails** when identifiers are in the SIF but missing from the mapping’s processed S3 paths.
+  - **Prints** GroupIDs that appear in S3 but not in the SIF (`Extra in S3`); that output is **informational** and does not by itself set a failing exit code.
 
 - **S3/local consistency (`validate_s3_local_consistency_10x_processed`)**
   - Ensures:
     - GroupID from the S3 path appears in the local path.
     - Relative path after `/outs/` matches between S3 and local.
   - Emits errors when mismatches are found; warnings when `/outs/` is not present in the local path.
+  - When the GroupID string differs only by `-` vs `_`, the CLI may still match and emit a **NOTE** counting warnings matched after normalization.
 
 - **Without SIF (`--sif` omitted)**
   - S3 SOP and S3/local consistency checks still run.
@@ -378,9 +387,11 @@ The CLI prints:
 - **Final verdict**
   - Always at the end, making it easy to grep for `VERDICT`.
 
+**Informational-only lines:** Some SIF-related messages (for example **extra** assay types in S3 vs SIF for a GroupID, and **extra** processed GroupIDs in S3 vs SIF) are printed for review but **do not** add a failure reason or change `VERDICT` / exit code. Treat `VERDICT: FAIL` and the bulleted failure reasons as the source of truth for whether the run failed.
+
 Typical workflow:
 
-1. Run `mapping_validation` with appropriate `--provider`, `--data`, `--assay`, and `--sif` whenever a SIF exists.
+1. From `bcp`, run `python -m mapping_validation` (or your installed `mapping_validation` command) with appropriate `--provider`, `--data`, `--assay`, and `--sif` whenever a SIF exists.
 2. If it fails:
    - Start with the **summary counts** to see which category is failing (SOP vs SIF completeness vs S3/local vs uniqueness).
    - Inspect the **sample issues** for concrete examples.
@@ -391,10 +402,12 @@ Typical workflow:
 
 ## Example commands
 
+Run these from the **`bcp`** directory (paths are illustrative). Replace `python -m mapping_validation` with `mapping_validation` if your environment provides that executable.
+
 - **Novogene 10x raw with SIF**
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping novogene_10x_raw.csv \
   --sif novogene_10x_sif.xlsx \
   --provider novogene \
@@ -405,9 +418,20 @@ mapping_validation \
 - **Novogene 10x raw without SIF (structure‑only check)**
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping novogene_10x_raw.csv \
   --provider novogene \
+  --data raw \
+  --assay 10x
+```
+
+- **Psomagen 10x raw with SIF**
+
+```bash
+python -m mapping_validation \
+  --mapping psomagen_10x_raw.csv \
+  --sif psomagen_10x_sif.csv \
+  --provider psomagen \
   --data raw \
   --assay 10x
 ```
@@ -415,7 +439,7 @@ mapping_validation \
 - **Novogene sci raw with SIF**
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping novogene_sci_raw.csv \
   --sif novogene_sci_sif.xlsx \
   --provider novogene \
@@ -426,7 +450,7 @@ mapping_validation \
 - **Novogene Scale raw with SIF**
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping novogene_scale_raw.csv \
   --sif novogene_scale_sif.xlsx \
   --provider novogene \
@@ -437,10 +461,21 @@ mapping_validation \
 - **10x processed with SIF (Novogene)**
 
 ```bash
-mapping_validation \
+python -m mapping_validation \
   --mapping novogene_10x_processed.csv \
   --sif novogene_10x_processed_sif.xlsx \
   --provider novogene \
+  --data processed \
+  --assay 10x
+```
+
+- **10x processed with SIF (Psomagen)**
+
+```bash
+python -m mapping_validation \
+  --mapping psomagen_10x_processed.csv \
+  --sif psomagen_10x_processed_sif.csv \
+  --provider psomagen \
   --data processed \
   --assay 10x
 ```
