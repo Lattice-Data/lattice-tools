@@ -1,4 +1,4 @@
-s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/processed/cellranger/Run_2026-02-02/outs/filtered_feature_bc_matrix.h5,/local/CH01/processed/cellranger/Run_2026-02-02/outs/filtered_feature_bc_matrix.h5
-s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/processed/cellranger/Run_2026-02-02/outs/raw_feature_bc_matrix.h5,/local/CH01/processed/cellranger/Run_2026-02-02/outs/raw_feature_bc_matrix.h5
-s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/processed/cellranger/Run_2026-02-02/outs/atac_peaks.bed,/local/CH01/processed/cellranger/Run_2026-02-02/outs/atac_peaks.bed
-s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/processed/cellranger/Run_2026-02-02/outs/summary.csv,/local/CH01/processed/cellranger/Run_2026-02-02/outs/summary.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-16/CH01/processed/cellranger/Run_2026-02-02/outs/filtered_feature_bc_matrix.h5,/local/CH01/processed/cellranger/Run_2026-02-02/outs/filtered_feature_bc_matrix.h5
+s3://czi-novogene/project-alpha/NVUS0000000000-16/CH01/processed/cellranger/Run_2026-02-02/outs/raw_feature_bc_matrix.h5,/local/CH01/processed/cellranger/Run_2026-02-02/outs/raw_feature_bc_matrix.h5
+s3://czi-novogene/project-alpha/NVUS0000000000-16/CH01/processed/cellranger/Run_2026-02-02/outs/atac_peaks.bed,/local/CH01/processed/cellranger/Run_2026-02-02/outs/atac_peaks.bed
+s3://czi-novogene/project-alpha/NVUS0000000000-16/CH01/processed/cellranger/Run_2026-02-02/outs/summary.csv,/local/CH01/processed/cellranger/Run_2026-02-02/outs/summary.csv

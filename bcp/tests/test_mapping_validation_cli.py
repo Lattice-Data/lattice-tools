@@ -28,8 +28,8 @@ def test_cli_passes_for_valid_10x_mapping(tmp_path: Path, monkeypatch, capsys) -
         "NVUS0000000000-29/CD4i_R1L01/raw/"
         "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,"
         "/local/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz\n"
-        "s3://czi-novogene/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "NVUS2024101701-29/CD4i_R1L01/raw/"
+        "s3://czi-novogene/project-alpha/"
+        "NVUS0000000000-29/CD4i_R1L01/raw/"
         "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz,"
         "/local/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz\n"
     )
@@ -255,8 +255,8 @@ def test_cli_psomagen_10x_raw_passes(tmp_path: Path, monkeypatch, capsys) -> Non
         "AN00000001/CD4i_R1L01/raw/"
         "416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,"
         "/local/416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz\n"
-        "s3://czi-psomagen/weissman-scaling-in-vivo-perturb-seq-in-the-liver-and-beyond/"
-        "AN00012345/CD4i_R1L01/raw/"
+        "s3://czi-psomagen/project-alpha/"
+        "AN00000001/CD4i_R1L01/raw/"
         "416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz,"
         "/local/416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz\n"
     )

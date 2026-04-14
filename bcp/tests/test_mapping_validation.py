@@ -1548,7 +1548,7 @@ def test_s3_local_consistency_10x_processed_no_outs_in_local() -> None:
 # ---------------------------------------------------------------------------
 
 _MULTIOME_PROC_BASE = (
-    "s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/"
+    "s3://czi-novogene/project-alpha/NVUS0000000000-16/CH01/"
     "processed/cellranger/Run_2026-02-02/outs/"
 )
 
@@ -1557,13 +1557,13 @@ def test_validate_s3_10x_raw_multiome_gex_atac_novogene() -> None:
     """Multiome-style raw keys (dual run IDs, ATAC I2) match 10x raw SOP."""
     rows = [
         MappingRow(
-            "s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/project-alpha/NVUS0000000000-16/CH01/raw/"
             "436665-CH01_GEX-Z0073-CATGGCTATGCACTGAT_S1_L001_R1_001.fastq.gz",
             "/local/a",
             1,
         ),
         MappingRow(
-            "s3://czi-novogene/ucsf-killifish-atlas/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/project-alpha/NVUS0000000000-16/CH01/raw/"
             "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_I2_001.fastq.gz",
             "/local/b",
             2,
@@ -1667,7 +1667,7 @@ def test_validate_10x_multiome_processed_skips_non_processed_paths() -> None:
     """Raw S3 rows do not match processed regex and are skipped."""
     rows = [
         MappingRow(
-            "s3://czi-novogene/p/o/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/p/o/NVUS0000000000-16/CH01/raw/"
             "436665-CH01_GEX-Z0073-CATGGCTATGCACTGAT_R1.fastq.gz",
             "/a",
             1,
@@ -1689,7 +1689,7 @@ def _mate_row(s3: str, line: int = 1) -> MappingRow:
 
 def test_validate_10x_raw_fastq_read_mates_gex_pair_novogene_ok() -> None:
     base = (
-        "s3://czi-novogene/p/NVUS2024101701-29/G/raw/"
+        "s3://czi-novogene/p/NVUS0000000000-29/G/raw/"
         "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_{read}_001.fastq.gz"
     )
     rows = [
@@ -1703,7 +1703,7 @@ def test_validate_10x_raw_fastq_read_mates_gex_pair_novogene_ok() -> None:
 
 def test_validate_10x_raw_fastq_read_mates_gex_pair_psomagen_ok() -> None:
     base = (
-        "s3://czi-psomagen/p/AN00012345/G/raw/"
+        "s3://czi-psomagen/p/AN00000001/G/raw/"
         "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_{read}_001.fastq.gz"
     )
     rows = [_mate_row(base.format(read="R1")), _mate_row(base.format(read="R2"), 2)]
@@ -1714,7 +1714,7 @@ def test_validate_10x_raw_fastq_read_mates_gex_pair_psomagen_ok() -> None:
 
 def test_validate_10x_raw_fastq_read_mates_gex_r1_only_fails() -> None:
     s3 = (
-        "s3://czi-novogene/p/NVUS2024101701-29/G/raw/"
+        "s3://czi-novogene/p/NVUS0000000000-29/G/raw/"
         "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz"
     )
     res = validate_10x_raw_fastq_read_mates("novogene", [_mate_row(s3)])
@@ -1724,7 +1724,7 @@ def test_validate_10x_raw_fastq_read_mates_gex_r1_only_fails() -> None:
 
 def test_validate_10x_raw_fastq_read_mates_atac_triple_i2_ok() -> None:
     stem = (
-        "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+        "s3://czi-novogene/p/NVUS0000000000-16/CH01/raw/"
         "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_{read}_001.fastq.gz"
     )
     rows = [
@@ -1739,19 +1739,19 @@ def test_validate_10x_raw_fastq_read_mates_atac_triple_i2_ok() -> None:
 def test_validate_10x_raw_fastq_read_mates_atac_triple_r3_ok() -> None:
     rows = [
         MappingRow(
-            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/p/NVUS0000000000-16/CH01/raw/"
             "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R1_001.fastq.gz",
             "/l",
             1,
         ),
         MappingRow(
-            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/p/NVUS0000000000-16/CH01/raw/"
             "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R2_001.fastq.gz",
             "/l",
             2,
         ),
         MappingRow(
-            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/p/NVUS0000000000-16/CH01/raw/"
             "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R3_001.fastq.gz",
             "/l",
             3,
@@ -1764,13 +1764,13 @@ def test_validate_10x_raw_fastq_read_mates_atac_triple_r3_ok() -> None:
 def test_validate_10x_raw_fastq_read_mates_atac_r1_r2_only_fails() -> None:
     rows = [
         MappingRow(
-            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/p/NVUS0000000000-16/CH01/raw/"
             "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R1_001.fastq.gz",
             "/l",
             1,
         ),
         MappingRow(
-            "s3://czi-novogene/p/NVUS2024101701-16/CH01/raw/"
+            "s3://czi-novogene/p/NVUS0000000000-16/CH01/raw/"
             "436928-CH01_ATAC-Z0001-CAGCTCGAATGCGAT_S1_L001_R2_001.fastq.gz",
             "/l",
             2,
@@ -1783,7 +1783,7 @@ def test_validate_10x_raw_fastq_read_mates_atac_r1_r2_only_fails() -> None:
 
 def test_validate_10x_raw_fastq_read_mates_gex_extra_r3_fails() -> None:
     stem = (
-        "s3://czi-novogene/p/NVUS2024101701-29/G/raw/"
+        "s3://czi-novogene/p/NVUS0000000000-29/G/raw/"
         "416640-G_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_{tail}"
     )
     rows = [
@@ -1799,7 +1799,7 @@ def test_validate_10x_raw_fastq_read_mates_skips_non_illumina_legacy_names() -> 
     """Paths like ..._R1.fastq.gz without _S_L_ tail are skipped with warning."""
     rows = [
         MappingRow(
-            "s3://czi-novogene/proj/NVUS2024101701-28/LIB1_LIB1F/raw/"
+            "s3://czi-novogene/proj/NVUS0000000000-28/LIB1_LIB1F/raw/"
             "100-LIB1_LIB1F_GEX-Z0001-ACGT_R1.fastq.gz",
             "/l",
             1,
