@@ -1,0 +1,1 @@
+This directory contains the code used to generate statistics and graphs for the CELLxGENE submissions manuscript **Collaborative submissions: a partnership model for building high-quality data resources at scale** (preprint coming soon)
