@@ -148,7 +148,7 @@ class QADataGatherer:
             else:
                 self._gather_group_processed(g, group_name)
 
-        if self.raw_assay in ("10x", "10x_viral_ORF"):
+        if self.raw_assay in ("10x", "10x_cram", "10x_viral_ORF"):
             self._gather_order_level_merged_trimmers()
 
     # ------------------------------------------------------------------

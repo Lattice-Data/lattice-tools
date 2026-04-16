@@ -774,6 +774,31 @@ class TestGatherOrderLevelMergedTrimmers:
         data = gather_qa_data(ctx, s3)
         assert data.merged_wafer_stats == {}
 
+    def test_10x_cram_order_level_merged_trimmer_ingested_explicit_regression(self):
+        """Regression test: 10x_cram must ingest order-level merged trimmer files.
+
+        This explicitly protects the wafer-level summary flow in qa.ipynb
+        (merged RSQ/TT pass/fail and read-count columns), which depends on
+        merged_wafer_stats being populated for 10x_cram runs.
+        """
+        raw_key = (
+            "testproj/ORD01/LeS1867W11/raw/"
+            "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT.cram"
+        )
+        merged_key = "testproj/ORD01/442488_merged_trimmer-failure_codes.csv"
+        merged_csv = (
+            "read group,code,format,segment,reason,"
+            "failed read count,total read count\n"
+            "TT,8,trim,preamble,rsq file,1000,10000\n"
+            "TT,101,trim,insert,sequence was too short,100,10000\n"
+        )
+        keys = [raw_key, merged_key]
+        file_contents = {merged_key: merged_csv}
+        ctx = _make_ctx(raw_assay="10x_cram")
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        assert "442488" in data.merged_wafer_stats
+
 
 # ---------------------------------------------------------------------------
 # has_raw / has_processed flags
