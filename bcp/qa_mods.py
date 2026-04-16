@@ -89,7 +89,7 @@ def normalize_raw_assay(value: str | None) -> str:
     if value is None or not str(value).strip():
         raise ValueError(
             "ERROR: raw_assay is not specified. "
-            "Set it to one of: '10x', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "Set it to one of: '10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
         )
     s = str(value).strip()
     lower = s.lower()
@@ -101,7 +101,7 @@ def normalize_raw_assay(value: str | None) -> str:
         raise ValueError(
             f"HUGE ERROR: raw_assay='{s}' is not recognized. "
             "Update the parameter to one of: "
-            "'10x', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "'10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
         )
     return s
 

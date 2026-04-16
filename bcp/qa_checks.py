@@ -34,7 +34,7 @@ VALID_PROBES = [
 
 def _fastq_count_mode(raw_assay: str) -> str:
     """Internal: assay policy for fastq count validation and summaries."""
-    if raw_assay in ("sci_jumbo", "10x_viral_ORF"):
+    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram"):
         return "skip"
     if raw_assay in ("scale", "sci_plex"):
         return "gex_hash"
@@ -65,6 +65,10 @@ def validate_fastq_counts(
     if mode == "skip":
         if raw_assay == "sci_jumbo":
             logger.warning("Not validating fastq counts for sci_jumbo at the moment.")
+        elif raw_assay == "10x_cram":
+            logger.warning(
+                "Not validating fastq counts for 10x_cram (CRAM-only raw layout)."
+            )
         else:
             logger.warning(
                 "Not validating fastq counts for 10x_viral_ORF (legacy/outlier)."
@@ -139,6 +143,11 @@ def summarize_fastq_count_validation(
     mode = _fastq_count_mode(raw_assay)
 
     if mode == "skip":
+        if raw_assay == "10x_cram":
+            return (
+                "Fastq count validation (10x_cram): not applicable for CRAM-only raw "
+                f"inputs; mismatches: {mismatches}. No comparisons performed."
+            )
         return (
             f"Fastq count validation ({raw_assay}): not validated by design; "
             f"mismatches: {mismatches}. No comparisons performed."
@@ -261,6 +270,8 @@ def validate_read_metadata(
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
 
+    skip_r1_r2_pairing = raw_assay == "10x_cram"
+
     # Optional instrumentation for stdout-only reporting.
     matched_examples: list[str] = []
     compared_pairs = 0
@@ -282,7 +293,7 @@ def validate_read_metadata(
                 f"metadata filename does not match source object; "
                 f"reported={reported_filename} actual={f}"
             )
-        if extract_read_indicator(f) == "R2":
+        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R2":
             continue
         if meta.get("errors"):
             errors.append(
@@ -301,7 +312,7 @@ def validate_read_metadata(
                 group_read_counts[group][assay] = reads
             else:
                 group_read_counts[group][assay] += reads
-        if extract_read_indicator(f) == "R1":
+        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R1":
             r2file = make_read_partner(f, "R1", "R2")
             if r2file in read_metadata:
                 r2meta = read_metadata[r2file]
@@ -328,12 +339,13 @@ def validate_read_metadata(
                 r1_without_r2_metadata.append(f)
 
     r2_without_r1_metadata: list[str] = []
-    for f in read_metadata:
-        if extract_read_indicator(f) != "R2":
-            continue
-        r1file = make_read_partner(f, "R2", "R1")
-        if r1file not in read_metadata:
-            r2_without_r1_metadata.append(f)
+    if not skip_r1_r2_pairing:
+        for f in read_metadata:
+            if extract_read_indicator(f) != "R2":
+                continue
+            r1file = make_read_partner(f, "R2", "R1")
+            if r1file not in read_metadata:
+                r2_without_r1_metadata.append(f)
 
     for path in r1_without_r2_metadata:
         errors.append(f"READ METADATA PAIRING: R1 present, no R2 metadata key: {path}")
@@ -345,7 +357,7 @@ def validate_read_metadata(
         "r2_without_r1_metadata": r2_without_r1_metadata,
     }
 
-    if print_success:
+    if print_success and not skip_r1_r2_pairing:
         print(
             f"validate_read_metadata({raw_assay}): "
             f"r1_r2_pairs_compared={compared_pairs} "

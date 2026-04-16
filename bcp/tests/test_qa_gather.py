@@ -569,6 +569,43 @@ class TestGatherScaleRaw:
         assert not any("WRONG GROUP" in e for e in data.gathering_errors)
 
 
+class TestGather10xCramRaw:
+    _RAW_DIR = "testproj/ORD01/LeS1867W11/raw/"
+    _BASE = "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT"
+
+    @staticmethod
+    def _cram_metadata(filename: str, read_count: int = 1000) -> str:
+        return json.dumps(
+            {"filename": filename, "read_count": read_count, "errors": []}
+        )
+
+    def test_10x_cram_metadata_downloaded(self):
+        meta_key = f"{self._RAW_DIR}{self._BASE}.cram-metadata.json"
+        keys = [
+            f"{self._RAW_DIR}{self._BASE}.cram",
+            f"{self._RAW_DIR}{self._BASE}.csv",
+            meta_key,
+        ]
+        file_contents = {
+            meta_key: self._cram_metadata(f"{self._BASE}.cram", read_count=4321),
+        }
+        ctx = _make_ctx(raw_assay="10x_cram")
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        assert f"{self._BASE}.cram" in data.read_metadata
+        assert data.read_metadata[f"{self._BASE}.cram"]["read_count"] == 4321
+
+    def test_10x_cram_not_counted_in_fastq_log(self):
+        keys = [
+            f"{self._RAW_DIR}{self._BASE}.cram",
+            f"{self._RAW_DIR}{self._BASE}.csv",
+        ]
+        ctx = _make_ctx(raw_assay="10x_cram")
+        s3 = MockS3Client(keys=keys)
+        data = gather_qa_data(ctx, s3)
+        assert data.fastq_log.get("LeS1867W11", {}) == {}
+
+
 # ---------------------------------------------------------------------------
 # S3 mode — CellRanger processed
 # ---------------------------------------------------------------------------

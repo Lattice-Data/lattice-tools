@@ -216,6 +216,15 @@ class TestSummarizeFastqCountValidation:
         assert "mismatches: 0" in summary
         assert "Only GEX present" in summary
 
+    def test_10x_cram_summary_not_applicable(self):
+        fastq_log = {}
+        errors = validate_fastq_counts(fastq_log, "10x_cram")
+        assert errors == []
+        summary = summarize_fastq_count_validation(fastq_log, "10x_cram", errors)
+        assert "10x_cram" in summary
+        assert "not applicable" in summary
+        assert "CRAM-only" in summary
+
 
 class TestValidateReadMetadata:
     """Tests for validate_read_metadata."""
@@ -389,6 +398,46 @@ class TestValidateReadMetadata:
         validate_read_metadata(read_metadata, "10x", print_success=True)
         out = capsys.readouterr().out
         assert "metadata_filename_mismatch_warnings=1" in out
+
+    def test_10x_cram_skips_r1_r2_pairing_and_summary(self, capsys):
+        cram = "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT.cram"
+        read_metadata = {
+            cram: {"read_count": 123, "errors": []},
+        }
+        counts, errors, pairing = validate_read_metadata(
+            read_metadata, "10x_cram", print_success=True
+        )
+        out = capsys.readouterr().out
+        assert "validate_read_metadata(10x_cram):" not in out
+        assert "r1_r2_pairs_compared" not in out
+        assert errors == []
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert counts["LeS1867W11"]["ATAC"] == 123
+
+
+class Test10xCramRawFiles:
+    """Tests for expected/extra raw files under 10x_cram policy."""
+
+    def test_10x_cram_expected_and_optional_files(self):
+        base = "proj/order/LeS1867W11/raw/442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT"
+        all_raw = [
+            f"{base}.cram",
+            f"{base}.cram-metadata.json",
+            f"{base}.csv",
+            f"{base}.json",
+            f"{base}_FlowQ.metric",
+            f"{base}_SNVQ.metric",
+            f"{base}_trimmer-failure_codes.csv",
+            f"{base}_trimmer-stats.csv",
+            f"{base}_extract_stats.h5",
+        ]
+        all_good, raw_lost, raw_found = check_expected_raw_files(all_raw, "10x_cram")
+        assert all_good == 1
+        assert raw_lost == []
+        assert len(raw_found) == 8
+        extra = check_extra_raw_files(all_raw, raw_found, "10x_cram")
+        assert extra == []
 
 
 class TestCheckExpectedRawFiles:
