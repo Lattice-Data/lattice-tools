@@ -466,8 +466,11 @@ class TestValidateReadMetadata:
             read_metadata, "10x_cram", print_success=True
         )
         out = capsys.readouterr().out
-        assert "validate_read_metadata(10x_cram):" not in out
+        assert "validate_read_metadata(10x_cram):" in out
+        assert "CRAM-only layout" in out
         assert "r1_r2_pairs_compared" not in out
+        assert "Checked metadata read counts (1):" in out
+        assert f"{cram}: read_count={MIN_METADATA_READ_COUNT}" in out
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []

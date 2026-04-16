@@ -366,24 +366,31 @@ def validate_read_metadata(
         "r2_without_r1_metadata": r2_without_r1_metadata,
     }
 
-    if print_success and not skip_r1_r2_pairing:
-        print(
-            f"validate_read_metadata({raw_assay}): "
-            f"r1_r2_pairs_compared={compared_pairs} "
-            f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
-            f"r1_missing_r2_metadata={skipped_no_r2}, "
-            f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
-            f"r2_metadata_errors={r2_metadata_error}, "
-            f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
-        )
-        for line in matched_examples:
-            print(line)
+    if print_success:
+        if not skip_r1_r2_pairing:
+            print(
+                f"validate_read_metadata({raw_assay}): "
+                f"r1_r2_pairs_compared={compared_pairs} "
+                f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
+                f"r1_missing_r2_metadata={skipped_no_r2}, "
+                f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
+                f"r2_metadata_errors={r2_metadata_error}, "
+                f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
+            )
+            for line in matched_examples:
+                print(line)
+        else:
+            print(
+                f"validate_read_metadata({raw_assay}): "
+                "CRAM-only layout; R1/R2 metadata pairing not applicable."
+            )
         _print_checked_read_counts(checked_read_counts, checked_read_counts_print_limit)
-        _print_pairing_path_lists(
-            r1_without_r2_metadata,
-            r2_without_r1_metadata,
-            pairing_paths_print_limit,
-        )
+        if not skip_r1_r2_pairing:
+            _print_pairing_path_lists(
+                r1_without_r2_metadata,
+                r2_without_r1_metadata,
+                pairing_paths_print_limit,
+            )
 
     return group_read_counts, errors, pairing
 
