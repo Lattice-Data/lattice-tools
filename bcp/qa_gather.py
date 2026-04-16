@@ -375,6 +375,7 @@ class QADataGatherer:
                 name = key.split("/")[-1]
                 if (
                     "merged_trimmer-failure_codes.csv" in name
+                    or "merged_trimmer-failure-codes.csv" in name
                     or "merged_trimmer-stats.csv" in name
                 ):
                     ingest_merged_trimmer_from_s3(
@@ -445,7 +446,9 @@ def _is_merged_trimmer_file(rf: str) -> bool:
     name = rf.split("/")[-1]
     return (
         "merged_trimmer-failure_codes.csv" in name
+        or "merged_trimmer-failure-codes.csv" in name
         or "_merged_trimmer-failure_codes.csv" in name
+        or "_merged_trimmer-failure-codes.csv" in name
         or "merged_trimmer-stats.csv" in name
         or "_merged_trimmer-stats.csv" in name
     )

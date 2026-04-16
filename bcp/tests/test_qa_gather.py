@@ -165,6 +165,9 @@ class TestIsMergedTrimmerFile:
     def test_prefixed_merged_failure_codes(self):
         assert _is_merged_trimmer_file("path/438761_merged_trimmer-failure_codes.csv")
 
+    def test_prefixed_merged_failure_codes_dash_variant(self):
+        assert _is_merged_trimmer_file("path/438761_merged_trimmer-failure-codes.csv")
+
     def test_merged_stats(self):
         assert _is_merged_trimmer_file("path/merged_trimmer-stats.csv")
 
@@ -761,6 +764,26 @@ class TestGatherOrderLevelMergedTrimmers:
         s3 = MockS3Client(keys=keys, file_contents=file_contents)
         data = gather_qa_data(ctx, s3)
         assert "438761" in data.merged_wafer_stats
+
+    def test_10x_cram_order_level_merged_trimmer_ingested_dash_variant(self):
+        """Accept merged filename variant with failure-codes (dash)."""
+        raw_key = (
+            "testproj/ORD01/LeS1867W11/raw/"
+            "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT.cram"
+        )
+        merged_key = "testproj/ORD01/442488_merged_trimmer-failure-codes.csv"
+        merged_csv = (
+            "read group,code,format,segment,reason,"
+            "failed read count,total read count\n"
+            "TT,8,trim,preamble,rsq file,1000,10000\n"
+            "TT,101,trim,insert,sequence was too short,100,10000\n"
+        )
+        keys = [raw_key, merged_key]
+        file_contents = {merged_key: merged_csv}
+        ctx = _make_ctx(raw_assay="10x_cram")
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        assert "442488" in data.merged_wafer_stats
 
     def test_scale_order_level_not_ingested(self):
         """Scale assay does not look for order-level merged trimmers."""

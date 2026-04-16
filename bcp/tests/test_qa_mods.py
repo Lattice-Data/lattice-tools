@@ -520,6 +520,8 @@ class TestExtractRunIdFromMergedTrimmerPath:
         """10x: merged files under order/; run_id from filename prefix."""
         path = "proj/order/438761_merged_trimmer-failure_codes.csv"
         assert extract_run_id_from_merged_trimmer_path(path) == "438761"
+        path_dash = "proj/order/438761_merged_trimmer-failure-codes.csv"
+        assert extract_run_id_from_merged_trimmer_path(path_dash) == "438761"
         path2 = "czi-novogene/project-persona/NVUS0000000000-29/438761_merged_trimmer-stats.csv"
         assert extract_run_id_from_merged_trimmer_path(path2) == "438761"
 
