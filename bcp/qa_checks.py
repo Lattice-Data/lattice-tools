@@ -30,6 +30,7 @@ VALID_PROBES = [
     "Chromium Mouse Transcriptome Probe Set v1.1.1",
     "Chromium Human Transcriptome Probe Set v1.1.0",
 ]
+MIN_METADATA_READ_COUNT = 1_000_000
 
 
 def _fastq_count_mode(raw_assay: str) -> str:
@@ -303,6 +304,11 @@ def validate_read_metadata(
         reads = meta.get("read_count")
         if reads is None:
             continue
+        if reads < MIN_METADATA_READ_COUNT:
+            errors.append(
+                f"READ COUNT ERROR: {f} read_count {reads} is below minimum "
+                f"{MIN_METADATA_READ_COUNT}"
+            )
         parsed = parse_raw_filename(f, raw_assay)
         if parsed is not None:
             _run, group, assay, _ug, _barcode = parsed

@@ -5,6 +5,7 @@ Tests for qa_checks validation functions.
 import logging
 
 from qa_checks import (
+    MIN_METADATA_READ_COUNT,
     build_wafer_failure_stats,
     check_expected_raw_files,
     check_extra_raw_files,
@@ -232,25 +233,28 @@ class TestValidateReadMetadata:
     def test_builds_group_read_counts(self):
         """Builds group_read_counts from R1 metadata (no R2)."""
         read_metadata = {
-            "run-G1_GEX-UG01-R1.fastq.gz": {"read_count": 100, "errors": []},
+            "run-G1_GEX-UG01-R1.fastq.gz": {
+                "read_count": MIN_METADATA_READ_COUNT,
+                "errors": [],
+            },
         }
         counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []
         assert "G1" in counts
-        assert counts["G1"]["GEX"] == 100
+        assert counts["G1"]["GEX"] == MIN_METADATA_READ_COUNT
 
     def test_r1_r2_mismatch_error(self):
         """Error when R1 and R2 read counts differ."""
         # Use 10x-style filename (run-group_assay-ug-barcode pattern, 4 hyphen parts)
         read_metadata = {
             "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz": {
-                "read_count": 100,
+                "read_count": MIN_METADATA_READ_COUNT + 100,
                 "errors": [],
             },
             "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz": {
-                "read_count": 200,
+                "read_count": MIN_METADATA_READ_COUNT + 200,
                 "errors": [],
             },
         }
@@ -261,11 +265,11 @@ class TestValidateReadMetadata:
         """When R1/R2 match, optionally print a success summary to stdout."""
         read_metadata = {
             "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz": {
-                "read_count": 100,
+                "read_count": MIN_METADATA_READ_COUNT,
                 "errors": [],
             },
             "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz": {
-                "read_count": 100,
+                "read_count": MIN_METADATA_READ_COUNT,
                 "errors": [],
             },
         }
@@ -283,9 +287,34 @@ class TestValidateReadMetadata:
         assert "r2_missing_r1_metadata=0" in out
         assert "MATCH:" in out
 
+    def test_read_count_equal_to_minimum_passes_without_low_read_error(self):
+        read_metadata = {
+            "run-G1_GEX-UG01-R1.fastq.gz": {
+                "read_count": MIN_METADATA_READ_COUNT,
+                "errors": [],
+            },
+        }
+        _counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
+        assert not any("below minimum" in e for e in errors)
+
+    def test_read_count_below_minimum_raises_error(self):
+        read_metadata = {
+            "run-G1_GEX-UG01-R1.fastq.gz": {
+                "read_count": MIN_METADATA_READ_COUNT - 1,
+                "errors": [],
+            },
+        }
+        _counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
+        assert any(
+            "READ COUNT ERROR:" in e
+            and "below minimum" in e
+            and str(MIN_METADATA_READ_COUNT) in e
+            for e in errors
+        )
+
     def test_r1_without_r2_lists_path_and_errors(self):
         r1 = "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz"
-        read_metadata = {r1: {"read_count": 100, "errors": []}}
+        read_metadata = {r1: {"read_count": MIN_METADATA_READ_COUNT, "errors": []}}
         counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
         assert pairing["r1_without_r2_metadata"] == [r1]
         assert pairing["r2_without_r1_metadata"] == []
@@ -293,7 +322,7 @@ class TestValidateReadMetadata:
 
     def test_r2_without_r1_lists_path_and_errors(self):
         r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
-        read_metadata = {r2: {"read_count": 100, "errors": []}}
+        read_metadata = {r2: {"read_count": MIN_METADATA_READ_COUNT, "errors": []}}
         counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
         assert pairing["r2_without_r1_metadata"] == [r2]
         assert pairing["r1_without_r2_metadata"] == []
@@ -302,7 +331,10 @@ class TestValidateReadMetadata:
     def test_metadata_errors_appended(self):
         """Metadata with errors list adds to errors."""
         read_metadata = {
-            "run-G1_GEX-UG01_R1.fastq.gz": {"read_count": 100, "errors": ["bad"]},
+            "run-G1_GEX-UG01_R1.fastq.gz": {
+                "read_count": MIN_METADATA_READ_COUNT,
+                "errors": ["bad"],
+            },
         }
         counts, errors, _p = validate_read_metadata(read_metadata, "10x")
         assert any("METADATA.JSON ERROR" in e for e in errors)
@@ -313,38 +345,38 @@ class TestValidateReadMetadata:
         r1 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
         r2 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
         read_metadata = {
-            r1: {"read_count": 500, "errors": []},
-            r2: {"read_count": 500, "errors": []},
+            r1: {"read_count": MIN_METADATA_READ_COUNT + 500, "errors": []},
+            r2: {"read_count": MIN_METADATA_READ_COUNT + 500, "errors": []},
         }
         counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []
         assert not any("PAIRING" in e for e in errors)
         assert "q_pcf_R2" in counts
-        assert counts["q_pcf_R2"]["GEX"] == 500
+        assert counts["q_pcf_R2"]["GEX"] == MIN_METADATA_READ_COUNT + 500
 
     def test_r1_in_group_id_pairs_correctly(self):
         """R1 in the group name (q_hf_R1) must not confuse R1/R2 pairing."""
         r1 = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R1_001.fastq.gz"
         r2 = "439925-q_hf_R1_GEX-Z0004-CTGTGTAGGCATGAT_S1_L001_R2_001.fastq.gz"
         read_metadata = {
-            r1: {"read_count": 300, "errors": []},
-            r2: {"read_count": 300, "errors": []},
+            r1: {"read_count": MIN_METADATA_READ_COUNT + 300, "errors": []},
+            r2: {"read_count": MIN_METADATA_READ_COUNT + 300, "errors": []},
         }
         counts, errors, pairing = validate_read_metadata(read_metadata, "10x")
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []
         assert not any("PAIRING" in e for e in errors)
         assert "q_hf_R1" in counts
-        assert counts["q_hf_R1"]["GEX"] == 300
+        assert counts["q_hf_R1"]["GEX"] == MIN_METADATA_READ_COUNT + 300
 
     def test_r2_in_group_id_mismatch_detected(self):
         """Read count mismatch is still detected with R2 in the group name."""
         r1 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R1_001.fastq.gz"
         r2 = "439925-q_pcf_R2_GEX-Z0028-CAGACTTGCTGCGAT_S1_L001_R2_001.fastq.gz"
         read_metadata = {
-            r1: {"read_count": 500, "errors": []},
-            r2: {"read_count": 999, "errors": []},
+            r1: {"read_count": MIN_METADATA_READ_COUNT + 500, "errors": []},
+            r2: {"read_count": MIN_METADATA_READ_COUNT + 999, "errors": []},
         }
         _counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
         assert any("READ COUNT ERROR" in e for e in errors)
@@ -358,13 +390,13 @@ class TestValidateReadMetadata:
         actual_r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
         read_metadata = {
             actual_r1: {
-                "read_count": 100,
+                "read_count": MIN_METADATA_READ_COUNT,
                 "errors": [],
                 "__actual_filename": actual_r1,
                 "__reported_filename": "s3://bucket/WRONG_R1.fastq.gz",
             },
             actual_r2: {
-                "read_count": 100,
+                "read_count": MIN_METADATA_READ_COUNT,
                 "errors": [],
                 "__actual_filename": actual_r2,
                 "__reported_filename": actual_r2,
@@ -375,7 +407,7 @@ class TestValidateReadMetadata:
         assert pairing["r2_without_r1_metadata"] == []
         assert any("METADATA FILENAME WARNING:" in e for e in errors)
         assert not any("READ METADATA PAIRING" in e for e in errors)
-        assert counts["G1"]["GEX"] == 100
+        assert counts["G1"]["GEX"] == MIN_METADATA_READ_COUNT
 
     def test_mismatch_warning_printed_in_summary(self, capsys):
         """Summary line includes mismatch warning count for observability."""
@@ -383,13 +415,13 @@ class TestValidateReadMetadata:
         actual_r2 = "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz"
         read_metadata = {
             actual_r1: {
-                "read_count": 100,
+                "read_count": MIN_METADATA_READ_COUNT,
                 "errors": [],
                 "__actual_filename": actual_r1,
                 "__reported_filename": "s3://bucket/WRONG_R1.fastq.gz",
             },
             actual_r2: {
-                "read_count": 100,
+                "read_count": MIN_METADATA_READ_COUNT,
                 "errors": [],
                 "__actual_filename": actual_r2,
                 "__reported_filename": actual_r2,
@@ -402,7 +434,7 @@ class TestValidateReadMetadata:
     def test_10x_cram_skips_r1_r2_pairing_and_summary(self, capsys):
         cram = "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT.cram"
         read_metadata = {
-            cram: {"read_count": 123, "errors": []},
+            cram: {"read_count": MIN_METADATA_READ_COUNT, "errors": []},
         }
         counts, errors, pairing = validate_read_metadata(
             read_metadata, "10x_cram", print_success=True
@@ -413,7 +445,7 @@ class TestValidateReadMetadata:
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []
-        assert counts["LeS1867W11"]["ATAC"] == 123
+        assert counts["LeS1867W11"]["ATAC"] == MIN_METADATA_READ_COUNT
 
 
 class Test10xCramRawFiles:
