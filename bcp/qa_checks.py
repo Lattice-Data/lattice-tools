@@ -250,6 +250,7 @@ def validate_read_metadata(
     print_success: bool = False,
     success_print_limit: int = 5,
     pairing_paths_print_limit: int = 100,
+    checked_read_counts_print_limit: int = 100,
 ) -> tuple[dict[str, dict[str, int]], list[str], dict[str, list[str]]]:
     """
     Build group read counts from metadata and check R1/R2 consistency.
@@ -282,6 +283,7 @@ def validate_read_metadata(
     r2_metadata_error = 0
     r1_without_r2_metadata: list[str] = []
     filename_mismatch_warnings = 0
+    checked_read_counts: list[tuple[str, Any]] = []
 
     for f, meta in read_metadata.items():
         reported_filename = str(
@@ -294,8 +296,6 @@ def validate_read_metadata(
                 f"metadata filename does not match source object; "
                 f"reported={reported_filename} actual={f}"
             )
-        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R2":
-            continue
         if meta.get("errors"):
             errors.append(
                 f"METADATA.JSON ERROR: {f} has error in metadata.json:{meta['errors']}"
@@ -304,11 +304,14 @@ def validate_read_metadata(
         reads = meta.get("read_count")
         if reads is None:
             continue
+        checked_read_counts.append((f, reads))
         if reads < MIN_METADATA_READ_COUNT:
             errors.append(
                 f"READ COUNT ERROR: {f} read_count {reads} is below minimum "
                 f"{MIN_METADATA_READ_COUNT}"
             )
+        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R2":
+            continue
         parsed = parse_raw_filename(f, raw_assay)
         if parsed is not None:
             _run, group, assay, _ug, _barcode = parsed
@@ -375,6 +378,7 @@ def validate_read_metadata(
         )
         for line in matched_examples:
             print(line)
+        _print_checked_read_counts(checked_read_counts, checked_read_counts_print_limit)
         _print_pairing_path_lists(
             r1_without_r2_metadata,
             r2_without_r1_metadata,
@@ -402,6 +406,20 @@ def _print_pairing_path_lists(
             print(f"  {p}")
         if len(r2_missing_r1) > limit:
             print(f"  ... and {len(r2_missing_r1) - limit} more")
+
+
+def _print_checked_read_counts(
+    checked_read_counts: list[tuple[str, Any]], limit: int
+) -> None:
+    """Print per-file read_count values used for metadata validation."""
+    if not checked_read_counts:
+        print("Checked metadata read counts: none")
+        return
+    print(f"Checked metadata read counts ({len(checked_read_counts)}):")
+    for path, count in checked_read_counts[:limit]:
+        print(f"  {path}: read_count={count}")
+    if len(checked_read_counts) > limit:
+        print(f"  ... and {len(checked_read_counts) - limit} more")
 
 
 def check_expected_raw_files(

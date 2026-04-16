@@ -285,6 +285,15 @@ class TestValidateReadMetadata:
         assert "matched=1" in out
         assert "mismatched=0" in out
         assert "r2_missing_r1_metadata=0" in out
+        assert "Checked metadata read counts (2):" in out
+        assert (
+            "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz: "
+            f"read_count={MIN_METADATA_READ_COUNT}" in out
+        )
+        assert (
+            "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz: "
+            f"read_count={MIN_METADATA_READ_COUNT}" in out
+        )
         assert "MATCH:" in out
 
     def test_read_count_equal_to_minimum_passes_without_low_read_error(self):
@@ -309,6 +318,23 @@ class TestValidateReadMetadata:
             "READ COUNT ERROR:" in e
             and "below minimum" in e
             and str(MIN_METADATA_READ_COUNT) in e
+            for e in errors
+        )
+
+    def test_r2_below_minimum_also_raises_error(self):
+        read_metadata = {
+            "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz": {
+                "read_count": MIN_METADATA_READ_COUNT,
+                "errors": [],
+            },
+            "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz": {
+                "read_count": MIN_METADATA_READ_COUNT - 1,
+                "errors": [],
+            },
+        }
+        _counts, errors, _pairing = validate_read_metadata(read_metadata, "10x")
+        assert any(
+            "READ COUNT ERROR:" in e and "R2_001.fastq.gz" in e and "below minimum" in e
             for e in errors
         )
 
