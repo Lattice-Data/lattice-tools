@@ -288,11 +288,11 @@ class TestValidateReadMetadata:
         assert "Checked metadata read counts (2):" in out
         assert (
             "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz: "
-            f"read_count={MIN_METADATA_READ_COUNT}" in out
+            "read_count=1M (1,000,000)" in out
         )
         assert (
             "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz: "
-            f"read_count={MIN_METADATA_READ_COUNT}" in out
+            "read_count=1M (1,000,000)" in out
         )
         assert "MATCH:" in out
 
@@ -470,7 +470,7 @@ class TestValidateReadMetadata:
         assert "CRAM-only layout" in out
         assert "r1_r2_pairs_compared" not in out
         assert "Checked metadata read counts (1):" in out
-        assert f"{cram}: read_count={MIN_METADATA_READ_COUNT}" in out
+        assert f"{cram}: read_count=1M (1,000,000)" in out
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []

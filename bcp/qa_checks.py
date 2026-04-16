@@ -415,6 +415,36 @@ def _print_pairing_path_lists(
             print(f"  ... and {len(r2_missing_r1) - limit} more")
 
 
+def _format_read_count_human_unsigned(n: int) -> str:
+    """Return a compact unsigned label using K / M / B (up to 2 fractional digits)."""
+    if n < 1000:
+        return str(n)
+    if n >= 1_000_000_000:
+        scaled = n / 1_000_000_000
+        suffix = "B"
+    elif n >= 1_000_000:
+        scaled = n / 1_000_000
+        suffix = "M"
+    else:
+        scaled = n / 1_000
+        suffix = "K"
+    text = f"{scaled:.2f}".rstrip("0").rstrip(".")
+    return f"{text}{suffix}"
+
+
+def _format_read_count_for_display(count: Any) -> str:
+    """Human-readable read count plus exact integer with thousands separators."""
+    try:
+        n = int(count)
+    except (TypeError, ValueError):
+        return str(count)
+    human_u = _format_read_count_human_unsigned(abs(n))
+    if human_u == str(abs(n)):
+        return f"{n:,}"
+    human = f"-{human_u}" if n < 0 else human_u
+    return f"{human} ({n:,})"
+
+
 def _print_checked_read_counts(
     checked_read_counts: list[tuple[str, Any]], limit: int
 ) -> None:
@@ -424,7 +454,7 @@ def _print_checked_read_counts(
         return
     print(f"Checked metadata read counts ({len(checked_read_counts)}):")
     for path, count in checked_read_counts[:limit]:
-        print(f"  {path}: read_count={count}")
+        print(f"  {path}: read_count={_format_read_count_for_display(count)}")
     if len(checked_read_counts) > limit:
         print(f"  ... and {len(checked_read_counts) - limit} more")
 
