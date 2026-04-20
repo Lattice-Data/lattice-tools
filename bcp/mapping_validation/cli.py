@@ -330,7 +330,7 @@ def _validate_10x_sif(
     """Run SIF-based checks for 10x, return non-zero on failure."""
     exit_code = 0
 
-    sif_ga = load_sif_group_assays(sif_path)
+    sif_ga = load_sif_group_assays(sif_path, provider=provider)
     sif_norm: dict[str, set[str]] = {
         _normalize_sif_groupid(k): v for k, v in sif_ga.items()
     }
@@ -344,7 +344,7 @@ def _validate_10x_sif(
     exit_code |= _report_sif_comparison(cmp, fail_reasons)
 
     # Library-level cross-checks (assay + GroupID consistency)
-    lib_assays = load_sif_library_assays(sif_path)
+    lib_assays = load_sif_library_assays(sif_path, provider=provider)
     if lib_assays:
         exit_code |= _report_library_consistency(
             mappings, lib_assays, provider, fail_reasons

@@ -178,6 +178,8 @@ Checks run:
 
   - **GroupID vs assay completeness (`compare_groupid_assays`)**
     - Uses SIF to build expected GroupID → set of assays.
+    - The Group column is detected from the spreadsheet headers: Novogene-style **Group Identifier**, Psomagen-style **Group ID** (including headers with a trailing footnote marker such as `^`). The CLI passes **`--provider`** into the loader so Psomagen forms are matched reliably. For Excel, **every worksheet** is tried; the loader previews the first ~600 rows without a header, finds rows that look like a SIF header (Group + Library/Assay labels), then reads the sheet using that row index (e.g. Psomagen forms with banners through **row ~26**).
+    - The **assay** column may be named **Assay Type**, **Application**, **Analysis Target / Feature Barcode / Supplemental libraries\*** (Psomagen), **Library type**, etc.; cell values such as *Gene Expression* / *CRISPR* are normalised to **gex** / **cri** to match S3. Merged assay cells in Excel are forward-filled per column before reading.
     - Normalizes SIF GroupIDs (e.g. `A + AF` → `A_AF`) and assay names to lower case.
     - Compares with actual S3 GroupID → assay mapping.
     - **Fails the run** when:
@@ -341,7 +343,7 @@ Checks run:
 
 - **SIF completeness (if `--sif` provided) (`validate_sif_completeness_10x_processed`)**
   - Uses SIF to derive expected identifiers:
-    - Prefer rows keyed by **Group Identifier** (plus **Assay type**) when those columns exist.
+    - Prefer rows keyed by **Group Identifier** or **Group ID** (Psomagen; footnote suffixes on the header are ignored), plus **Assay type** when those columns exist. **`--provider`** selects which header style is preferred first.
     - If that structure is not present, fall back to unique **Library name** values (Ultima-style SIFs).
   - Compares SIF identifiers vs GroupIDs present in processed S3.
   - **Fails** when identifiers are in the SIF but missing from the mapping’s processed S3 paths.

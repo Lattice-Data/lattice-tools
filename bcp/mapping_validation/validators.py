@@ -1536,7 +1536,7 @@ def validate_sif_completeness_10x_processed(
     s3_res = validate_s3_10x_processed(provider, mappings)
     s3_group_ids: set[str] = s3_res["group_ids"]
 
-    sif_ga = load_sif_group_assays(sif_path)
+    sif_ga = load_sif_group_assays(sif_path, provider=provider)
     if sif_ga:
         sif_ids: set[str] = {_normalize_sif_groupid(k) for k in sif_ga}
     else:

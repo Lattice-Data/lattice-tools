@@ -27,6 +27,7 @@ from mapping_validation import (
     validate_s3_local_consistency_10x_processed,
     validate_s3_local_consistency_sci,
     validate_s3_seahub_raw,
+    validate_sif_completeness_10x_processed,
     validate_sif_completeness_scale,
     validate_sif_completeness_seahub,
     validate_s3_scale_raw,
@@ -565,6 +566,171 @@ def test_load_sif_scale_group_assays_returns_assay_mapping(tmp_path: Path) -> No
         "R112A": {"gex", "hash_oligo"},
         "R112B": {"gex", "hash_oligo"},
     }
+
+
+def test_load_sif_group_assays_psomagen_group_id_caret_header(tmp_path: Path) -> None:
+    """Psomagen SIF uses 'Group ID^' (footnote); loader must find the column."""
+    sif_path = tmp_path / "psomagen_sif.csv"
+    sif_path.write_text(
+        "Library name,Group ID^,Assay Type\n"
+        "lib1,NES_m39_5Pv3_1,GEX\n"
+        "lib2,NES_m39_5Pv3_1,CRI\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+    # Default keyword order still matches ``group id`` inside ``group id^``.
+    assert load_sif_group_assays(sif_path) == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_group_identifier_only_column(tmp_path: Path) -> None:
+    """Novogene-style 'Group Identifier' remains the primary match without provider."""
+    sif_path = tmp_path / "novogene_like.csv"
+    sif_path.write_text(
+        "Library name,Group Identifier,Assay Type\nL1,G01,GEX\nL2,G01,CRI\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path) == {"G01": {"gex", "cri"}}
+    assert load_sif_group_assays(sif_path, provider="novogene") == {
+        "G01": {"gex", "cri"}
+    }
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "G01": {"gex", "cri"}
+    }
+
+
+def test_load_sif_group_assays_excel_psomagen_data_on_second_sheet(
+    tmp_path: Path,
+) -> None:
+    """Order forms often put instructions on sheet1 and the SIF table on sheet2+."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Cover"
+    cover["A1"] = "Psomagen order form"
+
+    data = wb.create_sheet("Libraries")
+    data.append(["Library name", "Group ID^", "Assay Type"])
+    data.append(["L1", "NES_m39_5Pv3_1", "GEX"])
+    data.append(["L2", "NES_m39_5Pv3_1", "CRI"])
+
+    path = tmp_path / "order.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_excel_header_below_title_rows(tmp_path: Path) -> None:
+    """Real vendor .xlsx files may have several non-table rows before the header."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FORM"
+    ws.append(["Platt Lab — Psomagen"])
+    ws.append([])
+    ws.append(["Library name", "Group Identifier", "Assay Type"])
+    ws.append(["L1", "G-header-offset", "GEX"])
+
+    path = tmp_path / "offset_header.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path) == {"G-header-offset": {"gex"}}
+
+
+def test_load_sif_group_assays_excel_header_near_row_26(tmp_path: Path) -> None:
+    """Psomagen order forms often place the column header row around Excel row ~26."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FORM"
+    for r in range(25):
+        ws.append([f"instructions row {r + 1}"])
+    ws.append(["Library name", "Group ID^", "Assay Type"])
+    ws.append(["L1", "NES_m39_5Pv3_1", "GEX"])
+    ws.append(["L2", "NES_m39_5Pv3_1", "CRI"])
+
+    path = tmp_path / "row26_header.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_psomagen_analysis_target_composite_header(
+    tmp_path: Path,
+) -> None:
+    """Psomagen uses a long 'Analysis Target / Feature Barcode / …' assay column."""
+    sif_path = tmp_path / "psomagen_analysis_target.csv"
+    sif_path.write_text(
+        "Library name,Group ID^,Analysis Target / Feature Barcode / "
+        "Supplemental libraries*\n"
+        "L1,NES_m39_5Pv3_1,Gene Expression\n"
+        "L2,NES_m39_5Pv3_1,CRISPR\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_psomagen_application_column_excel(
+    tmp_path: Path,
+) -> None:
+    """Psomagen order forms may label the assay column *Application* with prose values."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Library name", "Group ID^", "Application"])
+    ws.append(["L1", "NES_m39_5Pv3_1", "Gene Expression"])
+    ws.append(["L2", "NES_m39_5Pv3_1", "CRISPR"])
+
+    path = tmp_path / "psomagen_application.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_csv_assay_column_short_name(tmp_path: Path) -> None:
+    """Some SIFs use a column named 'Assay' instead of 'Assay Type'."""
+    sif_path = tmp_path / "short_assay.csv"
+    sif_path.write_text(
+        "Library name,Group Identifier,Assay\nL1,G99,GEX\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path) == {"G99": {"gex"}}
+
+
+def test_validate_sif_completeness_10x_processed_psomagen_sif_group_column(
+    tmp_path: Path,
+) -> None:
+    """10x processed SIF completeness must read Psomagen Group ID^ column."""
+    sif_path = tmp_path / "sif.csv"
+    sif_path.write_text(
+        "Library name,Group ID^,Assay Type\nx,NES_m39_5Pv3_1,GEX\n",
+        encoding="utf-8",
+    )
+    proc_s3 = (
+        "s3://czi-psomagen/lab-alpha/AN00028580/NES_m39_5Pv3_1/processed/"
+        "cellranger/Run_2024-03-24/outs/metrics_summary.csv"
+    )
+    rows = [MappingRow(proc_s3, "/local/metrics_summary.csv", 1)]
+    res = validate_sif_completeness_10x_processed("psomagen", rows, str(sif_path))
+    assert res["sif_count"] == 1
+    assert res["s3_count"] == 1
+    assert res["missing"] == []
+    assert res["extra"] == []
 
 
 def test_validate_sif_completeness_flags_missing_assay(tmp_path: Path) -> None:
