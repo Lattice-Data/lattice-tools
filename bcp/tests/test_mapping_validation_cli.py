@@ -283,6 +283,155 @@ def test_cli_psomagen_10x_raw_passes(tmp_path: Path, monkeypatch, capsys) -> Non
     assert "VERDICT: PASS" in captured.out
 
 
+def test_cli_10x_raw_without_fastq_fails(tmp_path: Path, monkeypatch, capsys) -> None:
+    """10x raw mode must fail when no FASTQ rows are present."""
+    mapping_text = (
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.cram,/local/sample.cram\n"
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "requires FASTQ" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_10x_raw_allows_unmatched_cram_artifacts(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """10x raw mode may include unmatched CRAM artifacts alongside valid FASTQs."""
+    mapping_text = (
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
+        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,/local/r1.fastq.gz\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
+        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz,/local/r2.fastq.gz\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
+        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_unmatched.cram,/local/unmatched.cram\n"
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "VERDICT: PASS" in captured.out
+
+
+def test_cli_10x_cram_valid_bundle_passes(tmp_path: Path, monkeypatch, capsys) -> None:
+    """10x_cram raw mode should pass for complete sample and run-level artifacts."""
+    prefix = (
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT"
+    )
+    mapping_text = (
+        f"{prefix}.cram,/local/sample.cram\n"
+        f"{prefix}.csv,/local/sample.csv\n"
+        f"{prefix}.json,/local/sample.json\n"
+        f"{prefix}_extract_stats.h5,/local/sample_extract_stats.h5\n"
+        f"{prefix}_SNVQ.metric,/local/sample_SNVQ.metric\n"
+        f"{prefix}_FlowQ.metric,/local/sample_FlowQ.metric\n"
+        f"{prefix}_trimmer-stats.csv,/local/sample_trimmer-stats.csv\n"
+        f"{prefix}_trimmer-failure-codes.csv,/local/sample_trimmer-failure-codes.csv\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356_LibraryInfo.xml,/local/442356_LibraryInfo.xml\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356_UploadCompleted.json,/local/442356_UploadCompleted.json\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "run_SecondaryAnalysis.txt,/local/run_SecondaryAnalysis.txt\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "run_VariantCalling.txt,/local/run_VariantCalling.txt\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356_merged_trimmer-stats.csv,/local/442356_merged_trimmer-stats.csv\n"
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356_merged_trimmer-failure_codes.csv,/local/442356_merged_trimmer-failure_codes.csv\n"
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "10x_cram",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "10x_cram raw SOP" in captured.out
+    assert "VERDICT: PASS" in captured.out
+
+
+def test_cli_10x_cram_forbids_unmatched_files(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """10x_cram mode should fail if unmatched CRAM artifacts are present."""
+    mapping_text = (
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_unmatched.cram,/local/unmatched.cram\n"
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "10x_cram",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "forbidden_unmatched_cram" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
 def test_cli_unsupported_mode_fails(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should fail with an unsupported provider/data/assay combination."""
     mapping_text = "s3://bucket/a,/local/a\n"

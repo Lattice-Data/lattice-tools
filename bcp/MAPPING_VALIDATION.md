@@ -4,7 +4,7 @@ This document explains how to run the `mapping_validation` checks from `bcp` and
 
 The validator is implemented in `mapping_validation.cli.main` and is exercised end‑to‑end in `test_mapping_validation_e2e.py` and `test_mapping_validation_cli.py`.
 
-**Scope note (important):** this guide covers the `mapping_validation` CLI only. Recent QA commits around **`10x_cram`**, CRAM-only raw layouts, run-level `merged_trimmer-*.csv` ingestion, and read-metadata minimum-read checks live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`; those behaviors are outside this CLI and are not selected via `--assay` here.
+**Scope note (important):** this guide covers the `mapping_validation` CLI only. The CLI now includes a dedicated `--assay 10x_cram` raw mode for CRAM bundle/SOP checks. Deeper metadata-content QA checks (for example read-count thresholds from `*.fastq.gz-metadata.json` / `*.cram-metadata.json`) still live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`.
 
 ---
 
@@ -46,6 +46,7 @@ The validator is implemented in `mapping_validation.cli.main` and is exercised e
   - `--provider`: `novogene` or `psomagen`.
   - `--assay`:
     - `10x` (10x Genomics)
+    - `10x_cram` (10x CRAM-only raw delivery)
     - `sci` (sci‑plex Ultima)
     - `scale` (Scale / Quantum Ultima)
   - `--data`:
@@ -82,12 +83,13 @@ mapping_validation --help
 - `--data {raw,processed}`  
   Kind of data the mapping represents.
 
-- `--assay {10x,sci,scale}`  
+- `--assay {10x,10x_cram,sci,scale}`  
   High‑level assay family:
-  - `10x`: 10x Genomics
+  - `10x`: 10x Genomics FASTQ raw mode (strict FASTQ SOP required)
+  - `10x_cram`: 10x CRAM raw mode (strict CRAM bundle + run metadata)
   - `sci`: Novogene sci Ultima
   - `scale`: Novogene Scale / Quantum Ultima
-  - (This CLI does **not** accept QA raw-assay labels like `10x_cram`, `10x_viral_ORF`, `sci_jumbo`, or `sci_plex`.)
+  - (This CLI still does **not** accept QA-only labels like `10x_viral_ORF`, `sci_jumbo`, or `sci_plex`.)
 
 **Optional arguments:**
 
@@ -114,6 +116,7 @@ Regardless of mode, the CLI runs the following phases in order:
    - Selected based on the `(provider, data, assay)` combination.
    - Currently implemented modes:
      - `provider in {novogene, psomagen}, data=raw, assay=10x`
+     - `provider in {novogene, psomagen}, data=raw, assay=10x_cram`
      - `provider=novogene, data=raw, assay in {scale,sci}`  
        (**Scale and sci raw are Novogene-only**; `psomagen` with `scale` or `sci` is not implemented.)
      - `provider in {novogene, psomagen}, data=processed, assay=10x`
@@ -175,6 +178,14 @@ Checks run:
     - If any SOP errors exist:
       - Marks the run as failed.
 
+- **Strict raw-modality checks (10x FASTQ mode)**
+  - `--assay 10x --data raw` is treated as a **FASTQ-required** mode.
+  - The run **fails** when:
+    - no FASTQ rows are present in the mapping.
+    - any non-`*_unmatched.cram` CRAM rows are present.
+    - FASTQ rows are present but do not follow Illumina SOP tail naming (for mate checks).
+  - Exception: `*_unmatched.cram` / `*_unmatched.cram-metadata.json` artifacts are tolerated in `10x` mode.
+
 - **SIF‑based checks (only when `--sif` is provided)**
 
   When `--sif` is supplied, additional checks are run:
@@ -213,6 +224,51 @@ Checks run:
   - The CLI prints:
     - `10x mode: no --sif provided, skipping SIF completeness checks.`
   - This is useful for a fast, structure‑only sanity check where SIF is not yet available.
+
+---
+
+### Novogene Scale raw data
+
+### 10x CRAM raw data (`--assay 10x_cram`)
+
+Command shape:
+
+```bash
+python -m mapping_validation \
+  --mapping PATH_TO_MAPPING.csv \
+  --provider {novogene|psomagen} \
+  --data raw \
+  --assay 10x_cram \
+  [--sif PATH_TO_SIF]
+```
+
+Checks run:
+
+- **S3 + file bundle validation (`validate_s3_10x_cram_raw`)**
+  - Uses the same 10x raw path stem parsing (`RunID-GroupID_Assay-UG-Barcode`) as `--assay 10x`.
+  - Enforces a per-sample required artifact bundle under a shared prefix:
+    - `.cram`
+    - `.csv`
+    - `.json`
+    - `_extract_stats.h5`
+    - `_SNVQ.metric`
+    - `_FlowQ.metric`
+    - `_trimmer-stats.csv`
+    - `_trimmer-failure_codes.csv` **or** `_trimmer-failure-codes.csv`
+  - Enforces run-level metadata (per run ID):
+    - `{RunID}_LibraryInfo.xml`
+    - `{RunID}_UploadCompleted.json`
+    - `run_SecondaryAnalysis.txt`
+    - `run_VariantCalling.txt`
+    - `merged_trimmer-stats.csv` (prefixed or unprefixed)
+    - `merged_trimmer-failure_codes.csv` / `merged_trimmer-failure-codes.csv` (prefixed or unprefixed)
+  - `*_unmatched.cram` and `*_unmatched.cram-metadata.json` are **forbidden** in this mode.
+
+- **Modality guardrails**
+  - FASTQ rows are **forbidden** in `10x_cram` mode.
+
+- **Optional SIF checks**
+  - If `--sif` is provided, the same GroupID/assay completeness and path-coverage checks used in 10x mode run against the parsed S3 GroupIDs/assays.
 
 ---
 
@@ -441,6 +497,16 @@ python -m mapping_validation \
   --assay 10x
 ```
 
+- **Novogene 10x CRAM raw**
+
+```bash
+python -m mapping_validation \
+  --mapping novogene_10x_cram_raw.csv \
+  --provider novogene \
+  --data raw \
+  --assay 10x_cram
+```
+
 - **Novogene sci raw with SIF**
 
 ```bash
@@ -489,16 +555,14 @@ Use the e2e fixtures under `bcp/tests/fixtures/mapping_validation` as concrete e
 
 ---
 
-## Relation to QA (`10x_cram`, merged trimmer, MBL/CRAM commits)
+## Relation to QA
 
-If you are working with recent CRAM-centric QA updates, use the QA tooling/docs rather than this CLI:
+`mapping_validation` now validates path-level `10x_cram` bundles and run-level CRAM metadata filenames in addition to existing modes.
 
-- `mapping_validation` validates mapping-path structure, SIF completeness, and S3/local consistency for modes in this document.
-- QA modules (`qa_checks.py`, `qa_gather.py`, `qa_mods.py`) handle:
-  - raw assay labels like `10x_cram`,
-  - CRAM-only raw layout behavior,
-  - `merged_trimmer-failure_codes.csv` / `merged_trimmer-stats.csv` ingestion at run/order levels,
-  - read-metadata validations and minimum-read thresholds.
+QA modules (`qa_checks.py`, `qa_gather.py`, `qa_mods.py`) still handle deeper content checks that are out of scope for this CLI, including:
 
-This separation helps explain why a mapping can pass here but still fail downstream QA checks (or vice versa).
+- metadata payload checks and minimum read thresholds from downloaded `*-metadata.json` files,
+- notebook/report-layer validations and downstream processed-output QA logic.
+
+So a mapping can pass `mapping_validation` path/SOP checks but still fail downstream QA content checks (or vice versa).
 

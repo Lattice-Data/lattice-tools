@@ -57,6 +57,14 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "mapping_validation"
             0,
         ),
         (
+            "novogene_10x_cram_raw_valid.csv",
+            None,
+            "novogene",
+            "raw",
+            "10x_cram",
+            0,
+        ),
+        (
             "psomagen_10x_processed_valid.csv",
             "psomagen_10x_processed_sif.csv",
             "psomagen",
@@ -104,6 +112,14 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "mapping_validation"
             "novogene",
             "processed",
             "10x",
+            1,
+        ),
+        (
+            "novogene_10x_cram_raw_unmatched_forbidden.csv",
+            None,
+            "novogene",
+            "raw",
+            "10x_cram",
             1,
         ),
         (

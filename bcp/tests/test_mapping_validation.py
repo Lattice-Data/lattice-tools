@@ -34,7 +34,9 @@ from mapping_validation import (
     validate_s3_10x_raw,
     validate_10x_raw_fastq_read_mates,
     validate_10x_multiome_processed_outs,
+    validate_10x_raw_file_modalities,
     validate_s3_local_consistency_scale,
+    validate_s3_10x_cram_raw,
     validate_uniqueness,
 )
 
@@ -811,6 +813,7 @@ def test_is_run_metadata_recognizes_known_files() -> None:
     assert _is_run_metadata("s3://bucket/path/raw/439774/UploadCompleted.json")
     assert _is_run_metadata("s3://bucket/path/raw/439774/merged_trimmer-stats.csv")
     assert _is_run_metadata("s3://bucket/path/raw/439774/run_SecondaryAnalysis.txt")
+    assert _is_run_metadata("s3://bucket/path/raw/file-manifest.json")
 
 
 def test_is_run_metadata_rejects_sample_files() -> None:
@@ -1992,3 +1995,109 @@ def test_validate_10x_raw_fastq_read_mates_ignores_sample_fastq() -> None:
     res = validate_10x_raw_fastq_read_mates("psomagen", rows)
     assert res["errors"] == []
     assert res["groups_checked"] == 1
+
+
+def test_validate_10x_raw_file_modalities_unmatched_cram_allowed_bucketed() -> None:
+    """10x modality summary should separate strict CRAM from unmatched CRAM artifacts."""
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/p/NVUS0000000000-29/G/raw/"
+            "1-G_GEX-Z0001-ACGT_S1_L001_R1_001.fastq.gz",
+            "/l/r1.fastq.gz",
+            1,
+        ),
+        MappingRow(
+            "s3://czi-novogene/p/NVUS0000000000-29/G/raw/"
+            "1-G_GEX-Z0001-ACGT_unmatched.cram",
+            "/l/unmatched.cram",
+            2,
+        ),
+        MappingRow(
+            "s3://czi-novogene/p/NVUS0000000000-29/G/raw/1-G_GEX-Z0001-ACGT.cram",
+            "/l/sample.cram",
+            3,
+        ),
+    ]
+    res = validate_10x_raw_file_modalities(rows)
+    assert res["fastq_count"] == 1
+    assert res["cram_count"] == 2
+    assert res["unmatched_cram_count"] == 1
+    assert res["strict_cram_count"] == 1
+
+
+def test_validate_s3_10x_cram_raw_happy_path() -> None:
+    """10x_cram should pass with complete sample bundle and run-level metadata."""
+    base = (
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT"
+    )
+    rows = [
+        MappingRow(base + ".cram", "/l/a.cram", 1),
+        MappingRow(base + ".csv", "/l/a.csv", 2),
+        MappingRow(base + ".json", "/l/a.json", 3),
+        MappingRow(base + "_extract_stats.h5", "/l/a.h5", 4),
+        MappingRow(base + "_SNVQ.metric", "/l/a.snvq", 5),
+        MappingRow(base + "_FlowQ.metric", "/l/a.flowq", 6),
+        MappingRow(base + "_trimmer-stats.csv", "/l/a.tstats.csv", 7),
+        MappingRow(base + "_trimmer-failure_codes.csv", "/l/a.tfail.csv", 8),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_LibraryInfo.xml",
+            "/l/lib.xml",
+            9,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_UploadCompleted.json",
+            "/l/up.json",
+            10,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_SecondaryAnalysis.txt",
+            "/l/sec.txt",
+            11,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_VariantCalling.txt",
+            "/l/var.txt",
+            12,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-stats.csv",
+            "/l/mstats.csv",
+            13,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-failure-codes.csv",
+            "/l/mfail.csv",
+            14,
+        ),
+    ]
+    res = validate_s3_10x_cram_raw("novogene", rows)
+    assert res["matched"] == 8
+    assert res["errors"] == []
+
+
+def test_validate_s3_10x_cram_raw_forbids_unmatched_cram() -> None:
+    """10x_cram should fail when unmatched artifacts are present."""
+    row = MappingRow(
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_unmatched.cram",
+        "/l/unmatched.cram",
+        1,
+    )
+    res = validate_s3_10x_cram_raw("novogene", [row])
+    assert any(e["type"] == "forbidden_unmatched_cram" for e in res["errors"])
+
+
+def test_validate_s3_10x_cram_raw_allows_optional_order_manifest() -> None:
+    """Optional order-level file-manifest.json should be ignored, not flagged."""
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/file-manifest.json",
+            "/l/file-manifest.json",
+            1,
+        ),
+    ]
+    res = validate_s3_10x_cram_raw("novogene", rows)
+    assert res["errors"] == []
+    assert res["warnings"] == []
+    assert res["metadata_files"] == 1
