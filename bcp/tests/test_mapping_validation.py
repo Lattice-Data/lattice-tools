@@ -724,7 +724,7 @@ def test_validate_sif_completeness_10x_processed_psomagen_sif_group_column(
         encoding="utf-8",
     )
     proc_s3 = (
-        "s3://czi-psomagen/lab-alpha/AN00028580/NES_m39_5Pv3_1/processed/"
+        "s3://czi-psomagen/lab-alpha/AN00000001/NES_m39_5Pv3_1/processed/"
         "cellranger/Run_2024-03-24/outs/metrics_summary.csv"
     )
     rows = [MappingRow(proc_s3, "/local/metrics_summary.csv", 1)]
