@@ -2101,3 +2101,140 @@ def test_validate_s3_10x_cram_raw_allows_optional_order_manifest() -> None:
     assert res["errors"] == []
     assert res["warnings"] == []
     assert res["metadata_files"] == 1
+
+
+_TENX_CRAM_TEST_PREFIX = (
+    "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+    "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT"
+)
+
+
+def _tenx_cram_complete_rows(
+    *,
+    omit_suffixes: set[str] | None = None,
+    local_overrides: dict[str, str] | None = None,
+) -> list[MappingRow]:
+    """Build a complete 10x_cram sample bundle plus required run metadata."""
+    omit_suffixes = omit_suffixes or set()
+    local_overrides = local_overrides or {}
+    sample_suffixes = [
+        ".cram",
+        ".csv",
+        ".json",
+        "_extract_stats.h5",
+        "_SNVQ.metric",
+        "_FlowQ.metric",
+        "_trimmer-stats.csv",
+        "_trimmer-failure_codes.csv",
+    ]
+    rows: list[MappingRow] = []
+    line_num = 1
+    for suffix in sample_suffixes:
+        if suffix in omit_suffixes:
+            continue
+        rows.append(
+            MappingRow(
+                _TENX_CRAM_TEST_PREFIX + suffix,
+                local_overrides.get(suffix, f"/provider/export/sample{suffix}"),
+                line_num,
+            )
+        )
+        line_num += 1
+
+    metadata_paths = [
+        "442356_LibraryInfo.xml",
+        "442356_UploadCompleted.json",
+        "run_SecondaryAnalysis.txt",
+        "run_VariantCalling.txt",
+        "442356_merged_trimmer-stats.csv",
+        "442356_merged_trimmer-failure_codes.csv",
+    ]
+    metadata_prefix = "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+    for filename in metadata_paths:
+        rows.append(
+            MappingRow(
+                metadata_prefix + filename,
+                f"/provider/export/{filename}",
+                line_num,
+            )
+        )
+        line_num += 1
+    return rows
+
+
+def test_validate_s3_10x_cram_raw_missing_cram_artifact() -> None:
+    """Dropping the required CRAM file should report only the missing CRAM artifact."""
+    rows = _tenx_cram_complete_rows(omit_suffixes={".cram"})
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    missing_errors = [
+        e for e in res["errors"] if e["type"] == "missing_sample_artifacts"
+    ]
+    assert len(missing_errors) == 1
+    assert missing_errors[0]["missing"] == ["cram"]
+
+
+def test_validate_s3_10x_cram_raw_extensionless_sample_suffix_message() -> None:
+    """A sample row with no suffix should get a clear missing-suffix diagnostic."""
+    rows = _tenx_cram_complete_rows()
+    rows.append(MappingRow(_TENX_CRAM_TEST_PREFIX, "/provider/export/sample", 99))
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert any(
+        e["type"] == "unexpected_sample_file"
+        and "missing 10x_cram sample file suffix" in e["detail"]
+        for e in res["errors"]
+    )
+
+
+def test_validate_s3_10x_cram_raw_flags_swapped_local_artifact() -> None:
+    """Mapping an S3 JSON artifact to a local CRAM artifact should fail."""
+    rows = _tenx_cram_complete_rows(local_overrides={".json": "/provider/sample.cram"})
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert any(
+        e["type"] == "s3_local_artifact_mismatch"
+        and "json" in e["detail"]
+        and "cram" in e["detail"]
+        for e in res["errors"]
+    )
+
+
+def test_validate_s3_10x_cram_raw_allows_different_local_basename_same_artifact() -> (
+    None
+):
+    """Local basenames may differ from S3 when the artifact type still matches."""
+    rows = _tenx_cram_complete_rows(local_overrides={".json": "/provider/sample.json"})
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert not any(e["type"] == "s3_local_artifact_mismatch" for e in res["errors"])
+    assert res["errors"] == []
+
+
+def test_validate_s3_10x_cram_raw_groupid_mismatch_is_direct() -> None:
+    """Filename GroupID mismatch should be direct, not a missing-artifact cascade."""
+    rows = _tenx_cram_complete_rows()
+    rows.append(
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+            "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT.cram",
+            "/provider/sample.cram",
+            99,
+        )
+    )
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert any(
+        e["type"] == "group_mismatch"
+        and "LeS188W1" in e["detail"]
+        and "LeS188" in e["detail"]
+        for e in res["errors"]
+    )
+    assert (
+        "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT" not in res["missing_sample_artifacts"]
+    )

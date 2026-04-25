@@ -413,20 +413,70 @@ _TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS: set[str] = {
 }
 
 
+_TENX_CRAM_CORE_SAMPLE_ARTIFACTS: set[str] = {"cram", "csv", "json"}
+
+
+_TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT: dict[str, str] = {
+    ".cram": "cram",
+    ".csv": "csv",
+    ".json": "json",
+    "_extract_stats.h5": "extract_stats",
+    "_SNVQ.metric": "snvq",
+    "_FlowQ.metric": "flowq",
+    "_trimmer-stats.csv": "trimmer_stats",
+    "_trimmer-failure_codes.csv": "trimmer_failure_codes",
+    "_trimmer-failure-codes.csv": "trimmer_failure_codes",
+}
+
+
+_TENX_CRAM_EXPECTED_SUFFIXES: str = ", ".join(
+    sorted(_TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT, key=len, reverse=True)
+)
+
+
 def _normalize_10x_cram_sample_suffix(suffix: str) -> str | None:
     """Map concrete sample filename suffixes to canonical 10x_cram artifact keys."""
-    mapping = {
-        ".cram": "cram",
-        ".csv": "csv",
-        ".json": "json",
-        "_extract_stats.h5": "extract_stats",
-        "_SNVQ.metric": "snvq",
-        "_FlowQ.metric": "flowq",
-        "_trimmer-stats.csv": "trimmer_stats",
-        "_trimmer-failure_codes.csv": "trimmer_failure_codes",
-        "_trimmer-failure-codes.csv": "trimmer_failure_codes",
-    }
-    return mapping.get(suffix)
+    return _TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT.get(suffix)
+
+
+def _classify_10x_cram_sample_basename(basename: str) -> str | None:
+    """Best-effort artifact classification from a local or S3 sample basename."""
+    for suffix, artifact in sorted(
+        _TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if basename.endswith(suffix):
+            return artifact
+    return None
+
+
+def _unexpected_10x_cram_suffix_detail(suffix: str) -> str:
+    """Build a clear diagnostic for unsupported 10x_cram sample suffixes."""
+    if not suffix:
+        return (
+            "missing 10x_cram sample file suffix; expected one of "
+            f"{_TENX_CRAM_EXPECTED_SUFFIXES}"
+        )
+    return (
+        f"unexpected 10x_cram sample file suffix '{suffix}'; expected one of "
+        f"{_TENX_CRAM_EXPECTED_SUFFIXES}"
+    )
+
+
+def _is_10x_cram_artifact_mismatch(s3_artifact: str, local_artifact: str) -> bool:
+    """Return True for confident S3/local artifact mismatches.
+
+    Provider local filenames sometimes collapse detailed artifacts to generic
+    extensions (for example a local trimmer stats CSV may just end in ``.csv``).
+    Treat core sample artifacts strictly, and treat detailed local artifact
+    labels strictly when they are available.
+    """
+    if s3_artifact == local_artifact:
+        return False
+    if s3_artifact in _TENX_CRAM_CORE_SAMPLE_ARTIFACTS:
+        return True
+    return local_artifact not in _TENX_CRAM_CORE_SAMPLE_ARTIFACTS
 
 
 def _has_any_basename(basenames: set[str], candidates: set[str]) -> bool:
@@ -540,6 +590,18 @@ def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> d
                 }
             )
 
+        if gd["file_stem"] != gd["groupid"]:
+            errors.append(
+                {
+                    "type": "group_mismatch",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"groupid mismatch between path '{gd['groupid']}' "
+                    f"and filename prefix '{gd['file_stem']}'",
+                }
+            )
+            continue
+
         prefix = f"{runid}-{gd['file_stem']}_{assay}-{gd['ug']}-{gd['barcode']}"
         if not base.startswith(prefix):
             errors.append(
@@ -560,7 +622,25 @@ def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> d
                     "type": "unexpected_sample_file",
                     "line": row.line_num,
                     "s3_path": s3,
-                    "detail": f"unexpected 10x_cram sample file suffix '{suffix}'",
+                    "detail": _unexpected_10x_cram_suffix_detail(suffix),
+                }
+            )
+            continue
+
+        local_artifact = _classify_10x_cram_sample_basename(
+            os.path.basename(row.local_path)
+        )
+        if local_artifact is not None and _is_10x_cram_artifact_mismatch(
+            artifact, local_artifact
+        ):
+            errors.append(
+                {
+                    "type": "s3_local_artifact_mismatch",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "local_path": row.local_path,
+                    "detail": f"S3 artifact '{artifact}' maps to local artifact "
+                    f"'{local_artifact}'",
                 }
             )
             continue

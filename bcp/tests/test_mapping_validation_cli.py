@@ -21,6 +21,70 @@ def _write_temp_mapping(tmp_path: Path, contents: str) -> Path:
     return path
 
 
+_TENX_CRAM_CLI_PREFIX = (
+    "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+    "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT"
+)
+
+
+def _tenx_cram_cli_mapping(
+    *,
+    omit_suffixes: set[str] | None = None,
+    local_overrides: dict[str, str] | None = None,
+    extra_rows: list[str] | None = None,
+) -> str:
+    """Build CLI mapping text for a complete 10x_cram bundle."""
+    omit_suffixes = omit_suffixes or set()
+    local_overrides = local_overrides or {}
+    lines: list[str] = []
+    for suffix in (
+        ".cram",
+        ".csv",
+        ".json",
+        "_extract_stats.h5",
+        "_SNVQ.metric",
+        "_FlowQ.metric",
+        "_trimmer-stats.csv",
+        "_trimmer-failure_codes.csv",
+    ):
+        if suffix in omit_suffixes:
+            continue
+        local = local_overrides.get(suffix, f"/provider/export/sample{suffix}")
+        lines.append(f"{_TENX_CRAM_CLI_PREFIX}{suffix},{local}")
+
+    metadata_prefix = "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+    for filename in (
+        "442356_LibraryInfo.xml",
+        "442356_UploadCompleted.json",
+        "run_SecondaryAnalysis.txt",
+        "run_VariantCalling.txt",
+        "442356_merged_trimmer-stats.csv",
+        "442356_merged_trimmer-failure_codes.csv",
+    ):
+        lines.append(f"{metadata_prefix}{filename},/provider/export/{filename}")
+
+    lines.extend(extra_rows or [])
+    return "\n".join(lines) + "\n"
+
+
+def _run_10x_cram_cli(tmp_path: Path, monkeypatch, mapping_text: str) -> None:
+    """Execute the CLI in 10x_cram mode for a temporary mapping."""
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "10x_cram",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    mapping_validation.main()
+
+
 def test_cli_passes_for_valid_10x_mapping(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should exit 0 for a simple valid 10x Novogene mapping."""
     mapping_text = (
@@ -429,6 +493,94 @@ def test_cli_10x_cram_forbids_unmatched_files(
     assert excinfo.value.code == 1
     captured = capsys.readouterr()
     assert "forbidden_unmatched_cram" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_10x_cram_missing_cram_fails(tmp_path: Path, monkeypatch, capsys) -> None:
+    """10x_cram mode should fail clearly when the CRAM artifact is absent."""
+    mapping_text = _tenx_cram_cli_mapping(omit_suffixes={".cram"})
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_10x_cram_cli(tmp_path, monkeypatch, mapping_text)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "missing required sample artifacts: cram" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_10x_cram_swapped_local_artifact_fails(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A row mapping an S3 JSON artifact to a local CRAM artifact should fail."""
+    mapping_text = _tenx_cram_cli_mapping(
+        local_overrides={".json": "/provider/export/sample.cram"}
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_10x_cram_cli(tmp_path, monkeypatch, mapping_text)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "s3_local_artifact_mismatch" in captured.out
+    assert "json" in captured.out
+    assert "cram" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_10x_cram_different_local_basename_same_artifact_passes(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Different local basenames are allowed when artifact suffixes still agree."""
+    mapping_text = _tenx_cram_cli_mapping(
+        local_overrides={".json": "/provider/export/provider_renamed.json"}
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_10x_cram_cli(tmp_path, monkeypatch, mapping_text)
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "s3_local_artifact_mismatch" not in captured.out
+    assert "VERDICT: PASS" in captured.out
+
+
+def test_cli_10x_cram_groupid_mismatch_is_clear(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Filename GroupID mismatches should produce a direct group_mismatch error."""
+    mismatched_row = (
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT.cram,/provider/export/mismatched.cram"
+    )
+    mapping_text = _tenx_cram_cli_mapping(extra_rows=[mismatched_row])
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_10x_cram_cli(tmp_path, monkeypatch, mapping_text)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "group_mismatch" in captured.out
+    assert "LeS188W1" in captured.out
+    assert "LeS188" in captured.out
+    assert "missing required sample artifacts" not in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_10x_cram_extensionless_sample_message(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Extensionless sample rows should explain that the suffix is missing."""
+    mapping_text = _tenx_cram_cli_mapping(
+        extra_rows=[f"{_TENX_CRAM_CLI_PREFIX},/provider/export/sample"]
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        _run_10x_cram_cli(tmp_path, monkeypatch, mapping_text)
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "missing 10x_cram sample file suffix" in captured.out
     assert "VERDICT: FAIL" in captured.out
 
 

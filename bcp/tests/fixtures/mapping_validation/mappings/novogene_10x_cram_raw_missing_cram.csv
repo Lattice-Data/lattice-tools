@@ -1,0 +1,13 @@
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.csv,/provider/export/sample.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.json,/provider/export/sample.json
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_extract_stats.h5,/provider/export/sample_extract_stats.h5
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_SNVQ.metric,/provider/export/sample_SNVQ.metric
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_FlowQ.metric,/provider/export/sample_FlowQ.metric
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_trimmer-stats.csv,/provider/export/sample_trimmer-stats.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_trimmer-failure_codes.csv,/provider/export/sample_trimmer-failure_codes.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_LibraryInfo.xml,/provider/export/442356_LibraryInfo.xml
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_UploadCompleted.json,/provider/export/442356_UploadCompleted.json
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_SecondaryAnalysis.txt,/provider/export/run_SecondaryAnalysis.txt
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_VariantCalling.txt,/provider/export/run_VariantCalling.txt
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-stats.csv,/provider/export/442356_merged_trimmer-stats.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-failure_codes.csv,/provider/export/442356_merged_trimmer-failure_codes.csv
