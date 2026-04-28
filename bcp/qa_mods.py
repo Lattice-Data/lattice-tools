@@ -89,7 +89,7 @@ def normalize_raw_assay(value: str | None) -> str:
     if value is None or not str(value).strip():
         raise ValueError(
             "ERROR: raw_assay is not specified. "
-            "Set it to one of: '10x', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "Set it to one of: '10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
         )
     s = str(value).strip()
     lower = s.lower()
@@ -101,7 +101,7 @@ def normalize_raw_assay(value: str | None) -> str:
         raise ValueError(
             f"HUGE ERROR: raw_assay='{s}' is not recognized. "
             "Update the parameter to one of: "
-            "'10x', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "'10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
         )
     return s
 
@@ -509,6 +509,7 @@ def extract_run_id_from_merged_trimmer_path(s3_key: str) -> str | None:
     # Must look like a merged trimmer file
     if (
         "merged_trimmer-failure_codes.csv" not in name
+        and "merged_trimmer-failure-codes.csv" not in name
         and "merged_trimmer-stats.csv" not in name
     ):
         return None
@@ -518,6 +519,8 @@ def extract_run_id_from_merged_trimmer_path(s3_key: str) -> str | None:
         # Filename: 438761_merged_trimmer-failure_codes.csv or merged_trimmer-failure_codes.csv
         if name.startswith("merged_"):
             return None  # Single-wafer, no prefix
+        if "_merged_" not in name:
+            return None
         prefix = name.split("_merged_")[0]
         if prefix.isdigit() and 6 <= len(prefix) <= 8:
             return prefix
@@ -634,6 +637,7 @@ def ingest_merged_trimmer_from_s3(
     name = key.split("/")[-1]
     if (
         "merged_trimmer-failure_codes.csv" not in name
+        and "merged_trimmer-failure-codes.csv" not in name
         and "merged_trimmer-stats.csv" not in name
     ):
         return
@@ -642,7 +646,10 @@ def ingest_merged_trimmer_from_s3(
         local = tf.name
     try:
         s3_client.download_file(bucket, key, local)
-        if "merged_trimmer-failure_codes.csv" in name:
+        if (
+            "merged_trimmer-failure_codes.csv" in name
+            or "merged_trimmer-failure-codes.csv" in name
+        ):
             merged = grab_merged_trimmer_stats(local)
             if merged:
                 merged_wafer_stats[run_id] = merged_wafer_stats.get(run_id, {})

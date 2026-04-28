@@ -14,6 +14,9 @@ ASSAYS_SCI: Final[set[str]] = {"GEX", "hash_oligo", "GEX_hash_oligo"}
 
 ASSAYS_BY_FAMILY: Final[dict[str, set[str]]] = {
     "10x": ASSAYS_10X,
+    # 10x_cram uses the same assay tokens as 10x FASTQ mode, but enforces
+    # different raw-file modality rules in validators/CLI.
+    "10x_cram": ASSAYS_10X,
     "scale": ASSAYS_SCALE,
     "sci": ASSAYS_SCI,
 }
@@ -53,13 +56,16 @@ PROVIDER_BUCKET: Final[dict[str, str]] = {
 # Run-level metadata filenames expected alongside sample data.
 # The optional \d+_ prefix handles files placed at the order level
 # with a RunID prefix (e.g. 439844_UploadCompleted.json).
+# This list also includes optional ancillary order-level files that are
+# globally allowed but never required (e.g. file-manifest.json).
 _RUN_METADATA_RE: Final[re.Pattern[str]] = re.compile(
     r"^(?:\d+_)?(?:"
     r"LibraryInfo\.xml"
     r"|SequencingInfo\.json"
     r"|UploadCompleted\.json"
-    r"|merged_trimmer-(?:failure_codes|stats)\.csv"
+    r"|merged_trimmer-(?:failure_codes|failure-codes|stats)\.csv"
     r"|run_(?:SecondaryAnalysis|VariantCalling)\.txt"
+    r"|file-manifest\.json"
     r")$"
 )
 

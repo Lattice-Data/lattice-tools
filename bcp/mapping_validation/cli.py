@@ -16,9 +16,11 @@ from .uniqueness import validate_uniqueness
 from .validators import (
     compare_groupid_assays,
     find_unmatched_sif_paths_10x,
+    validate_10x_raw_file_modalities,
     validate_library_assay_consistency,
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
+    validate_s3_10x_cram_raw,
     validate_s3_10x_processed,
     validate_10x_multiome_processed_outs,
     validate_s3_10x_raw,
@@ -144,7 +146,7 @@ def main() -> None:
         --mapping PATH       Mapping file with two columns: S3, local
         --provider {novogene,psomagen}
         --data {raw,processed}
-        --assay {10x,sci,scale}
+        --assay {10x,10x_cram,sci,scale}
 
     For Scale raw validation, a SIF file is strongly recommended:
         --sif PATH
@@ -175,7 +177,7 @@ def main() -> None:
     parser.add_argument(
         "--assay",
         required=True,
-        choices=["10x", "sci", "scale"],
+        choices=["10x", "10x_cram", "sci", "scale"],
         help="High-level assay family for SOP selection",
     )
     parser.add_argument(
@@ -219,6 +221,9 @@ def main() -> None:
     provider = args.provider
     if args.data == "raw" and args.assay == "10x":
         exit_code |= _validate_10x_raw(provider, mappings, args.sif, fail_reasons)
+
+    elif args.data == "raw" and args.assay == "10x_cram":
+        exit_code |= _validate_10x_cram_raw(provider, mappings, args.sif, fail_reasons)
 
     elif (
         args.data == "raw" and args.assay in ("scale", "sci") and provider == "novogene"
@@ -264,6 +269,27 @@ def _validate_10x_raw(
     """Run all 10x raw validation checks, return non-zero on failure."""
     exit_code = 0
 
+    modality = validate_10x_raw_file_modalities(mappings)
+    if modality["fastq_count"] == 0:
+        print(
+            "10x raw modality: 0 FASTQ rows found; 10x mode requires SOP FASTQ files."
+        )
+        exit_code = 1
+        fail_reasons.append("10x raw requires FASTQ rows but none were found")
+    if modality["strict_cram_count"]:
+        print(
+            "10x raw modality: unexpected CRAM rows found "
+            f"({modality['strict_cram_count']}; unmatched CRAM artifacts are the only allowed exception)."
+        )
+        for row in modality["strict_cram_rows"][:5]:
+            print(f"  line {row.line_num}: {row.s3_path}")
+        if modality["strict_cram_count"] > 5:
+            print(f"  ... and {modality['strict_cram_count'] - 5} more")
+        exit_code = 1
+        fail_reasons.append(
+            f"{modality['strict_cram_count']} unexpected CRAM rows in 10x FASTQ mode"
+        )
+
     res = validate_s3_10x_raw(provider, mappings)
     meta_count = res.get("metadata_files", 0)
     s3_ga: dict[str, Set[str]] = res.get("group_assays", {})
@@ -275,6 +301,7 @@ def _validate_10x_raw(
     )
     _print_issue_examples("10x raw SOP", res["errors"], "errors")
     _print_issue_examples("10x raw SOP", res["warnings"], "warnings")
+    parse_miss_count = _count_issue_type(res["warnings"], "parse_miss")
     if res["matched"] == 0:
         print(
             "  WARNING: none of the S3 paths matched the 10x raw pattern. "
@@ -282,6 +309,9 @@ def _validate_10x_raw(
         )
         fail_reasons.append("no S3 paths matched the 10x raw pattern (0 matched)")
         exit_code = 1
+    if parse_miss_count:
+        exit_code = 1
+        fail_reasons.append(f"{parse_miss_count} S3 paths do not follow 10x raw SOP")
     if res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(res['errors'])} 10x S3 SOP errors")
@@ -306,6 +336,20 @@ def _validate_10x_raw(
     )
     _print_issue_examples("10x FASTQ read mates", mate_res["errors"], "errors")
     _print_issue_examples("10x FASTQ read mates", mate_res["warnings"], "warnings")
+    if (
+        mate_res["fastq_rows_seen"] > 0
+        and mate_res["groups_checked"] == 0
+        and not mate_res["errors"]
+    ):
+        exit_code = 1
+        fail_reasons.append(
+            "10x FASTQ rows were present but none matched the SOP Illumina tail pattern"
+        )
+    if mate_res["skipped_non_illumina"]:
+        exit_code = 1
+        fail_reasons.append(
+            f"{mate_res['skipped_non_illumina']} FASTQ rows do not match SOP Illumina naming"
+        )
     if mate_res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(mate_res['errors'])} FASTQ read-mate errors")
@@ -320,6 +364,71 @@ def _validate_10x_raw(
     return exit_code
 
 
+def _validate_10x_cram_raw(
+    provider: str,
+    mappings: list,
+    sif_path: str | None,
+    fail_reasons: List[str],
+) -> int:
+    """Run all 10x_cram raw validation checks, return non-zero on failure."""
+    exit_code = 0
+
+    modality = validate_10x_raw_file_modalities(mappings)
+    if modality["fastq_count"]:
+        print(
+            "10x_cram modality: FASTQ rows found "
+            f"({modality['fastq_count']}); FASTQ files are forbidden in 10x_cram mode."
+        )
+        for row in modality["fastq_rows"][:5]:
+            print(f"  line {row.line_num}: {row.s3_path}")
+        if modality["fastq_count"] > 5:
+            print(f"  ... and {modality['fastq_count'] - 5} more")
+        exit_code = 1
+        fail_reasons.append(
+            f"{modality['fastq_count']} FASTQ rows found in 10x_cram mode"
+        )
+
+    res = validate_s3_10x_cram_raw(provider, mappings)
+    s3_ga: dict[str, Set[str]] = res.get("group_assays", {})
+    s3_run_ids: set[str] = res.get("run_ids", set())
+    print(
+        f"10x_cram raw SOP: matched {res['matched']} sample paths, "
+        f"{len(res['errors'])} errors, {len(res['warnings'])} warnings"
+        + (
+            f", {res.get('metadata_files', 0)} run-metadata files"
+            if res.get("metadata_files", 0)
+            else ""
+        )
+    )
+    _print_issue_examples("10x_cram raw SOP", res["errors"], "errors")
+    _print_issue_examples("10x_cram raw SOP", res["warnings"], "warnings")
+    if res["matched"] == 0:
+        fail_reasons.append("no S3 paths matched the 10x_cram raw sample pattern")
+        exit_code = 1
+    if res["errors"]:
+        exit_code = 1
+        fail_reasons.append(f"{len(res['errors'])} 10x_cram SOP errors")
+
+    if s3_run_ids:
+        print(f"Unique RunIDs (wafer identifiers): {len(s3_run_ids)}")
+        for rid in sorted(s3_run_ids):
+            print(f"  {rid}")
+    if s3_ga:
+        print(f"S3 GroupIDs found: {len(s3_ga)}")
+        for gid in sorted(s3_ga):
+            assays_str = ", ".join(sorted(s3_ga[gid]))
+            print(f"  {gid}: {assays_str}")
+
+    if sif_path:
+        exit_code |= _validate_10x_sif(
+            provider, mappings, sif_path, s3_ga, fail_reasons
+        )
+    else:
+        print("10x_cram mode: no --sif provided, skipping SIF completeness checks.")
+
+    return exit_code
+
+
 def _validate_10x_sif(
     provider: str,
     mappings: list,
@@ -330,7 +439,7 @@ def _validate_10x_sif(
     """Run SIF-based checks for 10x, return non-zero on failure."""
     exit_code = 0
 
-    sif_ga = load_sif_group_assays(sif_path)
+    sif_ga = load_sif_group_assays(sif_path, provider=provider)
     sif_norm: dict[str, set[str]] = {
         _normalize_sif_groupid(k): v for k, v in sif_ga.items()
     }
@@ -344,7 +453,7 @@ def _validate_10x_sif(
     exit_code |= _report_sif_comparison(cmp, fail_reasons)
 
     # Library-level cross-checks (assay + GroupID consistency)
-    lib_assays = load_sif_library_assays(sif_path)
+    lib_assays = load_sif_library_assays(sif_path, provider=provider)
     if lib_assays:
         exit_code |= _report_library_consistency(
             mappings, lib_assays, provider, fail_reasons

@@ -65,6 +65,17 @@ def _get_10x_s3_regex(provider: str) -> Tuple[re.Pattern[str], set[str]]:
     return regex, valid_assays
 
 
+_UNMATCHED_CRAM_RE: re.Pattern[str] = re.compile(
+    r".*[_-]unmatched\.cram(?:-metadata\.json)?$",
+    re.IGNORECASE,
+)
+
+
+def _is_unmatched_cram_artifact(s3_path: str) -> bool:
+    """True when a row is a known unmatched CRAM side artifact."""
+    return bool(_UNMATCHED_CRAM_RE.match(os.path.basename(s3_path)))
+
+
 def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     """
     Validate 10x-style raw S3 paths against the SOP for a given provider.
@@ -170,6 +181,51 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
     }
 
 
+def validate_10x_raw_file_modalities(mappings: Iterable[MappingRow]) -> dict:
+    """
+    Summarize raw-row file modalities for strict 10x FASTQ-mode policy checks.
+
+    Returns counts and line-keyed rows for:
+    - FASTQ rows
+    - CRAM rows
+    - unmatched CRAM artifacts
+    - metadata rows
+    """
+    fastq_rows: list[MappingRow] = []
+    cram_rows: list[MappingRow] = []
+    unmatched_cram_rows: list[MappingRow] = []
+    metadata_rows: list[MappingRow] = []
+
+    for row in mappings:
+        base = os.path.basename(row.s3_path)
+        if _is_run_metadata(row.s3_path):
+            metadata_rows.append(row)
+            continue
+        if base.endswith(".fastq.gz"):
+            fastq_rows.append(row)
+            continue
+        if base.endswith(".cram") or base.endswith(".cram-metadata.json"):
+            cram_rows.append(row)
+            if _is_unmatched_cram_artifact(row.s3_path):
+                unmatched_cram_rows.append(row)
+
+    unmatched_lines = {r.line_num for r in unmatched_cram_rows}
+    strict_cram_rows = [r for r in cram_rows if r.line_num not in unmatched_lines]
+
+    return {
+        "fastq_rows": fastq_rows,
+        "cram_rows": cram_rows,
+        "strict_cram_rows": strict_cram_rows,
+        "unmatched_cram_rows": unmatched_cram_rows,
+        "metadata_rows": metadata_rows,
+        "fastq_count": len(fastq_rows),
+        "cram_count": len(cram_rows),
+        "strict_cram_count": len(strict_cram_rows),
+        "unmatched_cram_count": len(unmatched_cram_rows),
+        "metadata_count": len(metadata_rows),
+    }
+
+
 # Illumina-style FASTQ filename tail (BCL2fastq / Cell Ranger mkfastq naming).
 _ILLUMINA_FASTQ_TAIL_RE: re.Pattern[str] = re.compile(
     r"^(?P<prefix>.+)_S(?P<s>\d+)_L(?P<lane>\d+)_(?P<read>R[123]|I[12])_(?P<seg>\d+)"
@@ -205,6 +261,8 @@ def validate_10x_raw_fastq_read_mates(
     skipped_non_illumina = 0
     non_illumina_example_paths: list[str] = []
     skipped_non_fastq = 0
+    fastq_rows_seen = 0
+    skipped_sample_fastq = 0
 
     for row in mappings:
         if _is_run_metadata(row.s3_path):
@@ -213,7 +271,9 @@ def validate_10x_raw_fastq_read_mates(
         if not base.endswith(".fastq.gz"):
             skipped_non_fastq += 1
             continue
+        fastq_rows_seen += 1
         if base.endswith("_sample.fastq.gz"):
+            skipped_sample_fastq += 1
             continue
 
         m10 = s3_regex.match(row.s3_path)
@@ -289,6 +349,8 @@ def validate_10x_raw_fastq_read_mates(
         "errors": errors,
         "warnings": warnings,
         "groups_checked": len(groups),
+        "fastq_rows_seen": fastq_rows_seen,
+        "skipped_sample_fastq": skipped_sample_fastq,
         "skipped_non_illumina": skipped_non_illumina,
         "skipped_non_fastq": skipped_non_fastq,
     }
@@ -336,6 +398,319 @@ def find_unmatched_sif_paths_10x(
         "total": total,
         "matched_sif": matched_sif,
         "metadata": metadata,
+    }
+
+
+_TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS: set[str] = {
+    "cram",
+    "csv",
+    "json",
+    "extract_stats",
+    "snvq",
+    "flowq",
+    "trimmer_stats",
+    "trimmer_failure_codes",
+}
+
+
+_TENX_CRAM_CORE_SAMPLE_ARTIFACTS: set[str] = {"cram", "csv", "json"}
+
+
+_TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT: dict[str, str] = {
+    ".cram": "cram",
+    ".csv": "csv",
+    ".json": "json",
+    "_extract_stats.h5": "extract_stats",
+    "_SNVQ.metric": "snvq",
+    "_FlowQ.metric": "flowq",
+    "_trimmer-stats.csv": "trimmer_stats",
+    "_trimmer-failure_codes.csv": "trimmer_failure_codes",
+    "_trimmer-failure-codes.csv": "trimmer_failure_codes",
+}
+
+
+_TENX_CRAM_EXPECTED_SUFFIXES: str = ", ".join(
+    sorted(_TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT, key=len, reverse=True)
+)
+
+
+def _normalize_10x_cram_sample_suffix(suffix: str) -> str | None:
+    """Map concrete sample filename suffixes to canonical 10x_cram artifact keys."""
+    return _TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT.get(suffix)
+
+
+def _classify_10x_cram_sample_basename(basename: str) -> str | None:
+    """Best-effort artifact classification from a local or S3 sample basename."""
+    for suffix, artifact in sorted(
+        _TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        if basename.endswith(suffix):
+            return artifact
+    return None
+
+
+def _unexpected_10x_cram_suffix_detail(suffix: str) -> str:
+    """Build a clear diagnostic for unsupported 10x_cram sample suffixes."""
+    if not suffix:
+        return (
+            "missing 10x_cram sample file suffix; expected one of "
+            f"{_TENX_CRAM_EXPECTED_SUFFIXES}"
+        )
+    return (
+        f"unexpected 10x_cram sample file suffix '{suffix}'; expected one of "
+        f"{_TENX_CRAM_EXPECTED_SUFFIXES}"
+    )
+
+
+def _is_10x_cram_artifact_mismatch(s3_artifact: str, local_artifact: str) -> bool:
+    """Return True for confident S3/local artifact mismatches.
+
+    Provider local filenames sometimes collapse detailed artifacts to generic
+    extensions (for example a local trimmer stats CSV may just end in ``.csv``).
+    Treat core sample artifacts strictly, and treat detailed local artifact
+    labels strictly when they are available.
+    """
+    if s3_artifact == local_artifact:
+        return False
+    if s3_artifact in _TENX_CRAM_CORE_SAMPLE_ARTIFACTS:
+        return True
+    return local_artifact not in _TENX_CRAM_CORE_SAMPLE_ARTIFACTS
+
+
+def _has_any_basename(basenames: set[str], candidates: set[str]) -> bool:
+    """True if any filename candidate exists in ``basenames``."""
+    return any(c in basenames for c in candidates)
+
+
+def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
+    """
+    Validate 10x_cram raw mappings with strict per-sample and run-level artifacts.
+
+    Required per sample-prefix (shared base):
+    - .cram, .csv, .json
+    - _extract_stats.h5
+    - _SNVQ.metric, _FlowQ.metric
+    - _trimmer-stats.csv
+    - _trimmer-failure_codes.csv (or -failure-codes.csv)
+
+    Required per runid:
+    - {runid}_LibraryInfo.xml
+    - {runid}_UploadCompleted.json
+    - run_SecondaryAnalysis.txt
+    - run_VariantCalling.txt
+    - merged_trimmer-stats.csv
+    - merged_trimmer-failure_codes.csv (or -failure-codes.csv)
+
+    ``*_unmatched.cram`` and ``*_unmatched.cram-metadata.json`` are forbidden.
+    """
+    provider = _validate_provider(provider)
+    s3_regex, valid_assays = _get_10x_s3_regex(provider)
+
+    errors: List[dict] = []
+    warnings: List[dict] = []
+    total = 0
+    matched = 0
+    metadata_count = 0
+    group_assays: dict[str, set[str]] = defaultdict(set)
+    run_ids: set[str] = set()
+    metadata_basenames: set[str] = set()
+    sample_artifacts: dict[str, set[str]] = defaultdict(set)
+
+    for row in mappings:
+        total += 1
+        s3 = row.s3_path
+        base = os.path.basename(s3)
+
+        if _is_unmatched_cram_artifact(s3):
+            errors.append(
+                {
+                    "type": "forbidden_unmatched_cram",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "unmatched CRAM artifacts are forbidden in 10x_cram mode",
+                }
+            )
+            continue
+
+        if _is_run_metadata(s3):
+            metadata_count += 1
+            metadata_basenames.add(base)
+            continue
+
+        m = s3_regex.match(s3)
+        if not m:
+            errors.append(
+                {
+                    "type": "parse_miss",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "S3 path does not match expected 10x_cram raw pattern",
+                }
+            )
+            continue
+
+        matched += 1
+        gd = m.groupdict()
+        runid = gd["runid"]
+        assay = gd["assay"]
+        run_ids.add(runid)
+        group_assays[gd["groupid"]].add(assay)
+
+        if assay not in valid_assays:
+            errors.append(
+                {
+                    "type": "invalid_assay",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"assay '{assay}' not allowed for provider '{provider}' "
+                    f"(expected one of {sorted(valid_assays)})",
+                }
+            )
+
+        if not re.fullmatch(r"[ACGT]+", gd["barcode"]):
+            errors.append(
+                {
+                    "type": "invalid_barcode",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"barcode '{gd['barcode']}' contains characters outside A/C/G/T",
+                }
+            )
+
+        project = gd["project"]
+        if project != project.lower() or "_" in project:
+            warnings.append(
+                {
+                    "type": "project_naming",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
+                }
+            )
+
+        if gd["file_stem"] != gd["groupid"]:
+            errors.append(
+                {
+                    "type": "group_mismatch",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"groupid mismatch between path '{gd['groupid']}' "
+                    f"and filename prefix '{gd['file_stem']}'",
+                }
+            )
+            continue
+
+        prefix = f"{runid}-{gd['file_stem']}_{assay}-{gd['ug']}-{gd['barcode']}"
+        if not base.startswith(prefix):
+            errors.append(
+                {
+                    "type": "sample_prefix_mismatch",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "basename does not match expected 10x_cram sample prefix",
+                }
+            )
+            continue
+
+        suffix = base[len(prefix) :]
+        artifact = _normalize_10x_cram_sample_suffix(suffix)
+        if artifact is None:
+            errors.append(
+                {
+                    "type": "unexpected_sample_file",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": _unexpected_10x_cram_suffix_detail(suffix),
+                }
+            )
+            continue
+
+        local_artifact = _classify_10x_cram_sample_basename(
+            os.path.basename(row.local_path)
+        )
+        if local_artifact is not None and _is_10x_cram_artifact_mismatch(
+            artifact, local_artifact
+        ):
+            errors.append(
+                {
+                    "type": "s3_local_artifact_mismatch",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "local_path": row.local_path,
+                    "detail": f"S3 artifact '{artifact}' maps to local artifact "
+                    f"'{local_artifact}'",
+                }
+            )
+            continue
+        sample_artifacts[prefix].add(artifact)
+
+    missing_by_prefix: dict[str, list[str]] = {}
+    for prefix, found in sample_artifacts.items():
+        missing = sorted(_TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS - found)
+        if missing:
+            missing_by_prefix[prefix] = missing
+            errors.append(
+                {
+                    "type": "missing_sample_artifacts",
+                    "s3_path": prefix,
+                    "detail": f"missing required sample artifacts: {', '.join(missing)}",
+                    "missing": missing,
+                }
+            )
+
+    missing_run_artifacts: dict[str, list[str]] = {}
+    for runid in sorted(run_ids):
+        required_groups: dict[str, set[str]] = {
+            "library_info": {f"{runid}_LibraryInfo.xml"},
+            "upload_completed": {f"{runid}_UploadCompleted.json"},
+            "secondary_analysis": {
+                "run_SecondaryAnalysis.txt",
+                f"{runid}_run_SecondaryAnalysis.txt",
+            },
+            "variant_calling": {
+                "run_VariantCalling.txt",
+                f"{runid}_run_VariantCalling.txt",
+            },
+            "merged_trimmer_stats": {
+                "merged_trimmer-stats.csv",
+                f"{runid}_merged_trimmer-stats.csv",
+            },
+            "merged_trimmer_failure_codes": {
+                "merged_trimmer-failure_codes.csv",
+                "merged_trimmer-failure-codes.csv",
+                f"{runid}_merged_trimmer-failure_codes.csv",
+                f"{runid}_merged_trimmer-failure-codes.csv",
+            },
+        }
+        missing_keys = [
+            key
+            for key, candidates in required_groups.items()
+            if not _has_any_basename(metadata_basenames, candidates)
+        ]
+        if missing_keys:
+            missing_run_artifacts[runid] = missing_keys
+            errors.append(
+                {
+                    "type": "missing_run_artifacts",
+                    "s3_path": runid,
+                    "detail": f"missing required run-level artifacts: {', '.join(missing_keys)}",
+                    "missing": missing_keys,
+                }
+            )
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "metadata_files": metadata_count,
+        "total": total,
+        "matched": matched,
+        "group_assays": dict(group_assays),
+        "run_ids": run_ids,
+        "sample_prefixes_checked": len(sample_artifacts),
+        "missing_sample_artifacts": missing_by_prefix,
+        "missing_run_artifacts": missing_run_artifacts,
     }
 
 
@@ -1536,7 +1911,7 @@ def validate_sif_completeness_10x_processed(
     s3_res = validate_s3_10x_processed(provider, mappings)
     s3_group_ids: set[str] = s3_res["group_ids"]
 
-    sif_ga = load_sif_group_assays(sif_path)
+    sif_ga = load_sif_group_assays(sif_path, provider=provider)
     if sif_ga:
         sif_ids: set[str] = {_normalize_sif_groupid(k) for k in sif_ga}
     else:
@@ -1663,7 +2038,9 @@ __all__ = [
     "compare_groupid_assays",
     # 10x raw
     "validate_s3_10x_raw",
+    "validate_10x_raw_file_modalities",
     "validate_10x_raw_fastq_read_mates",
+    "validate_s3_10x_cram_raw",
     "find_unmatched_sif_paths_10x",
     "validate_library_assay_consistency",
     # 10x processed

@@ -30,11 +30,12 @@ VALID_PROBES = [
     "Chromium Mouse Transcriptome Probe Set v1.1.1",
     "Chromium Human Transcriptome Probe Set v1.1.0",
 ]
+MIN_METADATA_READ_COUNT = 1_000_000
 
 
 def _fastq_count_mode(raw_assay: str) -> str:
     """Internal: assay policy for fastq count validation and summaries."""
-    if raw_assay in ("sci_jumbo", "10x_viral_ORF"):
+    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram"):
         return "skip"
     if raw_assay in ("scale", "sci_plex"):
         return "gex_hash"
@@ -65,6 +66,10 @@ def validate_fastq_counts(
     if mode == "skip":
         if raw_assay == "sci_jumbo":
             logger.warning("Not validating fastq counts for sci_jumbo at the moment.")
+        elif raw_assay == "10x_cram":
+            logger.warning(
+                "Not validating fastq counts for 10x_cram (CRAM-only raw layout)."
+            )
         else:
             logger.warning(
                 "Not validating fastq counts for 10x_viral_ORF (legacy/outlier)."
@@ -139,6 +144,11 @@ def summarize_fastq_count_validation(
     mode = _fastq_count_mode(raw_assay)
 
     if mode == "skip":
+        if raw_assay == "10x_cram":
+            return (
+                "Fastq count validation (10x_cram): not applicable for CRAM-only raw "
+                f"inputs; mismatches: {mismatches}. No comparisons performed."
+            )
         return (
             f"Fastq count validation ({raw_assay}): not validated by design; "
             f"mismatches: {mismatches}. No comparisons performed."
@@ -240,6 +250,7 @@ def validate_read_metadata(
     print_success: bool = False,
     success_print_limit: int = 5,
     pairing_paths_print_limit: int = 100,
+    checked_read_counts_print_limit: int = 100,
 ) -> tuple[dict[str, dict[str, int]], list[str], dict[str, list[str]]]:
     """
     Build group read counts from metadata and check R1/R2 consistency.
@@ -261,6 +272,8 @@ def validate_read_metadata(
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
 
+    skip_r1_r2_pairing = raw_assay == "10x_cram"
+
     # Optional instrumentation for stdout-only reporting.
     matched_examples: list[str] = []
     compared_pairs = 0
@@ -270,6 +283,7 @@ def validate_read_metadata(
     r2_metadata_error = 0
     r1_without_r2_metadata: list[str] = []
     filename_mismatch_warnings = 0
+    checked_read_counts: list[tuple[str, Any]] = []
 
     for f, meta in read_metadata.items():
         reported_filename = str(
@@ -282,8 +296,6 @@ def validate_read_metadata(
                 f"metadata filename does not match source object; "
                 f"reported={reported_filename} actual={f}"
             )
-        if extract_read_indicator(f) == "R2":
-            continue
         if meta.get("errors"):
             errors.append(
                 f"METADATA.JSON ERROR: {f} has error in metadata.json:{meta['errors']}"
@@ -291,6 +303,14 @@ def validate_read_metadata(
             continue
         reads = meta.get("read_count")
         if reads is None:
+            continue
+        checked_read_counts.append((f, reads))
+        if reads < MIN_METADATA_READ_COUNT:
+            errors.append(
+                f"READ COUNT ERROR: {f} read_count {reads} is below minimum "
+                f"{MIN_METADATA_READ_COUNT}"
+            )
+        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R2":
             continue
         parsed = parse_raw_filename(f, raw_assay)
         if parsed is not None:
@@ -301,7 +321,7 @@ def validate_read_metadata(
                 group_read_counts[group][assay] = reads
             else:
                 group_read_counts[group][assay] += reads
-        if extract_read_indicator(f) == "R1":
+        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R1":
             r2file = make_read_partner(f, "R1", "R2")
             if r2file in read_metadata:
                 r2meta = read_metadata[r2file]
@@ -328,12 +348,13 @@ def validate_read_metadata(
                 r1_without_r2_metadata.append(f)
 
     r2_without_r1_metadata: list[str] = []
-    for f in read_metadata:
-        if extract_read_indicator(f) != "R2":
-            continue
-        r1file = make_read_partner(f, "R2", "R1")
-        if r1file not in read_metadata:
-            r2_without_r1_metadata.append(f)
+    if not skip_r1_r2_pairing:
+        for f in read_metadata:
+            if extract_read_indicator(f) != "R2":
+                continue
+            r1file = make_read_partner(f, "R2", "R1")
+            if r1file not in read_metadata:
+                r2_without_r1_metadata.append(f)
 
     for path in r1_without_r2_metadata:
         errors.append(f"READ METADATA PAIRING: R1 present, no R2 metadata key: {path}")
@@ -346,22 +367,30 @@ def validate_read_metadata(
     }
 
     if print_success:
-        print(
-            f"validate_read_metadata({raw_assay}): "
-            f"r1_r2_pairs_compared={compared_pairs} "
-            f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
-            f"r1_missing_r2_metadata={skipped_no_r2}, "
-            f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
-            f"r2_metadata_errors={r2_metadata_error}, "
-            f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
-        )
-        for line in matched_examples:
-            print(line)
-        _print_pairing_path_lists(
-            r1_without_r2_metadata,
-            r2_without_r1_metadata,
-            pairing_paths_print_limit,
-        )
+        if not skip_r1_r2_pairing:
+            print(
+                f"validate_read_metadata({raw_assay}): "
+                f"r1_r2_pairs_compared={compared_pairs} "
+                f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
+                f"r1_missing_r2_metadata={skipped_no_r2}, "
+                f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
+                f"r2_metadata_errors={r2_metadata_error}, "
+                f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
+            )
+            for line in matched_examples:
+                print(line)
+        else:
+            print(
+                f"validate_read_metadata({raw_assay}): "
+                "CRAM-only layout; R1/R2 metadata pairing not applicable."
+            )
+        _print_checked_read_counts(checked_read_counts, checked_read_counts_print_limit)
+        if not skip_r1_r2_pairing:
+            _print_pairing_path_lists(
+                r1_without_r2_metadata,
+                r2_without_r1_metadata,
+                pairing_paths_print_limit,
+            )
 
     return group_read_counts, errors, pairing
 
@@ -384,6 +413,50 @@ def _print_pairing_path_lists(
             print(f"  {p}")
         if len(r2_missing_r1) > limit:
             print(f"  ... and {len(r2_missing_r1) - limit} more")
+
+
+def _format_read_count_human_unsigned(n: int) -> str:
+    """Return a compact unsigned label using K / M / B (up to 2 fractional digits)."""
+    if n < 1000:
+        return str(n)
+    if n >= 1_000_000_000:
+        scaled = n / 1_000_000_000
+        suffix = "B"
+    elif n >= 1_000_000:
+        scaled = n / 1_000_000
+        suffix = "M"
+    else:
+        scaled = n / 1_000
+        suffix = "K"
+    text = f"{scaled:.2f}".rstrip("0").rstrip(".")
+    return f"{text}{suffix}"
+
+
+def _format_read_count_for_display(count: Any) -> str:
+    """Human-readable read count plus exact integer with thousands separators."""
+    try:
+        n = int(count)
+    except (TypeError, ValueError):
+        return str(count)
+    human_u = _format_read_count_human_unsigned(abs(n))
+    if human_u == str(abs(n)):
+        return f"{n:,}"
+    human = f"-{human_u}" if n < 0 else human_u
+    return f"{human} ({n:,})"
+
+
+def _print_checked_read_counts(
+    checked_read_counts: list[tuple[str, Any]], limit: int
+) -> None:
+    """Print per-file read_count values used for metadata validation."""
+    if not checked_read_counts:
+        print("Checked metadata read counts: none")
+        return
+    print(f"Checked metadata read counts ({len(checked_read_counts)}):")
+    for path, count in checked_read_counts[:limit]:
+        print(f"  {path}: read_count={_format_read_count_for_display(count)}")
+    if len(checked_read_counts) > limit:
+        print(f"  ... and {len(checked_read_counts) - limit} more")
 
 
 def check_expected_raw_files(

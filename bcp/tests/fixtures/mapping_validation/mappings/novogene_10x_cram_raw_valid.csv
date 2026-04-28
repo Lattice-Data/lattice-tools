@@ -1,0 +1,14 @@
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.cram,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.cram
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.csv,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.json,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT.json
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_extract_stats.h5,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_extract_stats.h5
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_SNVQ.metric,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_SNVQ.metric
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_FlowQ.metric,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_FlowQ.metric
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_trimmer-stats.csv,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_trimmer-stats.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_trimmer-failure_codes.csv,/local/442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_trimmer-failure_codes.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_LibraryInfo.xml,/local/442356_LibraryInfo.xml
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_UploadCompleted.json,/local/442356_UploadCompleted.json
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_SecondaryAnalysis.txt,/local/run_SecondaryAnalysis.txt
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_VariantCalling.txt,/local/run_VariantCalling.txt
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-stats.csv,/local/442356_merged_trimmer-stats.csv
+s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-failure-codes.csv,/local/442356_merged_trimmer-failure-codes.csv

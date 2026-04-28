@@ -27,13 +27,16 @@ from mapping_validation import (
     validate_s3_local_consistency_10x_processed,
     validate_s3_local_consistency_sci,
     validate_s3_seahub_raw,
+    validate_sif_completeness_10x_processed,
     validate_sif_completeness_scale,
     validate_sif_completeness_seahub,
     validate_s3_scale_raw,
     validate_s3_10x_raw,
     validate_10x_raw_fastq_read_mates,
     validate_10x_multiome_processed_outs,
+    validate_10x_raw_file_modalities,
     validate_s3_local_consistency_scale,
+    validate_s3_10x_cram_raw,
     validate_uniqueness,
 )
 
@@ -567,6 +570,171 @@ def test_load_sif_scale_group_assays_returns_assay_mapping(tmp_path: Path) -> No
     }
 
 
+def test_load_sif_group_assays_psomagen_group_id_caret_header(tmp_path: Path) -> None:
+    """Psomagen SIF uses 'Group ID^' (footnote); loader must find the column."""
+    sif_path = tmp_path / "psomagen_sif.csv"
+    sif_path.write_text(
+        "Library name,Group ID^,Assay Type\n"
+        "lib1,NES_m39_5Pv3_1,GEX\n"
+        "lib2,NES_m39_5Pv3_1,CRI\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+    # Default keyword order still matches ``group id`` inside ``group id^``.
+    assert load_sif_group_assays(sif_path) == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_group_identifier_only_column(tmp_path: Path) -> None:
+    """Novogene-style 'Group Identifier' remains the primary match without provider."""
+    sif_path = tmp_path / "novogene_like.csv"
+    sif_path.write_text(
+        "Library name,Group Identifier,Assay Type\nL1,G01,GEX\nL2,G01,CRI\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path) == {"G01": {"gex", "cri"}}
+    assert load_sif_group_assays(sif_path, provider="novogene") == {
+        "G01": {"gex", "cri"}
+    }
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "G01": {"gex", "cri"}
+    }
+
+
+def test_load_sif_group_assays_excel_psomagen_data_on_second_sheet(
+    tmp_path: Path,
+) -> None:
+    """Order forms often put instructions on sheet1 and the SIF table on sheet2+."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Cover"
+    cover["A1"] = "Psomagen order form"
+
+    data = wb.create_sheet("Libraries")
+    data.append(["Library name", "Group ID^", "Assay Type"])
+    data.append(["L1", "NES_m39_5Pv3_1", "GEX"])
+    data.append(["L2", "NES_m39_5Pv3_1", "CRI"])
+
+    path = tmp_path / "order.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_excel_header_below_title_rows(tmp_path: Path) -> None:
+    """Real vendor .xlsx files may have several non-table rows before the header."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FORM"
+    ws.append(["Platt Lab — Psomagen"])
+    ws.append([])
+    ws.append(["Library name", "Group Identifier", "Assay Type"])
+    ws.append(["L1", "G-header-offset", "GEX"])
+
+    path = tmp_path / "offset_header.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path) == {"G-header-offset": {"gex"}}
+
+
+def test_load_sif_group_assays_excel_header_near_row_26(tmp_path: Path) -> None:
+    """Psomagen order forms often place the column header row around Excel row ~26."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FORM"
+    for r in range(25):
+        ws.append([f"instructions row {r + 1}"])
+    ws.append(["Library name", "Group ID^", "Assay Type"])
+    ws.append(["L1", "NES_m39_5Pv3_1", "GEX"])
+    ws.append(["L2", "NES_m39_5Pv3_1", "CRI"])
+
+    path = tmp_path / "row26_header.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_psomagen_analysis_target_composite_header(
+    tmp_path: Path,
+) -> None:
+    """Psomagen uses a long 'Analysis Target / Feature Barcode / …' assay column."""
+    sif_path = tmp_path / "psomagen_analysis_target.csv"
+    sif_path.write_text(
+        "Library name,Group ID^,Analysis Target / Feature Barcode / "
+        "Supplemental libraries*\n"
+        "L1,NES_m39_5Pv3_1,Gene Expression\n"
+        "L2,NES_m39_5Pv3_1,CRISPR\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_psomagen_application_column_excel(
+    tmp_path: Path,
+) -> None:
+    """Psomagen order forms may label the assay column *Application* with prose values."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Library name", "Group ID^", "Application"])
+    ws.append(["L1", "NES_m39_5Pv3_1", "Gene Expression"])
+    ws.append(["L2", "NES_m39_5Pv3_1", "CRISPR"])
+
+    path = tmp_path / "psomagen_application.xlsx"
+    wb.save(path)
+
+    assert load_sif_group_assays(path, provider="psomagen") == {
+        "NES_m39_5Pv3_1": {"gex", "cri"},
+    }
+
+
+def test_load_sif_group_assays_csv_assay_column_short_name(tmp_path: Path) -> None:
+    """Some SIFs use a column named 'Assay' instead of 'Assay Type'."""
+    sif_path = tmp_path / "short_assay.csv"
+    sif_path.write_text(
+        "Library name,Group Identifier,Assay\nL1,G99,GEX\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path) == {"G99": {"gex"}}
+
+
+def test_validate_sif_completeness_10x_processed_psomagen_sif_group_column(
+    tmp_path: Path,
+) -> None:
+    """10x processed SIF completeness must read Psomagen Group ID^ column."""
+    sif_path = tmp_path / "sif.csv"
+    sif_path.write_text(
+        "Library name,Group ID^,Assay Type\nx,NES_m39_5Pv3_1,GEX\n",
+        encoding="utf-8",
+    )
+    proc_s3 = (
+        "s3://czi-psomagen/lab-alpha/AN00000001/NES_m39_5Pv3_1/processed/"
+        "cellranger/Run_2024-03-24/outs/metrics_summary.csv"
+    )
+    rows = [MappingRow(proc_s3, "/local/metrics_summary.csv", 1)]
+    res = validate_sif_completeness_10x_processed("psomagen", rows, str(sif_path))
+    assert res["sif_count"] == 1
+    assert res["s3_count"] == 1
+    assert res["missing"] == []
+    assert res["extra"] == []
+
+
 def test_validate_sif_completeness_flags_missing_assay(tmp_path: Path) -> None:
     """If GEX exists but Hash_oligo is missing for a GroupID, flag it."""
     sif_text = (
@@ -645,6 +813,7 @@ def test_is_run_metadata_recognizes_known_files() -> None:
     assert _is_run_metadata("s3://bucket/path/raw/439774/UploadCompleted.json")
     assert _is_run_metadata("s3://bucket/path/raw/439774/merged_trimmer-stats.csv")
     assert _is_run_metadata("s3://bucket/path/raw/439774/run_SecondaryAnalysis.txt")
+    assert _is_run_metadata("s3://bucket/path/raw/file-manifest.json")
 
 
 def test_is_run_metadata_rejects_sample_files() -> None:
@@ -1826,3 +1995,246 @@ def test_validate_10x_raw_fastq_read_mates_ignores_sample_fastq() -> None:
     res = validate_10x_raw_fastq_read_mates("psomagen", rows)
     assert res["errors"] == []
     assert res["groups_checked"] == 1
+
+
+def test_validate_10x_raw_file_modalities_unmatched_cram_allowed_bucketed() -> None:
+    """10x modality summary should separate strict CRAM from unmatched CRAM artifacts."""
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/p/NVUS0000000000-29/G/raw/"
+            "1-G_GEX-Z0001-ACGT_S1_L001_R1_001.fastq.gz",
+            "/l/r1.fastq.gz",
+            1,
+        ),
+        MappingRow(
+            "s3://czi-novogene/p/NVUS0000000000-29/G/raw/"
+            "1-G_GEX-Z0001-ACGT_unmatched.cram",
+            "/l/unmatched.cram",
+            2,
+        ),
+        MappingRow(
+            "s3://czi-novogene/p/NVUS0000000000-29/G/raw/1-G_GEX-Z0001-ACGT.cram",
+            "/l/sample.cram",
+            3,
+        ),
+    ]
+    res = validate_10x_raw_file_modalities(rows)
+    assert res["fastq_count"] == 1
+    assert res["cram_count"] == 2
+    assert res["unmatched_cram_count"] == 1
+    assert res["strict_cram_count"] == 1
+
+
+def test_validate_s3_10x_cram_raw_happy_path() -> None:
+    """10x_cram should pass with complete sample bundle and run-level metadata."""
+    base = (
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT"
+    )
+    rows = [
+        MappingRow(base + ".cram", "/l/a.cram", 1),
+        MappingRow(base + ".csv", "/l/a.csv", 2),
+        MappingRow(base + ".json", "/l/a.json", 3),
+        MappingRow(base + "_extract_stats.h5", "/l/a.h5", 4),
+        MappingRow(base + "_SNVQ.metric", "/l/a.snvq", 5),
+        MappingRow(base + "_FlowQ.metric", "/l/a.flowq", 6),
+        MappingRow(base + "_trimmer-stats.csv", "/l/a.tstats.csv", 7),
+        MappingRow(base + "_trimmer-failure_codes.csv", "/l/a.tfail.csv", 8),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_LibraryInfo.xml",
+            "/l/lib.xml",
+            9,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_UploadCompleted.json",
+            "/l/up.json",
+            10,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_SecondaryAnalysis.txt",
+            "/l/sec.txt",
+            11,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/run_VariantCalling.txt",
+            "/l/var.txt",
+            12,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-stats.csv",
+            "/l/mstats.csv",
+            13,
+        ),
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/442356_merged_trimmer-failure-codes.csv",
+            "/l/mfail.csv",
+            14,
+        ),
+    ]
+    res = validate_s3_10x_cram_raw("novogene", rows)
+    assert res["matched"] == 8
+    assert res["errors"] == []
+
+
+def test_validate_s3_10x_cram_raw_forbids_unmatched_cram() -> None:
+    """10x_cram should fail when unmatched artifacts are present."""
+    row = MappingRow(
+        "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+        "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT_unmatched.cram",
+        "/l/unmatched.cram",
+        1,
+    )
+    res = validate_s3_10x_cram_raw("novogene", [row])
+    assert any(e["type"] == "forbidden_unmatched_cram" for e in res["errors"])
+
+
+def test_validate_s3_10x_cram_raw_allows_optional_order_manifest() -> None:
+    """Optional order-level file-manifest.json should be ignored, not flagged."""
+    rows = [
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/file-manifest.json",
+            "/l/file-manifest.json",
+            1,
+        ),
+    ]
+    res = validate_s3_10x_cram_raw("novogene", rows)
+    assert res["errors"] == []
+    assert res["warnings"] == []
+    assert res["metadata_files"] == 1
+
+
+_TENX_CRAM_TEST_PREFIX = (
+    "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+    "442356-LeS188W1_GEX-Z0083-CAGTGTATTGCTGAT"
+)
+
+
+def _tenx_cram_complete_rows(
+    *,
+    omit_suffixes: set[str] | None = None,
+    local_overrides: dict[str, str] | None = None,
+) -> list[MappingRow]:
+    """Build a complete 10x_cram sample bundle plus required run metadata."""
+    omit_suffixes = omit_suffixes or set()
+    local_overrides = local_overrides or {}
+    sample_suffixes = [
+        ".cram",
+        ".csv",
+        ".json",
+        "_extract_stats.h5",
+        "_SNVQ.metric",
+        "_FlowQ.metric",
+        "_trimmer-stats.csv",
+        "_trimmer-failure_codes.csv",
+    ]
+    rows: list[MappingRow] = []
+    line_num = 1
+    for suffix in sample_suffixes:
+        if suffix in omit_suffixes:
+            continue
+        rows.append(
+            MappingRow(
+                _TENX_CRAM_TEST_PREFIX + suffix,
+                local_overrides.get(suffix, f"/provider/export/sample{suffix}"),
+                line_num,
+            )
+        )
+        line_num += 1
+
+    metadata_paths = [
+        "442356_LibraryInfo.xml",
+        "442356_UploadCompleted.json",
+        "run_SecondaryAnalysis.txt",
+        "run_VariantCalling.txt",
+        "442356_merged_trimmer-stats.csv",
+        "442356_merged_trimmer-failure_codes.csv",
+    ]
+    metadata_prefix = "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+    for filename in metadata_paths:
+        rows.append(
+            MappingRow(
+                metadata_prefix + filename,
+                f"/provider/export/{filename}",
+                line_num,
+            )
+        )
+        line_num += 1
+    return rows
+
+
+def test_validate_s3_10x_cram_raw_missing_cram_artifact() -> None:
+    """Dropping the required CRAM file should report only the missing CRAM artifact."""
+    rows = _tenx_cram_complete_rows(omit_suffixes={".cram"})
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    missing_errors = [
+        e for e in res["errors"] if e["type"] == "missing_sample_artifacts"
+    ]
+    assert len(missing_errors) == 1
+    assert missing_errors[0]["missing"] == ["cram"]
+
+
+def test_validate_s3_10x_cram_raw_extensionless_sample_suffix_message() -> None:
+    """A sample row with no suffix should get a clear missing-suffix diagnostic."""
+    rows = _tenx_cram_complete_rows()
+    rows.append(MappingRow(_TENX_CRAM_TEST_PREFIX, "/provider/export/sample", 99))
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert any(
+        e["type"] == "unexpected_sample_file"
+        and "missing 10x_cram sample file suffix" in e["detail"]
+        for e in res["errors"]
+    )
+
+
+def test_validate_s3_10x_cram_raw_flags_swapped_local_artifact() -> None:
+    """Mapping an S3 JSON artifact to a local CRAM artifact should fail."""
+    rows = _tenx_cram_complete_rows(local_overrides={".json": "/provider/sample.cram"})
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert any(
+        e["type"] == "s3_local_artifact_mismatch"
+        and "json" in e["detail"]
+        and "cram" in e["detail"]
+        for e in res["errors"]
+    )
+
+
+def test_validate_s3_10x_cram_raw_allows_different_local_basename_same_artifact() -> (
+    None
+):
+    """Local basenames may differ from S3 when the artifact type still matches."""
+    rows = _tenx_cram_complete_rows(local_overrides={".json": "/provider/sample.json"})
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert not any(e["type"] == "s3_local_artifact_mismatch" for e in res["errors"])
+    assert res["errors"] == []
+
+
+def test_validate_s3_10x_cram_raw_groupid_mismatch_is_direct() -> None:
+    """Filename GroupID mismatch should be direct, not a missing-artifact cascade."""
+    rows = _tenx_cram_complete_rows()
+    rows.append(
+        MappingRow(
+            "s3://czi-novogene/project-alpha/NVUS0000000000-29/LeS188W1/raw/"
+            "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT.cram",
+            "/provider/sample.cram",
+            99,
+        )
+    )
+
+    res = validate_s3_10x_cram_raw("novogene", rows)
+
+    assert any(
+        e["type"] == "group_mismatch"
+        and "LeS188W1" in e["detail"]
+        and "LeS188" in e["detail"]
+        for e in res["errors"]
+    )
+    assert (
+        "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT" not in res["missing_sample_artifacts"]
+    )

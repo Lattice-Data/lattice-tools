@@ -16,7 +16,7 @@ valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo
 
 # Raw pipeline types supported by qa.ipynb / qa_checks (normalize casing via qa_mods.normalize_raw_assay)
 ALLOWED_RAW_ASSAYS = frozenset(
-    ("10x", "10x_viral_ORF", "sci_jumbo", "sci_plex", "scale")
+    ("10x", "10x_cram", "10x_viral_ORF", "sci_jumbo", "sci_plex", "scale")
 )
 
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-3p-outputs-cellplex
@@ -248,6 +248,16 @@ raw_expected = {
         "_FlowQ.metric",
         "_SNVQ.metric",
     ],
+    "10x_cram": [
+        ".cram",
+        ".cram-metadata.json",
+        ".csv",
+        ".json",
+        "_FlowQ.metric",
+        "_SNVQ.metric",
+        "_trimmer-failure_codes.csv",
+        "_trimmer-stats.csv",
+    ],
     "scale": [],
 }
 
@@ -260,6 +270,9 @@ raw_optional = {
         "_Log.progress.out",
         "_ReadsPerGene.out.tab",
         "_SJ.out.tab",
+    ],
+    "10x_cram": [
+        "_extract_stats.h5",
     ],
     "scale": [],
 }

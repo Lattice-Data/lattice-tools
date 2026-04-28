@@ -148,7 +148,7 @@ class QADataGatherer:
             else:
                 self._gather_group_processed(g, group_name)
 
-        if self.raw_assay in ("10x", "10x_viral_ORF"):
+        if self.raw_assay in ("10x", "10x_cram", "10x_viral_ORF"):
             self._gather_order_level_merged_trimmers()
 
     # ------------------------------------------------------------------
@@ -216,7 +216,7 @@ class QADataGatherer:
             self._download_metadata_json(rf)
         elif (
             rf.endswith(".cram-metadata.json")
-            and self.raw_assay == "scale"
+            and self.raw_assay in ("scale", "10x_cram")
             and "-unmatched.cram-metadata.json" not in rf
             and "_unmatched.cram-metadata.json" not in rf
         ):
@@ -241,6 +241,8 @@ class QADataGatherer:
             and not rf.endswith("_unmatched.cram")
         ):
             return True
+        if rf.endswith(".cram") and self.raw_assay == "10x_cram":
+            return False
         return False
 
     # ------------------------------------------------------------------
@@ -373,6 +375,7 @@ class QADataGatherer:
                 name = key.split("/")[-1]
                 if (
                     "merged_trimmer-failure_codes.csv" in name
+                    or "merged_trimmer-failure-codes.csv" in name
                     or "merged_trimmer-stats.csv" in name
                 ):
                     ingest_merged_trimmer_from_s3(
@@ -443,7 +446,9 @@ def _is_merged_trimmer_file(rf: str) -> bool:
     name = rf.split("/")[-1]
     return (
         "merged_trimmer-failure_codes.csv" in name
+        or "merged_trimmer-failure-codes.csv" in name
         or "_merged_trimmer-failure_codes.csv" in name
+        or "_merged_trimmer-failure-codes.csv" in name
         or "merged_trimmer-stats.csv" in name
         or "_merged_trimmer-stats.csv" in name
     )

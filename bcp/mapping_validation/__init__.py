@@ -31,7 +31,9 @@ from .validators import (
     # 10x raw
     find_unmatched_sif_paths_10x,
     validate_library_assay_consistency,
+    validate_10x_raw_file_modalities,
     validate_s3_10x_raw,
+    validate_s3_10x_cram_raw,
     validate_10x_raw_fastq_read_mates,
     # 10x processed
     validate_s3_10x_processed,
@@ -83,6 +85,8 @@ __all__ = [
     "_is_run_metadata",
     # 10x raw validators
     "validate_s3_10x_raw",
+    "validate_s3_10x_cram_raw",
+    "validate_10x_raw_file_modalities",
     "validate_10x_raw_fastq_read_mates",
     "validate_library_assay_consistency",
     "find_unmatched_sif_paths_10x",

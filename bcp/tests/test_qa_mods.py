@@ -78,6 +78,9 @@ class TestNormalizeRawAssay:
     def test_10x_viral_orf_case(self):
         assert normalize_raw_assay("10x_viral_orf") == "10x_viral_ORF"
 
+    def test_10x_cram_allowed(self):
+        assert normalize_raw_assay("10x_cram") == "10x_cram"
+
     def test_empty_raises(self):
         with pytest.raises(ValueError, match="raw_assay"):
             normalize_raw_assay("")
@@ -160,6 +163,21 @@ class TestParseRawFilename:
         path = "proj/order/Br1_A5/raw/439047-Br1_A5_GEX-Z0273-CTGCATGTTGCTGAGAT.csv"
         result = parse_raw_filename(path, "10x")
         assert result == ("439047", "Br1_A5", "GEX", "Z0273", "CTGCATGTTGCTGAGAT")
+
+    def test_10x_cram_assay_path(self):
+        """10x_cram uses the standard 10x/sci parser for CRAM-like basenames."""
+        path = (
+            "proj/order/LeS1867W11/raw/"
+            "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT.cram"
+        )
+        result = parse_raw_filename(path, "10x_cram")
+        assert result == (
+            "442488",
+            "LeS1867W11",
+            "ATAC",
+            "Z0027",
+            "CACTGTCAGCCAGAT",
+        )
 
     def test_10x_gex_r1_fastq(self):
         """GEX R1 FASTQ file from a 10x run."""
@@ -502,6 +520,8 @@ class TestExtractRunIdFromMergedTrimmerPath:
         """10x: merged files under order/; run_id from filename prefix."""
         path = "proj/order/438761_merged_trimmer-failure_codes.csv"
         assert extract_run_id_from_merged_trimmer_path(path) == "438761"
+        path_dash = "proj/order/438761_merged_trimmer-failure-codes.csv"
+        assert extract_run_id_from_merged_trimmer_path(path_dash) == "438761"
         path2 = "czi-novogene/project-persona/NVUS0000000000-29/438761_merged_trimmer-stats.csv"
         assert extract_run_id_from_merged_trimmer_path(path2) == "438761"
 
