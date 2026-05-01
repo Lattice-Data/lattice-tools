@@ -85,18 +85,48 @@ def _run_10x_cram_cli(tmp_path: Path, monkeypatch, mapping_text: str) -> None:
     mapping_validation.main()
 
 
+_TENX_FASTQ_CLI_PREFIX = (
+    "s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
+    "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT"
+)
+
+
+def _tenx_fastq_cli_mapping(
+    *,
+    s3_prefix: str = _TENX_FASTQ_CLI_PREFIX,
+    assay_token: str = "GEX",
+    omit_per_prefix: set[str] | None = None,
+    omit_per_tail: set[tuple[str, str]] | None = None,
+    extra_rows: list[str] | None = None,
+) -> str:
+    """Build mapping text for a SOP-complete 10x raw FASTQ bundle (R1 + R2)."""
+    omit_per_prefix = omit_per_prefix or set()
+    omit_per_tail = omit_per_tail or set()
+    lines: list[str] = []
+    for sfx in (
+        ".csv",
+        ".json",
+        "_trimmer-stats.csv",
+        "_trimmer-failure_codes.csv",
+        "_unmatched.cram",
+        "_unmatched.csv",
+        "_unmatched.json",
+    ):
+        if sfx in omit_per_prefix:
+            continue
+        lines.append(f"{s3_prefix}{sfx},/local/{assay_token}{sfx}")
+    for tail in ("S1_L001_R1_001", "S1_L001_R2_001"):
+        for sfx in (".fastq.gz", ".csv", ".json", "_sample.fastq.gz"):
+            if (tail, sfx) in omit_per_tail:
+                continue
+            lines.append(f"{s3_prefix}_{tail}{sfx},/local/{assay_token}_{tail}{sfx}")
+    lines.extend(extra_rows or [])
+    return "\n".join(lines) + "\n"
+
+
 def test_cli_passes_for_valid_10x_mapping(tmp_path: Path, monkeypatch, capsys) -> None:
-    """CLI should exit 0 for a simple valid 10x Novogene mapping."""
-    mapping_text = (
-        "s3://czi-novogene/project-scaling-alpha/"
-        "NVUS0000000000-29/CD4i_R1L01/raw/"
-        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,"
-        "/local/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz\n"
-        "s3://czi-novogene/project-alpha/"
-        "NVUS0000000000-29/CD4i_R1L01/raw/"
-        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz,"
-        "/local/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz\n"
-    )
+    """CLI should exit 0 for a SOP-complete 10x Novogene FASTQ mapping."""
+    mapping_text = _tenx_fastq_cli_mapping()
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
 
     argv = [
@@ -117,6 +147,7 @@ def test_cli_passes_for_valid_10x_mapping(tmp_path: Path, monkeypatch, capsys) -
 
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
+    assert "10x raw FASTQ completeness" in captured.out
     assert "VERDICT: PASS" in captured.out
 
 
@@ -148,15 +179,48 @@ def test_cli_fails_on_duplicate_mappings(tmp_path: Path, monkeypatch, capsys) ->
     assert "VERDICT: FAIL" in captured.out
 
 
+_SCALE_CLI_S3_PREFIX = (
+    "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
+    "441969-R096A_GEX_QSR-1"
+)
+_SCALE_CLI_LOCAL_PREFIX = (
+    "/local_root/data1/V129/441969-20260220_2053/441969-QSR1_QSR-1/441969-QSR1_QSR-1"
+)
+
+
+def _scale_cli_mapping(
+    *,
+    omit_per_well: set[str] | None = None,
+    omit_per_ug: set[str] | None = None,
+    extra_rows: list[str] | None = None,
+) -> str:
+    """Build mapping text for a SOP-complete Scale per-well + per-UG bundle."""
+    omit_per_well = omit_per_well or set()
+    omit_per_ug = omit_per_ug or set()
+    lines: list[str] = []
+    for ext in (".cram", ".csv", ".json"):
+        if ext in omit_per_well:
+            continue
+        lines.append(
+            f"{_SCALE_CLI_S3_PREFIX}_7A{ext},{_SCALE_CLI_LOCAL_PREFIX}_7A{ext}"
+        )
+    for sfx in (
+        "_trimmer-failure_codes.csv",
+        "_trimmer-stats.csv",
+        "_unmatched.cram",
+        "_unmatched.csv",
+        "_unmatched.json",
+    ):
+        if sfx in omit_per_ug:
+            continue
+        lines.append(f"{_SCALE_CLI_S3_PREFIX}{sfx},{_SCALE_CLI_LOCAL_PREFIX}{sfx}")
+    lines.extend(extra_rows or [])
+    return "\n".join(lines) + "\n"
+
+
 def test_cli_scale_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> None:
-    """CLI should pass for a minimal valid Scale raw mapping with SIF."""
-    mapping_text = (
-        "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-26/CHEM13-R096/raw/441969/"
-        "441969-R096A_GEX_QSR-1-7A.json,"
-        "/local_root/data1/V129/441969-20260220_2053/"
-        "441969-QSR1_QSR-1/441969-QSR1_QSR-1_7A.json\n"
-    )
-    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    """CLI should pass for a SOP-complete Scale raw mapping with SIF."""
+    mapping_path = _write_temp_mapping(tmp_path, _scale_cli_mapping())
 
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
@@ -187,19 +251,47 @@ def test_cli_scale_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> N
 
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
+    assert "scale raw completeness" in captured.out
     assert "VERDICT: PASS" in captured.out
 
 
-def test_cli_sci_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> None:
-    """CLI should pass for a minimal valid sci raw mapping with SIF."""
-    mapping_text = (
-        "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
-        "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_SNVQ.metric,"
-        "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
-        "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
-        "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT_SNVQ.metric\n"
+_SCI_CLI_S3_PREFIX = (
+    "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
+    "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT"
+)
+_SCI_CLI_LOCAL_PREFIX = (
+    "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
+    "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
+    "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT"
+)
+
+
+def _sci_cli_mapping(
+    *, omit: set[str] | None = None, extra_rows: list[str] | None = None
+) -> str:
+    """Build mapping text for a SOP-complete sci raw bundle."""
+    omit = omit or set()
+    suffixes = (
+        ".cram",
+        ".csv",
+        ".json",
+        "_trimmer-failure_codes.csv",
+        "_trimmer-stats.csv",
+        "_trimmer-stats_FlowQ.metric",
+        "_trimmer-stats_SNVQ.metric",
     )
-    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    lines: list[str] = []
+    for sfx in suffixes:
+        if sfx in omit:
+            continue
+        lines.append(f"{_SCI_CLI_S3_PREFIX}{sfx},{_SCI_CLI_LOCAL_PREFIX}{sfx}")
+    lines.extend(extra_rows or [])
+    return "\n".join(lines) + "\n"
+
+
+def test_cli_sci_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> None:
+    """CLI should pass for a SOP-complete sci raw mapping with SIF."""
+    mapping_path = _write_temp_mapping(tmp_path, _sci_cli_mapping())
 
     sif_text = (
         "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
@@ -229,6 +321,7 @@ def test_cli_sci_raw_with_sif_passes(tmp_path: Path, monkeypatch, capsys) -> Non
 
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
+    assert "sci raw completeness" in captured.out
     assert "VERDICT: PASS" in captured.out
 
 
@@ -313,16 +406,13 @@ def test_cli_10x_processed_reports_normalized_groupid_warning(
 
 
 def test_cli_psomagen_10x_raw_passes(tmp_path: Path, monkeypatch, capsys) -> None:
-    """CLI should pass for a minimal valid 10x Psomagen raw mapping."""
-    mapping_text = (
-        "s3://czi-psomagen/project-scaling-alpha/"
-        "AN00000001/CD4i_R1L01/raw/"
-        "416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,"
-        "/local/416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz\n"
-        "s3://czi-psomagen/project-alpha/"
-        "AN00000001/CD4i_R1L01/raw/"
-        "416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz,"
-        "/local/416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz\n"
+    """CLI should pass for a SOP-complete 10x Psomagen raw mapping (viral_ORF assay)."""
+    mapping_text = _tenx_fastq_cli_mapping(
+        s3_prefix=(
+            "s3://czi-psomagen/project-scaling-alpha/AN00000001/CD4i_R1L01/raw/"
+            "416640-CD4i_R1L01_viral_ORF-Z0238-CTGCACATTGTAGAT"
+        ),
+        assay_token="viral_ORF",
     )
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
 
@@ -380,14 +470,12 @@ def test_cli_10x_raw_without_fastq_fails(tmp_path: Path, monkeypatch, capsys) ->
 def test_cli_10x_raw_allows_unmatched_cram_artifacts(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """10x raw mode may include unmatched CRAM artifacts alongside valid FASTQs."""
-    mapping_text = (
-        "s3://czi-novogene/project-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
-        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001.fastq.gz,/local/r1.fastq.gz\n"
-        "s3://czi-novogene/project-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
-        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R2_001.fastq.gz,/local/r2.fastq.gz\n"
-        "s3://czi-novogene/project-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
-        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT_unmatched.cram,/local/unmatched.cram\n"
+    """10x raw mode passes when unmatched CRAMs accompany a SOP-complete bundle."""
+    mapping_text = _tenx_fastq_cli_mapping(
+        extra_rows=[
+            f"{_TENX_FASTQ_CLI_PREFIX}_unmatched.cram-metadata.json,"
+            "/local/sample_unmatched.cram-metadata.json"
+        ]
     )
     mapping_path = _write_temp_mapping(tmp_path, mapping_text)
 
@@ -581,6 +669,168 @@ def test_cli_10x_cram_extensionless_sample_message(
     assert excinfo.value.code == 1
     captured = capsys.readouterr()
     assert "missing 10x_cram sample file suffix" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_scale_raw_truncated_codes_csv_fails(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Reproduce the production bug: ``_codes.csv`` (S3) vs ``_trimmer-failure_codes.csv`` (local)."""
+    bug_row = (
+        "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-58/CHEM5-R114/raw/443546/"
+        "443546-R114ABCD_hash_oligo_QSR-9-SCALEPLEX_codes.csv,"
+        "/local_root/DATA1/V129/443546-20260418_0814/"
+        "443546_1-QSR9SCALEPLEX_QSR-9-SCALEPLEX_trimmer-failure_codes.csv"
+    )
+    mapping_path = _write_temp_mapping(tmp_path, bug_row + "\n")
+
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "CHEM5-R114,CHEM5-R114_GEX,CTATGCACA,lab-seahub-alpha,"
+        "CHEM5-R114,R114ABCD,hash_oligo\n"
+    )
+    sif_path = tmp_path / "scale_sif_bug.csv"
+    sif_path.write_text(sif_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "scale",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "scale raw completeness" in captured.out
+    assert "unexpected_sample_file" in captured.out
+    assert "_codes.csv" in captured.out
+    assert "s3_local_artifact_mismatch" in captured.out
+    assert "scale raw completeness errors" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_scale_raw_missing_per_well_artifact_fails(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Dropping a per-well .json should be reported as missing per-well artifact."""
+    mapping_path = _write_temp_mapping(
+        tmp_path, _scale_cli_mapping(omit_per_well={".json"})
+    )
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "CHEM13-R096,CHEM13-R096_GEX,CTATGCACA,lab-seahub-alpha,"
+        "CHEM13-R096,R096A,GEX\n"
+    )
+    sif_path = tmp_path / "scale_sif_missing.csv"
+    sif_path.write_text(sif_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "scale",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "missing required per-well Scale artifacts: json" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_sci_raw_missing_trimmer_failure_codes_fails(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Dropping ``_trimmer-failure_codes.csv`` should fail the sci CLI run."""
+    mapping_path = _write_temp_mapping(
+        tmp_path, _sci_cli_mapping(omit={"_trimmer-failure_codes.csv"})
+    )
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "CHEM3-R100,R100E,Z0028,lab-seahub-beta,CHEM3-R100,R100E,GEX_hash_oligo\n"
+    )
+    sif_path = tmp_path / "sci_sif_missing.csv"
+    sif_path.write_text(sif_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "sci",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert (
+        "missing required sci sample artifacts: trimmer_failure_codes" in captured.out
+    )
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_10x_raw_missing_per_tail_sample_fastq_fails(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Dropping the R1 ``_sample.fastq.gz`` should fail the 10x raw CLI run."""
+    mapping_path = _write_temp_mapping(
+        tmp_path,
+        _tenx_fastq_cli_mapping(omit_per_tail={("S1_L001_R1_001", "_sample.fastq.gz")}),
+    )
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "missing required 10x FASTQ per-tail artifacts: sample_fastq" in captured.out
+    assert "10x FASTQ completeness errors" in captured.out
     assert "VERDICT: FAIL" in captured.out
 
 

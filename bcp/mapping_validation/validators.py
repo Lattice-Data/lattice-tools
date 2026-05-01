@@ -17,6 +17,14 @@ from .constants import (
 )
 from .parsing import MappingRow
 from .sif_io import load_sif_group_assays
+from .sop_artifacts import (
+    TENX_CRAM_CORE_SAMPLE_ARTIFACTS,
+    TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS,
+    TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT,
+    classify_basename,
+    classify_suffix,
+    expected_suffixes_message,
+)
 
 _SEAHUB_FAMILIES: set[str] = {"scale", "sci"}
 
@@ -401,54 +409,19 @@ def find_unmatched_sif_paths_10x(
     }
 
 
-_TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS: set[str] = {
-    "cram",
-    "csv",
-    "json",
-    "extract_stats",
-    "snvq",
-    "flowq",
-    "trimmer_stats",
-    "trimmer_failure_codes",
-}
-
-
-_TENX_CRAM_CORE_SAMPLE_ARTIFACTS: set[str] = {"cram", "csv", "json"}
-
-
-_TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT: dict[str, str] = {
-    ".cram": "cram",
-    ".csv": "csv",
-    ".json": "json",
-    "_extract_stats.h5": "extract_stats",
-    "_SNVQ.metric": "snvq",
-    "_FlowQ.metric": "flowq",
-    "_trimmer-stats.csv": "trimmer_stats",
-    "_trimmer-failure_codes.csv": "trimmer_failure_codes",
-    "_trimmer-failure-codes.csv": "trimmer_failure_codes",
-}
-
-
-_TENX_CRAM_EXPECTED_SUFFIXES: str = ", ".join(
-    sorted(_TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT, key=len, reverse=True)
+_TENX_CRAM_EXPECTED_SUFFIXES: str = expected_suffixes_message(
+    TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT
 )
 
 
 def _normalize_10x_cram_sample_suffix(suffix: str) -> str | None:
     """Map concrete sample filename suffixes to canonical 10x_cram artifact keys."""
-    return _TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT.get(suffix)
+    return classify_suffix(suffix, TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT)
 
 
 def _classify_10x_cram_sample_basename(basename: str) -> str | None:
     """Best-effort artifact classification from a local or S3 sample basename."""
-    for suffix, artifact in sorted(
-        _TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT.items(),
-        key=lambda item: len(item[0]),
-        reverse=True,
-    ):
-        if basename.endswith(suffix):
-            return artifact
-    return None
+    return classify_basename(basename, TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT)
 
 
 def _unexpected_10x_cram_suffix_detail(suffix: str) -> str:
@@ -474,14 +447,65 @@ def _is_10x_cram_artifact_mismatch(s3_artifact: str, local_artifact: str) -> boo
     """
     if s3_artifact == local_artifact:
         return False
-    if s3_artifact in _TENX_CRAM_CORE_SAMPLE_ARTIFACTS:
+    if s3_artifact in TENX_CRAM_CORE_SAMPLE_ARTIFACTS:
         return True
-    return local_artifact not in _TENX_CRAM_CORE_SAMPLE_ARTIFACTS
+    return local_artifact not in TENX_CRAM_CORE_SAMPLE_ARTIFACTS
 
 
 def _has_any_basename(basenames: set[str], candidates: set[str]) -> bool:
     """True if any filename candidate exists in ``basenames``."""
     return any(c in basenames for c in candidates)
+
+
+def _check_s3_local_suffix_consistency(
+    row: MappingRow,
+    s3_artifact: str | None,
+    local_suffix_table: dict[str, str],
+    *,
+    core_artifacts: set[str] | None = None,
+) -> dict | None:
+    """Compare the artifact key implied by S3 vs the one implied by the local basename.
+
+    Returns an ``s3_local_artifact_mismatch`` error dict when the local basename
+    ends in a recognised SOP suffix that maps to a different artifact than the
+    S3 row.  Returns ``None`` when the local basename is unrecognised or when
+    the artifacts are compatible.
+
+    ``core_artifacts`` follows the same logic used historically for 10x_cram:
+    when the S3 artifact is one of these "core" labels (e.g. ``cram``/``csv``/
+    ``json``) we are strict; otherwise a generic local artifact label that
+    happens to match a core extension is tolerated, because providers
+    sometimes collapse detailed names to bare extensions on disk.
+    """
+    local_basename = os.path.basename(row.local_path)
+    local_artifact = classify_basename(local_basename, local_suffix_table)
+    if local_artifact is None:
+        return None
+    if s3_artifact == local_artifact:
+        return None
+    if s3_artifact is None:
+        return {
+            "type": "s3_local_artifact_mismatch",
+            "line": row.line_num,
+            "s3_path": row.s3_path,
+            "local_path": row.local_path,
+            "detail": (
+                f"S3 filename suffix is unrecognised but local basename "
+                f"matches SOP artifact '{local_artifact}'"
+            ),
+        }
+    if core_artifacts is not None:
+        if s3_artifact not in core_artifacts and local_artifact in core_artifacts:
+            return None
+    return {
+        "type": "s3_local_artifact_mismatch",
+        "line": row.line_num,
+        "s3_path": row.s3_path,
+        "local_path": row.local_path,
+        "detail": (
+            f"S3 artifact '{s3_artifact}' maps to local artifact '{local_artifact}'"
+        ),
+    }
 
 
 def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
@@ -648,7 +672,7 @@ def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> d
 
     missing_by_prefix: dict[str, list[str]] = {}
     for prefix, found in sample_artifacts.items():
-        missing = sorted(_TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS - found)
+        missing = sorted(TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS - found)
         if missing:
             missing_by_prefix[prefix] = missing
             errors.append(

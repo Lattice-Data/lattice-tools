@@ -5,6 +5,11 @@ import sys
 from collections import defaultdict
 from typing import List, Set
 
+from .completeness import (
+    validate_10x_raw_fastq_completeness,
+    validate_scale_raw_completeness,
+    validate_sci_raw_completeness,
+)
 from .constants import CANONICAL_ASSAY
 from .parsing import parse_mapping_file
 from .sif_io import (
@@ -354,6 +359,26 @@ def _validate_10x_raw(
         exit_code = 1
         fail_reasons.append(f"{len(mate_res['errors'])} FASTQ read-mate errors")
 
+    completeness = validate_10x_raw_fastq_completeness(provider, mappings)
+    print(
+        f"10x raw FASTQ completeness: matched {completeness['matched']} suffix rows, "
+        f"{completeness['sample_prefixes_checked']} prefixes, "
+        f"{completeness['tails_checked']} Illumina tails, "
+        f"{len(completeness['errors'])} errors, "
+        f"{len(completeness['warnings'])} warnings"
+    )
+    _print_issue_examples(
+        "10x raw FASTQ completeness", completeness["errors"], "errors"
+    )
+    _print_issue_examples(
+        "10x raw FASTQ completeness", completeness["warnings"], "warnings"
+    )
+    if completeness["errors"]:
+        exit_code = 1
+        fail_reasons.append(
+            f"{len(completeness['errors'])} 10x FASTQ completeness errors"
+        )
+
     if sif_path:
         exit_code |= _validate_10x_sif(
             provider, mappings, sif_path, s3_ga, fail_reasons
@@ -573,6 +598,12 @@ _SEAHUB_CONSISTENCY_VALIDATORS: dict = {
 }
 
 
+_SEAHUB_COMPLETENESS_VALIDATORS: dict = {
+    "scale": validate_scale_raw_completeness,
+    "sci": validate_sci_raw_completeness,
+}
+
+
 def _validate_seahub_raw(
     assay_family: str,
     mappings: list,
@@ -660,6 +691,34 @@ def _validate_seahub_raw(
     if cons_res["errors"]:
         exit_code = 1
         fail_reasons.append(f"{len(cons_res['errors'])} S3/local consistency errors")
+
+    # SOP-driven per-prefix completeness (Scale: per-well + per-UG; sci: per-prefix)
+    completeness_validator = _SEAHUB_COMPLETENESS_VALIDATORS[family]
+    comp_res = completeness_validator(mappings)
+    if family == "scale":
+        print(
+            f"{family} raw completeness: matched {comp_res['matched']} suffix rows, "
+            f"{comp_res.get('well_prefixes_checked', 0)} per-well bundles, "
+            f"{comp_res.get('ug_aggregates_checked', 0)} per-UG aggregates, "
+            f"{len(comp_res['errors'])} errors, "
+            f"{len(comp_res['warnings'])} warnings"
+        )
+    else:
+        print(
+            f"{family} raw completeness: matched {comp_res['matched']} suffix rows, "
+            f"{comp_res.get('sample_prefixes_checked', 0)} prefixes, "
+            f"{len(comp_res['errors'])} errors, "
+            f"{len(comp_res['warnings'])} warnings"
+        )
+    _print_issue_examples(f"{family} raw completeness", comp_res["errors"], "errors")
+    _print_issue_examples(
+        f"{family} raw completeness", comp_res["warnings"], "warnings"
+    )
+    if comp_res["errors"]:
+        exit_code = 1
+        fail_reasons.append(
+            f"{len(comp_res['errors'])} {family} raw completeness errors"
+        )
 
     return exit_code
 

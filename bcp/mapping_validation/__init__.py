@@ -15,6 +15,11 @@ from .constants import (
     get_assays,
     get_order_pattern,
 )
+from .completeness import (
+    validate_10x_raw_fastq_completeness,
+    validate_scale_raw_completeness,
+    validate_sci_raw_completeness,
+)
 from .parsing import MappingRow, parse_mapping_file
 from .sif_io import (
     _normalize_sif_groupid,
@@ -23,6 +28,23 @@ from .sif_io import (
     load_sif_library_names,
     load_sif_scale_group_assays,
     load_sif_scale_groupids,
+)
+from .sop_artifacts import (
+    SCALE_PER_UG_SUFFIX_TO_ARTIFACT,
+    SCALE_PER_WELL_EXT_TO_ARTIFACT,
+    SCALE_PER_WELL_OPTIONAL_SUFFIX_RE,
+    SCALE_REQUIRED_PER_UG_ARTIFACTS,
+    SCALE_REQUIRED_PER_WELL_ARTIFACTS,
+    SCI_PER_PREFIX_SUFFIX_TO_ARTIFACT,
+    SCI_REQUIRED_PER_PREFIX_ARTIFACTS,
+    TENX_CRAM_CORE_SAMPLE_ARTIFACTS,
+    TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS,
+    TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT,
+    TENX_FASTQ_OPTIONAL_SUFFIX_TO_ARTIFACT,
+    TENX_FASTQ_PER_PREFIX_SUFFIX_TO_ARTIFACT,
+    TENX_FASTQ_PER_TAIL_SUFFIX_TO_ARTIFACT,
+    TENX_FASTQ_REQUIRED_PER_PREFIX_ARTIFACTS,
+    TENX_FASTQ_REQUIRED_PER_TAIL_ARTIFACTS,
 )
 from .uniqueness import validate_uniqueness
 from .validators import (
@@ -108,6 +130,26 @@ __all__ = [
     "validate_s3_scale_raw",
     "validate_s3_sci_raw",
     "validate_sif_completeness_scale",
+    # SOP-driven completeness validators
+    "validate_scale_raw_completeness",
+    "validate_sci_raw_completeness",
+    "validate_10x_raw_fastq_completeness",
+    # SOP suffix tables
+    "SCALE_PER_UG_SUFFIX_TO_ARTIFACT",
+    "SCALE_PER_WELL_EXT_TO_ARTIFACT",
+    "SCALE_PER_WELL_OPTIONAL_SUFFIX_RE",
+    "SCALE_REQUIRED_PER_UG_ARTIFACTS",
+    "SCALE_REQUIRED_PER_WELL_ARTIFACTS",
+    "SCI_PER_PREFIX_SUFFIX_TO_ARTIFACT",
+    "SCI_REQUIRED_PER_PREFIX_ARTIFACTS",
+    "TENX_CRAM_CORE_SAMPLE_ARTIFACTS",
+    "TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS",
+    "TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT",
+    "TENX_FASTQ_OPTIONAL_SUFFIX_TO_ARTIFACT",
+    "TENX_FASTQ_PER_PREFIX_SUFFIX_TO_ARTIFACT",
+    "TENX_FASTQ_PER_TAIL_SUFFIX_TO_ARTIFACT",
+    "TENX_FASTQ_REQUIRED_PER_PREFIX_ARTIFACTS",
+    "TENX_FASTQ_REQUIRED_PER_TAIL_ARTIFACTS",
     # SIF helpers
     "_normalize_sif_groupid",
     "load_sif_group_assays",

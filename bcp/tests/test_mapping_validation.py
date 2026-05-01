@@ -20,23 +20,26 @@ from mapping_validation import (
     load_sif_group_assays,
     load_sif_scale_group_assays,
     parse_mapping_file,
+    validate_10x_multiome_processed_outs,
+    validate_10x_raw_fastq_completeness,
+    validate_10x_raw_fastq_read_mates,
+    validate_10x_raw_file_modalities,
     validate_library_assay_consistency,
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
+    validate_s3_10x_cram_raw,
     validate_s3_10x_processed,
+    validate_s3_10x_raw,
     validate_s3_local_consistency_10x_processed,
+    validate_s3_local_consistency_scale,
     validate_s3_local_consistency_sci,
+    validate_s3_scale_raw,
     validate_s3_seahub_raw,
+    validate_scale_raw_completeness,
+    validate_sci_raw_completeness,
     validate_sif_completeness_10x_processed,
     validate_sif_completeness_scale,
     validate_sif_completeness_seahub,
-    validate_s3_scale_raw,
-    validate_s3_10x_raw,
-    validate_10x_raw_fastq_read_mates,
-    validate_10x_multiome_processed_outs,
-    validate_10x_raw_file_modalities,
-    validate_s3_local_consistency_scale,
-    validate_s3_10x_cram_raw,
     validate_uniqueness,
 )
 
@@ -2237,4 +2240,313 @@ def test_validate_s3_10x_cram_raw_groupid_mismatch_is_direct() -> None:
     )
     assert (
         "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT" not in res["missing_sample_artifacts"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Scale raw SOP completeness
+# ---------------------------------------------------------------------------
+
+_SCALE_S3_PREFIX = (
+    "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-58/CHEM5-R114/raw/443546/"
+    "443546-R114ABCD_hash_oligo_QSR-9-SCALEPLEX"
+)
+_SCALE_LOCAL_PREFIX = (
+    "/local_root/DATA1/V129/443546-20260418_0814/"
+    "443546_1-QSR9SCALEPLEX_QSR-9-SCALEPLEX/"
+    "443546_1-QSR9SCALEPLEX_QSR-9-SCALEPLEX"
+)
+
+
+def _scale_complete_rows(
+    *,
+    omit_per_well: set[str] | None = None,
+    omit_per_ug: set[str] | None = None,
+    extra_rows: list[MappingRow] | None = None,
+) -> list[MappingRow]:
+    """Build a SOP-complete Scale per-well + per-UG bundle (well code 10A)."""
+    omit_per_well = omit_per_well or set()
+    omit_per_ug = omit_per_ug or set()
+    rows: list[MappingRow] = []
+    line = 1
+    for ext in (".cram", ".csv", ".json"):
+        if ext in omit_per_well:
+            continue
+        rows.append(
+            MappingRow(
+                f"{_SCALE_S3_PREFIX}_10A{ext}",
+                f"{_SCALE_LOCAL_PREFIX}_10A{ext}",
+                line,
+            )
+        )
+        line += 1
+    for sfx in (
+        "_trimmer-failure_codes.csv",
+        "_trimmer-stats.csv",
+        "_unmatched.cram",
+        "_unmatched.csv",
+        "_unmatched.json",
+    ):
+        if sfx in omit_per_ug:
+            continue
+        rows.append(
+            MappingRow(f"{_SCALE_S3_PREFIX}{sfx}", f"{_SCALE_LOCAL_PREFIX}{sfx}", line)
+        )
+        line += 1
+    rows.extend(extra_rows or [])
+    return rows
+
+
+def test_validate_scale_raw_completeness_full_bundle_passes() -> None:
+    """A SOP-complete Scale bundle (one well + all aggregates) yields no errors."""
+    rows = _scale_complete_rows()
+    res = validate_scale_raw_completeness(rows)
+    assert res["errors"] == []
+    assert res["matched"] == 8
+    assert res["well_prefixes_checked"] == 1
+    assert res["ug_aggregates_checked"] == 1
+
+
+def test_validate_scale_raw_completeness_catches_codes_csv_truncation() -> None:
+    """Bug repro: ``_codes.csv`` (S3) vs ``_trimmer-failure_codes.csv`` (local)."""
+    rows = _scale_complete_rows(omit_per_ug={"_trimmer-failure_codes.csv"})
+    rows.append(
+        MappingRow(
+            f"{_SCALE_S3_PREFIX}_codes.csv",
+            f"{_SCALE_LOCAL_PREFIX}_trimmer-failure_codes.csv",
+            99,
+        )
+    )
+
+    res = validate_scale_raw_completeness(rows)
+
+    types = {e["type"] for e in res["errors"]}
+    assert "unexpected_sample_file" in types
+    assert "s3_local_artifact_mismatch" in types
+    assert "missing_sample_artifacts" in types
+    truncated_errors = [
+        e
+        for e in res["errors"]
+        if e["type"] == "unexpected_sample_file" and "_codes.csv" in e.get("detail", "")
+    ]
+    assert truncated_errors, "expected an unexpected_sample_file pointing at _codes.csv"
+    mismatches = [
+        e
+        for e in res["errors"]
+        if e["type"] == "s3_local_artifact_mismatch"
+        and "trimmer_failure_codes" in e.get("detail", "")
+    ]
+    assert mismatches, "expected the local trimmer-failure_codes mismatch to fire"
+    missing_for_ug = [
+        e
+        for e in res["errors"]
+        if e["type"] == "missing_sample_artifacts"
+        and "trimmer_failure_codes" in e.get("missing", [])
+    ]
+    assert missing_for_ug, (
+        "expected per-UG trimmer_failure_codes to be reported missing"
+    )
+
+
+def test_validate_scale_raw_completeness_missing_per_well_artifact() -> None:
+    """Dropping a per-well .json should report only that artifact missing."""
+    rows = _scale_complete_rows(omit_per_well={".json"})
+    res = validate_scale_raw_completeness(rows)
+    missing = [e for e in res["errors"] if e["type"] == "missing_sample_artifacts"]
+    assert len(missing) == 1
+    assert missing[0]["missing"] == ["json"]
+
+
+def test_validate_scale_raw_completeness_missing_aggregate_unmatched() -> None:
+    """Dropping ``_unmatched.cram`` should report it as missing per-UG aggregate."""
+    rows = _scale_complete_rows(omit_per_ug={"_unmatched.cram"})
+    res = validate_scale_raw_completeness(rows)
+    missing = [e for e in res["errors"] if e["type"] == "missing_sample_artifacts"]
+    assert len(missing) == 1
+    assert missing[0]["missing"] == ["unmatched_cram"]
+
+
+# ---------------------------------------------------------------------------
+# sci raw SOP completeness
+# ---------------------------------------------------------------------------
+
+_SCI_S3_PREFIX = (
+    "s3://czi-novogene/lab-seahub-beta/NVUS0000000000-32/CHEM3-R100/raw/441389/"
+    "441389-R100E_GEX-Z0028-CAGACTTGCTGCGAT"
+)
+_SCI_LOCAL_PREFIX = (
+    "/local_root/newsftp/S3/ultima/CR0-789/441389-20260224_2053/"
+    "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT/"
+    "441389-R100E_Z0028-Z0028-CAGACTTGCTGCGAT"
+)
+
+
+def _sci_complete_rows(
+    *, omit: set[str] | None = None, extra_rows: list[MappingRow] | None = None
+) -> list[MappingRow]:
+    omit = omit or set()
+    suffixes = (
+        ".cram",
+        ".csv",
+        ".json",
+        "_trimmer-failure_codes.csv",
+        "_trimmer-stats.csv",
+        "_trimmer-stats_FlowQ.metric",
+        "_trimmer-stats_SNVQ.metric",
+    )
+    rows: list[MappingRow] = []
+    for line, sfx in enumerate(suffixes, 1):
+        if sfx in omit:
+            continue
+        rows.append(
+            MappingRow(f"{_SCI_S3_PREFIX}{sfx}", f"{_SCI_LOCAL_PREFIX}{sfx}", line)
+        )
+    rows.extend(extra_rows or [])
+    return rows
+
+
+def test_validate_sci_raw_completeness_full_bundle_passes() -> None:
+    """A SOP-complete sci bundle yields no errors."""
+    rows = _sci_complete_rows()
+    res = validate_sci_raw_completeness(rows)
+    assert res["errors"] == []
+    assert res["matched"] == 7
+    assert res["sample_prefixes_checked"] == 1
+
+
+def test_validate_sci_raw_completeness_missing_trimmer_failure_codes() -> None:
+    """Dropping ``_trimmer-failure_codes.csv`` should fire missing_sample_artifacts."""
+    rows = _sci_complete_rows(omit={"_trimmer-failure_codes.csv"})
+    res = validate_sci_raw_completeness(rows)
+    missing = [e for e in res["errors"] if e["type"] == "missing_sample_artifacts"]
+    assert len(missing) == 1
+    assert missing[0]["missing"] == ["trimmer_failure_codes"]
+
+
+def test_validate_sci_raw_completeness_unexpected_suffix_caught() -> None:
+    """An unrecognised sci sample suffix should fire unexpected_sample_file."""
+    rows = _sci_complete_rows()
+    rows.append(
+        MappingRow(
+            f"{_SCI_S3_PREFIX}_codes.csv",
+            f"{_SCI_LOCAL_PREFIX}_trimmer-failure_codes.csv",
+            99,
+        )
+    )
+    res = validate_sci_raw_completeness(rows)
+    assert any(
+        e["type"] == "unexpected_sample_file" and "_codes.csv" in e.get("detail", "")
+        for e in res["errors"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# 10x raw FASTQ SOP completeness
+# ---------------------------------------------------------------------------
+
+_TENX_FASTQ_S3_PREFIX = (
+    "s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/CD4i_R1L01/raw/"
+    "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT"
+)
+_TENX_FASTQ_LOCAL_PREFIX = "/local/416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT"
+
+
+def _tenx_fastq_complete_rows(
+    *,
+    omit_per_prefix: set[str] | None = None,
+    omit_per_tail: set[tuple[str, str]] | None = None,
+    extra_rows: list[MappingRow] | None = None,
+) -> list[MappingRow]:
+    """Build a SOP-complete 10x raw FASTQ bundle for a single read pair."""
+    omit_per_prefix = omit_per_prefix or set()
+    omit_per_tail = omit_per_tail or set()
+    rows: list[MappingRow] = []
+    line = 1
+    for sfx in (
+        ".csv",
+        ".json",
+        "_trimmer-stats.csv",
+        "_trimmer-failure_codes.csv",
+        "_unmatched.cram",
+        "_unmatched.csv",
+        "_unmatched.json",
+    ):
+        if sfx in omit_per_prefix:
+            continue
+        rows.append(
+            MappingRow(
+                f"{_TENX_FASTQ_S3_PREFIX}{sfx}",
+                f"{_TENX_FASTQ_LOCAL_PREFIX}{sfx}",
+                line,
+            )
+        )
+        line += 1
+
+    for tail in ("S1_L001_R1_001", "S1_L001_R2_001"):
+        for sfx in (".fastq.gz", ".csv", ".json", "_sample.fastq.gz"):
+            if (tail, sfx) in omit_per_tail:
+                continue
+            rows.append(
+                MappingRow(
+                    f"{_TENX_FASTQ_S3_PREFIX}_{tail}{sfx}",
+                    f"{_TENX_FASTQ_LOCAL_PREFIX}_{tail}{sfx}",
+                    line,
+                )
+            )
+            line += 1
+    rows.extend(extra_rows or [])
+    return rows
+
+
+def test_validate_10x_raw_fastq_completeness_full_bundle_passes() -> None:
+    """A SOP-complete 10x raw FASTQ bundle (per-prefix + R1/R2 per-tail) passes."""
+    rows = _tenx_fastq_complete_rows()
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    assert res["errors"] == []
+    assert res["sample_prefixes_checked"] == 1
+    assert res["tails_checked"] == 2
+
+
+def test_validate_10x_raw_fastq_completeness_missing_per_prefix_metadata() -> None:
+    """Dropping ``_trimmer-failure_codes.csv`` should fire missing_sample_artifacts."""
+    rows = _tenx_fastq_complete_rows(omit_per_prefix={"_trimmer-failure_codes.csv"})
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    missing = [
+        e
+        for e in res["errors"]
+        if e["type"] == "missing_sample_artifacts"
+        and "trimmer_failure_codes" in e.get("missing", [])
+    ]
+    assert missing
+
+
+def test_validate_10x_raw_fastq_completeness_missing_per_tail_sample_fastq() -> None:
+    """Dropping the R1 ``_sample.fastq.gz`` should fire a per-tail completeness error."""
+    rows = _tenx_fastq_complete_rows(
+        omit_per_tail={("S1_L001_R1_001", "_sample.fastq.gz")}
+    )
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    missing = [
+        e
+        for e in res["errors"]
+        if e["type"] == "missing_sample_artifacts"
+        and "sample_fastq" in e.get("missing", [])
+    ]
+    assert missing
+
+
+def test_validate_10x_raw_fastq_completeness_unexpected_suffix_caught() -> None:
+    """An unrecognised per-prefix suffix should fire unexpected_sample_file."""
+    rows = _tenx_fastq_complete_rows()
+    rows.append(
+        MappingRow(
+            f"{_TENX_FASTQ_S3_PREFIX}_codes.csv",
+            f"{_TENX_FASTQ_LOCAL_PREFIX}_trimmer-failure_codes.csv",
+            999,
+        )
+    )
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    assert any(
+        e["type"] == "unexpected_sample_file" and "_codes.csv" in e.get("detail", "")
+        for e in res["errors"]
     )
