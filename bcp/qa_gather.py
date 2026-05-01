@@ -174,11 +174,10 @@ class QADataGatherer:
         if r_raw["CommonPrefixes"]:
             non_10x_runs = [e["Prefix"] for e in r_raw["CommonPrefixes"]]
             for run in non_10x_runs:
-                r_run = self.s3.list_objects(
+                for page in self.paginator.paginate(
                     Bucket=self.bucket, Prefix=run, Delimiter="/"
-                )
-                if "Contents" in r_run:
-                    raw_files.extend([c["Key"] for c in r_run["Contents"]])
+                ):
+                    raw_files.extend([c["Key"] for c in page.get("Contents", [])])
             is_10x = False
 
         # Flat files take precedence (preserves original notebook behaviour)

@@ -35,6 +35,12 @@ class MockPaginator:
         self._s3 = s3_client
 
     def paginate(self, **kwargs):
+        prefix = kwargs.get("Prefix", "")
+        delimiter = kwargs.get("Delimiter", "")
+        pages = self._s3._paginated_pages.get((prefix, delimiter))
+        if pages is not None:
+            yield from pages
+            return
         result = self._s3.list_objects(**kwargs)
         yield result
 
@@ -57,9 +63,11 @@ class MockS3Client:
         self,
         keys: list[str] | None = None,
         file_contents: dict[str, str | bytes] | None = None,
+        paginated_pages: dict[tuple[str, str], list[dict]] | None = None,
     ):
         self._keys = keys or []
         self._file_contents = file_contents or {}
+        self._paginated_pages = paginated_pages or {}
 
     def get_paginator(self, _operation: str) -> MockPaginator:
         return MockPaginator(self)
@@ -70,6 +78,10 @@ class MockS3Client:
         Prefix: str = "",
         Delimiter: str = "",
     ) -> dict:
+        pages = self._paginated_pages.get((Prefix, Delimiter))
+        if pages is not None:
+            return pages[0] if pages else {}
+
         result: dict = {}
         contents = []
         prefixes: set[str] = set()
@@ -740,6 +752,74 @@ class TestGatherScaleProcessed:
         data = gather_qa_data(ctx, s3)
         assert data.has_processed is False
         assert data.scale_workflow_infos == {}
+
+
+# ---------------------------------------------------------------------------
+# S3 mode — nested raw run pagination (Scale)
+# ---------------------------------------------------------------------------
+
+
+class TestGatherNestedRawRunPagination:
+    def test_scale_nested_run_later_page_merged_failure_codes_ingested(self):
+        """Scale merged wafer stats can appear after the first S3 page."""
+        run_prefix = "testproj/ORD01/CHEM5-R114/raw/442593/"
+        first_page_key = (
+            f"{run_prefix}442593-R114EFGH_hash_oligo_QSR-4-SCALEPLEX_9H.cram"
+        )
+        merged_key = f"{run_prefix}merged_trimmer-failure_codes.csv"
+        merged_csv = (
+            "read group,code,format,segment,reason,"
+            "failed read count,total read count\n"
+            "TT,8,trim,preamble,rsq file,1000,10000\n"
+            "TT,101,trim,insert,sequence was too short,100,10000\n"
+        )
+        keys = [first_page_key]
+        paginated_pages = {
+            (run_prefix, "/"): [
+                {"Contents": [{"Key": first_page_key}]},
+                {"Contents": [{"Key": merged_key}]},
+            ]
+        }
+        file_contents = {merged_key: merged_csv}
+        ctx = _make_ctx(raw_assay="scale")
+        s3 = MockS3Client(
+            keys=keys, file_contents=file_contents, paginated_pages=paginated_pages
+        )
+
+        data = gather_qa_data(ctx, s3)
+
+        assert "442593" in data.merged_wafer_stats
+        assert data.merged_wafer_stats["442593"]["tt_total_reads"] == 10000
+        assert data.merged_wafer_stats["442593"]["tt_failed_reads"] == 1100
+        assert data.merged_wafer_stats["442593"]["rsq_failed_reads"] == 1000
+
+    def test_scale_nested_run_later_page_merged_stats_q30_ingested(self):
+        """The same paginated path also reaches merged_trimmer-stats.csv."""
+        run_prefix = "testproj/ORD01/CHEM5-R114/raw/442593/"
+        first_page_key = (
+            f"{run_prefix}442593-R114EFGH_hash_oligo_QSR-4-SCALEPLEX_9H.cram"
+        )
+        merged_key = f"{run_prefix}merged_trimmer-stats.csv"
+        merged_csv = (
+            "read group,segment label,num matched bases,num failures\n"
+            "TT,low quality bases,9000,1000\n"
+        )
+        keys = [first_page_key]
+        paginated_pages = {
+            (run_prefix, "/"): [
+                {"Contents": [{"Key": first_page_key}]},
+                {"Contents": [{"Key": merged_key}]},
+            ]
+        }
+        file_contents = {merged_key: merged_csv}
+        ctx = _make_ctx(raw_assay="scale")
+        s3 = MockS3Client(
+            keys=keys, file_contents=file_contents, paginated_pages=paginated_pages
+        )
+
+        data = gather_qa_data(ctx, s3)
+
+        assert data.merged_wafer_stats["442593"]["tt_q30_pct"] == 90.0
 
 
 # ---------------------------------------------------------------------------
