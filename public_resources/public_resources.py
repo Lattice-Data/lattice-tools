@@ -120,6 +120,14 @@ def pubtator_search(search_term):
     return dois
 
 
+def europepmc_search(search_term):
+    url = f'https://www.ebi.ac.uk/europepmc/webservices/rest/search?query={search_term}&format=json'
+    r = requests.get(url).json()
+    dois = [h['doi'] for h in r['resultList']['result']]
+
+    return dois
+
+
 def pmid_to_doi(pmid):
     eutils_base = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/'
     url = f'{eutils_base}efetch.fcgi?db=pubmed&id={pmid}'
