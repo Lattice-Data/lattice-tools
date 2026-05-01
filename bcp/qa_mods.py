@@ -32,6 +32,7 @@ __all__ = [
     "chemistries",
     "ingest_merged_trimmer_from_s3",
     "is_order_level_processed_folder",
+    "is_trimmer_stats_basename",
     "is_valid_cellranger_run_dir_name",
     "normalize_raw_assay",
     "raw_expected",
@@ -77,6 +78,43 @@ def make_read_partner(filename: str, from_read: str, to_read: str) -> str:
         lambda m: m.group(0).replace(from_read, to_read),
         filename,
     )
+
+
+# Trailing-suffix matcher for per-sublibrary trimmer-stats files. Mirrors the
+# ``[_-]`` separator symmetry used by SCALE_AGGREGATE_FILE_RE so both
+# ``_trimmer-stats.csv`` and ``-trimmer-stats.csv`` are recognised.
+_TRIMMER_STATS_STRICT_RE = re.compile(r"[_-]trimmer-stats\.csv$")
+# Truncated alias: explicit ``_trimmer-`` -> ``_`` substitution before
+# ``stats.csv`` (likewise for ``-trimmer-`` / ``-stats.csv``). Excludes the
+# canonical merged wafer-level filename ``merged_trimmer-stats.csv`` (handled
+# separately) and intentionally rejects bare ``stats.csv`` with no separator.
+_TRIMMER_STATS_TRUNCATED_RE = re.compile(r"[_-]stats\.csv$")
+
+
+def is_trimmer_stats_basename(name: str, *, allow_truncated: bool = False) -> bool:
+    """Return True for a per-sublibrary trimmer-stats filename.
+
+    Strict mode (``allow_truncated=False``) accepts only the canonical
+    ``..._trimmer-stats.csv`` / ``...-trimmer-stats.csv`` shape. With
+    ``allow_truncated=True`` the helper additionally accepts the truncated
+    alias ``..._stats.csv`` / ``...-stats.csv`` produced when the
+    ``_trimmer-`` token is missing from the filename.
+
+    The wafer-level merged file ``merged_trimmer-stats.csv`` is intentionally
+    *not* matched here; that path is handled by the merged-trimmer helpers.
+    """
+    base = name.split("/")[-1]
+    if base == "merged_trimmer-stats.csv":
+        return False
+    if _TRIMMER_STATS_STRICT_RE.search(base):
+        return True
+    if not allow_truncated:
+        return False
+    # Reject canonical merged wafer file even with the relaxed alias, and
+    # require a non-empty basename body before ``[_-]stats.csv``.
+    if base.startswith("merged_") or base.startswith("merged-"):
+        return False
+    return bool(_TRIMMER_STATS_TRUNCATED_RE.search(base))
 
 
 def normalize_raw_assay(value: str | None) -> str:
@@ -202,6 +240,10 @@ class QARunContext:
     manifest_delimiter: str = "\t"
     manifest_s3_column: int = 0
     manifest_has_header: bool = False
+    # Opt-in alias for collaborator-generated *_stats.csv files that should
+    # have been named *_trimmer-stats.csv. Off by default; see
+    # ``is_trimmer_stats_basename`` for the matching rule.
+    allow_truncated_stats_name: bool = False
 
 
 def resolve_qa_run_context(
@@ -217,6 +259,7 @@ def resolve_qa_run_context(
     manifest_delimiter: str = "\t",
     manifest_s3_column: int = 0,
     manifest_has_header: bool = False,
+    allow_truncated_stats_name: bool = False,
 ) -> QARunContext:
     """
     Validate notebook parameters and return a single context for gathering and output paths.
@@ -225,6 +268,10 @@ def resolve_qa_run_context(
       Output files use ``run_label`` if set, else ``order``.
     * **manifest** mode: require ``manifest_path`` and non-empty ``run_label`` for output names.
       ``bucket`` is inferred from ``s3://czi-*`` URIs in the manifest column (single bucket).
+
+    Set ``allow_truncated_stats_name=True`` to accept files ending in
+    ``_stats.csv`` as aliases of ``_trimmer-stats.csv`` for completeness
+    checks (use only when collaborator uploads have the truncated naming).
     """
     ds = str(data_source).strip().lower()
     if ds not in ("s3", "manifest"):
@@ -271,6 +318,7 @@ def resolve_qa_run_context(
             manifest_delimiter=manifest_delimiter,
             manifest_s3_column=manifest_s3_column,
             manifest_has_header=manifest_has_header,
+            allow_truncated_stats_name=bool(allow_truncated_stats_name),
         )
 
     # --- s3 ---
@@ -311,6 +359,7 @@ def resolve_qa_run_context(
         order=ord_seg,
         output_label=out,
         listing_prefix=listing,
+        allow_truncated_stats_name=bool(allow_truncated_stats_name),
     )
 
 

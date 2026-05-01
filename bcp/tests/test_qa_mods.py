@@ -16,6 +16,7 @@ from qa_mods import (
     grab_merged_trimmer_stats,
     grab_trimmer_stats,
     is_order_level_processed_folder,
+    is_trimmer_stats_basename,
     is_valid_cellranger_run_dir_name,
     make_read_partner,
     normalize_raw_assay,
@@ -153,6 +154,87 @@ class TestResolveQaRunContext:
         assert ctx.bucket == "czi-novogene"
         assert ctx.output_label == "NVUS2024101701-test"
         assert ctx.data_source == "manifest"
+
+    def test_allow_truncated_stats_name_default_false(self):
+        ctx = resolve_qa_run_context(
+            data_source="s3",
+            raw_assay="scale",
+            s3_path="s3://czi-novogene/p/o/",
+        )
+        assert ctx.allow_truncated_stats_name is False
+
+    def test_allow_truncated_stats_name_propagated_s3(self):
+        ctx = resolve_qa_run_context(
+            data_source="s3",
+            raw_assay="scale",
+            s3_path="s3://czi-novogene/p/o/",
+            allow_truncated_stats_name=True,
+        )
+        assert ctx.allow_truncated_stats_name is True
+
+    def test_allow_truncated_stats_name_propagated_manifest(self):
+        path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")
+        ctx = resolve_qa_run_context(
+            data_source="manifest",
+            raw_assay="sci_plex",
+            manifest_path=path,
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+            run_label="x",
+            allow_truncated_stats_name=True,
+        )
+        assert ctx.allow_truncated_stats_name is True
+
+
+class TestIsTrimmerStatsBasename:
+    """Tests for the canonical/relaxed trimmer-stats filename matcher."""
+
+    def test_canonical_underscore_matches(self):
+        assert is_trimmer_stats_basename("440115-R115H_GEX_QSR-8_trimmer-stats.csv")
+
+    def test_canonical_hyphen_matches(self):
+        assert is_trimmer_stats_basename("440115-R115H_GEX_QSR-8-trimmer-stats.csv")
+
+    def test_truncated_underscore_rejected_by_default(self):
+        assert not is_trimmer_stats_basename(
+            "442549-R114EFGH_hash_oligo_QSR-4-SCALEPLEX_stats.csv"
+        )
+
+    def test_truncated_underscore_accepted_with_flag(self):
+        assert is_trimmer_stats_basename(
+            "442549-R114EFGH_hash_oligo_QSR-4-SCALEPLEX_stats.csv",
+            allow_truncated=True,
+        )
+
+    def test_truncated_hyphen_accepted_with_flag(self):
+        assert is_trimmer_stats_basename(
+            "440115-R115H_GEX_QSR-8-stats.csv",
+            allow_truncated=True,
+        )
+
+    def test_merged_trimmer_stats_rejected_strict(self):
+        assert not is_trimmer_stats_basename("merged_trimmer-stats.csv")
+
+    def test_merged_trimmer_stats_rejected_relaxed(self):
+        assert not is_trimmer_stats_basename(
+            "merged_trimmer-stats.csv", allow_truncated=True
+        )
+
+    def test_merged_stats_rejected_relaxed(self):
+        # The relaxed alias must not match the wafer-level merged_stats.csv
+        # form (merged-trimmer files are handled by their own helpers).
+        assert not is_trimmer_stats_basename("merged_stats.csv", allow_truncated=True)
+
+    def test_unrelated_csv_rejected(self):
+        assert not is_trimmer_stats_basename(
+            "440115-R115H_GEX_QSR-8.csv", allow_truncated=True
+        )
+
+    def test_full_path_basename_extracted(self):
+        assert is_trimmer_stats_basename(
+            "proj/order/G1/raw/440115/440115-R115H_GEX_QSR-8_trimmer-stats.csv"
+        )
 
 
 class TestParseRawFilename:
