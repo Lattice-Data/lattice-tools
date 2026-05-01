@@ -81,6 +81,11 @@ class QADataGatherer:
 
     def gather(self) -> QAGatheredData:
         """Run the full gathering pipeline and return collected data."""
+        if self.ctx.allow_truncated_stats_name:
+            self._data.gathering_warnings.append(
+                "RELAXED NAMING: allow_truncated_stats_name=True; "
+                "*_stats.csv accepted as alias of *_trimmer-stats.csv"
+            )
         if self.ctx.data_source == "manifest":
             self._gather_from_manifest()
         elif self.ctx.data_source == "s3":
