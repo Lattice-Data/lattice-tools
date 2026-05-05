@@ -476,6 +476,24 @@ class TestValidateReadMetadata:
         assert pairing["r2_without_r1_metadata"] == []
         assert counts["LeS1867W11"]["ATAC"] == MIN_METADATA_READ_COUNT
 
+    def test_sci_plex_cram_reports_checked_read_counts(self, capsys):
+        cram = "442488-SCI_G1_GEX-Z0027-CAGACTTGCTGCGAT.cram"
+        read_metadata = {
+            cram: {"read_count": MIN_METADATA_READ_COUNT, "errors": []},
+        }
+        counts, errors, pairing = validate_read_metadata(
+            read_metadata, "sci_plex", print_success=True
+        )
+        out = capsys.readouterr().out
+        assert "validate_read_metadata(sci_plex):" in out
+        assert "r1_r2_pairs_compared=0" in out
+        assert "Checked metadata read counts (1):" in out
+        assert f"{cram}: read_count=1M (1,000,000)" in out
+        assert errors == []
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert counts["SCI_G1"]["GEX"] == MIN_METADATA_READ_COUNT
+
 
 class Test10xCramRawFiles:
     """Tests for expected/extra raw files under 10x_cram policy."""

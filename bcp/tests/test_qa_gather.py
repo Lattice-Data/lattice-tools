@@ -584,6 +584,61 @@ class TestGatherScaleRaw:
         assert not any("WRONG GROUP" in e for e in data.gathering_errors)
 
 
+class TestGatherSciPlexRaw:
+    _RAW_DIR = "testproj/ORD01/SCI_G1/raw/"
+    _BASE = "442488-SCI_G1_GEX-Z0027-CAGACTTGCTGCGAT"
+
+    @staticmethod
+    def _cram_metadata(filename: str, read_count: int = 1234) -> str:
+        return json.dumps(
+            {
+                "filename": filename,
+                "read_count": read_count,
+                "errors": [],
+            }
+        )
+
+    def test_sci_plex_cram_metadata_downloaded(self):
+        meta_key = f"{self._RAW_DIR}{self._BASE}.cram-metadata.json"
+        keys = [
+            f"{self._RAW_DIR}{self._BASE}.cram",
+            f"{self._RAW_DIR}{self._BASE}.csv",
+            meta_key,
+        ]
+        file_contents = {
+            meta_key: self._cram_metadata(f"{self._BASE}.cram", read_count=1234),
+        }
+        ctx = _make_ctx(raw_assay="sci_plex")
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        assert f"{self._BASE}.cram" in data.read_metadata
+        assert data.read_metadata[f"{self._BASE}.cram"]["read_count"] == 1234
+
+    def test_sci_plex_unmatched_cram_metadata_not_downloaded(self):
+        unmatched_base = f"{self._BASE}_unmatched"
+        matched_meta_key = f"{self._RAW_DIR}{self._BASE}.cram-metadata.json"
+        unmatched_meta_key = f"{self._RAW_DIR}{unmatched_base}.cram-metadata.json"
+        keys = [
+            f"{self._RAW_DIR}{self._BASE}.cram",
+            f"{self._RAW_DIR}{unmatched_base}.cram",
+            matched_meta_key,
+            unmatched_meta_key,
+        ]
+        file_contents = {
+            matched_meta_key: self._cram_metadata(
+                f"{self._BASE}.cram", read_count=2000
+            ),
+            unmatched_meta_key: self._cram_metadata(
+                f"{unmatched_base}.cram", read_count=100
+            ),
+        }
+        ctx = _make_ctx(raw_assay="sci_plex")
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        assert f"{self._BASE}.cram" in data.read_metadata
+        assert f"{unmatched_base}.cram" not in data.read_metadata
+
+
 class TestGather10xCramRaw:
     _RAW_DIR = "testproj/ORD01/LeS1867W11/raw/"
     _BASE = "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT"
