@@ -269,28 +269,23 @@ def evaluate_data(adata):
 
 
 def evaluate_uns_colors(adata):
-    numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16', 'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
-
     colors_keys = [k for k in adata.uns.keys() if k.endswith('_colors')]
     if colors_keys:
         for k in colors_keys:
-            colors = len(adata.uns[k])
             obs_field = k[:-(len('_colors'))]
 
             if obs_field in portal_obs_fields:
                 report(f'uns.{k} not allowed, move to uns.{obs_field}_ontology_term_id_colors', 'ERROR')
             elif obs_field not in adata.obs.keys():
                 report(f'{obs_field} not found in obs, consider DELETING or RENAMING uns.{k}', 'ERROR')
+            elif adata.obs.dtypes[obs_field].name != 'category':
+                report(f'uns.{k} is associated with non-categorical {obs_field}', 'ERROR')
             else:
-                valid = True
+                colors = len(adata.uns[k])
                 values = len(adata.obs[obs_field].cat.categories.values)
                 if colors < values:
                     report(f'uns.{k} has only {str(colors)} colors but obs.{obs_field} has {str(values)} values', 'ERROR')
-                    valid = False
-                if adata.obs.dtypes[obs_field].name in numb_types:
-                    report(f'uns.{k} is associated with non-categorical {obs_field}', 'ERROR')
-                    valid = False
-                if valid:
+                else:
                     report(f'uns.{k} defined appropriately', 'GOOD')
     else:
         report('no _colors keys defined')
