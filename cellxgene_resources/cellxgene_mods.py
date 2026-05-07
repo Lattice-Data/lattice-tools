@@ -283,7 +283,7 @@ def evaluate_uns_colors(adata):
                 report(f'{obs_field} not found in obs, consider DELETING or RENAMING uns.{k}', 'ERROR')
             else:
                 valid = True
-                values = len(adata.obs[obs_field].unique())
+                values = len(adata.obs[obs_field].cat.categories.values)
                 if colors < values:
                     report(f'uns.{k} has only {str(colors)} colors but obs.{obs_field} has {str(values)} values', 'ERROR')
                     valid = False
