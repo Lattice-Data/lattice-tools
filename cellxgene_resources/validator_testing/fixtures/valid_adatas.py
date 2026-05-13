@@ -54,6 +54,7 @@ import pandas as pd
 import pytest
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Generator
 from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from cellxgene_schema.utils import read_h5ad
@@ -117,7 +118,7 @@ def test_h5ads(request):
 
 # fixture exported to other tests, yields and therefor tests with each h5ad
 @pytest.fixture
-def validator_with_adatas(test_h5ads) -> Validator:
+def validator_with_adatas(test_h5ads) -> Generator[Validator, None, None]:
     gc.collect()
     validator = Validator()
     # read_h5ad from cellxgene-schema; lazily loads matrices/layers
@@ -127,7 +128,7 @@ def validator_with_adatas(test_h5ads) -> Validator:
 
 
 @pytest.fixture
-def label_writer(validator_with_adatas: Validator) -> AnnDataLabelAppender:
+def label_writer(validator_with_adatas: Validator) -> Generator[AnnDataLabelAppender, None, None]:
     gc.collect()
     validator = validator_with_adatas
     validator.validate_adata()
@@ -203,7 +204,7 @@ def yield_atac_h5ads(request):
 
 
 @pytest.fixture
-def yield_atac_fixture_data(yield_atac_h5ads) -> AtacTestData:
+def yield_atac_fixture_data(yield_atac_h5ads) -> Generator[AtacTestData, None, None]:
     gc.collect()
     atac_fixture_data = bundle_atac_test_data(yield_atac_h5ads)
     yield atac_fixture_data
