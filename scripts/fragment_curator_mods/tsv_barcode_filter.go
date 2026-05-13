@@ -37,6 +37,7 @@ const (
 
 // [][]string size for results channel
 const batchSize = 1_000_000
+const expectedColNum = 5
 
 type Stats struct {
 	// matching key names in fragment curator
@@ -188,6 +189,11 @@ func main() {
 				}
 				log.Println("Error reading record:", err)
 				break
+			}
+
+			// handle 10x CR arc v2.1 and greater with extra strand column
+			if len(record) > expectedColNum {
+				record = record[:expectedColNum]
 			}
 
 			if *location == "prefix" {

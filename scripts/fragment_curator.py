@@ -237,14 +237,36 @@ class TheWorkingClass(ABC):
         root.setLevel(logging.DEBUG)
         root.propagate = False
 
+    def get_fragment_header(self, file_path: os.PathLike | str) -> pd.DataFrame:
+        """
+        Read first n lines of tsv to determine/log column structure.
+        10x CellRanger arc v2.1 adds 6th column for "strand" to fragment file output
+
+        Will call in worker target function to make logging easier
+        """
+        df_header = pd.read_csv(
+            file_path,
+            comment="#",
+            sep="\t",
+            nrows=1,
+            header=None,
+        )
+        return df_header
+
     def read_fragment_file(self, file_path: os.PathLike | str) -> pd.DataFrame:
         """
         Read tsv into dataframe. Pandas can handle gzipped and non-gzipped files
+
+        10x CellRanger arc v2.1 adds 6th column for "strand" to fragment file output
+        Will read in only first 5 columns as defined in FRAGMENT_COL_NAMES
+        pandas.read_csv arg usecols takes in list of column indices
         """
+        column_indices = [num for num in range(len(FRAGMENT_COL_NAMES))]
         df = pd.read_csv(
             file_path,
             comment="#",
             sep="\t",
+            usecols=column_indices,
             names=FRAGMENT_COL_NAMES,
             dtype=FRAG_DTYPE,
         )
@@ -289,9 +311,14 @@ class FilterWorker(TheWorkingClass):
         self.create_logger(fragment_meta.queues.logging_queue)
         pid = os.getpid()
         accession_pid = f"{fragment_meta.accession} - {pid}:"
+        file_path = FRAGMENT_DIR / fragment_meta.download_file_name
 
         #read in the fragments
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
+        frags_header = self.get_fragment_header(file_path)
+        logging.debug(f"{accession_pid} first line of fragment file: {frags_header}")
+        logging.debug(f"{accession_pid} columns in fragment file: {len(frags_header.columns)}")
+
         if fragment_meta.cell_label_location == "suffix":
             a = f"{REPLACE_WITH}{fragment_meta.label}"
             barcode_subset = fragment_meta.barcodes[fragment_meta.barcodes.str.endswith(fragment_meta.label)]
@@ -304,7 +331,6 @@ class FilterWorker(TheWorkingClass):
         logging.debug(f"{accession_pid} cell_label_location: {fragment_meta.cell_label_location}")
         logging.debug(f"{accession_pid} fragment file size: {fragment_meta.fragment_file_size:_}")
 
-        file_path = FRAGMENT_DIR / fragment_meta.download_file_name
         frags_df = self.read_fragment_file(file_path)
         logging.debug(f"{accession_pid} starting df mem total {self.get_df_mem_total(frags_df):_}")
         num_chrom = len(frags_df["chrom"].cat.categories)
@@ -496,6 +522,10 @@ class GoLangWorker(TheWorkingClass):
 
         raw_file = FRAGMENT_DIR / fragment_meta.download_file_name
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
+
+        frags_header = self.get_fragment_header(raw_file)
+        logging.debug(f"{accession_pid} first line of fragment file: {frags_header}")
+        logging.debug(f"{accession_pid} columns in fragment file: {len(frags_header.columns)}")
 
         binary_base = "./fragment_curator_mods/tsv_barcode_filter_"
         mac_binary = binary_base + "macos_arm64"
