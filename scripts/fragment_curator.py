@@ -248,7 +248,7 @@ class TheWorkingClass(ABC):
             file_path,
             comment="#",
             sep="\t",
-            nrows=1,
+            nrows=3,
             header=None,
         )
         return df_header
@@ -316,7 +316,7 @@ class FilterWorker(TheWorkingClass):
         #read in the fragments
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
         frags_header = self.get_fragment_header(file_path)
-        logging.debug(f"{accession_pid} first line of fragment file: {frags_header}")
+        logging.debug(f"{accession_pid} first lines of fragment file:\n{frags_header.to_string()}")
         logging.debug(f"{accession_pid} columns in fragment file: {len(frags_header.columns)}")
 
         if fragment_meta.cell_label_location == "suffix":
@@ -524,7 +524,7 @@ class GoLangWorker(TheWorkingClass):
         logging.info(f"Starting filtering of {fragment_meta.download_file_name}...")
 
         frags_header = self.get_fragment_header(raw_file)
-        logging.debug(f"{accession_pid} first line of fragment file: {frags_header}")
+        logging.debug(f"{accession_pid} first lines of fragment file:\n{frags_header.to_string()}")
         logging.debug(f"{accession_pid} columns in fragment file: {len(frags_header.columns)}")
 
         binary_base = "./fragment_curator_mods/tsv_barcode_filter_"
