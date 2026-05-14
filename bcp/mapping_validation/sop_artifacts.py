@@ -185,11 +185,18 @@ SCALE_REQUIRED_PER_WELL_ARTIFACTS: Final[set[str]] = {"cram", "csv", "json"}
 SCALE_PER_UG_SUFFIX_TO_ARTIFACT: Final[dict[str, str]] = {
     "_trimmer-failure_codes.csv": "trimmer_failure_codes",
     "_trimmer-failure-codes.csv": "trimmer_failure_codes",
+    "-trimmer-failure_codes.csv": "trimmer_failure_codes",
+    "-trimmer-failure-codes.csv": "trimmer_failure_codes",
     "_trimmer-stats.csv": "trimmer_stats",
+    "-trimmer-stats.csv": "trimmer_stats",
     "_unmatched.cram": "unmatched_cram",
+    "-unmatched.cram": "unmatched_cram",
     "_unmatched.cram-metadata.json": "unmatched_cram_metadata",
+    "-unmatched.cram-metadata.json": "unmatched_cram_metadata",
     "_unmatched.csv": "unmatched_csv",
+    "-unmatched.csv": "unmatched_csv",
     "_unmatched.json": "unmatched_json",
+    "-unmatched.json": "unmatched_json",
 }
 
 SCALE_REQUIRED_PER_UG_ARTIFACTS: Final[set[str]] = {

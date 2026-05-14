@@ -721,6 +721,64 @@ def test_cli_scale_raw_truncated_codes_csv_fails(
     assert "VERDICT: FAIL" in captured.out
 
 
+def test_cli_scale_raw_hyphen_prefixed_per_ug_passes(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Scale mapping with hyphen-prefixed per-UG suffixes should pass."""
+    s3_pfx = (
+        "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-66/"
+        "GENE12-R117/raw/443602/443602-R117E_GEX_QSR-5"
+    )
+    local_pfx = (
+        "/ORPROJ1/DATA1/V129/443602-20260509_0826/443602-QSR5_QSR-5/443602-QSR5_QSR-5"
+    )
+    lines = []
+    for ext in (".cram", ".csv", ".json"):
+        lines.append(f"{s3_pfx}-6B{ext},{local_pfx}_6B{ext}")
+    for sfx, local_sfx in (
+        ("-trimmer-failure-codes.csv", "_trimmer-failure_codes.csv"),
+        ("-trimmer-stats.csv", "_trimmer-stats.csv"),
+        ("-unmatched.cram", "_unmatched.cram"),
+        ("-unmatched.csv", "_unmatched.csv"),
+        ("-unmatched.json", "_unmatched.json"),
+    ):
+        lines.append(f"{s3_pfx}{sfx},{local_pfx}{local_sfx}")
+    mapping_text = "\n".join(lines) + "\n"
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+
+    sif_text = (
+        "Library name,Sublibrary name,Ultima Index Sequence,Project Identifier,"
+        "Experiement Identifier,Group Identifier,Assay Type\n"
+        "GENE12-R117,GENE12-R117_GEX,CTATGCACA,trapnell-seahub-bcp,"
+        "GENE12-R117,R117E,GEX\n"
+    )
+    sif_path = tmp_path / "scale_sif_hyphen.csv"
+    sif_path.write_text(sif_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "scale",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "scale raw completeness" in captured.out
+    assert "VERDICT: PASS" in captured.out
+
+
 def test_cli_scale_raw_missing_per_well_artifact_fails(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
