@@ -2366,6 +2366,78 @@ def test_validate_scale_raw_completeness_missing_aggregate_unmatched() -> None:
     assert missing[0]["missing"] == ["unmatched_cram"]
 
 
+# -- Hyphen-prefixed per-UG suffixes (production data convention) ----------
+
+_SCALE_HYPHEN_S3_PREFIX = (
+    "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-66/GENE12-R117/raw/443602/"
+    "443602-R117E_GEX_QSR-5"
+)
+_SCALE_HYPHEN_LOCAL_PREFIX = (
+    "/ORPROJ1/DATA1/V129/443602-20260509_0826/443602-QSR5_QSR-5/443602-QSR5_QSR-5"
+)
+
+
+def _scale_hyphen_complete_rows() -> list[MappingRow]:
+    """Build Scale rows using hyphen-prefixed per-UG suffixes (real-world convention).
+
+    Some Novogene deliveries use a hyphen (``-``) rather than underscore
+    (``_``) between the QSR token and the aggregate suffix, e.g.
+    ``QSR-5-trimmer-stats.csv`` instead of ``QSR-5_trimmer-stats.csv``.
+    """
+    rows: list[MappingRow] = []
+    line = 1
+    for ext in (".cram", ".csv", ".json"):
+        rows.append(
+            MappingRow(
+                f"{_SCALE_HYPHEN_S3_PREFIX}-6B{ext}",
+                f"{_SCALE_HYPHEN_LOCAL_PREFIX}_6B{ext}",
+                line,
+            )
+        )
+        line += 1
+    for sfx in (
+        "-trimmer-failure-codes.csv",
+        "-trimmer-stats.csv",
+        "-unmatched.cram",
+        "-unmatched.csv",
+        "-unmatched.json",
+    ):
+        rows.append(
+            MappingRow(
+                f"{_SCALE_HYPHEN_S3_PREFIX}{sfx}",
+                f"{_SCALE_HYPHEN_LOCAL_PREFIX}_{sfx[1:]}",
+                line,
+            )
+        )
+        line += 1
+    return rows
+
+
+def test_validate_scale_raw_completeness_hyphen_prefixed_per_ug_passes() -> None:
+    """Hyphen-prefixed per-UG suffixes (``-trimmer-stats.csv``) must be accepted."""
+    rows = _scale_hyphen_complete_rows()
+    res = validate_scale_raw_completeness(rows)
+    assert res["errors"] == [], (
+        f"expected no errors for hyphen-prefixed per-UG suffixes, got: {res['errors']}"
+    )
+    assert res["matched"] == 8
+    assert res["well_prefixes_checked"] == 1
+    assert res["ug_aggregates_checked"] == 1
+
+
+def test_validate_scale_raw_completeness_hyphen_missing_trimmer_stats() -> None:
+    """Omitting ``-trimmer-stats.csv`` should flag missing per-UG artifact."""
+    rows = [
+        r
+        for r in _scale_hyphen_complete_rows()
+        if not r.s3_path.endswith("-trimmer-stats.csv")
+    ]
+    res = validate_scale_raw_completeness(rows)
+    missing = [e for e in res["errors"] if e["type"] == "missing_sample_artifacts"]
+    assert len(missing) == 1
+    assert "trimmer_stats" in missing[0]["missing"]
+
+
 # ---------------------------------------------------------------------------
 # sci raw SOP completeness
 # ---------------------------------------------------------------------------
