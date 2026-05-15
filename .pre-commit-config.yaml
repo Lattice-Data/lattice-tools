@@ -1,4 +1,4 @@
-# Pre-commit: runs before each commit. Same checks as CI (lint + optional pytest).
+# Pre-commit: runs before each commit. Same checks as CI (lint + pytest).
 # Install: pip install pre-commit && pre-commit install
 # Run manually: pre-commit run --all-files
 #
@@ -24,12 +24,12 @@ repos:
         language: system
         pass_filenames: false
 
-  # 3) Optional: pytest bcp/tests (same as CI). Uncomment to run on every commit.
-  #    Requires: conda activate <env> and bcp deps installed (pip install -r bcp/requirements.txt).
-  # - repo: local
-  #   hooks:
-  #     - id: pytest-bcp
-  #       name: pytest bcp/tests
-  #       entry: bash -c "cd bcp && pytest tests/"
-  #       language: system
-  #       pass_filenames: false
+  # 3) Full pytest suite under bcp/tests (same as CI). Requires bcp deps on PATH
+  #    (e.g. conda env with pip install -r bcp/requirements.txt).
+  - repo: local
+    hooks:
+      - id: pytest-bcp
+        name: pytest bcp/tests
+        entry: bash -c "cd bcp && pytest tests/"
+        language: system
+        pass_filenames: false

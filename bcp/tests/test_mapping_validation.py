@@ -2369,11 +2369,11 @@ def test_validate_scale_raw_completeness_missing_aggregate_unmatched() -> None:
 # -- Hyphen-prefixed per-UG suffixes (production data convention) ----------
 
 _SCALE_HYPHEN_S3_PREFIX = (
-    "s3://czi-novogene/trapnell-seahub-bcp/NVUS2024101701-66/GENE12-R117/raw/443602/"
+    "s3://czi-novogene/lab-seahub-alpha/NVUS0000000000-66/GENE12-R117/raw/443602/"
     "443602-R117E_GEX_QSR-5"
 )
 _SCALE_HYPHEN_LOCAL_PREFIX = (
-    "/ORPROJ1/DATA1/V129/443602-20260509_0826/443602-QSR5_QSR-5/443602-QSR5_QSR-5"
+    "/local_root/DATA1/V129/443602-20260509_0826/443602-QSR5_QSR-5/443602-QSR5_QSR-5"
 )
 
 
