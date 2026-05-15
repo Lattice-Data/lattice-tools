@@ -939,7 +939,8 @@ def print_results(results: list[FragmentWorkerResult]) -> None:
             if meta.checked_duplicates:
                 logger.info(f"Duplicates results for {meta.accession}: {meta.has_duplicates}")
                 if meta.duplicates is not None:
-                    logger.info(f"\n{meta.duplicates.to_string()}")
+                    logger.info(f"\n{meta.duplicates.head().to_string()}")
+                    logger.debug(f"\n{meta.duplicates.to_string()}")
         else:
             logger.error("FAILURE")
             traceback.print_exception(None, meta, meta.__traceback__)
