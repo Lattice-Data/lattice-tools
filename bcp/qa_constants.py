@@ -297,6 +297,14 @@ SCALE_AGGREGATE_FILE_RE = re.compile(
     r"|unmatched\.(cram|csv|json))$"
 )
 
+# Relaxed variant: additionally accepts the truncated alias ``..._stats.csv``
+# / ``...-stats.csv`` (collaborator-generated files missing the ``trimmer-``
+# token). Used only when QARunContext.allow_truncated_stats_name=True.
+SCALE_AGGREGATE_FILE_RELAXED_RE = re.compile(
+    r"[_-](trimmer-failure-codes\.csv|trimmer-failure_codes\.csv|trimmer-stats\.csv"
+    r"|stats\.csv|unmatched\.(cram|csv|json))$"
+)
+
 # Wafer-level housekeeping files (no sublibrary / assay prefix).
 SCALE_WAFER_MISC_RE = re.compile(
     r"^(\d{6,8}_(SequencingInfo\.json|LibraryInfo\.xml)"

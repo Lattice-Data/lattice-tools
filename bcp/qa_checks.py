@@ -11,6 +11,7 @@ from typing import Any
 
 from qa_constants import (
     SCALE_AGGREGATE_FILE_RE,
+    SCALE_AGGREGATE_FILE_RELAXED_RE,
     SCALE_RT_FILE_RE,
     SCALE_SAMPLES_FORBIDDEN_COLUMNS,
     SCALE_WAFER_MISC_RE,
@@ -19,6 +20,7 @@ from qa_constants import (
 from qa_mods import (
     cellranger_expected,
     extract_read_indicator,
+    is_trimmer_stats_basename,
     make_read_partner,
     parse_raw_filename,
     raw_expected,
@@ -460,11 +462,19 @@ def _print_checked_read_counts(
 
 
 def check_expected_raw_files(
-    all_raw_files: list[str], raw_assay: str
+    all_raw_files: list[str],
+    raw_assay: str,
+    *,
+    allow_truncated_stats_name: bool = False,
 ) -> tuple[int, list[dict[str, Any]], list[str]]:
     """
     Check that expected raw file endings are present for each "beginning".
     Returns (all_good_count, raw_lost list of dicts, raw_found list of paths).
+
+    When ``allow_truncated_stats_name`` is True, a missing
+    ``<beginning>_trimmer-stats.csv`` is treated as fulfilled if the sibling
+    ``<beginning>_stats.csv`` is present in ``all_raw_files``; that sibling
+    is then added to ``raw_found`` so it is not double-flagged as extra.
     """
     beginnings: dict[str, dict[str, Any]] = {}
     for fullpath in all_raw_files:
@@ -494,6 +504,11 @@ def check_expected_raw_files(
                     f.replace("-metadata.json", "") not in raw_found_set
                 ):
                     continue
+                if allow_truncated_stats_name and e == "_trimmer-stats.csv":
+                    alias = f.replace("_trimmer-stats.csv", "_stats.csv")
+                    if alias in raw_found_set:
+                        raw_found.append(alias)
+                        continue
                 temp_missing[e] = f
             else:
                 raw_found.append(f)
@@ -505,7 +520,9 @@ def check_expected_raw_files(
     return all_good, raw_lost, raw_found
 
 
-def _is_known_scale_raw_file(filepath: str) -> bool:
+def _is_known_scale_raw_file(
+    filepath: str, *, allow_truncated_stats_name: bool = False
+) -> bool:
     """Return True if *filepath* matches a recognised Scale raw file pattern.
 
     Scale filenames don't follow the ``{beginning}{suffix}`` layout used by
@@ -520,11 +537,25 @@ def _is_known_scale_raw_file(filepath: str) -> bool:
 
     ``.cram-metadata.json`` sidecars are handled separately by the existing
     metadata-sidecar logic in :func:`check_extra_raw_files`.
+
+    When ``allow_truncated_stats_name`` is True, the relaxed aggregate regex
+    additionally accepts ``..._stats.csv`` / ``...-stats.csv`` as aliases of
+    ``..._trimmer-stats.csv``.
     """
     filename = filepath.split("/")[-1]
     if SCALE_RT_FILE_RE.search(filename):
         return True
-    if SCALE_AGGREGATE_FILE_RE.search(filename):
+    aggregate_re = (
+        SCALE_AGGREGATE_FILE_RELAXED_RE
+        if allow_truncated_stats_name
+        else SCALE_AGGREGATE_FILE_RE
+    )
+    # Aggregate matcher must not absorb wafer-level ``merged_*`` filenames; the
+    # wafer regex is the canonical authority for those (and intentionally
+    # rejects truncated aliases like ``merged_stats.csv``).
+    if not filename.startswith(("merged_", "merged-")) and aggregate_re.search(
+        filename
+    ):
         return True
     if SCALE_WAFER_MISC_RE.match(filename):
         return True
@@ -535,16 +566,34 @@ def check_extra_raw_files(
     all_raw_files: list[str],
     raw_found: list[str],
     raw_assay: str,
+    *,
+    allow_truncated_stats_name: bool = False,
 ) -> list[str]:
     """
     Identify raw files that are not in the expected set (optionals allowed).
     Returns list of extra file paths.
+
+    When ``allow_truncated_stats_name`` is True, files ending in
+    ``_stats.csv`` / ``-stats.csv`` are accepted: for Scale via the relaxed
+    aggregate regex, and for non-Scale assays only when a sibling
+    ``<beginning>_trimmer-stats.csv`` is part of the expected set (i.e. the
+    same beginning appears elsewhere in ``all_raw_files``).
     """
     raw_found_set = set(raw_found)
     all_raw_set = set(all_raw_files)
     optional_endings = raw_optional.get(raw_assay, [])
     if raw_assay == "10x_viral_ORF":
         optional_endings = raw_optional.get("10x", [])
+
+    # Beginnings registered via parseable raw files (used for non-Scale alias).
+    registered_beginnings: set[str] = set()
+    if allow_truncated_stats_name and raw_assay != "scale":
+        for path in all_raw_files:
+            parsed = parse_raw_filename(path, raw_assay)
+            if parsed is None:
+                continue
+            run, group, assay, ug, barcode = parsed
+            registered_beginnings.add(f"{run}-{group}_{assay}-{ug}-{barcode}")
 
     extra: list[str] = []
     for f in all_raw_files:
@@ -554,7 +603,9 @@ def check_extra_raw_files(
             f.replace("-metadata.json", "") in all_raw_set
         ):
             continue
-        if raw_assay == "scale" and _is_known_scale_raw_file(f):
+        if raw_assay == "scale" and _is_known_scale_raw_file(
+            f, allow_truncated_stats_name=allow_truncated_stats_name
+        ):
             continue
         if (raw_assay in raw_optional or raw_assay == "10x_viral_ORF") and (
             optional_endings
@@ -572,6 +623,17 @@ def check_extra_raw_files(
                 )
                 if suffix in endings:
                     continue
+        if (
+            allow_truncated_stats_name
+            and raw_assay != "scale"
+            and is_trimmer_stats_basename(f, allow_truncated=True)
+            and not is_trimmer_stats_basename(f, allow_truncated=False)
+        ):
+            basename = f.split("/")[-1]
+            sep = "_" if basename.endswith("_stats.csv") else "-"
+            beginning = basename[: -len(f"{sep}stats.csv")]
+            if beginning and beginning in registered_beginnings:
+                continue
         extra.append(f)
     return extra
 

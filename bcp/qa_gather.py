@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from qa_mods import (
@@ -27,6 +29,9 @@ from qa_mods import (
     parse_scale_workflow_info,
     valid_assays,
 )
+
+METADATA_DOWNLOAD_MAX_WORKERS = 16
+METADATA_DOWNLOAD_PROGRESS_INTERVAL = 250
 
 
 def _normalize_group_id_for_compare(group_id: str) -> str:
@@ -78,9 +83,15 @@ class QADataGatherer:
         self.bucket = ctx.bucket
         self.raw_assay = ctx.raw_assay
         self._data = QAGatheredData()
+        self._metadata_lock = Lock()
 
     def gather(self) -> QAGatheredData:
         """Run the full gathering pipeline and return collected data."""
+        if self.ctx.allow_truncated_stats_name:
+            self._data.gathering_warnings.append(
+                "RELAXED NAMING: allow_truncated_stats_name=True; "
+                "*_stats.csv accepted as alias of *_trimmer-stats.csv"
+            )
         if self.ctx.data_source == "manifest":
             self._gather_from_manifest()
         elif self.ctx.data_source == "s3":
@@ -169,11 +180,10 @@ class QADataGatherer:
         if r_raw["CommonPrefixes"]:
             non_10x_runs = [e["Prefix"] for e in r_raw["CommonPrefixes"]]
             for run in non_10x_runs:
-                r_run = self.s3.list_objects(
+                for page in self.paginator.paginate(
                     Bucket=self.bucket, Prefix=run, Delimiter="/"
-                )
-                if "Contents" in r_run:
-                    raw_files.extend([c["Key"] for c in r_run["Contents"]])
+                ):
+                    raw_files.extend([c["Key"] for c in page.get("Contents", [])])
             is_10x = False
 
         # Flat files take precedence (preserves original notebook behaviour)
@@ -187,8 +197,13 @@ class QADataGatherer:
         self._data.has_raw = True
         self._data.all_raw_files.extend(raw_files)
 
+        metadata_files: list[str] = []
         for rf in raw_files:
+            if self._should_download_metadata_json(rf):
+                metadata_files.append(rf)
+                continue
             self._process_raw_file(rf, group_name, is_10x)
+        self._download_metadata_json_batch(metadata_files)
 
     def _process_raw_file(self, rf: str, group_name: str, is_10x: bool) -> None:
         parsed = parse_raw_filename(rf, self.raw_assay)
@@ -210,16 +225,7 @@ class QADataGatherer:
                     fl[group] = {}
                 fl[group].setdefault(assay, []).append(rf.split("/")[-1])
 
-        if rf.endswith("fastq.gz-metadata.json") and not rf.endswith(
-            "_sample.fastq.gz-metadata.json"
-        ):
-            self._download_metadata_json(rf)
-        elif (
-            rf.endswith(".cram-metadata.json")
-            and self.raw_assay in ("scale", "10x_cram")
-            and "-unmatched.cram-metadata.json" not in rf
-            and "_unmatched.cram-metadata.json" not in rf
-        ):
+        if self._should_download_metadata_json(rf):
             self._download_metadata_json(rf)
         elif rf.endswith(
             ("trimmer-failure_codes.csv", "trimmer-failure-codes.csv")
@@ -229,6 +235,48 @@ class QADataGatherer:
             ingest_merged_trimmer_from_s3(
                 self.bucket, rf, self._data.merged_wafer_stats, self.s3
             )
+
+    def _should_download_metadata_json(self, rf: str) -> bool:
+        """Return True for raw metadata sidecars that QA parses."""
+        if rf.endswith("fastq.gz-metadata.json") and not rf.endswith(
+            "_sample.fastq.gz-metadata.json"
+        ):
+            return True
+        if (
+            rf.endswith(".cram-metadata.json")
+            and self.raw_assay in ("scale", "10x_cram", "sci_plex")
+            and "-unmatched.cram-metadata.json" not in rf
+            and "_unmatched.cram-metadata.json" not in rf
+        ):
+            return True
+        return False
+
+    def _download_metadata_json_batch(self, metadata_files: list[str]) -> None:
+        """Download raw metadata sidecars, using concurrency for large Scale runs."""
+        if not metadata_files:
+            return
+
+        total = len(metadata_files)
+        if total == 1:
+            self._download_metadata_json(metadata_files[0])
+            return
+
+        if total >= METADATA_DOWNLOAD_PROGRESS_INTERVAL:
+            print(f"Downloading {total} raw metadata JSON file(s)...")
+
+        workers = min(METADATA_DOWNLOAD_MAX_WORKERS, total)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_path = {
+                executor.submit(self._download_metadata_json, rf): rf
+                for rf in metadata_files
+            }
+            for completed, future in enumerate(as_completed(future_to_path), start=1):
+                future.result()
+                if total >= METADATA_DOWNLOAD_PROGRESS_INTERVAL and (
+                    completed % METADATA_DOWNLOAD_PROGRESS_INTERVAL == 0
+                    or completed == total
+                ):
+                    print(f"  downloaded {completed}/{total} metadata JSON file(s)")
 
     def _should_count_for_fastq_log(self, rf: str, assay: str) -> bool:
         if rf.endswith(".fastq.gz") and not rf.endswith("_sample.fastq.gz"):
@@ -406,7 +454,8 @@ class QADataGatherer:
             metadata["__actual_filename"] = actual_filename
             metadata["__reported_filename"] = reported_filename
             metadata["__source_key"] = rf
-            self._data.read_metadata[actual_filename] = metadata
+            with self._metadata_lock:
+                self._data.read_metadata[actual_filename] = metadata
         finally:
             Path(local).unlink(missing_ok=True)
 

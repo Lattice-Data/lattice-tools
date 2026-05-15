@@ -476,6 +476,24 @@ class TestValidateReadMetadata:
         assert pairing["r2_without_r1_metadata"] == []
         assert counts["LeS1867W11"]["ATAC"] == MIN_METADATA_READ_COUNT
 
+    def test_sci_plex_cram_reports_checked_read_counts(self, capsys):
+        cram = "442488-SCI_G1_GEX-Z0027-CAGACTTGCTGCGAT.cram"
+        read_metadata = {
+            cram: {"read_count": MIN_METADATA_READ_COUNT, "errors": []},
+        }
+        counts, errors, pairing = validate_read_metadata(
+            read_metadata, "sci_plex", print_success=True
+        )
+        out = capsys.readouterr().out
+        assert "validate_read_metadata(sci_plex):" in out
+        assert "r1_r2_pairs_compared=0" in out
+        assert "Checked metadata read counts (1):" in out
+        assert f"{cram}: read_count=1M (1,000,000)" in out
+        assert errors == []
+        assert pairing["r1_without_r2_metadata"] == []
+        assert pairing["r2_without_r1_metadata"] == []
+        assert counts["SCI_G1"]["GEX"] == MIN_METADATA_READ_COUNT
+
 
 class Test10xCramRawFiles:
     """Tests for expected/extra raw files under 10x_cram policy."""
@@ -727,6 +745,117 @@ class TestCheckExtraRawFiles:
         ]
         extra = check_extra_raw_files(files, [], "scale")
         assert extra == [unknown]
+
+
+class TestAllowTruncatedStatsName:
+    """Tests for the allow_truncated_stats_name alias flag.
+
+    Covers the collaborator workaround where a per-sublibrary trimmer stats
+    file was uploaded as ``..._stats.csv`` instead of ``..._trimmer-stats.csv``.
+    """
+
+    _SCALE_BASE = "proj/NVUS123/CHEM5-R114/raw/442549"
+    _NON_SCALE_BASE = "proj/order/G1/raw/439047-G1_GEX-Z0273-BC01"
+
+    # --- Scale (regex-driven) ---
+
+    def test_scale_truncated_stats_extra_when_flag_off(self):
+        """Default Scale behaviour: ``..._stats.csv`` is flagged as extra."""
+        renamed = (
+            f"{self._SCALE_BASE}/442549-R114EFGH_hash_oligo_QSR-4-SCALEPLEX_stats.csv"
+        )
+        assert check_extra_raw_files([renamed], [], "scale") == [renamed]
+
+    def test_scale_truncated_stats_accepted_when_flag_on(self):
+        """With the flag on, the renamed file is recognised as known."""
+        renamed = (
+            f"{self._SCALE_BASE}/442549-R114EFGH_hash_oligo_QSR-4-SCALEPLEX_stats.csv"
+        )
+        extra = check_extra_raw_files(
+            [renamed], [], "scale", allow_truncated_stats_name=True
+        )
+        assert extra == []
+
+    def test_scale_canonical_still_accepted_when_flag_on(self):
+        """Strict canonical names continue to be recognised under the flag."""
+        canonical = f"{self._SCALE_BASE}/442549-R114H_GEX_QSR-4_trimmer-stats.csv"
+        extra = check_extra_raw_files(
+            [canonical], [], "scale", allow_truncated_stats_name=True
+        )
+        assert extra == []
+
+    def test_scale_merged_stats_alias_not_accepted(self):
+        """Wafer-level ``merged_stats.csv`` must not be silently accepted."""
+        bogus_merged = f"{self._SCALE_BASE}/merged_stats.csv"
+        extra = check_extra_raw_files(
+            [bogus_merged], [], "scale", allow_truncated_stats_name=True
+        )
+        assert extra == [bogus_merged]
+
+    # --- Non-Scale (beginning-paired alias) ---
+
+    def test_non_scale_truncated_stats_extra_by_default(self):
+        """Without the flag, non-Scale ``..._stats.csv`` is reported as extra."""
+        renamed = f"{self._NON_SCALE_BASE}_stats.csv"
+        sibling = f"{self._NON_SCALE_BASE}.csv"  # registers the beginning
+        extra = check_extra_raw_files([sibling, renamed], [sibling], "10x")
+        assert renamed in extra
+
+    def test_non_scale_truncated_stats_accepted_with_flag(self):
+        """With the flag and a registered beginning, the alias is accepted."""
+        renamed = f"{self._NON_SCALE_BASE}_stats.csv"
+        sibling = f"{self._NON_SCALE_BASE}.csv"
+        extra = check_extra_raw_files(
+            [sibling, renamed],
+            [sibling],
+            "10x",
+            allow_truncated_stats_name=True,
+        )
+        assert renamed not in extra
+
+    def test_non_scale_orphan_truncated_stats_still_extra(self):
+        """An unrelated ``_stats.csv`` (no matching beginning) stays extra."""
+        orphan = "proj/order/G1/raw/orphan_stats.csv"
+        extra = check_extra_raw_files(
+            [orphan], [], "10x", allow_truncated_stats_name=True
+        )
+        assert extra == [orphan]
+
+    # --- check_expected_raw_files ---
+
+    def test_expected_files_alias_satisfies_when_flag_on(self):
+        """Missing ``_trimmer-stats.csv`` is satisfied by sibling ``_stats.csv``."""
+        from qa_mods import raw_expected
+
+        endings = list(raw_expected["10x"])
+        assert "_trimmer-stats.csv" in endings
+        all_raw = []
+        for e in endings:
+            if e == "_trimmer-stats.csv":
+                continue  # canonical missing
+            all_raw.append(f"{self._NON_SCALE_BASE}{e}")
+        all_raw.append(f"{self._NON_SCALE_BASE}_stats.csv")  # alias present
+        all_good, raw_lost, raw_found = check_expected_raw_files(
+            all_raw, "10x", allow_truncated_stats_name=True
+        )
+        assert all_good == 1
+        assert raw_lost == []
+        assert f"{self._NON_SCALE_BASE}_stats.csv" in raw_found
+
+    def test_expected_files_alias_off_reports_missing(self):
+        """Without the flag, the canonical name is still required."""
+        from qa_mods import raw_expected
+
+        endings = list(raw_expected["10x"])
+        all_raw = []
+        for e in endings:
+            if e == "_trimmer-stats.csv":
+                continue
+            all_raw.append(f"{self._NON_SCALE_BASE}{e}")
+        all_raw.append(f"{self._NON_SCALE_BASE}_stats.csv")
+        all_good, raw_lost, _raw_found = check_expected_raw_files(all_raw, "10x")
+        assert all_good == 0
+        assert any("_trimmer-stats.csv" in row for row in raw_lost[0].keys())
 
 
 class TestValidateProcessedGroup:
