@@ -5,7 +5,7 @@ import logging
 import sys
 from pathlib import Path
 
-from .io import CasMappingError, map_cas_file
+from .io import CasMappingError, emit_single_cas, map_cas_file
 
 log = logging.getLogger(__name__)
 
@@ -18,23 +18,36 @@ def main() -> None:
             "via the PubChem PUG REST API."
         )
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
         "--input",
         "-i",
-        required=True,
         help="Input CSV file with a CAS column.",
+    )
+    mode.add_argument(
+        "--cas",
+        help="Single CAS Registry Number to look up (no CSV required).",
     )
     parser.add_argument(
         "--cas-column",
         "-c",
         default="CAS",
-        help="Name of the CAS column (default: 'CAS').",
+        help="Name of the CAS column for batch mode (default: 'CAS').",
     )
     parser.add_argument(
         "--output",
         "-o",
         default=None,
-        help="Output CSV (default: <input>_chebi_mapped.csv).",
+        help=(
+            "Output path. Batch default: <input>_chebi_mapped.csv. "
+            "Single default: stdout."
+        ),
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "csv"],
+        default="json",
+        help="Output format for single-CAS mode (default: json).",
     )
     parser.add_argument(
         "-v",
@@ -50,6 +63,16 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+
+    if args.cas:
+        if args.cas_column != "CAS":
+            log.warning(
+                "--cas-column is ignored in single-CAS mode (got %r).",
+                args.cas_column,
+            )
+        output_path = Path(args.output) if args.output else None
+        emit_single_cas(args.cas, output_path, fmt=args.format)
+        return
 
     input_path = Path(args.input)
     if args.output is None:
