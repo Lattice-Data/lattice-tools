@@ -1,37 +1,67 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+from pathlib import Path
+
+from .io import CasMappingError, map_cas_file
+
+log = logging.getLogger(__name__)
 
 
 def main() -> None:
-    """CLI for looking up ChEBI records from a file of identifiers."""
+    """CLI for mapping CAS numbers to ChEBI + PubChem properties via PubChem PUG REST."""
     parser = argparse.ArgumentParser(
-        description="Look up ChEBI records for identifiers listed in an input file."
+        description=(
+            "Map CAS Registry Numbers to ChEBI identifiers and PubChem properties "
+            "via the PubChem PUG REST API."
+        )
     )
     parser.add_argument(
         "--input",
         "-i",
         required=True,
-        help="Path to input file containing identifiers (one per line or CSV/TSV)",
+        help="Input CSV file with a CAS column.",
+    )
+    parser.add_argument(
+        "--cas-column",
+        "-c",
+        default="CAS",
+        help="Name of the CAS column (default: 'CAS').",
     )
     parser.add_argument(
         "--output",
         "-o",
-        help="Path to write results (default: stdout)",
+        default=None,
+        help="Output CSV (default: <input>_chebi_mapped.csv).",
     )
     parser.add_argument(
-        "--id-column",
-        help="Column name when input is CSV/TSV (default: first column)",
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable debug logging.",
     )
     args = parser.parse_args()
 
-    # Implementation to be added.
-    print(
-        f"chebi_lookup: not implemented yet (input={args.input!r})",
-        file=sys.stderr,
+    level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
     )
-    sys.exit(2)
+
+    input_path = Path(args.input)
+    if args.output is None:
+        output_path = input_path.parent / f"{input_path.stem}_chebi_mapped.csv"
+    else:
+        output_path = Path(args.output)
+
+    try:
+        map_cas_file(input_path, args.cas_column, output_path)
+    except CasMappingError as exc:
+        log.error("%s", exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
