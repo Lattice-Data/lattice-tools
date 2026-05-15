@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -24,13 +25,34 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "ChEBI" in out
 
 
-def test_cli_missing_input() -> None:
+def test_cli_requires_input_or_cas() -> None:
     import chebi_lookup.cli
 
     with pytest.raises(SystemExit) as exc_info:
         sys.argv = ["chebi_lookup"]
         chebi_lookup.cli.main()
     assert exc_info.value.code == 2
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_cli_single_cas_json(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import chebi_lookup.cli
+
+    mock_get.side_effect = route_pubchem_get
+
+    sys.argv = ["chebi_lookup", "--cas", "64-17-5"]
+    chebi_lookup.cli.main()
+
+    out = capsys.readouterr().out
+    data = json.loads(out)
+    assert data["CAS"] == "64-17-5"
+    assert data["pubchem_cid"] == 702
+    assert data["chebi_id"] == "CHEBI:16236"
 
 
 @patch("chebi_lookup.client.time.sleep")

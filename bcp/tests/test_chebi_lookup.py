@@ -12,10 +12,15 @@ from chebi_lookup.client import (
     cas_to_cid,
     lookup_cas,
 )
-from chebi_lookup.io import CasMappingError, map_cas_file
+from chebi_lookup.io import (
+    CasMappingError,
+    build_single_cas_row,
+    emit_single_cas,
+    map_cas_file,
+)
 from tests.chebi_lookup_helpers import (
     FIXTURES,
-    load_json,
+    load_json_name,
     mock_response,
     route_pubchem_get,
 )
@@ -42,8 +47,8 @@ def test_lookup_cas_fills_chebi(mock_get: MagicMock, _sleep: MagicMock) -> None:
     result = lookup_cas("64-17-5")
     assert result["pubchem_cid"] == 702
     assert result["chebi_id"] == "CHEBI:16236"
-    assert result["preferred_name"] == "ethanol"
-    assert "ethanol" in result["synonyms"]
+    assert result["preferred_name"] == "Ethanol"
+    assert "ethanol" in result["synonyms"].lower()
 
 
 @patch("chebi_lookup.client.time.sleep")
@@ -51,7 +56,7 @@ def test_lookup_cas_fills_chebi(mock_get: MagicMock, _sleep: MagicMock) -> None:
 def test_lookup_cas_no_chebi_xref(mock_get: MagicMock, _sleep: MagicMock) -> None:
     def route_no_chebi(url: str, *args, **kwargs):
         if "/xrefs/RegistryID/JSON" in url:
-            return mock_response(200, load_json("registry_ids_no_chebi.json"))
+            return mock_response(200, load_json_name("registry_ids_no_chebi.json"))
         return route_pubchem_get(url, *args, **kwargs)
 
     mock_get.side_effect = route_no_chebi
@@ -63,6 +68,30 @@ def test_lookup_cas_no_chebi_xref(mock_get: MagicMock, _sleep: MagicMock) -> Non
 def test_lookup_cas_empty() -> None:
     result = lookup_cas("  ")
     assert result == {field: "" for field in OUTPUT_FIELDS_APPENDED}
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_build_single_cas_row(mock_get: MagicMock, _sleep: MagicMock) -> None:
+    mock_get.side_effect = route_pubchem_get
+    row = build_single_cas_row("64-17-5", lookup_cas("64-17-5"))
+    assert row["CAS"] == "64-17-5"
+    assert row["pubchem_cid"] == 702
+    assert row["chebi_id"] == "CHEBI:16236"
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_emit_single_cas_json_file(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    import json
+
+    mock_get.side_effect = route_pubchem_get
+    out = tmp_path / "result.json"
+    emit_single_cas("64-17-5", out, fmt="json")
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["chebi_id"] == "CHEBI:16236"
 
 
 @patch("chebi_lookup.client.time.sleep")
