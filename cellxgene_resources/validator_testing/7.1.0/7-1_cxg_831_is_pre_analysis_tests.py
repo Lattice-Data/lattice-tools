@@ -40,6 +40,8 @@ def set_to_preanalysis_state(validator: Validator, remove_obsm: bool = True) -> 
     """
     validator.pre_analysis_check_flag = True
     validator.adata.obs.drop(columns="cell_type_ontology_term_id", inplace=True)
+    if "cell_type_ontology_term_id_colors" in validator.adata.uns:
+        del validator.adata.uns["cell_type_ontology_term_id_colors"]
 
     # option to remove to test for schema fields
     if remove_obsm:
