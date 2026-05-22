@@ -49,18 +49,25 @@ Or just import some of the constant lists from below
 """
 import anndata as ad
 import gc
+import numpy as np
 import os
 import pandas as pd
 import pytest
+import random
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 from cellxgene_schema.validate import Validator
 from cellxgene_schema.write_labels import AnnDataLabelAppender
 from cellxgene_schema.utils import read_h5ad
 
 # returns absolute path of fixtures directory
 FIXTURES_ROOT = Path(__file__).absolute().parent
+GUIDE_CSV_PATH = FIXTURES_ROOT / "guide_csvs"
+DELIMITER = " || "
+random.seed(1116)
+
 
 # few standard lists to select fixtures, can also whitelist for any given test
 ALL_H5ADS = [
@@ -95,6 +102,11 @@ MODEL_ORGANISM_H5ADS = [
             "worm", 
             "zebrafish"
         ])
+]
+GUIDE_H5ADS = [
+    "valid_human.h5ad",
+    "valid_mouse.h5ad",
+    "valid_zebrafish.h5ad",
 ]
 
 # helper function for visium datasets to get library_id
@@ -233,3 +245,118 @@ def to_temp_files(test_data: AtacTestData, tmp_path: Path | str) -> dict:
         "anndata_file": _to_anndata_file(test_data, tmp_path), 
         "fragment_file": _to_fragment_file(test_data, tmp_path)
     }
+
+"""
+Setup for fixtures with guide metadata for genetic pertubations:
+csvs for uns metadata stored in guide_csvs/ directory:
+    human_guides.csv based off of Marson Order 1 AN00024294
+    mouse_guides.csv based off of Trapnell Scale GENE12-R117 NVUS202101701-66
+    zebrafish_guides.csv based off of Weissman Order 3 AN00025549
+
+"""
+
+class GeneticPerturbationStrategy(Enum):
+    na = "no perturbations"
+    control = "control"
+    activation_screen = "CRISPR activation screen"
+    interference_screen = "CRISPR interference screen"
+    knockout_mutant = "CRISPR knockout mutant"
+    knockout_screen = "CRISPR knockout screen"
+
+
+def make_uns_dict(df: pd.DataFrame) -> dict[str, Any]:
+    """
+    Take guide csv and create valid uns["genetic_perturbations"] dict
+    """
+    perturb_dict = {}
+    for row in df.itertuples():
+        perturb_dict[row.guide_id] = {
+            "role": row.guide_role,
+            "protospacer_sequence": row.guide_protospacer,
+            "protospacer_adjacent_motif": row.guide_PAM,
+        }
+        if row.guide_target_gene_id not in {np.nan, "Ignore"}:
+            perturb_dict[row.guide_id]["intended_features"] = {row.guide_target_gene_id: ""}
+
+    return perturb_dict
+
+
+# can have 1-10 guides per cell, weighting to skew towards 0
+num_choices = [num for num in range(1, 11)]
+weights = [100, 88, 78, 36, 25, 4, 1, 1, 1, 1]
+
+
+def get_num_choices(
+    choice_range: list[int] = num_choices, 
+    weights: list[int] = weights,
+) -> int:
+    """
+    Pick number of guides per cell within the choice range based on weights
+    """
+    return random.choices(choice_range, weights=weights)[0]
+
+
+def create_genetic_perturbation_id(adata: ad.AnnData) -> str:
+    """
+    Assign genetic perturbation id to cells based on uns metadata
+    Returns str formatted with CXG delimiter and sorted
+    """
+    perturbation_ids = adata.uns["genetic_perturbations"]
+    if isinstance(perturbation_ids, dict):
+        perturbation_ids = list(perturbation_ids.keys())
+    k = get_num_choices()
+    choices = sorted(random.sample(perturbation_ids, k))
+    return DELIMITER.join(choices)
+
+
+
+def get_perturbation_strategy(str_input: str, adata: ad.AnnData) -> str:
+    perturb_roles: list[GeneticPerturbationStrategy] = [
+        GeneticPerturbationStrategy.interference_screen,
+        GeneticPerturbationStrategy.activation_screen,
+        GeneticPerturbationStrategy.knockout_mutant,
+        GeneticPerturbationStrategy.knockout_screen
+    ]
+    # need to provide list, otherwise will be set of characters
+    control_set = set(["control"])
+
+    if str_input is np.nan:
+        return GeneticPerturbationStrategy.na.value
+
+    input_list = str_input.split(DELIMITER)
+    role_set = {adata.uns["genetic_perturbations"][genetic_id]["role"] for genetic_id in input_list}
+    
+    if role_set == control_set:
+        return GeneticPerturbationStrategy.control.value
+    
+    # most real data probalby just one type, using all other types for testing
+    return random.sample(perturb_roles, 1)[0].value
+
+
+@pytest.fixture(params=GUIDE_H5ADS)
+def yield_guide_file_name(request):
+    yield request.param
+
+
+@pytest.fixture
+def yield_guide_validator(yield_guide_file_name) -> Generator[Validator, None, None]:
+    gc.collect()
+    # get species name from file
+    species = yield_guide_file_name.split("_")[1].split(".")[0]
+    adata = read_h5ad(FIXTURES_ROOT / yield_guide_file_name)
+    validator = Validator()
+
+    guide_df = pd.read_csv(GUIDE_CSV_PATH / f"{species}_guides.csv")
+    guide_dict = make_uns_dict(guide_df)
+    adata.uns["genetic_perturbations"] = guide_dict
+
+    adata.obs["genetic_perturbation_id"] = "na"
+    adata.obs["genetic_perturbation_id"] = adata.obs["genetic_perturbation_id"].apply(lambda x: create_genetic_perturbation_id(adata))
+    adata.obs["genetic_perturbation_strategy"] = adata.obs["genetic_perturbation_id"].apply(lambda x: get_perturbation_strategy(x, adata))
+
+    for column in ["genetic_perturbation_strategy", "genetic_perturbation_id"]:
+        adata.obs[column] = adata.obs[column].astype("category")
+
+    validator.adata = adata
+
+    yield validator
