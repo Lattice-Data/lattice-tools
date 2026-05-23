@@ -346,7 +346,11 @@ def yield_guide_validator(yield_guide_file_name) -> Generator[Validator, None, N
     adata = read_h5ad(FIXTURES_ROOT / yield_guide_file_name)
     validator = Validator()
 
-    guide_df = pd.read_csv(GUIDE_CSV_PATH / f"{species}_guides.csv")
+    try:
+        guide_df = pd.read_csv(GUIDE_CSV_PATH / f"{species}_guides.csv")
+    except FileNotFoundError:
+        guide_df = pd.read_csv(GUIDE_CSV_PATH / "human_guides.csv")
+
     guide_dict = make_uns_dict(guide_df)
     adata.uns["genetic_perturbations"] = guide_dict
 
