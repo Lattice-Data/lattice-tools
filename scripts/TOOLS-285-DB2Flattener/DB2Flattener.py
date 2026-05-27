@@ -59,6 +59,7 @@ class DB2Flattener:
         """Create a flattened DataFrame with library alias as first column"""
         matrix_file_set = complete_data['matrix_file_set']
         libraries_data = complete_data['libraries']
+        resolved_controlled_terms = complete_data['resolved_objects'].get('ControlledTerm', {})
         
         rows = []
         
@@ -67,7 +68,6 @@ class DB2Flattener:
             samples = lib_data['samples']
             donors = lib_data['donors']
             treatments = lib_data['treatments']
-            controlled_terms = lib_data['controlled_terms']
             genetic_modifications = lib_data['genetic_modifications']
             
             # Build the row with library alias first
@@ -89,16 +89,16 @@ class DB2Flattener:
                 'matrix_file_set_software': matrix_file_set.get('software', 'n/a'),
                 'matrix_file_set_software_version': matrix_file_set.get('software_version', 'n/a'),
                 
-                # Donor information - now properly resolved
+                # Donor information
                 'donor_sexes': self._join_unique([d.get('sex', '') for d in donors]),
                 'donor_ethnicities': self._join_unique([
-                    self._resolve_controlled_term(d.get('ethnicity'), controlled_terms)
+                    self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
                     for d in donors
                 ]),
                 
                 # Treatment information
                 'treatment_terms': self._join_unique([
-                    self._resolve_controlled_term(t.get('ontological_term'), controlled_terms)
+                    self._resolve_controlled_term(t.get('ontological_term'), resolved_controlled_terms)
                     for t in treatments
                 ]),
                 
@@ -116,13 +116,13 @@ class DB2Flattener:
                 ]),
                 'age_units': self._join_unique([s.get('age_units', '') for s in samples]),
                 
-                # Cell type information from samples
-                'enriched_cell_types': self._get_cell_types_from_samples(samples, 'enriched_cell_types', controlled_terms),
-                'depleted_cell_types': self._get_cell_types_from_samples(samples, 'depleted_cell_types', controlled_terms),
-                'intended_cell_types': self._get_cell_types_from_samples(samples, 'intended_cell_types', controlled_terms),
+                 # Cell type information from samples
+                'enriched_cell_types': self._get_cell_types_from_samples(samples, 'enriched_cell_types', resolved_controlled_terms),
+                'depleted_cell_types': self._get_cell_types_from_samples(samples, 'depleted_cell_types', resolved_controlled_terms),
+                'intended_cell_types': self._get_cell_types_from_samples(samples, 'intended_cell_types', resolved_controlled_terms),
                 
                 # Disease information from samples
-                'diseases': self._get_diseases_from_samples(samples, controlled_terms),
+                'diseases': self._get_diseases_from_samples(samples, resolved_controlled_terms),
                 
                 # Genetic modifications
                 'genetic_modification_modalities': self._join_unique([
@@ -134,8 +134,8 @@ class DB2Flattener:
         
         return pd.DataFrame(rows)
     
-    def _resolve_controlled_term(self, term_ref, controlled_terms):
-        """Resolve a controlled term reference to its term_name"""
+    def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
+        """Resolve a controlled term reference to its term_id (semantic identifier)"""
         if not term_ref:
             return ''
         
@@ -145,12 +145,8 @@ class DB2Flattener:
         else:
             term_id = term_ref
         
-        # Find matching controlled term
-        for ct in controlled_terms:
-            if ct.get('@id') == term_id:
-                return ct.get('term_name', '')
-        
-        return ''
+        # Look up in the resolved controlled terms dictionary
+        return resolved_controlled_terms.get(term_id, '')
     
     def _get_cell_types_from_samples(self, samples, field_name, controlled_terms):
         """Extract cell type terms from samples"""
