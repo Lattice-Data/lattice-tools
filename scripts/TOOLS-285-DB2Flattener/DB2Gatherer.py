@@ -87,51 +87,16 @@ class DB2Gatherer:
                 continue
         
         return all_results
-    
-    def fetch_controlled_terms(self, reference_ids):
-        """Fetch controlled terms by both @id and aliases"""
-        if not reference_ids:
-            return []
         
-        print(f"Fetching controlled terms for {len(reference_ids)} references...")
-        
-        # Separate @id refs from name refs
-        id_refs = [ref for ref in reference_ids if ref.startswith('/controlled_terms/')]
-        name_refs = [ref for ref in reference_ids if not ref.startswith('/controlled_terms/')]
-        
-        all_results = []
-        
-        # Fetch by @id
-        if id_refs:
-            id_filter = '&' + '&'.join([f"@id={ref}" for ref in id_refs])
-            try:
-                id_results = lattice.get_report(
-                    obj_type='ControlledTerm',
-                    filter_url=id_filter,
-                    field_lst=['@id', 'term_name'],
-                    connection=self.connection
-                )
-                if id_results:
-                    all_results.extend(id_results)
-            except Exception as e:
-                print(f"Error fetching controlled terms by @id: {e}")
-        
-        # Fetch by aliases (name refs)
-        if name_refs:
-            alias_filter = '&' + '&'.join([f"aliases={ref}" for ref in name_refs])
-            try:
-                alias_results = lattice.get_report(
-                    obj_type='ControlledTerm',
-                    filter_url=alias_filter,
-                    field_lst=['@id', 'term_name'],
-                    connection=self.connection
-                )
-                if alias_results:
-                    all_results.extend(alias_results)
-            except Exception as e:
-                print(f"Error fetching controlled terms by aliases: {e}")
-        
-        return all_results
+    def extract_controlled_term_id(self, controlled_term_ref):
+        """Extract the semantic term ID from controlled term @id path"""
+        if '/controlled_terms/' in controlled_term_ref:
+            # Extract everything after '/controlled_terms/' and before trailing '/'
+            term_id = controlled_term_ref.split('/controlled_terms/')[-1]
+            if term_id.endswith('/'):
+                term_id = term_id[:-1]  # Remove trailing slash
+            return term_id
+        return controlled_term_ref
     
     def extract_references_from_field(self, field_value, field_name):
         """Extract reference IDs from a field using FIELD_TYPES for proper handling"""
@@ -167,10 +132,11 @@ class DB2Gatherer:
         return refs
     
     def resolve_references_for_samples(self, all_samples):
-        """Collect all references first, then batch fetch by type"""
+        """Collect all references first, then batch fetch by type (excluding controlled terms)"""
         all_reference_ids = {}  # {api_type: set(ids)}
+        controlled_term_values = {}  # {ref_path: extracted_term_id}
         
-        # First pass: collect ALL non-controlled-term references from samples
+        # First pass: collect ALL references from samples
         for sample in all_samples.values():
             sample_api_type = self.get_api_type_from_id(sample['@id'])
             config = None
@@ -190,12 +156,18 @@ class DB2Gatherer:
                     ref_types = [ref_types]
                 
                 for ref in refs:
-                    if 'controlled_terms' not in ref_types and ref.startswith('/'):
-                        api_type = self.get_api_type_from_id(ref)
-                        if api_type:
-                            if api_type not in all_reference_ids:
-                                all_reference_ids[api_type] = set()
-                            all_reference_ids[api_type].add(ref)
+                    if ref.startswith('/'):
+                        if 'controlled_terms' in ref_types and '/controlled_terms/' in ref:
+                            # Extract term ID directly for controlled terms
+                            term_id = self.extract_controlled_term_id(ref)
+                            controlled_term_values[ref] = term_id
+                        else:
+                            # Regular UUID-based reference
+                            api_type = self.get_api_type_from_id(ref)
+                            if api_type:
+                                if api_type not in all_reference_ids:
+                                    all_reference_ids[api_type] = set()
+                                all_reference_ids[api_type].add(ref)
         
         # Batch fetch all non-controlled-term references by type
         for api_type, ref_ids in all_reference_ids.items():
@@ -208,38 +180,34 @@ class DB2Gatherer:
             for obj in ref_objects:
                 self.resolved_objects[api_type][obj['@id']] = obj
         
-        # Second pass: collect controlled term references from ALL objects
-        controlled_term_refs = set()
-        all_objects_to_scan = list(all_samples.values())
+        # Store controlled term values (no API calls needed)
+        self.resolved_objects['ControlledTerm'] = controlled_term_values
+        
+        # Second pass: collect controlled term references from non-sample objects
         for ref_dict in self.resolved_objects.values():
-            all_objects_to_scan.extend(ref_dict.values())
-        
-        for obj in all_objects_to_scan:
-            obj_api_type = self.get_api_type_from_id(obj.get('@id', ''))
-            config = None
-            for cfg in OBJECT_CONFIG.values():
-                if cfg['api_type'] == obj_api_type:
-                    config = cfg
-                    break
-            
-            if not config:
+            if ref_dict == controlled_term_values:  # Skip the controlled terms dict
                 continue
-            
-            for field_name, ref_types in config.get('references', {}).items():
-                if 'controlled_terms' in (ref_types if isinstance(ref_types, list) else [ref_types]):
-                    field_value = obj.get(field_name)
-                    refs = self.extract_references_from_field(field_value, field_name)
-                    
-                    for ref in refs:
-                        if ref.startswith('/controlled_terms/'):
-                            controlled_term_refs.add(ref)
-        
-        # Batch fetch all controlled terms
-        if controlled_term_refs:
-            controlled_terms = self.fetch_controlled_terms(list(controlled_term_refs))
-            self.resolved_objects['ControlledTerm'] = {}
-            for ct in controlled_terms:
-                self.resolved_objects['ControlledTerm'][ct['@id']] = ct
+                
+            for obj in ref_dict.values():
+                obj_api_type = self.get_api_type_from_id(obj.get('@id', ''))
+                config = None
+                for cfg in OBJECT_CONFIG.values():
+                    if cfg['api_type'] == obj_api_type:
+                        config = cfg
+                        break
+                
+                if not config:
+                    continue
+                
+                for field_name, ref_types in config.get('references', {}).items():
+                    if 'controlled_terms' in (ref_types if isinstance(ref_types, list) else [ref_types]):
+                        field_value = obj.get(field_name)
+                        refs = self.extract_references_from_field(field_value, field_name)
+                        
+                        for ref in refs:
+                            if ref.startswith('/controlled_terms/'):
+                                term_id = self.extract_controlled_term_id(ref)
+                                controlled_term_values[ref] = term_id
     
     def add_references_to_library(self, library_data, samples):
         """Add resolved references to library data based on its samples"""
@@ -267,30 +235,40 @@ class DB2Gatherer:
                 refs = self.extract_references_from_field(field_value, field_name)
                 
                 for ref in refs:
-                    # Find the resolved object
-                    resolved_obj = None
-                    for api_type, objects in self.resolved_objects.items():
-                        if ref in objects:
-                            resolved_obj = objects[ref]
-                            break
-                    
-                    if resolved_obj:
-                        # Determine which collection to add to
-                        collection = None
-                        if resolved_obj.get('@id', '').startswith('/human_donors/') or resolved_obj.get('@id', '').startswith('/non_human_donors/'):
-                            collection = 'donors'
-                        elif resolved_obj.get('@id', '').startswith('/treatments/'):
-                            collection = 'treatments'
-                        elif resolved_obj.get('@id', '').startswith('/controlled_terms/'):
-                            collection = 'controlled_terms'
-                        elif resolved_obj.get('@id', '').startswith('/genetic_modifications/'):
-                            collection = 'genetic_modifications'
-                        elif resolved_obj.get('@id', '').startswith('/experimental_conditions/'):
-                            collection = 'experimental_conditions'
+                    # Handle controlled terms specially
+                    if '/controlled_terms/' in ref and 'controlled_terms' in (ref_types if isinstance(ref_types, list) else [ref_types]):
+                        if ref not in added_refs['controlled_terms']:
+                            # Add the extracted term ID instead of making API calls
+                            term_id = self.resolved_objects['ControlledTerm'].get(ref)
+                            if term_id:
+                                library_data['controlled_terms'].append({
+                                    '@id': ref,
+                                    'term_id': term_id
+                                })
+                                added_refs['controlled_terms'].add(ref)
+                    else:
+                        # Find the resolved object for other reference types
+                        resolved_obj = None
+                        for api_type, objects in self.resolved_objects.items():
+                            if api_type != 'ControlledTerm' and ref in objects:
+                                resolved_obj = objects[ref]
+                                break
                         
-                        if collection and ref not in added_refs[collection]:
-                            library_data[collection].append(resolved_obj)
-                            added_refs[collection].add(ref)
+                        if resolved_obj:
+                            # Determine which collection to add to
+                            collection = None
+                            if resolved_obj.get('@id', '').startswith('/human_donors/') or resolved_obj.get('@id', '').startswith('/non_human_donors/'):
+                                collection = 'donors'
+                            elif resolved_obj.get('@id', '').startswith('/treatments/'):
+                                collection = 'treatments'
+                            elif resolved_obj.get('@id', '').startswith('/genetic_modifications/'):
+                                collection = 'genetic_modifications'
+                            elif resolved_obj.get('@id', '').startswith('/experimental_conditions/'):
+                                collection = 'experimental_conditions'
+                            
+                            if collection and ref not in added_refs[collection]:
+                                library_data[collection].append(resolved_obj)
+                                added_refs[collection].add(ref)
     
     def gather_complete_library_data(self, matrix_file_set_uuid):
         """Main method: gather all data grouped by library"""
