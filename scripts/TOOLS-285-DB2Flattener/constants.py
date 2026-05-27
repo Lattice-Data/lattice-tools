@@ -267,7 +267,7 @@ OBJECT_CONFIG = {
     },
 
     # References
-    'controlled_terms': {
+    'controlled_terms': { # Special handling, need to get term_id directly from string
         'api_type': 'ControlledTerm',
         'fields': ['@id', 'term_name'],
         'references': {}  # No nested references
