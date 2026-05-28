@@ -52,6 +52,7 @@ FIELD_TYPES = {
     'genome_assembly' : {'type': 'string'},
     'software' : {'type': 'string'},
     'software_version' : {'type': 'string'},
+    'CRO_group_identifier' : {'type': 'string'},
     
     # Array fields with element types
     'sample_terms': {'type': 'array', 'elements': 'string'},
@@ -80,7 +81,7 @@ OBJECT_CONFIG = {
     'tissues': {
         'api_type': 'Tissue',
         'fields': [
-            'uuid', '@id', 'date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', 'aliases','date_obtained', 'sample_terms', 'donors', 
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
@@ -103,7 +104,7 @@ OBJECT_CONFIG = {
     'cell_lines': {
         'api_type': 'CellLine',
         'fields': [
-            'uuid', '@id', 'date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'host', 'host_tissue'
@@ -127,7 +128,7 @@ OBJECT_CONFIG = {
     'organoids': {
         'api_type': 'Organoid',
         'fields': [
-            'uuid', '@id', 'date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'intended_cell_types'
@@ -150,7 +151,7 @@ OBJECT_CONFIG = {
     'primary_cell_cultures': {
         'api_type': 'PrimaryCellCulture',
         'fields': [
-            'uuid', '@id', 'date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
@@ -189,7 +190,7 @@ OBJECT_CONFIG = {
     'droplet_based_libraries': {
         'api_type': 'DropletBasedLibrary',
         'fields': ['samples', 'uuid', 'aliases', 'library_construction_technology', 'library_cardinality',
-                  'chemistry_version', 'feature_types', 'multiplexing_method'],
+                  'chemistry_version', 'feature_types', 'multiplexing_method', 'CRO_group_identifier'],
         'references': {
             'samples' : ['primary_cell_cultures',
                          'organoids',
@@ -201,7 +202,7 @@ OBJECT_CONFIG = {
     'plate_based_libraries': {
         'api_type': 'PlateBasedLibrary',
         'fields': ['samples', 'uuid', 'aliases', 'library_construction_technology',
-                  'kit_version', 'multiplexing_method'],
+                  'kit_version', 'multiplexing_method', 'CRO_group_identifier'],
         'references': {
             'samples' : ['primary_cell_cultures',
                          'organoids',
@@ -215,9 +216,13 @@ OBJECT_CONFIG = {
     'raw_matrix_files': {
         'api_type': 'RawMatrixFile',
         'fields': ['uuid', 'aliases', 's3_uri', 'crc64nvme_base64', 'feature_keys', 'derived_from', 'feature_counts',
-                  'file_format'],
+                  'file_format', 'samples'],
         'references': {
-            'derived_from' : 'sequence_files'
+            'derived_from' : 'sequence_files',
+            'samples' : ['primary_cell_cultures',
+                         'organoids',
+                         'cell_lines',
+                         'tissues'],
         }
     },
     'processed_matrix_files': {

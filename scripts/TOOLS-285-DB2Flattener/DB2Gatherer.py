@@ -1,11 +1,13 @@
 from constants import OBJECT_CONFIG, FIELD_TYPES, MAX_URL_LENGTH, BASE_URL_OVERHEAD
 import sys
 import os
+
 # Add parent directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 
 import lattice
+
 
 class DB2Gatherer:
     def __init__(self, connection):
@@ -298,6 +300,12 @@ class DB2Gatherer:
         # Step 2: Get raw matrix files and their sequence files
         raw_matrix_files = self.chunk_and_fetch('RawMatrixFile', raw_matrix_uuids)
         
+        # Store raw matrix files in resolved_objects for later use
+        if 'RawMatrixFile' not in self.resolved_objects:
+            self.resolved_objects['RawMatrixFile'] = {}
+        for rmf in raw_matrix_files:
+            self.resolved_objects['RawMatrixFile'][rmf['@id']] = rmf
+        
         sequence_file_uuids = set()
         for rmf in raw_matrix_files:
             derived_from = rmf.get('derived_from', [])
@@ -309,10 +317,18 @@ class DB2Gatherer:
                 if ref_id:
                     sequence_file_uuids.add(self.extract_uuid_from_id(ref_id))
         
-        print(f"Found {len(sequence_file_uuids)} sequence files")
+        print(f"Found {len(sequence_file_uuids)} sequence file UUIDs referenced by raw matrix files")
         
         # Step 3: Get sequence files and their file sets
         sequence_files = self.chunk_and_fetch('SequenceFile', list(sequence_file_uuids))
+        
+        # Store sequence files in resolved_objects
+        if 'SequenceFile' not in self.resolved_objects:
+            self.resolved_objects['SequenceFile'] = {}
+        for sf in sequence_files:
+            self.resolved_objects['SequenceFile'][sf['@id']] = sf
+        
+        print(f"Successfully fetched {len(sequence_files)} sequence files")
         
         file_set_uuids = set()
         for sf in sequence_files:
@@ -325,10 +341,18 @@ class DB2Gatherer:
                 if ref_id:
                     file_set_uuids.add(self.extract_uuid_from_id(ref_id))
         
-        print(f"Found {len(file_set_uuids)} file sets")
+        print(f"Found {len(file_set_uuids)} file set UUIDs referenced by sequence files")
         
         # Step 4: Get file sets and their libraries
         file_sets = self.chunk_and_fetch('SequenceFileSet', list(file_set_uuids))
+        
+        # Store file sets in resolved_objects
+        if 'SequenceFileSet' not in self.resolved_objects:
+            self.resolved_objects['SequenceFileSet'] = {}
+        for fs in file_sets:
+            self.resolved_objects['SequenceFileSet'][fs['@id']] = fs
+        
+        print(f"Successfully fetched {len(file_sets)} file sets")
         
         library_uuids = set()
         for fs in file_sets:
@@ -341,14 +365,14 @@ class DB2Gatherer:
                 if lib_id:
                     library_uuids.add(self.extract_uuid_from_id(lib_id))
         
-        print(f"Found {len(library_uuids)} libraries")
+        print(f"Found {len(library_uuids)} library UUIDs referenced by file sets")
         
         # Step 5: Get libraries (try both types)
         droplet_libraries = self.chunk_and_fetch('DropletBasedLibrary', list(library_uuids))
         plate_libraries = self.chunk_and_fetch('PlateBasedLibrary', list(library_uuids))
         all_libraries = droplet_libraries + plate_libraries
         
-        print(f"Successfully fetched {len(all_libraries)} libraries total")
+        print(f"Successfully fetched {len(all_libraries)} libraries total ({len(droplet_libraries)} droplet, {len(plate_libraries)} plate)")
         
         # Step 6: Get all samples referenced by libraries
         sample_refs = set()
@@ -382,14 +406,15 @@ class DB2Gatherer:
         # Step 7: Resolve all references from samples
         self.resolve_references_for_samples(all_samples)
         
-        # Step 8: Structure data by library
+        # Step 8: Structure data by library (modified to include raw matrix files)
         libraries_data = {}
-
+    
         for library in all_libraries:
             lib_uuid = library['uuid']
             libraries_data[lib_uuid] = {
                 'library': library,
                 'samples': [],
+                'raw_matrix_files': [],  # Add this new field
                 'donors': [],
                 'treatments': [],
                 'controlled_terms': [],
@@ -414,6 +439,9 @@ class DB2Gatherer:
             # Add all resolved references for this library's samples
             self.add_references_to_library(libraries_data[lib_uuid], library_sample_objects)
         
+        # Step 9: Map raw matrix files to libraries
+        self._map_raw_matrix_files_to_libraries(raw_matrix_files, libraries_data, all_samples)
+        
         print(f"Structured data for {len(libraries_data)} libraries")
         
         return {
@@ -421,4 +449,60 @@ class DB2Gatherer:
             'libraries': libraries_data,
             'resolved_objects': self.resolved_objects
         }
-    
+
+    def _map_raw_matrix_files_to_libraries(self, raw_matrix_files, libraries_data, all_samples):
+        """Map raw matrix files to their corresponding libraries using samples field or data flow"""
+        
+        for raw_file in raw_matrix_files:
+            matched_libraries = []
+            
+            # Method 1: Use raw matrix file's samples field if available
+            file_sample_refs = raw_file.get('samples', [])
+            if file_sample_refs:
+                # Find ALL libraries that have these sample(s)
+                for lib_uuid, lib_data in libraries_data.items():
+                    lib_samples = [sample['@id'] for sample in lib_data['samples']]
+                    
+                    # Check if this library has all the samples from the raw matrix file
+                    if all(sample_ref in lib_samples for sample_ref in file_sample_refs):
+                        matched_libraries.append(lib_uuid)
+            
+            # Method 2: If no samples field, trace through data flow
+            else:
+                # Raw matrix file -> sequence files (via derived_from)
+                derived_from = raw_file.get('derived_from', [])
+                for seq_ref in derived_from:
+                    if isinstance(seq_ref, dict):
+                        seq_id = seq_ref.get('@id', '')
+                    else:
+                        seq_id = seq_ref
+                    
+                    # Find the sequence file object
+                    seq_file = self.resolved_objects.get('SequenceFile', {}).get(seq_id)
+                    if seq_file:
+                        # Sequence file -> file sets (via sequence_file_sets)
+                        file_set_refs = seq_file.get('sequence_file_sets', [])
+                        for fs_ref in file_set_refs:
+                            if isinstance(fs_ref, dict):
+                                fs_id = fs_ref.get('@id', '')
+                            else:
+                                fs_id = fs_ref
+                            
+                            # Find the file set object
+                            file_set = self.resolved_objects.get('SequenceFileSet', {}).get(fs_id)
+                            if file_set:
+                                # File set -> library
+                                library_ref = file_set.get('library', '')
+                                if library_ref:
+                                    if isinstance(library_ref, dict):
+                                        lib_id = library_ref.get('@id', '')
+                                    else:
+                                        lib_id = library_ref
+                                    
+                                    lib_uuid = self.extract_uuid_from_id(lib_id)
+                                    if lib_uuid in libraries_data and lib_uuid not in matched_libraries:
+                                        matched_libraries.append(lib_uuid)
+            
+            # Add the raw matrix file to ALL matched libraries
+            for lib_uuid in matched_libraries:
+                libraries_data[lib_uuid]['raw_matrix_files'].append(raw_file)
