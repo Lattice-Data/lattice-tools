@@ -15,8 +15,8 @@ import lattice
 class DB2Flattener:
     def __init__(self):
         # Setup connection
-        os.environ['DEMO_KEY'] = 'HKA345NO'
-        os.environ['DEMO_SECRET'] = 'ar6stvgd7epcxirx'
+        os.environ['DEMO_KEY'] = ''
+        os.environ['DEMO_SECRET'] = ''
         os.environ['DEMO_SERVER'] = 'https://lattice-api-dev.demo.lattice-data.org'
         self.connection = lattice.Connection('demo')
         
