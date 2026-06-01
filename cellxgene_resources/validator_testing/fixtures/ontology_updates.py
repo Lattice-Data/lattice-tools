@@ -74,6 +74,8 @@ def get_valid_ontology_mappings(organism: str, ontology_map: dict[str, Any] = ON
                 if organism in column_mapping:
                     result[ontology_column] = set(column_mapping[organism].split(DELIMITER))
                 else:
-                    result[ontology_column] = set([column_mapping["default"]])
+                    default = column_mapping["default"]
+                    value = set(default.split(DELIMITER)) if default is not None else set([default])
+                    result[ontology_column] = value
 
     return ColumnOntologies(**result)
