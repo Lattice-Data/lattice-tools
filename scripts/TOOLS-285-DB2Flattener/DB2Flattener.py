@@ -77,60 +77,85 @@ class DB2Flattener:
         
         if has_raw_file_samples:
             # Raw matrix file-based rows when samples field is present
+            # First, collect all raw matrix files and their associated libraries
+            raw_file_to_libraries = {}
+            
             for lib_data in libraries_data.values():
                 library = lib_data['library']
                 samples = lib_data['samples']
-                donors = lib_data['donors']
-                treatments = lib_data['treatments']
-                genetic_modifications = lib_data['genetic_modifications']
                 raw_matrix_files = lib_data['raw_matrix_files']
                 
-                # Create a row for each raw matrix file in this library
                 for raw_file in raw_matrix_files:
-                    row = {
-                        'raw_matrix_file_alias': self._get_clean_alias(raw_file),
-                        'library_alias': self._get_clean_alias(library),
-                        
-                        # Library information
-                        'library_protocol': library.get('protocol', 'n/a'),
-                        'library_type': library.get('@type', ['n/a'])[0] if library.get('@type') else 'n/a',
-                        
-                        
-                        # Sample information
-                        'raw_file_samples': self._join_unique([
-                            self._get_clean_alias(next((s for s in samples if s.get('@id') == sample_ref), {}))
-                            for sample_ref in raw_file.get('samples', [])
-                        ]),
-                        
-                        # Donor information
-                        'donor_sexes': self._join_unique([d.get('sex', 'n/a') for d in donors]),
-                        'donor_ethnicities': self._join_unique([
-                            self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
-                            for d in donors
-                        ]),
-                        
-                        # Treatment information
-                        'treatment_terms': self._join_unique([
-                            self._resolve_controlled_term(t.get('ontological_term'), resolved_controlled_terms)
-                            for t in treatments
-                        ]),
-                        
-                        # Cell type information from samples
-                        'enriched_cell_types': self._get_cell_types_from_samples(samples, 
-                                                                                 'enriched_cell_types', 
-                                                                                 resolved_controlled_terms),
-                        'depleted_cell_types': self._get_cell_types_from_samples(samples, 
-                                                                                 'depleted_cell_types', 
-                                                                                 resolved_controlled_terms),
-                        'intended_cell_types': self._get_cell_types_from_samples(samples, 
-                                                                                 'intended_cell_types', 
-                                                                                 resolved_controlled_terms),
-                        
-                        # Disease information from samples
-                        'diseases': self._get_diseases_from_samples(samples, resolved_controlled_terms),
-                    }
+                    raw_file_id = raw_file.get('@id')
+                    if raw_file_id not in raw_file_to_libraries:
+                        raw_file_to_libraries[raw_file_id] = {
+                            'raw_file': raw_file,
+                            'libraries': [],
+                            'all_samples': [],
+                            'all_donors': [],
+                            'all_treatments': [],
+                            'all_genetic_modifications': []
+                        }
                     
-                    rows.append(row)
+                    # Add this library's data to the raw matrix file
+                    raw_file_to_libraries[raw_file_id]['libraries'].append(library)
+                    raw_file_to_libraries[raw_file_id]['all_samples'].extend(samples)
+                    raw_file_to_libraries[raw_file_id]['all_donors'].extend(lib_data['donors'])
+                    raw_file_to_libraries[raw_file_id]['all_treatments'].extend(lib_data['treatments'])
+                    raw_file_to_libraries[raw_file_id]['all_genetic_modifications'].extend(lib_data['genetic_modifications'])
+            
+            # Create one row per raw matrix file
+            for file_data in raw_file_to_libraries.values():
+                raw_file = file_data['raw_file']
+                libraries = file_data['libraries']
+                samples = file_data['all_samples']
+                donors = file_data['all_donors']
+                treatments = file_data['all_treatments']
+                genetic_modifications = file_data['all_genetic_modifications']
+                
+                # Create sample aliases list
+                sample_aliases = []
+                for sample_ref in raw_file.get('samples', []):
+                    sample_obj = next((s for s in samples if s.get('@id') == sample_ref), None)
+                    if sample_obj:
+                        alias = self._get_clean_alias(sample_obj)
+                        sample_aliases.append(alias)
+                
+                row = {
+                    'raw_matrix_file_alias': self._get_clean_alias(raw_file),
+                    'library_aliases': self._join_unique([self._get_clean_alias(lib) for lib in libraries]),
+                    
+                    # Library information (from all associated libraries)
+                    'library_protocols': self._join_unique([lib.get('protocol', '') for lib in libraries]),
+                    'library_types': self._join_unique([lib.get('@type', [''])[0] if lib.get('@type') else '' for lib in libraries]),
+                    
+                    # Sample information
+                    'raw_file_samples': self._join_unique(sample_aliases),
+                    'library_sample_types': self._join_unique([s.get('@type', [''])[0] for s in samples]),
+                    
+                    # Donor information
+                    'donor_sexes': self._join_unique([d.get('sex', '') for d in donors]),
+                    'donor_ethnicities': self._join_unique([
+                        self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
+                        for d in donors
+                    ]),
+                    
+                    # Treatment information
+                    'treatment_terms': self._join_unique([
+                        self._resolve_controlled_term(t.get('ontological_term'), resolved_controlled_terms)
+                        for t in treatments
+                    ]),
+                    
+                    # Cell type information from samples
+                    'enriched_cell_types': self._get_cell_types_from_samples(samples, 'enriched_cell_types', resolved_controlled_terms),
+                    'depleted_cell_types': self._get_cell_types_from_samples(samples, 'depleted_cell_types', resolved_controlled_terms),
+                    'intended_cell_types': self._get_cell_types_from_samples(samples, 'intended_cell_types', resolved_controlled_terms),
+                    
+                    # Disease information from samples
+                    'diseases': self._get_diseases_from_samples(samples, resolved_controlled_terms),
+                }
+                
+                rows.append(row)
         
         else:
             # Library-based rows when no samples field in raw matrix files
