@@ -10,6 +10,7 @@ chemistries = {
     "Single Cell 3' v4 (polyA)": "3p",
     "Single Cell 3' v3": "3p",
     "Flex Gene Expression": "flex",
+    "GEM-X Flex v2": "flex"
 }
 
 valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo"]

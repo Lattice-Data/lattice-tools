@@ -457,7 +457,7 @@ def parse_web_summ(f):
     # Transcriptome from pipeline table is the canonical QA reference (overrides
     # experimental_design [gene-expression] reference when both exist).
     report["ref"] = gex_tab["transcriptome"]
-    if chem != "Flex Gene Expression":
+    if chem not in ["Flex Gene Expression", "GEM-X Flex v2"]:
         report["incl_int"] = gex_tab["include introns"].lower()
 
     if "pipeline version" in gex_tab:
