@@ -15,8 +15,8 @@ import lattice
 class DB2Flattener:
     def __init__(self):
         # Setup connection
-        os.environ['DEMO_KEY'] = ''
-        os.environ['DEMO_SECRET'] = ''
+        os.environ['DEMO_KEY'] = 'HKA345NO'
+        os.environ['DEMO_SECRET'] = 'ar6stvgd7epcxirx'
         os.environ['DEMO_SERVER'] = 'https://lattice-api-dev.demo.lattice-data.org'
         self.connection = lattice.Connection('demo')
         
@@ -55,15 +55,54 @@ class DB2Flattener:
         print(f"   Columns: {len(df.columns)}")
         
         return output_file
+        
+    def _filter_to_gex_libraries(self, libraries):
+        """Filter libraries to only include Gene Expression when there are pairs"""
+        gex_libraries = []
+        
+        for lib in libraries:
+            feature_types = lib.get('feature_types', [])
+            lib_type = lib.get('@type', [''])[0] if lib.get('@type') else ''
+            
+            # Check if this library has Gene Expression
+            if 'Gene Expression' in feature_types:
+                gex_libraries.append(lib)
+            elif not feature_types:  # Empty list or missing field
+                # For droplet-based libraries without feature_types, assume non-GEX
+                if 'DropletBasedLibrary' in lib_type:
+                    continue  # Skip droplet libraries without feature_types
+                # For plate-based libraries without feature_types, assume GEX until field is added
+                elif 'PlateBasedLibrary' in lib_type:
+                    gex_libraries.append(lib)
+        
+        # Always return only GEX libraries
+        if gex_libraries:
+            print(f"DEBUG: Filtered to {len(gex_libraries)} Gene Expression libraries out of {len(libraries)} total")
+            return gex_libraries
+        
+        # Fallback: if no GEX libraries found, return all (shouldn't happen normally)
+        print(f"WARNING: No Gene Expression libraries found, keeping all libraries")
+        return libraries
     
     def create_dataframe(self, complete_data):
         """Create a flattened DataFrame with library or raw matrix file as rows"""
         libraries_data = complete_data['libraries']
         resolved_controlled_terms = complete_data['resolved_objects'].get('ControlledTerm', {})
+
+        # Filter libraries to GEX once upfront
+        all_libraries = [lib_data['library'] for lib_data in libraries_data.values()]
+        filtered_libraries = self._filter_to_gex_libraries(all_libraries)
+        filtered_library_ids = {lib.get('@id') for lib in filtered_libraries}
+        
+        # Filter libraries_data to only include GEX libraries
+        filtered_libraries_data = {
+            lib_uuid: lib_data for lib_uuid, lib_data in libraries_data.items()
+            if lib_data['library'].get('@id') in filtered_library_ids
+        }
         
         # Check if any raw matrix files have samples field
         has_raw_file_samples = False
-        for lib_data in libraries_data.values():
+        for lib_data in filtered_libraries_data.values():
             for raw_file in lib_data['raw_matrix_files']:
                 if raw_file.get('samples'):
                     has_raw_file_samples = True
@@ -80,7 +119,7 @@ class DB2Flattener:
             # First, collect all raw matrix files and their associated libraries
             raw_file_to_libraries = {}
             
-            for lib_data in libraries_data.values():
+            for lib_data in filtered_libraries_data.values():
                 library = lib_data['library']
                 samples = lib_data['samples']
                 raw_matrix_files = lib_data['raw_matrix_files']
@@ -103,7 +142,7 @@ class DB2Flattener:
                     raw_file_to_libraries[raw_file_id]['all_donors'].extend(lib_data['donors'])
                     raw_file_to_libraries[raw_file_id]['all_treatments'].extend(lib_data['treatments'])
                     raw_file_to_libraries[raw_file_id]['all_genetic_modifications'].extend(lib_data['genetic_modifications'])
-            
+          
             # Create one row per raw matrix file
             for file_data in raw_file_to_libraries.values():
                 raw_file = file_data['raw_file']
@@ -127,7 +166,8 @@ class DB2Flattener:
                     
                     # Library information (from all associated libraries)
                     'library_protocols': self._join_unique([lib.get('protocol', '') for lib in libraries]),
-                    'library_types': self._join_unique([lib.get('@type', [''])[0] if lib.get('@type') else '' for lib in libraries]),
+                    'library_types': self._join_unique([lib.get('@type', [''])[0] if 
+                                                        lib.get('@type') else '' for lib in libraries]),
                     
                     # Sample information
                     'raw_file_samples': self._join_unique(sample_aliases),
@@ -147,9 +187,15 @@ class DB2Flattener:
                     ]),
                     
                     # Cell type information from samples
-                    'enriched_cell_types': self._get_cell_types_from_samples(samples, 'enriched_cell_types', resolved_controlled_terms),
-                    'depleted_cell_types': self._get_cell_types_from_samples(samples, 'depleted_cell_types', resolved_controlled_terms),
-                    'intended_cell_types': self._get_cell_types_from_samples(samples, 'intended_cell_types', resolved_controlled_terms),
+                    'enriched_cell_types': self._get_cell_types_from_samples(samples, 
+                                                                             'enriched_cell_types', 
+                                                                             resolved_controlled_terms),
+                    'depleted_cell_types': self._get_cell_types_from_samples(samples, 
+                                                                             'depleted_cell_types', 
+                                                                             resolved_controlled_terms),
+                    'intended_cell_types': self._get_cell_types_from_samples(samples, 
+                                                                             'intended_cell_types', 
+                                                                             resolved_controlled_terms),
                     
                     # Disease information from samples
                     'diseases': self._get_diseases_from_samples(samples, resolved_controlled_terms),
@@ -159,7 +205,7 @@ class DB2Flattener:
         
         else:
             # Library-based rows when no samples field in raw matrix files
-            for lib_data in libraries_data.values():
+            for lib_data in filtered_libraries_data.values():
                 library = lib_data['library']
                 samples = lib_data['samples']
                 donors = lib_data['donors']

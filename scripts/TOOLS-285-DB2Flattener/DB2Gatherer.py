@@ -238,7 +238,8 @@ class DB2Gatherer:
                 
                 for ref in refs:
                     # Handle controlled terms specially
-                    if '/controlled_terms/' in ref and 'controlled_terms' in (ref_types if isinstance(ref_types, list) else [ref_types]):
+                    if '/controlled_terms/' in ref and 'controlled_terms' in \
+                    (ref_types if isinstance(ref_types, list) else [ref_types]):
                         if ref not in added_refs['controlled_terms']:
                             # Add the extracted term ID instead of making API calls
                             term_id = self.resolved_objects['ControlledTerm'].get(ref)
@@ -259,7 +260,8 @@ class DB2Gatherer:
                         if resolved_obj:
                             # Determine which collection to add to
                             collection = None
-                            if resolved_obj.get('@id', '').startswith('/human_donors/') or resolved_obj.get('@id', '').startswith('/non_human_donors/'):
+                            if resolved_obj.get('@id', '').startswith('/human_donors/') \
+                            or resolved_obj.get('@id', '').startswith('/non_human_donors/'):
                                 collection = 'donors'
                             elif resolved_obj.get('@id', '').startswith('/treatments/'):
                                 collection = 'treatments'
@@ -367,13 +369,41 @@ class DB2Gatherer:
         
         print(f"Found {len(library_uuids)} library UUIDs referenced by file sets")
         
-        # Step 5: Get libraries (try both types)
-        droplet_libraries = self.chunk_and_fetch('DropletBasedLibrary', list(library_uuids))
-        plate_libraries = self.chunk_and_fetch('PlateBasedLibrary', list(library_uuids))
+        # Step 5: Get libraries (determine types first, then fetch only what exists)
+        droplet_uuids = set()  # Use sets to avoid duplicates
+        plate_uuids = set()
+        
+        # Check which type each library is by looking at the file sets that reference them
+        for file_set in self.resolved_objects.get('SequenceFileSet', {}).values():
+            library_ref = file_set.get('library', '')
+            if library_ref:
+                if isinstance(library_ref, dict):
+                    lib_id = library_ref.get('@id', '')
+                else:
+                    lib_id = library_ref
+                
+                lib_uuid = self.extract_uuid_from_id(lib_id)
+                if lib_uuid in library_uuids:
+                    # Determine type from the @id path
+                    if '/droplet_based_libraries/' in lib_id:
+                        droplet_uuids.add(lib_uuid)  # Use add() for sets
+                    elif '/plate_based_libraries/' in lib_id:
+                        plate_uuids.add(lib_uuid)
+        
+        # Only fetch the types that actually exist
+        droplet_libraries = []
+        plate_libraries = []
+        
+        if droplet_uuids:
+            droplet_libraries = self.chunk_and_fetch('DropletBasedLibrary', list(droplet_uuids))
+        
+        if plate_uuids:
+            plate_libraries = self.chunk_and_fetch('PlateBasedLibrary', list(plate_uuids))
+        
         all_libraries = droplet_libraries + plate_libraries
-        
-        print(f"Successfully fetched {len(all_libraries)} libraries total ({len(droplet_libraries)} droplet, {len(plate_libraries)} plate)")
-        
+        print(f"Successfully fetched {len(all_libraries)} libraries total " + 
+              f"({len(droplet_libraries)} droplet, {len(plate_libraries)} plate)")
+                
         # Step 6: Get all samples referenced by libraries
         sample_refs = set()
         sample_uuids_by_type = {}  # {api_type: [uuids]}
