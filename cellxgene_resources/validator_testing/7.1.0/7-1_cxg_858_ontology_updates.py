@@ -32,7 +32,8 @@ class TestOntologyUpdates:
         self.validator = validator_with_adatas
 
 
-    @pytest.mark.parametrize("column", OBS_ONTOLOGY_COLUMNS)
+    # want all columns except assay, use another test for new spatial assays
+    @pytest.mark.parametrize("column", [column for column in OBS_ONTOLOGY_COLUMNS if column != "assay"])
     @pytest.mark.parametrize("index", [num for num in range(4)])
     def test_new_ontologies_pass(self, column, index):
 
@@ -96,3 +97,80 @@ class TestOntologyUpdates:
         self.validator.validate_adata()
         assert not self.validator.is_valid
         assert len(self.validator.errors) > 0
+
+
+class TestAssayOntologyUpdates:
+    @pytest.fixture(autouse=True)
+    def setup(self, validator_with_adatas):
+        self.validator = validator_with_adatas
+
+
+    @pytest.mark.parametrize("test_h5ads", ["visium_human_all_spots.h5ad", "visium_human_some_spots.h5ad"])
+    def test_visium_hd_pass(self):
+
+        # new visium hd term passes with 6.5 mm visium fixtures
+        
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0920058"
+
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
+
+
+    @pytest.mark.parametrize("test_h5ads", ["visium_v2_11mm_human.h5ad"])
+    def test_visium_hd_with_11mm_fails(self):
+
+        # new visium hd term fails with 11 mm visium fixture
+        
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0920058"
+
+        visium_65_mm_errors = [
+            (
+                "ERROR: The largest dimension of uns['spatial'][library_id]['images']['hires'] "
+                "must be 2000 pixels, it has a largest dimension of 4000 pixels."
+            ),
+            (
+                "ERROR: obs['array_col'] must be between 0 and 127, the min and max are 0 and 223. "
+                "This must be the value of the column tissue_positions_in_tissue from the "
+                "tissue_positions_list.csv or tissue_positions.csv."
+            ),
+            (
+                "ERROR: obs['array_row'] must be between 0 and 77, the min and max are 0 and 127. "
+                "This must be the value of the column tissue_positions_in_tissue from the "
+                "tissue_positions_list.csv or tissue_positions.csv."
+            ),
+        ]
+
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        for error in visium_65_mm_errors:
+            assert error in self.validator.errors
+
+
+    @pytest.mark.parametrize("test_h5ads", ["slide_seq_image_human.h5ad", "slide_seq_no_image_human.h5ad"])
+    @pytest.mark.parametrize("term", ["EFO:0920002", "EFO:0920003"])
+    def test_curio_seek_pass(self, term):
+
+        # new curio seeker terms pass with slide-seq fixtures
+
+        self.validator.adata.obs["assay_ontology_term_id"] = term
+
+        self.validator.validate_adata()
+        assert self.validator.is_valid
+        assert self.validator.errors == []
+
+
+    @pytest.mark.parametrize("test_h5ads", ["slide_seq_image_human.h5ad", "slide_seq_no_image_human.h5ad"])
+    def test_curio_seek_parent_term_fails(self):
+
+        # parent term of slide-seq and curio-seeker should fail
+
+        self.validator.adata.obs["assay_ontology_term_id"] = "EFO:0920001"
+
+        self.validator.validate_adata()
+        assert not self.validator.is_valid
+        assert (
+            "ERROR: uns['spatial'] is only allowed when obs['assay_ontology_term_id'] "
+            "is either a descendant of 'EFO:0010961' (Visium Spatial Gene Expression) or "
+            "a descendant of 'EFO:0920001' (bead-based spatial transcriptomics)"
+        ) in self.validator.errors
