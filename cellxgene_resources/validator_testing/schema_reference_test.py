@@ -1,12 +1,12 @@
 import tempfile
 from fixtures.valid_adatas import (
-    test_h5ads,
-    validator_with_adatas, 
-    AnnDataLabelAppender,
-    label_writer,
+    test_h5ads,             # noqa: F401
+    validator_with_adatas,  # noqa: F401
+    AnnDataLabelAppender,   # noqa: F401
+    label_writer,           # noqa: F401
 ) 
 
-SCHEMA_VERSION = "5.3.0"
+SCHEMA_VERSION = "7.1.0"
 SCHEMA_REFERENCE = f"https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/{SCHEMA_VERSION}/schema.md"
 
 
