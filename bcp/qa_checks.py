@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from qa_constants import (
@@ -778,18 +779,18 @@ def validate_processed_group(
     ]
     prefixes = ["filtered_feature_bc_matrix", "raw_feature_bc_matrix"]
     for prefix in prefixes:
-        if prefix+".tar.gz" in actual_set and prefix+".tar.gz" not in expected:
+        if prefix + ".tar.gz" in actual_set and prefix + ".tar.gz" not in expected:
             expected = [
-                f for f in expected
-                if f not in [os.path.join(prefix,i) for i in trio]
+                f for f in expected if f not in [os.path.join(prefix, i) for i in trio]
             ]
-            expected.append(prefix+".tar.gz")
-            sample_prefix = "sample_"+prefix
+            expected.append(prefix + ".tar.gz")
+            sample_prefix = "sample_" + prefix
             per_samp_expected = [
-                f for f in per_samp_expected
-                if f not in [os.path.join(sample_prefix,i) for i in trio]
+                f
+                for f in per_samp_expected
+                if f not in [os.path.join(sample_prefix, i) for i in trio]
             ]
-            per_samp_expected.append(sample_prefix+".tar.gz")
+            per_samp_expected.append(sample_prefix + ".tar.gz")
 
     missing = [f for f in expected if f not in actual_set]
 
@@ -853,7 +854,8 @@ def validate_processed_group(
 
     # Create list of extra files, but ignore any file that contains any of the strings in cellranger_ignore
     extra_files = [
-        f for f in actual
+        f
+        for f in actual
         if f not in expected_set_for_extra
         and not f.endswith("manifest.json")
         and not any(sub in f for sub in cellranger_ignore)
@@ -882,12 +884,16 @@ def validate_processed_group(
                 f"WARNING: Invalid probe set for {group_name}: "
                 f"{report['Probe Set Name']}"
             )
-        elif chem == "Flex Gene Expression" and not re.search("v1.1", report["Probe Set Name"]):
+        elif chem == "Flex Gene Expression" and not re.search(
+            "v1.1", report["Probe Set Name"]
+        ):
             errors.append(
                 f"WARNING: Invalid probe set for this assay version {group_name}: "
                 f"{report['Probe Set Name']}"
             )
-        elif chem == "GEM-X Flex v2" and not re.search("v2.0.0", report["Probe Set Name"]):
+        elif chem == "GEM-X Flex v2" and not re.search(
+            "v2.0.0", report["Probe Set Name"]
+        ):
             errors.append(
                 f"WARNING: Invalid probe set for this assay version{group_name}: "
                 f"{report['Probe Set Name']}"
