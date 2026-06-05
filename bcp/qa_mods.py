@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
     cellranger_expected,
+    cellranger_ignore,
     chemistries,
     raw_expected,
     raw_optional,
@@ -29,6 +30,7 @@ __all__ = [
     "ALLOWED_RAW_ASSAYS",
     "QARunContext",
     "cellranger_expected",
+    "cellranger_ignore",
     "chemistries",
     "ingest_merged_trimmer_from_s3",
     "is_order_level_processed_folder",
@@ -457,7 +459,7 @@ def parse_web_summ(f):
     # Transcriptome from pipeline table is the canonical QA reference (overrides
     # experimental_design [gene-expression] reference when both exist).
     report["ref"] = gex_tab["transcriptome"]
-    if chem != "Flex Gene Expression":
+    if chem not in ["Flex Gene Expression", "GEM-X Flex v2"]:
         report["incl_int"] = gex_tab["include introns"].lower()
 
     if "pipeline version" in gex_tab:
