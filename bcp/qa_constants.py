@@ -23,13 +23,17 @@ ALLOWED_RAW_ASSAYS = frozenset(
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-3p-outputs-cellplex
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-flex-outputs-frp
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-outputs-gex-overview
+cellranger_ignore = [
+    "analysis",
+    "cloupe",
+    "cell_types",
+]
+
 cellranger_expected = {
     "cellranger-9.0.1": {
         "nonflex": {
             "outs": [
                 "config.csv",
-                "multi/count/feature_reference.csv",
-                "multi/count/raw_cloupe.cloupe",
                 "multi/count/raw_feature_bc_matrix.h5",
                 "multi/count/raw_feature_bc_matrix.tar.gz",
                 "multi/count/raw_molecule_info.h5",
@@ -37,9 +41,6 @@ cellranger_expected = {
                 "multi/count/unassigned_alignments.bam.bai",
             ],
             "per_sample": [
-                "count/analysis.tar.gz",
-                "count/feature_reference.csv",
-                "count/sample_cloupe.cloupe",
                 "count/sample_alignments.bam",
                 "count/sample_alignments.bam.bai",
                 "count/sample_filtered_barcodes.csv",
@@ -53,16 +54,13 @@ cellranger_expected = {
         "flex": {
             "outs": [
                 "config.csv",
-                "multi/count/raw_cloupe.cloupe",
                 "multi/count/raw_feature_bc_matrix.h5",
                 "multi/count/raw_feature_bc_matrix.tar.gz",
                 "multi/count/raw_molecule_info.h5",
                 "multi/count/raw_probe_bc_matrix.h5",
             ],
             "per_sample": [
-                "count/analysis.tar.gz",
                 "count/probe_set.csv",
-                "count/sample_cloupe.cloupe",
                 "count/sample_filtered_barcodes.csv",
                 "count/sample_filtered_feature_bc_matrix.h5",
                 "count/sample_filtered_feature_bc_matrix.tar.gz",
@@ -83,11 +81,9 @@ cellranger_expected = {
                 "filtered_feature_bc_matrix/features.tsv.gz",
                 "filtered_feature_bc_matrix/matrix.mtx.gz",
                 "filtered_feature_bc_matrix.h5",
-                "multiplexing_analysis/cells_per_tag.json",
                 "qc_library_metrics.csv",
                 "qc_report.html",
                 "qc_sample_metrics.csv",
-                "raw_cloupe.cloupe",
                 "raw_feature_bc_matrix/barcodes.tsv.gz",
                 "raw_feature_bc_matrix/features.tsv.gz",
                 "raw_feature_bc_matrix/matrix.mtx.gz",
@@ -102,7 +98,6 @@ cellranger_expected = {
                 "sample_raw_feature_bc_matrix/features.tsv.gz",
                 "sample_raw_feature_bc_matrix/matrix.mtx.gz",
                 "metrics_summary.csv",
-                "sample_cloupe.cloupe",
                 "sample_filtered_barcodes.csv",
                 "sample_filtered_feature_bc_matrix.h5",
                 "sample_molecule_info.h5",
@@ -113,18 +108,14 @@ cellranger_expected = {
         "flex": {
             "outs": [
                 "config.csv",
-                "feature_reference.csv",
                 "filtered_feature_bc_matrix/barcodes.tsv.gz",
                 "filtered_feature_bc_matrix/features.tsv.gz",
                 "filtered_feature_bc_matrix/matrix.mtx.gz",
                 "filtered_feature_bc_matrix.h5",
-                "multiplexing_analysis/cells_per_tag.json",
-                "multiplexing_analysis/frp_gem_barcode_overlap.csv",
                 "probe_set.csv",
                 "qc_library_metrics.csv",
                 "qc_report.html",
                 "qc_sample_metrics.csv",
-                "raw_cloupe.cloupe",
                 "raw_feature_bc_matrix/barcodes.tsv.gz",
                 "raw_feature_bc_matrix/features.tsv.gz",
                 "raw_feature_bc_matrix/matrix.mtx.gz",
@@ -133,9 +124,7 @@ cellranger_expected = {
                 "raw_probe_bc_matrix.h5",
             ],
             "per_sample": [
-                "crispr_analysis/protospacer_calls_per_cell.csv",
                 "metrics_summary.csv",
-                "sample_cloupe.cloupe",
                 "sample_filtered_barcodes.csv",
                 "sample_filtered_feature_bc_matrix.h5",
                 "sample_filtered_feature_bc_matrix/barcodes.tsv.gz",
@@ -153,34 +142,6 @@ cellranger_expected = {
     },
     "count": {
         "outs": [
-            "analysis/clustering/gene_expression_graphclust/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_10_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_2_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_3_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_4_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_5_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_6_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_7_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_8_clusters/clusters.csv",
-            "analysis/clustering/gene_expression_kmeans_9_clusters/clusters.csv",
-            "analysis/diffexp/gene_expression_graphclust/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_10_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_2_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_3_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_4_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_5_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_6_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_7_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_8_clusters/differential_expression.csv",
-            "analysis/diffexp/gene_expression_kmeans_9_clusters/differential_expression.csv",
-            "analysis/pca/gene_expression_10_components/components.csv",
-            "analysis/pca/gene_expression_10_components/dispersion.csv",
-            "analysis/pca/gene_expression_10_components/features_selected.csv",
-            "analysis/pca/gene_expression_10_components/projection.csv",
-            "analysis/pca/gene_expression_10_components/variance.csv",
-            "analysis/tsne/gene_expression_2_components/projection.csv",
-            "analysis/umap/gene_expression_2_components/projection.csv",
-            "cloupe.cloupe",
             "filtered_feature_bc_matrix/barcodes.tsv.gz",
             "filtered_feature_bc_matrix/features.tsv.gz",
             "filtered_feature_bc_matrix/matrix.mtx.gz",

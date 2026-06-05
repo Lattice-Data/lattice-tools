@@ -7,6 +7,7 @@ structured results (errors, missing/extra file lists, etc.).
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 from qa_constants import (
@@ -19,6 +20,7 @@ from qa_constants import (
 )
 from qa_mods import (
     cellranger_expected,
+    cellranger_ignore,
     extract_read_indicator,
     is_trimmer_stats_basename,
     make_read_partner,
@@ -31,6 +33,7 @@ from qa_mods import (
 VALID_PROBES = [
     "Chromium Mouse Transcriptome Probe Set v1.1.1",
     "Chromium Human Transcriptome Probe Set v1.1.0",
+    "Chromium Human Transcriptome Probe Set v2.0.0",
 ]
 MIN_METADATA_READ_COUNT = 1_000_000
 
@@ -658,6 +661,9 @@ def validate_processed_group(
     extra = report.get("extra", [])
     software = report.get("software", "")
 
+    # There is a specific cellranger version (10.0.0-5-g8638ac84de) that was run in the cloud that had no impact other than online documentation
+    if software == "cellranger-10.0.0-5-g8638ac84de":
+        software = "cellranger-10.0.0"
     if software == "cellranger-9.0.1":
         sub = report.get("sub", "")
     elif software == "cellranger-10.0.0":
@@ -719,12 +725,12 @@ def validate_processed_group(
         if software != "cellranger-10.0.0":
             expected.append("multi/count/feature_reference.csv")
             per_samp_expected.append("count/feature_reference.csv")
+        else:
+            expected.append("feature_reference.csv")
         if "CRISPR" in extra and software != "cellranger-10.0.0":
             per_samp_expected.append("count/crispr_analysis.tar.gz")
         if "Antibody" in extra:
             per_samp_expected.append("count/antibody_analysis.tar.gz")
-    if "CellAnnotate" in extra:
-        per_samp_expected.append("count/cell_types.tar.gz")
 
     if sub == "multi" and report.get("multiplex") and software != "cellranger-10.0.0":
         expected.append("multi/multiplexing_analysis.tar.gz")
@@ -761,6 +767,29 @@ def validate_processed_group(
             bai_csi_case = "neither"
         else:
             bai_csi_case = "both"
+
+    # If tar is in actual_set and not found in expected and per_samp_expected:
+    # - add tar files to expected and
+    # - drop trio of files from expected
+    trio = [
+        "barcodes.tsv.gz",
+        "features.tsv.gz",
+        "matrix.mtx.gz",
+    ]
+    prefixes = ["filtered_feature_bc_matrix", "raw_feature_bc_matrix"]
+    for prefix in prefixes:
+        if prefix+".tar.gz" in actual_set:
+            expected = [
+                f for f in expected
+                if f not in [os.path.join(prefix,i) for i in trio]
+            ]
+            expected.append(prefix+".tar.gz")
+            sample_prefix = "sample_"+prefix
+            per_samp_expected = [
+                f for f in per_samp_expected
+                if f not in [os.path.join(sample_prefix,i) for i in trio]
+            ]
+            per_samp_expected.append(sample_prefix+".tar.gz")
 
     missing = [f for f in expected if f not in actual_set]
 
@@ -822,10 +851,12 @@ def validate_processed_group(
     if bai_filename in expected and csi_present:
         expected_set_for_extra.add(csi_filename)
 
+    # Create list of extra files, but ignore any file that contains any of the strings in cellranger_ignore
     extra_files = [
-        f
-        for f in actual
-        if f not in expected_set_for_extra and not f.endswith("manifest.json")
+        f for f in actual
+        if f not in expected_set_for_extra
+        and not f.endswith("manifest.json")
+        and not any(sub in f for sub in cellranger_ignore)
     ]
     if extra_files:
         process_extra.extend(extra_files)
@@ -849,6 +880,16 @@ def validate_processed_group(
         if report["Probe Set Name"] not in VALID_PROBES:
             errors.append(
                 f"WARNING: Invalid probe set for {group_name}: "
+                f"{report['Probe Set Name']}"
+            )
+        elif chem == "Flex Gene Expression" and not re.search("v1.1", report["Probe Set Name"]):
+            errors.append(
+                f"WARNING: Invalid probe set for this assay version {group_name}: "
+                f"{report['Probe Set Name']}"
+            )
+        elif chem == "GEM-X Flex v2" and not re.search("v2.0.0", report["Probe Set Name"]):
+            errors.append(
+                f"WARNING: Invalid probe set for this assay version{group_name}: "
                 f"{report['Probe Set Name']}"
             )
 
