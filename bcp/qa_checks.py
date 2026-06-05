@@ -778,7 +778,7 @@ def validate_processed_group(
     ]
     prefixes = ["filtered_feature_bc_matrix", "raw_feature_bc_matrix"]
     for prefix in prefixes:
-        if prefix+".tar.gz" in actual_set:
+        if prefix+".tar.gz" in actual_set and prefix+".tar.gz" not in expected:
             expected = [
                 f for f in expected
                 if f not in [os.path.join(prefix,i) for i in trio]
