@@ -1,9 +1,9 @@
 # Collaborative Submissions manuscript code
 
-This repository contains code used to generate figures and statistics for the manuscript *A collaborative submission model for building high-quality data resources at scale through partnership*
+This repository contains code used to generate figures and statistics for the manuscript *A collaborative submission model for building high-quality data resources at scale through partnership*.
 
 **Preprint:** [10.64898/2026.06.02.729387](https://www.biorxiv.org/content/10.64898/2026.06.02.729387)  
-Currently under review at Scientific Data.
+Currently under review at Scientific Data
 
 This code generates the following figures and statistics from the manuscript:
 - **Figure 2**
