@@ -19,6 +19,7 @@ from bs4 import BeautifulSoup
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
     cellranger_expected,
+    cellranger_ignore,
     chemistries,
     raw_expected,
     raw_optional,
@@ -29,6 +30,7 @@ __all__ = [
     "ALLOWED_RAW_ASSAYS",
     "QARunContext",
     "cellranger_expected",
+    "cellranger_ignore",
     "chemistries",
     "ingest_merged_trimmer_from_s3",
     "is_order_level_processed_folder",
