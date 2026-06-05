@@ -858,6 +858,28 @@ class TestAllowTruncatedStatsName:
         assert any("_trimmer-stats.csv" in row for row in raw_lost[0].keys())
 
 
+_OUTS_BASE = "proj/g/processed/cellranger/run/outs/"
+
+
+def _outs_paths(rel_paths: list[str]) -> list[str]:
+    return [f"{_OUTS_BASE}{p}" for p in rel_paths]
+
+
+def _swap_matrix_trio_for_tar(
+    rel_paths: list[str],
+    prefix: str,
+) -> list[str]:
+    """Replace matrix trio files with a single tar.gz for the given prefix."""
+    trio = [
+        f"{prefix}/barcodes.tsv.gz",
+        f"{prefix}/features.tsv.gz",
+        f"{prefix}/matrix.mtx.gz",
+    ]
+    swapped = [p for p in rel_paths if p not in trio]
+    swapped.append(f"{prefix}.tar.gz")
+    return swapped
+
+
 class TestValidateProcessedGroup:
     """Tests for validate_processed_group."""
 
@@ -1032,6 +1054,277 @@ class TestValidateProcessedGroup:
         assert row[bai] == "Y"
         assert row[csi] == "Y"
         assert result["process_extra"] == []
+
+    def test_cloud_version_suffix_normalized_to_10_0_0(self):
+        """Cloud build suffix is treated as cellranger-10.0.0."""
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0-5-g8638ac84de",
+            "gex_alerts": [],
+        }
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert not any("9.0.1 or 10.0.0" in e for e in result["errors"])
+
+    def test_cr10_nonflex_crispr_adds_flat_feature_reference(self):
+        """CR 10.0.0 nonflex CRISPR expects flat feature_reference.csv."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(
+            cellranger_expected["cellranger-10.0.0"]["nonflex"]["outs"]
+        )
+        expected_outs.append("feature_reference.csv")
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "5p",
+            "extra": ["CRISPR"],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+
+    def test_cr9_nonflex_crispr_adds_multi_count_feature_reference(self):
+        """CR 9.0.1 nonflex CRISPR still expects multi/count/feature_reference.csv."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(cellranger_expected["cellranger-9.0.1"]["nonflex"]["outs"])
+        expected_outs.append("multi/count/feature_reference.csv")
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "5p",
+            "extra": ["CRISPR"],
+            "software": "cellranger-9.0.1",
+            "sub": "multi",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+
+    def test_cell_annotate_does_not_add_cell_types_to_expected(self):
+        """CellAnnotate no longer adds count/cell_types.tar.gz to expected files."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(cellranger_expected["cellranger-9.0.1"]["nonflex"]["outs"])
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "5p",
+            "extra": ["CellAnnotate"],
+            "software": "cellranger-9.0.1",
+            "sub": "multi",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        missing_keys = {
+            key for row in result["proc_missing"] for key in row if key != "group"
+        }
+        assert "count/cell_types.tar.gz" not in missing_keys
+
+    def test_tar_swap_filtered_feature_bc_matrix_no_missing(self):
+        """Tar present in actual replaces filtered matrix trio in expected."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = _swap_matrix_trio_for_tar(
+            list(cellranger_expected["cellranger-10.0.0"]["flex"]["outs"]),
+            "filtered_feature_bc_matrix",
+        )
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+        assert result["process_extra"] == []
+
+    def test_tar_swap_raw_feature_bc_matrix_no_missing(self):
+        """Tar present in actual replaces raw matrix trio in expected."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = _swap_matrix_trio_for_tar(
+            list(cellranger_expected["cellranger-10.0.0"]["flex"]["outs"]),
+            "raw_feature_bc_matrix",
+        )
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+        assert result["process_extra"] == []
+
+    def test_tar_already_in_expected_no_extra_swap(self):
+        """CR 9.0.1 flex tar files already expected do not trigger spurious missing."""
+        from qa_constants import cellranger_expected
+
+        sample = "SAMPLE1"
+        expected_outs = list(cellranger_expected["cellranger-9.0.1"]["flex"]["outs"])
+        per_samp = list(cellranger_expected["cellranger-9.0.1"]["flex"]["per_sample"])
+        proc_files = _outs_paths(expected_outs)
+        proc_files.extend(f"{_OUTS_BASE}per_sample_outs/{sample}/{e}" for e in per_samp)
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-9.0.1",
+            "sub": "multi",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+        assert result["process_extra"] == []
+
+    def test_tar_swap_updates_per_sample_expected(self):
+        """Per-sample tar replaces sample matrix trio when outs tar triggers swap."""
+        from qa_constants import cellranger_expected
+
+        sample = "SAMPLE1"
+        expected_outs = _swap_matrix_trio_for_tar(
+            list(cellranger_expected["cellranger-10.0.0"]["flex"]["outs"]),
+            "filtered_feature_bc_matrix",
+        )
+        per_samp = list(cellranger_expected["cellranger-10.0.0"]["flex"]["per_sample"])
+        per_samp = _swap_matrix_trio_for_tar(
+            per_samp, "sample_filtered_feature_bc_matrix"
+        )
+        proc_files = _outs_paths(expected_outs)
+        proc_files.extend(f"{_OUTS_BASE}per_sample_outs/{sample}/{e}" for e in per_samp)
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+        assert result["process_extra"] == []
+
+    def test_cellranger_ignore_analysis_file_not_extra(self):
+        """Analysis outputs are ignored when checking for extra files."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(cellranger_expected["cellranger-10.0.0"]["flex"]["outs"])
+        proc_files = _outs_paths(expected_outs)
+        proc_files.append(
+            _OUTS_BASE + "analysis/clustering/gene_expression_graphclust/clusters.csv"
+        )
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["process_extra"] == []
+
+    def test_cellranger_ignore_cloupe_file_not_extra(self):
+        """Cloupe files are ignored when checking for extra files."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(cellranger_expected["cellranger-10.0.0"]["flex"]["outs"])
+        proc_files = _outs_paths(expected_outs)
+        proc_files.append(_OUTS_BASE + "raw_cloupe.cloupe")
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["process_extra"] == []
+
+    def test_cellranger_ignore_cell_types_file_not_extra(self):
+        """Cell types outputs are ignored when checking for extra files."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(cellranger_expected["cellranger-10.0.0"]["flex"]["outs"])
+        proc_files = _outs_paths(expected_outs)
+        proc_files.append(_OUTS_BASE + "count/cell_types.tar.gz")
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["process_extra"] == []
+
+    def test_cellranger_ignore_unknown_file_still_extra(self):
+        """Unrecognized files are still reported as extra."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(cellranger_expected["cellranger-10.0.0"]["flex"]["outs"])
+        proc_files = _outs_paths(expected_outs)
+        proc_files.append(_OUTS_BASE + "some_unknown_report.pdf")
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert "some_unknown_report.pdf" in result["process_extra"]
+
+    def test_probe_set_flex_gene_expression_v1_1_valid(self):
+        """Flex Gene Expression accepts v1.1 probe sets."""
+        report = {
+            "chem": "Flex Gene Expression",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+            "Probe Set Name": "Chromium Human Transcriptome Probe Set v1.1.0",
+        }
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert not any("Invalid probe set" in e for e in result["errors"])
+
+    def test_probe_set_flex_gene_expression_v2_wrong_version(self):
+        """Flex Gene Expression rejects v2.0.0 probe sets."""
+        report = {
+            "chem": "Flex Gene Expression",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+            "Probe Set Name": "Chromium Human Transcriptome Probe Set v2.0.0",
+        }
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert any(
+            "Invalid probe set for this assay version" in e for e in result["errors"]
+        )
+
+    def test_probe_set_gem_x_flex_v2_correct_probe(self):
+        """GEM-X Flex v2 accepts v2.0.0 probe sets."""
+        report = {
+            "chem": "GEM-X Flex v2",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+            "Probe Set Name": "Chromium Human Transcriptome Probe Set v2.0.0",
+        }
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert not any("Invalid probe set" in e for e in result["errors"])
+
+    def test_probe_set_gem_x_flex_v2_wrong_version(self):
+        """GEM-X Flex v2 rejects v1.1 probe sets."""
+        report = {
+            "chem": "GEM-X Flex v2",
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+            "Probe Set Name": "Chromium Human Transcriptome Probe Set v1.1.0",
+        }
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert any(
+            "Invalid probe set for this assay version" in e for e in result["errors"]
+        )
 
 
 class TestBuildWaferFailureStats:
