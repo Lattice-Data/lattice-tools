@@ -33,6 +33,27 @@ FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 QA_FIXTURES_DIR = os.path.join(FIXTURES_DIR, "qa")
 
 
+class TestChemistriesAndConstants:
+    """Tests for qa_constants and related QA configuration."""
+
+    def test_gem_x_flex_v2_in_chemistries(self):
+        from qa_constants import chemistries
+
+        assert chemistries["GEM-X Flex v2"] == "flex"
+
+    def test_cellranger_ignore_contains_expected_strings(self):
+        from qa_constants import cellranger_ignore
+
+        assert "analysis" in cellranger_ignore
+        assert "cloupe" in cellranger_ignore
+        assert "cell_types" in cellranger_ignore
+
+    def test_v2_probe_in_valid_probes(self):
+        from qa_checks import VALID_PROBES
+
+        assert "Chromium Human Transcriptome Probe Set v2.0.0" in VALID_PROBES
+
+
 class TestIsOrderLevelProcessedFolder:
     def test_processed_under_order(self):
         o = "project-cityhub-alpha/NVUS0000000000-17/"
@@ -902,6 +923,16 @@ class TestParseWebSumm:
         """Flex chemistry skips include-introns: incl_int key absent."""
         path = os.path.join(QA_FIXTURES_DIR, "web_summary-10.html")
         assert "incl_int" not in parse_web_summ(path)
+
+    def test_gem_x_flex_v2_skips_incl_int(self):
+        """GEM-X Flex v2 chemistry skips include-introns: incl_int key absent."""
+        path = os.path.join(QA_FIXTURES_DIR, "web_summary-flex-v2.html")
+        report = parse_web_summ(path)
+        assert report["chem"] == "flex"
+        assert "incl_int" not in report
+        assert (
+            report["Probe Set Name"] == "Chromium Human Transcriptome Probe Set v2.0.0"
+        )
 
     def test_cr10_flex_probe_set_name(self):
         path = os.path.join(QA_FIXTURES_DIR, "web_summary-10.html")
