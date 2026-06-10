@@ -14,13 +14,14 @@ import DB2lattice
 class DB2Flattener:
     def __init__(self):
         # Setup connection
-        os.environ['DEMO_KEY'] = 'HKA345NO'
-        os.environ['DEMO_SECRET'] = 'ar6stvgd7epcxirx'
+        os.environ['DEMO_KEY'] = ''
+        os.environ['DEMO_SECRET'] = ''
         os.environ['DEMO_SERVER'] = 'https://lattice-api-dev.demo.lattice-data.org'
         self.connection = DB2lattice.Connection('demo')
         
         # Initialize gatherer
         self.gatherer = DB2Gatherer(self.connection)
+
     
     def flatten_matrix_file_set(self, matrix_file_set_uuid, output_file=None):
         """
@@ -35,27 +36,45 @@ class DB2Flattener:
             print("Error: No data gathered")
             return None
         
-        print("Creating DataFrame...")
+        print("Creating DataFrames...")
         
         # Generate output filename if not provided
         if output_file is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}.csv"
         
-        # Create DataFrame and drop columns with all "n/a"
-        df = self.create_dataframe(complete_data)
-        cols_to_drop = [col for col in df.columns if df[col].eq('n/a').all()]
-        df = df.drop(columns=cols_to_drop)
+        # Create main DataFrame and sample DataFrame
+        main_df, sample_df = self.create_dataframe(complete_data)
         
-        # Save to CSV
-        print(f"Saving to {output_file}...")
-        df.to_csv(output_file, index=False)
+        # Drop columns with all "n/a" from main DataFrame
+        cols_to_drop = [col for col in main_df.columns if main_df[col].eq('n/a').all()]
+        main_df = main_df.drop(columns=cols_to_drop)
         
-        print(f"✅ CSV file created: {output_file}")
-        print(f"   Rows: {len(df)}")
-        print(f"   Columns: {len(df.columns)}")
+        # Save main DataFrame to CSV
+        print(f"Saving main DataFrame to {output_file}...")
+        main_df.to_csv(output_file, index=False)
+        
+        print(f"✅ Main CSV file created: {output_file}")
+        print(f"   Rows: {len(main_df)}")
+        print(f"   Columns: {len(main_df.columns)}")
+        
+        # Save sample DataFrame if it exists
+        if sample_df is not None and not sample_df.empty:
+            sample_output = output_file.replace('.csv', '_samples.csv')
+            
+            # Drop columns with all "n/a" from sample DataFrame
+            sample_cols_to_drop = [col for col in sample_df.columns if sample_df[col].eq('n/a').all()]
+            sample_df = sample_df.drop(columns=sample_cols_to_drop)
+            
+            print(f"Saving sample DataFrame to {sample_output}...")
+            sample_df.to_csv(sample_output, index=True)  # Keep index since it's the sample alias
+            
+            print(f"✅ Sample CSV file created: {sample_output}")
+            print(f"   Rows: {len(sample_df)}")
+            print(f"   Columns: {len(sample_df.columns)}")
         
         return output_file
+        
         
     def _filter_to_gex_libraries(self, libraries):
         """Filter libraries to only include Gene Expression when there are pairs"""
@@ -85,11 +104,12 @@ class DB2Flattener:
         print(f"WARNING: No Gene Expression libraries found, keeping all libraries")
         return libraries
     
+    
     def create_dataframe(self, complete_data):
-        """Create a flattened DataFrame with library or raw matrix file as rows"""
+        """Create main library/raw-file DataFrame and optional sample-indexed DataFrame"""
         libraries_data = complete_data['libraries']
         resolved_controlled_terms = complete_data['resolved_objects'].get('ControlledTerm', {})
-
+    
         # Filter libraries to GEX once upfront
         all_libraries = [lib_data['library'] for lib_data in libraries_data.values()]
         filtered_libraries = self._filter_to_gex_libraries(all_libraries)
@@ -114,11 +134,13 @@ class DB2Flattener:
         print(f"Creating DataFrame by {'raw matrix file' if has_raw_file_samples else 'library'}...")
         
         rows = []
+        sample_df = None
         
         if has_raw_file_samples:
             # Raw matrix file-based rows when samples field is present
             # First, collect all raw matrix files and their associated libraries
             raw_file_to_libraries = {}
+            sample_data = {}  # For sample-indexed DataFrame
             
             for lib_data in filtered_libraries_data.values():
                 library = lib_data['library']
@@ -145,8 +167,61 @@ class DB2Flattener:
                     raw_file_to_libraries[raw_file_id]['all_treatments'].extend(lib_data['treatments'])
                     raw_file_to_libraries[raw_file_id]['all_genetic_modifications'].extend(lib_data['genetic_modifications'])
                     raw_file_to_libraries[raw_file_id]['all_experimental_conditions'].extend(lib_data['experimental_conditions'])
+                    
+                    # Collect sample data for sample-indexed DataFrame
+                    if raw_file.get('samples'):
+                        for sample_ref in raw_file.get('samples', []):
+                            sample_obj = next((s for s in samples if s.get('@id') == sample_ref), None)
+                            if sample_obj:
+                                sample_alias = self._get_clean_alias(sample_obj)
+                                if sample_alias not in sample_data:
+                                    sample_data[sample_alias] = {
+                                        
+                                        'selection_markers': self._join_unique(sample_obj.get('selection_markers', [])),
+                                        
+                                        # Donor information
+                                        'donor_sexes': self._join_unique([d.get('sex', '') for d in lib_data['donors']]),
+                                        'donor_ethnicities': self._join_unique([
+                                            self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
+                                            for d in lib_data['donors']
+                                        ]),
+                                        'donor_taxa': self._join_unique([d.get('taxa', '') for d in lib_data['donors']]),
+                                        
+                                        # Treatment information
+                                        'treatment_terms': self._join_unique([
+                                            self._resolve_controlled_term(t.get('ontological_term'), resolved_controlled_terms)
+                                            for t in lib_data['treatments']
+                                        ]),
+                                        
+                                        # Experimental condition information
+                                        'experimental_condition': self._join_unique([
+                                            e.get('condition') for e in lib_data['experimental_conditions']
+                                        ]),
+                                        'experimental_condition_details': self._join_unique([
+                                            e.get('text_value') for e in lib_data['experimental_conditions']
+                                        ]),
+                                        
+                                        # Genetic modification information
+                                        'genetic_modifications': self._join_unique([
+                                            g.get('strategy') for g in lib_data['genetic_modifications']
+                                        ]),
+                                        
+                                        # Cell type information from this specific sample
+                                        'enriched_cell_types': self._get_cell_types_from_samples([sample_obj], 
+                                                                                                 'enriched_cell_types', 
+                                                                                                 resolved_controlled_terms),
+                                        'depleted_cell_types': self._get_cell_types_from_samples([sample_obj], 
+                                                                                                 'depleted_cell_types', 
+                                                                                                 resolved_controlled_terms),
+                                        'intended_cell_types': self._get_cell_types_from_samples([sample_obj], 
+                                                                                                 'intended_cell_types', 
+                                                                                                 resolved_controlled_terms),
+                                        
+                                        # Disease information from this specific sample
+                                        'diseases': self._get_diseases_from_samples([sample_obj], resolved_controlled_terms),
+                                    }
           
-            # Create one row per raw matrix file
+            # Create one row per raw matrix file for main DataFrame
             for file_data in raw_file_to_libraries.values():
                 raw_file = file_data['raw_file']
                 libraries = file_data['libraries']
@@ -195,11 +270,10 @@ class DB2Flattener:
                     # Experimental condition information
                     'experimental_condition': self._join_unique([e.get('condition') for e in experimental_conditions]),
                     'experimental_condition_details': self._join_unique([e.get('text_value') for e in experimental_conditions]),
-
+    
                     # Genetic modification information
                     'genetic_modifications' : self._join_unique([g.get('strategy') for g in genetic_modifications]),
-
-
+    
                     # Cell type information from samples
                     'enriched_cell_types': self._get_cell_types_from_samples(samples, 
                                                                              'enriched_cell_types', 
@@ -216,6 +290,12 @@ class DB2Flattener:
                 }
                 
                 rows.append(row)
+            
+            # Create sample DataFrame
+            if sample_data:
+                print(f"Creating additional sample-indexed DataFrame with {len(sample_data)} samples...")
+                sample_df = pd.DataFrame.from_dict(sample_data, orient='index')
+                sample_df.index.name = 'sample_alias'
         
         else:
             # Library-based rows when no samples field in raw matrix files
@@ -269,8 +349,8 @@ class DB2Flattener:
                 }
                 
                 rows.append(row)
-
-        return pd.DataFrame(rows)
+    
+        return pd.DataFrame(rows), sample_df
     
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
