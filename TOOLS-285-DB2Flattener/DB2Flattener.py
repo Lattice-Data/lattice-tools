@@ -9,8 +9,7 @@ from DB2Gatherer import DB2Gatherer
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 
-import lattice
-
+import DB2lattice
 
 class DB2Flattener:
     def __init__(self):
@@ -18,7 +17,7 @@ class DB2Flattener:
         os.environ['DEMO_KEY'] = 'HKA345NO'
         os.environ['DEMO_SECRET'] = 'ar6stvgd7epcxirx'
         os.environ['DEMO_SERVER'] = 'https://lattice-api-dev.demo.lattice-data.org'
-        self.connection = lattice.Connection('demo')
+        self.connection = DB2lattice.Connection('demo')
         
         # Initialize gatherer
         self.gatherer = DB2Gatherer(self.connection)
@@ -43,8 +42,10 @@ class DB2Flattener:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}.csv"
         
-        # Create DataFrame
+        # Create DataFrame and drop columns with all "n/a"
         df = self.create_dataframe(complete_data)
+        cols_to_drop = [col for col in df.columns if df[col].eq('n/a').all()]
+        df = df.drop(columns=cols_to_drop)
         
         # Save to CSV
         print(f"Saving to {output_file}...")
@@ -133,7 +134,8 @@ class DB2Flattener:
                             'all_samples': [],
                             'all_donors': [],
                             'all_treatments': [],
-                            'all_genetic_modifications': []
+                            'all_genetic_modifications': [],
+                            'all_experimental_conditions': []
                         }
                     
                     # Add this library's data to the raw matrix file
@@ -142,6 +144,7 @@ class DB2Flattener:
                     raw_file_to_libraries[raw_file_id]['all_donors'].extend(lib_data['donors'])
                     raw_file_to_libraries[raw_file_id]['all_treatments'].extend(lib_data['treatments'])
                     raw_file_to_libraries[raw_file_id]['all_genetic_modifications'].extend(lib_data['genetic_modifications'])
+                    raw_file_to_libraries[raw_file_id]['all_experimental_conditions'].extend(lib_data['experimental_conditions'])
           
             # Create one row per raw matrix file
             for file_data in raw_file_to_libraries.values():
@@ -151,6 +154,7 @@ class DB2Flattener:
                 donors = file_data['all_donors']
                 treatments = file_data['all_treatments']
                 genetic_modifications = file_data['all_genetic_modifications']
+                experimental_conditions = file_data['all_experimental_conditions']
                 
                 # Create sample aliases list
                 sample_aliases = []
@@ -172,6 +176,7 @@ class DB2Flattener:
                     # Sample information
                     'raw_file_samples': self._join_unique(sample_aliases),
                     'library_sample_types': self._join_unique([s.get('@type', [''])[0] for s in samples]),
+                    'selection_markers': self._join_unique([s.get('selection_markders', [''])[0] for s in samples]),
                     
                     # Donor information
                     'donor_sexes': self._join_unique([d.get('sex', '') for d in donors]),
@@ -179,6 +184,7 @@ class DB2Flattener:
                         self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
                         for d in donors
                     ]),
+                    'donor_taxa': self._join_unique([d.get('taxa', '') for d in donors]),
                     
                     # Treatment information
                     'treatment_terms': self._join_unique([
@@ -186,6 +192,14 @@ class DB2Flattener:
                         for t in treatments
                     ]),
                     
+                    # Experimental condition information
+                    'experimental_condition': self._join_unique([e.get('condition') for e in experimental_conditions]),
+                    'experimental_condition_details': self._join_unique([e.get('text_value') for e in experimental_conditions]),
+
+                    # Genetic modification information
+                    'genetic_modifications' : self._join_unique([g.get('strategy') for g in genetic_modifications]),
+
+
                     # Cell type information from samples
                     'enriched_cell_types': self._get_cell_types_from_samples(samples, 
                                                                              'enriched_cell_types', 
@@ -255,7 +269,7 @@ class DB2Flattener:
                 }
                 
                 rows.append(row)
-        
+
         return pd.DataFrame(rows)
     
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):

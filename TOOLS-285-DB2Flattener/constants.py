@@ -19,7 +19,7 @@ FIELD_TYPES = {
     'sex': {'type': 'string'},
     'ethnicity': {'type': 'string'},
     'term_name': {'type': 'string'}, # Don't think this is implemented yet in the API right?
-    'modality': {'type': 'string'},
+    'strategy': {'type': 'string'},
     'ontological_term': {'type': 'string'},
     'controlled_terms': {'type': 'string'},
     'host': {'type': 'string'},
@@ -85,7 +85,7 @@ OBJECT_CONFIG = {
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases'
+            'depleted_cell_types', 'diseases', 'selection_markers'
             
         ],
         'references': {
@@ -107,7 +107,7 @@ OBJECT_CONFIG = {
             'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases', 'host', 'host_tissue'
+            'depleted_cell_types', 'diseases', 'host', 'host_tissue', 'selection_markers'
             
         ],
         'references': {
@@ -131,7 +131,7 @@ OBJECT_CONFIG = {
             'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases', 'intended_cell_types'
+            'depleted_cell_types', 'diseases', 'intended_cell_types', 'selection_markers'
             
         ],
         'references': {
@@ -155,7 +155,7 @@ OBJECT_CONFIG = {
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases'
+            'depleted_cell_types', 'diseases', 'selection_markers'
             
         ],
         'references': {
@@ -280,7 +280,7 @@ OBJECT_CONFIG = {
     
     'genetic_modifications': {
         'api_type': 'GeneticModification',
-        'fields': ['@id', 'modality'],
+        'fields': ['@id', 'strategy'],
         'references': {}
     },
     
@@ -291,7 +291,7 @@ OBJECT_CONFIG = {
     },
     'experimental_conditions': {
         'api_type': 'ExperimentalCondition', 
-        'fields': ['@id', 'condition'],
+        'fields': ['@id', 'condition', 'text_value'],
         'references': {}
     }
     
