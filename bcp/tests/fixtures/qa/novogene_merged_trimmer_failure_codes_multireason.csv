@@ -1,0 +1,7 @@
+read group,code,format,segment,reason,failed read count,total read count
+TT,8,trim TT preamble and native adapter and filter lengths,preamble,rsq file,90182967,369936374
+TT,101,trim TT preamble and native adapter and filter lengths,insert,sequence was too short,4653,369936374
+TT,102,trim TT preamble and native adapter and filter lengths,insert,sequence was too long,2,175771633
+UGAv3-1000,8,10x-multiome-3p-GEX,start,rsq file,25633,32297
+UGAv3-1001,8,10x-multiome-3p-GEX,start,rsq file,1200000,3100000
+UGAv3-1002,8,10x-multiome-3p-GEX,start,rsq file,900000,2800000

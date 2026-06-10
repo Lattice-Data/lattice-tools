@@ -48,8 +48,13 @@ __all__ = [
     "load_files_from_manifest",
     "extract_run_id_from_trimmer_filename",
     "extract_run_id_from_merged_trimmer_path",
+    "trimmer_failure_storage_key",
+    "resolve_wafer_run_id",
     "grab_merged_trimmer_stats",
     "grab_merged_trimmer_q30",
+    "grab_trimmer_failure_codes_wafer_metrics",
+    "merge_partial_wafer_stats",
+    "finalize_merged_wafer_stats",
     "parse_scale_workflow_info",
     "parse_scale_samples_csv",
     "extract_read_indicator",
@@ -512,6 +517,36 @@ def grab_trimmer_stats(
         trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail_pct)
 
 
+def trimmer_failure_storage_key(s3_key: str) -> tuple[str, str | None]:
+    """
+    Return the dict key and RunID for aggregating trimmer-failure_codes CSVs.
+
+    When the filename carries a RunID prefix, stats are stored under that wafer
+    id so multiple wafers per sublibrary (Psomagen, Novogene) do not overwrite
+    each other.  Otherwise fall back to the legacy experiment key
+    ``"/".join(s3_key.split("/")[1:3])``.
+    """
+    exp = "/".join(s3_key.split("/")[1:3])
+    run_id = extract_run_id_from_trimmer_filename(s3_key)
+    storage_key = run_id if run_id is not None else exp
+    return storage_key, run_id
+
+
+def resolve_wafer_run_id(stats_key: str, exp_to_run_map: dict[str, str]) -> str | None:
+    """
+    Map a ``trimmer_failure_stats`` dict key to a wafer RunID.
+
+    Supports legacy experiment keys via ``exp_to_run_map`` and run-id-native
+    keys produced by ``trimmer_failure_storage_key``.
+    """
+    mapped = exp_to_run_map.get(stats_key)
+    if mapped:
+        return mapped
+    if stats_key.isdigit() and 6 <= len(stats_key) <= 8:
+        return stats_key
+    return None
+
+
 def extract_run_id_from_trimmer_filename(filename: str) -> str | None:
     """
     Extract the RunID / wafer identifier from a trimmer statistics filename.
@@ -591,7 +626,10 @@ def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
     Parse a merged trimmer-failure_codes CSV and return TT and RSQ pass/fail stats.
 
     TT (read_group == "TT"):
-      - tt_total_reads: total_read_count from first TT row.
+      - tt_total_reads: max total_read_count across TT rows. Trimmer segments are
+        sequential, so later segments (e.g. "sequence was too long") can report a
+        smaller total; the read-group input total is the maximum and is robust to
+        row ordering.
       - tt_failed_reads: sum of failed_read_count across ALL TT rows (all reasons).
       - tt_pass_reads, tt_fail_pct, tt_pass_pct derived from above.
 
@@ -612,8 +650,9 @@ def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
     if tt.empty:
         return None
 
-    # TT: all rows with read_group == "TT", all reasons
-    tt_total = int(tt["total_read_count"].iloc[0])
+    # TT: all rows with read_group == "TT", all reasons. Use the max total_read_count
+    # (read-group input total); later trimmer segments report smaller totals.
+    tt_total = int(tt["total_read_count"].max())
     if tt_total <= 0:
         return None
     tt_failed = int(tt["failed_read_count"].sum())
@@ -672,6 +711,88 @@ def grab_merged_trimmer_q30(csv_path: str | Path) -> float | None:
     return 100.0 * matched / total
 
 
+def grab_trimmer_failure_codes_wafer_metrics(csv_path: str | Path) -> dict | None:
+    """
+    Parse a per-sample ``trimmer-failure_codes.csv`` for wafer-level RSQ totals.
+
+    Both per-sample and merged files share the same schema and carry a
+    ``read group`` column; they differ in its *values* — merged files contain a
+    real ``TT`` read group, per-sample files key it on the sample barcode.  A
+    file that actually contains a ``TT`` row is a merged file and is delegated to
+    ``grab_merged_trimmer_stats``.  Otherwise we sum absolute RSQ failed/total
+    counts across rows whose ``reason`` is ``rsq file`` (one row per sample),
+    yielding per-sample RSQ totals that callers aggregate by RunID.
+    """
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.replace(" ", "_")
+    if "reason" not in df.columns or "failed_read_count" not in df.columns:
+        return None
+    if "read_group" in df.columns and (df["read_group"] == "TT").any():
+        return grab_merged_trimmer_stats(csv_path)
+
+    rsq_rows = df[df["reason"] == "rsq file"]
+    if rsq_rows.empty or "total_read_count" not in df.columns:
+        return None
+
+    rsq_total = int(rsq_rows["total_read_count"].sum())
+    rsq_failed = int(rsq_rows["failed_read_count"].sum())
+    if rsq_total <= 0:
+        return None
+    rsq_pass = rsq_total - rsq_failed
+
+    return {
+        "rsq_total_reads": rsq_total,
+        "rsq_failed_reads": rsq_failed,
+        "rsq_pass_reads": rsq_pass,
+        "rsq_fail_pct": 100.0 * rsq_failed / rsq_total,
+        "rsq_pass_pct": 100.0 * rsq_pass / rsq_total,
+    }
+
+
+def merge_partial_wafer_stats(
+    merged_wafer_stats: dict[str, Any],
+    run_id: str,
+    partial: dict[str, Any],
+) -> None:
+    """
+    Additively merge per-sample wafer metrics into ``merged_wafer_stats``.
+
+    Per-sample inputs contribute RSQ counts only (never TT — that comes solely
+    from merged files).  RSQ counts are skipped when a merged
+    trimmer-failure_codes file already populated the run (Novogene), so the
+    authoritative merged totals are not double-counted.
+    """
+    existing = merged_wafer_stats.setdefault(run_id, {})
+    from_merged_failure = bool(existing.get("_from_merged_failure_codes"))
+
+    if not from_merged_failure:
+        for field in ("rsq_total_reads", "rsq_failed_reads"):
+            if field in partial and partial[field] is not None:
+                existing[field] = int(existing.get(field, 0)) + int(partial[field])
+
+
+def finalize_merged_wafer_stats(merged_wafer_stats: dict[str, Any]) -> None:
+    """Recompute derived pass/fail percentages for TT and RSQ counts."""
+    for stats in merged_wafer_stats.values():
+        tt_total = stats.get("tt_total_reads")
+        tt_failed = stats.get("tt_failed_reads")
+        if tt_total is not None and tt_total > 0 and tt_failed is not None:
+            tt_pass = tt_total - tt_failed
+            stats["tt_pass_reads"] = tt_pass
+            stats["tt_fail_pct"] = 100.0 * tt_failed / tt_total
+            stats["tt_pass_pct"] = 100.0 * tt_pass / tt_total
+
+        rsq_total = stats.get("rsq_total_reads")
+        rsq_failed = stats.get("rsq_failed_reads")
+        if rsq_total is not None and rsq_total > 0 and rsq_failed is not None:
+            rsq_pass = rsq_total - rsq_failed
+            stats["rsq_pass_reads"] = rsq_pass
+            stats["rsq_fail_pct"] = 100.0 * rsq_failed / rsq_total
+            stats["rsq_pass_pct"] = 100.0 * rsq_pass / rsq_total
+
+        stats.pop("_from_merged_failure_codes", None)
+
+
 def ingest_merged_trimmer_from_s3(
     bucket: str,
     key: str,
@@ -705,6 +826,7 @@ def ingest_merged_trimmer_from_s3(
             if merged:
                 merged_wafer_stats[run_id] = merged_wafer_stats.get(run_id, {})
                 merged_wafer_stats[run_id].update(merged)
+                merged_wafer_stats[run_id]["_from_merged_failure_codes"] = True
         else:
             q30 = grab_merged_trimmer_q30(local)
             if q30 is not None:

@@ -1,0 +1,9 @@
+read group,code,format,segment,reason,failed read count,total read count
+Z5019,8,10x flex V2 without R1 processing,start,rsq file,3261649289,10695752970
+Z5019,203,10x flex V2 without R1 processing,R1_T,no match,2861,10695752970
+Z5019,401,10x flex V2 without R1 processing,UMI_probe,sequence was too short,27571,10695752970
+Z5019,503,10x flex V2 without R1 processing,ConstantSequence,no match,12131021,10695752970
+Z5019,601,10x flex V2 without R1 processing,Probe,sequence was too short,100663226,10695752970
+Z5019,602,10x flex V2 without R1 processing,Probe,sequence was too long,112073806,10695752970
+Z5019,603,10x flex V2 without R1 processing,Probe,no match,128,10695752970
+Z5019,703,10x flex V2 without R1 processing,Read 2S,no match,73120475,10695752970

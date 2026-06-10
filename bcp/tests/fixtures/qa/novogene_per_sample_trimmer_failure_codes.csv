@@ -1,0 +1,11 @@
+read group,code,format,segment,reason,failed read count,total read count
+Z0001,8,10x-multiome-3p-GEX,start,rsq file,215538084,499361927
+Z0001,103,10x-multiome-3p-GEX,Illumina R1 adapter,no match,44571,499361927
+Z0001,201,10x-multiome-3p-GEX,CBC,sequence was too short,1767,499361927
+Z0001,203,10x-multiome-3p-GEX,CBC,no match,17494549,499361927
+Z0001,207,10x-multiome-3p-GEX,CBC,ambiguous match,197238,499361927
+Z0001,302,10x-multiome-3p-GEX,UMI,sequence was too long,4017164,499361927
+Z0001,401,10x-multiome-3p-GEX,polyT,sequence was too short,161,499361927
+Z0001,403,10x-multiome-3p-GEX,polyT,no match,4218271,499361927
+Z0001,501,10x-multiome-3p-GEX,low quality bases,sequence was too short,1473,499361927
+Z0001,601,10x-multiome-3p-GEX,insert,sequence was too short,698184,499361927
