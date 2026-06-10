@@ -6,7 +6,7 @@ import os
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 
-import lattice
+import DB2lattice
 
 
 class DB2Gatherer:
@@ -53,7 +53,7 @@ class DB2Gatherer:
         # Single request if under limit
         if len(filter_url) <= MAX_URL_LENGTH:
             try:
-                results = lattice.get_report(
+                results = DB2lattice.get_report(
                     obj_type=obj_type,
                     filter_url=filter_url,
                     field_lst=config['fields'],
@@ -74,7 +74,7 @@ class DB2Gatherer:
             chunk_filter = '&' + '&'.join([f"uuid={oid}" for oid in chunk_ids])
             
             try:
-                chunk_results = lattice.get_report(
+                chunk_results = DB2lattice.get_report(
                     obj_type=obj_type,
                     filter_url=chunk_filter,
                     field_lst=config['fields'],
