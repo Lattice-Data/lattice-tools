@@ -626,7 +626,10 @@ def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
     Parse a merged trimmer-failure_codes CSV and return TT and RSQ pass/fail stats.
 
     TT (read_group == "TT"):
-      - tt_total_reads: total_read_count from first TT row.
+      - tt_total_reads: max total_read_count across TT rows. Trimmer segments are
+        sequential, so later segments (e.g. "sequence was too long") can report a
+        smaller total; the read-group input total is the maximum and is robust to
+        row ordering.
       - tt_failed_reads: sum of failed_read_count across ALL TT rows (all reasons).
       - tt_pass_reads, tt_fail_pct, tt_pass_pct derived from above.
 
@@ -647,8 +650,9 @@ def grab_merged_trimmer_stats(csv_path: str | Path) -> dict | None:
     if tt.empty:
         return None
 
-    # TT: all rows with read_group == "TT", all reasons
-    tt_total = int(tt["total_read_count"].iloc[0])
+    # TT: all rows with read_group == "TT", all reasons. Use the max total_read_count
+    # (read-group input total); later trimmer segments report smaller totals.
+    tt_total = int(tt["total_read_count"].max())
     if tt_total <= 0:
         return None
     tt_failed = int(tt["failed_read_count"].sum())
