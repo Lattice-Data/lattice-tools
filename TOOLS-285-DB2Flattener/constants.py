@@ -19,7 +19,7 @@ FIELD_TYPES = {
     'sex': {'type': 'string'},
     'ethnicity': {'type': 'string'},
     'term_name': {'type': 'string'}, # Don't think this is implemented yet in the API right?
-    'modality': {'type': 'string'},
+    'strategy': {'type': 'string'},
     'ontological_term': {'type': 'string'},
     'controlled_terms': {'type': 'string'},
     'host': {'type': 'string'},
@@ -280,7 +280,7 @@ OBJECT_CONFIG = {
     
     'genetic_modifications': {
         'api_type': 'GeneticModification',
-        'fields': ['@id', 'modality'],
+        'fields': ['@id', 'strategy'],
         'references': {}
     },
     

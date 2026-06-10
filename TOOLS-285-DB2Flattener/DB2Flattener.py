@@ -11,7 +11,6 @@ sys.path.append(parent_dir)
 
 import DB2lattice
 
-
 class DB2Flattener:
     def __init__(self):
         # Setup connection
@@ -196,6 +195,9 @@ class DB2Flattener:
                     # Experimental condition information
                     'experimental_condition': self._join_unique([e.get('condition') for e in experimental_conditions]),
                     'experimental_condition_details': self._join_unique([e.get('text_value') for e in experimental_conditions]),
+
+                    # Genetic modification information
+                    'genetic_modifications' : self._join_unique([g.get('strategy') for g in genetic_modifications]),
 
 
                     # Cell type information from samples
