@@ -436,7 +436,7 @@ class DB2Gatherer:
         # Step 7: Resolve all references from samples
         self.resolve_references_for_samples(all_samples)
         
-        # Step 8: Structure data by library (modified to include raw matrix files)
+        # Step 8: Structure data by library
         libraries_data = {}
     
         for library in all_libraries:
@@ -444,7 +444,7 @@ class DB2Gatherer:
             libraries_data[lib_uuid] = {
                 'library': library,
                 'samples': [],
-                'raw_matrix_files': [],  # Add this new field
+                'raw_matrix_files': [],
                 'donors': [],
                 'treatments': [],
                 'controlled_terms': [],
@@ -486,52 +486,39 @@ class DB2Gatherer:
         for raw_file in raw_matrix_files:
             matched_libraries = []
             
-            # Method 1: Use raw matrix file's samples field if available
-            file_sample_refs = raw_file.get('samples', [])
-            if file_sample_refs:
-                # Find ALL libraries that have these sample(s)
-                for lib_uuid, lib_data in libraries_data.items():
-                    lib_samples = [sample['@id'] for sample in lib_data['samples']]
-                    
-                    # Check if this library has all the samples from the raw matrix file
-                    if all(sample_ref in lib_samples for sample_ref in file_sample_refs):
-                        matched_libraries.append(lib_uuid)
-            
-            # Method 2: If no samples field, trace through data flow
-            else:
-                # Raw matrix file -> sequence files (via derived_from)
-                derived_from = raw_file.get('derived_from', [])
-                for seq_ref in derived_from:
-                    if isinstance(seq_ref, dict):
-                        seq_id = seq_ref.get('@id', '')
-                    else:
-                        seq_id = seq_ref
-                    
-                    # Find the sequence file object
-                    seq_file = self.resolved_objects.get('SequenceFile', {}).get(seq_id)
-                    if seq_file:
-                        # Sequence file -> file sets (via sequence_file_sets)
-                        file_set_refs = seq_file.get('sequence_file_sets', [])
-                        for fs_ref in file_set_refs:
-                            if isinstance(fs_ref, dict):
-                                fs_id = fs_ref.get('@id', '')
-                            else:
-                                fs_id = fs_ref
-                            
-                            # Find the file set object
-                            file_set = self.resolved_objects.get('SequenceFileSet', {}).get(fs_id)
-                            if file_set:
-                                # File set -> library
-                                library_ref = file_set.get('library', '')
-                                if library_ref:
-                                    if isinstance(library_ref, dict):
-                                        lib_id = library_ref.get('@id', '')
-                                    else:
-                                        lib_id = library_ref
-                                    
-                                    lib_uuid = self.extract_uuid_from_id(lib_id)
-                                    if lib_uuid in libraries_data and lib_uuid not in matched_libraries:
-                                        matched_libraries.append(lib_uuid)
+            # Raw matrix file -> sequence files (via derived_from)
+            derived_from = raw_file.get('derived_from', [])
+            for seq_ref in derived_from:
+                if isinstance(seq_ref, dict):
+                    seq_id = seq_ref.get('@id', '')
+                else:
+                    seq_id = seq_ref
+                
+                # Find the sequence file object
+                seq_file = self.resolved_objects.get('SequenceFile', {}).get(seq_id)
+                if seq_file:
+                    # Sequence file -> file sets (via sequence_file_sets)
+                    file_set_refs = seq_file.get('sequence_file_sets', [])
+                    for fs_ref in file_set_refs:
+                        if isinstance(fs_ref, dict):
+                            fs_id = fs_ref.get('@id', '')
+                        else:
+                            fs_id = fs_ref
+                        
+                        # Find the file set object
+                        file_set = self.resolved_objects.get('SequenceFileSet', {}).get(fs_id)
+                        if file_set:
+                            # File set -> library
+                            library_ref = file_set.get('library', '')
+                            if library_ref:
+                                if isinstance(library_ref, dict):
+                                    lib_id = library_ref.get('@id', '')
+                                else:
+                                    lib_id = library_ref
+                                
+                                lib_uuid = self.extract_uuid_from_id(lib_id)
+                                if lib_uuid in libraries_data and lib_uuid not in matched_libraries:
+                                    matched_libraries.append(lib_uuid)
             
             # Add the raw matrix file to ALL matched libraries
             for lib_uuid in matched_libraries:
