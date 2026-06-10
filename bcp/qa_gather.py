@@ -21,9 +21,7 @@ from qa_mods import (
     finalize_merged_wafer_stats,
     grab_trimmer_stats,
     grab_trimmer_failure_codes_wafer_metrics,
-    grab_sample_trimmer_stats_metrics,
     ingest_merged_trimmer_from_s3,
-    is_trimmer_stats_basename,
     merge_partial_wafer_stats,
     trimmer_failure_storage_key,
     is_order_level_processed_folder,
@@ -237,8 +235,6 @@ class QADataGatherer:
             ("trimmer-failure_codes.csv", "trimmer-failure-codes.csv")
         ) and not rf.endswith("merged_trimmer-failure_codes.csv"):
             self._download_trimmer_failure_codes(rf)
-        elif self._is_per_sample_trimmer_stats_file(rf):
-            self._download_per_sample_trimmer_stats(rf)
         elif _is_merged_trimmer_file(rf):
             ingest_merged_trimmer_from_s3(
                 self.bucket, rf, self._data.merged_wafer_stats, self.s3
@@ -485,14 +481,6 @@ class QADataGatherer:
             return f"s3://{self.bucket}/{data_key}"
         return data_key.split("/")[-1]
 
-    def _is_per_sample_trimmer_stats_file(self, rf: str) -> bool:
-        name = rf.split("/")[-1]
-        if _is_merged_trimmer_file(rf):
-            return False
-        return is_trimmer_stats_basename(
-            name, allow_truncated=self.ctx.allow_truncated_stats_name
-        )
-
     def _download_trimmer_failure_codes(self, rf: str) -> None:
         storage_key, run_id = trimmer_failure_storage_key(rf)
         if run_id is not None:
@@ -510,22 +498,6 @@ class QADataGatherer:
                     merge_partial_wafer_stats(
                         self._data.merged_wafer_stats, run_id, rsq_metrics
                     )
-        finally:
-            Path(local).unlink(missing_ok=True)
-
-    def _download_per_sample_trimmer_stats(self, rf: str) -> None:
-        run_id = trimmer_failure_storage_key(rf)[1]
-        if run_id is None:
-            return
-        with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
-            local = tf.name
-        try:
-            self.s3.download_file(self.bucket, rf, local)
-            metrics = grab_sample_trimmer_stats_metrics(local)
-            if metrics:
-                merge_partial_wafer_stats(
-                    self._data.merged_wafer_stats, run_id, metrics
-                )
         finally:
             Path(local).unlink(missing_ok=True)
 

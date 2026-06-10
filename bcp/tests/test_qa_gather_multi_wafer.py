@@ -197,8 +197,8 @@ class TestGatherNovogeneMultiWaferWithMerged:
 
 
 class TestGatherPsomagenPerSampleTrimmerStats:
-    def test_per_sample_files_populate_rsq_and_sample_q30_but_no_tt(self):
-        """Psomagen (no merged files): RSQ + sample Q30 populate; TT stays blank."""
+    def test_per_sample_files_populate_rsq_but_no_tt(self):
+        """Psomagen (no merged files): RSQ populates; TT and Q30 stay blank."""
         flex_path = os.path.join(
             QA_FIXTURES_DIR, "psomagen_trimmer_stats_flex_v2_sample.csv"
         )
@@ -247,10 +247,8 @@ class TestGatherPsomagenPerSampleTrimmerStats:
         assert stats["rsq_fail_pct"] == pytest.approx(
             100.0 * 3261649289 / 10695752970, rel=1e-9
         )
-        # Sample Q30 pooled from the Read 2S segment (flex V2).
-        assert stats["sample_q30_pct"] == pytest.approx(
-            100.0 * 148512897203 / (148512897203 + 73120475), rel=1e-9
-        )
+        # Per-sample trimmer-stats.csv is no longer parsed for Q30.
+        assert "sample_q30_pct" not in stats
 
     def test_shared_run_id_aggregates_rsq_across_sublibraries(self):
         """A wafer reused across libraries sums its per-sample RSQ totals."""
