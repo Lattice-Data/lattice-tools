@@ -20,6 +20,9 @@ NOVO_SAMPLE_FAILURE = os.path.join(
 NOVO_MERGED_FAILURE = os.path.join(
     QA_FIXTURES_DIR, "novogene_merged_trimmer_failure_codes_sample.csv"
 )
+NOVO_MERGED_MULTIREASON = os.path.join(
+    QA_FIXTURES_DIR, "novogene_merged_trimmer_failure_codes_multireason.csv"
+)
 
 
 class TestGrabTrimmerFailureCodesWaferMetrics:
@@ -58,6 +61,36 @@ class TestGrabTrimmerFailureCodesWaferMetrics:
         assert result is not None
         assert result["tt_total_reads"] == 269168026
         assert result["tt_failed_reads"] == 31013293 + 7854
+
+    def test_merged_multireason_tt_sums_all_reasons_uses_rsq_total(self):
+        """TT block with rsq file + too short + too long (divergent total).
+
+        tt_total must come from the read-group total (the rsq-file row), not the
+        smaller 'too long' segment total; tt_failed sums failures across all
+        three TT reasons.
+        """
+        result = grab_trimmer_failure_codes_wafer_metrics(NOVO_MERGED_MULTIREASON)
+        assert result is not None
+        assert result["tt_total_reads"] == 369936374
+        assert result["tt_failed_reads"] == 90182967 + 4653 + 2
+        # RSQ totals pool every rsq-file row (TT + per-sample groups).
+        assert result["rsq_total_reads"] == 369936374 + 32297 + 3100000 + 2800000
+        assert result["rsq_failed_reads"] == 90182967 + 25633 + 1200000 + 900000
+
+    def test_merged_tt_total_robust_to_row_ordering(self, tmp_path):
+        """tt_total uses the max TT total even if the smaller segment is first."""
+        path = tmp_path / "merged.csv"
+        path.write_text(
+            "read group,code,format,segment,reason,failed read count,total read count\n"
+            # 'too long' (smaller total) listed FIRST to defeat positional logic.
+            "TT,102,trim,insert,sequence was too long,2,175771633\n"
+            "TT,8,trim,preamble,rsq file,90182967,369936374\n"
+            "TT,101,trim,insert,sequence was too short,4653,369936374\n"
+        )
+        result = grab_trimmer_failure_codes_wafer_metrics(str(path))
+        assert result is not None
+        assert result["tt_total_reads"] == 369936374
+        assert result["tt_failed_reads"] == 2 + 90182967 + 4653
 
 
 class TestMergePartialWaferStats:
