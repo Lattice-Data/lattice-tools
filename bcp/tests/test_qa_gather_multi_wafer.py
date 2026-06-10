@@ -197,13 +197,18 @@ class TestGatherNovogeneMultiWaferWithMerged:
 
 
 class TestGatherPsomagenPerSampleTrimmerStats:
-    def test_trimmer_stats_csv_populates_tt_and_q30_without_merged_files(self):
-        """Per-sample trimmer-stats.csv fills TT totals and pooled Q30 for Psomagen."""
+    def test_per_sample_files_populate_rsq_and_sample_q30_but_no_tt(self):
+        """Psomagen (no merged files): RSQ + sample Q30 populate; TT stays blank."""
         flex_path = os.path.join(
             QA_FIXTURES_DIR, "psomagen_trimmer_stats_flex_v2_sample.csv"
         )
+        failure_path = os.path.join(
+            QA_FIXTURES_DIR, "psomagen_per_sample_trimmer_failure_codes.csv"
+        )
         with open(flex_path) as fh:
             flex_csv = fh.read()
+        with open(failure_path) as fh:
+            failure_csv = fh.read()
 
         stats_key = (
             "synthetic-project-alpha/SYN00000001/SYNLIB_L10/raw/"
@@ -226,7 +231,7 @@ class TestGatherPsomagenPerSampleTrimmerStats:
         ]
         file_contents = {
             stats_key: flex_csv,
-            failure_key: TRIMMER_CSV,
+            failure_key: failure_csv,
         }
         ctx = _psom_ctx()
         s3 = MockS3Client(keys=keys, file_contents=file_contents)
@@ -234,12 +239,46 @@ class TestGatherPsomagenPerSampleTrimmerStats:
 
         assert "441010" in data.merged_wafer_stats
         stats = data.merged_wafer_stats["441010"]
-        assert stats["tt_total_reads"] == 10695752970
-        assert stats["tt_failed_reads"] == 3559668377
-        assert stats["rsq_total_reads"] == 1000
-        assert stats["tt_q30_pct"] == pytest.approx(
+        # No TT: whole-sample volume must not be mislabeled as template reads.
+        assert "tt_total_reads" not in stats
+        # RSQ comes from the per-sample failure_codes rsq-file row.
+        assert stats["rsq_total_reads"] == 10695752970
+        assert stats["rsq_failed_reads"] == 3261649289
+        assert stats["rsq_fail_pct"] == pytest.approx(
+            100.0 * 3261649289 / 10695752970, rel=1e-9
+        )
+        # Sample Q30 pooled from the Read 2S segment (flex V2).
+        assert stats["sample_q30_pct"] == pytest.approx(
             100.0 * 148512897203 / (148512897203 + 73120475), rel=1e-9
         )
+
+    def test_shared_run_id_aggregates_rsq_across_sublibraries(self):
+        """A wafer reused across libraries sums its per-sample RSQ totals."""
+        failure_path = os.path.join(
+            QA_FIXTURES_DIR, "psomagen_per_sample_trimmer_failure_codes.csv"
+        )
+        with open(failure_path) as fh:
+            failure_csv = fh.read()
+
+        base = "synthetic-project-alpha/SYN00000001"
+        f_l01 = f"{base}/SYNLIB_L01/raw/441049-SYNLIB_L01_CRI-Z5019-CACATCACA_trimmer-failure_codes.csv"
+        f_l02 = f"{base}/SYNLIB_L02/raw/441049-SYNLIB_L02_CRI-Z5019-CACATCACA_trimmer-failure_codes.csv"
+        keys = [
+            f"{base}/",
+            f"{base}/SYNLIB_L01/",
+            f"{base}/SYNLIB_L02/",
+            f_l01,
+            f_l02,
+        ]
+        file_contents = {f_l01: failure_csv, f_l02: failure_csv}
+        ctx = _psom_ctx()
+        s3 = MockS3Client(keys=keys, file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+
+        assert "441049" in data.merged_wafer_stats
+        # Same wafer in two sublibraries → RSQ totals summed.
+        assert data.merged_wafer_stats["441049"]["rsq_total_reads"] == 2 * 10695752970
+        assert data.merged_wafer_stats["441049"]["rsq_failed_reads"] == 2 * 3261649289
 
 
 class TestBuildWaferFailureStatsRunIdKeys:

@@ -713,42 +713,29 @@ _Q30_SEGMENT_LABELS = ("low quality bases", "Read 2S")
 
 def grab_sample_trimmer_stats_metrics(csv_path: str | Path) -> dict | None:
     """
-    Parse a per-sample ``trimmer-stats.csv`` and return wafer-level read metrics.
+    Parse a per-sample ``trimmer-stats.csv`` and return pooling-ready Q30 inputs.
 
-    Uses ``num input reads`` / ``num failed reads`` (identical on every segment
-    row) for TT pass/fail totals.  Q30 pooling components come from the first
-    matching segment in order: ``low quality bases`` (standard 10x) then
-    ``Read 2S`` (10x flex V2 and similar layouts without a TT read group).
+    Per-sample files have no ``TT`` (template) read group — ``read group`` is the
+    sample barcode and ``num input reads`` is the *whole-sample* volume, not a TT
+    subset.  We therefore do NOT derive any ``tt_*`` counts here (TT is only
+    available from merged files).  We only extract Q30 pooling components from the
+    first matching segment: ``low quality bases`` (standard 10x) then ``Read 2S``
+    (10x flex V2 layouts without a ``low quality bases`` segment).
 
     Returns:
-        Dict with tt counts and optional ``_q30_matched_bases`` /
-        ``_q30_failures`` for downstream pooling, or None if unreadable.
+        Dict with ``_sample_q30_matched_bases`` / ``_sample_q30_failures`` for
+        downstream pooling, or None if the file is unreadable or has no usable
+        Q30 segment.
     """
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.replace(" ", "_")
     required = {
-        "num_input_reads",
-        "num_failed_reads",
         "segment_label",
         "num_matched_bases",
         "num_failures",
     }
     if not required.issubset(df.columns):
         return None
-
-    tt_total = int(df["num_input_reads"].iloc[0])
-    tt_failed = int(df["num_failed_reads"].iloc[0])
-    if tt_total <= 0:
-        return None
-    tt_pass = tt_total - tt_failed
-
-    result: dict[str, Any] = {
-        "tt_total_reads": tt_total,
-        "tt_failed_reads": tt_failed,
-        "tt_pass_reads": tt_pass,
-        "tt_fail_pct": 100.0 * tt_failed / tt_total,
-        "tt_pass_pct": 100.0 * tt_pass / tt_total,
-    }
 
     for label in _Q30_SEGMENT_LABELS:
         segment = df[df["segment_label"] == label]
@@ -759,26 +746,31 @@ def grab_sample_trimmer_stats_metrics(csv_path: str | Path) -> dict | None:
         failures = int(row["num_failures"])
         if matched + failures <= 0:
             continue
-        result["_q30_matched_bases"] = matched
-        result["_q30_failures"] = failures
-        break
+        return {
+            "_sample_q30_matched_bases": matched,
+            "_sample_q30_failures": failures,
+        }
 
-    return result
+    return None
 
 
 def grab_trimmer_failure_codes_wafer_metrics(csv_path: str | Path) -> dict | None:
     """
-    Parse a per-sample or merged ``trimmer-failure_codes.csv`` for RSQ totals.
+    Parse a per-sample ``trimmer-failure_codes.csv`` for wafer-level RSQ totals.
 
-    Files with a ``read_group`` column delegate to ``grab_merged_trimmer_stats``.
-    Legacy per-sample files (no read group) sum absolute RSQ failed/total counts
-    across rows whose ``reason`` is ``rsq file``.
+    Both per-sample and merged files share the same schema and carry a
+    ``read group`` column; they differ in its *values* — merged files contain a
+    real ``TT`` read group, per-sample files key it on the sample barcode.  A
+    file that actually contains a ``TT`` row is a merged file and is delegated to
+    ``grab_merged_trimmer_stats``.  Otherwise we sum absolute RSQ failed/total
+    counts across rows whose ``reason`` is ``rsq file`` (one row per sample),
+    yielding per-sample RSQ totals that callers aggregate by RunID.
     """
     df = pd.read_csv(csv_path)
     df.columns = df.columns.str.replace(" ", "_")
     if "reason" not in df.columns or "failed_read_count" not in df.columns:
         return None
-    if "read_group" in df.columns:
+    if "read_group" in df.columns and (df["read_group"] == "TT").any():
         return grab_merged_trimmer_stats(csv_path)
 
     rsq_rows = df[df["reason"] == "rsq file"]
@@ -808,31 +800,26 @@ def merge_partial_wafer_stats(
     """
     Additively merge per-sample wafer metrics into ``merged_wafer_stats``.
 
-    Skips TT/RSQ count fields when merged trimmer-failure_codes already
-    populated the run (Novogene).  Always pools Q30 components unless
-    ``tt_q30_pct`` is already set from a merged trimmer-stats file.
+    Per-sample inputs contribute RSQ counts and pooled Q30 components only (never
+    TT — that comes solely from merged files).  RSQ counts are skipped when a
+    merged trimmer-failure_codes file already populated the run (Novogene), so
+    the authoritative merged totals are not double-counted.
     """
     existing = merged_wafer_stats.setdefault(run_id, {})
     from_merged_failure = bool(existing.get("_from_merged_failure_codes"))
 
     if not from_merged_failure:
-        for field in (
-            "tt_total_reads",
-            "tt_failed_reads",
-            "rsq_total_reads",
-            "rsq_failed_reads",
-        ):
+        for field in ("rsq_total_reads", "rsq_failed_reads"):
             if field in partial and partial[field] is not None:
                 existing[field] = int(existing.get(field, 0)) + int(partial[field])
 
-    if "tt_q30_pct" not in existing:
-        for field in ("_q30_matched_bases", "_q30_failures"):
-            if field in partial and partial[field] is not None:
-                existing[field] = int(existing.get(field, 0)) + int(partial[field])
+    for field in ("_sample_q30_matched_bases", "_sample_q30_failures"):
+        if field in partial and partial[field] is not None:
+            existing[field] = int(existing.get(field, 0)) + int(partial[field])
 
 
 def finalize_merged_wafer_stats(merged_wafer_stats: dict[str, Any]) -> None:
-    """Recompute derived pass/fail percentages and pooled Q30 after aggregation."""
+    """Recompute derived pass/fail percentages and pooled per-sample Q30."""
     for stats in merged_wafer_stats.values():
         tt_total = stats.get("tt_total_reads")
         tt_failed = stats.get("tt_failed_reads")
@@ -850,12 +837,12 @@ def finalize_merged_wafer_stats(merged_wafer_stats: dict[str, Any]) -> None:
             stats["rsq_fail_pct"] = 100.0 * rsq_failed / rsq_total
             stats["rsq_pass_pct"] = 100.0 * rsq_pass / rsq_total
 
-        q30_matched = stats.pop("_q30_matched_bases", None)
-        q30_failures = stats.pop("_q30_failures", None)
+        q30_matched = stats.pop("_sample_q30_matched_bases", None)
+        q30_failures = stats.pop("_sample_q30_failures", None)
         if q30_matched is not None and q30_failures is not None:
             q30_denom = q30_matched + q30_failures
-            if q30_denom > 0 and "tt_q30_pct" not in stats:
-                stats["tt_q30_pct"] = 100.0 * q30_matched / q30_denom
+            if q30_denom > 0:
+                stats["sample_q30_pct"] = 100.0 * q30_matched / q30_denom
 
         stats.pop("_from_merged_failure_codes", None)
 
