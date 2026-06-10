@@ -28,6 +28,7 @@ from qa_mods import (
     parse_raw_filename,
     raw_expected,
     raw_optional,
+    resolve_wafer_run_id,
 )
 
 
@@ -912,29 +913,28 @@ def build_wafer_failure_stats(
     exp_to_run_map: dict[str, str],
 ) -> dict[str, dict[str, list[float]]]:
     """
-    Aggregate experiment-level trimmer failure statistics into wafer-level stats.
+    Aggregate trimmer failure statistics into wafer-level stats keyed by RunID.
 
-    Existing logic accumulates trimmer_failure_stats keyed by an experiment
-    identifier (typically "/".join(s3_key.split("/")[1:3]) in the notebook).
-    For wafer-level QA, we instead want to summarize by RunID (wafer id).
-
-    This helper is pure: callers provide the mapping from experiment id to
-    RunID, which is constructed at data-gathering time (e.g. when iterating
-    over S3 keys).
+    ``trimmer_failure_stats`` may be keyed either by legacy experiment id
+    (``"/".join(s3_key.split("/")[1:3])``) or directly by RunID when the
+    gatherer uses ``trimmer_failure_storage_key`` (multiple wafers per
+    sublibrary).
 
     Args:
         trimmer_failure_stats:
-            Dict mapping experiment id -> {"rsq": [...], "trimmer_fail": [...]}.
+            Dict mapping stats key -> {"rsq": [...], "trimmer_fail": [...]}.
         exp_to_run_map:
-            Dict mapping the same experiment ids to RunID strings.
+            Dict mapping legacy experiment ids (and optionally RunIDs) to RunID
+            strings. Used via ``resolve_wafer_run_id`` for backward
+            compatibility.
 
     Returns:
         Dict mapping RunID (wafer) -> {"rsq": [...], "trimmer_fail": [...]}.
     """
     wafer_failure_stats: dict[str, dict[str, list[float]]] = {}
 
-    for exp, stats in trimmer_failure_stats.items():
-        run_id = exp_to_run_map.get(exp)
+    for stats_key, stats in trimmer_failure_stats.items():
+        run_id = resolve_wafer_run_id(stats_key, exp_to_run_map)
         if not run_id:
             continue
         if run_id not in wafer_failure_stats:

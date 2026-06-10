@@ -1,0 +1,10 @@
+read group,format,segment index,segment label,is required,is trimmed,num input reads,num prefiltered reads,num failed reads,num discarded reads,num filtered reads,num trimmed reads,num failures,num matches,num matched bases
+Z5019,10x flex V2 without R1 processing,0,start,False,True,10695752970,0,3559668377,0,0,7136084593,3261649289,16559950,56079866
+Z5019,10x flex V2 without R1 processing,1,Illumina R1 adapter,False,True,10695752970,0,3559668377,0,0,7136084593,0,1787457,36919573
+Z5019,10x flex V2 without R1 processing,2,R1_T,True,True,10695752970,0,3559668377,0,0,7136084593,2861,7134297136,7134297136
+Z5019,10x flex V2 without R1 processing,3,CBC,False,True,10695752970,0,3559668377,0,0,7136084593,0,6672047782,106623836772
+Z5019,10x flex V2 without R1 processing,4,UMI_probe,True,True,10695752970,0,3559668377,0,0,7136084593,27571,7136084593,260000194404
+Z5019,10x flex V2 without R1 processing,5,ConstantSequence,True,True,10695752970,0,3559668377,0,0,7136084593,12131021,7136084593,206950690719
+Z5019,10x flex V2 without R1 processing,6,Probe,True,False,10695752970,0,3559668377,0,0,7136084593,212737160,7136084593,357261239840
+Z5019,10x flex V2 without R1 processing,7,Read 2S,True,True,10695752970,0,3559668377,0,0,7136084593,73120475,7136084593,148512897203
+Z5019,10x flex V2 without R1 processing,8,end,False,True,10695752970,0,3559668377,0,0,7136084593,0,6985003682,73200675712
