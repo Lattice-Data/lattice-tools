@@ -14,6 +14,9 @@ QA_FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "qa")
 PSOM_SAMPLE_FAILURE = os.path.join(
     QA_FIXTURES_DIR, "psomagen_per_sample_trimmer_failure_codes.csv"
 )
+PSOM_SAMPLE_FAILURE_CRISPR = os.path.join(
+    QA_FIXTURES_DIR, "psomagen_per_sample_trimmer_failure_codes_crispr.csv"
+)
 NOVO_SAMPLE_FAILURE = os.path.join(
     QA_FIXTURES_DIR, "novogene_per_sample_trimmer_failure_codes.csv"
 )
@@ -46,6 +49,19 @@ class TestGrabTrimmerFailureCodesWaferMetrics:
         assert result["rsq_total_reads"] == 10695752970
         assert result["rsq_failed_reads"] == 3261649289
         # Whole-sample volume must NOT be mislabeled as TT.
+        assert "tt_total_reads" not in result
+
+    def test_psomagen_crispr_format_rsq_ignores_other_reasons(self):
+        """10x_flex_CRISPR per-sample file: only the rsq-file row drives RSQ.
+
+        Non-rsq reasons (no match, ambiguous match, too short/long) must not
+        affect the RSQ totals, regardless of trimmer format.
+        """
+        result = grab_trimmer_failure_codes_wafer_metrics(PSOM_SAMPLE_FAILURE_CRISPR)
+        assert result is not None
+        assert result["rsq_total_reads"] == 621418633
+        assert result["rsq_failed_reads"] == 124998052
+        assert result["rsq_pass_reads"] == 621418633 - 124998052
         assert "tt_total_reads" not in result
 
     def test_novogene_per_sample_barcode_read_group_routes_to_rsq(self):

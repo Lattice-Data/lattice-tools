@@ -1,0 +1,12 @@
+read group,code,format,segment,reason,failed read count,total read count
+Z0026,8,10x_flex_CRISPR,start,rsq file,124998052,621418633
+Z0026,103,10x_flex_CRISPR,Illumina R1,no match,52901,621418633
+Z0026,201,10x_flex_CRISPR,CBC,sequence was too short,1426,621418633
+Z0026,203,10x_flex_CRISPR,CBC,no match,5162125,621418633
+Z0026,207,10x_flex_CRISPR,CBC,ambiguous match,536607,621418633
+Z0026,301,10x_flex_CRISPR,UMI,sequence was too short,582723,621418633
+Z0026,302,10x_flex_CRISPR,UMI,sequence was too long,1757051,621418633
+Z0026,303,10x_flex_CRISPR,UMI,no match,74,621418633
+Z0026,403,10x_flex_CRISPR,Capture Sequence,no match,129098,621418633
+Z0026,501,10x_flex_CRISPR,CAS9_scaffold_and_probe,sequence was too short,73169,621418633
+Z0026,603,10x_flex_CRISPR,Read Truseq2,no match,888674,621418633
