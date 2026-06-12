@@ -26,16 +26,22 @@ from qa_constants import (
     valid_assays,
 )
 
+ALLOWED_DATA_STAGES = frozenset(("raw", "trimmed"))
+
+
 __all__ = [
     "ALLOWED_RAW_ASSAYS",
+    "ALLOWED_DATA_STAGES",
     "QARunContext",
     "cellranger_expected",
     "cellranger_ignore",
     "chemistries",
     "ingest_merged_trimmer_from_s3",
     "is_order_level_processed_folder",
+    "is_order_level_skipped_folder",
     "is_trimmer_stats_basename",
     "is_valid_cellranger_run_dir_name",
+    "normalize_data_stage",
     "normalize_raw_assay",
     "raw_expected",
     "raw_optional",
@@ -124,6 +130,22 @@ def is_trimmer_stats_basename(name: str, *, allow_truncated: bool = False) -> bo
     return bool(_TRIMMER_STATS_TRUNCATED_RE.search(base))
 
 
+def normalize_data_stage(value: str | None) -> str:
+    """
+    Validate the input data folder stage: ``raw`` (provider upload) or
+    ``trimmed`` (post-trimmer FASTQ outputs under ``trimmed/``).
+    """
+    if value is None or not str(value).strip():
+        return "raw"
+    s = str(value).strip().lower()
+    if s not in ALLOWED_DATA_STAGES:
+        raise ValueError(
+            f"Invalid data_stage={value!r}. Must be one of: "
+            f"{', '.join(sorted(ALLOWED_DATA_STAGES))}."
+        )
+    return s
+
+
 def normalize_raw_assay(value: str | None) -> str:
     """
     Strip whitespace, fix common casing for 10x assays, and validate against ALLOWED_RAW_ASSAYS.
@@ -183,6 +205,16 @@ def is_valid_cellranger_run_dir_name(name: str) -> bool:
     return False
 
 
+def _order_level_child_name(order_listing_prefix: str, group_prefix: str) -> str | None:
+    """Return the immediate child folder name under ``order_listing_prefix``, or None."""
+    if not order_listing_prefix or not group_prefix.startswith(order_listing_prefix):
+        return None
+    name = group_prefix[len(order_listing_prefix) :].rstrip("/")
+    if not name or "/" in name:
+        return None
+    return name
+
+
 def is_order_level_processed_folder(
     order_listing_prefix: str, group_prefix: str
 ) -> bool:
@@ -194,12 +226,21 @@ def is_order_level_processed_folder(
     Only this case is skipped with a warning; other top-level names still go through
     normal raw/processed checks.
     """
-    if not order_listing_prefix or not group_prefix.startswith(order_listing_prefix):
+    name = _order_level_child_name(order_listing_prefix, group_prefix)
+    return name is not None and name.lower() == "processed"
+
+
+def is_order_level_skipped_folder(order_listing_prefix: str, group_prefix: str) -> bool:
+    """
+    True if ``group_prefix`` is an order-level folder that is not a sample group.
+
+    Skipped with a warning: ``processed/`` (legacy order-level layout) and
+    ``pipeline_info/`` (Nextflow reports from trimmer pipelines).
+    """
+    name = _order_level_child_name(order_listing_prefix, group_prefix)
+    if name is None:
         return False
-    name = group_prefix[len(order_listing_prefix) :].rstrip("/")
-    if not name or "/" in name:
-        return False
-    return name.lower() == "processed"
+    return name.lower() in ("processed", "pipeline_info")
 
 
 def _split_s3_uri(uri: str) -> tuple[str | None, str]:
@@ -251,6 +292,13 @@ class QARunContext:
     # have been named *_trimmer-stats.csv. Off by default; see
     # ``is_trimmer_stats_basename`` for the matching rule.
     allow_truncated_stats_name: bool = False
+    # Input folder under each sample group: ``raw`` (default) or ``trimmed``.
+    data_stage: str = "raw"
+
+    @property
+    def input_folder(self) -> str:
+        """S3 subfolder name for input FASTQs/QC files (``raw`` or ``trimmed``)."""
+        return self.data_stage
 
 
 def resolve_qa_run_context(
@@ -267,6 +315,7 @@ def resolve_qa_run_context(
     manifest_s3_column: int = 0,
     manifest_has_header: bool = False,
     allow_truncated_stats_name: bool = False,
+    data_stage: str = "raw",
 ) -> QARunContext:
     """
     Validate notebook parameters and return a single context for gathering and output paths.
@@ -279,6 +328,9 @@ def resolve_qa_run_context(
     Set ``allow_truncated_stats_name=True`` to accept files ending in
     ``_stats.csv`` as aliases of ``_trimmer-stats.csv`` for completeness
     checks (use only when collaborator uploads have the truncated naming).
+
+    Set ``data_stage='trimmed'`` when input files live under ``trimmed/`` instead
+    of ``raw/`` (same expected suffix lists; only the folder name changes).
     """
     ds = str(data_source).strip().lower()
     if ds not in ("s3", "manifest"):
@@ -287,6 +339,7 @@ def resolve_qa_run_context(
         )
 
     assay = normalize_raw_assay(raw_assay)
+    stage = normalize_data_stage(data_stage)
 
     if ds == "manifest":
         mp = str(manifest_path).strip()
@@ -326,6 +379,7 @@ def resolve_qa_run_context(
             manifest_s3_column=manifest_s3_column,
             manifest_has_header=manifest_has_header,
             allow_truncated_stats_name=bool(allow_truncated_stats_name),
+            data_stage=stage,
         )
 
     # --- s3 ---
@@ -367,6 +421,7 @@ def resolve_qa_run_context(
         output_label=out,
         listing_prefix=listing,
         allow_truncated_stats_name=bool(allow_truncated_stats_name),
+        data_stage=stage,
     )
 
 
@@ -959,7 +1014,12 @@ def parse_scale_samples_csv(csv_path: str | Path) -> dict:
 
 
 def load_files_from_manifest(
-    manifest_path: str, delimiter: str, s3_column: int, has_header: bool = False
+    manifest_path: str,
+    delimiter: str,
+    s3_column: int,
+    has_header: bool = False,
+    *,
+    input_folder: str = "raw",
 ):
     """
     Load S3 file paths from a CSV/TSV manifest file.
@@ -972,10 +1032,13 @@ def load_files_from_manifest(
 
     Returns:
         Tuple of:
-        - all_raw_files: List of raw file S3 keys (paths containing '/raw/')
+        - all_raw_files: List of input-stage file S3 keys (paths containing
+          ``/{input_folder}/``, e.g. ``/raw/`` or ``/trimmed/``)
         - all_proc_files: Dict of {group: [processed file keys]} (paths containing '/processed/')
         - manifest_bucket: Bucket from ``s3://`` URIs, or None if none found
     """
+    stage_folder = normalize_data_stage(input_folder)
+    stage_marker = f"/{stage_folder}/"
     df = pd.read_csv(manifest_path, sep=delimiter, header=0 if has_header else None)
     s3_uris = df.iloc[:, s3_column].tolist()
 
@@ -997,8 +1060,8 @@ def load_files_from_manifest(
         else:
             key = uri  # Assume it's already a key
 
-        # Separate into raw vs processed
-        if "/raw/" in key:
+        # Separate into input-stage vs processed
+        if stage_marker in key:
             all_raw_files.append(key)
         elif "/processed/" in key:
             # Extract group name from path: .../GROUP/processed/...

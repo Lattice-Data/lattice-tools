@@ -16,6 +16,8 @@ from qa_mods import (
     grab_merged_trimmer_stats,
     grab_trimmer_stats,
     is_order_level_processed_folder,
+    is_order_level_skipped_folder,
+    normalize_data_stage,
     is_trimmer_stats_basename,
     is_valid_cellranger_run_dir_name,
     make_read_partner,
@@ -71,6 +73,39 @@ class TestIsOrderLevelProcessedFolder:
 
     def test_case_insensitive_processed(self):
         assert is_order_level_processed_folder("o/", "o/PROCESSED/") is True
+
+
+class TestIsOrderLevelSkippedFolder:
+    def test_processed_under_order(self):
+        o = "project/NVUS1/"
+        g = "project/NVUS1/processed/"
+        assert is_order_level_skipped_folder(o, g) is True
+
+    def test_pipeline_info_under_order(self):
+        o = "trimmer_fastq_gen/NVUS-subset/"
+        g = "trimmer_fastq_gen/NVUS-subset/pipeline_info/"
+        assert is_order_level_skipped_folder(o, g) is True
+
+    def test_sample_group_not_skipped(self):
+        assert (
+            is_order_level_skipped_folder("ny/NVUS1/", "ny/NVUS1/MS116A_MS116AF/")
+            is False
+        )
+
+
+class TestNormalizeDataStage:
+    def test_default_raw(self):
+        assert normalize_data_stage(None) == "raw"
+        assert normalize_data_stage("") == "raw"
+        assert normalize_data_stage("  ") == "raw"
+
+    def test_trimmed(self):
+        assert normalize_data_stage("trimmed") == "trimmed"
+        assert normalize_data_stage(" TRIMMED ") == "trimmed"
+
+    def test_invalid_raises(self):
+        with pytest.raises(ValueError, match="data_stage"):
+            normalize_data_stage("cooked")
 
 
 class TestIsValidCellrangerRunDirName:
@@ -192,6 +227,25 @@ class TestResolveQaRunContext:
             allow_truncated_stats_name=True,
         )
         assert ctx.allow_truncated_stats_name is True
+
+    def test_data_stage_default_raw(self):
+        ctx = resolve_qa_run_context(
+            data_source="s3",
+            raw_assay="10x",
+            s3_path="s3://czi-novogene/p/o/",
+        )
+        assert ctx.data_stage == "raw"
+        assert ctx.input_folder == "raw"
+
+    def test_data_stage_trimmed_propagated(self):
+        ctx = resolve_qa_run_context(
+            data_source="s3",
+            raw_assay="10x",
+            s3_path="s3://czi-novogene/p/o/",
+            data_stage="trimmed",
+        )
+        assert ctx.data_stage == "trimmed"
+        assert ctx.input_folder == "trimmed"
 
     def test_allow_truncated_stats_name_propagated_manifest(self):
         path = os.path.join(FIXTURES_DIR, "test_manifest.tsv")

@@ -461,6 +461,57 @@ class TestGather10xRaw:
         assert any(v == "439047" for v in data.exp_to_run_map.values())
 
 
+class TestGather10xTrimmed:
+    """Gather 10x files from trimmed/ using the same validation paths as raw/."""
+
+    _BASE = "testproj/ORD01/LP_2Y_3p_011/trimmed/442357-LP_2Y_3p_011_GEX-Z0011-CACGCACTGCCAGAT"
+
+    def _listing_keys(self):
+        return [
+            f"{self._BASE}.csv",
+            f"{self._BASE}.json",
+            f"{self._BASE}_S1_L001_R1_001.fastq.gz",
+            f"{self._BASE}_S1_L001_R2_001.fastq.gz",
+            f"{self._BASE}_trimmer-failure_codes.csv",
+            f"{self._BASE}_trimmer-stats.csv",
+        ]
+
+    def test_trimmed_files_collected(self):
+        keys = self._listing_keys()
+        trimmer_key = f"{self._BASE}_trimmer-failure_codes.csv"
+        trimmer_csv = (
+            "code,format,segment,reason,failed read count,total read count\n"
+            "8,trim,preamble,rsq file,100,1000\n"
+        )
+        ctx = _make_ctx(data_stage="trimmed")
+        s3 = MockS3Client(
+            keys=keys,
+            file_contents={trimmer_key: trimmer_csv},
+        )
+        data = gather_qa_data(ctx, s3)
+        assert data.has_raw is True
+        assert len(data.all_raw_files) == len(keys)
+        assert all("/trimmed/" in k for k in data.all_raw_files)
+
+    def test_missing_trimmed_dir_warning(self):
+        keys = ["testproj/ORD01/G1/raw/439047-G1_GEX-Z0273-BC01.csv"]
+        ctx = _make_ctx(data_stage="trimmed")
+        s3 = MockS3Client(keys=keys)
+        data = gather_qa_data(ctx, s3)
+        assert any("trimmed/ MISSING" in w for w in data.gathering_warnings)
+
+    def test_order_level_pipeline_info_skipped(self):
+        keys = [
+            "testproj/ORD01/pipeline_info/report.html",
+            f"{self._BASE}.csv",
+        ]
+        ctx = _make_ctx(data_stage="trimmed")
+        s3 = MockS3Client(keys=keys)
+        data = gather_qa_data(ctx, s3)
+        assert any("pipeline_info/" in w for w in data.gathering_warnings)
+        assert data.has_raw is True
+
+
 # ---------------------------------------------------------------------------
 # S3 mode — non-10x (scale) raw files
 # ---------------------------------------------------------------------------

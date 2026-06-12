@@ -24,7 +24,7 @@ from qa_mods import (
     ingest_merged_trimmer_from_s3,
     merge_partial_wafer_stats,
     trimmer_failure_storage_key,
-    is_order_level_processed_folder,
+    is_order_level_skipped_folder,
     is_valid_cellranger_run_dir_name,
     load_files_from_manifest,
     parse_raw_filename,
@@ -114,6 +114,7 @@ class QADataGatherer:
             delimiter=self.ctx.manifest_delimiter,
             s3_column=self.ctx.manifest_s3_column,
             has_header=self.ctx.manifest_has_header,
+            input_folder=self.ctx.input_folder,
         )
         if _bucket != self.ctx.bucket:
             raise ValueError(
@@ -137,10 +138,12 @@ class QADataGatherer:
             return
 
         groups = [e["Prefix"] for e in r_order["CommonPrefixes"]]
+        input_folder = self.ctx.input_folder
         for g in groups:
-            if is_order_level_processed_folder(o, g):
+            if is_order_level_skipped_folder(o, g):
+                child = g[len(o) :].rstrip("/").split("/")[0]
                 self._data.gathering_warnings.append(
-                    f"WARNING: order-level `processed/` folder found at `{g}` — skipping."
+                    f"WARNING: order-level `{child}/` folder found at `{g}` — skipping."
                 )
                 continue
 
@@ -153,10 +156,11 @@ class QADataGatherer:
             if len(subdirs) > 2:
                 self._data.gathering_warnings.append(f"EXTRA subdirs {g}")
 
-            if f"{g}raw/" not in subdirs:
-                self._data.gathering_warnings.append(f"raw/ MISSING {g}")
+            input_prefix = f"{g}{input_folder}/"
+            if input_prefix not in subdirs:
+                self._data.gathering_warnings.append(f"{input_folder}/ MISSING {g}")
             else:
-                self._gather_group_raw(g, group_name)
+                self._gather_group_input(g, group_name, input_folder)
 
             if f"{g}processed/" not in subdirs:
                 self._data.gathering_warnings.append(f"processed/ MISSING {g}")
@@ -167,22 +171,24 @@ class QADataGatherer:
             self._gather_order_level_merged_trimmers()
 
     # ------------------------------------------------------------------
-    # S3 mode — raw files
+    # S3 mode — input-stage files (raw/ or trimmed/)
     # ------------------------------------------------------------------
 
-    def _gather_group_raw(self, group_prefix: str, group_name: str) -> None:
-        r_raw: dict[str, list] = {"Contents": [], "CommonPrefixes": []}
+    def _gather_group_input(
+        self, group_prefix: str, group_name: str, input_folder: str
+    ) -> None:
+        r_input: dict[str, list] = {"Contents": [], "CommonPrefixes": []}
         for page in self.paginator.paginate(
-            Bucket=self.bucket, Prefix=f"{group_prefix}raw/", Delimiter="/"
+            Bucket=self.bucket, Prefix=f"{group_prefix}{input_folder}/", Delimiter="/"
         ):
-            r_raw["Contents"].extend(page.get("Contents", []))
-            r_raw["CommonPrefixes"].extend(page.get("CommonPrefixes", []))
+            r_input["Contents"].extend(page.get("Contents", []))
+            r_input["CommonPrefixes"].extend(page.get("CommonPrefixes", []))
 
         raw_files: list[str] = []
         is_10x = False
 
-        if r_raw["CommonPrefixes"]:
-            non_10x_runs = [e["Prefix"] for e in r_raw["CommonPrefixes"]]
+        if r_input["CommonPrefixes"]:
+            non_10x_runs = [e["Prefix"] for e in r_input["CommonPrefixes"]]
             for run in non_10x_runs:
                 for page in self.paginator.paginate(
                     Bucket=self.bucket, Prefix=run, Delimiter="/"
@@ -191,8 +197,8 @@ class QADataGatherer:
             is_10x = False
 
         # Flat files take precedence (preserves original notebook behaviour)
-        if r_raw["Contents"]:
-            raw_files = [c["Key"] for c in r_raw["Contents"]]
+        if r_input["Contents"]:
+            raw_files = [c["Key"] for c in r_input["Contents"]]
             is_10x = True
 
         if not raw_files:
@@ -206,10 +212,10 @@ class QADataGatherer:
             if self._should_download_metadata_json(rf):
                 metadata_files.append(rf)
                 continue
-            self._process_raw_file(rf, group_name, is_10x)
+            self._process_input_file(rf, group_name, is_10x)
         self._download_metadata_json_batch(metadata_files)
 
-    def _process_raw_file(self, rf: str, group_name: str, is_10x: bool) -> None:
+    def _process_input_file(self, rf: str, group_name: str, is_10x: bool) -> None:
         parsed = parse_raw_filename(rf, self.raw_assay)
         if parsed is not None:
             _run, group, assay, _ug, _barcode = parsed
