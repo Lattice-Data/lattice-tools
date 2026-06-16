@@ -13,9 +13,20 @@ from file_extract.h5 import (
     extract_library,
     extract_sample_name,
     h5_columns,
+    map_feature_counts,
     parse_metrics_cells_from_text,
 )
 from tests.file_extract_helpers import FIXTURES, MockS3Client
+
+LATTICE_FEATURE_TYPES = frozenset(
+    {
+        "antibody capture",
+        "gene",
+        "guide capture",
+        "peak",
+        "transcription factor",
+    }
+)
 
 PREFIX = "proj/lib/processed/outs/per_sample_outs/"
 BUCKET = "example-bucket"
@@ -51,9 +62,90 @@ def test_h5_columns_variants() -> None:
         "crc64nvme_base64",
         "crc_error",
     ]
+    introspect = h5_columns(do_introspect=True, do_genome=False, do_metrics=False)
+    assert introspect == [
+        "library",
+        "sample",
+        "s3_uri",
+        "size_bytes",
+        "crc64nvme_base64",
+        "observation_count",
+        "feature_counts",
+        "feature_count_total",
+        "unmapped_feature_types",
+        "crc_error",
+        "h5_error",
+    ]
     full = h5_columns(do_introspect=True, do_genome=True, do_metrics=True)
     assert "gene_counts_by_genome" in full
     assert "metrics_cells_match" in full
+
+
+def _assert_lattice_feature_counts(
+    lattice_fc: list[dict[str, int | str]],
+) -> None:
+    for item in lattice_fc:
+        assert item["feature_type"] in LATTICE_FEATURE_TYPES
+
+
+@pytest.mark.parametrize(
+    ("raw_counts", "expected_fc", "expected_unmapped"),
+    [
+        (
+            {"Gene Expression": 18129},
+            [{"feature_type": "gene", "feature_count": 18129}],
+            {},
+        ),
+        (
+            {"Gene Expression": 18129, "CRISPR Guide Capture": 1842},
+            [
+                {"feature_type": "gene", "feature_count": 18129},
+                {"feature_type": "guide capture", "feature_count": 1842},
+            ],
+            {},
+        ),
+        (
+            {"Gene Expression": 100, "Multiplexing Capture": 4},
+            [{"feature_type": "gene", "feature_count": 100}],
+            {"Multiplexing Capture": 4},
+        ),
+        (
+            {},
+            [],
+            {},
+        ),
+    ],
+)
+def test_map_feature_counts(
+    raw_counts: dict[str, int],
+    expected_fc: list[dict[str, int | str]],
+    expected_unmapped: dict[str, int],
+) -> None:
+    lattice_fc, unmapped = map_feature_counts(raw_counts)
+    assert lattice_fc == expected_fc
+    assert unmapped == expected_unmapped
+    _assert_lattice_feature_counts(lattice_fc)
+
+
+def test_map_feature_counts_strips_whitespace_for_lookup() -> None:
+    lattice_fc, unmapped = map_feature_counts({"  Gene Expression  ": 42})
+    assert lattice_fc == [{"feature_type": "gene", "feature_count": 42}]
+    assert unmapped == {}
+
+
+def test_map_feature_counts_sums_shared_lattice_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from file_extract import h5
+
+    monkeypatch.setattr(
+        h5,
+        "CR_TO_LATTICE_FEATURE_TYPE",
+        {"Type A": "gene", "Type B": "gene"},
+    )
+    lattice_fc, unmapped = h5.map_feature_counts({"Type A": 10, "Type B": 5})
+    assert lattice_fc == [{"feature_type": "gene", "feature_count": 15}]
+    assert unmapped == {}
 
 
 def test_parse_metrics_long_format() -> None:
