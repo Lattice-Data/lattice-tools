@@ -1,0 +1,5 @@
+test-order/NVUS0000000000-01/GROUP1/raw/sample_L001_R1_001.fastq.gz
+test-order/NVUS0000000000-01/GROUP1/raw/sample_L001_R2_001.fastq.gz
+test-order/NVUS0000000000-01/GROUP1/raw/sample_sample.fastq.gz
+test-order/NVUS0000000000-01/GROUP1/raw/unmatched.fastq.gz
+test-order/NVUS0000000000-01/GROUP1/processed/out.bam
