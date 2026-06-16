@@ -26,7 +26,16 @@ H5_INTROSPECT_COLUMNS = [
     "observation_count",
     "feature_counts",
     "feature_count_total",
+    "unmapped_feature_types",
 ]
+
+# Cell Ranger matrix/features/feature_type -> Lattice feature_counts enum.
+CR_TO_LATTICE_FEATURE_TYPE = {
+    "Gene Expression": "gene",
+    "CRISPR Guide Capture": "guide capture",
+    "Antibody Capture": "antibody capture",
+    "Peaks": "peak",
+}
 
 H5_GENOME_COLUMN = "gene_counts_by_genome"
 

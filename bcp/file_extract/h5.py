@@ -9,6 +9,7 @@ from typing import Any
 from tqdm import tqdm
 
 from .constants import (
+    CR_TO_LATTICE_FEATURE_TYPE,
     DEFAULT_H5_TARGET_FILENAME,
     H5_BASE_COLUMNS,
     H5_GENOME_COLUMN,
@@ -102,6 +103,27 @@ def _matches_target_filename(key: str, target_filename: str) -> bool:
     return key.rsplit("/", 1)[-1] == target_filename
 
 
+def map_feature_counts(
+    raw_counts: dict[str, int],
+) -> tuple[list[dict[str, int | str]], dict[str, int]]:
+    """Map Cell Ranger feature_type counts to the Lattice feature_counts schema."""
+    lattice_sums: dict[str, int] = {}
+    unmapped: dict[str, int] = {}
+
+    for raw_type, count in raw_counts.items():
+        lattice_type = CR_TO_LATTICE_FEATURE_TYPE.get(raw_type.strip())
+        if lattice_type is not None:
+            lattice_sums[lattice_type] = lattice_sums.get(lattice_type, 0) + count
+        else:
+            unmapped[raw_type] = count
+
+    lattice_fc = [
+        {"feature_type": feature_type, "feature_count": lattice_sums[feature_type]}
+        for feature_type in sorted(lattice_sums)
+    ]
+    return lattice_fc, unmapped
+
+
 def process_one_h5(
     s3_client: Any,
     bucket: str,
@@ -119,6 +141,7 @@ def process_one_h5(
         "observation_count": "",
         "feature_counts": "",
         "feature_count_total": "",
+        "unmapped_feature_types": "",
         "gene_counts_by_genome": "",
         "h5_error": "",
         "metrics_cells": "",
@@ -139,12 +162,10 @@ def process_one_h5(
         else:
             obs, type_counts, genome_counts = intro  # type: ignore[misc]
             result["observation_count"] = obs
-            fc = [
-                {"feature_type": k, "feature_count": v}
-                for k, v in sorted(type_counts.items())
-            ]
-            result["feature_counts"] = json.dumps(fc)
+            lattice_fc, unmapped = map_feature_counts(type_counts)
+            result["feature_counts"] = json.dumps(lattice_fc)
             result["feature_count_total"] = sum(type_counts.values())
+            result["unmapped_feature_types"] = json.dumps(unmapped) if unmapped else ""
             if do_genome and genome_counts is not None:
                 result["gene_counts_by_genome"] = json.dumps(genome_counts)
 
@@ -262,6 +283,7 @@ def extract_h5(
                         r["observation_count"],
                         r["feature_counts"],
                         r["feature_count_total"],
+                        r["unmapped_feature_types"],
                     ]
                 )
                 if do_genome:
