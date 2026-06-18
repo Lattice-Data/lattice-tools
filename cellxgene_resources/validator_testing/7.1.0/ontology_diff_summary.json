@@ -1,0 +1,57 @@
+{
+  "assay": {
+    "deprecated": [
+      "EFO:0022615",
+      "EFO:0022956"
+    ],
+    "new": [
+      "EFO:0920087",
+      "EFO:0920058"
+    ]
+  },
+  "tissue": {
+    "deprecated": [
+      "FBbt:000081112",
+      "FBbt:000084734"
+    ],
+    "new": [
+      "UBERON:1200274",
+      "UBERON:1200182",
+      "FBbt:00059379",
+      "FBbt:00059378"
+    ]
+  },
+  "development_stage": {
+    "deprecated": [],
+    "new": []
+  },
+  "cell_type": {
+    "deprecated": [
+      "FBbt:20007449",
+      "FBbt:20011355"
+    ],
+    "new": [
+      "CL:0020036",
+      "CL:4072038",
+      "FBbt:00053628",
+      "FBbt:00053585"
+    ]
+  },
+  "disease": {
+    "deprecated": [
+      "MONDO:0019123",
+      "MONDO:0017770"
+    ],
+    "new": [
+      "MONDO:1013424",
+      "MONDO:1013710"
+    ]
+  },
+  "self_reported_ethnicity": {
+    "deprecated": [],
+    "new": [
+      "HANCESTRO:0871",
+      "HANCESTRO:0870"
+    ]
+  }
+}

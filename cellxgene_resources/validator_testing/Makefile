@@ -1,4 +1,4 @@
-CONDA_NAME = cxg70testing
+CONDA_NAME = cxg71testing
 CLONE_ENV = lattice
 GIT_REF = main
 PYTHON_VERSION = 3.11
