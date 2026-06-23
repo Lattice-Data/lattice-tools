@@ -153,7 +153,7 @@ def revise_cxg(adata):
     for p in portal_uns_fields:
         del adata.uns[p]
 
-    adata.obs.drop(columns=[c for c in obs_ont_label_fields if c in adata.obs.columns], inplace=True)
+    adata.obs.drop(columns=obs_ont_label_fields, inplace=True)
     adata.obs.drop(columns='observation_joinid', inplace=True)
     adata.var.drop(columns=portal_var_fields, inplace=True)
 
