@@ -21,6 +21,7 @@ import cellxgene_schema.schema as schema
 
 portal_uns_fields = [
     'citation',
+    'is_pre_analysis',
     'schema_reference',
     'schema_version',
     'organism'
@@ -39,7 +40,7 @@ portal_var_fields = [
     'feature_length'
 ]
 
-portal_obs_fields = [
+obs_ont_label_fields = [
     'assay',
     'cell_type',
     'development_stage',
@@ -48,9 +49,26 @@ portal_obs_fields = [
     'sex',
     'tissue'
 ]
-non_ontology_fields = ['donor_id','suspension_type','tissue_type','is_primary_data']
-curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_ontology_fields
-full_obs_standards = portal_obs_fields + curator_obs_fields
+
+obs_ont_label_fields_optional = [
+    'experimental_condition'
+]
+
+obs_non_ontology_fields = [
+    'donor_id',
+    'suspension_type',
+    'tissue_type',
+    'is_primary_data'
+]
+
+obs_non_ontology_fields_optional = [
+    'perturbation_types',
+    'genetic_perturbation_id',
+    'genetic_perturbation_strategy'
+]
+
+curator_obs_fields = [e + '_ontology_term_id' for e in obs_ont_label_fields] + obs_non_ontology_fields
+full_obs_standards = obs_ont_label_fields + curator_obs_fields
 ONTOLOGY_PARSER = OntologyParser(schema_version=schema.get_current_schema_version())
 
 def get_path(search_term: str) -> os.PathLike | str:
@@ -135,7 +153,7 @@ def revise_cxg(adata):
     for p in portal_uns_fields:
         del adata.uns[p]
 
-    adata.obs.drop(columns=portal_obs_fields, inplace=True)
+    adata.obs.drop(columns=[c for c in obs_ont_label_fields if c in adata.obs.columns], inplace=True)
     adata.obs.drop(columns='observation_joinid', inplace=True)
     adata.var.drop(columns=portal_var_fields, inplace=True)
 
@@ -274,7 +292,7 @@ def evaluate_uns_colors(adata):
         for k in colors_keys:
             obs_field = k[:-(len('_colors'))]
 
-            if obs_field in portal_obs_fields:
+            if obs_field in obs_ont_label_fields:
                 report(f'uns.{k} not allowed, move to uns.{obs_field}_ontology_term_id_colors', 'ERROR')
             elif obs_field not in adata.obs.keys():
                 report(f'{obs_field} not found in obs, consider DELETING or RENAMING uns.{k}', 'ERROR')
@@ -386,10 +404,21 @@ def parse_barcode_df(df, field):
     return df
 
 
+def evaluate_uns_schema(uns, labels=False):
+    for f in curator_uns_fields:
+        if f in adata.uns:
+            print(f'{f}: ', adata.uns[f])
+        else:
+            report(f'{f} is required', 'ERROR')
+    if not cxg_labels:
+        for f in portal_uns_fields:
+            if f in adata.uns:
+                report(f'{f} should not be present in uns', 'ERROR')
+
 def evaluate_obs_schema(obs, labels=False):
     if labels:
-        for o in portal_obs_fields + non_ontology_fields:
-            if o not in obs.keys():
+        for o in obs_ont_label_fields + obs_non_ontology_fields:
+            if o not in obs.keys() and o not in optional_ont_label_fields:
                 report(f'{o} not in obs\n', 'ERROR')
             else:
                 report(f'{o} {obs[o].unique().tolist()}\n')
@@ -399,7 +428,7 @@ def evaluate_obs_schema(obs, labels=False):
                 report(f'{o} not in obs\n', 'ERROR')
             else:
                 report(f'{o} {obs[o].unique().tolist()}\n')
-        for o in portal_obs_fields:
+        for o in obs_ont_label_fields:
             if o in obs.keys():
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
     if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
