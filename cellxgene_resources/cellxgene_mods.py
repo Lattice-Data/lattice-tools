@@ -445,16 +445,19 @@ def evaluate_obs_schema(obs, labels=False):
                 report(f'{o} {obs[o].unique().tolist()}\n')
             else:
                 report(f'{o} not in obs\n', 'ERROR')
-        for o in OBS_CURATOR_OPTIONAL:
+        for o in OBS_ONTOLOGY_IDS_OPTIONAL:
             if o in obs.columns:
-                if o == 'genetic_perturbation_id':
-                    uniq_vals = obs[o].unique().tolist()
-                    report(f'{o} <{len(uniq_vals)} unique values>, {uniq_vals[:5]}...\n')
-                else:
-                    report(f'{o} {obs[o].unique().tolist()}\n')
-        for o in OBS_ONTOLOGY_LABELS_REQUIRED:
+                report(f'{o} {obs[o].unique().tolist()}\n')
+        for o in OBS_ONTOLOGY_LABELS:
             if o in obs.columns:
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
+    for o in OBS_NON_ONTOLOGY_CURATOR_OPTIONAL:
+        if o in obs.columns:
+            if o == 'genetic_perturbation_id':
+                uniq_vals = obs[o].unique().tolist()
+                report(f'{o} <{len(uniq_vals)} unique values>, {uniq_vals[:5]}...\n')
+            else:
+                report(f'{o} {obs[o].unique().tolist()}\n')
     if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
         if 'in_tissue' in obs.columns:
             num_unknown = obs.loc[(obs['in_tissue']==1) & (obs['cell_type_ontology_term_id']=='unknown')].shape[0]
