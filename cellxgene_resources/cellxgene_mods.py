@@ -429,6 +429,9 @@ def evaluate_uns_schema(uns, labels=False):
 def evaluate_obs_schema(obs, labels=False):
     if labels:
         for o in OBS_PORTAL_REQUIRED:
+            if o in ['observation_joinid']:
+                continue
+
             if o in obs.columns:
                 report(f'{o} {obs[o].unique().tolist()}\n')
             else:
