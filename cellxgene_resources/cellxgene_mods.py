@@ -23,13 +23,12 @@ OBS_ONTOLOGY_LABELS_REQUIRED = [
     'assay', 'cell_type', 'development_stage', 'disease',
     'self_reported_ethnicity', 'sex', 'tissue'
 ]
+OBS_ONTOLOGY_LABELS_OPTIONAL = ['experimental_condition']
+OBS_ONTOLOGY_LABELS = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_ONTOLOGY_LABELS_OPTIONAL
 
 OBS_ONTOLOGY_IDS_REQUIRED = [
     f"{label}_ontology_term_id" for label in OBS_ONTOLOGY_LABELS_REQUIRED
 ]
-
-OBS_ONTOLOGY_LABELS_OPTIONAL = ['experimental_condition']
-
 OBS_ONTOLOGY_IDS_OPTIONAL = [
     f"{label}_ontology_term_id" for label in OBS_ONTOLOGY_LABELS_OPTIONAL
 ]
@@ -37,13 +36,11 @@ OBS_ONTOLOGY_IDS_OPTIONAL = [
 OBS_NON_ONTOLOGY_CURATOR_REQUIRED = [
     'donor_id', 'suspension_type', 'tissue_type', 'is_primary_data'
 ]
-
 OBS_NON_ONTOLOGY_CURATOR_OPTIONAL = [
     'genetic_perturbation_id', 'genetic_perturbation_strategy'
 ]
 
 OBS_NON_ONTOLOGY_PORTAL_REQUIRED = ['observation_joinid']
-
 OBS_NON_ONTOLOGY_PORTAL_OPTIONAL = ['perturbation_types']
 
 OBS_PORTAL_REQUIRED = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_NON_ONTOLOGY_PORTAL_REQUIRED
@@ -53,7 +50,6 @@ OBS_CURATOR_REQUIRED = OBS_ONTOLOGY_IDS_REQUIRED + OBS_NON_ONTOLOGY_CURATOR_REQU
 OBS_CURATOR_OPTIONAL = OBS_ONTOLOGY_IDS_OPTIONAL + OBS_NON_ONTOLOGY_CURATOR_OPTIONAL
 OBS_CURATOR = OBS_CURATOR_REQUIRED + OBS_CURATOR_OPTIONAL
 
-OBS_ONTOLOGY_LABELS = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_ONTOLOGY_LABELS_OPTIONAL
 OBS_FULL_STANDARDS = OBS_PORTAL + OBS_CURATOR
 
 UNS_PORTAL_REQUIRED = [
@@ -411,6 +407,7 @@ def evaluate_uns_schema(uns, labels=False):
             if f in uns:
                 report(f'{f} should not be present in uns', 'ERROR')
 
+
 def evaluate_obs_schema(obs, labels=False):
     if labels:
         for o in OBS_PORTAL_REQUIRED:
@@ -442,7 +439,6 @@ def evaluate_obs_schema(obs, labels=False):
             perc_unknown = 100*(num_unknown/obs.shape[0])
         if num_unknown > 20:
             report(f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.', 'WARNING')
-
 
 
 def evaluate_obs(obs):
