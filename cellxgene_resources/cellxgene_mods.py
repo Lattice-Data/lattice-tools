@@ -288,9 +288,9 @@ def evaluate_uns_colors(adata):
         for k in colors_keys:
             obs_field = k[:-(len('_colors'))]
 
-            if obs_field in obs_ont_label_fields:
+            if obs_field in OBS_ONTOLOGY_LABELS:
                 report(f'uns.{k} not allowed, move to uns.{obs_field}_ontology_term_id_colors', 'ERROR')
-            elif obs_field not in adata.obs.keys():
+            elif obs_field not in adata.obs.columns:
                 report(f'{obs_field} not found in obs, consider DELETING or RENAMING uns.{k}', 'ERROR')
             elif adata.obs.dtypes[obs_field].name != 'category':
                 report(f'uns.{k} is associated with non-categorical {obs_field}', 'ERROR')
