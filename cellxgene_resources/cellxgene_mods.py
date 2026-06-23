@@ -45,12 +45,12 @@ OBS_NON_ONTOLOGY_PORTAL_OPTIONAL = ['perturbation_types']
 
 OBS_PORTAL_REQUIRED = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_NON_ONTOLOGY_PORTAL_REQUIRED
 OBS_PORTAL_OPTIONAL = OBS_ONTOLOGY_LABELS_OPTIONAL + OBS_NON_ONTOLOGY_PORTAL_OPTIONAL
-OBS_PORTAL = OBS_PORTAL_REQUIRED + OBS_PORTAL_OPTIONAL
+OBS_PORTAL_ALL = OBS_PORTAL_REQUIRED + OBS_PORTAL_OPTIONAL
 OBS_CURATOR_REQUIRED = OBS_ONTOLOGY_IDS_REQUIRED + OBS_NON_ONTOLOGY_CURATOR_REQUIRED
 OBS_CURATOR_OPTIONAL = OBS_ONTOLOGY_IDS_OPTIONAL + OBS_NON_ONTOLOGY_CURATOR_OPTIONAL
-OBS_CURATOR = OBS_CURATOR_REQUIRED + OBS_CURATOR_OPTIONAL
+OBS_CURATOR_ALL = OBS_CURATOR_REQUIRED + OBS_CURATOR_OPTIONAL
 
-OBS_FULL_STANDARDS = OBS_PORTAL + OBS_CURATOR
+OBS_FULL_STANDARDS = OBS_PORTAL_ALL + OBS_CURATOR_ALL
 
 UNS_PORTAL_REQUIRED = [
     'citation', 'is_pre_analysis', 'schema_reference', 'schema_version', 'organism'
@@ -426,7 +426,11 @@ def evaluate_obs_schema(obs, labels=False):
                 report(f'{o} not in obs\n', 'ERROR')
         for o in OBS_CURATOR_OPTIONAL:
             if o in obs.columns:
-                report(f'{o} {obs[o].unique().tolist()}\n')
+                if o == 'genetic_perturbation_id':
+                    uniq_vals = obs[o].unique().tolist()
+                    report(f'{o} <{len(uniq_vals)} unique values>, {uniq_vals[:5]}...\n')
+                else:
+                    report(f'{o} {obs[o].unique().tolist()}\n')
         for o in OBS_ONTOLOGY_LABELS_REQUIRED:
             if o in obs.columns:
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
