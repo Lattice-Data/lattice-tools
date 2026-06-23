@@ -401,31 +401,37 @@ def parse_barcode_df(df, field):
 
 
 def evaluate_uns_schema(uns, labels=False):
-    for f in curator_uns_fields:
-        if f in adata.uns:
-            print(f'{f}: ', adata.uns[f])
+    for f in UNS_CURATOR_REQUIRED:
+        if f in uns:
+            print(f'{f}: ', uns[f])
         else:
             report(f'{f} is required', 'ERROR')
-    if not cxg_labels:
-        for f in portal_uns_fields:
-            if f in adata.uns:
+    if not labels:
+        for f in UNS_PORTAL_REQUIRED:
+            if f in uns:
                 report(f'{f} should not be present in uns', 'ERROR')
 
 def evaluate_obs_schema(obs, labels=False):
     if labels:
-        for o in obs_ont_label_fields + obs_non_ontology_fields:
-            if o not in obs.keys() and o not in optional_ont_label_fields:
-                report(f'{o} not in obs\n', 'ERROR')
+        for o in OBS_PORTAL_REQUIRED:
+            if o in obs.columns:
+                report(f'{o} {obs[o].unique().tolist()}\n')
             else:
+                report(f'{o} not in obs\n', 'ERROR')
+        for o in OBS_PORTAL_OPTIONAL:
+            if o in obs.columns:
                 report(f'{o} {obs[o].unique().tolist()}\n')
     else:
-        for o in curator_obs_fields:
-            if o not in obs.keys():
-                report(f'{o} not in obs\n', 'ERROR')
-            else:
+        for o in OBS_CURATOR_REQUIRED:
+            if o in obs.columns:
                 report(f'{o} {obs[o].unique().tolist()}\n')
-        for o in obs_ont_label_fields:
-            if o in obs.keys():
+            else:
+                report(f'{o} not in obs\n', 'ERROR')
+        for o in OBS_CURATOR_OPTIONAL:
+            if o in obs.columns:
+                report(f'{o} {obs[o].unique().tolist()}\n')
+        for o in OBS_ONTOLOGY_LABELS_REQUIRED:
+            if o in obs.columns:
                 report(f'schema conflict - {o} in obs\n', 'ERROR')
     if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
         if 'in_tissue' in obs.columns:
