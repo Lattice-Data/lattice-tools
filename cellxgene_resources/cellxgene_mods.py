@@ -142,11 +142,29 @@ def report(mess, level=None):
         print(mess)
 
 
+def revise_genetic_perturbations(uns):
+    fields_to_remove = ['derived_genomic_regions', 'derived_features']
+
+    for guide_meta in uns['genetic_perturbations'].values():
+        if 'intended_features' in guide_meta:
+            guide_meta['intended_features'] = {
+                feature_id: '' for feature_id in guide_meta['intended_features'].keys()
+            }
+
+        for field in fields_to_remove:
+            guide_meta.pop(field, None)
+
+    return uns
+
+
 def revise_cxg(adata):
     for p in UNS_PORTAL_REQUIRED:
         del adata.uns[p]
 
-    adata.obs.drop(columns=[c for c in OBS_PORTAL if c in adata.obs.columns], inplace=True)
+    if 'genetic_perturbations' in adata.uns:
+        adata.uns = revise_genetic_perturbations(adata.uns)
+
+    adata.obs.drop(columns=[c for c in OBS_PORTAL_ALL if c in adata.obs.columns], inplace=True)
     adata.var.drop(columns=VAR_PORTAL_REQUIRED, inplace=True)
 
     if adata.raw:
