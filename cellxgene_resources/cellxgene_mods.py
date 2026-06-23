@@ -19,56 +19,53 @@ import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
 
 
-portal_uns_fields = [
-    'citation',
-    'is_pre_analysis',
-    'schema_reference',
-    'schema_version',
-    'organism'
+OBS_ONTOLOGY_LABELS_REQUIRED = [
+    'assay', 'cell_type', 'development_stage', 'disease',
+    'self_reported_ethnicity', 'sex', 'tissue'
 ]
 
-curator_uns_fields = [
-    'title',
-    'organism_ontology_term_id'
+OBS_ONTOLOGY_IDS_REQUIRED = [
+    f"{label}_ontology_term_id" for label in OBS_ONTOLOGY_LABELS_REQUIRED
 ]
 
-portal_var_fields = [
-    'feature_name',
-    'feature_reference',
-    'feature_biotype',
-    'feature_type',
-    'feature_length'
+OBS_ONTOLOGY_LABELS_OPTIONAL = ['experimental_condition']
+
+OBS_ONTOLOGY_IDS_OPTIONAL = [
+    f"{label}_ontology_term_id" for label in OBS_ONTOLOGY_LABELS_OPTIONAL
 ]
 
-obs_ont_label_fields = [
-    'assay',
-    'cell_type',
-    'development_stage',
-    'disease',
-    'self_reported_ethnicity',
-    'sex',
-    'tissue'
+OBS_NON_ONTOLOGY_CURATOR_REQUIRED = [
+    'donor_id', 'suspension_type', 'tissue_type', 'is_primary_data'
 ]
 
-obs_ont_label_fields_optional = [
-    'experimental_condition'
+OBS_NON_ONTOLOGY_CURATOR_OPTIONAL = [
+    'genetic_perturbation_id', 'genetic_perturbation_strategy'
 ]
 
-obs_non_ontology_fields = [
-    'donor_id',
-    'suspension_type',
-    'tissue_type',
-    'is_primary_data'
+OBS_NON_ONTOLOGY_PORTAL_REQUIRED = ['observation_joinid']
+
+OBS_NON_ONTOLOGY_PORTAL_OPTIONAL = ['perturbation_types']
+
+OBS_PORTAL_REQUIRED = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_NON_ONTOLOGY_PORTAL_REQUIRED
+OBS_PORTAL_OPTIONAL = OBS_ONTOLOGY_LABELS_OPTIONAL + OBS_NON_ONTOLOGY_PORTAL_OPTIONAL
+OBS_PORTAL = OBS_PORTAL_REQUIRED + OBS_PORTAL_OPTIONAL
+OBS_CURATOR_REQUIRED = OBS_ONTOLOGY_IDS_REQUIRED + OBS_NON_ONTOLOGY_CURATOR_REQUIRED
+OBS_CURATOR_OPTIONAL = OBS_ONTOLOGY_IDS_OPTIONAL + OBS_NON_ONTOLOGY_CURATOR_OPTIONAL
+OBS_CURATOR = OBS_CURATOR_REQUIRED + OBS_CURATOR_OPTIONAL
+
+OBS_ONTOLOGY_LABELS = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_ONTOLOGY_LABELS_OPTIONAL
+OBS_FULL_STANDARDS = OBS_PORTAL + OBS_CURATOR
+
+UNS_PORTAL_REQUIRED = [
+    'citation', 'is_pre_analysis', 'schema_reference', 'schema_version', 'organism'
 ]
 
-obs_non_ontology_fields_optional = [
-    'perturbation_types',
-    'genetic_perturbation_id',
-    'genetic_perturbation_strategy'
+UNS_CURATOR_REQUIRED = ['title', 'organism_ontology_term_id']
+
+VAR_PORTAL_REQUIRED = [
+    'feature_name', 'feature_reference', 'feature_biotype', 'feature_type', 'feature_length'
 ]
 
-curator_obs_fields = [e + '_ontology_term_id' for e in obs_ont_label_fields] + obs_non_ontology_fields
-full_obs_standards = obs_ont_label_fields + curator_obs_fields
 ONTOLOGY_PARSER = OntologyParser(schema_version=schema.get_current_schema_version())
 
 def get_path(search_term: str) -> os.PathLike | str:
