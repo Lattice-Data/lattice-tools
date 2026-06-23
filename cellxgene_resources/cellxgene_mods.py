@@ -439,11 +439,11 @@ def evaluate_obs_schema(obs, labels=False):
 
 
 
-def evaluate_obs(obs, full_obs_standards):
+def evaluate_obs(obs):
     long_fields = []
     gradient_fields = []
     uber_dict = {}
-    for o in obs.keys():
+    for o in obs.columns:
         vc_dict = obs[o].value_counts(dropna=False).to_dict()
         counts = '_'.join([str(c) for c in vc_dict.values()])
         count_len = len(vc_dict.keys())
@@ -451,8 +451,8 @@ def evaluate_obs(obs, full_obs_standards):
     
         if o.startswith(' ') or o.endswith(' ') or '  ' in o:
             report(f'leading/trailing whitespace: {o}\n')
-    
-        if o not in full_obs_standards and ' '.join(o.split()).lower() in full_obs_standards:
+
+        if o not in OBS_FULL_STANDARDS and ' '.join(o.split()).lower() in OBS_FULL_STANDARDS:
             report(f'schema conflict: {o}\n')
 
         numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16',
@@ -476,7 +476,7 @@ def evaluate_obs(obs, full_obs_standards):
     for k,v in uber_dict.items():
         if '_' in k and not k.startswith('1_1'):
             props = [e['property'] for e in v]
-            if len(v) > 1 and not all(elem in full_obs_standards for elem in props):
+            if len(v) > 1 and not all(elem in OBS_FULL_STANDARDS for elem in props):
                 report(f'possible redundancy: {[e["property"] for e in v]}\n')
 
     if gradient_fields:
