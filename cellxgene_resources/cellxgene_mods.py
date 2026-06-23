@@ -147,15 +147,14 @@ def report(mess, level=None):
 
 
 def revise_cxg(adata):
-    for p in portal_uns_fields:
+    for p in UNS_PORTAL_REQUIRED:
         del adata.uns[p]
 
-    adata.obs.drop(columns=obs_ont_label_fields, inplace=True)
-    adata.obs.drop(columns='observation_joinid', inplace=True)
-    adata.var.drop(columns=portal_var_fields, inplace=True)
+    adata.obs.drop(columns=[c for c in OBS_PORTAL if c in adata.obs.columns], inplace=True)
+    adata.var.drop(columns=VAR_PORTAL_REQUIRED, inplace=True)
 
     if adata.raw:
-        adata.raw.var.drop(columns=portal_var_fields, inplace=True)
+        adata.raw.var.drop(columns=VAR_PORTAL_REQUIRED, inplace=True)
 
     return adata
 
