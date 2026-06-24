@@ -33,7 +33,7 @@ class TestValidatePctQ30:
         assert len(errors) == 1
         assert "low.csv" in errors[0]
         assert "39.76" in errors[0]
-        assert "< 70.0" in errors[0]
+        assert "< 65.0" in errors[0]
 
     def test_exactly_at_threshold(self):
         assert validate_pct_q30({"edge.csv": 70.0}) == []
@@ -48,7 +48,7 @@ class TestValidatePctQ30:
         assert "< 80" in errors[0]
 
     def test_default_threshold_constant(self):
-        assert MIN_PCT_Q30_THRESHOLD == 70.0
+        assert MIN_PCT_Q30_THRESHOLD == 65.0
 
 
 class TestValidateFastqCounts:

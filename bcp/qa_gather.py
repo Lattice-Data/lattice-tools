@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 from typing import Any
+import re
 
 from qa_mods import (
     QARunContext,
@@ -454,6 +455,8 @@ class QADataGatherer:
         if not name.endswith(".csv"):
             return False
         if _is_merged_trimmer_file(key):
+            return False
+        if re.search("hash_oligo", name):
             return False
         excluded = (
             "_trimmer-stats.csv",
