@@ -1,6 +1,26 @@
 """Unit tests for multi-wafer trimmer key helpers in qa_mods."""
 
-from qa_mods import resolve_wafer_run_id, trimmer_failure_storage_key
+from qa_mods import (
+    resolve_wafer_run_id,
+    trimmer_failure_storage_key,
+    trimmer_group_storage_key,
+)
+
+
+class TestTrimmerGroupStorageKey:
+    def test_10x_style_path_returns_order_group(self):
+        key = (
+            "proj/order/SYNLIB_L01/raw/"
+            "441004-SYNLIB_L01_GEX-Z5001-CTCAGCATA_trimmer-failure_codes.csv"
+        )
+        assert trimmer_group_storage_key(key) == "order/SYNLIB_L01"
+
+    def test_scale_sci_nested_raw_returns_group_not_wafer_subdir(self):
+        key = (
+            "proj/order/group/raw/441389/"
+            "441389-R100E_GEX_hash_oligo-Z0028-CAGACTTGCTGCGAT_trimmer-failure_codes.csv"
+        )
+        assert trimmer_group_storage_key(key) == "order/group"
 
 
 class TestTrimmerFailureStorageKeyMod:

@@ -49,6 +49,7 @@ __all__ = [
     "extract_run_id_from_trimmer_filename",
     "extract_run_id_from_merged_trimmer_path",
     "trimmer_failure_storage_key",
+    "trimmer_group_storage_key",
     "resolve_wafer_run_id",
     "grab_merged_trimmer_stats",
     "grab_merged_trimmer_q30",
@@ -517,6 +518,11 @@ def grab_trimmer_stats(
         trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail_pct)
 
 
+def trimmer_group_storage_key(s3_key: str) -> str:
+    """Legacy sublibrary key: order/group from S3 path (parts [1:3])."""
+    return "/".join(s3_key.split("/")[1:3])
+
+
 def trimmer_failure_storage_key(s3_key: str) -> tuple[str, str | None]:
     """
     Return the dict key and RunID for aggregating trimmer-failure_codes CSVs.
@@ -524,11 +530,11 @@ def trimmer_failure_storage_key(s3_key: str) -> tuple[str, str | None]:
     When the filename carries a RunID prefix, stats are stored under that wafer
     id so multiple wafers per sublibrary (Psomagen, Novogene) do not overwrite
     each other.  Otherwise fall back to the legacy experiment key
-    ``"/".join(s3_key.split("/")[1:3])``.
+    ``trimmer_group_storage_key(s3_key)``.
     """
-    exp = "/".join(s3_key.split("/")[1:3])
+    group_key = trimmer_group_storage_key(s3_key)
     run_id = extract_run_id_from_trimmer_filename(s3_key)
-    storage_key = run_id if run_id is not None else exp
+    storage_key = run_id if run_id is not None else group_key
     return storage_key, run_id
 
 
