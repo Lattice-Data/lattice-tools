@@ -38,7 +38,7 @@ class DB2Flattener:
         # Generate output filename if not provided
         if output_file is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}.csv"
+            output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_GEO.csv"
         
         # Create main DataFrame and sample DataFrame
         main_df, sample_df = self.create_dataframe(complete_data)
@@ -57,7 +57,7 @@ class DB2Flattener:
         
         # Save sample DataFrame if it exists
         if sample_df is not None and not sample_df.empty:
-            sample_output = output_file.replace('.csv', '_samples.csv')
+            sample_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_SAMPLES.csv"
             
             # Drop columns with all "n/a" from sample DataFrame
             sample_cols_to_drop = [col for col in sample_df.columns if sample_df[col].eq('n/a').all()]
@@ -94,7 +94,7 @@ class DB2Flattener:
         
         # Always return only GEX libraries
         if gex_libraries:
-            print(f"DEBUG: Filtered to {len(gex_libraries)} Gene Expression libraries out of {len(libraries)} total")
+            print(f"Filtered to {len(gex_libraries)} Gene Expression libraries out of {len(libraries)} total")
             return gex_libraries
         
         # Fallback: if no GEX libraries found, return all (shouldn't happen normally)
@@ -225,6 +225,14 @@ class DB2Flattener:
                 'raw_file_samples': self._join_unique(sample_aliases),
                 'library_sample_types': self._join_unique([s.get('@type', [''])[0] for s in samples]),
                 'selection_markers': self._join_unique([s.get('selection_markers', [''])[0] for s in samples]),
+
+                # Donor information
+                'donor_sexes': self._join_unique([d.get('sex', '') for d in donors]),
+                'donor_ethnicities': self._join_unique([
+                        self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
+                        for d in donors
+                    ]),
+                'donor_taxa': self._join_unique([d.get('taxa', '') for d in donors]),
                 
                 # Treatment information
                 'treatment_terms': self._join_unique([
