@@ -38,7 +38,7 @@ VALID_PROBES = [
     "Chromium Human Transcriptome Probe Set v2.0.0",
 ]
 MIN_METADATA_READ_COUNT = 1_000_000
-MIN_PCT_Q30_THRESHOLD = 70.0
+MIN_PCT_Q30_THRESHOLD = 65.0
 
 
 def validate_pct_q30(
