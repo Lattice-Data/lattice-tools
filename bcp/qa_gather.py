@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import tempfile
+
+import fsspec
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +30,7 @@ from qa_mods import (
     is_order_level_processed_folder,
     is_valid_cellranger_run_dir_name,
     load_files_from_manifest,
+    parse_pct_pf_q30_from_text,
     parse_raw_filename,
     parse_scale_samples_csv,
     parse_scale_workflow_info,
@@ -66,6 +69,7 @@ class QAGatheredData:
     scale_workflow_infos: dict[str, dict] = field(default_factory=dict)
     scale_samples_info: dict[str, dict] = field(default_factory=dict)
     scale_proc_files: dict[str, list[str]] = field(default_factory=dict)
+    pct_q30_values: dict[str, float] = field(default_factory=dict)
     has_raw: bool = False
     has_processed: bool = False
     gathering_errors: list[str] = field(default_factory=list)
@@ -103,6 +107,7 @@ class QADataGatherer:
             self._gather_from_s3()
         else:
             raise ValueError(f"Invalid data_source: {self.ctx.data_source}")
+        self._gather_pct_q30()
         finalize_merged_wafer_stats(self._data.merged_wafer_stats)
         return self._data
 
@@ -438,6 +443,56 @@ class QADataGatherer:
                         self._data.merged_wafer_stats,
                         self.s3,
                     )
+
+    # ------------------------------------------------------------------
+    # Sublibrary Q30 stats (PCT_PF_Q30_bases)
+    # ------------------------------------------------------------------
+
+    def _is_sublibrary_stats_csv(self, key: str) -> bool:
+        """Return True for aggregate sublibrary stats CSVs (PCT_PF_Q30_bases source)."""
+        name = key.split("/")[-1]
+        if not name.endswith(".csv"):
+            return False
+        if _is_merged_trimmer_file(key):
+            return False
+        excluded = (
+            "_trimmer-stats.csv",
+            "_trimmer-failure_codes.csv",
+            "_trimmer-failure-codes.csv",
+            "_unmatched.csv",
+            "_S1_L001_R1_001.csv",
+            "_S1_L001_R2_001.csv",
+            "_stats.csv",
+            "-stats.csv",
+            ".failure_codes.csv",
+            ".trimmer_stats.csv",
+        )
+        if any(name.endswith(suf) for suf in excluded):
+            return False
+        return parse_raw_filename(key, self.raw_assay) is not None
+
+    def _gather_pct_q30(self) -> None:
+        """Stream sublibrary stats CSVs from S3 and populate pct_q30_values."""
+        for key in self._data.all_raw_files:
+            if not self._is_sublibrary_stats_csv(key):
+                continue
+            filename = key.split("/")[-1]
+            s3_uri = f"s3://{self.bucket}/{key}"
+            try:
+                with fsspec.open(s3_uri, "r") as fobj:
+                    text = fobj.read()
+                value = parse_pct_pf_q30_from_text(text)
+            except Exception as exc:
+                self._data.gathering_errors.append(
+                    f"PCT_Q30 read failed for {filename}: {exc}"
+                )
+                continue
+            if value is None:
+                self._data.gathering_warnings.append(
+                    f"PCT_PF_Q30_bases missing in {filename}"
+                )
+            else:
+                self._data.pct_q30_values[filename] = value
 
     # ------------------------------------------------------------------
     # S3 helpers — file downloads

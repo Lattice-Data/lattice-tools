@@ -53,6 +53,8 @@ __all__ = [
     "resolve_wafer_run_id",
     "grab_merged_trimmer_stats",
     "grab_merged_trimmer_q30",
+    "PCT_PF_Q30_METRIC",
+    "parse_pct_pf_q30_from_text",
     "grab_trimmer_failure_codes_wafer_metrics",
     "merge_partial_wafer_stats",
     "finalize_merged_wafer_stats",
@@ -715,6 +717,20 @@ def grab_merged_trimmer_q30(csv_path: str | Path) -> float | None:
     if total <= 0:
         return None
     return 100.0 * matched / total
+
+
+PCT_PF_Q30_METRIC = "PCT_PF_Q30_bases"
+
+
+def parse_pct_pf_q30_from_text(text: str) -> float | None:
+    """Return PCT_PF_Q30_bases value from sublibrary stats CSV text."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith(PCT_PF_Q30_METRIC + ","):
+            return float(line.split(",", 1)[1])
+    return None
 
 
 def grab_trimmer_failure_codes_wafer_metrics(csv_path: str | Path) -> dict | None:
