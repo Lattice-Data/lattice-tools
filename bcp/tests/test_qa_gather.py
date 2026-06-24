@@ -157,6 +157,7 @@ class TestQAGatheredData:
         assert data.has_processed is False
         assert data.gathering_errors == []
         assert data.gathering_warnings == []
+        assert data.pct_q30_values == {}
 
     def test_fields_are_independent_across_instances(self):
         a = QAGatheredData()
@@ -875,6 +876,113 @@ class TestGatherNestedRawRunPagination:
         data = gather_qa_data(ctx, s3)
 
         assert data.merged_wafer_stats["442593"]["tt_q30_pct"] == 90.0
+
+
+# ---------------------------------------------------------------------------
+# PCT_PF_Q30_bases gathering
+# ---------------------------------------------------------------------------
+
+
+class TestGatherPctQ30:
+    _BASE = "testproj/ORD01/G1/raw/443489-CRaD5_L09_GEX-Z5018-CTGATATGA"
+
+    def _manifest_ctx(self, tmp_path, key: str) -> QARunContext:
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(f"s3://czi-novogene/{key}\n")
+        return _make_ctx(
+            data_source="manifest",
+            manifest_path=str(manifest),
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+        )
+
+    def test_gather_pct_q30_from_sublibrary_csv(self, monkeypatch, tmp_path):
+        fixture_path = os.path.join(QA_FIXTURES_DIR, "sublibrary_stats_q30.csv")
+        with open(fixture_path, encoding="utf-8") as fh:
+            csv_content = fh.read()
+
+        class FakeFile:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+            def read(self):
+                return csv_content
+
+        monkeypatch.setattr("qa_gather.fsspec.open", lambda uri, mode: FakeFile())
+
+        key = f"{self._BASE}.csv"
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert data.pct_q30_values == {
+            "443489-CRaD5_L09_GEX-Z5018-CTGATATGA.csv": 73.49
+        }
+
+    def test_per_read_csv_excluded(self, monkeypatch, tmp_path):
+        opened: list[str] = []
+
+        def fake_open(uri, mode):
+            opened.append(uri)
+
+            class FakeFile:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    pass
+
+                def read(self):
+                    return ""
+
+            return FakeFile()
+
+        monkeypatch.setattr("qa_gather.fsspec.open", fake_open)
+
+        key = f"{self._BASE}_S1_L001_R1_001.csv"
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert data.pct_q30_values == {}
+        assert opened == []
+
+    def test_trimmer_stats_csv_excluded(self, monkeypatch, tmp_path):
+        opened: list[str] = []
+
+        def fake_open(uri, mode):
+            opened.append(uri)
+
+            class FakeFile:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    pass
+
+                def read(self):
+                    return ""
+
+            return FakeFile()
+
+        monkeypatch.setattr("qa_gather.fsspec.open", fake_open)
+
+        for suffix in ("_trimmer-stats.csv", ".trimmer_stats.csv"):
+            key = f"{self._BASE}{suffix}"
+            manifest = tmp_path / f"manifest_{suffix}.tsv"
+            manifest.write_text(f"s3://czi-novogene/{key}\n")
+            ctx = _make_ctx(
+                data_source="manifest",
+                manifest_path=str(manifest),
+                manifest_delimiter="\t",
+                manifest_s3_column=0,
+                manifest_has_header=False,
+            )
+            data = gather_qa_data(ctx, MockS3Client())
+            assert data.pct_q30_values == {}
+        assert opened == []
 
 
 # ---------------------------------------------------------------------------
