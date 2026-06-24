@@ -24,6 +24,7 @@ from qa_mods import (
     ingest_merged_trimmer_from_s3,
     merge_partial_wafer_stats,
     trimmer_failure_storage_key,
+    trimmer_group_storage_key,
     is_order_level_processed_folder,
     is_valid_cellranger_run_dir_name,
     load_files_from_manifest,
@@ -59,6 +60,7 @@ class QAGatheredData:
     trimmer_failure_stats: dict[str, dict[str, list[float]]] = field(
         default_factory=dict
     )
+    group_failure_stats: dict[str, dict[str, list[float]]] = field(default_factory=dict)
     exp_to_run_map: dict[str, str] = field(default_factory=dict)
     merged_wafer_stats: dict[str, dict] = field(default_factory=dict)
     scale_workflow_infos: dict[str, dict] = field(default_factory=dict)
@@ -483,15 +485,16 @@ class QADataGatherer:
 
     def _download_trimmer_failure_codes(self, rf: str) -> None:
         storage_key, run_id = trimmer_failure_storage_key(rf)
+        group_key = trimmer_group_storage_key(rf)
         if run_id is not None:
             self._data.exp_to_run_map[run_id] = run_id
-            exp = "/".join(rf.split("/")[1:3])
-            self._data.exp_to_run_map[exp] = run_id
+            self._data.exp_to_run_map[group_key] = run_id
         with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
             local = tf.name
         try:
             self.s3.download_file(self.bucket, rf, local)
             grab_trimmer_stats(self._data.trimmer_failure_stats, storage_key, local)
+            grab_trimmer_stats(self._data.group_failure_stats, group_key, local)
             if run_id is not None:
                 rsq_metrics = grab_trimmer_failure_codes_wafer_metrics(local)
                 if rsq_metrics:
