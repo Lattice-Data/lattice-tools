@@ -19,38 +19,49 @@ import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
 
 
-portal_uns_fields = [
-    'citation',
-    'schema_reference',
-    'schema_version',
-    'organism'
+OBS_ONTOLOGY_LABELS_REQUIRED = [
+    'assay', 'cell_type', 'development_stage', 'disease',
+    'self_reported_ethnicity', 'sex', 'tissue'
+]
+OBS_ONTOLOGY_LABELS_OPTIONAL = ['experimental_condition']
+OBS_ONTOLOGY_LABELS = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_ONTOLOGY_LABELS_OPTIONAL
+
+OBS_ONTOLOGY_IDS_REQUIRED = [
+    f"{label}_ontology_term_id" for label in OBS_ONTOLOGY_LABELS_REQUIRED
+]
+OBS_ONTOLOGY_IDS_OPTIONAL = [
+    f"{label}_ontology_term_id" for label in OBS_ONTOLOGY_LABELS_OPTIONAL
 ]
 
-curator_uns_fields = [
-    'title',
-    'organism_ontology_term_id'
+OBS_NON_ONTOLOGY_CURATOR_REQUIRED = [
+    'donor_id', 'suspension_type', 'tissue_type', 'is_primary_data'
+]
+OBS_NON_ONTOLOGY_CURATOR_OPTIONAL = [
+    'genetic_perturbation_id', 'genetic_perturbation_strategy'
 ]
 
-portal_var_fields = [
-    'feature_name',
-    'feature_reference',
-    'feature_biotype',
-    'feature_type',
-    'feature_length'
+OBS_NON_ONTOLOGY_PORTAL_REQUIRED = ['observation_joinid']
+OBS_NON_ONTOLOGY_PORTAL_OPTIONAL = ['perturbation_types']
+
+OBS_PORTAL_REQUIRED = OBS_ONTOLOGY_LABELS_REQUIRED + OBS_NON_ONTOLOGY_PORTAL_REQUIRED
+OBS_PORTAL_OPTIONAL = OBS_ONTOLOGY_LABELS_OPTIONAL + OBS_NON_ONTOLOGY_PORTAL_OPTIONAL
+OBS_PORTAL_ALL = OBS_PORTAL_REQUIRED + OBS_PORTAL_OPTIONAL
+OBS_CURATOR_REQUIRED = OBS_ONTOLOGY_IDS_REQUIRED + OBS_NON_ONTOLOGY_CURATOR_REQUIRED
+OBS_CURATOR_OPTIONAL = OBS_ONTOLOGY_IDS_OPTIONAL + OBS_NON_ONTOLOGY_CURATOR_OPTIONAL
+OBS_CURATOR_ALL = OBS_CURATOR_REQUIRED + OBS_CURATOR_OPTIONAL
+
+OBS_FULL_STANDARDS = OBS_PORTAL_ALL + OBS_CURATOR_ALL
+
+UNS_PORTAL_REQUIRED = [
+    'citation', 'is_pre_analysis', 'schema_reference', 'schema_version', 'organism'
 ]
 
-portal_obs_fields = [
-    'assay',
-    'cell_type',
-    'development_stage',
-    'disease',
-    'self_reported_ethnicity',
-    'sex',
-    'tissue'
+UNS_CURATOR_REQUIRED = ['title', 'organism_ontology_term_id']
+
+VAR_PORTAL_REQUIRED = [
+    'feature_name', 'feature_reference', 'feature_biotype', 'feature_type', 'feature_length'
 ]
-non_ontology_fields = ['donor_id','suspension_type','tissue_type','is_primary_data']
-curator_obs_fields = [e + '_ontology_term_id' for e in portal_obs_fields] + non_ontology_fields
-full_obs_standards = portal_obs_fields + curator_obs_fields
+
 ONTOLOGY_PARSER = OntologyParser(schema_version=schema.get_current_schema_version())
 
 def get_path(search_term: str) -> os.PathLike | str:
@@ -131,16 +142,33 @@ def report(mess, level=None):
         print(mess)
 
 
+def revise_genetic_perturbations(uns):
+    fields_to_remove = ['derived_genomic_regions', 'derived_features']
+
+    for guide_meta in uns['genetic_perturbations'].values():
+        if 'intended_features' in guide_meta:
+            guide_meta['intended_features'] = {
+                feature_id: '' for feature_id in guide_meta['intended_features'].keys()
+            }
+
+        for field in fields_to_remove:
+            guide_meta.pop(field, None)
+
+    return uns
+
+
 def revise_cxg(adata):
-    for p in portal_uns_fields:
+    for p in UNS_PORTAL_REQUIRED:
         del adata.uns[p]
 
-    adata.obs.drop(columns=portal_obs_fields, inplace=True)
-    adata.obs.drop(columns='observation_joinid', inplace=True)
-    adata.var.drop(columns=portal_var_fields, inplace=True)
+    if 'genetic_perturbations' in adata.uns:
+        adata.uns = revise_genetic_perturbations(adata.uns)
+
+    adata.obs.drop(columns=[c for c in OBS_PORTAL_ALL if c in adata.obs.columns], inplace=True)
+    adata.var.drop(columns=VAR_PORTAL_REQUIRED, inplace=True)
 
     if adata.raw:
-        adata.raw.var.drop(columns=portal_var_fields, inplace=True)
+        adata.raw.var.drop(columns=VAR_PORTAL_REQUIRED, inplace=True)
 
     return adata
 
@@ -274,9 +302,9 @@ def evaluate_uns_colors(adata):
         for k in colors_keys:
             obs_field = k[:-(len('_colors'))]
 
-            if obs_field in portal_obs_fields:
+            if obs_field in OBS_ONTOLOGY_LABELS:
                 report(f'uns.{k} not allowed, move to uns.{obs_field}_ontology_term_id_colors', 'ERROR')
-            elif obs_field not in adata.obs.keys():
+            elif obs_field not in adata.obs.columns:
                 report(f'{obs_field} not found in obs, consider DELETING or RENAMING uns.{k}', 'ERROR')
             elif adata.obs.dtypes[obs_field].name != 'category':
                 report(f'uns.{k} is associated with non-categorical {obs_field}', 'ERROR')
@@ -386,22 +414,50 @@ def parse_barcode_df(df, field):
     return df
 
 
+def evaluate_uns_schema(uns, labels=False):
+    for f in UNS_CURATOR_REQUIRED:
+        if f in uns:
+            print(f'{f}: ', uns[f])
+        else:
+            report(f'{f} is required', 'ERROR')
+    if not labels:
+        for f in UNS_PORTAL_REQUIRED:
+            if f in uns:
+                report(f'{f} should not be present in uns', 'ERROR')
+
+
 def evaluate_obs_schema(obs, labels=False):
     if labels:
-        for o in portal_obs_fields + non_ontology_fields:
-            if o not in obs.keys():
-                report(f'{o} not in obs\n', 'ERROR')
+        for o in OBS_PORTAL_REQUIRED:
+            if o in ['observation_joinid']:
+                continue
+
+            if o in obs.columns:
+                report(f'{o} {obs[o].unique().tolist()}\n')
             else:
+                report(f'{o} not in obs\n', 'ERROR')
+        for o in OBS_PORTAL_OPTIONAL:
+            if o in obs.columns:
                 report(f'{o} {obs[o].unique().tolist()}\n')
     else:
-        for o in curator_obs_fields:
-            if o not in obs.keys():
+        for o in OBS_CURATOR_REQUIRED:
+            if o in obs.columns:
+                report(f'{o} {obs[o].unique().tolist()}\n')
+            else:
                 report(f'{o} not in obs\n', 'ERROR')
+        for o in OBS_ONTOLOGY_IDS_OPTIONAL:
+            if o in obs.columns:
+                report(f'{o} {obs[o].unique().tolist()}\n')
+        for o in OBS_ONTOLOGY_LABELS:
+            if o in obs.columns:
+                report(f'schema conflict - {o} in obs\n', 'ERROR')
+    for o in OBS_NON_ONTOLOGY_CURATOR_OPTIONAL:
+        if o in obs.columns:
+            if o == 'genetic_perturbation_id':
+                uniq_vals = obs[o].unique().tolist()
+                report(f'{o} <{len(uniq_vals)} unique values>, {uniq_vals[:5]}...\n')
             else:
                 report(f'{o} {obs[o].unique().tolist()}\n')
-        for o in portal_obs_fields:
-            if o in obs.keys():
-                report(f'schema conflict - {o} in obs\n', 'ERROR')
     if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
         if 'in_tissue' in obs.columns:
             num_unknown = obs.loc[(obs['in_tissue']==1) & (obs['cell_type_ontology_term_id']=='unknown')].shape[0]
@@ -413,12 +469,11 @@ def evaluate_obs_schema(obs, labels=False):
             report(f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.', 'WARNING')
 
 
-
-def evaluate_obs(obs, full_obs_standards):
+def evaluate_obs(obs):
     long_fields = []
     gradient_fields = []
     uber_dict = {}
-    for o in obs.keys():
+    for o in obs.columns:
         vc_dict = obs[o].value_counts(dropna=False).to_dict()
         counts = '_'.join([str(c) for c in vc_dict.values()])
         count_len = len(vc_dict.keys())
@@ -426,8 +481,8 @@ def evaluate_obs(obs, full_obs_standards):
     
         if o.startswith(' ') or o.endswith(' ') or '  ' in o:
             report(f'leading/trailing whitespace: {o}\n')
-    
-        if o not in full_obs_standards and ' '.join(o.split()).lower() in full_obs_standards:
+
+        if o not in OBS_FULL_STANDARDS and ' '.join(o.split()).lower() in OBS_FULL_STANDARDS:
             report(f'schema conflict: {o}\n')
 
         numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16',
@@ -451,7 +506,7 @@ def evaluate_obs(obs, full_obs_standards):
     for k,v in uber_dict.items():
         if '_' in k and not k.startswith('1_1'):
             props = [e['property'] for e in v]
-            if len(v) > 1 and not all(elem in full_obs_standards for elem in props):
+            if len(v) > 1 and not all(elem in OBS_FULL_STANDARDS for elem in props):
                 report(f'possible redundancy: {[e["property"] for e in v]}\n')
 
     if gradient_fields:
