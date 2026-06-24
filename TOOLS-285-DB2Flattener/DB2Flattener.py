@@ -14,9 +14,6 @@ import DB2lattice
 class DB2Flattener:
     def __init__(self):
         # Setup connection
-        os.environ['DEMO_KEY'] = ''
-        os.environ['DEMO_SECRET'] = ''
-        os.environ['DEMO_SERVER'] = 'https://lattice-api-dev.demo.lattice-data.org'
         self.connection = DB2lattice.Connection('demo')
         
         # Initialize gatherer
@@ -67,7 +64,7 @@ class DB2Flattener:
             sample_df = sample_df.drop(columns=sample_cols_to_drop)
             
             print(f"Saving sample DataFrame to {sample_output}...")
-            sample_df.to_csv(sample_output, index=True)  # Keep index since it's the sample alias
+            sample_df.to_csv(sample_output, index=False)
             
             print(f"✅ Sample CSV file created: {sample_output}")
             print(f"   Rows: {len(sample_df)}")
@@ -106,7 +103,7 @@ class DB2Flattener:
     
     
     def create_dataframe(self, complete_data):
-        """Create main library/raw-file DataFrame and optional sample-indexed DataFrame"""
+        """Create main library/raw-file DataFrame and sample DataFrame keyed by raw matrix file"""
         libraries_data = complete_data['libraries']
         resolved_controlled_terms = complete_data['resolved_objects'].get('ControlledTerm', {})
     
@@ -129,7 +126,7 @@ class DB2Flattener:
         # Raw matrix file-based rows - samples field is always present
         # First, collect all raw matrix files and their associated libraries
         raw_file_to_libraries = {}
-        sample_data = {}  # For sample-indexed DataFrame
+        sample_metadata = {}  # One row per unique sample, keyed by sample_alias
         
         for lib_data in filtered_libraries_data.values():
             library = lib_data['library']
@@ -157,52 +154,45 @@ class DB2Flattener:
                 raw_file_to_libraries[raw_file_id]['all_genetic_modifications'].extend(lib_data['genetic_modifications'])
                 raw_file_to_libraries[raw_file_id]['all_experimental_conditions'].extend(lib_data['experimental_conditions'])
                 
-                # Collect sample data for sample-indexed DataFrame
+                # Collect per-sample metadata for later merge with raw matrix files
                 for sample_ref in raw_file.get('samples', []):
                     sample_obj = next((s for s in samples if s.get('@id') == sample_ref), None)
                     if sample_obj:
                         sample_alias = self._get_clean_alias(sample_obj)
-                        if sample_alias not in sample_data:
-                            # Get donors specific to this sample
-                            sample_donors = []
-                            sample_donor_refs = sample_obj.get('donors', [])
-                            for donor_ref in sample_donor_refs:
-                                if isinstance(donor_ref, dict):
-                                    donor_id = donor_ref.get('@id', '')
-                                else:
-                                    donor_id = donor_ref
-                                
-                                # Find the donor object in lib_data['donors']
-                                donor_obj = next((d for d in lib_data['donors'] if d.get('@id') == donor_id), None)
-                                if donor_obj:
-                                    sample_donors.append(donor_obj)
+                        if sample_alias in sample_metadata:
+                            continue
+                        
+                        sample_donors = []
+                        sample_donor_refs = sample_obj.get('donors', [])
+                        for donor_ref in sample_donor_refs:
+                            if isinstance(donor_ref, dict):
+                                donor_id = donor_ref.get('@id', '')
+                            else:
+                                donor_id = donor_ref
                             
-                            sample_data[sample_alias] = {
-                                
-                                'selection_markers': self._join_unique(sample_obj.get('selection_markers', [])),
-                                
-                                # Donor information - from this sample's specific donors
-                                'donor_sexes': self._join_unique([d.get('sex', '') for d in sample_donors]),
-                                'donor_ethnicities': self._join_unique([
-                                    self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
-                                    for d in sample_donors
-                                ]),
-                                'donor_taxa': self._join_unique([d.get('taxa', '') for d in sample_donors]),
-                                
-                                # Cell type information from this specific sample
-                                'enriched_cell_types': self._get_cell_types_from_samples([sample_obj], 
-                                                                                         'enriched_cell_types', 
-                                                                                         resolved_controlled_terms),
-                                'depleted_cell_types': self._get_cell_types_from_samples([sample_obj], 
-                                                                                         'depleted_cell_types', 
-                                                                                         resolved_controlled_terms),
-                                'intended_cell_types': self._get_cell_types_from_samples([sample_obj], 
-                                                                                         'intended_cell_types', 
-                                                                                         resolved_controlled_terms),
-                                
-                                # Disease information from this specific sample
-                                'diseases': self._get_diseases_from_samples([sample_obj], resolved_controlled_terms),
-                            }
+                            donor_obj = next((d for d in lib_data['donors'] if d.get('@id') == donor_id), None)
+                            if donor_obj:
+                                sample_donors.append(donor_obj)
+                        
+                        sample_metadata[sample_alias] = {
+                            'selection_markers': self._join_unique(sample_obj.get('selection_markers', [])),
+                            'donor_sexes': self._join_unique([d.get('sex', '') for d in sample_donors]),
+                            'donor_ethnicities': self._join_unique([
+                                self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
+                                for d in sample_donors
+                            ]),
+                            'donor_taxa': self._join_unique([d.get('taxa', '') for d in sample_donors]),
+                            'enriched_cell_types': self._get_cell_types_from_samples(
+                                [sample_obj], 'enriched_cell_types', resolved_controlled_terms
+                            ),
+                            'depleted_cell_types': self._get_cell_types_from_samples(
+                                [sample_obj], 'depleted_cell_types', resolved_controlled_terms
+                            ),
+                            'intended_cell_types': self._get_cell_types_from_samples(
+                                [sample_obj], 'intended_cell_types', resolved_controlled_terms
+                            ),
+                            'diseases': self._get_diseases_from_samples([sample_obj], resolved_controlled_terms),
+                        }
         
         # Create one row per raw matrix file for main DataFrame
         for file_data in raw_file_to_libraries.values():
@@ -266,13 +256,29 @@ class DB2Flattener:
             
             rows.append(row)
         
-        # Create sample DataFrame
-        if sample_data:
-            print(f"Creating additional sample-indexed DataFrame with {len(sample_data)} samples...")
-            sample_df = pd.DataFrame.from_dict(sample_data, orient='index')
-            sample_df.index.name = 'sample_alias'
+        main_df = pd.DataFrame(rows)
         
-        return pd.DataFrame(rows), sample_df
+        # Merge sample metadata with all main DataFrame columns, one row per raw matrix file + sample
+        sample_df = None
+        if sample_metadata and not main_df.empty:
+            per_sample_df = pd.DataFrame.from_dict(sample_metadata, orient='index')
+            per_sample_df.index.name = 'sample_alias'
+            per_sample_df = per_sample_df.reset_index()
+            
+            main_samples = main_df.copy()
+            main_samples['sample_alias'] = main_samples['raw_file_samples'].str.split('; ')
+            main_samples = main_samples.explode('sample_alias')
+            main_samples = main_samples[main_samples['sample_alias'] != 'n/a']
+            
+            overlap_cols = set(main_samples.columns) & set(per_sample_df.columns) - {'sample_alias'}
+            main_samples = main_samples.drop(columns=overlap_cols)
+            
+            sample_df = main_samples.merge(per_sample_df, on='sample_alias', how='inner')
+            
+            print(f"Creating sample DataFrame with {len(sample_df)} rows "
+                  f"({sample_df['raw_matrix_file_alias'].nunique()} raw matrix files)...")
+        
+        return main_df, sample_df
     
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
