@@ -54,6 +54,42 @@ from .validators import (
 
 
 # ---------------------------------------------------------------------------
+# Shared helpers for reconstructing the concrete names of missing files
+# ---------------------------------------------------------------------------
+
+
+def _reverse_artifact_suffixes(table: dict[str, str]) -> dict[str, str]:
+    """Map each artifact name back to its canonical SOP suffix.
+
+    The forward tables map ``suffix -> artifact``; several suffix variants can
+    share an artifact only for non-required metadata files, so keeping the
+    first occurrence yields the canonical suffix for every required artifact.
+    """
+    reverse: dict[str, str] = {}
+    for suffix, artifact in table.items():
+        reverse.setdefault(artifact, suffix)
+    return reverse
+
+
+def _expected_missing_files(
+    stem: str | None, missing: Iterable[str], artifact_to_suffix: dict[str, str]
+) -> list[str]:
+    """Reconstruct the SOP-expected S3 names for a bundle's missing artifacts.
+
+    ``stem`` is the shared S3 path of an existing sibling row with its own
+    suffix stripped, so appending the missing artifact's canonical suffix
+    yields the exact path that should exist but does not.
+    """
+    if stem is None:
+        return []
+    return [
+        stem + artifact_to_suffix[artifact]
+        for artifact in missing
+        if artifact in artifact_to_suffix
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Scale completeness
 # ---------------------------------------------------------------------------
 
@@ -117,6 +153,11 @@ def validate_scale_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
 
     well_artifacts: dict[tuple[str, str, str, str, str], set[str]] = defaultdict(set)
     aggregate_artifacts: dict[tuple[str, str, str, str], set[str]] = defaultdict(set)
+    well_lines: dict[tuple[str, str, str, str, str], set[int]] = defaultdict(set)
+    aggregate_lines: dict[tuple[str, str, str, str], set[int]] = defaultdict(set)
+    well_stem: dict[tuple[str, str, str, str, str], str] = {}
+    aggregate_stem: dict[tuple[str, str, str, str], str] = {}
+    well_rev = _reverse_artifact_suffixes(SCALE_PER_WELL_EXT_TO_ARTIFACT)
 
     for row in mappings:
         total += 1
@@ -193,9 +234,21 @@ def validate_scale_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
 
         if scope == "per_well":
             assert well_code is not None
-            well_artifacts[ug_key + (well_code,)].add(artifact)
+            well_key = ug_key + (well_code,)
+            well_artifacts[well_key].add(artifact)
+            well_lines[well_key].add(row.line_num)
+            ext = well_rev.get(artifact)
+            if ext:
+                well_stem.setdefault(
+                    well_key, row.s3_path[: len(row.s3_path) - len(ext)]
+                )
         else:
             aggregate_artifacts[ug_key].add(artifact)
+            aggregate_lines[ug_key].add(row.line_num)
+            if suffix:
+                aggregate_stem.setdefault(
+                    ug_key, row.s3_path[: len(row.s3_path) - len(suffix)]
+                )
 
         local_check = _check_scale_local_consistency(row, classification)
         if local_check is not None:
@@ -216,9 +269,15 @@ def validate_scale_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
                         + ", ".join(missing)
                     ),
                     "missing": missing,
+                    "present": sorted(found),
+                    "lines": sorted(well_lines.get(key, set())),
+                    "missing_files": _expected_missing_files(
+                        well_stem.get(key), missing, well_rev
+                    ),
                 }
             )
 
+    ug_rev = _reverse_artifact_suffixes(SCALE_PER_UG_SUFFIX_TO_ARTIFACT)
     missing_per_ug: dict[str, list[str]] = {}
     for key, found in aggregate_artifacts.items():
         missing = sorted(SCALE_REQUIRED_PER_UG_ARTIFACTS - found)
@@ -233,6 +292,11 @@ def validate_scale_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
                         "missing required per-UG Scale artifacts: " + ", ".join(missing)
                     ),
                     "missing": missing,
+                    "present": sorted(found),
+                    "lines": sorted(aggregate_lines.get(key, set())),
+                    "missing_files": _expected_missing_files(
+                        aggregate_stem.get(key), missing, ug_rev
+                    ),
                 }
             )
 
@@ -335,6 +399,8 @@ def validate_sci_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
     matched = 0
     metadata_count = 0
     bundle_artifacts: dict[tuple[str, str, str, str, str], set[str]] = defaultdict(set)
+    bundle_lines: dict[tuple[str, str, str, str, str], set[int]] = defaultdict(set)
+    bundle_stem: dict[tuple[str, str, str, str, str], str] = {}
 
     for row in mappings:
         total += 1
@@ -383,6 +449,9 @@ def validate_sci_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
             gd["barcode"],
         )
         bundle_artifacts[key].add(artifact)
+        bundle_lines[key].add(row.line_num)
+        if suffix:
+            bundle_stem.setdefault(key, row.s3_path[: len(row.s3_path) - len(suffix)])
 
         mismatch = _check_s3_local_suffix_consistency(
             row,
@@ -392,6 +461,7 @@ def validate_sci_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
         if mismatch is not None:
             errors.append(mismatch)
 
+    sci_rev = _reverse_artifact_suffixes(SCI_PER_PREFIX_SUFFIX_TO_ARTIFACT)
     missing_by_prefix: dict[str, list[str]] = {}
     for key, found in bundle_artifacts.items():
         missing = sorted(SCI_REQUIRED_PER_PREFIX_ARTIFACTS - found)
@@ -406,6 +476,11 @@ def validate_sci_raw_completeness(mappings: Iterable[MappingRow]) -> dict:
                         "missing required sci sample artifacts: " + ", ".join(missing)
                     ),
                     "missing": missing,
+                    "present": sorted(found),
+                    "lines": sorted(bundle_lines.get(key, set())),
+                    "missing_files": _expected_missing_files(
+                        bundle_stem.get(key), missing, sci_rev
+                    ),
                 }
             )
 
@@ -486,6 +561,12 @@ def validate_10x_raw_fastq_completeness(
         defaultdict(set)
     )
     per_prefix_tails: dict[tuple[str, str, str, str, str], set[str]] = defaultdict(set)
+    per_prefix_lines: dict[tuple[str, str, str, str, str], set[int]] = defaultdict(set)
+    per_tail_lines: dict[tuple[str, str, str, str, str, str], set[int]] = defaultdict(
+        set
+    )
+    per_prefix_stem: dict[tuple[str, str, str, str, str], str] = {}
+    per_tail_stem: dict[tuple[str, str, str, str, str, str], str] = {}
 
     for row in mappings:
         total += 1
@@ -554,7 +635,10 @@ def validate_10x_raw_fastq_completeness(
                 )
                 continue
             matched += 1
-            per_tail_artifacts[prefix_key + (fastq_tail,)].add(artifact)
+            tail_key = prefix_key + (fastq_tail,)
+            per_tail_artifacts[tail_key].add(artifact)
+            per_tail_lines[tail_key].add(row.line_num)
+            per_tail_stem.setdefault(tail_key, s3[: len(s3) - len(tail_only)])
             per_prefix_tails[prefix_key].add(fastq_tail)
             continue
 
@@ -591,6 +675,8 @@ def validate_10x_raw_fastq_completeness(
 
         matched += 1
         per_prefix_artifacts[prefix_key].add(artifact)
+        per_prefix_lines[prefix_key].add(row.line_num)
+        per_prefix_stem.setdefault(prefix_key, s3[: len(s3) - len(per_prefix_suffix)])
 
         mismatch = _check_s3_local_suffix_consistency(
             row,
@@ -599,6 +685,11 @@ def validate_10x_raw_fastq_completeness(
         )
         if mismatch is not None:
             errors.append(mismatch)
+
+    per_prefix_rev = _reverse_artifact_suffixes(
+        TENX_FASTQ_PER_PREFIX_SUFFIX_TO_ARTIFACT
+    )
+    per_tail_rev = _reverse_artifact_suffixes(TENX_FASTQ_PER_TAIL_SUFFIX_TO_ARTIFACT)
 
     missing_per_prefix: dict[str, list[str]] = {}
     for key, found in per_prefix_artifacts.items():
@@ -617,13 +708,19 @@ def validate_10x_raw_fastq_completeness(
                         + ", ".join(missing)
                     ),
                     "missing": missing,
+                    "present": sorted(found),
+                    "lines": sorted(per_prefix_lines.get(key, set())),
+                    "missing_files": _expected_missing_files(
+                        per_prefix_stem.get(key), missing, per_prefix_rev
+                    ),
                 }
             )
 
     missing_per_tail: dict[str, list[str]] = {}
     for prefix_key, tails in per_prefix_tails.items():
         for tail in sorted(tails):
-            found = per_tail_artifacts.get(prefix_key + (tail,), set())
+            tail_key = prefix_key + (tail,)
+            found = per_tail_artifacts.get(tail_key, set())
             missing = sorted(TENX_FASTQ_REQUIRED_PER_TAIL_ARTIFACTS - found)
             if missing:
                 label = (
@@ -640,6 +737,11 @@ def validate_10x_raw_fastq_completeness(
                             + ", ".join(missing)
                         ),
                         "missing": missing,
+                        "present": sorted(found),
+                        "lines": sorted(per_tail_lines.get(tail_key, set())),
+                        "missing_files": _expected_missing_files(
+                            per_tail_stem.get(tail_key), missing, per_tail_rev
+                        ),
                     }
                 )
 

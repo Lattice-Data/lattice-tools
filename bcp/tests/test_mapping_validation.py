@@ -2607,6 +2607,36 @@ def test_validate_10x_raw_fastq_completeness_missing_per_tail_sample_fastq() -> 
     assert missing
 
 
+def test_validate_10x_raw_fastq_completeness_missing_includes_present_and_lines() -> (
+    None
+):
+    """Aggregate per-tail errors expose the present artifacts and source lines."""
+    rows = _tenx_fastq_complete_rows(
+        omit_per_tail={("S1_L001_R1_001", "_sample.fastq.gz")}
+    )
+    res = validate_10x_raw_fastq_completeness("novogene", rows)
+    per_tail = [
+        e
+        for e in res["errors"]
+        if e["type"] == "missing_sample_artifacts"
+        and "sample_fastq" in e.get("missing", [])
+    ]
+    assert len(per_tail) == 1
+    err = per_tail[0]
+    # The three surviving R1 rows (.fastq.gz/.csv/.json) should be reported as
+    # present, and their source line numbers carried through for triage.
+    assert "fastq" in err["present"]
+    assert err["present"] == sorted(err["present"])
+    assert len(err["lines"]) == 3
+    assert err["lines"] == sorted(err["lines"])
+    assert all(isinstance(n, int) for n in err["lines"])
+    # The concrete SOP-expected missing file is reconstructed from a present
+    # sibling row's full S3 path with the missing artifact's suffix appended.
+    assert err["missing_files"] == [
+        f"{_TENX_FASTQ_S3_PREFIX}_S1_L001_R1_001_sample.fastq.gz"
+    ]
+
+
 def test_validate_10x_raw_fastq_completeness_unexpected_suffix_caught() -> None:
     """An unrecognised per-prefix suffix should fire unexpected_sample_file."""
     rows = _tenx_fastq_complete_rows()

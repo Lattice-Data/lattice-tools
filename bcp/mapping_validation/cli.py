@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections import defaultdict
 from typing import List, Set
 
 from .completeness import (
@@ -10,8 +9,15 @@ from .completeness import (
     validate_scale_raw_completeness,
     validate_sci_raw_completeness,
 )
-from .constants import CANONICAL_ASSAY
 from .parsing import parse_mapping_file
+from .reporting import (
+    DEFAULT_MAX_EXAMPLES,
+    cap,
+    configure_reporting,
+    count_issue_type as _count_issue_type,
+    print_issue_examples as _print_issue_examples,
+    report_sif_comparison as _report_sif_comparison,
+)
 from .sif_io import (
     _normalize_sif_groupid,
     load_sif_group_assays,
@@ -39,110 +45,6 @@ from .validators import (
 )
 
 
-def _print_issue_examples(
-    label: str, issues: List[dict], kind: str, max_examples: int = 5
-) -> None:
-    """
-    Print a short, grouped summary of errors or warnings with a few examples.
-
-    `kind` is either 'errors' or 'warnings' for labeling.
-    """
-    if not issues:
-        return
-
-    by_type: dict[str, int] = defaultdict(int)
-    for item in issues:
-        by_type[item.get("type", "unknown")] += 1
-
-    print(f"{label} {kind}:")
-    for t, count in sorted(by_type.items(), key=lambda kv: kv[0]):
-        print(f"  - {t}: {count}")
-
-    print(f"  Showing up to {max_examples} example {kind}:")
-    for item in issues[:max_examples]:
-        line = item.get("line", "?")
-        s3_path = item.get("s3_path")
-        local_path = item.get("local_path")
-        detail = item.get("detail")
-        print(f"    line {line}:")
-        if s3_path:
-            print(f"      S3:    {s3_path}")
-        if local_path:
-            print(f"      local: {local_path}")
-        if detail:
-            print(f"      detail: {detail}")
-
-
-def _count_issue_type(issues: List[dict], issue_type: str) -> int:
-    """Count issues of a specific type."""
-    return sum(1 for item in issues if item.get("type") == issue_type)
-
-
-def _report_sif_comparison(
-    cmp: dict,
-    fail_reasons: List[str],
-) -> int:
-    """Print SIF GroupID/assay comparison results and return exit code delta.
-
-    Shared reporting logic for both 10x and Scale SIF completeness checks.
-    Returns 1 if any issues warrant failure, 0 otherwise.
-    """
-    exit_code = 0
-    missing = cmp["missing_groupids"]
-    extra = cmp["extra_groupids"]
-    missing_assays = cmp.get("missing_assays", {})
-    extra_assays = cmp.get("extra_assays", {})
-    expected_ga = cmp.get("expected_group_assays", {})
-
-    print(
-        f"SIF completeness: expected={len(cmp['expected_groupids'])} GroupIDs, "
-        f"found={len(cmp['actual_groupids'])}, "
-        f"missing={len(missing)}, extra={len(extra)}"
-    )
-
-    if missing:
-        print(
-            "  Missing GroupIDs from S3 (in SIF but not S3): "
-            + ", ".join(sorted(missing))
-        )
-        exit_code = 1
-        fail_reasons.append(
-            f"{len(missing)} SIF GroupIDs missing from S3: "
-            + ", ".join(sorted(missing))
-        )
-    if extra:
-        print("  Extra GroupIDs in S3 (not in SIF): " + ", ".join(sorted(extra)))
-        exit_code = 1
-        fail_reasons.append(
-            f"{len(extra)} extra GroupIDs in S3 not in SIF: " + ", ".join(sorted(extra))
-        )
-
-    if missing_assays:
-        print("  GroupIDs with missing assay types in S3:")
-        for gid in sorted(missing_assays):
-            print(f"    {gid}: missing {sorted(missing_assays[gid])}")
-        exit_code = 1
-        fail_reasons.append(
-            f"{len(missing_assays)} GroupIDs have missing assay types in S3"
-        )
-    if extra_assays:
-        print("  GroupIDs with unexpected assay types in S3 (not in SIF):")
-        for gid in sorted(extra_assays):
-            print(f"    {gid}: unexpected {sorted(extra_assays[gid])}")
-
-    if expected_ga:
-        unique_combos: set[frozenset[str]] = set()
-        for assays in expected_ga.values():
-            unique_combos.add(frozenset(assays))
-        combos_desc = [
-            " + ".join(CANONICAL_ASSAY.get(a, a) for a in sorted(c))
-            for c in sorted(unique_combos, key=sorted)
-        ]
-        print(f"  SIF assay combinations: {', '.join(combos_desc)}")
-
-    return exit_code
-
-
 def main() -> None:
     """
     CLI for validating mapping CSV/TSV files against SOP rules.
@@ -158,6 +60,10 @@ def main() -> None:
 
     For 10x processed Multiome (Cell Ranger ARC) mappings, also pass:
         --tenx-profile multiome
+
+    To control how many example issues are printed per check:
+        --max-examples N     (default 5; 0 means show all)
+        --verbose / -v       (show every error and warning)
     """
 
     parser = argparse.ArgumentParser(
@@ -194,8 +100,30 @@ def main() -> None:
             "core outs (ATAC + feature matrices + summary) per GroupID."
         ),
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help=(
+            "Print every error and warning instead of a capped sample. "
+            "Equivalent to --max-examples 0."
+        ),
+    )
+    parser.add_argument(
+        "--max-examples",
+        type=int,
+        default=DEFAULT_MAX_EXAMPLES,
+        metavar="N",
+        help=(
+            "Maximum number of example errors/warnings to show per check "
+            f"(default: {DEFAULT_MAX_EXAMPLES}; 0 means show all). "
+            "Ignored when --verbose is set."
+        ),
+    )
 
     args = parser.parse_args()
+
+    configure_reporting(verbose=args.verbose, max_examples=args.max_examples)
 
     mappings = parse_mapping_file(args.mapping, provider=args.provider)
     if not mappings:
@@ -286,10 +214,12 @@ def _validate_10x_raw(
             "10x raw modality: unexpected CRAM rows found "
             f"({modality['strict_cram_count']}; unmatched CRAM artifacts are the only allowed exception)."
         )
-        for row in modality["strict_cram_rows"][:5]:
+        shown_cram = cap(modality["strict_cram_rows"], 5)
+        for row in shown_cram:
             print(f"  line {row.line_num}: {row.s3_path}")
-        if modality["strict_cram_count"] > 5:
-            print(f"  ... and {modality['strict_cram_count'] - 5} more")
+        remaining_cram = modality["strict_cram_count"] - len(shown_cram)
+        if remaining_cram > 0:
+            print(f"  ... and {remaining_cram} more (use --verbose to see all)")
         exit_code = 1
         fail_reasons.append(
             f"{modality['strict_cram_count']} unexpected CRAM rows in 10x FASTQ mode"
@@ -404,10 +334,12 @@ def _validate_10x_cram_raw(
             "10x_cram modality: FASTQ rows found "
             f"({modality['fastq_count']}); FASTQ files are forbidden in 10x_cram mode."
         )
-        for row in modality["fastq_rows"][:5]:
+        shown_fastq = cap(modality["fastq_rows"], 5)
+        for row in shown_fastq:
             print(f"  line {row.line_num}: {row.s3_path}")
-        if modality["fastq_count"] > 5:
-            print(f"  ... and {modality['fastq_count'] - 5} more")
+        remaining_fastq = modality["fastq_count"] - len(shown_fastq)
+        if remaining_fastq > 0:
+            print(f"  ... and {remaining_fastq} more (use --verbose to see all)")
         exit_code = 1
         fail_reasons.append(
             f"{modality['fastq_count']} FASTQ rows found in 10x_cram mode"
@@ -513,27 +445,33 @@ def _report_library_consistency(
     )
     if n_gid:
         print("  GroupID mismatches (library in local path not in S3 GroupID):")
-        for item in lib_res["groupid_mismatches"][:10]:
+        shown_gid = cap(lib_res["groupid_mismatches"], 10)
+        for item in shown_gid:
             print(
                 f"    line {item['line']}: local has '{item['library']}' "
                 f"but S3 GroupID is '{item['s3_groupid']}'"
             )
-        if n_gid > 10:
-            print(f"    ... and {n_gid - 10} more")
+        if n_gid > len(shown_gid):
+            print(
+                f"    ... and {n_gid - len(shown_gid)} more (use --verbose to see all)"
+            )
         exit_code = 1
         fail_reasons.append(
             f"{n_gid} GroupID mismatches (local library name not found in S3 GroupID)"
         )
     if n_assay:
         print("  Assay mismatches (library in local path vs assay in S3):")
-        for item in lib_res["assay_mismatches"][:10]:
+        shown_assay = cap(lib_res["assay_mismatches"], 10)
+        for item in shown_assay:
             print(
                 f"    line {item['line']}: local has '{item['library']}' "
                 f"(SIF expects {item['expected_assay']}) "
                 f"but S3 assay is {item['s3_assay']}"
             )
-        if n_assay > 10:
-            print(f"    ... and {n_assay - 10} more")
+        if n_assay > len(shown_assay):
+            print(
+                f"    ... and {n_assay - len(shown_assay)} more (use --verbose to see all)"
+            )
         exit_code = 1
         fail_reasons.append(
             f"{n_assay} library-assay mismatches "
@@ -567,10 +505,14 @@ def _report_sif_path_coverage(
         for gid in sorted(sif_cov["unmatched_by_group"]):
             rows = sif_cov["unmatched_by_group"][gid]
             print(f"    {gid}: {len(rows)} files")
-            for r in rows[:3]:
+            shown_rows = cap(rows, 3)
+            for r in shown_rows:
                 print(f"      {r.s3_path}")
-            if len(rows) > 3:
-                print(f"      ... and {len(rows) - 3} more")
+            if len(rows) > len(shown_rows):
+                print(
+                    f"      ... and {len(rows) - len(shown_rows)} more "
+                    "(use --verbose to see all)"
+                )
         exit_code = 1
         fail_reasons.append(
             f"{n_unmatched_paths} S3 paths in {n_unmatched_groups} "
@@ -578,10 +520,14 @@ def _report_sif_path_coverage(
         )
     if sif_cov["unparsed"]:
         print("  S3 paths that could not be parsed (not metadata):")
-        for r in sif_cov["unparsed"][:5]:
+        shown_unparsed = cap(sif_cov["unparsed"], 5)
+        for r in shown_unparsed:
             print(f"    line {r.line_num}: {r.s3_path}")
-        if n_unparsed > 5:
-            print(f"    ... and {n_unparsed - 5} more")
+        if n_unparsed > len(shown_unparsed):
+            print(
+                f"    ... and {n_unparsed - len(shown_unparsed)} more "
+                "(use --verbose to see all)"
+            )
         exit_code = 1
         fail_reasons.append(f"{n_unparsed} S3 paths could not be parsed")
     return exit_code

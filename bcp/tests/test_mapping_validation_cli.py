@@ -890,6 +890,159 @@ def test_cli_10x_raw_missing_per_tail_sample_fastq_fails(
     assert "VERDICT: FAIL" in captured.out
 
 
+_PER_TAIL_ERROR_DETAIL = "missing required 10x FASTQ per-tail artifacts: sample_fastq"
+
+
+def _multi_bundle_10x_mapping(n_bundles: int) -> str:
+    """Build N independent 10x raw bundles, each missing R1 ``_sample.fastq.gz``.
+
+    Every bundle is otherwise SOP-complete, so each contributes exactly one
+    ``missing_sample_artifacts`` (per-tail) completeness error.  Distinct
+    GroupIDs keep both the S3 and local paths unique so the uniqueness check
+    stays green and only the targeted completeness error is produced.
+    """
+    lines: list[str] = []
+    for i in range(n_bundles):
+        gid = f"CD4i_R1L{i:02d}"
+        s3_prefix = (
+            f"s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/{gid}/raw/"
+            f"416640-{gid}_GEX-Z0238-CTGCACATTGTAGAT"
+        )
+        local_prefix = f"/local/{gid}/GEX"
+        for sfx in (
+            ".csv",
+            ".json",
+            "_trimmer-stats.csv",
+            "_trimmer-failure_codes.csv",
+            "_unmatched.cram",
+            "_unmatched.csv",
+            "_unmatched.json",
+        ):
+            lines.append(f"{s3_prefix}{sfx},{local_prefix}{sfx}")
+        for tail in ("S1_L001_R1_001", "S1_L001_R2_001"):
+            for sfx in (".fastq.gz", ".csv", ".json", "_sample.fastq.gz"):
+                if tail == "S1_L001_R1_001" and sfx == "_sample.fastq.gz":
+                    continue
+                lines.append(f"{s3_prefix}_{tail}{sfx},{local_prefix}_{tail}{sfx}")
+    return "\n".join(lines) + "\n"
+
+
+def _run_10x_raw_cli(
+    tmp_path: Path, monkeypatch, mapping_text: str, extra_args: list[str] | None = None
+) -> int:
+    """Run the CLI in 10x raw mode and return the captured exit code."""
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    argv.extend(extra_args or [])
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+    return int(excinfo.value.code)
+
+
+def test_cli_default_caps_completeness_examples(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Default output caps per-tail completeness examples at five with a hint."""
+    code = _run_10x_raw_cli(tmp_path, monkeypatch, _multi_bundle_10x_mapping(8))
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "missing_sample_artifacts: 8" in captured.out
+    assert "Showing up to 5 example errors" in captured.out
+    assert captured.out.count(_PER_TAIL_ERROR_DETAIL) == 5
+    assert "... and 3 more errors (use --verbose to see all)" in captured.out
+    assert "VERDICT: FAIL" in captured.out
+
+
+def test_cli_verbose_shows_all_completeness_errors(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """--verbose prints every completeness error and drops the truncation hint."""
+    code = _run_10x_raw_cli(
+        tmp_path, monkeypatch, _multi_bundle_10x_mapping(8), extra_args=["--verbose"]
+    )
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "missing_sample_artifacts: 8" in captured.out
+    assert "Showing all 8 errors" in captured.out
+    assert captured.out.count(_PER_TAIL_ERROR_DETAIL) == 8
+    assert "use --verbose to see all" not in captured.out
+
+
+def test_cli_verbose_includes_present_and_source_lines(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Verbose aggregate errors expose present artifacts and source line numbers."""
+    _run_10x_raw_cli(
+        tmp_path, monkeypatch, _multi_bundle_10x_mapping(1), extra_args=["--verbose"]
+    )
+
+    captured = capsys.readouterr()
+    assert "present: " in captured.out
+    assert "source lines: " in captured.out
+
+
+def test_cli_verbose_lists_concrete_missing_file_names(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Verbose output reconstructs the concrete SOP-expected missing S3 paths."""
+    _run_10x_raw_cli(
+        tmp_path, monkeypatch, _multi_bundle_10x_mapping(1), extra_args=["--verbose"]
+    )
+
+    captured = capsys.readouterr()
+    assert "missing files (SOP-expected, not found in mapping):" in captured.out
+    assert (
+        "s3://czi-novogene/project-scaling-alpha/NVUS0000000000-29/CD4i_R1L00/raw/"
+        "416640-CD4i_R1L00_GEX-Z0238-CTGCACATTGTAGAT_S1_L001_R1_001_sample.fastq.gz"
+        in captured.out
+    )
+
+
+def test_cli_max_examples_respected(tmp_path: Path, monkeypatch, capsys) -> None:
+    """--max-examples N limits examples to exactly N when more errors exist."""
+    code = _run_10x_raw_cli(
+        tmp_path,
+        monkeypatch,
+        _multi_bundle_10x_mapping(8),
+        extra_args=["--max-examples", "2"],
+    )
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "Showing up to 2 example errors" in captured.out
+    assert captured.out.count(_PER_TAIL_ERROR_DETAIL) == 2
+    assert "... and 6 more errors (use --verbose to see all)" in captured.out
+
+
+def test_cli_max_examples_zero_shows_all(tmp_path: Path, monkeypatch, capsys) -> None:
+    """--max-examples 0 is treated as unlimited, like --verbose."""
+    code = _run_10x_raw_cli(
+        tmp_path,
+        monkeypatch,
+        _multi_bundle_10x_mapping(8),
+        extra_args=["--max-examples", "0"],
+    )
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert "Showing all 8 errors" in captured.out
+    assert captured.out.count(_PER_TAIL_ERROR_DETAIL) == 8
+    assert "use --verbose to see all" not in captured.out
+
+
 def test_cli_unsupported_mode_fails(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should fail with an unsupported provider/data/assay combination."""
     mapping_text = "s3://bucket/a,/local/a\n"
