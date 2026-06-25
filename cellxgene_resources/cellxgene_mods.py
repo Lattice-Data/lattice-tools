@@ -379,7 +379,7 @@ def evaluate_10x_barcodes(obs, visium=False):
     no_barcode_v = 'no barcode'
 
     obs = obs.copy()
-    obs['barcode'] = obs.index.str.extract(r'([ACTG]{12,})')[0].tolist()
+    obs['barcode'] = obs.index.str.extract(r'([ACTG]{12,})')[0].str[:16].tolist()
     if len(set(ref_df.index.to_list()).intersection(set(obs['barcode'].to_list()))) == 0:
         report('Did not find any barcodes in obs index, cannot evaluate barcodes', 'WARNING')
         return
