@@ -122,6 +122,16 @@ class TestGatherPsomagenMultiWafer:
         assert len(run_ids_in_stats) == 5  # 441049 shared across L01 + L02
         assert len(data.trimmer_failure_stats) == 5
 
+        assert set(data.group_failure_stats) == {
+            "SYN00000001/SYNLIB_L01",
+            "SYN00000001/SYNLIB_L02",
+        }
+        for group_key in data.group_failure_stats:
+            assert not (group_key.isdigit() and len(group_key) == 6)
+            stats = data.group_failure_stats[group_key]
+            assert len(stats["rsq"]) == 3
+            assert len(stats["trimmer_fail"]) == 3
+
     def test_wafer_failure_stats_covers_all_run_ids_without_merged_files(self):
         """Psomagen-style orders may lack merged trimmer CSVs; wafer stats still populate."""
         groups = _listing_prefixes_from_fixture()
@@ -194,6 +204,12 @@ class TestGatherNovogeneMultiWaferWithMerged:
             data.trimmer_failure_stats, data.exp_to_run_map
         )
         assert set(wafer_stats) == {"439047", "439048", "439049"}
+
+        assert set(data.group_failure_stats) == {"ORD01/G1", "ORD01/G2"}
+        assert len(data.group_failure_stats["ORD01/G1"]["rsq"]) == 2
+        assert len(data.group_failure_stats["ORD01/G1"]["trimmer_fail"]) == 2
+        assert len(data.group_failure_stats["ORD01/G2"]["rsq"]) == 1
+        assert len(data.group_failure_stats["ORD01/G2"]["trimmer_fail"]) == 1
 
 
 class TestGatherPsomagenPerSampleTrimmerStats:
