@@ -470,7 +470,6 @@ class QADataGatherer:
         excluded = (
             "_trimmer-stats.csv",
             "_trimmer-failure_codes.csv",
-            "_trimmer-failure-codes.csv",
             "-trimmer-failure-codes.csv",
             "_unmatched.csv",
             "_S1_L001_R1_001.csv",
