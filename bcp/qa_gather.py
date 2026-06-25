@@ -97,7 +97,11 @@ class QADataGatherer:
         self._data = QAGatheredData()
         self._metadata_lock = Lock()
         self._pct_q30_lock = Lock()
-        self._s3_fs = s3fs.S3FileSystem(client=s3_client)
+        s3_fs_kwargs: dict[str, Any] = {}
+        region = getattr(getattr(s3_client, "meta", None), "region_name", None)
+        if region:
+            s3_fs_kwargs["client_kwargs"] = {"region_name": region}
+        self._s3_fs = s3fs.S3FileSystem(**s3_fs_kwargs)
 
     def gather(self) -> QAGatheredData:
         """Run the full gathering pipeline and return collected data."""
