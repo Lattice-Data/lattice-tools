@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import tempfile
 
-import fsspec
+import s3fs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +31,7 @@ from qa_mods import (
     is_order_level_processed_folder,
     is_valid_cellranger_run_dir_name,
     load_files_from_manifest,
-    parse_pct_pf_q30_from_text,
+    parse_pct_pf_q30_from_lines,
     parse_raw_filename,
     parse_scale_samples_csv,
     parse_scale_workflow_info,
@@ -40,6 +40,8 @@ from qa_mods import (
 
 METADATA_DOWNLOAD_MAX_WORKERS = 16
 METADATA_DOWNLOAD_PROGRESS_INTERVAL = 250
+PCT_Q30_READ_MAX_WORKERS = 16
+PCT_Q30_READ_PROGRESS_INTERVAL = 250
 
 
 def _normalize_group_id_for_compare(group_id: str) -> str:
@@ -94,6 +96,8 @@ class QADataGatherer:
         self.raw_assay = ctx.raw_assay
         self._data = QAGatheredData()
         self._metadata_lock = Lock()
+        self._pct_q30_lock = Lock()
+        self._s3_fs = s3fs.S3FileSystem(client=s3_client)
 
     def gather(self) -> QAGatheredData:
         """Run the full gathering pipeline and return collected data."""
@@ -474,28 +478,55 @@ class QADataGatherer:
             return False
         return parse_raw_filename(key, self.raw_assay) is not None
 
-    def _gather_pct_q30(self) -> None:
-        """Stream sublibrary stats CSVs from S3 and populate pct_q30_values."""
-        for key in self._data.all_raw_files:
-            if not self._is_sublibrary_stats_csv(key):
-                continue
-            filename = key.split("/")[-1]
-            s3_uri = f"s3://{self.bucket}/{key}"
-            try:
-                with fsspec.open(s3_uri, "r") as fobj:
-                    text = fobj.read()
-                value = parse_pct_pf_q30_from_text(text)
-            except Exception as exc:
+    def _read_pct_q30_from_s3(self, key: str) -> None:
+        """Fetch one sublibrary stats CSV and record its PCT_PF_Q30_bases value."""
+        filename = key.split("/")[-1]
+        try:
+            with self._s3_fs.open(f"{self.bucket}/{key}", "r") as fobj:
+                value = parse_pct_pf_q30_from_lines(fobj)
+        except Exception as exc:
+            with self._pct_q30_lock:
                 self._data.gathering_errors.append(
                     f"PCT_Q30 read failed for {filename}: {exc}"
                 )
-                continue
+            return
+
+        with self._pct_q30_lock:
             if value is None:
                 self._data.gathering_warnings.append(
                     f"PCT_PF_Q30_bases missing in {filename}"
                 )
             else:
                 self._data.pct_q30_values[filename] = value
+
+    def _gather_pct_q30(self) -> None:
+        """Stream sublibrary stats CSVs from S3 and populate pct_q30_values."""
+        keys = [
+            key
+            for key in self._data.all_raw_files
+            if self._is_sublibrary_stats_csv(key)
+        ]
+        if not keys:
+            return
+
+        total = len(keys)
+        if total == 1:
+            self._read_pct_q30_from_s3(keys[0])
+            return
+
+        if total >= PCT_Q30_READ_PROGRESS_INTERVAL:
+            print(f"Reading {total} sublibrary stats CSV(s) for PCT_PF_Q30_bases...")
+
+        workers = min(PCT_Q30_READ_MAX_WORKERS, total)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(self._read_pct_q30_from_s3, key) for key in keys]
+            for completed, future in enumerate(as_completed(futures), start=1):
+                future.result()
+                if total >= PCT_Q30_READ_PROGRESS_INTERVAL and (
+                    completed % PCT_Q30_READ_PROGRESS_INTERVAL == 0
+                    or completed == total
+                ):
+                    print(f"  read {completed}/{total} sublibrary stats CSV(s) for Q30")
 
     # ------------------------------------------------------------------
     # S3 helpers — file downloads

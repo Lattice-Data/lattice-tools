@@ -883,6 +883,38 @@ class TestGatherNestedRawRunPagination:
 # ---------------------------------------------------------------------------
 
 
+def _patch_s3_fs_for_q30(monkeypatch, file_contents: dict[str, str] | None = None):
+    """Replace s3fs.S3FileSystem with a fake that serves in-memory CSV text."""
+    file_contents = file_contents or {}
+    opened: list[str] = []
+
+    class _FakeFile:
+        def __init__(self, content: str):
+            self._lines = content.splitlines()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def __iter__(self):
+            return iter(self._lines)
+
+    class _FakeS3FS:
+        def __init__(self, client=None):
+            pass
+
+        def open(self, path: str, mode: str):
+            opened.append(path)
+            if path not in file_contents:
+                raise FileNotFoundError(f"MockS3FS: no content for {path!r}")
+            return _FakeFile(file_contents[path])
+
+    monkeypatch.setattr("qa_gather.s3fs.S3FileSystem", _FakeS3FS)
+    return opened
+
+
 class TestGatherPctQ30:
     _BASE = "testproj/ORD01/G1/raw/443489-CRaD5_L09_GEX-Z5018-CTGATATGA"
 
@@ -902,19 +934,11 @@ class TestGatherPctQ30:
         with open(fixture_path, encoding="utf-8") as fh:
             csv_content = fh.read()
 
-        class FakeFile:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                pass
-
-            def read(self):
-                return csv_content
-
-        monkeypatch.setattr("qa_gather.fsspec.open", lambda uri, mode: FakeFile())
-
         key = f"{self._BASE}.csv"
+        _patch_s3_fs_for_q30(
+            monkeypatch, file_contents={f"czi-novogene/{key}": csv_content}
+        )
+
         ctx = self._manifest_ctx(tmp_path, key)
         data = gather_qa_data(ctx, MockS3Client())
 
@@ -922,25 +946,33 @@ class TestGatherPctQ30:
             "443489-CRaD5_L09_GEX-Z5018-CTGATATGA.csv": 73.49
         }
 
+    def test_gather_pct_q30_parallel_reads(self, monkeypatch, tmp_path):
+        fixture_path = os.path.join(QA_FIXTURES_DIR, "sublibrary_stats_q30.csv")
+        with open(fixture_path, encoding="utf-8") as fh:
+            csv_content = fh.read()
+
+        keys = [f"{self._BASE}{suffix}.csv" for suffix in ("_A", "_B", "_C")]
+        file_contents = {f"czi-novogene/{key}": csv_content for key in keys}
+        _patch_s3_fs_for_q30(monkeypatch, file_contents=file_contents)
+
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(
+            "\n".join(f"s3://czi-novogene/{key}" for key in keys) + "\n"
+        )
+        ctx = _make_ctx(
+            data_source="manifest",
+            manifest_path=str(manifest),
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+        )
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert len(data.pct_q30_values) == 3
+        assert all(v == 73.49 for v in data.pct_q30_values.values())
+
     def test_per_read_csv_excluded(self, monkeypatch, tmp_path):
-        opened: list[str] = []
-
-        def fake_open(uri, mode):
-            opened.append(uri)
-
-            class FakeFile:
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *args):
-                    pass
-
-                def read(self):
-                    return ""
-
-            return FakeFile()
-
-        monkeypatch.setattr("qa_gather.fsspec.open", fake_open)
+        opened = _patch_s3_fs_for_q30(monkeypatch)
 
         key = f"{self._BASE}_S1_L001_R1_001.csv"
         ctx = self._manifest_ctx(tmp_path, key)
@@ -950,24 +982,7 @@ class TestGatherPctQ30:
         assert opened == []
 
     def test_trimmer_stats_csv_excluded(self, monkeypatch, tmp_path):
-        opened: list[str] = []
-
-        def fake_open(uri, mode):
-            opened.append(uri)
-
-            class FakeFile:
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *args):
-                    pass
-
-                def read(self):
-                    return ""
-
-            return FakeFile()
-
-        monkeypatch.setattr("qa_gather.fsspec.open", fake_open)
+        opened = _patch_s3_fs_for_q30(monkeypatch)
 
         for suffix in ("_trimmer-stats.csv", ".trimmer_stats.csv"):
             key = f"{self._BASE}{suffix}"
