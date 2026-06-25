@@ -20,6 +20,14 @@ class DB2Gatherer:
             return object_id.split('/')[-2] if object_id.endswith('/') else object_id.split('/')[-1]
         return object_id
     
+    def _ref_to_id(self, ref):
+        """Extract @id from a reference dict or string"""
+        if not ref:
+            return ''
+        if isinstance(ref, dict):
+            return ref.get('@id', '')
+        return ref
+    
     def get_api_type_from_id(self, object_id):
         """Determine API type from @id path"""
         for path_key, config in OBJECT_CONFIG.items():
@@ -336,14 +344,17 @@ class DB2Gatherer:
         for sf in sequence_files:
             file_sets = sf.get('sequence_file_sets', [])
             for ref in file_sets:
-                if isinstance(ref, dict):
-                    ref_id = ref.get('@id', '')
-                else:
-                    ref_id = ref
+                ref_id = self._ref_to_id(ref)
                 if ref_id:
                     file_set_uuids.add(self.extract_uuid_from_id(ref_id))
         
-        print(f"Found {len(file_set_uuids)} file set UUIDs referenced by sequence files")
+        # Include sequence file sets declared directly on the MatrixFileSet
+        for ref in matrix_file_set.get('source_sequence_file_sets', []):
+            ref_id = self._ref_to_id(ref)
+            if ref_id:
+                file_set_uuids.add(self.extract_uuid_from_id(ref_id))
+        
+        print(f"Found {len(file_set_uuids)} file set UUIDs referenced by sequence files and MatrixFileSet")
         
         # Step 4: Get file sets and their libraries
         file_sets = self.chunk_and_fetch('SequenceFileSet', list(file_set_uuids))
@@ -355,6 +366,25 @@ class DB2Gatherer:
             self.resolved_objects['SequenceFileSet'][fs['@id']] = fs
         
         print(f"Successfully fetched {len(file_sets)} file sets")
+        
+        # Fetch read-slot sequence files referenced by file sets (read1/read2/read3)
+        read_sequence_uuids = set()
+        for fs in self.resolved_objects.get('SequenceFileSet', {}).values():
+            for slot in ('read1', 'read2', 'read3'):
+                ref_id = self._ref_to_id(fs.get(slot, ''))
+                if ref_id:
+                    read_sequence_uuids.add(self.extract_uuid_from_id(ref_id))
+        
+        already_fetched = {
+            self.extract_uuid_from_id(sf_id)
+            for sf_id in self.resolved_objects.get('SequenceFile', {})
+        }
+        missing_read_uuids = read_sequence_uuids - already_fetched
+        if missing_read_uuids:
+            print(f"Fetching {len(missing_read_uuids)} additional read-slot sequence files...")
+            read_sequence_files = self.chunk_and_fetch('SequenceFile', list(missing_read_uuids))
+            for sf in read_sequence_files:
+                self.resolved_objects['SequenceFile'][sf['@id']] = sf
         
         library_uuids = set()
         for fs in file_sets:
@@ -435,6 +465,7 @@ class DB2Gatherer:
         
         # Step 7: Resolve all references from samples
         self.resolve_references_for_samples(all_samples)
+        self._register_library_controlled_terms(all_libraries)
         
         # Step 8: Structure data by library
         libraries_data = {}
@@ -479,6 +510,21 @@ class DB2Gatherer:
             'libraries': libraries_data,
             'resolved_objects': self.resolved_objects
         }
+
+    def _register_library_controlled_terms(self, libraries):
+        """Register library controlled-term refs so _resolve_controlled_term() can resolve them"""
+        if 'ControlledTerm' not in self.resolved_objects:
+            self.resolved_objects['ControlledTerm'] = {}
+        
+        controlled_terms = self.resolved_objects['ControlledTerm']
+        for library in libraries:
+            refs = self.extract_references_from_field(
+                library.get('library_construction_technology'),
+                'library_construction_technology',
+            )
+            for ref in refs:
+                if ref.startswith('/') and '/controlled_terms/' in ref:
+                    controlled_terms[ref] = self.extract_controlled_term_id(ref)
 
     def _map_raw_matrix_files_to_libraries(self, raw_matrix_files, libraries_data, all_samples):
         """Map raw matrix files to their corresponding libraries using samples field or data flow"""

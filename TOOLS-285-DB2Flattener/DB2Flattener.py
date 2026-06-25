@@ -35,13 +35,15 @@ class DB2Flattener:
         
         print("Creating DataFrames...")
         
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
         # Generate output filename if not provided
         if output_file is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_GEO.csv"
         
-        # Create main DataFrame and sample DataFrame
+        # Create main DataFrame, sample DataFrame, and sequence DataFrame
         main_df, sample_df = self.create_dataframe(complete_data)
+        sequence_df = self.create_sequence_dataframe(complete_data)
         
         # Drop columns with all "n/a" from main DataFrame
         cols_to_drop = [col for col in main_df.columns if main_df[col].eq('n/a').all()]
@@ -69,6 +71,22 @@ class DB2Flattener:
             print(f"✅ Sample CSV file created: {sample_output}")
             print(f"   Rows: {len(sample_df)}")
             print(f"   Columns: {len(sample_df.columns)}")
+        
+        # Save sequence DataFrame if it exists
+        if sequence_df is not None and not sequence_df.empty:
+            sequence_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_SEQUENCES.csv"
+            
+            sequence_cols_to_drop = [
+                col for col in sequence_df.columns if sequence_df[col].eq('n/a').all()
+            ]
+            sequence_df = sequence_df.drop(columns=sequence_cols_to_drop)
+            
+            print(f"Saving sequence DataFrame to {sequence_output}...")
+            sequence_df.to_csv(sequence_output, index=False)
+            
+            print(f"✅ Sequence CSV file created: {sequence_output}")
+            print(f"   Rows: {len(sequence_df)}")
+            print(f"   Columns: {len(sequence_df.columns)}")
         
         return output_file
         
@@ -287,6 +305,122 @@ class DB2Flattener:
                   f"({sample_df['raw_matrix_file_alias'].nunique()} raw matrix files)...")
         
         return main_df, sample_df
+    
+    READ_SLOTS = ('read1', 'read2', 'read3')
+    
+    def create_sequence_dataframe(self, complete_data):
+        """Create one row per library alias with dynamic filename columns for read files"""
+        libraries_data = complete_data['libraries']
+        resolved_objects = complete_data['resolved_objects']
+        resolved_controlled_terms = resolved_objects.get('ControlledTerm', {})
+        
+        file_lists = []
+        rows = []
+        
+        for lib_data in libraries_data.values():
+            library = lib_data['library']
+            library_id = library.get('@id', '')
+            read_files = self._collect_library_read_files(library_id, resolved_objects)
+            basenames = [
+                self._get_s3_basename(sf.get('s3_uri', ''))
+                for sf in read_files
+                if self._get_s3_basename(sf.get('s3_uri', ''))
+            ]
+            file_lists.append(basenames)
+            rows.append({
+                'library_alias': self._get_clean_alias(library),
+                'filetype': self._get_library_filetype(read_files),
+                'library_construction_technology': self._resolve_controlled_term(
+                    library.get('library_construction_technology'),
+                    resolved_controlled_terms,
+                ) or 'n/a',
+                'sample_name: sample_probe_barcode': self._format_library_sample_barcodes(
+                    lib_data['samples']
+                ),
+            })
+        
+        max_count = max((len(files) for files in file_lists), default=0)
+        column_names = self._filename_column_names(max_count)
+        
+        for row, basenames in zip(rows, file_lists):
+            for i, col in enumerate(column_names):
+                row[col] = basenames[i] if i < len(basenames) else 'n/a'
+        
+        if not rows:
+            return None
+        
+        sequence_df = pd.DataFrame(rows)
+        print(f"Creating sequence DataFrame with {len(sequence_df)} libraries...")
+        return sequence_df
+    
+    def _get_library_filetype(self, read_files):
+        """Join unique file_format values across a library's read sequence files"""
+        return self._join_unique([sf.get('file_format', '') for sf in read_files])
+    
+    def _format_library_sample_barcodes(self, samples):
+        """Format sample alias and multiplexing barcode pairs for the sequences CSV"""
+        parts = []
+        for sample in samples:
+            alias = self._get_clean_alias(sample)
+            if alias == 'n/a':
+                continue
+            barcodes = sorted({
+                str(barcode).strip()
+                for barcode in sample.get('multiplexing_barcodes', [])
+                if barcode and str(barcode).strip()
+            })
+            if not barcodes:
+                continue
+            parts.append(f"{alias} : {'|'.join(barcodes)}")
+        
+        return ', '.join(parts) if parts else 'n/a'
+    
+    def _filename_column_names(self, count):
+        """Return filename column names for count read files"""
+        if count == 0:
+            return []
+        names = ['filename']
+        names.extend(f'filename{i}' for i in range(1, count))
+        return names
+    
+    def _collect_library_read_files(self, library_id, resolved_objects):
+        """Collect read SequenceFile objects linked to a library's file sets"""
+        if not library_id:
+            return []
+        
+        file_sets = [
+            fs for fs in resolved_objects.get('SequenceFileSet', {}).values()
+            if self._ref_to_id(fs.get('library', '')) == library_id
+        ]
+        file_sets.sort(key=lambda fs: self._get_clean_alias(fs))
+        
+        sequence_files = resolved_objects.get('SequenceFile', {})
+        read_files = []
+        
+        for file_set in file_sets:
+            for slot in self.READ_SLOTS:
+                ref_id = self._ref_to_id(file_set.get(slot, ''))
+                if not ref_id:
+                    continue
+                seq_file = sequence_files.get(ref_id)
+                if seq_file:
+                    read_files.append(seq_file)
+        
+        return read_files
+    
+    def _ref_to_id(self, ref):
+        """Extract @id from a reference dict or string"""
+        if not ref:
+            return ''
+        if isinstance(ref, dict):
+            return ref.get('@id', '')
+        return ref
+    
+    def _get_s3_basename(self, uri):
+        """Return the last path segment of an s3_uri"""
+        if not uri:
+            return ''
+        return uri.split('/')[-1]
     
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""

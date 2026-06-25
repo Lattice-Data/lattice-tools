@@ -63,6 +63,7 @@ FIELD_TYPES = {
     'enriched_cell_types': {'type': 'array', 'elements': 'string'},
     'depleted_cell_types': {'type': 'array', 'elements': 'string'},
     'intended_cell_types': {'type': 'array', 'elements': 'string'},
+    'multiplexing_barcodes': {'type': 'array', 'elements': 'string'},
     'samples': {'type': 'array', 'elements': 'string'},
     'derived_from': {'type': 'array', 'elements': 'string'},
     'feature_keys': {'type': 'array', 'elements': 'string'},
@@ -85,7 +86,7 @@ OBJECT_CONFIG = {
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases', 'selection_markers'
+            'depleted_cell_types', 'diseases', 'selection_markers', 'multiplexing_barcodes'
             
         ],
         'references': {
@@ -107,7 +108,8 @@ OBJECT_CONFIG = {
             'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases', 'host', 'host_tissue', 'selection_markers'
+            'depleted_cell_types', 'diseases', 'host', 'host_tissue', 'selection_markers',
+            'multiplexing_barcodes'
             
         ],
         'references': {
@@ -131,7 +133,8 @@ OBJECT_CONFIG = {
             'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases', 'intended_cell_types', 'selection_markers'
+            'depleted_cell_types', 'diseases', 'intended_cell_types', 'selection_markers',
+            'multiplexing_barcodes'
             
         ],
         'references': {
@@ -155,7 +158,7 @@ OBJECT_CONFIG = {
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
-            'depleted_cell_types', 'diseases', 'selection_markers'
+            'depleted_cell_types', 'diseases', 'selection_markers', 'multiplexing_barcodes'
             
         ],
         'references': {
