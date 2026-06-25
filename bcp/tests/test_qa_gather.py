@@ -999,6 +999,45 @@ class TestGatherPctQ30:
             assert data.pct_q30_values == {}
         assert opened == []
 
+    def test_trimmer_failure_codes_dash_suffix_excluded(self, monkeypatch, tmp_path):
+        opened = _patch_s3_fs_for_q30(monkeypatch)
+
+        key = f"{self._BASE}-trimmer-failure-codes.csv"
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert data.pct_q30_values == {}
+        assert opened == []
+
+    def test_10x_pct_q30_read_failure_logged_as_error(self, monkeypatch, tmp_path):
+        _patch_s3_fs_for_q30(monkeypatch)
+
+        key = f"{self._BASE}.csv"
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert any("PCT_Q30 read failed" in e for e in data.gathering_errors)
+
+    def test_scale_pct_q30_read_failure_not_logged_as_error(
+        self, monkeypatch, tmp_path
+    ):
+        _patch_s3_fs_for_q30(monkeypatch)
+
+        key = f"{self._BASE}.csv"
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(f"s3://czi-novogene/{key}\n")
+        ctx = _make_ctx(
+            data_source="manifest",
+            manifest_path=str(manifest),
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+            raw_assay="scale",
+        )
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert not any("PCT_Q30 read failed" in e for e in data.gathering_errors)
+
 
 # ---------------------------------------------------------------------------
 # S3 mode — order-level merged trimmers (10x)

@@ -42,6 +42,7 @@ METADATA_DOWNLOAD_MAX_WORKERS = 16
 METADATA_DOWNLOAD_PROGRESS_INTERVAL = 250
 PCT_Q30_READ_MAX_WORKERS = 16
 PCT_Q30_READ_PROGRESS_INTERVAL = 250
+_RAW_ASSAYS_SKIP_PCT_Q30_ERRORS = frozenset({"scale", "sci_jumbo", "sci_plex"})
 
 
 def _normalize_group_id_for_compare(group_id: str) -> str:
@@ -470,6 +471,7 @@ class QADataGatherer:
             "_trimmer-stats.csv",
             "_trimmer-failure_codes.csv",
             "_trimmer-failure-codes.csv",
+            "-trimmer-failure-codes.csv",
             "_unmatched.csv",
             "_S1_L001_R1_001.csv",
             "_S1_L001_R2_001.csv",
@@ -489,10 +491,11 @@ class QADataGatherer:
             with self._s3_fs.open(f"{self.bucket}/{key}", "r") as fobj:
                 value = parse_pct_pf_q30_from_lines(fobj)
         except Exception as exc:
-            with self._pct_q30_lock:
-                self._data.gathering_errors.append(
-                    f"PCT_Q30 read failed for {filename}: {exc}"
-                )
+            if self.raw_assay not in _RAW_ASSAYS_SKIP_PCT_Q30_ERRORS:
+                with self._pct_q30_lock:
+                    self._data.gathering_errors.append(
+                        f"PCT_Q30 read failed for {filename}: {exc}"
+                    )
             return
 
         with self._pct_q30_lock:
