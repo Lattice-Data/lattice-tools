@@ -18,6 +18,7 @@ from qa_mods import (
     is_order_level_processed_folder,
     is_trimmer_stats_basename,
     is_valid_cellranger_run_dir_name,
+    parse_pct_pf_q30_from_lines,
     parse_pct_pf_q30_from_text,
     make_read_partner,
     normalize_raw_assay,
@@ -758,6 +759,16 @@ class TestParsePctPfQ30:
             parse_pct_pf_q30_from_text("PF_Barcode_reads,100\nMean_quality,30\n")
             is None
         )
+
+    def test_parse_pct_pf_q30_from_lines_early_exit(self):
+        lines = iter(
+            [
+                "PF_Barcode_reads,100\n",
+                "PCT_PF_Q30_bases,88.5\n",
+                "Mean_quality,30\n",
+            ]
+        )
+        assert parse_pct_pf_q30_from_lines(lines) == 88.5
 
 
 class TestGrabTrimmerStats:

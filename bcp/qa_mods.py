@@ -722,15 +722,20 @@ def grab_merged_trimmer_q30(csv_path: str | Path) -> float | None:
 PCT_PF_Q30_METRIC = "PCT_PF_Q30_bases"
 
 
-def parse_pct_pf_q30_from_text(text: str) -> float | None:
-    """Return PCT_PF_Q30_bases value from sublibrary stats CSV text."""
-    for line in text.splitlines():
+def parse_pct_pf_q30_from_lines(lines: Any) -> float | None:
+    """Return PCT_PF_Q30_bases from CSV line iterables (stops at first match)."""
+    prefix = PCT_PF_Q30_METRIC + ","
+    for raw_line in lines:
+        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
         line = line.strip()
-        if not line:
-            continue
-        if line.startswith(PCT_PF_Q30_METRIC + ","):
+        if line.startswith(prefix):
             return float(line.split(",", 1)[1])
     return None
+
+
+def parse_pct_pf_q30_from_text(text: str) -> float | None:
+    """Return PCT_PF_Q30_bases value from sublibrary stats CSV text."""
+    return parse_pct_pf_q30_from_lines(text.splitlines())
 
 
 def grab_trimmer_failure_codes_wafer_metrics(csv_path: str | Path) -> dict | None:
