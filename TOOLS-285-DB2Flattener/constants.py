@@ -296,3 +296,12 @@ OBJECT_CONFIG = {
     }
     
 }
+
+PROP_MAP_GEO = {
+    'library_CRO_group_identifier': '*library name',
+    'library_construction_technology': '*library strategy',
+    'donor_taxa': '*organism',
+    'sample_terms': '*tissue'
+}
+
+

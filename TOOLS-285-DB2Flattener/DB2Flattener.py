@@ -211,7 +211,7 @@ class DB2Flattener:
                 if sample_obj:
                     alias = self._get_clean_alias(sample_obj)
                     sample_aliases.append(alias)
-            
+
             row = {
                 'raw_matrix_file_alias': self._get_clean_alias(raw_file),
                 'library_aliases': self._join_unique([self._get_clean_alias(lib) for lib in libraries]),
@@ -220,14 +220,16 @@ class DB2Flattener:
                 'library_protocols': self._join_unique([lib.get('protocol', '') for lib in libraries]),
                 'library_types': self._join_unique([lib.get('@type', [''])[0] if 
                                                     lib.get('@type') else '' for lib in libraries]),
+                'library_CRO_group_identifier': self._join_unique([lib.get('CRO_group_identifier', '') for lib in libraries]),
+                'library_construction_technology': self._join_unique([lib.get('library_construction_technology') for lib in libraries]),
                 
                 # Sample information
                 'raw_file_samples': self._join_unique(sample_aliases),
                 'library_sample_types': self._join_unique([s.get('@type', [''])[0] for s in samples]),
                 'selection_markers': self._join_unique([s.get('selection_markers', [''])[0] for s in samples]),
+                'sample_terms': self._join_unique([s.get('sample_terms') for s in samples]),
 
                 # Donor information
-                'donor_sexes': self._join_unique([d.get('sex', '') for d in donors]),
                 'donor_ethnicities': self._join_unique([
                         self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
                         for d in donors
