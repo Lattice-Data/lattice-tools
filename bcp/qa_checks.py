@@ -38,6 +38,25 @@ VALID_PROBES = [
     "Chromium Human Transcriptome Probe Set v2.0.0",
 ]
 MIN_METADATA_READ_COUNT = 1_000_000
+MIN_PCT_Q30_THRESHOLD = 65.0
+
+
+def validate_pct_q30(
+    pct_q30_values: dict[str, float],
+    threshold: float = MIN_PCT_Q30_THRESHOLD,
+) -> list[str]:
+    """
+    Return error strings for sublibrary stats files with PCT_PF_Q30_bases below threshold.
+
+    Caller passes pct_q30_values from QAGatheredData (populated during gather).
+    """
+    errors: list[str] = []
+    for filename, q30 in sorted(pct_q30_values.items()):
+        if q30 < threshold:
+            errors.append(
+                f"LOW Q30: {filename} PCT_PF_Q30_bases={q30:.2f} (< {threshold})"
+            )
+    return errors
 
 
 def _fastq_count_mode(raw_assay: str) -> str:

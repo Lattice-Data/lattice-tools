@@ -18,6 +18,8 @@ from qa_mods import (
     is_order_level_processed_folder,
     is_trimmer_stats_basename,
     is_valid_cellranger_run_dir_name,
+    parse_pct_pf_q30_from_lines,
+    parse_pct_pf_q30_from_text,
     make_read_partner,
     normalize_raw_assay,
     parse_met_summ,
@@ -742,6 +744,31 @@ class TestGrabMergedTrimmerQ30:
             "TT,insert,1000,50\n"
         )
         assert grab_merged_trimmer_q30(str(path)) is None
+
+
+class TestParsePctPfQ30:
+    """Tests for parse_pct_pf_q30_from_text."""
+
+    def test_parse_pct_pf_q30_from_fixture(self):
+        path = os.path.join(QA_FIXTURES_DIR, "sublibrary_stats_q30.csv")
+        text = open(path, encoding="utf-8").read()
+        assert parse_pct_pf_q30_from_text(text) == 73.49
+
+    def test_parse_pct_pf_q30_missing_metric(self):
+        assert (
+            parse_pct_pf_q30_from_text("PF_Barcode_reads,100\nMean_quality,30\n")
+            is None
+        )
+
+    def test_parse_pct_pf_q30_from_lines_early_exit(self):
+        lines = iter(
+            [
+                "PF_Barcode_reads,100\n",
+                "PCT_PF_Q30_bases,88.5\n",
+                "Mean_quality,30\n",
+            ]
+        )
+        assert parse_pct_pf_q30_from_lines(lines) == 88.5
 
 
 class TestGrabTrimmerStats:

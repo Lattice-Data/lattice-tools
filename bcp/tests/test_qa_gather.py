@@ -157,6 +157,7 @@ class TestQAGatheredData:
         assert data.has_processed is False
         assert data.gathering_errors == []
         assert data.gathering_warnings == []
+        assert data.pct_q30_values == {}
 
     def test_fields_are_independent_across_instances(self):
         a = QAGatheredData()
@@ -875,6 +876,167 @@ class TestGatherNestedRawRunPagination:
         data = gather_qa_data(ctx, s3)
 
         assert data.merged_wafer_stats["442593"]["tt_q30_pct"] == 90.0
+
+
+# ---------------------------------------------------------------------------
+# PCT_PF_Q30_bases gathering
+# ---------------------------------------------------------------------------
+
+
+def _patch_s3_fs_for_q30(monkeypatch, file_contents: dict[str, str] | None = None):
+    """Replace s3fs.S3FileSystem with a fake that serves in-memory CSV text."""
+    file_contents = file_contents or {}
+    opened: list[str] = []
+
+    class _FakeFile:
+        def __init__(self, content: str):
+            self._lines = content.splitlines()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def __iter__(self):
+            return iter(self._lines)
+
+    class _FakeS3FS:
+        def __init__(self, client=None):
+            pass
+
+        def open(self, path: str, mode: str):
+            opened.append(path)
+            if path not in file_contents:
+                raise FileNotFoundError(f"MockS3FS: no content for {path!r}")
+            return _FakeFile(file_contents[path])
+
+    monkeypatch.setattr("qa_gather.s3fs.S3FileSystem", _FakeS3FS)
+    return opened
+
+
+class TestGatherPctQ30:
+    _BASE = "testproj/ORD01/G1/raw/443489-CRaD5_L09_GEX-Z5018-CTGATATGA"
+
+    def _manifest_ctx(self, tmp_path, key: str) -> QARunContext:
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(f"s3://czi-novogene/{key}\n")
+        return _make_ctx(
+            data_source="manifest",
+            manifest_path=str(manifest),
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+        )
+
+    def test_gather_pct_q30_from_sublibrary_csv(self, monkeypatch, tmp_path):
+        fixture_path = os.path.join(QA_FIXTURES_DIR, "sublibrary_stats_q30.csv")
+        with open(fixture_path, encoding="utf-8") as fh:
+            csv_content = fh.read()
+
+        key = f"{self._BASE}.csv"
+        _patch_s3_fs_for_q30(
+            monkeypatch, file_contents={f"czi-novogene/{key}": csv_content}
+        )
+
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert data.pct_q30_values == {
+            "443489-CRaD5_L09_GEX-Z5018-CTGATATGA.csv": 73.49
+        }
+
+    def test_gather_pct_q30_parallel_reads(self, monkeypatch, tmp_path):
+        fixture_path = os.path.join(QA_FIXTURES_DIR, "sublibrary_stats_q30.csv")
+        with open(fixture_path, encoding="utf-8") as fh:
+            csv_content = fh.read()
+
+        keys = [f"{self._BASE}{suffix}.csv" for suffix in ("_A", "_B", "_C")]
+        file_contents = {f"czi-novogene/{key}": csv_content for key in keys}
+        _patch_s3_fs_for_q30(monkeypatch, file_contents=file_contents)
+
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(
+            "\n".join(f"s3://czi-novogene/{key}" for key in keys) + "\n"
+        )
+        ctx = _make_ctx(
+            data_source="manifest",
+            manifest_path=str(manifest),
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+        )
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert len(data.pct_q30_values) == 3
+        assert all(v == 73.49 for v in data.pct_q30_values.values())
+
+    def test_per_read_csv_excluded(self, monkeypatch, tmp_path):
+        opened = _patch_s3_fs_for_q30(monkeypatch)
+
+        key = f"{self._BASE}_S1_L001_R1_001.csv"
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert data.pct_q30_values == {}
+        assert opened == []
+
+    def test_trimmer_stats_csv_excluded(self, monkeypatch, tmp_path):
+        opened = _patch_s3_fs_for_q30(monkeypatch)
+
+        for suffix in ("_trimmer-stats.csv", ".trimmer_stats.csv"):
+            key = f"{self._BASE}{suffix}"
+            manifest = tmp_path / f"manifest_{suffix}.tsv"
+            manifest.write_text(f"s3://czi-novogene/{key}\n")
+            ctx = _make_ctx(
+                data_source="manifest",
+                manifest_path=str(manifest),
+                manifest_delimiter="\t",
+                manifest_s3_column=0,
+                manifest_has_header=False,
+            )
+            data = gather_qa_data(ctx, MockS3Client())
+            assert data.pct_q30_values == {}
+        assert opened == []
+
+    def test_trimmer_failure_codes_dash_suffix_excluded(self, monkeypatch, tmp_path):
+        opened = _patch_s3_fs_for_q30(monkeypatch)
+
+        key = f"{self._BASE}-trimmer-failure-codes.csv"
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert data.pct_q30_values == {}
+        assert opened == []
+
+    def test_10x_pct_q30_read_failure_logged_as_error(self, monkeypatch, tmp_path):
+        _patch_s3_fs_for_q30(monkeypatch)
+
+        key = f"{self._BASE}.csv"
+        ctx = self._manifest_ctx(tmp_path, key)
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert any("PCT_Q30 read failed" in e for e in data.gathering_errors)
+
+    def test_scale_pct_q30_read_failure_not_logged_as_error(
+        self, monkeypatch, tmp_path
+    ):
+        _patch_s3_fs_for_q30(monkeypatch)
+
+        key = f"{self._BASE}.csv"
+        manifest = tmp_path / "manifest.tsv"
+        manifest.write_text(f"s3://czi-novogene/{key}\n")
+        ctx = _make_ctx(
+            data_source="manifest",
+            manifest_path=str(manifest),
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=False,
+            raw_assay="scale",
+        )
+        data = gather_qa_data(ctx, MockS3Client())
+
+        assert not any("PCT_Q30 read failed" in e for e in data.gathering_errors)
 
 
 # ---------------------------------------------------------------------------

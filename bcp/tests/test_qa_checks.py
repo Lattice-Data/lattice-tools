@@ -6,11 +6,13 @@ import logging
 
 from qa_checks import (
     MIN_METADATA_READ_COUNT,
+    MIN_PCT_Q30_THRESHOLD,
     build_wafer_failure_stats,
     check_expected_raw_files,
     check_extra_raw_files,
     validate_fastq_counts,
     summarize_fastq_count_validation,
+    validate_pct_q30,
     validate_processed_group,
     validate_read_metadata,
     validate_scale_cb_tag,
@@ -18,6 +20,35 @@ from qa_checks import (
     validate_scale_samples_csv,
     validate_scale_workflow_info,
 )
+
+
+class TestValidatePctQ30:
+    """Tests for validate_pct_q30."""
+
+    def test_all_above_threshold(self):
+        assert validate_pct_q30({"a.csv": 73.49, "b.csv": 80.0}) == []
+
+    def test_one_below_threshold(self):
+        errors = validate_pct_q30({"low.csv": 39.76, "ok.csv": 73.49})
+        assert len(errors) == 1
+        assert "low.csv" in errors[0]
+        assert "39.76" in errors[0]
+        assert "< 65.0" in errors[0]
+
+    def test_exactly_at_threshold(self):
+        assert validate_pct_q30({"edge.csv": 70.0}) == []
+
+    def test_empty_dict(self):
+        assert validate_pct_q30({}) == []
+
+    def test_custom_threshold(self):
+        errors = validate_pct_q30({"x.csv": 65.0}, threshold=80)
+        assert len(errors) == 1
+        assert "x.csv" in errors[0]
+        assert "< 80" in errors[0]
+
+    def test_default_threshold_constant(self):
+        assert MIN_PCT_Q30_THRESHOLD == 65.0
 
 
 class TestValidateFastqCounts:
