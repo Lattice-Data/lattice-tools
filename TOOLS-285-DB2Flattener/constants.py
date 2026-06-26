@@ -81,7 +81,7 @@ OBJECT_CONFIG = {
     'tissues': {
         'api_type': 'Tissue',
         'fields': [
-            'uuid', '@id', 'aliases','date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', '@type', 'aliases','date_obtained', 'sample_terms', 'donors', 
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
@@ -104,7 +104,7 @@ OBJECT_CONFIG = {
     'cell_lines': {
         'api_type': 'CellLine',
         'fields': [
-            'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', '@type', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'host', 'host_tissue', 'selection_markers'
@@ -128,7 +128,7 @@ OBJECT_CONFIG = {
     'organoids': {
         'api_type': 'Organoid',
         'fields': [
-            'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', '@type', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'intended_cell_types', 'selection_markers'
@@ -151,7 +151,7 @@ OBJECT_CONFIG = {
     'primary_cell_cultures': {
         'api_type': 'PrimaryCellCulture',
         'fields': [
-            'uuid', '@id', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
+            'uuid', '@id', '@type', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
             'age_units', 'lower_bound_age', 'upper_bound_age', 
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
@@ -174,14 +174,14 @@ OBJECT_CONFIG = {
     # Donors
     'human_donors': {
         'api_type': 'HumanDonor',
-        'fields': ['uuid', '@id', 'sex', 'ethnicity', 'taxa'],
+        'fields': ['uuid', '@id', '@type', 'sex', 'ethnicity', 'taxa', 'aliases'],
         'references': {
             'ethnicity': 'controlled_terms'
         }
     },
     'non_human_donors': {
         'api_type': 'NonHumanDonor',
-        'fields': ['uuid', '@id', 'sex', 'taxa'],
+        'fields': ['uuid', '@id', '@type', 'sex', 'taxa', 'aliases'],
         'references': {
         }
     },
@@ -189,7 +189,7 @@ OBJECT_CONFIG = {
     # Libraries
     'droplet_based_libraries': {
         'api_type': 'DropletBasedLibrary',
-        'fields': ['samples', 'uuid', 'aliases', 'library_construction_technology', 'library_cardinality',
+        'fields': ['@type', 'samples', 'uuid', 'aliases', 'library_construction_technology', 'library_cardinality',
                   'chemistry_version', 'feature_types', 'multiplexing_method', 'CRO_group_identifier'],
         'references': {
             'samples' : ['primary_cell_cultures',
@@ -201,7 +201,7 @@ OBJECT_CONFIG = {
     },
     'plate_based_libraries': {
         'api_type': 'PlateBasedLibrary',
-        'fields': ['samples', 'uuid', 'aliases', 'library_construction_technology',
+        'fields': ['@type', 'samples', 'uuid', 'aliases', 'library_construction_technology',
                   'kit_version', 'multiplexing_method', 'CRO_group_identifier'],
         'references': {
             'samples' : ['primary_cell_cultures',
@@ -215,7 +215,7 @@ OBJECT_CONFIG = {
     # Files
     'raw_matrix_files': {
         'api_type': 'RawMatrixFile',
-        'fields': ['uuid', 'aliases', 's3_uri', 'crc64nvme_base64', 'feature_keys', 'derived_from', 'feature_counts',
+        'fields': ['@type', 'uuid', 'aliases', 's3_uri', 'crc64nvme_base64', 'feature_keys', 'derived_from', 'feature_counts',
                   'file_format', 'samples'],
         'references': {
             'derived_from' : 'sequence_files',
@@ -227,7 +227,7 @@ OBJECT_CONFIG = {
     },
     'processed_matrix_files': {
         'api_type': 'ProcessedMatrixFile',
-        'fields': ['uuid', 'aliases', 's3_uri', 'crc64nvme_base64', 'feature_keys', 'derived_from', 'feature_counts',
+        'fields': ['@type', 'uuid', 'aliases', 's3_uri', 'crc64nvme_base64', 'feature_keys', 'derived_from', 'feature_counts',
                   'file_format'],
         'references': {
             'derived_from' : 'sequence_files' # Or should this be raw matrix files? or both?
@@ -235,7 +235,7 @@ OBJECT_CONFIG = {
     },
     'sequence_files': {
         'api_type': 'SequenceFile',
-        'fields': ['uuid', 'aliases', 's3_uri', 'crc64nvme_base64', 'feature_keys', 'feature_counts',
+        'fields': ['@type', 'uuid', 'aliases', 's3_uri', 'crc64nvme_base64', 'feature_keys', 'feature_counts',
                   'file_format', 'sequence_file_sets'],
         'references': {
             'sequence_file_sets':'sequence_file_sets'
@@ -286,12 +286,12 @@ OBJECT_CONFIG = {
     
     'treatments': {
         'api_type': 'Treatment', 
-        'fields': ['@id', 'ontological_term'],
+        'fields': ['@type', '@id', 'ontological_term'],
         'references': {}
     },
     'experimental_conditions': {
         'api_type': 'ExperimentalCondition', 
-        'fields': ['@id', 'condition', 'text_value'],
+        'fields': ['@type', '@id', 'condition', 'text_value'],
         'references': {}
     }
     
