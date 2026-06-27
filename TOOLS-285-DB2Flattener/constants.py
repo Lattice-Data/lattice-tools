@@ -300,7 +300,7 @@ OBJECT_CONFIG = {
 # Keys use _term_name suffix for columns produced by df_utils.split_controlled_term_columns
 PROP_MAP_GEO = {
     'droplet_based_libraries_CRO_group_identifier': '*library name',
-    'droplet_based_libraries_library_construction_technology': '*library strategy',
+    'droplet_based_libraries_library_construction_technology_term_name': '*library strategy',
     'non_human_donors_taxa': '*organism',
     'tissues_sample_terms_term_name': '**tissue',
     'organoids_sample_terms_term_name': '**tissue',
