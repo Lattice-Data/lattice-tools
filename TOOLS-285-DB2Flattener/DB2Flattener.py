@@ -4,13 +4,14 @@ import sys
 import pandas as pd
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
-from constants import OBJECT_CONFIG
+from constants import OBJECT_CONFIG, PROP_MAP_GEO
+from df_utils import split_controlled_term_columns, collapse_dataframe
+import DB2lattice
 
 # Add parent directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 
-import DB2lattice
 
 class DB2Flattener:
     def __init__(self):
@@ -39,14 +40,18 @@ class DB2Flattener:
         # Generate output filename if not provided
         if output_file is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_GEO.csv"
+            output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_MAIN.csv"
         
         # Create main DataFrame and sample DataFrame
         main_df, sample_df = self.create_dataframe(complete_data)
-        
-        # Drop columns with all "n/a" from main DataFrame
-        cols_to_drop = [col for col in main_df.columns if main_df[col].eq('n/a').all()]
-        main_df = main_df.drop(columns=cols_to_drop)
+        main_df = main_df.dropna(axis=1, how='all')
+        sample_df = sample_df.dropna(axis=1, how='all')
+
+        # Split dict columns into _term_id / _term_name before writing CSV
+        main_df = split_controlled_term_columns(main_df)
+        if sample_df is not None and not sample_df.empty:
+            sample_df = split_controlled_term_columns(sample_df)
+
         
         # Save main DataFrame to CSV
         print(f"Saving main DataFrame to {output_file}...")
@@ -55,17 +60,19 @@ class DB2Flattener:
         print(f"✅ Main CSV file created: {output_file}")
         print(f"   Rows: {len(main_df)}")
         print(f"   Columns: {len(main_df.columns)}")
+
+        # Create GEO DataFrame from main DataFrame
+        geo_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_GEO.csv"
+        geo_df = self.create_geo_dataframe(main_df)
+        print(f"Saving geo DataFrame to {geo_output}...")
+        geo_df.to_csv(geo_output, index=False)
         
         # Save sample DataFrame if it exists
         if sample_df is not None and not sample_df.empty:
             sample_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_SAMPLES.csv"
             
-            # Drop columns with all "n/a" from sample DataFrame
-            sample_cols_to_drop = [col for col in sample_df.columns if sample_df[col].eq('n/a').all()]
-            sample_df = sample_df.drop(columns=sample_cols_to_drop)
-            
             print(f"Saving sample DataFrame to {sample_output}...")
-            sample_df.to_csv(sample_output, index=False)
+            sample_df.to_csv(sample_output, index=True)
             
             print(f"✅ Sample CSV file created: {sample_output}")
             print(f"   Rows: {len(sample_df)}")
@@ -265,6 +272,19 @@ class DB2Flattener:
         
         return main_df, new_sample_df
 
+    def create_geo_dataframe(self, main_df) -> pd.DataFrame:
+        """
+        Build GEO submission dataframe from already-split main_df.
+
+        Expects _term_name columns (not raw dict columns).
+        """
+        # Only keep columns that exist after split + rename
+        subset_keys = [k for k in PROP_MAP_GEO if k in main_df.columns]
+        geo_df = main_df[subset_keys].copy()
+        geo_df.rename(columns=PROP_MAP_GEO, inplace=True)
+
+        group_col = "*library name"
+        return collapse_dataframe(geo_df, group_col=group_col)
 
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
@@ -307,27 +327,27 @@ class DB2Flattener:
         return self._join_unique(diseases)
     
     def _join_unique(self, items):
-        """Join unique non-empty items with semicolon, return 'n/a' if empty"""
+        """Join unique non-empty items with semicolon"""
         # Filter out empty/None values
         filtered_items = [str(item).strip() for item in items if item and str(item).strip()]
         
         if not filtered_items:
-            return 'n/a'
+            return
         
         # Remove duplicates and sort
         unique_items = sorted(set(filtered_items))
         return '; '.join(unique_items)
     
     def _join_list(self, items):
-        """Join list items directly, return 'n/a' if empty"""
+        """Join list items directly"""
         if not items:
-            return 'n/a'
+            return
         return '; '.join(items)
     
     def _get_clean_alias(self, obj_or_list):
         """Extract alias from an object or list of objects, cleaning the result"""
         if not obj_or_list:
-            return 'n/a'
+            return
         
         aliases = []
         
@@ -346,9 +366,9 @@ class DB2Flattener:
                 if obj_aliases:
                     aliases.extend(obj_aliases)
         
-        # If no aliases found, return 'n/a'
+        # If no aliases found, return
         if not aliases:
-            return 'n/a'
+            return
         
         # Join unique aliases and clean
         result = self._join_unique(aliases)

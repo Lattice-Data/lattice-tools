@@ -297,11 +297,18 @@ OBJECT_CONFIG = {
     
 }
 
+# Keys use _term_name suffix for columns produced by df_utils.split_controlled_term_columns
 PROP_MAP_GEO = {
-    'library_CRO_group_identifier': '*library name',
-    'library_construction_technology': '*library strategy',
-    'donor_taxa': '*organism',
-    'sample_terms': '*tissue'
+    'droplet_based_libraries_CRO_group_identifier': '*library name',
+    'droplet_based_libraries_library_construction_technology': '*library strategy',
+    'non_human_donors_taxa': '*organism',
+    'tissues_sample_terms_term_name': '**tissue',
+    'organoids_sample_terms_term_name': '**tissue',
+    'cell_lines_sample_terms_term_name': '**cell_line',
+    'tissues_enriched_cell_types_term_name': '**cell_type',
+    'primary_cell_cultures_enriched_cell_types_term_name': '**cell_type',
+    'raw_matrix_file_alias': 'raw_file',
+    'droplet_based_libraries_library_cardinality': 'single or paired-end'
 }
 
 

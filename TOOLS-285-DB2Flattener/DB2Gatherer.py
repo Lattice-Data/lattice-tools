@@ -1,12 +1,11 @@
 from constants import OBJECT_CONFIG, FIELD_TYPES, MAX_URL_LENGTH, BASE_URL_OVERHEAD
 import sys
 import os
+import DB2lattice
 
 # Add parent directory to path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
-
-import DB2lattice
 
 
 class DB2Gatherer:
