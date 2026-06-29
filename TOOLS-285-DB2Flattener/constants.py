@@ -73,7 +73,8 @@ FIELD_TYPES = {
     'sequence_file_sets' : {'type':'array', 'elements': 'string'},
     
     # Special handling cause object
-    'feature_counts': {'type': 'array', 'elements': 'object'}
+    'feature_counts': {'type': 'array', 'elements': 'object'},
+    'author_metadata': {'type': 'array', 'elements': 'object'}
 }
 
 OBJECT_CONFIG = {
@@ -82,7 +83,7 @@ OBJECT_CONFIG = {
         'api_type': 'Tissue',
         'fields': [
             'uuid', '@id', '@type', 'aliases','date_obtained', 'sample_terms', 'donors', 
-            'age_units', 'lower_bound_age', 'upper_bound_age', 
+            'age_units', 'lower_bound_age', 'upper_bound_age', 'author_metadata',
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'selection_markers'
@@ -105,7 +106,7 @@ OBJECT_CONFIG = {
         'api_type': 'CellLine',
         'fields': [
             'uuid', '@id', '@type', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
-            'genetic_modification', 'treatments', 'suspension_type', 
+            'genetic_modification', 'treatments', 'suspension_type', 'author_metadata',
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'host', 'host_tissue', 'selection_markers'
             
@@ -129,7 +130,7 @@ OBJECT_CONFIG = {
         'api_type': 'Organoid',
         'fields': [
             'uuid', '@id', '@type', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
-            'genetic_modification', 'treatments', 'suspension_type', 
+            'genetic_modification', 'treatments', 'suspension_type', 'author_metadata',
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'intended_cell_types', 'selection_markers'
             
@@ -152,7 +153,7 @@ OBJECT_CONFIG = {
         'api_type': 'PrimaryCellCulture',
         'fields': [
             'uuid', '@id', '@type', 'aliases', 'date_obtained', 'sample_terms', 'donors', 
-            'age_units', 'lower_bound_age', 'upper_bound_age', 
+            'age_units', 'lower_bound_age', 'upper_bound_age', 'author_metadata',
             'genetic_modification', 'treatments', 'suspension_type', 
             'experimental_conditions', 'enriched_cell_types',
             'depleted_cell_types', 'diseases', 'selection_markers'
