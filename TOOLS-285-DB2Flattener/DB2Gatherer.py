@@ -1,11 +1,4 @@
-from constants import OBJECT_CONFIG, FIELD_TYPES, MAX_URL_LENGTH, BASE_URL_OVERHEAD
-import sys
-import os
-
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(parent_dir)
-
+from constants import OBJECT_CONFIG, FIELD_TYPES, MAX_URL_LENGTH, BASE_URL_OVERHEAD, FETCHED_SAMPLE_REFERENCE_API_TYPES
 import DB2lattice
 
 
@@ -166,10 +159,8 @@ class DB2Gatherer:
                         else:
                             # Regular UUID-based reference
                             api_type = self.get_api_type_from_id(ref)
-                            if api_type:
-                                if api_type not in all_reference_ids:
-                                    all_reference_ids[api_type] = set()
-                                all_reference_ids[api_type].add(ref)
+                            if api_type in FETCHED_SAMPLE_REFERENCE_API_TYPES:
+                                all_reference_ids.setdefault(api_type, set()).add(ref)
         
         # Batch fetch all non-controlled-term references by type
         for api_type, ref_ids in all_reference_ids.items():
@@ -210,70 +201,32 @@ class DB2Gatherer:
                             if ref.startswith('/controlled_terms/'):
                                 term_id = self.extract_controlled_term_id(ref)
                                 controlled_term_values[ref] = term_id
-    
+
     def add_references_to_library(self, library_data, samples):
-        """Add resolved references to library data based on its samples"""
-        added_refs = {
-            'donors': set(),
-            'treatments': set(),
-            'controlled_terms': set(), 
-            'genetic_modifications': set(),
-            'experimental_conditions': set()
-        }
-        
+        """Add resolved donor references to library data based on its samples."""
+        added_donors = set()
         for sample in samples:
             sample_api_type = self.get_api_type_from_id(sample['@id'])
-            config = None
-            for cfg in OBJECT_CONFIG.values():
-                if cfg['api_type'] == sample_api_type:
-                    config = cfg
-                    break
-            
+            config = next(
+                (cfg for cfg in OBJECT_CONFIG.values() if cfg['api_type'] == sample_api_type),
+                None,
+            )
             if not config:
                 continue
-            
             for field_name, ref_types in config.get('references', {}).items():
-                field_value = sample.get(field_name)
-                refs = self.extract_references_from_field(field_value, field_name)
-                
-                for ref in refs:
-                    # Handle controlled terms specially
-                    if '/controlled_terms/' in ref and 'controlled_terms' in \
-                    (ref_types if isinstance(ref_types, list) else [ref_types]):
-                        if ref not in added_refs['controlled_terms']:
-                            # Add the extracted term ID instead of making API calls
-                            term_id = self.resolved_objects['ControlledTerm'].get(ref)
-                            if term_id:
-                                library_data['controlled_terms'].append({
-                                    '@id': ref,
-                                    'term_id': term_id
-                                })
-                                added_refs['controlled_terms'].add(ref)
-                    else:
-                        # Find the resolved object for other reference types
-                        resolved_obj = None
-                        for api_type, objects in self.resolved_objects.items():
-                            if api_type != 'ControlledTerm' and ref in objects:
-                                resolved_obj = objects[ref]
-                                break
-                        
-                        if resolved_obj:
-                            # Determine which collection to add to
-                            collection = None
-                            if resolved_obj.get('@id', '').startswith('/human_donors/') \
-                            or resolved_obj.get('@id', '').startswith('/non_human_donors/'):
-                                collection = 'donors'
-                            elif resolved_obj.get('@id', '').startswith('/treatments/'):
-                                collection = 'treatments'
-                            elif resolved_obj.get('@id', '').startswith('/genetic_modifications/'):
-                                collection = 'genetic_modifications'
-                            elif resolved_obj.get('@id', '').startswith('/experimental_conditions/'):
-                                collection = 'experimental_conditions'
-                            
-                            if collection and ref not in added_refs[collection]:
-                                library_data[collection].append(resolved_obj)
-                                added_refs[collection].add(ref)
-    
+                ref_type_list = [ref_types] if isinstance(ref_types, str) else ref_types
+                if not any(rt in ('human_donors', 'non_human_donors') for rt in ref_type_list):
+                    continue
+                for ref in self.extract_references_from_field(sample.get(field_name), field_name):
+                    resolved_obj = None
+                    for api_type, objects in self.resolved_objects.items():
+                        if api_type != 'ControlledTerm' and ref in objects:
+                            resolved_obj = objects[ref]
+                            break
+                    if resolved_obj and ref not in added_donors:
+                        library_data['donors'].append(resolved_obj)
+                        added_donors.add(ref)
+
     def gather_complete_library_data(self, matrix_file_set_uuid):
         """Main method: gather all data grouped by library"""
         print(f"Gathering library data for MatrixFileSet: {matrix_file_set_uuid}")
@@ -405,7 +358,6 @@ class DB2Gatherer:
               f"({len(droplet_libraries)} droplet, {len(plate_libraries)} plate)")
                 
         # Step 6: Get all samples referenced by libraries
-        sample_refs = set()
         sample_uuids_by_type = {}  # {api_type: [uuids]}
         
         for library in all_libraries:
@@ -417,7 +369,6 @@ class DB2Gatherer:
                     ref_id = ref
                 
                 if ref_id:
-                    sample_refs.add(ref_id)
                     api_type = self.get_api_type_from_id(ref_id)
                     if api_type:
                         if api_type not in sample_uuids_by_type:
@@ -445,11 +396,7 @@ class DB2Gatherer:
                 'library': library,
                 'samples': [],
                 'raw_matrix_files': [],
-                'donors': [],
-                'treatments': [],
-                'controlled_terms': [],
-                'genetic_modifications': [],
-                'experimental_conditions': []
+                'donors': []
             }
             
             # Add samples for this library
@@ -470,7 +417,7 @@ class DB2Gatherer:
             self.add_references_to_library(libraries_data[lib_uuid], library_sample_objects)
         
         # Step 9: Map raw matrix files to libraries
-        self._map_raw_matrix_files_to_libraries(raw_matrix_files, libraries_data, all_samples)
+        self._map_raw_matrix_files_to_libraries(raw_matrix_files, libraries_data)
         
         print(f"Structured data for {len(libraries_data)} libraries")
         
@@ -480,7 +427,7 @@ class DB2Gatherer:
             'resolved_objects': self.resolved_objects
         }
 
-    def _map_raw_matrix_files_to_libraries(self, raw_matrix_files, libraries_data, all_samples):
+    def _map_raw_matrix_files_to_libraries(self, raw_matrix_files, libraries_data):
         """Map raw matrix files to their corresponding libraries using samples field or data flow"""
         
         for raw_file in raw_matrix_files:
