@@ -1,15 +1,13 @@
-import os
 import argparse
 import sys
 import pandas as pd
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
-
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(parent_dir)
-
+from constants import OBJECT_CONFIG, PROP_MAP_GEO
+from df_utils import split_controlled_term_columns, collapse_dataframe
 import DB2lattice
+
+
 
 class DB2Flattener:
     def __init__(self):
@@ -38,14 +36,18 @@ class DB2Flattener:
         # Generate output filename if not provided
         if output_file is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_GEO.csv"
+            output_file = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_MAIN.csv"
         
         # Create main DataFrame and sample DataFrame
         main_df, sample_df = self.create_dataframe(complete_data)
-        
-        # Drop columns with all "n/a" from main DataFrame
-        cols_to_drop = [col for col in main_df.columns if main_df[col].eq('n/a').all()]
-        main_df = main_df.drop(columns=cols_to_drop)
+        main_df = main_df.dropna(axis=1, how='all')
+        sample_df = sample_df.dropna(axis=1, how='all')
+
+        # Split dict columns into _term_id / _term_name before writing CSV
+        main_df = split_controlled_term_columns(main_df)
+        if sample_df is not None and not sample_df.empty:
+            sample_df = split_controlled_term_columns(sample_df)
+
         
         # Save main DataFrame to CSV
         print(f"Saving main DataFrame to {output_file}...")
@@ -54,17 +56,19 @@ class DB2Flattener:
         print(f"✅ Main CSV file created: {output_file}")
         print(f"   Rows: {len(main_df)}")
         print(f"   Columns: {len(main_df.columns)}")
+
+        # Create GEO DataFrame from main DataFrame
+        geo_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_GEO.csv"
+        geo_df = self.create_geo_dataframe(main_df)
+        print(f"Saving geo DataFrame to {geo_output}...")
+        geo_df.to_csv(geo_output, index=False)
         
         # Save sample DataFrame if it exists
         if sample_df is not None and not sample_df.empty:
             sample_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_SAMPLES.csv"
             
-            # Drop columns with all "n/a" from sample DataFrame
-            sample_cols_to_drop = [col for col in sample_df.columns if sample_df[col].eq('n/a').all()]
-            sample_df = sample_df.drop(columns=sample_cols_to_drop)
-            
             print(f"Saving sample DataFrame to {sample_output}...")
-            sample_df.to_csv(sample_output, index=False)
+            sample_df.to_csv(sample_output, index=True)
             
             print(f"✅ Sample CSV file created: {sample_output}")
             print(f"   Rows: {len(sample_df)}")
@@ -118,10 +122,11 @@ class DB2Flattener:
             if lib_data['library'].get('@id') in filtered_library_ids
         }
         
-        print(f"Creating DataFrame by {'raw matrix file'}...")
+        print("Creating DataFrame by raw matrix file...")
         
         rows = []
         sample_df = None
+        new_sample_df = None
         
         # Raw matrix file-based rows - samples field is always present
         # First, collect all raw matrix files and their associated libraries
@@ -139,20 +144,12 @@ class DB2Flattener:
                     raw_file_to_libraries[raw_file_id] = {
                         'raw_file': raw_file,
                         'libraries': [],
-                        'all_samples': [],
-                        'all_donors': [],
-                        'all_treatments': [],
-                        'all_genetic_modifications': [],
-                        'all_experimental_conditions': []
+                        'all_samples': []
                     }
                 
                 # Add this library's data to the raw matrix file
                 raw_file_to_libraries[raw_file_id]['libraries'].append(library)
                 raw_file_to_libraries[raw_file_id]['all_samples'].extend(samples)
-                raw_file_to_libraries[raw_file_id]['all_donors'].extend(lib_data['donors'])
-                raw_file_to_libraries[raw_file_id]['all_treatments'].extend(lib_data['treatments'])
-                raw_file_to_libraries[raw_file_id]['all_genetic_modifications'].extend(lib_data['genetic_modifications'])
-                raw_file_to_libraries[raw_file_id]['all_experimental_conditions'].extend(lib_data['experimental_conditions'])
                 
                 # Collect per-sample metadata for later merge with raw matrix files
                 for sample_ref in raw_file.get('samples', []):
@@ -175,13 +172,6 @@ class DB2Flattener:
                                 sample_donors.append(donor_obj)
                         
                         sample_metadata[sample_alias] = {
-                            'selection_markers': self._join_unique(sample_obj.get('selection_markers', [])),
-                            'donor_sexes': self._join_unique([d.get('sex', '') for d in sample_donors]),
-                            'donor_ethnicities': self._join_unique([
-                                self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
-                                for d in sample_donors
-                            ]),
-                            'donor_taxa': self._join_unique([d.get('taxa', '') for d in sample_donors]),
                             'enriched_cell_types': self._get_cell_types_from_samples(
                                 [sample_obj], 'enriched_cell_types', resolved_controlled_terms
                             ),
@@ -193,16 +183,27 @@ class DB2Flattener:
                             ),
                             'diseases': self._get_diseases_from_samples([sample_obj], resolved_controlled_terms),
                         }
+
+                        sample_type = get_config_obj_type(sample_obj)
+                        for field in OBJECT_CONFIG[sample_type].get('fields', []):
+                            field_name = f'{sample_type}_{field}'
+                            value = sample_obj.get(field)
+                            sample_metadata[sample_alias][field_name] = value
+
+                        for d in sample_donors:
+                            donor_type = get_config_obj_type(d)
+                            for field in OBJECT_CONFIG[donor_type].get('fields', []):
+                                field_name = f'{donor_type}_{field}'
+                                value = d.get(field)
+                                sample_metadata[sample_alias][field_name] = value
+
+
         
         # Create one row per raw matrix file for main DataFrame
         for file_data in raw_file_to_libraries.values():
             raw_file = file_data['raw_file']
             libraries = file_data['libraries']
             samples = file_data['all_samples']
-            donors = file_data['all_donors']
-            treatments = file_data['all_treatments']
-            genetic_modifications = file_data['all_genetic_modifications']
-            experimental_conditions = file_data['all_experimental_conditions']
             
             # Create sample aliases list
             sample_aliases = []
@@ -211,56 +212,19 @@ class DB2Flattener:
                 if sample_obj:
                     alias = self._get_clean_alias(sample_obj)
                     sample_aliases.append(alias)
-            
+
+            # Gather all fields for all objects
+            # First determine appropriate object list for each object type
             row = {
                 'raw_matrix_file_alias': self._get_clean_alias(raw_file),
-                'library_aliases': self._join_unique([self._get_clean_alias(lib) for lib in libraries]),
-                
-                # Library information (from all associated libraries)
-                'library_protocols': self._join_unique([lib.get('protocol', '') for lib in libraries]),
-                'library_types': self._join_unique([lib.get('@type', [''])[0] if 
-                                                    lib.get('@type') else '' for lib in libraries]),
-                
-                # Sample information
-                'raw_file_samples': self._join_unique(sample_aliases),
-                'library_sample_types': self._join_unique([s.get('@type', [''])[0] for s in samples]),
-                'selection_markers': self._join_unique([s.get('selection_markers', [''])[0] for s in samples]),
-
-                # Donor information
-                'donor_sexes': self._join_unique([d.get('sex', '') for d in donors]),
-                'donor_ethnicities': self._join_unique([
-                        self._resolve_controlled_term(d.get('ethnicity'), resolved_controlled_terms)
-                        for d in donors
-                    ]),
-                'donor_taxa': self._join_unique([d.get('taxa', '') for d in donors]),
-                
-                # Treatment information
-                'treatment_terms': self._join_unique([
-                    self._resolve_controlled_term(t.get('ontological_term'), resolved_controlled_terms)
-                    for t in treatments
-                ]),
-                
-                # Experimental condition information
-                'experimental_condition': self._join_unique([e.get('condition') for e in experimental_conditions]),
-                'experimental_condition_details': self._join_unique([e.get('text_value') for e in experimental_conditions]),
-        
-                # Genetic modification information
-                'genetic_modifications' : self._join_unique([g.get('strategy') for g in genetic_modifications]),
-        
-                # Cell type information from samples
-                'enriched_cell_types': self._get_cell_types_from_samples(samples, 
-                                                                         'enriched_cell_types', 
-                                                                         resolved_controlled_terms),
-                'depleted_cell_types': self._get_cell_types_from_samples(samples, 
-                                                                         'depleted_cell_types', 
-                                                                         resolved_controlled_terms),
-                'intended_cell_types': self._get_cell_types_from_samples(samples, 
-                                                                         'intended_cell_types', 
-                                                                         resolved_controlled_terms),
-                
-                # Disease information from samples
-                'diseases': self._get_diseases_from_samples(samples, resolved_controlled_terms),
+                'raw_file_samples': self._join_unique(sample_aliases)
             }
+            for lib in libraries:
+                lib_type = get_config_obj_type(lib)
+                for field in OBJECT_CONFIG[lib_type].get('fields',[]):
+                    field_name = f'{lib_type}_{field}'
+                    value = lib.get(field)
+                    row[field_name] = value
             
             rows.append(row)
         
@@ -273,21 +237,40 @@ class DB2Flattener:
             per_sample_df.index.name = 'sample_alias'
             per_sample_df = per_sample_df.reset_index()
             
-            main_samples = main_df.copy()
-            main_samples['sample_alias'] = main_samples['raw_file_samples'].str.split('; ')
-            main_samples = main_samples.explode('sample_alias')
-            main_samples = main_samples[main_samples['sample_alias'] != 'n/a']
-            
-            overlap_cols = set(main_samples.columns) & set(per_sample_df.columns) - {'sample_alias'}
-            main_samples = main_samples.drop(columns=overlap_cols)
-            
-            sample_df = main_samples.merge(per_sample_df, on='sample_alias', how='inner')
+            sample_df = per_sample_df.merge(
+                main_df[['raw_matrix_file_alias','raw_file_samples']],
+                left_on = 'sample_alias',
+                right_on ='raw_file_samples', 
+                how = 'right'
+            )
+            new_sample_df = sample_df.set_index('raw_matrix_file_alias')
+
+            main_df = main_df.merge(
+                per_sample_df,
+                left_on = 'raw_file_samples',
+                right_on = 'sample_alias',
+                how = 'left'
+            )
             
             print(f"Creating sample DataFrame with {len(sample_df)} rows "
                   f"({sample_df['raw_matrix_file_alias'].nunique()} raw matrix files)...")
         
-        return main_df, sample_df
-    
+        return main_df, new_sample_df
+
+    def create_geo_dataframe(self, main_df) -> pd.DataFrame:
+        """
+        Build GEO submission dataframe from already-split main_df.
+
+        Expects _term_name columns (not raw dict columns).
+        """
+        # Only keep columns that exist after split + rename
+        subset_keys = [k for k in PROP_MAP_GEO if k in main_df.columns]
+        geo_df = main_df[subset_keys].copy()
+        geo_df.rename(columns=PROP_MAP_GEO, inplace=True)
+
+        group_col = "*library name"
+        return collapse_dataframe(geo_df, group_col=group_col)
+
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
         if not term_ref:
@@ -329,27 +312,22 @@ class DB2Flattener:
         return self._join_unique(diseases)
     
     def _join_unique(self, items):
-        """Join unique non-empty items with semicolon, return 'n/a' if empty"""
+        """Join unique non-empty items with semicolon"""
         # Filter out empty/None values
         filtered_items = [str(item).strip() for item in items if item and str(item).strip()]
         
         if not filtered_items:
-            return 'n/a'
+            return
         
         # Remove duplicates and sort
         unique_items = sorted(set(filtered_items))
         return '; '.join(unique_items)
     
-    def _join_list(self, items):
-        """Join list items directly, return 'n/a' if empty"""
-        if not items:
-            return 'n/a'
-        return '; '.join(items)
     
     def _get_clean_alias(self, obj_or_list):
         """Extract alias from an object or list of objects, cleaning the result"""
         if not obj_or_list:
-            return 'n/a'
+            return
         
         aliases = []
         
@@ -368,9 +346,9 @@ class DB2Flattener:
                 if obj_aliases:
                     aliases.extend(obj_aliases)
         
-        # If no aliases found, return 'n/a'
+        # If no aliases found, return
         if not aliases:
-            return 'n/a'
+            return
         
         # Join unique aliases and clean
         result = self._join_unique(aliases)
@@ -379,6 +357,13 @@ class DB2Flattener:
         if ':' in result:
             return result.split(':', 1)[1]  # Take everything after the first ':'
         return result
+
+def get_config_obj_type(obj):
+    """ Returns the matching object type for an object as found in the config file"""
+    for config_obj_type, config_obj_info in OBJECT_CONFIG.items():
+        if config_obj_info.get('api_type','') == obj.get('@type',[])[0]:
+            return config_obj_type
+    return ''
 
 def main():
     parser = argparse.ArgumentParser(
