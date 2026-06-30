@@ -1,4 +1,3 @@
-import os
 import argparse
 import sys
 import pandas as pd
@@ -8,9 +7,6 @@ from constants import OBJECT_CONFIG, PROP_MAP_GEO
 from df_utils import split_controlled_term_columns, collapse_dataframe
 import DB2lattice
 
-# Add parent directory to path
-parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.append(parent_dir)
 
 
 class DB2Flattener:
@@ -130,6 +126,7 @@ class DB2Flattener:
         
         rows = []
         sample_df = None
+        new_sample_df = None
         
         # Raw matrix file-based rows - samples field is always present
         # First, collect all raw matrix files and their associated libraries
@@ -147,20 +144,12 @@ class DB2Flattener:
                     raw_file_to_libraries[raw_file_id] = {
                         'raw_file': raw_file,
                         'libraries': [],
-                        'all_samples': [],
-                        'all_donors': [],
-                        'all_treatments': [],
-                        'all_genetic_modifications': [],
-                        'all_experimental_conditions': []
+                        'all_samples': []
                     }
                 
                 # Add this library's data to the raw matrix file
                 raw_file_to_libraries[raw_file_id]['libraries'].append(library)
                 raw_file_to_libraries[raw_file_id]['all_samples'].extend(samples)
-                raw_file_to_libraries[raw_file_id]['all_donors'].extend(lib_data['donors'])
-                raw_file_to_libraries[raw_file_id]['all_treatments'].extend(lib_data['treatments'])
-                raw_file_to_libraries[raw_file_id]['all_genetic_modifications'].extend(lib_data['genetic_modifications'])
-                raw_file_to_libraries[raw_file_id]['all_experimental_conditions'].extend(lib_data['experimental_conditions'])
                 
                 # Collect per-sample metadata for later merge with raw matrix files
                 for sample_ref in raw_file.get('samples', []):
@@ -215,10 +204,6 @@ class DB2Flattener:
             raw_file = file_data['raw_file']
             libraries = file_data['libraries']
             samples = file_data['all_samples']
-            donors = file_data['all_donors']
-            treatments = file_data['all_treatments']
-            genetic_modifications = file_data['all_genetic_modifications']
-            experimental_conditions = file_data['all_experimental_conditions']
             
             # Create sample aliases list
             sample_aliases = []
@@ -338,11 +323,6 @@ class DB2Flattener:
         unique_items = sorted(set(filtered_items))
         return '; '.join(unique_items)
     
-    def _join_list(self, items):
-        """Join list items directly"""
-        if not items:
-            return
-        return '; '.join(items)
     
     def _get_clean_alias(self, obj_or_list):
         """Extract alias from an object or list of objects, cleaning the result"""
