@@ -10,9 +10,9 @@ import DB2lattice
 
 
 class DB2Flattener:
-    def __init__(self):
+    def __init__(self, connection: DB2lattice.Connection):
         # Setup connection
-        self.connection = DB2lattice.Connection('demo')
+        self.connection: DB2lattice.Connection = connection
         
         # Initialize gatherer
         self.gatherer = DB2Gatherer(self.connection)
@@ -102,7 +102,7 @@ class DB2Flattener:
             return gex_libraries
         
         # Fallback: if no GEX libraries found, return all (shouldn't happen normally)
-        print(f"WARNING: No Gene Expression libraries found, keeping all libraries")
+        print("WARNING: No Gene Expression libraries found, keeping all libraries")
         return libraries
     
     
@@ -384,7 +384,8 @@ def main():
     args = parser.parse_args()
     
     try:
-        flattener = DB2Flattener()
+        connection = DB2lattice.Connection("demo")
+        flattener = DB2Flattener(connection)
         output_file = flattener.flatten_matrix_file_set(args.uuid, args.output)
         
         if output_file:
