@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, TypeAlias
 
 import yaml
-from constants import FIELD_TYPES, OBJECT_CONFIG
+# from constants import FIELD_TYPES, OBJECT_CONFIG
 from DB2lattice import Connection
 from extract_lattice_profiles import (
     LatticeProfileClient,
@@ -333,8 +333,8 @@ def main() -> None:
 
 def make_current_constant_yaml():
     endpoint = "https://lattice-api-dev.demo.lattice-data.org/"
-    field_hash = hash_constant_dict(FIELD_TYPES)
-    object_hash = hash_constant_dict(OBJECT_CONFIG)
+    # field_hash = hash_constant_dict(FIELD_TYPES)
+    # object_hash = hash_constant_dict(OBJECT_CONFIG)
     create_yaml_config(
         configs={
             endpoint: ConstantYAML(
