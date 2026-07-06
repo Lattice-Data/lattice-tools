@@ -259,7 +259,7 @@ def compare_object_configs(old_configs: ObjectConfig, new_configs: ObjectConfig)
             print(f"Reference change for {schema}:")
 
 
-def main() -> None:
+def load_and_return_constant_dicts() -> tuple[FieldType, ObjectConfig]:
     loaded_config: dict[str, ConstantYAML] = load_yaml_config(YAML_PATH)
     update_config = False
 
@@ -267,10 +267,10 @@ def main() -> None:
     endpoint = connection.server
     profiles: JSONProfile = create_json_profiles(connection)
 
-    field_types = create_field_types(profiles)
-    object_config = create_object_config(profiles)
-    field_hash = hash_constant_dict(field_types)
-    object_hash = hash_constant_dict(object_config)
+    field_types: FieldType = create_field_types(profiles)
+    object_config: ObjectConfig = create_object_config(profiles)
+    field_hash: str = hash_constant_dict(field_types)
+    object_hash: str = hash_constant_dict(object_config)
 
     new_config = {
         endpoint: ConstantYAML(
@@ -311,7 +311,7 @@ def main() -> None:
         update_config 
         or (endpoint not in loaded_config and endpoint in CONFIGS_TO_SAVE)
     ):
-        print(f"Updating {YAML_PATH} with new config")
+        print(f"Updating {YAML_PATH} with new config...")
         loaded_config.update(new_config)
         create_yaml_config(
             configs=loaded_config,
@@ -323,6 +323,12 @@ def main() -> None:
     print(f"field import hash: {hash_constant_dict(loaded_config[connection.server].field_types)}")
     print(f"object config start hash: {object_hash}")
     print(f"object config import hash: {hash_constant_dict(loaded_config[connection.server].object_config)}")
+
+    return field_types, object_config
+
+
+def main() -> None:
+    _, _ = load_and_return_constant_dicts()
 
 
 def make_current_constant_yaml():
