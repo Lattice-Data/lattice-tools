@@ -12,11 +12,15 @@ A mapping is then negated if either:
 - the 'old' gene ID maps to more than one different 'target version' gene ID among all annotation versions, or
 - any GENCODE annotation version contains both the 'old' gene ID and the 'target version' gene ID.
 
-References are downloaded directly from [GENCODE](https://www.gencodegenes.org/human/releases.html). For each annotation V22 and after, the primary annotation is used. For V19-21, GENCODE had not yet released a primary annotation, so the comprehensive annotation from ALL regions is used.
+Human references are downloaded directly from [GENCODE](https://www.gencodegenes.org/human/releases.html). For each annotation V22 and after, the primary annotation is used. For V19-21, GENCODE had not yet released a primary annotation, so the comprehensive annotation from ALL regions is used.
+
+Mouse references are downloaded directly from [GENCODE](https://www.gencodegenes.org/mouse/releases.html). The primary annotation is used.
+
+Fly references are downloaded directly from [Ensembl](https://ftp.ensembl.org/pub/). `/release-<>/gtf/drosophila_melanogaster/Drosophila_melanogaster.BDGP6.<>.<>.gtf.gz`
 
 The coordinates of the V19 genes are converted from hg19 to GRCh38 coordinates via [liftOver](https://genome.ucsc.edu/FAQ/FAQdownloads.html#liftOver).
 
-Target versions 48 (human) & M37 (mouse) are used here because they are the pinned annotation version for CZ CELLxGENE Discover, starting with [schema 7.0.0](https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/7.0.0/schema.md#required-gene-annotations).
+Target versions 48 (human), M37 (mouse), and 114 (fly) are used here because they are the pinned annotation version for CZ CELLxGENE Discover, starting with [schema 7.0.0](https://github.com/chanzuckerberg/single-cell-curation/blob/main/schema/7.0.0/schema.md#required-gene-annotations).
 
 Usage:
 ```
