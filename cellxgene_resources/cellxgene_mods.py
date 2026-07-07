@@ -362,6 +362,17 @@ def map_filter_gene_ids(adata):
     return adata
 
 
+def extract_barcodes(index, label='index'):
+    pattern = re.compile(r'[ACTG]{12,}')
+    barcodes = []
+    for i in index:
+        m = pattern.search(str(i))
+        barcodes.append(m.group()[:16] if m else None)
+    if not any(barcodes):
+        report(f'{label}: No barcodes found', 'WARNING')
+    return barcodes
+
+
 def evaluate_10x_barcodes(obs, visium=False):
     vis_terms = ['EFO:0010961','EFO:0022857','EFO:0022858','EFO:0022859','EFO:0022860']
     if 'assay_ontology_term_id' in obs.columns and [e for e in obs['assay_ontology_term_id'].unique() if e in vis_terms]:
@@ -379,7 +390,7 @@ def evaluate_10x_barcodes(obs, visium=False):
     no_barcode_v = 'no barcode'
 
     obs = obs.copy()
-    obs['barcode'] = obs.index.str.extract(r'([ACTG]{12,})')[0].str[:16].tolist()
+    obs['barcode'] = extract_barcodes(obs.index, label='obs index')
     if len(set(ref_df.index.to_list()).intersection(set(obs['barcode'].to_list()))) == 0:
         report('Did not find any barcodes in obs index, cannot evaluate barcodes', 'WARNING')
         return
