@@ -1,17 +1,48 @@
-from generate_constants import load_and_return_constant_dicts
+from dataclasses import dataclass
+from typing import Any, TypeAlias
 
 
 # Contains information about objects
 # Their types, and what fields can be found in each
 
+# typing for various objects used with JSON profile parsing
+Hierarchy: TypeAlias = dict[str, dict[str, dict]]
+JSONProfile: TypeAlias = dict[str, Any]
+FieldTypes: TypeAlias = dict[str, dict[str, str]]
+ObjectConfig: TypeAlias = dict[str, dict[str, Any]]
+
+
+@dataclass
+class Configs:
+    """
+    Use as a container to hold the parsed configs from profile schemas
+    Structure:
+    FIELD_TYPES: {
+        {field}: {
+            "type": {datatype value},
+            "elements {optional}": {datatype of collection items},
+        }
+    }
+
+    OBJECT_CONFIG: {
+        {object url_prefix}: {
+            "api_type": {object API Name},
+            "fields": list[fields],
+            "references": {
+                "{field}": {object url_prefix}
+            }
+        }
+    }
+        
+    """
+    FIELD_TYPES: FieldTypes
+    OBJECT_CONFIG: ObjectConfig
+
+
 # URL length limit for chunking (includes base URL overhead)
 MAX_URL_LENGTH = 3800
 # Base URL overhead for chunking calculations (base URL + field params + safety margin)
 BASE_URL_OVERHEAD = 700
-
-# Global field type definitions
-# What type to expect when getting each value
-FIELD_TYPES, OBJECT_CONFIG = load_and_return_constant_dicts()
 
 # Keys use _term_name suffix for columns produced by df_utils.split_controlled_term_columns
 PROP_MAP_GEO = {

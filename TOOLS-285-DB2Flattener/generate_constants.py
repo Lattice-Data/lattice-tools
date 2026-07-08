@@ -6,22 +6,16 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
 import yaml
-# from constants import FIELD_TYPES, OBJECT_CONFIG
+from constants import FieldTypes, Hierarchy, JSONProfile, ObjectConfig
 from DB2lattice import Connection
 from extract_lattice_profiles import (
     LatticeProfileClient,
     ProfileSummary,
     summarize_profile,
 )
-
-Hierarchy: TypeAlias = dict[str, dict[str, dict]]
-JSONProfile: TypeAlias = dict[str, Any]
-FieldType: TypeAlias = dict[str, dict[str, str]]
-ObjectConfig: TypeAlias = dict[str, dict[str, Any]]
-
 
 YAML_PATH = Path("constants.yaml")
 CONFIGS_TO_SAVE = {
@@ -105,14 +99,14 @@ def get_concrete_classes(input_name: str, hierarchy_dict: Hierarchy) -> list[str
 @dataclass
 class ConstantYAML:
     date_parsed: str
-    field_types: FieldType
+    field_types: FieldTypes
     object_config: ObjectConfig
     field_types_sha256: str
     object_config_sha256: str
 
 
-def create_field_types(profiles: JSONProfile) -> FieldType:
-    built_types: FieldType = {}
+def create_field_types(profiles: JSONProfile) -> FieldTypes:
+    built_types: FieldTypes = {}
 
     for schema in profiles["profiles"]:
         for field in schema["properties"]:
@@ -214,7 +208,7 @@ def hash_constant_dict(constant_dict: dict[str, Any]) -> str:
     return hashlib.sha256(constant_in_json).hexdigest()
 
 
-def compare_field_types(old_types: FieldType, new_types: FieldType) -> None:
+def compare_field_types(old_types: FieldTypes, new_types: FieldTypes) -> None:
     old_fields_set = {field for field in old_types}
     new_fields_set = {field for field in new_types}
     new_fields = new_fields_set - old_fields_set
@@ -259,15 +253,15 @@ def compare_object_configs(old_configs: ObjectConfig, new_configs: ObjectConfig)
             print(f"Reference change for {schema}:")
 
 
-def load_and_return_constant_dicts() -> tuple[FieldType, ObjectConfig]:
+def load_and_return_constant_dicts(mode: str) -> tuple[FieldTypes, ObjectConfig]:
     loaded_config: dict[str, ConstantYAML] = load_yaml_config(YAML_PATH)
     update_config = False
 
-    connection = Connection("demo")
+    connection = Connection(mode)
     endpoint = connection.server
     profiles: JSONProfile = create_json_profiles(connection)
 
-    field_types: FieldType = create_field_types(profiles)
+    field_types: FieldTypes = create_field_types(profiles)
     object_config: ObjectConfig = create_object_config(profiles)
     field_hash: str = hash_constant_dict(field_types)
     object_hash: str = hash_constant_dict(object_config)
@@ -328,25 +322,7 @@ def load_and_return_constant_dicts() -> tuple[FieldType, ObjectConfig]:
 
 
 def main() -> None:
-    _, _ = load_and_return_constant_dicts()
-
-
-def make_current_constant_yaml():
-    endpoint = "https://lattice-api-dev.demo.lattice-data.org/"
-    # field_hash = hash_constant_dict(FIELD_TYPES)
-    # object_hash = hash_constant_dict(OBJECT_CONFIG)
-    create_yaml_config(
-        configs={
-            endpoint: ConstantYAML(
-                field_types_sha256=field_hash,
-                object_config_sha256=object_hash,
-                date_parsed=datetime.today().strftime("%Y-%m-%d"),
-                field_types=FIELD_TYPES,
-                object_config=OBJECT_CONFIG,
-            )
-        },
-        yaml_path=Path("old_constants.yaml"),
-    )
+    _, _ = load_and_return_constant_dicts("db2_demo")
 
 
 if __name__ == "__main__":
