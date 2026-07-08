@@ -7,7 +7,7 @@ import requests
 class Connection:
     def __init__(self, mode: str):
         if not mode.upper().startswith("DB2_"):
-            sys.exit("ERROR: make sure your local variables start with DB2_ '(DB2_DEMO, DB2_KEY, etc...)'")
+            sys.exit("ERROR: make sure your local variables start with DB2_ '(DB2_DEMO_SERVER, DB2_DEMO_KEY, etc...)'")
 
         if not (
             os.environ.get(mode.upper() + "_KEY")
