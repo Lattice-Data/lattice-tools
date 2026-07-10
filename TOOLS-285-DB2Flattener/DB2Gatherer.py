@@ -1,4 +1,4 @@
-from constants import Configs, MAX_URL_LENGTH, BASE_URL_OVERHEAD, FETCHED_SAMPLE_REFERENCE_API_TYPES
+from constants import Configs, MAX_URL_LENGTH, BASE_URL_OVERHEAD
 import DB2lattice
 
 
@@ -160,7 +160,7 @@ class DB2Gatherer:
                         else:
                             # Regular UUID-based reference
                             api_type = self.get_api_type_from_id(ref)
-                            if api_type in FETCHED_SAMPLE_REFERENCE_API_TYPES:
+                            if api_type:
                                 all_reference_ids.setdefault(api_type, set()).add(ref)
         
         # Batch fetch all non-controlled-term references by type
@@ -204,8 +204,8 @@ class DB2Gatherer:
                                 controlled_term_values[ref] = term_id
 
     def add_references_to_library(self, library_data, samples):
-        """Add resolved donor references to library data based on its samples."""
-        added_donors = set()
+        """Add resolved non-controlled-term references to library data based on its samples"""
+        added_refs= set()
         for sample in samples:
             sample_api_type = self.get_api_type_from_id(sample['@id'])
             config = next(
@@ -216,7 +216,7 @@ class DB2Gatherer:
                 continue
             for field_name, ref_types in config.get('references', {}).items():
                 ref_type_list = [ref_types] if isinstance(ref_types, str) else ref_types
-                if not any(rt in ('human_donors', 'non_human_donors') for rt in ref_type_list):
+                if 'controlled_terms' in ref_type_list:
                     continue
                 for ref in self.extract_references_from_field(sample.get(field_name), field_name):
                     resolved_obj = None
@@ -224,9 +224,15 @@ class DB2Gatherer:
                         if api_type != 'ControlledTerm' and ref in objects:
                             resolved_obj = objects[ref]
                             break
-                    if resolved_obj and ref not in added_donors:
-                        library_data['donors'].append(resolved_obj)
-                        added_donors.add(ref)
+                    if resolved_obj and ref not in added_refs:
+                        bucket = None
+                        for prefix in self.configs.OBJECT_CONFIG:
+                            if f'/{prefix}/' in ref:
+                                bucket = prefix
+                                break
+                        if bucket:
+                            library_data.setdefault(bucket, []).append(resolved_obj)
+
 
     def gather_complete_library_data(self, matrix_file_set_uuid):
         """Main method: gather all data grouped by library"""
@@ -396,8 +402,8 @@ class DB2Gatherer:
             libraries_data[lib_uuid] = {
                 'library': library,
                 'samples': [],
-                'raw_matrix_files': [],
-                'donors': []
+                'raw_matrix_files': []
+                # The rest of the library data information is created on demand by setdefault in add_reference_to_library()
             }
             
             # Add samples for this library
