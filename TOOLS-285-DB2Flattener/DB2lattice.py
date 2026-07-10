@@ -1,24 +1,36 @@
-import json
-import logging
 import os
-import requests
 import sys
 from urllib.parse import urljoin
 
+import requests
 
-class Connection(object):
-    def __init__(self, mode):
-        if not (os.environ.get(mode.upper() + '_KEY') 
-            and os.environ.get(mode.upper() + '_SECRET') 
-            and os.environ.get(mode.upper() + '_SERVER')):
-            sys.exit('ERROR: ' + mode.upper() + '_KEY, ' + mode.upper() + '_SECRET, ' + mode.upper() + "_SERVER not all defined. Try 'conda env config vars list' to list existing variables")
-        self.authid = os.environ.get(mode.upper() + '_KEY')
-        self.authpw = os.environ.get(mode.upper() + '_SECRET')
-        self.server = os.environ.get(mode.upper() + '_SERVER')
-        if not self.server.endswith('/'):
-            self.server += '/'
-        self.headers = {'content-type': 'application/json',
-                        'accept': 'application/json'}
+class Connection:
+    def __init__(self, mode: str):
+        if not mode.upper().startswith("DB2_"):
+            sys.exit("ERROR: make sure your local variables start with DB2_ '(DB2_DEMO_SERVER, DB2_DEMO_KEY, etc...)'")
+
+        if not (
+            os.environ.get(mode.upper() + "_KEY")
+            and os.environ.get(mode.upper() + "_SECRET")
+            and os.environ.get(mode.upper() + "_SERVER")
+        ):
+            sys.exit(
+                "ERROR: " + mode.upper() + "_KEY "
+                + mode.upper() + "_SECRET "
+                + mode.upper() + "_SERVER "
+                + "not all defined. "
+                + "Try 'conda env config vars list' to list existing variables"
+            )
+
+        self.authid = os.environ.get(mode.upper() + "_KEY")
+        self.authpw = os.environ.get(mode.upper() + "_SECRET")
+        self.server = os.environ.get(mode.upper() + "_SERVER")
+        if not self.server.endswith("/"):
+            self.server += "/"
+        self.headers = {
+            "content-type": "application/json",
+            "accept": "application/json",
+        }
         self.auth = (self.authid, self.authpw)
 
 
