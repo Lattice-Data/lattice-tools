@@ -3,19 +3,21 @@ import sys
 import pandas as pd
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
-from constants import OBJECT_CONFIG, PROP_MAP_GEO
+from constants import Configs, PROP_MAP_GEO
 from df_utils import split_controlled_term_columns, collapse_dataframe
+from generate_constants import load_and_return_constant_dicts
 import DB2lattice
 
 
 
 class DB2Flattener:
-    def __init__(self):
+    def __init__(self, connection: DB2lattice.Connection, configs: Configs):
         # Setup connection
-        self.connection = DB2lattice.Connection('demo')
+        self.connection: DB2lattice.Connection = connection
+        self.configs = configs
         
         # Initialize gatherer
-        self.gatherer = DB2Gatherer(self.connection)
+        self.gatherer = DB2Gatherer(self.connection, configs)
 
     
     def flatten_matrix_file_set(self, matrix_file_set_uuid, output_file=None):
@@ -102,7 +104,7 @@ class DB2Flattener:
             return gex_libraries
         
         # Fallback: if no GEX libraries found, return all (shouldn't happen normally)
-        print(f"WARNING: No Gene Expression libraries found, keeping all libraries")
+        print("WARNING: No Gene Expression libraries found, keeping all libraries")
         return libraries
     
     
@@ -184,15 +186,15 @@ class DB2Flattener:
                             'diseases': self._get_diseases_from_samples([sample_obj], resolved_controlled_terms),
                         }
 
-                        sample_type = get_config_obj_type(sample_obj)
-                        for field in OBJECT_CONFIG[sample_type].get('fields', []):
+                        sample_type = get_config_obj_type(sample_obj, self.configs)
+                        for field in self.configs.OBJECT_CONFIG[sample_type].get('fields', []):
                             field_name = f'{sample_type}_{field}'
                             value = sample_obj.get(field)
                             sample_metadata[sample_alias][field_name] = value
 
                         for d in sample_donors:
-                            donor_type = get_config_obj_type(d)
-                            for field in OBJECT_CONFIG[donor_type].get('fields', []):
+                            donor_type = get_config_obj_type(d, self.configs)
+                            for field in self.configs.OBJECT_CONFIG[donor_type].get('fields', []):
                                 field_name = f'{donor_type}_{field}'
                                 value = d.get(field)
                                 sample_metadata[sample_alias][field_name] = value
@@ -220,8 +222,8 @@ class DB2Flattener:
                 'raw_file_samples': self._join_unique(sample_aliases)
             }
             for lib in libraries:
-                lib_type = get_config_obj_type(lib)
-                for field in OBJECT_CONFIG[lib_type].get('fields',[]):
+                lib_type = get_config_obj_type(lib, self.configs)
+                for field in self.configs.OBJECT_CONFIG[lib_type].get('fields',[]):
                     field_name = f'{lib_type}_{field}'
                     value = lib.get(field)
                     row[field_name] = value
@@ -358,9 +360,9 @@ class DB2Flattener:
             return result.split(':', 1)[1]  # Take everything after the first ':'
         return result
 
-def get_config_obj_type(obj):
+def get_config_obj_type(obj, configs: Configs):
     """ Returns the matching object type for an object as found in the config file"""
-    for config_obj_type, config_obj_info in OBJECT_CONFIG.items():
+    for config_obj_type, config_obj_info in configs.OBJECT_CONFIG.items():
         if config_obj_info.get('api_type','') == obj.get('@type',[])[0]:
             return config_obj_type
     return ''
@@ -377,6 +379,12 @@ def main():
     )
     
     parser.add_argument(
+        '--mode', '-m',
+        help='mode/instance to run on',
+        default='db2_demo'
+    )
+
+    parser.add_argument(
         '--output', '-o',
         help='Output CSV filename (optional, auto-generates if not provided)'
     )
@@ -384,7 +392,13 @@ def main():
     args = parser.parse_args()
     
     try:
-        flattener = DB2Flattener()
+        connection = DB2lattice.Connection(args.mode)
+        field_types, object_config = load_and_return_constant_dicts(args.mode)
+        configs = Configs(
+            FIELD_TYPES=field_types, 
+            OBJECT_CONFIG=object_config
+        )
+        flattener = DB2Flattener(connection, configs)
         output_file = flattener.flatten_matrix_file_set(args.uuid, args.output)
         
         if output_file:

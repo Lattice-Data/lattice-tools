@@ -1,10 +1,11 @@
-from constants import OBJECT_CONFIG, FIELD_TYPES, MAX_URL_LENGTH, BASE_URL_OVERHEAD, FETCHED_SAMPLE_REFERENCE_API_TYPES
+from constants import Configs, MAX_URL_LENGTH, BASE_URL_OVERHEAD, FETCHED_SAMPLE_REFERENCE_API_TYPES
 import DB2lattice
 
 
 class DB2Gatherer:
-    def __init__(self, connection):
+    def __init__(self, connection, configs: Configs):
         self.connection = connection
+        self.configs = configs
         self.resolved_objects = {}  # {object_type: {id: object}}
 
     def extract_uuid_from_id(self, object_id):
@@ -15,7 +16,7 @@ class DB2Gatherer:
     
     def get_api_type_from_id(self, object_id):
         """Determine API type from @id path"""
-        for path_key, config in OBJECT_CONFIG.items():
+        for path_key, config in self.configs.OBJECT_CONFIG.items():
             if f'/{path_key}/' in object_id:
                 return config['api_type']
         return None
@@ -26,7 +27,7 @@ class DB2Gatherer:
             return []
         
         config = None
-        for cfg in OBJECT_CONFIG.values():
+        for cfg in self.configs.OBJECT_CONFIG.values():
             if cfg['api_type'] == obj_type:
                 config = cfg
                 break
@@ -58,7 +59,7 @@ class DB2Gatherer:
                 return []
         
         # Chunked requests
-        print(f"URL too long, chunking...")
+        print("URL too long, chunking...")
         all_results = []
         chunk_size = (MAX_URL_LENGTH - BASE_URL_OVERHEAD) // 50  # Rough estimate
         
@@ -98,7 +99,7 @@ class DB2Gatherer:
         if not field_value:
             return []
         
-        field_spec = FIELD_TYPES.get(field_name, {'type': 'string'})
+        field_spec = self.configs.FIELD_TYPES.get(field_name, {'type': 'string'})
         refs = []
         
         if field_spec['type'] == 'array':
@@ -135,7 +136,7 @@ class DB2Gatherer:
         for sample in all_samples.values():
             sample_api_type = self.get_api_type_from_id(sample['@id'])
             config = None
-            for cfg in OBJECT_CONFIG.values():
+            for cfg in self.configs.OBJECT_CONFIG.values():
                 if cfg['api_type'] == sample_api_type:
                     config = cfg
                     break
@@ -184,7 +185,7 @@ class DB2Gatherer:
             for obj in ref_dict.values():
                 obj_api_type = self.get_api_type_from_id(obj.get('@id', ''))
                 config = None
-                for cfg in OBJECT_CONFIG.values():
+                for cfg in self.configs.OBJECT_CONFIG.values():
                     if cfg['api_type'] == obj_api_type:
                         config = cfg
                         break
@@ -208,7 +209,7 @@ class DB2Gatherer:
         for sample in samples:
             sample_api_type = self.get_api_type_from_id(sample['@id'])
             config = next(
-                (cfg for cfg in OBJECT_CONFIG.values() if cfg['api_type'] == sample_api_type),
+                (cfg for cfg in self.configs.OBJECT_CONFIG.values() if cfg['api_type'] == sample_api_type),
                 None,
             )
             if not config:
