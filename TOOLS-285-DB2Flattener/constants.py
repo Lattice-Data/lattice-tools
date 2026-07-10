@@ -57,12 +57,3 @@ PROP_MAP_GEO = {
     'raw_matrix_file_alias': 'raw_file',
     'droplet_based_libraries_library_cardinality': 'single or paired-end'
 }
-
-# API types to resolve when walking sample references.
-# Controlled terms are always parsed from paths and never fetched here.
-FETCHED_SAMPLE_REFERENCE_API_TYPES = frozenset({
-    'HumanDonor',
-    'NonHumanDonor',
-})
-
-
