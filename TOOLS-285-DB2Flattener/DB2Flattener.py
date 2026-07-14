@@ -115,8 +115,10 @@ class DB2Flattener:
                         'all_samples': []
                     }
                 
-                # Add this library's data to the raw matrix file
-                raw_file_to_libraries[raw_file_id]['libraries'].append(library)
+                # Add this library's data to the raw matrix file (once per @id to prevent duplicates due to having GEX and CRI)
+                existing_lib_ids = {lib.get('@id') for lib in raw_file_to_libraries[raw_file_id]['libraries']}
+                if library.get('@id') not in existing_lib_ids:
+                    raw_file_to_libraries[raw_file_id]['libraries'].append(library)
                 raw_file_to_libraries[raw_file_id]['all_samples'].extend(samples)
                 
                 # Collect per-sample metadata for later merge with raw matrix files
@@ -150,51 +152,50 @@ class DB2Flattener:
                             sample_obj, lib_data, sample_metadata, sample_alias, resolved_controlled_terms
                         )
 
-        
-        # Create one row per raw matrix file for main DataFrame
+        # Create one row per (raw matrix file, library)
         for file_data in raw_file_to_libraries.values():
             raw_file = file_data['raw_file']
             libraries = file_data['libraries']
             samples = file_data['all_samples']
-            
-            # Create sample aliases list
+
             sample_aliases = []
             for sample_ref in raw_file.get('samples', []):
                 sample_obj = next((s for s in samples if s.get('@id') == sample_ref), None)
                 if sample_obj:
-                    alias = self._get_clean_alias(sample_obj)
-                    sample_aliases.append(alias)
+                    sample_aliases.append(self._get_clean_alias(sample_obj))
 
-            # Gather all fields for all objects
-            # First determine appropriate object list for each object type
-            row = {
+            shared = {
                 'raw_matrix_file_alias': self._get_clean_alias(raw_file),
-                'raw_file_samples': self._join_unique(sample_aliases)
+                'raw_file_samples': self._join_unique(sample_aliases),
             }
+
             for lib in libraries:
+                row = dict(shared)
                 lib_type = get_config_obj_type(lib, self.configs)
-                for field in self.configs.OBJECT_CONFIG[lib_type].get('fields',[]):
+                for field in self.configs.OBJECT_CONFIG[lib_type].get('fields', []):
                     field_name = f'{lib_type}_{field}'
-                    value = lib.get(field)
-                    row[field_name] = value
-            
-            rows.append(row)
+                    row[field_name] = lib.get(field)
+                rows.append(row)
         
         main_df = pd.DataFrame(rows)
         
-        # Merge sample metadata with all main DataFrame columns, one row per raw matrix file + sample
+        # Merge sample metadata with main DataFrame columns
+        # Samples is one row per unique (raw matrix file + sample)
         sample_df = None
         if sample_metadata and not main_df.empty:
             per_sample_df = pd.DataFrame.from_dict(sample_metadata, orient='index')
             per_sample_df.index.name = 'sample_alias'
             per_sample_df = per_sample_df.reset_index()
+
+            rmf_sample_keys = main_df[['raw_matrix_file_alias','raw_file_samples']].drop_duplicates()
             
             sample_df = per_sample_df.merge(
-                main_df[['raw_matrix_file_alias','raw_file_samples']],
+                rmf_sample_keys,
                 left_on = 'sample_alias',
                 right_on ='raw_file_samples', 
                 how = 'right'
             )
+            
             new_sample_df = sample_df.set_index('raw_matrix_file_alias')
 
             main_df = main_df.merge(
