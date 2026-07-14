@@ -4,7 +4,13 @@ import pandas as pd
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
 from constants import Configs, PROP_MAP_GEO
-from df_utils import split_controlled_term_columns, collapse_dataframe
+from DB2_utils import (
+    split_controlled_term_columns, 
+    collapse_dataframe,
+    get_config_obj_type,
+    get_url_prefix_from_id,
+    extract_references_from_field
+)
 from generate_constants import load_and_return_constant_dicts
 import DB2lattice
 
@@ -161,18 +167,6 @@ class DB2Flattener:
                         if sample_alias in sample_metadata:
                             continue
                         
-                        sample_donors = []
-                        sample_donor_refs = sample_obj.get('donors', [])
-                        for donor_ref in sample_donor_refs:
-                            if isinstance(donor_ref, dict):
-                                donor_id = donor_ref.get('@id', '')
-                            else:
-                                donor_id = donor_ref
-                            
-                            donor_obj = next((d for d in lib_data['donors'] if d.get('@id') == donor_id), None)
-                            if donor_obj:
-                                sample_donors.append(donor_obj)
-                        
                         sample_metadata[sample_alias] = {
                             'enriched_cell_types': self._get_cell_types_from_samples(
                                 [sample_obj], 'enriched_cell_types', resolved_controlled_terms
@@ -192,13 +186,9 @@ class DB2Flattener:
                             value = sample_obj.get(field)
                             sample_metadata[sample_alias][field_name] = value
 
-                        for d in sample_donors:
-                            donor_type = get_config_obj_type(d, self.configs)
-                            for field in self.configs.OBJECT_CONFIG[donor_type].get('fields', []):
-                                field_name = f'{donor_type}_{field}'
-                                value = d.get(field)
-                                sample_metadata[sample_alias][field_name] = value
-
+                        self._flatten_resolved_references(
+                            sample_obj, lib_data, sample_metadata, sample_alias
+                        )
 
         
         # Create one row per raw matrix file for main DataFrame
@@ -272,6 +262,45 @@ class DB2Flattener:
 
         group_col = "*library name"
         return collapse_dataframe(geo_df, group_col=group_col)
+
+    def _flatten_resolved_references(self, sample_obj, lib_data, sample_metadata, sample_alias):
+        """Flatten resolved reference objects into sample_metadata columns."""
+        sample_type = get_config_obj_type(sample_obj, self.configs)
+        config = self.configs.OBJECT_CONFIG.get(sample_type, {})
+        # Group refs by URL prefix across all non-controlled-term fields
+        refs_by_prefix = {}
+        for field_name, ref_types in config.get('references', {}).items():
+            ref_type_list = [ref_types] if isinstance(ref_types, str) else ref_types
+            if 'controlled_terms' in ref_type_list:
+                continue
+
+            refs = extract_references_from_field(
+                sample_obj.get(field_name), field_name, self.configs
+            )
+            for ref in refs:
+                prefix = get_url_prefix_from_id(ref, self.configs)
+                if prefix:
+                    refs_by_prefix.setdefault(prefix, []).append(ref)
+
+        for url_prefix, refs in refs_by_prefix.items():
+            seen = set()
+            unique_refs = [r for r in refs if not (r in seen or seen.add(r))]
+
+            resolved_objs = [
+                obj for ref in unique_refs
+                for obj in lib_data.get(url_prefix, [])
+                if obj.get('@id') == ref
+            ]
+
+            for obj_field in self.configs.OBJECT_CONFIG.get(url_prefix, {}).get('fields', []):
+                col = f'{url_prefix}_{obj_field}'
+                values = [
+                    obj.get(obj_field) for obj in resolved_objs
+                    if obj.get(obj_field) is not None
+                ]
+                sample_metadata[sample_alias][col] = (
+                    self._join_unique(values) if values else None
+                )
 
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
@@ -360,12 +389,6 @@ class DB2Flattener:
             return result.split(':', 1)[1]  # Take everything after the first ':'
         return result
 
-def get_config_obj_type(obj, configs: Configs):
-    """ Returns the matching object type for an object as found in the config file"""
-    for config_obj_type, config_obj_info in configs.OBJECT_CONFIG.items():
-        if config_obj_info.get('api_type','') == obj.get('@type',[])[0]:
-            return config_obj_type
-    return ''
 
 def main():
     parser = argparse.ArgumentParser(
