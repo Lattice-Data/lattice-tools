@@ -1,4 +1,11 @@
 from constants import Configs, MAX_URL_LENGTH, BASE_URL_OVERHEAD
+from DB2_utils import (
+    extract_controlled_term_id,
+    extract_uuid_from_id,
+    extract_references_from_field,
+    get_api_type_from_id,
+    get_url_prefix_from_id,
+)
 import DB2lattice
 
 
@@ -7,19 +14,6 @@ class DB2Gatherer:
         self.connection = connection
         self.configs = configs
         self.resolved_objects = {}  # {object_type: {id: object}}
-
-    def extract_uuid_from_id(self, object_id):
-        """Extract UUID from @id path like '/tissues/uuid/' -> 'uuid'"""
-        if '/' in object_id:
-            return object_id.split('/')[-2] if object_id.endswith('/') else object_id.split('/')[-1]
-        return object_id
-    
-    def get_api_type_from_id(self, object_id):
-        """Determine API type from @id path"""
-        for path_key, config in self.configs.OBJECT_CONFIG.items():
-            if f'/{path_key}/' in object_id:
-                return config['api_type']
-        return None
     
     def chunk_and_fetch(self, obj_type, object_ids):
         """Fetch objects efficiently with URL chunking if needed"""
@@ -84,48 +78,6 @@ class DB2Gatherer:
         
         return all_results
         
-    def extract_controlled_term_id(self, controlled_term_ref):
-        """Extract the semantic term ID from controlled term @id path"""
-        if '/controlled_terms/' in controlled_term_ref:
-            # Extract everything after '/controlled_terms/' and before trailing '/'
-            term_id = controlled_term_ref.split('/controlled_terms/')[-1]
-            if term_id.endswith('/'):
-                term_id = term_id[:-1]  # Remove trailing slash
-            return term_id
-        return controlled_term_ref
-    
-    def extract_references_from_field(self, field_value, field_name):
-        """Extract reference IDs from a field using FIELD_TYPES for proper handling"""
-        if not field_value:
-            return []
-        
-        field_spec = self.configs.FIELD_TYPES.get(field_name, {'type': 'string'})
-        refs = []
-        
-        if field_spec['type'] == 'array':
-            # Handle array fields
-            if isinstance(field_value, list):
-                for item in field_value:
-                    if isinstance(item, dict):
-                        # Pre-expanded object like {"@id": "/controlled_terms/xyz/", "term_name": "..."}
-                        ref_id = item.get('@id')
-                        if ref_id:
-                            refs.append(ref_id)
-                    elif isinstance(item, str):
-                        # String reference like "/controlled_terms/xyz/"
-                        refs.append(item)
-        else:
-            # Handle single value fields (type: 'string')
-            if isinstance(field_value, dict):
-                # Pre-expanded object
-                ref_id = field_value.get('@id')
-                if ref_id:
-                    refs.append(ref_id)
-            elif isinstance(field_value, str):
-                # String value or reference
-                refs.append(field_value)
-        
-        return refs
     
     def resolve_references_for_samples(self, all_samples):
         """Collect all references first, then batch fetch by type (excluding controlled terms)"""
@@ -134,7 +86,7 @@ class DB2Gatherer:
         
         # First pass: collect ALL references from samples
         for sample in all_samples.values():
-            sample_api_type = self.get_api_type_from_id(sample['@id'])
+            sample_api_type = get_api_type_from_id(sample['@id'], self.configs)
             config = None
             for cfg in self.configs.OBJECT_CONFIG.values():
                 if cfg['api_type'] == sample_api_type:
@@ -146,7 +98,7 @@ class DB2Gatherer:
             
             for field_name, ref_types in config.get('references', {}).items():
                 field_value = sample.get(field_name)
-                refs = self.extract_references_from_field(field_value, field_name)
+                refs = extract_references_from_field(field_value, field_name, self.configs)
                 
                 if isinstance(ref_types, str):
                     ref_types = [ref_types]
@@ -155,17 +107,17 @@ class DB2Gatherer:
                     if ref.startswith('/'):
                         if 'controlled_terms' in ref_types and '/controlled_terms/' in ref:
                             # Extract term ID directly for controlled terms
-                            term_id = self.extract_controlled_term_id(ref)
+                            term_id = extract_controlled_term_id(ref)
                             controlled_term_values[ref] = term_id
                         else:
                             # Regular UUID-based reference
-                            api_type = self.get_api_type_from_id(ref)
+                            api_type = get_api_type_from_id(ref, self.configs)
                             if api_type:
                                 all_reference_ids.setdefault(api_type, set()).add(ref)
         
         # Batch fetch all non-controlled-term references by type
         for api_type, ref_ids in all_reference_ids.items():
-            uuids = [self.extract_uuid_from_id(ref_id) for ref_id in ref_ids]
+            uuids = [extract_uuid_from_id(ref_id) for ref_id in ref_ids]
             ref_objects = self.chunk_and_fetch(api_type, uuids)
             
             if api_type not in self.resolved_objects:
@@ -183,7 +135,7 @@ class DB2Gatherer:
                 continue
                 
             for obj in ref_dict.values():
-                obj_api_type = self.get_api_type_from_id(obj.get('@id', ''))
+                obj_api_type = get_api_type_from_id(obj.get('@id', ''), self.configs)
                 config = None
                 for cfg in self.configs.OBJECT_CONFIG.values():
                     if cfg['api_type'] == obj_api_type:
@@ -196,18 +148,18 @@ class DB2Gatherer:
                 for field_name, ref_types in config.get('references', {}).items():
                     if 'controlled_terms' in (ref_types if isinstance(ref_types, list) else [ref_types]):
                         field_value = obj.get(field_name)
-                        refs = self.extract_references_from_field(field_value, field_name)
+                        refs = extract_references_from_field(field_value, field_name, self.configs)
                         
                         for ref in refs:
                             if ref.startswith('/controlled_terms/'):
-                                term_id = self.extract_controlled_term_id(ref)
+                                term_id = extract_controlled_term_id(ref)
                                 controlled_term_values[ref] = term_id
 
     def add_references_to_library(self, library_data, samples):
         """Add resolved non-controlled-term references to library data based on its samples"""
         added_refs= set()
         for sample in samples:
-            sample_api_type = self.get_api_type_from_id(sample['@id'])
+            sample_api_type = get_api_type_from_id(sample['@id'], self.configs)
             config = next(
                 (cfg for cfg in self.configs.OBJECT_CONFIG.values() if cfg['api_type'] == sample_api_type),
                 None,
@@ -218,20 +170,17 @@ class DB2Gatherer:
                 ref_type_list = [ref_types] if isinstance(ref_types, str) else ref_types
                 if 'controlled_terms' in ref_type_list:
                     continue
-                for ref in self.extract_references_from_field(sample.get(field_name), field_name):
+                for ref in extract_references_from_field(sample.get(field_name), field_name, self.configs):
                     resolved_obj = None
                     for api_type, objects in self.resolved_objects.items():
                         if api_type != 'ControlledTerm' and ref in objects:
                             resolved_obj = objects[ref]
                             break
                     if resolved_obj and ref not in added_refs:
-                        bucket = None
-                        for prefix in self.configs.OBJECT_CONFIG:
-                            if f'/{prefix}/' in ref:
-                                bucket = prefix
-                                break
+                        bucket = get_url_prefix_from_id(ref, self.configs)
                         if bucket:
                             library_data.setdefault(bucket, []).append(resolved_obj)
+                            added_refs.add(ref)
 
 
     def gather_complete_library_data(self, matrix_file_set_uuid):
@@ -255,7 +204,7 @@ class DB2Gatherer:
             else:
                 ref_id = ref
             if ref_id:
-                raw_matrix_uuids.append(self.extract_uuid_from_id(ref_id))
+                raw_matrix_uuids.append(extract_uuid_from_id(ref_id))
         
         print(f"Found {len(raw_matrix_uuids)} raw matrix files")
         
@@ -277,7 +226,7 @@ class DB2Gatherer:
                 else:
                     ref_id = ref
                 if ref_id:
-                    sequence_file_uuids.add(self.extract_uuid_from_id(ref_id))
+                    sequence_file_uuids.add(extract_uuid_from_id(ref_id))
         
         print(f"Found {len(sequence_file_uuids)} sequence file UUIDs referenced by raw matrix files")
         
@@ -301,7 +250,7 @@ class DB2Gatherer:
                 else:
                     ref_id = ref
                 if ref_id:
-                    file_set_uuids.add(self.extract_uuid_from_id(ref_id))
+                    file_set_uuids.add(extract_uuid_from_id(ref_id))
         
         print(f"Found {len(file_set_uuids)} file set UUIDs referenced by sequence files")
         
@@ -325,7 +274,7 @@ class DB2Gatherer:
                 else:
                     lib_id = library_ref
                 if lib_id:
-                    library_uuids.add(self.extract_uuid_from_id(lib_id))
+                    library_uuids.add(extract_uuid_from_id(lib_id))
         
         print(f"Found {len(library_uuids)} library UUIDs referenced by file sets")
         
@@ -342,7 +291,7 @@ class DB2Gatherer:
                 else:
                     lib_id = library_ref
                 
-                lib_uuid = self.extract_uuid_from_id(lib_id)
+                lib_uuid = extract_uuid_from_id(lib_id)
                 if lib_uuid in library_uuids:
                     # Determine type from the @id path
                     if '/droplet_based_libraries/' in lib_id:
@@ -376,11 +325,11 @@ class DB2Gatherer:
                     ref_id = ref
                 
                 if ref_id:
-                    api_type = self.get_api_type_from_id(ref_id)
+                    api_type = get_api_type_from_id(ref_id, self.configs)
                     if api_type:
                         if api_type not in sample_uuids_by_type:
                             sample_uuids_by_type[api_type] = []
-                        sample_uuids_by_type[api_type].append(self.extract_uuid_from_id(ref_id))
+                        sample_uuids_by_type[api_type].append(extract_uuid_from_id(ref_id))
         
         # Fetch all sample types
         all_samples = {}
@@ -403,7 +352,7 @@ class DB2Gatherer:
                 'library': library,
                 'samples': [],
                 'raw_matrix_files': []
-                # The rest of the library data information is created on demand by setdefault in add_reference_to_library()
+                # The rest of the library data information is created on demand by setdefault in add_references_to_library()
             }
             
             # Add samples for this library
@@ -470,7 +419,7 @@ class DB2Gatherer:
                                 else:
                                     lib_id = library_ref
                                 
-                                lib_uuid = self.extract_uuid_from_id(lib_id)
+                                lib_uuid = extract_uuid_from_id(lib_id)
                                 if lib_uuid in libraries_data and lib_uuid not in matched_libraries:
                                     matched_libraries.append(lib_uuid)
             

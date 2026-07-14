@@ -1,11 +1,17 @@
 """
-Generic DataFrame transforms for DB2 builders.
+Generic functions for gathering DB2 object information, and DataFrame transforms for DB2 builder
 
 - Split embedded controlled-term dicts into _term_id / _term_name columns
 - Collapse rows by a group key (scalar or list per cell)
+- Get url prefix from an object id
+- Get API type from an object id
+- Get object type from object id
+- Get uuid from object id
+- Get reference object ids from a field
 """
 
 import pandas as pd
+from constants import Configs
 
 TERM_ID_SUFFIX = "_term_id"
 TERM_NAME_SUFFIX = "_term_name"
@@ -52,20 +58,6 @@ def collapse_dataframe(
     other_cols = columns or [c for c in df.columns if c != group_col]
     agg = {col: single_or_list for col in other_cols}
     return df.groupby(group_col, as_index=False).agg(agg)
-
-
-def extract_term_id_from_ref(ref: str):
-    """
-    Parse semantic term ID from a controlled-term @id path.
-
-    Example: '/controlled_terms/EFO:0920086/' -> 'EFO:0920086'
-    """
-    if not ref:
-        return pd.NA
-    if "/controlled_terms/" in ref:
-        term_id = ref.split("/controlled_terms/")[-1]
-        return term_id.rstrip("/")
-    return ref
 
 
 def cell_has_term_name_structure(val) -> bool:
@@ -117,7 +109,7 @@ def split_term_cell(val):
     if not dicts:
         return pd.NA, pd.NA
 
-    term_ids = [extract_term_id_from_ref(d.get("@id", "")) for d in dicts]
+    term_ids = [extract_controlled_term_id(d.get("@id", "")) for d in dicts]
     term_names = [d["term_name"] for d in dicts]
 
     if len(dicts) == 1:
@@ -149,3 +141,86 @@ def split_controlled_term_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     print(f"Split controlled-term columns: {term_cols}")
     return out
+
+
+# Gathering DB2 Objects generic functions
+
+def extract_controlled_term_id(ref: str):
+    """
+    Parse semantic term ID from a controlled-term @id path.
+
+    Example: '/controlled_terms/EFO:0920086/' -> 'EFO:0920086'
+    """
+    if not ref:
+        return pd.NA
+    if "/controlled_terms/" in ref:
+        term_id = ref.split("/controlled_terms/")[-1]
+        return term_id.rstrip("/")
+    return ref
+
+
+def match_object_config_from_id(object_id: str, configs: Configs):
+    """Return (url_prefix, config) for an @id path, or (None, None)."""
+    if not object_id:
+        return None, None
+    for path_key, config in configs.OBJECT_CONFIG.items():
+        if f'/{path_key}/' in object_id:
+            return path_key, config
+    return None, None
+
+
+def get_url_prefix_from_id(object_id: str, configs: Configs):
+    """'/human_donors/uuid/' -> 'human_donors'"""
+    prefix, _ = match_object_config_from_id(object_id, configs)
+    return prefix
+
+
+def get_api_type_from_id(object_id: str, configs: Configs):
+    """'/human_donors/uuid/' -> 'HumanDonor'"""
+    _, config = match_object_config_from_id(object_id, configs)
+    return config['api_type'] if config else None
+
+
+def get_config_obj_type(obj: dict, configs: Configs) -> str:
+    """Map a resolved object to OBJECT_CONFIG url_prefix via @id, else @type."""
+    obj_id = obj.get('@id', '')
+    if obj_id:
+        prefix = get_url_prefix_from_id(obj_id, configs)
+        if prefix:
+            return prefix
+    for config_obj_type, config_obj_info in configs.OBJECT_CONFIG.items():
+        if config_obj_info.get('api_type', '') == obj.get('@type', [''])[0]:
+            return config_obj_type
+    return ''
+
+
+def extract_uuid_from_id(object_id: str) -> str:
+    """'/tissues/uuid/' -> 'uuid'"""
+    if '/' in object_id:
+        return object_id.split('/')[-2] if object_id.endswith('/') else object_id.split('/')[-1]
+    return object_id
+
+
+def extract_references_from_field(field_value, field_name, configs: Configs) -> list:
+    """Extract reference @id paths from a field using FIELD_TYPES."""
+    if not field_value:
+        return []
+    field_spec = configs.FIELD_TYPES.get(field_name, {'type': 'string'})
+    refs = []
+    if field_spec['type'] == 'array':
+        if isinstance(field_value, list):
+            for item in field_value:
+                if isinstance(item, dict):
+                    ref_id = item.get('@id')
+                    if ref_id:
+                        refs.append(ref_id)
+                elif isinstance(item, str):
+                    refs.append(item)
+    else:
+        if isinstance(field_value, dict):
+            ref_id = field_value.get('@id')
+            if ref_id:
+                refs.append(ref_id)
+        elif isinstance(field_value, str):
+            refs.append(field_value)
+    return refs
