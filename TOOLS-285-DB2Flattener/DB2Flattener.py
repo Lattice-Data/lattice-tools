@@ -210,7 +210,7 @@ class DB2Flattener:
         return main_df, new_sample_df
 
     def _row_is_gex(self, row) -> bool:
-        """ Filter MAIN df to only GEX libraries"""
+        """ Filter df to only GEX libraries"""
         droplet_ft = row.get('droplet_based_libraries_feature_types')
         plate_ft = row.get('plate_based_libraries_feature_types')
 
