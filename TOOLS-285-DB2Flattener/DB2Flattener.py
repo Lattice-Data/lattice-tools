@@ -83,52 +83,12 @@ class DB2Flattener:
             print(f"   Columns: {len(sample_df.columns)}")
         
         return output_file
-        
-        
-    def _filter_to_gex_libraries(self, libraries):
-        """Filter libraries to only include Gene Expression when there are pairs"""
-        gex_libraries = []
-        
-        for lib in libraries:
-            feature_types = lib.get('feature_types', [])
-            lib_type = lib.get('@type', [''])[0] if lib.get('@type') else ''
-            
-            # Check if this library has Gene Expression
-            if 'Gene Expression' in feature_types:
-                gex_libraries.append(lib)
-            elif not feature_types:  # Empty list or missing field
-                # For droplet-based libraries without feature_types, assume non-GEX
-                if 'DropletBasedLibrary' in lib_type:
-                    continue  # Skip droplet libraries without feature_types
-                # For plate-based libraries without feature_types, assume GEX until field is added
-                elif 'PlateBasedLibrary' in lib_type:
-                    gex_libraries.append(lib)
-        
-        # Always return only GEX libraries
-        if gex_libraries:
-            print(f"Filtered to {len(gex_libraries)} Gene Expression libraries out of {len(libraries)} total")
-            return gex_libraries
-        
-        # Fallback: if no GEX libraries found, return all (shouldn't happen normally)
-        print("WARNING: No Gene Expression libraries found, keeping all libraries")
-        return libraries
     
     
     def create_dataframe(self, complete_data):
         """Create main library/raw-file DataFrame and sample DataFrame keyed by raw matrix file"""
         libraries_data = complete_data['libraries']
         resolved_controlled_terms = complete_data['resolved_objects'].get('ControlledTerm', {})
-    
-        # Filter libraries to GEX once upfront
-        all_libraries = [lib_data['library'] for lib_data in libraries_data.values()]
-        filtered_libraries = self._filter_to_gex_libraries(all_libraries)
-        filtered_library_ids = {lib.get('@id') for lib in filtered_libraries}
-        
-        # Filter libraries_data to only include GEX libraries
-        filtered_libraries_data = {
-            lib_uuid: lib_data for lib_uuid, lib_data in libraries_data.items()
-            if lib_data['library'].get('@id') in filtered_library_ids
-        }
         
         print("Creating DataFrame by raw matrix file...")
         
@@ -141,7 +101,7 @@ class DB2Flattener:
         raw_file_to_libraries = {}
         sample_metadata = {}  # One row per unique sample, keyed by sample_alias
         
-        for lib_data in filtered_libraries_data.values():
+        for lib_data in libraries_data.values():
             library = lib_data['library']
             samples = lib_data['samples']
             raw_matrix_files = lib_data['raw_matrix_files']
@@ -249,15 +209,51 @@ class DB2Flattener:
         
         return main_df, new_sample_df
 
+    def _row_is_gex(self, row) -> bool:
+        """ Filter MAIN df to only GEX libraries"""
+        droplet_ft = row.get('droplet_based_libraries_feature_types')
+        plate_ft = row.get('plate_based_libraries_feature_types')
+
+        def has_gex(ft):
+            if ft is None or (isinstance(ft, float) and pd.isna(ft)):
+                return None  # missing
+            if isinstance(ft, str):
+                return 'Gene Expression' in ft
+            if isinstance(ft, list):
+                return 'Gene Expression' in ft
+            return 'Gene Expression' in str(ft)
+
+        droplet = has_gex(droplet_ft)
+        plate = has_gex(plate_ft)
+
+        if droplet is True or plate is True:
+            return True
+        if droplet is False or plate is False:
+            return False
+
+        # Missing feature_types: plate assumed GEX, droplet assumed non-GEX
+        if pd.notna(row.get('plate_based_libraries_@id')) or pd.notna(
+            row.get('plate_based_libraries_CRO_group_identifier')
+        ):
+            return True
+        if pd.notna(row.get('droplet_based_libraries_@id')) or pd.notna(
+            row.get('droplet_based_libraries_CRO_group_identifier')
+        ):
+            return False
+        return True  # if no GEX found, keep all
+
     def create_geo_dataframe(self, main_df) -> pd.DataFrame:
         """
-        Build GEO submission dataframe from already-split main_df.
+        Build GEO submission dataframe from already-split main_df, taking GEX libraries only
 
         Expects _term_name columns (not raw dict columns).
         """
-        # Only keep columns that exist after split + rename
-        subset_keys = [k for k in PROP_MAP_GEO if k in main_df.columns]
-        geo_df = main_df[subset_keys].copy()
+        gex_mask = main_df.apply(self._row_is_gex, axis=1)
+        geo_source = main_df[gex_mask].copy()
+        print(f"GEO: filtered to {len(geo_source)} GEX rows out of {len(main_df)} MAIN rows")
+
+        subset_keys = [k for k in PROP_MAP_GEO if k in geo_source.columns]
+        geo_df = geo_source[subset_keys].copy()
         geo_df.rename(columns=PROP_MAP_GEO, inplace=True)
 
         group_col = "*library name"
@@ -315,7 +311,7 @@ class DB2Flattener:
                         )
                     if value not in (None, ''):
                         values.append(value)
-                        
+
                 sample_metadata[sample_alias][col] = (
                     self._join_unique(values) if values else None
                 )
