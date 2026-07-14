@@ -187,7 +187,7 @@ class DB2Flattener:
                             sample_metadata[sample_alias][field_name] = value
 
                         self._flatten_resolved_references(
-                            sample_obj, lib_data, sample_metadata, sample_alias
+                            sample_obj, lib_data, sample_metadata, sample_alias, resolved_controlled_terms
                         )
 
         
@@ -263,11 +263,13 @@ class DB2Flattener:
         group_col = "*library name"
         return collapse_dataframe(geo_df, group_col=group_col)
 
-    def _flatten_resolved_references(self, sample_obj, lib_data, sample_metadata, sample_alias):
+    def _flatten_resolved_references(
+        self, sample_obj, lib_data, sample_metadata, sample_alias, resolved_controlled_terms
+    ):
         """Flatten resolved reference objects into sample_metadata columns."""
         sample_type = get_config_obj_type(sample_obj, self.configs)
         config = self.configs.OBJECT_CONFIG.get(sample_type, {})
-        # Group refs by URL prefix across all non-controlled-term fields
+
         refs_by_prefix = {}
         for field_name, ref_types in config.get('references', {}).items():
             ref_type_list = [ref_types] if isinstance(ref_types, str) else ref_types
@@ -292,12 +294,28 @@ class DB2Flattener:
                 if obj.get('@id') == ref
             ]
 
-            for obj_field in self.configs.OBJECT_CONFIG.get(url_prefix, {}).get('fields', []):
+            obj_config = self.configs.OBJECT_CONFIG.get(url_prefix, {})
+            obj_refs = obj_config.get('references', {})
+
+            for obj_field in obj_config.get('fields', []):
                 col = f'{url_prefix}_{obj_field}'
-                values = [
-                    obj.get(obj_field) for obj in resolved_objs
-                    if obj.get(obj_field) is not None
-                ]
+                field_ref_types = obj_refs.get(obj_field, [])
+                if isinstance(field_ref_types, str):
+                    field_ref_types = [field_ref_types]
+                is_controlled_term = 'controlled_terms' in field_ref_types
+
+                values = []
+                for obj in resolved_objs:
+                    value = obj.get(obj_field)
+                    if value is None:
+                        continue
+                    if is_controlled_term:
+                        value = self._resolve_controlled_term(
+                            value, resolved_controlled_terms
+                        )
+                    if value not in (None, ''):
+                        values.append(value)
+                        
                 sample_metadata[sample_alias][col] = (
                     self._join_unique(values) if values else None
                 )
