@@ -57,7 +57,6 @@ __all__ = [
     "PCT_PF_Q30_METRIC",
     "parse_pct_pf_q30_from_text",
     "grab_trimmer_failure_codes_wafer_metrics",
-    "grab_seahub_trim_csv_metrics",
     "grab_seahub_trim_fail_csv",
     "parse_seahub_raw_path",
     "seahub_file_stem",
@@ -924,49 +923,48 @@ def grab_seahub_trim_fail_csv(
     csv_path: str | Path,
 ) -> None:
     """
-    Parse a SeaHub ``*.trim_fail.csv`` into RSQ / trimmer-fail distributions.
+    Parse a SeaHub ``*.trim_fail.csv`` into per-modality trimmer-fail fractions.
 
-    Accepts the Novogene-style ``trimmer-failure_codes`` schema (``reason``,
-    ``failed read count``, ``total read count``) used by the SeaHub trimmer.
+    SeaHub sci-plex trim_fail files interleave multiple ``format`` blocks in a
+    single file (e.g. ``JumboSciHash`` and ``JumboSciGEX``), each carrying its
+    own ``total read count``.  The failure fraction is therefore computed
+    **per format group** so one modality's failures are never divided by another
+    modality's denominator (the shared, single-denominator
+    :func:`grab_trimmer_stats` produced >100% values on these files).  One
+    ``trimmer_fail`` value is appended per format group.
+
+    SeaHub inputs already start from RSQ-passing reads (no RSQ filtering step),
+    so these files carry no ``reason == 'rsq file'`` rows; the ``rsq``
+    distribution is left empty by design.
     """
-    grab_trimmer_stats(trimmer_failure_stats, exp, csv_path)
-
-
-def grab_seahub_trim_csv_metrics(csv_path: str | Path) -> dict | None:
-    """
-    Parse a SeaHub ``*.trim.csv`` for wafer-level RSQ pass metrics.
-
-    Maps the trimmer-stats schema via ``grab_merged_trimmer_q30`` when present.
-    Falls back to summing ``num input reads`` / ``num failed reads`` across rows.
-    """
-    q30 = grab_merged_trimmer_q30(csv_path)
-    if q30 is not None:
-        return {"rsq_pass_pct": q30}
-
-    df = pd.read_csv(csv_path)
-    df.columns = df.columns.str.replace(" ", "_")
-    input_col = next(
-        (c for c in ("num_input_reads", "num_input_read") if c in df.columns),
-        None,
+    if exp not in trimmer_failure_stats:
+        trimmer_failure_stats[exp] = {"rsq": [], "trimmer_fail": []}
+    stats_df = pd.read_csv(csv_path)
+    stats_df.columns = stats_df.columns.str.replace(" ", "_")
+    required = {"format", "reason", "failed_read_count", "total_read_count"}
+    if not required.issubset(stats_df.columns):
+        return
+    stats_df["failed_read_count"] = pd.to_numeric(
+        stats_df["failed_read_count"], errors="coerce"
     )
-    failed_col = next(
-        (c for c in ("num_failed_reads", "num_failed_read") if c in df.columns),
-        None,
+    stats_df["total_read_count"] = pd.to_numeric(
+        stats_df["total_read_count"], errors="coerce"
     )
-    if input_col is None or failed_col is None:
-        return None
-    total = int(df[input_col].max())
-    failed = int(df[failed_col].sum())
-    if total <= 0:
-        return None
-    passed = total - failed
-    return {
-        "rsq_total_reads": total,
-        "rsq_failed_reads": failed,
-        "rsq_pass_reads": passed,
-        "rsq_fail_pct": 100.0 * failed / total,
-        "rsq_pass_pct": 100.0 * passed / total,
-    }
+    for _fmt, block in stats_df.groupby("format", sort=False):
+        totals = block["total_read_count"].dropna()
+        if totals.empty:
+            continue
+        total = int(totals.iloc[0])
+        if total <= 0:
+            continue
+        rsq_rows = block[block["reason"] == "rsq file"]
+        for row in rsq_rows.itertuples():
+            trimmer_failure_stats[exp]["rsq"].append(
+                100 * row.failed_read_count / total
+            )
+        non_rsq = block[block["reason"] != "rsq file"]
+        trimmer_fail = int(non_rsq["failed_read_count"].sum())
+        trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail / total)
 
 
 def parse_raw_filename(f, raw_assay):

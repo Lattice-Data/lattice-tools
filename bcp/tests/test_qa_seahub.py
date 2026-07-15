@@ -15,7 +15,6 @@ from qa_checks import (
 from qa_gather import gather_qa_data
 from qa_mods import (
     QARunContext,
-    grab_seahub_trim_csv_metrics,
     grab_seahub_trim_fail_csv,
     normalize_raw_assay,
     parse_raw_filename,
@@ -109,17 +108,34 @@ class TestSeahubParsing:
 
 
 class TestSeahubTrimAdapters:
-    def test_grab_seahub_trim_fail_csv(self):
+    def test_grab_seahub_trim_fail_csv_is_per_format(self):
+        """One trimmer-fail value per format block, each < 100% (regression:
+        the shared single-denominator parser summed both modalities' failures
+        over one modality's total and produced >100%)."""
         stats: dict = {}
         grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
         assert "430479" in stats
-        assert len(stats["430479"]["rsq"]) == 1
-        assert len(stats["430479"]["trimmer_fail"]) == 1
+        # SeaHub inputs start from RSQ-passing reads -> no RSQ rows.
+        assert stats["430479"]["rsq"] == []
+        # Two format blocks (JumboSciHash, JumboSciGEX) -> two values.
+        fails = stats["430479"]["trimmer_fail"]
+        assert len(fails) == 2
+        assert all(0 <= pct < 100 for pct in fails)
 
-    def test_grab_seahub_trim_csv_metrics(self):
-        metrics = grab_seahub_trim_csv_metrics(SEAHUB_TRIM)
-        assert metrics is not None
-        assert "rsq_pass_pct" in metrics
+    def test_grab_seahub_trim_fail_csv_denominator_per_group(self):
+        """Each modality's failures divide by its own total read count."""
+        stats: dict = {}
+        grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
+        hash_pct, gex_pct = stats["430479"]["trimmer_fail"]
+        assert hash_pct == 100 * 157722381 / 260527531
+        assert gex_pct == 100 * 100735571 / 158233602
+
+    def test_grab_seahub_trim_fail_csv_appends(self):
+        """Repeated wells accumulate into the same distribution."""
+        stats: dict = {}
+        grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
+        grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
+        assert len(stats["430479"]["trimmer_fail"]) == 4
 
 
 class TestSeahubChecks:
@@ -275,3 +291,68 @@ class TestSeahubGather:
         data = gather_qa_data(ctx, s3)
         assert len(data.all_raw_files) == 10
         assert "430479" in data.trimmer_failure_stats
+
+    def _manifest_ctx(self, manifest: str) -> QARunContext:
+        return QARunContext(
+            data_source="manifest",
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj="",
+            order="REF3",
+            output_label="REF3",
+            listing_prefix="",
+            manifest_path=manifest,
+            manifest_delimiter="\t",
+            manifest_s3_column=6,
+            manifest_has_header=True,
+        )
+
+    def test_missing_metadata_json_warns(self):
+        """Each .trim.cram lacking a .trim.cram-metadata.json sidecar warns."""
+        manifest = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")
+        ctx = self._manifest_ctx(manifest)
+        file_contents = {
+            k: open(SEAHUB_TRIM_FAIL).read()
+            for k in (
+                "labalpha-seahub-bcp/REF3/raw/P05_1/430479/"
+                "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT.trim_fail.csv",
+                "labalpha-seahub-bcp/REF3/raw/P05_1/430479/"
+                "430479-REF3_P05_1_A2_GEX_hash_oligo-Z0105-CATGGCGCAGTGCTGAT.trim_fail.csv",
+            )
+        }
+        s3 = MockS3Client(file_contents=file_contents)
+        data = gather_qa_data(ctx, s3)
+        missing = [
+            w for w in data.gathering_warnings if w.startswith("METADATA MISSING")
+        ]
+        assert len(missing) == 2
+        assert all(".trim.cram-metadata.json" in w for w in missing)
+
+    def test_present_metadata_json_no_warn(self):
+        """A .trim.cram with its .trim.cram-metadata.json sidecar does not warn."""
+        pages = dict(self._seahub_paginated_pages())
+        wafer_key = ("labalpha-seahub-bcp/REF3/raw/P05_1/430479/", "")
+        meta_key = f"{SEAHUB_BASE}.trim.cram-metadata.json"
+        pages[wafer_key] = [
+            {"Contents": pages[wafer_key][0]["Contents"] + [{"Key": meta_key}]}
+        ]
+        file_contents = {
+            SEAHUB_KEY_FAIL: open(SEAHUB_TRIM_FAIL).read(),
+            meta_key: '{"read_count": 1000, "filename": "%s"}'
+            % SEAHUB_KEY_CRAM.split("/")[-1],
+        }
+        s3 = MockS3Client(paginated_pages=pages, file_contents=file_contents)
+        ctx = _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj="labalpha-seahub-bcp",
+            order="REF3",
+            listing_prefix="labalpha-seahub-bcp/REF3/",
+        )
+        data = gather_qa_data(ctx, s3)
+        missing = [
+            w for w in data.gathering_warnings if w.startswith("METADATA MISSING")
+        ]
+        assert missing == []

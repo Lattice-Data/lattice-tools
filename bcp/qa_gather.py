@@ -22,7 +22,6 @@ import re
 from qa_mods import (
     QARunContext,
     finalize_merged_wafer_stats,
-    grab_seahub_trim_csv_metrics,
     grab_seahub_trim_fail_csv,
     grab_trimmer_stats,
     grab_trimmer_failure_codes_wafer_metrics,
@@ -242,8 +241,11 @@ class QADataGatherer:
         """Parse SeaHub trim artifacts, metadata, and plate-size warnings."""
         metadata_files: list[str] = []
         plate_counts: dict[tuple[str, str], set[str]] = {}
+        cram_stems: set[str] = set()
+        metadata_stems: set[str] = set()
 
         for rf in self._data.all_raw_files:
+            name = rf.split("/")[-1]
             path_info = parse_seahub_raw_path(rf)
             if path_info is not None:
                 if path_info["experiment_id"] != experiment_id:
@@ -251,11 +253,16 @@ class QADataGatherer:
                         f"WRONG EXPERIMENT: {path_info['experiment_id']} "
                         f"expected {experiment_id} in {rf}"
                     )
-                stem = seahub_file_stem(rf.split("/")[-1])
+                stem = seahub_file_stem(name)
                 if stem is not None:
                     key = (path_info["sublibrary"], path_info["wafer"])
                     plate_counts.setdefault(key, set()).add(stem)
-                if not rf.split("/")[-1].startswith(f"{path_info['wafer']}-"):
+                    stem_key = "/".join(rf.split("/")[:-1]) + "/" + stem
+                    if name.endswith(".trim.cram-metadata.json"):
+                        metadata_stems.add(stem_key)
+                    elif name.endswith(".trim.cram"):
+                        cram_stems.add(stem_key)
+                if not name.startswith(f"{path_info['wafer']}-"):
                     self._data.gathering_warnings.append(
                         f"WAFER PREFIX MISMATCH: folder {path_info['wafer']} vs {rf}"
                     )
@@ -267,6 +274,7 @@ class QADataGatherer:
 
         self._download_metadata_json_batch(metadata_files)
         self._append_seahub_plate_warnings(plate_counts)
+        self._append_seahub_missing_metadata_warnings(cram_stems, metadata_stems)
 
     def _append_seahub_plate_warnings(
         self, plate_counts: dict[tuple[str, str], set[str]]
@@ -280,6 +288,21 @@ class QADataGatherer:
                     f"PLATE SIZE: {sublibrary}/{wafer} has {count} wells "
                     f"(expected one of {sorted(SEAHUB_PLATE_SIZES)})"
                 )
+
+    def _append_seahub_missing_metadata_warnings(
+        self, cram_stems: set[str], metadata_stems: set[str]
+    ) -> None:
+        """Warn for each ``*.trim.cram`` lacking a ``.trim.cram-metadata.json``.
+
+        The metadata sidecar is classified as optional (its absence is not a
+        hard inventory failure), but a missing sidecar means read-count QA
+        cannot run for that well, so surface it as an informational warning.
+        """
+        for stem_key in sorted(cram_stems - metadata_stems):
+            self._data.gathering_warnings.append(
+                f"METADATA MISSING: {stem_key}.trim.cram has no matching "
+                ".trim.cram-metadata.json sidecar"
+            )
 
     # ------------------------------------------------------------------
     # S3 mode — raw files
@@ -352,8 +375,6 @@ class QADataGatherer:
             self._download_trimmer_failure_codes(rf)
         elif self.raw_assay == "seahub_sci" and rf.endswith(".trim_fail.csv"):
             self._download_seahub_trim_fail(rf)
-        elif self.raw_assay == "seahub_sci" and rf.endswith(".trim.csv"):
-            self._download_seahub_trim_csv(rf)
         elif _is_merged_trimmer_file(rf):
             ingest_merged_trimmer_from_s3(
                 self.bucket, rf, self._data.merged_wafer_stats, self.s3
@@ -706,6 +727,15 @@ class QADataGatherer:
             Path(local).unlink(missing_ok=True)
 
     def _download_seahub_trim_fail(self, rf: str) -> None:
+        """Aggregate per-well SeaHub ``*.trim_fail.csv`` into trimmer stats.
+
+        SeaHub uploads start from RSQ-passing reads and carry no merged
+        trimmer files, so no wafer-level RSQ/TT metrics are derived here; the
+        per-well, per-modality trimmer-fail fractions flow into
+        ``trimmer_failure_stats`` (keyed by wafer) and ``group_failure_stats``
+        (keyed by ExperimentID/sublibrary) for the histograms and the wafer
+        sample-level summary via ``build_wafer_failure_stats``.
+        """
         storage_key, run_id = seahub_trimmer_failure_storage_key(rf)
         group_key = seahub_trimmer_group_storage_key(rf)
         if run_id is not None:
@@ -719,28 +749,6 @@ class QADataGatherer:
                 self._data.trimmer_failure_stats, storage_key, local
             )
             grab_seahub_trim_fail_csv(self._data.group_failure_stats, group_key, local)
-            if run_id is not None:
-                rsq_metrics = grab_trimmer_failure_codes_wafer_metrics(local)
-                if rsq_metrics:
-                    merge_partial_wafer_stats(
-                        self._data.merged_wafer_stats, run_id, rsq_metrics
-                    )
-        finally:
-            Path(local).unlink(missing_ok=True)
-
-    def _download_seahub_trim_csv(self, rf: str) -> None:
-        _, run_id = seahub_trimmer_failure_storage_key(rf)
-        if run_id is None:
-            return
-        with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
-            local = tf.name
-        try:
-            self.s3.download_file(self.bucket, rf, local)
-            metrics = grab_seahub_trim_csv_metrics(local)
-            if metrics:
-                merge_partial_wafer_stats(
-                    self._data.merged_wafer_stats, run_id, metrics
-                )
         finally:
             Path(local).unlink(missing_ok=True)
 
