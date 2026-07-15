@@ -22,10 +22,16 @@ import re
 from qa_mods import (
     QARunContext,
     finalize_merged_wafer_stats,
+    grab_seahub_trim_csv_metrics,
+    grab_seahub_trim_fail_csv,
     grab_trimmer_stats,
     grab_trimmer_failure_codes_wafer_metrics,
     ingest_merged_trimmer_from_s3,
     merge_partial_wafer_stats,
+    parse_seahub_raw_path,
+    seahub_file_stem,
+    seahub_trimmer_failure_storage_key,
+    seahub_trimmer_group_storage_key,
     trimmer_failure_storage_key,
     trimmer_group_storage_key,
     is_order_level_processed_folder,
@@ -42,7 +48,9 @@ METADATA_DOWNLOAD_MAX_WORKERS = 16
 METADATA_DOWNLOAD_PROGRESS_INTERVAL = 250
 PCT_Q30_READ_MAX_WORKERS = 16
 PCT_Q30_READ_PROGRESS_INTERVAL = 250
-_RAW_ASSAYS_SKIP_PCT_Q30_ERRORS = frozenset({"scale", "sci_jumbo", "sci_plex"})
+_RAW_ASSAYS_SKIP_PCT_Q30_ERRORS = frozenset(
+    {"scale", "sci_jumbo", "sci_plex", "seahub_sci"}
+)
 
 
 def _normalize_group_id_for_compare(group_id: str) -> str:
@@ -141,12 +149,17 @@ class QADataGatherer:
         self._data.all_proc_files = all_proc
         self._data.has_raw = len(all_raw) > 0
         self._data.has_processed = len(all_proc) > 0
+        if self.raw_assay == "seahub_sci" and self._data.has_raw:
+            self._enrich_seahub_raw_files(self.ctx.order)
 
     # ------------------------------------------------------------------
     # S3 mode — top-level
     # ------------------------------------------------------------------
 
     def _gather_from_s3(self) -> None:
+        if self.raw_assay == "seahub_sci":
+            self._gather_from_s3_seahub()
+            return
         o = self.ctx.listing_prefix
         r_order = self.s3.list_objects(Bucket=self.bucket, Prefix=o, Delimiter="/")
 
@@ -182,6 +195,91 @@ class QADataGatherer:
 
         if self.raw_assay in ("10x", "10x_cram", "10x_viral_ORF"):
             self._gather_order_level_merged_trimmers()
+
+    def _gather_from_s3_seahub(self) -> None:
+        """SeaHub layout: {proj}/{ExperimentID}/raw/{sublibrary}/{wafer}/."""
+        o = self.ctx.listing_prefix
+        experiment_id = self.ctx.order
+        self._data.fastq_log[experiment_id] = {}
+
+        r_top = self.s3.list_objects(Bucket=self.bucket, Prefix=o, Delimiter="/")
+        top_subdirs = [e["Prefix"] for e in r_top.get("CommonPrefixes", [])]
+        if f"{o}processed/" in top_subdirs:
+            self._data.has_processed = True
+            self._data.gathering_warnings.append(
+                "processed/ present for seahub_sci; processed validation is skipped"
+            )
+
+        raw_prefix = f"{o}raw/"
+        r_raw = self.s3.list_objects(
+            Bucket=self.bucket, Prefix=raw_prefix, Delimiter="/"
+        )
+        sublib_prefixes = [e["Prefix"] for e in r_raw.get("CommonPrefixes", [])]
+        if not sublib_prefixes:
+            self._data.gathering_warnings.append(f"raw/ MISSING or empty at {o}")
+            return
+
+        raw_files: list[str] = []
+        for sublib_prefix in sublib_prefixes:
+            r_wafers = self.s3.list_objects(
+                Bucket=self.bucket, Prefix=sublib_prefix, Delimiter="/"
+            )
+            for wafer_entry in r_wafers.get("CommonPrefixes", []):
+                wafer_prefix = wafer_entry["Prefix"]
+                for page in self.paginator.paginate(
+                    Bucket=self.bucket, Prefix=wafer_prefix
+                ):
+                    raw_files.extend([c["Key"] for c in page.get("Contents", [])])
+
+        if not raw_files:
+            return
+
+        self._data.has_raw = True
+        self._data.all_raw_files = raw_files
+        self._enrich_seahub_raw_files(experiment_id)
+
+    def _enrich_seahub_raw_files(self, experiment_id: str) -> None:
+        """Parse SeaHub trim artifacts, metadata, and plate-size warnings."""
+        metadata_files: list[str] = []
+        plate_counts: dict[tuple[str, str], set[str]] = {}
+
+        for rf in self._data.all_raw_files:
+            path_info = parse_seahub_raw_path(rf)
+            if path_info is not None:
+                if path_info["experiment_id"] != experiment_id:
+                    self._data.gathering_errors.append(
+                        f"WRONG EXPERIMENT: {path_info['experiment_id']} "
+                        f"expected {experiment_id} in {rf}"
+                    )
+                stem = seahub_file_stem(rf.split("/")[-1])
+                if stem is not None:
+                    key = (path_info["sublibrary"], path_info["wafer"])
+                    plate_counts.setdefault(key, set()).add(stem)
+                if not rf.split("/")[-1].startswith(f"{path_info['wafer']}-"):
+                    self._data.gathering_warnings.append(
+                        f"WAFER PREFIX MISMATCH: folder {path_info['wafer']} vs {rf}"
+                    )
+
+            if self._should_download_metadata_json(rf):
+                metadata_files.append(rf)
+                continue
+            self._process_raw_file(rf, experiment_id, is_10x=False)
+
+        self._download_metadata_json_batch(metadata_files)
+        self._append_seahub_plate_warnings(plate_counts)
+
+    def _append_seahub_plate_warnings(
+        self, plate_counts: dict[tuple[str, str], set[str]]
+    ) -> None:
+        from qa_constants import SEAHUB_PLATE_SIZES
+
+        for (sublibrary, wafer), stems in sorted(plate_counts.items()):
+            count = len(stems)
+            if count not in SEAHUB_PLATE_SIZES:
+                self._data.gathering_warnings.append(
+                    f"PLATE SIZE: {sublibrary}/{wafer} has {count} wells "
+                    f"(expected one of {sorted(SEAHUB_PLATE_SIZES)})"
+                )
 
     # ------------------------------------------------------------------
     # S3 mode — raw files
@@ -252,6 +350,10 @@ class QADataGatherer:
             ("trimmer-failure_codes.csv", "trimmer-failure-codes.csv")
         ) and not rf.endswith("merged_trimmer-failure_codes.csv"):
             self._download_trimmer_failure_codes(rf)
+        elif self.raw_assay == "seahub_sci" and rf.endswith(".trim_fail.csv"):
+            self._download_seahub_trim_fail(rf)
+        elif self.raw_assay == "seahub_sci" and rf.endswith(".trim.csv"):
+            self._download_seahub_trim_csv(rf)
         elif _is_merged_trimmer_file(rf):
             ingest_merged_trimmer_from_s3(
                 self.bucket, rf, self._data.merged_wafer_stats, self.s3
@@ -265,10 +367,12 @@ class QADataGatherer:
             return True
         if (
             rf.endswith(".cram-metadata.json")
-            and self.raw_assay in ("scale", "10x_cram", "sci_plex")
+            and self.raw_assay in ("scale", "10x_cram", "sci_plex", "seahub_sci")
             and "-unmatched.cram-metadata.json" not in rf
             and "_unmatched.cram-metadata.json" not in rf
         ):
+            return True
+        if rf.endswith(".trim.cram-metadata.json") and self.raw_assay == "seahub_sci":
             return True
         return False
 
@@ -312,6 +416,8 @@ class QADataGatherer:
             return True
         if rf.endswith(".cram") and self.raw_assay == "10x_cram":
             return False
+        if rf.endswith(".trim.cram") and self.raw_assay == "seahub_sci":
+            return True
         return False
 
     # ------------------------------------------------------------------
@@ -596,6 +702,45 @@ class QADataGatherer:
                     merge_partial_wafer_stats(
                         self._data.merged_wafer_stats, run_id, rsq_metrics
                     )
+        finally:
+            Path(local).unlink(missing_ok=True)
+
+    def _download_seahub_trim_fail(self, rf: str) -> None:
+        storage_key, run_id = seahub_trimmer_failure_storage_key(rf)
+        group_key = seahub_trimmer_group_storage_key(rf)
+        if run_id is not None:
+            self._data.exp_to_run_map[run_id] = run_id
+            self._data.exp_to_run_map[group_key] = run_id
+        with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
+            local = tf.name
+        try:
+            self.s3.download_file(self.bucket, rf, local)
+            grab_seahub_trim_fail_csv(
+                self._data.trimmer_failure_stats, storage_key, local
+            )
+            grab_seahub_trim_fail_csv(self._data.group_failure_stats, group_key, local)
+            if run_id is not None:
+                rsq_metrics = grab_trimmer_failure_codes_wafer_metrics(local)
+                if rsq_metrics:
+                    merge_partial_wafer_stats(
+                        self._data.merged_wafer_stats, run_id, rsq_metrics
+                    )
+        finally:
+            Path(local).unlink(missing_ok=True)
+
+    def _download_seahub_trim_csv(self, rf: str) -> None:
+        _, run_id = seahub_trimmer_failure_storage_key(rf)
+        if run_id is None:
+            return
+        with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
+            local = tf.name
+        try:
+            self.s3.download_file(self.bucket, rf, local)
+            metrics = grab_seahub_trim_csv_metrics(local)
+            if metrics:
+                merge_partial_wafer_stats(
+                    self._data.merged_wafer_stats, run_id, metrics
+                )
         finally:
             Path(local).unlink(missing_ok=True)
 

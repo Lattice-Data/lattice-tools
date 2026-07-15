@@ -29,6 +29,7 @@ from qa_mods import (
     raw_expected,
     raw_optional,
     resolve_wafer_run_id,
+    seahub_file_stem,
 )
 
 
@@ -63,7 +64,7 @@ def _fastq_count_mode(raw_assay: str) -> str:
     """Internal: assay policy for fastq count validation and summaries."""
     if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram"):
         return "skip"
-    if raw_assay in ("scale", "sci_plex"):
+    if raw_assay in ("scale", "sci_plex", "seahub_sci"):
         return "gex_hash"
     if raw_assay == "10x":
         return "10x"
@@ -111,7 +112,7 @@ def validate_fastq_counts(
                     f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
                     f"{len(hash_list)} hash_oligo"
                 )
-        elif raw_assay == "sci_plex":
+        elif raw_assay in ("sci_plex", "seahub_sci"):
             gex_list = v.get("GEX", [])
             hash_list = v.get("hash_oligo", [])
             if gex_list and hash_list and len(gex_list) != len(hash_list):
@@ -186,7 +187,7 @@ def summarize_fastq_count_validation(
             f"{mismatches}. No fastq_log data (nothing to compare)."
         )
 
-    if raw_assay in ("scale", "sci_plex"):
+    if raw_assay in ("scale", "sci_plex", "seahub_sci"):
         checked = sum(
             1
             for _sample, v in fastq_log.items()
@@ -298,7 +299,7 @@ def validate_read_metadata(
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
 
-    skip_r1_r2_pairing = raw_assay == "10x_cram"
+    skip_r1_r2_pairing = raw_assay in ("10x_cram", "seahub_sci")
 
     # Optional instrumentation for stdout-only reporting.
     matched_examples: list[str] = []
@@ -502,6 +503,18 @@ def check_expected_raw_files(
     """
     beginnings: dict[str, dict[str, Any]] = {}
     for fullpath in all_raw_files:
+        if raw_assay == "seahub_sci":
+            b = seahub_file_stem(fullpath.split("/")[-1])
+            if b is None:
+                continue
+            if b not in beginnings:
+                raw_dir = "/".join(fullpath.split("/")[:-1])
+                beginnings[b] = {
+                    "raw_dir": raw_dir,
+                    "endings": list(raw_expected.get(raw_assay, [])),
+                }
+            continue
+
         parsed = parse_raw_filename(fullpath, raw_assay)
         if parsed is None:
             continue
@@ -634,6 +647,13 @@ def check_extra_raw_files(
         if (raw_assay in raw_optional or raw_assay == "10x_viral_ORF") and (
             optional_endings
         ):
+            if raw_assay == "seahub_sci":
+                stem = seahub_file_stem(f.split("/")[-1])
+                if stem is not None:
+                    raw_dir = "/".join(f.split("/")[:-1])
+                    suffix = f.replace(f"{raw_dir}/{stem}", "")
+                    if suffix in optional_endings:
+                        continue
             parsed = parse_raw_filename(f, raw_assay)
             if parsed is not None:
                 run, group, assay, ug, barcode = parsed

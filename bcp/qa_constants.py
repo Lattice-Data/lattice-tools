@@ -17,7 +17,15 @@ valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo
 
 # Raw pipeline types supported by qa.ipynb / qa_checks (normalize casing via qa_mods.normalize_raw_assay)
 ALLOWED_RAW_ASSAYS = frozenset(
-    ("10x", "10x_cram", "10x_viral_ORF", "sci_jumbo", "sci_plex", "scale")
+    (
+        "10x",
+        "10x_cram",
+        "10x_viral_ORF",
+        "sci_jumbo",
+        "sci_plex",
+        "scale",
+        "seahub_sci",
+    )
 )
 
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-3p-outputs-cellplex
@@ -221,6 +229,13 @@ raw_expected = {
         "_trimmer-stats.csv",
     ],
     "scale": [],
+    "seahub_sci": [
+        ".trim.cram",
+        ".trim.csv",
+        ".trim.stderr",
+        ".trim.stdout",
+        ".trim_fail.csv",
+    ],
 }
 
 raw_optional = {
@@ -237,7 +252,30 @@ raw_optional = {
         "_extract_stats.h5",
     ],
     "scale": [],
+    "seahub_sci": [
+        ".trim.cram-metadata.json",
+    ],
 }
+
+# ---------------------------------------------------------------------------
+# SeaHub lab raw upload patterns (trapnell / hamazaki *-seahub-bcp buckets)
+#
+# Layout: s3://czi-{lab}/{lab}-seahub-bcp/{ExperimentID}/raw/{sublibrary}/{wafer}/
+# Files:  {wafer}-{ExperimentID}_{sublibrary}_{well}_{assay}-{UG}-{barcode}.trim.*
+# ---------------------------------------------------------------------------
+
+SEAHUB_TRIM_SUFFIXES: tuple[str, ...] = (
+    ".trim.cram-metadata.json",
+    ".trim_fail.csv",
+    ".trim.cram",
+    ".trim.csv",
+    ".trim.stderr",
+    ".trim.stdout",
+)
+
+SEAHUB_WELL_RE = re.compile(r"_[A-H]\d{1,2}_")
+
+SEAHUB_PLATE_SIZES = frozenset({48, 96})
 
 # ---------------------------------------------------------------------------
 # Scale raw file patterns

@@ -1,0 +1,5 @@
+read group,code,format,segment,reason,failed read count,total read count
+Z0097,8,sci-plex-GEX,start,rsq file,215538084,499361927
+Z0097,103,sci-plex-GEX,Illumina R1 adapter,no match,44571,499361927
+Z0097,201,sci-plex-GEX,CBC,sequence was too short,1767,499361927
+Z0097,203,sci-plex-GEX,CBC,no match,17494549,499361927

@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
+    SEAHUB_TRIM_SUFFIXES,
     cellranger_expected,
     cellranger_ignore,
     chemistries,
@@ -56,6 +57,12 @@ __all__ = [
     "PCT_PF_Q30_METRIC",
     "parse_pct_pf_q30_from_text",
     "grab_trimmer_failure_codes_wafer_metrics",
+    "grab_seahub_trim_csv_metrics",
+    "grab_seahub_trim_fail_csv",
+    "parse_seahub_raw_path",
+    "seahub_file_stem",
+    "seahub_trimmer_failure_storage_key",
+    "seahub_trimmer_group_storage_key",
     "merge_partial_wafer_stats",
     "finalize_merged_wafer_stats",
     "parse_scale_workflow_info",
@@ -137,7 +144,7 @@ def normalize_raw_assay(value: str | None) -> str:
     if value is None or not str(value).strip():
         raise ValueError(
             "ERROR: raw_assay is not specified. "
-            "Set it to one of: '10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "Set it to one of: '10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale', 'seahub_sci'."
         )
     s = str(value).strip()
     lower = s.lower()
@@ -149,7 +156,7 @@ def normalize_raw_assay(value: str | None) -> str:
         raise ValueError(
             f"HUGE ERROR: raw_assay='{s}' is not recognized. "
             "Update the parameter to one of: "
-            "'10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "'10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale', 'seahub_sci'."
         )
     return s
 
@@ -276,6 +283,9 @@ def resolve_qa_run_context(
 
     * **s3** mode: require either ``s3://czi-*/proj/order`` or ``provider`` + ``proj`` + ``order``.
       Output files use ``run_label`` if set, else ``order``.
+      For SeaHub lab uploads (``seahub_sci``), use ``provider`` = ``trapnell`` or
+      ``hamazaki``, ``proj`` = ``{lab}-seahub-bcp``, ``order`` = ExperimentID
+      (e.g. ``REF3``), or ``s3_path`` = ``s3://czi-trapnell/trapnell-seahub-bcp/REF3``.
     * **manifest** mode: require ``manifest_path`` and non-empty ``run_label`` for output names.
       ``bucket`` is inferred from ``s3://czi-*`` URIs in the manifest column (single bucket).
 
@@ -863,6 +873,102 @@ def ingest_merged_trimmer_from_s3(
         Path(local).unlink(missing_ok=True)
 
 
+def seahub_file_stem(filename: str) -> str | None:
+    """Return the shared filename stem for a SeaHub ``*.trim.*`` artifact."""
+    name = filename.split("/")[-1]
+    for suffix in SEAHUB_TRIM_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return None
+
+
+def parse_seahub_raw_path(s3_key: str) -> dict[str, str] | None:
+    """
+    Parse SeaHub S3 key layout:
+    ``{proj}/{ExperimentID}/raw/{sublibrary}/{wafer}/{filename}``.
+    """
+    parts = s3_key.split("/")
+    try:
+        raw_idx = parts.index("raw")
+    except ValueError:
+        return None
+    if raw_idx < 1 or len(parts) < raw_idx + 3:
+        return None
+    return {
+        "experiment_id": parts[raw_idx - 1],
+        "sublibrary": parts[raw_idx + 1],
+        "wafer": parts[raw_idx + 2],
+    }
+
+
+def seahub_trimmer_group_storage_key(s3_key: str) -> str:
+    """Sublibrary aggregation key: ``{ExperimentID}/{sublibrary}``."""
+    info = parse_seahub_raw_path(s3_key)
+    if info is None:
+        return trimmer_group_storage_key(s3_key)
+    return f"{info['experiment_id']}/{info['sublibrary']}"
+
+
+def seahub_trimmer_failure_storage_key(s3_key: str) -> tuple[str, str | None]:
+    """Wafer-native storage key for SeaHub per-well trim failure CSVs."""
+    info = parse_seahub_raw_path(s3_key)
+    if info is None:
+        return trimmer_failure_storage_key(s3_key)
+    run_id = info["wafer"]
+    return run_id, run_id
+
+
+def grab_seahub_trim_fail_csv(
+    trimmer_failure_stats: dict,
+    exp: str,
+    csv_path: str | Path,
+) -> None:
+    """
+    Parse a SeaHub ``*.trim_fail.csv`` into RSQ / trimmer-fail distributions.
+
+    Accepts the Novogene-style ``trimmer-failure_codes`` schema (``reason``,
+    ``failed read count``, ``total read count``) used by the SeaHub trimmer.
+    """
+    grab_trimmer_stats(trimmer_failure_stats, exp, csv_path)
+
+
+def grab_seahub_trim_csv_metrics(csv_path: str | Path) -> dict | None:
+    """
+    Parse a SeaHub ``*.trim.csv`` for wafer-level RSQ pass metrics.
+
+    Maps the trimmer-stats schema via ``grab_merged_trimmer_q30`` when present.
+    Falls back to summing ``num input reads`` / ``num failed reads`` across rows.
+    """
+    q30 = grab_merged_trimmer_q30(csv_path)
+    if q30 is not None:
+        return {"rsq_pass_pct": q30}
+
+    df = pd.read_csv(csv_path)
+    df.columns = df.columns.str.replace(" ", "_")
+    input_col = next(
+        (c for c in ("num_input_reads", "num_input_read") if c in df.columns),
+        None,
+    )
+    failed_col = next(
+        (c for c in ("num_failed_reads", "num_failed_read") if c in df.columns),
+        None,
+    )
+    if input_col is None or failed_col is None:
+        return None
+    total = int(df[input_col].max())
+    failed = int(df[failed_col].sum())
+    if total <= 0:
+        return None
+    passed = total - failed
+    return {
+        "rsq_total_reads": total,
+        "rsq_failed_reads": failed,
+        "rsq_pass_reads": passed,
+        "rsq_fail_pct": 100.0 * failed / total,
+        "rsq_pass_pct": 100.0 * passed / total,
+    }
+
+
 def parse_raw_filename(f, raw_assay):
     """
     For scale data, use regex for determining assay, and "group" is replaced by "experiment", and there is no "barcode". This is because
@@ -870,6 +976,30 @@ def parse_raw_filename(f, raw_assay):
     Otherwise, parse 10x/sci filenames from the right so group IDs can include hyphens.
     """
     filename = f.split("/")[-1]
+
+    if raw_assay == "seahub_sci":
+        path_info = parse_seahub_raw_path(f)
+        if path_info is None:
+            return None
+        stem = seahub_file_stem(filename)
+        if stem is None:
+            return None
+        assay_pat = "|".join(
+            sorted(map(re.escape, valid_assays), key=len, reverse=True)
+        )
+        known_pat = re.compile(
+            rf"^(?P<run>\d{{6,8}})-.+?_(?P<assay>{assay_pat})-(?P<ug>[^-]+)-(?P<barcode>[^_.-]+)$"
+        )
+        m = known_pat.match(stem)
+        if not m:
+            return None
+        return (
+            m.group("run"),
+            path_info["experiment_id"],
+            m.group("assay"),
+            m.group("ug"),
+            m.group("barcode"),
+        )
 
     if raw_assay == "scale":
         path = filename.split("-")

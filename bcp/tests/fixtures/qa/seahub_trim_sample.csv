@@ -1,0 +1,3 @@
+read group,format,segment index,segment label,is required,is trimmed,num input reads,num prefiltered reads,num failed reads,num discarded reads,num filtered reads,num trimmed reads,num failures,num matches,num matched bases
+Z0097,sci-plex-GEX,0,start,False,True,499361927,0,242211462,0,0,257150465,215538084,377383,479651
+TT,sci-plex-GEX,5,low quality bases,True,True,499361927,0,242211462,0,0,257150465,1473,257150465,1285752325

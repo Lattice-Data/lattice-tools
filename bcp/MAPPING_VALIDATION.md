@@ -4,7 +4,7 @@ This document explains how to run the `mapping_validation` checks from `bcp` and
 
 The validator is implemented in `mapping_validation.cli.main` and is exercised end‑to‑end in `test_mapping_validation_e2e.py` and `test_mapping_validation_cli.py`.
 
-**Scope note (important):** this guide covers the `mapping_validation` CLI only. The CLI now includes a dedicated `--assay 10x_cram` raw mode for CRAM bundle/SOP checks. Deeper metadata-content QA checks (for example read-count thresholds from `*.fastq.gz-metadata.json` / `*.cram-metadata.json`) still live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`.
+**Scope note (important):** this guide covers the `mapping_validation` CLI only. The CLI now includes a dedicated `--assay 10x_cram` raw mode for CRAM bundle/SOP checks. Deeper metadata-content QA checks (for example read-count thresholds from `*.fastq.gz-metadata.json` / `*.cram-metadata.json`) still live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`. Collaborator lab SeaHub trimmed raw uploads on `czi-trapnell` / `czi-hamazaki` (`*-seahub-bcp` paths, `*.trim.*` artifacts) are validated separately via `qa.ipynb` with `raw_assay='seahub_sci'`, not the Novogene-oriented `validate_s3_seahub_raw` checks below.
 
 ---
 

@@ -105,6 +105,9 @@ class TestNormalizeRawAssay:
     def test_10x_cram_allowed(self):
         assert normalize_raw_assay("10x_cram") == "10x_cram"
 
+    def test_seahub_sci_allowed(self):
+        assert normalize_raw_assay("seahub_sci") == "seahub_sci"
+
     def test_empty_raises(self):
         with pytest.raises(ValueError, match="raw_assay"):
             normalize_raw_assay("")
