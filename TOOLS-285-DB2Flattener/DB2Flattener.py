@@ -115,7 +115,7 @@ class DB2Flattener:
                         'all_samples': []
                     }
                 
-                # Add this library's data to the raw matrix file (once per @id to prevent duplicates due to having GEX and CRI)
+                # Add this library's data to the raw matrix file (once per @id to prevent duplicates)
                 existing_lib_ids = {lib.get('@id') for lib in raw_file_to_libraries[raw_file_id]['libraries']}
                 if library.get('@id') not in existing_lib_ids:
                     raw_file_to_libraries[raw_file_id]['libraries'].append(library)
@@ -144,9 +144,15 @@ class DB2Flattener:
 
                         sample_type = get_config_obj_type(sample_obj, self.configs)
                         for field in self.configs.OBJECT_CONFIG[sample_type].get('fields', []):
-                            field_name = f'{sample_type}_{field}'
                             value = sample_obj.get(field)
-                            sample_metadata[sample_alias][field_name] = value
+                            # Special handling for author_metadata dictionary
+                            if field == 'author_metadata' and isinstance(value, dict):
+                                for key, val in value.items():
+                                    field_name = f"{sample_type}_{'_'.join(key.split(' '))}"
+                                    sample_metadata[sample_alias][field_name] = val
+                            else:
+                                field_name = f'{sample_type}_{field}'
+                                sample_metadata[sample_alias][field_name] = value
 
                         self._flatten_resolved_references(
                             sample_obj, lib_data, sample_metadata, sample_alias, resolved_controlled_terms
