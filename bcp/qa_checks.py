@@ -651,7 +651,7 @@ def check_extra_raw_files(
                 stem = seahub_file_stem(f.split("/")[-1])
                 if stem is not None:
                     raw_dir = "/".join(f.split("/")[:-1])
-                    suffix = f.replace(f"{raw_dir}/{stem}", "")
+                    suffix = f[len(raw_dir) + 1 + len(stem) :]
                     if suffix in optional_endings:
                         continue
             parsed = parse_raw_filename(f, raw_assay)
@@ -659,7 +659,7 @@ def check_extra_raw_files(
                 run, group, assay, ug, barcode = parsed
                 b = f"{run}-{group}_{assay}-{ug}-{barcode}"
                 raw_dir = "/".join(f.split("/")[:-1])
-                suffix = f.replace(f"{raw_dir}/{b}", "")
+                suffix = f[len(raw_dir) + 1 + len(b) :]
                 endings = (
                     raw_optional["10x"]
                     if (raw_assay == "10x_viral_ORF" and assay == "GEX")

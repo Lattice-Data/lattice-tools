@@ -931,8 +931,9 @@ def grab_seahub_trim_fail_csv(
     ``trimmer_fail`` value is appended per format group.
 
     SeaHub inputs already start from RSQ-passing reads (no RSQ filtering step),
-    so these files carry no ``reason == 'rsq file'`` rows; the ``rsq``
-    distribution is left empty by design.
+    so these files are expected to carry no ``reason == 'rsq file'`` rows and
+    the ``rsq`` distribution should stay empty; the loop below is retained
+    defensively in case such a row ever appears.
     """
     if exp not in trimmer_failure_stats:
         trimmer_failure_stats[exp] = {"rsq": [], "trimmer_fail": []}

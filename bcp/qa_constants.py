@@ -273,8 +273,6 @@ SEAHUB_TRIM_SUFFIXES: tuple[str, ...] = (
     ".trim.stdout",
 )
 
-SEAHUB_WELL_RE = re.compile(r"_[A-H]\d{1,2}_")
-
 SEAHUB_PLATE_SIZES = frozenset({48, 96})
 
 # ---------------------------------------------------------------------------

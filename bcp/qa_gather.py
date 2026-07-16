@@ -42,6 +42,7 @@ from qa_mods import (
     parse_scale_workflow_info,
     valid_assays,
 )
+from qa_constants import SEAHUB_PLATE_SIZES
 
 METADATA_DOWNLOAD_MAX_WORKERS = 16
 METADATA_DOWNLOAD_PROGRESS_INTERVAL = 250
@@ -279,8 +280,6 @@ class QADataGatherer:
     def _append_seahub_plate_warnings(
         self, plate_counts: dict[tuple[str, str], set[str]]
     ) -> None:
-        from qa_constants import SEAHUB_PLATE_SIZES
-
         for (sublibrary, wafer), stems in sorted(plate_counts.items()):
             count = len(stems)
             if count not in SEAHUB_PLATE_SIZES:
