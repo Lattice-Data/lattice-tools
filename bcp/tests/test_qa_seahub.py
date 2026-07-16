@@ -106,6 +106,25 @@ class TestSeahubParsing:
             "430479",
         )
 
+    def test_parse_seahub_raw_path_rejects_wrong_segment_count(self):
+        # Missing the wafer level -> only 5 segments.
+        assert parse_seahub_raw_path("proj/REF3/raw/P05_1/file.trim.cram") is None
+        # "raw" not at the documented position.
+        assert (
+            parse_seahub_raw_path("proj/REF3/notraw/P05_1/430479/file.trim.cram")
+            is None
+        )
+
+    def test_parse_seahub_raw_path_anchors_by_position_not_name(self):
+        # A segment other than index 2 is literally "raw" -> still parses
+        # correctly because the lookup is positional, not a name search.
+        info = parse_seahub_raw_path("proj/raw/raw/P05_1/430479/file.trim.cram")
+        assert info == {
+            "experiment_id": "raw",
+            "sublibrary": "P05_1",
+            "wafer": "430479",
+        }
+
 
 class TestSeahubTrimAdapters:
     def test_grab_seahub_trim_fail_csv_is_per_format(self):
@@ -136,6 +155,37 @@ class TestSeahubTrimAdapters:
         grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
         grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
         assert len(stats["430479"]["trimmer_fail"]) == 4
+
+    def _write_inconsistent_totals_csv(self, tmp_path) -> str:
+        path = os.path.join(tmp_path, "inconsistent_totals.csv")
+        with open(path, "w") as f:
+            f.write("format,reason,failed_read_count,total_read_count\n")
+            f.write("JumboSciHash,no match,100,1000\n")
+            f.write("JumboSciHash,no match,50,2000\n")
+        return path
+
+    def test_grab_seahub_trim_fail_csv_warns_on_inconsistent_totals(self, tmp_path):
+        """A format block with a non-uniform total_read_count still falls
+        back to the first value, but surfaces the anomaly via `warnings`
+        (the list the QA notebook prints to the user) instead of silently
+        dropping the divergent totals."""
+        path = self._write_inconsistent_totals_csv(tmp_path)
+        stats: dict = {}
+        warnings: list[str] = []
+        grab_seahub_trim_fail_csv(stats, "exp1", path, warnings=warnings)
+        assert len(warnings) == 1
+        assert "JumboSciHash" in warnings[0]
+        assert "1000" in warnings[0] and "2000" in warnings[0]
+        # Fallback behavior: first total_read_count still used.
+        assert stats["exp1"]["trimmer_fail"] == [100 * 150 / 1000]
+
+    def test_grab_seahub_trim_fail_csv_no_warnings_list_is_fine(self, tmp_path):
+        """Omitting `warnings` (the default for every pre-existing call) must
+        not raise, even when totals are inconsistent."""
+        path = self._write_inconsistent_totals_csv(tmp_path)
+        stats: dict = {}
+        grab_seahub_trim_fail_csv(stats, "exp1", path)
+        assert stats["exp1"]["trimmer_fail"] == [100 * 150 / 1000]
 
 
 class TestSeahubChecks:

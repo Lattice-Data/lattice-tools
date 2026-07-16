@@ -746,7 +746,10 @@ class QADataGatherer:
         try:
             self.s3.download_file(self.bucket, rf, local)
             grab_seahub_trim_fail_csv(
-                self._data.trimmer_failure_stats, storage_key, local
+                self._data.trimmer_failure_stats,
+                storage_key,
+                local,
+                warnings=self._data.gathering_warnings,
             )
             grab_seahub_trim_fail_csv(self._data.group_failure_stats, group_key, local)
         finally:

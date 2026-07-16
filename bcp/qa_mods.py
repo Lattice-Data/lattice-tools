@@ -887,16 +887,12 @@ def parse_seahub_raw_path(s3_key: str) -> dict[str, str] | None:
     ``{proj}/{ExperimentID}/raw/{sublibrary}/{wafer}/{filename}``.
     """
     parts = s3_key.split("/")
-    try:
-        raw_idx = parts.index("raw")
-    except ValueError:
-        return None
-    if raw_idx < 1 or len(parts) < raw_idx + 3:
+    if len(parts) != 6 or parts[2] != "raw":
         return None
     return {
-        "experiment_id": parts[raw_idx - 1],
-        "sublibrary": parts[raw_idx + 1],
-        "wafer": parts[raw_idx + 2],
+        "experiment_id": parts[1],
+        "sublibrary": parts[3],
+        "wafer": parts[4],
     }
 
 
@@ -921,6 +917,7 @@ def grab_seahub_trim_fail_csv(
     trimmer_failure_stats: dict,
     exp: str,
     csv_path: str | Path,
+    warnings: list[str] | None = None,
 ) -> None:
     """
     Parse a SeaHub ``*.trim_fail.csv`` into per-modality trimmer-fail fractions.
@@ -954,6 +951,12 @@ def grab_seahub_trim_fail_csv(
         totals = block["total_read_count"].dropna()
         if totals.empty:
             continue
+        if warnings is not None and totals.nunique() > 1:
+            warnings.append(
+                f"INCONSISTENT TOTAL: {csv_path} format {_fmt!r} has multiple "
+                f"total_read_count values {sorted(totals.unique().tolist())}; "
+                f"using {int(totals.iloc[0])}"
+            )
         total = int(totals.iloc[0])
         if total <= 0:
             continue
