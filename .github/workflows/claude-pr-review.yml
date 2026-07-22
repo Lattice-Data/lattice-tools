@@ -1,0 +1,57 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  group: claude-pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Only review PRs from branches within this repo; skip PRs opened from forks
+    # (fork PRs don't get access to repo secrets, so the review would fail anyway).
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Check out the PR branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run github-pr-review skill
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Read the file .claude/skills/github-pr-review/SKILL.md and follow it
+            exactly to review this pull request. The PR branch is already checked
+            out in the current working directory. Use the REPO and PR NUMBER above
+            for the skill's `gh pr view` and `gh pr diff` calls.
+
+            IMPORTANT OVERRIDE: this run is non-interactive. The skill says to
+            present the review and wait to be asked before posting. Do NOT wait.
+            After you produce the review, write it to review.md, then post it
+            yourself as a single top-level PR comment:
+
+                gh pr comment <PR NUMBER above> --body-file review.md
+
+            Post only the code review (not the PR description). Do not edit the PR
+            body. Never run `gh pr review --approve` or `gh pr review
+            --request-changes` - do not submit any formal approve/request-changes
+            review; a plain comment only. Approving or blocking the PR is always a
+            human decision.
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 40
+            --allowedTools "Read,Write,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git show:*)"
