@@ -1,6 +1,7 @@
 import argparse
 import sys
 import pandas as pd
+import re
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
 from constants import Configs, PROP_MAP_GEO
@@ -114,7 +115,7 @@ class DB2Flattener:
                         'libraries': [],
                         'all_samples': []
                     }
-                
+
                 # Add this library's data to the raw matrix file (once per @id to prevent duplicates)
                 existing_lib_ids = {lib.get('@id') for lib in raw_file_to_libraries[raw_file_id]['libraries']}
                 if library.get('@id') not in existing_lib_ids:
@@ -146,9 +147,9 @@ class DB2Flattener:
                         for field in self.configs.OBJECT_CONFIG[sample_type].get('fields', []):
                             value = sample_obj.get(field)
                             # Special handling for author_metadata dictionary
-                            if field == 'author_metadata' and isinstance(value, dict):
+                            if field.endswith('author_metadata') and isinstance(value, dict):
                                 for key, val in value.items():
-                                    field_name = f"{sample_type}_{'_'.join(key.split(' '))}"
+                                    field_name = f"{sample_type}_{field}_{'_'.join(key.split(' '))}"
                                     sample_metadata[sample_alias][field_name] = val
                             else:
                                 field_name = f'{sample_type}_{field}'
@@ -259,7 +260,7 @@ class DB2Flattener:
         geo_source = main_df[gex_mask].copy()
         print(f"GEO: filtered to {len(geo_source)} GEX rows out of {len(main_df)} MAIN rows")
 
-        subset_keys = [k for k in PROP_MAP_GEO if k in geo_source.columns]
+        subset_keys = [k for k in geo_source.columns if k in PROP_MAP_GEO.keys() or re.search("author_metadata", k)]
         geo_df = geo_source[subset_keys].copy()
         geo_df.rename(columns=PROP_MAP_GEO, inplace=True)
 
@@ -318,10 +319,18 @@ class DB2Flattener:
                         )
                     if value not in (None, ''):
                         values.append(value)
+                if re.search("author_metadata", obj_field):
+                    print(f"HERE! {obj_field}")
 
-                sample_metadata[sample_alias][col] = (
-                    self._join_unique(values) if values else None
-                )
+                if col.endswith('author_metadata') and isinstance(value, dict):
+                    for key, val in value.items():
+                        col = f"{url_prefix}_{obj_field}_{'_'.join(key.split(' '))}"
+                        sample_metadata[sample_alias][col] = val
+                else:
+                    sample_metadata[sample_alias][col] = (
+                        self._join_unique(values) if values else None
+                    )
+
 
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
