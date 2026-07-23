@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from constants import FieldTypes, Hierarchy, JSONProfile, ObjectConfig
+from constants import EXCLUDED_FIELDS, FieldTypes, Hierarchy, JSONProfile, ObjectConfig
 from DB2lattice import Connection
 from extract_lattice_profiles import (
     LatticeProfileClient,
@@ -138,10 +138,15 @@ def create_object_config(profiles: JSONProfile) -> ObjectConfig:
         references_values: dict[str, str | list[str]] = {}
         slug = schema["slug"]
         schema_ids = SchemaIDs(slug)
-        fields = [field["name"] for field in schema["properties"]]
+        fields = [
+            field["name"] for field in schema["properties"]
+            if field["name"] not in EXCLUDED_FIELDS
+        ]
 
         for field in schema["properties"]:
             field_name = field["name"]
+            if field_name in EXCLUDED_FIELDS:
+                continue
             link_to = field["link_to"]
             if link_to is not None:
                 references = get_concrete_classes(link_to, hierarchy)

@@ -39,6 +39,11 @@ class Configs:
     OBJECT_CONFIG: ObjectConfig
 
 
+# Audit/provenance fields present on nearly every Lattice schema profile.
+# Excluded from OBJECT_CONFIG so they don't get flattened into a column
+# (and, in submitted_by's case, resolved as a reference) for every object type.
+EXCLUDED_FIELDS = {'creation_timestamp', 'submitted_by'}
+
 # URL length limit for chunking (includes base URL overhead)
 MAX_URL_LENGTH = 3800
 # Base URL overhead for chunking calculations (base URL + field params + safety margin)
