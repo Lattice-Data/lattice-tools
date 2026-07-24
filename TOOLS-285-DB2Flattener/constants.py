@@ -39,12 +39,17 @@ class Configs:
     OBJECT_CONFIG: ObjectConfig
 
 
+# Audit/provenance fields present on nearly every Lattice schema profile.
+# Excluded from OBJECT_CONFIG so they don't get flattened into a column
+# (and, in submitted_by's case, resolved as a reference) for every object type.
+EXCLUDED_FIELDS = {'creation_timestamp', 'submitted_by'}
+
 # URL length limit for chunking (includes base URL overhead)
 MAX_URL_LENGTH = 3800
 # Base URL overhead for chunking calculations (base URL + field params + safety margin)
 BASE_URL_OVERHEAD = 700
 
-# Keys use _term_name suffix for columns produced by df_utils.split_controlled_term_columns
+# Keys use _term_name suffix for columns produced by DB2_utils.split_controlled_term_columns
 PROP_MAP_GEO = {
     'droplet_based_libraries_CRO_group_identifier': '*library name',
     'droplet_based_libraries_library_construction_technology_term_name': '*library strategy',
@@ -57,12 +62,3 @@ PROP_MAP_GEO = {
     'raw_matrix_file_alias': 'raw_file',
     'droplet_based_libraries_library_cardinality': 'single or paired-end'
 }
-
-# API types to resolve when walking sample references.
-# Controlled terms are always parsed from paths and never fetched here.
-FETCHED_SAMPLE_REFERENCE_API_TYPES = frozenset({
-    'HumanDonor',
-    'NonHumanDonor',
-})
-
-

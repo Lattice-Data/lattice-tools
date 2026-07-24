@@ -4,7 +4,13 @@ import pandas as pd
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
 from constants import Configs, PROP_MAP_GEO
-from df_utils import split_controlled_term_columns, collapse_dataframe
+from DB2_utils import (
+    split_controlled_term_columns, 
+    collapse_dataframe,
+    get_config_obj_type,
+    get_url_prefix_from_id,
+    extract_references_from_field
+)
 from generate_constants import load_and_return_constant_dicts
 import DB2lattice
 
@@ -77,52 +83,12 @@ class DB2Flattener:
             print(f"   Columns: {len(sample_df.columns)}")
         
         return output_file
-        
-        
-    def _filter_to_gex_libraries(self, libraries):
-        """Filter libraries to only include Gene Expression when there are pairs"""
-        gex_libraries = []
-        
-        for lib in libraries:
-            feature_types = lib.get('feature_types', [])
-            lib_type = lib.get('@type', [''])[0] if lib.get('@type') else ''
-            
-            # Check if this library has Gene Expression
-            if 'Gene Expression' in feature_types:
-                gex_libraries.append(lib)
-            elif not feature_types:  # Empty list or missing field
-                # For droplet-based libraries without feature_types, assume non-GEX
-                if 'DropletBasedLibrary' in lib_type:
-                    continue  # Skip droplet libraries without feature_types
-                # For plate-based libraries without feature_types, assume GEX until field is added
-                elif 'PlateBasedLibrary' in lib_type:
-                    gex_libraries.append(lib)
-        
-        # Always return only GEX libraries
-        if gex_libraries:
-            print(f"Filtered to {len(gex_libraries)} Gene Expression libraries out of {len(libraries)} total")
-            return gex_libraries
-        
-        # Fallback: if no GEX libraries found, return all (shouldn't happen normally)
-        print("WARNING: No Gene Expression libraries found, keeping all libraries")
-        return libraries
     
     
     def create_dataframe(self, complete_data):
         """Create main library/raw-file DataFrame and sample DataFrame keyed by raw matrix file"""
         libraries_data = complete_data['libraries']
         resolved_controlled_terms = complete_data['resolved_objects'].get('ControlledTerm', {})
-    
-        # Filter libraries to GEX once upfront
-        all_libraries = [lib_data['library'] for lib_data in libraries_data.values()]
-        filtered_libraries = self._filter_to_gex_libraries(all_libraries)
-        filtered_library_ids = {lib.get('@id') for lib in filtered_libraries}
-        
-        # Filter libraries_data to only include GEX libraries
-        filtered_libraries_data = {
-            lib_uuid: lib_data for lib_uuid, lib_data in libraries_data.items()
-            if lib_data['library'].get('@id') in filtered_library_ids
-        }
         
         print("Creating DataFrame by raw matrix file...")
         
@@ -135,7 +101,7 @@ class DB2Flattener:
         raw_file_to_libraries = {}
         sample_metadata = {}  # One row per unique sample, keyed by sample_alias
         
-        for lib_data in filtered_libraries_data.values():
+        for lib_data in libraries_data.values():
             library = lib_data['library']
             samples = lib_data['samples']
             raw_matrix_files = lib_data['raw_matrix_files']
@@ -149,8 +115,10 @@ class DB2Flattener:
                         'all_samples': []
                     }
                 
-                # Add this library's data to the raw matrix file
-                raw_file_to_libraries[raw_file_id]['libraries'].append(library)
+                # Add this library's data to the raw matrix file (once per @id to prevent duplicates)
+                existing_lib_ids = {lib.get('@id') for lib in raw_file_to_libraries[raw_file_id]['libraries']}
+                if library.get('@id') not in existing_lib_ids:
+                    raw_file_to_libraries[raw_file_id]['libraries'].append(library)
                 raw_file_to_libraries[raw_file_id]['all_samples'].extend(samples)
                 
                 # Collect per-sample metadata for later merge with raw matrix files
@@ -160,18 +128,6 @@ class DB2Flattener:
                         sample_alias = self._get_clean_alias(sample_obj)
                         if sample_alias in sample_metadata:
                             continue
-                        
-                        sample_donors = []
-                        sample_donor_refs = sample_obj.get('donors', [])
-                        for donor_ref in sample_donor_refs:
-                            if isinstance(donor_ref, dict):
-                                donor_id = donor_ref.get('@id', '')
-                            else:
-                                donor_id = donor_ref
-                            
-                            donor_obj = next((d for d in lib_data['donors'] if d.get('@id') == donor_id), None)
-                            if donor_obj:
-                                sample_donors.append(donor_obj)
                         
                         sample_metadata[sample_alias] = {
                             'enriched_cell_types': self._get_cell_types_from_samples(
@@ -188,63 +144,64 @@ class DB2Flattener:
 
                         sample_type = get_config_obj_type(sample_obj, self.configs)
                         for field in self.configs.OBJECT_CONFIG[sample_type].get('fields', []):
-                            field_name = f'{sample_type}_{field}'
                             value = sample_obj.get(field)
-                            sample_metadata[sample_alias][field_name] = value
-
-                        for d in sample_donors:
-                            donor_type = get_config_obj_type(d, self.configs)
-                            for field in self.configs.OBJECT_CONFIG[donor_type].get('fields', []):
-                                field_name = f'{donor_type}_{field}'
-                                value = d.get(field)
+                            # Special handling for author_metadata dictionary
+                            if field == 'author_metadata' and isinstance(value, dict):
+                                for key, val in value.items():
+                                    field_name = f"{sample_type}_{field}_{'_'.join(key.split(' '))}"
+                                    sample_metadata[sample_alias][field_name] = val
+                            else:
+                                field_name = f'{sample_type}_{field}'
                                 sample_metadata[sample_alias][field_name] = value
 
+                        self._flatten_resolved_references(
+                            sample_obj, lib_data, sample_metadata, sample_alias, resolved_controlled_terms
+                        )
 
-        
-        # Create one row per raw matrix file for main DataFrame
+        # Create one row per (raw matrix file, library)
         for file_data in raw_file_to_libraries.values():
             raw_file = file_data['raw_file']
             libraries = file_data['libraries']
             samples = file_data['all_samples']
-            
-            # Create sample aliases list
+
             sample_aliases = []
             for sample_ref in raw_file.get('samples', []):
                 sample_obj = next((s for s in samples if s.get('@id') == sample_ref), None)
                 if sample_obj:
-                    alias = self._get_clean_alias(sample_obj)
-                    sample_aliases.append(alias)
+                    sample_aliases.append(self._get_clean_alias(sample_obj))
 
-            # Gather all fields for all objects
-            # First determine appropriate object list for each object type
-            row = {
+            shared = {
                 'raw_matrix_file_alias': self._get_clean_alias(raw_file),
-                'raw_file_samples': self._join_unique(sample_aliases)
+                'raw_file_samples': self._join_unique(sample_aliases),
             }
+
             for lib in libraries:
+                row = dict(shared)
                 lib_type = get_config_obj_type(lib, self.configs)
-                for field in self.configs.OBJECT_CONFIG[lib_type].get('fields',[]):
+                for field in self.configs.OBJECT_CONFIG[lib_type].get('fields', []):
                     field_name = f'{lib_type}_{field}'
-                    value = lib.get(field)
-                    row[field_name] = value
-            
-            rows.append(row)
+                    row[field_name] = lib.get(field)
+                rows.append(row)
         
         main_df = pd.DataFrame(rows)
         
-        # Merge sample metadata with all main DataFrame columns, one row per raw matrix file + sample
+        # Merge sample metadata with main DataFrame columns
+        # Samples is one row per unique (raw matrix file + sample)
         sample_df = None
         if sample_metadata and not main_df.empty:
             per_sample_df = pd.DataFrame.from_dict(sample_metadata, orient='index')
             per_sample_df.index.name = 'sample_alias'
             per_sample_df = per_sample_df.reset_index()
+
+            rmf_sample_keys = main_df[['raw_matrix_file_alias','raw_file_samples']].drop_duplicates()
             
             sample_df = per_sample_df.merge(
-                main_df[['raw_matrix_file_alias','raw_file_samples']],
+                rmf_sample_keys,
                 left_on = 'sample_alias',
                 right_on ='raw_file_samples', 
                 how = 'right'
             )
+            
             new_sample_df = sample_df.set_index('raw_matrix_file_alias')
 
             main_df = main_df.merge(
@@ -259,19 +216,125 @@ class DB2Flattener:
         
         return main_df, new_sample_df
 
+    def _row_is_gex(self, row) -> bool:
+        """ Filter df to only GEX libraries"""
+        droplet_ft = row.get('droplet_based_libraries_feature_types')
+        plate_ft = row.get('plate_based_libraries_feature_types')
+
+        def has_gex(ft):
+            if ft is None or (isinstance(ft, float) and pd.isna(ft)):
+                return None  # missing
+            if isinstance(ft, str):
+                return 'Gene Expression' in ft
+            if isinstance(ft, list):
+                return 'Gene Expression' in ft
+            return 'Gene Expression' in str(ft)
+
+        droplet = has_gex(droplet_ft)
+        plate = has_gex(plate_ft)
+
+        if droplet is True or plate is True:
+            return True
+        if droplet is False or plate is False:
+            return False
+
+        # Missing feature_types: plate assumed GEX, droplet assumed non-GEX
+        if pd.notna(row.get('plate_based_libraries_@id')) or pd.notna(
+            row.get('plate_based_libraries_CRO_group_identifier')
+        ):
+            return True
+        if pd.notna(row.get('droplet_based_libraries_@id')) or pd.notna(
+            row.get('droplet_based_libraries_CRO_group_identifier')
+        ):
+            return False
+        return True  # if no GEX found, keep all
+
     def create_geo_dataframe(self, main_df) -> pd.DataFrame:
         """
-        Build GEO submission dataframe from already-split main_df.
+        Build GEO submission dataframe from already-split main_df, taking GEX libraries only
 
         Expects _term_name columns (not raw dict columns).
         """
-        # Only keep columns that exist after split + rename
-        subset_keys = [k for k in PROP_MAP_GEO if k in main_df.columns]
-        geo_df = main_df[subset_keys].copy()
+        gex_mask = main_df.apply(self._row_is_gex, axis=1)
+        geo_source = main_df[gex_mask].copy()
+        print(f"GEO: filtered to {len(geo_source)} GEX rows out of {len(main_df)} MAIN rows")
+
+        subset_keys = [k for k in PROP_MAP_GEO if k in geo_source.columns]
+        geo_df = geo_source[subset_keys].copy()
         geo_df.rename(columns=PROP_MAP_GEO, inplace=True)
 
         group_col = "*library name"
         return collapse_dataframe(geo_df, group_col=group_col)
+
+    def _flatten_resolved_references(
+        self, sample_obj, lib_data, sample_metadata, sample_alias, resolved_controlled_terms
+    ):
+        """Flatten resolved reference objects into sample_metadata columns."""
+        sample_type = get_config_obj_type(sample_obj, self.configs)
+        config = self.configs.OBJECT_CONFIG.get(sample_type, {})
+
+        refs_by_prefix = {}
+        for field_name, ref_types in config.get('references', {}).items():
+            ref_type_list = [ref_types] if isinstance(ref_types, str) else ref_types
+            if 'controlled_terms' in ref_type_list:
+                continue
+
+            refs = extract_references_from_field(
+                sample_obj.get(field_name), field_name, self.configs
+            )
+            for ref in refs:
+                prefix = get_url_prefix_from_id(ref, self.configs)
+                if prefix:
+                    refs_by_prefix.setdefault(prefix, []).append(ref)
+
+        for url_prefix, refs in refs_by_prefix.items():
+            seen = set()
+            unique_refs = [r for r in refs if not (r in seen or seen.add(r))]
+
+            resolved_objs = [
+                obj for ref in unique_refs
+                for obj in lib_data.get(url_prefix, [])
+                if obj.get('@id') == ref
+            ]
+
+            obj_config = self.configs.OBJECT_CONFIG.get(url_prefix, {})
+            obj_refs = obj_config.get('references', {})
+
+            for obj_field in obj_config.get('fields', []):
+                col = f'{url_prefix}_{obj_field}'
+                field_ref_types = obj_refs.get(obj_field, [])
+                if isinstance(field_ref_types, str):
+                    field_ref_types = [field_ref_types]
+                is_controlled_term = 'controlled_terms' in field_ref_types
+
+                values = []
+                for obj in resolved_objs:
+                    value = obj.get(obj_field)
+                    if value is None:
+                        continue
+                    if is_controlled_term:
+                        value = self._resolve_controlled_term(
+                            value, resolved_controlled_terms
+                        )
+                    if value not in (None, ''):
+                        values.append(value)
+
+                # Specific handling for author metadata fields
+                if obj_field == 'author_metadata':
+                    values_by_key = {}
+                    for value in values:
+                        if isinstance(value, dict):
+                            for key, val in value.items():
+                                sanitized_key = '_'.join(key.split(' '))
+                                values_by_key.setdefault(sanitized_key, []).append(val)
+                    for key, vals in values_by_key.items():
+                        col = f"{url_prefix}_{obj_field}_{key}"
+                        sample_metadata[sample_alias][col] = self._join_unique(vals)
+                        
+                else:
+                    sample_metadata[sample_alias][col] = (
+                        self._join_unique(values) if values else None
+                    )
 
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
@@ -360,12 +423,6 @@ class DB2Flattener:
             return result.split(':', 1)[1]  # Take everything after the first ':'
         return result
 
-def get_config_obj_type(obj, configs: Configs):
-    """ Returns the matching object type for an object as found in the config file"""
-    for config_obj_type, config_obj_info in configs.OBJECT_CONFIG.items():
-        if config_obj_info.get('api_type','') == obj.get('@type',[])[0]:
-            return config_obj_type
-    return ''
 
 def main():
     parser = argparse.ArgumentParser(
