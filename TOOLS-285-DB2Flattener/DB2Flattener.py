@@ -148,7 +148,7 @@ class DB2Flattener:
                             # Special handling for author_metadata dictionary
                             if field == 'author_metadata' and isinstance(value, dict):
                                 for key, val in value.items():
-                                    field_name = f"{sample_type}_{'_'.join(key.split(' '))}"
+                                    field_name = f"{sample_type}_{field}_{'_'.join(key.split(' '))}"
                                     sample_metadata[sample_alias][field_name] = val
                             else:
                                 field_name = f'{sample_type}_{field}'
@@ -319,9 +319,22 @@ class DB2Flattener:
                     if value not in (None, ''):
                         values.append(value)
 
-                sample_metadata[sample_alias][col] = (
-                    self._join_unique(values) if values else None
-                )
+                # Specific handling for author metadata fields
+                if obj_field == 'author_metadata':
+                    values_by_key = {}
+                    for value in values:
+                        if isinstance(value, dict):
+                            for key, val in value.items():
+                                sanitized_key = '_'.join(key.split(' '))
+                                values_by_key.setdefault(sanitized_key, []).append(val)
+                    for key, vals in values_by_key.items():
+                        col = f"{url_prefix}_{obj_field}_{key}"
+                        sample_metadata[sample_alias][col] = self._join_unique(vals)
+                        
+                else:
+                    sample_metadata[sample_alias][col] = (
+                        self._join_unique(values) if values else None
+                    )
 
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
         """Resolve a controlled term reference to its term_id (semantic identifier)"""
