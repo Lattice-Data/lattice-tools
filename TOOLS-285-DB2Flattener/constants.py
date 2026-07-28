@@ -62,3 +62,27 @@ PROP_MAP_GEO = {
     'raw_matrix_file_alias': 'raw_file',
     'droplet_based_libraries_library_cardinality': 'single or paired-end'
 }
+
+PROP_MAP_BIOHUB = {
+    'raw_file_samples': 'sample_name',
+    'tissues_multiplexing_barcodes': 'sample_probe_barcode',
+    'non_human_donors_cxg_donor_id':'donor_id',
+    'human_donors_cxg_donor_id':'donor_id',
+    'non_human_donors_taxa':'organism',
+    'human_donors_taxa':'organism',
+    'non_human_donors_sex':'sex',
+    'human_donors_sex':'sex',
+    'tissues_sample_terms_term_name':'tissue',
+    'tissues_developmental_stages_term_name':'development_stage',
+    'droplet_based_libraries_library_construction_technology_term_name':'assay',
+    'tissues_@type':'tissue_type',
+    'tissues_suspension_type':'suspension_type',
+    'tissue_preservation_method':'preservation_method',
+    'experimental_conditions_condition': 'experimental_condition',
+    'experimental_conditions_text_value': 'experimental_perturbation',
+    'experimental_conditions_upper_bound_duration': 'experimental_conditions_upper_bound_duration',
+    'experimental_conditions_lower_bound_duration': 'experimental_conditions_lower_bound_duration',
+    'experimental_conditions_duration_units': 'experimental_conditions_duration_units',
+    'tissues_selection_markers':'suspension_enrichment_factors',
+    'genetic_modifications_strategy':'genetic_modifications_strategy'
+}

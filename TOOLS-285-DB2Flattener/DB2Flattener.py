@@ -1,9 +1,11 @@
 import argparse
 import sys
+import re
 import pandas as pd
+import numpy as np
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
-from constants import Configs, PROP_MAP_GEO
+from constants import Configs, PROP_MAP_GEO, PROP_MAP_BIOHUB
 from DB2_utils import (
     split_controlled_term_columns, 
     collapse_dataframe,
@@ -65,11 +67,19 @@ class DB2Flattener:
         print(f"   Rows: {len(main_df)}")
         print(f"   Columns: {len(main_df.columns)}")
 
+        # Create Biohub DataFrame from main and sample df
+        biohub_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_BIOHUB.csv"
+        biohub_df = self.create_biohub_dataframe(main_df)
+        print(f"Saving biohub DataFrame to {biohub_output}...")
+        biohub_df.to_csv(biohub_output, index=False)
+        print(f"✅ Biohub CSV file created: {biohub_output}")
+
         # Create GEO DataFrame from main DataFrame
         geo_output = f"MatrixFileSet_{matrix_file_set_uuid[:8]}_{timestamp}_GEO.csv"
         geo_df = self.create_geo_dataframe(main_df)
         print(f"Saving geo DataFrame to {geo_output}...")
         geo_df.to_csv(geo_output, index=False)
+        print(f"✅ GEO CSV file created: {geo_output}")
         
         # Save sample DataFrame if it exists
         if sample_df is not None and not sample_df.empty:
@@ -265,6 +275,69 @@ class DB2Flattener:
 
         group_col = "*library name"
         return collapse_dataframe(geo_df, group_col=group_col)
+
+    def create_biohub_dataframe(self, main_df) -> pd.DataFrame:
+        """
+        Build Biohub samples dataframe from main_df
+        """
+        biohub_source = main_df.copy()
+        columns_to_keep = [k for k in PROP_MAP_BIOHUB if k in biohub_source.columns]
+        columns_to_keep.extend([k for k in biohub_source.columns if re.search('_author_metadata_', k)])
+        biohub_df = biohub_source[columns_to_keep]
+        biohub_df.rename(columns=PROP_MAP_BIOHUB, inplace=True)
+
+        list_cols = [
+            col for col in biohub_df.columns 
+            if biohub_df[col].dropna().map(lambda x: isinstance(x, list)).any()
+        ]
+        for col in list_cols:
+            biohub_df[col] = biohub_df[col].apply(lambda x: tuple(x) if isinstance(x, list) else x)
+        biohub_df.drop_duplicates(inplace=True)
+
+        # Add columns defaul values if not present
+        if "disease" not in columns_to_keep:
+            biohub_df["disease"] = "normal"
+        else:
+            biohub_df["disease"].fillna("normal")
+
+        if "self_reported_ethnicity" not in columns_to_keep:
+            biohub_df["ethnicity"] = np.where(biohub_df["organism"] == "Homo sapiens", "unknown", "na")
+        else:
+            biohub_df.loc[df["ethnicity"].isna() & (df["organism"] == "Homo sapiens"), "ethnicity"] = "unknown"
+            biohub_df.loc[df["ethnicity"].isna() & (df["organism"] != "Homo sapiens"), "ethnicity"] = "na"
+
+        # Combine multiple columns into one
+        lower_str = biohub_df["experimental_conditions_upper_bound_duration"].astype(str)
+        upper_str = biohub_df["experimental_conditions_lower_bound_duration"].astype(str)
+        biohub_df["experimental_perturbation_time_point"] = np.where(
+            biohub_df["experimental_conditions_upper_bound_duration"] == biohub_df['experimental_conditions_lower_bound_duration'],
+            lower_str,                  # If equal, use the value
+            lower_str + "-" + upper_str # If not equal, concatenate them
+        )
+        biohub_df["experimental_perturbation_time_point"] = (
+            biohub_df["experimental_perturbation_time_point"].astype(str) + 
+            " " + 
+            biohub_df["experimental_conditions_duration_units"].astype(str)
+        )
+
+        biohub_df.drop(
+            columns = [
+                "experimental_conditions_upper_bound_duration",
+                "experimental_conditions_lower_bound_duration",
+                "experimental_conditions_duration_units"],
+            inplace=True)
+
+        # Update values to match schema
+        tissue_type_map = {
+            "CellLine": "cell line",
+            "Organoid": "organoid",
+            "PrimaryCellCulture": "primary cell culture",
+            "Tissue": "tissue"
+        }
+        biohub_df['tissue_type'] = biohub_df['tissue_type'].apply(lambda x: tissue_type_map.get(x[0], x))
+
+        return biohub_df
+
 
     def _flatten_resolved_references(
         self, sample_obj, lib_data, sample_metadata, sample_alias, resolved_controlled_terms
