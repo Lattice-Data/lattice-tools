@@ -110,15 +110,14 @@ class DB2Flattener:
                 raw_file_id = raw_file.get('@id')
                 if raw_file_id not in raw_file_to_libraries:
                     raw_file_to_libraries[raw_file_id] = {
-                        'raw_file': raw_file,
-                        'libraries': [],
+                        'library_entries': [],
                         'all_samples': []
                     }
                 
-                # Add this library's data to the raw matrix file (once per @id to prevent duplicates)
-                existing_lib_ids = {lib.get('@id') for lib in raw_file_to_libraries[raw_file_id]['libraries']}
+                # Add this library's data to the raw matrix file
+                existing_lib_ids = {entry['library'].get('@id') for entry in raw_file_to_libraries[raw_file_id]['library_entries']}
                 if library.get('@id') not in existing_lib_ids:
-                    raw_file_to_libraries[raw_file_id]['libraries'].append(library)
+                    raw_file_to_libraries[raw_file_id]['library_entries'].append({'library': library, 'raw_file': raw_file})
                 raw_file_to_libraries[raw_file_id]['all_samples'].extend(samples)
                 
                 # Collect per-sample metadata for later merge with raw matrix files
@@ -160,27 +159,41 @@ class DB2Flattener:
 
         # Create one row per (raw matrix file, library)
         for file_data in raw_file_to_libraries.values():
-            raw_file = file_data['raw_file']
-            libraries = file_data['libraries']
+            library_entries = file_data['library_entries']
             samples = file_data['all_samples']
 
+            # For raw_matrix_file_alias and raw_file_samples, it doesn't matter which raw file copy we use
+            # As they will all have the same value
+            representative_raw_file = library_entries[0]['raw_file']
             sample_aliases = []
-            for sample_ref in raw_file.get('samples', []):
+            for sample_ref in representative_raw_file.get('samples', []):
                 sample_obj = next((s for s in samples if s.get('@id') == sample_ref), None)
                 if sample_obj:
                     sample_aliases.append(self._get_clean_alias(sample_obj))
 
             shared = {
-                'raw_matrix_file_alias': self._get_clean_alias(raw_file),
+                'raw_matrix_file_alias': self._get_clean_alias(representative_raw_file),
                 'raw_file_samples': self._join_unique(sample_aliases),
             }
 
-            for lib in libraries:
+            for entry in library_entries:
+                lib = entry['library']
+                # This libraries scoped copy of the raw matrix file
+                # Which has the library specific sequence_file and sequence_file_set metadata
+                raw_file = entry['raw_file']
                 row = dict(shared)
                 lib_type = get_config_obj_type(lib, self.configs)
                 for field in self.configs.OBJECT_CONFIG[lib_type].get('fields', []):
-                    field_name = f'{lib_type}_{field}'
-                    row[field_name] = lib.get(field)
+                    row[f'{lib_type}_{field}'] = lib.get(field)
+
+                for obj_type in ('sequence_files', 'sequence_file_sets'):
+                    obj_config = self.configs.OBJECT_CONFIG.get(obj_type, {})
+                    for obj_field in obj_config.get('fields', []):
+                        values = [
+                            obj.get(obj_field) for obj in raw_file.get(obj_type, [])
+                            if obj.get(obj_field) not in (None, '')
+                        ]
+                        row[f'{obj_type}_{obj_field}'] = self._join_unique(values) if values else None
                 rows.append(row)
         
         main_df = pd.DataFrame(rows)
