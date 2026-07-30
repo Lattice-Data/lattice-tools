@@ -915,3 +915,74 @@ def test_cli_unsupported_mode_fails(tmp_path: Path, monkeypatch, capsys) -> None
     captured = capsys.readouterr()
     assert "VERDICT: FAIL" in captured.out
     assert "unsupported validation mode" in captured.out
+
+
+def test_cli_10x_illumina_valid_passes(tmp_path: Path, monkeypatch, capsys) -> None:
+    """10x_illumina raw mode should pass for complete FASTQ and run metadata."""
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "mapping_validation"
+        / "mappings"
+        / "psomagen_10x_illumina_raw_valid.csv"
+    )
+    mapping_path = tmp_path / "mapping.csv"
+    mapping_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "psomagen",
+        "--data",
+        "raw",
+        "--assay",
+        "10x_illumina",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "10x_illumina raw SOP" in captured.out
+    assert "VERDICT: PASS" in captured.out
+
+
+def test_cli_10x_illumina_missing_run_meta_fails(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """10x_illumina should fail and list missing Manifest.tsv and Logs/."""
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "mapping_validation"
+        / "mappings"
+        / "psomagen_10x_illumina_raw_missing_run_meta.csv"
+    )
+    mapping_path = tmp_path / "mapping.csv"
+    mapping_path.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--provider",
+        "psomagen",
+        "--data",
+        "raw",
+        "--assay",
+        "10x_illumina",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "missing manifest" in captured.out.lower() or "manifest" in captured.out
+    assert "logs" in captured.out.lower()
+    assert "VERDICT: FAIL" in captured.out

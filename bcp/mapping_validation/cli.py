@@ -21,11 +21,14 @@ from .uniqueness import validate_uniqueness
 from .validators import (
     compare_groupid_assays,
     find_unmatched_sif_paths_10x,
+    find_unmatched_sif_paths_10x_illumina,
     validate_10x_raw_file_modalities,
+    validate_10x_illumina_file_modalities,
     validate_library_assay_consistency,
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
     validate_s3_10x_cram_raw,
+    validate_s3_10x_illumina_raw,
     validate_s3_10x_processed,
     validate_10x_multiome_processed_outs,
     validate_s3_10x_raw,
@@ -151,7 +154,7 @@ def main() -> None:
         --mapping PATH       Mapping file with two columns: S3, local
         --provider {novogene,psomagen}
         --data {raw,processed}
-        --assay {10x,10x_cram,sci,scale}
+        --assay {10x,10x_cram,10x_illumina,sci,scale}
 
     For Scale raw validation, a SIF file is strongly recommended:
         --sif PATH
@@ -182,7 +185,7 @@ def main() -> None:
     parser.add_argument(
         "--assay",
         required=True,
-        choices=["10x", "10x_cram", "sci", "scale"],
+        choices=["10x", "10x_cram", "10x_illumina", "sci", "scale"],
         help="High-level assay family for SOP selection",
     )
     parser.add_argument(
@@ -229,6 +232,11 @@ def main() -> None:
 
     elif args.data == "raw" and args.assay == "10x_cram":
         exit_code |= _validate_10x_cram_raw(provider, mappings, args.sif, fail_reasons)
+
+    elif args.data == "raw" and args.assay == "10x_illumina":
+        exit_code |= _validate_10x_illumina_raw(
+            provider, mappings, args.sif, fail_reasons
+        )
 
     elif (
         args.data == "raw" and args.assay in ("scale", "sci") and provider == "novogene"
@@ -454,14 +462,106 @@ def _validate_10x_cram_raw(
     return exit_code
 
 
+def _validate_10x_illumina_raw(
+    provider: str,
+    mappings: list,
+    sif_path: str | None,
+    fail_reasons: List[str],
+) -> int:
+    """Run all 10x Illumina raw validation checks, return non-zero on failure."""
+    exit_code = 0
+
+    modality = validate_10x_illumina_file_modalities(mappings)
+    if modality["fastq_count"] == 0:
+        print(
+            "10x_illumina modality: 0 FASTQ rows found; "
+            "10x_illumina mode requires SOP FASTQ files."
+        )
+        exit_code = 1
+        fail_reasons.append("10x_illumina raw requires FASTQ rows but none were found")
+    if modality["cram_count"]:
+        print(
+            "10x_illumina modality: CRAM rows found "
+            f"({modality['cram_count']}); CRAM files are forbidden in 10x_illumina mode."
+        )
+        for row in modality["cram_rows"][:5]:
+            print(f"  line {row.line_num}: {row.s3_path}")
+        if modality["cram_count"] > 5:
+            print(f"  ... and {modality['cram_count'] - 5} more")
+        exit_code = 1
+        fail_reasons.append(
+            f"{modality['cram_count']} CRAM rows found in 10x_illumina mode"
+        )
+
+    res = validate_s3_10x_illumina_raw(provider, mappings)
+    s3_ga: dict[str, Set[str]] = res.get("group_assays", {})
+    meta_count = res.get("metadata_files", 0)
+    logs_count = res.get("logs_files", 0)
+    print(
+        f"10x_illumina raw SOP: matched {res['matched']} FASTQ paths, "
+        f"{res.get('sample_lanes_checked', 0)} sample/lane groups, "
+        f"{len(res['errors'])} errors, {len(res['warnings'])} warnings"
+        + (f", {meta_count} run-metadata files" if meta_count else "")
+        + (f", {logs_count} Logs/ files" if logs_count else "")
+    )
+    _print_issue_examples("10x_illumina raw SOP", res["errors"], "errors")
+    _print_issue_examples("10x_illumina raw SOP", res["warnings"], "warnings")
+    parse_miss_count = _count_issue_type(res["errors"], "parse_miss")
+    if res["matched"] == 0:
+        fail_reasons.append("no S3 paths matched the 10x_illumina raw FASTQ pattern")
+        exit_code = 1
+    if parse_miss_count:
+        exit_code = 1
+        fail_reasons.append(
+            f"{parse_miss_count} S3 paths do not follow 10x_illumina raw SOP"
+        )
+    if res["errors"]:
+        exit_code = 1
+        fail_reasons.append(f"{len(res['errors'])} 10x_illumina SOP errors")
+
+    missing_run = res.get("missing_run_artifacts", {})
+    if missing_run:
+        print(
+            f"Missing run metadata for {len(missing_run)} GroupID/FlowCellID pair(s):"
+        )
+        for (gid, fc), missing in sorted(missing_run.items())[:10]:
+            print(f"  {gid}/{fc}: missing {', '.join(missing)}")
+        if len(missing_run) > 10:
+            print(f"  ... and {len(missing_run) - 10} more")
+
+    flowcells_by_group = res.get("flowcells_by_group", {})
+    if flowcells_by_group:
+        print(f"S3 GroupIDs found: {len(flowcells_by_group)}")
+        for gid in sorted(flowcells_by_group):
+            assays_str = ", ".join(sorted(s3_ga.get(gid, [])))
+            fcs = ", ".join(flowcells_by_group[gid])
+            print(f"  {gid}: assays=[{assays_str}], flowcells=[{fcs}]")
+
+    if sif_path:
+        exit_code |= _validate_10x_sif(
+            provider,
+            mappings,
+            sif_path,
+            s3_ga,
+            fail_reasons,
+            sif_mode="10x_illumina",
+        )
+    else:
+        print("10x_illumina mode: no --sif provided, skipping SIF completeness checks.")
+
+    return exit_code
+
+
 def _validate_10x_sif(
     provider: str,
     mappings: list,
     sif_path: str,
     s3_ga: dict[str, Set[str]],
     fail_reasons: List[str],
+    *,
+    sif_mode: str = "10x",
 ) -> int:
-    """Run SIF-based checks for 10x, return non-zero on failure."""
+    """Run SIF-based checks for 10x or 10x_illumina, return non-zero on failure."""
     exit_code = 0
 
     sif_ga = load_sif_group_assays(sif_path, provider=provider)
@@ -486,7 +586,9 @@ def _validate_10x_sif(
 
     # Per-path SIF coverage
     sif_ids = set(sif_norm.keys())
-    exit_code |= _report_sif_path_coverage(mappings, sif_ids, provider, fail_reasons)
+    exit_code |= _report_sif_path_coverage(
+        mappings, sif_ids, provider, fail_reasons, sif_mode=sif_mode
+    )
 
     return exit_code
 
@@ -547,10 +649,15 @@ def _report_sif_path_coverage(
     sif_ids: set[str],
     provider: str,
     fail_reasons: List[str],
+    *,
+    sif_mode: str = "10x",
 ) -> int:
-    """Run and report per-path SIF coverage for 10x."""
+    """Run and report per-path SIF coverage for 10x or 10x_illumina."""
     exit_code = 0
-    sif_cov = find_unmatched_sif_paths_10x(mappings, sif_ids, provider)
+    if sif_mode == "10x_illumina":
+        sif_cov = find_unmatched_sif_paths_10x_illumina(mappings, sif_ids, provider)
+    else:
+        sif_cov = find_unmatched_sif_paths_10x(mappings, sif_ids, provider)
     n_unmatched_groups = len(sif_cov["unmatched_by_group"])
     n_unmatched_paths = sum(
         len(rows) for rows in sif_cov["unmatched_by_group"].values()

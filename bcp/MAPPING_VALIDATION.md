@@ -47,6 +47,7 @@ The validator is implemented in `mapping_validation.cli.main` and is exercised e
   - `--assay`:
     - `10x` (10x Genomics)
     - `10x_cram` (10x CRAM-only raw delivery)
+    - `10x_illumina` (10x Illumina FASTQ raw delivery)
     - `sci` (sci‑plex Ultima)
     - `scale` (Scale / Quantum Ultima)
   - `--data`:
@@ -83,10 +84,11 @@ mapping_validation --help
 - `--data {raw,processed}`  
   Kind of data the mapping represents.
 
-- `--assay {10x,10x_cram,sci,scale}`  
+- `--assay {10x,10x_cram,10x_illumina,sci,scale}`  
   High‑level assay family:
   - `10x`: 10x Genomics FASTQ raw mode (strict FASTQ SOP required)
   - `10x_cram`: 10x CRAM raw mode (strict CRAM bundle + run metadata)
+  - `10x_illumina`: 10x Illumina FASTQ raw mode (FlowCellID-based naming + run metadata)
   - `sci`: Novogene sci Ultima
   - `scale`: Novogene Scale / Quantum Ultima
   - (This CLI still does **not** accept QA-only labels like `10x_viral_ORF`, `sci_jumbo`, or `sci_plex`.)
@@ -117,6 +119,7 @@ Regardless of mode, the CLI runs the following phases in order:
    - Currently implemented modes:
      - `provider in {novogene, psomagen}, data=raw, assay=10x`
      - `provider in {novogene, psomagen}, data=raw, assay=10x_cram`
+     - `provider in {novogene, psomagen}, data=raw, assay=10x_illumina`
      - `provider=novogene, data=raw, assay in {scale,sci}`  
        (**Scale and sci raw are Novogene-only**; `psomagen` with `scale` or `sci` is not implemented.)
      - `provider in {novogene, psomagen}, data=processed, assay=10x`
@@ -269,6 +272,60 @@ Checks run:
 
 - **Optional SIF checks**
   - If `--sif` is provided, the same GroupID/assay completeness and path-coverage checks used in 10x mode run against the parsed S3 GroupIDs/assays.
+
+---
+
+### 10x Illumina raw data (`--assay 10x_illumina`)
+
+Command shape:
+
+```bash
+python -m mapping_validation \
+  --mapping PATH_TO_MAPPING.csv \
+  --provider {novogene|psomagen} \
+  --data raw \
+  --assay 10x_illumina \
+  [--sif PATH_TO_SIF]
+```
+
+Checks run:
+
+- **S3 + FASTQ validation (`validate_s3_10x_illumina_raw`)**
+  - Expected layout under `s3://czi-{provider}/{project}/{order}/{GroupID}/raw/`:
+    - `{FlowCellID}_{GroupID}_{Assay}_S{N}_L{NNN}_{R1|R2|I1|I2}_{NNN}.fastq.gz`
+  - Assays: `GEX`, `CRI`, or `ATAC` (from order template “Analysis Target”).
+  - GroupID in the filename must match the directory GroupID.
+  - Per `(FlowCellID, GroupID, Assay, SampleNumber, Lane)` require all four reads: **R1, R2, I1, I2**.
+
+- **Run metadata (strict, per GroupID + FlowCellID with FASTQs)**
+  - `{FlowCellID}_CopyComplete.txt`
+  - `{FlowCellID}_Manifest.tsv`
+  - `{FlowCellID}_RTAComplete.txt`
+  - `{FlowCellID}_RTAExited.txt`
+  - `{FlowCellID}_RunCompletionStatus.xml`
+  - `{FlowCellID}_RunInfo.xml`
+  - `{FlowCellID}_RunParameters.xml`
+  - At least one file under `{FlowCellID}_Logs/`
+  - Missing artifacts are reported as failures with explicit names (e.g. `manifest`, `logs`).
+
+- **Modality guardrails**
+  - FASTQ rows are **required**.
+  - CRAM rows are **forbidden**.
+  - Ultima-style stems (`RunID-GroupID_Assay-UG-Barcode`) do **not** match this mode.
+
+- **Optional SIF checks**
+  - If `--sif` is provided, GroupID/assay completeness is compared against Psomagen/Novogene SIF columns (e.g. “Group ID^”, “Analysis Target …”).
+
+Example (Psomagen Illumina delivery):
+
+```bash
+python -m mapping_validation \
+  --mapping AN00028448_mapping_raw.csv \
+  --sif AN00028448_Sample_Manifest.xlsx \
+  --provider psomagen \
+  --data raw \
+  --assay 10x_illumina
+```
 
 ---
 

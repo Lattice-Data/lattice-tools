@@ -1,0 +1,11 @@
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_CZI25093002_GEX_S23_L001_R1_001.fastq.gz,/local/CZI25093002/raw/A23TL3MLT4_CZI25093002_GEX_S23_L001_R1_001.fastq.gz
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_CZI25093002_GEX_S23_L001_I1_001.fastq.gz,/local/CZI25093002/raw/A23TL3MLT4_CZI25093002_GEX_S23_L001_I1_001.fastq.gz
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_CZI25093002_GEX_S23_L001_I2_001.fastq.gz,/local/CZI25093002/raw/A23TL3MLT4_CZI25093002_GEX_S23_L001_I2_001.fastq.gz
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_CopyComplete.txt,/local/CZI25093002/raw/A23TL3MLT4_CopyComplete.txt
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_Manifest.tsv,/local/CZI25093002/raw/A23TL3MLT4_Manifest.tsv
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_RTAComplete.txt,/local/CZI25093002/raw/A23TL3MLT4_RTAComplete.txt
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_RTAExited.txt,/local/CZI25093002/raw/A23TL3MLT4_RTAExited.txt
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_RunCompletionStatus.xml,/local/CZI25093002/raw/A23TL3MLT4_RunCompletionStatus.xml
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_RunInfo.xml,/local/CZI25093002/raw/A23TL3MLT4_RunInfo.xml
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_RunParameters.xml,/local/CZI25093002/raw/A23TL3MLT4_RunParameters.xml
+s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/A23TL3MLT4_Logs/InterOp/MetricsOut.bin,/local/CZI25093002/raw/A23TL3MLT4_Logs/InterOp/MetricsOut.bin

@@ -45,6 +45,9 @@ from .sop_artifacts import (
     TENX_FASTQ_PER_TAIL_SUFFIX_TO_ARTIFACT,
     TENX_FASTQ_REQUIRED_PER_PREFIX_ARTIFACTS,
     TENX_FASTQ_REQUIRED_PER_TAIL_ARTIFACTS,
+    TENX_ILLUMINA_REQUIRED_READS,
+    TENX_ILLUMINA_REQUIRED_RUN_ARTIFACTS,
+    TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT,
 )
 from .uniqueness import validate_uniqueness
 from .validators import (
@@ -54,8 +57,10 @@ from .validators import (
     find_unmatched_sif_paths_10x,
     validate_library_assay_consistency,
     validate_10x_raw_file_modalities,
+    validate_10x_illumina_file_modalities,
     validate_s3_10x_raw,
     validate_s3_10x_cram_raw,
+    validate_s3_10x_illumina_raw,
     validate_10x_raw_fastq_read_mates,
     # 10x processed
     validate_s3_10x_processed,
@@ -108,6 +113,8 @@ __all__ = [
     # 10x raw validators
     "validate_s3_10x_raw",
     "validate_s3_10x_cram_raw",
+    "validate_s3_10x_illumina_raw",
+    "validate_10x_illumina_file_modalities",
     "validate_10x_raw_file_modalities",
     "validate_10x_raw_fastq_read_mates",
     "validate_library_assay_consistency",
@@ -150,6 +157,9 @@ __all__ = [
     "TENX_FASTQ_PER_TAIL_SUFFIX_TO_ARTIFACT",
     "TENX_FASTQ_REQUIRED_PER_PREFIX_ARTIFACTS",
     "TENX_FASTQ_REQUIRED_PER_TAIL_ARTIFACTS",
+    "TENX_ILLUMINA_REQUIRED_READS",
+    "TENX_ILLUMINA_REQUIRED_RUN_ARTIFACTS",
+    "TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT",
     # SIF helpers
     "_normalize_sif_groupid",
     "load_sif_group_assays",
