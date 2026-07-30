@@ -55,6 +55,7 @@ from .validators import (
     compare_groupid_assays,
     # 10x raw
     find_unmatched_sif_paths_10x,
+    find_unmatched_sif_paths_10x_illumina,
     validate_library_assay_consistency,
     validate_10x_raw_file_modalities,
     validate_10x_illumina_file_modalities,
@@ -119,6 +120,7 @@ __all__ = [
     "validate_10x_raw_fastq_read_mates",
     "validate_library_assay_consistency",
     "find_unmatched_sif_paths_10x",
+    "find_unmatched_sif_paths_10x_illumina",
     # 10x processed validators
     "validate_s3_10x_processed",
     "validate_10x_multiome_processed_outs",

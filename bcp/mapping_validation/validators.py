@@ -723,6 +723,7 @@ def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> d
 # 10x Illumina raw S3 validation (FlowCellID-based FASTQ delivery)
 # ---------------------------------------------------------------------------
 
+# NovaSeq-style alphanumeric flow cell IDs only; hyphenated MiSeq IDs are out of scope.
 _ILLUMINA_FLOWCELL_RE: str = r"[A-Z0-9]+"
 
 _ILLUMINA_RUN_METADATA_BASENAME_RE: re.Pattern[str] = re.compile(
@@ -746,7 +747,7 @@ def _build_10x_illumina_raw_s3_regex(
         r"(?P<project>[a-z0-9-]+)/"
         rf"(?P<order>{order_pattern})/"
         r"(?P<groupid>[^/]+)/raw/"
-        rf"(?P<flowcell>{_ILLUMINA_FLOWCELL_RE})_(?P<file_groupid>[^_]+)_"
+        rf"(?P<flowcell>{_ILLUMINA_FLOWCELL_RE})_(?P<file_groupid>.+?)_"
         rf"(?P<assay>{assay_re})"
         r"_S(?P<s>\d+)_L(?P<lane>\d+)_(?P<read>R1|R2|I1|I2)_(?P<seg>\d+)\.fastq\.gz$"
     )
@@ -1010,7 +1011,7 @@ def validate_s3_10x_illumina_raw(provider: str, mappings: Iterable[MappingRow]) 
             )
 
     for item in orphan_run_meta:
-        warnings.append(item)
+        errors.append(item)
 
     return {
         "errors": errors,
