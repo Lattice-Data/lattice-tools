@@ -134,11 +134,11 @@ Test workflow orchestration using:
 ### Mocking Approach
 ```python
 # Mock guidescan execution
-with patch.object(GuidescanPipeline, 'run_guidescan', mock_function):
+with patch.object(GuidescanPipeline, "run_guidescan", mock_function):
     result = pipeline.run()
 
 # Mock subprocess calls
-with patch('subprocess.run'):
+with patch("subprocess.run"):
     pipeline.validate_inputs()
 ```
 
@@ -218,15 +218,16 @@ pytest -x
 import pytest
 from guidescan_pipeline import GuidescanPipeline
 
+
 class TestNewFeature:
     def test_new_functionality(self, temp_dir, dummy_genome_index):
         """Test description."""
         # Arrange
         pipeline = GuidescanPipeline(...)
-        
+
         # Act
         result = pipeline.new_method()
-        
+
         # Assert
         assert result == expected
 ```

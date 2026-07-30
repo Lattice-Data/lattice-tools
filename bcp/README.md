@@ -192,7 +192,7 @@ pipeline = GuidescanPipeline(
     guides_file="guides.txt",
     output_dir="results/",
     keep_intermediate=True,
-    verbose=True
+    verbose=True,
 )
 
 # Run complete pipeline
@@ -507,7 +507,7 @@ from guide_to_gene_bioframe import annotate_guides_bioframe
 annotate_guides_bioframe(
     guide_file="results/exact_matches_formatted.csv",
     gtf_file="/path/to/genes.gtf",
-    output_file="results/guides_annotated.csv"
+    output_file="results/guides_annotated.csv",
 )
 ```
 

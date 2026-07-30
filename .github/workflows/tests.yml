@@ -12,8 +12,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      # Keep this version in sync with .pre-commit-config.yaml so local hooks and
+      # CI agree. An unpinned ruff silently picks up new rules on release.
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.16.1
       - name: Run ruff check
         run: ruff check bcp/
       - name: Run ruff format check
