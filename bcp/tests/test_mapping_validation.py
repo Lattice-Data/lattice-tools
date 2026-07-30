@@ -2412,18 +2412,20 @@ def test_validate_s3_10x_illumina_raw_group_mismatch() -> None:
 
 
 def test_validate_s3_10x_illumina_raw_ultima_stem_parse_miss() -> None:
-    """Ultima-style stems should not match the Illumina FASTQ regex."""
+    """Ultima-style stems are rejected: CRAM as forbidden, sidecars as parse_miss."""
+    stem = (
+        "s3://czi-psomagen/project-alpha/AN00000001/CD4i_R1L01/raw/"
+        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT"
+    )
     rows = [
-        MappingRow(
-            "s3://czi-psomagen/project-alpha/AN00000001/CD4i_R1L01/raw/"
-            "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT.cram",
-            "/local/sample.cram",
-            1,
-        )
+        MappingRow(f"{stem}.cram", "/local/sample.cram", 1),
+        MappingRow(f"{stem}.csv", "/local/sample.csv", 2),
     ]
     res = validate_s3_10x_illumina_raw("psomagen", rows)
     assert res["matched"] == 0
-    assert any(e["type"] == "forbidden_cram" for e in res["errors"])
+    by_path = {e["s3_path"]: e["type"] for e in res["errors"]}
+    assert by_path[f"{stem}.cram"] == "forbidden_cram"
+    assert by_path[f"{stem}.csv"] == "parse_miss"
 
 
 def test_validate_10x_illumina_file_modalities() -> None:
