@@ -2,3 +2,9 @@
 target-version = "py311"
 line-length = 88
 exclude = ["__pycache__", ".git", ".pytest_cache", "*.ipynb"]
+
+# Selected explicitly rather than relying on Ruff's defaults: 0.16.0 expanded the
+# default set from 59 to 413 rules, which silently changes what CI enforces on a
+# version bump. These four are the pre-0.16 defaults.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

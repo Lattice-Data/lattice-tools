@@ -2,10 +2,14 @@
 # Install: pip install pre-commit && pre-commit install
 # Run manually: pre-commit run --all-files
 #
-# Ruff uses config from pyproject.toml (target-version, line-length, exclude).
+# Ruff uses config from pyproject.toml (target-version, line-length, exclude, lint.select).
 # Format hook *writes* fixes (ruff format); CI still uses `ruff format --check`
 # so unformatted code cannot merge. Lint is check-only here; use `ruff check --fix`
 # locally if you want the same auto-fix behavior for fixable rules.
+#
+# The ruff hooks pin their own ruff via additional_dependencies rather than using
+# whatever is on PATH, so every developer and CI lint with the identical binary.
+# Keep the version in sync with .github/workflows/tests.yml.
 
 repos:
   # 1) Ruff format bcp/ — auto-fix on commit (not --check; that only fails)
@@ -14,7 +18,8 @@ repos:
       - id: ruff-format-bcp
         name: ruff format bcp/
         entry: ruff format bcp/
-        language: system
+        language: python
+        additional_dependencies: ["ruff==0.16.1"]
         pass_filenames: false
 
   # 2) Ruff lint on bcp/ (same as CI: ruff check bcp/)
@@ -23,7 +28,8 @@ repos:
       - id: ruff-check-bcp
         name: ruff check bcp/
         entry: ruff check bcp/
-        language: system
+        language: python
+        additional_dependencies: ["ruff==0.16.1"]
         pass_filenames: false
 
   # 3) Full pytest suite under bcp/tests (same as CI). Requires bcp deps on PATH
