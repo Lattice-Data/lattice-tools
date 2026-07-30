@@ -609,6 +609,39 @@ def test_load_sif_group_assays_group_identifier_only_column(tmp_path: Path) -> N
     }
 
 
+def test_load_sif_group_assays_psomagen_skips_example_group_ids(
+    tmp_path: Path,
+) -> None:
+    """Psomagen template rows (AC_Sample1, AC_Sample2) must not count toward SIF."""
+    sif_path = tmp_path / "psomagen_with_examples.csv"
+    sif_path.write_text(
+        "Sample ID,Group ID^,Analysis Target / Feature Barcode / Supplemental libraries*\n"
+        "Ex.,AC_Sample1,Gene Expression\n"
+        "Ex.,AC_Sample1,CRISPR\n"
+        "Ex.,AC_Sample2,Gene Expression\n"
+        "real_lib,CZI25093002,Gene Expression\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "CZI25093002": {"gex"},
+    }
+
+
+def test_load_sif_group_assays_psomagen_example_group_ids_kept_without_provider(
+    tmp_path: Path,
+) -> None:
+    """Example Group ID filtering applies only when provider=psomagen."""
+    sif_path = tmp_path / "examples.csv"
+    sif_path.write_text(
+        "Group ID^,Assay Type\nAC_Sample1,GEX\nG01,GEX\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path) == {
+        "AC_Sample1": {"gex"},
+        "G01": {"gex"},
+    }
+
+
 def test_load_sif_group_assays_excel_psomagen_data_on_second_sheet(
     tmp_path: Path,
 ) -> None:
