@@ -170,17 +170,6 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
                 }
             )
 
-        project = gd["project"]
-        if project != project.lower() or "_" in project:
-            warnings.append(
-                {
-                    "type": "project_naming",
-                    "line": row.line_num,
-                    "s3_path": row.s3_path,
-                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
-                }
-            )
-
     return {
         "errors": errors,
         "warnings": warnings,
@@ -606,17 +595,6 @@ def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> d
                 }
             )
 
-        project = gd["project"]
-        if project != project.lower() or "_" in project:
-            warnings.append(
-                {
-                    "type": "project_naming",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
-                }
-            )
-
         if gd["file_stem"] != gd["groupid"]:
             errors.append(
                 {
@@ -870,15 +848,12 @@ def validate_s3_10x_illumina_raw(provider: str, mappings: Iterable[MappingRow]) 
     logs_count = 0
     group_assays: dict[str, set[str]] = defaultdict(set)
     flowcells_by_group: dict[str, set[str]] = defaultdict(set)
-    reads_by_sample_lane: dict[tuple[str, str, str, str, str, str], set[str]] = (
-        defaultdict(set)
+    reads_by_sample_lane: dict[tuple[str, str, str, str, str], set[str]] = defaultdict(
+        set
     )
-    example_row_by_sample_lane: dict[
-        tuple[str, str, str, str, str, str], MappingRow
-    ] = {}
+    example_row_by_sample_lane: dict[tuple[str, str, str, str, str], MappingRow] = {}
     run_artifacts: dict[tuple[str, str], set[str]] = defaultdict(set)
     run_basenames: dict[tuple[str, str], set[str]] = defaultdict(set)
-    flowcells_with_logs: set[tuple[str, str]] = set()
     orphan_run_meta: list[dict] = []
 
     for row in mappings:
@@ -913,7 +888,6 @@ def validate_s3_10x_illumina_raw(provider: str, mappings: Iterable[MappingRow]) 
         if logs_fc is not None:
             logs_count += 1
             if groupid:
-                flowcells_with_logs.add((groupid, logs_fc))
                 run_artifacts[(groupid, logs_fc)].add("logs")
             continue
 
@@ -965,17 +939,6 @@ def validate_s3_10x_illumina_raw(provider: str, mappings: Iterable[MappingRow]) 
                     "s3_path": s3,
                     "detail": f"assay '{assay}' not allowed for 10x_illumina "
                     f"(expected one of {sorted(valid_assays)})",
-                }
-            )
-
-        project = gd["project"]
-        if project != project.lower() or "_" in project:
-            warnings.append(
-                {
-                    "type": "project_naming",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
                 }
             )
 
@@ -1312,17 +1275,6 @@ def validate_s3_seahub_raw(assay_family: str, mappings: Iterable[MappingRow]) ->
                     "s3_path": s3,
                     "detail": f"runid mismatch between directory '{gd['runid']}' "
                     f"and filename '{gd['runid2']}'",
-                }
-            )
-
-        project = gd["project"]
-        if project != project.lower() or "_" in project:
-            warnings.append(
-                {
-                    "type": "project_naming",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
                 }
             )
 
