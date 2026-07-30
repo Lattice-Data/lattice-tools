@@ -192,9 +192,8 @@ If guide5 returns NA, check that test_guides.txt includes the 5th guide.
    pytestmark = [
        pytest.mark.e2e,
        pytest.mark.skipif(
-           not is_guidescan_available(),
-           reason="guidescan not available in PATH"
-       )
+           not is_guidescan_available(), reason="guidescan not available in PATH"
+       ),
    ]
    ```
 
