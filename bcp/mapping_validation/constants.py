@@ -17,6 +17,8 @@ ASSAYS_BY_FAMILY: Final[dict[str, set[str]]] = {
     # 10x_cram uses the same assay tokens as 10x FASTQ mode, but enforces
     # different raw-file modality rules in validators/CLI.
     "10x_cram": ASSAYS_10X,
+    # Illumina sequencing delivery: FlowCellID-based FASTQ stems (no UG/barcode).
+    "10x_illumina": ASSAYS_10X,
     "scale": ASSAYS_SCALE,
     "sci": ASSAYS_SCI,
 }

@@ -28,6 +28,8 @@ from mapping_validation import (
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
     validate_s3_10x_cram_raw,
+    validate_s3_10x_illumina_raw,
+    validate_10x_illumina_file_modalities,
     validate_s3_10x_processed,
     validate_s3_10x_raw,
     validate_s3_local_consistency_10x_processed,
@@ -2241,6 +2243,164 @@ def test_validate_s3_10x_cram_raw_groupid_mismatch_is_direct() -> None:
     assert (
         "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT" not in res["missing_sample_artifacts"]
     )
+
+
+# ---------------------------------------------------------------------------
+# 10x Illumina raw SOP
+# ---------------------------------------------------------------------------
+
+_ILLUMINA_S3_PREFIX = "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+_ILLUMINA_LOCAL_PREFIX = "/local/CZI25093002/raw/"
+
+
+def _illumina_complete_rows(
+    *,
+    omit_reads: set[str] | None = None,
+    omit_run_meta: set[str] | None = None,
+    include_logs: bool = True,
+    extra_rows: list[MappingRow] | None = None,
+) -> list[MappingRow]:
+    """Build a SOP-complete 10x Illumina raw bundle for one sample/lane."""
+    omit_reads = omit_reads or set()
+    omit_run_meta = omit_run_meta or set()
+    rows: list[MappingRow] = []
+    line = 1
+    for read in ("R1", "R2", "I1", "I2"):
+        if read in omit_reads:
+            continue
+        base = f"A23TL3MLT4_CZI25093002_GEX_S23_L001_{read}_001.fastq.gz"
+        rows.append(
+            MappingRow(
+                f"{_ILLUMINA_S3_PREFIX}{base}",
+                f"{_ILLUMINA_LOCAL_PREFIX}{base}",
+                line,
+            )
+        )
+        line += 1
+    run_meta = {
+        "copy_complete": "A23TL3MLT4_CopyComplete.txt",
+        "manifest": "A23TL3MLT4_Manifest.tsv",
+        "rta_complete": "A23TL3MLT4_RTAComplete.txt",
+        "rta_exited": "A23TL3MLT4_RTAExited.txt",
+        "run_completion_status": "A23TL3MLT4_RunCompletionStatus.xml",
+        "run_info": "A23TL3MLT4_RunInfo.xml",
+        "run_parameters": "A23TL3MLT4_RunParameters.xml",
+    }
+    for key, base in run_meta.items():
+        if key in omit_run_meta:
+            continue
+        rows.append(
+            MappingRow(
+                f"{_ILLUMINA_S3_PREFIX}{base}",
+                f"{_ILLUMINA_LOCAL_PREFIX}{base}",
+                line,
+            )
+        )
+        line += 1
+    if include_logs:
+        logs_base = "A23TL3MLT4_Logs/InterOp/MetricsOut.bin"
+        rows.append(
+            MappingRow(
+                f"{_ILLUMINA_S3_PREFIX}{logs_base}",
+                f"{_ILLUMINA_LOCAL_PREFIX}{logs_base}",
+                line,
+            )
+        )
+    if extra_rows:
+        rows.extend(extra_rows)
+    return rows
+
+
+def test_get_assays_10x_illumina_is_base_only() -> None:
+    """10x_illumina should not include provider-specific extras like viral_ORF."""
+    assert get_assays("10x_illumina") == ASSAYS_10X
+    assert get_assays("10x_illumina", "psomagen") == ASSAYS_10X
+    assert "viral_ORF" not in get_assays("10x_illumina", "psomagen")
+
+
+def test_validate_s3_10x_illumina_raw_happy_path() -> None:
+    """10x_illumina should pass with complete FASTQ reads and run metadata."""
+    rows = _illumina_complete_rows()
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["matched"] == 4
+    assert not res["errors"]
+    assert res["group_assays"] == {"CZI25093002": {"GEX"}}
+
+
+def test_validate_s3_10x_illumina_raw_missing_run_meta() -> None:
+    """Missing Manifest.tsv and Logs/ should fail with explicit artifact names."""
+    rows = _illumina_complete_rows(
+        omit_run_meta={"manifest"},
+        include_logs=False,
+    )
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "missing_run_artifacts" for e in res["errors"])
+    missing = res["missing_run_artifacts"][("CZI25093002", "A23TL3MLT4")]
+    assert "manifest" in missing
+    assert "logs" in missing
+
+
+def test_validate_s3_10x_illumina_raw_incomplete_reads() -> None:
+    """Missing R2 should fail fastq_incomplete_reads."""
+    rows = _illumina_complete_rows(omit_reads={"R2"})
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "fastq_incomplete_reads" for e in res["errors"])
+    assert any("missing R2" in e["detail"] for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_forbids_cram() -> None:
+    """Ultima CRAM rows should be forbidden in 10x_illumina mode."""
+    rows = _illumina_complete_rows(
+        extra_rows=[
+            MappingRow(
+                "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+                "416640-CZI25093002_GEX-Z0238-CTGCACATTGTAGAT.cram",
+                "/local/sample.cram",
+                99,
+            )
+        ]
+    )
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "forbidden_cram" for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_group_mismatch() -> None:
+    """Filename GroupID must match directory GroupID."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+            "A23TL3MLT4_WRONGGROUP_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/file.fastq.gz",
+            1,
+        )
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "group_mismatch" for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_ultima_stem_parse_miss() -> None:
+    """Ultima-style stems should not match the Illumina FASTQ regex."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/CD4i_R1L01/raw/"
+            "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT.cram",
+            "/local/sample.cram",
+            1,
+        )
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["matched"] == 0
+    assert any(e["type"] == "forbidden_cram" for e in res["errors"])
+
+
+def test_validate_10x_illumina_file_modalities() -> None:
+    """Modality summary should classify FASTQ, CRAM, metadata, and Logs rows."""
+    rows = _illumina_complete_rows()
+    mod = validate_10x_illumina_file_modalities(rows)
+    assert mod["fastq_count"] == 4
+    assert mod["metadata_count"] == 7
+    assert mod["logs_count"] == 1
+    assert mod["cram_count"] == 0
 
 
 # ---------------------------------------------------------------------------
