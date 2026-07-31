@@ -37,6 +37,18 @@ def _is_run_metadata(s3_path: str) -> bool:
     return bool(_RUN_METADATA_RE.match(os.path.basename(s3_path)))
 
 
+_GLOBALLY_ALLOWED_ANCILLARY_METADATA_RE: re.Pattern[str] = re.compile(
+    r"^(?:\d+_)?file-manifest\.json$"
+)
+
+
+def _is_globally_allowed_ancillary_metadata(s3_path: str) -> bool:
+    """True for optional order-level files allowed silently in all raw modes."""
+    return bool(
+        _GLOBALLY_ALLOWED_ANCILLARY_METADATA_RE.match(os.path.basename(s3_path))
+    )
+
+
 def _validate_provider(provider: str) -> str:
     """Normalise and validate a provider name."""
     provider = provider.lower()
@@ -875,6 +887,9 @@ def validate_s3_10x_illumina_raw(provider: str, mappings: Iterable[MappingRow]) 
             continue
 
         if _is_run_metadata(s3):
+            if _is_globally_allowed_ancillary_metadata(s3):
+                metadata_count += 1
+                continue
             warnings.append(
                 {
                     "type": "unexpected_ultima_metadata",
