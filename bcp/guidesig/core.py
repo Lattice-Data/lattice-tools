@@ -36,7 +36,12 @@ def protospacer_set(path: str | Path, column: str = DEFAULT_COLUMN) -> set[str]:
 
             sequences: set[str] = set()
             for physical_row, row in enumerate(reader, start=2):
-                first_col = row[0] if row else ""
+                # Fully blank lines (common trailing Excel/Sheets artifact) are
+                # skipped; a row with cells but an empty first column is retained.
+                if not row or all(cell == "" for cell in row):
+                    continue
+
+                first_col = row[0]
                 if first_col.lstrip().startswith("#"):
                     continue
 

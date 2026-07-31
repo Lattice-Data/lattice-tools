@@ -256,6 +256,16 @@ def test_empty_first_column_retained(tmp_path: Path) -> None:
     assert protospacer_set(path) == {"AAAA", "CCCC"}
 
 
+def test_blank_lines_skipped(tmp_path: Path) -> None:
+    """Trailing/intervening blank lines must not raise or affect the set."""
+    path = tmp_path / "blank_lines.tsv"
+    path.write_bytes(
+        b"\xef\xbb\xbfproperty\tguide_protospacer\r\n\tAAAA\r\n\r\n\tCCCC\r\n\r\n"
+    )
+    assert protospacer_set(path) == {"AAAA", "CCCC"}
+    assert signature(path).startswith("gsig1:set:n=2:")
+
+
 def test_bom_and_header_lookup(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "bom.tsv",
