@@ -387,7 +387,7 @@ class DB2Gatherer:
         """Map raw matrix files to their corresponding libraries using samples field or data flow"""
         
         for raw_file in raw_matrix_files:
-            matched_libraries = []
+            matched_data = {}
             
             # Raw matrix file -> sequence files (via derived_from)
             derived_from = raw_file.get('derived_from', [])
@@ -420,9 +420,16 @@ class DB2Gatherer:
                                     lib_id = library_ref
                                 
                                 lib_uuid = extract_uuid_from_id(lib_id)
-                                if lib_uuid in libraries_data and lib_uuid not in matched_libraries:
-                                    matched_libraries.append(lib_uuid)
+                                # Record lib_uuid of libraries found, along with the sequence file and file sets used to get to it
+                                if lib_uuid in libraries_data:
+                                    bucket = matched_data.setdefault(lib_uuid, {'sequence_files': {}, 
+                                                                                'sequence_file_sets': {}})
+                                    bucket['sequence_files'][seq_file.get('@id', '')] = seq_file
+                                    bucket['sequence_file_sets'][file_set.get('@id', '')] = file_set
             
-            # Add the raw matrix file to ALL matched libraries
-            for lib_uuid in matched_libraries:
-                libraries_data[lib_uuid]['raw_matrix_files'].append(raw_file)
+            # Add a sequence_file and sequence_file_set path specific copy of raw matrix file to each library
+            for lib_uuid, bucket in matched_data.items():
+                raw_file_copy = dict(raw_file)
+                raw_file_copy['sequence_files'] = list(bucket['sequence_files'].values())
+                raw_file_copy['sequence_file_sets'] = list(bucket['sequence_file_sets'].values())
+                libraries_data[lib_uuid]['raw_matrix_files'].append(raw_file_copy)
