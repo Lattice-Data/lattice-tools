@@ -311,6 +311,20 @@ def test_ragged_row_raises_with_row_number(tmp_path: Path) -> None:
         signature(path)
 
 
+def test_ragged_row_with_protospacer_still_raises(tmp_path: Path) -> None:
+    """Dropped trailing tabs are a ragged row even when the sequence is present."""
+    path = _write_tsv(
+        tmp_path / "ragged_trailing_columns.tsv",
+        [
+            ["property", "guide_protospacer", "guide_id", "gene", "pam"],
+            ["", "AAAA", "g1", "GENE1", "NGG"],
+            ["", "CCCC"],  # protospacer present, trailing columns were dropped
+        ],
+    )
+    with pytest.raises(GuideSigError, match="row 3"):
+        signature(path)
+
+
 @pytest.mark.parametrize("bad", ["N", "U", "0", "-"])
 def test_non_acgt_raises_with_row_number(tmp_path: Path, bad: str) -> None:
     path = _write_tsv(

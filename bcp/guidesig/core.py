@@ -45,7 +45,7 @@ def protospacer_set(path: str | Path, column: str = DEFAULT_COLUMN) -> set[str]:
                 if first_col.lstrip().startswith("#"):
                     continue
 
-                if len(row) <= col_idx:
+                if len(row) < len(header):
                     raise GuideSigError(
                         f"{file_path}: row {physical_row}: ragged row shorter "
                         "than header"
