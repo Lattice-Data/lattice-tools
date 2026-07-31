@@ -21,6 +21,9 @@ from .sop_artifacts import (
     TENX_CRAM_CORE_SAMPLE_ARTIFACTS,
     TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS,
     TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT,
+    TENX_ILLUMINA_REQUIRED_READS,
+    TENX_ILLUMINA_REQUIRED_RUN_ARTIFACTS,
+    TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT,
     classify_basename,
     classify_suffix,
     expected_suffixes_message,
@@ -32,6 +35,18 @@ _SEAHUB_FAMILIES: set[str] = {"scale", "sci"}
 def _is_run_metadata(s3_path: str) -> bool:
     """Return True if the S3 path's filename is a known run-level metadata file."""
     return bool(_RUN_METADATA_RE.match(os.path.basename(s3_path)))
+
+
+_GLOBALLY_ALLOWED_ANCILLARY_METADATA_RE: re.Pattern[str] = re.compile(
+    r"^(?:\d+_)?file-manifest\.json$"
+)
+
+
+def _is_globally_allowed_ancillary_metadata(s3_path: str) -> bool:
+    """True for optional order-level files allowed silently in all raw modes."""
+    return bool(
+        _GLOBALLY_ALLOWED_ANCILLARY_METADATA_RE.match(os.path.basename(s3_path))
+    )
 
 
 def _validate_provider(provider: str) -> str:
@@ -164,17 +179,6 @@ def validate_s3_10x_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
                     "line": row.line_num,
                     "s3_path": row.s3_path,
                     "detail": f"barcode '{gd['barcode']}' contains characters outside A/C/G/T",
-                }
-            )
-
-        project = gd["project"]
-        if project != project.lower() or "_" in project:
-            warnings.append(
-                {
-                    "type": "project_naming",
-                    "line": row.line_num,
-                    "s3_path": row.s3_path,
-                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
                 }
             )
 
@@ -369,7 +373,7 @@ def find_unmatched_sif_paths_10x(
     sif_groupids: set[str],
     provider: str,
 ) -> dict:
-    """Find S3 paths not covered by any SIF GroupID.
+    """Find S3 paths not covered by any SIF GroupID (Ultima 10x raw stem).
 
     For each mapping row, extracts the GroupID from the S3 path and
     checks whether it appears in ``sif_groupids``.  Paths whose GroupID
@@ -603,17 +607,6 @@ def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> d
                 }
             )
 
-        project = gd["project"]
-        if project != project.lower() or "_" in project:
-            warnings.append(
-                {
-                    "type": "project_naming",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
-                }
-            )
-
         if gd["file_stem"] != gd["groupid"]:
             errors.append(
                 {
@@ -735,6 +728,362 @@ def validate_s3_10x_cram_raw(provider: str, mappings: Iterable[MappingRow]) -> d
         "sample_prefixes_checked": len(sample_artifacts),
         "missing_sample_artifacts": missing_by_prefix,
         "missing_run_artifacts": missing_run_artifacts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 10x Illumina raw S3 validation (FlowCellID-based FASTQ delivery)
+# ---------------------------------------------------------------------------
+
+# NovaSeq-style alphanumeric flow cell IDs only; hyphenated MiSeq IDs are out of scope.
+_ILLUMINA_FLOWCELL_RE: str = r"[A-Z0-9]+"
+
+_ILLUMINA_RUN_METADATA_BASENAME_RE: re.Pattern[str] = re.compile(
+    rf"^(?P<flowcell>{_ILLUMINA_FLOWCELL_RE})_"
+    r"(?P<base_suffix>"
+    + "|".join(re.escape(s) for s in TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT)
+    + r")$"
+)
+
+_ILLUMINA_LOGS_PATH_RE: re.Pattern[str] = re.compile(
+    rf"/raw/(?P<flowcell>{_ILLUMINA_FLOWCELL_RE})_Logs(?:/|$)"
+)
+
+
+def _build_10x_illumina_raw_s3_regex(
+    provider: str, order_pattern: str, assay_re: str
+) -> re.Pattern[str]:
+    """Build the canonical 10x Illumina raw FASTQ S3 regex for a provider."""
+    return re.compile(
+        rf"^s3://(?P<bucket>czi-{re.escape(provider)})/"
+        r"(?P<project>[a-z0-9-]+)/"
+        rf"(?P<order>{order_pattern})/"
+        r"(?P<groupid>[^/]+)/raw/"
+        rf"(?P<flowcell>{_ILLUMINA_FLOWCELL_RE})_(?P<file_groupid>.+?)_"
+        rf"(?P<assay>{assay_re})"
+        r"_S(?P<s>\d+)_L(?P<lane>\d+)_(?P<read>R1|R2|I1|I2)_(?P<seg>\d+)\.fastq\.gz$"
+    )
+
+
+def _get_10x_illumina_s3_regex(provider: str) -> Tuple[re.Pattern[str], set[str]]:
+    """Return (compiled_regex, valid_assays) for 10x Illumina raw FASTQ paths."""
+    provider = _validate_provider(provider)
+    valid_assays = get_assays("10x_illumina", provider)
+    assay_re = build_assay_regex(valid_assays)
+    order_pattern = get_order_pattern(provider)
+    regex = _build_10x_illumina_raw_s3_regex(provider, order_pattern, assay_re)
+    return regex, valid_assays
+
+
+def _extract_raw_groupid_from_s3(s3_path: str) -> str | None:
+    """Extract GroupID from ``…/{GroupID}/raw/…`` S3 paths."""
+    m = re.match(r"^s3://[^/]+/[^/]+/[^/]+/([^/]+)/raw/", s3_path)
+    return m.group(1) if m else None
+
+
+def _classify_illumina_run_metadata_basename(
+    basename: str,
+) -> tuple[str, str] | None:
+    """Return ``(flowcell, artifact_key)`` for Illumina run-metadata basenames."""
+    m = _ILLUMINA_RUN_METADATA_BASENAME_RE.match(basename)
+    if not m:
+        return None
+    artifact = TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT.get(m.group("base_suffix"))
+    if artifact is None:
+        return None
+    return m.group("flowcell"), artifact
+
+
+def _extract_illumina_logs_flowcell(s3_path: str) -> str | None:
+    """Return FlowCellID when ``s3_path`` is under ``{FlowCellID}_Logs/``."""
+    m = _ILLUMINA_LOGS_PATH_RE.search(s3_path)
+    return m.group("flowcell") if m else None
+
+
+def validate_10x_illumina_file_modalities(mappings: Iterable[MappingRow]) -> dict:
+    """Summarize file modalities for strict 10x Illumina FASTQ-mode policy checks."""
+    fastq_rows: list[MappingRow] = []
+    cram_rows: list[MappingRow] = []
+    metadata_rows: list[MappingRow] = []
+    logs_rows: list[MappingRow] = []
+
+    for row in mappings:
+        base = os.path.basename(row.s3_path)
+        if _is_run_metadata(row.s3_path):
+            metadata_rows.append(row)
+            continue
+        if _classify_illumina_run_metadata_basename(base) is not None:
+            metadata_rows.append(row)
+            continue
+        if _extract_illumina_logs_flowcell(row.s3_path) is not None:
+            logs_rows.append(row)
+            continue
+        if base.endswith(".fastq.gz"):
+            fastq_rows.append(row)
+            continue
+        if base.endswith(".cram") or base.endswith(".cram-metadata.json"):
+            cram_rows.append(row)
+
+    return {
+        "fastq_rows": fastq_rows,
+        "cram_rows": cram_rows,
+        "metadata_rows": metadata_rows,
+        "logs_rows": logs_rows,
+        "fastq_count": len(fastq_rows),
+        "cram_count": len(cram_rows),
+        "metadata_count": len(metadata_rows),
+        "logs_count": len(logs_rows),
+    }
+
+
+def validate_s3_10x_illumina_raw(provider: str, mappings: Iterable[MappingRow]) -> dict:
+    """
+    Validate 10x Illumina raw mappings: FASTQ path SOP, read mates, run metadata.
+
+    Expected FASTQ layout::
+
+        s3://czi-{provider}/{project}/{order}/{GroupID}/raw/
+            {FlowCellID}_{GroupID}_{Assay}_S{N}_L{NNN}_{R1|R2|I1|I2}_{NNN}.fastq.gz
+
+    Per (GroupID, FlowCellID) with FASTQs, require run-level artifacts:
+    CopyComplete.txt, Manifest.tsv, RTAComplete.txt, RTAExited.txt,
+    RunCompletionStatus.xml, RunInfo.xml, RunParameters.xml, and at least one
+    file under ``{FlowCellID}_Logs/``.
+    """
+    provider = _validate_provider(provider)
+    s3_regex, valid_assays = _get_10x_illumina_s3_regex(provider)
+
+    errors: List[dict] = []
+    warnings: List[dict] = []
+    total = 0
+    matched = 0
+    metadata_count = 0
+    logs_count = 0
+    group_assays: dict[str, set[str]] = defaultdict(set)
+    flowcells_by_group: dict[str, set[str]] = defaultdict(set)
+    reads_by_sample_lane: dict[tuple[str, str, str, str, str], set[str]] = defaultdict(
+        set
+    )
+    example_row_by_sample_lane: dict[tuple[str, str, str, str, str], MappingRow] = {}
+    run_artifacts: dict[tuple[str, str], set[str]] = defaultdict(set)
+    run_basenames: dict[tuple[str, str], set[str]] = defaultdict(set)
+    orphan_run_meta: list[dict] = []
+
+    for row in mappings:
+        total += 1
+        s3 = row.s3_path
+        base = os.path.basename(s3)
+        groupid = _extract_raw_groupid_from_s3(s3)
+
+        if base.endswith(".cram") or base.endswith(".cram-metadata.json"):
+            errors.append(
+                {
+                    "type": "forbidden_cram",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "CRAM files are forbidden in 10x_illumina mode",
+                }
+            )
+            continue
+
+        if _is_run_metadata(s3):
+            if _is_globally_allowed_ancillary_metadata(s3):
+                metadata_count += 1
+                continue
+            warnings.append(
+                {
+                    "type": "unexpected_ultima_metadata",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "Ultima-style run metadata is not expected in 10x_illumina mode",
+                }
+            )
+            continue
+
+        logs_fc = _extract_illumina_logs_flowcell(s3)
+        if logs_fc is not None:
+            logs_count += 1
+            if groupid:
+                run_artifacts[(groupid, logs_fc)].add("logs")
+            continue
+
+        run_meta = _classify_illumina_run_metadata_basename(base)
+        if run_meta is not None:
+            metadata_count += 1
+            flowcell, artifact = run_meta
+            if groupid:
+                run_artifacts[(groupid, flowcell)].add(artifact)
+                run_basenames[(groupid, flowcell)].add(base)
+            continue
+
+        m = s3_regex.match(s3)
+        if not m:
+            errors.append(
+                {
+                    "type": "parse_miss",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": "S3 path does not match expected 10x Illumina raw pattern",
+                }
+            )
+            continue
+
+        matched += 1
+        gd = m.groupdict()
+        assay = gd["assay"].upper()
+        group_assays[gd["groupid"]].add(assay)
+        flowcells_by_group[gd["groupid"]].add(gd["flowcell"])
+
+        if gd["file_groupid"] != gd["groupid"]:
+            errors.append(
+                {
+                    "type": "group_mismatch",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": (
+                        f"groupid mismatch between path '{gd['groupid']}' "
+                        f"and filename '{gd['file_groupid']}'"
+                    ),
+                }
+            )
+
+        if assay not in valid_assays:
+            errors.append(
+                {
+                    "type": "invalid_assay",
+                    "line": row.line_num,
+                    "s3_path": s3,
+                    "detail": f"assay '{assay}' not allowed for 10x_illumina "
+                    f"(expected one of {sorted(valid_assays)})",
+                }
+            )
+
+        sample_lane_key = (
+            gd["groupid"],
+            gd["flowcell"],
+            assay,
+            gd["s"],
+            gd["lane"],
+        )
+        reads_by_sample_lane[sample_lane_key].add(gd["read"])
+        if sample_lane_key not in example_row_by_sample_lane:
+            example_row_by_sample_lane[sample_lane_key] = row
+
+    for key, reads in sorted(reads_by_sample_lane.items()):
+        missing_reads = sorted(TENX_ILLUMINA_REQUIRED_READS - reads)
+        if missing_reads:
+            row0 = example_row_by_sample_lane[key]
+            errors.append(
+                {
+                    "type": "fastq_incomplete_reads",
+                    "line": row0.line_num,
+                    "s3_path": row0.s3_path,
+                    "detail": (
+                        f"Incomplete FASTQ read set for R1+R2+I1+I2 "
+                        f"(groupid={key[0]}, flowcell={key[1]}, assay={key[2]}, "
+                        f"S{key[3]} L{key[4]}): missing {', '.join(missing_reads)}; "
+                        f"observed {{{','.join(sorted(reads))}}}"
+                    ),
+                    "missing": missing_reads,
+                }
+            )
+
+    missing_run_artifacts: dict[tuple[str, str], list[str]] = {}
+    for groupid, flowcells in sorted(flowcells_by_group.items()):
+        for flowcell in sorted(flowcells):
+            found = run_artifacts.get((groupid, flowcell), set())
+            missing = sorted(TENX_ILLUMINA_REQUIRED_RUN_ARTIFACTS - found)
+            if missing:
+                missing_run_artifacts[(groupid, flowcell)] = missing
+                errors.append(
+                    {
+                        "type": "missing_run_artifacts",
+                        "s3_path": f"{groupid}/raw/{flowcell}",
+                        "detail": (
+                            f"missing required run-level artifacts for "
+                            f"GroupID={groupid}, FlowCellID={flowcell}: "
+                            f"{', '.join(missing)}"
+                        ),
+                        "missing": missing,
+                        "groupid": groupid,
+                        "flowcell": flowcell,
+                    }
+                )
+
+    for (groupid, flowcell), basenames in run_basenames.items():
+        if flowcell not in flowcells_by_group.get(groupid, set()):
+            orphan_run_meta.append(
+                {
+                    "type": "orphan_run_metadata",
+                    "groupid": groupid,
+                    "flowcell": flowcell,
+                    "detail": (
+                        f"run metadata present for FlowCellID={flowcell} in "
+                        f"GroupID={groupid} but no matching FASTQs were found"
+                    ),
+                    "basenames": sorted(basenames),
+                }
+            )
+
+    for item in orphan_run_meta:
+        errors.append(item)
+
+    return {
+        "errors": errors,
+        "warnings": warnings,
+        "metadata_files": metadata_count,
+        "logs_files": logs_count,
+        "total": total,
+        "matched": matched,
+        "group_assays": dict(group_assays),
+        "flowcells_by_group": {k: sorted(v) for k, v in flowcells_by_group.items()},
+        "sample_lanes_checked": len(reads_by_sample_lane),
+        "missing_run_artifacts": missing_run_artifacts,
+    }
+
+
+def find_unmatched_sif_paths_10x_illumina(
+    mappings: Iterable[MappingRow],
+    sif_groupids: set[str],
+    provider: str,
+) -> dict:
+    """Find S3 paths not covered by any SIF GroupID (Illumina 10x raw stem)."""
+    provider = _validate_provider(provider)
+    s3_regex, _ = _get_10x_illumina_s3_regex(provider)
+
+    unmatched_by_group: dict[str, List[MappingRow]] = defaultdict(list)
+    unparsed: List[MappingRow] = []
+    total = 0
+    matched_sif = 0
+    metadata = 0
+
+    for row in mappings:
+        total += 1
+        s3 = row.s3_path
+        base = os.path.basename(s3)
+        if (
+            _is_run_metadata(s3)
+            or _classify_illumina_run_metadata_basename(base) is not None
+            or _extract_illumina_logs_flowcell(s3) is not None
+        ):
+            metadata += 1
+            continue
+        m = s3_regex.match(s3)
+        if not m:
+            unparsed.append(row)
+            continue
+        groupid = m.group("groupid")
+        if groupid in sif_groupids:
+            matched_sif += 1
+        else:
+            unmatched_by_group[groupid].append(row)
+
+    return {
+        "unmatched_by_group": dict(unmatched_by_group),
+        "unparsed": unparsed,
+        "total": total,
+        "matched_sif": matched_sif,
+        "metadata": metadata,
     }
 
 
@@ -942,17 +1291,6 @@ def validate_s3_seahub_raw(assay_family: str, mappings: Iterable[MappingRow]) ->
                     "s3_path": s3,
                     "detail": f"runid mismatch between directory '{gd['runid']}' "
                     f"and filename '{gd['runid2']}'",
-                }
-            )
-
-        project = gd["project"]
-        if project != project.lower() or "_" in project:
-            warnings.append(
-                {
-                    "type": "project_naming",
-                    "line": row.line_num,
-                    "s3_path": s3,
-                    "detail": "project should be lower-case with hyphen delimiters (per SOP)",
                 }
             )
 
@@ -2065,7 +2403,10 @@ __all__ = [
     "validate_10x_raw_file_modalities",
     "validate_10x_raw_fastq_read_mates",
     "validate_s3_10x_cram_raw",
+    "validate_s3_10x_illumina_raw",
+    "validate_10x_illumina_file_modalities",
     "find_unmatched_sif_paths_10x",
+    "find_unmatched_sif_paths_10x_illumina",
     "validate_library_assay_consistency",
     # 10x processed
     "validate_s3_10x_processed",

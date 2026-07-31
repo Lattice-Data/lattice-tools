@@ -15,6 +15,7 @@ from mapping_validation import (
     build_assay_regex,
     compare_groupid_assays,
     find_unmatched_sif_paths_10x,
+    find_unmatched_sif_paths_10x_illumina,
     get_assays,
     get_order_pattern,
     load_sif_group_assays,
@@ -28,6 +29,8 @@ from mapping_validation import (
     validate_local_paths_scale_raw,
     validate_local_paths_sci_raw,
     validate_s3_10x_cram_raw,
+    validate_s3_10x_illumina_raw,
+    validate_10x_illumina_file_modalities,
     validate_s3_10x_processed,
     validate_s3_10x_raw,
     validate_s3_local_consistency_10x_processed,
@@ -604,6 +607,39 @@ def test_load_sif_group_assays_group_identifier_only_column(tmp_path: Path) -> N
     }
     assert load_sif_group_assays(sif_path, provider="psomagen") == {
         "G01": {"gex", "cri"}
+    }
+
+
+def test_load_sif_group_assays_psomagen_skips_example_group_ids(
+    tmp_path: Path,
+) -> None:
+    """Psomagen template rows (AC_Sample1, AC_Sample2) must not count toward SIF."""
+    sif_path = tmp_path / "psomagen_with_examples.csv"
+    sif_path.write_text(
+        "Sample ID,Group ID^,Analysis Target / Feature Barcode / Supplemental libraries*\n"
+        "Ex.,AC_Sample1,Gene Expression\n"
+        "Ex.,AC_Sample1,CRISPR\n"
+        "Ex.,AC_Sample2,Gene Expression\n"
+        "real_lib,CZI25093002,Gene Expression\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "CZI25093002": {"gex"},
+    }
+
+
+def test_load_sif_group_assays_psomagen_example_group_ids_kept_without_provider(
+    tmp_path: Path,
+) -> None:
+    """Example Group ID filtering applies only when provider=psomagen."""
+    sif_path = tmp_path / "examples.csv"
+    sif_path.write_text(
+        "Group ID^,Assay Type\nAC_Sample1,GEX\nG01,GEX\n",
+        encoding="utf-8",
+    )
+    assert load_sif_group_assays(sif_path) == {
+        "AC_Sample1": {"gex"},
+        "G01": {"gex"},
     }
 
 
@@ -2241,6 +2277,320 @@ def test_validate_s3_10x_cram_raw_groupid_mismatch_is_direct() -> None:
     assert (
         "442356-LeS188_GEX-Z0083-CAGTGTATTGCTGAT" not in res["missing_sample_artifacts"]
     )
+
+
+# ---------------------------------------------------------------------------
+# 10x Illumina raw SOP
+# ---------------------------------------------------------------------------
+
+_ILLUMINA_S3_PREFIX = "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+_ILLUMINA_LOCAL_PREFIX = "/local/CZI25093002/raw/"
+
+
+def _illumina_complete_rows(
+    *,
+    omit_reads: set[str] | None = None,
+    omit_run_meta: set[str] | None = None,
+    include_logs: bool = True,
+    extra_rows: list[MappingRow] | None = None,
+) -> list[MappingRow]:
+    """Build a SOP-complete 10x Illumina raw bundle for one sample/lane."""
+    omit_reads = omit_reads or set()
+    omit_run_meta = omit_run_meta or set()
+    rows: list[MappingRow] = []
+    line = 1
+    for read in ("R1", "R2", "I1", "I2"):
+        if read in omit_reads:
+            continue
+        base = f"A23TL3MLT4_CZI25093002_GEX_S23_L001_{read}_001.fastq.gz"
+        rows.append(
+            MappingRow(
+                f"{_ILLUMINA_S3_PREFIX}{base}",
+                f"{_ILLUMINA_LOCAL_PREFIX}{base}",
+                line,
+            )
+        )
+        line += 1
+    run_meta = {
+        "copy_complete": "A23TL3MLT4_CopyComplete.txt",
+        "manifest": "A23TL3MLT4_Manifest.tsv",
+        "rta_complete": "A23TL3MLT4_RTAComplete.txt",
+        "rta_exited": "A23TL3MLT4_RTAExited.txt",
+        "run_completion_status": "A23TL3MLT4_RunCompletionStatus.xml",
+        "run_info": "A23TL3MLT4_RunInfo.xml",
+        "run_parameters": "A23TL3MLT4_RunParameters.xml",
+    }
+    for key, base in run_meta.items():
+        if key in omit_run_meta:
+            continue
+        rows.append(
+            MappingRow(
+                f"{_ILLUMINA_S3_PREFIX}{base}",
+                f"{_ILLUMINA_LOCAL_PREFIX}{base}",
+                line,
+            )
+        )
+        line += 1
+    if include_logs:
+        logs_base = "A23TL3MLT4_Logs/InterOp/MetricsOut.bin"
+        rows.append(
+            MappingRow(
+                f"{_ILLUMINA_S3_PREFIX}{logs_base}",
+                f"{_ILLUMINA_LOCAL_PREFIX}{logs_base}",
+                line,
+            )
+        )
+    if extra_rows:
+        rows.extend(extra_rows)
+    return rows
+
+
+def test_get_assays_10x_illumina_is_base_only() -> None:
+    """10x_illumina should not include provider-specific extras like viral_ORF."""
+    assert get_assays("10x_illumina") == ASSAYS_10X
+    assert get_assays("10x_illumina", "psomagen") == ASSAYS_10X
+    assert "viral_ORF" not in get_assays("10x_illumina", "psomagen")
+
+
+def test_validate_s3_10x_illumina_raw_happy_path() -> None:
+    """10x_illumina should pass with complete FASTQ reads and run metadata."""
+    rows = _illumina_complete_rows()
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["matched"] == 4
+    assert not res["errors"]
+    assert res["group_assays"] == {"CZI25093002": {"GEX"}}
+
+
+def test_validate_s3_10x_illumina_raw_missing_run_meta() -> None:
+    """Missing Manifest.tsv and Logs/ should fail with explicit artifact names."""
+    rows = _illumina_complete_rows(
+        omit_run_meta={"manifest"},
+        include_logs=False,
+    )
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "missing_run_artifacts" for e in res["errors"])
+    missing = res["missing_run_artifacts"][("CZI25093002", "A23TL3MLT4")]
+    assert "manifest" in missing
+    assert "logs" in missing
+
+
+def test_validate_s3_10x_illumina_raw_incomplete_reads() -> None:
+    """Missing R2 should fail fastq_incomplete_reads."""
+    rows = _illumina_complete_rows(omit_reads={"R2"})
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "fastq_incomplete_reads" for e in res["errors"])
+    assert any("missing R2" in e["detail"] for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_forbids_cram() -> None:
+    """Ultima CRAM rows should be forbidden in 10x_illumina mode."""
+    rows = _illumina_complete_rows(
+        extra_rows=[
+            MappingRow(
+                "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+                "416640-CZI25093002_GEX-Z0238-CTGCACATTGTAGAT.cram",
+                "/local/sample.cram",
+                99,
+            )
+        ]
+    )
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "forbidden_cram" for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_group_mismatch() -> None:
+    """Filename GroupID must match directory GroupID."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+            "A23TL3MLT4_WRONGGROUP_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/file.fastq.gz",
+            1,
+        )
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert any(e["type"] == "group_mismatch" for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_groupid_with_underscore() -> None:
+    """GroupIDs containing underscores should match the Illumina FASTQ regex."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/CD4i_R1L01/raw/"
+            "A23TL3MLT4_CD4i_R1L01_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/file.fastq.gz",
+            1,
+        )
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["matched"] == 1
+    assert not any(e["type"] == "parse_miss" for e in res["errors"])
+    assert not any(e["type"] == "group_mismatch" for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_groupid_with_underscore_mismatch() -> None:
+    """Underscore GroupID in path must match the filename stem exactly."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/CD4i_R1L01/raw/"
+            "A23TL3MLT4_CD4i_R1L02_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/file.fastq.gz",
+            1,
+        )
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["matched"] == 1
+    assert any(e["type"] == "group_mismatch" for e in res["errors"])
+
+
+def test_validate_s3_10x_illumina_raw_orphan_run_metadata_fails_multi_group() -> None:
+    """Run metadata without FASTQs in one GroupID should fail when another is complete."""
+    rows = _illumina_complete_rows()
+    orphan_prefix = "s3://czi-psomagen/project-alpha/AN00000001/CZI25099999/raw/"
+    rows.append(
+        MappingRow(
+            f"{orphan_prefix}A23TL3MLT4_Manifest.tsv",
+            "/local/CZI25099999/raw/A23TL3MLT4_Manifest.tsv",
+            99,
+        )
+    )
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["matched"] == 4
+    assert any(e["type"] == "orphan_run_metadata" for e in res["errors"])
+    assert not any(w["type"] == "orphan_run_metadata" for w in res["warnings"])
+
+
+def test_find_unmatched_sif_paths_10x_illumina_reports_unmatched_groupids() -> None:
+    """find_unmatched_sif_paths_10x_illumina should separate matched and unmatched GroupIDs."""
+    base = "s3://czi-psomagen/project-alpha/AN00000001/"
+    rows = [
+        MappingRow(
+            base + "CZI25093002/raw/"
+            "A23TL3MLT4_CZI25093002_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/ok.fastq.gz",
+            1,
+        ),
+        MappingRow(
+            base + "CZI25099999/raw/"
+            "A23TL3MLT4_CZI25099999_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/extra.fastq.gz",
+            2,
+        ),
+    ]
+    sif_groupids = {"CZI25093002"}
+
+    res = find_unmatched_sif_paths_10x_illumina(rows, sif_groupids, "psomagen")
+
+    assert res["matched_sif"] == 1
+    assert res["metadata"] == 0
+    assert len(res["unparsed"]) == 0
+    assert set(res["unmatched_by_group"].keys()) == {"CZI25099999"}
+
+
+def test_find_unmatched_sif_paths_10x_illumina_skips_metadata() -> None:
+    """Run metadata and Logs rows should be skipped, not counted as unmatched."""
+    prefix = _ILLUMINA_S3_PREFIX
+    rows = [
+        MappingRow(
+            f"{prefix}A23TL3MLT4_CZI25093002_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/file.fastq.gz",
+            1,
+        ),
+        MappingRow(
+            f"{prefix}A23TL3MLT4_Manifest.tsv",
+            "/local/A23TL3MLT4_Manifest.tsv",
+            2,
+        ),
+        MappingRow(
+            f"{prefix}A23TL3MLT4_Logs/InterOp/MetricsOut.bin",
+            "/local/A23TL3MLT4_Logs/InterOp/MetricsOut.bin",
+            3,
+        ),
+    ]
+
+    res = find_unmatched_sif_paths_10x_illumina(rows, {"CZI25093002"}, "psomagen")
+
+    assert res["matched_sif"] == 1
+    assert res["metadata"] >= 2
+    assert not res["unmatched_by_group"]
+    assert not res["unparsed"]
+
+
+def test_find_unmatched_sif_paths_10x_illumina_unparsed_row() -> None:
+    """Non-FASTQ sidecars that do not match the Illumina regex should be unparsed."""
+    prefix = _ILLUMINA_S3_PREFIX
+    sidecar = "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT.csv"
+    rows = [
+        MappingRow(
+            f"{prefix}A23TL3MLT4_CZI25093002_GEX_S23_L001_R1_001.fastq.gz",
+            "/local/file.fastq.gz",
+            1,
+        ),
+        MappingRow(f"{prefix}{sidecar}", f"/local/{sidecar}", 2),
+    ]
+
+    res = find_unmatched_sif_paths_10x_illumina(rows, {"CZI25093002"}, "psomagen")
+
+    assert res["matched_sif"] == 1
+    assert len(res["unparsed"]) == 1
+    assert res["unparsed"][0].s3_path.endswith(sidecar)
+
+
+def test_validate_s3_10x_illumina_raw_ultima_stem_parse_miss() -> None:
+    """Ultima-style stems are rejected: CRAM as forbidden, sidecars as parse_miss."""
+    stem = (
+        "s3://czi-psomagen/project-alpha/AN00000001/CD4i_R1L01/raw/"
+        "416640-CD4i_R1L01_GEX-Z0238-CTGCACATTGTAGAT"
+    )
+    rows = [
+        MappingRow(f"{stem}.cram", "/local/sample.cram", 1),
+        MappingRow(f"{stem}.csv", "/local/sample.csv", 2),
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["matched"] == 0
+    by_path = {e["s3_path"]: e["type"] for e in res["errors"]}
+    assert by_path[f"{stem}.cram"] == "forbidden_cram"
+    assert by_path[f"{stem}.csv"] == "parse_miss"
+
+
+def test_validate_s3_10x_illumina_raw_allows_optional_order_manifest() -> None:
+    """Optional order-level file-manifest.json should be ignored, not flagged."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/file-manifest.json",
+            "/l/file-manifest.json",
+            1,
+        ),
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["errors"] == []
+    assert res["warnings"] == []
+    assert res["metadata_files"] == 1
+
+
+def test_validate_s3_10x_illumina_raw_warns_ultima_specific_metadata() -> None:
+    """Truly Ultima-specific metadata should warn, unlike globally allowed files."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+            "LibraryInfo.xml",
+            "/local/LibraryInfo.xml",
+            1,
+        ),
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["errors"] == []
+    assert any(w["type"] == "unexpected_ultima_metadata" for w in res["warnings"])
+
+
+def test_validate_10x_illumina_file_modalities() -> None:
+    """Modality summary should classify FASTQ, CRAM, metadata, and Logs rows."""
+    rows = _illumina_complete_rows()
+    mod = validate_10x_illumina_file_modalities(rows)
+    assert mod["fastq_count"] == 4
+    assert mod["metadata_count"] == 7
+    assert mod["logs_count"] == 1
+    assert mod["cram_count"] == 0
 
 
 # ---------------------------------------------------------------------------

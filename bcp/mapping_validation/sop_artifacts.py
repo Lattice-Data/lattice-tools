@@ -115,6 +115,32 @@ TENX_FASTQ_OPTIONAL_SUFFIX_TO_ARTIFACT: Final[dict[str, str]] = {
 
 
 # ---------------------------------------------------------------------------
+# 10x Illumina raw (FlowCellID-based FASTQ + per-flowcell run metadata)
+# ---------------------------------------------------------------------------
+#
+# SOP layout under ``…/{GroupID}/raw/``:
+#   {FlowCellID}_{GroupID}_{Assay}_S{N}_L{NNN}_{R1|R2|I1|I2}_{NNN}.fastq.gz
+#   {FlowCellID}_CopyComplete.txt, …, {FlowCellID}_Logs/…
+
+TENX_ILLUMINA_REQUIRED_READS: Final[set[str]] = {"R1", "R2", "I1", "I2"}
+
+TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT: Final[dict[str, str]] = {
+    "CopyComplete.txt": "copy_complete",
+    "Manifest.tsv": "manifest",
+    "RTAComplete.txt": "rta_complete",
+    "RTAExited.txt": "rta_exited",
+    "RunCompletionStatus.xml": "run_completion_status",
+    "RunInfo.xml": "run_info",
+    "RunParameters.xml": "run_parameters",
+}
+
+TENX_ILLUMINA_REQUIRED_RUN_ARTIFACTS: Final[set[str]] = {
+    *TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT.values(),
+    "logs",
+}
+
+
+# ---------------------------------------------------------------------------
 # sci raw (per-sample CRAM bundle)
 # ---------------------------------------------------------------------------
 #
@@ -285,6 +311,10 @@ def is_scale_per_well_optional_suffix(suffix: str) -> bool:
 
 
 __all__ = [
+    # 10x Illumina raw
+    "TENX_ILLUMINA_REQUIRED_READS",
+    "TENX_ILLUMINA_RUN_BASE_SUFFIX_TO_ARTIFACT",
+    "TENX_ILLUMINA_REQUIRED_RUN_ARTIFACTS",
     # 10x_cram
     "TENX_CRAM_SAMPLE_SUFFIX_TO_ARTIFACT",
     "TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS",

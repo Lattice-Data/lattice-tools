@@ -151,6 +151,20 @@ def _normalize_sif_assay_token(raw: str, provider: str | None = None) -> str:
     return ""
 
 
+# Psomagen order forms ship with template example rows (e.g. AC_Sample1) in the
+# Group ID column; these are not real samples and must not affect SIF completeness.
+_PSOMAGEN_SIF_EXAMPLE_GROUPID_RE: re.Pattern[str] = re.compile(
+    r"^AC_Sample\d+$", re.IGNORECASE
+)
+
+
+def _is_psomagen_sif_example_groupid(gid: str, provider: str | None) -> bool:
+    """Return True for Psomagen order-form template Group IDs (not real samples)."""
+    if (provider or "").strip().lower() != "psomagen":
+        return False
+    return bool(_PSOMAGEN_SIF_EXAMPLE_GROUPID_RE.match(gid.strip()))
+
+
 # Psomagen / CZI order forms: long cover pages; header is often row ~20–40.
 SIF_EXCEL_SCAN_NROWS: int = 600
 SIF_EXCEL_MAX_HEADER_TRIES: int = 24
@@ -298,6 +312,8 @@ def _parse_group_assays_from_dataframe(
         gid = str(row_data.get(group_col, "")).strip()
         if not gid or gid == "nan":
             continue
+        if _is_psomagen_sif_example_groupid(gid, provider):
+            continue
         raw_assay = assay_series.iloc[pos] if assay_series is not None else ""
         token = _normalize_sif_assay_token(str(raw_assay), provider)
         if token:
@@ -383,6 +399,8 @@ def load_sif_group_assays(
                 for row in reader:
                     gid = (row.get(group_col_name) or "").strip()
                     if not gid:
+                        continue
+                    if _is_psomagen_sif_example_groupid(gid, provider):
                         continue
                     assay_val = (
                         (row.get(assay_col_name) or "").strip()
