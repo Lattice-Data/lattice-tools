@@ -81,11 +81,16 @@ def main(argv: list[str] | None = None) -> None:
             file_a, file_b = args.compare
             raise SystemExit(_compare(file_a, file_b, args.column))
 
-        for path in args.files:
-            print(f"{signature(path, column=args.column)}\t{path}")
+        # Compute every signature before printing so a failure on a later file
+        # does not leave partial output on stdout for a piped consumer.
+        lines = [
+            f"{signature(path, column=args.column)}\t{path}" for path in args.files
+        ]
     except GuideSigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
+
+    print("\n".join(lines))
 
 
 if __name__ == "__main__":

@@ -63,3 +63,15 @@ def test_cli_error_exits_nonzero(capsys) -> None:
     err = capsys.readouterr().err
     assert "error:" in err
     assert "absent from header" in err
+
+
+def test_cli_multi_file_failure_emits_no_partial_stdout(tmp_path, capsys) -> None:
+    """A later failing file must not leave earlier signatures on stdout."""
+    bad = tmp_path / "bad.tsv"
+    bad.write_bytes(b"property\tguide_id\r\n\tg1\r\n")  # no protospacer column
+    with pytest.raises(SystemExit) as exc:
+        main([str(FIXTURES / "lib_one.tsv"), str(bad)])
+    assert exc.value.code != 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "error:" in captured.err

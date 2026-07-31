@@ -36,6 +36,13 @@ Exactly these steps, in this order. No additions.
    `property` and the rows `#comment` and `#example` must be excluded. Filter on
    first-column *position*, not on the literal header name `property`, and not on the
    literal strings `#comment` / `#example`.
+   - Amendment (documented deviation from the original algorithm): a **fully blank
+     row** -- one the `csv` reader yields as `[]` or as a list whose every cell is the
+     empty string -- is skipped, not treated as an error. This covers the trailing empty
+     line that Excel/Google Sheets exports routinely append, and short rows made entirely
+     of dropped trailing tabs. A row that is short *and* has any non-empty cell is still a
+     ragged row and must raise (see Errors). This is the only addition to the literal
+     step list; it is captured here so the spec stays authoritative.
 3. From each remaining row take the protospacer column. Default name
    `guide_protospacer`, overridable by the caller.
 4. Apply `.strip()` then `.upper()` to the value.
@@ -59,7 +66,10 @@ Raise, with the file path and the 1-based physical row number where applicable:
 - protospacer column absent from the header
 - non-ACGT character in a data value
 - zero usable sequences after filtering (empty set) -- never return a signature for this
-- file unreadable or not TSV-parseable
+- file unreadable, not TSV-parseable, or not decodable as UTF-8 (a file saved as
+  Windows-1252/Latin-1 raises rather than propagating a raw `UnicodeDecodeError`)
+- a ragged row (shorter than the header) that is not a fully blank row, named by its
+  1-based physical row number
 
 ## Interface
 

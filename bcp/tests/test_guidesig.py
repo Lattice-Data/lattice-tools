@@ -334,6 +334,15 @@ def test_missing_column_raises(tmp_path: Path) -> None:
         signature(path)
 
 
+def test_non_utf8_file_raises_guidesig_error(tmp_path: Path) -> None:
+    """A Latin-1/Windows-1252 export must raise GuideSigError, not a raw decode error."""
+    path = tmp_path / "latin1.tsv"
+    # 0xE9 is 'é' in Latin-1 and is an invalid UTF-8 start byte here.
+    path.write_bytes(b"property\tguide_protospacer\r\n\tGENE\xe9\tAAAA\r\n")
+    with pytest.raises(GuideSigError, match="not valid UTF-8"):
+        signature(path)
+
+
 def test_serialization_pinning_join_and_no_trailing_newline(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "pin.tsv",

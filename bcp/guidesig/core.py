@@ -62,6 +62,10 @@ def protospacer_set(path: str | Path, column: str = DEFAULT_COLUMN) -> set[str]:
                     )
 
                 sequences.add(value)
+    except UnicodeDecodeError as exc:
+        raise GuideSigError(
+            f"{file_path}: not valid UTF-8 (expected utf-8/utf-8-sig): {exc}"
+        ) from exc
     except OSError as exc:
         raise GuideSigError(f"{file_path}: file unreadable: {exc}") from exc
     except csv.Error as exc:
