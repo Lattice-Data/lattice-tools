@@ -627,8 +627,21 @@ non-protospacer columns) produce the same signature; otherwise they differ.
 
 - Same set of protospacer strings → identical `gsig1:set:n=…:…` signature
 - Different set → different signature
-- Layout, column order, case, padding, duplicate rows, and empty protospacer cells do
-  not affect the result
+- For structurally valid rows, layout, column order, case, padding, duplicate rows, and
+  empty protospacer cells do not affect the result
+
+### Input validation
+
+Input must be a UTF-8 (optionally BOM-prefixed) TSV with a header containing
+`guide_protospacer`, or the name supplied through `--column`. The tool:
+
+- ignores fully blank rows and rows whose first cell starts with `#` after leading
+  whitespace is removed
+- strips and uppercases protospacers, skipping empty values
+- rejects non-empty rows shorter than the header, including rows where trailing tabs were
+  dropped during export
+- rejects a missing signature column, non-ACGT protospacer values, invalid UTF-8, and
+  files with no usable protospacers
 
 ### What it deliberately does **not** guarantee
 
