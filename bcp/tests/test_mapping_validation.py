@@ -2553,6 +2553,36 @@ def test_validate_s3_10x_illumina_raw_ultima_stem_parse_miss() -> None:
     assert by_path[f"{stem}.csv"] == "parse_miss"
 
 
+def test_validate_s3_10x_illumina_raw_allows_optional_order_manifest() -> None:
+    """Optional order-level file-manifest.json should be ignored, not flagged."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/file-manifest.json",
+            "/l/file-manifest.json",
+            1,
+        ),
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["errors"] == []
+    assert res["warnings"] == []
+    assert res["metadata_files"] == 1
+
+
+def test_validate_s3_10x_illumina_raw_warns_ultima_specific_metadata() -> None:
+    """Truly Ultima-specific metadata should warn, unlike globally allowed files."""
+    rows = [
+        MappingRow(
+            "s3://czi-psomagen/project-alpha/AN00000001/CZI25093002/raw/"
+            "LibraryInfo.xml",
+            "/local/LibraryInfo.xml",
+            1,
+        ),
+    ]
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+    assert res["errors"] == []
+    assert any(w["type"] == "unexpected_ultima_metadata" for w in res["warnings"])
+
+
 def test_validate_10x_illumina_file_modalities() -> None:
     """Modality summary should classify FASTQ, CRAM, metadata, and Logs rows."""
     rows = _illumina_complete_rows()
