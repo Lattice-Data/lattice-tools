@@ -617,6 +617,65 @@ Potential improvements using bioframe:
 4. **Multiple GTF sources**: Merge annotations from multiple files
 5. **Additional bedtools-style operations**: Leverage bioframe's full feature set
 
+## Protospacer set signature (`guidesig`)
+
+`guidesig` computes a deterministic string for the **set** of protospacer sequences in a
+guide-template TSV. Two files with the same protospacer set (ignoring row order and all
+non-protospacer columns) produce the same signature; otherwise they differ.
+
+### What it guarantees
+
+- Same set of protospacer strings → identical `gsig1:set:n=…:…` signature
+- Different set → different signature
+- Layout, column order, case, padding, duplicate rows, and empty protospacer cells do
+  not affect the result
+
+### What it deliberately does **not** guarantee
+
+This is a **string-identity** check on one column, not a biological equivalence check.
+
+- Sequence length is not normalized
+- A leading/trailing `G` is not stripped
+- Reverse-complement is not applied
+- Strand / orientation is not canonicalized
+- Sequences are not mapped to genomic coordinates
+
+Two files that differ only by a trimmed base or a strand flip **must** produce different
+signatures. A false match is the failure mode this tool exists to prevent.
+
+### Version prefix
+
+Signatures are prefixed with `gsig1` so a future change to the rules cannot silently make
+old and new signatures comparable. The `n=` field reports unique sequence count for
+mismatch diagnosis without re-parsing the files.
+
+### Usage
+
+Stdlib only (`csv`, `hashlib`, `argparse`, `pathlib`). From the `bcp/` directory:
+
+```bash
+# One signature line per file: <signature>\t<path>
+python -m guidesig path/to/lib.tsv
+
+# Compare two libraries
+python -m guidesig --compare lib_a.tsv lib_b.tsv
+
+# Alternate column
+python -m guidesig lib.tsv --column guide_rc_sequence
+```
+
+Library API:
+
+```python
+from guidesig import signature, protospacer_set
+
+sig = signature("lib.tsv")
+seqs = protospacer_set("lib.tsv")
+```
+
+Regression fixtures and golden digests live in `tests/fixtures/lib_*.tsv` and are covered
+by `tests/test_guidesig.py`.
+
 ## Contributing
 
 When modifying the pipeline:
