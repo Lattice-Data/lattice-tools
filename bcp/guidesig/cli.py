@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .core import GuideSigError, protospacer_set, signature
+from .core import DEFAULT_COLUMN, GuideSigError, protospacer_set, signature
 
 
 def _format_examples(sequences: set[str], limit: int = 10) -> str:
@@ -60,9 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--column",
-        default="guide_protospacer",
+        default=DEFAULT_COLUMN,
         metavar="NAME",
-        help="Protospacer column name (default: guide_protospacer)",
+        help=f"Protospacer column name (default: {DEFAULT_COLUMN})",
     )
     return parser
 

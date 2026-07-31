@@ -8,9 +8,10 @@ normalized.
 
 from __future__ import annotations
 
-from .core import GuideSigError, protospacer_set, signature
+from .core import DEFAULT_COLUMN, GuideSigError, protospacer_set, signature
 
 __all__ = [
+    "DEFAULT_COLUMN",
     "GuideSigError",
     "protospacer_set",
     "signature",

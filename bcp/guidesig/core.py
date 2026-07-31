@@ -7,14 +7,14 @@ from hashlib import sha256
 from pathlib import Path
 
 _ACGT = frozenset("ACGT")
-_DEFAULT_COLUMN = "guide_protospacer"
+DEFAULT_COLUMN = "guide_protospacer"
 
 
 class GuideSigError(ValueError):
     """Raised when a guide-template TSV cannot yield a valid signature."""
 
 
-def protospacer_set(path: str | Path, column: str = _DEFAULT_COLUMN) -> set[str]:
+def protospacer_set(path: str | Path, column: str = DEFAULT_COLUMN) -> set[str]:
     """Return the set of uppercase ACGT protospacer strings from a TSV."""
     file_path = Path(path)
     try:
@@ -57,8 +57,6 @@ def protospacer_set(path: str | Path, column: str = _DEFAULT_COLUMN) -> set[str]
                     )
 
                 sequences.add(value)
-    except GuideSigError:
-        raise
     except OSError as exc:
         raise GuideSigError(f"{file_path}: file unreadable: {exc}") from exc
     except csv.Error as exc:
@@ -70,7 +68,7 @@ def protospacer_set(path: str | Path, column: str = _DEFAULT_COLUMN) -> set[str]
     return sequences
 
 
-def signature(path: str | Path, column: str = _DEFAULT_COLUMN) -> str:
+def signature(path: str | Path, column: str = DEFAULT_COLUMN) -> str:
     """Return the gsig1 set signature for the protospacers in ``path``."""
     sequences = protospacer_set(path, column=column)
     sorted_sequences = sorted(sequences)
