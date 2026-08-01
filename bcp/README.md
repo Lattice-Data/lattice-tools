@@ -620,8 +620,8 @@ Potential improvements using bioframe:
 ## Protospacer set signature (`guidesig`)
 
 `guidesig` computes a deterministic string for the **set** of protospacer sequences in a
-guide-template TSV. Two files with the same protospacer set (ignoring row order and all
-non-protospacer columns) produce the same signature; otherwise they differ.
+guide-template TSV or CSV. Two files with the same protospacer set (ignoring row order and
+all non-protospacer columns) produce the same signature; otherwise they differ.
 
 ### What it guarantees
 
@@ -629,11 +629,26 @@ non-protospacer columns) produce the same signature; otherwise they differ.
 - Different set → different signature
 - For structurally valid rows, layout, column order, case, padding, duplicate rows, and
   empty protospacer cells do not affect the result
+- The input format does not affect the result: the same sequences stored as TSV and as CSV
+  produce the same signature
+
+### Input format is mandatory
+
+`--format tsv` or `--format csv` is **required**, and the library equivalent
+`file_format=` is a required keyword argument. The format is never inferred from the file
+extension and never sniffed from the contents, because content sniffing misclassifies the
+sparse single-column rows these templates contain. Naming the wrong format fails loudly
+(the protospacer column will be reported as absent from the header) rather than
+misparsing.
+
+`--compare` applies one `--format` to both files, so the two files being compared must be
+in the same format.
 
 ### Input validation
 
-Input must be a UTF-8 (optionally BOM-prefixed) TSV with a header containing
-`guide_protospacer`, or the name supplied through `--column`. The tool:
+Input must be a UTF-8 (optionally BOM-prefixed) TSV or CSV with a header containing
+`guide_protospacer`, or the name supplied through `--column`. In CSV input, quoted cells
+containing commas are parsed correctly and do not shift the protospacer column. The tool:
 
 - ignores fully blank rows and rows whose first cell starts with `#` after leading
   whitespace is removed
@@ -668,26 +683,33 @@ Stdlib only (`csv`, `hashlib`, `argparse`, `pathlib`). From the `bcp/` directory
 
 ```bash
 # One signature line per file: <signature>\t<path>
-python -m guidesig path/to/lib.tsv
+python -m guidesig --format tsv path/to/lib.tsv
 
-# Compare two libraries
-python -m guidesig --compare lib_a.tsv lib_b.tsv
+# CSV input
+python -m guidesig --format csv path/to/lib.csv
+
+# Compare two libraries (both must be in the given format)
+python -m guidesig --format tsv --compare lib_a.tsv lib_b.tsv
 
 # Alternate column
-python -m guidesig lib.tsv --column guide_rc_sequence
+python -m guidesig --format tsv lib.tsv --column guide_rc_sequence
 ```
+
+Output is always `<signature>\t<path>`, tab-separated regardless of the input format.
 
 Library API:
 
 ```python
 from guidesig import signature, protospacer_set
 
-sig = signature("lib.tsv")
-seqs = protospacer_set("lib.tsv")
+sig = signature("lib.tsv", file_format="tsv")
+seqs = protospacer_set("lib.csv", file_format="csv")
 ```
 
-Regression fixtures and golden digests live in `tests/fixtures/lib_*.tsv` and are covered
-by `tests/test_guidesig.py`.
+Regression fixtures and golden digests live in `tests/fixtures/lib_*.tsv` and
+`tests/fixtures/lib_two_layout_a.csv`, and are covered by `tests/test_guidesig.py` and
+`tests/test_guidesig_csv.py`. The CSV fixture is a conversion of the layout A TSV and is
+pinned to the same digest, which is what proves the two readers agree.
 
 ## Contributing
 

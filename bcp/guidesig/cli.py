@@ -6,7 +6,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from .core import DEFAULT_COLUMN, GuideSigError, protospacer_set, signature
+from .core import (
+    DEFAULT_COLUMN,
+    FILE_FORMATS,
+    GuideSigError,
+    protospacer_set,
+    signature,
+)
 
 
 def _format_examples(sequences: set[str], limit: int = 10) -> str:
@@ -14,9 +20,9 @@ def _format_examples(sequences: set[str], limit: int = 10) -> str:
     return ", ".join(examples) if examples else "(none)"
 
 
-def _compare(file_a: Path, file_b: Path, column: str) -> int:
-    set_a = protospacer_set(file_a, column=column)
-    set_b = protospacer_set(file_b, column=column)
+def _compare(file_a: Path, file_b: Path, column: str, file_format: str) -> int:
+    set_a = protospacer_set(file_a, file_format=file_format, column=column)
+    set_b = protospacer_set(file_b, file_format=file_format, column=column)
 
     if set_a == set_b:
         print("match")
@@ -42,21 +48,31 @@ def build_parser() -> argparse.ArgumentParser:
         prog="guidesig",
         description=(
             "Compute deterministic protospacer-set signatures for "
-            "guide-template TSV files."
+            "guide-template TSV or CSV files."
         ),
     )
     parser.add_argument(
         "files",
         nargs="*",
         type=Path,
-        help="One or more guide-template TSV files to signature",
+        help="One or more guide-template files to signature",
     )
     parser.add_argument(
         "--compare",
         nargs=2,
         metavar=("FILE_A", "FILE_B"),
         type=Path,
-        help="Compare two files and report match or set-difference summary",
+        help=(
+            "Compare two files and report match or set-difference summary; "
+            "both files must be in the format given by --format"
+        ),
+    )
+    parser.add_argument(
+        "--format",
+        dest="file_format",
+        required=True,
+        choices=sorted(FILE_FORMATS),
+        help="Input file format; required, never inferred from the file name",
     )
     parser.add_argument(
         "--column",
@@ -79,13 +95,14 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if args.compare is not None:
             file_a, file_b = args.compare
-            raise SystemExit(_compare(file_a, file_b, args.column))
+            raise SystemExit(_compare(file_a, file_b, args.column, args.file_format))
 
         # Compute every signature before printing so a failure on a later file
         # does not leave partial output on stdout for a piped consumer.
-        lines = [
-            f"{signature(path, column=args.column)}\t{path}" for path in args.files
-        ]
+        lines = []
+        for path in args.files:
+            sig = signature(path, file_format=args.file_format, column=args.column)
+            lines.append(f"{sig}\t{path}")
     except GuideSigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
