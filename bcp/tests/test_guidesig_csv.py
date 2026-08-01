@@ -124,6 +124,21 @@ def test_csv_non_acgt_raises_with_row_number(tmp_path: Path, bad: str) -> None:
         signature(path, file_format="csv")
 
 
+def test_csv_multiline_quoted_cell_keeps_row_numbers_physical(tmp_path: Path) -> None:
+    """A spreadsheet cell with an embedded newline must not shift row numbers."""
+    path = _write_csv(
+        tmp_path / "multiline.csv",
+        [
+            ["property", "guide_target_region", "guide_protospacer"],
+            ["", "chrFAKE:1000-1100\nsecond locus", "AAAA"],
+            ["", "chrFAKE:1200-1300", "AAAN"],  # non-ACGT, on physical line 4
+        ],
+    )
+    assert path.read_bytes().count(b"\n") == 4
+    with pytest.raises(GuideSigError, match="row 4"):
+        signature(path, file_format="csv")
+
+
 def test_csv_missing_column_raises(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "missing.csv",

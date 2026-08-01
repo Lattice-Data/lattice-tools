@@ -658,6 +658,11 @@ containing commas are parsed correctly and do not shift the protospacer column. 
 - rejects a missing signature column, non-ACGT protospacer values, invalid UTF-8, and
   files with no usable protospacers
 
+Row numbers in rejection messages are **physical file line numbers**, counted the way a
+text editor counts them. A quoted cell containing an embedded newline spans several lines,
+and such a record is reported at the line it starts on, so the number always points at
+what the user sees when they open the file.
+
 ### What it deliberately does **not** guarantee
 
 This is a **string-identity** check on one column, not a biological equivalence check.

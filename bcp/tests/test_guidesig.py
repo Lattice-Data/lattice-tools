@@ -321,6 +321,56 @@ def test_ragged_row_with_protospacer_still_raises(tmp_path: Path) -> None:
         signature(path, file_format="tsv")
 
 
+def test_multiline_quoted_cell_parses(tmp_path: Path) -> None:
+    """A quoted cell holding an embedded newline is one record, not two rows."""
+    path = _write_tsv(
+        tmp_path / "multiline.tsv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "pasted from\na spreadsheet", "AAAA"],
+            ["", "g2", "CCCC"],
+        ],
+    )
+    assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
+
+
+def test_multiline_quoted_cell_keeps_row_numbers_physical(tmp_path: Path) -> None:
+    """An earlier embedded newline must not shift the reported row number.
+
+    The ragged row sits on physical line 4 because the preceding record spans
+    lines 2 and 3, which is the line a user opening the file would look at.
+    """
+    path = _write_tsv(
+        tmp_path / "multiline_ragged.tsv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "pasted from\na spreadsheet", "AAAA"],
+            ["", "g2"],  # missing protospacer cell, on physical line 4
+        ],
+    )
+    assert path.read_bytes().count(b"\n") == 4
+    with pytest.raises(GuideSigError, match="row 4"):
+        signature(path, file_format="tsv")
+
+
+def test_multiline_offending_row_reports_its_first_line(tmp_path: Path) -> None:
+    """A bad record that itself spans lines is reported at the line it starts on.
+
+    Both records span two lines, so the offending one starts on physical line 4.
+    """
+    path = _write_tsv(
+        tmp_path / "multiline_bad.tsv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "pasted from\na spreadsheet", "AAAA"],
+            ["", "also pasted\nfrom a spreadsheet", "AAAN"],
+        ],
+    )
+    assert path.read_bytes().count(b"\n") == 5
+    with pytest.raises(GuideSigError, match="row 4"):
+        signature(path, file_format="tsv")
+
+
 @pytest.mark.parametrize("bad", ["N", "U", "0", "-"])
 def test_non_acgt_raises_with_row_number(tmp_path: Path, bad: str) -> None:
     path = _write_tsv(

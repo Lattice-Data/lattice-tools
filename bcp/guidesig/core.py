@@ -67,7 +67,17 @@ def protospacer_set(
                 ) from exc
 
             sequences: set[str] = set()
-            for physical_row, row in enumerate(reader, start=2):
+            # Reported row numbers are physical file lines, derived from
+            # reader.line_num rather than a record counter: a quoted cell holding
+            # an embedded newline spans several lines, and a record counter would
+            # then under-report every later row against what the user sees when
+            # they open the file. line_num is the last line of the record just
+            # read, so the next record begins on the line after it.
+            record_line = reader.line_num + 1
+            for row in reader:
+                physical_row = record_line
+                record_line = reader.line_num + 1
+
                 # Fully blank lines (common trailing Excel/Sheets artifact) are
                 # skipped; a row with cells but an empty first column is retained.
                 if not row or all(cell == "" for cell in row):
