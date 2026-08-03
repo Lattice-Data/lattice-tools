@@ -639,6 +639,13 @@ class QADataGatherer:
             return False
         if _is_merged_trimmer_file(key):
             return False
+        # SeaHub per-well artifacts (".csv" / "_fail.csv", with or without the
+        # ".trim" infix) are single-well trimmer output, never sublibrary
+        # aggregates, and carry no PCT_PF_Q30_bases.  Compliant names happened to
+        # be excluded by the hash_oligo check below, but that only holds for
+        # sublibraries whose type token contains "hash_oligo".
+        if self.raw_assay == "seahub_sci" and seahub_stem_and_family(name) is not None:
+            return False
         if re.search("hash_oligo", name):
             return False
         excluded = (

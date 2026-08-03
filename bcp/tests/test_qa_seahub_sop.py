@@ -320,6 +320,58 @@ class TestFailCsvSuffixes:
         assert data.trimmer_failure_stats["438514"]["trimmer_fail"]
         assert BARE_STEM in data.seahub_fail_counts
 
+    def test_per_well_csvs_are_not_read_as_sublibrary_q30_stats(self):
+        # Per-well ".csv" / "_fail.csv" are single-well trimmer output and carry
+        # no PCT_PF_Q30_bases.  Treating them as sublibrary stats fetched one
+        # object per well and emitted a "PCT_PF_Q30_bases missing" warning for
+        # each.  Wells without a sublibrary type are the exposed case, since the
+        # generic filter only skips names containing "hash_oligo".
+        raw_dir = "labalpha-seahub-bcp/REF3/raw/P07_1/438514"
+        keys = [
+            f"{raw_dir}/{BARE_STEM}.cram",
+            f"{raw_dir}/{BARE_STEM}.csv",
+            f"{raw_dir}/{BARE_STEM}_fail.csv",
+            f"{raw_dir}/{TRIM_STEM}.trim.csv",
+            f"{raw_dir}/{TRIM_STEM}.trim_fail.csv",
+        ]
+        pages = {
+            ("labalpha-seahub-bcp/REF3/", "/"): [
+                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/"}]}
+            ],
+            ("labalpha-seahub-bcp/REF3/raw/", "/"): [
+                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/P07_1/"}]}
+            ],
+            ("labalpha-seahub-bcp/REF3/raw/P07_1/", "/"): [
+                {"CommonPrefixes": [{"Prefix": f"{raw_dir}/"}]}
+            ],
+            (f"{raw_dir}/", ""): [{"Contents": [{"Key": k} for k in keys]}],
+        }
+        ctx = _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj="labalpha-seahub-bcp",
+            order="REF3",
+            listing_prefix="labalpha-seahub-bcp/REF3/",
+        )
+        with open(SEAHUB_TRIM_FAIL) as fh:
+            fail_content = fh.read()
+        # Only the failure CSVs are registered.  A Q30 read of the per-well
+        # ".csv" files would go through s3fs and find nothing; the warning
+        # asserted below is what the reviewer saw hundreds of times.
+        s3 = MockS3Client(
+            paginated_pages=pages,
+            file_contents={
+                f"{raw_dir}/{BARE_STEM}_fail.csv": fail_content,
+                f"{raw_dir}/{TRIM_STEM}.trim_fail.csv": fail_content,
+            },
+        )
+        data = gather_qa_data(ctx, s3)
+        assert data.pct_q30_values == {}
+        assert not [
+            w for w in data.gathering_warnings if "PCT_PF_Q30_bases missing" in w
+        ]
+
     def test_gather_records_sop_violations_and_one_summary_warning(self):
         raw_dir = "labalpha-seahub-bcp/REF3/raw/P07_1/438514"
         keys = [f"{raw_dir}/{BARE_STEM}{s}" for s in (".cram", ".csv", ".stdout")]
