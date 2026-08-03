@@ -310,7 +310,9 @@ class QADataGatherer:
         breakdown = ", ".join(f"{name}={count}" for name, count in summary.items())
         self._data.gathering_warnings.append(
             f"SOP VIOLATIONS: {len(violations)} across "
-            f"{len(summary)} rule(s): {breakdown}"
+            f"{len(summary)} rule(s): {breakdown} "
+            f"— per-rule examples in the SOP violations cell below; full detail in "
+            f"{self.ctx.output_label}_raw_sop_violations.csv"
         )
 
     def _append_seahub_plate_warnings(
