@@ -29,6 +29,7 @@ from qa_mods import (
     merge_partial_wafer_stats,
     parse_seahub_raw_path,
     seahub_file_stem,
+    seahub_stem_and_family,
     seahub_trimmer_failure_storage_key,
     seahub_trimmer_group_storage_key,
     trimmer_failure_storage_key,
@@ -42,7 +43,13 @@ from qa_mods import (
     parse_scale_workflow_info,
     valid_assays,
 )
-from qa_constants import SEAHUB_PLATE_SIZES
+from qa_constants import (
+    SEAHUB_FAIL_SUFFIXES,
+    SEAHUB_PLATE_SIZES,
+    SEAHUB_SUBLIBRARY_TYPES,
+    SEAHUB_UNTYPED_LABEL,
+)
+from qa_seahub_sop import sop_violation_summary, validate_seahub_stems
 
 METADATA_DOWNLOAD_MAX_WORKERS = 16
 METADATA_DOWNLOAD_PROGRESS_INTERVAL = 250
@@ -86,6 +93,15 @@ class QAGatheredData:
     has_processed: bool = False
     gathering_errors: list[str] = field(default_factory=list)
     gathering_warnings: list[str] = field(default_factory=list)
+    # SeaHub-only: every wafer folder seen under raw/{sublibrary}/{wafer}/, so
+    # the wafer table can list wafers that produced no parsable failure CSV.
+    discovered_wafers: set[str] = field(default_factory=set)
+    # SeaHub-only: SOP path/filename violations, one entry per stem+rule.
+    sop_violations: list[dict[str, str]] = field(default_factory=list)
+    # SeaHub-only: absolute per-format trimmer failed/total counts keyed by stem.
+    seahub_fail_counts: dict[str, dict[str, dict[str, int]]] = field(
+        default_factory=dict
+    )
 
 
 class QADataGatherer:
@@ -226,6 +242,9 @@ class QADataGatherer:
             )
             for wafer_entry in r_wafers.get("CommonPrefixes", []):
                 wafer_prefix = wafer_entry["Prefix"]
+                wafer = wafer_prefix.rstrip("/").split("/")[-1]
+                if wafer:
+                    self._data.discovered_wafers.add(wafer)
                 for page in self.paginator.paginate(
                     Bucket=self.bucket, Prefix=wafer_prefix
                 ):
@@ -254,19 +273,16 @@ class QADataGatherer:
                         f"WRONG EXPERIMENT: {path_info['experiment_id']} "
                         f"expected {experiment_id} in {rf}"
                     )
-                stem = seahub_file_stem(name)
-                if stem is not None:
+                parsed_stem = seahub_stem_and_family(name)
+                if parsed_stem is not None:
+                    stem, suffix, _family = parsed_stem
                     key = (path_info["sublibrary"], path_info["wafer"])
                     plate_counts.setdefault(key, set()).add(stem)
                     stem_key = "/".join(rf.split("/")[:-1]) + "/" + stem
-                    if name.endswith(".trim.cram-metadata.json"):
+                    if suffix.endswith(".cram-metadata.json"):
                         metadata_stems.add(stem_key)
-                    elif name.endswith(".trim.cram"):
+                    elif suffix.endswith(".cram"):
                         cram_stems.add(stem_key)
-                if not name.startswith(f"{path_info['wafer']}-"):
-                    self._data.gathering_warnings.append(
-                        f"WAFER PREFIX MISMATCH: folder {path_info['wafer']} vs {rf}"
-                    )
 
             if self._should_download_metadata_json(rf):
                 metadata_files.append(rf)
@@ -276,6 +292,26 @@ class QADataGatherer:
         self._download_metadata_json_batch(metadata_files)
         self._append_seahub_plate_warnings(plate_counts)
         self._append_seahub_missing_metadata_warnings(cram_stems, metadata_stems)
+        self._append_seahub_sop_violations()
+
+    def _append_seahub_sop_violations(self) -> None:
+        """Validate the listing against the SOP, one entry per stem and rule.
+
+        Kept out of ``gathering_warnings`` deliberately: a wholly misnamed
+        upload produces one entry per well, which would bury every other
+        warning.  Only a summary line goes to the warnings list; the detail is
+        reported as its own table.
+        """
+        violations = validate_seahub_stems(self.bucket, self._data.all_raw_files)
+        if not violations:
+            return
+        self._data.sop_violations = [v.as_dict() for v in violations]
+        summary = sop_violation_summary(violations)
+        breakdown = ", ".join(f"{name}={count}" for name, count in summary.items())
+        self._data.gathering_warnings.append(
+            f"SOP VIOLATIONS: {len(violations)} across "
+            f"{len(summary)} rule(s): {breakdown}"
+        )
 
     def _append_seahub_plate_warnings(
         self, plate_counts: dict[tuple[str, str], set[str]]
@@ -350,7 +386,15 @@ class QADataGatherer:
         parsed = parse_raw_filename(rf, self.raw_assay)
         if parsed is not None:
             _run, group, assay, _ug, _barcode = parsed
-            if assay not in valid_assays:
+            # SeaHub allows a narrower vocabulary than valid_assays, and a
+            # missing type is already reported as invalid_sublibrary_type by the
+            # SOP validator, so it must not also raise a WRONG ASSAY error.
+            if self.raw_assay == "seahub_sci":
+                allowed_assays: tuple[str, ...] | list[str] = SEAHUB_SUBLIBRARY_TYPES
+                assay_is_wrong = assay is not None and assay not in allowed_assays
+            else:
+                assay_is_wrong = assay not in valid_assays
+            if assay_is_wrong:
                 self._data.gathering_errors.append(f"WRONG ASSAY: {assay} {rf}")
             if (
                 _normalize_group_id_for_compare(group)
@@ -364,7 +408,8 @@ class QADataGatherer:
                 fl = self._data.fastq_log
                 if group not in fl:
                     fl[group] = {}
-                fl[group].setdefault(assay, []).append(rf.split("/")[-1])
+                assay_key = assay if assay is not None else SEAHUB_UNTYPED_LABEL
+                fl[group].setdefault(assay_key, []).append(rf.split("/")[-1])
 
         if self._should_download_metadata_json(rf):
             self._download_metadata_json(rf)
@@ -372,7 +417,7 @@ class QADataGatherer:
             ("trimmer-failure_codes.csv", "trimmer-failure-codes.csv")
         ) and not rf.endswith("merged_trimmer-failure_codes.csv"):
             self._download_trimmer_failure_codes(rf)
-        elif self.raw_assay == "seahub_sci" and rf.endswith(".trim_fail.csv"):
+        elif self.raw_assay == "seahub_sci" and rf.endswith(SEAHUB_FAIL_SUFFIXES):
             self._download_seahub_trim_fail(rf)
         elif _is_merged_trimmer_file(rf):
             ingest_merged_trimmer_from_s3(
@@ -423,7 +468,7 @@ class QADataGatherer:
                 ):
                     print(f"  downloaded {completed}/{total} metadata JSON file(s)")
 
-    def _should_count_for_fastq_log(self, rf: str, assay: str) -> bool:
+    def _should_count_for_fastq_log(self, rf: str, assay: str | None) -> bool:
         if rf.endswith(".fastq.gz") and not rf.endswith("_sample.fastq.gz"):
             return True
         if rf.endswith(".cram") and assay == "viral_ORF":
@@ -436,7 +481,10 @@ class QADataGatherer:
             return True
         if rf.endswith(".cram") and self.raw_assay == "10x_cram":
             return False
-        if rf.endswith(".trim.cram") and self.raw_assay == "seahub_sci":
+        # Both SeaHub families count: bare ".cram" here is a trim output whose
+        # ".trim" infix was dropped, not vendor data, so excluding it would hide
+        # most of a misnamed upload from the per-sublibrary counts.
+        if rf.endswith(".cram") and self.raw_assay == "seahub_sci":
             return True
         return False
 
@@ -726,7 +774,11 @@ class QADataGatherer:
             Path(local).unlink(missing_ok=True)
 
     def _download_seahub_trim_fail(self, rf: str) -> None:
-        """Aggregate per-well SeaHub ``*.trim_fail.csv`` into trimmer stats.
+        """Aggregate a per-well SeaHub trim failure CSV into trimmer stats.
+
+        Handles both ``*.trim_fail.csv`` (SOP) and ``*_fail.csv`` (the same
+        artifact without the ``.trim`` infix); without the second form, uploads
+        that dropped the infix contribute no wafer rows at all.
 
         SeaHub uploads start from RSQ-passing reads and carry no merged
         trimmer files, so no wafer-level RSQ/TT metrics are derived here; the
@@ -740,6 +792,7 @@ class QADataGatherer:
         if run_id is not None:
             self._data.exp_to_run_map[run_id] = run_id
             self._data.exp_to_run_map[group_key] = run_id
+        stem_key = seahub_file_stem(rf)
         with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
             local = tf.name
         try:
@@ -749,6 +802,8 @@ class QADataGatherer:
                 storage_key,
                 local,
                 warnings=self._data.gathering_warnings,
+                fail_counts=self._data.seahub_fail_counts,
+                stem_key=stem_key,
             )
             grab_seahub_trim_fail_csv(self._data.group_failure_stats, group_key, local)
         finally:

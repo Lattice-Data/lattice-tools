@@ -82,9 +82,12 @@ class TestSeahubParsing:
         )
 
     def test_parse_raw_filename_seahub_cram(self):
+        # Group is the folder sublibrary, not the ExperimentID: the folder value
+        # is SOP-anchored and stable, whereas returning the ExperimentID lumped
+        # every sublibrary of an experiment into one row.
         assert parse_raw_filename(SEAHUB_KEY_CRAM, "seahub_sci") == (
             "430479",
-            "REF3",
+            "P05_1",
             "GEX_hash_oligo",
             "Z0097",
             "CAGTCAGTTGCAGAT",
@@ -93,7 +96,7 @@ class TestSeahubParsing:
     def test_parse_raw_filename_seahub_trim_fail(self):
         assert parse_raw_filename(SEAHUB_KEY_FAIL, "seahub_sci") == (
             "430479",
-            "REF3",
+            "P05_1",
             "GEX_hash_oligo",
             "Z0097",
             "CAGTCAGTTGCAGAT",
@@ -294,10 +297,11 @@ class TestSeahubGather:
         data = gather_qa_data(ctx, s3)
         assert data.has_raw is True
         assert len(data.all_raw_files) == 5
-        assert "REF3" in data.fastq_log
-        assert "GEX_hash_oligo" in data.fastq_log["REF3"]
+        assert "P05_1" in data.fastq_log
+        assert "GEX_hash_oligo" in data.fastq_log["P05_1"]
         assert "430479" in data.trimmer_failure_stats
         assert "REF3/P05_1" in data.group_failure_stats
+        assert data.discovered_wafers == {"430479"}
 
     def test_gather_manifest_enriches_seahub(self):
         manifest = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")

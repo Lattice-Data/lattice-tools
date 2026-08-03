@@ -760,6 +760,37 @@ For `bcp/qa.ipynb` and `qa_gather` raw-file validation, 10x group comparisons no
 
 This avoids false-positive group errors when providers use different separators between folder names and file names.
 
+### SeaHub lab raw QA (`raw_assay='seahub_sci'`)
+
+Collaborator lab trimmed uploads (`czi-trapnell` / `czi-hamazaki`, `*-seahub-bcp`) are QA'd in
+`bcp/qa.ipynb` with `raw_assay='seahub_sci'`; processed validation is off for this mode. The SOP is:
+
+```
+s3://czi-{lab}/{lastname}-{projectname}/{ExperimentID}/raw/{sublibrary}/{wafer}/
+    {wafer}-{sublibrary}[_{well}]_{sublibrary type}-{UG}-{barcode}.trim.*
+```
+
+with `{sublibrary type}` in `GEX`, `CRI`, `hash_oligo`, `GEX_hash_oligo`. The ExperimentID is not a
+filename field; it appears in a name only when it is part of that project's sublibrary name (e.g.
+`REF3_P05_2`).
+
+Three checks are specific to this mode:
+
+- **Two suffix families.** `qa_constants.SEAHUB_TRIM_SUFFIXES` is the SOP set; `SEAHUB_BARE_SUFFIXES`
+  is the same six artifacts with the `.trim` infix dropped, which real uploads have used. Per-well
+  completeness is checked within the family that was delivered, so an artifact genuinely absent from
+  the upload lands in `*_raw_missing.csv` instead of being lost among thousands of identical
+  "missing `.trim.*`" rows.
+- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule per well — wrong bucket or project,
+  wrong path depth, missing `.trim` infix (with the SOP name in `expected_name`), repeated tokens,
+  sublibrary or wafer disagreement with the folders, bad well/UG/barcode, missing or unknown
+  sublibrary type — to `{order}_raw_sop_violations.csv`. Violations are non-fatal.
+- **Cross-bucket trimming completeness** compares the upload against the untrimmed vendor delivery
+  given in the notebook's `untrimmed_s3_path` parameter, matching wells on `(wafer, UG)` and writing
+  `{order}_trimming_completeness.csv`. `qa_seahub_source.py` builds the per-well index for each side;
+  `qa_seahub_recon.py` classifies them (`not_trimmed`, `orphan_trimmed`, `identity_mismatch`,
+  `read_count_mismatch`, `metadata_unavailable`). Upload checksum verification remains a manual step.
+
 ## Version
 
 Current version: 1.0.0

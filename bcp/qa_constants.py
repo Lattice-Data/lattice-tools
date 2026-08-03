@@ -260,10 +260,35 @@ raw_optional = {
 # ---------------------------------------------------------------------------
 # SeaHub lab raw upload patterns (trapnell / hamazaki *-seahub-bcp buckets)
 #
-# Layout: s3://czi-{lab}/{lab}-seahub-bcp/{ExperimentID}/raw/{sublibrary}/{wafer}/
-# Files:  {wafer}-{ExperimentID}_{sublibrary}_{well}_{assay}-{UG}-{barcode}.trim.*
+# SOP layout:
+#   s3://czi-{lab}/{lastname}-{projectname}/{ExperimentID}/raw/{sublibrary}/{wafer}/
+# SOP filename:
+#   {wafer}-{sublibrary}[_{well}]_{sublibrary type}-{UG}-{barcode}.trim.*
+#
+# Known-good examples:
+#   .../hamazaki-seahub-bcp/CHEM3-R100/raw/R100E/441389/
+#       441389-R100E_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram
+#   .../trapnell-seahub-bcp/REF3/raw/REF3_P05_2/436830/
+#       436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram
+#
+# The ExperimentID is not a filename field: it appears in the trapnell example
+# only because it is part of that project's sublibrary name, and is absent from
+# the hamazaki example.  ExperimentID may contain hyphens (``CHEM3-R100``), so
+# path segments must never be hyphen-split.
 # ---------------------------------------------------------------------------
 
+# Sublibrary types valid for SeaHub, narrower than ``valid_assays`` (which also
+# carries ATAC and viral_ORF).  Ordered longest-first so alternation in
+# SEAHUB_STEM_RE prefers ``GEX_hash_oligo`` over ``GEX`` / ``hash_oligo``.
+SEAHUB_SUBLIBRARY_TYPES: tuple[str, ...] = (
+    "GEX_hash_oligo",
+    "hash_oligo",
+    "GEX",
+    "CRI",
+)
+
+# Both suffix tuples are ordered longest-first so ``.cram-metadata.json`` is
+# never truncated by ``.cram``.
 SEAHUB_TRIM_SUFFIXES: tuple[str, ...] = (
     ".trim.cram-metadata.json",
     ".trim_fail.csv",
@@ -272,6 +297,72 @@ SEAHUB_TRIM_SUFFIXES: tuple[str, ...] = (
     ".trim.stderr",
     ".trim.stdout",
 )
+
+# Non-compliant family seen in real uploads: the same six trim artifacts with
+# the ``.trim`` infix dropped.  Recognised so completeness still runs against
+# what was actually delivered (which is how a genuinely absent CRAM surfaces),
+# then reported as a ``missing_trim_infix`` SOP violation.
+SEAHUB_BARE_SUFFIXES: tuple[str, ...] = (
+    ".cram-metadata.json",
+    "_fail.csv",
+    ".cram",
+    ".csv",
+    ".stderr",
+    ".stdout",
+)
+
+# Maps a bare-family suffix to the SOP suffix it should have carried.
+SEAHUB_BARE_TO_TRIM_SUFFIX: dict[str, str] = {
+    ".cram-metadata.json": ".trim.cram-metadata.json",
+    "_fail.csv": ".trim_fail.csv",
+    ".cram": ".trim.cram",
+    ".csv": ".trim.csv",
+    ".stderr": ".trim.stderr",
+    ".stdout": ".trim.stdout",
+}
+
+SEAHUB_TRIM_TO_BARE_SUFFIX: dict[str, str] = {
+    trim: bare for bare, trim in SEAHUB_BARE_TO_TRIM_SUFFIX.items()
+}
+
+# Bare-family counterparts of raw_expected / raw_optional["seahub_sci"], derived
+# so the required-artifact set has a single source of truth.
+SEAHUB_BARE_EXPECTED: tuple[str, ...] = tuple(
+    SEAHUB_TRIM_TO_BARE_SUFFIX[ending] for ending in raw_expected["seahub_sci"]
+)
+SEAHUB_BARE_OPTIONAL: tuple[str, ...] = tuple(
+    SEAHUB_TRIM_TO_BARE_SUFFIX[ending] for ending in raw_optional["seahub_sci"]
+)
+
+# Suffixes that carry per-well trimmer failure counts, in either family.
+SEAHUB_FAIL_SUFFIXES: tuple[str, ...] = (".trim_fail.csv", "_fail.csv")
+
+# fastq_log bucket for wells whose filename omits the sublibrary type, so they
+# stay visible in per-sublibrary counts instead of dropping out.  The missing
+# type itself is reported as an invalid_sublibrary_type SOP violation.
+SEAHUB_UNTYPED_LABEL = "UNTYPED"
+
+_SEAHUB_TYPE_ALT = "|".join(SEAHUB_SUBLIBRARY_TYPES)
+
+# Group is non-greedy so ``R100E_GEX_hash_oligo`` parses as group ``R100E``
+# plus type ``GEX_hash_oligo``; a greedy group would instead yield group
+# ``R100E_GEX`` plus type ``hash_oligo``.
+SEAHUB_STEM_RE = re.compile(
+    rf"^(?P<wafer>\d{{6,8}})-(?P<group>.+?)"
+    rf"_(?P<assay>{_SEAHUB_TYPE_ALT})"
+    r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)$"
+)
+
+# Relaxed variant for stems that omit the sublibrary type entirely, so wafer /
+# UG / barcode stay recoverable for reporting and cross-bucket matching.
+SEAHUB_STEM_NO_TYPE_RE = re.compile(
+    r"^(?P<wafer>\d{6,8})-(?P<group>.+?)"
+    r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)$"
+)
+
+SEAHUB_UG_RE = re.compile(r"^Z\d{4}$")
+SEAHUB_BARCODE_RE = re.compile(r"^[ACGT]+$")
+SEAHUB_WELL_RE = re.compile(r"^[A-H]\d{1,2}$")
 
 SEAHUB_PLATE_SIZES = frozenset({48, 96})
 

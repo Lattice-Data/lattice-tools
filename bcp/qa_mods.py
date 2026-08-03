@@ -18,6 +18,9 @@ from bs4 import BeautifulSoup
 
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
+    SEAHUB_BARE_SUFFIXES,
+    SEAHUB_STEM_NO_TYPE_RE,
+    SEAHUB_STEM_RE,
     SEAHUB_TRIM_SUFFIXES,
     cellranger_expected,
     cellranger_ignore,
@@ -60,6 +63,7 @@ __all__ = [
     "grab_seahub_trim_fail_csv",
     "parse_seahub_raw_path",
     "seahub_file_stem",
+    "seahub_stem_and_family",
     "seahub_trimmer_failure_storage_key",
     "seahub_trimmer_group_storage_key",
     "merge_partial_wafer_stats",
@@ -872,13 +876,32 @@ def ingest_merged_trimmer_from_s3(
         Path(local).unlink(missing_ok=True)
 
 
-def seahub_file_stem(filename: str) -> str | None:
-    """Return the shared filename stem for a SeaHub ``*.trim.*`` artifact."""
+def seahub_stem_and_family(filename: str) -> tuple[str, str, str] | None:
+    """
+    Split a SeaHub raw artifact into ``(stem, suffix, family)``.
+
+    ``family`` is ``"trim"`` for SOP-compliant ``*.trim.*`` artifacts and
+    ``"bare"`` for the same six artifacts delivered without the ``.trim``
+    infix (seen in real uploads).  Recognising the bare family is what lets
+    completeness run against what was actually delivered, so a genuinely
+    absent CRAM is reported rather than the whole well silently dropping out.
+
+    Returns ``None`` for names in neither family (run reports, browser junk).
+    """
     name = filename.split("/")[-1]
     for suffix in SEAHUB_TRIM_SUFFIXES:
         if name.endswith(suffix):
-            return name[: -len(suffix)]
+            return name[: -len(suffix)], suffix, "trim"
+    for suffix in SEAHUB_BARE_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)], suffix, "bare"
     return None
+
+
+def seahub_file_stem(filename: str) -> str | None:
+    """Return the shared filename stem for a SeaHub raw artifact."""
+    parsed = seahub_stem_and_family(filename)
+    return None if parsed is None else parsed[0]
 
 
 def parse_seahub_raw_path(s3_key: str) -> dict[str, str] | None:
@@ -918,9 +941,14 @@ def grab_seahub_trim_fail_csv(
     exp: str,
     csv_path: str | Path,
     warnings: list[str] | None = None,
+    fail_counts: dict | None = None,
+    stem_key: str | None = None,
 ) -> None:
     """
-    Parse a SeaHub ``*.trim_fail.csv`` into per-modality trimmer-fail fractions.
+    Parse a SeaHub per-well trim failure CSV into trimmer-fail fractions.
+
+    Applies to both ``*.trim_fail.csv`` (SOP) and ``*_fail.csv`` (the same
+    artifact delivered without the ``.trim`` infix).
 
     SeaHub sci-plex trim_fail files interleave multiple ``format`` blocks in a
     single file (e.g. ``JumboSciHash`` and ``JumboSciGEX``), each carrying its
@@ -934,6 +962,13 @@ def grab_seahub_trim_fail_csv(
     so these files are expected to carry no ``reason == 'rsq file'`` rows and
     the ``rsq`` distribution should stay empty; the loop below is retained
     defensively in case such a row ever appears.
+
+    When ``fail_counts`` and ``stem_key`` are supplied, absolute per-format
+    ``failed`` / ``total`` counts are recorded under ``fail_counts[stem_key]``
+    for cross-bucket read reconciliation.  Counts are kept per format rather
+    than collapsed into one well-level number: the format blocks declare
+    different totals for the same well, and failure rows are largely shared
+    between them, so any single figure would be an invention.
     """
     if exp not in trimmer_failure_stats:
         trimmer_failure_stats[exp] = {"rsq": [], "trimmer_fail": []}
@@ -969,6 +1004,11 @@ def grab_seahub_trim_fail_csv(
         non_rsq = block[block["reason"] != "rsq file"]
         trimmer_fail = int(non_rsq["failed_read_count"].sum())
         trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail / total)
+        if fail_counts is not None and stem_key is not None:
+            fail_counts.setdefault(stem_key, {})[str(_fmt)] = {
+                "failed": trimmer_fail,
+                "total": total,
+            }
 
 
 def parse_raw_filename(f, raw_assay):
@@ -986,19 +1026,20 @@ def parse_raw_filename(f, raw_assay):
         stem = seahub_file_stem(filename)
         if stem is None:
             return None
-        assay_pat = "|".join(
-            sorted(map(re.escape, valid_assays), key=len, reverse=True)
-        )
-        known_pat = re.compile(
-            rf"^(?P<run>\d{{6,8}})-.+?_(?P<assay>{assay_pat})-(?P<ug>[^-]+)-(?P<barcode>[^_.-]+)$"
-        )
-        m = known_pat.match(stem)
-        if not m:
-            return None
+        m = SEAHUB_STEM_RE.match(stem)
+        assay = m.group("assay") if m else None
+        if m is None:
+            # Uploads that omit the sublibrary type are still identifiable by
+            # wafer / UG / barcode; returning them with assay=None keeps them in
+            # read and wafer reporting instead of dropping them silently.  The
+            # missing type is reported separately as an SOP violation.
+            m = SEAHUB_STEM_NO_TYPE_RE.match(stem)
+            if m is None:
+                return None
         return (
-            m.group("run"),
-            path_info["experiment_id"],
-            m.group("assay"),
+            m.group("wafer"),
+            path_info["sublibrary"],
+            assay,
             m.group("ug"),
             m.group("barcode"),
         )

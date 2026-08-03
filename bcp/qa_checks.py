@@ -18,6 +18,8 @@ from qa_constants import (
     SCALE_SAMPLES_FORBIDDEN_COLUMNS,
     SCALE_WAFER_MISC_RE,
     SCALE_WORKFLOW_REQUIRED_PARAMS,
+    SEAHUB_BARE_EXPECTED,
+    SEAHUB_BARE_OPTIONAL,
 )
 from qa_mods import (
     cellranger_expected,
@@ -29,7 +31,7 @@ from qa_mods import (
     raw_expected,
     raw_optional,
     resolve_wafer_run_id,
-    seahub_file_stem,
+    seahub_stem_and_family,
 )
 
 
@@ -504,15 +506,35 @@ def check_expected_raw_files(
     beginnings: dict[str, dict[str, Any]] = {}
     for fullpath in all_raw_files:
         if raw_assay == "seahub_sci":
-            b = seahub_file_stem(fullpath.split("/")[-1])
-            if b is None:
+            parsed_stem = seahub_stem_and_family(fullpath.split("/")[-1])
+            if parsed_stem is None:
                 continue
+            b, _suffix, family = parsed_stem
+            # Completeness is checked within the family actually delivered.
+            # Requiring SOP ".trim.*" names of an upload that dropped the infix
+            # would bury the one thing that matters here — an artifact genuinely
+            # absent from the delivered set — under a wall of identical rows.
+            # The wrong naming is reported once per stem by the SOP validator.
+            endings = (
+                list(raw_expected.get(raw_assay, []))
+                if family == "trim"
+                else list(SEAHUB_BARE_EXPECTED)
+            )
             if b not in beginnings:
                 raw_dir = "/".join(fullpath.split("/")[:-1])
                 beginnings[b] = {
                     "raw_dir": raw_dir,
-                    "endings": list(raw_expected.get(raw_assay, [])),
+                    "endings": endings,
+                    "families": {family},
                 }
+            else:
+                entry = beginnings[b]
+                entry["families"].add(family)
+                # A stem split across both families is a mixed upload; require
+                # both sets so neither half's gaps are hidden.
+                for ending in endings:
+                    if ending not in entry["endings"]:
+                        entry["endings"].append(ending)
             continue
 
         parsed = parse_raw_filename(fullpath, raw_assay)
@@ -644,16 +666,26 @@ def check_extra_raw_files(
             f, allow_truncated_stats_name=allow_truncated_stats_name
         ):
             continue
+        if raw_assay == "seahub_sci":
+            # Optional endings are family-specific, and the generic
+            # parse_raw_filename path below cannot rebuild a SeaHub stem (its
+            # group is the folder sublibrary, not the filename token), so the
+            # SeaHub decision is made entirely here.
+            parsed_stem = seahub_stem_and_family(f.split("/")[-1])
+            if parsed_stem is not None:
+                _stem, suffix, family = parsed_stem
+                family_optional = (
+                    raw_optional.get(raw_assay, [])
+                    if family == "trim"
+                    else SEAHUB_BARE_OPTIONAL
+                )
+                if suffix in family_optional:
+                    continue
+            extra.append(f)
+            continue
         if (raw_assay in raw_optional or raw_assay == "10x_viral_ORF") and (
             optional_endings
         ):
-            if raw_assay == "seahub_sci":
-                stem = seahub_file_stem(f.split("/")[-1])
-                if stem is not None:
-                    raw_dir = "/".join(f.split("/")[:-1])
-                    suffix = f[len(raw_dir) + 1 + len(stem) :]
-                    if suffix in optional_endings:
-                        continue
             parsed = parse_raw_filename(f, raw_assay)
             if parsed is not None:
                 run, group, assay, ug, barcode = parsed
