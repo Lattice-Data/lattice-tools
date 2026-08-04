@@ -20,6 +20,11 @@ class GuideSigError(ValueError):
 
 def _delimiter_for(file_format: str) -> str:
     """Return the field delimiter for ``file_format``."""
+    # Neither except arm is reachable from the CLI, since argparse restricts
+    # --format to the keys of FILE_FORMATS. They serve library callers: KeyError
+    # for a name that is merely wrong (including None), TypeError for a value
+    # that is not hashable at all. Both stay GuideSigError, like every other
+    # failure this module reports.
     try:
         return FILE_FORMATS[file_format]
     except (KeyError, TypeError) as exc:
@@ -83,6 +88,13 @@ def protospacer_set(
                 if not row or all(cell == "" for cell in row):
                     continue
 
+                # The comment marker is read from the first column only, whatever
+                # `column` is set to, because these templates carry their
+                # instruction rows in the leading `property` column and a `#`
+                # elsewhere is data. A template that moved `property` off the
+                # front would stop having its comment rows skipped, and they
+                # would then be dropped as empty or rejected as non-ACGT at a
+                # named line: a loud failure, never a false match.
                 first_col = row[0]
                 if first_col.lstrip().startswith("#"):
                     continue

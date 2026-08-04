@@ -651,7 +651,8 @@ Input must be a UTF-8 (optionally BOM-prefixed) TSV or CSV with a header contain
 containing commas are parsed correctly and do not shift the protospacer column. The tool:
 
 - ignores fully blank rows and rows whose first cell starts with `#` after leading
-  whitespace is removed
+  whitespace is removed; the comment marker is always read from the first column,
+  independent of `--column`, so a `#` in any other cell is data
 - strips and uppercases protospacers, skipping empty values
 - rejects non-empty rows shorter than the header, including rows where trailing tabs were
   dropped during export
@@ -684,6 +685,25 @@ signatures. A false match is the failure mode this tool exists to prevent.
 Signatures are prefixed with `gsig1` so a future change to the rules cannot silently make
 old and new signatures comparable. The `n=` field reports unique sequence count for
 mismatch diagnosis without re-parsing the files.
+
+### Digest width
+
+The digest is SHA-256 truncated to 32 hex characters, or 128 bits.
+
+The risk being managed is **accidental** divergence between two curated libraries, not an
+adversarial collision. This is not a tamper-evidence mechanism: anyone who can edit a
+library can recompute its signature, so a matching signature attests that two files hold
+the same protospacer set, not that either is authentic. Under that threat model 128 bits
+is far more than enough — the birthday bound sits at roughly 2^64 libraries, so the
+probability of two distinct guide sets colliding stays negligible at any library count
+this project will ever hold.
+
+Truncation buys legibility, which matters because these signatures get pasted into
+tickets, spreadsheet cells, and commit messages: 32 hex characters stay one token a person
+can compare by eye, where 64 invite a truncated copy-paste that silently drops the half
+that differs. If the threat model ever changes — signatures crossing a trust boundary, say
+— the `gsig1` prefix is the escape hatch, and `gsig2` can carry the full digest without
+either version being mistaken for the other.
 
 ### Usage
 

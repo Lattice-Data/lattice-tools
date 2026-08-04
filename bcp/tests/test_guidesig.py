@@ -240,6 +240,19 @@ def test_hash_space_after_hash_still_filtered(tmp_path: Path) -> None:
     assert protospacer_set(path, file_format="tsv") == {"AAAA"}
 
 
+def test_hash_outside_first_column_is_data(tmp_path: Path) -> None:
+    """The comment marker is read from the first column only, not from any cell."""
+    path = _write_tsv(
+        tmp_path / "hash_later_column.tsv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "g1", "AAAA"],
+            ["", "#2 in plate", "CCCC"],  # a `#` here annotates, it does not comment
+        ],
+    )
+    assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
+
+
 def test_empty_first_column_retained(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "empty_first.tsv",
@@ -412,7 +425,7 @@ def test_multiline_offending_row_reports_its_first_line(tmp_path: Path) -> None:
         signature(path, file_format="tsv")
 
 
-@pytest.mark.parametrize("bad", ["N", "U", "0", "-"])
+@pytest.mark.parametrize("bad", ["N", "U", "0", "-", "#"])
 def test_non_acgt_raises_with_row_number(tmp_path: Path, bad: str) -> None:
     path = _write_tsv(
         tmp_path / "bad.tsv",
@@ -497,3 +510,11 @@ def test_file_format_is_required() -> None:
 def test_unknown_file_format_raises() -> None:
     with pytest.raises(GuideSigError, match="unknown file format"):
         signature(FIXTURES / "lib_one.tsv", file_format="xlsx")
+    with pytest.raises(GuideSigError, match="unknown file format"):
+        signature(FIXTURES / "lib_one.tsv", file_format=None)  # type: ignore[arg-type]
+
+
+def test_unhashable_file_format_raises() -> None:
+    """A value that cannot even index FILE_FORMATS stays a GuideSigError."""
+    with pytest.raises(GuideSigError, match="unknown file format"):
+        signature(FIXTURES / "lib_one.tsv", file_format=["tsv"])  # type: ignore[arg-type]
