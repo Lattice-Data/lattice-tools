@@ -176,13 +176,34 @@ def test_csv_missing_column_raises(tmp_path: Path) -> None:
 
 def test_csv_read_as_tsv_reports_missing_column() -> None:
     """Naming the wrong format fails loudly instead of misparsing."""
-    with pytest.raises(GuideSigError, match="absent from header"):
+    with pytest.raises(GuideSigError, match="absent from header") as exc:
         signature(FIXTURES / "lib_two_layout_a.csv", file_format="tsv")
+    assert "looks like csv rather than tsv" in str(exc.value)
 
 
 def test_tsv_read_as_csv_reports_missing_column() -> None:
-    with pytest.raises(GuideSigError, match="absent from header"):
+    with pytest.raises(GuideSigError, match="absent from header") as exc:
         signature(FIXTURES / "lib_two_layout_a.tsv", file_format="csv")
+    assert "looks like tsv rather than csv" in str(exc.value)
+
+
+def test_missing_column_in_right_format_gives_no_format_hint(tmp_path: Path) -> None:
+    """A genuinely absent column must not be blamed on the format."""
+    path = _write_csv(
+        tmp_path / "no_such_column.csv",
+        [["property", "guide_id"], ["", "g1"]],
+    )
+    with pytest.raises(GuideSigError, match="absent from header") as exc:
+        signature(path, file_format="csv")
+    assert "looks like" not in str(exc.value)
+
+
+def test_single_column_file_gives_no_format_hint(tmp_path: Path) -> None:
+    """A one-column header is not evidence of a format mismatch on its own."""
+    path = _write_csv(tmp_path / "one_column.csv", [["guide_id"], ["g1"]])
+    with pytest.raises(GuideSigError, match="absent from header") as exc:
+        signature(path, file_format="csv")
+    assert "looks like" not in str(exc.value)
 
 
 def test_csv_error_message_names_csv(tmp_path: Path) -> None:

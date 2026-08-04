@@ -106,6 +106,26 @@ def test_cli_wrong_format_exits_nonzero(capsys) -> None:
     assert "absent from header" in capsys.readouterr().err
 
 
+def test_cli_compare_across_formats_names_the_format(capsys) -> None:
+    """--compare reads both files under one --format, so a mixed pair must say so."""
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "--format",
+                "csv",
+                "--compare",
+                str(FIXTURES / "lib_two_layout_a.csv"),
+                str(FIXTURES / "lib_two_layout_b.tsv"),
+            ]
+        )
+    assert exc.value.code != 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    err = captured.err
+    assert "lib_two_layout_b.tsv" in err
+    assert "looks like tsv rather than csv" in err
+
+
 def test_cli_multi_file_failure_emits_no_partial_stdout(tmp_path, capsys) -> None:
     """A later failing file must not leave earlier signatures on stdout."""
     bad = tmp_path / "bad.tsv"

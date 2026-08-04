@@ -641,8 +641,10 @@ sparse single-column rows these templates contain. Naming the wrong format fails
 (the protospacer column will be reported as absent from the header) rather than
 misparsing.
 
-`--compare` applies one `--format` to both files, so the two files being compared must be
-in the same format.
+`--compare` applies one `--format` to both files, so a mixed CSV/TSV pair is rejected,
+naming the offending file and the format it looks like. Signatures themselves are
+format-independent, so comparing across formats means signaturing each file under its own
+`--format` and reading the two lines.
 
 ### Input validation
 

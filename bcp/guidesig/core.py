@@ -34,6 +34,32 @@ def _delimiter_for(file_format: str) -> str:
         ) from exc
 
 
+def _wrong_format_hint(header: list[str], file_format: str) -> str:
+    """Return a hint naming a better-fitting format, or an empty string.
+
+    A header that collapsed to a single field while still holding another
+    format's delimiter is the fingerprint of a ``file_format`` that does not
+    match the file. Saying so turns the resulting "column absent" report into
+    something the caller can act on, which matters most for ``--compare``: it
+    reads both files under one ``--format``, so two files in different formats
+    always fail here.
+    """
+    if len(header) != 1:
+        return ""
+    fits = sorted(
+        name
+        for name, delimiter in FILE_FORMATS.items()
+        if name != file_format and delimiter in header[0]
+    )
+    if not fits:
+        return ""
+    return (
+        f"; the whole header parsed as one {file_format} field, so this file "
+        f"looks like {' or '.join(fits)} rather than {file_format} "
+        "(check the format argument)"
+    )
+
+
 def protospacer_set(
     path: str | Path,
     *,
@@ -68,7 +94,8 @@ def protospacer_set(
                 col_idx = header.index(column)
             except ValueError as exc:
                 raise GuideSigError(
-                    f"{file_path}: protospacer column {column!r} absent from header"
+                    f"{file_path}: protospacer column {column!r} absent from "
+                    f"header{_wrong_format_hint(header, file_format)}"
                 ) from exc
 
             sequences: set[str] = set()
