@@ -391,8 +391,16 @@ class DB2Flattener:
     
     def _join_unique(self, items):
         """Join unique non-empty items with semicolon"""
+        # Flatten any list-valued items (e.g. array-typed fields) before stringifying
+        flattened_items = []
+        for item in items:
+            if isinstance(item, list):
+                flattened_items.extend(item)
+            else:
+                flattened_items.append(item)
+
         # Filter out empty/None values
-        filtered_items = [str(item).strip() for item in items if item and str(item).strip()]
+        filtered_items = [str(item).strip() for item in flattened_items if item and str(item).strip()]
         
         if not filtered_items:
             return
