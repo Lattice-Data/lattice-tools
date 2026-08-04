@@ -110,6 +110,32 @@ def test_csv_ragged_row_raises_with_row_number(tmp_path: Path) -> None:
         signature(path, file_format="csv")
 
 
+def test_csv_trailing_empty_field_beyond_header_accepted(tmp_path: Path) -> None:
+    """A trailing comma is a routine export artifact, not a ragged row."""
+    path = _write_csv(
+        tmp_path / "trailing_delimiter.csv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "g1", "AAAA", ""],
+            ["", "g2", "CCCC"],
+        ],
+    )
+    assert protospacer_set(path, file_format="csv") == {"AAAA", "CCCC"}
+
+
+def test_csv_data_beyond_header_raises_with_row_number(tmp_path: Path) -> None:
+    path = _write_csv(
+        tmp_path / "surplus_data.csv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "g1", "AAAA"],
+            ["", "g2", "CCCC", "NGG"],
+        ],
+    )
+    with pytest.raises(GuideSigError, match="row 3"):
+        signature(path, file_format="csv")
+
+
 @pytest.mark.parametrize("bad", ["N", "U", "0", "-"])
 def test_csv_non_acgt_raises_with_row_number(tmp_path: Path, bad: str) -> None:
     path = _write_csv(

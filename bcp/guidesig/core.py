@@ -93,6 +93,18 @@ def protospacer_set(
                         "than header"
                     )
 
+                # A trailing delimiter leaves one surplus empty field and is a
+                # routine export artifact, so surplus fields are tolerated while
+                # they hold nothing. Values in columns the header never declared
+                # mean a truncated header or a shifted export, which makes the
+                # protospacer read from this row untrustworthy.
+                surplus = row[len(header) :]
+                if any(cell.strip() for cell in surplus):
+                    raise GuideSigError(
+                        f"{file_path}: row {physical_row}: ragged row with data "
+                        "in fields beyond the header"
+                    )
+
                 value = row[col_idx].strip().upper()
                 if not value:
                     continue

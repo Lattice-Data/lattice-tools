@@ -321,6 +321,47 @@ def test_ragged_row_with_protospacer_still_raises(tmp_path: Path) -> None:
         signature(path, file_format="tsv")
 
 
+def test_trailing_empty_field_beyond_header_accepted(tmp_path: Path) -> None:
+    """A trailing delimiter is a routine export artifact, not a ragged row."""
+    path = _write_tsv(
+        tmp_path / "trailing_delimiter.tsv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "g1", "AAAA", ""],  # trailing tab left one surplus empty field
+            ["", "g2", "CCCC", "  "],  # surplus field holding only whitespace
+        ],
+    )
+    assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
+
+
+def test_row_with_data_beyond_header_raises_with_row_number(tmp_path: Path) -> None:
+    """Values in undeclared columns mean a truncated header or shifted export."""
+    path = _write_tsv(
+        tmp_path / "surplus_data.tsv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "g1", "AAAA"],
+            ["", "g2", "CCCC", "NGG"],  # header never declared a fourth column
+        ],
+    )
+    with pytest.raises(GuideSigError, match="row 3"):
+        signature(path, file_format="tsv")
+
+
+def test_data_beyond_header_raises_before_empty_value_skip(tmp_path: Path) -> None:
+    """A surplus value is rejected even when the protospacer cell is empty."""
+    path = _write_tsv(
+        tmp_path / "surplus_data_empty_value.tsv",
+        [
+            ["property", "guide_id", "guide_protospacer"],
+            ["", "g1", "AAAA"],
+            ["", "g2", "", "CCCC"],  # sequence shifted into an undeclared column
+        ],
+    )
+    with pytest.raises(GuideSigError, match="row 3"):
+        signature(path, file_format="tsv")
+
+
 def test_multiline_quoted_cell_parses(tmp_path: Path) -> None:
     """A quoted cell holding an embedded newline is one record, not two rows."""
     path = _write_tsv(

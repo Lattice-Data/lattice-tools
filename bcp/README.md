@@ -655,6 +655,9 @@ containing commas are parsed correctly and do not shift the protospacer column. 
 - strips and uppercases protospacers, skipping empty values
 - rejects non-empty rows shorter than the header, including rows where trailing tabs were
   dropped during export
+- rejects rows carrying values in fields beyond the header, which indicate a truncated
+  header or a shifted export; a surplus field that is empty or whitespace-only is
+  tolerated, because a trailing delimiter is a routine export artifact
 - rejects a missing signature column, non-ACGT protospacer values, invalid UTF-8, and
   files with no usable protospacers
 
