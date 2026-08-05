@@ -691,7 +691,17 @@ def check_extra_raw_files(
                 run, group, assay, ug, barcode = parsed
                 b = f"{run}-{group}_{assay}-{ug}-{barcode}"
                 raw_dir = "/".join(f.split("/")[:-1])
-                suffix = f[len(raw_dir) + 1 + len(b) :]
+                # The reconstructed beginning is not always the literal filename
+                # prefix: parse_raw_filename's fallback can duplicate a token
+                # (`439047-G1-Z0169-ACGT` parses to `439047-G1_G1-Z0169-ACGT`).
+                # Slicing by length would then take a misaligned tail that can
+                # coincidentally match an optional ending — silently accepting a
+                # file that belongs in the extra list.
+                prefix = f"{raw_dir}/{b}"
+                if not f.startswith(prefix):
+                    extra.append(f)
+                    continue
+                suffix = f[len(prefix) :]
                 endings = (
                     raw_optional["10x"]
                     if (raw_assay == "10x_viral_ORF" and assay == "GEX")
