@@ -418,6 +418,25 @@ SEAHUB_SOP_RULES = frozenset(
 SEAHUB_VENDOR_ORDER_RE = re.compile(r"^[A-Z]{2,}\d{6,}-\d{2,}$")
 SEAHUB_UNKNOWN_ORDER_LABEL = "UNKNOWN_ORDER"
 
+# Per-well roll-up vocabulary.  DISPLAY order only — precedence when a well
+# qualifies for several is documented on the roll-up itself.
+SEAHUB_WELL_VERDICTS = ("COMPLIANT", "RENAMEABLE", "DATA_GAP", "UNKNOWN")
+
+# Defects a rename can repair.  Everything else in SEAHUB_SOP_RULES describes a
+# fact about the data that renaming cannot fix.
+SEAHUB_RENAMEABLE_SOP_TYPES = frozenset(
+    {
+        "missing_trim_infix",
+        "duplicated_wafer_token",
+        "sublibrary_folder_truncated",
+        "invalid_sublibrary_type",
+    }
+)
+
+SEAHUB_RENAME_STATUSES = ("rename", "blocked", "unresolved", "not_data")
+SEAHUB_RENAME_NAME_SOURCES = ("vendor", "inferred")
+SEAHUB_RENAME_FIELD_SEP = "|"
+
 # ---------------------------------------------------------------------------
 # Scale raw file patterns
 #
