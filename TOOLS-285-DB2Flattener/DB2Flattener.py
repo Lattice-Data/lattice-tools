@@ -5,13 +5,20 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from DB2Gatherer import DB2Gatherer
-from constants import Configs, PROP_MAP_GEO, PROP_MAP_BIOHUB
+from constants import (
+    Configs,
+    PROP_MAP_GEO,
+    PROP_MAP_BIOHUB,
+    TISSUE_TYPE_MAP,
+    GENETIC_PERTURBATION_MAP,
+)
 from DB2_utils import (
     split_controlled_term_columns, 
     collapse_dataframe,
     get_config_obj_type,
     get_url_prefix_from_id,
-    extract_references_from_field
+    extract_references_from_field,
+    combine_bound_columns,
 )
 from generate_constants import load_and_return_constant_dicts
 import DB2lattice
@@ -294,7 +301,7 @@ class DB2Flattener:
             biohub_df[col] = biohub_df[col].apply(lambda x: tuple(x) if isinstance(x, list) else x)
         biohub_df.drop_duplicates(inplace=True)
 
-        # Add columns defaul values if not present
+        # Add columns default values if not present
         if "disease" not in columns_to_keep:
             biohub_df["disease"] = "normal"
         else:
@@ -307,34 +314,25 @@ class DB2Flattener:
             biohub_df.loc[df["ethnicity"].isna() & (df["organism"] != "Homo sapiens"), "ethnicity"] = "na"
 
         # Combine multiple columns into one
-        lower_str = biohub_df["experimental_conditions_upper_bound_duration"].astype(str)
-        upper_str = biohub_df["experimental_conditions_lower_bound_duration"].astype(str)
-        biohub_df["experimental_perturbation_time_point"] = np.where(
-            biohub_df["experimental_conditions_upper_bound_duration"] == biohub_df['experimental_conditions_lower_bound_duration'],
-            lower_str,                  # If equal, use the value
-            lower_str + "-" + upper_str # If not equal, concatenate them
-        )
-        biohub_df["experimental_perturbation_time_point"] = (
-            biohub_df["experimental_perturbation_time_point"].astype(str) + 
-            " " + 
-            biohub_df["experimental_conditions_duration_units"].astype(str)
-        )
 
-        biohub_df.drop(
-            columns = [
-                "experimental_conditions_upper_bound_duration",
-                "experimental_conditions_lower_bound_duration",
-                "experimental_conditions_duration_units"],
-            inplace=True)
+        biohub_df = combine_bound_columns(
+            biohub_df,
+            lower_col="experimental_conditions_lower_bound_duration",
+            upper_col="experimental_conditions_upper_bound_duration",
+            units_col="experimental_conditions_duration_units",
+            out_col="experimental_perturbation_time_point",
+        )
+        biohub_df = combine_bound_columns(
+            biohub_df,
+            lower_col="tissues_lower_bound_age",
+            upper_col="tissues_upper_bound_age",
+            units_col="tissues_age_units",
+            out_col="age",
+        )
 
         # Update values to match schema
-        tissue_type_map = {
-            "CellLine": "cell line",
-            "Organoid": "organoid",
-            "PrimaryCellCulture": "primary cell culture",
-            "Tissue": "tissue"
-        }
-        biohub_df['tissue_type'] = biohub_df['tissue_type'].apply(lambda x: tissue_type_map.get(x[0], x))
+        biohub_df['tissue_type'] = biohub_df['tissue_type'].apply(lambda x: TISSUE_TYPE_MAP.get(x[0], x))
+        biohub_df['genetic_pertubation_strategy'] = biohub_df['genetic_pertubation_strategy'].apply(lambda x: GENETIC_PERTURBATION_MAP.get(x[0], x))
 
         return biohub_df
 
