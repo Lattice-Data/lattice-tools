@@ -62,3 +62,44 @@ PROP_MAP_GEO = {
     'raw_matrix_file_alias': 'raw_file',
     'droplet_based_libraries_library_cardinality': 'single or paired-end'
 }
+
+PROP_MAP_BIOHUB = {
+    "raw_file_samples": "sample_name",
+    "non_human_donors_cxg_donor_id":"donor_id",
+    "human_donors_cxg_donor_id":"donor_id",
+    "non_human_donors_taxa":"organism",
+    "human_donors_taxa":"organism",
+    "non_human_donors_sex":"sex",
+    "human_donors_sex":"sex",
+    "droplet_based_libraries_library_construction_technology_term_name":"assay",
+    "tissues_upper_bound_age": "tissues_upper_bound_age",
+    "tissues_lower_bound_age": "tissues_lower_bound_age",
+    "tissues_age_units": "tissues_age_units",
+    "tissues_sample_terms_term_name":"tissue",
+    "tissues_developmental_stages_term_name":"development_stage",
+    "tissues_multiplexing_barcodes": "sample_probe_barcode",
+    "tissues_@type":"tissue_type",
+    "tissues_selection_markers":"suspension_enrichment_factors",
+    "tissues_suspension_type":"suspension_type",
+    "tissues_preservation_method":"preservation_method",
+    "experimental_conditions_condition": "experimental_condition",
+    "experimental_conditions_text_value": "experimental_perturbation",
+    "experimental_conditions_upper_bound_duration": "experimental_conditions_upper_bound_duration",
+    "experimental_conditions_lower_bound_duration": "experimental_conditions_lower_bound_duration",
+    "experimental_conditions_duration_units": "experimental_conditions_duration_units",
+    "genetic_modifications_strategy":"genetic_pertubation_strategy"
+}
+
+TISSUE_TYPE_MAP = {
+    "CellLine": "cell line",
+    "Organoid": "organoid",
+    "PrimaryCellCulture": "primary cell culture",
+    "Tissue": "tissue"
+}
+
+GENETIC_PERTURBATION_MAP = {
+    "activation screen":"CRISPR activation screen",
+    "interference screen":"CRISPR interference screen",
+    "knockout mutation":"CRISPR knockout mutant",
+    "knockout screen":"CRISPR knockout screen",
+}

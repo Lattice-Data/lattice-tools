@@ -11,6 +11,7 @@ Generic functions for gathering DB2 object information, and DataFrame transforms
 """
 
 import pandas as pd
+import numpy as np
 from constants import Configs
 
 TERM_ID_SUFFIX = "_term_id"
@@ -58,6 +59,51 @@ def collapse_dataframe(
     other_cols = columns or [c for c in df.columns if c != group_col]
     agg = {col: single_or_list for col in other_cols}
     return df.groupby(group_col, as_index=False).agg(agg)
+
+
+def combine_bound_columns(
+    df: pd.DataFrame,
+    *,
+    lower_col: str,
+    upper_col: str,
+    units_col: str | None = None,
+    out_col: str,
+    drop_source: bool = True,
+) -> pd.DataFrame:
+    """
+    Combine lower/upper bound columns into one value, optionally with units.
+
+    Equal bounds -> "{value}"
+    Unequal     -> "{lower}-{upper}"
+    With units  -> append " {units}"
+    """
+    missing = [c for c in (lower_col, upper_col) if c not in df.columns]
+    if missing:
+        return df
+
+    lower = df[lower_col]
+    upper = df[upper_col]
+    equal = lower.eq(upper) | (lower.isna() & upper.isna())
+
+    lower_s = lower.map(lambda v: "" if is_empty(v) else str(v))
+    upper_s = upper.map(lambda v: "" if is_empty(v) else str(v))
+
+    combined = np.where(equal, lower_s, lower_s + "-" + upper_s)
+
+    if units_col and units_col in df.columns:
+        units_s = df[units_col].map(lambda v: "" if is_empty(v) else str(v))
+        combined = [
+            f"{val} {unit}".strip() if unit else val
+            for val, unit in zip(combined, units_s, strict=True)
+        ]
+
+    df[out_col] = combined
+
+    if drop_source:
+        cols = [lower_col, upper_col] + ([units_col] if units_col else [])
+        df.drop(columns=[c for c in cols if c in df.columns], inplace=True)
+    
+    return df
 
 
 def cell_has_term_name_structure(val) -> bool:
