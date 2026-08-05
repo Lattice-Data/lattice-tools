@@ -27,6 +27,13 @@ def is_empty(val) -> bool:
     return val in ("", [])
 
 
+def join_if_list(v, sep="|") -> str:
+    """Return lists as string, joined by separator"""
+    if isinstance(v, list):
+        return sep.join(map(str, v))
+    return v
+
+
 def to_items(val) -> list:
     """Normalize one cell into zero or more non-empty items for aggregation."""
     if is_empty(val):
