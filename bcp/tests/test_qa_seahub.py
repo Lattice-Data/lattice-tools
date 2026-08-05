@@ -410,3 +410,59 @@ class TestSeahubGather:
             w for w in data.gathering_warnings if w.startswith("METADATA MISSING")
         ]
         assert missing == []
+
+
+class TestSeahubRawFileSizes:
+    """Sizes feed the trimmed-vs-vendor size check, so the gatherer records them."""
+
+    STEM = "437120-REF3_P04_1_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT"
+    DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P04_1/437120"
+
+    def _keys(self) -> list[str]:
+        return [
+            f"{self.DIR}/{self.STEM}{suffix}"
+            for suffix in (".trim.cram", ".trim.csv", ".trim.stderr", ".trim.stdout")
+        ]
+
+    def test_sizes_are_recorded_for_a_seahub_s3_run(self):
+        keys = self._keys()
+        cram = f"{self.DIR}/{self.STEM}.trim.cram"
+        s3 = MockS3Client(keys=keys, sizes={cram: 14_400_000_000})
+        ctx = _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj="labalpha-seahub-bcp",
+            order="REF3",
+            listing_prefix="labalpha-seahub-bcp/REF3/",
+            output_label="REF3",
+        )
+
+        data = gather_qa_data(ctx, s3)
+
+        assert data.raw_file_sizes[cram] == 14_400_000_000
+        assert set(data.raw_file_sizes) == set(keys)
+
+    def test_sizes_stay_empty_for_a_10x_run(self):
+        """Only the SeaHub listing path collects them; 10x must be untouched."""
+        s3 = MockS3Client(keys=["testproj/ORD01/G1/raw/x.fastq.gz"])
+
+        data = gather_qa_data(_make_ctx(raw_assay="10x"), s3)
+
+        assert data.raw_file_sizes == {}
+
+    def test_a_missing_size_reads_as_unknown(self):
+        s3 = MockS3Client(keys=self._keys())
+        ctx = _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj="labalpha-seahub-bcp",
+            order="REF3",
+            listing_prefix="labalpha-seahub-bcp/REF3/",
+            output_label="REF3",
+        )
+
+        data = gather_qa_data(ctx, s3)
+
+        assert set(data.raw_file_sizes.values()) == {0}

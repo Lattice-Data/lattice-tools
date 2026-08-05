@@ -64,10 +64,14 @@ class MockS3Client:
         keys: list[str] | None = None,
         file_contents: dict[str, str | bytes] | None = None,
         paginated_pages: dict[tuple[str, str], list[dict]] | None = None,
+        sizes: dict[str, int] | None = None,
     ):
         self._keys = keys or []
         self._file_contents = file_contents or {}
         self._paginated_pages = paginated_pages or {}
+        # Real listings always carry Size; default 0 keeps existing tests
+        # untouched, and the size checks read 0 as "unknown".
+        self._sizes = sizes or {}
 
     def get_paginator(self, _operation: str) -> MockPaginator:
         return MockPaginator(self)
@@ -98,7 +102,7 @@ class MockS3Client:
                 common = Prefix + suffix[: folder_end + len(Delimiter)]
                 prefixes.add(common)
             else:
-                contents.append({"Key": key})
+                contents.append({"Key": key, "Size": self._sizes.get(key, 0)})
 
         if contents:
             result["Contents"] = contents

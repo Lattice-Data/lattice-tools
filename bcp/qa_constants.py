@@ -413,6 +413,11 @@ SEAHUB_SOP_RULES = frozenset(
     }
 )
 
+# A vendor order label (``NVUS2024101701-11``).  Used only to label a source
+# prefix that yielded no objects; per-object derivation is positional.
+SEAHUB_VENDOR_ORDER_RE = re.compile(r"^[A-Z]{2,}\d{6,}-\d{2,}$")
+SEAHUB_UNKNOWN_ORDER_LABEL = "UNKNOWN_ORDER"
+
 # ---------------------------------------------------------------------------
 # Scale raw file patterns
 #

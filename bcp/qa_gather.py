@@ -102,6 +102,10 @@ class QAGatheredData:
     seahub_fail_counts: dict[str, dict[str, dict[str, int]]] = field(
         default_factory=dict
     )
+    # SeaHub-only, S3 mode only: object sizes by key, for the trimmed-vs-vendor
+    # size check.  Empty in manifest mode, where the manifest supplies only URIs;
+    # a missing size reads as "unknown" and the check stays silent.
+    raw_file_sizes: dict[str, int] = field(default_factory=dict)
 
 
 class QADataGatherer:
@@ -248,7 +252,11 @@ class QADataGatherer:
                 for page in self.paginator.paginate(
                     Bucket=self.bucket, Prefix=wafer_prefix
                 ):
-                    raw_files.extend([c["Key"] for c in page.get("Contents", [])])
+                    for content in page.get("Contents", []):
+                        raw_files.append(content["Key"])
+                        self._data.raw_file_sizes[content["Key"]] = int(
+                            content.get("Size", 0) or 0
+                        )
 
         if not raw_files:
             return

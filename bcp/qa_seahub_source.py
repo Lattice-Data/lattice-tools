@@ -3,49 +3,83 @@ Well indexes for cross-bucket SeaHub trimming checks.
 
 Builds a common ``(wafer, UG)`` index over each side of the comparison: the
 untrimmed vendor delivery and the lab's trimmed upload.  These live in different
-buckets with different layouts — note the group folder sits *before* ``raw`` on
-the vendor side, so the two have different path depths::
+buckets with different layouts -- note the ExperimentID folder sits *before*
+``raw`` on the vendor side, and the vendor path carries no sublibrary at all::
 
     trimmed  s3://czi-{lab}/{lastname}-{projectname}/{ExperimentID}/raw/
                  {sublibrary}/{wafer}/{stem}.trim.*
-    vendor   s3://czi-novogene/{project}/{order}/{ExperimentID}_{sublibrary}/raw/
+    vendor   s3://czi-novogene/{project}/{order}/{ExperimentID}/raw/
                  {wafer}/{stem}.cram
+
+Measured against the real REF3 delivery (2597 objects under order
+``NVUS2024101701-11``): six wafers, each carrying exactly 48 CRAMs with 48
+distinct UGs, one sublibrary per wafer, every well typed ``GEX_hash_oligo``.
 
 Identity key
 ------------
-Wells are matched on ``(wafer, UG)``.  Measured on a real delivery, each wafer
-carries 96 CRAMs with 96 distinct UGs, so the pair is unique.  Matching on the
-full filename would fail on every real defect seen in review (duplicated wafer
-token, missing sublibrary type, vendor-versus-lab group formatting), whereas
-wafer and UG survive all of them.  Barcode, sublibrary, and type are therefore
-carried as verification fields, and :mod:`qa_seahub_recon` reports a mismatch in
-them instead of letting them break the match.
+Wells are matched on ``(wafer, UG)``, which that delivery confirms is unique.
+Matching on the full filename would fail on every real defect seen in review
+(duplicated wafer token, missing sublibrary type, vendor-versus-lab group
+formatting), whereas wafer and UG survive all of them.  Barcode, sublibrary and
+type are therefore carried as verification fields, and :mod:`qa_seahub_recon`
+reports a mismatch in them instead of letting them break the match.
+
+Several sources
+---------------
+One experiment spans several vendor orders, and one order can hold several
+experiments, so the untrimmed side is a *list* of prefixes.  REF3 makes this
+concrete: order ``NVUS2024101701-11`` contains six of its seven sublibraries, and
+``REF3_P05_1`` -- the only correctly-named one in the trimmed upload -- is not
+there at all.  Listing that order alone would report all of its wells as
+orphans, so :class:`SourceCoverage` exists to make incomplete input obvious
+rather than letting it read as a completeness failure.
+
+Because the sublibrary is absent from the vendor path, the authoritative
+sublibrary name comes from the vendor *stem* with its trailing well token
+stripped (``438514-REF3_P07_1_A3_GEX...`` gives ``REF3_P07_1``), not from any
+path segment.
 """
 
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 import json
 import tempfile
 
-from qa_constants import SEAHUB_STEM_NO_TYPE_RE, SEAHUB_STEM_RE
+from qa_constants import (
+    SEAHUB_STEM_NO_TYPE_RE,
+    SEAHUB_STEM_RE,
+    SEAHUB_UNKNOWN_ORDER_LABEL,
+    SEAHUB_VENDOR_ORDER_RE,
+)
 from qa_mods import parse_seahub_raw_path, seahub_stem_and_family
 
 __all__ = [
     "IdentityKey",
+    "SourceCoverage",
     "SourceEntry",
     "TrimmedEntry",
+    "UntrimmedSources",
+    "derive_source_order",
+    "finding_row",
     "index_trimmed_upload",
     "index_untrimmed_source",
+    "index_untrimmed_sources",
     "load_source_read_counts",
+    "normalize_source_uris",
+    "parse_seahub_stem_fields",
     "parse_source_uri",
+    "source_order_by_wafer",
 ]
 
 SOURCE_METADATA_MAX_WORKERS = 16
+
+_CRAM_SUFFIX = ".cram"
+_SIDECAR_SUFFIX = ".cram-metadata.json"
 
 # Vendor wafer-level and delivery-level files that are not per-well artifacts.
 _SOURCE_SKIP_SUFFIXES = (
@@ -74,6 +108,14 @@ class SourceEntry:
     metadata_key: str = ""
     size_bytes: int = 0
     read_count: int | None = None
+    # Provenance, so every finding can name the order the well came from.
+    bucket: str = ""
+    source_uri: str = ""
+    source_order: str = ""
+
+    @property
+    def s3_uri(self) -> str:
+        return f"s3://{self.bucket}/{self.cram_key}" if self.bucket else self.cram_key
 
 
 @dataclass
@@ -90,6 +132,65 @@ class TrimmedEntry:
     raw_dir: str
     has_cram: bool = False
     read_count: int | None = None
+    # 0 means "unknown", not "empty": sizes are only collected in S3 mode.
+    size_bytes: int = 0
+
+
+@dataclass
+class SourceCoverage:
+    """What one untrimmed prefix contributed, so partial input is visible."""
+
+    source_uri: str
+    bucket: str
+    prefix: str
+    source_order: str = ""
+    cram_keys: int = 0
+    indexed: int = 0
+    duplicate_losses: int = 0
+    orders_seen: tuple[str, ...] = ()
+    skipped_reason: str = ""
+    # Filled in by the reconciliation, which is the only place that knows it.
+    matched: int = 0
+
+    @property
+    def unmatched(self) -> int:
+        return max(0, self.indexed - self.matched)
+
+
+@dataclass
+class UntrimmedSources:
+    """The merged vendor index plus per-prefix coverage and findings."""
+
+    index: dict[IdentityKey, SourceEntry] = field(default_factory=dict)
+    coverage: list[SourceCoverage] = field(default_factory=list)
+    findings: list[dict[str, Any]] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.index)
+
+    @property
+    def buckets(self) -> tuple[str, ...]:
+        return tuple(sorted({e.bucket for e in self.index.values() if e.bucket}))
+
+
+def finding_row(category: str, **fields: Any) -> dict[str, Any]:
+    """Build one reconciliation row.
+
+    Lives here rather than in :mod:`qa_seahub_recon` so the indexers can emit
+    findings too; recon already imports this module, so the factory has to sit on
+    this side to stay acyclic.
+    """
+    row: dict[str, Any] = {
+        "category": category,
+        "wafer": "",
+        "ug": "",
+        "sublibrary": "",
+        "source_key": "",
+        "trimmed_stem": "",
+        "detail": "",
+    }
+    row.update(fields)
+    return row
 
 
 def parse_source_uri(uri: str) -> tuple[str, str]:
@@ -101,6 +202,60 @@ def parse_source_uri(uri: str) -> tuple[str, str]:
     return parsed.netloc, f"{prefix}/" if prefix else ""
 
 
+def normalize_source_uris(uris: Any) -> list[str]:
+    """Accept a bare string or a list, and validate each entry.
+
+    A bucket-only URI is rejected rather than accepted: ``parse_source_uri``
+    yields an empty prefix for it, which would paginate an entire bucket. A
+    string is never comma-split -- an S3 prefix may legitimately contain a comma,
+    and silently splitting one would list the wrong thing.
+    """
+    if uris is None:
+        return []
+    candidates = [uris] if isinstance(uris, str) else list(uris)
+
+    normalized: list[str] = []
+    for candidate in candidates:
+        uri = str(candidate).strip()
+        if not uri:
+            continue
+        _bucket, prefix = parse_source_uri(uri)
+        if len([s for s in prefix.split("/") if s]) < 2:
+            raise ValueError(
+                f"Untrimmed source {uri!r} is too broad: expected at least "
+                "s3://bucket/project/order, otherwise the whole bucket is listed"
+            )
+        if uri not in normalized:
+            normalized.append(uri)
+    return normalized
+
+
+def derive_source_order(cram_key: str) -> str:
+    """Read the vendor order out of a key, positionally.
+
+    ``{project}/{order}/{ExperimentID}/raw/{wafer}/{file}`` -- so the order is
+    the second segment. Returns ``""`` for any other shape, which degrades the
+    coverage label without ever dropping the entry.
+    """
+    parts = cram_key.split("/")
+    if len(parts) == 6 and parts[3] == "raw":
+        return parts[1]
+    return ""
+
+
+def _order_label_from_prefix(prefix: str) -> str:
+    """Best-effort order label for a prefix that produced no objects.
+
+    Scans right to left for a segment shaped like a vendor order. Deliberately
+    not ``segments[-1]``: for ``.../NVUS2024101701-11/REF3`` the last segment is
+    the ExperimentID, and mislabelling coverage rows is worse than not labelling.
+    """
+    for segment in reversed([s for s in prefix.split("/") if s]):
+        if SEAHUB_VENDOR_ORDER_RE.match(segment):
+            return segment
+    return SEAHUB_UNKNOWN_ORDER_LABEL
+
+
 def _is_skippable_source_key(key: str) -> bool:
     name = key.split("/")[-1]
     if "unmatched" in name:
@@ -108,10 +263,17 @@ def _is_skippable_source_key(key: str) -> bool:
     return name.endswith(_SOURCE_SKIP_SUFFIXES)
 
 
-def _parse_stem_fields(stem: str) -> dict[str, str | None] | None:
+def parse_seahub_stem_fields(stem: str) -> dict[str, str | None] | None:
     """Parse a stem into wafer / group / assay / UG / barcode.
 
     Falls back to the type-less pattern so misnamed uploads still match.
+
+    Note that for a doubled-wafer stem the returned ``group`` still contains the
+    second wafer: ``438514-438514-REF3_P07_1_A3-Z0305-...`` yields group
+    ``438514-REF3_P07_1_A3``. Callers that care about the group must normalize
+    the wafer first (:func:`qa_seahub_sop.normalize_doubled_wafer`).
+    ``index_trimmed_upload`` is unaffected only because it takes the sublibrary
+    from the folder.
     """
     match = SEAHUB_STEM_RE.match(stem)
     assay: str | None = None
@@ -130,69 +292,208 @@ def _parse_stem_fields(stem: str) -> dict[str, str | None] | None:
     }
 
 
-def index_untrimmed_source(s3_client: Any, uri: str) -> dict[IdentityKey, SourceEntry]:
-    """List the vendor delivery and index per-well CRAMs by ``(wafer, UG)``."""
-    bucket, prefix = parse_source_uri(uri)
+# Retained for existing call sites and tests.
+_parse_stem_fields = parse_seahub_stem_fields
+
+
+def _dedupe_overlapping(
+    uris: list[str],
+) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str, str]]]:
+    """Drop prefixes already covered by a shorter prefix in the same bucket.
+
+    Returns ``(survivors, skipped)`` as ``(uri, bucket, prefix)`` tuples, with
+    ``skipped`` carrying the covering URI. Comparison is on the normalized
+    prefix, which always ends in one slash, so ``.../REF3/`` cannot falsely
+    cover ``.../REF3_P05_1/``.
+    """
+    parsed = [(uri, *parse_source_uri(uri)) for uri in uris]
+    # Shortest prefix first so a parent is always seen before its children.
+    ordered = sorted(parsed, key=lambda item: (item[1], len(item[2]), item[2]))
+
+    survivors: list[tuple[str, str, str]] = []
+    skipped: list[tuple[str, str, str, str]] = []
+    for uri, bucket, prefix in ordered:
+        covering = next(
+            (
+                kept_uri
+                for kept_uri, kept_bucket, kept_prefix in survivors
+                if kept_bucket == bucket and prefix.startswith(kept_prefix)
+            ),
+            None,
+        )
+        if covering is not None:
+            skipped.append((uri, bucket, prefix, covering))
+            continue
+        survivors.append((uri, bucket, prefix))
+    return survivors, skipped
+
+
+def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
+    """List one or more vendor prefixes and index per-well CRAMs by ``(wafer, UG)``.
+
+    An identity delivered by two prefixes is a re-delivery, not a merge: the
+    winner is deterministic (lowest ``(source_order, cram_key)``) and the loser
+    becomes a ``duplicate_source_well`` finding. Overwriting blindly, as the
+    single-prefix version did, silently discarded one of them.
+    """
+    sources = UntrimmedSources()
+    normalized = normalize_source_uris(uris)
+    if not normalized:
+        return sources
+
+    survivors, skipped = _dedupe_overlapping(normalized)
+    for uri, bucket, prefix, covering in skipped:
+        sources.coverage.append(
+            SourceCoverage(
+                source_uri=uri,
+                bucket=bucket,
+                prefix=prefix,
+                source_order=_order_label_from_prefix(prefix),
+                skipped_reason=f"already covered by {covering}",
+            )
+        )
+        sources.findings.append(
+            finding_row(
+                "overlapping_source_prefix",
+                detail=(
+                    f"untrimmed source {uri} is inside {covering}; listed once "
+                    "under the broader prefix"
+                ),
+            )
+        )
+
     paginator = s3_client.get_paginator("list_objects")
-    index: dict[IdentityKey, SourceEntry] = {}
-    metadata_keys: dict[IdentityKey, str] = {}
+    # Keyed on the stem so a sidecar can only ever attach to its own CRAM,
+    # independent of listing order.
+    sidecar_by_stem_key: dict[str, str] = {}
 
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            if _is_skippable_source_key(key):
-                continue
-            name = key.split("/")[-1]
-            is_metadata = name.endswith(".cram-metadata.json")
-            if not is_metadata and not name.endswith(".cram"):
-                continue
-            stem = (
-                name[: -len(".cram-metadata.json")]
-                if is_metadata
-                else name[: -len(".cram")]
-            )
-            fields = _parse_stem_fields(stem)
-            if fields is None:
-                continue
-            identity = (str(fields["wafer"]), str(fields["ug"]))
-            if is_metadata:
-                metadata_keys[identity] = key
-                continue
-            index[identity] = SourceEntry(
-                wafer=str(fields["wafer"]),
-                ug=str(fields["ug"]),
-                barcode=str(fields["barcode"]),
-                group=str(fields["group"]),
-                assay=fields["assay"],
-                cram_key=key,
-                size_bytes=int(obj.get("Size", 0) or 0),
-            )
+    for uri, bucket, prefix in survivors:
+        coverage = SourceCoverage(source_uri=uri, bucket=bucket, prefix=prefix)
+        orders_seen: set[str] = set()
 
-    for identity, metadata_key in metadata_keys.items():
-        if identity in index:
-            index[identity].metadata_key = metadata_key
-    return index
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if _is_skippable_source_key(key):
+                    continue
+                name = key.split("/")[-1]
+                is_sidecar = name.endswith(_SIDECAR_SUFFIX)
+                if not is_sidecar and not name.endswith(_CRAM_SUFFIX):
+                    continue
+                stem = (
+                    name[: -len(_SIDECAR_SUFFIX)]
+                    if is_sidecar
+                    else name[: -len(_CRAM_SUFFIX)]
+                )
+                fields = parse_seahub_stem_fields(stem)
+                if fields is None:
+                    continue
+                if is_sidecar:
+                    sidecar_by_stem_key[key[: -len(_SIDECAR_SUFFIX)]] = key
+                    continue
+
+                order = derive_source_order(key)
+                orders_seen.add(order or SEAHUB_UNKNOWN_ORDER_LABEL)
+                coverage.cram_keys += 1
+                candidate = SourceEntry(
+                    wafer=str(fields["wafer"]),
+                    ug=str(fields["ug"]),
+                    barcode=str(fields["barcode"]),
+                    group=str(fields["group"]),
+                    assay=fields["assay"],
+                    cram_key=key,
+                    size_bytes=int(obj.get("Size", 0) or 0),
+                    bucket=bucket,
+                    source_uri=uri,
+                    source_order=order,
+                )
+                identity = (candidate.wafer, candidate.ug)
+                incumbent = sources.index.get(identity)
+                if incumbent is None:
+                    sources.index[identity] = candidate
+                    continue
+
+                winner, loser = sorted(
+                    (incumbent, candidate),
+                    key=lambda e: (e.source_order, e.cram_key),
+                )
+                sources.index[identity] = winner
+                sources.findings.append(
+                    finding_row(
+                        "duplicate_source_well",
+                        wafer=candidate.wafer,
+                        ug=candidate.ug,
+                        source_key=loser.cram_key,
+                        detail=(
+                            f"well delivered by more than one source: kept "
+                            f"{winner.s3_uri} (order {winner.source_order or '?'}), "
+                            f"ignored {loser.s3_uri} "
+                            f"(order {loser.source_order or '?'})"
+                        ),
+                    )
+                )
+
+        coverage.orders_seen = tuple(sorted(orders_seen))
+        coverage.source_order = (
+            coverage.orders_seen[0]
+            if len(coverage.orders_seen) == 1
+            else _order_label_from_prefix(prefix)
+        )
+        sources.coverage.append(coverage)
+
+    for identity, entry in sources.index.items():
+        sidecar = sidecar_by_stem_key.get(entry.cram_key[: -len(_CRAM_SUFFIX)])
+        if sidecar:
+            entry.metadata_key = sidecar
+
+    for coverage in sources.coverage:
+        if coverage.skipped_reason:
+            continue
+        coverage.indexed = sum(
+            1 for e in sources.index.values() if e.source_uri == coverage.source_uri
+        )
+        coverage.duplicate_losses = coverage.cram_keys - coverage.indexed
+    return sources
+
+
+def index_untrimmed_source(s3_client: Any, uri: str) -> dict[IdentityKey, SourceEntry]:
+    """Index a single vendor prefix.
+
+    Thin wrapper over :func:`index_untrimmed_sources`, which is what callers
+    should use: it also reports per-prefix coverage and duplicate wells.
+    """
+    return index_untrimmed_sources(s3_client, [uri]).index
 
 
 def load_source_read_counts(
-    s3_client: Any, bucket: str, index: dict[IdentityKey, SourceEntry]
+    s3_client: Any,
+    sources: UntrimmedSources | dict[IdentityKey, SourceEntry],
+    bucket: str = "",
 ) -> None:
-    """Populate ``read_count`` on each entry from its vendor sidecar."""
+    """Populate ``read_count`` on each entry from its vendor sidecar.
+
+    With several prefixes there is no single bucket, so each entry's own
+    ``bucket`` is preferred and ``bucket`` is only a fallback for entries that
+    predate it. An entry with neither is skipped rather than raising.
+    """
+    index = sources.index if isinstance(sources, UntrimmedSources) else sources
     targets = [
-        (identity, entry.metadata_key)
+        (identity, entry.metadata_key, entry.bucket or bucket)
         for identity, entry in index.items()
-        if entry.metadata_key
+        if entry.metadata_key and (entry.bucket or bucket)
     ]
     if not targets:
         return
 
-    def _fetch(identity: IdentityKey, key: str) -> tuple[IdentityKey, int | None]:
+    def _fetch(
+        identity: IdentityKey, key: str, entry_bucket: str
+    ) -> tuple[IdentityKey, int | None]:
         with tempfile.NamedTemporaryFile(
             mode="w+b", delete=False, suffix=".json"
         ) as tf:
             local = tf.name
         try:
-            s3_client.download_file(bucket, key, local)
+            s3_client.download_file(entry_bucket, key, local)
             with open(local) as fh:
                 payload = json.load(fh)
             value = payload.get("read_count")
@@ -202,16 +503,41 @@ def load_source_read_counts(
 
     workers = min(SOURCE_METADATA_MAX_WORKERS, len(targets))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_fetch, identity, key) for identity, key in targets]
+        futures = [
+            executor.submit(_fetch, identity, key, entry_bucket)
+            for identity, key, entry_bucket in targets
+        ]
         for future in as_completed(futures):
             identity, read_count = future.result()
             index[identity].read_count = read_count
+
+
+def source_order_by_wafer(
+    index: dict[IdentityKey, SourceEntry],
+) -> dict[str, str]:
+    """Map each wafer to the order that delivered it.
+
+    A wafer whose wells disagree gets every order joined by ``|`` -- deliberately
+    ugly, because a wafer split across orders is worth noticing rather than
+    silently picking one.
+    """
+    orders: dict[str, set[str]] = {}
+    for entry in index.values():
+        orders.setdefault(entry.wafer, set()).add(
+            entry.source_order or SEAHUB_UNKNOWN_ORDER_LABEL
+        )
+    return {
+        wafer: next(iter(seen)) if len(seen) == 1 else "|".join(sorted(seen))
+        for wafer, seen in orders.items()
+    }
 
 
 def index_trimmed_upload(
     all_raw_files: list[str],
     read_metadata: dict[str, dict] | None = None,
     bucket: str = "",
+    sizes: dict[str, int] | None = None,
+    findings: list[dict[str, Any]] | None = None,
 ) -> dict[IdentityKey, TrimmedEntry]:
     """Index a gathered SeaHub listing by ``(wafer, UG)``, both families."""
     index: dict[IdentityKey, TrimmedEntry] = {}
@@ -221,10 +547,11 @@ def index_trimmed_upload(
         if parsed is None or path_info is None:
             continue
         stem, suffix, family = parsed
-        fields = _parse_stem_fields(stem)
+        fields = parse_seahub_stem_fields(stem)
         if fields is None:
             continue
         identity = (str(fields["wafer"]), str(fields["ug"]))
+        raw_dir = "/".join(key.split("/")[:-1])
         entry = index.get(identity)
         if entry is None:
             entry = TrimmedEntry(
@@ -235,13 +562,38 @@ def index_trimmed_upload(
                 assay=fields["assay"],
                 stem=stem,
                 family=family,
-                raw_dir="/".join(key.split("/")[:-1]),
+                raw_dir=raw_dir,
             )
             index[identity] = entry
-        if suffix in (".cram", ".trim.cram"):
+        elif (path_info["sublibrary"], raw_dir, stem) != (
+            entry.sublibrary,
+            entry.raw_dir,
+            entry.stem,
+        ):
+            # Not mere identity reuse -- that is normal, since the five artifacts
+            # of a well all share it. This is one well appearing under two
+            # different names or folders.
+            if findings is not None:
+                findings.append(
+                    finding_row(
+                        "duplicate_trimmed_well",
+                        wafer=entry.wafer,
+                        ug=entry.ug,
+                        sublibrary=entry.sublibrary,
+                        trimmed_stem=entry.stem,
+                        detail=(
+                            f"well also present as {raw_dir}/{stem}; kept "
+                            f"{entry.raw_dir}/{entry.stem}"
+                        ),
+                    )
+                )
+        if suffix in (_CRAM_SUFFIX, ".trim.cram"):
             entry.has_cram = True
             if read_metadata:
                 entry.read_count = _lookup_read_count(read_metadata, bucket, key)
+            if sizes:
+                # Keep the largest when a well somehow carries several CRAMs.
+                entry.size_bytes = max(entry.size_bytes, int(sizes.get(key, 0) or 0))
     return index
 
 
