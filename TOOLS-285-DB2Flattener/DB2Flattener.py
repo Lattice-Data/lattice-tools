@@ -331,8 +331,16 @@ class DB2Flattener:
         )
 
         # Update values to match schema
-        biohub_df['tissue_type'] = biohub_df['tissue_type'].apply(lambda x: TISSUE_TYPE_MAP.get(x[0], x))
-        biohub_df['genetic_pertubation_strategy'] = biohub_df['genetic_pertubation_strategy'].apply(lambda x: GENETIC_PERTURBATION_MAP.get(x[0], x))
+        biohub_df["tissue_type"] = biohub_df["tissue_type"].apply(lambda x: TISSUE_TYPE_MAP.get(x[0], x))
+        biohub_df["genetic_pertubation_strategy"] = biohub_df["genetic_pertubation_strategy"].apply(lambda x: GENETIC_PERTURBATION_MAP.get(x[0], x))
+        reformat_list = [
+            "sample_probe_barcode",
+            "suspension_enrichment_factors",
+        ]
+        for field in reformat_list:
+            biohub_df[field] = biohub_df[field].apply(
+                lambda x: "|".join(map(str, x)) if isinstance(x, (list, tuple)) else x
+            )
 
         return biohub_df
 
