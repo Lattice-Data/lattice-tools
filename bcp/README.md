@@ -617,6 +617,130 @@ Potential improvements using bioframe:
 4. **Multiple GTF sources**: Merge annotations from multiple files
 5. **Additional bedtools-style operations**: Leverage bioframe's full feature set
 
+## Protospacer set signature (`guidesig`)
+
+`guidesig` computes a deterministic string for the **set** of protospacer sequences in a
+guide-template TSV or CSV. Two files with the same protospacer set (ignoring row order and
+all non-protospacer columns) produce the same signature; otherwise they differ.
+
+### What it guarantees
+
+- Same set of protospacer strings → identical `gsig1:set:n=…:…` signature
+- Different set → different signature
+- For structurally valid rows, layout, column order, case, padding, duplicate rows, and
+  empty protospacer cells do not affect the result
+- The input format does not affect the result: the same sequences stored as TSV and as CSV
+  produce the same signature
+
+### Input format is mandatory
+
+`--format tsv` or `--format csv` is **required**, and the library equivalent
+`file_format=` is a required keyword argument. The format is never inferred from the file
+extension and never sniffed from the contents, because content sniffing misclassifies the
+sparse single-column rows these templates contain. Naming the wrong format fails loudly
+(the protospacer column will be reported as absent from the header) rather than
+misparsing.
+
+`--compare` applies one `--format` to both files, so a mixed CSV/TSV pair is rejected,
+naming the offending file and the format it looks like. Signatures themselves are
+format-independent, so comparing across formats means signaturing each file under its own
+`--format` and reading the two lines.
+
+### Input validation
+
+Input must be a UTF-8 (optionally BOM-prefixed) TSV or CSV with a header containing
+`guide_protospacer`, or the name supplied through `--column`. In CSV input, quoted cells
+containing commas are parsed correctly and do not shift the protospacer column. The tool:
+
+- ignores fully blank rows and rows whose first cell starts with `#` after leading
+  whitespace is removed; the comment marker is always read from the first column,
+  independent of `--column`, so a `#` in any other cell is data
+- strips and uppercases protospacers, skipping empty values
+- rejects non-empty rows shorter than the header, including rows where trailing tabs were
+  dropped during export
+- rejects rows carrying values in fields beyond the header, which indicate a truncated
+  header or a shifted export; a surplus field that is empty or whitespace-only is
+  tolerated, because a trailing delimiter is a routine export artifact
+- rejects a missing signature column, non-ACGT protospacer values, invalid UTF-8, and
+  files with no usable protospacers
+
+Row numbers in rejection messages are **physical file line numbers**, counted the way a
+text editor counts them. A quoted cell containing an embedded newline spans several lines,
+and such a record is reported at the line it starts on, so the number always points at
+what the user sees when they open the file.
+
+### What it deliberately does **not** guarantee
+
+This is a **string-identity** check on one column, not a biological equivalence check.
+
+- Sequence length is not normalized
+- A leading/trailing `G` is not stripped
+- Reverse-complement is not applied
+- Strand / orientation is not canonicalized
+- Sequences are not mapped to genomic coordinates
+
+Two files that differ only by a trimmed base or a strand flip **must** produce different
+signatures. A false match is the failure mode this tool exists to prevent.
+
+### Version prefix
+
+Signatures are prefixed with `gsig1` so a future change to the rules cannot silently make
+old and new signatures comparable. The `n=` field reports unique sequence count for
+mismatch diagnosis without re-parsing the files.
+
+### Digest width
+
+The digest is SHA-256 truncated to 32 hex characters, or 128 bits.
+
+The risk being managed is **accidental** divergence between two curated libraries, not an
+adversarial collision. This is not a tamper-evidence mechanism: anyone who can edit a
+library can recompute its signature, so a matching signature attests that two files hold
+the same protospacer set, not that either is authentic. Under that threat model 128 bits
+is far more than enough — the birthday bound sits at roughly 2^64 libraries, so the
+probability of two distinct guide sets colliding stays negligible at any library count
+this project will ever hold.
+
+Truncation buys legibility, which matters because these signatures get pasted into
+tickets, spreadsheet cells, and commit messages: 32 hex characters stay one token a person
+can compare by eye, where 64 invite a truncated copy-paste that silently drops the half
+that differs. If the threat model ever changes — signatures crossing a trust boundary, say
+— the `gsig1` prefix is the escape hatch, and `gsig2` can carry the full digest without
+either version being mistaken for the other.
+
+### Usage
+
+Stdlib only (`csv`, `hashlib`, `argparse`, `pathlib`). From the `bcp/` directory:
+
+```bash
+# One signature line per file: <signature>\t<path>
+python -m guidesig --format tsv path/to/lib.tsv
+
+# CSV input
+python -m guidesig --format csv path/to/lib.csv
+
+# Compare two libraries (both must be in the given format)
+python -m guidesig --format tsv --compare lib_a.tsv lib_b.tsv
+
+# Alternate column
+python -m guidesig --format tsv lib.tsv --column guide_rc_sequence
+```
+
+Output is always `<signature>\t<path>`, tab-separated regardless of the input format.
+
+Library API:
+
+```python
+from guidesig import signature, protospacer_set
+
+sig = signature("lib.tsv", file_format="tsv")
+seqs = protospacer_set("lib.csv", file_format="csv")
+```
+
+Regression fixtures and golden digests live in `tests/fixtures/lib_*.tsv` and
+`tests/fixtures/lib_two_layout_a.csv`, and are covered by `tests/test_guidesig.py` and
+`tests/test_guidesig_csv.py`. The CSV fixture is a conversion of the layout A TSV and is
+pinned to the same digest, which is what proves the two readers agree.
+
 ## Contributing
 
 When modifying the pipeline:
