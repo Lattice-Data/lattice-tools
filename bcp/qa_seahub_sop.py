@@ -22,20 +22,47 @@ Design notes
 * There is deliberately no "ExperimentID must not appear in the filename" rule.
   The ExperimentID legitimately appears inside sublibrary names such as
   ``REF3_P05_2``, and is absent entirely from the hamazaki example, so
-  sublibrary agreement is the only rule governing that token.
-* ``repeated_token`` is scoped to the basename.  Comparing filename tokens
-  against folder segments would flag the valid ``REF3_P05_2_A10`` under
-  ExperimentID folder ``REF3`` as a duplicate.
+  sublibrary agreement is the only rule governing that token.  That asymmetry is
+  also why :func:`seahub_group_parts` tries the folder as-is *before* trying
+  ``{ExperimentID}_{folder}``.
+* A folder/filename disagreement is attributed to the **folder**, and only the
+  folder, when the filename token is exactly ``{ExperimentID}_{folder}``.  The
+  untrimmed vendor delivery is the source of truth for the sublibrary name, and
+  it carries the full form -- so a correctly-named file under a plate-only
+  folder is a folder defect (``sublibrary_folder_truncated``), not a filename
+  one.  ``sublibrary_mismatch`` is reserved for names the folder cannot explain
+  either way.
+* A repeated leading wafer token is normalized away *before* any token rule
+  runs, and the rules then see only the normalized stem.  On the raw stem the
+  type-less pattern swallows the second wafer into the group
+  (``437120-REF3_P04_1_A1``), which no folder can be reconciled against;
+  validating both forms would instead double every row.  ``repeated_token``
+  stays basename-scoped and is now the fallback for repeats that are not the
+  wafer -- comparing filename tokens against folder segments would flag the
+  valid ``REF3_P05_2_A10`` under ExperimentID folder ``REF3`` as a duplicate.
+* ``expected_name`` repairs only the defect its own rule describes, computed on
+  the normalized stem; ``expected_folder`` is set only by the folder rule.
+  Composing them into a single corrected key is :mod:`qa_seahub_rename`'s job,
+  because that needs the vendor index to resolve a missing sublibrary type.
+* ``scope`` controls how far a fact reaches, and therefore how it dedupes:
+  ``object`` stays per object, ``stem`` collapses per well, and ``folder``
+  collapses per sublibrary directory across every wafer and well beneath it.
 * Violations are non-fatal: QA continues and reports them as a table.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Mapping
 
 from qa_constants import (
     SEAHUB_BARCODE_RE,
     SEAHUB_BARE_TO_TRIM_SUFFIX,
+    SEAHUB_DOUBLED_WAFER_RE,
+    SEAHUB_DOWNLOAD_DUP_SUFFIX_RE,
+    SEAHUB_NON_SEQ_BASENAMES,
+    SEAHUB_NON_SEQ_EXTENSIONS,
+    SEAHUB_NON_SEQ_NAME_RES,
     SEAHUB_STEM_NO_TYPE_RE,
     SEAHUB_STEM_RE,
     SEAHUB_SUBLIBRARY_TYPES,
@@ -45,9 +72,15 @@ from qa_constants import (
 from qa_mods import parse_seahub_raw_path, seahub_stem_and_family
 
 __all__ = [
+    "SeahubStemGroup",
     "SopViolation",
     "expected_sop_name",
+    "group_seahub_keys",
+    "is_non_sequencing_artifact",
+    "normalize_doubled_wafer",
+    "seahub_group_parts",
     "sop_violation_summary",
+    "validate_seahub_group",
     "validate_seahub_key",
     "validate_seahub_stems",
 ]
@@ -55,12 +88,29 @@ __all__ = [
 
 @dataclass(frozen=True)
 class SopViolation:
-    """One SOP rule broken by one object (or stem)."""
+    """One SOP rule broken by one object (or stem).
+
+    ``expected_name`` is the corrected *basename* repairing only this rule's
+    defect, computed on the wafer-normalized stem.  It is deliberately not the
+    fully-corrected name: a well with four defects yields four rows, each naming
+    its own repair, and composing them into one target key is
+    :mod:`qa_seahub_rename`'s job.
+
+    ``expected_folder`` is the corrected ``{sublibrary}`` path segment, set only
+    by ``sublibrary_folder_truncated``.
+
+    ``scope`` says how widely the fact applies and drives dedup when reporting:
+    ``object`` for a rule about one S3 object, ``stem`` for one about a well, and
+    ``folder`` for one about a whole sublibrary directory.  A folder defect
+    reported per object would bury every other finding beneath it.
+    """
 
     type: str
     s3_path: str
     detail: str
     expected_name: str = ""
+    expected_folder: str = ""
+    scope: str = "stem"
 
     def as_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -103,36 +153,129 @@ def _check_repeated_tokens(stem: str, s3_path: str) -> list[SopViolation]:
     ]
 
 
-def _check_group_token(group: str, sublibrary: str, s3_path: str) -> list[SopViolation]:
-    """Group must be the folder sublibrary, optionally plus a well token."""
-    if group == sublibrary:
-        return []
-    prefix = f"{sublibrary}_"
-    if group.startswith(prefix):
-        well = group[len(prefix) :]
-        if SEAHUB_WELL_RE.match(well):
-            return []
+def normalize_doubled_wafer(stem: str) -> tuple[str, bool]:
+    """Drop a repeated leading wafer token, returning ``(stem, was_doubled)``.
+
+    Only an *identical* repeat is collapsed.  ``437120-438514-...`` names two
+    different wafers, which is a defect QA must not guess a repair for.
+    """
+    match = SEAHUB_DOUBLED_WAFER_RE.match(stem)
+    if match is None or match.group("first") != match.group("second"):
+        return stem, False
+    return stem[len(match.group("first")) + 1 :], True
+
+
+def is_non_sequencing_artifact(basename: str) -> bool:
+    """True for browser/bulk-download leftovers rather than pipeline output.
+
+    Only consulted once :func:`qa_mods.seahub_stem_and_family` has already
+    declined the name, so a real artifact can never reach here.  A single
+    download counter is stripped as an *additional* candidate, so both
+    ``ug-icon.png`` and ``ug-icon.png.1`` classify while ``x.trim.cram.1``
+    stays an unexpected suffix.
+    """
+    lowered = basename.lower()
+    candidates = [lowered]
+    stripped = SEAHUB_DOWNLOAD_DUP_SUFFIX_RE.sub("", lowered)
+    if stripped != lowered:
+        candidates.append(stripped)
+    for candidate in candidates:
+        if candidate in SEAHUB_NON_SEQ_BASENAMES:
+            return True
+        if any(pattern.match(candidate) for pattern in SEAHUB_NON_SEQ_NAME_RES):
+            return True
+        if any(candidate.endswith(ext) for ext in SEAHUB_NON_SEQ_EXTENSIONS):
+            return True
+    return False
+
+
+def seahub_group_parts(
+    group: str, sublibrary: str, experiment_id: str
+) -> tuple[str, str, str]:
+    """Reconcile a filename's sublibrary token against its folder.
+
+    Returns ``(implied_folder, trailing_token, state)`` with ``state`` one of:
+
+    * ``ok`` — the folder already matches the filename
+    * ``truncated`` — the filename says ``{ExperimentID}_{folder}``, so the
+      *folder* is missing its ExperimentID prefix
+    * ``mismatch`` — the two cannot be reconciled either way
+
+    Candidate order is load-bearing: the compliant folder is tried first, so a
+    name whose folder is already correct never reports as truncated.  That is
+    what separates ``REF3_P05_2/…REF3_P05_2_A10…`` (ok) and ``R100E/…R100E…``
+    (ok, no ExperimentID in the name at all) from ``P05_1/…REF3_P05_1_A10…``
+    (truncated).
+    """
+    candidates = [(sublibrary, "ok")]
+    if experiment_id:
+        candidates.append((f"{experiment_id}_{sublibrary}", "truncated"))
+
+    for candidate, state in candidates:
+        if group == candidate:
+            return candidate, "", state
+        prefix = f"{candidate}_"
+        if group.startswith(prefix):
+            return candidate, group[len(prefix) :], state
+    return sublibrary, "", "mismatch"
+
+
+def _check_group_token(
+    group: str, sublibrary: str, experiment_id: str, s3_path: str
+) -> list[SopViolation]:
+    """Attribute a folder/filename disagreement to whichever side is wrong.
+
+    The vendor delivery is the source of truth for the sublibrary name, so when
+    the filename carries the full ``{ExperimentID}_{sublibrary}`` and the folder
+    carries only part of it, the folder is at fault.  ``sublibrary_mismatch``
+    then means what it says: the two genuinely disagree.
+    """
+    implied_folder, trailing, state = seahub_group_parts(
+        group, sublibrary, experiment_id
+    )
+    violations: list[SopViolation] = []
+
+    if state == "mismatch":
         return [
+            SopViolation(
+                type="sublibrary_mismatch",
+                s3_path=s3_path,
+                detail=(
+                    f"filename sublibrary {group!r} is neither folder sublibrary "
+                    f"{sublibrary!r} nor {sublibrary!r}_<well>; rename either the "
+                    "folder or the files so they agree"
+                ),
+            )
+        ]
+
+    # Orthogonal to the folder question, so it can co-occur with truncation.
+    if trailing and not SEAHUB_WELL_RE.match(trailing):
+        violations.append(
             SopViolation(
                 type="bad_well",
                 s3_path=s3_path,
                 detail=(
-                    f"token {well!r} after sublibrary {sublibrary!r} is not a "
-                    "well of the form [A-H]<1-2 digits>"
+                    f"token {trailing!r} after sublibrary {implied_folder!r} is "
+                    "not a well of the form [A-H]<1-2 digits>"
                 ),
             )
-        ]
-    return [
-        SopViolation(
-            type="sublibrary_mismatch",
-            s3_path=s3_path,
-            detail=(
-                f"filename sublibrary {group!r} is neither folder sublibrary "
-                f"{sublibrary!r} nor {sublibrary!r}_<well>; rename either the "
-                "folder or the files so they agree"
-            ),
         )
-    ]
+
+    if state == "truncated":
+        violations.append(
+            SopViolation(
+                type="sublibrary_folder_truncated",
+                s3_path=s3_path,
+                detail=(
+                    f"folder sublibrary {sublibrary!r} is missing its "
+                    f"ExperimentID prefix; the filename says {implied_folder!r}, "
+                    f"so rename the folder to {implied_folder!r}"
+                ),
+                expected_folder=implied_folder,
+                scope="folder",
+            )
+        )
+    return violations
 
 
 def _check_path(bucket: str, s3_key: str) -> tuple[list[SopViolation], dict | None]:
@@ -180,10 +323,21 @@ def _check_path(bucket: str, s3_key: str) -> tuple[list[SopViolation], dict | No
     return violations, path_info
 
 
-def validate_seahub_key(bucket: str, s3_key: str) -> list[SopViolation]:
+def validate_seahub_key(
+    bucket: str,
+    s3_key: str,
+    *,
+    assay_by_identity: Mapping[tuple[str, str], str] | None = None,
+) -> list[SopViolation]:
     """Validate one SeaHub object against the SOP.
 
     Returns every rule broken by this object; an empty list means compliant.
+
+    ``assay_by_identity`` maps ``(wafer, UG)`` to the sublibrary type read from
+    the untrimmed vendor delivery.  Supplied, it lets ``invalid_sublibrary_type``
+    name the corrected filename; omitted, that rule still fires but cannot say
+    what the missing token should have been.  A plain mapping keeps this module a
+    leaf that imports nothing but constants and parsers.
     """
     s3_path = f"s3://{bucket}/{s3_key}"
     violations, path_info = _check_path(bucket, s3_key)
@@ -193,6 +347,22 @@ def validate_seahub_key(bucket: str, s3_key: str) -> list[SopViolation]:
     basename = s3_key.split("/")[-1]
     parsed = seahub_stem_and_family(basename)
     if parsed is None:
+        if is_non_sequencing_artifact(basename):
+            violations.append(
+                SopViolation(
+                    type="non_sequencing_artifact",
+                    s3_path=s3_path,
+                    detail=(
+                        f"{basename!r} is likely a file unrelated to the CRO "
+                        "sequencing — it matches bulk-download tool output "
+                        "(browser pages, icons, manifest listings) rather than "
+                        "any SOP artifact, and carries no sequencing data QA "
+                        "can validate"
+                    ),
+                    scope="object",
+                )
+            )
+            return violations
         violations.append(
             SopViolation(
                 type="unexpected_suffix",
@@ -201,11 +371,12 @@ def validate_seahub_key(bucket: str, s3_key: str) -> list[SopViolation]:
                     f"{basename!r} does not end in a SeaHub artifact suffix; "
                     "expected one of the six .trim.* artifacts"
                 ),
+                scope="object",
             )
         )
         return violations
 
-    stem, suffix, family = parsed
+    raw_stem, suffix, family = parsed
     if family == "bare":
         violations.append(
             SopViolation(
@@ -216,6 +387,25 @@ def validate_seahub_key(bucket: str, s3_key: str) -> list[SopViolation]:
                     "the upload is indistinguishable from untrimmed data"
                 ),
                 expected_name=expected_sop_name(basename, suffix, family),
+            )
+        )
+
+    # Normalize the doubled wafer BEFORE any token rule runs, and then run them
+    # on the normalized stem only.  On the raw stem the type-less pattern
+    # swallows the second wafer into the group ('437120-REF3_P04_1_A1'), which no
+    # folder can be reconciled against; validating both stems would instead
+    # double every row for the ~1439 affected objects.
+    stem, was_doubled = normalize_doubled_wafer(raw_stem)
+    if was_doubled:
+        violations.append(
+            SopViolation(
+                type="duplicated_wafer_token",
+                s3_path=s3_path,
+                detail=(
+                    f"wafer {stem.split('-')[0]!r} appears twice at the head of "
+                    f"{raw_stem!r}; the SOP name carries it once"
+                ),
+                expected_name=f"{stem}{suffix}",
             )
         )
 
@@ -237,14 +427,30 @@ def validate_seahub_key(bucket: str, s3_key: str) -> list[SopViolation]:
             )
             return violations
         match = relaxed
+        vendor_assay = (assay_by_identity or {}).get(
+            (match.group("wafer"), match.group("ug"))
+        )
+        if vendor_assay:
+            corrected = (
+                f"{match.group('wafer')}-{match.group('group')}_{vendor_assay}"
+                f"-{match.group('ug')}-{match.group('barcode')}{suffix}"
+            )
+            detail = (
+                f"{stem!r} carries no sublibrary type; the untrimmed vendor "
+                f"delivery gives {vendor_assay!r} for this well"
+            )
+        else:
+            corrected = ""
+            detail = (
+                f"{stem!r} carries no sublibrary type; expected one of "
+                f"{', '.join(SEAHUB_SUBLIBRARY_TYPES)}"
+            )
         violations.append(
             SopViolation(
                 type="invalid_sublibrary_type",
                 s3_path=s3_path,
-                detail=(
-                    f"{stem!r} carries no sublibrary type; expected one of "
-                    f"{', '.join(SEAHUB_SUBLIBRARY_TYPES)}"
-                ),
+                detail=detail,
+                expected_name=corrected,
             )
         )
 
@@ -261,7 +467,12 @@ def validate_seahub_key(bucket: str, s3_key: str) -> list[SopViolation]:
         )
 
     violations.extend(
-        _check_group_token(match.group("group"), path_info["sublibrary"], s3_path)
+        _check_group_token(
+            match.group("group"),
+            path_info["sublibrary"],
+            path_info["experiment_id"],
+            s3_path,
+        )
     )
 
     if not SEAHUB_UG_RE.match(match.group("ug")):
@@ -286,27 +497,179 @@ def validate_seahub_key(bucket: str, s3_key: str) -> list[SopViolation]:
     return violations
 
 
-def validate_seahub_stems(bucket: str, s3_keys: list[str]) -> list[SopViolation]:
-    """Validate a listing, reporting each stem once rather than each artifact.
+@dataclass(frozen=True)
+class SeahubStemGroup:
+    """The artifacts of one well, as delivered.
 
-    A wholly misnamed well has six artifacts sharing one stem; without this
-    collapsing, one defect would be reported six times.  Artifact-specific
-    rules (``missing_trim_infix``, ``unexpected_suffix``) still need per-object
-    evaluation, so the first object of each stem is validated in full and its
-    ``missing_trim_infix`` is reported once for the whole stem.
+    ``identity`` is ``(wafer, UG)`` when the normalized stem parses -- the same
+    key :mod:`qa_seahub_source` indexes both sides of the cross-bucket comparison
+    on, so a group joins the vendor index directly.  Otherwise it falls back to
+    ``(raw_dir, stem)``, which at least keeps the artifacts of one unparseable
+    well together.
+
+    ``stems`` can hold more than one value: a well whose artifacts disagree about
+    the name is itself the finding.
     """
-    violations: list[SopViolation] = []
-    seen_stems: set[tuple[str, str]] = set()
+
+    bucket: str
+    raw_dir: str
+    experiment_id: str
+    sublibrary: str
+    wafer_folder: str
+    identity: tuple[str, str]
+    keys: tuple[str, ...]
+    suffixes: tuple[str, ...]
+    families: frozenset[str]
+    stems: tuple[str, ...]
+    normalized_stem: str
+    wafer: str
+    ug: str
+    well_id: str
+
+    @property
+    def has_cram(self) -> bool:
+        return any(s in (".cram", ".trim.cram") for s in self.suffixes)
+
+
+def group_seahub_keys(
+    bucket: str, s3_keys: list[str]
+) -> tuple[list[SeahubStemGroup], list[str]]:
+    """Bucket a listing into per-well groups, returning ``(groups, unparsed)``.
+
+    ``unparsed`` holds keys that carry no recognizable artifact suffix -- junk and
+    genuinely unexpected names -- which are reported per object rather than per
+    well.
+    """
+    unparsed: list[str] = []
+    buckets: dict[tuple[str, tuple[str, str]], list[tuple[str, str, str, str]]] = {}
+
     for s3_key in sorted(s3_keys):
         parsed = seahub_stem_and_family(s3_key.split("/")[-1])
         if parsed is None:
-            violations.extend(validate_seahub_key(bucket, s3_key))
+            unparsed.append(s3_key)
             continue
-        stem_id = ("/".join(s3_key.split("/")[:-1]), parsed[0])
-        if stem_id in seen_stems:
-            continue
-        seen_stems.add(stem_id)
-        violations.extend(validate_seahub_key(bucket, s3_key))
+        raw_stem, suffix, family = parsed
+        raw_dir = "/".join(s3_key.split("/")[:-1])
+        normalized, _doubled = normalize_doubled_wafer(raw_stem)
+        match = SEAHUB_STEM_RE.match(normalized) or SEAHUB_STEM_NO_TYPE_RE.match(
+            normalized
+        )
+        identity = (
+            (match.group("wafer"), match.group("ug"))
+            if match is not None
+            else (raw_dir, raw_stem)
+        )
+        buckets.setdefault((raw_dir, identity), []).append(
+            (s3_key, raw_stem, suffix, family)
+        )
+
+    groups: list[SeahubStemGroup] = []
+    for (raw_dir, identity), members in sorted(buckets.items()):
+        path_info = parse_seahub_raw_path(f"{raw_dir}/x") or {}
+        first_stem = members[0][1]
+        normalized, _doubled = normalize_doubled_wafer(first_stem)
+        match = SEAHUB_STEM_RE.match(normalized) or SEAHUB_STEM_NO_TYPE_RE.match(
+            normalized
+        )
+        well_id = ""
+        if match is not None:
+            _folder, trailing, _state = seahub_group_parts(
+                match.group("group"),
+                path_info.get("sublibrary", ""),
+                path_info.get("experiment_id", ""),
+            )
+            well_id = trailing
+        groups.append(
+            SeahubStemGroup(
+                bucket=bucket,
+                raw_dir=raw_dir,
+                experiment_id=path_info.get("experiment_id", ""),
+                sublibrary=path_info.get("sublibrary", ""),
+                wafer_folder=path_info.get("wafer", ""),
+                identity=identity,
+                keys=tuple(m[0] for m in members),
+                suffixes=tuple(m[2] for m in members),
+                families=frozenset(m[3] for m in members),
+                stems=tuple(sorted({m[1] for m in members})),
+                normalized_stem=normalized,
+                wafer=match.group("wafer") if match else "",
+                ug=match.group("ug") if match else "",
+                well_id=well_id,
+            )
+        )
+    return groups, unparsed
+
+
+def validate_seahub_group(
+    group: SeahubStemGroup,
+    *,
+    assay_by_identity: Mapping[tuple[str, str], str] | None = None,
+) -> list[SopViolation]:
+    """Validate every artifact of one well, then collapse duplicate facts.
+
+    Every key is validated, not just the first: a well delivered as a compliant
+    ``.trim.cram`` plus a bare ``_fail.csv`` has a real defect that validating
+    only the alphabetically-first artifact silently drops.
+
+    Dedup is by ``(type, stem, family, expected_folder)``.  Deduping on
+    ``expected_name`` instead would not collapse anything -- three of the rules
+    carry a suffix-dependent name -- turning a six-artifact well into nineteen
+    rows.
+    """
+    violations: list[SopViolation] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for s3_key in group.keys:
+        parsed = seahub_stem_and_family(s3_key.split("/")[-1])
+        stem, family = (parsed[0], parsed[2]) if parsed is not None else ("", "")
+        for violation in validate_seahub_key(
+            group.bucket, s3_key, assay_by_identity=assay_by_identity
+        ):
+            fingerprint = (violation.type, stem, family, violation.expected_folder)
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            violations.append(violation)
+    return violations
+
+
+def validate_seahub_stems(
+    bucket: str,
+    s3_keys: list[str],
+    *,
+    assay_by_identity: Mapping[tuple[str, str], str] | None = None,
+) -> list[SopViolation]:
+    """Validate a listing, reporting one row per distinct fact.
+
+    Three scopes collapse differently: ``object`` rules stay per object, ``stem``
+    rules collapse to one row per well, and ``folder`` rules collapse to one row
+    per sublibrary directory -- deliberately ignoring the wafer, since a
+    truncated folder name is one fact about a sublibrary however many wafers and
+    wells sit beneath it.  Without that, REF3's seven truncated folders would
+    report as several hundred rows and bury everything else.
+    """
+    groups, unparsed = group_seahub_keys(bucket, s3_keys)
+
+    violations: list[SopViolation] = []
+    for s3_key in unparsed:
+        violations.extend(
+            validate_seahub_key(bucket, s3_key, assay_by_identity=assay_by_identity)
+        )
+
+    seen_folder_facts: set[tuple[str, str, str]] = set()
+    for group in groups:
+        for violation in validate_seahub_group(
+            group, assay_by_identity=assay_by_identity
+        ):
+            if violation.scope == "folder":
+                fingerprint = (
+                    violation.type,
+                    f"{group.raw_dir.rsplit('/', 1)[0]}",
+                    violation.expected_folder,
+                )
+                if fingerprint in seen_folder_facts:
+                    continue
+                seen_folder_facts.add(fingerprint)
+            violations.append(violation)
     return violations
 
 

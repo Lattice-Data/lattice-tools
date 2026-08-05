@@ -366,6 +366,53 @@ SEAHUB_WELL_RE = re.compile(r"^[A-H]\d{1,2}$")
 
 SEAHUB_PLATE_SIZES = frozenset({48, 96})
 
+# A wafer token repeated at the head of the stem (``437120-437120-...``), seen on
+# six of REF3's seven sublibraries.  Two capture groups rather than a
+# backreference so callers can distinguish the two cases: the SOP rule fires only
+# when they are equal, and the rename mapping refuses to normalize when they
+# differ (two different wafers is not a repair QA can guess at).
+SEAHUB_DOUBLED_WAFER_RE = re.compile(r"^(?P<first>\d{6,8})-(?P<second>\d{6,8})-")
+
+# A bulk-download counter appended to a duplicate name (``ug-icon.png.1``).
+# Stripped only to form an additional classification candidate, never to rewrite.
+SEAHUB_DOWNLOAD_DUP_SUFFIX_RE = re.compile(r"\.\d+$")
+
+# Browser/tool leftovers found sitting in raw folders.  ``.txt`` is deliberately
+# absent: an unrecognized ``.txt`` must stay ``unexpected_suffix`` rather than be
+# waved through as junk.  Named ``.txt`` files are listed individually below.
+SEAHUB_NON_SEQ_EXTENSIONS = frozenset(
+    {".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".css", ".js"}
+)
+SEAHUB_NON_SEQ_BASENAMES = frozenset({"urls.txt", ".ds_store", "thumbs.db"})
+SEAHUB_NON_SEQ_NAME_RES = (re.compile(r"^objects_list[-_.].*\.txt$"),)
+
+# How widely one violation applies, which drives dedup when reporting.  A folder
+# defect is one fact about a sublibrary, not one fact per object beneath it.
+SEAHUB_VIOLATION_SCOPES = ("object", "stem", "folder")
+
+# The closed set of SOP rule names.  Kept explicit so a typo in a new rule shows
+# up as a test failure rather than as a silently missing category.
+SEAHUB_SOP_RULES = frozenset(
+    {
+        "bad_bucket",
+        "lab_project_mismatch",
+        "bad_path_depth",
+        "unexpected_suffix",
+        "non_sequencing_artifact",
+        "missing_trim_infix",
+        "duplicated_wafer_token",
+        "repeated_token",
+        "unparseable_stem",
+        "invalid_sublibrary_type",
+        "wafer_mismatch",
+        "sublibrary_folder_truncated",
+        "sublibrary_mismatch",
+        "bad_well",
+        "bad_ug",
+        "bad_barcode",
+    }
+)
+
 # ---------------------------------------------------------------------------
 # Scale raw file patterns
 #

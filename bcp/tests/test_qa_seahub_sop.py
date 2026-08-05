@@ -16,6 +16,7 @@ from qa_constants import SEAHUB_STEM_RE
 from qa_gather import gather_qa_data
 from qa_mods import grab_seahub_trim_fail_csv, seahub_stem_and_family
 from qa_seahub_sop import (
+    group_seahub_keys,
     sop_violation_summary,
     validate_seahub_key,
     validate_seahub_stems,
@@ -103,9 +104,9 @@ class TestRealMisnamedObject:
         violations = validate_seahub_key("czi-labalpha", REAL_MISNAMED)
         assert _types(violations) == {
             "missing_trim_infix",
-            "repeated_token",
+            "duplicated_wafer_token",
             "invalid_sublibrary_type",
-            "sublibrary_mismatch",
+            "sublibrary_folder_truncated",
         }
 
     def test_expected_name_restores_the_trim_infix(self):
@@ -113,10 +114,33 @@ class TestRealMisnamedObject:
         infix = next(v for v in violations if v.type == "missing_trim_infix")
         assert infix.expected_name.endswith(".trim.cram")
 
-    def test_sublibrary_mismatch_names_both_sides(self):
+    def test_folder_truncation_names_the_corrected_folder(self):
         violations = validate_seahub_key("czi-labalpha", REAL_MISNAMED)
-        detail = next(v for v in violations if v.type == "sublibrary_mismatch").detail
-        assert "P05_2" in detail
+        truncated = next(
+            v for v in violations if v.type == "sublibrary_folder_truncated"
+        )
+        assert truncated.expected_folder == "REF3_P05_2"
+        assert truncated.scope == "folder"
+        assert "P05_2" in truncated.detail
+
+    def test_duplicated_wafer_expected_name_drops_the_repeat(self):
+        violations = validate_seahub_key("czi-labalpha", REAL_MISNAMED)
+        doubled = next(v for v in violations if v.type == "duplicated_wafer_token")
+        assert doubled.expected_name == (
+            "436830-REF3_P05_2_A10-Z0169-CTCGCAATAGATGAT.cram"
+        )
+
+    def test_vendor_index_fills_the_missing_sublibrary_type(self):
+        violations = validate_seahub_key(
+            "czi-labalpha",
+            REAL_MISNAMED,
+            assay_by_identity={("436830", "Z0169"): "GEX_hash_oligo"},
+        )
+        typed = next(v for v in violations if v.type == "invalid_sublibrary_type")
+        assert typed.expected_name == (
+            "436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.cram"
+        )
+        assert "vendor" in typed.detail
 
 
 class TestPathRules:
@@ -158,16 +182,39 @@ class TestFilenameRules:
         )
         assert "bad_well" in _types(validate_seahub_key("czi-labalpha", key))
 
-    def test_sublibrary_mismatch_when_folder_lacks_prefix(self):
+    def test_folder_truncation_is_blamed_on_the_folder_not_the_filename(self):
+        """The vendor delivery is the source of truth for the sublibrary name.
+
+        A correctly-named file under a plate-only folder is a folder defect, so
+        the old sublibrary_mismatch (which blamed the filename) must not fire.
+        """
         key = (
             "labalpha-seahub-bcp/REF3/raw/P05_2/436830/"
             "436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
         )
+        types = _types(validate_seahub_key("czi-labalpha", key))
+        assert types == {"sublibrary_folder_truncated"}
+
+    def test_sublibrary_mismatch_when_the_two_cannot_be_reconciled(self):
+        """Neither the folder nor {ExperimentID}_{folder} explains the name."""
+        key = (
+            "labalpha-seahub-bcp/REF3/raw/P05_2/436830/"
+            "436830-SOMETHING_ELSE_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
+        )
         assert "sublibrary_mismatch" in _types(validate_seahub_key("czi-labalpha", key))
 
-    def test_unexpected_suffix_for_browser_junk(self):
+    def test_browser_junk_is_reported_as_non_sequencing(self):
         key = "labalpha-seahub-bcp/REF3/raw/P05_2/436830/index.html"
-        assert "unexpected_suffix" in _types(validate_seahub_key("czi-labalpha", key))
+        types = _types(validate_seahub_key("czi-labalpha", key))
+        assert types == {"non_sequencing_artifact"}
+
+    def test_an_unrecognized_name_is_still_an_unexpected_suffix(self):
+        """The junk rule must not become a catch-all for anything unparsed."""
+        for name in ("README.txt", f"{TRIM_STEM}.trim.cram.1"):
+            key = f"labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479/{name}"
+            assert _types(validate_seahub_key("czi-labalpha", key)) == {
+                "unexpected_suffix"
+            }
 
     def test_experiment_id_in_sublibrary_is_not_a_repeated_token(self):
         # REF3 appears in both the ExperimentID folder and the sublibrary name;
@@ -186,7 +233,7 @@ class TestStemLevelReporting:
         ]
         violations = validate_seahub_stems("czi-labalpha", keys)
         summary = sop_violation_summary(violations)
-        assert summary["repeated_token"] == 1
+        assert summary["duplicated_wafer_token"] == 1
         assert summary["invalid_sublibrary_type"] == 1
         assert summary["missing_trim_infix"] == 1
 
@@ -196,7 +243,110 @@ class TestStemLevelReporting:
             f"{BARE_DIR}/ug-icon.png",
         ]
         violations = validate_seahub_stems("czi-labalpha", keys)
-        assert sop_violation_summary(violations)["unexpected_suffix"] == 2
+        assert sop_violation_summary(violations)["non_sequencing_artifact"] == 2
+
+    def test_a_mixed_family_well_still_reports_its_bare_artifact(self):
+        """Regression: every artifact is validated, not just the first sorted one.
+
+        A well delivered as a compliant ``.trim.cram`` plus a bare ``_fail.csv``
+        used to report nothing at all -- ``.trim.cram`` sorts first ('.' < '_'),
+        it validated clean, and the rest of the well was skipped. The same
+        ``_fail.csv`` on its own reported correctly, which is what made the gap
+        invisible.
+        """
+        keys = [f"{TRIM_DIR}/{TRIM_STEM}.trim.cram", f"{TRIM_DIR}/{TRIM_STEM}_fail.csv"]
+
+        summary = sop_violation_summary(validate_seahub_stems("czi-labalpha", keys))
+
+        assert summary == {"missing_trim_infix": 1}
+
+    def test_a_fully_compliant_well_reports_nothing(self):
+        keys = [
+            f"{TRIM_DIR}/{TRIM_STEM}{suffix}"
+            for suffix in (
+                ".trim.cram",
+                ".trim.csv",
+                ".trim.stderr",
+                ".trim.stdout",
+                ".trim_fail.csv",
+                ".trim.cram-metadata.json",
+            )
+        ]
+        assert validate_seahub_stems("czi-labalpha", keys) == []
+
+    def test_a_truncated_folder_is_one_row_however_many_wells_sit_under_it(self):
+        """A folder defect is one fact about a sublibrary, not one per object.
+
+        Reported per object, REF3's seven truncated folders would produce several
+        hundred rows and bury every other finding. The wafer is deliberately
+        excluded from the dedup key, so two wafers of one sublibrary still
+        collapse to a single row.
+        """
+        keys = []
+        for wafer, ugs in (
+            ("437120", ("Z0001", "Z0002", "Z0003")),
+            ("437121", ("Z0004",)),
+        ):
+            for ug in ugs:
+                stem = f"{wafer}-REF3_P04_1_A1_GEX_hash_oligo-{ug}-CAGCTCGAATGCGAT"
+                keys.append(
+                    f"labalpha-seahub-bcp/REF3/raw/P04_1/{wafer}/{stem}.trim.cram"
+                )
+
+        summary = sop_violation_summary(validate_seahub_stems("czi-labalpha", keys))
+
+        assert summary == {"sublibrary_folder_truncated": 1}
+
+
+class TestStemGrouping:
+    def test_a_well_groups_on_wafer_and_ug(self):
+        """The grouping key matches the cross-bucket identity key.
+
+        qa_seahub_source indexes both the vendor delivery and the trimmed upload
+        on (wafer, UG), so grouping the same way lets a group join the vendor
+        index without re-parsing.
+        """
+        keys = [
+            f"{BARE_DIR}/{BARE_STEM}{suffix}"
+            for suffix in (".cram", ".csv", ".stderr", ".stdout", "_fail.csv")
+        ]
+
+        groups, unparsed = group_seahub_keys("czi-labalpha", keys)
+
+        assert unparsed == []
+        assert len(groups) == 1
+        group = groups[0]
+        assert group.identity == ("438514", "Z0305")
+        assert group.families == frozenset({"bare"})
+        assert group.well_id == "A3"
+        assert group.has_cram is True
+        assert group.normalized_stem == "438514-REF3_P07_1_A3-Z0305-CACACACAACATGAT"
+
+    def test_a_well_missing_its_cram_is_visible_on_the_group(self):
+        keys = [
+            f"{BARE_DIR}/{BARE_STEM}{suffix}"
+            for suffix in (".csv", ".stderr", ".stdout", "_fail.csv")
+        ]
+
+        groups, _unparsed = group_seahub_keys("czi-labalpha", keys)
+
+        assert groups[0].has_cram is False
+
+    def test_junk_lands_in_unparsed_not_in_a_group(self):
+        groups, unparsed = group_seahub_keys(
+            "czi-labalpha", [f"{BARE_DIR}/login.html", f"{BARE_DIR}/{BARE_STEM}.cram"]
+        )
+
+        assert unparsed == [f"{BARE_DIR}/login.html"]
+        assert len(groups) == 1
+
+    def test_a_mixed_family_well_is_one_group_carrying_both_families(self):
+        keys = [f"{TRIM_DIR}/{TRIM_STEM}.trim.cram", f"{TRIM_DIR}/{TRIM_STEM}_fail.csv"]
+
+        groups, _unparsed = group_seahub_keys("czi-labalpha", keys)
+
+        assert len(groups) == 1
+        assert groups[0].families == frozenset({"trim", "bare"})
 
 
 class TestFamilyAwareCompleteness:
@@ -398,7 +548,7 @@ class TestFailCsvSuffixes:
         data = gather_qa_data(ctx, MockS3Client(paginated_pages=pages))
         types = {v["type"] for v in data.sop_violations}
         assert "missing_trim_infix" in types
-        assert "repeated_token" in types
+        assert "duplicated_wafer_token" in types
         sop_warnings = [
             w for w in data.gathering_warnings if w.startswith("SOP VIOLATIONS:")
         ]
