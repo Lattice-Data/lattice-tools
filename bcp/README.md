@@ -774,22 +774,60 @@ with `{sublibrary type}` in `GEX`, `CRI`, `hash_oligo`, `GEX_hash_oligo`. The Ex
 filename field; it appears in a name only when it is part of that project's sublibrary name (e.g.
 `REF3_P05_2`).
 
-Three checks are specific to this mode:
+Five checks are specific to this mode. All SeaHub cells form one contiguous block at the *end* of
+`qa.ipynb`, tagged `seahub` and gated on `seahub_active`, so they cannot renumber the shared pipeline;
+`tests/test_qa_notebook_layout.py` enforces that. Read `{order}_seahub_well_status.csv` first: the SOP
+table says what is wrong, the per-well status says how many wells are affected and which need data
+rather than a rename.
 
 - **Two suffix families.** `qa_constants.SEAHUB_TRIM_SUFFIXES` is the SOP set; `SEAHUB_BARE_SUFFIXES`
   is the same six artifacts with the `.trim` infix dropped, which real uploads have used. Per-well
   completeness is checked within the family that was delivered, so an artifact genuinely absent from
   the upload lands in `*_raw_missing.csv` instead of being lost among thousands of identical
   "missing `.trim.*`" rows.
-- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule per well — wrong bucket or project,
-  wrong path depth, missing `.trim` infix (with the SOP name in `expected_name`), repeated tokens,
-  sublibrary or wafer disagreement with the folders, bad well/UG/barcode, missing or unknown
-  sublibrary type — to `{order}_raw_sop_violations.csv`. Violations are non-fatal.
-- **Cross-bucket trimming completeness** compares the upload against the untrimmed vendor delivery
-  given in the notebook's `untrimmed_s3_path` parameter, matching wells on `(wafer, UG)` and writing
-  `{order}_trimming_completeness.csv`. `qa_seahub_source.py` builds the per-well index for each side;
+- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at three
+  scopes: `object` (per object), `stem` (per well) and `folder` (per sublibrary directory, so one
+  truncated folder is one row rather than one per well). Rules cover wrong bucket or project, wrong
+  path depth, missing `.trim` infix, a doubled leading wafer token (`duplicated_wafer_token`), a
+  truncated sublibrary folder (`sublibrary_folder_truncated`), bulk-download leftovers
+  (`non_sequencing_artifact`), sublibrary or wafer disagreement, bad well/UG/barcode, and a missing
+  sublibrary type. `expected_name` carries the corrected basename repairing that rule alone, and
+  `expected_folder` the corrected path segment. A folder/filename disagreement is blamed on the
+  **folder** when the filename says `{ExperimentID}_{folder}`, because the vendor delivery is the
+  source of truth for the sublibrary name. Given `untrimmed_s3_paths`, a missing sublibrary type is
+  filled from the vendor delivery. Written to `{order}_raw_sop_violations.csv`; violations are
+  non-fatal.
+- **Cross-bucket trimming completeness** compares the upload against the untrimmed vendor deliveries
+  listed in the notebook's `untrimmed_s3_paths` parameter — a *list*, because one experiment spans
+  several Novogene orders and one order can hold several experiments. Wells match on `(wafer, UG)`,
+  measured unique on a real delivery (48 CRAMs, 48 distinct UGs per wafer). The vendor layout is
+  `{project}/{order}/{ExperimentID}/raw/{wafer}/`; note the segment before `raw` is the ExperimentID
+  alone and carries **no** sublibrary, so the authoritative sublibrary comes from the vendor filename
+  with its trailing well token stripped. `qa_seahub_source.py` builds and merges the per-well indexes;
   `qa_seahub_recon.py` classifies them (`not_trimmed`, `orphan_trimmed`, `identity_mismatch`,
-  `read_count_mismatch`, `metadata_unavailable`). Upload checksum verification remains a manual step.
+  `read_count_mismatch`, `size_not_reduced`, `duplicate_source_well`, `duplicate_trimmed_well`,
+  `source_prefix_empty`, `overlapping_source_prefix`, `metadata_unavailable`) into
+  `{order}_trimming_completeness.csv`, with per-order coverage in
+  `{order}_seahub_source_coverage.csv`. Coverage matters: wells of an order missing from the list can
+  only surface as `orphan_trimmed`, which reads as a completeness failure rather than incomplete
+  input, so unsourced wafers are called out explicitly.
+- **Rename mapping** (`qa_seahub_rename.py`) composes the per-rule repairs into one corrected S3 key
+  per object in `{order}_seahub_rename_mapping.csv`. Advisory only — QA never moves, deletes or
+  rewrites anything. Every proposal is re-validated against the SOP and withheld unless clean, two
+  objects can never be given the same destination, and an existing destination is `blocked` rather
+  than overwritten. `name_source` is `vendor` when the delivery supplied a missing token, else
+  `inferred`.
+- **Per-well status** rolls the above up to one verdict per well in
+  `{order}_seahub_well_status.csv`: `COMPLIANT`, `RENAMEABLE` (complete, every defect repairable by
+  renaming), `DATA_GAP` (an artifact genuinely absent) or `UNKNOWN` (unidentifiable, or no corrected
+  name derivable). `DATA_GAP` outranks the un-nameable `UNKNOWN` so a missing CRAM stays visible even
+  when its vendor order is absent from the list, and the detail names the vendor key it can be
+  re-trimmed from.
+
+Checksums are deliberately out of scope. S3 validates integrity on upload when the client sends a
+checksum, and a multipart `ETag` is a composite of per-part digests rather than a whole-file hash, so
+it cannot be compared against a lab-supplied manifest. The trimmed-vs-vendor size comparison
+(`size_not_reduced`) covers the cheap part of the same question without transferring any bytes.
 
 ## Version
 

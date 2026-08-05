@@ -184,9 +184,28 @@ class TestSharedPipelineIsIndependentOfTheSeahubBlock:
         gather = _index_of(cells, "### Gather all raw + processed file listings")
         source = _source(cells[gather])
 
-        assert "raw_assay == 'seahub_sci'" in source
+        # Quote-agnostic: notebooks are excluded from ruff (pyproject.toml), so
+        # their quote style is whatever the author used and must not be asserted.
+        assert "raw_assay ==" in source
+        assert "seahub_sci" in source
         assert "validate_processed = False" in source
         assert gather < _seahub_indices(cells)[0]
+
+
+class TestParameterBlock:
+    def test_the_untrimmed_source_parameter_is_a_list(self, cells):
+        """One experiment spans several vendor orders, so it cannot be a scalar."""
+        params = _source(cells[_index_of(cells, "# Choose data source:")])
+
+        assert "untrimmed_s3_paths = []" in params
+        assert "untrimmed_s3_path =" not in params
+
+    def test_the_seahub_block_gates_on_seahub_active(self, cells):
+        """Every SeaHub code cell must self-skip for other assays."""
+        for i in _seahub_indices(cells):
+            if cells[i]["cell_type"] != "code":
+                continue
+            assert "seahub_active" in _source(cells[i]), f"cell {i} has no gate"
 
 
 class TestCellZero:
