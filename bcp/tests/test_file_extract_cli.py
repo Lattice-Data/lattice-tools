@@ -26,6 +26,7 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert exc_info.value.code == 0
     out = capsys.readouterr().out
     assert "fastq" in out
+    assert "cram" in out
     assert "h5" in out
 
 
@@ -130,3 +131,110 @@ def test_cli_fastq_zero_matches(
     code = main(["fastq", f"s3://{BUCKET}/{PREFIX}", "--quiet"])
     assert code == 0
     assert "Nothing to do" in capsys.readouterr().out
+
+
+@patch("file_extract.cli.extract_cram")
+@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.boto3.client")
+def test_cli_cram_success(
+    mock_boto: MagicMock,
+    mock_scan: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from file_extract.cram import CramListingWarnings
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_scan.return_value = CramListingWarnings()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1, enrichment_ok=1)
+    out = tmp_path / "cram.tsv"
+
+    code = main(
+        [
+            "cram",
+            f"s3://{BUCKET}/{PREFIX}",
+            "-o",
+            str(out),
+            "--quiet",
+        ]
+    )
+    assert code == 0
+
+
+@patch("file_extract.cli.extract_cram")
+@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.boto3.client")
+def test_cli_cram_zero_matches_only_unmatched(
+    mock_boto: MagicMock,
+    mock_scan: MagicMock,
+    mock_extract: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from file_extract.cram import CramListingWarnings
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_scan.return_value = CramListingWarnings(unmatched_cram_count=2)
+    mock_extract.return_value = RunSummary(total=0)
+    code = main(["cram", f"s3://{BUCKET}/{PREFIX}", "--quiet"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "Nothing to do" in out
+    assert "2 unmatched" in out
+
+
+@patch("file_extract.cli.extract_cram")
+@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.boto3.client")
+def test_cli_cram_ucram_warning(
+    mock_boto: MagicMock,
+    mock_scan: MagicMock,
+    mock_extract: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from file_extract.cram import CramListingWarnings
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_scan.return_value = CramListingWarnings(ucram_count=1)
+    mock_extract.return_value = RunSummary(total=0)
+    code = main(["cram", f"s3://{BUCKET}/{PREFIX}", "--quiet"])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert ".ucram" in out
+
+
+@patch("file_extract.cli.extract_cram")
+@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.boto3.client")
+def test_cli_cram_strict_on_failure(
+    mock_boto: MagicMock,
+    mock_scan: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from file_extract.cram import CramListingWarnings
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_scan.return_value = CramListingWarnings()
+    mock_extract.return_value = RunSummary(
+        total=1,
+        crc_ok=1,
+        enrichment_ok=0,
+        failures=[("key", "", "metadata error")],
+    )
+    out = tmp_path / "cram_strict.tsv"
+
+    code = main(
+        [
+            "cram",
+            f"s3://{BUCKET}/{PREFIX}",
+            "-o",
+            str(out),
+            "--quiet",
+            "--strict",
+        ]
+    )
+    assert code == 1

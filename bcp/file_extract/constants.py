@@ -14,6 +14,16 @@ FASTQ_COLUMNS = [
     "metadata_error",
 ]
 
+CRAM_COLUMNS = [
+    "filename",
+    "s3_uri",
+    "size_bytes",
+    "crc64nvme_base64",
+    "read_count",
+    "crc_error",
+    "metadata_error",
+]
+
 H5_BASE_COLUMNS = [
     "library",
     "sample",

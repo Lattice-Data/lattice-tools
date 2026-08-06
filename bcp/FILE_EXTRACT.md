@@ -1,6 +1,6 @@
 ## File extract
 
-Extract S3 metadata for **FASTQ.gz** deliverables and **Cell Ranger h5** matrices. Part of BCP tooling under `bcp/file_extract`.
+Extract S3 metadata for **FASTQ.gz**, **CRAM**, and **Cell Ranger h5** matrices. Part of BCP tooling under `bcp/file_extract`.
 
 Requires AWS credentials with read access to the target bucket (standard `boto3` credential chain).
 
@@ -14,6 +14,7 @@ Run from the **`bcp`** directory:
 cd bcp
 python -m file_extract --help
 python -m file_extract fastq --help
+python -m file_extract cram --help
 python -m file_extract h5 --help
 ```
 
@@ -40,6 +41,30 @@ python -m file_extract fastq s3://example-bucket/path/to/order --no-require-raw
 **Output columns:** `filename`, `s3_uri`, `read`, `lane`, `size_bytes`, `crc64nvme_base64`, `read_count`, `crc_error`, `metadata_error`
 
 **Guardrails:** warns when R1 and R2 file counts differ; suggests `--no-require-raw` when zero files match.
+
+### CRAM mode
+
+Walk an S3 order prefix and emit one row per deliverable `.cram` under `/raw/` with CRC64NVME and companion `-metadata.json` `read_count`. CRAMs are single-ended (no R1/R2/R3 or lane columns).
+
+```bash
+python -m file_extract cram s3://example-bucket/path/to/order
+python -m file_extract cram s3://example-bucket/path/to/order -o order_cram_info.tsv
+python -m file_extract cram s3://example-bucket/path/to/order --no-require-raw
+```
+
+| Flag | Description |
+|------|-------------|
+| `-o`, `--output` | Output TSV (default: `<order>_cram_info.tsv`) |
+| `--no-require-raw` | Don't require `/raw/` in the S3 key |
+| `--workers` | Process pool size (default: min(64, n_files)) |
+| `--retries` | Max attempts per transient S3 error (default: 5) |
+| `--strict` | Exit 1 if any per-file CRC or metadata fetch fails |
+| `-v`, `--verbose` | Debug logging |
+| `-q`, `--quiet` | Disable progress bars |
+
+**Output columns:** `filename`, `s3_uri`, `size_bytes`, `crc64nvme_base64`, `read_count`, `crc_error`, `metadata_error`
+
+**Guardrails:** warns when only unmatched CRAMs are found (excluded from output); warns when `.ucram` files are present; suggests `--no-require-raw` when zero deliverable files match.
 
 ### H5 mode
 
@@ -86,4 +111,4 @@ All tests use mocked S3; no AWS credentials required for the default suite.
 
 ## Migration from prototypes
 
-The standalone prototypes in `bcp/docs/file_extractor.py` and `bcp/docs/extract_h5.py` are superseded by this package. Use `python -m file_extract fastq` and `python -m file_extract h5` instead.
+The standalone prototypes in `bcp/docs/file_extractor.py` and `bcp/docs/extract_h5.py` are superseded by this package. Use `python -m file_extract fastq`, `python -m file_extract cram`, and `python -m file_extract h5` instead.

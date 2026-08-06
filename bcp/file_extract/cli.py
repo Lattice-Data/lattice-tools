@@ -8,6 +8,13 @@ from typing import NoReturn
 import boto3
 
 from .constants import DEFAULT_H5_TARGET_FILENAME
+from .cram import (
+    default_cram_output_name,
+    extract_cram,
+    only_unmatched_cram_warning,
+    scan_cram_listing_warnings,
+    ucram_found_warning,
+)
 from .fastq import (
     default_fastq_output_name,
     extract_fastq,
@@ -92,6 +99,61 @@ def _run_fastq(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_cram(args: argparse.Namespace) -> int:
+    location = parse_s3_uri(args.s3_uri)
+    output = args.output or default_cram_output_name(location.prefix)
+    require_raw = not args.no_require_raw
+
+    print(f"Bucket: {location.bucket}")
+    print(f"Prefix: {location.prefix}")
+    print(f"Require /raw/: {require_raw}")
+    print("Listing cram files ...")
+
+    s3_client = boto3.client("s3")
+    listing_warnings = scan_cram_listing_warnings(
+        s3_client, location.bucket, location.prefix
+    )
+    summary = extract_cram(
+        s3_client,
+        location.bucket,
+        location.prefix,
+        output,
+        require_raw=require_raw,
+        workers=args.workers,
+        retries=args.retries,
+        show_progress=not args.quiet,
+    )
+
+    ucram_warning = ucram_found_warning(listing_warnings.ucram_count)
+    if ucram_warning:
+        print(f"  WARNING: {ucram_warning}")
+
+    print(f"Found {summary.total} matching files")
+    if summary.total == 0:
+        print("Nothing to do. (If this order doesn't use /raw/, try --no-require-raw.)")
+        unmatched_warning = only_unmatched_cram_warning(
+            listing_warnings.unmatched_cram_count
+        )
+        if unmatched_warning:
+            print(f"  WARNING: {unmatched_warning}")
+        return 0
+
+    print(f"\nDone. Total: {summary.total}")
+    print(
+        f"  CRC64NVME retrieved: {summary.crc_ok} | failed: {summary.total - summary.crc_ok}"
+    )
+    print(
+        f"  read_count retrieved: {summary.enrichment_ok} | "
+        f"failed: {summary.total - summary.enrichment_ok}"
+    )
+    print(f"  Output: {output}")
+
+    _print_failures(summary.failures)
+    if args.strict and summary.has_failures:
+        return 1
+    return 0
+
+
 def _run_h5(args: argparse.Namespace) -> int:
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_h5_output_name(location.prefix)
@@ -160,7 +222,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser = argparse.ArgumentParser(
-        description="Extract S3 metadata for FASTQ.gz and Cell Ranger h5 deliverables.",
+        description=(
+            "Extract S3 metadata for FASTQ.gz, CRAM, and Cell Ranger h5 deliverables."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
     )
@@ -193,6 +257,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Max attempts per transient operation (default: 5)",
     )
     fastq.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 if any per-file enrichment fails",
+    )
+
+    cram = subparsers.add_parser(
+        "cram",
+        help="Extract CRAM metadata under an S3 order prefix.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[parent],
+    )
+    cram.add_argument("s3_uri", help="s3://bucket/path/order")
+    cram.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output TSV (default: <order>_cram_info.tsv)",
+    )
+    cram.add_argument(
+        "--no-require-raw",
+        action="store_true",
+        help="Don't require a /raw/ subfolder in the key",
+    )
+    cram.add_argument("--workers", type=int, default=None, help="Process count")
+    cram.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        help="Max attempts per transient operation (default: 5)",
+    )
+    cram.add_argument(
         "--strict",
         action="store_true",
         help="Exit 1 if any per-file enrichment fails",
@@ -259,6 +354,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "fastq":
         return _run_fastq(args)
+    if args.command == "cram":
+        return _run_cram(args)
     if args.command == "h5":
         return _run_h5(args)
     parser.error(f"Unknown command: {args.command}")
