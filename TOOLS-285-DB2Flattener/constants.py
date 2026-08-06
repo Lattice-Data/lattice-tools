@@ -105,3 +105,8 @@ GENETIC_PERTURBATION_MAP = {
     "knockout mutation":"CRISPR knockout mutant",
     "knockout screen":"CRISPR knockout screen",
 }
+
+REFORMAT_LIST = [
+    "sample_probe_barcode",
+    "suspension_enrichment_factors",
+]

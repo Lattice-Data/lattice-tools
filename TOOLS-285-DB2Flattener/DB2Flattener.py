@@ -11,6 +11,7 @@ from constants import (
     PROP_MAP_BIOHUB,
     TISSUE_TYPE_MAP,
     GENETIC_PERTURBATION_MAP,
+    REFORMAT_LIST,
 )
 from DB2_utils import (
     split_controlled_term_columns, 
@@ -356,11 +357,7 @@ class DB2Flattener:
         biohub_df["tissue_type"] = biohub_df["tissue_type"].apply(lambda x: TISSUE_TYPE_MAP.get(x[0], x))
         if "genetic_perturbation_strategy" in biohub_df.columns:
             biohub_df["genetic_perturbation_strategy"] = biohub_df["genetic_perturbation_strategy"].replace(GENETIC_PERTURBATION_MAP)
-        reformat_list = [
-            "sample_probe_barcode",
-            "suspension_enrichment_factors",
-        ]
-        for field in reformat_list:
+        for field in REFORMAT_LIST:
             if field in biohub_df.columns:
                 biohub_df[field] = biohub_df[field].apply(
                     lambda x: "|".join(map(str, x)) if isinstance(x, (list, tuple)) else x
