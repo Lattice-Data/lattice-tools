@@ -89,7 +89,7 @@ PROP_MAP_BIOHUB = {
     "experimental_conditions_upper_bound_duration": "experimental_conditions_upper_bound_duration",
     "experimental_conditions_lower_bound_duration": "experimental_conditions_lower_bound_duration",
     "experimental_conditions_duration_units": "experimental_conditions_duration_units",
-    "genetic_modifications_strategy":"genetic_pertubation_strategy"
+    "genetic_modifications_strategy":"genetic_perturbation_strategy"
 }
 
 TISSUE_TYPE_MAP = {

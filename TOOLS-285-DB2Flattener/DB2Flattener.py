@@ -319,20 +319,22 @@ class DB2Flattener:
         biohub_df.drop_duplicates(inplace=True)
 
         # Add columns default values if not present
-        biohub_df["disease"] = biohub_df["disease"].apply(
-            lambda v: pd.NA if (v is None or v == "" or v == [] or v == ()) else v
-        )
-        biohub_df["disease"] = biohub_df["disease"].fillna("normal")
+        if "disease" not in biohub_df.columns:
+            biohub_df["disease"] = "normal"
+        else:
+            biohub_df["disease"] = biohub_df["disease"].apply(
+                lambda v: pd.NA if (v is None or v == "" or v == [] or v == ()) else v
+            )
+            biohub_df["disease"] = biohub_df["disease"].fillna("normal")
 
 
         if "self_reported_ethnicity" not in biohub_df.columns:
             biohub_df["self_reported_ethnicity"] = np.where(biohub_df["organism"] == "Homo sapiens", "unknown", "na")
         else:
-            biohub_df.loc[df["self_reported_ethnicity"].isna() & (biohub_df["organism"] == "Homo sapiens"), "self_reported_ethnicity"] = "unknown"
-            biohub_df.loc[df["self_reported_ethnicity"].isna() & (biohub_df["organism"] != "Homo sapiens"), "self_reported_ethnicity"] = "na"
+            biohub_df.loc[biohub_df["self_reported_ethnicity"].isna() & (biohub_df["organism"] == "Homo sapiens"), "self_reported_ethnicity"] = "unknown"
+            biohub_df.loc[biohub_df["self_reported_ethnicity"].isna() & (biohub_df["organism"] != "Homo sapiens"), "self_reported_ethnicity"] = "na"
 
         # Combine multiple columns into one
-
         biohub_df = combine_bound_columns(
             biohub_df,
             lower_col="experimental_conditions_lower_bound_duration",
@@ -350,7 +352,8 @@ class DB2Flattener:
 
         # Update values to match schema
         biohub_df["tissue_type"] = biohub_df["tissue_type"].apply(lambda x: TISSUE_TYPE_MAP.get(x[0], x))
-        biohub_df["genetic_pertubation_strategy"] = biohub_df["genetic_pertubation_strategy"].apply(lambda x: GENETIC_PERTURBATION_MAP.get(x[0], x))
+        if "genetic_perturbation_strategy" in biohub_df.columns:
+            biohub_df["genetic_perturbation_strategy"] = biohub_df["genetic_perturbation_strategy"].apply(lambda x: GENETIC_PERTURBATION_MAP.get(x[0], x))
         reformat_list = [
             "sample_probe_barcode",
             "suspension_enrichment_factors",
