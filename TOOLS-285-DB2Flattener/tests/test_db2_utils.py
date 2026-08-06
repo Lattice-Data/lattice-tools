@@ -1,7 +1,11 @@
 import numpy as np
 import pandas as pd
 
-from DB2_utils import collapse_duplicate_columns, combine_bound_columns
+from DB2_utils import (
+    collapse_duplicate_columns,
+    combine_bound_columns,
+    strip_author_metadata_column_prefix,
+)
 
 
 def test_combine_bound_columns_equal_and_unequal():
@@ -167,3 +171,23 @@ def test_collapse_duplicate_columns_mixed_with_unique():
     assert list(result.columns) == ["a", "b"]
     assert result["a"].iloc[0] == ["x", "y"]
     assert result["b"].iloc[0] == "keep"
+
+
+def test_strip_author_metadata_column_prefix_renames():
+    df = pd.DataFrame(
+        {
+            "tissues_author_metadata_mouse_litter_batch": ["A1"],
+            "sample_name": ["s1"],
+        }
+    )
+    result = strip_author_metadata_column_prefix(df)
+    assert "mouse_litter_batch" in result.columns
+    assert "tissues_author_metadata_mouse_litter_batch" not in result.columns
+    assert list(result["mouse_litter_batch"]) == ["A1"]
+    assert list(result["sample_name"]) == ["s1"]
+
+
+def test_strip_author_metadata_column_prefix_noop_without_match():
+    df = pd.DataFrame({"sample_name": ["s1"], "disease": ["normal"]})
+    result = strip_author_metadata_column_prefix(df)
+    pd.testing.assert_frame_equal(result, df)

@@ -10,6 +10,8 @@ Generic functions for gathering DB2 object information, and DataFrame transforms
 - Get reference object ids from a field
 """
 
+import re
+
 import pandas as pd
 import numpy as np
 from constants import Configs
@@ -25,6 +27,16 @@ def is_empty(val) -> bool:
     if isinstance(val, float) and pd.isna(val):
         return True
     return val in ("", [])
+
+
+def strip_author_metadata_column_prefix(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename cols like tissues_author_metadata_foo -> foo."""
+    rename = {
+        c: re.sub(r'^.*?_author_metadata_', '', c)
+        for c in df.columns
+        if '_author_metadata_' in c
+    }
+    return df.rename(columns=rename) if rename else df
 
 
 def collapse_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:

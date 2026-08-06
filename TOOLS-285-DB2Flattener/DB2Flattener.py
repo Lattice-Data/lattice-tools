@@ -20,6 +20,7 @@ from DB2_utils import (
     extract_references_from_field,
     combine_bound_columns,
     collapse_duplicate_columns,
+    strip_author_metadata_column_prefix,
     is_empty,
 )
 from generate_constants import load_and_return_constant_dicts
@@ -307,6 +308,7 @@ class DB2Flattener:
         columns_to_keep.extend([k for k in main_df.columns if re.search('_author_metadata_', k)])
         biohub_df = main_df[columns_to_keep].copy()
         biohub_df.rename(columns=PROP_MAP_BIOHUB, inplace=True)
+        biohub_df = strip_author_metadata_column_prefix(biohub_df)
         biohub_df = collapse_duplicate_columns(biohub_df)
 
         # Deduplicate rows, must join lists as they are not hashable
