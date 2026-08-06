@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-import json
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from tqdm import tqdm
-
 from .constants import CRAM_COLUMNS, SHEET_HELPER_COLUMNS
-from .models import RunSummary
-from .retry import retry_with_backoff
-from .s3_utils import (
-    fetch_crc64nvme,
-    get_object_bytes,
-    list_objects_with_size,
-    s3_uri_for,
-)
+from .enrich import fetch_results
+from .models import ListedObject, RunSummary
+from .s3_utils import s3_uri_for
 from .sheets import (
     SequenceFileRecord,
     SheetOptions,
@@ -48,59 +39,6 @@ def is_target_file(key: str, *, require_raw: bool = True) -> bool:
     return True
 
 
-def _fetch_read_count(s3_client: Any, bucket: str, key: str) -> int:
-    metadata_key = key + "-metadata.json"
-    data = json.loads(get_object_bytes(s3_client, bucket, metadata_key))
-    if "read_count" not in data:
-        raise RuntimeError("'read_count' not present in metadata JSON")
-    return data["read_count"]
-
-
-def fetch_one_cram(
-    s3_client: Any,
-    bucket: str,
-    key: str,
-    *,
-    retries: int = 5,
-) -> dict[str, object]:
-    """Fetch CRC and read_count for a single CRAM key."""
-    result: dict[str, object] = {
-        "crc": None,
-        "crc_error": "",
-        "read_count": None,
-        "metadata_error": "",
-    }
-
-    crc, crc_err = retry_with_backoff(
-        fetch_crc64nvme, s3_client, bucket, key, retries=retries
-    )
-    result["crc"] = crc
-    result["crc_error"] = crc_err or ""
-
-    rc, rc_err = retry_with_backoff(
-        _fetch_read_count, s3_client, bucket, key, retries=retries
-    )
-    if rc_err:
-        result["metadata_error"] = rc_err
-    else:
-        result["read_count"] = rc
-
-    return result
-
-
-def process_one_cram(
-    bucket: str,
-    key: str,
-    *,
-    retries: int = 5,
-) -> dict[str, object]:
-    """Process a single CRAM key (module-level for ProcessPoolExecutor)."""
-    import boto3
-
-    s3_client = boto3.client("s3")
-    return fetch_one_cram(s3_client, bucket, key, retries=retries)
-
-
 def default_cram_output_name(prefix: str) -> str:
     order_name = prefix.rstrip("/").rsplit("/", 1)[-1] if prefix else "output"
     return f"{order_name}_cram_info.tsv"
@@ -108,37 +46,6 @@ def default_cram_output_name(prefix: str) -> str:
 
 def cram_columns() -> list[str]:
     return list(CRAM_COLUMNS) + list(SHEET_HELPER_COLUMNS)
-
-
-def _fetch_results(
-    s3_client: Any,
-    bucket: str,
-    keys: list[str],
-    *,
-    retries: int,
-    workers: int | None,
-    show_progress: bool,
-    inline: bool,
-) -> dict[str, dict[str, object]]:
-    """Enrich every key, returned keyed by S3 key rather than completion order."""
-    if inline:
-        return {
-            key: fetch_one_cram(s3_client, bucket, key, retries=retries) for key in keys
-        }
-
-    results: dict[str, dict[str, object]] = {}
-    max_workers = min(workers or 64, len(keys))
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(process_one_cram, bucket, key, retries=retries): key
-            for key in keys
-        }
-        iterator = as_completed(futures)
-        if show_progress:
-            iterator = tqdm(iterator, total=len(keys), desc="Fetching")
-        for fut in iterator:
-            results[futures[fut]] = fut.result()
-    return results
 
 
 def _diagnostic_row(
@@ -169,12 +76,31 @@ class CramListingWarnings:
     ucram_count: int = 0
 
 
-def scan_cram_listing_warnings(
+@dataclass(frozen=True)
+class CramListing:
+    """One traversal of an order prefix, classified into targets and warnings."""
+
+    targets: tuple[ListedObject, ...] = ()
+    warnings: CramListingWarnings = field(default_factory=CramListingWarnings)
+
+
+def scan_cram_listing(
     s3_client: Any,
     bucket: str,
     prefix: str,
-) -> CramListingWarnings:
-    """Scan prefix for unmatched CRAM and .ucram keys."""
+    *,
+    require_raw: bool = True,
+) -> CramListing:
+    """Classify every key under the prefix in a single traversal.
+
+    Deliverables and the guardrail counts come from the same listing so they
+    cannot disagree, and the prefix is walked once rather than once per concern.
+
+    The counts are deliberately not scoped to /raw/: a .ucram or an unmatched
+    CRAM anywhere under the order is worth reporting, because it means the
+    delivery holds more than this run processed.
+    """
+    targets: list[ListedObject] = []
     unmatched = 0
     ucram = 0
     paginator = s3_client.get_paginator("list_objects_v2")
@@ -185,19 +111,33 @@ def scan_cram_listing_warnings(
                 ucram += 1
             elif is_unmatched_cram(key):
                 unmatched += 1
-    return CramListingWarnings(
-        unmatched_cram_count=unmatched,
-        ucram_count=ucram,
+            elif is_target_file(key, require_raw=require_raw):
+                targets.append(ListedObject(key=key, size_bytes=obj["Size"]))
+    return CramListing(
+        targets=tuple(targets),
+        warnings=CramListingWarnings(
+            unmatched_cram_count=unmatched,
+            ucram_count=ucram,
+        ),
     )
 
 
-def only_unmatched_cram_warning(unmatched_count: int) -> str | None:
-    """Return warning when only unmatched CRAMs were found under the prefix."""
+def only_unmatched_cram_warning(
+    unmatched_count: int,
+    *,
+    require_raw: bool = True,
+) -> str | None:
+    """Return warning when only unmatched CRAMs were found under the prefix.
+
+    The /raw/ clause is dropped under --no-require-raw: claiming nothing was
+    found there would name a location the run never restricted itself to.
+    """
     if unmatched_count <= 0:
         return None
+    location = " under /raw/" if require_raw else ""
     return (
         f"Found {unmatched_count} unmatched .cram file(s) but no deliverable "
-        "CRAMs under /raw/ (unmatched files are excluded)"
+        f"CRAMs{location} (unmatched files are excluded)"
     )
 
 
@@ -220,18 +160,19 @@ def extract_cram(
     show_progress: bool = True,
     inline: bool = False,
     sheets: SheetOptions | None = None,
+    listing: CramListing | None = None,
 ) -> RunSummary:
-    """List CRAM files, enrich with CRC and read_count, write TSVs.
+    """Enrich CRAM deliverables with CRC and read_count, write TSVs.
 
     Rows are buffered and emitted in S3-key order so repeated runs of the same
     order produce identical files.
+
+    Pass ``listing`` to reuse a scan the caller already made -- the CLI does, so
+    the prefix is walked once for both the guardrail warnings and the work.
     """
-    targets = list_objects_with_size(
-        s3_client,
-        bucket,
-        prefix,
-        predicate=lambda k: is_target_file(k, require_raw=require_raw),
-    )
+    if listing is None:
+        listing = scan_cram_listing(s3_client, bucket, prefix, require_raw=require_raw)
+    targets = listing.targets
     summary = RunSummary(total=len(targets))
     if not targets:
         return summary
@@ -252,7 +193,7 @@ def extract_cram(
         # Before spending a request per file: a collision here is unsubmittable.
         validate_aliases(plan, namespace=namespace)
 
-    results = _fetch_results(
+    results = fetch_results(
         s3_client,
         bucket,
         [record.key for record in plan],

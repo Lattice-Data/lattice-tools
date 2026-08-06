@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from file_extract.cli import build_parser, main
+from file_extract.models import ListedObject
 from tests.file_extract_helpers import MockS3Client
 
 PREFIX = "test-order/NVUS0000000000-01/"
@@ -26,6 +27,9 @@ SHEET_ARGS = [
     "Ultima Genomics UG 100",
 ]
 CRAM_SHEET_ARGS = [*SHEET_ARGS, "--cram-slot", "trimmed"]
+
+# A stand-in deliverable, so a mocked scan looks like it found work to do.
+_LISTED_CRAM = ListedObject(key=f"{PREFIX}S1/raw/sample.cram", size_bytes=10)
 
 
 def test_build_parser_requires_subcommand() -> None:
@@ -149,7 +153,7 @@ def test_cli_fastq_zero_matches(
 
 
 @patch("file_extract.cli.extract_cram")
-@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.scan_cram_listing")
 @patch("file_extract.cli.boto3.client")
 def test_cli_cram_success(
     mock_boto: MagicMock,
@@ -157,11 +161,11 @@ def test_cli_cram_success(
     mock_extract: MagicMock,
     tmp_path: Path,
 ) -> None:
-    from file_extract.cram import CramListingWarnings
+    from file_extract.cram import CramListing
     from file_extract.models import RunSummary
 
     mock_boto.return_value = MockS3Client()
-    mock_scan.return_value = CramListingWarnings()
+    mock_scan.return_value = CramListing(targets=(_LISTED_CRAM,))
     mock_extract.return_value = RunSummary(total=1, crc_ok=1, enrichment_ok=1)
     out = tmp_path / "cram.tsv"
 
@@ -179,7 +183,7 @@ def test_cli_cram_success(
 
 
 @patch("file_extract.cli.extract_cram")
-@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.scan_cram_listing")
 @patch("file_extract.cli.boto3.client")
 def test_cli_cram_zero_matches_only_unmatched(
     mock_boto: MagicMock,
@@ -187,11 +191,13 @@ def test_cli_cram_zero_matches_only_unmatched(
     mock_extract: MagicMock,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from file_extract.cram import CramListingWarnings
+    from file_extract.cram import CramListing, CramListingWarnings
     from file_extract.models import RunSummary
 
     mock_boto.return_value = MockS3Client()
-    mock_scan.return_value = CramListingWarnings(unmatched_cram_count=2)
+    mock_scan.return_value = CramListing(
+        warnings=CramListingWarnings(unmatched_cram_count=2)
+    )
     mock_extract.return_value = RunSummary(total=0)
     code = main(["cram", f"s3://{BUCKET}/{PREFIX}", "--quiet", *CRAM_SHEET_ARGS])
     assert code == 0
@@ -201,7 +207,7 @@ def test_cli_cram_zero_matches_only_unmatched(
 
 
 @patch("file_extract.cli.extract_cram")
-@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.scan_cram_listing")
 @patch("file_extract.cli.boto3.client")
 def test_cli_cram_ucram_warning(
     mock_boto: MagicMock,
@@ -209,16 +215,59 @@ def test_cli_cram_ucram_warning(
     mock_extract: MagicMock,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from file_extract.cram import CramListingWarnings
+    from file_extract.cram import CramListing, CramListingWarnings
     from file_extract.models import RunSummary
 
     mock_boto.return_value = MockS3Client()
-    mock_scan.return_value = CramListingWarnings(ucram_count=1)
+    mock_scan.return_value = CramListing(warnings=CramListingWarnings(ucram_count=1))
     mock_extract.return_value = RunSummary(total=0)
     code = main(["cram", f"s3://{BUCKET}/{PREFIX}", "--quiet", *CRAM_SHEET_ARGS])
     assert code == 0
     out = capsys.readouterr().out
     assert ".ucram" in out
+
+
+def _inline_cram(*args: object, **kwargs: object) -> object:
+    """Run the real extractor in-process; the mock S3 client cannot cross a pool."""
+    from file_extract.cram import extract_cram
+
+    kwargs["inline"] = True
+    return extract_cram(*args, **kwargs)  # type: ignore[arg-type]
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_cram_walks_prefix_once(mock_boto: MagicMock, tmp_path: Path) -> None:
+    """Guardrail counts and deliverables come from a single listing.
+
+    The scan and the extraction used to walk the prefix independently, which both
+    doubled the List calls and let the two disagree about what the prefix held.
+    """
+    key = f"{PREFIX}S1/raw/sample.cram"
+    ucram = f"{PREFIX}S1/raw/sample.ucram"
+    client = MockS3Client(
+        keys=[key, ucram],
+        sizes={key: 10, ucram: 10},
+        crc_by_key={key: "crc"},
+        object_bodies={f"{key}-metadata.json": '{"read_count": 5}'},
+    )
+    mock_boto.return_value = client
+
+    with patch("file_extract.cli.extract_cram", _inline_cram):
+        code = main(
+            [
+                "cram",
+                f"s3://{BUCKET}/{PREFIX}",
+                "-o",
+                str(tmp_path / "diagnostics.tsv"),
+                "--quiet",
+                *CRAM_SHEET_ARGS,
+            ]
+        )
+
+    assert code == 0
+    assert client.paginate_calls == 1
+    # The single pass still fed both concerns: one deliverable, one .ucram warning.
+    assert (tmp_path / "NVUS0000000000-01_SequenceFileSet.tsv").exists()
 
 
 @pytest.mark.parametrize(
@@ -436,7 +485,7 @@ def test_cli_reports_sheet_warnings(
 
 
 @patch("file_extract.cli.extract_cram")
-@patch("file_extract.cli.scan_cram_listing_warnings")
+@patch("file_extract.cli.scan_cram_listing")
 @patch("file_extract.cli.boto3.client")
 def test_cli_cram_strict_on_failure(
     mock_boto: MagicMock,
@@ -444,11 +493,11 @@ def test_cli_cram_strict_on_failure(
     mock_extract: MagicMock,
     tmp_path: Path,
 ) -> None:
-    from file_extract.cram import CramListingWarnings
+    from file_extract.cram import CramListing
     from file_extract.models import RunSummary
 
     mock_boto.return_value = MockS3Client()
-    mock_scan.return_value = CramListingWarnings()
+    mock_scan.return_value = CramListing(targets=(_LISTED_CRAM,))
     mock_extract.return_value = RunSummary(
         total=1,
         crc_ok=1,

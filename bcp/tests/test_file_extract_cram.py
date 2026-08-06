@@ -14,7 +14,7 @@ from file_extract.cram import (
     is_target_file,
     is_unmatched_cram,
     only_unmatched_cram_warning,
-    scan_cram_listing_warnings,
+    scan_cram_listing,
     ucram_found_warning,
 )
 from tests.file_extract_helpers import FIXTURES, MockS3Client
@@ -79,11 +79,92 @@ def test_warning_helpers() -> None:
     assert ".ucram" in ucram_msg
 
 
-def test_scan_cram_listing_warnings() -> None:
+def test_only_unmatched_warning_drops_raw_clause_when_not_required() -> None:
+    """--no-require-raw never restricted the search, so it must not be claimed."""
+    assert "under /raw/" in str(only_unmatched_cram_warning(1, require_raw=True))
+    relaxed = only_unmatched_cram_warning(1, require_raw=False)
+    assert relaxed is not None
+    assert "/raw/" not in relaxed
+    assert "1 unmatched" in relaxed
+
+
+def test_scan_cram_listing_classifies_in_one_pass() -> None:
     keys = [MATCHED_KEY, UNMATCHED_TRIMMED_KEY, UCRAM_KEY]
     client = MockS3Client(keys=keys, sizes={k: 100 for k in keys})
-    warnings = scan_cram_listing_warnings(client, BUCKET, PREFIX)
-    assert warnings == CramListingWarnings(unmatched_cram_count=1, ucram_count=1)
+    listing = scan_cram_listing(client, BUCKET, PREFIX)
+    assert listing.warnings == CramListingWarnings(
+        unmatched_cram_count=1, ucram_count=1
+    )
+    assert [obj.key for obj in listing.targets] == [MATCHED_KEY]
+    assert listing.targets[0].size_bytes == 100
+
+
+def test_scan_cram_listing_honours_require_raw() -> None:
+    outside_raw = MATCHED_KEY.replace("/raw/", "/other/")
+    client = MockS3Client(keys=[outside_raw], sizes={outside_raw: 5})
+    assert scan_cram_listing(client, BUCKET, PREFIX).targets == ()
+    relaxed = scan_cram_listing(client, BUCKET, PREFIX, require_raw=False)
+    assert [obj.key for obj in relaxed.targets] == [outside_raw]
+
+
+def test_scan_cram_listing_walks_prefix_once() -> None:
+    """The double walk this replaced cost one full listing per concern."""
+    keys = [MATCHED_KEY, UCRAM_KEY]
+    client = MockS3Client(keys=keys, sizes={k: 1 for k in keys})
+    scan_cram_listing(client, BUCKET, PREFIX)
+    assert client.paginate_calls == 1
+
+
+def test_extract_cram_zero_matches_writes_nothing(tmp_path: Path) -> None:
+    out = tmp_path / "out.tsv"
+    summary = extract_cram(
+        MockS3Client(), BUCKET, PREFIX, str(out), show_progress=False, inline=True
+    )
+    assert summary.total == 0
+    assert not out.exists()
+
+
+def test_extract_cram_records_failed_enrichment(tmp_path: Path) -> None:
+    """A CRAM with no companion metadata still yields a row, with the error noted."""
+    client = MockS3Client(
+        keys=[MATCHED_KEY],
+        sizes={MATCHED_KEY: 100},
+        crc_by_key={MATCHED_KEY: "crc"},
+        object_bodies={},
+    )
+    summary = extract_cram(
+        client,
+        BUCKET,
+        PREFIX,
+        str(tmp_path / "out.tsv"),
+        show_progress=False,
+        inline=True,
+    )
+    assert summary.crc_ok == 1
+    assert summary.enrichment_ok == 0
+    assert len(summary.failures) == 1
+    assert summary.failures[0][0] == MATCHED_KEY
+
+
+def test_extract_cram_scans_once_when_given_no_listing(tmp_path: Path) -> None:
+    """Standalone callers keep working; the listing argument is an optimisation."""
+    meta_body = (FIXTURES / "cram_metadata.json").read_text(encoding="utf-8")
+    client = MockS3Client(
+        keys=[MATCHED_KEY],
+        sizes={MATCHED_KEY: 100},
+        crc_by_key={MATCHED_KEY: "crc"},
+        object_bodies={MATCHED_KEY + "-metadata.json": meta_body},
+    )
+    summary = extract_cram(
+        client,
+        BUCKET,
+        PREFIX,
+        str(tmp_path / "out.tsv"),
+        show_progress=False,
+        inline=True,
+    )
+    assert summary.total == 1
+    assert client.paginate_calls == 1
 
 
 def test_extract_cram_integration(tmp_path: Path) -> None:

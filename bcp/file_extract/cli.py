@@ -13,7 +13,7 @@ from .cram import (
     default_cram_output_name,
     extract_cram,
     only_unmatched_cram_warning,
-    scan_cram_listing_warnings,
+    scan_cram_listing,
     ucram_found_warning,
 )
 from .fastq import (
@@ -196,9 +196,27 @@ def _run_cram(args: argparse.Namespace) -> int:
     print("Listing cram files ...")
 
     s3_client = boto3.client("s3")
-    listing_warnings = scan_cram_listing_warnings(
-        s3_client, location.bucket, location.prefix
+    # One traversal feeds both the guardrail warnings printed here and the work
+    # extract_cram does, so the two cannot disagree about what the prefix holds.
+    listing = scan_cram_listing(
+        s3_client, location.bucket, location.prefix, require_raw=require_raw
     )
+
+    ucram_warning = ucram_found_warning(listing.warnings.ucram_count)
+    if ucram_warning:
+        print(f"  WARNING: {ucram_warning}")
+
+    print(f"Found {len(listing.targets)} matching files")
+    if not listing.targets:
+        print("Nothing to do. (If this order doesn't use /raw/, try --no-require-raw.)")
+        unmatched_warning = only_unmatched_cram_warning(
+            listing.warnings.unmatched_cram_count,
+            require_raw=require_raw,
+        )
+        if unmatched_warning:
+            print(f"  WARNING: {unmatched_warning}")
+        return 0
+
     summary = extract_cram(
         s3_client,
         location.bucket,
@@ -209,21 +227,8 @@ def _run_cram(args: argparse.Namespace) -> int:
         retries=args.retries,
         show_progress=not args.quiet,
         sheets=sheet_options,
+        listing=listing,
     )
-
-    ucram_warning = ucram_found_warning(listing_warnings.ucram_count)
-    if ucram_warning:
-        print(f"  WARNING: {ucram_warning}")
-
-    print(f"Found {summary.total} matching files")
-    if summary.total == 0:
-        print("Nothing to do. (If this order doesn't use /raw/, try --no-require-raw.)")
-        unmatched_warning = only_unmatched_cram_warning(
-            listing_warnings.unmatched_cram_count
-        )
-        if unmatched_warning:
-            print(f"  WARNING: {unmatched_warning}")
-        return 0
 
     print(f"\nDone. Total: {summary.total}")
     print(

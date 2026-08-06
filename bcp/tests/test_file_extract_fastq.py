@@ -29,11 +29,21 @@ R2_KEY = f"{PREFIX}GROUP1/raw/sample_L001_R2_001.fastq.gz"
         (R1_KEY.replace("/raw/", "/processed/"), True, False),
         (f"{PREFIX}GROUP1/raw/sample_sample.fastq.gz", True, False),
         (f"{PREFIX}GROUP1/raw/unmatched.fastq.gz", True, False),
+        (f"{PREFIX}GROUP1/raw/out.bam", True, False),
         (R1_KEY.replace("/raw/", "/other/"), False, True),
     ],
 )
 def test_is_target_file(key: str, require_raw: bool, expected: bool) -> None:
     assert is_target_file(key, require_raw=require_raw) is expected
+
+
+def test_extract_fastq_zero_matches_writes_nothing(tmp_path: Path) -> None:
+    out = tmp_path / "out.tsv"
+    summary = extract_fastq(
+        MockS3Client(), BUCKET, PREFIX, str(out), show_progress=False, inline=True
+    )
+    assert summary.total == 0
+    assert not out.exists()
 
 
 @pytest.mark.parametrize(
