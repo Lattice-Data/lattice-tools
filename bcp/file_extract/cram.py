@@ -7,7 +7,7 @@ from typing import Any
 
 from tqdm import tqdm
 
-from .constants import CRAM_COLUMNS
+from .constants import CRAM_COLUMNS, SHEET_HELPER_COLUMNS
 from .models import RunSummary
 from .retry import retry_with_backoff
 from .s3_utils import (
@@ -15,6 +15,16 @@ from .s3_utils import (
     get_object_bytes,
     list_objects_with_size,
     s3_uri_for,
+)
+from .sheets import (
+    SequenceFileRecord,
+    SheetOptions,
+    build_cram_record,
+    enrich_record,
+    group_records,
+    sample_dir_for,
+    validate_aliases,
+    write_sheets,
 )
 from .tsv_writer import TsvWriter
 
@@ -57,7 +67,7 @@ def fetch_one_cram(
     result: dict[str, object] = {
         "crc": None,
         "crc_error": "",
-        "read_count": "",
+        "read_count": None,
         "metadata_error": "",
     }
 
@@ -97,7 +107,58 @@ def default_cram_output_name(prefix: str) -> str:
 
 
 def cram_columns() -> list[str]:
-    return list(CRAM_COLUMNS)
+    return list(CRAM_COLUMNS) + list(SHEET_HELPER_COLUMNS)
+
+
+def _fetch_results(
+    s3_client: Any,
+    bucket: str,
+    keys: list[str],
+    *,
+    retries: int,
+    workers: int | None,
+    show_progress: bool,
+    inline: bool,
+) -> dict[str, dict[str, object]]:
+    """Enrich every key, returned keyed by S3 key rather than completion order."""
+    if inline:
+        return {
+            key: fetch_one_cram(s3_client, bucket, key, retries=retries) for key in keys
+        }
+
+    results: dict[str, dict[str, object]] = {}
+    max_workers = min(workers or 64, len(keys))
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(process_one_cram, bucket, key, retries=retries): key
+            for key in keys
+        }
+        iterator = as_completed(futures)
+        if show_progress:
+            iterator = tqdm(iterator, total=len(keys), desc="Fetching")
+        for fut in iterator:
+            results[futures[fut]] = fut.result()
+    return results
+
+
+def _diagnostic_row(
+    record: SequenceFileRecord,
+    result: dict[str, object],
+    *,
+    namespace: str | None,
+) -> list[object]:
+    set_alias = record.set_alias(namespace) if namespace else record.set_stem
+    return [
+        record.filename,
+        record.s3_uri,
+        record.file_size,
+        result["crc"] if result["crc"] is not None else "",
+        result["read_count"] if result["read_count"] is not None else "",
+        result["crc_error"],
+        result["metadata_error"],
+        sample_dir_for(record.key),
+        set_alias,
+    ]
 
 
 @dataclass(frozen=True)
@@ -158,8 +219,13 @@ def extract_cram(
     retries: int = 5,
     show_progress: bool = True,
     inline: bool = False,
+    sheets: SheetOptions | None = None,
 ) -> RunSummary:
-    """List CRAM files, enrich with CRC and read_count, write TSV."""
+    """List CRAM files, enrich with CRC and read_count, write TSVs.
+
+    Rows are buffered and emitted in S3-key order so repeated runs of the same
+    order produce identical files.
+    """
     targets = list_objects_with_size(
         s3_client,
         bucket,
@@ -170,53 +236,62 @@ def extract_cram(
     if not targets:
         return summary
 
+    plan = sorted(
+        (
+            build_cram_record(
+                key=obj.key,
+                s3_uri=s3_uri_for(bucket, obj.key),
+                file_size=obj.size_bytes,
+            )
+            for obj in targets
+        ),
+        key=lambda record: record.sort_key,
+    )
+    namespace = sheets.lab.namespace if sheets is not None else None
+    if namespace is not None:
+        # Before spending a request per file: a collision here is unsubmittable.
+        validate_aliases(plan, namespace=namespace)
+
+    results = _fetch_results(
+        s3_client,
+        bucket,
+        [record.key for record in plan],
+        retries=retries,
+        workers=workers,
+        show_progress=show_progress,
+        inline=inline,
+    )
+
     writer = TsvWriter(output_path, cram_columns())
-    size_by_key = {obj.key: obj.size_bytes for obj in targets}
-    max_workers = min(workers or 64, len(targets))
-
-    def _handle_result(key: str, r: dict[str, object]) -> None:
-        nonlocal summary
-        fname = key.rsplit("/", 1)[-1]
-
-        crc_err = str(r["crc_error"])
-        meta_err = str(r["metadata_error"])
+    records: list[SequenceFileRecord] = []
+    for record in plan:
+        result = results[record.key]
+        crc_err = str(result["crc_error"])
+        meta_err = str(result["metadata_error"])
         if not crc_err:
             summary.crc_ok += 1
         if not crc_err and not meta_err:
             summary.enrichment_ok += 1
         if crc_err or meta_err:
-            summary.failures.append((key, crc_err, meta_err))
+            summary.failures.append((record.key, crc_err, meta_err))
 
-        writer.append_row(
-            [
-                fname,
-                s3_uri_for(bucket, key),
-                size_by_key[key],
-                r["crc"] if r["crc"] is not None else "",
-                r["read_count"],
-                crc_err,
-                meta_err,
-            ]
+        writer.append_row(_diagnostic_row(record, result, namespace=namespace))
+        records.append(
+            enrich_record(
+                record,
+                crc=result["crc"] if isinstance(result["crc"], str) else None,
+                read_count=(
+                    result["read_count"]
+                    if isinstance(result["read_count"], int)
+                    else None
+                ),
+            )
         )
 
-    if inline:
-        for obj in targets:
-            r = fetch_one_cram(s3_client, bucket, obj.key, retries=retries)
-            _handle_result(obj.key, r)
-    else:
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    process_one_cram, bucket, obj.key, retries=retries
-                ): obj.key
-                for obj in targets
-            }
-            iterator = as_completed(futures)
-            if show_progress:
-                iterator = tqdm(iterator, total=len(targets), desc="Fetching")
-
-            for fut in iterator:
-                key = futures[fut]
-                _handle_result(key, fut.result())
+    if sheets is not None:
+        groups, warnings = group_records(records)
+        write_sheets(records, groups, options=sheets)
+        summary.set_count = len(groups)
+        summary.warnings.extend(warnings)
 
     return summary

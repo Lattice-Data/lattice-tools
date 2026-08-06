@@ -3,11 +3,12 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from pathlib import Path
 from typing import NoReturn
 
 import boto3
 
-from .constants import DEFAULT_H5_TARGET_FILENAME
+from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
 from .cram import (
     default_cram_output_name,
     extract_cram,
@@ -23,6 +24,14 @@ from .fastq import (
 from .h5 import default_h5_output_name, extract_h5
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
+from .sheets import (
+    LabIdentity,
+    SheetBuildError,
+    SheetOptions,
+    cro_order_mismatch_warning,
+    default_sheet_output_names,
+    validate_cro_order,
+)
 
 log = logging.getLogger(__name__)
 
@@ -50,14 +59,73 @@ def _print_failures(failures: list[tuple[str, str, str]], limit: int = 10) -> No
         print(f"  ... and {len(failures) - limit} more")
 
 
+def _print_warnings(warnings: list[str], limit: int = 10) -> None:
+    for warning in warnings[:limit]:
+        print(f"  WARNING: {warning}")
+    if len(warnings) > limit:
+        print(f"  ... and {len(warnings) - limit} more warning(s)")
+
+
+def _pilot_flag(value: str) -> bool:
+    lowered = value.strip().lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    raise argparse.ArgumentTypeError(
+        f"invalid value {value!r}: expected 'true' or 'false'"
+    )
+
+
+def _sheet_options(args: argparse.Namespace, *, output: str) -> SheetOptions:
+    """Build the submission-sheet options from the required CLI inputs."""
+    lab = LabIdentity.parse(args.lab, namespace=args.alias_namespace)
+    cro_order = validate_cro_order(args.cro_order)
+    if args.out_dir:
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        out_dir = Path(output).parent
+    sequence_file_path, sequence_file_set_path = default_sheet_output_names(
+        cro_order, out_dir=out_dir
+    )
+    return SheetOptions(
+        lab=lab,
+        cro_order=cro_order,
+        is_pilot_order=args.is_pilot_order,
+        sequencing_platform=args.sequencing_platform,
+        sequence_file_path=sequence_file_path,
+        sequence_file_set_path=sequence_file_set_path,
+        cram_slot=getattr(args, "cram_slot", None),
+    )
+
+
+def _print_sheet_outputs(options: SheetOptions) -> None:
+    print(f"  SequenceFile sheet: {options.sequence_file_path}")
+    print(f"  SequenceFileSet sheet: {options.sequence_file_set_path}")
+
+
 def _run_fastq(args: argparse.Namespace) -> int:
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_fastq_output_name(location.prefix)
     require_raw = not args.no_require_raw
+    sheet_options = _sheet_options(args, output=output)
 
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
     print(f"Require /raw/: {require_raw}")
+    print(
+        f"Lab: {sheet_options.lab.path} | alias namespace: "
+        f"{sheet_options.lab.namespace}"
+    )
+    print(
+        f"CRO order: {sheet_options.cro_order} | pilot: "
+        f"{'TRUE' if sheet_options.is_pilot_order else 'FALSE'} | platform: "
+        f"{sheet_options.sequencing_platform}"
+    )
+    order_warning = cro_order_mismatch_warning(sheet_options.cro_order, location.prefix)
+    if order_warning:
+        print(f"  WARNING: {order_warning}")
     print("Listing fastq.gz files ...")
 
     s3_client = boto3.client("s3")
@@ -70,6 +138,7 @@ def _run_fastq(args: argparse.Namespace) -> int:
         workers=args.workers,
         retries=args.retries,
         show_progress=not args.quiet,
+        sheets=sheet_options,
     )
 
     print(f"Found {summary.total} matching files")
@@ -91,8 +160,11 @@ def _run_fastq(args: argparse.Namespace) -> int:
     warning = r1_r2_mismatch_warning(summary.read_tally)
     if warning:
         print(f"  WARNING: {warning}")
+    print(f"  SequenceFileSets: {summary.set_count}")
     print(f"  Output: {output}")
+    _print_sheet_outputs(sheet_options)
 
+    _print_warnings(summary.warnings)
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
         return 1
@@ -103,10 +175,24 @@ def _run_cram(args: argparse.Namespace) -> int:
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_cram_output_name(location.prefix)
     require_raw = not args.no_require_raw
+    sheet_options = _sheet_options(args, output=output)
 
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
     print(f"Require /raw/: {require_raw}")
+    print(
+        f"Lab: {sheet_options.lab.path} | alias namespace: "
+        f"{sheet_options.lab.namespace}"
+    )
+    print(
+        f"CRO order: {sheet_options.cro_order} | pilot: "
+        f"{'TRUE' if sheet_options.is_pilot_order else 'FALSE'} | platform: "
+        f"{sheet_options.sequencing_platform}"
+    )
+    print(f"CRAM slot: {CRAM_SLOT_COLUMNS[sheet_options.cram_slot]}")
+    order_warning = cro_order_mismatch_warning(sheet_options.cro_order, location.prefix)
+    if order_warning:
+        print(f"  WARNING: {order_warning}")
     print("Listing cram files ...")
 
     s3_client = boto3.client("s3")
@@ -122,6 +208,7 @@ def _run_cram(args: argparse.Namespace) -> int:
         workers=args.workers,
         retries=args.retries,
         show_progress=not args.quiet,
+        sheets=sheet_options,
     )
 
     ucram_warning = ucram_found_warning(listing_warnings.ucram_count)
@@ -146,8 +233,11 @@ def _run_cram(args: argparse.Namespace) -> int:
         f"  read_count retrieved: {summary.enrichment_ok} | "
         f"failed: {summary.total - summary.enrichment_ok}"
     )
+    print(f"  SequenceFileSets: {summary.set_count}")
     print(f"  Output: {output}")
+    _print_sheet_outputs(sheet_options)
 
+    _print_warnings(summary.warnings)
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
         return 1
@@ -206,6 +296,42 @@ def _invalid_uri_exit(message: str) -> NoReturn:
     raise SystemExit(2)
 
 
+def _add_sheet_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add the inputs the Lattice submission sheets cannot derive from S3."""
+    parser.add_argument(
+        "--lab",
+        required=True,
+        help="Lab name or path, e.g. heather-marlow or /labs/heather-marlow/",
+    )
+    parser.add_argument(
+        "--cro-order",
+        required=True,
+        help="CRO order identifier, e.g. NVUS2024101701-15",
+    )
+    parser.add_argument(
+        "--is-pilot-order",
+        required=True,
+        type=_pilot_flag,
+        metavar="{true,false}",
+        help="Whether this order is a pilot (written to SequenceFileSet)",
+    )
+    parser.add_argument(
+        "--sequencing-platform",
+        required=True,
+        help='Sequencing platform, e.g. "Ultima Genomics UG 100"',
+    )
+    parser.add_argument(
+        "--alias-namespace",
+        default=None,
+        help="Alias namespace (default: the lab name)",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help="Directory for the sheet TSVs (default: alongside --output)",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parent = argparse.ArgumentParser(add_help=False)
     parent.add_argument(
@@ -261,6 +387,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exit 1 if any per-file enrichment fails",
     )
+    _add_sheet_arguments(fastq)
 
     cram = subparsers.add_parser(
         "cram",
@@ -291,6 +418,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="Exit 1 if any per-file enrichment fails",
+    )
+    _add_sheet_arguments(cram)
+    cram.add_argument(
+        "--cram-slot",
+        required=True,
+        choices=sorted(CRAM_SLOT_COLUMNS),
+        help="SequenceFileSet slot the deliverable CRAM fills",
     )
 
     h5 = subparsers.add_parser(
@@ -352,11 +486,15 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         _invalid_uri_exit(str(exc))
 
-    if args.command == "fastq":
-        return _run_fastq(args)
-    if args.command == "cram":
-        return _run_cram(args)
-    if args.command == "h5":
-        return _run_h5(args)
+    try:
+        if args.command == "fastq":
+            return _run_fastq(args)
+        if args.command == "cram":
+            return _run_cram(args)
+        if args.command == "h5":
+            return _run_h5(args)
+    except SheetBuildError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     parser.error(f"Unknown command: {args.command}")
     return 2

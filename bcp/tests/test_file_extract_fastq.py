@@ -42,7 +42,11 @@ def test_is_target_file(key: str, require_raw: bool, expected: bool) -> None:
         ("sample_L001_R1_001.fastq.gz", "R1", "001"),
         ("sample_L002_R2_003.fastq.gz", "R2", "002"),
         ("sample_I1_001.fastq.gz", "I1", ""),
-        ("no_lane_R1.fastq.gz", "", ""),
+        ("sample_L001_R3_001.fastq.gz", "R3", "001"),
+        # A chunkless designator still names the read: the file belongs in read1,
+        # and a blank here would drop it from the pairing tally and every set.
+        ("no_lane_R1.fastq.gz", "R1", ""),
+        ("no_designator.fastq.gz", "", ""),
     ],
 )
 def test_parse_read_lane(fname: str, read: str, lane: str) -> None:
@@ -102,12 +106,17 @@ def test_extract_fastq_integration(tmp_path: Path) -> None:
         "read_count",
         "crc_error",
         "metadata_error",
+        "sample_dir",
+        "set_alias",
     ]
     assert len(rows) == 3
     data_rows = rows[1:]
-    reads = {row[2] for row in data_rows}
-    assert reads == {"R1", "R2"}
+    # Buffered and sorted, so R1 precedes R2 on every run.
+    assert [row[2] for row in data_rows] == ["R1", "R2"]
     assert all(row[6] == "1234567" for row in data_rows)
+    assert all(row[9] == "GROUP1" for row in data_rows)
+    # No --lab, so the helper column carries the bare stem.
+    assert all(row[10] == "sample_L001" for row in data_rows)
 
 
 def test_extract_fastq_missing_metadata(tmp_path: Path) -> None:
