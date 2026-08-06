@@ -27,11 +27,38 @@ def is_empty(val) -> bool:
     return val in ("", [])
 
 
-def join_if_list(v, sep="|") -> str:
-    """Return lists as string, joined by separator"""
-    if isinstance(v, list):
-        return sep.join(map(str, v))
-    return v
+def collapse_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapse columns that share the same name into one column.
+    For each duplicated label, per row:
+    - ignore empty values (is_empty)
+    - if one distinct value remains, use it
+    - if several distinct values remain, keep them as a list
+      (same idea as single_or_list)
+    - if none, use pd.NA
+    Columns with unique names are left unchanged.
+    """
+    out = pd.DataFrame(index=df.index)
+    seen: set[str] = set()
+    for col in df.columns:
+        if col in seen:
+            continue
+        seen.add(col)
+        # df[col] is a Series if unique, DataFrame if duplicated labels
+        block = df.loc[:, df.columns == col]
+        if isinstance(block, pd.Series) or block.shape[1] == 1:
+            out[col] = block.iloc[:, 0] if isinstance(block, pd.DataFrame) else block
+            continue
+        def _collapse_row(row: pd.Series):
+            items = []
+            for val in row.tolist():
+                items.extend(to_items(val))
+            if not items:
+                return pd.NA
+            unique = list(dict.fromkeys(items))
+            return unique[0] if len(unique) == 1 else unique
+        out[col] = block.apply(_collapse_row, axis=1)
+    return out
 
 
 def to_items(val) -> list:

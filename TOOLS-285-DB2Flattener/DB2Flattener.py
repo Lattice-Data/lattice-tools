@@ -19,7 +19,7 @@ from DB2_utils import (
     get_url_prefix_from_id,
     extract_references_from_field,
     combine_bound_columns,
-    join_if_list,
+    collapse_duplicate_columns,
     is_empty,
 )
 from generate_constants import load_and_return_constant_dicts
@@ -307,26 +307,29 @@ class DB2Flattener:
         columns_to_keep.extend([k for k in main_df.columns if re.search('_author_metadata_', k)])
         biohub_df = main_df[columns_to_keep].copy()
         biohub_df.rename(columns=PROP_MAP_BIOHUB, inplace=True)
+        biohub_df = collapse_duplicate_columns(biohub_df)
 
         # Deduplicate rows, must join lists as they are not hashable
-        for col in biohub_df.columns:
-            if biohub_df[col].dropna().map(lambda x: isinstance(x, list)).any():
-                biohub_df[col] = biohub_df[col].map(join_if_list)
-        biohub_df = biohub_df.drop_duplicates()
+        list_cols = [
+            col for col in biohub_df.columns 
+            if biohub_df[col].dropna().map(lambda x: isinstance(x, list)).any()
+        ]
+        for col in list_cols:
+            biohub_df[col] = biohub_df[col].apply(lambda x: tuple(x) if isinstance(x, list) else x)
+        biohub_df.drop_duplicates(inplace=True)
 
         # Add columns default values if not present
-        if "disease" not in biohub_df.columns:
-            biohub_df["disease"] = "normal"
-        else:
-            biohub_df["disease"] = biohub_df["disease"].apply(
-                lambda v: "normal" if is_empty(v) else v
-            )
+        biohub_df["disease"] = biohub_df["disease"].apply(
+            lambda v: pd.NA if (v is None or v == "" or v == [] or v == ()) else v
+        )
+        biohub_df["disease"] = biohub_df["disease"].fillna("normal")
+
 
         if "self_reported_ethnicity" not in biohub_df.columns:
             biohub_df["self_reported_ethnicity"] = np.where(biohub_df["organism"] == "Homo sapiens", "unknown", "na")
         else:
-            biohub_df.loc[df["self_reported_ethnicity"].isna() & (df["organism"] == "Homo sapiens"), "self_reported_ethnicity"] = "unknown"
-            biohub_df.loc[df["self_reported_ethnicity"].isna() & (df["organism"] != "Homo sapiens"), "self_reported_ethnicity"] = "na"
+            biohub_df.loc[df["self_reported_ethnicity"].isna() & (biohub_df["organism"] == "Homo sapiens"), "self_reported_ethnicity"] = "unknown"
+            biohub_df.loc[df["self_reported_ethnicity"].isna() & (biohub_df["organism"] != "Homo sapiens"), "self_reported_ethnicity"] = "na"
 
         # Combine multiple columns into one
 
