@@ -8,6 +8,12 @@ concurrency:
   group: claude-pr-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+env:
+  # Hidden marker stamped as the first line of every review Claude posts. It is
+  # how a later run recognises its own stale reviews without touching comments
+  # written by humans or by other workflows.
+  REVIEW_MARKER: "<!-- claude-pr-review -->"
+
 jobs:
   review:
     # Only review PRs from branches within this repo; skip PRs opened from forks
@@ -18,6 +24,9 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      # Comments on a PR are issue comments, and deleting one needs issues:write
+      # even though creating it only needs pull-requests:write.
+      issues: write
       id-token: write
     steps:
       - name: Check out the PR branch
@@ -25,6 +34,25 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
+
+      # Snapshot the stale reviews *before* the new one is posted. Deleting only
+      # this pre-existing set means a failed review never leaves the PR with no
+      # feedback at all, and the new comment can't delete itself.
+      - name: Find superseded Claude reviews
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids=$(gh api \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --paginate \
+            --jq '.[] | select(.user.type == "Bot") | select(.body | startswith(env.REVIEW_MARKER)) | .id')
+          echo "Superseded review comments: ${ids:-none}"
+          {
+            echo "ids<<STALE_EOF"
+            echo "$ids"
+            echo "STALE_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run github-pr-review skill
         uses: anthropics/claude-code-action@v1
@@ -42,18 +70,44 @@ jobs:
             for the skill's `gh pr view` and `gh pr diff` calls.
 
             IMPORTANT OVERRIDE: this run is non-interactive. The skill says to
-            present the review and wait to be asked before posting. Do NOT wait.
-            After you produce the review, write it to review.md, then post it
-            yourself as a single top-level PR comment:
+            present the review and wait to be asked before posting. Do NOT wait,
+            and do NOT post anything yourself. Instead, write the finished review
+            to a file named review.md in the current working directory. A later
+            workflow step posts that file to the PR for you.
 
-                gh pr comment <PR NUMBER above> --body-file review.md
-
-            Post only the code review (not the PR description). Do not edit the PR
-            body. Never run `gh pr review --approve` or `gh pr review
-            --request-changes` - do not submit any formal approve/request-changes
-            review; a plain comment only. Approving or blocking the PR is always a
-            human decision.
+            Write only the code review to review.md (not the PR description). Do
+            not edit the PR body, and do not comment on the PR. Never run `gh pr
+            review --approve` or `gh pr review --request-changes` - do not submit
+            any formal approve/request-changes review. Approving or blocking the
+            PR is always a human decision.
           claude_args: |
             --model claude-sonnet-5
             --max-turns 40
-            --allowedTools "Read,Write,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(git show:*)"
+            --allowedTools "Read,Write,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(git show:*)"
+
+      - name: Post the new review
+        id: post
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -s review.md ]; then
+            echo "::error::Claude produced no review.md; leaving the existing review comments in place."
+            exit 1
+          fi
+          { printf '%s\n\n' "$REVIEW_MARKER"; cat review.md; } > review-body.md
+          gh pr comment "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file review-body.md
+
+      # Runs only once the replacement is safely posted.
+      - name: Delete superseded reviews
+        if: steps.post.outcome == 'success' && steps.previous.outputs.ids != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STALE_IDS: ${{ steps.previous.outputs.ids }}
+        run: |
+          printf '%s\n' "$STALE_IDS" | while read -r id; do
+            [ -n "$id" ] || continue
+            echo "Deleting superseded review comment $id"
+            gh api -X DELETE "repos/${{ github.repository }}/issues/comments/$id"
+          done
