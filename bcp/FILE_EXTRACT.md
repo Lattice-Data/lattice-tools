@@ -116,6 +116,8 @@ A failed checksum or `read_count` fetch leaves the cell empty and records the re
 | `read1` … `index2` | Member file aliases, **bare** rather than JSON arrays |
 | `untrimmed_cram` / `trimmed_cram` | The CRAM's alias, per `--cram-slot` |
 
+**One row schema covers both delivery formats; a single order never uses both.** The read slots and the CRAM slots share this sheet because one `SequenceFileSet` shape has to describe either delivery, not because one set mixes them. Delivery format is a per-library choice declared on the sequencing information form — `UG - FASTQ` or `UG - CRAM` — so an order arrives as one or the other, and only the matching subcommand finds anything. Running the other one against the same prefix matches zero files and exits before writing, leaving any existing sheets untouched.
+
 One set per (sample directory, read stem), so separate lanes become separate sets.
 
 **Chunked reads are rejected.** A delivery holding `_R1_001` alongside `_R1_002` for one lane is refused during planning, before any per-file request: those are two pieces of one read, a SequenceFileSet holds a single file per slot, and splitting them across two sets would claim two sequencing runs happened where there was one. Neither Novogene nor Psomagen is expected to ship split FASTQs, so this means something upstream changed. The error names each affected slot and its chunks; concatenate to one file per read and re-run.
