@@ -59,6 +59,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Run github-pr-review skill
+        id: claude
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,8 +100,19 @@ jobs:
             --max-turns 80
             --allowedTools "Read,Write,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git show:*),Bash(git log:*),Bash(git diff:*)"
 
+      # claude-code-action refuses to run when this file differs from the copy on
+      # the default branch - a guard against a PR rewriting the review workflow to
+      # leak secrets - and it still exits success when it does. That is every PR
+      # that edits this workflow, so treat it as a skip, not a missing review.
+      # execution_file is set only when Claude actually ran.
+      - name: Note the skipped review
+        if: steps.claude.outputs.execution_file == ''
+        run: |
+          echo "::notice::Claude Code skipped this run: this workflow file differs from the copy on ${{ github.event.repository.default_branch }}. Expected on PRs that edit the workflow; it resolves once they merge. No review was posted and none were deleted."
+
       - name: Post the new review
         id: post
+        if: steps.claude.outputs.execution_file != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
