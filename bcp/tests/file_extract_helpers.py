@@ -18,6 +18,7 @@ class MockPaginator:
     def paginate(self, **kwargs: Any):
         bucket = kwargs.get("Bucket", "")
         prefix = kwargs.get("Prefix", "")
+        self._s3.paginate_calls += 1
         pages = self._s3._paginated_pages.get((bucket, prefix))
         if pages is not None:
             yield from pages
@@ -41,6 +42,8 @@ class MockS3Client:
         self._object_bodies = object_bodies or {}
         self._crc_by_key = crc_by_key or {}
         self._paginated_pages = paginated_pages or {}
+        # Lets tests assert how many times a prefix was walked.
+        self.paginate_calls = 0
 
     def get_paginator(self, operation: str) -> MockPaginator:
         assert operation == "list_objects_v2"

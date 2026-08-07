@@ -1,4 +1,4 @@
-"""S3 file metadata extraction for FASTQ and Cell Ranger h5 deliverables."""
+"""S3 file metadata extraction for FASTQ, CRAM, and Cell Ranger h5 deliverables."""
 
 from __future__ import annotations
 

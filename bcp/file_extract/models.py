@@ -28,6 +28,8 @@ class RunSummary:
     enrichment_ok: int = 0
     failures: list[tuple[str, str, str]] = field(default_factory=list)
     read_tally: dict[str, int] = field(default_factory=dict)
+    set_count: int = 0
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def has_failures(self) -> bool:

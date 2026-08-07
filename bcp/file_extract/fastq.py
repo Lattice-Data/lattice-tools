@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-import json
 import re
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any
 
-from tqdm import tqdm
-
-from .constants import FASTQ_COLUMNS
+from .constants import FASTQ_COLUMNS, SHEET_HELPER_COLUMNS
+from .enrich import fetch_results
 from .models import RunSummary
-from .retry import retry_with_backoff
-from .s3_utils import (
-    fetch_crc64nvme,
-    get_object_bytes,
-    list_objects_with_size,
-    s3_uri_for,
+from .s3_utils import list_objects_with_size, s3_uri_for
+from .sheets import (
+    SequenceFileRecord,
+    SheetOptions,
+    build_fastq_record,
+    enrich_record,
+    group_records,
+    sample_dir_for,
+    validate_plan,
+    write_sheets,
 )
 from .tsv_writer import TsvWriter
 
-_READ_RE = re.compile(r"_(R[12]|I[12])_")
 _LANE_RE = re.compile(r"_L(\d{3})_")
 
 
@@ -35,67 +35,14 @@ def is_target_file(key: str, *, require_raw: bool = True) -> bool:
     return True
 
 
-def parse_read_lane(fname: str) -> tuple[str, str]:
-    """Parse read (R1/R2/I1/I2) and lane from a FASTQ basename."""
-    read_match = _READ_RE.search(fname)
+def parse_lane(fname: str) -> str:
+    """Parse the lane from a FASTQ basename, empty when absent.
+
+    Lane only: a file's read designator comes from parse_fastq_slot via
+    SequenceFileRecord.slot, so it is not re-derived here.
+    """
     lane_match = _LANE_RE.search(fname)
-    return (
-        (read_match.group(1) if read_match else ""),
-        (lane_match.group(1) if lane_match else ""),
-    )
-
-
-def _fetch_read_count(s3_client: Any, bucket: str, key: str) -> int:
-    metadata_key = key + "-metadata.json"
-    data = json.loads(get_object_bytes(s3_client, bucket, metadata_key))
-    if "read_count" not in data:
-        raise RuntimeError("'read_count' not present in metadata JSON")
-    return data["read_count"]
-
-
-def fetch_one_fastq(
-    s3_client: Any,
-    bucket: str,
-    key: str,
-    *,
-    retries: int = 5,
-) -> dict[str, object]:
-    """Fetch CRC and read_count for a single FASTQ key."""
-    result: dict[str, object] = {
-        "crc": None,
-        "crc_error": "",
-        "read_count": "",
-        "metadata_error": "",
-    }
-
-    crc, crc_err = retry_with_backoff(
-        fetch_crc64nvme, s3_client, bucket, key, retries=retries
-    )
-    result["crc"] = crc
-    result["crc_error"] = crc_err or ""
-
-    rc, rc_err = retry_with_backoff(
-        _fetch_read_count, s3_client, bucket, key, retries=retries
-    )
-    if rc_err:
-        result["metadata_error"] = rc_err
-    else:
-        result["read_count"] = rc
-
-    return result
-
-
-def process_one_fastq(
-    bucket: str,
-    key: str,
-    *,
-    retries: int = 5,
-) -> dict[str, object]:
-    """Process a single FASTQ key (module-level for ProcessPoolExecutor)."""
-    import boto3
-
-    s3_client = boto3.client("s3")
-    return fetch_one_fastq(s3_client, bucket, key, retries=retries)
+    return lane_match.group(1) if lane_match else ""
 
 
 def default_fastq_output_name(prefix: str) -> str:
@@ -104,7 +51,32 @@ def default_fastq_output_name(prefix: str) -> str:
 
 
 def fastq_columns() -> list[str]:
-    return list(FASTQ_COLUMNS)
+    return list(FASTQ_COLUMNS) + list(SHEET_HELPER_COLUMNS)
+
+
+def _diagnostic_row(
+    record: SequenceFileRecord,
+    result: dict[str, object],
+    *,
+    namespace: str | None,
+) -> list[object]:
+    lane = parse_lane(record.filename)
+    set_alias = ""
+    if record.set_stem:
+        set_alias = record.set_alias(namespace) if namespace else record.set_stem
+    return [
+        record.filename,
+        record.s3_uri,
+        record.slot,
+        lane,
+        record.file_size,
+        result["crc"] if result["crc"] is not None else "",
+        result["read_count"] if result["read_count"] is not None else "",
+        result["crc_error"],
+        result["metadata_error"],
+        sample_dir_for(record.key),
+        set_alias,
+    ]
 
 
 def extract_fastq(
@@ -118,8 +90,14 @@ def extract_fastq(
     retries: int = 5,
     show_progress: bool = True,
     inline: bool = False,
+    sheets: SheetOptions | None = None,
 ) -> RunSummary:
-    """List FASTQ.gz files, enrich with CRC and read_count, write TSV."""
+    """List FASTQ.gz files, enrich with CRC and read_count, write TSVs.
+
+    Rows are buffered and emitted in S3-key order rather than in completion
+    order: the submission sheets need R1 next to its R2, and a diff between two
+    runs of the same order should be empty.
+    """
     targets = list_objects_with_size(
         s3_client,
         bucket,
@@ -130,61 +108,68 @@ def extract_fastq(
     if not targets:
         return summary
 
+    plan = sorted(
+        (
+            build_fastq_record(
+                key=obj.key,
+                s3_uri=s3_uri_for(bucket, obj.key),
+                file_size=obj.size_bytes,
+            )
+            for obj in targets
+        ),
+        key=lambda record: record.sort_key,
+    )
+    namespace = sheets.lab.namespace if sheets is not None else None
+    if namespace is not None:
+        # Before spending a request per file: these listings are unsubmittable.
+        validate_plan(plan, namespace=namespace)
+
+    results = fetch_results(
+        s3_client,
+        bucket,
+        [record.key for record in plan],
+        retries=retries,
+        workers=workers,
+        show_progress=show_progress,
+        inline=inline,
+    )
+
     writer = TsvWriter(output_path, fastq_columns())
-    size_by_key = {obj.key: obj.size_bytes for obj in targets}
-    max_workers = min(workers or 64, len(targets))
     read_tally: Counter[str] = Counter()
-
-    def _handle_result(key: str, r: dict[str, object]) -> None:
-        nonlocal summary
-        fname = key.rsplit("/", 1)[-1]
-        read, lane = parse_read_lane(fname)
-        read_tally[read or "(none)"] += 1
-
-        crc_err = str(r["crc_error"])
-        meta_err = str(r["metadata_error"])
+    records: list[SequenceFileRecord] = []
+    for record in plan:
+        result = results[record.key]
+        crc_err = str(result["crc_error"])
+        meta_err = str(result["metadata_error"])
+        read_tally[record.slot or "(none)"] += 1
         if not crc_err:
             summary.crc_ok += 1
         if not crc_err and not meta_err:
             summary.enrichment_ok += 1
         if crc_err or meta_err:
-            summary.failures.append((key, crc_err, meta_err))
+            summary.failures.append((record.key, crc_err, meta_err))
 
-        writer.append_row(
-            [
-                fname,
-                s3_uri_for(bucket, key),
-                read,
-                lane,
-                size_by_key[key],
-                r["crc"] if r["crc"] is not None else "",
-                r["read_count"],
-                crc_err,
-                meta_err,
-            ]
+        writer.append_row(_diagnostic_row(record, result, namespace=namespace))
+        records.append(
+            enrich_record(
+                record,
+                crc=result["crc"] if isinstance(result["crc"], str) else None,
+                read_count=(
+                    result["read_count"]
+                    if isinstance(result["read_count"], int)
+                    else None
+                ),
+            )
         )
 
-    if inline:
-        for obj in targets:
-            r = fetch_one_fastq(s3_client, bucket, obj.key, retries=retries)
-            _handle_result(obj.key, r)
-    else:
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    process_one_fastq, bucket, obj.key, retries=retries
-                ): obj.key
-                for obj in targets
-            }
-            iterator = as_completed(futures)
-            if show_progress:
-                iterator = tqdm(iterator, total=len(targets), desc="Fetching")
-
-            for fut in iterator:
-                key = futures[fut]
-                _handle_result(key, fut.result())
-
     summary.read_tally = dict(read_tally)
+
+    if sheets is not None:
+        groups, warnings = group_records(records)
+        write_sheets(records, groups, options=sheets)
+        summary.set_count = len(groups)
+        summary.warnings.extend(warnings)
+
     return summary
 
 

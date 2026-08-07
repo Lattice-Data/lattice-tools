@@ -11,7 +11,7 @@ from file_extract.fastq import (
     default_fastq_output_name,
     extract_fastq,
     is_target_file,
-    parse_read_lane,
+    parse_lane,
     r1_r2_mismatch_warning,
 )
 from tests.file_extract_helpers import FIXTURES, MockS3Client
@@ -29,6 +29,7 @@ R2_KEY = f"{PREFIX}GROUP1/raw/sample_L001_R2_001.fastq.gz"
         (R1_KEY.replace("/raw/", "/processed/"), True, False),
         (f"{PREFIX}GROUP1/raw/sample_sample.fastq.gz", True, False),
         (f"{PREFIX}GROUP1/raw/unmatched.fastq.gz", True, False),
+        (f"{PREFIX}GROUP1/raw/out.bam", True, False),
         (R1_KEY.replace("/raw/", "/other/"), False, True),
     ],
 )
@@ -36,17 +37,26 @@ def test_is_target_file(key: str, require_raw: bool, expected: bool) -> None:
     assert is_target_file(key, require_raw=require_raw) is expected
 
 
+def test_extract_fastq_zero_matches_writes_nothing(tmp_path: Path) -> None:
+    out = tmp_path / "out.tsv"
+    summary = extract_fastq(
+        MockS3Client(), BUCKET, PREFIX, str(out), show_progress=False, inline=True
+    )
+    assert summary.total == 0
+    assert not out.exists()
+
+
 @pytest.mark.parametrize(
-    ("fname", "read", "lane"),
+    ("fname", "lane"),
     [
-        ("sample_L001_R1_001.fastq.gz", "R1", "001"),
-        ("sample_L002_R2_003.fastq.gz", "R2", "002"),
-        ("sample_I1_001.fastq.gz", "I1", ""),
-        ("no_lane_R1.fastq.gz", "", ""),
+        ("sample_L001_R1_001.fastq.gz", "001"),
+        ("sample_L002_R2_003.fastq.gz", "002"),
+        ("sample_I1_001.fastq.gz", ""),
+        ("no_lane_R1.fastq.gz", ""),
     ],
 )
-def test_parse_read_lane(fname: str, read: str, lane: str) -> None:
-    assert parse_read_lane(fname) == (read, lane)
+def test_parse_lane(fname: str, lane: str) -> None:
+    assert parse_lane(fname) == lane
 
 
 def test_default_fastq_output_name() -> None:
@@ -102,12 +112,17 @@ def test_extract_fastq_integration(tmp_path: Path) -> None:
         "read_count",
         "crc_error",
         "metadata_error",
+        "sample_dir",
+        "set_alias",
     ]
     assert len(rows) == 3
     data_rows = rows[1:]
-    reads = {row[2] for row in data_rows}
-    assert reads == {"R1", "R2"}
+    # Buffered and sorted, so R1 precedes R2 on every run.
+    assert [row[2] for row in data_rows] == ["R1", "R2"]
     assert all(row[6] == "1234567" for row in data_rows)
+    assert all(row[9] == "GROUP1" for row in data_rows)
+    # No --lab, so the helper column carries the bare stem.
+    assert all(row[10] == "sample_L001" for row in data_rows)
 
 
 def test_extract_fastq_missing_metadata(tmp_path: Path) -> None:

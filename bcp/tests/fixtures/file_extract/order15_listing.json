@@ -1,0 +1,102 @@
+{
+  "example-project/NVUS0000000000-15/L_eri_3primeLib/raw/435612-L_eri_3primeLib_GEX-Z0050-CACATGGCAGCACAGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "mVrAvDFdRIA=",
+    "read_count": 1082467451,
+    "size": 32206956758
+  },
+  "example-project/NVUS0000000000-15/L_eri_3primeLib/raw/435612-L_eri_3primeLib_GEX-Z0050-CACATGGCAGCACAGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "acNQHN1ay+w=",
+    "read_count": 1082467451,
+    "size": 57158336949
+  },
+  "example-project/NVUS0000000000-15/L_poly_3p_P1_Lib/raw/435612-L_poly_3p_P1_Lib_GEX-Z0057-CAATGCGTGCTGCAGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "q7VfUXVy+pk=",
+    "read_count": 1183731149,
+    "size": 35150008913
+  },
+  "example-project/NVUS0000000000-15/L_poly_3p_P1_Lib/raw/435612-L_poly_3p_P1_Lib_GEX-Z0057-CAATGCGTGCTGCAGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "CLWTxzlr9ls=",
+    "read_count": 1183731149,
+    "size": 63188096906
+  },
+  "example-project/NVUS0000000000-15/L_poly_3p_P2_Lib/raw/435612-L_poly_3p_P2_Lib_GEX-Z0058-CATCTCAGTGCAATGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "FWHTIBJnvso=",
+    "read_count": 1244621239,
+    "size": 36794085447
+  },
+  "example-project/NVUS0000000000-15/L_poly_3p_P2_Lib/raw/435612-L_poly_3p_P2_Lib_GEX-Z0058-CATCTCAGTGCAATGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "aOvqpf6Yfqg=",
+    "read_count": 1244621239,
+    "size": 65947110709
+  },
+  "example-project/NVUS0000000000-15/L_poly_tri_3p_Lib/raw/435612-L_poly_tri_3p_Lib_GEX-Z0056-CTTATGCTATCAGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "E5Lk4Nub3J8=",
+    "read_count": 1069987544,
+    "size": 31823724090
+  },
+  "example-project/NVUS0000000000-15/L_poly_tri_3p_Lib/raw/435612-L_poly_tri_3p_Lib_GEX-Z0056-CTTATGCTATCAGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "GGuCcc7VSy4=",
+    "read_count": 1069987544,
+    "size": 62022113768
+  },
+  "example-project/NVUS0000000000-15/M_lei_3p_Lib/raw/435612-M_lei_3p_Lib_GEX-Z0055-CAGCACCTGCATCAGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "oHz/u16jIRQ=",
+    "read_count": 1210357397,
+    "size": 35718487655
+  },
+  "example-project/NVUS0000000000-15/M_lei_3p_Lib/raw/435612-M_lei_3p_Lib_GEX-Z0055-CAGCACCTGCATCAGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "QPDMKSuA8rY=",
+    "read_count": 1210357397,
+    "size": 56345125666
+  },
+  "example-project/NVUS0000000000-15/P_mar_3primeLib/raw/435612-P_mar_3primeLib_GEX-Z0051-CACTTGCAGATCGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "LlWKq/0qKE8=",
+    "read_count": 979077504,
+    "size": 29436586346
+  },
+  "example-project/NVUS0000000000-15/P_mar_3primeLib/raw/435612-P_mar_3primeLib_GEX-Z0051-CACTTGCAGATCGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "HaFQdTZxzcA=",
+    "read_count": 979077504,
+    "size": 52246226018
+  },
+  "example-project/NVUS0000000000-15/P_mega_3p_Lib/raw/435612-P_mega_3p_Lib_GEX-Z0059-CATGTGCTTCGCATGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "LMALsbs0kLg=",
+    "read_count": 1089867194,
+    "size": 32297153349
+  },
+  "example-project/NVUS0000000000-15/P_mega_3p_Lib/raw/435612-P_mega_3p_Lib_GEX-Z0059-CATGTGCTTCGCATGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "iik182RVXiA=",
+    "read_count": 1089867194,
+    "size": 60919466827
+  },
+  "example-project/NVUS0000000000-15/S_kow_3gP_3p_Lib/raw/435612-S_kow_3gP_3p_Lib_GEX-Z0053-CAACATCAGCATGAGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "9ZH7QJvz0mE=",
+    "read_count": 1091465662,
+    "size": 32261697488
+  },
+  "example-project/NVUS0000000000-15/S_kow_3gP_3p_Lib/raw/435612-S_kow_3gP_3p_Lib_GEX-Z0053-CAACATCAGCATGAGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "tQTrE29V+FI=",
+    "read_count": 1091465662,
+    "size": 50891295760
+  },
+  "example-project/NVUS0000000000-15/S_kow_3g_3p_Lib/raw/435612-S_kow_3g_3p_Lib_GEX-Z0054-CTGCAGTGATTCATGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "XpHfcIamOnQ=",
+    "read_count": 1149089881,
+    "size": 33964386156
+  },
+  "example-project/NVUS0000000000-15/S_kow_3g_3p_Lib/raw/435612-S_kow_3g_3p_Lib_GEX-Z0054-CTGCAGTGATTCATGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "MZ/AxYjivwo=",
+    "read_count": 1149089881,
+    "size": 59424967953
+  },
+  "example-project/NVUS0000000000-15/S_kow_st41_3p_Lib/raw/435612-S_kow_st41_3p_Lib_GEX-Z0052-CTATGCCACAGCATGAT_S1_L001_R1_001.fastq.gz": {
+    "crc": "hQE/WbBsulE=",
+    "read_count": 931063345,
+    "size": 27611436854
+  },
+  "example-project/NVUS0000000000-15/S_kow_st41_3p_Lib/raw/435612-S_kow_st41_3p_Lib_GEX-Z0052-CTATGCCACAGCATGAT_S1_L001_R2_001.fastq.gz": {
+    "crc": "AuyEZmXjOdc=",
+    "read_count": 931063345,
+    "size": 57669295166
+  }
+}
