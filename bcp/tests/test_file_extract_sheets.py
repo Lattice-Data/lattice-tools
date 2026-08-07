@@ -34,6 +34,8 @@ from file_extract.sheets import (
     sequence_file_set_row,
     validate_aliases,
     validate_cro_order,
+    validate_plan,
+    validate_read_slots,
     write_sheet,
 )
 from tests.file_extract_helpers import FIXTURES, MockS3Client
@@ -213,19 +215,26 @@ def test_group_records_pairs_reads() -> None:
     assert [member.slot for member in groups[0].members] == ["R1", "R2"]
 
 
-def test_group_records_splits_lanes_and_chunks() -> None:
+def test_group_records_splits_lanes() -> None:
     records = [
         _record(f"{PREFIX}S1/raw/s_L001_R1_001.fastq.gz"),
         _record(f"{PREFIX}S1/raw/s_L001_R2_001.fastq.gz"),
         _record(f"{PREFIX}S1/raw/s_L002_R1_001.fastq.gz"),
         _record(f"{PREFIX}S1/raw/s_L002_R2_001.fastq.gz"),
-        _record(f"{PREFIX}S1/raw/s_L001_R1_002.fastq.gz"),
     ]
     groups, _ = group_records(records)
-    assert [(g.set_stem, g.chunk) for g in groups] == [
-        ("s_L001", "001"),
-        ("s_L001", "002"),
-        ("s_L002", "001"),
+    assert [g.set_stem for g in groups] == ["s_L001", "s_L002"]
+
+
+def test_group_records_splits_sample_directories() -> None:
+    records = [
+        _record(f"{PREFIX}S2/raw/b_L001_R1_001.fastq.gz"),
+        _record(f"{PREFIX}S1/raw/a_L001_R1_001.fastq.gz"),
+    ]
+    groups, _ = group_records(records)
+    assert [(g.directory.rsplit("/", 2)[-2], g.set_stem) for g in groups] == [
+        ("S1", "a_L001"),
+        ("S2", "b_L001"),
     ]
 
 
@@ -256,19 +265,62 @@ def test_group_records_warns_on_read_count_mismatch() -> None:
     assert any("possible truncated file" in w for w in warnings)
 
 
-def test_group_records_rejects_duplicate_slot() -> None:
-    duplicate = SequenceFileRecord(
-        key=f"{PREFIX}S1/raw/other.fastq.gz",
-        s3_uri="s3://b/other",
-        file_format="fastq",
-        file_size=1,
-        set_stem="s_L001",
-        slot="R1",
-        chunk="001",
+def _multi_chunk_records() -> list[SequenceFileRecord]:
+    """One lane delivered as two chunks per read -- what we refuse to submit."""
+    return [
+        _record(f"{PREFIX}S1/raw/s_L001_{read}_{chunk}.fastq.gz")
+        for chunk in ("001", "002")
+        for read in ("R1", "R2")
+    ]
+
+
+def test_validate_read_slots_rejects_chunked_reads() -> None:
+    """Chunks are pieces of one read, not separate sequencing runs.
+
+    Splitting them into two sets would claim two runs happened; a set cannot hold
+    both in one slot, so the delivery is refused and named instead.
+    """
+    with pytest.raises(SheetBuildError) as exc:
+        validate_read_slots(_multi_chunk_records())
+    message = str(exc.value)
+    assert "Chunked reads are not supported" in message
+    assert "concatenated" in message
+    assert "s_L001 slot R1 <- chunks 001, 002" in message
+    assert "s_L001 slot R2 <- chunks 001, 002" in message
+
+
+def test_validate_read_slots_accepts_one_file_per_slot() -> None:
+    validate_read_slots(
+        [
+            _record(f"{PREFIX}S1/raw/s_L001_R1_001.fastq.gz"),
+            _record(f"{PREFIX}S1/raw/s_L001_R2_001.fastq.gz"),
+            _record(f"{PREFIX}S1/raw/s_L001_I1_001.fastq.gz"),
+            # Same read, different lane: a different set, not a duplicate slot.
+            _record(f"{PREFIX}S1/raw/s_L002_R1_001.fastq.gz"),
+        ]
     )
-    records = [_record(f"{PREFIX}S1/raw/s_L001_R1_001.fastq.gz"), duplicate]
-    with pytest.raises(SheetBuildError, match="more than one file for slot"):
-        group_records(records)
+
+
+def test_validate_read_slots_rejects_chunkless_beside_chunked() -> None:
+    with pytest.raises(SheetBuildError, match=r"chunks \(none\), 001"):
+        validate_read_slots(
+            [
+                _record(f"{PREFIX}S1/raw/s_L001_R1.fastq.gz"),
+                _record(f"{PREFIX}S1/raw/s_L001_R1_001.fastq.gz"),
+            ]
+        )
+
+
+def test_validate_plan_rejects_chunks_before_alias_check() -> None:
+    """Chunked input is named as such rather than as a confusing alias clash."""
+    with pytest.raises(SheetBuildError, match="Chunked reads are not supported"):
+        validate_plan(_multi_chunk_records(), namespace="example-lab")
+
+
+def test_group_records_rejects_duplicate_slot() -> None:
+    """Backstop for callers that group without validating first."""
+    with pytest.raises(SheetBuildError, match="Chunked reads are not supported"):
+        group_records(_multi_chunk_records())
 
 
 def test_validate_aliases_accepts_distinct_files() -> None:
@@ -400,7 +452,6 @@ def test_slot_column_rejects_unknown_read_designator(tmp_path: Path) -> None:
     group = FileSetGroup(
         set_stem="s_L001",
         directory="d",
-        chunk="001",
         members=(
             SequenceFileRecord(
                 key="d/s_L001_R9_001.fastq.gz",
@@ -471,7 +522,7 @@ def test_default_sheet_output_names() -> None:
 
 
 def test_file_set_group_alias() -> None:
-    group = FileSetGroup(set_stem="s_L001", directory="d", chunk="001")
+    group = FileSetGroup(set_stem="s_L001", directory="d")
     assert group.set_alias("lab") == "lab:s_L001"
 
 
@@ -564,6 +615,39 @@ def test_extract_cram_writes_sheets(tmp_path: Path) -> None:
     assert set_values["trimmed_cram"] == "example-lab:436387-R097D_GEX-Z0097.cram"
     assert set_values["untrimmed_cram"] == ""
     assert set_values["run_cardinality"] == "single-end"
+
+
+def test_extract_fastq_rejects_chunked_order_before_fetching(tmp_path: Path) -> None:
+    """A chunked delivery is refused up front, not after a request per file."""
+    names = [
+        f"s_L001_{read}_{chunk}.fastq.gz"
+        for chunk in ("001", "002")
+        for read in ("R1", "R2")
+    ]
+    keys = [f"{PREFIX}S1/raw/{name}" for name in names]
+    client = MockS3Client(
+        keys=keys,
+        sizes={key: 10 for key in keys},
+        crc_by_key={key: "crc" for key in keys},
+        object_bodies={f"{key}-metadata.json": '{"read_count": 5}' for key in keys},
+    )
+
+    with pytest.raises(SheetBuildError) as exc:
+        extract_fastq(
+            client,
+            BUCKET,
+            PREFIX,
+            str(tmp_path / "diagnostics.tsv"),
+            show_progress=False,
+            inline=True,
+            sheets=_options(tmp_path),
+        )
+
+    message = str(exc.value)
+    assert "Chunked reads are not supported" in message
+    assert "concatenated" in message
+    # Refused during planning, so nothing was written and nothing was fetched.
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_extract_fastq_without_sheets_writes_only_diagnostics(tmp_path: Path) -> None:

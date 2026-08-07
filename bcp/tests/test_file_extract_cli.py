@@ -407,6 +407,46 @@ def test_cli_fastq_alias_collision_exits_one(
 
 
 @patch("file_extract.cli.boto3.client")
+def test_cli_chunked_order_exits_one_with_actionable_message(
+    mock_boto: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Chunked FASTQs are rejected loudly: no sheets, exit 1, what to do next."""
+    names = [
+        f"s_L001_{read}_{chunk}.fastq.gz"
+        for chunk in ("001", "002")
+        for read in ("R1", "R2")
+    ]
+    keys = [f"{PREFIX}S1/raw/{name}" for name in names]
+    mock_boto.return_value = MockS3Client(
+        keys=keys,
+        sizes={key: 10 for key in keys},
+        crc_by_key={key: "crc" for key in keys},
+        object_bodies={f"{key}-metadata.json": '{"read_count": 5}' for key in keys},
+    )
+
+    with patch("file_extract.cli.extract_fastq", _inline_fastq):
+        code = main(
+            [
+                "fastq",
+                f"s3://{BUCKET}/{PREFIX}",
+                "-o",
+                str(tmp_path / "diagnostics.tsv"),
+                "--quiet",
+                *SHEET_ARGS,
+            ]
+        )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "Chunked reads are not supported" in err
+    assert "concatenated" in err
+    assert "s_L001 slot R1 <- chunks 001, 002" in err
+    assert list(tmp_path.iterdir()) == []
+
+
+@patch("file_extract.cli.boto3.client")
 def test_cli_bad_lab_exits_one(
     mock_boto: MagicMock, capsys: pytest.CaptureFixture[str]
 ) -> None:

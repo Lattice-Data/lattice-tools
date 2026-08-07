@@ -14,9 +14,8 @@ from .sheets import (
     build_fastq_record,
     enrich_record,
     group_records,
-    parse_fastq_slot,
     sample_dir_for,
-    validate_aliases,
+    validate_plan,
     write_sheets,
 )
 from .tsv_writer import TsvWriter
@@ -36,15 +35,14 @@ def is_target_file(key: str, *, require_raw: bool = True) -> bool:
     return True
 
 
-def parse_read_lane(fname: str) -> tuple[str, str]:
-    """Parse read (R1/R2/R3/I1/I2) and lane from a FASTQ basename.
+def parse_lane(fname: str) -> str:
+    """Parse the lane from a FASTQ basename, empty when absent.
 
-    The read half defers to the set-stem parser so a file's read designator is
-    the same value here, in the read tally, and in its SequenceFileSet slot.
+    Lane only: a file's read designator comes from parse_fastq_slot via
+    SequenceFileRecord.slot, so it is not re-derived here.
     """
-    _, slot, _ = parse_fastq_slot(fname)
     lane_match = _LANE_RE.search(fname)
-    return (slot, (lane_match.group(1) if lane_match else ""))
+    return lane_match.group(1) if lane_match else ""
 
 
 def default_fastq_output_name(prefix: str) -> str:
@@ -62,7 +60,7 @@ def _diagnostic_row(
     *,
     namespace: str | None,
 ) -> list[object]:
-    _, lane = parse_read_lane(record.filename)
+    lane = parse_lane(record.filename)
     set_alias = ""
     if record.set_stem:
         set_alias = record.set_alias(namespace) if namespace else record.set_stem
@@ -123,8 +121,8 @@ def extract_fastq(
     )
     namespace = sheets.lab.namespace if sheets is not None else None
     if namespace is not None:
-        # Before spending a request per file: a collision here is unsubmittable.
-        validate_aliases(plan, namespace=namespace)
+        # Before spending a request per file: these listings are unsubmittable.
+        validate_plan(plan, namespace=namespace)
 
     results = fetch_results(
         s3_client,

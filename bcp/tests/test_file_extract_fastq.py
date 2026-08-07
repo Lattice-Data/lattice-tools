@@ -11,7 +11,7 @@ from file_extract.fastq import (
     default_fastq_output_name,
     extract_fastq,
     is_target_file,
-    parse_read_lane,
+    parse_lane,
     r1_r2_mismatch_warning,
 )
 from tests.file_extract_helpers import FIXTURES, MockS3Client
@@ -47,20 +47,16 @@ def test_extract_fastq_zero_matches_writes_nothing(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("fname", "read", "lane"),
+    ("fname", "lane"),
     [
-        ("sample_L001_R1_001.fastq.gz", "R1", "001"),
-        ("sample_L002_R2_003.fastq.gz", "R2", "002"),
-        ("sample_I1_001.fastq.gz", "I1", ""),
-        ("sample_L001_R3_001.fastq.gz", "R3", "001"),
-        # A chunkless designator still names the read: the file belongs in read1,
-        # and a blank here would drop it from the pairing tally and every set.
-        ("no_lane_R1.fastq.gz", "R1", ""),
-        ("no_designator.fastq.gz", "", ""),
+        ("sample_L001_R1_001.fastq.gz", "001"),
+        ("sample_L002_R2_003.fastq.gz", "002"),
+        ("sample_I1_001.fastq.gz", ""),
+        ("no_lane_R1.fastq.gz", ""),
     ],
 )
-def test_parse_read_lane(fname: str, read: str, lane: str) -> None:
-    assert parse_read_lane(fname) == (read, lane)
+def test_parse_lane(fname: str, lane: str) -> None:
+    assert parse_lane(fname) == lane
 
 
 def test_default_fastq_output_name() -> None:

@@ -106,8 +106,15 @@ class SequenceFileRecord:
         return self.key.rsplit("/", 1)[0] if "/" in self.key else ""
 
     @property
-    def group_key(self) -> tuple[str, str, str]:
-        return (self.directory, self.set_stem, self.chunk)
+    def group_key(self) -> tuple[str, str]:
+        """Files sharing one SequenceFileSet row.
+
+        Chunk is deliberately absent: `_R1_001` and `_R1_002` are two pieces of
+        one lane's read 1, so they belong to the same set -- where they collide
+        on the read1 slot and are rejected, rather than being split into two sets
+        that would claim two sequencing runs happened.
+        """
+        return (self.directory, self.set_stem)
 
     @property
     def sort_key(self) -> tuple[str, str, str, int, str]:
@@ -129,12 +136,11 @@ class FileSetGroup:
 
     set_stem: str
     directory: str
-    chunk: str
     members: tuple[SequenceFileRecord, ...] = field(default_factory=tuple)
 
     @property
-    def sort_key(self) -> tuple[str, str, str]:
-        return (self.directory, self.set_stem, self.chunk)
+    def sort_key(self) -> tuple[str, str]:
+        return (self.directory, self.set_stem)
 
     def set_alias(self, namespace: str) -> str:
         return f"{namespace}:{self.set_stem}"
@@ -217,6 +223,58 @@ def enrich_record(
     )
 
 
+def validate_plan(
+    records: Sequence[SequenceFileRecord],
+    *,
+    namespace: str,
+) -> None:
+    """Reject unsubmittable listings before any per-file S3 work is spent.
+
+    Both checks read filenames only, so an order that cannot be submitted fails
+    in the first second rather than after a request per file.
+    """
+    validate_read_slots(records)
+    validate_aliases(records, namespace=namespace)
+
+
+def validate_read_slots(records: Iterable[SequenceFileRecord]) -> None:
+    """Reject a set that would need two files in one read slot.
+
+    In practice this means chunked FASTQs -- `_R1_001` beside `_R1_002` for one
+    lane. A SequenceFileSet holds a single file per slot, so such a delivery
+    cannot be represented, and splitting it into two sets would claim two
+    sequencing runs where there was one. Neither Novogene nor Psomagen is
+    expected to ship split FASTQs, so this means something upstream changed and
+    wants a curator's eyes rather than a guess.
+    """
+    slots_by_group: dict[tuple[str, str], dict[str, list[SequenceFileRecord]]] = {}
+    for record in records:
+        if not record.set_stem or not record.slot:
+            continue
+        by_slot = slots_by_group.setdefault(record.group_key, {})
+        by_slot.setdefault(record.slot, []).append(record)
+
+    problems: list[str] = []
+    for (_directory, set_stem), by_slot in sorted(slots_by_group.items()):
+        for slot, members in sorted(by_slot.items()):
+            if len(members) > 1:
+                chunks = ", ".join(
+                    sorted(record.chunk or "(none)" for record in members)
+                )
+                problems.append(f"{set_stem} slot {slot} <- chunks {chunks}")
+
+    if problems:
+        shown = problems[:MAX_REPORTED_COLLISIONS]
+        more = len(problems) - len(shown)
+        detail = "\n  ".join(shown)
+        suffix = f"\n  ... and {more} more" if more else ""
+        raise SheetBuildError(
+            "Chunked reads are not supported: a SequenceFileSet holds one file "
+            "per read slot, so these must be concatenated into a single file per "
+            f"read before submission:\n  {detail}{suffix}"
+        )
+
+
 def validate_aliases(
     records: Iterable[SequenceFileRecord],
     *,
@@ -229,7 +287,7 @@ def validate_aliases(
     one another's set membership if they were.
     """
     file_alias_keys: dict[str, list[str]] = {}
-    set_alias_groups: dict[str, set[tuple[str, str, str]]] = {}
+    set_alias_groups: dict[str, set[tuple[str, str]]] = {}
     for record in records:
         file_alias_keys.setdefault(record.file_alias(namespace), []).append(record.key)
         if record.set_stem:
@@ -243,7 +301,7 @@ def validate_aliases(
         if len(keys) > 1
     ]
     problems += [
-        f"{alias} <- {', '.join(sorted(directory for directory, _, _ in groups))}"
+        f"{alias} <- {', '.join(sorted(directory for directory, _ in groups))}"
         for alias, groups in sorted(set_alias_groups.items())
         if len(groups) > 1
     ]
@@ -261,9 +319,13 @@ def validate_aliases(
 def group_records(
     records: Sequence[SequenceFileRecord],
 ) -> tuple[list[FileSetGroup], list[str]]:
-    """Bucket records into file sets, returning (groups, warnings)."""
+    """Bucket records into file sets, returning (groups, warnings).
+
+    Assumes validate_read_slots has already run: a set holding two files for one
+    slot raises here too, as a backstop for callers that skip validation.
+    """
     warnings: list[str] = []
-    buckets: dict[tuple[str, str, str], list[SequenceFileRecord]] = {}
+    buckets: dict[tuple[str, str], list[SequenceFileRecord]] = {}
     for record in sorted(records, key=lambda r: r.sort_key):
         if not record.set_stem:
             warnings.append(
@@ -274,19 +336,12 @@ def group_records(
         buckets.setdefault(record.group_key, []).append(record)
 
     groups: list[FileSetGroup] = []
-    for (directory, set_stem, chunk), members in buckets.items():
-        slots = [member.slot for member in members]
-        duplicated = {slot for slot in slots if slot and slots.count(slot) > 1}
-        if duplicated:
-            raise SheetBuildError(
-                f"Set {set_stem!r} has more than one file for slot(s) "
-                f"{', '.join(sorted(duplicated))}"
-            )
+    for (directory, set_stem), members in buckets.items():
+        validate_read_slots(members)
         groups.append(
             FileSetGroup(
                 set_stem=set_stem,
                 directory=directory,
-                chunk=chunk,
                 members=tuple(members),
             )
         )

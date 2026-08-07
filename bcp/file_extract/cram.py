@@ -14,7 +14,7 @@ from .sheets import (
     enrich_record,
     group_records,
     sample_dir_for,
-    validate_aliases,
+    validate_plan,
     write_sheets,
 )
 from .tsv_writer import TsvWriter
@@ -190,8 +190,8 @@ def extract_cram(
     )
     namespace = sheets.lab.namespace if sheets is not None else None
     if namespace is not None:
-        # Before spending a request per file: a collision here is unsubmittable.
-        validate_aliases(plan, namespace=namespace)
+        # Before spending a request per file: these listings are unsubmittable.
+        validate_plan(plan, namespace=namespace)
 
     results = fetch_results(
         s3_client,
