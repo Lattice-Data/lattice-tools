@@ -20,7 +20,10 @@ jobs:
     # (fork PRs don't get access to repo secrets, so the review would fail anyway).
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # An opus review with up to 80 turns over a large diff needs room. A job
+    # timeout kills the run before the review is posted, so it costs the whole
+    # review and reports only an opaque red X.
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
@@ -38,6 +41,11 @@ jobs:
           # `git log` and any `origin/<base>...HEAD` diff fail and it can only
           # ever see the diff hunks - never the code they changed.
           fetch-depth: 0
+          # But fetch history without blob contents. This repo carries ~95 MB
+          # .h5ad fixtures across 47 branches, so a plain fetch-depth: 0 pulls
+          # 2.5 GB and took 8m24s of a 15-minute job. Blobless is ~18s and keeps
+          # every command above working; blobs are fetched on demand.
+          filter: blob:none
 
       # Snapshot the stale reviews *before* the new one is posted. Deleting only
       # this pre-existing set means a failed review never leaves the PR with no
