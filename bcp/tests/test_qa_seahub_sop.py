@@ -299,6 +299,65 @@ class TestPathRules:
         assert "lab_project_mismatch" in _types(violations)
 
 
+class TestAnUnrecognizedTypeTokenIsNotAMissingOne:
+    """The relaxed pattern matches either way; the report should not.
+
+    A stem whose type token is outside SEAHUB_SUBLIBRARY_TYPES folds it into the
+    group, so the rule said the stem "carries no sublibrary type" about a stem
+    that plainly carries one -- and with a vendor match it proposed a corrected
+    name with the unrecognised token still buried in the sublibrary.
+    """
+
+    DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P01/438514"
+    UNRECOGNIZED = "438514-REF3_P01_ATAC-Z0305-CACACACAACATGAT"
+    NO_TYPE = "438514-REF3_P01_A3-Z0305-CACACACAACATGAT"
+    VENDOR = {("438514", "Z0305"): "GEX_hash_oligo"}
+
+    def _row(self, stem: str, vendor=None):
+        rows = [
+            v
+            for v in validate_seahub_key(
+                "czi-labalpha",
+                f"{self.DIR}/{stem}.trim.cram",
+                assay_by_identity=vendor,
+            )
+            if v.type == "invalid_sublibrary_type"
+        ]
+        assert len(rows) == 1, rows
+        return rows[0]
+
+    def test_the_detail_names_the_token_that_is_there(self):
+        row = self._row(self.UNRECOGNIZED)
+
+        assert "carries 'ATAC' where the sublibrary type belongs" in row.detail
+        assert "carries no sublibrary type" not in row.detail
+
+    def test_no_corrected_name_is_proposed_around_it(self):
+        """Appending the vendor type would leave ATAC inside the sublibrary."""
+        row = self._row(self.UNRECOGNIZED, vendor=self.VENDOR)
+
+        assert row.expected_name == ""
+        assert "ATAC" not in row.expected_name
+
+    def test_the_vendor_value_is_still_reported(self):
+        row = self._row(self.UNRECOGNIZED, vendor=self.VENDOR)
+
+        assert "GEX_hash_oligo" in row.detail
+
+    def test_a_genuinely_absent_type_reads_as_before(self):
+        row = self._row(self.NO_TYPE)
+
+        assert "carries no sublibrary type" in row.detail
+
+    def test_a_genuinely_absent_type_is_still_corrected_from_the_vendor(self):
+        """The 288 REF3 rows go through here; withholding these would break them."""
+        row = self._row(self.NO_TYPE, vendor=self.VENDOR)
+
+        assert row.expected_name == (
+            "438514-REF3_P01_A3_GEX_hash_oligo-Z0305-CACACACAACATGAT.trim.cram"
+        )
+
+
 class TestLabProjectIsMatchedOnAnExactPrefix:
     """The lab name is a surname, and surnames contain hyphens.
 

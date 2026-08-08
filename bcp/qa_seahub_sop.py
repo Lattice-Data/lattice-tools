@@ -470,7 +470,29 @@ def validate_seahub_key(
         vendor_assay = (assay_by_identity or {}).get(
             (match.group("wafer"), match.group("ug"))
         )
-        if vendor_assay:
+        # The relaxed pattern matches whether the type token is absent or merely
+        # unrecognised, and those are different facts. A trailing token that is
+        # not a well is a type the SOP does not know, so saying the stem "carries
+        # no sublibrary type" describes the wrong defect -- and appending the
+        # vendor type to it would propose a name with the unrecognised token
+        # still buried in the sublibrary.
+        _implied, trailing, _state = seahub_group_parts(
+            match.group("group"), path_info["sublibrary"], path_info["experiment_id"]
+        )
+        unrecognized = bool(trailing) and not SEAHUB_WELL_RE.match(trailing)
+        if unrecognized:
+            corrected = ""
+            detail = (
+                f"{stem!r} carries {trailing!r} where the sublibrary type "
+                f"belongs; expected one of {', '.join(SEAHUB_SUBLIBRARY_TYPES)}"
+            )
+            if vendor_assay:
+                detail += (
+                    f" (the untrimmed vendor delivery gives {vendor_assay!r}, but "
+                    "the name cannot be corrected without knowing whether "
+                    f"{trailing!r} belongs to the sublibrary)"
+                )
+        elif vendor_assay:
             corrected = (
                 f"{match.group('wafer')}-{match.group('group')}_{vendor_assay}"
                 f"-{match.group('ug')}-{match.group('barcode')}{suffix}"

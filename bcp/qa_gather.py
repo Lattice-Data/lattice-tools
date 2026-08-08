@@ -237,7 +237,10 @@ class QADataGatherer:
         """
         o = self.ctx.listing_prefix
         experiment_id = self.ctx.order
-        self._data.fastq_log[experiment_id] = {}
+        # No fastq_log seed here. _process_raw_file keys that by sublibrary and
+        # creates the entry it needs, so an ExperimentID key only ever stayed
+        # empty -- and manifest mode, which reaches the same wells, never made
+        # one.
 
         r_top = self._list_folders(o, "the experiment folder")
         top_subdirs = [e["Prefix"] for e in r_top.get("CommonPrefixes", [])]
@@ -523,7 +526,7 @@ class QADataGatherer:
             ("trimmer-failure_codes.csv", "trimmer-failure-codes.csv")
         ) and not rf.endswith("merged_trimmer-failure_codes.csv"):
             self._download_trimmer_failure_codes(rf)
-        elif self.raw_assay == "seahub_sci" and rf.endswith(SEAHUB_FAIL_SUFFIXES):
+        elif self.raw_assay == "seahub_sci" and self._is_seahub_trim_fail(rf):
             # Deferred, not fetched: one per well, and serially that is one
             # round-trip per well against S3.
             self._seahub_trim_fail_pending.append(rf)
@@ -531,6 +534,22 @@ class QADataGatherer:
             ingest_merged_trimmer_from_s3(
                 self.bucket, rf, self._data.merged_wafer_stats, self.s3
             )
+
+    def _is_seahub_trim_fail(self, rf: str) -> bool:
+        """Is this a per-well trim failure CSV whose numbers QA should ingest?
+
+        The suffix alone is not enough. ``_fail.csv`` is generic, so the bare
+        family is only recognised when the stem before it parses -- the same
+        gate ``seahub_stem_and_family`` applies, and the reason a 480-well
+        upload did not report as 960. Without it here, a file the SOP table
+        calls ``unexpected_suffix`` still fed its numbers into the wafer and
+        sublibrary trimmer-fail histograms.
+
+        ``.trim_fail.csv`` stays ungated, deliberately: ``.trim.*`` is
+        distinctive enough that a malformed stem is a stem defect rather than a
+        different kind of file. ``seahub_file_stem`` already draws that line.
+        """
+        return rf.endswith(SEAHUB_FAIL_SUFFIXES) and seahub_file_stem(rf) is not None
 
     def _should_download_metadata_json(self, rf: str) -> bool:
         """Return True for raw metadata sidecars that QA parses."""

@@ -604,6 +604,96 @@ class TestSeahubTrimFailIsParsedOnce:
         assert counts["stem1"]["JumboSciGEX"]["total"] == 158233602
 
 
+class TestSeahubIngestGates:
+    """What reaches the trimmer-fail histograms, and what fastq_log is keyed by."""
+
+    PROJ = "labalpha-seahub-bcp"
+    DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479"
+    STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
+
+    def _ctx(self):
+        return _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj=self.PROJ,
+            order="REF3",
+            listing_prefix=f"{self.PROJ}/REF3/",
+        )
+
+    def _csv(self, total: int) -> str:
+        return (
+            "format,reason,failed read count,total read count\n"
+            f"JumboSciGEX,barcode,{total // 10},{total}\n"
+        )
+
+    def _run(self, extra: dict[str, str]):
+        keys = [
+            f"{self.DIR}/{self.STEM}.trim.cram",
+            f"{self.DIR}/{self.STEM}.trim_fail.csv",
+        ]
+        contents = {f"{self.DIR}/{self.STEM}.trim_fail.csv": self._csv(1000)}
+        keys += list(extra)
+        contents.update(extra)
+        return gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+    def test_the_experiment_id_is_not_a_fastq_log_key(self):
+        """It was seeded and never filled: fastq_log is keyed by sublibrary."""
+        data = self._run({})
+
+        assert "REF3" not in data.fastq_log
+        assert "REF3_P05_1" in data.fastq_log
+
+    def test_fastq_log_keys_match_between_the_two_modes(self, tmp_path):
+        """The seed was the only thing that differed; manifest mode never made one."""
+        keys = [f"{self.DIR}/{self.STEM}{s}" for s in (".trim.cram", ".trim_fail.csv")]
+        contents = {f"{self.DIR}/{self.STEM}.trim_fail.csv": self._csv(1000)}
+        manifest = tmp_path / "listing.tsv"
+        manifest.write_text(
+            "S3_Full_Path\n" + "".join(f"s3://czi-labalpha/{k}\n" for k in keys)
+        )
+        from_manifest = gather_qa_data(
+            resolve_qa_run_context(
+                data_source="manifest",
+                raw_assay="seahub_sci",
+                manifest_path=str(manifest),
+                manifest_delimiter="\t",
+                manifest_s3_column=0,
+                manifest_has_header=True,
+                run_label="REF3",
+            ),
+            MockS3Client(file_contents=contents),
+        )
+        from_s3 = gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+        assert sorted(from_s3.fastq_log) == sorted(from_manifest.fastq_log)
+
+    def test_a_bare_fail_csv_with_an_unparseable_stem_is_not_ingested(self):
+        """`_fail.csv` is generic, so the bare family needs its stem to parse.
+
+        Without the gate a file the SOP table reports as `unexpected_suffix`
+        still contributed its numbers to the wafer and sublibrary histograms.
+        """
+        junk = f"{self.DIR}/README_fail.csv"
+
+        data = self._run({junk: self._csv(999999)})
+
+        assert data.trimmer_failure_stats["430479"]["trimmer_fail"] == [100 / 10]
+
+    def test_a_trim_fail_csv_with_an_odd_stem_is_still_ingested(self):
+        """The asymmetry is deliberate: `.trim.*` is distinctive enough that a
+        malformed stem is a stem defect, not a different kind of file."""
+        odd = f"{self.DIR}/README.trim_fail.csv"
+
+        data = self._run({odd: self._csv(2000)})
+
+        assert len(data.trimmer_failure_stats["430479"]["trimmer_fail"]) == 2
+
+
 class TestSeahubTrimFailIsFetchedInParallel:
     """The per-well trim failure CSVs share the metadata path's thread pool.
 
