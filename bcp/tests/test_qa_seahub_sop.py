@@ -13,6 +13,8 @@ import ast
 import os
 import pathlib
 
+import pytest
+
 from qa_checks import check_expected_raw_files, check_extra_raw_files
 from qa_constants import (
     SEAHUB_SOP_RULES,
@@ -295,6 +297,54 @@ class TestPathRules:
     def test_lab_project_mismatch(self):
         violations = validate_seahub_key("czi-labbeta", GOOD_LABALPHA)
         assert "lab_project_mismatch" in _types(violations)
+
+
+class TestLabProjectIsMatchedOnAnExactPrefix:
+    """The lab name is a surname, and surnames contain hyphens.
+
+    Comparing ``project.split("-")[0]`` to the lab only works while the lab name
+    has none: ``czi-van-der-berg`` gives lab ``van-der-berg``, its own project
+    ``van-der-berg-seahub-bcp`` splits to ``van``, and the rule fired on a
+    correct upload. The rule is ``upload`` scope, so the cost is one row for the
+    whole listing plus the rename cell's banner telling an operator to fix a
+    location that is fine.
+    """
+
+    STEM = "436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
+
+    def _fires(self, bucket: str, project: str) -> bool:
+        key = f"{project}/REF3/raw/REF3_P05_2/436830/{self.STEM}"
+        return "lab_project_mismatch" in _types(validate_seahub_key(bucket, key))
+
+    @pytest.mark.parametrize(
+        "bucket,project",
+        [
+            ("czi-van-der-berg", "van-der-berg-seahub-bcp"),
+            ("czi-labalpha", "labalpha-seahub-bcp"),
+            # The project may be the bare lab name, with nothing appended.
+            ("czi-labalpha", "labalpha"),
+        ],
+    )
+    def test_a_project_under_its_own_lab_is_clean(self, bucket, project):
+        assert not self._fires(bucket, project)
+
+    @pytest.mark.parametrize(
+        "bucket,project",
+        [
+            ("czi-labalpha", "otherlab-seahub-bcp"),
+            ("czi-van-der-berg", "van-seahub-bcp"),
+            # The trailing hyphen in the prefix test is what stops a lab name
+            # that is a prefix of another lab's from matching it.
+            ("czi-lab", "labalpha-seahub-bcp"),
+            # It has to be a *prefix*: the lab name appearing anywhere in the
+            # project is not the same claim, and a containment test would let
+            # this through.
+            ("czi-labalpha", "notlabalpha-seahub-bcp"),
+            ("czi-labalpha", "seahub-labalpha-bcp"),
+        ],
+    )
+    def test_a_project_under_another_lab_still_fires(self, bucket, project):
+        assert self._fires(bucket, project)
 
     def test_bad_path_depth(self):
         violations = validate_seahub_key(

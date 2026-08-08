@@ -331,7 +331,13 @@ def _check_path(bucket: str, s3_key: str) -> tuple[list[SopViolation], dict | No
         lab = bucket[len("czi-") :]
 
     project = s3_key.split("/")[0] if "/" in s3_key else ""
-    if lab and project and project.split("-")[0] != lab:
+    # An exact prefix, not the first hyphen-separated token: a lab whose name
+    # contains a hyphen ("van-der-berg") splits to "van" and fails against its
+    # own project. The rule is upload-scope, so the consequence is one row for
+    # the whole listing plus the rename cell's "these destinations sit somewhere
+    # the SOP rejects" banner -- on an upload that is correct. The trailing "-"
+    # is what stops lab "lab" from accepting project "labalpha-seahub-bcp".
+    if lab and project and not (project == lab or project.startswith(f"{lab}-")):
         violations.append(
             SopViolation(
                 type="lab_project_mismatch",
