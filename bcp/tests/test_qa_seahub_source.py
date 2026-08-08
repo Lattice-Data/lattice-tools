@@ -173,7 +173,7 @@ class TestOneBadSidecarDoesNotKillTheRun:
         index = self._run("{not json at all")
         trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A, TRIM_STEM_B))
         fail_counts = {
-            stem: {"JumboSciGEX": {"failed": 1, "total": 260527531}}
+            (TRIMMED_DIR, stem): {"JumboSciGEX": {"failed": 1, "total": 260527531}}
             for stem in (TRIM_STEM_A, TRIM_STEM_B)
         }
 
@@ -210,7 +210,8 @@ class TestIndexTrimmedUpload:
 
 class TestReconcileTrimming:
     def _fail_counts(self, stem: str, total: int) -> dict:
-        return {stem: {"JumboSciGEX": {"failed": 100, "total": total}}}
+        # Keyed by (raw_dir, stem), as the gatherer writes it.
+        return {(TRIMMED_DIR, stem): {"JumboSciGEX": {"failed": 100, "total": total}}}
 
     def test_consistent_pair_is_clean(self):
         source = _source_index(_vendor_keys(VENDOR_STEM_A))
@@ -272,7 +273,7 @@ class TestReconcileTrimming:
         source[("448642", "Z0001")].read_count = 260527531
         trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A))
         fail_counts = {
-            TRIM_STEM_A: {
+            (TRIMMED_DIR, TRIM_STEM_A): {
                 "JumboSciGEX": {"failed": 1, "total": 158233602},
                 "JumboSciHash": {"failed": 2, "total": 260527531},
             }
@@ -702,7 +703,9 @@ class TestSizeAndCoverageReconciliation:
             _trimmed_keys(TRIM_STEM_A),
             sizes={f"{TRIMMED_DIR}/{TRIM_STEM_A}.trim.cram": trimmed_size},
         )
-        fail_counts = {TRIM_STEM_A: {"JumboSciGEX": {"failed": 1, "total": 100}}}
+        fail_counts = {
+            (TRIMMED_DIR, TRIM_STEM_A): {"JumboSciGEX": {"failed": 1, "total": 100}}
+        }
         return reconcile_trimming(source, trimmed, fail_counts)
 
     def test_a_smaller_trimmed_cram_is_clean(self):

@@ -694,6 +694,109 @@ class TestSeahubIngestGates:
         assert len(data.trimmer_failure_stats["430479"]["trimmer_fail"]) == 2
 
 
+class TestFailCountsAreKeyedByFolderAndStem:
+    """A bare stem is not unique across sublibrary folders.
+
+    The reconciliation reads these to decide whether the trimmer consumed the
+    whole delivered file, and it looks them up per well. Keyed on the stem
+    alone, two wells in different folders that share one merged their
+    per-format counts, so one well answered with the other's totals.
+    """
+
+    PROJ = "labalpha-seahub-bcp"
+    STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
+    FOLDERS = ("REF3_P05_1", "REF3_P05_2")
+
+    def _ctx(self):
+        return _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj=self.PROJ,
+            order="REF3",
+            listing_prefix=f"{self.PROJ}/REF3/",
+        )
+
+    def _csv(self, total: int) -> str:
+        return (
+            "format,reason,failed read count,total read count\n"
+            f"JumboSciGEX,barcode,{total // 10},{total}\n"
+        )
+
+    def _dirs(self) -> list[str]:
+        return [f"{self.PROJ}/REF3/raw/{f}/430479" for f in self.FOLDERS]
+
+    def test_one_entry_per_folder_for_a_shared_stem(self):
+        """The same wafer and stem under two sublibrary folders."""
+        dirs = self._dirs()
+        keys = [
+            f"{d}/{self.STEM}{s}"
+            for d in dirs
+            for s in (".trim.cram", ".trim_fail.csv")
+        ]
+        contents = {
+            f"{d}/{self.STEM}.trim_fail.csv": self._csv(1000 * (n + 1))
+            for n, d in enumerate(dirs)
+        }
+
+        data = gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+        assert sorted(data.seahub_fail_counts) == [(d, self.STEM) for d in sorted(dirs)]
+
+    def test_the_counts_are_not_merged_across_folders(self):
+        dirs = self._dirs()
+        keys = [
+            f"{d}/{self.STEM}{s}"
+            for d in dirs
+            for s in (".trim.cram", ".trim_fail.csv")
+        ]
+        contents = {
+            f"{d}/{self.STEM}.trim_fail.csv": self._csv(1000 * (n + 1))
+            for n, d in enumerate(dirs)
+        }
+
+        data = gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+        totals = {
+            key: entry["JumboSciGEX"]["total"]
+            for key, entry in data.seahub_fail_counts.items()
+        }
+        assert sorted(totals.values()) == [1000, 2000]
+
+    def test_the_reconciliation_finds_them_under_the_same_key(self):
+        """Writer and reader have to agree, or every well reads as unavailable."""
+        from qa_seahub_recon import reconcile_trimming
+        from qa_seahub_source import SourceEntry, index_trimmed_upload
+
+        d = self._dirs()[0]
+        keys = [f"{d}/{self.STEM}{s}" for s in (".trim.cram", ".trim_fail.csv")]
+        contents = {f"{d}/{self.STEM}.trim_fail.csv": self._csv(1000)}
+        data = gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+        source = {
+            ("430479", "Z0097"): SourceEntry(
+                wafer="430479",
+                ug="Z0097",
+                barcode="CAGTCAGTTGCAGAT",
+                group="REF3_P05_1_A1",
+                assay="GEX_hash_oligo",
+                cram_key="v/REF3/raw/430479/x.cram",
+                read_count=1000,
+            )
+        }
+
+        report = reconcile_trimming(
+            source, index_trimmed_upload(keys), data.seahub_fail_counts
+        )
+
+        assert [r["category"] for r in report.rows] == []
+
+
 class TestSeahubTrimFailIsFetchedInParallel:
     """The per-well trim failure CSVs share the metadata path's thread pool.
 

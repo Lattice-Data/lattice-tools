@@ -102,7 +102,8 @@ class QAGatheredData:
     # SeaHub-only: SOP path/filename violations, one entry per stem+rule.
     sop_violations: list[dict[str, str]] = field(default_factory=list)
     # SeaHub-only: absolute per-format trimmer failed/total counts keyed by stem.
-    seahub_fail_counts: dict[str, dict[str, dict[str, int]]] = field(
+    # Keyed by (raw_dir, stem): a bare stem is not unique across folders.
+    seahub_fail_counts: dict[tuple[str, str], dict[str, dict[str, int]]] = field(
         default_factory=dict
     )
     # SeaHub-only, S3 mode only: object sizes by key, for the trimmed-vs-vendor
@@ -994,7 +995,13 @@ class QADataGatherer:
             self._data.trimmer_failure_stats,
             storage_key,
             fail_counts=self._data.seahub_fail_counts,
-            stem_key=seahub_file_stem(rf),
+            # Qualified by folder. On the bare stem, two wells in different
+            # sublibrary folders that happen to share one would have merged
+            # their per-format counts, and the reconciliation reads this to
+            # decide whether the trimmer saw the whole delivered file.
+            # index_trimmed_upload computes TrimmedEntry.raw_dir the same way,
+            # which is what the lookup uses.
+            stem_key=("/".join(rf.split("/")[:-1]), seahub_file_stem(rf)),
         )
         apply_seahub_trim_fail_blocks(blocks, self._data.group_failure_stats, group_key)
 

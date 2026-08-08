@@ -861,7 +861,7 @@ class TestFailCsvSuffixes:
         data = gather_qa_data(ctx, s3)
         assert data.discovered_wafers == {"438514"}
         assert data.trimmer_failure_stats["438514"]["trimmer_fail"]
-        assert BARE_STEM in data.seahub_fail_counts
+        assert (BARE_DIR, BARE_STEM) in data.seahub_fail_counts
 
     def test_per_well_csvs_are_not_read_as_sublibrary_q30_stats(self):
         # Per-well ".csv" / "_fail.csv" are single-well trimmer output and carry

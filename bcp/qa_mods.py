@@ -990,7 +990,7 @@ def grab_seahub_trim_fail_csv(
     csv_path: str | Path,
     warnings: list[str] | None = None,
     fail_counts: dict | None = None,
-    stem_key: str | None = None,
+    stem_key: Any = None,
 ) -> None:
     """
     Parse a SeaHub per-well trim failure CSV into trimmer-fail fractions.
@@ -1084,7 +1084,7 @@ def apply_seahub_trim_fail_blocks(
     trimmer_failure_stats: dict,
     exp: str,
     fail_counts: dict | None = None,
-    stem_key: str | None = None,
+    stem_key: Any = None,
 ) -> None:
     """Fold parsed blocks into one distribution, keyed by ``exp``."""
     if exp not in trimmer_failure_stats:

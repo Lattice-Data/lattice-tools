@@ -83,7 +83,7 @@ class TrimmingReport:
 def _reconcile_read_counts(
     source: SourceEntry,
     trimmed: TrimmedEntry,
-    fail_counts: dict[str, dict[str, dict[str, int]]],
+    fail_counts: dict[tuple[str, str], dict[str, dict[str, int]]],
 ) -> dict[str, Any] | None:
     """Check the vendor read count against the trimmer's declared input totals."""
     if source.read_count is None:
@@ -96,7 +96,13 @@ def _reconcile_read_counts(
             trimmed_stem=trimmed.stem,
             detail="vendor .cram-metadata.json missing or has no read_count",
         )
-    per_format = fail_counts.get(trimmed.stem)
+    # (raw_dir, stem), matching what the gatherer wrote: the stem alone is not
+    # unique across sublibrary folders. A well whose fail CSV carries a
+    # different stem from its CRAM still misses here and reports
+    # metadata_unavailable -- that well is already reported as
+    # duplicate_trimmed_well, and which of its two names is canonical is not
+    # something this can decide.
+    per_format = fail_counts.get((trimmed.raw_dir, trimmed.stem))
     if not per_format:
         return _row(
             "metadata_unavailable",
@@ -199,7 +205,7 @@ def _reconcile_identity(
 def reconcile_trimming(
     untrimmed: UntrimmedSources | dict[IdentityKey, SourceEntry],
     trimmed_index: dict[IdentityKey, TrimmedEntry],
-    fail_counts: dict[str, dict[str, dict[str, int]]] | None = None,
+    fail_counts: dict[tuple[str, str], dict[str, dict[str, int]]] | None = None,
     trimmed_findings: list[dict[str, Any]] | None = None,
 ) -> TrimmingReport:
     """Compare one or more vendor deliveries against a trimmed upload, well by well.
