@@ -5,6 +5,7 @@ Tests for corrected-name composition and the per-well roll-up (qa_seahub_rename)
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 import re
 
@@ -26,6 +27,7 @@ from qa_constants import (
 )
 from qa_seahub_rename import (
     RENAME_COLUMNS,
+    WELL_COLUMNS,
     build_rename_mapping,
     expected_trimmed_key,
     roll_up_wells,
@@ -327,6 +329,16 @@ class TestBuildRenameMapping:
 
 
 class TestRollUpWells:
+    def test_columns_and_ordering(self):
+        """The well-status CSV is the headline output, so its columns are a
+        contract -- pinned the way RENAME_COLUMNS is, which WELL_COLUMNS was not.
+        """
+        rollup = roll_up_wells(BUCKET, ref3_trimmed_keys(), _vendor_index())
+
+        assert tuple(rollup.rows[0]) == WELL_COLUMNS
+        identities = [(r["wafer"], r["ug"]) for r in rollup.rows]
+        assert identities == sorted(identities)
+
     def test_every_verdict_is_exercised(self):
         rollup = roll_up_wells(BUCKET, ref3_trimmed_keys(), _vendor_index())
 
@@ -831,6 +843,93 @@ class TestTheTwoHeadlineCsvsAgree:
             )
 
 
+def _module_level_constants(tree: ast.Module) -> set[str]:
+    """Public constant names bound at a module's top level.
+
+    Descends into top-level ``if``/``try``, since a name bound under a version
+    or import guard is still module level, and flattens tuple targets. Anything
+    lowercase is a variable by convention, not a constant, and anything
+    underscore-prefixed is private.
+    """
+
+    def statements(body):
+        for node in body:
+            yield node
+            if isinstance(node, ast.If):
+                yield from statements(node.body)
+                yield from statements(node.orelse)
+            elif isinstance(node, ast.Try):
+                yield from statements(node.body + node.orelse + node.finalbody)
+                for handler in node.handlers:
+                    yield from statements(handler.body)
+
+    def bound(target):
+        if isinstance(target, ast.Name):
+            yield target.id
+        elif isinstance(target, (ast.Tuple, ast.List)):
+            for element in target.elts:
+                yield from bound(element)
+
+    names: set[str] = set()
+    for node in statements(tree.body):
+        targets = (
+            [node.target]
+            if isinstance(node, ast.AnnAssign)
+            else node.targets
+            if isinstance(node, ast.Assign)
+            else []
+        )
+        names.update(n for t in targets for n in bound(t))
+    return {n for n in names if not n.startswith("_") and not n.islower()}
+
+
+def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]:
+    """Every identifier used by code under ``bcp``, ignoring one file.
+
+    By AST, so a name that appears only in a comment or a docstring does not
+    count as used -- including the docstrings of the guards below, which name
+    the very constants they exist to catch and so exempted them permanently when
+    this was a text search.
+
+    ``qa.ipynb`` is scanned too: the notebook is the primary consumer of these
+    modules, so a constant used only there is live. A cell that will not parse
+    (a magic, a fragment) falls back to a word scan, which over-counts -- the
+    safe direction, since the cost of a false positive here is a failing build
+    on correct code.
+    """
+    names: set[str] = set()
+
+    def collect(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                names.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                names.add(node.attr)
+            elif isinstance(node, ast.alias):
+                names.add(node.name.split(".")[-1])
+                if node.asname:
+                    names.add(node.asname)
+        return True
+
+    for path in bcp.rglob("*.py"):
+        if path.name != exclude:
+            collect(path.read_text())
+
+    notebook = bcp / "qa.ipynb"
+    if notebook.exists():
+        for cell in json.loads(notebook.read_text()).get("cells", []):
+            if cell.get("cell_type") != "code":
+                continue
+            source = "".join(cell.get("source", []))
+            if not collect(source):
+                names.update(re.findall(r"\b\w+\b", source))
+    return names
+
+
 class TestRuleVocabulary:
     """Makes the closed vocabularies do what their comments claim.
 
@@ -853,25 +952,47 @@ class TestRuleVocabulary:
         bcp = pathlib.Path(qa_seahub_rename.__file__).parent
         constants = bcp / "qa_constants.py"
         declared = {
-            target.id
-            for node in ast.parse(constants.read_text()).body
-            for target in (
-                [node.target]
-                if isinstance(node, ast.AnnAssign)
-                else node.targets
-                if isinstance(node, ast.Assign)
-                else []
-            )
-            if isinstance(target, ast.Name) and target.id.startswith("SEAHUB_")
+            name
+            for name in _module_level_constants(ast.parse(constants.read_text()))
+            if name.startswith("SEAHUB_")
         }
         assert declared, "no SEAHUB_* constants found"
 
-        elsewhere = "".join(
-            p.read_text()
-            for p in [*bcp.glob("*.py"), *(bcp / "tests").rglob("*.py")]
-            if p.name != "qa_constants.py"
-        )
-        unread = sorted(n for n in declared if not re.search(rf"\b{n}\b", elsewhere))
+        referenced = _identifiers_referenced_outside(bcp, exclude="qa_constants.py")
+        unread = sorted(declared - referenced)
+        assert unread == [], f"declared but read nowhere: {unread}"
+
+    def test_no_seahub_module_constant_is_unread(self):
+        """The same guard, for the modules rather than the constants file.
+
+        The test above is scoped to ``SEAHUB_*`` names in ``qa_constants``, so it
+        could not see ``WELL_COLUMNS`` sitting dead a few lines from
+        ``RENAME_COLUMNS``, which is pinned. The rule has to be looser here: a
+        module constant used only inside its own module is doing its job, which
+        is not true of a vocabulary in ``qa_constants``. So a name counts as read
+        if it is *loaded* anywhere in its own module -- by AST, so a mention in a
+        comment or docstring does not rescue it -- or referred to in any other
+        file. Leading-underscore names are private and exempt.
+        """
+        bcp = pathlib.Path(qa_seahub_rename.__file__).parent
+        modules = sorted(bcp.glob("qa_seahub_*.py"))
+        assert modules, "no qa_seahub_* modules found"
+
+        unread: list[str] = []
+        for module in modules:
+            tree = ast.parse(module.read_text())
+            declared = _module_level_constants(tree)
+            loaded = {
+                node.id
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            }
+            referenced = _identifiers_referenced_outside(bcp, exclude=module.name)
+            unread += [
+                f"{module.name}:{name}"
+                for name in sorted(declared - loaded - referenced)
+            ]
+
         assert unread == [], f"declared but read nowhere: {unread}"
 
     def test_renameable_types_are_a_subset_of_the_rules(self):
