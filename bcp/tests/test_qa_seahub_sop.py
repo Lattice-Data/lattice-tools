@@ -680,20 +680,8 @@ class TestFailCsvSuffixes:
         ]
         with open(SEAHUB_TRIM_FAIL) as fh:
             fail_content = fh.read()
-        pages = {
-            ("labalpha-seahub-bcp/REF3/", "/"): [
-                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/"}]}
-            ],
-            ("labalpha-seahub-bcp/REF3/raw/", "/"): [
-                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/P07_1/"}]}
-            ],
-            ("labalpha-seahub-bcp/REF3/raw/P07_1/", "/"): [
-                {"CommonPrefixes": [{"Prefix": f"{raw_dir}/"}]}
-            ],
-            (f"{raw_dir}/", ""): [{"Contents": [{"Key": k} for k in keys]}],
-        }
         s3 = MockS3Client(
-            paginated_pages=pages,
+            keys=keys,
             file_contents={f"{raw_dir}/{BARE_STEM}_fail.csv": fail_content},
         )
         ctx = _make_ctx(
@@ -723,18 +711,6 @@ class TestFailCsvSuffixes:
             f"{raw_dir}/{TRIM_STEM}.trim.csv",
             f"{raw_dir}/{TRIM_STEM}.trim_fail.csv",
         ]
-        pages = {
-            ("labalpha-seahub-bcp/REF3/", "/"): [
-                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/"}]}
-            ],
-            ("labalpha-seahub-bcp/REF3/raw/", "/"): [
-                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/P07_1/"}]}
-            ],
-            ("labalpha-seahub-bcp/REF3/raw/P07_1/", "/"): [
-                {"CommonPrefixes": [{"Prefix": f"{raw_dir}/"}]}
-            ],
-            (f"{raw_dir}/", ""): [{"Contents": [{"Key": k} for k in keys]}],
-        }
         ctx = _make_ctx(
             raw_assay="seahub_sci",
             bucket="czi-labalpha",
@@ -749,7 +725,7 @@ class TestFailCsvSuffixes:
         # ".csv" files would go through s3fs and find nothing; the warning
         # asserted below is what the reviewer saw hundreds of times.
         s3 = MockS3Client(
-            paginated_pages=pages,
+            keys=keys,
             file_contents={
                 f"{raw_dir}/{BARE_STEM}_fail.csv": fail_content,
                 f"{raw_dir}/{TRIM_STEM}.trim_fail.csv": fail_content,
@@ -764,18 +740,6 @@ class TestFailCsvSuffixes:
     def test_gather_records_sop_violations_and_one_summary_warning(self):
         raw_dir = "labalpha-seahub-bcp/REF3/raw/P07_1/438514"
         keys = [f"{raw_dir}/{BARE_STEM}{s}" for s in (".cram", ".csv", ".stdout")]
-        pages = {
-            ("labalpha-seahub-bcp/REF3/", "/"): [
-                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/"}]}
-            ],
-            ("labalpha-seahub-bcp/REF3/raw/", "/"): [
-                {"CommonPrefixes": [{"Prefix": "labalpha-seahub-bcp/REF3/raw/P07_1/"}]}
-            ],
-            ("labalpha-seahub-bcp/REF3/raw/P07_1/", "/"): [
-                {"CommonPrefixes": [{"Prefix": f"{raw_dir}/"}]}
-            ],
-            (f"{raw_dir}/", ""): [{"Contents": [{"Key": k} for k in keys]}],
-        }
         ctx = _make_ctx(
             raw_assay="seahub_sci",
             bucket="czi-labalpha",
@@ -784,7 +748,7 @@ class TestFailCsvSuffixes:
             order="REF3",
             listing_prefix="labalpha-seahub-bcp/REF3/",
         )
-        data = gather_qa_data(ctx, MockS3Client(paginated_pages=pages))
+        data = gather_qa_data(ctx, MockS3Client(keys=keys))
         types = {v["type"] for v in data.sop_violations}
         assert "missing_trim_infix" in types
         assert "duplicated_wafer_token" in types

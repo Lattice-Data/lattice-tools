@@ -252,42 +252,29 @@ class TestSeahubChecks:
 
 
 class TestSeahubGather:
-    def _seahub_paginated_pages(self) -> dict:
-        o = "labalpha-seahub-bcp/REF3/"
-        raw = f"{o}raw/"
-        sublib = f"{raw}P05_1/"
-        wafer = f"{sublib}430479/"
-        return {
-            (o, "/"): [
-                {"CommonPrefixes": [{"Prefix": raw}]},
-            ],
-            (raw, "/"): [
-                {"CommonPrefixes": [{"Prefix": sublib}]},
-            ],
-            (sublib, "/"): [
-                {"CommonPrefixes": [{"Prefix": wafer}]},
-            ],
-            (wafer, ""): [
-                {
-                    "Contents": [
-                        {"Key": SEAHUB_KEY_CRAM},
-                        {"Key": SEAHUB_KEY_FAIL},
-                        {"Key": SEAHUB_KEY_TRIM},
-                        {"Key": f"{SEAHUB_BASE}.trim.stderr"},
-                        {"Key": f"{SEAHUB_BASE}.trim.stdout"},
-                    ]
-                }
-            ],
-        }
+    def _seahub_keys(self) -> list[str]:
+        """One well at SOP depth, as a key list.
+
+        A key list rather than a hand-written page map: a page map states the
+        listing's *answers*, so it can only describe objects the walk already
+        looked for. Every SeaHub S3 test used one, which is why no test could
+        express an object above wafer depth and why the gatherer silently
+        dropped them.
+        """
+        return [
+            SEAHUB_KEY_CRAM,
+            SEAHUB_KEY_FAIL,
+            SEAHUB_KEY_TRIM,
+            f"{SEAHUB_BASE}.trim.stderr",
+            f"{SEAHUB_BASE}.trim.stdout",
+        ]
 
     def test_gather_from_s3_seahub_layout(self):
-        pages = self._seahub_paginated_pages()
-        paginated = dict(pages)
         file_contents = {
             SEAHUB_KEY_FAIL: open(SEAHUB_TRIM_FAIL).read(),
             SEAHUB_KEY_TRIM: open(SEAHUB_TRIM).read(),
         }
-        s3 = MockS3Client(paginated_pages=paginated, file_contents=file_contents)
+        s3 = MockS3Client(keys=self._seahub_keys(), file_contents=file_contents)
         ctx = _make_ctx(
             raw_assay="seahub_sci",
             bucket="czi-labalpha",
@@ -376,18 +363,15 @@ class TestSeahubGather:
 
     def test_present_metadata_json_no_warn(self):
         """A .trim.cram with its .trim.cram-metadata.json sidecar does not warn."""
-        pages = dict(self._seahub_paginated_pages())
-        wafer_key = ("labalpha-seahub-bcp/REF3/raw/P05_1/430479/", "")
         meta_key = f"{SEAHUB_BASE}.trim.cram-metadata.json"
-        pages[wafer_key] = [
-            {"Contents": pages[wafer_key][0]["Contents"] + [{"Key": meta_key}]}
-        ]
         file_contents = {
             SEAHUB_KEY_FAIL: open(SEAHUB_TRIM_FAIL).read(),
             meta_key: '{"read_count": 1000, "filename": "%s"}'
             % SEAHUB_KEY_CRAM.split("/")[-1],
         }
-        s3 = MockS3Client(paginated_pages=pages, file_contents=file_contents)
+        s3 = MockS3Client(
+            keys=self._seahub_keys() + [meta_key], file_contents=file_contents
+        )
         ctx = _make_ctx(
             raw_assay="seahub_sci",
             bucket="czi-labalpha",
@@ -401,6 +385,95 @@ class TestSeahubGather:
             w for w in data.gathering_warnings if w.startswith("METADATA MISSING")
         ]
         assert missing == []
+
+
+class TestSeahubGatherShallowObjects:
+    """Objects above wafer depth must reach the SOP table.
+
+    The S3 walk read only ``CommonPrefixes`` from the ``raw/`` and sublibrary
+    listings and threw their ``Contents`` away, so an object sitting directly in
+    ``{exp}/raw/`` or in ``{exp}/raw/{sublibrary}/`` never entered
+    ``all_raw_files``. ``bad_path_depth`` could therefore only fire for keys that
+    were too *deep* -- never too shallow, which is the commoner human error --
+    and S3 mode and manifest mode disagreed about what the bucket held. Measured
+    on a real GENE7 listing: a 5.3 GB extensionless object at
+    ``GENE7/raw/P10/436516`` is flagged from a manifest and invisible from S3.
+    """
+
+    PROJ = "labalpha-seahub-bcp"
+    PREFIX = "labalpha-seahub-bcp/REF3/"
+    DEEP = [SEAHUB_KEY_CRAM]
+
+    def _ctx(self):
+        return _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj=self.PROJ,
+            order="REF3",
+            listing_prefix=self.PREFIX,
+        )
+
+    def _gather(self, keys: list[str]):
+        return gather_qa_data(self._ctx(), MockS3Client(keys=keys))
+
+    def test_object_at_sublibrary_level_is_gathered(self):
+        stray = f"{self.PROJ}/REF3/raw/P05_1/436516"
+        data = self._gather(self.DEEP + [stray])
+        assert stray in data.all_raw_files
+        assert stray in data.raw_file_sizes
+        assert "bad_path_depth" in {v["type"] for v in data.sop_violations}
+
+    def test_object_directly_in_raw_is_gathered(self):
+        stray = f"{self.PROJ}/REF3/raw/loose_notes.txt"
+        data = self._gather(self.DEEP + [stray])
+        assert stray in data.all_raw_files
+        assert "bad_path_depth" in {v["type"] for v in data.sop_violations}
+
+    def test_raw_holding_only_loose_objects_is_not_called_missing(self):
+        """Objects present but no wafer folder is a depth problem, not an absence."""
+        stray = f"{self.PROJ}/REF3/raw/loose_notes.txt"
+        data = self._gather([stray])
+        assert data.has_raw is True
+        assert data.all_raw_files == [stray]
+        assert [w for w in data.gathering_warnings if "MISSING or empty" in w] == []
+
+    def test_genuinely_empty_raw_still_warns(self):
+        data = self._gather([f"{self.PROJ}/REF3/processed/x.bam"])
+        assert data.has_raw is False
+        assert [w for w in data.gathering_warnings if "MISSING or empty" in w]
+
+    def test_wafers_are_still_discovered_from_the_folder_walk(self):
+        data = self._gather(self.DEEP + [f"{self.PROJ}/REF3/raw/P05_1/436516"])
+        assert data.discovered_wafers == {"430479"}
+
+    def test_s3_and_manifest_agree_on_one_key_set(self, tmp_path):
+        """The two modes are the same question asked twice; they must not differ."""
+        keys = self.DEEP + [
+            f"{self.PROJ}/REF3/raw/P05_1/436516",
+            f"{self.PROJ}/REF3/raw/loose_notes.txt",
+        ]
+        manifest = tmp_path / "listing.tsv"
+        manifest.write_text(
+            "S3_Full_Path\n" + "".join(f"s3://czi-labalpha/{k}\n" for k in keys)
+        )
+        from_s3 = self._gather(keys)
+        from_manifest = gather_qa_data(
+            resolve_qa_run_context(
+                data_source="manifest",
+                raw_assay="seahub_sci",
+                manifest_path=str(manifest),
+                manifest_delimiter="\t",
+                manifest_s3_column=0,
+                manifest_has_header=True,
+                run_label="REF3",
+            ),
+            MockS3Client(),
+        )
+        assert sorted(from_s3.all_raw_files) == sorted(from_manifest.all_raw_files)
+        assert sorted(v["type"] for v in from_s3.sop_violations) == sorted(
+            v["type"] for v in from_manifest.sop_violations
+        )
 
 
 class TestSeahubManifestExperimentId:

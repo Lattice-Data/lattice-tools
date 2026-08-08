@@ -774,7 +774,13 @@ with `{sublibrary type}` in `GEX`, `CRI`, `hash_oligo`, `GEX_hash_oligo`. The Ex
 filename field; it appears in a name only when it is part of that project's sublibrary name (e.g.
 `REF3_P05_2`).
 
-Both `data_source` modes are supported. In **s3** mode the ExperimentID is the last segment of the
+Both `data_source` modes are supported, and they are the same question asked twice, so they must
+return the same objects: the s3 walk lists everything under `{ExperimentID}/raw/` recursively,
+matching manifest mode's `"/raw/" in key`, and uses a delimiter pass only to enumerate wafer
+*folders*. Reading just the folder tree and keeping the wafer-level objects, as it once did,
+dropped every object above wafer depth — so `bad_path_depth` could fire only for keys that were too
+deep, never too shallow, and a `raw/` holding only loose objects was reported as missing. In
+**s3** mode the ExperimentID is the last segment of the
 listing prefix. In **manifest** mode it comes from the `order` argument if one is given, and is
 otherwise read off the manifest keys, which already contain it as a folder; a manifest mixing two
 ExperimentIDs is rejected at `resolve_qa_run_context` rather than per object, because QA writes one

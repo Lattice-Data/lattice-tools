@@ -217,7 +217,18 @@ class QADataGatherer:
             self._gather_order_level_merged_trimmers()
 
     def _gather_from_s3_seahub(self) -> None:
-        """SeaHub layout: {proj}/{ExperimentID}/raw/{sublibrary}/{wafer}/."""
+        """SeaHub layout: {proj}/{ExperimentID}/raw/{sublibrary}/{wafer}/.
+
+        Everything under ``raw/`` is collected recursively, at whatever depth it
+        sits. Walking the delimiter tree and keeping only the wafer-level
+        ``Contents`` dropped exactly the objects the SOP wants to hear about: an
+        object directly in ``raw/`` or in a sublibrary folder never entered
+        ``all_raw_files``, so ``bad_path_depth`` could only ever fire for keys too
+        *deep*, never too shallow, and S3 mode disagreed with manifest mode --
+        whose rule is simply ``"/raw/" in key`` -- about the bucket's contents.
+        The delimiter walk is kept, but only for ``discovered_wafers``, which is a
+        question about folders rather than objects.
+        """
         o = self.ctx.listing_prefix
         experiment_id = self.ctx.order
         self._data.fastq_log[experiment_id] = {}
@@ -231,39 +242,43 @@ class QADataGatherer:
             )
 
         raw_prefix = f"{o}raw/"
-        r_raw = self.s3.list_objects(
-            Bucket=self.bucket, Prefix=raw_prefix, Delimiter="/"
-        )
-        sublib_prefixes = [e["Prefix"] for e in r_raw.get("CommonPrefixes", [])]
-        if not sublib_prefixes:
-            self._data.gathering_warnings.append(f"raw/ MISSING or empty at {o}")
-            return
-
         raw_files: list[str] = []
-        for sublib_prefix in sublib_prefixes:
-            r_wafers = self.s3.list_objects(
-                Bucket=self.bucket, Prefix=sublib_prefix, Delimiter="/"
-            )
-            for wafer_entry in r_wafers.get("CommonPrefixes", []):
-                wafer_prefix = wafer_entry["Prefix"]
-                wafer = wafer_prefix.rstrip("/").split("/")[-1]
-                if wafer:
-                    self._data.discovered_wafers.add(wafer)
-                for page in self.paginator.paginate(
-                    Bucket=self.bucket, Prefix=wafer_prefix
-                ):
-                    for content in page.get("Contents", []):
-                        raw_files.append(content["Key"])
-                        self._data.raw_file_sizes[content["Key"]] = int(
-                            content.get("Size", 0) or 0
-                        )
+        for page in self.paginator.paginate(Bucket=self.bucket, Prefix=raw_prefix):
+            for content in page.get("Contents", []):
+                key = content["Key"]
+                raw_files.append(key)
+                self._data.raw_file_sizes[key] = int(content.get("Size", 0) or 0)
+
+        self._discover_seahub_wafers(raw_prefix)
 
         if not raw_files:
+            # Emptiness is now a statement about objects, not about folders: a
+            # raw/ holding only loose objects used to be reported as missing.
+            self._data.gathering_warnings.append(f"raw/ MISSING or empty at {o}")
             return
 
         self._data.has_raw = True
         self._data.all_raw_files = raw_files
         self._enrich_seahub_raw_files(experiment_id)
+
+    def _discover_seahub_wafers(self, raw_prefix: str) -> None:
+        """Record the wafer folders under ``raw/{sublibrary}/``.
+
+        A wafer is a directory, so this is the one part of the walk that has to
+        ask about ``CommonPrefixes`` rather than keys: a wafer folder holding no
+        objects still counts as discovered.
+        """
+        r_raw = self.s3.list_objects(
+            Bucket=self.bucket, Prefix=raw_prefix, Delimiter="/"
+        )
+        for sublib_entry in r_raw.get("CommonPrefixes", []):
+            r_wafers = self.s3.list_objects(
+                Bucket=self.bucket, Prefix=sublib_entry["Prefix"], Delimiter="/"
+            )
+            for wafer_entry in r_wafers.get("CommonPrefixes", []):
+                wafer = wafer_entry["Prefix"].rstrip("/").split("/")[-1]
+                if wafer:
+                    self._data.discovered_wafers.add(wafer)
 
     def _enrich_seahub_raw_files(self, experiment_id: str) -> None:
         """Parse SeaHub trim artifacts, metadata, and plate-size warnings."""
