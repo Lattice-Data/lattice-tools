@@ -859,7 +859,12 @@ rather than a rename.
   rewrites anything. Every proposal is re-validated against the SOP and withheld unless clean, two
   objects can never be given the same destination, and an existing destination is `blocked` rather
   than overwritten. `name_source` is `vendor` when the delivery supplied a missing token, else
-  `inferred`.
+  `inferred`. That self-check skips `upload`-scope rules: `bad_bucket` and `lab_project_mismatch`
+  hold identically before and after the move, so testing them withheld proposals that strictly
+  reduce the violation set — one wrong bucket turned every rename in the upload into `unresolved`
+  and every well into `UNKNOWN`. They are filtered in the rename gate only; the SOP table still
+  reports them, and the rename cell prints a banner saying the destinations sit inside a location
+  the SOP rejects and must be resolved first.
 - **Per-well status** rolls the above up to one verdict per well in
   `{order}_seahub_well_status.csv`: `COMPLIANT`, `RENAMEABLE` (complete, every defect repairable by
   renaming), `DATA_GAP` (an artifact genuinely absent) or `UNKNOWN` (unidentifiable, or no corrected

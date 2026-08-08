@@ -264,8 +264,19 @@ def expected_trimmed_key(
         f"{folder}/{wafer}/{expected_stem}{trim_suffix}"
     )
 
-    # A proposal that is not itself SOP-clean is worse than no proposal.
-    residual = validate_seahub_key(bucket, expected_key)
+    # A proposal that is not itself SOP-clean is worse than no proposal -- but
+    # only for facts the move could change. `bad_bucket` and
+    # `lab_project_mismatch` are upload-scope: the proposal keeps the same bucket
+    # and the same project, so they hold before and after, and withholding on
+    # them rejected proposals that strictly reduce the violation set. One wrong
+    # bucket then blacked out every rename in the upload -- measured on the
+    # shared fixture, 10 moveable objects to 0 and the wells from
+    # {COMPLIANT:1, RENAMEABLE:2, DATA_GAP:1, UNKNOWN:2} to {DATA_GAP:1, UNKNOWN:5}.
+    # Filtered here rather than in validate_seahub_key, whose own behaviour is
+    # correct and is what the SOP table reports.
+    residual = [
+        v for v in validate_seahub_key(bucket, expected_key) if v.scope != "upload"
+    ]
     if residual:
         return RenameProposal(
             current,

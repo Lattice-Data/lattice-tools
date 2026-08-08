@@ -31,7 +31,7 @@ from qa_seahub_rename import (
     roll_up_wells,
     rollup_summary,
 )
-from qa_seahub_sop import validate_seahub_stems
+from qa_seahub_sop import validate_seahub_key, validate_seahub_stems
 from qa_seahub_source import SourceEntry, index_untrimmed_sources
 
 from tests.qa_seahub_helpers import (
@@ -499,6 +499,79 @@ class TestCompletenessIsNamingAgnostic:
         ):
             verdict, missing = _both_paths(_well_keys(*suffixes))
             assert (verdict == "DATA_GAP") == bool(missing), suffixes
+
+
+class TestUploadScopeDoesNotBlackOutTheRenamePlan:
+    """A wrong bucket is one finding, not a veto on every rename in the upload.
+
+    The rename self-check fed each proposal back through ``validate_seahub_key``,
+    which also runs ``bad_bucket`` and ``lab_project_mismatch``. Both are
+    invariant under the proposed move -- same bucket, same project -- so a
+    proposal that strictly reduces the violation set was withheld for a reason it
+    could not possibly fix. Measured on this fixture before the filter: 20
+    moveable objects to 0, and the wells from
+    {COMPLIANT:1, RENAMEABLE:3, DATA_GAP:1, UNKNOWN:1} to {DATA_GAP:1, UNKNOWN:5}.
+    """
+
+    def _plan(self, bucket: str):
+        keys = ref3_trimmed_keys()
+        index = _vendor_index()
+        mapping = build_rename_mapping(bucket, keys, index)
+        rollup = roll_up_wells(bucket, keys, index)
+        return mapping, rollup
+
+    # "czi-wrong" is a well-formed bucket under the wrong lab, so it trips
+    # lab_project_mismatch; "notczi-x" is not czi-<lab> at all, so it trips
+    # bad_bucket. Both are upload-scope, and both used to veto the plan.
+    @pytest.mark.parametrize("bad_bucket", ["czi-wrong", "notczi-x"])
+    def test_a_wrong_bucket_changes_nothing_about_the_plan(self, bad_bucket):
+        good, good_wells = self._plan(BUCKET)
+        bad, bad_wells = self._plan(bad_bucket)
+
+        assert dict(bad.counts) == dict(good.counts)
+        assert len(bad.moveable()) == len(good.moveable())
+        assert rollup_summary(bad_wells.rows) == rollup_summary(good_wells.rows)
+
+    @pytest.mark.parametrize("bad_bucket", ["czi-wrong", "notczi-x"])
+    def test_a_wrong_bucket_still_leaves_wells_moveable(self, bad_bucket):
+        bad, bad_wells = self._plan(bad_bucket)
+
+        assert len(bad.moveable()) > 0
+        assert rollup_summary(bad_wells.rows)["RENAMEABLE"] > 0
+
+    @pytest.mark.parametrize("bad_bucket", ["czi-wrong", "notczi-x"])
+    def test_no_proposal_is_withheld_for_an_upload_scope_rule(self, bad_bucket):
+        bad, _ = self._plan(bad_bucket)
+
+        withheld = {
+            u
+            for row in bad.rows
+            for u in row["unresolved"].split("|")
+            if u.startswith("proposal_not_sop:")
+        }
+        assert not any("bad_bucket" in u for u in withheld)
+        assert not any("lab_project_mismatch" in u for u in withheld)
+
+    @pytest.mark.parametrize(
+        "bad_bucket,rule",
+        [("czi-wrong", "lab_project_mismatch"), ("notczi-x", "bad_bucket")],
+    )
+    def test_the_sop_table_still_reports_it(self, bad_bucket, rule):
+        """Filtered only inside the rename gate; validate_seahub_key is unchanged."""
+        violations = validate_seahub_stems(bad_bucket, ref3_trimmed_keys())
+
+        rows = [v for v in violations if v.type == rule]
+        assert rows, f"{rule} should still be reported for {bad_bucket}"
+        assert all(v.scope == "upload" for v in rows)
+
+    def test_a_non_upload_defect_still_withholds_the_proposal(self):
+        """The gate keeps its job for facts a move can actually change."""
+        residual = validate_seahub_key(
+            BUCKET, f"{RAW}/P05_1/436830/not-a-sop-name.trim.cram"
+        )
+
+        assert residual
+        assert any(v.scope != "upload" for v in residual)
 
 
 class TestTheTwoHeadlineCsvsAgree:
