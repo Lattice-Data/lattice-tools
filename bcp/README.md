@@ -785,9 +785,11 @@ rather than a rename.
   completeness is checked within the family that was delivered, so an artifact genuinely absent from
   the upload lands in `*_raw_missing.csv` instead of being lost among thousands of identical
   "missing `.trim.*`" rows.
-- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at three
-  scopes: `object` (per object), `stem` (per well) and `folder` (per sublibrary directory, so one
-  truncated folder is one row rather than one per well). Rules cover wrong bucket or project, wrong
+- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at four
+  scopes: `object` (per object), `stem` (per well), `folder` (per sublibrary directory, so one
+  truncated folder is one row rather than one per well) and `upload` (per distinct bucket/project
+  fact, so a wrong bucket is one row rather than one per well — on a 288-well upload that is what
+  keeps every other finding visible). Rules cover wrong bucket or project, wrong
   path depth, missing `.trim` infix, a doubled leading wafer token (`duplicated_wafer_token`), a
   truncated sublibrary folder (`sublibrary_folder_truncated`), bulk-download leftovers
   (`non_sequencing_artifact`), sublibrary or wafer disagreement, bad well/UG/barcode, and a missing

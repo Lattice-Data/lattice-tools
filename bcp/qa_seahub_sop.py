@@ -100,9 +100,11 @@ class SopViolation:
     by ``sublibrary_folder_truncated``.
 
     ``scope`` says how widely the fact applies and drives dedup when reporting:
-    ``object`` for a rule about one S3 object, ``stem`` for one about a well, and
-    ``folder`` for one about a whole sublibrary directory.  A folder defect
-    reported per object would bury every other finding beneath it.
+    ``object`` for a rule about one S3 object, ``stem`` for one about a well,
+    ``folder`` for one about a whole sublibrary directory, and ``upload`` for one
+    about the bucket or project, which is the same fact however many wells sit
+    under it.  A folder or upload defect reported per object would bury every
+    other finding beneath it.
     """
 
     type: str
@@ -290,6 +292,7 @@ def _check_path(bucket: str, s3_key: str) -> tuple[list[SopViolation], dict | No
                 type="bad_bucket",
                 s3_path=s3_path,
                 detail=f"bucket {bucket!r} is not of the form czi-<lab>",
+                scope="upload",
             )
         )
     else:
@@ -305,6 +308,7 @@ def _check_path(bucket: str, s3_key: str) -> tuple[list[SopViolation], dict | No
                     f"project {project!r} must start with the lab name "
                     f"{lab!r} from bucket {bucket!r}"
                 ),
+                scope="upload",
             )
         )
 
@@ -640,26 +644,46 @@ def validate_seahub_stems(
 ) -> list[SopViolation]:
     """Validate a listing, reporting one row per distinct fact.
 
-    Three scopes collapse differently: ``object`` rules stay per object, ``stem``
-    rules collapse to one row per well, and ``folder`` rules collapse to one row
-    per sublibrary directory -- deliberately ignoring the wafer, since a
-    truncated folder name is one fact about a sublibrary however many wafers and
-    wells sit beneath it.  Without that, REF3's seven truncated folders would
-    report as several hundred rows and bury everything else.
+    Four scopes collapse differently: ``object`` rules stay per object, ``stem``
+    rules collapse to one row per well, ``folder`` rules collapse to one row per
+    sublibrary directory -- deliberately ignoring the wafer, since a truncated
+    folder name is one fact about a sublibrary however many wafers and wells sit
+    beneath it -- and ``upload`` rules collapse to one row for the whole listing.
+    Without that, REF3's seven truncated folders would report as several hundred
+    rows, and a single wrong bucket would report once per well, either of which
+    buries everything else.
     """
     groups, unparsed = group_seahub_keys(bucket, s3_keys)
 
     violations: list[SopViolation] = []
+    # Deduped across both loops below: the bucket is fixed for the whole listing,
+    # so a bucket or project defect is one fact about the upload, not per well.
+    # Keyed on the detail so two projects under one bucket still report each.
+    seen_upload_facts: set[tuple[str, str]] = set()
+
+    def _upload_fact_is_new(violation: SopViolation) -> bool:
+        if violation.scope != "upload":
+            return True
+        fingerprint = (violation.type, violation.detail)
+        if fingerprint in seen_upload_facts:
+            return False
+        seen_upload_facts.add(fingerprint)
+        return True
+
     for s3_key in unparsed:
-        violations.extend(
-            validate_seahub_key(bucket, s3_key, assay_by_identity=assay_by_identity)
-        )
+        for violation in validate_seahub_key(
+            bucket, s3_key, assay_by_identity=assay_by_identity
+        ):
+            if _upload_fact_is_new(violation):
+                violations.append(violation)
 
     seen_folder_facts: set[tuple[str, str, str]] = set()
     for group in groups:
         for violation in validate_seahub_group(
             group, assay_by_identity=assay_by_identity
         ):
+            if not _upload_fact_is_new(violation):
+                continue
             if violation.scope == "folder":
                 fingerprint = (
                     violation.type,

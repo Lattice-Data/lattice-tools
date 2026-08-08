@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 
 from qa_checks import check_expected_raw_files, check_extra_raw_files
-from qa_constants import SEAHUB_STEM_RE
+from qa_constants import SEAHUB_STEM_RE, SEAHUB_VIOLATION_SCOPES
 from qa_gather import gather_qa_data
 from qa_mods import grab_seahub_trim_fail_csv, seahub_stem_and_family
 from qa_seahub_sop import (
@@ -259,6 +259,60 @@ class TestStemLevelReporting:
         summary = sop_violation_summary(validate_seahub_stems("czi-labalpha", keys))
 
         assert summary == {"missing_trim_infix": 1}
+
+    def test_a_wrong_bucket_is_one_row_for_the_whole_upload(self):
+        """A 288-well upload used to write 288 identical bad_bucket rows."""
+        keys = [
+            f"{TRIM_DIR}/{stem}{suffix}"
+            for stem in (TRIM_STEM, TRIM_STEM.replace("Z0097", "Z0098"))
+            for suffix in (".trim.cram", ".trim.csv", ".trim.stderr")
+        ]
+
+        summary = sop_violation_summary(validate_seahub_stems("labalpha-data", keys))
+
+        assert summary["bad_bucket"] == 1
+
+    def test_a_project_lab_mismatch_is_one_row_for_the_whole_upload(self):
+        keys = [
+            f"{TRIM_DIR}/{stem}{suffix}"
+            for stem in (TRIM_STEM, TRIM_STEM.replace("Z0097", "Z0098"))
+            for suffix in (".trim.cram", ".trim.csv", ".trim.stderr")
+        ]
+
+        summary = sop_violation_summary(validate_seahub_stems("czi-labbeta", keys))
+
+        assert summary["lab_project_mismatch"] == 1
+
+    def test_two_projects_under_one_bucket_each_report(self):
+        """The fact is per distinct project, not one row for the listing."""
+        other = TRIM_DIR.replace("labalpha-seahub-bcp", "labgamma-seahub-bcp")
+        keys = [
+            f"{TRIM_DIR}/{TRIM_STEM}.trim.cram",
+            f"{other}/{TRIM_STEM}.trim.cram",
+        ]
+
+        summary = sop_violation_summary(validate_seahub_stems("czi-labbeta", keys))
+
+        assert summary["lab_project_mismatch"] == 2
+
+    def test_an_unparseable_object_does_not_re_report_the_bucket(self):
+        """The dedup spans both the grouped and the ungrouped key loops."""
+        keys = [
+            f"{TRIM_DIR}/{TRIM_STEM}.trim.cram",
+            f"{TRIM_DIR}/index.html",
+        ]
+
+        summary = sop_violation_summary(validate_seahub_stems("labalpha-data", keys))
+
+        assert summary["bad_bucket"] == 1
+
+    def test_the_upload_scope_is_a_known_scope(self):
+        violations = validate_seahub_stems(
+            "labalpha-data", [f"{TRIM_DIR}/{TRIM_STEM}.trim.cram"]
+        )
+        assert {v.scope for v in violations} <= set(SEAHUB_VIOLATION_SCOPES)
+        bucket_rule = next(v for v in violations if v.type == "bad_bucket")
+        assert bucket_rule.scope == "upload"
 
     def test_a_fully_compliant_well_reports_nothing(self):
         keys = [
