@@ -22,6 +22,7 @@ from qa_constants import (
     SEAHUB_SOP_RULES,
     SEAHUB_VIOLATION_SCOPES,
     SEAHUB_WELL_VERDICTS,
+    raw_expected,
 )
 from qa_seahub_rename import (
     RENAME_COLUMNS,
@@ -363,12 +364,36 @@ class TestRollUpWells:
         identities = [(r["wafer"], r["ug"]) for r in rollup.rows]
         assert len(identities) == len(set(identities))
 
-    def test_a_vendor_well_with_nothing_uploaded_is_unknown(self):
+    def test_a_vendor_well_with_nothing_uploaded_is_a_data_gap(self):
+        """The largest gap there is, so it is labelled as one.
+
+        As UNKNOWN it was the only kind of gap the notebook left out of
+        errors.txt, which writes DATA_GAP rows alone -- and nothing about the
+        well is unidentifiable: the vendor names it exactly.
+        """
         index = _vendor_index()
         rollup = roll_up_wells(BUCKET, [], index)
 
-        assert {r["verdict"] for r in rollup.rows} == {"UNKNOWN"}
+        assert {r["verdict"] for r in rollup.rows} == {"DATA_GAP"}
         assert all("nothing was uploaded" in r["detail"] for r in rollup.rows)
+
+    def test_a_well_with_nothing_uploaded_lists_every_missing_artifact(self):
+        """Zeroing `required` when there were no keys printed this blank."""
+        rollup = roll_up_wells(BUCKET, [], _vendor_index())
+        row = rollup.rows[0]
+
+        missing = set(filter(None, row["missing_artifacts"].split("|")))
+        assert missing == set(raw_expected["seahub_sci"])
+
+    def test_a_well_with_nothing_uploaded_names_the_vendor_key(self):
+        """Otherwise the row says something is absent without saying from where."""
+        rollup = roll_up_wells(BUCKET, [], _vendor_index())
+
+        assert all("the vendor delivered it as" in r["detail"] for r in rollup.rows)
+
+    def test_no_vendor_index_means_no_such_row(self):
+        """The control: these rows exist only because a vendor delivery does."""
+        assert roll_up_wells(BUCKET, [], None).rows == []
 
     def test_a_wrong_depth_object_is_counted_as_unaccounted(self):
         rollup = roll_up_wells(BUCKET, ["labalpha-seahub-bcp/REF3/raw/stray.cram"])

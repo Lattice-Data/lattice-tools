@@ -441,23 +441,27 @@ def roll_up_wells(
 
     Precedence, first match wins:
 
-    1. ``UNKNOWN`` -- the well cannot be *identified* (unparseable stem, one
-       identity claimed by two different names, or a vendor well with nothing
-       delivered at all).
-    2. ``DATA_GAP`` -- identified, but a required artifact of the delivered family
+    1. ``DATA_GAP`` -- the vendor delivered this well and nothing was uploaded
+       for it. The largest gap there is, so it is named as one: as ``UNKNOWN`` it
+       was the only kind of gap the notebook did not write to ``errors.txt``,
+       which writes ``DATA_GAP`` rows alone. Nothing was *unidentifiable* about
+       it either -- the vendor names it exactly.
+    2. ``UNKNOWN`` -- the well cannot be *identified* (unparseable stem, or one
+       identity claimed by two different names).
+    3. ``DATA_GAP`` -- identified, but a required artifact of the delivered family
        is absent. This outranks the un-nameable form of UNKNOWN so that a
        genuinely missing CRAM stays visible even when a vendor order is missing
        from the source list.
-    3. ``UNKNOWN`` -- identified and complete, but no corrected key is derivable.
-    4. ``RENAMEABLE`` -- every object is either already clean or carries a
+    4. ``UNKNOWN`` -- identified and complete, but no corrected key is derivable.
+    5. ``RENAMEABLE`` -- every object is either already clean or carries a
        corrected key.
-    5. ``UNKNOWN`` -- defects a rename cannot repair. Unreachable as the code
+    6. ``UNKNOWN`` -- defects a rename cannot repair. Unreachable as the code
        stands, since every proposal that reaches here has a corrected key, and
        kept only so that a future defect carrying no proposal cannot fall
        through and read as ``COMPLIANT``.
-    6. ``COMPLIANT``.
+    7. ``COMPLIANT``.
 
-    Branch 4 asks :attr:`RenameProposal.renameable` rather than testing the
+    Branch 5 asks :attr:`RenameProposal.renameable` rather than testing the
     defect names against :data:`SEAHUB_RENAMEABLE_SOP_TYPES`. The two headline
     CSVs then decide moveability the same way and cannot contradict each other:
     with the membership test, a ``sublibrary_mismatch`` the vendor had already
@@ -532,13 +536,18 @@ def roll_up_wells(
             else "inferred"
         )
 
-        required = tuple(raw_expected["seahub_sci"]) if well["keys"] else ()
+        # Unconditional: a vendor well with nothing uploaded is missing all five,
+        # and zeroing the requirement made missing_artifacts print blank on the
+        # one row where the whole set is absent.
+        required = tuple(raw_expected["seahub_sci"])
         delivered = _delivered_artifacts(well["suffixes"])
         missing = [s for s in required if s not in delivered]
 
         if not well["keys"]:
-            verdict = "UNKNOWN"
+            verdict = "DATA_GAP"
             detail = "delivered by the vendor but nothing was uploaded for this well"
+            if source is not None:
+                detail += f"; the vendor delivered it as {source.cram_key}"
         elif not well["parseable"] or len(well["names"]) > 1:
             verdict = "UNKNOWN"
             detail = (

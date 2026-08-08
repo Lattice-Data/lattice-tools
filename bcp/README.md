@@ -865,7 +865,9 @@ rather than a rename.
   renaming), `DATA_GAP` (an artifact genuinely absent) or `UNKNOWN` (unidentifiable, or no corrected
   name derivable). `DATA_GAP` outranks the un-nameable `UNKNOWN` so a missing CRAM stays visible even
   when its vendor order is absent from the list, and the detail names the vendor key it can be
-  re-trimmed from. Whether a well is renameable is decided by `RenameProposal.renameable` — the same
+  re-trimmed from. A vendor well with *nothing* uploaded is `DATA_GAP` too — the largest gap there
+  is, and as `UNKNOWN` it was the only kind the notebook left out of `errors.txt`, which writes
+  `DATA_GAP` rows alone. Its row lists all five required artifacts and names the vendor key. Whether a well is renameable is decided by `RenameProposal.renameable` — the same
   predicate that decides whether an object gets a destination in the rename CSV — so the two headline
   CSVs cannot contradict each other. Testing the defect *names* against `SEAHUB_RENAMEABLE_SOP_TYPES`
   instead is how they once did: a `sublibrary_mismatch` the vendor delivery had already repaired
