@@ -120,6 +120,71 @@ class TestIndexUntrimmedSource:
         assert index[("448642", "Z0001")].read_count == 260527531
 
 
+class TestOneBadSidecarDoesNotKillTheRun:
+    """A sidecar that cannot be read leaves one count empty, not the whole run.
+
+    ``future.result()`` re-raises in the caller's thread, so a single missing,
+    truncated or non-numeric sidecar out of several hundred took the notebook
+    cell down with it. The reconciliation already handles a well with no vendor
+    count -- it reports ``metadata_unavailable`` -- so an unreadable one degrades
+    into a category the report understands.
+    """
+
+    def _run(self, bad_payload: str | None) -> dict:
+        """Index two wells, give A a good sidecar and B ``bad_payload``."""
+        keys = _vendor_keys(VENDOR_STEM_A, VENDOR_STEM_B)
+        contents = {
+            f"{SOURCE_DIR}/{VENDOR_STEM_A}.cram-metadata.json": json.dumps(
+                {"read_count": 260527531}
+            )
+        }
+        if bad_payload is not None:
+            contents[f"{SOURCE_DIR}/{VENDOR_STEM_B}.cram-metadata.json"] = bad_payload
+        s3 = MockS3Client(keys=keys, file_contents=contents)
+        index = _source_index(keys)
+        load_source_read_counts(s3, index, "czi-novogene")
+        return index
+
+    @pytest.mark.parametrize(
+        "payload,label",
+        [
+            (None, "object absent"),
+            ("{not json at all", "malformed json"),
+            ('{"read_count": "not a number"}', "non-numeric count"),
+            ("{}", "no read_count key"),
+        ],
+    )
+    def test_the_good_sidecar_is_still_read(self, payload, label):
+        index = self._run(payload)
+
+        assert index[("448642", "Z0001")].read_count == 260527531, label
+
+    @pytest.mark.parametrize(
+        "payload",
+        [None, "{not json at all", '{"read_count": "not a number"}', "{}"],
+    )
+    def test_the_bad_one_is_left_as_no_count(self, payload):
+        index = self._run(payload)
+
+        assert index[("448642", "Z0002")].read_count is None
+
+    def test_the_reconciliation_degrades_to_metadata_unavailable(self):
+        """The category that already exists for a well with no vendor count."""
+        index = self._run("{not json at all")
+        trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A, TRIM_STEM_B))
+        fail_counts = {
+            stem: {"JumboSciGEX": {"failed": 1, "total": 260527531}}
+            for stem in (TRIM_STEM_A, TRIM_STEM_B)
+        }
+
+        report = reconcile_trimming(index, trimmed, fail_counts)
+
+        unavailable = [
+            r for r in report.rows if r["category"] == "metadata_unavailable"
+        ]
+        assert [r["ug"] for r in unavailable] == ["Z0002"]
+
+
 class TestIndexTrimmedUpload:
     def test_indexes_by_wafer_and_ug(self):
         index = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A, TRIM_STEM_B))

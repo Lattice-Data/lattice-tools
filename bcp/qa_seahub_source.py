@@ -566,6 +566,13 @@ def load_source_read_counts(
     With several prefixes there is no single bucket, so each entry's own
     ``bucket`` is preferred and ``bucket`` is only a fallback for entries that
     predate it. An entry with neither is skipped rather than raising.
+
+    One unreadable sidecar out of several hundred leaves that entry's
+    ``read_count`` as None and lets the rest through. Raising instead took the
+    whole notebook cell down over a single missing or malformed object, and the
+    reconciliation already has a graceful answer for a well with no vendor count:
+    it reports ``metadata_unavailable`` and carries on. A count that cannot be
+    read and a count that was never there are the same fact to the report.
     """
     index = sources.index if isinstance(sources, UntrimmedSources) else sources
     targets = [
@@ -588,7 +595,11 @@ def load_source_read_counts(
             with open(local) as fh:
                 payload = json.load(fh)
             value = payload.get("read_count")
+            # int() on a non-numeric read_count fails the same way a missing
+            # object does, and means the same thing: no usable count.
             return identity, int(value) if value is not None else None
+        except Exception:  # noqa: BLE001 - any unreadable sidecar is "no count"
+            return identity, None
         finally:
             Path(local).unlink(missing_ok=True)
 

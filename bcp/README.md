@@ -859,7 +859,10 @@ rather than a rename.
   input, so unsourced wafers are called out explicitly. `reconcile_trimming` copies the coverage rows
   it tallies into rather than mutating the caller's, so re-running the recon cell alone — without
   re-running the indexing cell above it — reports the same numbers rather than double-counting
-  `matched` and flooring `unmatched` at zero.
+  `matched` and flooring `unmatched` at zero. A vendor sidecar that cannot be read — absent, truncated, or
+  carrying a non-numeric `read_count` — leaves that one well's count empty and reports it as
+  `metadata_unavailable`, rather than raising out of the cell and losing the several hundred
+  sidecars that were fine.
 - **Rename mapping** (`qa_seahub_rename.py`) composes the per-rule repairs into one corrected S3 key
   per object in `{order}_seahub_rename_mapping.csv`. Advisory only — QA never moves, deletes or
   rewrites anything. Every proposal is re-validated against the SOP and withheld unless clean, two
