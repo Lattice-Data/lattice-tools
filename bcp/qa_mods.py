@@ -227,21 +227,48 @@ def _split_s3_uri(uri: str) -> tuple[str | None, str]:
     return bucket or None, key
 
 
-def _manifest_buckets_from_column(
+def _manifest_keys_and_buckets(
     manifest_path: str,
     delimiter: str,
     s3_column: int,
     has_header: bool,
-) -> frozenset[str]:
+) -> tuple[list[str], frozenset[str]]:
+    """Read the manifest column once and return its S3 keys and distinct buckets."""
     df = pd.read_csv(manifest_path, sep=delimiter, header=0 if has_header else None)
+    keys: list[str] = []
     buckets: set[str] = set()
     for cell in df.iloc[:, s3_column]:
         if cell is None or (isinstance(cell, float) and pd.isna(cell)):
             continue
-        b, _ = _split_s3_uri(str(cell).strip())
+        b, key = _split_s3_uri(str(cell).strip())
         if b:
             buckets.add(b)
-    return frozenset(buckets)
+        if key:
+            keys.append(key)
+    return keys, frozenset(buckets)
+
+
+def _seahub_experiment_from_keys(keys: list[str]) -> str:
+    """The single ExperimentID a SeaHub manifest describes, or ``""`` if none parse.
+
+    The ExperimentID is a folder in the key, so the manifest already carries it and
+    the notebook need not repeat it. Two distinct values mean the manifest mixes
+    experiments, which is raised here rather than left to the per-object check: QA
+    writes one ``{order}_*`` output set and filters the vendor index to one
+    ExperimentID, so there is no run that could serve both.
+    """
+    found = {
+        info["experiment_id"]
+        for info in (parse_seahub_raw_path(key) for key in keys)
+        if info is not None
+    }
+    if len(found) > 1:
+        raise ValueError(
+            f"Manifest mixes SeaHub ExperimentIDs {sorted(found)}; expected one. "
+            "QA runs against a single ExperimentID — split the manifest, or set "
+            "`order` to the one being checked."
+        )
+    return next(iter(found), "")
 
 
 @dataclass(frozen=True)
@@ -291,6 +318,8 @@ def resolve_qa_run_context(
       (e.g. ``REF3``), or ``s3_path`` = ``s3://czi-trapnell/trapnell-seahub-bcp/REF3``.
     * **manifest** mode: require ``manifest_path`` and non-empty ``run_label`` for output names.
       ``bucket`` is inferred from ``s3://czi-*`` URIs in the manifest column (single bucket).
+      For ``seahub_sci``, ``order`` (the ExperimentID) is taken from the argument if given,
+      else read off the manifest keys; a manifest mixing two ExperimentIDs is an error.
 
     Set ``allow_truncated_stats_name=True`` to accept files ending in
     ``_stats.csv`` as aliases of ``_trimmer-stats.csv`` for completeness
@@ -313,7 +342,7 @@ def resolve_qa_run_context(
             raise ValueError(
                 "manifest mode requires run_label (used for output files, e.g. *_errors.txt)."
             )
-        buckets = _manifest_buckets_from_column(
+        keys, buckets = _manifest_keys_and_buckets(
             mp, manifest_delimiter, manifest_s3_column, manifest_has_header
         )
         if not buckets:
@@ -328,13 +357,20 @@ def resolve_qa_run_context(
         if not bucket.startswith("czi-"):
             raise ValueError(f"Invalid bucket in manifest (expected czi-*): {bucket!r}")
         provider_name = bucket[len("czi-") :]
+        # An explicit `order` wins; otherwise a SeaHub manifest names its own
+        # ExperimentID in every key. Returning "" here, as this branch once did,
+        # reached the cross-experiment check as the *expected* value and made it
+        # true for every object, and disabled the vendor index's experiment filter.
+        manifest_order = str(order).strip()
+        if not manifest_order and assay == "seahub_sci":
+            manifest_order = _seahub_experiment_from_keys(keys)
         return QARunContext(
             data_source="manifest",
             raw_assay=assay,
             bucket=bucket,
             provider=provider_name,
             proj="",
-            order="",
+            order=manifest_order,
             output_label=rl,
             listing_prefix="",
             manifest_path=mp,

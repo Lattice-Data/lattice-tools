@@ -271,16 +271,21 @@ class QADataGatherer:
         plate_counts: dict[tuple[str, str], set[str]] = {}
         cram_stems: dict[str, str] = {}
         metadata_stems: set[str] = set()
+        wrong_experiment: list[tuple[str, str]] = []
+
+        if not experiment_id:
+            self._data.gathering_warnings.append(
+                "EXPERIMENT UNKNOWN: no ExperimentID resolved for this run, so the "
+                "cross-experiment check did not run; objects from another "
+                "ExperimentID would not be reported"
+            )
 
         for rf in self._data.all_raw_files:
             name = rf.split("/")[-1]
             path_info = parse_seahub_raw_path(rf)
             if path_info is not None:
-                if path_info["experiment_id"] != experiment_id:
-                    self._data.gathering_errors.append(
-                        f"WRONG EXPERIMENT: {path_info['experiment_id']} "
-                        f"expected {experiment_id} in {rf}"
-                    )
+                if experiment_id and path_info["experiment_id"] != experiment_id:
+                    wrong_experiment.append((path_info["experiment_id"], rf))
                 parsed_stem = seahub_stem_and_family(name)
                 if parsed_stem is not None:
                     stem, suffix, _family = parsed_stem
@@ -301,6 +306,7 @@ class QADataGatherer:
             self._process_raw_file(rf, experiment_id, is_10x=False)
 
         self._download_metadata_json_batch(metadata_files)
+        self._append_seahub_wrong_experiment_errors(experiment_id, wrong_experiment)
         self._append_seahub_plate_warnings(plate_counts)
         self._append_seahub_missing_metadata_warnings(cram_stems, metadata_stems)
         self._append_seahub_sop_violations()
@@ -324,6 +330,30 @@ class QADataGatherer:
             f"{len(summary)} rule(s): {breakdown} "
             f"— per-rule examples in the SOP violations cell below; full detail in "
             f"{self.ctx.output_label}_raw_sop_violations.csv"
+        )
+
+    def _append_seahub_wrong_experiment_errors(
+        self, experiment_id: str, wrong: list[tuple[str, str]]
+    ) -> None:
+        """Report objects from another ExperimentID once, not once per object.
+
+        A prefix holding the wrong experiment holds *all* of it, so the per-object
+        form wrote thousands of copies of one fact into ``{order}_errors.txt`` and
+        buried everything else — the same reason
+        :meth:`_append_seahub_sop_violations` summarises rather than enumerates.
+        The count and the offending ExperimentIDs are what identify the mixup;
+        two keys are enough to point at it.
+        """
+        if not wrong:
+            return
+        found = sorted({eid for eid, _ in wrong})
+        examples = [key for _, key in wrong[:2]]
+        detail = "; ".join(examples)
+        if len(wrong) > len(examples):
+            detail += f"; and {len(wrong) - len(examples)} more"
+        self._data.gathering_errors.append(
+            f"WRONG EXPERIMENT: {len(wrong)} object(s) belong to "
+            f"{', '.join(found)}, not {experiment_id}: {detail}"
         )
 
     def _append_seahub_plate_warnings(

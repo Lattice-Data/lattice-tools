@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import os
 
+import pytest
+
 from qa_checks import (
     check_expected_raw_files,
     check_extra_raw_files,
@@ -305,20 +307,7 @@ class TestSeahubGather:
 
     def test_gather_manifest_enriches_seahub(self):
         manifest = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")
-        ctx = QARunContext(
-            data_source="manifest",
-            raw_assay="seahub_sci",
-            bucket="czi-labalpha",
-            provider="labalpha",
-            proj="",
-            order="REF3",
-            output_label="REF3",
-            listing_prefix="",
-            manifest_path=manifest,
-            manifest_delimiter="\t",
-            manifest_s3_column=6,
-            manifest_has_header=True,
-        )
+        ctx = self._manifest_ctx(manifest)
         trim_fail_key = (
             "labalpha-seahub-bcp/REF3/raw/P05_1/430479/"
             "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT.trim_fail.csv"
@@ -346,20 +335,22 @@ class TestSeahubGather:
         assert len(data.all_raw_files) == 10
         assert "430479" in data.trimmer_failure_stats
 
-    def _manifest_ctx(self, manifest: str) -> QARunContext:
-        return QARunContext(
+    def _manifest_ctx(self, manifest: str, **kwargs) -> QARunContext:
+        """Resolve a manifest context the way the notebook does.
+
+        Deliberately not hand-built: a hand-built context can assert an ``order``
+        the resolver is incapable of producing, which is exactly how manifest mode
+        shipped with an empty ExperimentID under a green suite.
+        """
+        return resolve_qa_run_context(
             data_source="manifest",
             raw_assay="seahub_sci",
-            bucket="czi-labalpha",
-            provider="labalpha",
-            proj="",
-            order="REF3",
-            output_label="REF3",
-            listing_prefix="",
             manifest_path=manifest,
             manifest_delimiter="\t",
             manifest_s3_column=6,
             manifest_has_header=True,
+            run_label="REF3",
+            **kwargs,
         )
 
     def test_missing_metadata_json_warns(self):
@@ -410,6 +401,128 @@ class TestSeahubGather:
             w for w in data.gathering_warnings if w.startswith("METADATA MISSING")
         ]
         assert missing == []
+
+
+class TestSeahubManifestExperimentId:
+    """Manifest mode must name the ExperimentID it is checking.
+
+    ``resolve_qa_run_context`` used to hard-code ``order=""`` for every manifest
+    run and drop the ``order=`` argument on the floor. The empty value then
+    reached the cross-experiment check as the *expected* ExperimentID, making it
+    unequal to every object's, and disabled ``index_untrimmed_sources``' own
+    ``if experiment_id:`` filter. Both failures were invisible because the tests
+    hand-built a context the resolver could not produce.
+    """
+
+    LISTING = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")
+
+    def _resolve(self, manifest: str, **kwargs) -> QARunContext:
+        return resolve_qa_run_context(
+            data_source="manifest",
+            raw_assay="seahub_sci",
+            manifest_path=manifest,
+            manifest_delimiter="\t",
+            manifest_s3_column=6,
+            manifest_has_header=True,
+            run_label="run1",
+            **kwargs,
+        )
+
+    def _manifest(self, tmp_path, keys: list[str]) -> str:
+        path = tmp_path / "listing.tsv"
+        path.write_text(
+            "S3_Full_Path\n" + "".join(f"s3://czi-labalpha/{k}\n" for k in keys)
+        )
+        return str(path)
+
+    def _resolve_simple(self, manifest: str, **kwargs) -> QARunContext:
+        return resolve_qa_run_context(
+            data_source="manifest",
+            raw_assay="seahub_sci",
+            manifest_path=manifest,
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=True,
+            run_label="run1",
+            **kwargs,
+        )
+
+    def test_experiment_id_derived_from_manifest_keys(self):
+        assert self._resolve(self.LISTING).order == "REF3"
+
+    def test_explicit_order_is_not_discarded(self):
+        assert self._resolve(self.LISTING, order="GENE7").order == "GENE7"
+
+    def test_run_label_still_names_the_outputs(self):
+        ctx = self._resolve(self.LISTING)
+        assert ctx.output_label == "run1"
+        assert ctx.order == "REF3"
+
+    def test_mixed_experiments_raise_once_at_resolve_time(self, tmp_path):
+        manifest = self._manifest(
+            tmp_path,
+            [
+                "labalpha-seahub-bcp/REF3/raw/P05_1/430479/a.trim.cram",
+                "labalpha-seahub-bcp/GENE7/raw/P02/437685/b.trim.cram",
+            ],
+        )
+        with pytest.raises(ValueError, match="mixes SeaHub ExperimentIDs"):
+            self._resolve_simple(manifest)
+
+    def test_non_seahub_manifest_keeps_empty_order(self):
+        ctx = resolve_qa_run_context(
+            data_source="manifest",
+            raw_assay="sci_plex",
+            manifest_path=self.LISTING,
+            manifest_delimiter="\t",
+            manifest_s3_column=6,
+            manifest_has_header=True,
+            run_label="run1",
+        )
+        assert ctx.order == ""
+
+    def test_gather_reports_no_false_wrong_experiment(self):
+        """The regression: one error per object, every object, on a clean upload."""
+        ctx = self._resolve(self.LISTING)
+        fail_csv = open(SEAHUB_TRIM_FAIL).read()
+        s3 = MockS3Client(
+            file_contents={
+                f"labalpha-seahub-bcp/REF3/raw/P05_1/430479/430479-REF3_P05_1_"
+                f"{well}_GEX_hash_oligo-{ug}-{bc}.trim_fail.csv": fail_csv
+                for well, ug, bc in (
+                    ("A1", "Z0097", "CAGTCAGTTGCAGAT"),
+                    ("A2", "Z0105", "CATGGCGCAGTGCTGAT"),
+                )
+            }
+        )
+        data = gather_qa_data(ctx, s3)
+        assert data.all_raw_files
+        assert [e for e in data.gathering_errors if "WRONG EXPERIMENT" in e] == []
+
+    def test_wrong_experiment_is_one_error_not_one_per_object(self, tmp_path):
+        """A genuine mixup is still reported -- once, with a count and examples."""
+        keys = [
+            f"labalpha-seahub-bcp/REF3/raw/P05_1/430479/w{i}.trim.cram"
+            for i in range(6)
+        ]
+        ctx = self._resolve_simple(self._manifest(tmp_path, keys), order="GENE7")
+        data = gather_qa_data(ctx, MockS3Client())
+        errors = [e for e in data.gathering_errors if "WRONG EXPERIMENT" in e]
+        assert len(errors) == 1
+        assert "6 object(s) belong to REF3, not GENE7" in errors[0]
+        assert "and 4 more" in errors[0]
+
+    def test_unresolvable_experiment_warns_once_and_skips_the_check(self, tmp_path):
+        """No ExperimentID means the check cannot run -- say so once, not per object."""
+        keys = [f"labalpha-seahub-bcp/REF3/raw/loose{i}.trim.cram" for i in range(4)]
+        ctx = self._resolve_simple(self._manifest(tmp_path, keys))
+        assert ctx.order == ""
+        data = gather_qa_data(ctx, MockS3Client())
+        assert [e for e in data.gathering_errors if "WRONG EXPERIMENT" in e] == []
+        unknown = [
+            w for w in data.gathering_warnings if w.startswith("EXPERIMENT UNKNOWN")
+        ]
+        assert len(unknown) == 1
 
 
 class TestSeahubRawFileSizes:

@@ -774,6 +774,15 @@ with `{sublibrary type}` in `GEX`, `CRI`, `hash_oligo`, `GEX_hash_oligo`. The Ex
 filename field; it appears in a name only when it is part of that project's sublibrary name (e.g.
 `REF3_P05_2`).
 
+Both `data_source` modes are supported. In **s3** mode the ExperimentID is the last segment of the
+listing prefix. In **manifest** mode it comes from the `order` argument if one is given, and is
+otherwise read off the manifest keys, which already contain it as a folder; a manifest mixing two
+ExperimentIDs is rejected at `resolve_qa_run_context` rather than per object, because QA writes one
+`{order}_*` output set and filters the vendor index to a single ExperimentID. `ctx.order` must never
+be empty for a SeaHub run: it is both the expected value of the cross-experiment check and the guard
+that enables the vendor index's experiment filter, so an empty one silently turns the first into one
+error per object and the second off entirely.
+
 Five checks are specific to this mode. All SeaHub cells form one contiguous block at the *end* of
 `qa.ipynb`, tagged `seahub` and gated on `seahub_active`, so they cannot renumber the shared pipeline;
 `tests/test_qa_notebook_layout.py` enforces that. Read `{order}_seahub_well_status.csv` first: the SOP
