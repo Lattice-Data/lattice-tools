@@ -42,7 +42,6 @@ from typing import Any, Mapping
 from qa_constants import (
     SEAHUB_BARE_TO_TRIM_SUFFIX,
     SEAHUB_DOUBLED_WAFER_RE,
-    SEAHUB_RENAMEABLE_SOP_TYPES,
     SEAHUB_RENAME_FIELD_SEP,
     SEAHUB_WELL_RE,
     SEAHUB_WELL_VERDICTS,
@@ -464,9 +463,20 @@ def roll_up_wells(
        genuinely missing CRAM stays visible even when a vendor order is missing
        from the source list.
     3. ``UNKNOWN`` -- identified and complete, but no corrected key is derivable.
-    4. ``RENAMEABLE`` -- every object has a corrected key and every defect is
-       repairable by renaming.
-    5. ``COMPLIANT``.
+    4. ``RENAMEABLE`` -- every object is either already clean or carries a
+       corrected key.
+    5. ``UNKNOWN`` -- defects a rename cannot repair. Unreachable as the code
+       stands, since every proposal that reaches here has a corrected key, and
+       kept only so that a future defect carrying no proposal cannot fall
+       through and read as ``COMPLIANT``.
+    6. ``COMPLIANT``.
+
+    Branch 4 asks :attr:`RenameProposal.renameable` rather than testing the
+    defect names against :data:`SEAHUB_RENAMEABLE_SOP_TYPES`. The two headline
+    CSVs then decide moveability the same way and cannot contradict each other:
+    with the membership test, a ``sublibrary_mismatch`` the vendor had already
+    repaired produced an object the rename CSV said to move and a well the status
+    CSV called ``UNKNOWN``.
     """
     index = source_index or {}
     wells: dict[tuple[str, str], dict[str, Any]] = {}
@@ -558,7 +568,7 @@ def roll_up_wells(
         elif unresolved:
             verdict = "UNKNOWN"
             detail = f"no corrected name derivable: {', '.join(unresolved)}"
-        elif defects and set(defects) <= SEAHUB_RENAMEABLE_SOP_TYPES:
+        elif defects and all(p.compliant or p.renameable for p in proposals):
             verdict = "RENAMEABLE"
             detail = "complete; every defect is repairable by renaming"
         elif defects:

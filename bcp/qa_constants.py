@@ -420,13 +420,19 @@ SEAHUB_UNKNOWN_ORDER_LABEL = "UNKNOWN_ORDER"
 SEAHUB_WELL_VERDICTS = ("COMPLIANT", "RENAMEABLE", "DATA_GAP", "UNKNOWN")
 
 # Defects a rename can repair.  Everything else in SEAHUB_SOP_RULES describes a
-# fact about the data that renaming cannot fix.
+# fact about the data that renaming cannot fix.  Documentation, not the decision:
+# the per-well roll-up asks ``RenameProposal.renameable`` directly, so the two
+# headline CSVs cannot disagree about what is moveable.  Kept in step with the
+# code by ``test_renameable_set_matches_what_proposals_carry``.
 SEAHUB_RENAMEABLE_SOP_TYPES = frozenset(
     {
         "missing_trim_infix",
         "duplicated_wafer_token",
         "sublibrary_folder_truncated",
         "invalid_sublibrary_type",
+        # Repairable only because it is appended *after* the vendor group is
+        # confirmed; with no vendor the mismatch path returns unresolved instead.
+        "sublibrary_mismatch",
     }
 )
 

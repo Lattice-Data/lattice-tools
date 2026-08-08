@@ -856,7 +856,13 @@ rather than a rename.
   renaming), `DATA_GAP` (an artifact genuinely absent) or `UNKNOWN` (unidentifiable, or no corrected
   name derivable). `DATA_GAP` outranks the un-nameable `UNKNOWN` so a missing CRAM stays visible even
   when its vendor order is absent from the list, and the detail names the vendor key it can be
-  re-trimmed from.
+  re-trimmed from. Whether a well is renameable is decided by `RenameProposal.renameable` — the same
+  predicate that decides whether an object gets a destination in the rename CSV — so the two headline
+  CSVs cannot contradict each other. Testing the defect *names* against `SEAHUB_RENAMEABLE_SOP_TYPES`
+  instead is how they once did: a `sublibrary_mismatch` the vendor delivery had already repaired
+  produced objects the rename CSV said to move inside a well the status CSV called `UNKNOWN`. That
+  set is still maintained as documentation of which defects a rename can fix, and a test reads the
+  defect literals out of the module to keep it in step.
 
 Checksums are deliberately out of scope. S3 validates integrity on upload when the client sends a
 checksum, and a multipart `ETag` is a composite of per-part digests rather than a whole-file hash, so

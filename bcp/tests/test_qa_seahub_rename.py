@@ -4,7 +4,12 @@ Tests for corrected-name composition and the per-well roll-up (qa_seahub_rename)
 
 from __future__ import annotations
 
+import ast
+import pathlib
+
 import pytest
+
+import qa_seahub_rename
 
 from qa_checks import check_expected_raw_files
 from qa_constants import (
@@ -31,7 +36,9 @@ from qa_seahub_source import SourceEntry, index_untrimmed_sources
 from tests.qa_seahub_helpers import (
     BUCKET,
     JUNK_NAMES,
+    PROJECT,
     RAW,
+    TRIM_SUFFIXES,
     VENDOR_ORDER,
     ref3_trimmed_keys,
     ref3_vendor_keys,
@@ -482,6 +489,99 @@ class TestCompletenessIsNamingAgnostic:
             assert (verdict == "DATA_GAP") == bool(missing), suffixes
 
 
+class TestTheTwoHeadlineCsvsAgree:
+    """The rename CSV and the well-status CSV must not contradict each other.
+
+    They answer one question -- can this be fixed by moving objects -- and used
+    to answer it two ways: ``expected_trimmed_key`` repairs a
+    ``sublibrary_mismatch`` from the vendor group and returns a complete
+    destination, while the roll-up tested the defect *names* against
+    ``SEAHUB_RENAMEABLE_SOP_TYPES``, which did not list it. The operator was
+    handed moves for a well the status CSV called impossible. The roll-up now
+    asks ``RenameProposal.renameable``, so both read the same predicate.
+    """
+
+    MISMATCH_KEY = (
+        f"{RAW}/P07_1/438514/"
+        "438514-REF3_P09_9_A3_GEX_hash_oligo-Z0301-CAGCTCGAATGCGAA.trim.cram"
+    )
+    MISMATCH_VENDOR = SourceEntry(
+        wafer="438514",
+        ug="Z0301",
+        barcode="CAGCTCGAATGCGAA",
+        group="REF3_P07_1_A3",
+        assay="GEX_hash_oligo",
+        cram_key=f"{PROJECT}/{VENDOR_ORDER}/REF3/raw/438514/x.cram",
+        bucket="czi-novogene",
+    )
+
+    def test_mismatch_with_a_vendor_group_is_renameable(self):
+        proposal = expected_trimmed_key(BUCKET, self.MISMATCH_KEY, self.MISMATCH_VENDOR)
+
+        assert proposal.unresolved == ()
+        assert proposal.defects == ("sublibrary_mismatch",)
+        assert proposal.renameable is True
+        assert proposal.expected_s3_uri.endswith(
+            "/REF3/raw/REF3_P07_1/438514/"
+            "438514-REF3_P07_1_A3_GEX_hash_oligo-Z0301-CAGCTCGAATGCGAA.trim.cram"
+        )
+
+    def test_mismatch_without_a_vendor_group_stays_unresolved(self):
+        """The control: with no vendor there is no authority, so no proposal."""
+        proposal = expected_trimmed_key(BUCKET, self.MISMATCH_KEY, None)
+
+        assert proposal.unresolved == ("sublibrary_mismatch",)
+        assert proposal.expected_s3_uri == ""
+        assert proposal.renameable is False
+
+    def test_a_mismatched_well_rolls_up_as_renameable(self):
+        keys = [self.MISMATCH_KEY.replace(".trim.cram", s) for s in TRIM_SUFFIXES]
+        index = {("438514", "Z0301"): self.MISMATCH_VENDOR}
+
+        rollup = roll_up_wells(BUCKET, keys, index)
+
+        assert [r["verdict"] for r in rollup.rows] == ["RENAMEABLE"]
+
+    def test_a_mismatched_well_without_a_vendor_stays_unknown(self):
+        keys = [self.MISMATCH_KEY.replace(".trim.cram", s) for s in TRIM_SUFFIXES]
+
+        rollup = roll_up_wells(BUCKET, keys, None)
+
+        assert [r["verdict"] for r in rollup.rows] == ["UNKNOWN"]
+
+    @pytest.mark.parametrize("with_vendor", [True, False])
+    def test_no_moveable_object_belongs_to_an_unknown_well(self, with_vendor):
+        """The general invariant, in the direction the old test could not see.
+
+        ``test_a_renameable_well_carries_only_repairable_defects`` reads
+        well -> defects. This reads object -> well, which is the direction the
+        contradiction appeared in.
+        """
+        index = _vendor_index() if with_vendor else None
+        # All five artifacts, or the well is DATA_GAP and never reaches the
+        # renameable test this invariant is about.
+        keys = ref3_trimmed_keys() + [
+            self.MISMATCH_KEY.replace(".trim.cram", s) for s in TRIM_SUFFIXES
+        ]
+        full_index = dict(index or {})
+        full_index[("438514", "Z0301")] = self.MISMATCH_VENDOR
+
+        mapping = build_rename_mapping(BUCKET, keys, full_index)
+        verdicts = {
+            (r["wafer"], r["ug"]): r["verdict"]
+            for r in roll_up_wells(BUCKET, keys, full_index).rows
+        }
+
+        for row in mapping.moveable():
+            identity = (row["wafer"], row["ug"])
+            if identity not in verdicts:
+                continue  # junk and odd-depth objects belong to no well
+            assert verdicts[identity] != "UNKNOWN", (
+                f"{row['current_s3_uri']} is offered a destination but its well "
+                f"is UNKNOWN"
+            )
+
+
 class TestRuleVocabulary:
     """Makes the closed vocabularies do what their comments claim.
 
@@ -493,6 +593,30 @@ class TestRuleVocabulary:
 
     def test_renameable_types_are_a_subset_of_the_rules(self):
         assert SEAHUB_RENAMEABLE_SOP_TYPES <= SEAHUB_SOP_RULES
+
+    def test_renameable_set_matches_what_proposals_carry(self):
+        """The set is documentation now, so something must keep it honest.
+
+        The roll-up asks ``RenameProposal.renameable`` rather than this set, so
+        nothing in production would notice the set going stale -- which is how it
+        came to omit ``sublibrary_mismatch``. Read the defect literals straight
+        out of the module, as ``TestSopRuleVocabulary`` does for rule types.
+        """
+        source = pathlib.Path(qa_seahub_rename.__file__).read_text()
+        appended = {
+            node.args[0].value
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "attr", None) == "append"
+            and getattr(node.func.value, "id", None) == "defects"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+        }
+
+        assert appended, "no defects.append('...') literals found"
+        # non_sequencing_artifact is set on a junk object, which belongs to no
+        # well and so never reaches the roll-up's renameable test.
+        assert appended - {"non_sequencing_artifact"} == SEAHUB_RENAMEABLE_SOP_TYPES
 
     def test_every_emitted_violation_type_is_a_declared_rule(self):
         violations = validate_seahub_stems(BUCKET, ref3_trimmed_keys())
