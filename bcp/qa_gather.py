@@ -54,6 +54,7 @@ from qa_constants import (
 from qa_seahub_sop import sop_violation_summary, validate_seahub_stems
 
 METADATA_DOWNLOAD_MAX_WORKERS = 16
+TRIM_FAIL_DOWNLOAD_MAX_WORKERS = 16
 METADATA_DOWNLOAD_PROGRESS_INTERVAL = 250
 PCT_Q30_READ_MAX_WORKERS = 16
 PCT_Q30_READ_PROGRESS_INTERVAL = 250
@@ -128,6 +129,9 @@ class QADataGatherer:
         self._data = QAGatheredData()
         self._metadata_lock = Lock()
         self._pct_q30_lock = Lock()
+        # Collected during the walk and fetched as one batch afterwards; see
+        # _download_seahub_trim_fail_batch.
+        self._seahub_trim_fail_pending: list[str] = []
         s3_fs_kwargs: dict[str, Any] = {}
         region = getattr(getattr(s3_client, "meta", None), "region_name", None)
         if region:
@@ -342,6 +346,7 @@ class QADataGatherer:
             self._process_raw_file(rf, experiment_id, is_10x=False)
 
         self._download_metadata_json_batch(metadata_files)
+        self._download_seahub_trim_fail_batch(self._seahub_trim_fail_pending)
         self._append_seahub_wrong_experiment_errors(experiment_id, wrong_experiment)
         self._append_seahub_plate_warnings(plate_counts)
         self._append_seahub_missing_metadata_warnings(cram_stems, metadata_stems)
@@ -519,7 +524,9 @@ class QADataGatherer:
         ) and not rf.endswith("merged_trimmer-failure_codes.csv"):
             self._download_trimmer_failure_codes(rf)
         elif self.raw_assay == "seahub_sci" and rf.endswith(SEAHUB_FAIL_SUFFIXES):
-            self._download_seahub_trim_fail(rf)
+            # Deferred, not fetched: one per well, and serially that is one
+            # round-trip per well against S3.
+            self._seahub_trim_fail_pending.append(rf)
         elif _is_merged_trimmer_file(rf):
             ingest_merged_trimmer_from_s3(
                 self.bucket, rf, self._data.merged_wafer_stats, self.s3
@@ -879,12 +886,12 @@ class QADataGatherer:
         finally:
             Path(local).unlink(missing_ok=True)
 
-    def _download_seahub_trim_fail(self, rf: str) -> None:
-        """Aggregate a per-well SeaHub trim failure CSV into trimmer stats.
+    def _download_seahub_trim_fail_batch(self, keys: list[str]) -> None:
+        """Fetch the per-well SeaHub trim failure CSVs, then fold them in.
 
         Handles both ``*.trim_fail.csv`` (SOP) and ``*_fail.csv`` (the same
         artifact without the ``.trim`` infix); without the second form, uploads
-        that dropped the infix contribute no wafer rows at all.
+        that dropped the infix rendered as blank wafer rows.
 
         SeaHub uploads start from RSQ-passing reads and carry no merged
         trimmer files, so no wafer-level RSQ/TT metrics are derived here; the
@@ -892,13 +899,56 @@ class QADataGatherer:
         ``trimmer_failure_stats`` (keyed by wafer) and ``group_failure_stats``
         (keyed by ExperimentID/sublibrary) for the histograms and the wafer
         sample-level summary via ``build_wafer_failure_stats``.
+
+        There is one of these per well, so fetching them inside the walk meant
+        336 sequential round-trips on REF3 and 864 on GENE7 -- while the
+        ``.cram-metadata.json`` sidecars sitting beside them went through a
+        16-worker pool. They use the same pool now.
+
+        Downloading and parsing happen in the pool; *applying* happens here, in
+        listing order. That is what makes the concurrency free of locks: the
+        three structures these feed are appended to, so a parallel apply would
+        both race and reorder the distributions run to run. The workers touch
+        nothing shared -- each returns its blocks and its own warnings, and this
+        loop merges them in the order the listing gave, so the output is
+        identical to the serial version rather than merely equivalent.
         """
-        storage_key, run_id = seahub_trimmer_failure_storage_key(rf)
-        group_key = seahub_trimmer_group_storage_key(rf)
-        if run_id is not None:
-            self._data.exp_to_run_map[run_id] = run_id
-            self._data.exp_to_run_map[group_key] = run_id
-        stem_key = seahub_file_stem(rf)
+        if not keys:
+            return
+
+        total = len(keys)
+        if total == 1:
+            results = [self._fetch_seahub_trim_fail(keys[0])]
+        else:
+            if total >= METADATA_DOWNLOAD_PROGRESS_INTERVAL:
+                print(f"Downloading {total} per-well trim failure CSV(s)...")
+            workers = min(TRIM_FAIL_DOWNLOAD_MAX_WORKERS, total)
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = [
+                    executor.submit(self._fetch_seahub_trim_fail, rf) for rf in keys
+                ]
+                results = []
+                # In submission order, not as_completed: the apply below has to
+                # be ordered anyway, and this makes which failure surfaces first
+                # deterministic too.
+                for done, future in enumerate(futures, start=1):
+                    results.append(future.result())
+                    if total >= METADATA_DOWNLOAD_PROGRESS_INTERVAL and (
+                        done % METADATA_DOWNLOAD_PROGRESS_INTERVAL == 0 or done == total
+                    ):
+                        print(f"  read {done}/{total} trim failure CSV(s)")
+
+        for rf, blocks, warnings in results:
+            self._apply_seahub_trim_fail(rf, blocks, warnings)
+        keys.clear()
+
+    def _fetch_seahub_trim_fail(self, rf: str) -> tuple[str, list[dict], list[str]]:
+        """Download and parse one trim failure CSV. Runs in a worker thread.
+
+        Deliberately touches no gatherer state: it returns what it parsed, and
+        its own warnings, for the caller to merge in order.
+        """
+        warnings: list[str] = []
         with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
             local = tf.name
         try:
@@ -906,21 +956,28 @@ class QADataGatherer:
             # Parsed once, applied twice. Calling the combined helper for each
             # distribution read_csv'd the same file twice, on an upload that has
             # one of these per well.
-            blocks = parse_seahub_trim_fail_csv(
-                local, warnings=self._data.gathering_warnings
-            )
-            apply_seahub_trim_fail_blocks(
-                blocks,
-                self._data.trimmer_failure_stats,
-                storage_key,
-                fail_counts=self._data.seahub_fail_counts,
-                stem_key=stem_key,
-            )
-            apply_seahub_trim_fail_blocks(
-                blocks, self._data.group_failure_stats, group_key
-            )
+            return rf, parse_seahub_trim_fail_csv(local, warnings=warnings), warnings
         finally:
             Path(local).unlink(missing_ok=True)
+
+    def _apply_seahub_trim_fail(
+        self, rf: str, blocks: list[dict], warnings: list[str]
+    ) -> None:
+        """Fold one parsed CSV into both distributions. Single-threaded."""
+        storage_key, run_id = seahub_trimmer_failure_storage_key(rf)
+        group_key = seahub_trimmer_group_storage_key(rf)
+        if run_id is not None:
+            self._data.exp_to_run_map[run_id] = run_id
+            self._data.exp_to_run_map[group_key] = run_id
+        self._data.gathering_warnings.extend(warnings)
+        apply_seahub_trim_fail_blocks(
+            blocks,
+            self._data.trimmer_failure_stats,
+            storage_key,
+            fail_counts=self._data.seahub_fail_counts,
+            stem_key=seahub_file_stem(rf),
+        )
+        apply_seahub_trim_fail_blocks(blocks, self._data.group_failure_stats, group_key)
 
 
 def _is_merged_trimmer_file(rf: str) -> bool:

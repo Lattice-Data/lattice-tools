@@ -5,6 +5,7 @@ Tests for SeaHub lab raw QA support (seahub_sci assay).
 from __future__ import annotations
 
 import os
+import threading
 
 import pytest
 
@@ -601,6 +602,163 @@ class TestSeahubTrimFailIsParsedOnce:
 
         assert set(counts["stem1"]) == {"JumboSciHash", "JumboSciGEX"}
         assert counts["stem1"]["JumboSciGEX"]["total"] == 158233602
+
+
+class TestSeahubTrimFailIsFetchedInParallel:
+    """The per-well trim failure CSVs share the metadata path's thread pool.
+
+    There is one per well, so fetching them inside the walk was 336 sequential
+    round-trips on REF3 and 864 on GENE7 -- while the ``.cram-metadata.json``
+    sidecars sitting beside them already went through a 16-worker pool.
+
+    Downloading and parsing run in the pool; applying runs single-threaded in
+    listing order. That is what keeps the concurrency lock-free, and what keeps
+    the output identical rather than merely equivalent: the structures these
+    feed are appended to, so a parallel apply would reorder them run to run.
+    """
+
+    PROJ = "labalpha-seahub-bcp"
+    WAFERS = ("430479", "430480", "430481", "430482")
+
+    def _keys(self) -> list[str]:
+        """One well per wafer, so every well has its own fail CSV."""
+        return [
+            f"{self.PROJ}/REF3/raw/REF3_P05_1/{wafer}/"
+            f"{wafer}-REF3_P05_1_A{i}_GEX_hash_oligo-Z{i:04d}-CAGTCAGTTGCAGAT{suffix}"
+            for i, wafer in enumerate(self.WAFERS, start=1)
+            for suffix in (".trim.cram", ".trim_fail.csv")
+        ]
+
+    def _fail_keys(self, keys: list[str]) -> list[str]:
+        return [k for k in keys if k.endswith(".trim_fail.csv")]
+
+    def _ctx(self):
+        return _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj=self.PROJ,
+            order="REF3",
+            listing_prefix=f"{self.PROJ}/REF3/",
+        )
+
+    def _fail_csv(self, total: int) -> str:
+        return (
+            "format,reason,failed read count,total read count\n"
+            f"JumboSciGEX,barcode,{total // 7},{total}\n"
+        )
+
+    def test_the_downloads_overlap(self):
+        """A barrier, not a stopwatch: serial code cannot reach it and hangs.
+
+        Two fail-CSV downloads must be in flight at once. If they are fetched
+        one at a time the second never arrives, the barrier times out, and this
+        fails deterministically rather than flakily.
+        """
+        # The barrier releases in pairs, so an odd number of files would leave
+        # the last thread waiting alone until the timeout.
+        assert len(self.WAFERS) % 2 == 0
+        keys = self._keys()
+        barrier = threading.Barrier(2, timeout=10)
+        reached = []
+
+        class BarrierS3(MockS3Client):
+            def download_file(self, bucket, key, local):
+                if key.endswith(".trim_fail.csv"):
+                    barrier.wait()
+                    reached.append(key)
+                return super().download_file(bucket, key, local)
+
+        s3 = BarrierS3(
+            keys=keys,
+            file_contents={k: self._fail_csv(1000) for k in self._fail_keys(keys)},
+        )
+        gather_qa_data(self._ctx(), s3)
+
+        assert len(reached) == len(self.WAFERS)
+
+    def test_every_fail_csv_is_fetched_exactly_once(self):
+        keys = self._keys()
+        fetched: list[str] = []
+        lock = threading.Lock()
+
+        class CountingS3(MockS3Client):
+            def download_file(self, bucket, key, local):
+                with lock:
+                    fetched.append(key)
+                return super().download_file(bucket, key, local)
+
+        s3 = CountingS3(
+            keys=keys,
+            file_contents={k: self._fail_csv(1000) for k in self._fail_keys(keys)},
+        )
+        gather_qa_data(self._ctx(), s3)
+
+        assert sorted(fetched) == sorted(self._fail_keys(keys))
+
+    def test_the_distributions_follow_listing_order(self):
+        """Applied serially in listing order, so the appended values do not
+        reorder between runs even though the fetches finish out of order."""
+        keys = self._keys()
+        totals = {k: 1000 * (n + 1) for n, k in enumerate(self._fail_keys(keys))}
+        s3 = MockS3Client(
+            keys=keys,
+            file_contents={k: self._fail_csv(t) for k, t in totals.items()},
+        )
+
+        data = gather_qa_data(self._ctx(), s3)
+
+        # One sublibrary, so every well lands in one distribution in order.
+        by_group = data.group_failure_stats["REF3/REF3_P05_1"]["trimmer_fail"]
+        expected = [100 * (t // 7) / t for t in totals.values()]
+        assert by_group == expected
+
+    def test_warnings_are_merged_in_listing_order(self):
+        """Each worker collects its own, so they cannot interleave by timing."""
+        keys = self._keys()
+        inconsistent = (
+            "format,reason,failed read count,total read count\n"
+            "JumboSciGEX,barcode,10,{a}\n"
+            "JumboSciGEX,barcode,20,{b}\n"
+        )
+        contents = {
+            k: inconsistent.format(a=1000 * (n + 1), b=2000 * (n + 1))
+            for n, k in enumerate(self._fail_keys(keys))
+        }
+        s3 = MockS3Client(keys=keys, file_contents=contents)
+
+        data = gather_qa_data(self._ctx(), s3)
+
+        totals = [
+            w.split("values [")[1].split(",")[0]
+            for w in data.gathering_warnings
+            if w.startswith("INCONSISTENT TOTAL")
+        ]
+        assert totals == ["1000", "2000", "3000", "4000"]
+
+    def test_a_single_fail_csv_needs_no_pool(self):
+        keys = self._keys()[:2]
+        s3 = MockS3Client(
+            keys=keys,
+            file_contents={k: self._fail_csv(1000) for k in self._fail_keys(keys)},
+        )
+
+        data = gather_qa_data(self._ctx(), s3)
+
+        assert data.trimmer_failure_stats["430479"]["trimmer_fail"]
+
+    def test_an_unreadable_fail_csv_still_raises(self):
+        """Unchanged from the serial version. Unlike the vendor sidecars, a
+        missing trim CSV has no graceful category to degrade into -- dropping it
+        would silently thin the distributions.
+        """
+        keys = self._keys()
+        contents = {k: self._fail_csv(1000) for k in self._fail_keys(keys)}
+        del contents[self._fail_keys(keys)[2]]
+        s3 = MockS3Client(keys=keys, file_contents=contents)
+
+        with pytest.raises(FileNotFoundError):
+            gather_qa_data(self._ctx(), s3)
 
 
 class TestSeahubListingTruncation:

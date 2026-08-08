@@ -800,6 +800,13 @@ Five checks are specific to this mode. All SeaHub cells form one contiguous bloc
 table says what is wrong, the per-well status says how many wells are affected and which need data
 rather than a rename.
 
+- **Per-well fetches share one thread pool.** A SeaHub upload carries one trim failure CSV *and* one
+  `.cram-metadata.json` per well, so 336 of each on REF3 and 864 on GENE7. Both go through a
+  16-worker pool; fetching the failure CSVs inside the walk instead made them one sequential
+  round-trip per well (measured on REF3 at 20 ms per object: 10.6 s against 1.2 s). Only the download
+  and the parse are concurrent — the parsed blocks are applied single-threaded in listing order,
+  which is what keeps this lock-free and makes the output identical to the serial version rather
+  than merely equivalent, since the three structures they feed are appended to.
 - **Two suffix families.** `qa_constants.SEAHUB_TRIM_SUFFIXES` is the SOP set; `SEAHUB_BARE_SUFFIXES`
   is the same six artifacts with the `.trim` infix dropped, which real uploads have used. Completeness
   asks only whether each of the five artifact *kinds* arrived, under either spelling — naming is a
