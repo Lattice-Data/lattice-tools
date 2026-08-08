@@ -507,23 +507,20 @@ class SeahubStemGroup:
     ``(raw_dir, stem)``, which at least keeps the artifacts of one unparseable
     well together.
 
-    ``stems`` can hold more than one value: a well whose artifacts disagree about
-    the name is itself the finding.
+    Only what something reads is carried. ``experiment_id``, ``sublibrary``,
+    ``wafer_folder``, ``stems``, ``wafer`` and ``ug`` were populated here and
+    read nowhere -- not by a caller and not by a test -- and each is already
+    recoverable from ``keys`` via :func:`parse_seahub_raw_path` or from
+    ``normalized_stem``.
     """
 
     bucket: str
     raw_dir: str
-    experiment_id: str
-    sublibrary: str
-    wafer_folder: str
     identity: tuple[str, str]
     keys: tuple[str, ...]
     suffixes: tuple[str, ...]
     families: frozenset[str]
-    stems: tuple[str, ...]
     normalized_stem: str
-    wafer: str
-    ug: str
     well_id: str
 
     @property
@@ -583,17 +580,11 @@ def group_seahub_keys(
             SeahubStemGroup(
                 bucket=bucket,
                 raw_dir=raw_dir,
-                experiment_id=path_info.get("experiment_id", ""),
-                sublibrary=path_info.get("sublibrary", ""),
-                wafer_folder=path_info.get("wafer", ""),
                 identity=identity,
                 keys=tuple(m[0] for m in members),
                 suffixes=tuple(m[2] for m in members),
                 families=frozenset(m[3] for m in members),
-                stems=tuple(sorted({m[1] for m in members})),
                 normalized_stem=normalized,
-                wafer=match.group("wafer") if match else "",
-                ug=match.group("ug") if match else "",
                 well_id=well_id,
             )
         )

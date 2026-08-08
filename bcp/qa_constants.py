@@ -325,11 +325,10 @@ SEAHUB_TRIM_TO_BARE_SUFFIX: dict[str, str] = {
     trim: bare for bare, trim in SEAHUB_BARE_TO_TRIM_SUFFIX.items()
 }
 
-# Bare-family counterparts of raw_expected / raw_optional["seahub_sci"], derived
-# so the required-artifact set has a single source of truth.
-SEAHUB_BARE_EXPECTED: tuple[str, ...] = tuple(
-    SEAHUB_TRIM_TO_BARE_SUFFIX[ending] for ending in raw_expected["seahub_sci"]
-)
+# Bare-family counterpart of raw_optional["seahub_sci"], derived so the optional
+# set has a single source of truth. There is no SEAHUB_BARE_EXPECTED beside it:
+# completeness asks which artifact *kinds* arrived, under either spelling, so the
+# bare-family required set had nothing left to answer.
 SEAHUB_BARE_OPTIONAL: tuple[str, ...] = tuple(
     SEAHUB_TRIM_TO_BARE_SUFFIX[ending] for ending in raw_optional["seahub_sci"]
 )

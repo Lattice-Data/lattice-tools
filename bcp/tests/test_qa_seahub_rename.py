@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 
 import pytest
 
@@ -28,7 +29,6 @@ from qa_seahub_rename import (
     expected_trimmed_key,
     roll_up_wells,
     rollup_summary,
-    source_sublibrary_segment,
 )
 from qa_seahub_sop import validate_seahub_stems
 from qa_seahub_source import SourceEntry, index_untrimmed_sources
@@ -220,19 +220,6 @@ class TestExpectedTrimmedKey:
         for row in mapping.moveable():
             assert row["expected_s3_uri"].startswith(f"s3://{BUCKET}/")
             assert row["unresolved"] == ""
-
-
-class TestSourceSublibrarySegment:
-    def test_the_measured_vendor_layout_yields_the_experiment_id(self):
-        """Which is exactly why it is not the primary source of the sublibrary."""
-        key = (
-            "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/438514/"
-            "438514-REF3_P07_1_A3_GEX_hash_oligo-Z0305-CACACACAACATGAT.cram"
-        )
-        assert source_sublibrary_segment(key) == "REF3"
-
-    def test_an_unexpected_shape_yields_nothing(self):
-        assert source_sublibrary_segment("a/b/c.cram") == ""
 
 
 class TestBuildRenameMapping:
@@ -590,6 +577,40 @@ class TestRuleVocabulary:
     have shipped silently. These walk the real fixture listings and check every
     value actually emitted against its declared vocabulary.
     """
+
+    def test_no_seahub_constant_is_referenced_only_by_itself(self):
+        """A constant nobody reads is a claim about the code that has stopped
+        being true.
+
+        ``SEAHUB_BARE_EXPECTED`` went dead when completeness moved to artifact
+        kinds and sat there describing a required set nothing consulted, right
+        beside ``SEAHUB_BARE_OPTIONAL``, which is live -- so its presence read as
+        deliberate. Names derived inside ``qa_constants`` itself do not count as
+        used: that is how the dead one looked alive.
+        """
+        bcp = pathlib.Path(qa_seahub_rename.__file__).parent
+        constants = bcp / "qa_constants.py"
+        declared = {
+            target.id
+            for node in ast.parse(constants.read_text()).body
+            for target in (
+                [node.target]
+                if isinstance(node, ast.AnnAssign)
+                else node.targets
+                if isinstance(node, ast.Assign)
+                else []
+            )
+            if isinstance(target, ast.Name) and target.id.startswith("SEAHUB_")
+        }
+        assert declared, "no SEAHUB_* constants found"
+
+        elsewhere = "".join(
+            p.read_text()
+            for p in [*bcp.glob("*.py"), *(bcp / "tests").rglob("*.py")]
+            if p.name != "qa_constants.py"
+        )
+        unread = sorted(n for n in declared if not re.search(rf"\b{n}\b", elsewhere))
+        assert unread == [], f"declared but read nowhere: {unread}"
 
     def test_renameable_types_are_a_subset_of_the_rules(self):
         assert SEAHUB_RENAMEABLE_SOP_TYPES <= SEAHUB_SOP_RULES

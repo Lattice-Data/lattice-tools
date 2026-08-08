@@ -64,7 +64,6 @@ __all__ = [
     "expected_trimmed_key",
     "roll_up_wells",
     "rollup_summary",
-    "source_sublibrary_segment",
 ]
 
 RENAME_COLUMNS = (
@@ -120,21 +119,6 @@ class RenameProposal:
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-def source_sublibrary_segment(cram_key: str) -> str:
-    """The vendor path segment before ``raw``.
-
-    Returns the ExperimentID for the real vendor layout, and the full sublibrary
-    only for the older ``{ExperimentID}_{sublibrary}`` shape. Used purely as a
-    last-resort corroborator when the trimmed folder and filename cannot be
-    reconciled with each other -- never as the primary source.
-    """
-    parts = cram_key.split("/")
-    for i in range(len(parts) - 1, 1, -1):
-        if parts[i] == "raw" and len(parts) - i == 3:
-            return parts[i - 1]
-    return ""
 
 
 def _vendor_sublibrary(group: str) -> str:

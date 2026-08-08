@@ -268,8 +268,8 @@ def source_experiment_matches(segment: str, experiment_id: str) -> bool:
     """Does a pre-``raw`` segment belong to ``experiment_id``?
 
     The current vendor layout carries the ExperimentID alone (``REF3``); an older
-    one appends the sublibrary (``REF5_P01``), as
-    :func:`qa_seahub_rename.source_sublibrary_segment` also documents, and a
+    one appends the sublibrary (``REF5_P01``), which
+    :func:`derive_source_experiment` above reads off the key, and a
     re-delivery appends something else again (``GENE7_reupload``, measured in
     order ``NVUS2024101701-11`` alongside ``REF3``). So the rule is any
     ``{ExperimentID}_...`` folder, not a sublibrary shape: a bare equality test
@@ -326,10 +326,6 @@ def parse_seahub_stem_fields(stem: str) -> dict[str, str | None] | None:
         "ug": match.group("ug"),
         "barcode": match.group("barcode"),
     }
-
-
-# Retained for existing call sites and tests.
-_parse_stem_fields = parse_seahub_stem_fields
 
 
 def _dedupe_overlapping(
