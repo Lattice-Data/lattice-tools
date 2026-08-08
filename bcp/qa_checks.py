@@ -18,7 +18,7 @@ from qa_constants import (
     SCALE_SAMPLES_FORBIDDEN_COLUMNS,
     SCALE_WAFER_MISC_RE,
     SCALE_WORKFLOW_REQUIRED_PARAMS,
-    SEAHUB_BARE_EXPECTED,
+    SEAHUB_TRIM_TO_BARE_SUFFIX,
     SEAHUB_BARE_OPTIONAL,
 )
 from qa_mods import (
@@ -509,32 +509,19 @@ def check_expected_raw_files(
             parsed_stem = seahub_stem_and_family(fullpath.split("/")[-1])
             if parsed_stem is None:
                 continue
-            b, _suffix, family = parsed_stem
-            # Completeness is checked within the family actually delivered.
-            # Requiring SOP ".trim.*" names of an upload that dropped the infix
-            # would bury the one thing that matters here — an artifact genuinely
-            # absent from the delivered set — under a wall of identical rows.
-            # The wrong naming is reported once per stem by the SOP validator.
-            endings = (
-                list(raw_expected.get(raw_assay, []))
-                if family == "trim"
-                else list(SEAHUB_BARE_EXPECTED)
-            )
+            b, _suffix, _family = parsed_stem
+            # Completeness asks only whether each of the five artifact *kinds*
+            # arrived; the spelling is a separate axis, reported once per stem by
+            # the SOP validator as missing_trim_infix. Judging by family instead
+            # let one optional sidecar with the other family's name decide the
+            # whole requirement set, so a complete well could be reported as
+            # missing five files that were never meant to exist -- and this path
+            # and roll_up_wells disagreed about which five.
             if b not in beginnings:
-                raw_dir = "/".join(fullpath.split("/")[:-1])
                 beginnings[b] = {
-                    "raw_dir": raw_dir,
-                    "endings": endings,
-                    "families": {family},
+                    "raw_dir": "/".join(fullpath.split("/")[:-1]),
+                    "endings": list(raw_expected[raw_assay]),
                 }
-            else:
-                entry = beginnings[b]
-                entry["families"].add(family)
-                # A stem split across both families is a mixed upload; require
-                # both sets so neither half's gaps are hidden.
-                for ending in endings:
-                    if ending not in entry["endings"]:
-                        entry["endings"].append(ending)
             continue
 
         parsed = parse_raw_filename(fullpath, raw_assay)
@@ -558,6 +545,14 @@ def check_expected_raw_files(
         temp_missing: dict[str, Any] = {"path": b}
         for e in v["endings"]:
             f = f"{v['raw_dir']}/{b}{e}"
+            # A SeaHub artifact counts under either spelling: the SOP name or the
+            # same file with the ".trim" infix dropped. Only the SOP name is
+            # reported as missing, since that is what should exist.
+            if raw_assay == "seahub_sci" and f not in raw_found_set:
+                bare = SEAHUB_TRIM_TO_BARE_SUFFIX.get(e)
+                if bare and f"{v['raw_dir']}/{b}{bare}" in raw_found_set:
+                    raw_found.append(f"{v['raw_dir']}/{b}{bare}")
+                    continue
             if f not in raw_found_set:
                 if e.endswith("-metadata.json") and (
                     f.replace("-metadata.json", "") not in raw_found_set

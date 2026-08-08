@@ -781,10 +781,14 @@ table says what is wrong, the per-well status says how many wells are affected a
 rather than a rename.
 
 - **Two suffix families.** `qa_constants.SEAHUB_TRIM_SUFFIXES` is the SOP set; `SEAHUB_BARE_SUFFIXES`
-  is the same six artifacts with the `.trim` infix dropped, which real uploads have used. Per-well
-  completeness is checked within the family that was delivered, so an artifact genuinely absent from
-  the upload lands in `*_raw_missing.csv` instead of being lost among thousands of identical
-  "missing `.trim.*`" rows.
+  is the same six artifacts with the `.trim` infix dropped, which real uploads have used. Completeness
+  asks only whether each of the five artifact *kinds* arrived, under either spelling — naming is a
+  separate axis, reported once per stem as `missing_trim_infix`. Judging by family instead let one
+  optional sidecar carrying the other family's name decide the whole requirement set, and the two
+  completeness paths reacted to that differently: a well with five correct `.trim.*` files plus a
+  stray bare sidecar was complete to `roll_up_wells` and missing five files to
+  `check_expected_raw_files`. A genuinely absent artifact is still reported, under its SOP name
+  whichever spelling the upload used.
 - **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at five
   scopes: `object` (per object), `stem` (per well), `folder` (per sublibrary directory, so one
   truncated folder is one row rather than one per well), `suffix` (per distinct unrecognised

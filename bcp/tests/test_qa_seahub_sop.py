@@ -558,7 +558,9 @@ class TestFamilyAwareCompleteness:
         assert all_good == 0
         assert len(lost) == 1
         assert lost[0]["path"] == BARE_STEM
-        assert lost[0][".cram"].endswith(f"{BARE_STEM}.cram")
+        # Keyed on the SOP artifact even though this well was delivered bare:
+        # what is absent is the kind, and it should arrive under the SOP name.
+        assert lost[0][".trim.cram"].endswith(f"{BARE_STEM}.trim.cram")
 
     def test_bare_well_is_not_asked_for_trim_names(self):
         keys = self._bare_well(
@@ -576,12 +578,20 @@ class TestFamilyAwareCompleteness:
         assert len(lost) == 1
         assert ".trim.cram" in lost[0]
 
-    def test_mixed_family_well_requires_both_sets(self):
+    def test_a_mixed_family_well_is_judged_by_kind_not_by_spelling(self):
+        """It used to require *both* spellings of every kind.
+
+        A well delivering ``.cram`` and ``.trim.csv`` has two of the five kinds,
+        so three are missing. Demanding both spellings instead reported the two
+        it did deliver as missing too -- files that were never meant to exist.
+        """
         keys = [f"{BARE_DIR}/{BARE_STEM}.cram", f"{BARE_DIR}/{BARE_STEM}.trim.csv"]
+
         _all_good, lost, _found = check_expected_raw_files(keys, "seahub_sci")
+
         assert len(lost) == 1
-        assert ".trim.cram" in lost[0]
-        assert ".csv" in lost[0]
+        missing = {k for k in lost[0] if k != "path"}
+        assert missing == {".trim.stderr", ".trim.stdout", ".trim_fail.csv"}
 
     def test_bare_metadata_sidecar_is_optional_not_extra(self):
         keys = self._bare_well(

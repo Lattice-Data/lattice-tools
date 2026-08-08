@@ -434,20 +434,17 @@ class WellRollup:
     unaccounted: int = 0
 
 
-def _required_artifacts(family: str) -> tuple[str, ...]:
-    """The artifact set a well is judged against.
+def _delivered_artifacts(suffixes: set[str]) -> set[str]:
+    """The artifact *kinds* a well delivered, whatever they were named.
 
-    Scoped to the family actually delivered, matching
-    :func:`qa_checks.check_expected_raw_files`. Requiring SOP ``.trim.*`` names of
-    an upload that dropped the infix would bury the one thing that matters here --
-    an artifact genuinely absent -- under a row per well.
+    Each suffix maps to its SOP counterpart, so ``.cram`` and ``.trim.cram``
+    count as the same kind. Completeness then asks only whether every kind
+    arrived; the spelling is a separate axis, reported by the SOP validator as
+    ``missing_trim_infix``. Judging by family instead let one optional sidecar
+    carrying the other family's name decide the whole requirement set, which is
+    how this and :func:`qa_checks.check_expected_raw_files` came to disagree.
     """
-    trim = tuple(raw_expected["seahub_sci"])
-    if family == "trim":
-        return trim
-    return tuple(
-        bare for bare, mapped in SEAHUB_BARE_TO_TRIM_SUFFIX.items() if mapped in trim
-    )
+    return {SEAHUB_BARE_TO_TRIM_SUFFIX.get(s, s) for s in suffixes}
 
 
 def roll_up_wells(
@@ -539,9 +536,9 @@ def roll_up_wells(
             else "inferred"
         )
 
-        family = "trim" if "trim" in well["families"] else "bare"
-        required = _required_artifacts(family) if well["keys"] else ()
-        missing = [s for s in required if s not in well["suffixes"]]
+        required = tuple(raw_expected["seahub_sci"]) if well["keys"] else ()
+        delivered = _delivered_artifacts(well["suffixes"])
+        missing = [s for s in required if s not in delivered]
 
         if not well["keys"]:
             verdict = "UNKNOWN"

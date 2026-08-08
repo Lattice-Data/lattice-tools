@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+from qa_checks import check_expected_raw_files
 from qa_constants import (
     SEAHUB_BARE_SUFFIXES,
     SEAHUB_BARE_TO_TRIM_SUFFIX,
@@ -330,7 +331,9 @@ class TestRollUpWells:
         row = next(r for r in rollup.rows if r["verdict"] == "DATA_GAP")
 
         assert row["wafer"] == "438514"
-        assert row["missing_artifacts"] == ".cram"
+        # The SOP name, though this well was delivered bare: what is absent is
+        # the artifact kind, and the name it should arrive under is the SOP one.
+        assert row["missing_artifacts"] == ".trim.cram"
         assert "the vendor delivered it as" in row["detail"]
 
     def test_a_well_with_no_derivable_name_is_unknown(self):
@@ -379,6 +382,100 @@ class TestRollUpWells:
         rollup = roll_up_wells(BUCKET, ref3_trimmed_keys(), _vendor_index())
 
         assert tuple(rollup_summary(rollup.rows)) == SEAHUB_WELL_VERDICTS
+
+
+_COMPLETE_DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479"
+_COMPLETE_STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
+_BARE_FIVE = (".cram", ".csv", ".stderr", ".stdout", "_fail.csv")
+_TRIM_FIVE = (
+    ".trim.cram",
+    ".trim.csv",
+    ".trim.stderr",
+    ".trim.stdout",
+    ".trim_fail.csv",
+)
+
+
+def _well_keys(*suffixes):
+    return [f"{_COMPLETE_DIR}/{_COMPLETE_STEM}{s}" for s in suffixes]
+
+
+def _both_paths(keys):
+    """(roll-up verdict, inventory-missing suffixes) for one well."""
+    verdict = roll_up_wells(BUCKET, keys).rows[0]["verdict"]
+    _good, lost, _found = check_expected_raw_files(keys, "seahub_sci")
+    missing = sorted(
+        path.rsplit("/", 1)[-1].replace(_COMPLETE_STEM, "")
+        for row in lost
+        for key, path in row.items()
+        if key != "path"
+    )
+    return verdict, missing
+
+
+class TestCompletenessIsNamingAgnostic:
+    """A well is complete when every artifact *kind* arrived, whatever its name.
+
+    Judging by suffix family let one optional sidecar carrying the other
+    family's name decide the whole requirement set, and the two completeness
+    paths reacted to that differently -- the roll-up picking ``trim``, the
+    inventory requiring both sets. A well with five correct ``.trim.*`` files
+    plus a stray bare sidecar was reported complete by one and missing five
+    files by the other.
+    """
+
+    @pytest.mark.parametrize(
+        "label,suffixes",
+        [
+            ("five bare", _BARE_FIVE),
+            ("five trim", _TRIM_FIVE),
+            ("bare plus its own sidecar", _BARE_FIVE + (".cram-metadata.json",)),
+            ("bare plus a trim sidecar", _BARE_FIVE + (".trim.cram-metadata.json",)),
+            ("trim plus a bare sidecar", _TRIM_FIVE + (".cram-metadata.json",)),
+            ("trim plus a stray bare csv", _TRIM_FIVE + (".csv",)),
+            ("both families in full", _TRIM_FIVE + _BARE_FIVE),
+            (
+                "required artifacts split across families",
+                (".trim.cram", ".trim.csv", ".trim.stderr", ".stdout", "_fail.csv"),
+            ),
+        ],
+    )
+    def test_a_well_with_every_kind_is_complete_however_named(self, label, suffixes):
+        verdict, missing = _both_paths(_well_keys(*suffixes))
+
+        assert verdict != "DATA_GAP", label
+        assert missing == [], label
+
+    @pytest.mark.parametrize(
+        "label,suffixes,absent",
+        [
+            ("bare well missing its csv", _BARE_FIVE, ".csv"),
+            ("trim well missing its cram", _TRIM_FIVE, ".trim.cram"),
+        ],
+    )
+    def test_a_genuinely_absent_artifact_is_still_reported(
+        self, label, suffixes, absent
+    ):
+        verdict, missing = _both_paths(
+            _well_keys(*[s for s in suffixes if s != absent])
+        )
+
+        assert verdict == "DATA_GAP", label
+        # Reported under its SOP name whichever spelling the upload used.
+        assert missing == [SEAHUB_BARE_TO_TRIM_SUFFIX.get(absent, absent)], label
+
+    def test_the_two_paths_never_disagree(self):
+        """The invariant the split verdicts violated."""
+        for suffixes in (
+            _BARE_FIVE,
+            _TRIM_FIVE,
+            _TRIM_FIVE + (".cram-metadata.json",),
+            _BARE_FIVE + (".trim.cram-metadata.json",),
+            _TRIM_FIVE[:-1],
+            _BARE_FIVE[:-1],
+        ):
+            verdict, missing = _both_paths(_well_keys(*suffixes))
+            assert (verdict == "DATA_GAP") == bool(missing), suffixes
 
 
 class TestRuleVocabulary:
