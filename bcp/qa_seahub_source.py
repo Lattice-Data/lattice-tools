@@ -64,6 +64,7 @@ __all__ = [
     "SourceEntry",
     "TrimmedEntry",
     "UntrimmedSources",
+    "derive_source_experiment",
     "derive_source_order",
     "finding_row",
     "index_trimmed_upload",
@@ -73,6 +74,7 @@ __all__ = [
     "normalize_source_uris",
     "parse_seahub_stem_fields",
     "parse_source_uri",
+    "source_experiment_matches",
     "source_order_by_wafer",
 ]
 
@@ -243,6 +245,34 @@ def derive_source_order(cram_key: str) -> str:
     return ""
 
 
+def derive_source_experiment(cram_key: str) -> str:
+    """Read the experiment segment out of a key, positionally.
+
+    ``{project}/{order}/{ExperimentID}/raw/{wafer}/{file}`` -- the segment before
+    ``raw``, and the one an order-level prefix spans several of. Returns ``""``
+    for any other shape; callers keep those entries rather than dropping a well
+    they cannot place. Compare it with :func:`source_experiment_matches` rather
+    than by equality, since the segment is not always the ExperimentID alone.
+    """
+    parts = cram_key.split("/")
+    if len(parts) == 6 and parts[3] == "raw":
+        return parts[2]
+    return ""
+
+
+def source_experiment_matches(segment: str, experiment_id: str) -> bool:
+    """Does a pre-``raw`` segment belong to ``experiment_id``?
+
+    The current vendor layout carries the ExperimentID alone (``REF3``); an older
+    one appends the sublibrary (``REF5_P01``), as
+    :func:`qa_seahub_rename.source_sublibrary_segment` also documents. Both have
+    to count: a bare equality test would exclude every well of an old-shape
+    delivery and report the entire upload as orphaned. The underscore is required
+    so ``REF50`` is not read as part of ``REF5``.
+    """
+    return segment == experiment_id or segment.startswith(f"{experiment_id}_")
+
+
 def _order_label_from_prefix(prefix: str) -> str:
     """Best-effort order label for a prefix that produced no objects.
 
@@ -328,13 +358,24 @@ def _dedupe_overlapping(
     return survivors, skipped
 
 
-def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
+def index_untrimmed_sources(
+    s3_client: Any, uris: Any, experiment_id: str = ""
+) -> UntrimmedSources:
     """List one or more vendor prefixes and index per-well CRAMs by ``(wafer, UG)``.
 
     An identity delivered by two prefixes is a re-delivery, not a merge: the
     winner is deterministic (lowest ``(source_order, cram_key)``) and the loser
     becomes a ``duplicate_source_well`` finding. Overwriting blindly, as the
     single-prefix version did, silently discarded one of them.
+
+    ``experiment_id`` is the ExperimentID being QA'd. A prefix is documented as
+    order-level, and one order holds several experiments, so without it the index
+    also carries the *other* experiments' wells -- each of which then has no
+    counterpart in the upload and surfaces as ``not_trimmed`` plus an ``UNKNOWN``
+    well. Wells whose ExperimentID reads as a different one are excluded and
+    reported once per foreign experiment. A key whose shape hides the
+    ExperimentID is kept, since a spurious ``not_trimmed`` row is recoverable
+    and a silently dropped vendor well is not.
     """
     sources = UntrimmedSources()
     normalized = normalize_source_uris(uris)
@@ -370,6 +411,8 @@ def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
     for uri, bucket, prefix in survivors:
         coverage = SourceCoverage(source_uri=uri, bucket=bucket, prefix=prefix)
         orders_seen: set[str] = set()
+        foreign_wells: dict[str, int] = {}
+        unplaced_wells = 0
 
         for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
             for obj in page.get("Contents", []):
@@ -391,6 +434,14 @@ def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
                 if is_sidecar:
                     sidecar_by_stem_key[key[: -len(_SIDECAR_SUFFIX)]] = key
                     continue
+
+                if experiment_id:
+                    experiment = derive_source_experiment(key)
+                    if not experiment:
+                        unplaced_wells += 1
+                    elif not source_experiment_matches(experiment, experiment_id):
+                        foreign_wells[experiment] = foreign_wells.get(experiment, 0) + 1
+                        continue
 
                 order = derive_source_order(key)
                 orders_seen.add(order or SEAHUB_UNKNOWN_ORDER_LABEL)
@@ -432,6 +483,31 @@ def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
                         ),
                     )
                 )
+
+        for experiment, count in sorted(foreign_wells.items()):
+            sources.findings.append(
+                finding_row(
+                    "source_prefix_spans_experiments",
+                    detail=(
+                        f"untrimmed source {uri} also holds {count} well(s) of "
+                        f"experiment {experiment!r}, which were excluded from the "
+                        f"{experiment_id!r} comparison; narrow the prefix to "
+                        f"{uri.rstrip('/')}/{experiment_id} to stop listing them"
+                    ),
+                )
+            )
+        if unplaced_wells:
+            sources.findings.append(
+                finding_row(
+                    "source_experiment_unreadable",
+                    detail=(
+                        f"untrimmed source {uri} holds {unplaced_wells} CRAM(s) whose "
+                        "key does not expose an ExperimentID (expected "
+                        "{project}/{order}/{ExperimentID}/raw/{wafer}/{file}); kept "
+                        f"in the {experiment_id!r} comparison rather than dropped"
+                    ),
+                )
+            )
 
         coverage.orders_seen = tuple(sorted(orders_seen))
         coverage.source_order = (

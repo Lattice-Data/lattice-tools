@@ -15,6 +15,7 @@ import contextlib
 import io
 import json
 import os
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -46,7 +47,22 @@ def _import_namespace(cell_zero) -> dict:
     return namespace
 
 
-def _run_section(tmp_path, *, raw_assay="seahub_sci", sources=None, keys=None):
+def _run_section(
+    tmp_path,
+    *,
+    raw_assay="seahub_sci",
+    sources=None,
+    keys=None,
+    experiment_id="REF3",
+    output_label="REF3",
+):
+    """Run the SeaHub block over a synthetic namespace.
+
+    ``experiment_id`` and ``output_label`` are separate because the notebook's
+    ``order`` is ``ctx.output_label``, which ``run_label`` overrides, while the
+    source filter has to use ``ctx.order``. Defaulting them to the same value
+    mirrors an unset ``run_label``.
+    """
     cells = _notebook_cells()
     namespace = _import_namespace(cells[0])
 
@@ -67,7 +83,8 @@ def _run_section(tmp_path, *, raw_assay="seahub_sci", sources=None, keys=None):
             "s3client": MockS3Client(keys=vendor_keys, file_contents=sidecars),
             "raw_assay": raw_assay,
             "bucket": BUCKET,
-            "order": "REF3",
+            "ctx": SimpleNamespace(order=experiment_id),
+            "order": output_label,
             "output_dir": str(tmp_path),
             "validate_raw": True,
             "all_raw_files": trimmed_keys,
@@ -191,6 +208,38 @@ class TestSectionRuns:
             "REF3_P06_1",
             "REF3_P07_1",
         }
+
+
+class TestSourceFilterUsesTheExperimentId:
+    """The filter reads ``ctx.order``; the notebook's ``order`` is the output label."""
+
+    def test_a_run_label_changes_nothing_about_the_vendor_index(self, tmp_path):
+        """Filtering on ``order`` would match no vendor well and orphan the upload."""
+        plain_dir, labelled_dir = tmp_path / "plain", tmp_path / "labelled"
+        plain_dir.mkdir()
+        labelled_dir.mkdir()
+        _output, plain = _run_section(plain_dir)
+        _output, labelled = _run_section(
+            labelled_dir, experiment_id="REF3", output_label="REF3-rerun"
+        )
+
+        assert labelled["untrimmed_index"], "vendor index was filtered away"
+        assert sorted(labelled["untrimmed_index"]) == sorted(plain["untrimmed_index"])
+
+    def test_the_orphan_count_is_unchanged_by_a_run_label(self, tmp_path):
+        plain_dir, labelled_dir = tmp_path / "plain", tmp_path / "labelled"
+        plain_dir.mkdir()
+        labelled_dir.mkdir()
+        _run_section(plain_dir)
+        _run_section(labelled_dir, experiment_id="REF3", output_label="REF3-rerun")
+
+        def orphans(directory, label):
+            frame = pd.read_csv(directory / f"{label}_trimming_completeness.csv")
+            return (frame["category"] == "orphan_trimmed").sum()
+
+        assert orphans(tmp_path / "labelled", "REF3-rerun") == orphans(
+            tmp_path / "plain", "REF3"
+        )
 
 
 class TestSectionSkips:

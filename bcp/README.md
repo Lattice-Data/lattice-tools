@@ -803,10 +803,16 @@ rather than a rename.
   measured unique on a real delivery (48 CRAMs, 48 distinct UGs per wafer). The vendor layout is
   `{project}/{order}/{ExperimentID}/raw/{wafer}/`; note the segment before `raw` is the ExperimentID
   alone and carries **no** sublibrary, so the authoritative sublibrary comes from the vendor filename
-  with its trailing well token stripped. `qa_seahub_source.py` builds and merges the per-well indexes;
+  with its trailing well token stripped. Since the listed prefix is order-level, the index is filtered
+  to the ExperimentID being QA'd (`ctx.order`, not the notebook's `order`, which `run_label` overrides);
+  without that filter the other experiments' wells are indexed too and each reports as `not_trimmed`.
+  Both segment shapes count as a match — the ExperimentID alone (`REF3`) and the older
+  `{ExperimentID}_{sublibrary}` (`REF5_P01`) — because a bare equality test would orphan every well of
+  an old-shape delivery. `qa_seahub_source.py` builds and merges the per-well indexes;
   `qa_seahub_recon.py` classifies them (`not_trimmed`, `orphan_trimmed`, `identity_mismatch`,
   `read_count_mismatch`, `size_not_reduced`, `duplicate_source_well`, `duplicate_trimmed_well`,
-  `source_prefix_empty`, `overlapping_source_prefix`, `metadata_unavailable`) into
+  `source_prefix_empty`, `overlapping_source_prefix`, `source_prefix_spans_experiments`,
+  `source_experiment_unreadable`, `metadata_unavailable`) into
   `{order}_trimming_completeness.csv`, with per-order coverage in
   `{order}_seahub_source_coverage.csv`. Coverage matters: wells of an order missing from the list can
   only surface as `orphan_trimmed`, which reads as a completeness failure rather than incomplete

@@ -14,6 +14,7 @@ import pytest
 
 from qa_seahub_recon import reconcile_trimming
 from qa_seahub_source import (
+    derive_source_experiment,
     derive_source_order,
     index_trimmed_upload,
     index_untrimmed_source,
@@ -21,6 +22,7 @@ from qa_seahub_source import (
     load_source_read_counts,
     normalize_source_uris,
     parse_source_uri,
+    source_experiment_matches,
     source_order_by_wafer,
 )
 
@@ -405,6 +407,120 @@ class TestIndexUntrimmedSources:
     def test_vendor_housekeeping_files_are_still_skipped(self):
         index = _source_index(_vendor_keys(VENDOR_STEM_A))
         assert len(index) == 1
+
+
+class TestDeriveSourceExperiment:
+    def test_reads_the_experiment_from_the_measured_layout(self):
+        key = _vendor_layout_key("NVUS0000000000-11", "437120", P04_STEM)
+        assert derive_source_experiment(key) == "REF3"
+
+    def test_reads_the_older_experiment_sublibrary_shape(self):
+        assert derive_source_experiment(f"{SOURCE_DIR}/{VENDOR_STEM_A}.cram") == (
+            "REF5_P01"
+        )
+
+    def test_an_unexpected_depth_degrades_rather_than_guessing(self):
+        assert derive_source_experiment("a/b/c/raw/d/e/f.cram") == ""
+        assert derive_source_experiment("f.cram") == ""
+
+
+class TestSourceExperimentMatches:
+    def test_the_experiment_id_alone_matches(self):
+        assert source_experiment_matches("REF3", "REF3")
+
+    def test_the_older_experiment_sublibrary_shape_matches(self):
+        """A bare equality test here would orphan every well of an old delivery."""
+        assert source_experiment_matches("REF5_P01", "REF5")
+
+    def test_a_longer_experiment_id_is_not_a_match(self):
+        assert not source_experiment_matches("REF50", "REF5")
+        assert not source_experiment_matches("REF50_P01", "REF5")
+
+    def test_another_experiment_is_not_a_match(self):
+        assert not source_experiment_matches("REF7", "REF3")
+
+
+class TestExperimentScoping:
+    """One order holds several experiments, so an order prefix spans them."""
+
+    def _s3(self, *specs):
+        keys = [
+            f"labalpha-seahub-bcp/{order}/{experiment}/raw/{wafer}/{stem}{suffix}"
+            for order, experiment, wafer, stem in specs
+            for suffix in (".cram", ".cram-metadata.json")
+        ]
+        return MockS3Client(keys=keys)
+
+    def test_another_experiments_wells_are_excluded(self):
+        s3 = self._s3(
+            ("NVUS0000000000-11", "REF3", "437120", P04_STEM),
+            ("NVUS0000000000-11", "REF7", "438514", P07_STEM),
+        )
+        result = index_untrimmed_sources(s3, [ORDER_11], experiment_id="REF3")
+
+        assert sorted(result.index) == [("437120", "Z0001")]
+
+    def test_the_exclusion_is_reported_once_per_foreign_experiment(self):
+        s3 = self._s3(
+            ("NVUS0000000000-11", "REF3", "437120", P04_STEM),
+            ("NVUS0000000000-11", "REF7", "438514", P07_STEM),
+        )
+        result = index_untrimmed_sources(s3, [ORDER_11], experiment_id="REF3")
+
+        spans = [
+            r
+            for r in result.findings
+            if r["category"] == "source_prefix_spans_experiments"
+        ]
+        assert len(spans) == 1
+        assert "REF7" in spans[0]["detail"]
+
+    def test_the_older_experiment_sublibrary_shape_is_kept(self):
+        s3 = self._s3(("NVUS0000000000-11", "REF3_P04_1", "437120", P04_STEM))
+        result = index_untrimmed_sources(s3, [ORDER_11], experiment_id="REF3")
+
+        assert sorted(result.index) == [("437120", "Z0001")]
+        assert result.findings == []
+
+    def test_a_key_whose_shape_hides_the_experiment_is_kept(self):
+        """Dropping it would report a delivered well as never delivered."""
+        s3 = MockS3Client(
+            keys=[f"labalpha-seahub-bcp/NVUS0000000000-11/{P04_STEM}.cram"]
+        )
+        result = index_untrimmed_sources(s3, [ORDER_11], experiment_id="REF3")
+
+        assert sorted(result.index) == [("437120", "Z0001")]
+        assert [r["category"] for r in result.findings] == [
+            "source_experiment_unreadable"
+        ]
+
+    def test_no_experiment_id_indexes_everything(self):
+        """The default has to stay backward compatible."""
+        s3 = self._s3(
+            ("NVUS0000000000-11", "REF3", "437120", P04_STEM),
+            ("NVUS0000000000-11", "REF7", "438514", P07_STEM),
+        )
+        result = index_untrimmed_sources(s3, [ORDER_11])
+
+        assert sorted(result.index) == [("437120", "Z0001"), ("438514", "Z0305")]
+        assert result.findings == []
+
+    def test_an_excluded_well_does_not_become_a_not_trimmed_row(self):
+        """The whole point: a foreign well must not read as a completeness gap."""
+        s3 = self._s3(
+            ("NVUS0000000000-11", "REF3", "437120", P04_STEM),
+            ("NVUS0000000000-11", "REF7", "438514", P07_STEM),
+        )
+        sources = index_untrimmed_sources(s3, [ORDER_11], experiment_id="REF3")
+        trimmed = index_trimmed_upload(
+            [
+                f"labalpha-seahub-bcp/REF3/raw/REF3_P04_1/437120/{P04_STEM}{suffix}"
+                for suffix in (".trim.cram", ".trim.csv")
+            ]
+        )
+        report = reconcile_trimming(sources, trimmed)
+
+        assert "not_trimmed" not in {r["category"] for r in report.rows}
 
 
 class TestSourceOrderByWafer:
