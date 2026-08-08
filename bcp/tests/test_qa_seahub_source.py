@@ -230,6 +230,68 @@ class TestReconcileTrimming:
         assert report.counts["not_trimmed"] == 1
 
 
+class TestReconcileDoesNotMutateItsInput:
+    """Reconciling twice must give the same answer twice.
+
+    ``list(untrimmed.coverage)`` duplicates the list and not the SourceCoverage
+    objects in it, so tallying ``entry.matched += 1`` wrote back into the
+    caller's UntrimmedSources. Re-running the recon cell without re-running the
+    source-index cell -- how a notebook is ordinarily used -- doubled ``matched``,
+    and ``unmatched`` is ``max(0, indexed - matched)``, so a source with genuine
+    unmatched wells reported 0 of them.
+    """
+
+    def _sources(self):
+        return index_untrimmed_sources(
+            MockS3Client(keys=_vendor_keys(VENDOR_STEM_A, VENDOR_STEM_B)),
+            [SOURCE_URI],
+        )
+
+    def test_a_second_run_reports_the_same_coverage(self):
+        sources = self._sources()
+        trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A))
+
+        first = reconcile_trimming(sources, trimmed)
+        # Snapshot before the second run: under the bug both reports alias the
+        # same SourceCoverage objects, so comparing them afterwards compares two
+        # views of one mutated value and passes either way.
+        before = [(c.matched, c.unmatched) for c in first.source_coverage]
+
+        second = reconcile_trimming(sources, trimmed)
+
+        assert [(c.matched, c.unmatched) for c in second.source_coverage] == before
+
+    def test_a_second_run_still_sees_the_unmatched_well(self):
+        """The consequence: unmatched floors at 0 once matched is double-counted."""
+        sources = self._sources()
+        trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A))
+
+        reconcile_trimming(sources, trimmed)
+        second = reconcile_trimming(sources, trimmed)
+
+        assert [c.matched for c in second.source_coverage] == [1]
+        assert [c.unmatched for c in second.source_coverage] == [1]
+
+    def test_the_caller_object_is_left_alone(self):
+        sources = self._sources()
+        trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A))
+
+        reconcile_trimming(sources, trimmed)
+
+        assert [c.matched for c in sources.coverage] == [0]
+
+    def test_the_report_owns_its_coverage_rows(self):
+        sources = self._sources()
+        trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A))
+
+        report = reconcile_trimming(sources, trimmed)
+
+        assert all(
+            row is not original
+            for row, original in zip(report.source_coverage, sources.coverage)
+        )
+
+
 # The vendor layout as measured on a real delivery: the segment before ``raw`` is
 # the ExperimentID alone and carries no sublibrary.  SOURCE_DIR above predates
 # that observation and uses ``{ExperimentID}_{sublibrary}``; both shapes must

@@ -856,7 +856,10 @@ rather than a rename.
   `{order}_trimming_completeness.csv`, with per-order coverage in
   `{order}_seahub_source_coverage.csv`. Coverage matters: wells of an order missing from the list can
   only surface as `orphan_trimmed`, which reads as a completeness failure rather than incomplete
-  input, so unsourced wafers are called out explicitly.
+  input, so unsourced wafers are called out explicitly. `reconcile_trimming` copies the coverage rows
+  it tallies into rather than mutating the caller's, so re-running the recon cell alone — without
+  re-running the indexing cell above it — reports the same numbers rather than double-counting
+  `matched` and flooring `unmatched` at zero.
 - **Rename mapping** (`qa_seahub_rename.py`) composes the per-rule repairs into one corrected S3 key
   per object in `{order}_seahub_rename_mapping.csv`. Advisory only — QA never moves, deletes or
   rewrites anything. Every proposal is re-validated against the SOP and withheld unless clean, two

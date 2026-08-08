@@ -16,7 +16,7 @@ CRAM's ``read_count`` must equal one of the input totals the trimmer declared.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from qa_seahub_source import (
@@ -212,7 +212,15 @@ def reconcile_trimming(
     if isinstance(untrimmed, UntrimmedSources):
         untrimmed_index = untrimmed.index
         seeded = list(untrimmed.findings)
-        coverage = list(untrimmed.coverage)
+        # Copies, not aliases. list() duplicates the list and not the
+        # SourceCoverage objects in it, so the ``entry.matched += 1`` below wrote
+        # back into the caller's UntrimmedSources: re-running the recon cell
+        # without re-running the source-index cell -- the ordinary way a notebook
+        # is used -- doubled ``matched``, and ``unmatched`` (indexed - matched,
+        # floored at 0) then reported 0 for a source with real unmatched wells.
+        # ``matched=0`` rather than the incoming value so this run tallies its
+        # own, whatever state the argument arrives in.
+        coverage = [replace(c, matched=0) for c in untrimmed.coverage]
     else:
         untrimmed_index = untrimmed
         seeded = []
