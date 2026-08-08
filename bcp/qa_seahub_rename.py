@@ -495,7 +495,15 @@ def roll_up_wells(
             continue
         raw_stem, suffix, family = parsed
         normalized, _doubled = normalize_doubled_wafer(raw_stem)
-        fields = parse_seahub_stem_fields(normalized)
+        # Fall back to the raw stem when normalizing makes it unparseable, so
+        # this keys wells the same way index_trimmed_upload does. Without it the
+        # two disagreed on exactly one shape -- a doubled wafer with no group,
+        # 123456-123456-Z0001-ACGT, which parses only *before* normalization --
+        # and a well that was uploaded got a phantom "nothing was uploaded" row
+        # beside its real one.
+        fields = parse_seahub_stem_fields(normalized) or parse_seahub_stem_fields(
+            raw_stem
+        )
         identity = (
             (str(fields["wafer"]), str(fields["ug"]))
             if fields is not None

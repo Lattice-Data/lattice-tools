@@ -501,6 +501,57 @@ class TestCompletenessIsNamingAgnostic:
             assert (verdict == "DATA_GAP") == bool(missing), suffixes
 
 
+class TestTheTwoIndexesKeyWellsTheSameWay:
+    """``index_trimmed_upload`` and ``roll_up_wells`` must agree on identity.
+
+    One keyed on the raw stem and the other on the doubled-wafer-normalized stem.
+    That is the same answer for every real shape, and differs for exactly one:
+    a doubled wafer with no group at all, which parses *before* normalization
+    (wafer-group-UG-barcode) and not after (wafer-UG-barcode is three fields, not
+    four). The roll-up then failed to identify a well the vendor index had
+    matched, and emitted a "nothing was uploaded" row for a well that was
+    uploaded -- beside the real row for the same five objects.
+
+    Synthetic, and it failed safe by over-reporting, but Q1 promoted that row to
+    DATA_GAP and DATA_GAP rows go to errors.txt, so a phantom one now costs an
+    operator a lookup.
+    """
+
+    STEM = "123456-123456-Z0001-ACGTACGT"
+    KEYS = [f"{RAW}/P01/123456/123456-123456-Z0001-ACGTACGT{s}" for s in TRIM_SUFFIXES]
+    VENDOR = {
+        ("123456", "Z0001"): SourceEntry(
+            wafer="123456",
+            ug="Z0001",
+            barcode="ACGTACGT",
+            group="REF3_P01_A1",
+            assay="GEX_hash_oligo",
+            cram_key=f"{PROJECT}/{VENDOR_ORDER}/REF3/raw/123456/x.cram",
+        )
+    }
+
+    def test_both_indexes_produce_the_same_identity(self):
+        from qa_seahub_source import index_trimmed_upload
+
+        indexed = set(index_trimmed_upload(self.KEYS, sizes={}))
+        rolled = {(r["wafer"], r["ug"]) for r in roll_up_wells(BUCKET, self.KEYS).rows}
+
+        assert indexed == rolled == {("123456", "Z0001")}
+
+    def test_no_phantom_nothing_was_uploaded_row(self):
+        rollup = roll_up_wells(BUCKET, self.KEYS, self.VENDOR)
+
+        assert len(rollup.rows) == 1
+        assert "nothing was uploaded" not in rollup.rows[0]["detail"]
+        assert rollup.rows[0]["objects"] == len(self.KEYS)
+
+    def test_the_well_still_reports_its_real_problem(self):
+        """Identified, but with no group there is no corrected name to derive."""
+        rollup = roll_up_wells(BUCKET, self.KEYS, self.VENDOR)
+
+        assert rollup.rows[0]["verdict"] == "UNKNOWN"
+
+
 class TestUploadScopeDoesNotBlackOutTheRenamePlan:
     """A wrong bucket is one finding, not a veto on every rename in the upload.
 
