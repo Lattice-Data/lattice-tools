@@ -432,6 +432,15 @@ class TestSourceExperimentMatches:
         """A bare equality test here would orphan every well of an old delivery."""
         assert source_experiment_matches("REF5_P01", "REF5")
 
+    def test_a_suffixed_reupload_folder_matches(self):
+        """Measured: one order held REF3 beside a GENE7_reupload folder.
+
+        The suffix is not always a sublibrary, so the rule cannot assume that
+        shape -- it is any ``{ExperimentID}_...`` folder of the same experiment.
+        """
+        assert source_experiment_matches("GENE7_reupload", "GENE7")
+        assert not source_experiment_matches("GENE7_reupload", "REF3")
+
     def test_a_longer_experiment_id_is_not_a_match(self):
         assert not source_experiment_matches("REF50", "REF5")
         assert not source_experiment_matches("REF50_P01", "REF5")

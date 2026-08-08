@@ -269,10 +269,12 @@ def source_experiment_matches(segment: str, experiment_id: str) -> bool:
 
     The current vendor layout carries the ExperimentID alone (``REF3``); an older
     one appends the sublibrary (``REF5_P01``), as
-    :func:`qa_seahub_rename.source_sublibrary_segment` also documents. Both have
-    to count: a bare equality test would exclude every well of an old-shape
-    delivery and report the entire upload as orphaned. The underscore is required
-    so ``REF50`` is not read as part of ``REF5``.
+    :func:`qa_seahub_rename.source_sublibrary_segment` also documents, and a
+    re-delivery appends something else again (``GENE7_reupload``, measured in
+    order ``NVUS2024101701-11`` alongside ``REF3``). So the rule is any
+    ``{ExperimentID}_...`` folder, not a sublibrary shape: a bare equality test
+    would exclude every well of such a delivery and report the whole upload as
+    orphaned. The underscore is required so ``REF50`` is not read as ``REF5``.
     """
     return segment == experiment_id or segment.startswith(f"{experiment_id}_")
 
