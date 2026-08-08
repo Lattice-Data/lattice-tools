@@ -234,7 +234,7 @@ class QADataGatherer:
         experiment_id = self.ctx.order
         self._data.fastq_log[experiment_id] = {}
 
-        r_top = self.s3.list_objects(Bucket=self.bucket, Prefix=o, Delimiter="/")
+        r_top = self._list_folders(o, "the experiment folder")
         top_subdirs = [e["Prefix"] for e in r_top.get("CommonPrefixes", [])]
         if f"{o}processed/" in top_subdirs:
             self._data.has_processed = True
@@ -262,6 +262,29 @@ class QADataGatherer:
         self._data.all_raw_files = raw_files
         self._enrich_seahub_raw_files(experiment_id)
 
+    def _list_folders(self, prefix: str, what: str) -> dict:
+        """One delimiter listing, saying so if S3 cut it short.
+
+        ``list_objects`` returns at most 1000 entries and reports the fact only
+        in ``IsTruncated``, which nothing was reading: past the cap the folders
+        beyond it simply did not exist as far as QA was concerned, and the run
+        still looked clean. Unreachable with anything observed so far -- REF3 has
+        7 sublibraries and GENE7 has 9 -- but silence is the wrong failure mode
+        for a limit nobody would think to check.
+
+        Only folder enumeration goes through here. Objects are paginated, so a
+        truncated listing now costs ``discovered_wafers`` entries or the
+        ``processed/`` notice, never a raw file.
+        """
+        result = self.s3.list_objects(Bucket=self.bucket, Prefix=prefix, Delimiter="/")
+        if result.get("IsTruncated"):
+            self._data.gathering_warnings.append(
+                f"LISTING TRUNCATED: {what} under {prefix} returned only the "
+                "first 1000 entries; wafer discovery and the processed/ check "
+                "are incomplete for this run"
+            )
+        return result
+
     def _discover_seahub_wafers(self, raw_prefix: str) -> None:
         """Record the wafer folders under ``raw/{sublibrary}/``.
 
@@ -269,13 +292,9 @@ class QADataGatherer:
         ask about ``CommonPrefixes`` rather than keys: a wafer folder holding no
         objects still counts as discovered.
         """
-        r_raw = self.s3.list_objects(
-            Bucket=self.bucket, Prefix=raw_prefix, Delimiter="/"
-        )
+        r_raw = self._list_folders(raw_prefix, "the sublibrary folders")
         for sublib_entry in r_raw.get("CommonPrefixes", []):
-            r_wafers = self.s3.list_objects(
-                Bucket=self.bucket, Prefix=sublib_entry["Prefix"], Delimiter="/"
-            )
+            r_wafers = self._list_folders(sublib_entry["Prefix"], "the wafer folders")
             for wafer_entry in r_wafers.get("CommonPrefixes", []):
                 wafer = wafer_entry["Prefix"].rstrip("/").split("/")[-1]
                 if wafer:

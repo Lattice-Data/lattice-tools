@@ -41,8 +41,28 @@ class MockPaginator:
         if pages is not None:
             yield from pages
             return
-        result = self._s3.list_objects(**kwargs)
-        yield result
+        contents, prefixes = self._s3._list_all(prefix, delimiter)
+        limit = self._s3._list_limit
+        if not limit:
+            yield _page(contents, prefixes)
+            return
+        # A paginator follows continuation tokens, so `list_limit` is a page
+        # size here, not a ceiling: everything still comes back. That is the
+        # difference the gatherer relies on, and modelling it wrong would have
+        # made the paginated object walk look truncated too.
+        for start in range(0, max(len(contents), len(prefixes), 1), limit):
+            yield _page(
+                contents[start : start + limit], prefixes[start : start + limit]
+            )
+
+
+def _page(contents: list[dict], prefixes: list[str]) -> dict:
+    page: dict = {}
+    if contents:
+        page["Contents"] = contents
+    if prefixes:
+        page["CommonPrefixes"] = [{"Prefix": p} for p in prefixes]
+    return page
 
 
 class MockS3Client:
@@ -57,6 +77,11 @@ class MockS3Client:
     file_contents : dict[str, str | bytes]
         Mapping of S3 key → file content.  ``download_file`` writes this to
         the local path.  Keys not in this mapping trigger a ``FileNotFoundError``.
+    list_limit : int | None
+        Cap on entries returned by one ``list_objects`` call, setting
+        ``IsTruncated`` when it bites -- what real S3 does at 1000.  Without it
+        no test could express a truncated listing, which is why the silent
+        truncation went unnoticed.
     """
 
     def __init__(
@@ -65,6 +90,7 @@ class MockS3Client:
         file_contents: dict[str, str | bytes] | None = None,
         paginated_pages: dict[tuple[str, str], list[dict]] | None = None,
         sizes: dict[str, int] | None = None,
+        list_limit: int | None = None,
     ):
         self._keys = keys or []
         self._file_contents = file_contents or {}
@@ -72,9 +98,30 @@ class MockS3Client:
         # Real listings always carry Size; default 0 keeps existing tests
         # untouched, and the size checks read 0 as "unknown".
         self._sizes = sizes or {}
+        self._list_limit = list_limit
 
     def get_paginator(self, _operation: str) -> MockPaginator:
         return MockPaginator(self)
+
+    def _list_all(self, prefix: str, delimiter: str) -> tuple[list[dict], list[str]]:
+        """Everything under ``prefix``, before any page limit is applied."""
+        contents: list[dict] = []
+        prefixes: set[str] = set()
+
+        for key in self._keys:
+            if not key.startswith(prefix):
+                continue
+
+            suffix = key[len(prefix) :]
+
+            if delimiter and delimiter in suffix:
+                # There is a delimiter deeper in the suffix → this is a "folder"
+                folder_end = suffix.index(delimiter)
+                prefixes.add(prefix + suffix[: folder_end + len(delimiter)])
+            else:
+                contents.append({"Key": key, "Size": self._sizes.get(key, 0)})
+
+        return contents, sorted(prefixes)
 
     def list_objects(
         self,
@@ -86,28 +133,22 @@ class MockS3Client:
         if pages is not None:
             return pages[0] if pages else {}
 
-        result: dict = {}
-        contents = []
-        prefixes: set[str] = set()
+        contents, prefixes = self._list_all(Prefix, Delimiter)
 
-        for key in self._keys:
-            if not key.startswith(Prefix):
-                continue
+        # One un-paginated call, so the limit is a hard ceiling and the caller
+        # is told via IsTruncated -- exactly what real S3 does at 1000.
+        truncated = False
+        if self._list_limit is not None:
+            if len(contents) > self._list_limit:
+                contents = contents[: self._list_limit]
+                truncated = True
+            if len(prefixes) > self._list_limit:
+                prefixes = prefixes[: self._list_limit]
+                truncated = True
 
-            suffix = key[len(Prefix) :]
-
-            if Delimiter and Delimiter in suffix:
-                # There is a delimiter deeper in the suffix → this is a "folder"
-                folder_end = suffix.index(Delimiter)
-                common = Prefix + suffix[: folder_end + len(Delimiter)]
-                prefixes.add(common)
-            else:
-                contents.append({"Key": key, "Size": self._sizes.get(key, 0)})
-
-        if contents:
-            result["Contents"] = contents
-        if prefixes:
-            result["CommonPrefixes"] = [{"Prefix": p} for p in sorted(prefixes)]
+        result = _page(contents, prefixes)
+        if truncated:
+            result["IsTruncated"] = True
         return result
 
     def download_file(self, bucket: str, key: str, local_path: str) -> None:

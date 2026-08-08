@@ -781,7 +781,12 @@ matching manifest mode's `"/raw/" in key`, and uses a delimiter pass only to enu
 dropped every object above wafer depth — so `bad_path_depth` could fire only for keys that were too
 deep, never too shallow, and a `raw/` holding only loose objects was reported as missing. In
 **s3** mode the ExperimentID is the last segment of the
-listing prefix. In **manifest** mode it comes from the `order` argument if one is given, and is
+listing prefix. Folder enumeration — the `processed/` check, the sublibrary list and the wafer list —
+uses single `list_objects` calls, which return at most 1000 entries and say so only in `IsTruncated`;
+that flag is now checked and reported, so a cap nobody would think to test for cannot pass silently.
+Unreachable with anything observed (REF3 has 7 sublibraries, GENE7 has 9), and since objects are
+paginated a truncated listing costs `discovered_wafers` entries or the `processed/` notice, never a
+raw file. In **manifest** mode it comes from the `order` argument if one is given, and is
 otherwise read off the manifest keys, which already contain it as a folder; a manifest mixing two
 ExperimentIDs is rejected at `resolve_qa_run_context` rather than per object, because QA writes one
 `{order}_*` output set and filters the vendor index to a single ExperimentID. `ctx.order` must never

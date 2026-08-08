@@ -529,6 +529,81 @@ class TestSeahubGatherShallowObjects:
         )
 
 
+class TestSeahubListingTruncation:
+    """A listing cut short at 1000 entries must say so.
+
+    ``list_objects`` reports the fact only in ``IsTruncated``, which nothing
+    read: past the cap the remaining folders did not exist as far as QA was
+    concerned and the run still looked clean. Unreachable with anything observed
+    so far -- REF3 has 7 sublibraries, GENE7 has 9 -- but the failure mode is
+    silence, which is the wrong one for a limit nobody thinks to check.
+    """
+
+    PROJ = "labalpha-seahub-bcp"
+
+    def _ctx(self):
+        return _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj=self.PROJ,
+            order="REF3",
+            listing_prefix=f"{self.PROJ}/REF3/",
+        )
+
+    def _gather(self, keys: list[str], limit: int | None):
+        return gather_qa_data(self._ctx(), MockS3Client(keys=keys, list_limit=limit))
+
+    def _wells(self, sublibraries: int, wafers: int) -> list[str]:
+        return [
+            f"{self.PROJ}/REF3/raw/P{s:02d}/{430000 + w}/"
+            f"{430000 + w}-REF3_P{s:02d}_A1_GEX_hash_oligo-Z{w:04d}-CAGTCAGTTGCAGAT"
+            ".trim.cram"
+            for s in range(1, sublibraries + 1)
+            for w in range(1, wafers + 1)
+        ]
+
+    def _truncation_warnings(self, data) -> list[str]:
+        return [w for w in data.gathering_warnings if w.startswith("LISTING TRUNCATED")]
+
+    def test_truncated_sublibrary_listing_warns(self):
+        data = self._gather(self._wells(sublibraries=3, wafers=1), limit=2)
+
+        assert self._truncation_warnings(data)
+        assert "sublibrary folders" in self._truncation_warnings(data)[0]
+
+    def test_truncated_wafer_listing_warns(self):
+        data = self._gather(self._wells(sublibraries=1, wafers=3), limit=2)
+
+        assert any("wafer folders" in w for w in self._truncation_warnings(data))
+
+    def test_truncated_top_listing_warns(self):
+        """The site the review did not name: this one hides `processed/`."""
+        keys = self._wells(sublibraries=1, wafers=1) + [
+            f"{self.PROJ}/REF3/processed/x.bam",
+            f"{self.PROJ}/REF3/other/y.txt",
+        ]
+        data = self._gather(keys, limit=1)
+
+        assert any(
+            "the experiment folder" in w for w in self._truncation_warnings(data)
+        )
+
+    def test_an_untruncated_listing_is_silent(self):
+        data = self._gather(self._wells(sublibraries=3, wafers=3), limit=None)
+
+        assert self._truncation_warnings(data) == []
+        assert len(data.discovered_wafers) == 3
+
+    def test_truncation_no_longer_costs_raw_objects(self):
+        """Objects are paginated since the recursive walk, so only folders go."""
+        keys = self._wells(sublibraries=3, wafers=1)
+        data = self._gather(keys, limit=1)
+
+        assert sorted(data.all_raw_files) == sorted(keys)
+        assert self._truncation_warnings(data)
+
+
 class TestSeahubManifestExperimentId:
     """Manifest mode must name the ExperimentID it is checking.
 
