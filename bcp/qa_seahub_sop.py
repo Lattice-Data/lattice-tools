@@ -47,8 +47,11 @@ Design notes
 * ``scope`` controls how far a fact reaches, and therefore how it dedupes:
   ``object`` stays per object, ``stem`` collapses per well, ``folder``
   collapses per sublibrary directory across every wafer and well beneath it,
-  and ``upload`` collapses to one row for the whole listing, since the bucket
-  and project are the same fact however many wells sit under them.
+  ``suffix`` collapses per distinct unrecognised extension, and ``upload``
+  collapses to one row for the whole listing, since the bucket and project are
+  the same fact however many wells sit under them.  The authoritative list is
+  :data:`qa_constants.SEAHUB_VIOLATION_SCOPES`; no count is written down here,
+  because the last one went stale the moment ``suffix`` was added.
 * There is no ``bad_ug`` or ``bad_barcode`` rule.  Both stem patterns pin
   ``(?P<ug>Z\\d{4})`` and ``(?P<barcode>[ACGT]+)$``, so reaching such a rule
   would already guarantee it passes; a malformed token fails both patterns and
@@ -112,9 +115,10 @@ class SopViolation:
 
     ``scope`` says how widely the fact applies and drives dedup when reporting:
     ``object`` for a rule about one S3 object, ``stem`` for one about a well,
-    ``folder`` for one about a whole sublibrary directory, and ``upload`` for one
-    about the bucket or project, which is the same fact however many wells sit
-    under it.  A folder or upload defect reported per object would bury every
+    ``folder`` for one about a whole sublibrary directory, ``suffix`` for one
+    about a distinct unrecognised extension, and ``upload`` for one about the
+    bucket or project, which is the same fact however many wells sit under it.
+    A folder, suffix or upload defect reported per object would bury every
     other finding beneath it.
     """
 
@@ -631,11 +635,12 @@ def validate_seahub_stems(
 ) -> list[SopViolation]:
     """Validate a listing, reporting one row per distinct fact.
 
-    Four scopes collapse differently: ``object`` rules stay per object, ``stem``
+    The scopes collapse differently: ``object`` rules stay per object, ``stem``
     rules collapse to one row per well, ``folder`` rules collapse to one row per
     sublibrary directory -- deliberately ignoring the wafer, since a truncated
     folder name is one fact about a sublibrary however many wafers and wells sit
-    beneath it -- and ``upload`` rules collapse to one row for the whole listing.
+    beneath it -- ``suffix`` rules collapse to one row per distinct unrecognised
+    extension, and ``upload`` rules collapse to one row for the whole listing.
     Without that, REF3's seven truncated folders would report as several hundred
     rows, and a single wrong bucket would report once per well, either of which
     buries everything else.

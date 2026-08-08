@@ -23,7 +23,8 @@ import re
 from qa_mods import (
     QARunContext,
     finalize_merged_wafer_stats,
-    grab_seahub_trim_fail_csv,
+    apply_seahub_trim_fail_blocks,
+    parse_seahub_trim_fail_csv,
     grab_trimmer_stats,
     grab_trimmer_failure_codes_wafer_metrics,
     ingest_merged_trimmer_from_s3,
@@ -902,15 +903,22 @@ class QADataGatherer:
             local = tf.name
         try:
             self.s3.download_file(self.bucket, rf, local)
-            grab_seahub_trim_fail_csv(
+            # Parsed once, applied twice. Calling the combined helper for each
+            # distribution read_csv'd the same file twice, on an upload that has
+            # one of these per well.
+            blocks = parse_seahub_trim_fail_csv(
+                local, warnings=self._data.gathering_warnings
+            )
+            apply_seahub_trim_fail_blocks(
+                blocks,
                 self._data.trimmer_failure_stats,
                 storage_key,
-                local,
-                warnings=self._data.gathering_warnings,
                 fail_counts=self._data.seahub_fail_counts,
                 stem_key=stem_key,
             )
-            grab_seahub_trim_fail_csv(self._data.group_failure_stats, group_key, local)
+            apply_seahub_trim_fail_blocks(
+                blocks, self._data.group_failure_stats, group_key
+            )
         finally:
             Path(local).unlink(missing_ok=True)
 

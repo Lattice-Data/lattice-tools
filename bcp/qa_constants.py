@@ -334,7 +334,9 @@ SEAHUB_BARE_OPTIONAL: tuple[str, ...] = tuple(
 )
 
 # Suffixes that carry per-well trimmer failure counts, in either family.
-SEAHUB_FAIL_SUFFIXES: tuple[str, ...] = (".trim_fail.csv", "_fail.csv")
+# One entry, not two: ".trim_fail.csv" ends with "_fail.csv", so under the
+# endswith test that reads this it was never doing any work.
+SEAHUB_FAIL_SUFFIXES: tuple[str, ...] = ("_fail.csv",)
 
 # fastq_log bucket for wells whose filename omits the sublibrary type, so they
 # stay visible in per-sublibrary counts instead of dropping out.  The missing

@@ -404,8 +404,10 @@ def build_rename_mapping(
                 }
             )
 
+    # The rows + compliant == total invariant is asserted by
+    # test_every_object_is_accounted_for, not here: an assert in a
+    # notebook library can only turn a reported finding into a dead kernel.
     mapping.rows = sorted(rows, key=lambda r: r["current_s3_uri"])
-    assert len(mapping.rows) + mapping.compliant_objects == mapping.total_objects
     return mapping
 
 

@@ -529,6 +529,80 @@ class TestSeahubGatherShallowObjects:
         )
 
 
+class TestSeahubTrimFailIsParsedOnce:
+    """Each per-well fail CSV is read from disk once, not once per distribution.
+
+    The counts feed two distributions -- wafer-level and sublibrary-level -- and
+    the gatherer used to call the combined parse-and-apply helper for each,
+    reading the same downloaded file twice. On an upload with one of these per
+    well that is one wasted parse per well.
+    """
+
+    def test_one_read_csv_per_downloaded_file(self, monkeypatch):
+        import qa_mods
+
+        reads: list[str] = []
+        real_read_csv = qa_mods.pd.read_csv
+
+        def counting_read_csv(path, *args, **kwargs):
+            reads.append(str(path))
+            return real_read_csv(path, *args, **kwargs)
+
+        monkeypatch.setattr(qa_mods.pd, "read_csv", counting_read_csv)
+
+        ctx = _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj="labalpha-seahub-bcp",
+            order="REF3",
+            listing_prefix="labalpha-seahub-bcp/REF3/",
+        )
+        s3 = MockS3Client(
+            keys=[SEAHUB_KEY_CRAM, SEAHUB_KEY_FAIL],
+            file_contents={SEAHUB_KEY_FAIL: open(SEAHUB_TRIM_FAIL).read()},
+        )
+        data = gather_qa_data(ctx, s3)
+
+        assert len(reads) == 1
+        # and both distributions still got the numbers
+        assert data.trimmer_failure_stats["430479"]["trimmer_fail"]
+        assert data.group_failure_stats["REF3/P05_1"]["trimmer_fail"]
+
+    def test_both_distributions_match_the_single_parse(self):
+        """Splitting parse from apply must not change either result."""
+        from qa_mods import (
+            apply_seahub_trim_fail_blocks,
+            grab_seahub_trim_fail_csv,
+            parse_seahub_trim_fail_csv,
+        )
+
+        combined: dict = {}
+        grab_seahub_trim_fail_csv(combined, "w1", SEAHUB_TRIM_FAIL)
+
+        split: dict = {}
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL), split, "w1"
+        )
+
+        assert split == combined
+
+    def test_fail_counts_survive_the_split(self):
+        from qa_mods import apply_seahub_trim_fail_blocks, parse_seahub_trim_fail_csv
+
+        counts: dict = {}
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL),
+            {},
+            "w1",
+            fail_counts=counts,
+            stem_key="stem1",
+        )
+
+        assert set(counts["stem1"]) == {"JumboSciHash", "JumboSciGEX"}
+        assert counts["stem1"]["JumboSciGEX"]["total"] == 158233602
+
+
 class TestSeahubListingTruncation:
     """A listing cut short at 1000 entries must say so.
 

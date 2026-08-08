@@ -1018,43 +1018,87 @@ def grab_seahub_trim_fail_csv(
     different totals for the same well, and failure rows are largely shared
     between them, so any single figure would be an invention.
     """
-    if exp not in trimmer_failure_stats:
-        trimmer_failure_stats[exp] = {"rsq": [], "trimmer_fail": []}
+    apply_seahub_trim_fail_blocks(
+        parse_seahub_trim_fail_csv(csv_path, warnings=warnings),
+        trimmer_failure_stats,
+        exp,
+        fail_counts=fail_counts,
+        stem_key=stem_key,
+    )
+
+
+def parse_seahub_trim_fail_csv(
+    csv_path: str | Path, warnings: list[str] | None = None
+) -> list[dict]:
+    """Read one per-well trim failure CSV into per-format blocks.
+
+    Split out from :func:`grab_seahub_trim_fail_csv` so the gatherer can read a
+    file once and apply it to both the wafer-level and the sublibrary-level
+    distributions.  It used to call the combined function twice on the same
+    downloaded path, parsing every CSV twice -- once per well, on an upload with
+    one of these per well.
+    """
     stats_df = pd.read_csv(csv_path)
     stats_df.columns = stats_df.columns.str.replace(" ", "_")
     required = {"format", "reason", "failed_read_count", "total_read_count"}
     if not required.issubset(stats_df.columns):
-        return
+        return []
     stats_df["failed_read_count"] = pd.to_numeric(
         stats_df["failed_read_count"], errors="coerce"
     )
     stats_df["total_read_count"] = pd.to_numeric(
         stats_df["total_read_count"], errors="coerce"
     )
-    for _fmt, block in stats_df.groupby("format", sort=False):
+
+    blocks: list[dict] = []
+    for fmt, block in stats_df.groupby("format", sort=False):
         totals = block["total_read_count"].dropna()
         if totals.empty:
             continue
         if warnings is not None and totals.nunique() > 1:
             warnings.append(
-                f"INCONSISTENT TOTAL: {csv_path} format {_fmt!r} has multiple "
+                f"INCONSISTENT TOTAL: {csv_path} format {fmt!r} has multiple "
                 f"total_read_count values {sorted(totals.unique().tolist())}; "
                 f"using {int(totals.iloc[0])}"
             )
         total = int(totals.iloc[0])
         if total <= 0:
             continue
-        rsq_rows = block[block["reason"] == "rsq file"]
-        for row in rsq_rows.itertuples():
-            trimmer_failure_stats[exp]["rsq"].append(
-                100 * row.failed_read_count / total
-            )
         non_rsq = block[block["reason"] != "rsq file"]
-        trimmer_fail = int(non_rsq["failed_read_count"].sum())
-        trimmer_failure_stats[exp]["trimmer_fail"].append(100 * trimmer_fail / total)
+        blocks.append(
+            {
+                "format": str(fmt),
+                "total": total,
+                "trimmer_fail": int(non_rsq["failed_read_count"].sum()),
+                "rsq_failed": [
+                    row.failed_read_count
+                    for row in block[block["reason"] == "rsq file"].itertuples()
+                ],
+            }
+        )
+    return blocks
+
+
+def apply_seahub_trim_fail_blocks(
+    blocks: list[dict],
+    trimmer_failure_stats: dict,
+    exp: str,
+    fail_counts: dict | None = None,
+    stem_key: str | None = None,
+) -> None:
+    """Fold parsed blocks into one distribution, keyed by ``exp``."""
+    if exp not in trimmer_failure_stats:
+        trimmer_failure_stats[exp] = {"rsq": [], "trimmer_fail": []}
+    for block in blocks:
+        total = block["total"]
+        for failed in block["rsq_failed"]:
+            trimmer_failure_stats[exp]["rsq"].append(100 * failed / total)
+        trimmer_failure_stats[exp]["trimmer_fail"].append(
+            100 * block["trimmer_fail"] / total
+        )
         if fail_counts is not None and stem_key is not None:
-            fail_counts.setdefault(stem_key, {})[str(_fmt)] = {
-                "failed": trimmer_fail,
+            fail_counts.setdefault(stem_key, {})[block["format"]] = {
+                "failed": block["trimmer_fail"],
                 "total": total,
             }
 
