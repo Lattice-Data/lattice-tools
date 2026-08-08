@@ -550,6 +550,54 @@ class Test10xCramRawFiles:
         assert extra == []
 
 
+class TestBeginningsStayFolderBlindOutsideSeahub:
+    """Per-directory keying is a seahub_sci rule, and deliberately not general.
+
+    It was tried for every assay on the assumption that a beginning embeds its
+    group and each group owns its raw directory. That is false for `scale`,
+    whose group comes from the key rather than the folder, and for the layouts
+    where ``_gather_group_raw`` unions several run subfolders under one group --
+    sibling folders sharing a beginning would each become a well, and a misfiled
+    object would be reported as a well missing every other artifact instead of
+    as an extra file. These assays have no SOP notion of a well directory to
+    check a path against, which is what makes the rule safe for seahub_sci.
+    """
+
+    ENDINGS = (
+        ".cram",
+        ".cram-metadata.json",
+        ".csv",
+        ".json",
+        "_FlowQ.metric",
+        "_SNVQ.metric",
+        "_trimmer-failure_codes.csv",
+        "_trimmer-stats.csv",
+    )
+    STEM = "439047-G1_GEX-Z0273-BC01"
+
+    def _keys(self, *dirs: str) -> list[str]:
+        return [f"{d}/{self.STEM}{e}" for d in dirs for e in self.ENDINGS]
+
+    def test_one_beginning_under_two_folders_is_still_one_well(self):
+        keys = self._keys("proj/orderA/G1/raw", "proj/orderB/G1/raw")
+
+        all_good, raw_lost, _found = check_expected_raw_files(keys, "10x_cram")
+
+        assert (all_good, raw_lost) == (1, [])
+
+    def test_the_second_folder_is_still_reported_as_extra(self):
+        """Unchanged, and the honest answer: the first folder's well is
+        complete, and nothing here can say whether the second is a duplicate
+        upload or a misfile."""
+        keys = self._keys("proj/orderA/G1/raw", "proj/orderB/G1/raw")
+
+        _good, _lost, raw_found = check_expected_raw_files(keys, "10x_cram")
+        extra = check_extra_raw_files(keys, raw_found, "10x_cram")
+
+        assert all(e.startswith("proj/orderB/") for e in extra)
+        assert len(extra) == len(self.ENDINGS) - 1  # the sidecar is optional
+
+
 class TestCheckExpectedRawFiles:
     """Tests for check_expected_raw_files."""
 

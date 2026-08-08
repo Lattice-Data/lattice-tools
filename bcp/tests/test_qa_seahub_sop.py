@@ -748,6 +748,103 @@ class TestStemGrouping:
         assert groups[0].families == frozenset({"trim", "bare"})
 
 
+class TestCompletenessIsPerFolderNotPerStem:
+    """A stem is unique within a sublibrary folder, not across them.
+
+    ``beginnings`` was keyed on the stem alone while its value carried the
+    folder every expected path is built from, so a well uploaded under two
+    folders kept only the first folder's. The second copy's artifacts matched
+    nothing, never reached ``raw_found``, and check_extra_raw_files takes
+    everything not there -- so two complete wells reported as one complete well
+    plus five unexpected files.
+
+    That upload is already reported: index_trimmed_upload calls it
+    duplicate_trimmed_well and the roll-up calls the well UNKNOWN. The inventory
+    was the one output describing it wrongly rather than differently.
+    """
+
+    STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
+    SUFFIXES = (
+        ".trim.cram",
+        ".trim.csv",
+        ".trim.stderr",
+        ".trim.stdout",
+        ".trim_fail.csv",
+    )
+    DIRS = (
+        "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479",
+        "labalpha-seahub-bcp/REF3/raw/REF3_P05_2/430479",
+    )
+
+    def _keys(self, omit: tuple[str, str] | None = None) -> list[str]:
+        return [
+            f"{d}/{self.STEM}{s}"
+            for d in self.DIRS
+            for s in self.SUFFIXES
+            if (d, s) != omit
+        ]
+
+    def test_both_copies_count_as_complete(self):
+        keys = self._keys()
+
+        all_good, raw_lost, raw_found = check_expected_raw_files(keys, "seahub_sci")
+
+        assert (all_good, raw_lost) == (2, [])
+        assert len(raw_found) == len(keys)
+
+    def test_neither_copy_is_reported_as_extra(self):
+        keys = self._keys()
+
+        _good, _lost, raw_found = check_expected_raw_files(keys, "seahub_sci")
+
+        assert check_extra_raw_files(keys, raw_found, "seahub_sci") == []
+
+    def test_an_incomplete_second_copy_is_reported_missing(self):
+        keys = self._keys(omit=(self.DIRS[1], ".trim.cram"))
+
+        all_good, raw_lost, _found = check_expected_raw_files(keys, "seahub_sci")
+
+        assert all_good == 1
+        assert len(raw_lost) == 1
+        assert raw_lost[0][".trim.cram"] == f"{self.DIRS[1]}/{self.STEM}.trim.cram"
+
+    def test_an_object_outside_a_wafer_folder_is_not_a_well(self):
+        """It belongs to no well, so it stays an extra file and invents nothing.
+
+        The recursive raw/ walk collects wrong-depth objects on purpose so
+        bad_path_depth can see them, and roll_up_wells counts them as
+        unaccounted. Keyed per directory without this gate, such an object
+        became a well of its own: four artifacts reported missing from a folder
+        that must not exist, and the stray itself dropped from the extra list --
+        the only place it should have appeared.
+        """
+        stray = f"{self.DIRS[0]}/reupload/{self.STEM}.trim.cram"
+        keys = [f"{self.DIRS[0]}/{self.STEM}{s}" for s in self.SUFFIXES] + [stray]
+
+        all_good, raw_lost, raw_found = check_expected_raw_files(keys, "seahub_sci")
+
+        assert (all_good, raw_lost) == (1, [])
+        assert check_extra_raw_files(keys, raw_found, "seahub_sci") == [stray]
+
+    def test_a_stray_alone_invents_no_well_either(self):
+        """True before this change only when some other object shared its stem."""
+        stray = f"{self.DIRS[0]}/reupload/{self.STEM}.trim.cram"
+
+        all_good, raw_lost, raw_found = check_expected_raw_files([stray], "seahub_sci")
+
+        assert (all_good, raw_lost) == (0, [])
+        assert check_extra_raw_files([stray], raw_found, "seahub_sci") == [stray]
+
+    def test_the_row_shape_is_unchanged(self):
+        """The folder is in the per-ending paths, so no new column is needed."""
+        keys = self._keys(omit=(self.DIRS[1], ".trim.cram"))
+
+        _good, raw_lost, _found = check_expected_raw_files(keys, "seahub_sci")
+
+        assert set(raw_lost[0]) == {"path", ".trim.cram"}
+        assert raw_lost[0]["path"] == self.STEM
+
+
 class TestFamilyAwareCompleteness:
     def _bare_well(self, stem: str, suffixes: tuple[str, ...]) -> list[str]:
         return [f"{BARE_DIR}/{stem}{suffix}" for suffix in suffixes]

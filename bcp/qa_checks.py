@@ -28,6 +28,7 @@ from qa_mods import (
     is_trimmer_stats_basename,
     make_read_partner,
     parse_raw_filename,
+    parse_seahub_raw_path,
     raw_expected,
     raw_optional,
     resolve_wafer_run_id,
@@ -503,11 +504,41 @@ def check_expected_raw_files(
     ``<beginning>_stats.csv`` is present in ``all_raw_files``; that sibling
     is then added to ``raw_found`` so it is not double-flagged as extra.
     """
-    beginnings: dict[str, dict[str, Any]] = {}
+    # Keyed by (raw_dir, beginning) for seahub_sci, and by the beginning alone
+    # for everything else.
+    #
+    # A SeaHub beginning is unique inside a wafer folder and not across them, and
+    # the value carries the folder every expected path is built from -- so with
+    # one key the second folder's copy of a well kept the *first* folder's
+    # raw_dir and its artifacts matched nothing. Measured on a well uploaded
+    # under two sublibrary folders: two complete wells reported as one complete
+    # well plus five unexpected files, because the second copy's required five
+    # never reached raw_found and check_extra_raw_files takes everything not
+    # there. That upload is already reported as duplicate_trimmed_well, and the
+    # roll-up calls the well UNKNOWN; the inventory was the one output
+    # describing it wrongly rather than merely differently.
+    #
+    # Only for seahub_sci. Per-directory keying was tried for every assay and is
+    # not a no-op: `scale` derives its group from the key rather than the folder,
+    # and _gather_group_raw unions several run subfolders under one group, so
+    # sibling folders sharing a beginning would each become a well. Those layouts
+    # are outside this mode and have no SOP notion of a well directory to check
+    # against.
+    beginnings: dict[Any, dict[str, Any]] = {}
     for fullpath in all_raw_files:
+        raw_dir = "/".join(fullpath.split("/")[:-1])
         if raw_assay == "seahub_sci":
             parsed_stem = seahub_stem_and_family(fullpath.split("/")[-1])
             if parsed_stem is None:
+                continue
+            # An object outside a wafer folder belongs to no well. Registering
+            # one would invent a well at a path that must not exist -- reporting
+            # its other four artifacts as missing from there, and taking the
+            # stray itself out of the extra list, which is the only place it
+            # should appear. The recursive raw/ walk collects these deliberately
+            # so bad_path_depth can see them, and roll_up_wells counts them as
+            # unaccounted for the same reason.
+            if parse_seahub_raw_path(fullpath) is None:
                 continue
             b, _suffix, _family = parsed_stem
             # Completeness asks only whether each of the five artifact *kinds*
@@ -517,11 +548,14 @@ def check_expected_raw_files(
             # whole requirement set, so a complete well could be reported as
             # missing five files that were never meant to exist -- and this path
             # and roll_up_wells disagreed about which five.
-            if b not in beginnings:
-                beginnings[b] = {
-                    "raw_dir": "/".join(fullpath.split("/")[:-1]),
+            beginnings.setdefault(
+                (raw_dir, b),
+                {
+                    "raw_dir": raw_dir,
+                    "beginning": b,
                     "endings": list(raw_expected[raw_assay]),
-                }
+                },
+            )
             continue
 
         parsed = parse_raw_filename(fullpath, raw_assay)
@@ -530,28 +564,32 @@ def check_expected_raw_files(
         run, group, assay, ug, barcode = parsed
         b = f"{run}-{group}_{assay}-{ug}-{barcode}"
         if b not in beginnings:
-            raw_dir = "/".join(fullpath.split("/")[:-1])
             endings = list(raw_expected.get(raw_assay, []))
             if raw_assay == "10x_viral_ORF" and assay == "GEX":
                 endings = list(raw_expected.get("10x", []))
-            beginnings[b] = {"raw_dir": raw_dir, "endings": endings}
+            beginnings[b] = {"raw_dir": raw_dir, "beginning": b, "endings": endings}
 
     all_good = 0
     raw_lost: list[dict[str, Any]] = []
     raw_found: list[str] = []
     raw_found_set = set(all_raw_files)
 
-    for b, v in beginnings.items():
+    for v in beginnings.values():
+        raw_dir, b = v["raw_dir"], v["beginning"]
+        # "path" stays the beginning alone, so the CSV keeps its shape -- but for
+        # seahub_sci it is no longer unique across rows, since two folders can
+        # each contribute one. The per-ending columns hold full paths, which is
+        # what tells those rows apart.
         temp_missing: dict[str, Any] = {"path": b}
         for e in v["endings"]:
-            f = f"{v['raw_dir']}/{b}{e}"
+            f = f"{raw_dir}/{b}{e}"
             # A SeaHub artifact counts under either spelling: the SOP name or the
             # same file with the ".trim" infix dropped. Only the SOP name is
             # reported as missing, since that is what should exist.
             if raw_assay == "seahub_sci" and f not in raw_found_set:
                 bare = SEAHUB_TRIM_TO_BARE_SUFFIX.get(e)
-                if bare and f"{v['raw_dir']}/{b}{bare}" in raw_found_set:
-                    raw_found.append(f"{v['raw_dir']}/{b}{bare}")
+                if bare and f"{raw_dir}/{b}{bare}" in raw_found_set:
+                    raw_found.append(f"{raw_dir}/{b}{bare}")
                     continue
             if f not in raw_found_set:
                 if e.endswith("-metadata.json") and (
