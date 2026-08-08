@@ -131,6 +131,21 @@ def _vendor_sublibrary(group: str) -> str:
     return head if head and SEAHUB_WELL_RE.match(tail) else group
 
 
+def _vendor_sublibrary_and_well(group: str) -> tuple[str, str]:
+    """Split a vendor filename group into ``(sublibrary, well)``.
+
+    ``REF3_P07_1_A3`` gives ``("REF3_P07_1", "A3")``; a group with no trailing
+    well token gives ``(group, "")``. The vendor stem is the only place either
+    appears on that side, since the vendor path carries neither.
+
+    No second well-token check on the way out: :func:`_vendor_sublibrary` only
+    returns a shorter string when the tail already matched, so the trailing
+    segment is a well exactly when there is one.
+    """
+    sublibrary = _vendor_sublibrary(group)
+    return sublibrary, group[len(sublibrary) + 1 :] if group != sublibrary else ""
+
+
 def expected_trimmed_key(
     bucket: str, s3_key: str, source: Any | None = None
 ) -> RenameProposal:
@@ -211,11 +226,7 @@ def expected_trimmed_key(
                 ug=ug,
                 artifact=trim_suffix,
             )
-        folder = _vendor_sublibrary(vendor_group)
-        well = ""
-        vendor_well = vendor_group[len(folder) + 1 :] if vendor_group != folder else ""
-        if SEAHUB_WELL_RE.match(vendor_well):
-            well = vendor_well
+        folder, well = _vendor_sublibrary_and_well(vendor_group)
         defects.append("sublibrary_mismatch")
 
     if well and not SEAHUB_WELL_RE.match(well):
@@ -562,11 +573,35 @@ def roll_up_wells(
         delivered = _delivered_artifacts(well["suffixes"])
         missing = [s for s in required if s not in delivered]
 
+        sublibrary = well["sublibrary"]
+        well_id = next((p.well for p in proposals if p.well), "")
+
         if not well["keys"]:
             verdict = "DATA_GAP"
             detail = "delivered by the vendor but nothing was uploaded for this well"
             if source is not None:
                 detail += f"; the vendor delivered it as {source.cram_key}"
+                # Both come off the uploaded objects everywhere else, and this is
+                # the row that has none. Leaving them blank made the highest
+                # severity verdict the least locatable one: the notebook printed
+                # "wafer 438514 Z0305 ():" and the CSV carried empty cells for
+                # the well an operator most needs to find. The vendor stem names
+                # both, which is the same authority the mismatch repair uses.
+                #
+                # This is the vendor's SOP name for the sublibrary, which is not
+                # always the folder the upload used -- a truncated folder is the
+                # commonest real defect, so an uploaded row can say "P07_1" where
+                # this one says "REF3_P07_1" for the same sublibrary. Documented
+                # in the README and pinned by
+                # test_a_gap_row_names_the_sublibrary_the_vendor_used.
+                group = source.group
+                # index_untrimmed_sources does not normalize a doubled wafer, so
+                # a vendor stem like 438514-438514-REF3_P07_1_A3-... leaves the
+                # second wafer inside the group. Unstripped, that reached the CSV
+                # as sublibrary "438514-REF3_P07_1".
+                if source.wafer and group.startswith(f"{source.wafer}-"):
+                    group = group[len(source.wafer) + 1 :]
+                sublibrary, well_id = _vendor_sublibrary_and_well(group)
         elif not well["parseable"] or len(well["names"]) > 1:
             verdict = "UNKNOWN"
             detail = (
@@ -597,8 +632,8 @@ def roll_up_wells(
                 "verdict": verdict,
                 "wafer": wafer,
                 "ug": ug,
-                "sublibrary": well["sublibrary"],
-                "well": next((p.well for p in proposals if p.well), ""),
+                "sublibrary": sublibrary,
+                "well": well_id,
                 "objects": len(well["keys"]),
                 "missing_artifacts": SEAHUB_RENAME_FIELD_SEP.join(missing),
                 "defects": SEAHUB_RENAME_FIELD_SEP.join(defects),

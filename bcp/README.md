@@ -818,6 +818,10 @@ rather than a rename.
   truncated folder is one row rather than one per well), `suffix` (per distinct unrecognised
   extension) and `upload` (per distinct bucket/project fact, so a wrong bucket is one row rather
   than one per well — on a 288-well upload that is what keeps every other finding visible).
+  `lab_project_mismatch` matches the project against the lab as an exact prefix, not on the first
+  hyphen-separated token: a lab whose name contains a hyphen would otherwise fail against its own
+  project, and being `upload` scope that is one row for the whole listing plus a banner on a
+  correct upload.
   A lab that spells its artifacts something else entirely misspells *every* object, so
   `unexpected_suffix` collapses to one row per extension naming the count, an example and the SOP
   artifacts expected; if nothing at all is recognised, `no_recognized_artifacts` fires once and the
@@ -883,7 +887,13 @@ rather than a rename.
   stem, falling back to the raw one when normalizing makes it unparseable — so the two cannot
   disagree about whether a well was uploaded. A vendor well with *nothing* uploaded is `DATA_GAP` too — the largest gap there
   is, and as `UNKNOWN` it was the only kind the notebook left out of `errors.txt`, which writes
-  `DATA_GAP` rows alone. Its row lists all five required artifacts and names the vendor key. Whether a well is renameable is decided by `RenameProposal.renameable` — the same
+  `DATA_GAP` rows alone. Its row lists all five required artifacts, names the vendor key, and takes
+  its `sublibrary` and `well` off the vendor stem — every other row derives those from the uploaded
+  objects, and this is the row that has none, so they would otherwise be blank on the one verdict an
+  operator most needs to locate. Note the two sources can disagree about the same sublibrary: an
+  uploaded row carries the folder the upload actually used, which for the commonest real defect is
+  truncated (`P07_1`), while a gap row carries the vendor's SOP name for it (`REF3_P07_1`). Filter
+  the CSV on wafer and UG rather than on one spelling of the sublibrary. Whether a well is renameable is decided by `RenameProposal.renameable` — the same
   predicate that decides whether an object gets a destination in the rename CSV — so the two headline
   CSVs cannot contradict each other. Testing the defect *names* against `SEAHUB_RENAMEABLE_SOP_TYPES`
   instead is how they once did: a `sublibrary_mismatch` the vendor delivery had already repaired

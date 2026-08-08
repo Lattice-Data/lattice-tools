@@ -74,6 +74,19 @@ VENDOR_A = SourceEntry(
 )
 
 
+# The fixture's folders as delivered: five truncated, one already SOP-correct.
+# Pinned by value so a mutation that applies the vendor's SOP name to an uploaded
+# row -- rewriting "P05_1" to "REF3_P05_1" -- cannot pass on truthiness.
+UPLOADED_SUBLIBRARIES = {
+    ("436830", "Z0169"): "P05_1",
+    ("436831", "Z0170"): "REF3_P05_2",
+    ("437120", "Z0001"): "P04_1",
+    ("438514", "Z0305"): "P07_1",
+    ("439000", "Z0400"): "P06_1",
+    ("439000", "Z0401"): "P06_1",
+}
+
+
 def _vendor_index():
     s3 = MockS3Client(keys=ref3_vendor_keys())
     return index_untrimmed_sources(
@@ -390,6 +403,106 @@ class TestRollUpWells:
         rollup = roll_up_wells(BUCKET, [], _vendor_index())
 
         assert all("the vendor delivered it as" in r["detail"] for r in rollup.rows)
+
+    def test_a_well_with_nothing_uploaded_is_locatable(self):
+        """sublibrary and well come off the uploaded objects, and there are none.
+
+        Leaving them blank made the highest-severity verdict the least locatable
+        row in the headline CSV -- the notebook printed ``wafer 438514 Z0305 ():``
+        -- so they are read off the vendor stem, which names both.
+        """
+        rollup = roll_up_wells(BUCKET, [], _vendor_index())
+
+        assert rollup.rows
+        for row in rollup.rows:
+            assert row["sublibrary"], row
+
+    @pytest.mark.parametrize(
+        "group,sublibrary,well",
+        [
+            ("REF3_P07_1_A3", "REF3_P07_1", "A3"),
+            ("REF3_P07_1_A10", "REF3_P07_1", "A10"),
+            # No trailing well token: the whole group is the sublibrary, and
+            # there is no well to invent. The labbeta shape does this.
+            ("R100E", "R100E", ""),
+            ("REF3_P07_1", "REF3_P07_1", ""),
+        ],
+    )
+    def test_the_vendor_stem_is_split_the_way_the_rename_splits_it(
+        self, group, sublibrary, well
+    ):
+        source = SourceEntry(
+            wafer="438514",
+            ug="Z0305",
+            barcode="CACACACAACATGAT",
+            group=group,
+            assay="GEX_hash_oligo",
+            cram_key=f"{PROJECT}/{VENDOR_ORDER}/REF3/raw/438514/x.cram",
+        )
+
+        row = roll_up_wells(BUCKET, [], {("438514", "Z0305"): source}).rows[0]
+
+        assert (row["sublibrary"], row["well"]) == (sublibrary, well)
+
+    def test_an_uploaded_well_still_takes_its_names_from_the_upload(self):
+        """The vendor split applies only to the row that has no objects.
+
+        Pinned by value, not truthiness: the fixture's folders are truncated, so
+        a mutation applying the vendor split to every well would quietly rewrite
+        ``P05_1`` to ``REF3_P05_1`` here and still leave every cell non-empty.
+        """
+        rollup = roll_up_wells(BUCKET, ref3_trimmed_keys(), _vendor_index())
+
+        uploaded = {
+            (r["wafer"], r["ug"]): r["sublibrary"] for r in rollup.rows if r["objects"]
+        }
+        assert uploaded == UPLOADED_SUBLIBRARIES
+
+    def test_a_gap_row_names_the_sublibrary_the_vendor_used(self):
+        """The two sources of `sublibrary` can disagree, and that is deliberate.
+
+        An uploaded row carries the folder the upload actually used, which for
+        the commonest real defect is truncated; a gap row has no folder, so it
+        carries the vendor's SOP name for the same sublibrary. Filtering the CSV
+        on one spelling therefore misses the other -- pinned here so the
+        divergence stays a documented property rather than a surprise.
+        """
+        gap = SourceEntry(
+            wafer="438515",
+            ug="Z0306",
+            barcode="CACACACAACATGAA",
+            group="REF3_P07_1_A4",
+            assay="GEX_hash_oligo",
+            cram_key=f"{PROJECT}/{VENDOR_ORDER}/REF3/raw/438515/x.cram",
+        )
+        index = {**_vendor_index(), ("438515", "Z0306"): gap}
+
+        rows = {
+            (r["wafer"], r["ug"]): r["sublibrary"]
+            for r in roll_up_wells(BUCKET, ref3_trimmed_keys(), index).rows
+        }
+
+        assert rows[("438514", "Z0305")] == "P07_1"  # uploaded, truncated folder
+        assert rows[("438515", "Z0306")] == "REF3_P07_1"  # gap, vendor SOP name
+
+    def test_a_doubled_wafer_in_the_vendor_stem_is_not_a_sublibrary(self):
+        """index_untrimmed_sources does not normalize a doubled wafer.
+
+        The second wafer stays inside ``group``, and unstripped it reached the
+        headline CSV as sublibrary ``438514-REF3_P07_1``.
+        """
+        source = SourceEntry(
+            wafer="438514",
+            ug="Z0305",
+            barcode="CACACACAACATGAT",
+            group="438514-REF3_P07_1_A3",
+            assay="GEX_hash_oligo",
+            cram_key=f"{PROJECT}/{VENDOR_ORDER}/REF3/raw/438514/x.cram",
+        )
+
+        row = roll_up_wells(BUCKET, [], {("438514", "Z0305"): source}).rows[0]
+
+        assert (row["sublibrary"], row["well"]) == ("REF3_P07_1", "A3")
 
     def test_no_vendor_index_means_no_such_row(self):
         """The control: these rows exist only because a vendor delivery does."""
