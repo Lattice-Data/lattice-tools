@@ -68,7 +68,6 @@ __all__ = [
     "derive_source_order",
     "finding_row",
     "index_trimmed_upload",
-    "index_untrimmed_source",
     "index_untrimmed_sources",
     "load_source_read_counts",
     "normalize_source_uris",
@@ -545,15 +544,6 @@ def index_untrimmed_sources(
                 )
             )
     return sources
-
-
-def index_untrimmed_source(s3_client: Any, uri: str) -> dict[IdentityKey, SourceEntry]:
-    """Index a single vendor prefix.
-
-    Thin wrapper over :func:`index_untrimmed_sources`, which is what callers
-    should use: it also reports per-prefix coverage and duplicate wells.
-    """
-    return index_untrimmed_sources(s3_client, [uri]).index
 
 
 def load_source_read_counts(

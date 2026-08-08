@@ -17,7 +17,6 @@ from qa_seahub_source import (
     derive_source_experiment,
     derive_source_order,
     index_trimmed_upload,
-    index_untrimmed_source,
     index_untrimmed_sources,
     load_source_read_counts,
     normalize_source_uris,
@@ -115,7 +114,7 @@ class TestIndexUntrimmedSource:
             )
         }
         s3 = MockS3Client(keys=keys, file_contents=contents)
-        index = index_untrimmed_source(s3, SOURCE_URI)
+        index = index_untrimmed_sources(s3, [SOURCE_URI]).index
         load_source_read_counts(s3, index, "czi-novogene")
         assert index[("448642", "Z0001")].read_count == 260527531
 

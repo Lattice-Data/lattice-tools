@@ -23,7 +23,11 @@ from qa_constants import (
 )
 import qa_seahub_sop
 from qa_gather import gather_qa_data
-from qa_mods import grab_seahub_trim_fail_csv, seahub_stem_and_family
+from qa_mods import (
+    apply_seahub_trim_fail_blocks,
+    parse_seahub_trim_fail_csv,
+    seahub_stem_and_family,
+)
 from qa_seahub_sop import (
     group_seahub_keys,
     sop_violation_summary,
@@ -824,8 +828,12 @@ class TestFailCsvSuffixes:
     def test_absolute_counts_recorded_per_format(self):
         stats: dict = {}
         counts: dict = {}
-        grab_seahub_trim_fail_csv(
-            stats, "438514", SEAHUB_TRIM_FAIL, fail_counts=counts, stem_key=BARE_STEM
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL),
+            stats,
+            "438514",
+            fail_counts=counts,
+            stem_key=BARE_STEM,
         )
         assert set(counts[BARE_STEM]) == {"JumboSciHash", "JumboSciGEX"}
         gex = counts[BARE_STEM]["JumboSciGEX"]

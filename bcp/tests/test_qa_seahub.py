@@ -18,10 +18,11 @@ from qa_checks import (
 from qa_gather import gather_qa_data
 from qa_mods import (
     QARunContext,
-    grab_seahub_trim_fail_csv,
+    apply_seahub_trim_fail_blocks,
     normalize_raw_assay,
     parse_raw_filename,
     parse_seahub_raw_path,
+    parse_seahub_trim_fail_csv,
     resolve_qa_run_context,
     seahub_file_stem,
     seahub_trimmer_failure_storage_key,
@@ -138,7 +139,9 @@ class TestSeahubTrimAdapters:
         the shared single-denominator parser summed both modalities' failures
         over one modality's total and produced >100%)."""
         stats: dict = {}
-        grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL), stats, "430479"
+        )
         assert "430479" in stats
         # SeaHub inputs start from RSQ-passing reads -> no RSQ rows.
         assert stats["430479"]["rsq"] == []
@@ -150,7 +153,9 @@ class TestSeahubTrimAdapters:
     def test_grab_seahub_trim_fail_csv_denominator_per_group(self):
         """Each modality's failures divide by its own total read count."""
         stats: dict = {}
-        grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL), stats, "430479"
+        )
         hash_pct, gex_pct = stats["430479"]["trimmer_fail"]
         assert hash_pct == 100 * 157722381 / 260527531
         assert gex_pct == 100 * 100735571 / 158233602
@@ -158,8 +163,12 @@ class TestSeahubTrimAdapters:
     def test_grab_seahub_trim_fail_csv_appends(self):
         """Repeated wells accumulate into the same distribution."""
         stats: dict = {}
-        grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
-        grab_seahub_trim_fail_csv(stats, "430479", SEAHUB_TRIM_FAIL)
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL), stats, "430479"
+        )
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL), stats, "430479"
+        )
         assert len(stats["430479"]["trimmer_fail"]) == 4
 
     def _write_inconsistent_totals_csv(self, tmp_path) -> str:
@@ -178,7 +187,9 @@ class TestSeahubTrimAdapters:
         path = self._write_inconsistent_totals_csv(tmp_path)
         stats: dict = {}
         warnings: list[str] = []
-        grab_seahub_trim_fail_csv(stats, "exp1", path, warnings=warnings)
+        apply_seahub_trim_fail_blocks(
+            parse_seahub_trim_fail_csv(path, warnings=warnings), stats, "exp1"
+        )
         assert len(warnings) == 1
         assert "JumboSciHash" in warnings[0]
         assert "1000" in warnings[0] and "2000" in warnings[0]
@@ -190,7 +201,7 @@ class TestSeahubTrimAdapters:
         not raise, even when totals are inconsistent."""
         path = self._write_inconsistent_totals_csv(tmp_path)
         stats: dict = {}
-        grab_seahub_trim_fail_csv(stats, "exp1", path)
+        apply_seahub_trim_fail_blocks(parse_seahub_trim_fail_csv(path), stats, "exp1")
         assert stats["exp1"]["trimmer_fail"] == [100 * 150 / 1000]
 
 
@@ -569,24 +580,6 @@ class TestSeahubTrimFailIsParsedOnce:
         # and both distributions still got the numbers
         assert data.trimmer_failure_stats["430479"]["trimmer_fail"]
         assert data.group_failure_stats["REF3/P05_1"]["trimmer_fail"]
-
-    def test_both_distributions_match_the_single_parse(self):
-        """Splitting parse from apply must not change either result."""
-        from qa_mods import (
-            apply_seahub_trim_fail_blocks,
-            grab_seahub_trim_fail_csv,
-            parse_seahub_trim_fail_csv,
-        )
-
-        combined: dict = {}
-        grab_seahub_trim_fail_csv(combined, "w1", SEAHUB_TRIM_FAIL)
-
-        split: dict = {}
-        apply_seahub_trim_fail_blocks(
-            parse_seahub_trim_fail_csv(SEAHUB_TRIM_FAIL), split, "w1"
-        )
-
-        assert split == combined
 
     def test_fail_counts_survive_the_split(self):
         from qa_mods import apply_seahub_trim_fail_blocks, parse_seahub_trim_fail_csv

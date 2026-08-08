@@ -60,7 +60,6 @@ __all__ = [
     "PCT_PF_Q30_METRIC",
     "parse_pct_pf_q30_from_text",
     "grab_trimmer_failure_codes_wafer_metrics",
-    "grab_seahub_trim_fail_csv",
     "parse_seahub_raw_path",
     "seahub_file_stem",
     "seahub_stem_and_family",
@@ -984,59 +983,18 @@ def seahub_trimmer_failure_storage_key(s3_key: str) -> tuple[str, str | None]:
     return run_id, run_id
 
 
-def grab_seahub_trim_fail_csv(
-    trimmer_failure_stats: dict,
-    exp: str,
-    csv_path: str | Path,
-    warnings: list[str] | None = None,
-    fail_counts: dict | None = None,
-    stem_key: Any = None,
-) -> None:
-    """
-    Parse a SeaHub per-well trim failure CSV into trimmer-fail fractions.
-
-    Applies to both ``*.trim_fail.csv`` (SOP) and ``*_fail.csv`` (the same
-    artifact delivered without the ``.trim`` infix).
-
-    SeaHub sci-plex trim_fail files interleave multiple ``format`` blocks in a
-    single file (e.g. ``JumboSciHash`` and ``JumboSciGEX``), each carrying its
-    own ``total read count``.  The failure fraction is therefore computed
-    **per format group** so one modality's failures are never divided by another
-    modality's denominator (the shared, single-denominator
-    :func:`grab_trimmer_stats` produced >100% values on these files).  One
-    ``trimmer_fail`` value is appended per format group.
-
-    SeaHub inputs already start from RSQ-passing reads (no RSQ filtering step),
-    so these files are expected to carry no ``reason == 'rsq file'`` rows and
-    the ``rsq`` distribution should stay empty; the loop below is retained
-    defensively in case such a row ever appears.
-
-    When ``fail_counts`` and ``stem_key`` are supplied, absolute per-format
-    ``failed`` / ``total`` counts are recorded under ``fail_counts[stem_key]``
-    for cross-bucket read reconciliation.  Counts are kept per format rather
-    than collapsed into one well-level number: the format blocks declare
-    different totals for the same well, and failure rows are largely shared
-    between them, so any single figure would be an invention.
-    """
-    apply_seahub_trim_fail_blocks(
-        parse_seahub_trim_fail_csv(csv_path, warnings=warnings),
-        trimmer_failure_stats,
-        exp,
-        fail_counts=fail_counts,
-        stem_key=stem_key,
-    )
-
-
 def parse_seahub_trim_fail_csv(
     csv_path: str | Path, warnings: list[str] | None = None
 ) -> list[dict]:
     """Read one per-well trim failure CSV into per-format blocks.
 
-    Split out from :func:`grab_seahub_trim_fail_csv` so the gatherer can read a
-    file once and apply it to both the wafer-level and the sublibrary-level
-    distributions.  It used to call the combined function twice on the same
-    downloaded path, parsing every CSV twice -- once per well, on an upload with
-    one of these per well.
+    Paired with :func:`apply_seahub_trim_fail_blocks`: parsing is separate from
+    applying so the gatherer can read a file once and fold it into both the
+    wafer-level and the sublibrary-level distributions, and so the read can run
+    in a thread while the fold stays ordered and single-threaded.
+
+    Applies to both ``*.trim_fail.csv`` (SOP) and ``*_fail.csv`` (the same
+    artifact delivered without the ``.trim`` infix).
     """
     stats_df = pd.read_csv(csv_path)
     stats_df.columns = stats_df.columns.str.replace(" ", "_")

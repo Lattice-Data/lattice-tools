@@ -930,6 +930,46 @@ def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]
     return names
 
 
+def _identifiers_referenced_by_production(bcp: pathlib.Path, exclude: str) -> set[str]:
+    """Like the above, but blind to ``tests/``.
+
+    A function nothing but a test calls is dead API however thoroughly it is
+    tested. Constants are different -- ``WELL_COLUMNS`` is a CSV contract whose
+    only legitimate reader is the test that pins it -- which is why the two
+    guards below apply different rules rather than one.
+    """
+    names: set[str] = set()
+    for path in bcp.rglob("*.py"):
+        if path.name == exclude or "tests" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Name):
+                names.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                names.add(node.attr)
+            elif isinstance(node, ast.alias):
+                names.add(node.name.split(".")[-1])
+    notebook = bcp / "qa.ipynb"
+    if notebook.exists():
+        for cell in json.loads(notebook.read_text()).get("cells", []):
+            if cell.get("cell_type") != "code":
+                continue
+            source = "".join(cell.get("source", []))
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                names.update(re.findall(r"\b\w+\b", source))
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name):
+                    names.add(node.id)
+                elif isinstance(node, ast.Attribute):
+                    names.add(node.attr)
+                elif isinstance(node, ast.alias):
+                    names.add(node.name.split(".")[-1])
+    return names
+
+
 class TestRuleVocabulary:
     """Makes the closed vocabularies do what their comments claim.
 
@@ -961,6 +1001,44 @@ class TestRuleVocabulary:
         referenced = _identifiers_referenced_outside(bcp, exclude="qa_constants.py")
         unread = sorted(declared - referenced)
         assert unread == [], f"declared but read nowhere: {unread}"
+
+    def test_no_seahub_module_function_is_production_dead(self):
+        """A public function only the tests call is dead API.
+
+        ``grab_seahub_trim_fail_csv`` and ``index_untrimmed_source`` were both
+        thin wrappers with no caller outside the suite, and the constant guards
+        could not see them: one is scoped to constants in ``qa_constants``, and
+        the other counts a test reference as a use, which for a constant it
+        should.
+
+        Scoped to ``qa_seahub_*`` deliberately. ``qa_mods`` carries at least one
+        such function that predates this work, and failing the build on
+        unrelated code would make the guard something to switch off.
+        """
+        bcp = pathlib.Path(qa_seahub_rename.__file__).parent
+        modules = sorted(bcp.glob("qa_seahub_*.py"))
+        assert modules, "no qa_seahub_* modules found"
+
+        unread: list[str] = []
+        for module in modules:
+            tree = ast.parse(module.read_text())
+            public = {
+                node.name
+                for node in tree.body
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and not node.name.startswith("_")
+            }
+            called = {
+                node.id
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            }
+            reachable = _identifiers_referenced_by_production(bcp, module.name)
+            unread += [
+                f"{module.name}:{name}" for name in sorted(public - called - reachable)
+            ]
+
+        assert unread == [], f"public but reachable only from tests: {unread}"
 
     def test_no_seahub_module_constant_is_unread(self):
         """The same guard, for the modules rather than the constants file.
