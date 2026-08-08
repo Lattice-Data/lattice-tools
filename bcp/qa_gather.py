@@ -12,6 +12,7 @@ import json
 import tempfile
 
 import s3fs
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -385,22 +386,39 @@ class QADataGatherer:
     def _append_seahub_missing_metadata_warnings(
         self, cram_stems: dict[str, str], metadata_stems: set[str]
     ) -> None:
-        """Warn for each CRAM lacking its metadata sidecar.
+        """Warn once for the CRAMs lacking their metadata sidecar.
 
         The metadata sidecar is classified as optional (its absence is not a
         hard inventory failure), but a missing sidecar means read-count QA
         cannot run for that well, so surface it as an informational warning.
 
-        ``cram_stems`` carries the suffix each well was delivered with, so a
-        bare-family well is told about ``.cram`` / ``.cram-metadata.json``
-        rather than about ``.trim.*`` files it never had.
+        One warning, not one per well. CZI generates these sidecars for the
+        whole upload, so when they are absent they are absent for every well at
+        once: the per-well form printed 336 identical lines on REF3 and 864 on
+        GENE7, which is the "one fact reported N times" the SOP ``scope``
+        machinery exists to prevent.
+
+        ``cram_stems`` carries the suffix each well was delivered with, so the
+        examples name ``.cram`` / ``.cram-metadata.json`` for a bare-family well
+        rather than ``.trim.*`` files it never had. Both spellings can appear in
+        one upload, so the count is broken down by suffix.
         """
-        for stem_key in sorted(set(cram_stems) - metadata_stems):
-            suffix = cram_stems[stem_key]
-            self._data.gathering_warnings.append(
-                f"METADATA MISSING: {stem_key}{suffix} has no matching "
-                f"{suffix}-metadata.json sidecar"
-            )
+        missing = sorted(set(cram_stems) - metadata_stems)
+        if not missing:
+            return
+        by_suffix = Counter(cram_stems[stem] for stem in missing)
+        breakdown = ", ".join(
+            f"{count}x {suffix}-metadata.json"
+            for suffix, count in sorted(by_suffix.items())
+        )
+        examples = "; ".join(f"{stem}{cram_stems[stem]}" for stem in missing[:2])
+        if len(missing) > 2:
+            examples += f"; and {len(missing) - 2} more"
+        self._data.gathering_warnings.append(
+            f"METADATA MISSING: {len(missing)} CRAM(s) have no matching "
+            f"metadata sidecar ({breakdown}); read-count QA cannot run for "
+            f"them: {examples}"
+        )
 
     # ------------------------------------------------------------------
     # S3 mode — raw files

@@ -804,6 +804,10 @@ rather than a rename.
   stray bare sidecar was complete to `roll_up_wells` and missing five files to
   `check_expected_raw_files`. A genuinely absent artifact is still reported, under its SOP name
   whichever spelling the upload used.
+  A CRAM whose `.cram-metadata.json` sidecar is absent is reported too, since read-count QA cannot
+  run without it — as one warning naming the count and two examples, broken down by delivered
+  spelling, not one per well. CZI generates these sidecars for the upload as a whole, so absence is
+  an upload-wide fact; the per-well form printed 336 lines on REF3 and 864 on GENE7.
 - **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at five
   scopes: `object` (per object), `stem` (per well), `folder` (per sublibrary directory, so one
   truncated folder is one row rather than one per well), `suffix` (per distinct unrecognised

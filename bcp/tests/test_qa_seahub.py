@@ -340,10 +340,7 @@ class TestSeahubGather:
             **kwargs,
         )
 
-    def test_missing_metadata_json_warns(self):
-        """Each .trim.cram lacking a .trim.cram-metadata.json sidecar warns."""
-        manifest = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")
-        ctx = self._manifest_ctx(manifest)
+    def _missing_metadata_warnings(self, ctx) -> list[str]:
         file_contents = {
             k: open(SEAHUB_TRIM_FAIL).read()
             for k in (
@@ -353,13 +350,69 @@ class TestSeahubGather:
                 "430479-REF3_P05_1_A2_GEX_hash_oligo-Z0105-CATGGCGCAGTGCTGAT.trim_fail.csv",
             )
         }
-        s3 = MockS3Client(file_contents=file_contents)
-        data = gather_qa_data(ctx, s3)
-        missing = [
+        data = gather_qa_data(ctx, MockS3Client(file_contents=file_contents))
+        return [w for w in data.gathering_warnings if w.startswith("METADATA MISSING")]
+
+    def test_missing_metadata_json_warns_once_with_a_count(self):
+        """One warning for the whole upload, not one per CRAM.
+
+        CZI generates these sidecars for the upload as a whole, so absence is an
+        upload-wide fact: the per-well form printed 336 identical lines on REF3
+        and 864 on GENE7, burying every other warning.
+        """
+        manifest = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")
+        warnings = self._missing_metadata_warnings(self._manifest_ctx(manifest))
+
+        assert len(warnings) == 1
+        assert "2 CRAM(s) have no matching metadata sidecar" in warnings[0]
+
+    def test_missing_metadata_warning_names_the_delivered_spelling(self):
+        """A bare-family well must not be told about .trim.* files it never had."""
+        manifest = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")
+        warnings = self._missing_metadata_warnings(self._manifest_ctx(manifest))
+
+        assert "2x .trim.cram-metadata.json" in warnings[0]
+        assert ".trim.cram" in warnings[0]
+
+    def test_missing_metadata_warning_carries_examples(self):
+        manifest = os.path.join(QA_FIXTURES_DIR, "seahub_s3_listing.tsv")
+        warnings = self._missing_metadata_warnings(self._manifest_ctx(manifest))
+
+        assert (
+            "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT" in (warnings[0])
+        )
+        # Two examples is the cap; with only two missing there is no "more".
+        assert "more" not in warnings[0]
+
+    def test_many_missing_sidecars_are_still_one_warning(self, tmp_path):
+        """The case that motivated this: a whole plate with no sidecars."""
+        base = "labalpha-seahub-bcp/REF3/raw/P05_1/430479"
+        keys = [
+            f"{base}/430479-REF3_P05_1_A{i}_GEX_hash_oligo-Z{i:04d}-CAGTCAGTTGCAGAT{s}"
+            for i in range(1, 21)
+            for s in (".trim.cram", ".trim.csv", ".trim.stderr", ".trim.stdout")
+        ]
+        manifest = tmp_path / "listing.tsv"
+        manifest.write_text(
+            "S3_Full_Path\n" + "".join(f"s3://czi-labalpha/{k}\n" for k in keys)
+        )
+        ctx = resolve_qa_run_context(
+            data_source="manifest",
+            raw_assay="seahub_sci",
+            manifest_path=str(manifest),
+            manifest_delimiter="\t",
+            manifest_s3_column=0,
+            manifest_has_header=True,
+            run_label="REF3",
+        )
+        data = gather_qa_data(ctx, MockS3Client())
+        warnings = [
             w for w in data.gathering_warnings if w.startswith("METADATA MISSING")
         ]
-        assert len(missing) == 2
-        assert all(".trim.cram-metadata.json" in w for w in missing)
+
+        assert len(warnings) == 1
+        assert "20 CRAM(s)" in warnings[0]
+        assert "and 18 more" in warnings[0]
 
     def test_present_metadata_json_no_warn(self):
         """A .trim.cram with its .trim.cram-metadata.json sidecar does not warn."""
