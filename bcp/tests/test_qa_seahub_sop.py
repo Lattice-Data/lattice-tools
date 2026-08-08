@@ -22,6 +22,7 @@ from qa_mods import grab_seahub_trim_fail_csv, seahub_stem_and_family
 from qa_seahub_sop import (
     group_seahub_keys,
     sop_violation_summary,
+    unrecognized_suffix,
     validate_seahub_key,
     validate_seahub_stems,
 )
@@ -83,6 +84,105 @@ class TestStemFamily:
 
     def test_unknown_suffix(self):
         assert seahub_stem_and_family("index.html") is None
+
+    def test_a_bare_suffix_needs_a_stem_that_parses(self):
+        """Measured on a real 480-well upload that reported as 960 wells.
+
+        ``.csv`` is generic, so ``<well>.trimmer_stats.csv`` matched the bare
+        family and left ``<well>.trimmer_stats`` as a stem -- a second, phantom
+        well alongside ``<well>.failure_codes``.
+        """
+        assert seahub_stem_and_family(f"{TRIM_STEM}.trimmer_stats.csv") is None
+        assert seahub_stem_and_family(f"{TRIM_STEM}.failure_codes.csv") is None
+
+    def test_a_doubled_wafer_bare_stem_still_parses(self):
+        """The guard must not reject the real bare family it exists to support."""
+        assert seahub_stem_and_family(f"{BARE_STEM}.cram") is not None
+
+    def test_the_trim_family_is_not_gated(self):
+        """`.trim.*` is distinctive, so a malformed stem stays a stem defect."""
+        assert seahub_stem_and_family("not-a-seahub-name.trim.cram") == (
+            "not-a-seahub-name",
+            ".trim.cram",
+            "trim",
+        )
+
+
+class TestUnrecognizedSuffix:
+    def test_reads_the_extension_after_the_barcode(self):
+        assert unrecognized_suffix(f"{TRIM_STEM}.trimmed.ucram") == ".trimmed.ucram"
+
+    def test_a_name_with_no_hyphen_falls_back_to_the_first_dot(self):
+        assert unrecognized_suffix("index.html") == ".html"
+
+    def test_a_name_with_no_dot_reports_empty(self):
+        assert unrecognized_suffix("436516") == ""
+
+
+class TestUnknownSuffixReporting:
+    """An upload that misspells its artifacts misspells every one of them."""
+
+    def _keys(self, suffix, count):
+        return [
+            f"{TRIM_DIR}/430479-REF3_P05_1_A{i}_GEX_hash_oligo"
+            f"-Z{i:04d}-CAGTCAGTTGCAGAT{suffix}"
+            for i in range(1, count + 1)
+        ]
+
+    def test_one_row_per_distinct_suffix_not_per_object(self):
+        keys = self._keys(".trimmed.ucram", 20)
+
+        summary = sop_violation_summary(validate_seahub_stems("czi-labalpha", keys))
+
+        assert summary["unexpected_suffix"] == 1
+
+    def test_the_row_names_the_spelling_the_count_and_the_sop_artifacts(self):
+        keys = self._keys(".trimmed.ucram", 20)
+
+        row = next(
+            v
+            for v in validate_seahub_stems("czi-labalpha", keys)
+            if v.type == "unexpected_suffix"
+        )
+
+        assert row.scope == "suffix"
+        assert "20 object(s)" in row.detail
+        assert "'.trimmed.ucram'" in row.detail
+        assert ".trim.cram" in row.detail
+
+    def test_distinct_spellings_report_separately(self):
+        keys = self._keys(".trimmed.ucram", 5) + self._keys(".trimmer_stats.csv", 5)
+
+        rows = [
+            v
+            for v in validate_seahub_stems("czi-labalpha", keys)
+            if v.type == "unexpected_suffix"
+        ]
+
+        assert len(rows) == 2
+
+    def test_an_upload_with_no_recognizable_artifact_fails_loudly(self):
+        keys = self._keys(".trimmed.ucram", 5)
+
+        rows = [
+            v
+            for v in validate_seahub_stems("czi-labalpha", keys)
+            if v.type == "no_recognized_artifacts"
+        ]
+
+        assert len(rows) == 1
+        assert rows[0].scope == "upload"
+        assert "no well could be identified" in rows[0].detail
+
+    def test_it_does_not_fire_when_some_artifact_is_recognized(self):
+        keys = self._keys(".trimmed.ucram", 5) + [f"{TRIM_DIR}/{TRIM_STEM}.trim.cram"]
+
+        summary = sop_violation_summary(validate_seahub_stems("czi-labalpha", keys))
+
+        assert "no_recognized_artifacts" not in summary
+
+    def test_an_empty_listing_is_not_a_failure(self):
+        assert validate_seahub_stems("czi-labalpha", []) == []
 
 
 class TestKnownGoodNamesAreClean:

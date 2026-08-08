@@ -386,7 +386,7 @@ SEAHUB_NON_SEQ_NAME_RES = (re.compile(r"^objects_list[-_.].*\.txt$"),)
 
 # How widely one violation applies, which drives dedup when reporting.  A folder
 # defect is one fact about a sublibrary, not one fact per object beneath it.
-SEAHUB_VIOLATION_SCOPES = ("object", "stem", "folder", "upload")
+SEAHUB_VIOLATION_SCOPES = ("object", "stem", "folder", "suffix", "upload")
 
 # The closed set of SOP rule names.  Kept explicit so a typo in a new rule shows
 # up as a test failure rather than as a silently missing category.
@@ -396,6 +396,7 @@ SEAHUB_SOP_RULES = frozenset(
         "lab_project_mismatch",
         "bad_path_depth",
         "unexpected_suffix",
+        "no_recognized_artifacts",
         "non_sequencing_artifact",
         "missing_trim_infix",
         "duplicated_wafer_token",

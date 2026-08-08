@@ -886,6 +886,16 @@ def seahub_stem_and_family(filename: str) -> tuple[str, str, str] | None:
     completeness run against what was actually delivered, so a genuinely
     absent CRAM is reported rather than the whole well silently dropping out.
 
+    A bare suffix is only accepted when what precedes it parses as a stem.
+    ``.csv``, ``.stdout`` and ``.stderr`` are generic enough to match names
+    that are not SeaHub artifacts at all: an upload naming its artifacts
+    ``<well>.trimmer_stats.csv`` and ``<well>.failure_codes.csv`` otherwise
+    yields the two *distinct* stems ``<well>.trimmer_stats`` and
+    ``<well>.failure_codes``, doubling the well count -- measured at 960 wells
+    for a real 480-well upload.  The ``.trim.*`` suffixes need no such guard,
+    being distinctive enough that a match is never accidental, and gating them
+    too would hide a genuinely malformed stem behind an unknown-suffix report.
+
     Returns ``None`` for names in neither family (run reports, browser junk).
     """
     name = filename.split("/")[-1]
@@ -894,7 +904,9 @@ def seahub_stem_and_family(filename: str) -> tuple[str, str, str] | None:
             return name[: -len(suffix)], suffix, "trim"
     for suffix in SEAHUB_BARE_SUFFIXES:
         if name.endswith(suffix):
-            return name[: -len(suffix)], suffix, "bare"
+            stem = name[: -len(suffix)]
+            if SEAHUB_STEM_RE.match(stem) or SEAHUB_STEM_NO_TYPE_RE.match(stem):
+                return stem, suffix, "bare"
     return None
 
 

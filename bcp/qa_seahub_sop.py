@@ -72,6 +72,7 @@ from qa_constants import (
     SEAHUB_STEM_RE,
     SEAHUB_SUBLIBRARY_TYPES,
     SEAHUB_WELL_RE,
+    raw_expected,
 )
 from qa_mods import parse_seahub_raw_path, seahub_stem_and_family
 
@@ -84,6 +85,7 @@ __all__ = [
     "normalize_doubled_wafer",
     "seahub_group_parts",
     "sop_violation_summary",
+    "unrecognized_suffix",
     "validate_seahub_group",
     "validate_seahub_key",
     "validate_seahub_stems",
@@ -683,7 +685,78 @@ def validate_seahub_stems(
                     continue
                 seen_folder_facts.add(fingerprint)
             violations.append(violation)
-    return violations
+    return _collapse_unknown_suffixes(violations, s3_keys)
+
+
+def unrecognized_suffix(basename: str) -> str:
+    """The trailing extension of a name that matched no artifact suffix.
+
+    Reported so a submitter is told *which* spelling was used rather than being
+    handed one row per object. A SeaHub stem ends in ``-{barcode}``, so the
+    extension is everything from the first dot after the final hyphen; names
+    with no hyphen fall back to the first dot, and names with no dot at all
+    report as empty.
+    """
+    tail = basename.rsplit("-", 1)[-1]
+    dot = tail.find(".")
+    if dot >= 0:
+        return tail[dot:]
+    dot = basename.find(".")
+    return basename[dot:] if dot >= 0 else ""
+
+
+def _collapse_unknown_suffixes(
+    violations: list[SopViolation], s3_keys: list[str]
+) -> list[SopViolation]:
+    """One row per distinct unknown suffix, plus a headline if none are known.
+
+    An upload that misspells its artifacts misspells every one of them, so
+    ``unexpected_suffix`` per object is one row per object -- 480 identical rows
+    on a real upload, which buries the finding it is trying to report. Collapse
+    to one row naming the spelling, its count and an example, which is what a
+    submitter needs in order to fix it.
+    """
+    collapsed: list[SopViolation] = []
+    by_suffix: dict[str, list[SopViolation]] = {}
+    for violation in violations:
+        if violation.type != "unexpected_suffix":
+            collapsed.append(violation)
+            continue
+        suffix = unrecognized_suffix(violation.s3_path.rsplit("/", 1)[-1])
+        by_suffix.setdefault(suffix, []).append(violation)
+
+    expected = ", ".join(raw_expected["seahub_sci"])
+    for suffix, group in sorted(by_suffix.items()):
+        shown = suffix or "(no extension)"
+        collapsed.append(
+            SopViolation(
+                type="unexpected_suffix",
+                s3_path=group[0].s3_path,
+                detail=(
+                    f"{len(group)} object(s) end in {shown!r}, which is not a "
+                    f"SeaHub artifact suffix; the SOP artifacts are {expected}. "
+                    f"Example: {group[0].s3_path}"
+                ),
+                scope="suffix",
+            )
+        )
+
+    if s3_keys and not any(
+        seahub_stem_and_family(key.rsplit("/", 1)[-1]) for key in s3_keys
+    ):
+        collapsed.append(
+            SopViolation(
+                type="no_recognized_artifacts",
+                s3_path=f"{len(s3_keys)} object(s)",
+                detail=(
+                    f"none of the {len(s3_keys)} object(s) in this upload end in a "
+                    f"SeaHub artifact suffix ({expected}), so no well could be "
+                    "identified and no completeness or trimming check could run"
+                ),
+                scope="upload",
+            )
+        )
+    return collapsed
 
 
 def sop_violation_summary(violations: list[SopViolation]) -> dict[str, int]:

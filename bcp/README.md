@@ -785,11 +785,18 @@ rather than a rename.
   completeness is checked within the family that was delivered, so an artifact genuinely absent from
   the upload lands in `*_raw_missing.csv` instead of being lost among thousands of identical
   "missing `.trim.*`" rows.
-- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at four
+- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at five
   scopes: `object` (per object), `stem` (per well), `folder` (per sublibrary directory, so one
-  truncated folder is one row rather than one per well) and `upload` (per distinct bucket/project
-  fact, so a wrong bucket is one row rather than one per well — on a 288-well upload that is what
-  keeps every other finding visible). Rules cover wrong bucket or project, wrong
+  truncated folder is one row rather than one per well), `suffix` (per distinct unrecognised
+  extension) and `upload` (per distinct bucket/project fact, so a wrong bucket is one row rather
+  than one per well — on a 288-well upload that is what keeps every other finding visible).
+  A lab that spells its artifacts something else entirely misspells *every* object, so
+  `unexpected_suffix` collapses to one row per extension naming the count, an example and the SOP
+  artifacts expected; if nothing at all is recognised, `no_recognized_artifacts` fires once and the
+  notebook prints a FAIL banner, since no well can be identified and every table below would
+  otherwise be empty and read as clean. A bare suffix is only accepted when the stem before it
+  parses — `.csv` is generic enough that `<well>.trimmer_stats.csv` otherwise becomes its own well,
+  which turned one real 480-well upload into 960. Rules cover wrong bucket or project, wrong
   path depth, missing `.trim` infix, a doubled leading wafer token (`duplicated_wafer_token`), a
   truncated sublibrary folder (`sublibrary_folder_truncated`), bulk-download leftovers
   (`non_sequencing_artifact`), sublibrary or wafer disagreement, a bad well token, and a missing
