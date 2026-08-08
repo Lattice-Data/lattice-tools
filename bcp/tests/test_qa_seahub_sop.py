@@ -369,6 +369,63 @@ class TestFilenameRules:
         )
 
 
+class TestRepeatedTokenIsScopedToTheSublibrary:
+    """The rule looks at the group slot, after the stem has matched.
+
+    Splitting the whole stem on both ``-`` and ``_`` into one flat bag put the
+    sublibrary type in the same bag as the sublibrary name, so a sublibrary whose
+    name legitimately contains a type token collided with the type itself.
+    """
+
+    def _key(self, sublibrary: str, stem: str) -> str:
+        return f"labalpha-seahub-bcp/REF3/raw/{sublibrary}/438514/{stem}.trim.cram"
+
+    def test_a_type_token_inside_the_sublibrary_name_is_not_a_repeat(self):
+        """The false positive: SOP-clean but for a rule with no real catch.
+
+        Via the rename self-check this withheld the proposal and flipped the well
+        to UNKNOWN -- for a whole sublibrary at once, with no filename the tool
+        would have accepted.
+        """
+        key = self._key(
+            "REF3_GEX_P01",
+            "438514-REF3_GEX_P01_A3_GEX_hash_oligo-Z0305-CACACACAACATGAT",
+        )
+
+        assert _types(validate_seahub_key("czi-labalpha", key)) == set()
+
+    def test_a_genuine_repeat_inside_the_sublibrary_still_fires(self):
+        """Narrowed, not deleted: a repeat within the group is a real error."""
+        key = self._key(
+            "REF3_P01_P01",
+            "438514-REF3_P01_P01_GEX_hash_oligo-Z0305-CACACACAACATGAT",
+        )
+
+        violations = validate_seahub_key("czi-labalpha", key)
+
+        assert "repeated_token" in _types(violations)
+        row = next(v for v in violations if v.type == "repeated_token")
+        assert "P01" in row.detail
+
+    def test_a_repeated_wafer_belongs_to_its_own_rule(self):
+        """Not double-reported: the wafer head is duplicated_wafer_token's."""
+        key = self._key(
+            "REF3_P01",
+            "438514-438514-REF3_P01_GEX_hash_oligo-Z0305-CACACACAACATGAT",
+        )
+
+        types = _types(validate_seahub_key("czi-labalpha", key))
+
+        assert "duplicated_wafer_token" in types
+        assert "repeated_token" not in types
+
+    def test_an_unparseable_stem_reports_only_that(self):
+        """No slots to compare, so the rule cannot run and does not guess."""
+        key = self._key("REF3_P01", "not-a-sop-stem-at-all")
+
+        assert "repeated_token" not in _types(validate_seahub_key("czi-labalpha", key))
+
+
 class TestMalformedUgAndBarcode:
     """No bad_ug / bad_barcode rule: both stem patterns already pin the tokens.
 

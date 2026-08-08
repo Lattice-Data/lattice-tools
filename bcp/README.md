@@ -828,7 +828,10 @@ rather than a rename.
   path depth, missing `.trim` infix, a doubled leading wafer token (`duplicated_wafer_token`), a
   truncated sublibrary folder (`sublibrary_folder_truncated`), bulk-download leftovers
   (`non_sequencing_artifact`), sublibrary or wafer disagreement, a bad well token, and a missing
-  sublibrary type. `expected_name` carries the corrected basename repairing that rule alone, and
+  sublibrary type. `repeated_token` looks only inside the sublibrary/well portion of a matched stem:
+  bagging the whole name put the type token beside the sublibrary name, so a sublibrary legitimately
+  called `REF3_GEX_P01` under type `GEX_hash_oligo` reported a repeat on an otherwise clean name —
+  and through the rename gate that flipped a whole sublibrary to `UNKNOWN`. `expected_name` carries the corrected basename repairing that rule alone, and
   `expected_folder` the corrected path segment. A folder/filename disagreement is blamed on the
   **folder** when the filename says `{ExperimentID}_{folder}`, because the vendor delivery is the
   source of truth for the sublibrary name. Given `untrimmed_s3_paths`, a missing sublibrary type is

@@ -151,10 +151,26 @@ def _split_tokens(stem: str) -> list[str]:
     return tokens
 
 
-def _check_repeated_tokens(stem: str, s3_path: str) -> list[SopViolation]:
-    tokens = _split_tokens(stem)
+def _check_repeated_tokens(group: str, stem: str, s3_path: str) -> list[SopViolation]:
+    """Catch a token repeated inside the sublibrary/well portion of a stem.
+
+    Scoped to the ``group`` slot, and run only once the stem has matched, so the
+    bag holds nothing but tokens the SOP puts in one place. Splitting the whole
+    stem on both ``-`` and ``_`` before the match, as this did, put the type
+    token in the same bag as the sublibrary name: a sublibrary legitimately named
+    ``REF3_GEX_P01`` under type ``GEX_hash_oligo`` contributed ``GEX`` twice and
+    reported ``repeated_token`` as its only violation on an otherwise clean name.
+    Via the rename gate that withheld the proposal and flipped the well to
+    ``UNKNOWN`` -- for a whole sublibrary at once, 288 to 576 objects, with no
+    filename the tool would have accepted.
+
+    The rule has never fired truthfully: zero across 81,936 real objects. It is
+    kept because a repeat *within* the group (``REF3_P01_P01``) is a real naming
+    error and nothing else reports it; the wafer case belongs to
+    ``duplicated_wafer_token``.
+    """
     seen: dict[str, int] = {}
-    for token in tokens:
+    for token in _split_tokens(group):
         seen[token] = seen.get(token, 0) + 1
     repeated = sorted(token for token, count in seen.items() if count > 1)
     if not repeated:
@@ -164,7 +180,8 @@ def _check_repeated_tokens(stem: str, s3_path: str) -> list[SopViolation]:
             type="repeated_token",
             s3_path=s3_path,
             detail=(
-                f"token(s) {', '.join(repeated)} appear more than once in {stem!r}"
+                f"token(s) {', '.join(repeated)} appear more than once in the "
+                f"sublibrary portion {group!r} of {stem!r}"
             ),
         )
     ]
@@ -428,8 +445,6 @@ def validate_seahub_key(
             )
         )
 
-    violations.extend(_check_repeated_tokens(stem, s3_path))
-
     match = SEAHUB_STEM_RE.match(stem)
     if match is None:
         relaxed = SEAHUB_STEM_NO_TYPE_RE.match(stem)
@@ -472,6 +487,8 @@ def validate_seahub_key(
                 expected_name=corrected,
             )
         )
+
+    violations.extend(_check_repeated_tokens(match.group("group"), stem, s3_path))
 
     if match.group("wafer") != path_info["wafer"]:
         violations.append(
