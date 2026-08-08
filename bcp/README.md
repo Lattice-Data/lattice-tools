@@ -792,7 +792,7 @@ rather than a rename.
   keeps every other finding visible). Rules cover wrong bucket or project, wrong
   path depth, missing `.trim` infix, a doubled leading wafer token (`duplicated_wafer_token`), a
   truncated sublibrary folder (`sublibrary_folder_truncated`), bulk-download leftovers
-  (`non_sequencing_artifact`), sublibrary or wafer disagreement, bad well/UG/barcode, and a missing
+  (`non_sequencing_artifact`), sublibrary or wafer disagreement, a bad well token, and a missing
   sublibrary type. `expected_name` carries the corrected basename repairing that rule alone, and
   `expected_folder` the corrected path segment. A folder/filename disagreement is blamed on the
   **folder** when the filename says `{ExperimentID}_{folder}`, because the vendor delivery is the

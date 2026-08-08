@@ -360,8 +360,6 @@ SEAHUB_STEM_NO_TYPE_RE = re.compile(
     r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)$"
 )
 
-SEAHUB_UG_RE = re.compile(r"^Z\d{4}$")
-SEAHUB_BARCODE_RE = re.compile(r"^[ACGT]+$")
 SEAHUB_WELL_RE = re.compile(r"^[A-H]\d{1,2}$")
 
 SEAHUB_PLATE_SIZES = frozenset({48, 96})
@@ -408,8 +406,6 @@ SEAHUB_SOP_RULES = frozenset(
         "sublibrary_folder_truncated",
         "sublibrary_mismatch",
         "bad_well",
-        "bad_ug",
-        "bad_barcode",
     }
 )
 

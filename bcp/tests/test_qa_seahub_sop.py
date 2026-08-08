@@ -12,7 +12,11 @@ from __future__ import annotations
 import os
 
 from qa_checks import check_expected_raw_files, check_extra_raw_files
-from qa_constants import SEAHUB_STEM_RE, SEAHUB_VIOLATION_SCOPES
+from qa_constants import (
+    SEAHUB_SOP_RULES,
+    SEAHUB_STEM_RE,
+    SEAHUB_VIOLATION_SCOPES,
+)
 from qa_gather import gather_qa_data
 from qa_mods import grab_seahub_trim_fail_csv, seahub_stem_and_family
 from qa_seahub_sop import (
@@ -223,6 +227,37 @@ class TestFilenameRules:
         assert "repeated_token" not in _types(
             validate_seahub_key("czi-labalpha", GOOD_LABALPHA)
         )
+
+
+class TestMalformedUgAndBarcode:
+    """No bad_ug / bad_barcode rule: both stem patterns already pin the tokens.
+
+    A dedicated rule could never fire, since reaching it means the stem matched a
+    pattern requiring ``Z\\d{4}`` and ``[ACGT]+``. A malformed token fails both
+    patterns instead, so the fact still surfaces -- as ``unparseable_stem``.
+    """
+
+    def test_a_malformed_ug_is_an_unparseable_stem(self):
+        key = (
+            f"{TRIM_DIR}/430479-REF3_P05_1_A1_GEX_hash_oligo"
+            "-ZZ169-CAGTCAGTTGCAGAT.trim.cram"
+        )
+        assert _types(validate_seahub_key("czi-labalpha", key)) == {"unparseable_stem"}
+
+    def test_a_barcode_outside_acgt_is_an_unparseable_stem(self):
+        key = (
+            f"{TRIM_DIR}/430479-REF3_P05_1_A1_GEX_hash_oligo"
+            "-Z0097-CAGTCAGTTGCAGAN.trim.cram"
+        )
+        assert _types(validate_seahub_key("czi-labalpha", key)) == {"unparseable_stem"}
+
+    def test_a_well_formed_stem_is_still_clean(self):
+        key = f"{TRIM_DIR}/{TRIM_STEM}.trim.cram"
+        assert validate_seahub_key("czi-labalpha", key) == []
+
+    def test_the_rule_set_does_not_advertise_them(self):
+        assert "bad_ug" not in SEAHUB_SOP_RULES
+        assert "bad_barcode" not in SEAHUB_SOP_RULES
 
 
 class TestStemLevelReporting:

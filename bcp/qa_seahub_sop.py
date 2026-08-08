@@ -45,8 +45,14 @@ Design notes
   Composing them into a single corrected key is :mod:`qa_seahub_rename`'s job,
   because that needs the vendor index to resolve a missing sublibrary type.
 * ``scope`` controls how far a fact reaches, and therefore how it dedupes:
-  ``object`` stays per object, ``stem`` collapses per well, and ``folder``
-  collapses per sublibrary directory across every wafer and well beneath it.
+  ``object`` stays per object, ``stem`` collapses per well, ``folder``
+  collapses per sublibrary directory across every wafer and well beneath it,
+  and ``upload`` collapses to one row for the whole listing, since the bucket
+  and project are the same fact however many wells sit under them.
+* There is no ``bad_ug`` or ``bad_barcode`` rule.  Both stem patterns pin
+  ``(?P<ug>Z\\d{4})`` and ``(?P<barcode>[ACGT]+)$``, so reaching such a rule
+  would already guarantee it passes; a malformed token fails both patterns and
+  is reported as ``unparseable_stem`` instead.
 * Violations are non-fatal: QA continues and reports them as a table.
 """
 
@@ -56,7 +62,6 @@ from dataclasses import asdict, dataclass
 from typing import Mapping
 
 from qa_constants import (
-    SEAHUB_BARCODE_RE,
     SEAHUB_BARE_TO_TRIM_SUFFIX,
     SEAHUB_DOUBLED_WAFER_RE,
     SEAHUB_DOWNLOAD_DUP_SUFFIX_RE,
@@ -66,7 +71,6 @@ from qa_constants import (
     SEAHUB_STEM_NO_TYPE_RE,
     SEAHUB_STEM_RE,
     SEAHUB_SUBLIBRARY_TYPES,
-    SEAHUB_UG_RE,
     SEAHUB_WELL_RE,
 )
 from qa_mods import parse_seahub_raw_path, seahub_stem_and_family
@@ -479,25 +483,10 @@ def validate_seahub_key(
         )
     )
 
-    if not SEAHUB_UG_RE.match(match.group("ug")):
-        violations.append(
-            SopViolation(
-                type="bad_ug",
-                s3_path=s3_path,
-                detail=f"UG {match.group('ug')!r} is not of the form Z####",
-            )
-        )
-    if not SEAHUB_BARCODE_RE.match(match.group("barcode")):
-        violations.append(
-            SopViolation(
-                type="bad_barcode",
-                s3_path=s3_path,
-                detail=(
-                    f"barcode {match.group('barcode')!r} contains characters "
-                    "outside A/C/G/T"
-                ),
-            )
-        )
+    # No bad_ug / bad_barcode rule: both stem patterns pin (?P<ug>Z\d{4}) and
+    # (?P<barcode>[ACGT]+)$, so a match guarantees both tokens are well formed
+    # and the rules could never fire. A malformed one fails both patterns and is
+    # reported as unparseable_stem, whose detail names the expected shape.
     return violations
 
 
