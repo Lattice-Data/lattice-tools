@@ -891,6 +891,36 @@ rather than a rename.
   set is still maintained as documentation of which defects a rename can fix, and a test reads the
   defect literals out of the module to keep it in step.
 
+#### Re-running a report offline
+
+Numbers quoted for a real upload can be re-derived without S3 access, from a saved listing of the
+bucket — any CSV/TSV with a column of `s3://` URIs, such as a console export:
+
+```bash
+python -m tests.seahub_offline_report LISTING.tsv --mode both
+```
+
+It drives the same production code the notebook does, with `MockS3Client` standing in for S3, and
+prints the SOP rows and rules, the per-well verdicts, the rename statuses and a parity verdict for
+the two `data_source` modes. Nothing identifies the upload on the command line: the ExperimentID
+comes out of the listing via `resolve_qa_run_context`, which is also a live check that manifest mode
+still recovers it. Add `--vendor LISTING [LISTING ...]` to reconcile against the untrimmed
+deliveries, and `--json` for a diffable snapshot — `diff before.json after.json` is how a change is
+checked against real shapes before it goes near a bucket.
+
+The three uploads this mode was built against, as of this branch:
+
+| listing | objects | SOP rows | rules | wells |
+| --- | --- | --- | --- | --- |
+| REF3 | 2037 | 892 | 288 each of `duplicated_wafer_token`, `invalid_sublibrary_type`, `missing_trim_infix`; 21 `non_sequencing_artifact`; 7 `sublibrary_folder_truncated` | 336 — 48 `RENAMEABLE`, 288 `UNKNOWN`; all 336 `RENAMEABLE` with both vendor orders |
+| GENE7 | 5185 | 10 | 9 `sublibrary_folder_truncated`, 1 `bad_path_depth` | 864, all `RENAMEABLE` |
+| CHEM16 | 1450 | 14 | 10 `non_sequencing_artifact`, 3 `unexpected_suffix`, 1 `no_recognized_artifacts` | 0 — no well identifiable |
+
+All three report identically from an S3 listing and from a manifest of the same keys. The one field
+that cannot match is `discovered_wafers`: wafers are found by walking folders, which only s3 mode
+does, so the wafer summary is populated there and empty under a manifest. It is excluded from
+`PARITY_FIELDS` for that reason rather than silently passing.
+
 Checksums are deliberately out of scope. S3 validates integrity on upload when the client sends a
 checksum, and a multipart `ETag` is a composite of per-part digests rather than a whole-file hash, so
 it cannot be compared against a lab-supplied manifest. The trimmed-vs-vendor size comparison
