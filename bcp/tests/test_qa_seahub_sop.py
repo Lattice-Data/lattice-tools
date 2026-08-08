@@ -9,7 +9,9 @@ carry trim outputs with the ``.trim`` infix dropped, and a vendor delivery
 
 from __future__ import annotations
 
+import ast
 import os
+import pathlib
 
 from qa_checks import check_expected_raw_files, check_extra_raw_files
 from qa_constants import (
@@ -17,6 +19,7 @@ from qa_constants import (
     SEAHUB_STEM_RE,
     SEAHUB_VIOLATION_SCOPES,
 )
+import qa_seahub_sop
 from qa_gather import gather_qa_data
 from qa_mods import grab_seahub_trim_fail_csv, seahub_stem_and_family
 from qa_seahub_sop import (
@@ -183,6 +186,43 @@ class TestUnknownSuffixReporting:
 
     def test_an_empty_listing_is_not_a_failure(self):
         assert validate_seahub_stems("czi-labalpha", []) == []
+
+
+class TestRuleSetIsClosed:
+    """`SEAHUB_SOP_RULES` claims a typo in a new rule shows up as a test failure.
+
+    Asserting only over the *emitted* types cannot deliver that: the fixtures do
+    not exercise every rule, so a misspelled ``wafer_mismatch`` still passes.
+    Read the literals straight out of the module instead, which covers rules no
+    fixture reaches.
+    """
+
+    def _declared_literals(self, keyword: str) -> set[str]:
+        source = pathlib.Path(qa_seahub_sop.__file__).read_text()
+        found: set[str] = set()
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "id", None) != "SopViolation":
+                continue
+            for kw in node.keywords:
+                if kw.arg == keyword and isinstance(kw.value, ast.Constant):
+                    found.add(kw.value.value)
+        return found
+
+    def test_every_rule_the_module_can_emit_is_declared(self):
+        declared = self._declared_literals("type")
+
+        assert declared, "no SopViolation(type=...) literals found"
+        assert declared <= SEAHUB_SOP_RULES
+
+    def test_no_declared_rule_is_unreachable(self):
+        """The other direction: a rule nothing emits is dead vocabulary."""
+        assert SEAHUB_SOP_RULES <= self._declared_literals("type")
+
+    def test_every_scope_the_module_can_emit_is_declared(self):
+        # "stem" is the dataclass default, so it need not appear as a literal.
+        assert self._declared_literals("scope") <= set(SEAHUB_VIOLATION_SCOPES)
 
 
 class TestKnownGoodNamesAreClean:

@@ -133,7 +133,11 @@ class TrimmedEntry:
     family: str
     raw_dir: str
     has_cram: bool = False
-    read_count: int | None = None
+    # No read_count here. The reconciliation compares the *vendor* count
+    # (SourceEntry.read_count) with the trimmer's declared input totals, so a
+    # trimmed-side count was filled in at one metadata lookup per CRAM and never
+    # read. Dropping it is what lets index_trimmed_upload take neither
+    # read_metadata nor bucket.
     # 0 means "unknown", not "empty": sizes are only collected in S3 mode.
     size_bytes: int = 0
 
@@ -529,6 +533,19 @@ def index_untrimmed_sources(
             1 for e in sources.index.values() if e.source_uri == coverage.source_uri
         )
         coverage.duplicate_losses = coverage.cram_keys - coverage.indexed
+        if coverage.cram_keys == 0:
+            # Emitted as a row, not only printed: the category is documented as
+            # one of the completeness CSV's, and a prefix that listed nothing is
+            # the first thing to check when wells come back unaccounted for.
+            sources.findings.append(
+                finding_row(
+                    "source_prefix_empty",
+                    detail=(
+                        f"untrimmed source {coverage.source_uri} yielded no vendor "
+                        "CRAMs; check the prefix"
+                    ),
+                )
+            )
     return sources
 
 
@@ -610,8 +627,6 @@ def source_order_by_wafer(
 
 def index_trimmed_upload(
     all_raw_files: list[str],
-    read_metadata: dict[str, dict] | None = None,
-    bucket: str = "",
     sizes: dict[str, int] | None = None,
     findings: list[dict[str, Any]] | None = None,
 ) -> dict[IdentityKey, TrimmedEntry]:
@@ -665,24 +680,7 @@ def index_trimmed_upload(
                 )
         if suffix in (_CRAM_SUFFIX, ".trim.cram"):
             entry.has_cram = True
-            if read_metadata:
-                entry.read_count = _lookup_read_count(read_metadata, bucket, key)
             if sizes:
                 # Keep the largest when a well somehow carries several CRAMs.
                 entry.size_bytes = max(entry.size_bytes, int(sizes.get(key, 0) or 0))
     return index
-
-
-def _lookup_read_count(
-    read_metadata: dict[str, dict], bucket: str, cram_key: str
-) -> int | None:
-    """Find a CRAM's read_count, tolerating both metadata key conventions."""
-    candidates = [
-        f"s3://{bucket}/{cram_key}" if bucket else "",
-        cram_key.split("/")[-1],
-    ]
-    for candidate in candidates:
-        if candidate and candidate in read_metadata:
-            value = read_metadata[candidate].get("read_count")
-            return int(value) if value is not None else None
-    return None

@@ -11,7 +11,10 @@ from qa_constants import (
     SEAHUB_BARE_SUFFIXES,
     SEAHUB_BARE_TO_TRIM_SUFFIX,
     SEAHUB_RENAMEABLE_SOP_TYPES,
+    SEAHUB_RENAME_NAME_SOURCES,
+    SEAHUB_RENAME_STATUSES,
     SEAHUB_SOP_RULES,
+    SEAHUB_VIOLATION_SCOPES,
     SEAHUB_WELL_VERDICTS,
 )
 from qa_seahub_rename import (
@@ -22,6 +25,7 @@ from qa_seahub_rename import (
     rollup_summary,
     source_sublibrary_segment,
 )
+from qa_seahub_sop import validate_seahub_stems
 from qa_seahub_source import SourceEntry, index_untrimmed_sources
 
 from tests.qa_seahub_helpers import (
@@ -479,5 +483,47 @@ class TestCompletenessIsNamingAgnostic:
 
 
 class TestRuleVocabulary:
+    """Makes the closed vocabularies do what their comments claim.
+
+    ``SEAHUB_SOP_RULES`` says it is "kept explicit so a typo in a new rule shows
+    up as a test failure"; nothing asserted that, so a misspelled rule type would
+    have shipped silently. These walk the real fixture listings and check every
+    value actually emitted against its declared vocabulary.
+    """
+
     def test_renameable_types_are_a_subset_of_the_rules(self):
         assert SEAHUB_RENAMEABLE_SOP_TYPES <= SEAHUB_SOP_RULES
+
+    def test_every_emitted_violation_type_is_a_declared_rule(self):
+        violations = validate_seahub_stems(BUCKET, ref3_trimmed_keys())
+
+        assert {v.type for v in violations} <= SEAHUB_SOP_RULES
+
+    def test_every_emitted_scope_is_a_declared_scope(self):
+        violations = validate_seahub_stems(BUCKET, ref3_trimmed_keys())
+
+        assert {v.scope for v in violations} <= set(SEAHUB_VIOLATION_SCOPES)
+
+    def test_a_wholly_misnamed_upload_stays_inside_both_vocabularies(self):
+        """The newest rules are the likeliest to be misspelled."""
+        keys = [
+            f"{RAW}/P04_1/437120/437120-REF3_P04_1_A1_GEX_hash_oligo"
+            f"-Z000{i}-CAGCTCGAATGCGAT.trimmed.ucram"
+            for i in range(1, 4)
+        ]
+
+        violations = validate_seahub_stems(BUCKET, keys)
+
+        assert {v.type for v in violations} <= SEAHUB_SOP_RULES
+        assert {v.scope for v in violations} <= set(SEAHUB_VIOLATION_SCOPES)
+
+    def test_every_emitted_rename_status_is_declared(self):
+        mapping = build_rename_mapping(BUCKET, ref3_trimmed_keys(), _vendor_index())
+
+        assert {r["status"] for r in mapping.rows} <= set(SEAHUB_RENAME_STATUSES)
+
+    def test_every_emitted_name_source_is_declared(self):
+        mapping = build_rename_mapping(BUCKET, ref3_trimmed_keys(), _vendor_index())
+        sources = {r["name_source"] for r in mapping.rows if r["name_source"]}
+
+        assert sources <= set(SEAHUB_RENAME_NAME_SOURCES)

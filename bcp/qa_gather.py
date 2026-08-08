@@ -269,7 +269,7 @@ class QADataGatherer:
         """Parse SeaHub trim artifacts, metadata, and plate-size warnings."""
         metadata_files: list[str] = []
         plate_counts: dict[tuple[str, str], set[str]] = {}
-        cram_stems: set[str] = set()
+        cram_stems: dict[str, str] = {}
         metadata_stems: set[str] = set()
 
         for rf in self._data.all_raw_files:
@@ -290,7 +290,10 @@ class QADataGatherer:
                     if suffix.endswith(".cram-metadata.json"):
                         metadata_stems.add(stem_key)
                     elif suffix.endswith(".cram"):
-                        cram_stems.add(stem_key)
+                        # Keep the delivered spelling: both families reach here,
+                        # so the warning must not name a ".trim.*" file that a
+                        # bare-family well never had.
+                        cram_stems[stem_key] = suffix
 
             if self._should_download_metadata_json(rf):
                 metadata_files.append(rf)
@@ -335,18 +338,23 @@ class QADataGatherer:
                 )
 
     def _append_seahub_missing_metadata_warnings(
-        self, cram_stems: set[str], metadata_stems: set[str]
+        self, cram_stems: dict[str, str], metadata_stems: set[str]
     ) -> None:
-        """Warn for each ``*.trim.cram`` lacking a ``.trim.cram-metadata.json``.
+        """Warn for each CRAM lacking its metadata sidecar.
 
         The metadata sidecar is classified as optional (its absence is not a
         hard inventory failure), but a missing sidecar means read-count QA
         cannot run for that well, so surface it as an informational warning.
+
+        ``cram_stems`` carries the suffix each well was delivered with, so a
+        bare-family well is told about ``.cram`` / ``.cram-metadata.json``
+        rather than about ``.trim.*`` files it never had.
         """
-        for stem_key in sorted(cram_stems - metadata_stems):
+        for stem_key in sorted(set(cram_stems) - metadata_stems):
+            suffix = cram_stems[stem_key]
             self._data.gathering_warnings.append(
-                f"METADATA MISSING: {stem_key}.trim.cram has no matching "
-                ".trim.cram-metadata.json sidecar"
+                f"METADATA MISSING: {stem_key}{suffix} has no matching "
+                f"{suffix}-metadata.json sidecar"
             )
 
     # ------------------------------------------------------------------
@@ -446,8 +454,6 @@ class QADataGatherer:
             and "-unmatched.cram-metadata.json" not in rf
             and "_unmatched.cram-metadata.json" not in rf
         ):
-            return True
-        if rf.endswith(".trim.cram-metadata.json") and self.raw_assay == "seahub_sci":
             return True
         return False
 

@@ -97,10 +97,15 @@ class SopViolation:
     """One SOP rule broken by one object (or stem).
 
     ``expected_name`` is the corrected *basename* repairing only this rule's
-    defect, computed on the wafer-normalized stem.  It is deliberately not the
-    fully-corrected name: a well with four defects yields four rows, each naming
-    its own repair, and composing them into one target key is
-    :mod:`qa_seahub_rename`'s job.
+    defect.  It is deliberately not the fully-corrected name: a well with four
+    defects yields four rows, each naming its own repair, and composing them into
+    one target key is :mod:`qa_seahub_rename`'s job.  So a doubled-wafer bare
+    file gets ``437120-437120-....trim.cram`` from ``missing_trim_infix``, which
+    repairs the infix and nothing else -- the doubled token is
+    ``duplicated_wafer_token``'s row to repair, and it carries its own
+    ``expected_name``.  Rules that run after normalization see the normalized
+    stem; ``missing_trim_infix`` is emitted before it and works on the basename
+    as delivered.
 
     ``expected_folder`` is the corrected ``{sublibrary}`` path segment, set only
     by ``sublibrary_folder_truncated``.
