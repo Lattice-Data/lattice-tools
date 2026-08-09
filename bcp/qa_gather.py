@@ -574,7 +574,13 @@ class QADataGatherer:
 
         total = len(metadata_files)
         if total == 1:
-            self._download_metadata_json(metadata_files[0])
+            self._append_unreadable_warning(
+                [(metadata_files[0], why)]
+                if (why := self._download_metadata_json(metadata_files[0]))
+                else [],
+                "METADATA UNREADABLE",
+                "their read counts cannot be validated",
+            )
             return
 
         if total >= METADATA_DOWNLOAD_PROGRESS_INTERVAL:
@@ -586,13 +592,21 @@ class QADataGatherer:
                 executor.submit(self._download_metadata_json, rf): rf
                 for rf in metadata_files
             }
+            unreadable: list[tuple[str, str]] = []
             for completed, future in enumerate(as_completed(future_to_path), start=1):
-                future.result()
+                why = future.result()
+                if why:
+                    unreadable.append((future_to_path[future], why))
                 if total >= METADATA_DOWNLOAD_PROGRESS_INTERVAL and (
                     completed % METADATA_DOWNLOAD_PROGRESS_INTERVAL == 0
                     or completed == total
                 ):
                     print(f"  downloaded {completed}/{total} metadata JSON file(s)")
+        self._append_unreadable_warning(
+            sorted(unreadable),
+            "METADATA UNREADABLE",
+            "their read counts cannot be validated",
+        )
 
     def _should_count_for_fastq_log(self, rf: str, assay: str | None) -> bool:
         if rf.endswith(".fastq.gz") and not rf.endswith("_sample.fastq.gz"):
@@ -845,7 +859,17 @@ class QADataGatherer:
     # S3 helpers — file downloads
     # ------------------------------------------------------------------
 
-    def _download_metadata_json(self, rf: str) -> None:
+    def _download_metadata_json(self, rf: str) -> str:
+        """Read one metadata sidecar. Runs in a worker thread.
+
+        Returns why it failed, or "" -- it does not raise. seahub_sci put 864 of
+        these through the pool, and one truncated or non-JSON sidecar would
+        otherwise abort the gather and lose every other file with it. A sidecar
+        that cannot be read leaves the well without a read count, which is the
+        same state a missing one leaves it in and which downstream already
+        handles; the caller collapses the failures into one warning so the gap
+        is not silent.
+        """
         with tempfile.NamedTemporaryFile(
             mode="w+b", delete=False, suffix=".json"
         ) as tf:
@@ -854,6 +878,8 @@ class QADataGatherer:
             self.s3.download_file(self.bucket, rf, local)
             with open(local) as fh:
                 metadata = json.load(fh)
+            if not isinstance(metadata, dict):
+                return f"expected a JSON object, got {type(metadata).__name__}"
             reported_filename = str(metadata.get("filename", ""))
             actual_filename = self._canonical_metadata_filename(
                 source_key=rf,
@@ -864,6 +890,9 @@ class QADataGatherer:
             metadata["__source_key"] = rf
             with self._metadata_lock:
                 self._data.read_metadata[actual_filename] = metadata
+            return ""
+        except Exception as exc:  # noqa: BLE001 - unreadable is unreadable
+            return f"{type(exc).__name__}: {exc}"
         finally:
             Path(local).unlink(missing_ok=True)
 
@@ -958,15 +987,54 @@ class QADataGatherer:
                     ):
                         print(f"  read {done}/{total} trim failure CSV(s)")
 
-        for rf, blocks, warnings in results:
+        unreadable: list[tuple[str, str]] = []
+        for rf, blocks, warnings, error in results:
+            if error:
+                unreadable.append((rf, error))
+                continue
             self._apply_seahub_trim_fail(rf, blocks, warnings)
+        self._append_unreadable_warning(
+            unreadable,
+            "TRIM FAIL UNREADABLE",
+            "their wells contribute no trimmer-fail counts and reconcile as "
+            "metadata_unavailable",
+        )
         keys.clear()
 
-    def _fetch_seahub_trim_fail(self, rf: str) -> tuple[str, list[dict], list[str]]:
+    def _append_unreadable_warning(
+        self, failures: list[tuple[str, str]], label: str, consequence: str
+    ) -> None:
+        """Report objects that could not be read, once, with two examples.
+
+        Collapsed for the same reason the SOP summary is: there is one of these
+        per well, so a whole-upload problem would otherwise write a line per
+        well and bury everything else.
+        """
+        if not failures:
+            return
+        examples = "; ".join(f"{key} ({why})" for key, why in failures[:2])
+        if len(failures) > 2:
+            examples += f"; and {len(failures) - 2} more"
+        self._data.gathering_warnings.append(
+            f"{label}: {len(failures)} object(s) could not be read, so "
+            f"{consequence}: {examples}"
+        )
+
+    def _fetch_seahub_trim_fail(
+        self, rf: str
+    ) -> tuple[str, list[dict], list[str], str]:
         """Download and parse one trim failure CSV. Runs in a worker thread.
 
-        Deliberately touches no gatherer state: it returns what it parsed, and
-        its own warnings, for the caller to merge in order.
+        Deliberately touches no gatherer state: it returns what it parsed, its
+        own warnings, and why it failed if it did, for the caller to merge in
+        order.
+
+        A failure is returned rather than raised. There is one of these per
+        well, so on GENE7 an empty or half-written CSV -- what an interrupted
+        upload leaves -- would otherwise abort the gather and lose the 863 that
+        were fine. The well then has no trimmer counts, which the reconciliation
+        already reports as ``metadata_unavailable``; the collapsed warning the
+        caller emits is what keeps the thinner histogram from being silent.
         """
         warnings: list[str] = []
         with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".csv") as tf:
@@ -976,7 +1044,10 @@ class QADataGatherer:
             # Parsed once, applied twice. Calling the combined helper for each
             # distribution read_csv'd the same file twice, on an upload that has
             # one of these per well.
-            return rf, parse_seahub_trim_fail_csv(local, warnings=warnings), warnings
+            blocks = parse_seahub_trim_fail_csv(local, warnings=warnings)
+            return rf, blocks, warnings, ""
+        except Exception as exc:  # noqa: BLE001 - unreadable is unreadable
+            return rf, [], warnings, f"{type(exc).__name__}: {exc}"
         finally:
             Path(local).unlink(missing_ok=True)
 

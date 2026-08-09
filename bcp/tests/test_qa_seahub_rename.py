@@ -626,6 +626,101 @@ class TestCompletenessIsNamingAgnostic:
             assert (verdict == "DATA_GAP") == bool(missing), suffixes
 
 
+class TestAnEmptyCramIsNotCompliant:
+    """A CRAM that arrived and is 0 bytes carries no data.
+
+    Completeness asks only whether the artifact arrived, and the trimmed-vs-vendor
+    size check skips a zero because it cannot tell "empty" from "size was never
+    collected" -- so an interrupted `aws s3 cp`, which is exactly the shape that
+    leaves a zero-byte object behind, read as COMPLIANT with the verdict line
+    saying "1 matched, 0 not trimmed".
+
+    Only the CRAM. An empty `.stdout` or `.stderr` is ordinary -- a step that
+    printed nothing -- and the shared fixture ships `.stdout` at 0 bytes for
+    exactly that reason.
+    """
+
+    DIR = f"{RAW}/REF3_P05_1/430479"
+    STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
+    SUFFIXES = (
+        ".trim.cram",
+        ".trim.csv",
+        ".trim.stderr",
+        ".trim.stdout",
+        ".trim_fail.csv",
+    )
+
+    def _keys(self) -> list[str]:
+        return [f"{self.DIR}/{self.STEM}{s}" for s in self.SUFFIXES]
+
+    def _sizes(self, **override: int) -> dict[str, int]:
+        sizes = {k: 100 for k in self._keys()}
+        for suffix, value in override.items():
+            sizes[f"{self.DIR}/{self.STEM}{suffix.replace('_', '.', 1)}"] = value
+        return sizes
+
+    def test_a_zero_byte_cram_is_a_data_gap(self):
+        sizes = {
+            **{k: 100 for k in self._keys()},
+            f"{self.DIR}/{self.STEM}.trim.cram": 0,
+        }
+
+        rows = roll_up_wells(BUCKET, self._keys(), None, sizes=sizes).rows
+
+        assert [r["verdict"] for r in rows] == ["DATA_GAP"]
+        assert "0 bytes" in rows[0]["detail"]
+
+    def test_a_normal_cram_is_still_compliant(self):
+        sizes = {k: 100 for k in self._keys()}
+
+        rows = roll_up_wells(BUCKET, self._keys(), None, sizes=sizes).rows
+
+        assert [r["verdict"] for r in rows] == ["COMPLIANT"]
+
+    def test_an_empty_stdout_is_not_a_gap(self):
+        """A step that printed nothing is normal; the fixture ships this shape."""
+        sizes = {
+            **{k: 100 for k in self._keys()},
+            f"{self.DIR}/{self.STEM}.trim.stdout": 0,
+            f"{self.DIR}/{self.STEM}.trim.stderr": 0,
+        }
+
+        rows = roll_up_wells(BUCKET, self._keys(), None, sizes=sizes).rows
+
+        assert [r["verdict"] for r in rows] == ["COMPLIANT"]
+
+    def test_unknown_sizes_are_not_read_as_empty(self):
+        """Manifest mode collects no sizes; absent must not mean zero."""
+        assert [r["verdict"] for r in roll_up_wells(BUCKET, self._keys()).rows] == [
+            "COMPLIANT"
+        ]
+        rows = roll_up_wells(BUCKET, self._keys(), None, sizes={}).rows
+        assert [r["verdict"] for r in rows] == ["COMPLIANT"]
+
+    def test_the_bare_family_cram_counts_too(self):
+        keys = [
+            f"{self.DIR}/{self.STEM}{s}"
+            for s in (".cram", ".csv", ".stderr", ".stdout", "_fail.csv")
+        ]
+        sizes = {**{k: 100 for k in keys}, f"{self.DIR}/{self.STEM}.cram": 0}
+
+        rows = roll_up_wells(BUCKET, keys, None, sizes=sizes).rows
+
+        assert [r["verdict"] for r in rows] == ["DATA_GAP"]
+
+    def test_it_fires_without_a_vendor_delivery(self):
+        """The size check needs a vendor to compare against; this does not."""
+        sizes = {
+            **{k: 100 for k in self._keys()},
+            f"{self.DIR}/{self.STEM}.trim.cram": 0,
+        }
+
+        rows = roll_up_wells(BUCKET, self._keys(), None, sizes=sizes).rows
+
+        assert rows[0]["verdict"] == "DATA_GAP"
+        assert "the vendor delivered it as" not in rows[0]["detail"]
+
+
 class TestTheTwoIndexesKeyWellsTheSameWay:
     """``index_trimmed_upload`` and ``roll_up_wells`` must agree on identity.
 

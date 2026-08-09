@@ -55,6 +55,7 @@ def _run_section(
     keys=None,
     experiment_id="REF3",
     output_label="REF3",
+    bucket=BUCKET,
 ):
     """Run the SeaHub block over a synthetic namespace.
 
@@ -82,7 +83,7 @@ def _run_section(
             "display": lambda *a, **k: None,
             "s3client": MockS3Client(keys=vendor_keys, file_contents=sidecars),
             "raw_assay": raw_assay,
-            "bucket": BUCKET,
+            "bucket": bucket,
             "ctx": SimpleNamespace(order=experiment_id),
             "order": output_label,
             "output_dir": str(tmp_path),
@@ -264,3 +265,72 @@ class TestSectionSkips:
         frame = pd.read_csv(tmp_path / "REF3_seahub_well_status.csv")
 
         assert "DATA_GAP" in set(frame["verdict"])
+
+
+class TestAnUploadInTheWrongPlaceIsNotSilent:
+    """Upload-scope defects have to be reported when there is nothing to move.
+
+    They are filtered out of the per-object residual check, so an upload that is
+    otherwise SOP-clean produces no rename rows -- and the banner used to be
+    gated on there being some. The result was inverted severity: a clean upload
+    in the wrong bucket reported every well COMPLIANT and wrote nothing to
+    errors.txt, while adding a trivial naming defect made the location defect
+    audible.
+    """
+
+    STEM = "436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT"
+    SUFFIXES = (
+        ".trim.cram",
+        ".trim.csv",
+        ".trim.stderr",
+        ".trim.stdout",
+        ".trim_fail.csv",
+    )
+
+    def _clean_keys(self) -> list[str]:
+        return [
+            f"labalpha-seahub-bcp/REF3/raw/REF3_P05_2/436830/{self.STEM}{s}"
+            for s in self.SUFFIXES
+        ]
+
+    def _run(self, tmp_path, bucket):
+        return _run_section(
+            tmp_path, keys=self._clean_keys(), sources=[], bucket=bucket
+        )
+
+    def test_a_clean_upload_in_the_right_place_says_nothing(self):
+        """The control: no banner when the location is fine."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out, _ = self._run(tmp, "czi-labalpha")
+
+        assert "not in a location the SOP allows" not in out
+
+    @pytest.mark.parametrize(
+        "bucket,rule",
+        [
+            ("czi-labbeta", "lab_project_mismatch"),
+            ("labalpha-data", "bad_bucket"),
+        ],
+    )
+    def test_the_banner_prints_with_nothing_to_move(self, tmp_path, bucket, rule):
+        out, namespace = self._run(tmp_path, bucket)
+
+        assert namespace["rename_mapping"].moveable() == []
+        assert "not in a location the SOP allows" in out
+        assert rule in out
+
+    @pytest.mark.parametrize("bucket", ["czi-labbeta", "labalpha-data"])
+    def test_it_reaches_errors_txt(self, tmp_path, bucket):
+        self._run(tmp_path, bucket)
+
+        errors = (tmp_path / "REF3_errors.txt").read_text()
+        assert "SEAHUB UPLOAD LOCATION" in errors
+
+    def test_the_wording_says_the_well_status_reads_clean(self, tmp_path):
+        """Because it does -- and that is the trap this banner exists for."""
+        out, _ = self._run(tmp_path, "czi-labbeta")
+
+        assert "PER-WELL STATUS: COMPLIANT=1" in out
+        assert "the right files" in out and "in the wrong place" in out

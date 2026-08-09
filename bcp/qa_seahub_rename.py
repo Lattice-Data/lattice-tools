@@ -454,10 +454,17 @@ def _delivered_artifacts(suffixes: set[str]) -> set[str]:
     return {SEAHUB_BARE_TO_TRIM_SUFFIX.get(s, s) for s in suffixes}
 
 
+# The data-bearing artifact, under either spelling. An empty .stdout or
+# .stderr is ordinary -- a step that printed nothing -- so emptiness is only a
+# finding for this one.
+SEAHUB_CRAM_SUFFIXES = (".cram", ".trim.cram")
+
+
 def roll_up_wells(
     bucket: str,
     all_raw_files: list[str],
     source_index: Mapping[tuple[str, str], Any] | None = None,
+    sizes: Mapping[str, int] | None = None,
 ) -> WellRollup:
     """Reduce an upload to one verdict per well.
 
@@ -530,12 +537,19 @@ def roll_up_wells(
                 "sublibrary": path_info["sublibrary"],
                 "keys": [],
                 "parseable": fields is not None,
+                "empty_cram": False,
             },
         )
         well["names"].add(("/".join(key.split("/")[:-1]), raw_stem))
         well["suffixes"].add(suffix)
         well["families"].add(family)
         well["keys"].append(key)
+        # A CRAM that is present and empty carries no data, so it is not a
+        # delivered artifact. Only a *known* zero counts: a key absent from the
+        # mapping means the size was never collected (manifest mode collects
+        # none), and treating unknown as empty would fail every well.
+        if suffix in SEAHUB_CRAM_SUFFIXES and (sizes or {}).get(key) == 0:
+            well["empty_cram"] = True
 
     for identity, entry in index.items():
         wells.setdefault(
@@ -572,6 +586,13 @@ def roll_up_wells(
         required = tuple(raw_expected["seahub_sci"])
         delivered = _delivered_artifacts(well["suffixes"])
         missing = [s for s in required if s not in delivered]
+        # An uploaded-but-empty CRAM is the shape an interrupted copy leaves
+        # behind, and it used to read as COMPLIANT: the completeness check asks
+        # only whether the artifact arrived, and the trimmed-vs-vendor size
+        # check skips a zero because it cannot tell "empty" from "size not
+        # collected". Reported as a gap in the data, which is what it is, and
+        # without needing a vendor delivery to compare against.
+        empty_cram = bool(well.get("empty_cram"))
 
         sublibrary = well["sublibrary"]
         well_id = next((p.well for p in proposals if p.well), "")
@@ -609,9 +630,14 @@ def roll_up_wells(
                 if len(well["names"]) > 1
                 else "stem does not decompose into the SOP fields"
             )
-        elif missing:
+        elif missing or empty_cram:
             verdict = "DATA_GAP"
-            detail = f"absent from the delivered set: {', '.join(missing)}"
+            if empty_cram:
+                detail = "the uploaded CRAM is 0 bytes, so this well carries no data"
+                if missing:
+                    detail += f"; also absent: {', '.join(missing)}"
+            else:
+                detail = f"absent from the delivered set: {', '.join(missing)}"
             if source is not None:
                 detail += f"; the vendor delivered it as {source.cram_key}"
         elif unresolved:

@@ -205,7 +205,9 @@ def report(
         ctx.bucket, data.all_raw_files, assay_by_identity=assay_by_identity
     )
     mapping = build_rename_mapping(ctx.bucket, data.all_raw_files, untrimmed_index)
-    rollup = roll_up_wells(ctx.bucket, data.all_raw_files, untrimmed_index)
+    rollup = roll_up_wells(
+        ctx.bucket, data.all_raw_files, untrimmed_index, sizes=data.raw_file_sizes
+    )
 
     return {
         "experiment_id": ctx.order,

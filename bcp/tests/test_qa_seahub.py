@@ -790,6 +790,74 @@ class TestFailCountsAreKeyedByFolderAndStem:
         assert [r["category"] for r in report.rows] == []
 
 
+class TestOneBadMetadataSidecarDoesNotKillTheRun:
+    """864 sidecars go through the pool for a seahub_sci run.
+
+    ``_should_download_metadata_json`` gained ``seahub_sci``, so this path
+    carries one object per well now. One truncated or non-JSON sidecar used to
+    raise out of ``future.result()`` and abort the whole gather. A sidecar that
+    cannot be read leaves the well with no read count -- the same state a
+    missing one leaves it in -- so it degrades instead, with the failures
+    collapsed into one warning.
+    """
+
+    DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479"
+    STEMS = (
+        "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT",
+        "430479-REF3_P05_1_A2_GEX_hash_oligo-Z0105-CATGGCGCAGTGCTGAT",
+    )
+
+    def _ctx(self):
+        return _make_ctx(
+            raw_assay="seahub_sci",
+            bucket="czi-labalpha",
+            provider="labalpha",
+            proj="labalpha-seahub-bcp",
+            order="REF3",
+            listing_prefix="labalpha-seahub-bcp/REF3/",
+        )
+
+    def _run(self, bad: str | None):
+        keys = [
+            f"{self.DIR}/{stem}{s}"
+            for stem in self.STEMS
+            for s in (".trim.cram", ".trim.cram-metadata.json")
+        ]
+        good = '{"read_count": 1000, "filename": "x.trim.cram"}'
+        contents = {
+            f"{self.DIR}/{self.STEMS[0]}.trim.cram-metadata.json": good,
+        }
+        if bad is not None:
+            contents[f"{self.DIR}/{self.STEMS[1]}.trim.cram-metadata.json"] = bad
+        return gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+    @pytest.mark.parametrize(
+        "payload,label",
+        [
+            (None, "object absent"),
+            ("", "zero bytes"),
+            ("{not json at all", "truncated"),
+            ("[1, 2, 3]", "JSON, but not an object"),
+        ],
+    )
+    def test_the_good_sidecar_still_lands(self, payload, label):
+        data = self._run(payload)
+
+        assert len(data.read_metadata) == 1, label
+
+    @pytest.mark.parametrize("payload", [None, "", "{not json at all", "[1, 2, 3]"])
+    def test_the_failure_is_reported_once(self, payload):
+        data = self._run(payload)
+
+        warnings = [
+            w for w in data.gathering_warnings if w.startswith("METADATA UNREADABLE")
+        ]
+        assert len(warnings) == 1
+        assert "1 object(s) could not be read" in warnings[0]
+
+
 class TestSeahubTrimFailIsFetchedInParallel:
     """The per-well trim failure CSVs share the metadata path's thread pool.
 
@@ -933,18 +1001,55 @@ class TestSeahubTrimFailIsFetchedInParallel:
 
         assert data.trimmer_failure_stats["430479"]["trimmer_fail"]
 
-    def test_an_unreadable_fail_csv_still_raises(self):
-        """Unchanged from the serial version. Unlike the vendor sidecars, a
-        missing trim CSV has no graceful category to degrade into -- dropping it
-        would silently thin the distributions.
+    @pytest.mark.parametrize(
+        "payload,label",
+        [
+            (None, "object absent"),
+            # The two shapes an interrupted upload actually leaves behind.
+            ("", "zero bytes -> EmptyDataError"),
+            ('format,reason\n"half-writ', "truncated mid-write -> ParserError"),
+        ],
+    )
+    def test_one_unreadable_fail_csv_does_not_abort_the_run(self, payload, label):
+        """There is one of these per well, so aborting loses the other 863.
+
+        This reverses the earlier call to let it raise. The reasoning then was
+        that no graceful category existed -- but a well with no trimmer counts
+        already reconciles as ``metadata_unavailable``, and an interrupted
+        upload is exactly what leaves a zero-byte or half-written CSV behind.
         """
         keys = self._keys()
-        contents = {k: self._fail_csv(1000) for k in self._fail_keys(keys)}
-        del contents[self._fail_keys(keys)[2]]
-        s3 = MockS3Client(keys=keys, file_contents=contents)
+        fail_keys = self._fail_keys(keys)
+        contents = {k: self._fail_csv(1000) for k in fail_keys}
+        if payload is None:
+            del contents[fail_keys[2]]
+        else:
+            contents[fail_keys[2]] = payload
 
-        with pytest.raises(FileNotFoundError):
-            gather_qa_data(self._ctx(), s3)
+        data = gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+        # the three readable wells still landed
+        assert len(data.trimmer_failure_stats) == len(self.WAFERS) - 1, label
+        warnings = [
+            w for w in data.gathering_warnings if w.startswith("TRIM FAIL UNREADABLE")
+        ]
+        assert len(warnings) == 1
+        assert "1 object(s) could not be read" in warnings[0]
+
+    def test_many_unreadable_fail_csvs_are_one_warning(self):
+        keys = self._keys()
+        s3 = MockS3Client(keys=keys, file_contents={})
+
+        data = gather_qa_data(self._ctx(), s3)
+
+        warnings = [
+            w for w in data.gathering_warnings if w.startswith("TRIM FAIL UNREADABLE")
+        ]
+        assert len(warnings) == 1
+        assert f"{len(self.WAFERS)} object(s) could not be read" in warnings[0]
+        assert "and 2 more" in warnings[0]
 
 
 class TestSeahubListingTruncation:

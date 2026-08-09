@@ -806,7 +806,11 @@ rather than a rename.
   round-trip per well (measured on REF3 at 20 ms per object: 10.6 s against 1.2 s). Only the download
   and the parse are concurrent — the parsed blocks are applied single-threaded in listing order,
   which is what keeps this lock-free and makes the output identical to the serial version rather
-  than merely equivalent, since the three structures they feed are appended to.
+  than merely equivalent, since the three structures they feed are appended to. Neither worker
+  raises: with one object per well, a single zero-byte or half-written file would otherwise abort the
+  gather and lose every other file with it, so an unreadable one degrades — the well simply has no
+  counts, which reconciles as `metadata_unavailable` — and the failures are collapsed into one
+  warning so the thinner result is never silent.
 - **Two suffix families.** `qa_constants.SEAHUB_TRIM_SUFFIXES` is the SOP set; `SEAHUB_BARE_SUFFIXES`
   is the same six artifacts with the `.trim` infix dropped, which real uploads have used. Completeness
   asks only whether each of the five artifact *kinds* arrived, under either spelling — naming is a
@@ -883,12 +887,20 @@ rather than a rename.
   hold identically before and after the move, so testing them withheld proposals that strictly
   reduce the violation set — one wrong bucket turned every rename in the upload into `unresolved`
   and every well into `UNKNOWN`. They are filtered in the rename gate only; the SOP table still
-  reports them, and the rename cell prints a banner saying the destinations sit inside a location
-  the SOP rejects and must be resolved first.
+  reports them, and the rename cell prints a banner. That banner is *not* gated on there being
+  anything to move: because upload-scope rules are filtered out of the per-object check, an upload
+  that is otherwise SOP-clean produces no rename rows at all, so gating on them inverted the
+  severity — a clean upload in the wrong bucket reported every well `COMPLIANT` and wrote nothing to
+  `errors.txt`, while adding a trivial naming defect made the location defect audible.
 - **Per-well status** rolls the above up to one verdict per well in
   `{order}_seahub_well_status.csv`: `COMPLIANT`, `RENAMEABLE` (complete, every defect repairable by
   renaming), `DATA_GAP` (an artifact genuinely absent) or `UNKNOWN` (unidentifiable, or no corrected
-  name derivable). `DATA_GAP` outranks the un-nameable `UNKNOWN` so a missing CRAM stays visible even
+  name derivable). A CRAM that arrived and is **0 bytes** is `DATA_GAP` too: completeness asks only whether the artifact
+arrived, and the trimmed-vs-vendor size check skips a zero because it cannot tell "empty" from "size
+not collected" — so an interrupted copy, which is exactly what leaves a zero-byte object, used to read
+`COMPLIANT`. Only the CRAM is judged this way; an empty `.stdout` or `.stderr` is ordinary. Sizes are
+collected in s3 mode only, and a key absent from the mapping reads as unknown rather than empty.
+  `DATA_GAP` outranks the un-nameable `UNKNOWN` so a missing CRAM stays visible even
   when its vendor order is absent from the list, and the detail names the vendor key it can be
   re-trimmed from. Wells are keyed the same way here as in `index_trimmed_upload` — on the normalized
   stem, falling back to the raw one when normalizing makes it unparseable — so the two cannot
