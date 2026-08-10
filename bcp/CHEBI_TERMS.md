@@ -135,7 +135,7 @@ A 404 is an answer — it means no such compound, and it is cached. Anything els
 
 - The row gets `id_status: lookup_failed`, blank facts, and both verdicts `not_checked`.
 - Nothing is cached, so a later row carrying the same ID is retried rather than served a stale failure.
-- After **5 consecutive** failed lookups the run aborts with a clear error rather than spending ~6s per remaining row. The partial output is left in place.
+- After **5 consecutive** failed lookups the run aborts with a clear error rather than burning 6s of backoff on every remaining row — plus up to three 15s connect timeouts each, if packets are being dropped rather than refused. The partial output is left in place.
 - The command **exits 1** if any row ended up `lookup_failed`, so a wrapper script cannot mistake a degraded run for a clean one.
 
 Exit codes distinguish "the tool could not do its job" from "the tool did its job and the answer was unwelcome". A `mismatch`, `not_found`, or `invalid` verdict exits **0** — that is a successful run reporting bad data. Only `lookup_failed` exits **1**.

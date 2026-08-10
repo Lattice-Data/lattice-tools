@@ -32,8 +32,9 @@ from .client import (
 
 log = logging.getLogger(__name__)
 
-# Retrying every remaining row against a ChEBI that is plainly down costs ~6s
-# each and yields nothing but lookup_failed. Fail fast instead.
+# Retrying every remaining row against a ChEBI that is plainly down costs 6s of
+# backoff each — plus up to three connect timeouts if packets are being dropped
+# rather than refused — and yields nothing but lookup_failed. Fail fast instead.
 MAX_CONSECUTIVE_FAILURES = 5
 
 # Statuses reported in the run summary, in the order they are logged.
@@ -164,6 +165,15 @@ def _resolve_columns(
         if column and column not in fieldnames:
             raise ChebiTermsError(
                 f"Column '{column}' ({label}) not found. Available columns: {fieldnames}"
+            )
+        if column and column in OUTPUT_FIELDS_APPENDED:
+            # The comparison itself would be correct, but the column gets
+            # overwritten with ChEBI's value — so a mismatch row would show a
+            # verdict with no record of what it was compared against.
+            raise ChebiTermsError(
+                f"Column '{column}' ({label}) collides with a column this tool "
+                f"writes, which would erase the value being checked. Rename it in "
+                f"the input. Reserved names: {OUTPUT_FIELDS_APPENDED}"
             )
 
     extra_columns = [c for c in fieldnames if c != chebi_column]

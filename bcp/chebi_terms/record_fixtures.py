@@ -8,9 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
-import requests
-
-from .client import fetch_compound, normalize_chebi_id
+from .client import ChebiUnavailableError, fetch_compound, normalize_chebi_id
 
 log = logging.getLogger(__name__)
 
@@ -94,8 +92,11 @@ def main() -> None:
         try:
             if record_fixture_for_id(chebi_id, args.out_dir) is not None:
                 recorded += 1
-        except requests.exceptions.RequestException as exc:
-            log.error("Network error for %s: %s", chebi_id, exc)
+        except ChebiUnavailableError as exc:
+            # Not a RequestException: get_with_retry swallows those and raises
+            # this instead, so catching RequestException here would be dead code
+            # and an outage would surface as a raw traceback.
+            log.error("Could not reach ChEBI for %s: %s", chebi_id, exc)
 
     if recorded != len(chebi_ids):
         sys.exit(1)

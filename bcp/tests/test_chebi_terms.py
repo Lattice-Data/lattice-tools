@@ -25,6 +25,7 @@ from chebi_terms.client import (
     STATUS_NOT_FOUND,
     STATUS_NOT_RELEASED,
     MAX_RETRIES,
+    RETRY_BACKOFF,
     STATUS_OK,
     STATUS_SECONDARY,
     ChebiUnavailableError,
@@ -340,6 +341,24 @@ def test_get_with_retry_raises_on_persistent_500(
     mock_get.return_value = mock_response(500)
     with pytest.raises(ChebiUnavailableError):
         get_with_retry("https://example.invalid/x")
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_get_with_retry_does_not_sleep_after_the_final_attempt(
+    mock_get: MagicMock, mock_sleep: MagicMock
+) -> None:
+    """Sleeping after the last try only delays the failure."""
+    mock_get.side_effect = requests.exceptions.ConnectionError("down")
+    with pytest.raises(ChebiUnavailableError):
+        get_with_retry("https://example.invalid/x")
+
+    assert mock_get.call_count == MAX_RETRIES
+    assert mock_sleep.call_count == MAX_RETRIES - 1
+    slept = [call.args[0] for call in mock_sleep.call_args_list]
+    assert slept == [RETRY_BACKOFF, RETRY_BACKOFF * 2]
+    # The figure MAX_CONSECUTIVE_FAILURES is justified by.
+    assert sum(slept) == RETRY_BACKOFF * (2 ** (MAX_RETRIES - 1) - 1)
 
 
 @patch("chebi_terms.client.time.sleep")
@@ -726,6 +745,19 @@ def test_verify_chebi_file_rejects_reserved_chebi_column(tmp_path: Path) -> None
     _write_csv(src, ["chebi_accession"], [["CHEBI:16236"]])
     with pytest.raises(ChebiTermsError, match="collides"):
         verify_chebi_file(src, "chebi_accession", tmp_path / "out.csv")
+
+
+@pytest.mark.parametrize("kwarg", ["name_column", "cas_column"])
+def test_verify_chebi_file_rejects_reserved_check_column(
+    tmp_path: Path, kwarg: str
+) -> None:
+    """Checking against a column we overwrite would erase the evidence."""
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["chebi_id", "chebi_name"], [["CHEBI:16236", "ethanol"]])
+    with pytest.raises(ChebiTermsError, match="erase the value being checked"):
+        verify_chebi_file(
+            src, "chebi_id", tmp_path / "out.csv", **{kwarg: "chebi_name"}
+        )
 
 
 def test_verify_chebi_file_missing_name_column(tmp_path: Path) -> None:

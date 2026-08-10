@@ -77,7 +77,10 @@ _DASH_MAP = dict.fromkeys(
     map(ord, "‐‑‒–—―−"),
     "-",
 )
-_ACCESSION_RE = re.compile(r"^(?:CHEBI:)?(\d+)$", re.IGNORECASE)
+# [0-9], not \d: \d also matches Unicode decimal digits, which would parse as a
+# "valid" ID, get percent-encoded into the URL, and come back not_found — exactly
+# the input-vs-answer conflation this module exists to avoid.
+_ACCESSION_RE = re.compile(r"^(?:CHEBI:)?([0-9]+)$", re.IGNORECASE)
 
 
 def empty_result() -> dict[str, Any]:
@@ -152,10 +155,12 @@ def get_with_retry(url: str) -> requests.Response | None:
                     MAX_RETRIES,
                     url,
                 )
-            time.sleep(delay)
-            delay *= 2
         except requests.exceptions.RequestException as exc:
             log.warning("Request error: %s [%s/%s]", exc, attempt, MAX_RETRIES)
+        # Never sleep after the final attempt: it delays the failure without
+        # buying another try. Total backoff is
+        # RETRY_BACKOFF * (2**(MAX_RETRIES - 1) - 1) — 6s at current settings.
+        if attempt < MAX_RETRIES:
             time.sleep(delay)
             delay *= 2
     raise ChebiUnavailableError(
@@ -223,6 +228,8 @@ def extract_synonyms(
         if name_type not in SYNONYM_TYPES:
             continue
         language = entry.get("language_code")
+        # An absent or empty language code counts as English: over-reporting an
+        # unlabelled English name beats silently dropping it.
         if language and str(language).lower() != SYNONYM_LANGUAGE:
             continue
         value = clean_name(entry.get("name"))
