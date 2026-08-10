@@ -8,7 +8,7 @@ import logging
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from . import client
 from .client import (
@@ -64,20 +64,32 @@ SINGLE_CHEBI_COLUMN = "chebi_id"
 SINGLE_OUTPUT_FIELDS = [SINGLE_CHEBI_COLUMN, *OUTPUT_FIELDS_APPENDED]
 
 
-def all_lookups_missed(status_counts: Counter[str]) -> bool:
+class RunSummary(NamedTuple):
+    """Outcome of a batch run: the per-status tally plus the run-level verdict."""
+
+    status_counts: Counter[str]
+    missed_ids: int
+    resolved_ids: int
+
+    @property
+    def suspect_endpoint(self) -> bool:
+        return all_lookups_missed(self.missed_ids, self.resolved_ids)
+
+
+def all_lookups_missed(missed_ids: int, resolved_ids: int) -> bool:
     """
-    True when every ID that reached ChEBI came back not_found, on enough rows to
-    be implausible.
+    True when every *distinct* ID that reached ChEBI came back not_found, across
+    enough of them to be implausible.
+
+    Counted per ID rather than per row: five rows carrying one retired ID make a
+    single request, and "five distinct compounds all happen not to exist" is the
+    inference the threshold is built on — not "one ID repeated five times".
 
     Per-row `not_found` stays honest either way; this only decides the run-level
-    verdict. It also fires on a sheet of genuinely bogus IDs — which is equally
-    worth a human look, so the false positive is benign.
+    verdict. It also fires on a sheet of genuinely bogus IDs — equally worth a
+    human look, so the false positive is benign.
     """
-    resolved = sum(
-        status_counts[status]
-        for status in (STATUS_OK, STATUS_SECONDARY, STATUS_NOT_RELEASED)
-    )
-    return not resolved and status_counts[STATUS_NOT_FOUND] >= SUSPICIOUS_TOTAL_MISS
+    return not resolved_ids and missed_ids >= SUSPICIOUS_TOTAL_MISS
 
 
 def build_single_row(chebi_id: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -217,13 +229,14 @@ def verify_chebi_file(
     name_column: str | None = None,
     cas_column: str | None = None,
     max_synonyms: int | None = None,
-) -> Counter[str]:
+) -> RunSummary:
     """
     Read a CSV of ChEBI IDs, verify each against ChEBI, and write enriched output.
 
-    Returns the per-status tally so callers can tell a clean run from a degraded
-    one. Raises ChebiTermsError if ChEBI stays unreachable for
-    MAX_CONSECUTIVE_FAILURES lookups, leaving the partial output in place.
+    Returns a RunSummary so callers can tell a clean run from a degraded one.
+    Raises ChebiTermsError if ChEBI stays unreachable for
+    MAX_CONSECUTIVE_FAILURES consecutive lookups that reached the network,
+    leaving the partial output in place.
     """
     if not input_path.exists():
         raise ChebiTermsError(f"Input file not found: {input_path}")
@@ -305,7 +318,10 @@ def verify_chebi_file(
                         ) from exc
                     continue
                 payload_cache[numeric] = payload
-            consecutive_failures = 0
+                # Reset only on a lookup that actually reached ChEBI. A cache hit
+                # is not evidence the outage is over, and resetting on one would
+                # let a sheet with repeated IDs slip past the fail-fast guard.
+                consecutive_failures = 0
 
             result = verify_payload(
                 accession,
@@ -354,14 +370,19 @@ def verify_chebi_file(
             status_counts[STATUS_LOOKUP_FAILED],
             total,
         )
-    if all_lookups_missed(status_counts):
+    # payload_cache holds one definitive answer per distinct ID that reached the
+    # network: None for a 404, a payload otherwise. Failures were never cached.
+    missed_ids = sum(1 for payload in payload_cache.values() if payload is None)
+    resolved_ids = len(payload_cache) - missed_ids
+
+    if all_lookups_missed(missed_ids, resolved_ids):
         log.error(
-            "Every one of the %s IDs that reached ChEBI came back not_found and "
-            "none resolved. Suspect a moved or renamed endpoint (%s) before "
-            "trusting these rows.",
-            status_counts[STATUS_NOT_FOUND],
+            "All %s distinct IDs that reached ChEBI came back not_found and none "
+            "resolved. Suspect a moved or renamed endpoint (%s) before trusting "
+            "these rows.",
+            missed_ids,
             # Read at call time so the message names the endpoint actually used.
             client.BASE,
         )
     log.info("  Output: %s", output_path)
-    return status_counts
+    return RunSummary(status_counts, missed_ids, resolved_ids)

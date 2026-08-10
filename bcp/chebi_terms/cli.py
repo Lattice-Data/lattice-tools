@@ -6,12 +6,7 @@ import sys
 from pathlib import Path
 
 from .client import STATUS_LOOKUP_FAILED
-from .io import (
-    ChebiTermsError,
-    all_lookups_missed,
-    emit_single_chebi_id,
-    verify_chebi_file,
-)
+from .io import ChebiTermsError, emit_single_chebi_id, verify_chebi_file
 
 log = logging.getLogger(__name__)
 
@@ -151,7 +146,7 @@ def main() -> None:
         output_path = Path(args.output)
 
     try:
-        status_counts = verify_chebi_file(
+        summary = verify_chebi_file(
             input_path,
             args.chebi_column,
             output_path,
@@ -163,7 +158,7 @@ def main() -> None:
         log.error("%s", exc)
         sys.exit(1)
 
-    if status_counts[STATUS_LOOKUP_FAILED] or all_lookups_missed(status_counts):
+    if summary.status_counts[STATUS_LOOKUP_FAILED] or summary.suspect_endpoint:
         sys.exit(1)
 
 

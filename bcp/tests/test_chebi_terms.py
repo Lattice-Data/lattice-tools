@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import csv
 import json
-from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -709,13 +708,13 @@ def test_verify_chebi_file_carries_not_released_through_to_the_csv(
     _write_csv(src, ["chebi_id"], [["CHEBI:16236"]])
     out = tmp_path / "out.csv"
 
-    counts = verify_chebi_file(src, "chebi_id", out)
+    summary = verify_chebi_file(src, "chebi_id", out)
 
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
     assert rows[0]["id_status"] == STATUS_NOT_RELEASED
     # Facts still reported, so the row stays useful.
     assert rows[0]["chebi_name"] == "ethanol"
-    assert counts[STATUS_NOT_RELEASED] == 1
+    assert summary.status_counts[STATUS_NOT_RELEASED] == 1
 
 
 @patch("chebi_terms.client.time.sleep")
@@ -738,14 +737,14 @@ def test_verify_chebi_file_does_not_cache_a_transient_failure(
     _write_csv(src, ["chebi_id"], [["CHEBI:16236"], ["CHEBI:16236"]])
     out = tmp_path / "out.csv"
 
-    counts = verify_chebi_file(src, "chebi_id", out)
+    summary = verify_chebi_file(src, "chebi_id", out)
 
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
     assert rows[0]["id_status"] == STATUS_LOOKUP_FAILED
     # Retried rather than served a cached failure.
     assert rows[1]["id_status"] == STATUS_OK
     assert rows[1]["chebi_name"] == "ethanol"
-    assert counts[STATUS_LOOKUP_FAILED] == 1
+    assert summary.status_counts[STATUS_LOOKUP_FAILED] == 1
 
 
 @patch("chebi_terms.client.time.sleep")
@@ -774,6 +773,34 @@ def test_verify_chebi_file_aborts_after_consecutive_failures(
 
 @patch("chebi_terms.client.time.sleep")
 @patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_cache_hits_do_not_reset_the_failure_counter(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """A cached row is not evidence the outage is over."""
+    cached = "CHEBI:16236"
+
+    def up_then_down(url: str, *args, **kwargs):
+        # Serve the first ID, then fail everything else.
+        if f"/compound/{ETHANOL}/" in url:
+            return route_chebi_get(url)
+        raise requests.exceptions.ConnectionError("down")
+
+    mock_get.side_effect = up_then_down
+    src = tmp_path / "in.csv"
+    # Alternate a cached hit with a fresh ID: with the reset in the wrong place
+    # consecutive_failures never reaches the threshold and this never aborts.
+    rows = [[cached]]
+    for i in range(MAX_CONSECUTIVE_FAILURES + 3):
+        rows += [[f"CHEBI:{90000 + i}"], [cached]]
+    _write_csv(src, ["chebi_id"], rows)
+    out = tmp_path / "out.csv"
+
+    with pytest.raises(ChebiTermsError, match="consecutive"):
+        verify_chebi_file(src, "chebi_id", out)
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
 def test_verify_chebi_file_status_counts_sum_to_row_total(
     mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
 ) -> None:
@@ -787,13 +814,13 @@ def test_verify_chebi_file_status_counts_sum_to_row_total(
     )
     out = tmp_path / "out.csv"
 
-    counts = verify_chebi_file(src, "chebi_id", out)
+    summary = verify_chebi_file(src, "chebi_id", out)
 
-    assert sum(counts.values()) == 5
+    assert sum(summary.status_counts.values()) == 5
     # Every status produced is one the summary actually prints.
-    assert sum(counts[status] for status in SUMMARY_STATUSES) == 5
-    assert counts[STATUS_MISSING] == 1
-    assert counts[STATUS_NOT_FOUND] == 1
+    assert sum(summary.status_counts[s] for s in SUMMARY_STATUSES) == 5
+    assert summary.status_counts[STATUS_MISSING] == 1
+    assert summary.status_counts[STATUS_NOT_FOUND] == 1
 
 
 # --------------------------------------------------------------------------
@@ -802,29 +829,43 @@ def test_verify_chebi_file_status_counts_sum_to_row_total(
 
 
 def test_all_lookups_missed_flags_a_total_miss() -> None:
-    counts: Counter[str] = Counter({STATUS_NOT_FOUND: SUSPICIOUS_TOTAL_MISS})
-    assert all_lookups_missed(counts)
+    assert all_lookups_missed(missed_ids=SUSPICIOUS_TOTAL_MISS, resolved_ids=0)
 
 
 def test_all_lookups_missed_ignores_a_small_batch() -> None:
-    counts: Counter[str] = Counter({STATUS_NOT_FOUND: SUSPICIOUS_TOTAL_MISS - 1})
-    assert not all_lookups_missed(counts)
+    assert not all_lookups_missed(missed_ids=SUSPICIOUS_TOTAL_MISS - 1, resolved_ids=0)
 
 
-@pytest.mark.parametrize("resolved", [STATUS_OK, STATUS_SECONDARY, STATUS_NOT_RELEASED])
-def test_all_lookups_missed_clear_when_anything_resolved(resolved: str) -> None:
+def test_all_lookups_missed_clear_when_anything_resolved() -> None:
     # One good answer proves the endpoint is alive.
-    counts: Counter[str] = Counter(
-        {STATUS_NOT_FOUND: SUSPICIOUS_TOTAL_MISS * 10, resolved: 1}
-    )
-    assert not all_lookups_missed(counts)
+    assert not all_lookups_missed(missed_ids=SUSPICIOUS_TOTAL_MISS * 10, resolved_ids=1)
 
 
-def test_all_lookups_missed_ignores_rows_that_never_reached_chebi() -> None:
-    counts: Counter[str] = Counter(
-        {STATUS_MISSING: 50, STATUS_INVALID: 50, STATUS_LOOKUP_FAILED: 50}
+def test_all_lookups_missed_ignores_lookups_that_never_reached_chebi() -> None:
+    # missing/invalid/lookup_failed rows never produce a distinct-ID answer.
+    assert not all_lookups_missed(missed_ids=0, resolved_ids=0)
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_counts_missed_ids_not_missed_rows(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """One retired ID repeated is not evidence the endpoint moved."""
+    mock_get.return_value = mock_response(404)
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["chebi_id"],
+        [["CHEBI:99999999"]] * (SUSPICIOUS_TOTAL_MISS + 3),
     )
-    assert not all_lookups_missed(counts)
+    out = tmp_path / "out.csv"
+
+    summary = verify_chebi_file(src, "chebi_id", out)
+
+    assert summary.status_counts[STATUS_NOT_FOUND] == SUSPICIOUS_TOTAL_MISS + 3
+    assert summary.missed_ids == 1
+    assert not summary.suspect_endpoint
 
 
 @patch("chebi_terms.client.time.sleep")
@@ -842,12 +883,12 @@ def test_verify_chebi_file_flags_a_wholesale_404(
     )
     out = tmp_path / "out.csv"
 
-    counts = verify_chebi_file(src, "chebi_id", out)
+    summary = verify_chebi_file(src, "chebi_id", out)
 
     # Per-row status stays honest; only the run-level verdict changes.
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
     assert all(row["id_status"] == STATUS_NOT_FOUND for row in rows)
-    assert all_lookups_missed(counts)
+    assert summary.suspect_endpoint
 
 
 def test_verify_chebi_file_missing_input(tmp_path: Path) -> None:

@@ -289,6 +289,57 @@ def test_cli_batch_exits_1_when_any_row_lookup_failed(
     assert [r["id_status"] for r in rows] == ["lookup_failed", "ok"]
 
 
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_batch_exits_1_when_every_lookup_missed(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """The other half of the exit-1 contract: a wholesale 404."""
+    import chebi_terms.cli
+    from chebi_terms.io import SUSPICIOUS_TOTAL_MISS
+
+    mock_get.return_value = MagicMock(status_code=404)
+
+    src = tmp_path / "in.csv"
+    ids = "\n".join(f"CHEBI:{16236 + i}" for i in range(SUSPICIOUS_TOTAL_MISS))
+    src.write_text(f"chebi_id\n{ids}\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+
+    with pytest.raises(SystemExit) as exc_info:
+        sys.argv = ["chebi_terms", "--input", str(src), "--output", str(out)]
+        chebi_terms.cli.main()
+    assert exc_info.value.code == 1
+
+    # Per-row verdicts stay honest; the run-level verdict is what changed.
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert all(row["id_status"] == "not_found" for row in rows)
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_batch_exits_0_when_some_ids_resolve(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """A genuine not_found alongside a hit is data, not an outage."""
+    import chebi_terms.cli
+
+    mock_get.side_effect = route_chebi_get
+
+    src = tmp_path / "in.csv"
+    src.write_text("chebi_id\nCHEBI:16236\nCHEBI:99999999\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+
+    sys.argv = ["chebi_terms", "--input", str(src), "--output", str(out)]
+    chebi_terms.cli.main()
+
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert [r["id_status"] for r in rows] == ["ok", "not_found"]
+
+
 def test_cli_batch_missing_column_exits_1(tmp_path: Path) -> None:
     import chebi_terms.cli
 
