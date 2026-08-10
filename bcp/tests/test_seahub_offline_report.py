@@ -120,6 +120,13 @@ class TestReport:
 
         assert parity_diff(from_s3, from_manifest) == {}
 
+    def test_default_scratch_does_not_write_beside_the_listing(self, tmp_path):
+        listing = _listing(tmp_path)
+
+        report(listing, mode="manifest")
+
+        assert list(tmp_path.glob("*.manifest.tsv")) == []
+
     def test_parity_excludes_the_field_that_cannot_match(self, tmp_path):
         """discovered_wafers is folder-walk only, so s3 mode alone populates it."""
         listing = _listing(tmp_path)

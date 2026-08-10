@@ -163,7 +163,7 @@ def ref3_sizes() -> dict[str, int]:
     """A plausible size per object: trimmed CRAMs well below their source."""
     sizes: dict[str, int] = {}
     for key in ref3_trimmed_keys():
-        if key.endswith((".cram",)) and not key.endswith(SIDECAR_BARE):
+        if key.endswith(".cram"):
             sizes[key] = 14_400_000_000
         elif key.endswith(".stdout"):
             sizes[key] = 0

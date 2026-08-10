@@ -65,6 +65,9 @@ __all__ = [
     "seahub_stem_and_family",
     "seahub_trimmer_failure_storage_key",
     "seahub_trimmer_group_storage_key",
+    "parse_seahub_trim_fail_csv",
+    "apply_seahub_trim_fail_blocks",
+    "is_s3_folder_marker",
     "merge_partial_wafer_stats",
     "finalize_merged_wafer_stats",
     "parse_scale_workflow_info",
@@ -911,6 +914,11 @@ def ingest_merged_trimmer_from_s3(
         Path(local).unlink(missing_ok=True)
 
 
+def is_s3_folder_marker(key: str) -> bool:
+    """True for S3 placeholder keys that end in ``/`` and carry no object."""
+    return not key or key.endswith("/")
+
+
 def seahub_stem_and_family(filename: str) -> tuple[str, str, str] | None:
     """
     Split a SeaHub raw artifact into ``(stem, suffix, family)``.
@@ -1246,6 +1254,9 @@ def load_files_from_manifest(
                 continue
         else:
             key = uri  # Assume it's already a key
+
+        if is_s3_folder_marker(key):
+            continue
 
         # Separate into raw vs processed
         if "/raw/" in key:

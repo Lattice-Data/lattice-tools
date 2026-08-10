@@ -25,6 +25,7 @@ from qa_mods import (
     finalize_merged_wafer_stats,
     apply_seahub_trim_fail_blocks,
     parse_seahub_trim_fail_csv,
+    is_s3_folder_marker,
     grab_trimmer_stats,
     grab_trimmer_failure_codes_wafer_metrics,
     ingest_merged_trimmer_from_s3,
@@ -256,6 +257,8 @@ class QADataGatherer:
         for page in self.paginator.paginate(Bucket=self.bucket, Prefix=raw_prefix):
             for content in page.get("Contents", []):
                 key = content["Key"]
+                if is_s3_folder_marker(key):
+                    continue
                 raw_files.append(key)
                 self._data.raw_file_sizes[key] = int(content.get("Size", 0) or 0)
 
@@ -470,12 +473,18 @@ class QADataGatherer:
                 for page in self.paginator.paginate(
                     Bucket=self.bucket, Prefix=run, Delimiter="/"
                 ):
-                    raw_files.extend([c["Key"] for c in page.get("Contents", [])])
+                    raw_files.extend(
+                        c["Key"]
+                        for c in page.get("Contents", [])
+                        if not is_s3_folder_marker(c["Key"])
+                    )
             is_10x = False
 
         # Flat files take precedence (preserves original notebook behaviour)
         if r_raw["Contents"]:
-            raw_files = [c["Key"] for c in r_raw["Contents"]]
+            raw_files = [
+                c["Key"] for c in r_raw["Contents"] if not is_s3_folder_marker(c["Key"])
+            ]
             is_10x = True
 
         if not raw_files:
@@ -1059,7 +1068,6 @@ class QADataGatherer:
         group_key = seahub_trimmer_group_storage_key(rf)
         if run_id is not None:
             self._data.exp_to_run_map[run_id] = run_id
-            self._data.exp_to_run_map[group_key] = run_id
         self._data.gathering_warnings.extend(warnings)
         apply_seahub_trim_fail_blocks(
             blocks,

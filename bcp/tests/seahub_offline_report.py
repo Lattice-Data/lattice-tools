@@ -46,12 +46,13 @@ import contextlib
 import csv
 import json
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from qa_gather import gather_qa_data
-from qa_mods import QARunContext, resolve_qa_run_context
+from qa_mods import QARunContext, is_s3_folder_marker, resolve_qa_run_context
 from qa_seahub_rename import build_rename_mapping, roll_up_wells, rollup_summary
 from qa_seahub_sop import sop_violation_summary, validate_seahub_stems
 from qa_seahub_source import index_untrimmed_sources
@@ -85,6 +86,8 @@ def load_listing(path: str | Path) -> tuple[str, list[str], dict[str, int]]:
             continue
         found, _, key = uri[len("s3://") :].partition("/")
         if not key:
+            continue
+        if is_s3_folder_marker(key):
             continue
         bucket = bucket or found
         keys.append(key)
@@ -162,7 +165,8 @@ def report(
     scratch: Path | None = None,
 ) -> dict[str, Any]:
     """Run one listing through the gatherer and the notebook's SeaHub cells."""
-    scratch = scratch or Path(listing).parent
+    if scratch is None:
+        scratch = Path(tempfile.mkdtemp(prefix="seahub-offline-"))
     bucket, keys, sizes = load_listing(listing)
     proj = keys[0].split("/")[0]
     label = Path(listing).stem
