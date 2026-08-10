@@ -65,7 +65,7 @@ python -m chebi_terms --input curated.csv \
 
 - **Format:** CSV with `utf-8-sig` encoding.
 - **Required column:** ChEBI ID (configurable via `--chebi-column`).
-- All other columns are preserved in the output. An input column whose name collides with one this tool writes is overwritten, with a warning; naming the *ID* column one of them is an error.
+- All other columns are preserved in the output. An input column whose name collides with one this tool writes is overwritten, with a warning. Pointing `--chebi-column`, `--name-column`, or `--cas-column` at such a name is an error: for the ID column it would emit two columns of the same name, and for the check columns it would erase the very value being checked, leaving a verdict with no record of what it was compared against.
 
 ---
 
@@ -138,7 +138,15 @@ A 404 is an answer — it means no such compound, and it is cached. Anything els
 - After **5 consecutive** failed lookups the run aborts with a clear error rather than burning 6s of backoff on every remaining row — plus up to three 15s connect timeouts each, if packets are being dropped rather than refused. The partial output is left in place.
 - The command **exits 1** if any row ended up `lookup_failed`, so a wrapper script cannot mistake a degraded run for a clean one.
 
-Exit codes distinguish "the tool could not do its job" from "the tool did its job and the answer was unwelcome". A `mismatch`, `not_found`, or `invalid` verdict exits **0** — that is a successful run reporting bad data. Only `lookup_failed` exits **1**.
+Exit codes distinguish "the tool could not do its job" from "the tool did its job and the answer was unwelcome". A `mismatch`, `not_found`, or `invalid` verdict exits **0** — that is a successful run reporting bad data.
+
+### If the endpoint moves
+
+A 404 on every row would otherwise be indistinguishable from a sheet of compounds that all genuinely do not exist — a clean tally and exit 0. EBI has already relocated the flat files and retired the SOAP service, so a rename here is a live possibility.
+
+So when **every** ID that reached ChEBI came back `not_found` and none resolved, across at least 5 rows, the run logs an error naming the endpoint and exits **1**. Per-row `id_status` stays honest either way; only the run-level verdict changes. It also fires on a batch of genuinely bogus IDs — equally worth a human look, so the false positive is harmless.
+
+**Exit 1** therefore means: any row `lookup_failed`, or every reachable lookup missed.
 
 ---
 

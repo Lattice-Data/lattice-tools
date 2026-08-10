@@ -10,6 +10,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Literal
 
+from . import client
 from .client import (
     CAS_NOT_IN_CHEBI,
     NAME_MISMATCH,
@@ -37,6 +38,12 @@ log = logging.getLogger(__name__)
 # rather than refused — and yields nothing but lookup_failed. Fail fast instead.
 MAX_CONSECUTIVE_FAILURES = 5
 
+# If every ID that reached ChEBI came back not_found, across at least this many
+# rows, the likelier explanation is a moved endpoint than a sheet of compounds
+# that all happen not to exist. EBI has already done this to the flat files and
+# the SOAP service; a rename here would otherwise print a clean tally and exit 0.
+SUSPICIOUS_TOTAL_MISS = 5
+
 # Statuses reported in the run summary, in the order they are logged.
 SUMMARY_STATUSES = (
     STATUS_OK,
@@ -55,6 +62,22 @@ class ChebiTermsError(Exception):
 
 SINGLE_CHEBI_COLUMN = "chebi_id"
 SINGLE_OUTPUT_FIELDS = [SINGLE_CHEBI_COLUMN, *OUTPUT_FIELDS_APPENDED]
+
+
+def all_lookups_missed(status_counts: Counter[str]) -> bool:
+    """
+    True when every ID that reached ChEBI came back not_found, on enough rows to
+    be implausible.
+
+    Per-row `not_found` stays honest either way; this only decides the run-level
+    verdict. It also fires on a sheet of genuinely bogus IDs — which is equally
+    worth a human look, so the false positive is benign.
+    """
+    resolved = sum(
+        status_counts[status]
+        for status in (STATUS_OK, STATUS_SECONDARY, STATUS_NOT_RELEASED)
+    )
+    return not resolved and status_counts[STATUS_NOT_FOUND] >= SUSPICIOUS_TOTAL_MISS
 
 
 def build_single_row(chebi_id: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -316,7 +339,7 @@ def verify_chebi_file(
                 )
 
     log.info("=" * 55)
-    log.info("Done. %s rows processed (%s unique IDs).", total, len(seen_ids))
+    log.info("Done. %s rows processed (%s unique IDs seen).", total, len(seen_ids))
     for status in SUMMARY_STATUSES:
         if status_counts[status]:
             log.info("  %-13s: %s", status, status_counts[status])
@@ -330,6 +353,15 @@ def verify_chebi_file(
             "nothing about whether the compounds exist.",
             status_counts[STATUS_LOOKUP_FAILED],
             total,
+        )
+    if all_lookups_missed(status_counts):
+        log.error(
+            "Every one of the %s IDs that reached ChEBI came back not_found and "
+            "none resolved. Suspect a moved or renamed endpoint (%s) before "
+            "trusting these rows.",
+            status_counts[STATUS_NOT_FOUND],
+            # Read at call time so the message names the endpoint actually used.
+            client.BASE,
         )
     log.info("  Output: %s", output_path)
     return status_counts

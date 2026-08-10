@@ -194,6 +194,13 @@ def fetch_compound(numeric_id: str) -> dict[str, Any] | None:
             f"Unexpected response shape for ChEBI ID {numeric_id}: "
             f"{type(payload).__name__}"
         )
+    if normalize_chebi_id(payload.get("chebi_accession")) is None:
+        # A body with no usable accession is a shape change, not a verdict —
+        # reporting it as `ok` with a blank accession column would read as a pass.
+        raise ChebiUnavailableError(
+            f"Response for ChEBI ID {numeric_id} carries no usable "
+            f"chebi_accession: {payload.get('chebi_accession')!r}"
+        )
     return payload
 
 
@@ -337,19 +344,22 @@ def verify_payload(
     )
     result["id_status"] = _id_status(requested_accession, payload)
 
-    if expected_name and expected_name.strip():
-        expected_key = match_key(expected_name)
-        if expected_key and expected_key == match_key(payload.get("name")):
+    # A value that normalizes to nothing (blank, or pure markup like "<i></i>")
+    # leaves the verdict not_checked: there was nothing to compare against, which
+    # is not the same as disagreeing.
+    expected_name_key = match_key(expected_name) if expected_name else ""
+    if expected_name_key:
+        if expected_name_key == match_key(payload.get("name")):
             result["name_verdict"] = NAME_MATCH
-        elif expected_key and expected_key in _name_candidates(payload):
+        elif expected_name_key in _name_candidates(payload):
             result["name_verdict"] = NAME_SYNONYM_MATCH
         else:
             result["name_verdict"] = NAME_MISMATCH
 
-    if expected_cas and expected_cas.strip():
-        expected_key = _cas_key(expected_cas)
+    expected_cas_key = _cas_key(expected_cas) if expected_cas else ""
+    if expected_cas_key:
         known = {_cas_key(cas) for cas in extract_cas_numbers(payload)}
-        if expected_key and expected_key in known:
+        if expected_cas_key in known:
             result["cas_verdict"] = CAS_CONFIRMED
         else:
             result["cas_verdict"] = CAS_NOT_IN_CHEBI

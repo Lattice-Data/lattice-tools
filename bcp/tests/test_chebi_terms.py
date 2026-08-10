@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 import requests
 
 from chebi_terms.client import (
@@ -19,13 +19,13 @@ from chebi_terms.client import (
     NAME_SYNONYM_MATCH,
     NOT_CHECKED,
     OUTPUT_FIELDS_APPENDED,
+    MAX_RETRIES,
+    RETRY_BACKOFF,
     STATUS_INVALID,
     STATUS_LOOKUP_FAILED,
     STATUS_MISSING,
     STATUS_NOT_FOUND,
     STATUS_NOT_RELEASED,
-    MAX_RETRIES,
-    RETRY_BACKOFF,
     STATUS_OK,
     STATUS_SECONDARY,
     ChebiUnavailableError,
@@ -43,7 +43,9 @@ from chebi_terms.client import (
 from chebi_terms.io import (
     MAX_CONSECUTIVE_FAILURES,
     SUMMARY_STATUSES,
+    SUSPICIOUS_TOTAL_MISS,
     ChebiTermsError,
+    all_lookups_missed,
     build_single_row,
     emit_single_chebi_id,
     verify_chebi_file,
@@ -284,6 +286,27 @@ def test_cas_verdict_not_checked_when_expected_blank() -> None:
     assert result["cas_verdict"] == NOT_CHECKED
 
 
+@pytest.mark.parametrize("empty_ish", ["<i></i>", "&nbsp;", "  "])
+def test_name_verdict_not_checked_when_expected_normalizes_to_nothing(
+    empty_ish: str,
+) -> None:
+    # Nothing to compare against is not the same as disagreeing.
+    result = verify_payload(
+        "CHEBI:16236", load_payload(ETHANOL), expected_name=empty_ish
+    )
+    assert result["name_verdict"] == NOT_CHECKED
+
+
+@pytest.mark.parametrize("empty_ish", ["<i></i>", "  "])
+def test_cas_verdict_not_checked_when_expected_normalizes_to_nothing(
+    empty_ish: str,
+) -> None:
+    result = verify_payload(
+        "CHEBI:16236", load_payload(ETHANOL), expected_cas=empty_ish
+    )
+    assert result["cas_verdict"] == NOT_CHECKED
+
+
 def test_cas_verdict_confirmed_across_unicode_hyphen() -> None:
     # U+2011 non-breaking hyphen, the same class of paste artefact _DASH_MAP
     # absorbs for names.
@@ -380,6 +403,17 @@ def test_fetch_compound_raises_on_non_dict_payload(
     resp.json.return_value = ["not", "a", "dict"]
     mock_get.return_value = resp
     with pytest.raises(ChebiUnavailableError):
+        fetch_compound("16236")
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_fetch_compound_raises_when_accession_is_missing(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """A body with no usable accession is a shape change, not a clean pass."""
+    mock_get.return_value = mock_response(200, {"name": "ethanol"})
+    with pytest.raises(ChebiUnavailableError, match="chebi_accession"):
         fetch_compound("16236")
 
 
@@ -507,6 +541,18 @@ def test_emit_single_csv_to_file(
     out = tmp_path / "result.csv"
     emit_single_chebi_id("CHEBI:16236", out, fmt="csv")
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert len(rows) == 1
+    assert rows[0]["chebi_name"] == "ethanol"
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_emit_single_csv_to_stdout(
+    mock_get: MagicMock, _sleep: MagicMock, capsys: pytest.CaptureFixture
+) -> None:
+    mock_get.side_effect = route_chebi_get
+    emit_single_chebi_id("CHEBI:16236", None, fmt="csv")
+    rows = list(csv.DictReader(capsys.readouterr().out.splitlines()))
     assert len(rows) == 1
     assert rows[0]["chebi_name"] == "ethanol"
 
@@ -652,6 +698,28 @@ def test_verify_chebi_file_overwrites_colliding_input_column(
 
 @patch("chebi_terms.client.time.sleep")
 @patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_carries_not_released_through_to_the_csv(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    unreleased = payload_copy(ETHANOL)
+    unreleased["is_released"] = False
+    mock_get.return_value = mock_response(200, unreleased)
+
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["chebi_id"], [["CHEBI:16236"]])
+    out = tmp_path / "out.csv"
+
+    counts = verify_chebi_file(src, "chebi_id", out)
+
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert rows[0]["id_status"] == STATUS_NOT_RELEASED
+    # Facts still reported, so the row stays useful.
+    assert rows[0]["chebi_name"] == "ethanol"
+    assert counts[STATUS_NOT_RELEASED] == 1
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
 def test_verify_chebi_file_does_not_cache_a_transient_failure(
     mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
 ) -> None:
@@ -726,6 +794,60 @@ def test_verify_chebi_file_status_counts_sum_to_row_total(
     assert sum(counts[status] for status in SUMMARY_STATUSES) == 5
     assert counts[STATUS_MISSING] == 1
     assert counts[STATUS_NOT_FOUND] == 1
+
+
+# --------------------------------------------------------------------------
+# a moved endpoint must not read as "none of these compounds exist"
+# --------------------------------------------------------------------------
+
+
+def test_all_lookups_missed_flags_a_total_miss() -> None:
+    counts: Counter[str] = Counter({STATUS_NOT_FOUND: SUSPICIOUS_TOTAL_MISS})
+    assert all_lookups_missed(counts)
+
+
+def test_all_lookups_missed_ignores_a_small_batch() -> None:
+    counts: Counter[str] = Counter({STATUS_NOT_FOUND: SUSPICIOUS_TOTAL_MISS - 1})
+    assert not all_lookups_missed(counts)
+
+
+@pytest.mark.parametrize("resolved", [STATUS_OK, STATUS_SECONDARY, STATUS_NOT_RELEASED])
+def test_all_lookups_missed_clear_when_anything_resolved(resolved: str) -> None:
+    # One good answer proves the endpoint is alive.
+    counts: Counter[str] = Counter(
+        {STATUS_NOT_FOUND: SUSPICIOUS_TOTAL_MISS * 10, resolved: 1}
+    )
+    assert not all_lookups_missed(counts)
+
+
+def test_all_lookups_missed_ignores_rows_that_never_reached_chebi() -> None:
+    counts: Counter[str] = Counter(
+        {STATUS_MISSING: 50, STATUS_INVALID: 50, STATUS_LOOKUP_FAILED: 50}
+    )
+    assert not all_lookups_missed(counts)
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_flags_a_wholesale_404(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """Every ID 404ing looks like a renamed endpoint, not an empty universe."""
+    mock_get.return_value = mock_response(404)
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["chebi_id"],
+        [[f"CHEBI:{16236 + i}"] for i in range(SUSPICIOUS_TOTAL_MISS)],
+    )
+    out = tmp_path / "out.csv"
+
+    counts = verify_chebi_file(src, "chebi_id", out)
+
+    # Per-row status stays honest; only the run-level verdict changes.
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert all(row["id_status"] == STATUS_NOT_FOUND for row in rows)
+    assert all_lookups_missed(counts)
 
 
 def test_verify_chebi_file_missing_input(tmp_path: Path) -> None:

@@ -6,7 +6,12 @@ import sys
 from pathlib import Path
 
 from .client import STATUS_LOOKUP_FAILED
-from .io import ChebiTermsError, emit_single_chebi_id, verify_chebi_file
+from .io import (
+    ChebiTermsError,
+    all_lookups_missed,
+    emit_single_chebi_id,
+    verify_chebi_file,
+)
 
 log = logging.getLogger(__name__)
 
@@ -136,6 +141,8 @@ def main() -> None:
                 "%s is ignored in batch mode; use --name-column/--cas-column.",
                 flag,
             )
+    if args.format != "json":
+        log.warning("--format is ignored in batch mode; output is always CSV.")
 
     input_path = Path(args.input)
     if args.output is None:
@@ -156,7 +163,7 @@ def main() -> None:
         log.error("%s", exc)
         sys.exit(1)
 
-    if status_counts[STATUS_LOOKUP_FAILED]:
+    if status_counts[STATUS_LOOKUP_FAILED] or all_lookups_missed(status_counts):
         sys.exit(1)
 
 
