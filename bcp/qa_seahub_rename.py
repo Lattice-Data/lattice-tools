@@ -52,6 +52,7 @@ from qa_seahub_sop import (
     is_non_sequencing_artifact,
     normalize_doubled_wafer,
     seahub_group_parts,
+    unrecognized_suffix,
     validate_seahub_key,
 )
 from qa_seahub_source import parse_seahub_stem_fields
@@ -509,9 +510,25 @@ def roll_up_wells(
             unaccounted += 1
             continue
         if parsed is None:
-            # Junk has no well; it is reported by the SOP table and the mapping.
-            continue
-        raw_stem, suffix, family = parsed
+            # A well path with a misspelled artifact suffix: the stem still
+            # parses, but seahub_stem_and_family rejects the name. Without this
+            # branch the well vanished from the headline CSV -- no row, not
+            # counted in unaccounted -- while the SOP table reported the suffix.
+            # Browser junk under a well folder (login.html) also has an
+            # unrecognized suffix but no parseable stem; skip those here.
+            suffix = unrecognized_suffix(basename)
+            if not suffix:
+                continue
+            raw_stem = basename[: -len(suffix)]
+            family = ""
+            normalized, _doubled = normalize_doubled_wafer(raw_stem)
+            if (
+                parse_seahub_stem_fields(normalized)
+                or parse_seahub_stem_fields(raw_stem)
+            ) is None:
+                continue
+        else:
+            raw_stem, suffix, family = parsed
         normalized, _doubled = normalize_doubled_wafer(raw_stem)
         # Fall back to the raw stem when normalizing makes it unparseable, so
         # this keys wells the same way index_trimmed_upload does. Without it the

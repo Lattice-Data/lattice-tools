@@ -532,6 +532,47 @@ class TestRollUpWells:
         assert tuple(rollup_summary(rollup.rows)) == SEAHUB_WELL_VERDICTS
 
 
+class TestAllMisspelledArtifactsStillAppearInRollup:
+    """A well whose every artifact is misspelled used to vanish from the headline CSV."""
+
+    DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479"
+    STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT"
+    MISSPELLED = (
+        ".trimmed.ucram",
+        ".trimmer_stats.csv",
+        ".trim.stderr.txt",
+        ".trim.stdout.txt",
+        ".trim_failures.csv",
+    )
+
+    def _keys(self):
+        return [f"{self.DIR}/{self.STEM}{suffix}" for suffix in self.MISSPELLED]
+
+    def test_one_well_with_only_misspelled_artifacts_gets_a_row(self):
+        rollup = roll_up_wells(BUCKET, self._keys())
+
+        assert len(rollup.rows) == 1
+        assert rollup.rows[0]["verdict"] == "DATA_GAP"
+        assert rollup.rows[0]["objects"] == len(self.MISSPELLED)
+        assert rollup.unaccounted == 0
+
+    def test_it_does_not_double_report_when_the_vendor_index_also_has_the_well(self):
+        source = SourceEntry(
+            wafer="430479",
+            ug="Z0001",
+            barcode="CAGCTCGAATGCGAT",
+            group="REF3_P05_1_A1",
+            assay="GEX_hash_oligo",
+            cram_key="labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/430479/x.cram",
+            bucket="czi-novogene",
+        )
+        rollup = roll_up_wells(BUCKET, self._keys(), {("430479", "Z0001"): source})
+
+        assert len(rollup.rows) == 1
+        assert rollup.rows[0]["verdict"] == "DATA_GAP"
+        assert "nothing was uploaded" not in rollup.rows[0]["detail"]
+
+
 _COMPLETE_DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479"
 _COMPLETE_STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
 _BARE_FIVE = (".cram", ".csv", ".stderr", ".stdout", "_fail.csv")
