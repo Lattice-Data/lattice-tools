@@ -808,3 +808,25 @@ class TestDuplicateTrimmedWell:
         index_trimmed_upload(_trimmed_keys(TRIM_STEM_A), findings=findings)
 
         assert findings == []
+
+    def test_duplicate_is_reported_once_per_alternate_name_not_per_artifact(self):
+        """Each artifact of a duplicated well reused the same finding -- six identical rows."""
+        alt_stem = "448642-448642-REF5_P01_A1-Z0001-CAGCTCGAATGCGAT"
+        alt_dir = "labalpha-seahub-bcp/REF5/raw/P01/448642"
+        suffixes = [
+            ".trim.csv",
+            ".trim.stderr",
+            ".trim.stdout",
+            ".trim_fail.csv",
+            ".trim.cram",
+            ".trim.cram-metadata.json",
+        ]
+        keys = _trimmed_keys(TRIM_STEM_A) + [
+            f"{alt_dir}/{alt_stem}{suffix}" for suffix in suffixes
+        ]
+        findings: list[dict] = []
+
+        index_trimmed_upload(keys, findings=findings)
+
+        assert len(findings) == 1
+        assert findings[0]["category"] == "duplicate_trimmed_well"

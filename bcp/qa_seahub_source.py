@@ -631,6 +631,7 @@ def index_trimmed_upload(
 ) -> dict[IdentityKey, TrimmedEntry]:
     """Index a gathered SeaHub listing by ``(wafer, UG)``, both families."""
     index: dict[IdentityKey, TrimmedEntry] = {}
+    duplicate_trimmed_seen: dict[IdentityKey, set[tuple[str, str]]] = {}
     for key in sorted(all_raw_files):
         parsed = seahub_stem_and_family(key.split("/")[-1])
         path_info = parse_seahub_raw_path(key)
@@ -664,19 +665,23 @@ def index_trimmed_upload(
             # of a well all share it. This is one well appearing under two
             # different names or folders.
             if findings is not None:
-                findings.append(
-                    finding_row(
-                        "duplicate_trimmed_well",
-                        wafer=entry.wafer,
-                        ug=entry.ug,
-                        sublibrary=entry.sublibrary,
-                        trimmed_stem=entry.stem,
-                        detail=(
-                            f"well also present as {raw_dir}/{stem}; kept "
-                            f"{entry.raw_dir}/{entry.stem}"
-                        ),
+                seen = duplicate_trimmed_seen.setdefault(identity, set())
+                alt = (raw_dir, stem)
+                if alt not in seen:
+                    seen.add(alt)
+                    findings.append(
+                        finding_row(
+                            "duplicate_trimmed_well",
+                            wafer=entry.wafer,
+                            ug=entry.ug,
+                            sublibrary=entry.sublibrary,
+                            trimmed_stem=entry.stem,
+                            detail=(
+                                f"well also present as {raw_dir}/{stem}; kept "
+                                f"{entry.raw_dir}/{entry.stem}"
+                            ),
+                        )
                     )
-                )
         if suffix in (_CRAM_SUFFIX, ".trim.cram"):
             entry.has_cram = True
             if sizes:
