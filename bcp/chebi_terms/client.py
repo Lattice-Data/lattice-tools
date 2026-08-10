@@ -150,6 +150,11 @@ def get_with_retry(url: str) -> requests.Response | None:
                     attempt,
                     MAX_RETRIES,
                 )
+            elif 400 <= resp.status_code < 500:
+                # A 400/403/410 will say the same thing three times. Fail now
+                # rather than spending the backoff to reach the same verdict —
+                # and a 410 on a retired endpoint should fail fast, not slowly.
+                raise ChebiUnavailableError(f"HTTP {resp.status_code}: {url}")
             else:
                 log.warning(
                     "HTTP %s [%s/%s]: %s",
@@ -174,6 +179,40 @@ def get_with_retry(url: str) -> requests.Response | None:
     )
 
 
+def check_payload_shape(payload: Any, numeric_id: str = "?") -> None:
+    """
+    Raise ChebiUnavailableError unless the payload carries the fields verdicts
+    depend on.
+
+    Guards every field whose absence would read as a clean pass rather than as a
+    changed payload. Exposed so a caller who fetched the payload some other way
+    can apply the same checks before handing it to verify_payload(), which is
+    pure and therefore trusts what it is given.
+    """
+    if not isinstance(payload, dict):
+        raise ChebiUnavailableError(
+            f"Unexpected response shape for ChEBI ID {numeric_id}: "
+            f"{type(payload).__name__}"
+        )
+    if normalize_chebi_id(payload.get("chebi_accession")) is None:
+        # Reporting this as `ok` with a blank accession column would read as a pass.
+        raise ChebiUnavailableError(
+            f"Response for ChEBI ID {numeric_id} carries no usable "
+            f"chebi_accession: {payload.get('chebi_accession')!r}"
+        )
+    if "is_released" not in payload:
+        # _id_status can only report not_released if the field is there at all.
+        raise ChebiUnavailableError(
+            f"Response for ChEBI ID {numeric_id} carries no is_released field"
+        )
+    if not clean_name(payload.get("name")):
+        # A blank name degrades every exact-name check to synonym_match or
+        # mismatch, so a rename would read as a sheet full of bad curator data.
+        raise ChebiUnavailableError(
+            f"Response for ChEBI ID {numeric_id} carries no usable name"
+        )
+
+
 def fetch_compound(numeric_id: str) -> dict[str, Any] | None:
     """
     Fetch the ChEBI compound payload for a numeric ID.
@@ -195,32 +234,7 @@ def fetch_compound(numeric_id: str) -> dict[str, Any] | None:
         raise ChebiUnavailableError(
             f"Non-JSON response for ChEBI ID {numeric_id}"
         ) from exc
-    if not isinstance(payload, dict):
-        raise ChebiUnavailableError(
-            f"Unexpected response shape for ChEBI ID {numeric_id}: "
-            f"{type(payload).__name__}"
-        )
-    if normalize_chebi_id(payload.get("chebi_accession")) is None:
-        # A body with no usable accession is a shape change, not a verdict —
-        # reporting it as `ok` with a blank accession column would read as a pass.
-        raise ChebiUnavailableError(
-            f"Response for ChEBI ID {numeric_id} carries no usable "
-            f"chebi_accession: {payload.get('chebi_accession')!r}"
-        )
-    if "is_released" not in payload:
-        # The other field whose absence would read as a clean pass: _id_status
-        # treats a missing is_released as released, so dropping or renaming it
-        # would silently turn every unreleased record into `ok`.
-        raise ChebiUnavailableError(
-            f"Response for ChEBI ID {numeric_id} carries no is_released field"
-        )
-    if not clean_name(payload.get("name")):
-        # Same property again: a blank name degrades every exact-name check to
-        # synonym_match or mismatch, so a rename here would read as a sheet full
-        # of bad curator data rather than as a changed payload.
-        raise ChebiUnavailableError(
-            f"Response for ChEBI ID {numeric_id} carries no usable name"
-        )
+    check_payload_shape(payload, numeric_id)
     return payload
 
 
@@ -255,9 +269,11 @@ def extract_synonyms(
         if name_type not in SYNONYM_TYPES:
             continue
         language = entry.get("language_code")
-        # An absent or empty language code counts as English: over-reporting an
-        # unlabelled English name beats silently dropping it.
-        if language and str(language).lower() != SYNONYM_LANGUAGE:
+        # An absent or empty language code counts as English, and so does any tag
+        # that starts with it ("eng", "en-GB"): over-reporting an English name
+        # beats silently dropping it. Matching via _name_candidates ignores
+        # language entirely, so this only affects what is emitted.
+        if language and not str(language).lower().startswith(SYNONYM_LANGUAGE):
             continue
         value = clean_name(entry.get("name"))
         if not value:
@@ -325,7 +341,10 @@ def extract_cas_numbers(payload: dict[str, Any]) -> list[str]:
 
 def _id_status(requested_accession: str, payload: dict[str, Any]) -> str:
     """Classify the requested ID against the payload ChEBI returned for it."""
-    if payload.get("is_released") is False:
+    # `is not True`, not `is False`: null, 0, or "false" would otherwise fall
+    # through to ok, which is the outcome fetch_compound's presence check exists
+    # to prevent. Fail in the same direction as the rest of the module.
+    if payload.get("is_released") is not True:
         return STATUS_NOT_RELEASED
     returned = normalize_chebi_id(payload.get("chebi_accession"))
     requested = normalize_chebi_id(requested_accession)
@@ -347,6 +366,11 @@ def verify_payload(
 
     Splitting this out lets batch mode cache one payload per unique ID and still
     evaluate per-row expectations against it.
+
+    Trusts the payload's shape, since it cannot raise. Anything from
+    fetch_compound() has already been checked; a payload obtained some other way
+    should go through check_payload_shape() first, or a changed payload will read
+    as a verdict about the compound.
     """
     result = empty_result()
 

@@ -133,7 +133,7 @@ CAS comparison normalizes the same Unicode dash variants and strips stray whites
 
 ## When ChEBI is unreachable
 
-A 404 is an answer — it means no such compound, and it is cached. Anything else (connection error, timeout, persistent 5xx, exhausted 429 backoff, or a 200 carrying a non-JSON body) is *not* an answer:
+A 404 is an answer — it means no such compound, and it is cached. Anything else is *not* an answer: a connection error, a timeout, a persistent 5xx, exhausted 429 backoff, a terminal 4xx such as 400/403/410 (failed immediately, since retrying will not change it), a 200 carrying a non-JSON body, or a payload missing any field the verdicts depend on (`chebi_accession`, `is_released`, `name`).
 
 - The row gets `id_status: lookup_failed`, blank facts, and both verdicts `not_checked`.
 - Nothing is cached, so a later row carrying the same ID is retried rather than served a stale failure.
@@ -152,13 +152,15 @@ Counted per ID rather than per row, because caching means one request can serve 
 
 ### If the column is wrong
 
-The same mistake from the cheaper direction: point `--chebi-column` at a name column or a notes column and every row comes back `invalid` without a single request. So when **nothing** reached ChEBI at all and at least 5 rows were unusable — counting distinct `invalid` values plus blank rows — the run names the column it was given and exits **1**.
+The same mistake from the cheaper direction: point `--chebi-column` at a name column or a notes column and every row comes back `invalid` without a single request. So when **nothing** reached ChEBI at all and at least 5 **distinct invalid values** were seen, the run names the column it was given and exits **1**.
 
-Distinct values on the invalid side, because 500 rows of one junk string is a single mistake rather than evidence about the column; rows on the blank side, where there is no value to be distinct about.
+Distinct values rather than rows, because 500 rows of one junk string is a single mistake rather than evidence about the column.
+
+An entirely **blank** ID column does not trip this. A sheet whose ChEBI IDs have not been filled in yet is a plausible real input rather than an operator error, so those rows report `missing` and the run still exits 0. Only junk values — the signature of a column holding something other than ChEBI IDs — fail it.
 
 A single `lookup_failed` disqualifies this diagnosis. Failures are never cached, so an outage also leaves both ID counts at zero and would otherwise satisfy the "nothing reached ChEBI" premise for the wrong reason — blaming the column for what the network did. The run still exits 1 either way; only the message changes.
 
-**Exit 1** therefore means: any row `lookup_failed`, every reachable lookup missed, or no usable ID at all. Anything else — including a `mismatch` or a genuine `not_found` — exits **0**. `RunSummary.degraded` is the same predicate, for programmatic callers.
+**Exit 1** therefore means: any row `lookup_failed`, every reachable lookup missed, or no usable ID and ≥5 distinct junk values. Anything else — including a `mismatch`, a genuine `not_found`, or an unfilled ID column — exits **0**. `RunSummary.degraded` is the same predicate, for programmatic callers.
 
 ---
 
@@ -209,7 +211,7 @@ print(check["id_status"], check["chebi_accession"], check["cas_verdict"])
 # secondary CHEBI:90 confirmed
 ```
 
-`client.verify_payload()` is pure — hand it an already-fetched payload to evaluate expectations without making a request.
+`client.verify_payload()` is pure — hand it an already-fetched payload to evaluate expectations without making a request. Because it cannot raise, it trusts the payload's shape: anything from `fetch_compound()` has already been checked, but a payload you obtained some other way should go through `client.check_payload_shape()` first, or a changed payload will read as a verdict about the compound.
 
 `describe_chebi_id()` and `verify_chebi_id()` never raise: an unreachable ChEBI comes back as `lookup_failed`. The lower-level `fetch_compound()` and `get_with_retry()` raise `ChebiUnavailableError` instead, so callers building their own loop can tell the two apart.
 

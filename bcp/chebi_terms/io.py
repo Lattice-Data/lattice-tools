@@ -92,9 +92,14 @@ class RunSummary(NamedTuple):
 
         The mirror of suspect_endpoint from the cheaper direction: it needs no
         network, so it is the easier mistake to make and the likelier one to slip
-        past unnoticed. Distinct values for the invalid side — 500 rows of one
-        junk string is a single mistake — and rows for the blank side, where
-        there is no value to be distinct about.
+        past unnoticed. Counted in distinct values, since 500 rows of one junk
+        string is a single mistake rather than evidence about the column.
+
+        An all-*blank* column does not count: a sheet whose ChEBI IDs have not
+        been filled in yet is a plausible real input, not an operator error. Those
+        rows are reported `missing` and the run still succeeds. Only junk values —
+        the signature of a column that holds something other than ChEBI IDs —
+        fail the run.
 
         A single lookup_failed disqualifies it. Failures are never cached, so an
         outage leaves resolved_ids and missed_ids at 0 and would otherwise satisfy
@@ -106,7 +111,7 @@ class RunSummary(NamedTuple):
             return False
         if self.status_counts[STATUS_LOOKUP_FAILED]:
             return False
-        return (self.invalid_values + self.missing_rows) >= SUSPICIOUS_TOTAL_MISS
+        return self.invalid_values >= SUSPICIOUS_TOTAL_MISS
 
     @property
     def degraded(self) -> bool:
@@ -433,11 +438,11 @@ def verify_chebi_file(
         if status_counts[status]:
             log.info("  %-13s: %s", status, status_counts[status])
     if name_column:
-        log.info("  Name mismatches : %s", name_mismatches)
+        log.info("  Name mismatches  : %s", name_mismatches)
     if cas_column:
         log.info("  CAS disagreements: %s", cas_disagreements)
         if cas_not_recorded:
-            log.info("  CAS unverifiable  : %s (ChEBI has no CAS)", cas_not_recorded)
+            log.info("  CAS unverifiable : %s (ChEBI has no CAS)", cas_not_recorded)
     if status_counts[STATUS_LOOKUP_FAILED]:
         log.error(
             "ChEBI could not be reached for %s of %s rows — those rows say "
@@ -472,9 +477,11 @@ def verify_chebi_file(
         )
     if summary.suspect_column:
         log.error(
-            "No row held a usable ChEBI ID (%s invalid, %s blank). Check that "
-            "--chebi-column '%s' is the right column.",
+            "No row held a usable ChEBI ID: %s invalid rows carrying %s "
+            "distinct values, %s blank. Check that --chebi-column '%s' is the "
+            "right column.",
             status_counts[STATUS_INVALID],
+            len(invalid_values),
             status_counts[STATUS_MISSING],
             chebi_column,
         )

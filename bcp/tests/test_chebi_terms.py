@@ -30,6 +30,7 @@ from chebi_terms.client import (
     STATUS_OK,
     STATUS_SECONDARY,
     ChebiUnavailableError,
+    check_payload_shape,
     clean_name,
     describe_chebi_id,
     extract_cas_numbers,
@@ -126,6 +127,16 @@ def test_extract_synonyms_excludes_brand_names() -> None:
     synonyms = extract_synonyms(load_payload(ETHANOL))
     # 'Dehydrated ethanol' is a BRAND NAME in ChEBI.
     assert "Dehydrated ethanol" not in synonyms
+
+
+@pytest.mark.parametrize("tag", ["en", "eng", "en-GB", "EN", None, ""])
+def test_extract_synonyms_treats_english_variants_as_english(tag: str | None) -> None:
+    """The stated policy is over-report rather than silently drop."""
+    payload = {
+        "name": "ethanol",
+        "names": {"SYNONYM": [{"name": "hooch", "language_code": tag}]},
+    }
+    assert extract_synonyms(payload) == ["hooch"]
 
 
 def test_extract_synonyms_excludes_non_english() -> None:
@@ -380,6 +391,20 @@ def test_get_with_retry_raises_on_connection_error(
     assert mock_get.call_count == MAX_RETRIES
 
 
+@pytest.mark.parametrize("terminal", [400, 403, 410])
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_get_with_retry_does_not_retry_a_terminal_4xx(
+    mock_get: MagicMock, mock_sleep: MagicMock, terminal: int
+) -> None:
+    """A 400/403/410 says the same thing three times; 410 on a dead endpoint too."""
+    mock_get.return_value = mock_response(terminal)
+    with pytest.raises(ChebiUnavailableError, match=str(terminal)):
+        get_with_retry("https://example.invalid/x")
+    assert mock_get.call_count == 1
+    mock_sleep.assert_not_called()
+
+
 @patch("chebi_terms.client.time.sleep")
 @patch("chebi_terms.client.requests.get")
 def test_get_with_retry_raises_on_persistent_500(
@@ -469,6 +494,37 @@ def test_fetch_compound_raises_when_accession_is_missing(
     mock_get.return_value = mock_response(200, {"name": "ethanol"})
     with pytest.raises(ChebiUnavailableError, match="chebi_accession"):
         fetch_compound("16236")
+
+
+def test_check_payload_shape_accepts_a_recorded_payload() -> None:
+    check_payload_shape(load_payload(ETHANOL), "16236")
+
+
+@pytest.mark.parametrize(
+    "drop, expected",
+    [
+        ("chebi_accession", "chebi_accession"),
+        ("is_released", "is_released"),
+        ("name", "no usable name"),
+    ],
+)
+def test_check_payload_shape_rejects_every_load_bearing_field(
+    drop: str, expected: str
+) -> None:
+    """Exposed so callers with their own payload can apply the same guards."""
+    payload = payload_copy(ETHANOL)
+    del payload[drop]
+    with pytest.raises(ChebiUnavailableError, match=expected):
+        check_payload_shape(payload, "16236")
+
+
+def test_id_status_treats_a_non_true_is_released_as_unreleased() -> None:
+    # fetch_compound only guarantees the field is present, not that it is a bool.
+    for value in (None, 0, "false"):
+        payload = payload_copy(ETHANOL)
+        payload["is_released"] = value
+        result = verify_payload("CHEBI:16236", payload)
+        assert result["id_status"] == STATUS_NOT_RELEASED, value
 
 
 @pytest.mark.parametrize(
@@ -946,8 +1002,14 @@ def test_suspect_column_flags_an_all_invalid_sheet() -> None:
     assert _summary(invalid_values=SUSPICIOUS_TOTAL_MISS).suspect_column
 
 
-def test_suspect_column_flags_an_all_blank_column() -> None:
-    assert _summary(missing_rows=SUSPICIOUS_TOTAL_MISS).suspect_column
+def test_suspect_column_allows_an_all_blank_column() -> None:
+    """A sheet whose IDs are not filled in yet is real input, not an error."""
+    summary = _summary(
+        missing_rows=SUSPICIOUS_TOTAL_MISS * 10,
+        status_counts=Counter({STATUS_MISSING: SUSPICIOUS_TOTAL_MISS * 10}),
+    )
+    assert not summary.suspect_column
+    assert not summary.degraded
 
 
 def test_suspect_column_ignores_a_repeated_single_junk_value() -> None:
@@ -1017,10 +1079,10 @@ def test_verify_chebi_file_flags_the_wrong_chebi_column(
 
 @patch("chebi_terms.client.time.sleep")
 @patch("chebi_terms.client.requests.get")
-def test_verify_chebi_file_flags_an_entirely_empty_id_column(
+def test_verify_chebi_file_accepts_an_entirely_empty_id_column(
     mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
 ) -> None:
-    """The column exists but holds nothing — same mistake, different shape."""
+    """A partly-curated sheet with no IDs yet must not fail the run."""
     mock_get.side_effect = route_chebi_get
     src = tmp_path / "in.csv"
     _write_csv(
@@ -1033,8 +1095,10 @@ def test_verify_chebi_file_flags_an_entirely_empty_id_column(
     summary = verify_chebi_file(src, "chebi_id", out)
 
     assert summary.missing_rows == SUSPICIOUS_TOTAL_MISS
-    assert summary.suspect_column
-    assert summary.degraded
+    assert summary.status_counts[STATUS_MISSING] == SUSPICIOUS_TOTAL_MISS
+    # Reported per row, but not an operator error.
+    assert not summary.suspect_column
+    assert not summary.degraded
 
 
 @patch("chebi_terms.client.time.sleep")
