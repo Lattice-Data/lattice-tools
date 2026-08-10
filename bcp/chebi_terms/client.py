@@ -39,12 +39,29 @@ OUTPUT_FIELDS_APPENDED = [
     "cas_verdict",
 ]
 
-# id_status values, highest precedence first when more than one could apply.
-STATUS_INVALID = "invalid"
+
+class ChebiUnavailableError(Exception):
+    """
+    ChEBI could not be reached, or gave no usable answer after MAX_RETRIES.
+
+    Deliberately distinct from a 404: it says nothing about whether the compound
+    exists, so callers must never report it as not_found.
+    """
+
+
+# id_status — what we learned about the compound. Highest precedence first when
+# more than one could apply.
 STATUS_NOT_FOUND = "not_found"
 STATUS_NOT_RELEASED = "not_released"
 STATUS_SECONDARY = "secondary"
 STATUS_OK = "ok"
+
+# id_status — what we learned about the input instead of the compound.
+STATUS_MISSING = "missing"
+STATUS_INVALID = "invalid"
+
+# id_status — we never got to ask. Not a statement about the compound.
+STATUS_LOOKUP_FAILED = "lookup_failed"
 
 NOT_CHECKED = "not_checked"
 NAME_MATCH = "match"
@@ -104,7 +121,13 @@ def normalize_chebi_id(chebi_id: Any) -> tuple[str, str] | None:
 
 
 def get_with_retry(url: str) -> requests.Response | None:
-    """GET with exponential backoff on 429/503. Returns None on 404 or exhausted retries."""
+    """
+    GET with exponential backoff on 429/503.
+
+    Returns None for a 404 — an answer, meaning no such compound. Raises
+    ChebiUnavailableError when ChEBI cannot be reached or keeps failing, so that
+    "we could not ask" is never mistaken for "ChEBI says no".
+    """
     delay = RETRY_BACKOFF
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -135,13 +158,18 @@ def get_with_retry(url: str) -> requests.Response | None:
             log.warning("Request error: %s [%s/%s]", exc, attempt, MAX_RETRIES)
             time.sleep(delay)
             delay *= 2
-    log.error("Retries exhausted: %s", url)
-    return None
+    raise ChebiUnavailableError(
+        f"ChEBI unreachable after {MAX_RETRIES} attempts: {url}"
+    )
 
 
 def fetch_compound(numeric_id: str) -> dict[str, Any] | None:
     """
     Fetch the ChEBI compound payload for a numeric ID.
+
+    Returns None only when ChEBI answers that no such compound exists. A garbled
+    or unreachable ChEBI raises ChebiUnavailableError instead — a 200 carrying a
+    non-JSON body is a server fault, not evidence about the compound.
 
     ChEBI resolves secondary IDs to their primary compound server-side, so the
     returned chebi_accession may differ from the ID requested.
@@ -152,10 +180,16 @@ def fetch_compound(numeric_id: str) -> dict[str, Any] | None:
         return None
     try:
         payload = resp.json()
-    except ValueError:
-        log.warning("Non-JSON response for ChEBI ID %s", numeric_id)
-        return None
-    return payload if isinstance(payload, dict) else None
+    except ValueError as exc:
+        raise ChebiUnavailableError(
+            f"Non-JSON response for ChEBI ID {numeric_id}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise ChebiUnavailableError(
+            f"Unexpected response shape for ChEBI ID {numeric_id}: "
+            f"{type(payload).__name__}"
+        )
+    return payload
 
 
 def _iter_name_entries(payload: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
@@ -223,6 +257,18 @@ def _name_candidates(payload: dict[str, Any]) -> set[str]:
             if key:
                 candidates.add(key)
     return candidates
+
+
+def _cas_key(value: Any) -> str:
+    """
+    Normalize a CAS Registry Number for comparison.
+
+    Absorbs the same Unicode dash variants match_key() handles, plus stray
+    whitespace, so a curator's '64‑17‑5' is not reported as a disagreement with
+    ChEBI. Internal dashes are kept: collapsing '64-17-5' and '64175' onto one
+    key would risk a false 'confirmed', which is the more dangerous direction.
+    """
+    return "".join(clean_name(value).translate(_DASH_MAP).split())
 
 
 def extract_cas_numbers(payload: dict[str, Any]) -> list[str]:
@@ -294,8 +340,9 @@ def verify_payload(
             result["name_verdict"] = NAME_MISMATCH
 
     if expected_cas and expected_cas.strip():
-        known = {cas.strip() for cas in extract_cas_numbers(payload)}
-        if expected_cas.strip() in known:
+        expected_key = _cas_key(expected_cas)
+        known = {_cas_key(cas) for cas in extract_cas_numbers(payload)}
+        if expected_key and expected_key in known:
             result["cas_verdict"] = CAS_CONFIRMED
         else:
             result["cas_verdict"] = CAS_NOT_IN_CHEBI
@@ -310,15 +357,28 @@ def verify_chebi_id(
     expected_cas: str | None = None,
     max_synonyms: int | None = None,
 ) -> dict[str, Any]:
-    """Resolve one ChEBI ID and check it against an expected name and/or CAS."""
+    """
+    Resolve one ChEBI ID and check it against an expected name and/or CAS.
+
+    Never raises: an unreachable ChEBI is reported as id_status lookup_failed
+    rather than as a claim about the compound.
+    """
     parsed = normalize_chebi_id(chebi_id)
     if parsed is None:
         result = empty_result()
-        result["id_status"] = STATUS_INVALID
+        blank = not str(chebi_id or "").strip()
+        result["id_status"] = STATUS_MISSING if blank else STATUS_INVALID
         return result
 
     numeric, accession = parsed
-    payload = fetch_compound(numeric)
+    try:
+        payload = fetch_compound(numeric)
+    except ChebiUnavailableError as exc:
+        log.error("%s", exc)
+        result = empty_result()
+        result["id_status"] = STATUS_LOOKUP_FAILED
+        return result
+
     return verify_payload(
         accession,
         payload,

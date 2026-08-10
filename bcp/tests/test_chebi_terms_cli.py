@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from tests.chebi_terms_helpers import route_chebi_get
 
@@ -194,6 +195,98 @@ def test_cli_batch_default_output_path(
     expected = tmp_path / "ids_chebi_checked.csv"
     assert expected.exists()
     assert "ethanol" in expected.read_text(encoding="utf-8")
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_empty_chebi_arg_reports_missing_not_crash(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`--chebi ""` is falsy but must not fall through to batch mode."""
+    import chebi_terms.cli
+
+    mock_get.side_effect = route_chebi_get
+
+    sys.argv = ["chebi_terms", "--chebi", ""]
+    chebi_terms.cli.main()
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["id_status"] == "missing"
+    mock_get.assert_not_called()
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_single_exits_1_when_chebi_unreachable(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import chebi_terms.cli
+
+    mock_get.side_effect = requests.exceptions.ConnectionError("down")
+
+    with pytest.raises(SystemExit) as exc_info:
+        sys.argv = ["chebi_terms", "--chebi", "CHEBI:16236"]
+        chebi_terms.cli.main()
+    assert exc_info.value.code == 1
+    # The JSON still lands on stdout, saying lookup_failed rather than not_found.
+    data = json.loads(capsys.readouterr().out)
+    assert data["id_status"] == "lookup_failed"
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_single_exits_0_for_an_unwelcome_verdict(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A mismatch is a successful run: the tool did its job and said no."""
+    import chebi_terms.cli
+
+    mock_get.side_effect = route_chebi_get
+
+    sys.argv = ["chebi_terms", "--chebi", "CHEBI:16236", "--expect-name", "caffeine"]
+    chebi_terms.cli.main()
+
+    assert json.loads(capsys.readouterr().out)["name_verdict"] == "mismatch"
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_batch_exits_1_when_any_row_lookup_failed(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    tmp_path: Path,
+) -> None:
+    import chebi_terms.cli
+    from chebi_terms.client import MAX_RETRIES
+
+    calls = {"n": 0}
+
+    def flaky(url: str, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] <= MAX_RETRIES:
+            raise requests.exceptions.ConnectionError("blip")
+        return route_chebi_get(url)
+
+    mock_get.side_effect = flaky
+
+    src = tmp_path / "in.csv"
+    src.write_text("chebi_id\nCHEBI:16236\nCHEBI:16236\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+
+    with pytest.raises(SystemExit) as exc_info:
+        sys.argv = ["chebi_terms", "--input", str(src), "--output", str(out)]
+        chebi_terms.cli.main()
+    assert exc_info.value.code == 1
+
+    # The degraded run still leaves a usable CSV behind.
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert [r["id_status"] for r in rows] == ["lookup_failed", "ok"]
 
 
 def test_cli_batch_missing_column_exits_1(tmp_path: Path) -> None:

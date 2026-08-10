@@ -5,6 +5,7 @@ import logging
 import sys
 from pathlib import Path
 
+from .client import STATUS_LOOKUP_FAILED
 from .io import ChebiTermsError, emit_single_chebi_id, verify_chebi_file
 
 log = logging.getLogger(__name__)
@@ -99,7 +100,9 @@ def main() -> None:
         log.error("--max-synonyms must be at least 1 (got %s).", args.max_synonyms)
         sys.exit(1)
 
-    if args.chebi:
+    # `is not None`, not truthiness: `--chebi ""` must reach the ID handling and
+    # report `missing`, not fall through to batch mode and die on Path(None).
+    if args.chebi is not None:
         for flag, value in (
             ("--chebi-column", args.chebi_column != DEFAULT_CHEBI_COLUMN),
             ("--name-column", args.name_column is not None),
@@ -110,7 +113,7 @@ def main() -> None:
                     "%s is ignored in single-ID mode; use --expect-name/--expect-cas.",
                     flag,
                 )
-        emit_single_chebi_id(
+        result = emit_single_chebi_id(
             args.chebi,
             Path(args.output) if args.output else None,
             fmt=args.format,
@@ -118,6 +121,10 @@ def main() -> None:
             expected_cas=args.expect_cas,
             max_synonyms=args.max_synonyms,
         )
+        # A verdict is a successful run, however unwelcome. Not being able to ask
+        # is a failed run, and must not be mistaken for one.
+        if result["id_status"] == STATUS_LOOKUP_FAILED:
+            sys.exit(1)
         return
 
     for flag, value in (
@@ -137,7 +144,7 @@ def main() -> None:
         output_path = Path(args.output)
 
     try:
-        verify_chebi_file(
+        status_counts = verify_chebi_file(
             input_path,
             args.chebi_column,
             output_path,
@@ -147,6 +154,9 @@ def main() -> None:
         )
     except ChebiTermsError as exc:
         log.error("%s", exc)
+        sys.exit(1)
+
+    if status_counts[STATUS_LOOKUP_FAILED]:
         sys.exit(1)
 
 

@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import requests
+
 from chebi_terms.client import (
     CAS_CONFIRMED,
     CAS_NOT_IN_CHEBI,
@@ -18,20 +20,28 @@ from chebi_terms.client import (
     NOT_CHECKED,
     OUTPUT_FIELDS_APPENDED,
     STATUS_INVALID,
+    STATUS_LOOKUP_FAILED,
+    STATUS_MISSING,
     STATUS_NOT_FOUND,
     STATUS_NOT_RELEASED,
+    MAX_RETRIES,
     STATUS_OK,
     STATUS_SECONDARY,
+    ChebiUnavailableError,
     clean_name,
     describe_chebi_id,
     extract_cas_numbers,
     extract_synonyms,
+    fetch_compound,
+    get_with_retry,
     match_key,
     normalize_chebi_id,
     verify_chebi_id,
     verify_payload,
 )
 from chebi_terms.io import (
+    MAX_CONSECUTIVE_FAILURES,
+    SUMMARY_STATUSES,
     ChebiTermsError,
     build_single_row,
     emit_single_chebi_id,
@@ -273,6 +283,113 @@ def test_cas_verdict_not_checked_when_expected_blank() -> None:
     assert result["cas_verdict"] == NOT_CHECKED
 
 
+def test_cas_verdict_confirmed_across_unicode_hyphen() -> None:
+    # U+2011 non-breaking hyphen, the same class of paste artefact _DASH_MAP
+    # absorbs for names.
+    result = verify_payload(
+        "CHEBI:16236", load_payload(ETHANOL), expected_cas="64‑17‑5"
+    )
+    assert result["cas_verdict"] == CAS_CONFIRMED
+
+
+def test_cas_verdict_confirmed_ignoring_internal_whitespace() -> None:
+    result = verify_payload(
+        "CHEBI:16236", load_payload(ETHANOL), expected_cas="64 - 17 - 5"
+    )
+    assert result["cas_verdict"] == CAS_CONFIRMED
+
+
+def test_cas_verdict_does_not_confirm_dash_stripped_variant() -> None:
+    # 64175 must NOT match 64-17-5: a false 'confirmed' is the dangerous direction.
+    result = verify_payload("CHEBI:16236", load_payload(ETHANOL), expected_cas="64175")
+    assert result["cas_verdict"] == CAS_NOT_IN_CHEBI
+
+
+# --------------------------------------------------------------------------
+# an unreachable ChEBI must never read as "no such compound"
+# --------------------------------------------------------------------------
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_get_with_retry_returns_none_on_404(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    mock_get.return_value = mock_response(404)
+    assert get_with_retry("https://example.invalid/x") is None
+    # A 404 is an answer, so it is not retried.
+    assert mock_get.call_count == 1
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_get_with_retry_raises_on_connection_error(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    mock_get.side_effect = requests.exceptions.ConnectionError("dns")
+    with pytest.raises(ChebiUnavailableError):
+        get_with_retry("https://example.invalid/x")
+    assert mock_get.call_count == MAX_RETRIES
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_get_with_retry_raises_on_persistent_500(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    mock_get.return_value = mock_response(500)
+    with pytest.raises(ChebiUnavailableError):
+        get_with_retry("https://example.invalid/x")
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_fetch_compound_returns_none_only_for_404(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    mock_get.return_value = mock_response(404)
+    assert fetch_compound("99999999") is None
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_fetch_compound_raises_on_non_dict_payload(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = ["not", "a", "dict"]
+    mock_get.return_value = resp
+    with pytest.raises(ChebiUnavailableError):
+        fetch_compound("16236")
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_id_reports_lookup_failed_not_not_found(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    mock_get.side_effect = requests.exceptions.Timeout("slow")
+    result = verify_chebi_id(
+        "CHEBI:16236", expected_name="ethanol", expected_cas="64-17-5"
+    )
+    assert result["id_status"] == STATUS_LOOKUP_FAILED
+    assert result["id_status"] != STATUS_NOT_FOUND
+    assert result["chebi_name"] == ""
+    # Nothing was checked, so nothing may be asserted about the name or CAS.
+    assert result["name_verdict"] == NOT_CHECKED
+    assert result["cas_verdict"] == NOT_CHECKED
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_verify_chebi_id_blank_is_missing(blank: str) -> None:
+    assert verify_chebi_id(blank)["id_status"] == STATUS_MISSING
+
+
+def test_verify_chebi_id_junk_is_invalid_not_missing() -> None:
+    assert verify_chebi_id("not-an-id")["id_status"] == STATUS_INVALID
+
+
 # --------------------------------------------------------------------------
 # verify_chebi_id / describe_chebi_id
 # --------------------------------------------------------------------------
@@ -316,7 +433,8 @@ def test_verify_chebi_id_non_json_response(
     resp.status_code = 200
     resp.json.side_effect = ValueError("not json")
     mock_get.return_value = resp
-    assert verify_chebi_id("CHEBI:16236")["id_status"] == STATUS_NOT_FOUND
+    # A 200 with a garbled body is a server fault, not evidence about the compound.
+    assert verify_chebi_id("CHEBI:16236")["id_status"] == STATUS_LOOKUP_FAILED
 
 
 @patch("chebi_terms.client.time.sleep")
@@ -485,8 +603,12 @@ def test_verify_chebi_file_blank_and_invalid_ids(
     verify_chebi_file(src, "chebi_id", out)
 
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
-    assert rows[0]["id_status"] == ""
+    assert rows[0]["id_status"] == STATUS_MISSING
     assert rows[1]["id_status"] == STATUS_INVALID
+    # Blank rows still carry documented verdicts, not empty strings.
+    for row in rows:
+        assert row["name_verdict"] == NOT_CHECKED
+        assert row["cas_verdict"] == NOT_CHECKED
     mock_get.assert_not_called()
 
 
@@ -507,6 +629,84 @@ def test_verify_chebi_file_overwrites_colliding_input_column(
     assert header.count("chebi_name") == 1
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
     assert rows[0]["chebi_name"] == "ethanol"
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_does_not_cache_a_transient_failure(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """One blip must not be replayed as a verdict for every later row."""
+    calls = {"n": 0}
+
+    def flaky(url: str, *args, **kwargs):
+        calls["n"] += 1
+        # Exhaust the first row's retries, then recover.
+        if calls["n"] <= MAX_RETRIES:
+            raise requests.exceptions.ConnectionError("blip")
+        return route_chebi_get(url)
+
+    mock_get.side_effect = flaky
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["chebi_id"], [["CHEBI:16236"], ["CHEBI:16236"]])
+    out = tmp_path / "out.csv"
+
+    counts = verify_chebi_file(src, "chebi_id", out)
+
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert rows[0]["id_status"] == STATUS_LOOKUP_FAILED
+    # Retried rather than served a cached failure.
+    assert rows[1]["id_status"] == STATUS_OK
+    assert rows[1]["chebi_name"] == "ethanol"
+    assert counts[STATUS_LOOKUP_FAILED] == 1
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_aborts_after_consecutive_failures(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    mock_get.side_effect = requests.exceptions.ConnectionError("down")
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["chebi_id"],
+        [[f"CHEBI:{16236 + i}"] for i in range(MAX_CONSECUTIVE_FAILURES + 3)],
+    )
+    out = tmp_path / "out.csv"
+
+    with pytest.raises(ChebiTermsError, match="consecutive"):
+        verify_chebi_file(src, "chebi_id", out)
+
+    # Partial output survives, and stops at the abort point rather than
+    # grinding through the rest of the sheet.
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert len(rows) == MAX_CONSECUTIVE_FAILURES
+    assert all(row["id_status"] == STATUS_LOOKUP_FAILED for row in rows)
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_status_counts_sum_to_row_total(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """The per-status summary lines must add up to the reported row total."""
+    mock_get.side_effect = route_chebi_get
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["chebi_id"],
+        [["CHEBI:16236"], ["CHEBI:18484"], [""], ["not-an-id"], ["CHEBI:99999999"]],
+    )
+    out = tmp_path / "out.csv"
+
+    counts = verify_chebi_file(src, "chebi_id", out)
+
+    assert sum(counts.values()) == 5
+    # Every status produced is one the summary actually prints.
+    assert sum(counts[status] for status in SUMMARY_STATUSES) == 5
+    assert counts[STATUS_MISSING] == 1
+    assert counts[STATUS_NOT_FOUND] == 1
 
 
 def test_verify_chebi_file_missing_input(tmp_path: Path) -> None:

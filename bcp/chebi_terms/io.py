@@ -16,10 +16,13 @@ from .client import (
     NOT_CHECKED,
     OUTPUT_FIELDS_APPENDED,
     STATUS_INVALID,
+    STATUS_LOOKUP_FAILED,
+    STATUS_MISSING,
     STATUS_NOT_FOUND,
     STATUS_NOT_RELEASED,
     STATUS_OK,
     STATUS_SECONDARY,
+    ChebiUnavailableError,
     empty_result,
     fetch_compound,
     normalize_chebi_id,
@@ -28,6 +31,21 @@ from .client import (
 )
 
 log = logging.getLogger(__name__)
+
+# Retrying every remaining row against a ChEBI that is plainly down costs ~6s
+# each and yields nothing but lookup_failed. Fail fast instead.
+MAX_CONSECUTIVE_FAILURES = 5
+
+# Statuses reported in the run summary, in the order they are logged.
+SUMMARY_STATUSES = (
+    STATUS_OK,
+    STATUS_SECONDARY,
+    STATUS_NOT_RELEASED,
+    STATUS_NOT_FOUND,
+    STATUS_MISSING,
+    STATUS_INVALID,
+    STATUS_LOOKUP_FAILED,
+)
 
 
 class ChebiTermsError(Exception):
@@ -52,6 +70,16 @@ def _log_single_summary(chebi_id: str, result: dict[str, Any]) -> None:
     if status == STATUS_INVALID:
         log.warning("Not a ChEBI identifier: %s", chebi_id)
         return
+    if status == STATUS_MISSING:
+        log.warning("No ChEBI identifier given.")
+        return
+    if status == STATUS_LOOKUP_FAILED:
+        log.error(
+            "Could not reach ChEBI for %s — this says nothing about whether the "
+            "compound exists.",
+            chebi_id,
+        )
+        return
     if status != STATUS_OK:
         log.warning("ChEBI %s: %s", chebi_id, status)
     else:
@@ -73,8 +101,12 @@ def emit_single_chebi_id(
     expected_name: str | None = None,
     expected_cas: str | None = None,
     max_synonyms: int | None = None,
-) -> None:
-    """Resolve one ChEBI ID and write JSON or CSV to a file or stdout."""
+) -> dict[str, Any]:
+    """
+    Resolve one ChEBI ID and write JSON or CSV to a file or stdout.
+
+    Returns the result so callers can distinguish a verdict from a failed lookup.
+    """
     chebi_id = chebi_id.strip()
     result = verify_chebi_id(
         chebi_id,
@@ -92,7 +124,7 @@ def emit_single_chebi_id(
         else:
             output_path.write_text(payload + "\n", encoding="utf-8")
             log.info("Output: %s", output_path)
-        return
+        return result
 
     if output_path is None:
         out_fh = sys.stdout
@@ -107,6 +139,8 @@ def emit_single_chebi_id(
         if output_path is not None:
             out_fh.close()
             log.info("Output: %s", output_path)
+
+    return result
 
 
 def _resolve_columns(
@@ -150,8 +184,14 @@ def verify_chebi_file(
     name_column: str | None = None,
     cas_column: str | None = None,
     max_synonyms: int | None = None,
-) -> None:
-    """Read a CSV of ChEBI IDs, verify each against ChEBI, and write enriched output."""
+) -> Counter[str]:
+    """
+    Read a CSV of ChEBI IDs, verify each against ChEBI, and write enriched output.
+
+    Returns the per-status tally so callers can tell a clean run from a degraded
+    one. Raises ChebiTermsError if ChEBI stays unreachable for
+    MAX_CONSECUTIVE_FAILURES lookups, leaving the partial output in place.
+    """
     if not input_path.exists():
         raise ChebiTermsError(f"Input file not found: {input_path}")
 
@@ -166,11 +206,14 @@ def verify_chebi_file(
     output_fields = [chebi_column] + extra_columns + OUTPUT_FIELDS_APPENDED
     total = len(rows)
     # One payload per unique ID: the same compound often appears on many rows,
-    # and per-row expectations are evaluated against the cached payload.
+    # and per-row expectations are evaluated against the cached payload. Only
+    # definitive answers land here — see the lookup_failed branch below.
     payload_cache: dict[str, dict[str, Any] | None] = {}
+    seen_ids: set[str] = set()
     status_counts: Counter[str] = Counter()
     name_mismatches = 0
     cas_disagreements = 0
+    consecutive_failures = 0
 
     with open(output_path, "w", newline="", encoding="utf-8") as out_fh:
         writer = csv.DictWriter(out_fh, fieldnames=output_fields)
@@ -185,7 +228,10 @@ def verify_chebi_file(
             }
 
             if not chebi_id:
-                log.warning("[%s/%s] Empty ChEBI ID, skipping.", i, total)
+                log.warning("[%s/%s] Empty ChEBI ID.", i, total)
+                out_row.update(empty_result())
+                out_row["id_status"] = STATUS_MISSING
+                status_counts[STATUS_MISSING] += 1
                 writer.writerow(out_row)
                 continue
 
@@ -203,9 +249,30 @@ def verify_chebi_file(
                 continue
 
             numeric, accession = parsed
-            if numeric not in payload_cache:
-                payload_cache[numeric] = fetch_compound(numeric)
-            payload = payload_cache[numeric]
+            seen_ids.add(numeric)
+            if numeric in payload_cache:
+                payload = payload_cache[numeric]
+            else:
+                try:
+                    payload = fetch_compound(numeric)
+                except ChebiUnavailableError as exc:
+                    # Never cached: a transient blip must not be replayed as
+                    # not_found for every later row carrying this ID.
+                    consecutive_failures += 1
+                    log.error("  %s", exc)
+                    out_row.update(empty_result())
+                    out_row["id_status"] = STATUS_LOOKUP_FAILED
+                    status_counts[STATUS_LOOKUP_FAILED] += 1
+                    writer.writerow(out_row)
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                        raise ChebiTermsError(
+                            f"ChEBI unreachable for {consecutive_failures} "
+                            f"consecutive lookups — aborted at row {i} of {total}. "
+                            f"Partial output: {output_path}"
+                        ) from exc
+                    continue
+                payload_cache[numeric] = payload
+            consecutive_failures = 0
 
             result = verify_payload(
                 accession,
@@ -239,18 +306,20 @@ def verify_chebi_file(
                 )
 
     log.info("=" * 55)
-    log.info("Done. %s rows processed (%s unique IDs).", total, len(payload_cache))
-    for status in (
-        STATUS_OK,
-        STATUS_SECONDARY,
-        STATUS_NOT_RELEASED,
-        STATUS_NOT_FOUND,
-        STATUS_INVALID,
-    ):
+    log.info("Done. %s rows processed (%s unique IDs).", total, len(seen_ids))
+    for status in SUMMARY_STATUSES:
         if status_counts[status]:
             log.info("  %-13s: %s", status, status_counts[status])
     if name_column:
         log.info("  Name mismatches : %s", name_mismatches)
     if cas_column:
         log.info("  CAS disagreements: %s", cas_disagreements)
+    if status_counts[STATUS_LOOKUP_FAILED]:
+        log.error(
+            "ChEBI could not be reached for %s of %s rows — those rows say "
+            "nothing about whether the compounds exist.",
+            status_counts[STATUS_LOOKUP_FAILED],
+            total,
+        )
     log.info("  Output: %s", output_path)
+    return status_counts

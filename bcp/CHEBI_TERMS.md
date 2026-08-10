@@ -86,15 +86,31 @@ Single-ID JSON includes a top-level `"chebi_id"` key (the ID as supplied) plus t
 
 ### `id_status`
 
+**What ChEBI says about the compound:**
+
 | Value | Meaning |
 |-------|---------|
 | `ok` | Primary and released |
 | `secondary` | The ID is a secondary/merged ID; `chebi_accession` holds the primary it resolves to |
 | `not_released` | ChEBI has the record but has not released it |
 | `not_found` | No such compound |
-| `invalid` | Not a ChEBI identifier at all — no request is made |
 
-When more than one could apply, precedence is `not_found` → `not_released` → `secondary` → `ok`.
+When more than one of these could apply, precedence is `not_found` → `not_released` → `secondary` → `ok`.
+
+**What the input looks like** — neither costs a request:
+
+| Value | Meaning |
+|-------|---------|
+| `missing` | The ID cell was empty |
+| `invalid` | Not a ChEBI identifier at all |
+
+**Whether we managed to ask:**
+
+| Value | Meaning |
+|-------|---------|
+| `lookup_failed` | ChEBI could not be reached, or kept failing. **Says nothing about the compound.** |
+
+`lookup_failed` is deliberately not `not_found`. A DNS blip or a ChEBI outage must never render as "ChEBI says this compound does not exist" — that is the one output of this tool someone is most likely to act on destructively. See [When ChEBI is unreachable](#when-chebi-is-unreachable).
 
 ### `name_verdict` and `cas_verdict`
 
@@ -107,7 +123,22 @@ Both read `not_checked` unless you supply something to check against.
 
 Name comparison is deliberately permissive: markup is stripped, case is folded, Unicode dash variants are normalized to `-`, and the value is matched against the official name *and* every synonym type — including brand names, INNs, and ChEBI's ASCII spellings. So `(-)-epicatechin` matches ChEBI's `(−)-epicatechin` (U+2212), and `alcohol etilico` matches `alcohol etílico`. Output is stricter than matching: only English `SYNONYM` and `IUPAC NAME` entries are emitted, because acetylsalicylic acid alone carries 64 brand names.
 
+CAS comparison normalizes the same Unicode dash variants and strips stray whitespace, so a pasted `64‑17‑5` is not reported as a disagreement. Internal dashes are kept: collapsing `64-17-5` and `64175` onto one key would risk a false `confirmed`, which is the more dangerous direction to be wrong in.
+
 `cas_verdict` checks ChEBI's **own** CAS cross-references, not PubChem's. A `confirmed` verdict means ChEBI independently agrees that the CAS and the ChEBI ID describe the same compound.
+
+---
+
+## When ChEBI is unreachable
+
+A 404 is an answer — it means no such compound, and it is cached. Anything else (connection error, timeout, persistent 5xx, exhausted 429 backoff, or a 200 carrying a non-JSON body) is *not* an answer:
+
+- The row gets `id_status: lookup_failed`, blank facts, and both verdicts `not_checked`.
+- Nothing is cached, so a later row carrying the same ID is retried rather than served a stale failure.
+- After **5 consecutive** failed lookups the run aborts with a clear error rather than spending ~6s per remaining row. The partial output is left in place.
+- The command **exits 1** if any row ended up `lookup_failed`, so a wrapper script cannot mistake a degraded run for a clean one.
+
+Exit codes distinguish "the tool could not do its job" from "the tool did its job and the answer was unwelcome". A `mismatch`, `not_found`, or `invalid` verdict exits **0** — that is a successful run reporting bad data. Only `lookup_failed` exits **1**.
 
 ---
 
@@ -127,9 +158,9 @@ Per **unique** ID, one REST call:
 GET https://www.ebi.ac.uk/chebi/backend/api/public/compound/{numeric_id}/
 ```
 
-Batch mode caches one payload per unique ID and evaluates each row's expectations against it, so a CSV with the same compound on many rows costs one request. The client sleeps **0.25s** after each call and backs off on 429/503; ChEBI publishes no documented rate limit, so this mirrors the spacing used for PubChem in `chebi_lookup`.
+Batch mode caches one payload per unique ID and evaluates each row's expectations against it, so a CSV with the same compound on many rows costs one request. Only definitive answers are cached — see [When ChEBI is unreachable](#when-chebi-is-unreachable). The client sleeps **0.25s** after each call and backs off on 429/503; ChEBI publishes no documented rate limit, so this mirrors the spacing used for PubChem in `chebi_lookup`.
 
-Malformed IDs are rejected locally and never hit the network.
+Empty and malformed IDs are resolved locally and never hit the network.
 
 ---
 
@@ -159,6 +190,8 @@ print(check["id_status"], check["chebi_accession"], check["cas_verdict"])
 ```
 
 `client.verify_payload()` is pure — hand it an already-fetched payload to evaluate expectations without making a request.
+
+`describe_chebi_id()` and `verify_chebi_id()` never raise: an unreachable ChEBI comes back as `lookup_failed`. The lower-level `fetch_compound()` and `get_with_retry()` raise `ChebiUnavailableError` instead, so callers building their own loop can tell the two apart. `verify_chebi_file()` returns a `Counter` of statuses so a caller can spot a degraded run.
 
 ---
 
