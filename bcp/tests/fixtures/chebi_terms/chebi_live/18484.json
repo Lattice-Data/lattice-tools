@@ -1,0 +1,338 @@
+{
+  "id": 90,
+  "chebi_accession": "CHEBI:90",
+  "name": "(−)-epicatechin",
+  "stars": 3,
+  "definition": "A catechin with (2<i>R</i>,3<i>R</i>)-configuration.",
+  "ascii_name": "(-)-epicatechin",
+  "names": {
+    "IUPAC NAME": [
+      {
+        "name": "(2<i>R</i>,3<i>R</i>)-2-(3,4-dihydroxyphenyl)-3,4-dihydro-2H-chromene-3,5,7-triol",
+        "status": "C",
+        "type": "IUPAC NAME",
+        "source": "IUPAC",
+        "ascii_name": "(2R,3R)-2-(3,4-dihydroxyphenyl)-3,4-dihydro-2H-chromene-3,5,7-triol",
+        "adapted": false,
+        "language_code": "en"
+      }
+    ],
+    "UNIPROT NAME": [
+      {
+        "name": "(−)-epicatechin",
+        "status": "C",
+        "type": "UNIPROT NAME",
+        "source": "UniProt",
+        "ascii_name": "(-)-epicatechin",
+        "adapted": false,
+        "language_code": "en"
+      }
+    ],
+    "SYNONYM": [
+      {
+        "name": "(-)-Epicatechin",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "KEGG COMPOUND",
+        "ascii_name": "(-)-Epicatechin",
+        "adapted": false,
+        "language_code": "en"
+      }
+    ]
+  },
+  "chemical_data": {
+    "formula": "C15H14O6",
+    "charge": 0,
+    "mass": "290.271",
+    "monoisotopic_mass": "290.07904"
+  },
+  "modified_on": "2021-09-22T14:09:35Z",
+  "secondary_ids": [
+    "CHEBI:18484"
+  ],
+  "default_structure": {
+    "id": 2814777,
+    "smiles": "[H][C@]1(c2ccc(O)c(O)c2)Oc2cc(O)cc(O)c2C[C@H]1O",
+    "standard_inchi": "InChI=1S/C15H14O6/c16-8-4-11(18)9-6-13(20)15(21-14(9)5-8)7-1-2-10(17)12(19)3-7/h1-5,13,15-20H,6H2/t13-,15-/m1/s1",
+    "standard_inchi_key": "PFTAWBLQPZVEMU-UKRRQHHQSA-N",
+    "wurcs": null,
+    "is_r_group": false
+  },
+  "compound_origins": [],
+  "created_by": [],
+  "ontology_relations": {
+    "incoming_relations": [
+      {
+        "init_id": 149599,
+        "init_name": "epicatechin-3'-glucuronide",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75661,
+        "init_name": "(−)-epicatechin-(4α→8)-(−)-epicatechin",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75666,
+        "init_name": "(+)-gallocatechin-(4α→8)-(−)-epicatechin",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75669,
+        "init_name": "(−)-epigallocatechin-(4β→8)-(−)-epicatechin",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75670,
+        "init_name": "(−)-epicatechin-(4β→8)-(−)-epigallocatechin",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75672,
+        "init_name": "(−)-epicatechin-(4β→8)-(+)-gallocatechin",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75618,
+        "init_name": "procyanidin B8",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75621,
+        "init_name": "procyanidin B5",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75632,
+        "init_name": "procyanidin B2",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75633,
+        "init_name": "procyanidin B1",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 149600,
+        "init_name": "3'-methylepicatechin-7-sulfate",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 65854,
+        "init_name": "epigallocatechin-(4β→8,2β→<em>O</em>-7)-epicatechin",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 28472,
+        "init_name": "proanthocyanidin A2",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75642,
+        "init_name": "arecatannin B1",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 75643,
+        "init_name": "procyanidin C1",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 70255,
+        "init_name": "(−)-epicatechin-3-<em>O</em>-gallate",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 65848,
+        "init_name": "(−)-epicatechin-5-gallate",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 27589,
+        "init_name": "procyanidin B4",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 174910,
+        "init_name": "4'-<em>O</em>-methyl-(−)-epicatechin",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 136553,
+        "init_name": "epicatechin 3-<em>O</em>-(3'-<em>O</em>-methylgallate)",
+        "relation_type": "has functional parent",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      },
+      {
+        "init_id": 76125,
+        "init_name": "(+)-epicatechin",
+        "relation_type": "is enantiomer of",
+        "final_id": 90,
+        "final_name": "(−)-epicatechin"
+      }
+    ],
+    "outgoing_relations": [
+      {
+        "init_id": 90,
+        "init_name": "(−)-epicatechin",
+        "relation_type": "has role",
+        "final_id": 22586,
+        "final_name": "antioxidant"
+      },
+      {
+        "init_id": 90,
+        "init_name": "(−)-epicatechin",
+        "relation_type": "is a",
+        "final_id": 26195,
+        "final_name": "polyphenol"
+      },
+      {
+        "init_id": 90,
+        "init_name": "(−)-epicatechin",
+        "relation_type": "is a",
+        "final_id": 23053,
+        "final_name": "catechin"
+      },
+      {
+        "init_id": 90,
+        "init_name": "(−)-epicatechin",
+        "relation_type": "is enantiomer of",
+        "final_id": 76125,
+        "final_name": "(+)-epicatechin"
+      }
+    ]
+  },
+  "database_accessions": {
+    "CITATION": [
+      {
+        "id": 825633,
+        "accession_number": "10427682",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/10427682",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 825632,
+        "accession_number": "7655336",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/7655336",
+        "prefix": "pubmed"
+      }
+    ],
+    "CAS": [
+      {
+        "id": 184,
+        "accession_number": "490-46-0",
+        "type": "CAS",
+        "source_name": "KEGG COMPOUND",
+        "url": null,
+        "prefix": "kegg.compound"
+      }
+    ],
+    "REGISTRY_NUMBER": [
+      {
+        "id": 825639,
+        "accession_number": "92760",
+        "type": "REGISTRY_NUMBER",
+        "source_name": "Reaxys",
+        "url": null,
+        "prefix": "reaxys"
+      }
+    ],
+    "MANUAL_X_REF": [
+      {
+        "id": 869019,
+        "accession_number": "C00000956",
+        "type": "MANUAL_X_REF",
+        "source_name": "KNApSAcK",
+        "url": "https://bioregistry.io/knapsack:C00000956",
+        "prefix": "knapsack"
+      },
+      {
+        "id": 183,
+        "accession_number": "C09727",
+        "type": "MANUAL_X_REF",
+        "source_name": "KEGG COMPOUND",
+        "url": "https://bioregistry.io/kegg.compound:C09727",
+        "prefix": "kegg.compound"
+      },
+      {
+        "id": 853710,
+        "accession_number": "CPD-7630",
+        "type": "MANUAL_X_REF",
+        "source_name": "MetaCyc",
+        "url": "https://bioregistry.io/metacyc.compound:CPD-7630",
+        "prefix": "metacyc.compound"
+      },
+      {
+        "id": 798745,
+        "accession_number": "LMPK12020003",
+        "type": "MANUAL_X_REF",
+        "source_name": "LIPID MAPS",
+        "url": "https://bioregistry.io/lipidmaps:LMPK12020003",
+        "prefix": "lipidmaps"
+      },
+      {
+        "id": 945042,
+        "accession_number": "LSM-20956",
+        "type": "MANUAL_X_REF",
+        "source_name": "LINCS",
+        "url": "https://bioregistry.io/lincs.smallmolecule:LSM-20956",
+        "prefix": "lincs.smallmolecule"
+      }
+    ]
+  },
+  "roles_classification": [
+    {
+      "application": false,
+      "chemical_role": true,
+      "chebi_accession": "CHEBI:22586",
+      "name": "antioxidant",
+      "definition": "A substance that opposes oxidation or inhibits reactions brought about by dioxygen or peroxides.",
+      "id": 22586,
+      "biological_role": false
+    }
+  ],
+  "is_released": true
+}

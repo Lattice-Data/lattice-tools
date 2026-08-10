@@ -4,6 +4,8 @@ Map **CAS Registry Numbers** to ChEBI identifiers and PubChem compound propertie
 
 ChEBI IDs are extracted from PubChem cross-references when present. A compound may resolve to a PubChem CID without a ChEBI xref.
 
+To go the other way — from a ChEBI ID you already hold to its authoritative name, synonyms, and a correctness verdict — see [CHEBI_TERMS.md](CHEBI_TERMS.md).
+
 ---
 
 ## CLI entry point

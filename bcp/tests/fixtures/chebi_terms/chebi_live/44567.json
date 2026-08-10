@@ -1,0 +1,88 @@
+{
+  "id": 44567,
+  "chebi_accession": "CHEBI:44567",
+  "name": "(3<i>R</i>,4<i>S</i>,5<i>S</i>,6<i>R</i>)-2,7-dibenzyl-3,6-bisphenoxymethyl-1,2,7-thiadiazepane-4,5-diol 1,1-dioxide",
+  "stars": 1,
+  "definition": null,
+  "ascii_name": "(3R,4S,5S,6R)-2,7-dibenzyl-3,6-bisphenoxymethyl-1,2,7-thiadiazepane-4,5-diol 1,1-dioxide",
+  "names": {
+    "SYNONYM": [
+      {
+        "name": "2,7-DIBENZYL-1,1-DIOXO-3,6-BIS-PHENOXYMETHYL-[1,2,7]THIADIAZEPANE-4,5-DIOL",
+        "status": "E",
+        "type": "SYNONYM",
+        "source": "PDBeChem",
+        "ascii_name": "2,7-DIBENZYL-1,1-DIOXO-3,6-BIS-PHENOXYMETHYL-[1,2,7]THIADIAZEPANE-4,5-DIOL",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "(3R,4S,5S,6R)-2,7-dibenzyl-3,6-bis(phenoxymethyl)-1,2,7-thiadiazepane-4,5-diol 1,1-dioxide",
+        "status": "E",
+        "type": "SYNONYM",
+        "source": "PDBeChem",
+        "ascii_name": "(3R,4S,5S,6R)-2,7-dibenzyl-3,6-bis(phenoxymethyl)-1,2,7-thiadiazepane-4,5-diol 1,1-dioxide",
+        "adapted": false,
+        "language_code": "en"
+      }
+    ]
+  },
+  "chemical_data": {
+    "formula": "C32H34N2O6S",
+    "charge": 0,
+    "mass": "574.699",
+    "monoisotopic_mass": "574.21376"
+  },
+  "modified_on": "2009-10-17T22:57:47Z",
+  "secondary_ids": [],
+  "default_structure": {
+    "id": 41845,
+    "smiles": "[H]O[C@]1([H])[C@@]([H])(O[H])[C@@]([H])(C([H])([H])Oc2c([H])c([H])c([H])c([H])c2[H])N(C([H])([H])c2c([H])c([H])c([H])c([H])c2[H])S(=O)(=O)N(C([H])([H])c2c([H])c([H])c([H])c([H])c2[H])[C@]1([H])C([H])([H])Oc1c([H])c([H])c([H])c([H])c1[H]",
+    "standard_inchi": "InChI=1S/C32H34N2O6S/c35-31-29(23-39-27-17-9-3-10-18-27)33(21-25-13-5-1-6-14-25)41(37,38)34(22-26-15-7-2-8-16-26)30(32(31)36)24-40-28-19-11-4-12-20-28/h1-20,29-32,35-36H,21-24H2/t29-,30-,31+,32+/m1/s1",
+    "standard_inchi_key": "CAGHBXQSDLNCES-ZRTHHSRSSA-N",
+    "wurcs": null,
+    "is_r_group": false
+  },
+  "compound_origins": [],
+  "created_by": [],
+  "ontology_relations": {
+    "incoming_relations": [],
+    "outgoing_relations": [
+      {
+        "init_id": 44567,
+        "init_name": "(3<i>R</i>,4<i>S</i>,5<i>S</i>,6<i>R</i>)-2,7-dibenzyl-3,6-bisphenoxymethyl-1,2,7-thiadiazepane-4,5-diol 1,1-dioxide",
+        "relation_type": "is a",
+        "final_id": 46949,
+        "final_name": "thiadiazepane"
+      },
+      {
+        "init_id": 44567,
+        "init_name": "(3<i>R</i>,4<i>S</i>,5<i>S</i>,6<i>R</i>)-2,7-dibenzyl-3,6-bisphenoxymethyl-1,2,7-thiadiazepane-4,5-diol 1,1-dioxide",
+        "relation_type": "is a",
+        "final_id": 38038,
+        "final_name": "sulfuric amide"
+      },
+      {
+        "init_id": 44567,
+        "init_name": "(3<i>R</i>,4<i>S</i>,5<i>S</i>,6<i>R</i>)-2,7-dibenzyl-3,6-bisphenoxymethyl-1,2,7-thiadiazepane-4,5-diol 1,1-dioxide",
+        "relation_type": "is a",
+        "final_id": 46950,
+        "final_name": "sultam"
+      }
+    ]
+  },
+  "database_accessions": {
+    "MANUAL_X_REF": [
+      {
+        "id": 108628,
+        "accession_number": "NMB",
+        "type": "MANUAL_X_REF",
+        "source_name": "PDBeChem",
+        "url": "https://bioregistry.io/pdb-ccd:NMB",
+        "prefix": "pdb-ccd"
+      }
+    ]
+  },
+  "roles_classification": null,
+  "is_released": true
+}
