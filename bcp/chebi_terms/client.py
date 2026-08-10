@@ -141,9 +141,8 @@ def get_with_retry(url: str) -> requests.Response | None:
                 return None
             if resp.status_code in (429, 503):
                 log.warning(
-                    "Rate limited (%s), waiting %ss [%s/%s]",
+                    "Rate limited (%s) [%s/%s]",
                     resp.status_code,
-                    delay,
                     attempt,
                     MAX_RETRIES,
                 )
@@ -160,7 +159,10 @@ def get_with_retry(url: str) -> requests.Response | None:
         # Never sleep after the final attempt: it delays the failure without
         # buying another try. Total backoff is
         # RETRY_BACKOFF * (2**(MAX_RETRIES - 1) - 1) — 6s at current settings.
+        # The wait is logged here rather than above so no message promises a
+        # delay that is not about to happen.
         if attempt < MAX_RETRIES:
+            log.debug("Waiting %ss before retry", delay)
             time.sleep(delay)
             delay *= 2
     raise ChebiUnavailableError(

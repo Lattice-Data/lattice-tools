@@ -383,6 +383,36 @@ def test_get_with_retry_does_not_sleep_after_the_final_attempt(
     assert sum(slept) == RETRY_BACKOFF * (2 ** (MAX_RETRIES - 1) - 1)
 
 
+@pytest.mark.parametrize("transient", [429, 503, 500])
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_get_with_retry_succeeds_after_a_retry(
+    mock_get: MagicMock, mock_sleep: MagicMock, transient: int
+) -> None:
+    """The point of the backoff: a transient failure then a good answer."""
+    ok = mock_response(200, load_payload(ETHANOL))
+    mock_get.side_effect = [mock_response(transient), ok]
+
+    assert get_with_retry("https://example.invalid/x") is ok
+    assert mock_get.call_count == 2
+    # Waited once, between the two attempts.
+    assert mock_sleep.call_args_list == [((RETRY_BACKOFF,),)]
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_fetch_compound_recovers_after_a_transient_failure(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    mock_get.side_effect = [
+        mock_response(503),
+        mock_response(200, load_payload(ETHANOL)),
+    ]
+    payload = fetch_compound("16236")
+    assert payload is not None
+    assert payload["name"] == "ethanol"
+
+
 @patch("chebi_terms.client.time.sleep")
 @patch("chebi_terms.client.requests.get")
 def test_fetch_compound_returns_none_only_for_404(
@@ -894,6 +924,14 @@ def test_verify_chebi_file_flags_a_wholesale_404(
 def test_verify_chebi_file_missing_input(tmp_path: Path) -> None:
     with pytest.raises(ChebiTermsError, match="Input file not found"):
         verify_chebi_file(tmp_path / "nope.csv", "chebi_id", tmp_path / "out.csv")
+
+
+def test_verify_chebi_file_rejects_a_directory(tmp_path: Path) -> None:
+    """A directory exists() but would surface as a raw IsADirectoryError."""
+    a_dir = tmp_path / "somedir"
+    a_dir.mkdir()
+    with pytest.raises(ChebiTermsError, match="not a file"):
+        verify_chebi_file(a_dir, "chebi_id", tmp_path / "out.csv")
 
 
 def test_verify_chebi_file_missing_chebi_column(tmp_path: Path) -> None:

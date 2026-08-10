@@ -135,7 +135,7 @@ A 404 is an answer — it means no such compound, and it is cached. Anything els
 
 - The row gets `id_status: lookup_failed`, blank facts, and both verdicts `not_checked`.
 - Nothing is cached, so a later row carrying the same ID is retried rather than served a stale failure.
-- After **5 consecutive** failed lookups the run aborts with a clear error rather than burning 6s of backoff on every remaining row — plus up to three 15s connect timeouts each, if packets are being dropped rather than refused. The partial output is left in place.
+- After **5 consecutive** failed lookups the run aborts with a clear error rather than burning 6s of backoff on every remaining row — plus up to three 15s connect timeouts each, if packets are being dropped rather than refused. The partial output is left in place. Only lookups that actually reached the network count: a cache hit does not reset the counter, since it is no evidence the outage is over.
 - The command **exits 1** if any row ended up `lookup_failed`, so a wrapper script cannot mistake a degraded run for a clean one.
 
 Exit codes distinguish "the tool could not do its job" from "the tool did its job and the answer was unwelcome". A `mismatch`, `not_found`, or `invalid` verdict exits **0** — that is a successful run reporting bad data.
@@ -144,7 +144,9 @@ Exit codes distinguish "the tool could not do its job" from "the tool did its jo
 
 A 404 on every row would otherwise be indistinguishable from a sheet of compounds that all genuinely do not exist — a clean tally and exit 0. EBI has already relocated the flat files and retired the SOAP service, so a rename here is a live possibility.
 
-So when **every** ID that reached ChEBI came back `not_found` and none resolved, across at least 5 rows, the run logs an error naming the endpoint and exits **1**. Per-row `id_status` stays honest either way; only the run-level verdict changes. It also fires on a batch of genuinely bogus IDs — equally worth a human look, so the false positive is harmless.
+So when **every** ID that reached ChEBI came back `not_found` and none resolved, across at least 5 **distinct IDs**, the run logs an error naming the endpoint and exits **1**. Per-row `id_status` stays honest either way; only the run-level verdict changes. It also fires on a batch of genuinely bogus IDs — equally worth a human look, so the false positive is harmless.
+
+Counted per ID rather than per row, because caching means one request can serve many rows: five rows carrying a single retired ID make one request, and "five distinct compounds all happen not to exist" is the implausible thing — not "one ID repeated five times". Those five rows are reported `not_found` and do **not** trip the guard.
 
 **Exit 1** therefore means: any row `lookup_failed`, or every reachable lookup missed.
 
@@ -199,7 +201,17 @@ print(check["id_status"], check["chebi_accession"], check["cas_verdict"])
 
 `client.verify_payload()` is pure — hand it an already-fetched payload to evaluate expectations without making a request.
 
-`describe_chebi_id()` and `verify_chebi_id()` never raise: an unreachable ChEBI comes back as `lookup_failed`. The lower-level `fetch_compound()` and `get_with_retry()` raise `ChebiUnavailableError` instead, so callers building their own loop can tell the two apart. `verify_chebi_file()` returns a `Counter` of statuses so a caller can spot a degraded run.
+`describe_chebi_id()` and `verify_chebi_id()` never raise: an unreachable ChEBI comes back as `lookup_failed`. The lower-level `fetch_compound()` and `get_with_retry()` raise `ChebiUnavailableError` instead, so callers building their own loop can tell the two apart.
+
+`verify_chebi_file()` returns a `RunSummary` so a caller can spot a degraded run:
+
+```python
+summary = verify_chebi_file(Path("curated.csv"), "chebi_id", Path("out.csv"))
+summary.status_counts["lookup_failed"]  # Counter, per-status row tally
+summary.missed_ids  # distinct IDs that reached ChEBI and 404'd
+summary.resolved_ids  # distinct IDs that came back
+summary.suspect_endpoint  # True if every reachable lookup missed
+```
 
 ---
 

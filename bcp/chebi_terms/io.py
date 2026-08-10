@@ -39,9 +39,10 @@ log = logging.getLogger(__name__)
 MAX_CONSECUTIVE_FAILURES = 5
 
 # If every ID that reached ChEBI came back not_found, across at least this many
-# rows, the likelier explanation is a moved endpoint than a sheet of compounds
-# that all happen not to exist. EBI has already done this to the flat files and
-# the SOAP service; a rename here would otherwise print a clean tally and exit 0.
+# *distinct IDs*, the likelier explanation is a moved endpoint than a sheet of
+# compounds that all happen not to exist. EBI has already done this to the flat
+# files and the SOAP service; a rename here would otherwise print a clean tally
+# and exit 0. Counted per ID, not per row — see all_lookups_missed().
 SUSPICIOUS_TOTAL_MISS = 5
 
 # Statuses reported in the run summary, in the order they are logged.
@@ -238,8 +239,10 @@ def verify_chebi_file(
     MAX_CONSECUTIVE_FAILURES consecutive lookups that reached the network,
     leaving the partial output in place.
     """
-    if not input_path.exists():
-        raise ChebiTermsError(f"Input file not found: {input_path}")
+    # is_file(), not exists(): a directory would otherwise reach open() and
+    # surface as a raw IsADirectoryError, and `--input ""` normalizes to Path('.').
+    if not input_path.is_file():
+        raise ChebiTermsError(f"Input file not found (or not a file): {input_path}")
 
     with open(input_path, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
@@ -384,5 +387,5 @@ def verify_chebi_file(
             # Read at call time so the message names the endpoint actually used.
             client.BASE,
         )
-    log.info("  Output: %s", output_path)
+    log.info("Output: %s", output_path)
     return RunSummary(status_counts, missed_ids, resolved_ids)
