@@ -1,0 +1,1409 @@
+{
+  "id": 16236,
+  "chebi_accession": "CHEBI:16236",
+  "name": "ethanol",
+  "stars": 3,
+  "definition": "A primary alcohol that is ethane in which one of the hydrogens is substituted by a hydroxy group.",
+  "ascii_name": "ethanol",
+  "names": {
+    "SYNONYM": [
+      {
+        "name": "1-hydroxyethane",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChemIDplus",
+        "ascii_name": "1-hydroxyethane",
+        "adapted": true,
+        "language_code": "en"
+      },
+      {
+        "name": "alcohol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "NIST Chemistry WebBook",
+        "ascii_name": "alcohol",
+        "adapted": true,
+        "language_code": "en"
+      },
+      {
+        "name": "alcohol etílico",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChEBI",
+        "ascii_name": "alcohol etilico",
+        "adapted": false,
+        "language_code": "es"
+      },
+      {
+        "name": "alcool éthylique",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChemIDplus",
+        "ascii_name": "alcool ethylique",
+        "adapted": true,
+        "language_code": "fr"
+      },
+      {
+        "name": "Alkohol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChemIDplus",
+        "ascii_name": "Alkohol",
+        "adapted": true,
+        "language_code": "de"
+      },
+      {
+        "name": "Äthanol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChemIDplus",
+        "ascii_name": "Aethanol",
+        "adapted": true,
+        "language_code": "de"
+      },
+      {
+        "name": "Äthylalkohol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChemIDplus",
+        "ascii_name": "Aethylalkohol",
+        "adapted": true,
+        "language_code": "de"
+      },
+      {
+        "name": "[CH<small><sub>2</sub></small>Me(OH)]",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "MolBase",
+        "ascii_name": "[CH2Me(OH)]",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "C<small><sub>2</sub></small>H<small><sub>5</sub></small>OH",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChEBI",
+        "ascii_name": "C2H5OH",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "etanol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChEBI",
+        "ascii_name": "etanol",
+        "adapted": false,
+        "language_code": "es"
+      },
+      {
+        "name": "Ethanol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "KEGG COMPOUND",
+        "ascii_name": "Ethanol",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "ETHANOL",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "PDBeChem",
+        "ascii_name": "ETHANOL",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "éthanol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChEBI",
+        "ascii_name": "ethanol",
+        "adapted": false,
+        "language_code": "fr"
+      },
+      {
+        "name": "Ethyl alcohol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "KEGG COMPOUND",
+        "ascii_name": "Ethyl alcohol",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "EtOH",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChemIDplus",
+        "ascii_name": "EtOH",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "hydroxyethane",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChemIDplus",
+        "ascii_name": "hydroxyethane",
+        "adapted": true,
+        "language_code": "en"
+      },
+      {
+        "name": "Methylcarbinol",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "KEGG COMPOUND",
+        "ascii_name": "Methylcarbinol",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "[OEtH]",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "MolBase",
+        "ascii_name": "[OEtH]",
+        "adapted": false,
+        "language_code": "en"
+      },
+      {
+        "name": "spiritus vini",
+        "status": "C",
+        "type": "SYNONYM",
+        "source": "ChEBI",
+        "ascii_name": "spiritus vini",
+        "adapted": false,
+        "language_code": "la"
+      }
+    ],
+    "BRAND NAME": [
+      {
+        "name": "Dehydrated ethanol",
+        "status": "C",
+        "type": "BRAND NAME",
+        "source": "KEGG DRUG",
+        "ascii_name": "Dehydrated ethanol",
+        "adapted": true,
+        "language_code": "en"
+      }
+    ],
+    "UNIPROT NAME": [
+      {
+        "name": "ethanol",
+        "status": "C",
+        "type": "UNIPROT NAME",
+        "source": "UniProt",
+        "ascii_name": "ethanol",
+        "adapted": false,
+        "language_code": "en"
+      }
+    ],
+    "IUPAC NAME": [
+      {
+        "name": "ethanol",
+        "status": "C",
+        "type": "IUPAC NAME",
+        "source": "IUPAC",
+        "ascii_name": "ethanol",
+        "adapted": false,
+        "language_code": "en"
+      }
+    ]
+  },
+  "chemical_data": {
+    "formula": "C2H6O",
+    "charge": 0,
+    "mass": "46.069",
+    "monoisotopic_mass": "46.04186"
+  },
+  "modified_on": "2020-09-10T13:58:45Z",
+  "secondary_ids": [
+    "CHEBI:4879",
+    "CHEBI:14222",
+    "CHEBI:23978",
+    "CHEBI:30878",
+    "CHEBI:30880",
+    "CHEBI:42377",
+    "CHEBI:44594"
+  ],
+  "default_structure": {
+    "id": 500,
+    "smiles": "CCO",
+    "standard_inchi": "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3",
+    "standard_inchi_key": "LFQSCWFLJHTTHZ-UHFFFAOYSA-N",
+    "wurcs": null,
+    "is_r_group": false
+  },
+  "compound_origins": [
+    {
+      "species_text": "Escherichia coli",
+      "species_accession": "562",
+      "component_text": null,
+      "component_accession": null,
+      "strain_text": null,
+      "strain_accession": null,
+      "source": "PubMed",
+      "source_accession": "21988831",
+      "comments": null,
+      "species_accession_url": "https://bioregistry.io/ncbitaxon:562",
+      "source_accession_url": "http://europepmc.org/abstract/MED/21988831",
+      "species_accession_prefix": "ncbitaxon"
+    },
+    {
+      "species_text": "Homo sapiens",
+      "species_accession": "9606",
+      "component_text": null,
+      "component_accession": null,
+      "strain_text": null,
+      "strain_accession": null,
+      "source": "DOI",
+      "source_accession": "10.1038/nbt.2488",
+      "comments": null,
+      "species_accession_url": "https://bioregistry.io/ncbitaxon:9606",
+      "source_accession_url": "https://bioregistry.io/doi:10.1038/nbt.2488",
+      "species_accession_prefix": "ncbitaxon"
+    },
+    {
+      "species_text": "Mus musculus",
+      "species_accession": "10090",
+      "component_text": null,
+      "component_accession": null,
+      "strain_text": null,
+      "strain_accession": null,
+      "source": "PubMed",
+      "source_accession": "19425150",
+      "comments": "Source: BioModels - MODEL1507180067",
+      "species_accession_url": "https://bioregistry.io/ncbitaxon:10090",
+      "source_accession_url": "http://europepmc.org/abstract/MED/19425150",
+      "species_accession_prefix": "ncbitaxon"
+    },
+    {
+      "species_text": "Saccharomyces cerevisiae",
+      "species_accession": "4932",
+      "component_text": null,
+      "component_accession": null,
+      "strain_text": null,
+      "strain_accession": null,
+      "source": "PubMed",
+      "source_accession": "24678285",
+      "comments": "Source: yeast.sf.net",
+      "species_accession_url": "https://bioregistry.io/ncbitaxon:4932",
+      "source_accession_url": "http://europepmc.org/abstract/MED/24678285",
+      "species_accession_prefix": "ncbitaxon"
+    }
+  ],
+  "created_by": [
+    "Kirill Degtyarenko"
+  ],
+  "ontology_relations": {
+    "incoming_relations": [
+      {
+        "init_id": 42330,
+        "init_name": "2,2,2-trifluoroethanol",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 88764,
+        "init_name": "ethyl butyrate",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 23990,
+        "init_name": "ethyl ester",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 88452,
+        "init_name": "ethyl 2-methylbutyrate",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 50098,
+        "init_name": "2-hydrazinoethanol",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 39832,
+        "init_name": "methoxyethane",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 68508,
+        "init_name": "diethyl maleate",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 45927,
+        "init_name": "triethyl phosphate",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 87278,
+        "init_name": "ethyl 2-phenylethyl dimethylmalonate",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 87282,
+        "init_name": "ethyl 4-oxobutanoate",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 38916,
+        "init_name": "triethyl borate",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62900,
+        "init_name": "ethyl-dTTP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62902,
+        "init_name": "ethyl-ddTTP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62903,
+        "init_name": "ethyl-dUTP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62904,
+        "init_name": "ethyl-dTDP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62905,
+        "init_name": "ethyl-UTP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62906,
+        "init_name": "ethyl-XTP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62907,
+        "init_name": "ethyl-ITP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62908,
+        "init_name": "ethyl-GTP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62909,
+        "init_name": "ethyl-CTP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 62910,
+        "init_name": "ethyl-ATP",
+        "relation_type": "has functional parent",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 34730,
+        "init_name": "doxycycline hyclate",
+        "relation_type": "has part",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 83166,
+        "init_name": "ethanol-containing medium",
+        "relation_type": "has part",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 52092,
+        "init_name": "ethoxide",
+        "relation_type": "is conjugate base of",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 44730,
+        "init_name": "2-hydroxyethyl group",
+        "relation_type": "is substituent group from",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      },
+      {
+        "init_id": 42241,
+        "init_name": "ethoxy group",
+        "relation_type": "is substituent group from",
+        "final_id": 16236,
+        "final_name": "ethanol"
+      }
+    ],
+    "outgoing_relations": [
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 48219,
+        "final_name": "disinfectant"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 50905,
+        "final_name": "teratogenic agent"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 60643,
+        "final_name": "NMDA receptor antagonist"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 64018,
+        "final_name": "protein kinase C agonist"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 35488,
+        "final_name": "central nervous system depressant"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 76971,
+        "final_name": "<em>Escherichia coli</em> metabolite"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 50910,
+        "final_name": "neurotoxin"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 48218,
+        "final_name": "antiseptic drug"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 48354,
+        "final_name": "polar solvent"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 77746,
+        "final_name": "human metabolite"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 75772,
+        "final_name": "<em>Saccharomyces cerevisiae </em> metabolite"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "has role",
+        "final_id": 75771,
+        "final_name": "mouse metabolite"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "is a",
+        "final_id": 15734,
+        "final_name": "primary alcohol"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "is a",
+        "final_id": 50584,
+        "final_name": "alkyl alcohol"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "is a",
+        "final_id": 134179,
+        "final_name": "volatile organic compound"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "is a",
+        "final_id": 23982,
+        "final_name": "ethanols"
+      },
+      {
+        "init_id": 16236,
+        "init_name": "ethanol",
+        "relation_type": "is conjugate acid of",
+        "final_id": 52092,
+        "final_name": "ethoxide"
+      }
+    ]
+  },
+  "database_accessions": {
+    "MANUAL_X_REF": [
+      {
+        "id": 979057,
+        "accession_number": "1076",
+        "type": "MANUAL_X_REF",
+        "source_name": "DrugCentral",
+        "url": "https://bioregistry.io/drugcentral:1076",
+        "prefix": "drugcentral"
+      },
+      {
+        "id": 1003423,
+        "accession_number": "1373",
+        "type": "MANUAL_X_REF",
+        "source_name": "PPDB",
+        "url": "https://bioregistry.io/ppdb:1373",
+        "prefix": "ppdb"
+      },
+      {
+        "id": 85409,
+        "accession_number": "858",
+        "type": "MANUAL_X_REF",
+        "source_name": "MolBase",
+        "url": "https://bioregistry.io/molbase:858",
+        "prefix": "molbase"
+      },
+      {
+        "id": 85410,
+        "accession_number": "859",
+        "type": "MANUAL_X_REF",
+        "source_name": "MolBase",
+        "url": "https://bioregistry.io/molbase:859",
+        "prefix": "molbase"
+      },
+      {
+        "id": 865170,
+        "accession_number": "C00019560",
+        "type": "MANUAL_X_REF",
+        "source_name": "KNApSAcK",
+        "url": "https://bioregistry.io/knapsack:C00019560",
+        "prefix": "knapsack"
+      },
+      {
+        "id": 75976,
+        "accession_number": "c0038",
+        "type": "MANUAL_X_REF",
+        "source_name": "UM-BBD",
+        "url": "https://bioregistry.io/umbbd.compound:c0038",
+        "prefix": "umbbd.compound"
+      },
+      {
+        "id": 13920,
+        "accession_number": "C00469",
+        "type": "MANUAL_X_REF",
+        "source_name": "KEGG COMPOUND",
+        "url": "https://bioregistry.io/kegg.compound:C00469",
+        "prefix": "kegg.compound"
+      },
+      {
+        "id": 113554,
+        "accession_number": "D00068",
+        "type": "MANUAL_X_REF",
+        "source_name": "KEGG DRUG",
+        "url": "https://bioregistry.io/kegg.drug:D00068",
+        "prefix": "kegg.drug"
+      },
+      {
+        "id": 865171,
+        "accession_number": "D06542",
+        "type": "MANUAL_X_REF",
+        "source_name": "KEGG DRUG",
+        "url": "https://bioregistry.io/kegg.drug:D06542",
+        "prefix": "kegg.drug"
+      },
+      {
+        "id": 115736,
+        "accession_number": "DB00898",
+        "type": "MANUAL_X_REF",
+        "source_name": "DrugBank",
+        "url": "https://bioregistry.io/drugbank:DB00898",
+        "prefix": "drugbank"
+      },
+      {
+        "id": 83933,
+        "accession_number": "EOH",
+        "type": "MANUAL_X_REF",
+        "source_name": "PDBeChem",
+        "url": "https://bioregistry.io/pdb-ccd:EOH",
+        "prefix": "pdb-ccd"
+      },
+      {
+        "id": 793120,
+        "accession_number": "Ethanol",
+        "type": "MANUAL_X_REF",
+        "source_name": "Wikipedia",
+        "url": "https://bioregistry.io/wikipedia.en:Ethanol",
+        "prefix": "wikipedia.en"
+      },
+      {
+        "id": 798618,
+        "accession_number": "ETOH",
+        "type": "MANUAL_X_REF",
+        "source_name": "MetaCyc",
+        "url": "https://bioregistry.io/metacyc.compound:ETOH",
+        "prefix": "metacyc.compound"
+      },
+      {
+        "id": 795660,
+        "accession_number": "HMDB0000108",
+        "type": "MANUAL_X_REF",
+        "source_name": "HMDB",
+        "url": "https://bioregistry.io/hmdb:HMDB0000108",
+        "prefix": "hmdb"
+      }
+    ],
+    "CITATION": [
+      {
+        "id": 798667,
+        "accession_number": "11046114",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11046114",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798665,
+        "accession_number": "11090978",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11090978",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798658,
+        "accession_number": "11198720",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11198720",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798653,
+        "accession_number": "11200745",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11200745",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798629,
+        "accession_number": "11262320",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11262320",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798632,
+        "accession_number": "11303910",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11303910",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798657,
+        "accession_number": "11333032",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11333032",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798644,
+        "accession_number": "11505026",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11505026",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798659,
+        "accession_number": "11590970",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11590970",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798628,
+        "accession_number": "11728426",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11728426",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798655,
+        "accession_number": "11750186",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11750186",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798630,
+        "accession_number": "11754521",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11754521",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798620,
+        "accession_number": "11810019",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11810019",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798660,
+        "accession_number": "11826039",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11826039",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798631,
+        "accession_number": "11981228",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/11981228",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798666,
+        "accession_number": "12824058",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/12824058",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798646,
+        "accession_number": "12829422",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/12829422",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798656,
+        "accession_number": "12888778",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/12888778",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798663,
+        "accession_number": "12946583",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/12946583",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798637,
+        "accession_number": "14674846",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/14674846",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798635,
+        "accession_number": "15019421",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15019421",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798668,
+        "accession_number": "15239123",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15239123",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798661,
+        "accession_number": "15285839",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15285839",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798636,
+        "accession_number": "15464411",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15464411",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798654,
+        "accession_number": "15465973",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15465973",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798621,
+        "accession_number": "15749123",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15749123",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798634,
+        "accession_number": "15900217",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15900217",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798633,
+        "accession_number": "15902919",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/15902919",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798648,
+        "accession_number": "16084479",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/16084479",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798672,
+        "accession_number": "16133132",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/16133132",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798673,
+        "accession_number": "16352430",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/16352430",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798645,
+        "accession_number": "16390872",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/16390872",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798670,
+        "accession_number": "16737463",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/16737463",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798662,
+        "accession_number": "16891664",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/16891664",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798641,
+        "accession_number": "16934862",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/16934862",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798639,
+        "accession_number": "17043811",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/17043811",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 805302,
+        "accession_number": "17190852",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/17190852",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798622,
+        "accession_number": "17663926",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/17663926",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798640,
+        "accession_number": "17687877",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/17687877",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798626,
+        "accession_number": "18095657",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18095657",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798642,
+        "accession_number": "18249266",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18249266",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798649,
+        "accession_number": "18320157",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18320157",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798625,
+        "accession_number": "18347649",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18347649",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798619,
+        "accession_number": "18408978",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18408978",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798623,
+        "accession_number": "18411066",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18411066",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798650,
+        "accession_number": "18456322",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18456322",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798627,
+        "accession_number": "18513832",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18513832",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798624,
+        "accession_number": "18922656",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18922656",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798652,
+        "accession_number": "18925476",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/18925476",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798664,
+        "accession_number": "19280886",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/19280886",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798669,
+        "accession_number": "19359288",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/19359288",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798643,
+        "accession_number": "19384566",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/19384566",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798647,
+        "accession_number": "19458312",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/19458312",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798638,
+        "accession_number": "19851413",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/19851413",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 787450,
+        "accession_number": "19901811",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/19901811",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 795661,
+        "accession_number": "21600756",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/21600756",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798676,
+        "accession_number": "21762181",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/21762181",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798677,
+        "accession_number": "21881875",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/21881875",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798678,
+        "accession_number": "21967628",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/21967628",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798651,
+        "accession_number": "22019193",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/22019193",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798675,
+        "accession_number": "22222864",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/22222864",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798682,
+        "accession_number": "22261437",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/22261437",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798679,
+        "accession_number": "22286266",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/22286266",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798681,
+        "accession_number": "22306018",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/22306018",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798680,
+        "accession_number": "22331491",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/22331491",
+        "prefix": "pubmed"
+      },
+      {
+        "id": 798674,
+        "accession_number": "22336593",
+        "type": "CITATION",
+        "source_name": "PubMed",
+        "url": "http://europepmc.org/abstract/MED/22336593",
+        "prefix": "pubmed"
+      }
+    ],
+    "REGISTRY_NUMBER": [
+      {
+        "id": 798617,
+        "accession_number": "1718733",
+        "type": "REGISTRY_NUMBER",
+        "source_name": "Reaxys",
+        "url": null,
+        "prefix": "reaxys"
+      },
+      {
+        "id": 83978,
+        "accession_number": "787",
+        "type": "REGISTRY_NUMBER",
+        "source_name": "Gmelin",
+        "url": null,
+        "prefix": "gmelin"
+      }
+    ],
+    "CAS": [
+      {
+        "id": 83976,
+        "accession_number": "64-17-5",
+        "type": "CAS",
+        "source_name": "ChemIDplus",
+        "url": "https://bioregistry.io/chemidplus:64-17-5",
+        "prefix": "chemidplus"
+      },
+      {
+        "id": 83977,
+        "accession_number": "64-17-5",
+        "type": "CAS",
+        "source_name": "NIST Chemistry WebBook",
+        "url": "http://webbook.nist.gov/cgi/cbook.cgi?ID=64-17-5",
+        "prefix": "nist"
+      },
+      {
+        "id": 13929,
+        "accession_number": "64-17-5",
+        "type": "CAS",
+        "source_name": "KEGG COMPOUND",
+        "url": null,
+        "prefix": "kegg.compound"
+      }
+    ]
+  },
+  "roles_classification": [
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:75771",
+      "name": "mouse metabolite",
+      "definition": "Any mammalian metabolite produced during a metabolic reaction in a mouse (<em>Mus musculus</em>).",
+      "id": 75771,
+      "biological_role": true
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:64018",
+      "name": "protein kinase C agonist",
+      "definition": "An agonist that selectively binds to and activates a protein kinase C receptor",
+      "id": 64018,
+      "biological_role": true
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:48219",
+      "name": "disinfectant",
+      "definition": "An antimicrobial agent that is applied to non-living objects to destroy harmful microorganisms or to inhibit their activity.",
+      "id": 48219,
+      "biological_role": true
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:76971",
+      "name": "Escherichia coli metabolite",
+      "definition": "Any bacterial metabolite produced during a metabolic reaction in <em>Escherichia coli</em>.",
+      "id": 76971,
+      "biological_role": true
+    },
+    {
+      "application": true,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:48218",
+      "name": "antiseptic drug",
+      "definition": "A substance used locally on humans and other animals to destroy harmful microorganisms or to inhibit their activity (cf. disinfectants, which destroy microorganisms found on non-living objects, and antibiotics, which can be transported through the lymphatic system to destroy bacteria within the body).",
+      "id": 48218,
+      "biological_role": false
+    },
+    {
+      "application": true,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:35488",
+      "name": "central nervous system depressant",
+      "definition": "A loosely defined group of drugs that tend to reduce the activity of the central nervous system.",
+      "id": 35488,
+      "biological_role": false
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:50905",
+      "name": "teratogenic agent",
+      "definition": "A role played by a chemical compound  in biological systems with adverse consequences in embryo developments, leading to birth defects, embryo death or altered development, growth retardation and functional defect.",
+      "id": 50905,
+      "biological_role": true
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:75772",
+      "name": "Saccharomyces cerevisiae metabolite",
+      "definition": "Any  fungal metabolite produced during a metabolic reaction in Baker's yeast (<em>Saccharomyces cerevisiae </em>).",
+      "id": 75772,
+      "biological_role": true
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:77746",
+      "name": "human metabolite",
+      "definition": "Any mammalian metabolite  produced during a metabolic reaction in humans (<em>Homo sapiens</em>).",
+      "id": 77746,
+      "biological_role": true
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:60643",
+      "name": "NMDA receptor antagonist",
+      "definition": "Any substance that inhibits the action of <em>N</em>-methyl-<small>D</small>-aspartate (NMDA) receptors. They tend to induce a state known as dissociative anesthesia, marked by catalepsy, amnesia, and analgesia, while side effects can include hallucinations, nightmares, and confusion. Due to their psychotomimetic effects, many NMDA receptor antagonists are used as recreational drugs.",
+      "id": 60643,
+      "biological_role": true
+    },
+    {
+      "application": false,
+      "chemical_role": false,
+      "chebi_accession": "CHEBI:50910",
+      "name": "neurotoxin",
+      "definition": "A poison that interferes with the functions of the nervous system.",
+      "id": 50910,
+      "biological_role": true
+    },
+    {
+      "application": true,
+      "chemical_role": true,
+      "chebi_accession": "CHEBI:48354",
+      "name": "polar solvent",
+      "definition": "A solvent that is composed of polar molecules. Polar solvents can dissolve ionic compounds or ionisable covalent compounds.",
+      "id": 48354,
+      "biological_role": false
+    }
+  ],
+  "is_released": true
+}
