@@ -207,6 +207,11 @@ class TestParameterBlock:
                 continue
             assert "seahub_active" in _source(cells[i]), f"cell {i} has no gate"
 
+    def test_gather_cell_truncates_errors_txt_at_run_start(self, cells):
+        """A clean run's errors must not survive a later broken one."""
+        gather = _source(cells[2])
+        assert "with open(f'{output_dir}/{order}_errors.txt', 'w'):" in gather
+
 
 class TestCellZero:
     def test_every_import_in_the_first_cell_resolves(self, cells):

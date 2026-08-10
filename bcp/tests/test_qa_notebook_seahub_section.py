@@ -189,6 +189,13 @@ class TestSectionRuns:
 
         assert "ORPHAN_TRIMMED" not in errors
 
+    def test_a_run_with_no_wells_still_writes_the_status_csv(self, tmp_path):
+        _output, _ns = _run_section(tmp_path, keys=[], sources=[])
+
+        frame = pd.read_csv(tmp_path / "REF3_seahub_well_status.csv")
+        assert len(frame) == 0
+        assert list(frame.columns)
+
     def test_the_sop_type_is_filled_from_the_vendor_delivery(self, run):
         _output, _ns, tmp_path = run
         frame = pd.read_csv(tmp_path / "REF3_raw_sop_violations.csv")
