@@ -203,6 +203,13 @@ def fetch_compound(numeric_id: str) -> dict[str, Any] | None:
             f"Response for ChEBI ID {numeric_id} carries no usable "
             f"chebi_accession: {payload.get('chebi_accession')!r}"
         )
+    if "is_released" not in payload:
+        # The other field whose absence would read as a clean pass: _id_status
+        # treats a missing is_released as released, so dropping or renaming it
+        # would silently turn every unreleased record into `ok`.
+        raise ChebiUnavailableError(
+            f"Response for ChEBI ID {numeric_id} carries no is_released field"
+        )
     return payload
 
 

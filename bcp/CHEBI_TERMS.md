@@ -148,7 +148,13 @@ So when **every** ID that reached ChEBI came back `not_found` and none resolved,
 
 Counted per ID rather than per row, because caching means one request can serve many rows: five rows carrying a single retired ID make one request, and "five distinct compounds all happen not to exist" is the implausible thing — not "one ID repeated five times". Those five rows are reported `not_found` and do **not** trip the guard.
 
-**Exit 1** therefore means: any row `lookup_failed`, or every reachable lookup missed.
+### If the column is wrong
+
+The same mistake from the cheaper direction: point `--chebi-column` at a name column or a notes column and every row comes back `invalid` without a single request. So when **nothing** reached ChEBI at all and at least 5 rows were unusable — counting distinct `invalid` values plus blank rows — the run names the column it was given and exits **1**.
+
+Distinct values on the invalid side, because 500 rows of one junk string is a single mistake rather than evidence about the column; rows on the blank side, where there is no value to be distinct about.
+
+**Exit 1** therefore means: any row `lookup_failed`, every reachable lookup missed, or no usable ID at all. Anything else — including a `mismatch` or a genuine `not_found` — exits **0**. `RunSummary.degraded` is the same predicate, for programmatic callers.
 
 ---
 
@@ -210,7 +216,13 @@ summary = verify_chebi_file(Path("curated.csv"), "chebi_id", Path("out.csv"))
 summary.status_counts["lookup_failed"]  # Counter, per-status row tally
 summary.missed_ids  # distinct IDs that reached ChEBI and 404'd
 summary.resolved_ids  # distinct IDs that came back
-summary.suspect_endpoint  # True if every reachable lookup missed
+summary.invalid_values  # distinct unparseable values seen
+summary.missing_rows  # rows with an empty ID cell
+summary.name_mismatches  # rows whose recorded name disagreed
+summary.cas_disagreements  # rows carrying a CAS ChEBI does not record
+summary.suspect_endpoint  # every reachable lookup missed
+summary.suspect_column  # nothing was usable as a ChEBI ID
+summary.degraded  # any of the above — mirrors exit 1
 ```
 
 ---

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -44,8 +45,10 @@ from chebi_terms.io import (
     SUMMARY_STATUSES,
     SUSPICIOUS_TOTAL_MISS,
     ChebiTermsError,
+    RunSummary,
     all_lookups_missed,
     build_single_row,
+    check_output_path,
     emit_single_chebi_id,
     verify_chebi_file,
 )
@@ -876,6 +879,144 @@ def test_all_lookups_missed_ignores_lookups_that_never_reached_chebi() -> None:
     assert not all_lookups_missed(missed_ids=0, resolved_ids=0)
 
 
+def _summary(**kwargs) -> RunSummary:
+    defaults = dict(
+        status_counts=Counter(),
+        missed_ids=0,
+        resolved_ids=0,
+        invalid_values=0,
+        missing_rows=0,
+        name_mismatches=0,
+        cas_disagreements=0,
+    )
+    return RunSummary(**{**defaults, **kwargs})
+
+
+def test_suspect_column_flags_an_all_invalid_sheet() -> None:
+    # --chebi-column pointed at a name or notes column.
+    assert _summary(invalid_values=SUSPICIOUS_TOTAL_MISS).suspect_column
+
+
+def test_suspect_column_flags_an_all_blank_column() -> None:
+    assert _summary(missing_rows=SUSPICIOUS_TOTAL_MISS).suspect_column
+
+
+def test_suspect_column_ignores_a_repeated_single_junk_value() -> None:
+    # 500 rows of one junk string is one mistake, not evidence about the column.
+    assert not _summary(invalid_values=1, missing_rows=0).suspect_column
+
+
+def test_suspect_column_clear_when_anything_reached_chebi() -> None:
+    for reached in ({"resolved_ids": 1}, {"missed_ids": 1}):
+        assert not _summary(
+            invalid_values=SUSPICIOUS_TOTAL_MISS * 10, **reached
+        ).suspect_column
+
+
+def test_degraded_covers_all_three_run_level_failures() -> None:
+    assert _summary(status_counts=Counter({STATUS_LOOKUP_FAILED: 1})).degraded
+    assert _summary(missed_ids=SUSPICIOUS_TOTAL_MISS).degraded  # suspect_endpoint
+    assert _summary(invalid_values=SUSPICIOUS_TOTAL_MISS).degraded  # suspect_column
+    assert not _summary(resolved_ids=3, status_counts=Counter({STATUS_OK: 3})).degraded
+
+
+def test_degraded_clear_for_an_unwelcome_but_honest_verdict() -> None:
+    # A mismatch and a genuine not_found are data, not a failed run.
+    summary = _summary(
+        status_counts=Counter({STATUS_OK: 1, STATUS_NOT_FOUND: 1}),
+        resolved_ids=1,
+        missed_ids=1,
+        name_mismatches=1,
+        cas_disagreements=1,
+    )
+    assert not summary.degraded
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_flags_the_wrong_chebi_column(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """Pointing --chebi-column at a name column must not exit clean."""
+    mock_get.side_effect = route_chebi_get
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["compound_name"],
+        [["ethanol"], ["caffeine"], ["aspirin"], ["metformin"], ["glucose"]],
+    )
+    out = tmp_path / "out.csv"
+
+    summary = verify_chebi_file(src, "compound_name", out)
+
+    mock_get.assert_not_called()
+    assert summary.invalid_values == 5
+    assert summary.suspect_column
+    assert summary.degraded
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_flags_an_entirely_empty_id_column(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """The column exists but holds nothing — same mistake, different shape."""
+    mock_get.side_effect = route_chebi_get
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["chebi_id", "note"],
+        [["", f"row {i}"] for i in range(SUSPICIOUS_TOTAL_MISS)],
+    )
+    out = tmp_path / "out.csv"
+
+    summary = verify_chebi_file(src, "chebi_id", out)
+
+    assert summary.missing_rows == SUSPICIOUS_TOTAL_MISS
+    assert summary.suspect_column
+    assert summary.degraded
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_empty_input_is_not_a_failure(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """A header with no data rows asked nothing, so nothing failed."""
+    mock_get.side_effect = route_chebi_get
+    src = tmp_path / "in.csv"
+    src.write_text("chebi_id\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+
+    summary = verify_chebi_file(src, "chebi_id", out)
+
+    assert not summary.degraded
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_reports_mismatch_counts_to_callers(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    mock_get.side_effect = route_chebi_get
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["chebi_id", "name", "CAS"],
+        [["CHEBI:16236", "caffeine", "58-08-2"], ["CHEBI:16236", "ethanol", "64-17-5"]],
+    )
+    out = tmp_path / "out.csv"
+
+    summary = verify_chebi_file(
+        src, "chebi_id", out, name_column="name", cas_column="CAS"
+    )
+
+    # Available without re-parsing the output CSV.
+    assert summary.name_mismatches == 1
+    assert summary.cas_disagreements == 1
+    assert not summary.degraded
+
+
 @patch("chebi_terms.client.time.sleep")
 @patch("chebi_terms.client.requests.get")
 def test_verify_chebi_file_counts_missed_ids_not_missed_rows(
@@ -924,6 +1065,33 @@ def test_verify_chebi_file_flags_a_wholesale_404(
 def test_verify_chebi_file_missing_input(tmp_path: Path) -> None:
     with pytest.raises(ChebiTermsError, match="Input file not found"):
         verify_chebi_file(tmp_path / "nope.csv", "chebi_id", tmp_path / "out.csv")
+
+
+def test_check_output_path_allows_stdout_and_a_writable_file(tmp_path: Path) -> None:
+    check_output_path(None)
+    check_output_path(tmp_path / "out.csv")
+
+
+def test_check_output_path_rejects_a_directory(tmp_path: Path) -> None:
+    with pytest.raises(ChebiTermsError, match="is a directory"):
+        check_output_path(tmp_path)
+
+
+def test_check_output_path_rejects_a_missing_parent(tmp_path: Path) -> None:
+    with pytest.raises(ChebiTermsError, match="does not exist"):
+        check_output_path(tmp_path / "nope" / "out.csv")
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_emit_single_checks_output_before_spending_a_request(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """Otherwise the answer is thrown away along with the request that earned it."""
+    mock_get.side_effect = route_chebi_get
+    with pytest.raises(ChebiTermsError):
+        emit_single_chebi_id("CHEBI:16236", tmp_path / "nope" / "out.json")
+    mock_get.assert_not_called()
 
 
 def test_verify_chebi_file_rejects_a_directory(tmp_path: Path) -> None:

@@ -113,14 +113,18 @@ def main() -> None:
                     "%s is ignored in single-ID mode; use --expect-name/--expect-cas.",
                     flag,
                 )
-        result = emit_single_chebi_id(
-            args.chebi,
-            Path(args.output) if args.output else None,
-            fmt=args.format,
-            expected_name=args.expect_name,
-            expected_cas=args.expect_cas,
-            max_synonyms=args.max_synonyms,
-        )
+        try:
+            result = emit_single_chebi_id(
+                args.chebi,
+                Path(args.output) if args.output else None,
+                fmt=args.format,
+                expected_name=args.expect_name,
+                expected_cas=args.expect_cas,
+                max_synonyms=args.max_synonyms,
+            )
+        except ChebiTermsError as exc:
+            log.error("%s", exc)
+            sys.exit(1)
         # A verdict is a successful run, however unwelcome. Not being able to ask
         # is a failed run, and must not be mistaken for one.
         if result["id_status"] == STATUS_LOOKUP_FAILED:
@@ -158,7 +162,7 @@ def main() -> None:
         log.error("%s", exc)
         sys.exit(1)
 
-    if summary.status_counts[STATUS_LOOKUP_FAILED] or summary.suspect_endpoint:
+    if summary.degraded:
         sys.exit(1)
 
 

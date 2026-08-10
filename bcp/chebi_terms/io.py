@@ -71,10 +71,40 @@ class RunSummary(NamedTuple):
     status_counts: Counter[str]
     missed_ids: int
     resolved_ids: int
+    invalid_values: int
+    missing_rows: int
+    name_mismatches: int
+    cas_disagreements: int
 
     @property
     def suspect_endpoint(self) -> bool:
+        """Every ID that reached ChEBI came back not_found. See all_lookups_missed."""
         return all_lookups_missed(self.missed_ids, self.resolved_ids)
+
+    @property
+    def suspect_column(self) -> bool:
+        """
+        Nothing was usable as a ChEBI ID at all, across enough rows to look like
+        --chebi-column is pointed at the wrong column.
+
+        The mirror of suspect_endpoint from the cheaper direction: it needs no
+        network, so it is the easier mistake to make and the likelier one to slip
+        past unnoticed. Distinct values for the invalid side — 500 rows of one
+        junk string is a single mistake — and rows for the blank side, where
+        there is no value to be distinct about.
+        """
+        if self.resolved_ids or self.missed_ids:
+            return False
+        return (self.invalid_values + self.missing_rows) >= SUSPICIOUS_TOTAL_MISS
+
+    @property
+    def degraded(self) -> bool:
+        """True when the run as a whole cannot be trusted, whatever the rows say."""
+        return bool(
+            self.status_counts[STATUS_LOOKUP_FAILED]
+            or self.suspect_endpoint
+            or self.suspect_column
+        )
 
 
 def all_lookups_missed(missed_ids: int, resolved_ids: int) -> bool:
@@ -91,6 +121,22 @@ def all_lookups_missed(missed_ids: int, resolved_ids: int) -> bool:
     human look, so the false positive is benign.
     """
     return not resolved_ids and missed_ids >= SUSPICIOUS_TOTAL_MISS
+
+
+def check_output_path(output_path: Path | None) -> None:
+    """
+    Fail on an unwritable output before spending any requests.
+
+    Single-ID mode writes after the fetch, so without this an unwritable path
+    throws the answer away along with the request that earned it.
+    """
+    if output_path is None:
+        return
+    if output_path.is_dir():
+        raise ChebiTermsError(f"Output path is a directory: {output_path}")
+    parent = output_path.parent
+    if not parent.is_dir():
+        raise ChebiTermsError(f"Output directory does not exist: {parent}")
 
 
 def build_single_row(chebi_id: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -145,6 +191,7 @@ def emit_single_chebi_id(
     Returns the result so callers can distinguish a verdict from a failed lookup.
     """
     chebi_id = chebi_id.strip()
+    check_output_path(output_path)
     result = verify_chebi_id(
         chebi_id,
         expected_name=expected_name,
@@ -259,6 +306,7 @@ def verify_chebi_file(
     # definitive answers land here — see the lookup_failed branch below.
     payload_cache: dict[str, dict[str, Any] | None] = {}
     seen_ids: set[str] = set()
+    invalid_values: set[str] = set()
     status_counts: Counter[str] = Counter()
     name_mismatches = 0
     cas_disagreements = 0
@@ -294,6 +342,7 @@ def verify_chebi_file(
                 out_row.update(empty_result())
                 out_row["id_status"] = STATUS_INVALID
                 status_counts[STATUS_INVALID] += 1
+                invalid_values.add(chebi_id)
                 writer.writerow(out_row)
                 continue
 
@@ -378,7 +427,17 @@ def verify_chebi_file(
     missed_ids = sum(1 for payload in payload_cache.values() if payload is None)
     resolved_ids = len(payload_cache) - missed_ids
 
-    if all_lookups_missed(missed_ids, resolved_ids):
+    summary = RunSummary(
+        status_counts=status_counts,
+        missed_ids=missed_ids,
+        resolved_ids=resolved_ids,
+        invalid_values=len(invalid_values),
+        missing_rows=status_counts[STATUS_MISSING],
+        name_mismatches=name_mismatches,
+        cas_disagreements=cas_disagreements,
+    )
+
+    if summary.suspect_endpoint:
         log.error(
             "All %s distinct IDs that reached ChEBI came back not_found and none "
             "resolved. Suspect a moved or renamed endpoint (%s) before trusting "
@@ -387,5 +446,12 @@ def verify_chebi_file(
             # Read at call time so the message names the endpoint actually used.
             client.BASE,
         )
+    if summary.suspect_column:
+        log.error(
+            "Not one of the %s rows held a usable ChEBI ID. Check that "
+            "--chebi-column '%s' is the right column.",
+            total,
+            chebi_column,
+        )
     log.info("Output: %s", output_path)
-    return RunSummary(status_counts, missed_ids, resolved_ids)
+    return summary

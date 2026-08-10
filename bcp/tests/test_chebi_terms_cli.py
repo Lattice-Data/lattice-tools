@@ -340,6 +340,63 @@ def test_cli_batch_exits_0_when_some_ids_resolve(
     assert [r["id_status"] for r in rows] == ["ok", "not_found"]
 
 
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_batch_exits_1_when_no_row_held_a_usable_id(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """--chebi-column pointed at the wrong column must not look like success."""
+    import chebi_terms.cli
+    from chebi_terms.io import SUSPICIOUS_TOTAL_MISS
+
+    mock_get.side_effect = route_chebi_get
+
+    src = tmp_path / "in.csv"
+    names = "\n".join(f"compound-{i}" for i in range(SUSPICIOUS_TOTAL_MISS))
+    src.write_text(f"compound_name\n{names}\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+
+    with pytest.raises(SystemExit) as exc_info:
+        sys.argv = [
+            "chebi_terms",
+            "--input",
+            str(src),
+            "--chebi-column",
+            "compound_name",
+            "--output",
+            str(out),
+        ]
+        chebi_terms.cli.main()
+    assert exc_info.value.code == 1
+    mock_get.assert_not_called()
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_single_exits_1_on_unwritable_output(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    tmp_path: Path,
+) -> None:
+    import chebi_terms.cli
+
+    mock_get.side_effect = route_chebi_get
+
+    with pytest.raises(SystemExit) as exc_info:
+        sys.argv = [
+            "chebi_terms",
+            "--chebi",
+            "CHEBI:16236",
+            "--output",
+            str(tmp_path / "nope" / "out.json"),
+        ]
+        chebi_terms.cli.main()
+    assert exc_info.value.code == 1
+    mock_get.assert_not_called()
+
+
 def test_cli_batch_missing_column_exits_1(tmp_path: Path) -> None:
     import chebi_terms.cli
 
