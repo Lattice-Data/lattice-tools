@@ -45,6 +45,9 @@ MAX_CONSECUTIVE_FAILURES = 5
 # compounds that all happen not to exist. EBI has already done this to the flat
 # files and the SOAP service; a rename here would otherwise print a clean tally
 # and exit 0. Counted per ID, not per row — see all_lookups_missed().
+#
+# Doubles as the threshold for suspect_column's distinct invalid values: both
+# guards ask "is this many independent failures still plausible as real data?"
 SUSPICIOUS_TOTAL_MISS = 5
 
 # Statuses reported in the run summary, in the order they are logged.
@@ -82,7 +85,9 @@ class RunSummary(NamedTuple):
     @property
     def suspect_endpoint(self) -> bool:
         """Every ID that reached ChEBI came back not_found. See all_lookups_missed."""
-        return all_lookups_missed(self.missed_ids, self.resolved_ids)
+        return all_lookups_missed(
+            missed_ids=self.missed_ids, resolved_ids=self.resolved_ids
+        )
 
     @property
     def suspect_column(self) -> bool:
@@ -139,12 +144,19 @@ def all_lookups_missed(missed_ids: int, resolved_ids: int) -> bool:
     return not resolved_ids and missed_ids >= SUSPICIOUS_TOTAL_MISS
 
 
-def check_output_path(output_path: Path | None) -> None:
+def check_output_path(output_path: Path | None, input_path: Path | None = None) -> None:
     """
-    Fail on an unwritable output before spending any requests.
+    Fail on an unusable output before spending any requests.
 
     Single-ID mode writes after the fetch, so without this an unwritable path
     throws the answer away along with the request that earned it.
+
+    Writing over the input is refused outright. Because the whole input is read
+    before the output is opened, in-place enrichment appears to work — which makes
+    it a natural thing to try — but open(..., "w") truncates immediately, so if the
+    MAX_CONSECUTIVE_FAILURES abort fires mid-run the curator is left with a
+    spreadsheet containing only the rows processed so far. A ChEBI outage must not
+    be able to destroy the input.
     """
     if output_path is None:
         return
@@ -153,6 +165,11 @@ def check_output_path(output_path: Path | None) -> None:
     parent = output_path.parent
     if not parent.is_dir():
         raise ChebiTermsError(f"Output directory does not exist: {parent}")
+    if input_path is not None and output_path.resolve() == input_path.resolve():
+        raise ChebiTermsError(
+            f"Output path is the input file, which would be overwritten as the "
+            f"run proceeds and truncated if it aborts: {output_path}"
+        )
 
 
 def build_single_row(chebi_id: str, result: dict[str, Any]) -> dict[str, Any]:
@@ -265,6 +282,13 @@ def _resolve_columns(
             raise ChebiTermsError(
                 f"Column '{column}' ({label}) not found. Available columns: {fieldnames}"
             )
+        if column and column == chebi_column:
+            # expected_name/expected_cas would be the ID string itself, so every
+            # row reports mismatch. Loud rather than silent, but never useful.
+            raise ChebiTermsError(
+                f"Column '{column}' ({label}) is the same as --chebi-column, so "
+                f"every row would be checked against its own ID."
+            )
         if column and column in OUTPUT_FIELDS_APPENDED:
             # The comparison itself would be correct, but the column gets
             # overwritten with ChEBI's value — so a mismatch row would show a
@@ -306,7 +330,7 @@ def verify_chebi_file(
     # surface as a raw IsADirectoryError, and `--input ""` normalizes to Path('.').
     if not input_path.is_file():
         raise ChebiTermsError(f"Input file not found (or not a file): {input_path}")
-    check_output_path(output_path)
+    check_output_path(output_path, input_path)
 
     with open(input_path, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
@@ -360,7 +384,7 @@ def verify_chebi_file(
                 out_row.update(empty_result())
                 out_row["id_status"] = STATUS_INVALID
                 status_counts[STATUS_INVALID] += 1
-                invalid_values.add(chebi_id)
+                invalid_values.add(chebi_id.casefold())
                 writer.writerow(out_row)
                 continue
 

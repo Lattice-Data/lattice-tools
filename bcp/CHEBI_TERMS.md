@@ -65,7 +65,8 @@ python -m chebi_terms --input curated.csv \
 
 - **Format:** CSV with `utf-8-sig` encoding.
 - **Required column:** ChEBI ID (configurable via `--chebi-column`).
-- All other columns are preserved in the output. An input column whose name collides with one this tool writes is overwritten, with a warning. Pointing `--chebi-column`, `--name-column`, or `--cas-column` at such a name is an error: for the ID column it would emit two columns of the same name, and for the check columns it would erase the very value being checked, leaving a verdict with no record of what it was compared against.
+- All other columns are preserved in the output. An input column whose name collides with one this tool writes is overwritten, with a warning. Pointing `--chebi-column`, `--name-column`, or `--cas-column` at such a name is an error: for the ID column it would emit two columns of the same name, and for the check columns it would erase the very value being checked, leaving a verdict with no record of what it was compared against. Pointing a check column at the ID column is also an error — every row would be checked against its own ID.
+- **`--output` may not be the input file.** The whole input is read before the output is opened, so in-place enrichment looks like it works; but the file is truncated on open, so an outage abort mid-run would leave only the rows processed so far.
 
 ---
 
@@ -92,10 +93,12 @@ Single-ID JSON includes a top-level `"chebi_id"` key (the ID as supplied) plus t
 |-------|---------|
 | `ok` | Primary and released |
 | `secondary` | The ID is a secondary/merged ID; `chebi_accession` holds the primary it resolves to |
-| `not_released` | ChEBI has the record but has not released it |
+| `not_released` | ChEBI has the record but has not released it (defensive — see below) |
 | `not_found` | No such compound |
 
 When more than one of these could apply, precedence is `not_found` → `not_released` → `secondary` → `ok`.
+
+`not_released` is defensive: every status the `/public/` endpoint serves today (`CHECKED`, `OK`, `SUBMITTED`) comes back `is_released: true`, so in practice an unreleased record 404s and lands on `not_found`. The status is kept because anything other than a literal `true` should not read as a clean pass.
 
 **What the input looks like** — neither costs a request:
 

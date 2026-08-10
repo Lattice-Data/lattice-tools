@@ -72,7 +72,17 @@ from tests.chebi_terms_helpers import (
 
 @pytest.mark.parametrize(
     "raw",
-    ["16236", "CHEBI:16236", "chebi:16236", " CHEBI:16236 ", "CHEBI:016236"],
+    [
+        "16236",
+        "CHEBI:16236",
+        "chebi:16236",
+        " CHEBI:16236 ",
+        "CHEBI:016236",
+        # Inner whitespace too: a pasted "CHEBI: 16236" is a formatting quirk, and
+        # five of them would otherwise be blamed on the wrong --chebi-column.
+        "CHEBI: 16236",
+        "CHEBI:\t16236",
+    ],
 )
 def test_normalize_chebi_id_accepts_common_forms(raw: str) -> None:
     assert normalize_chebi_id(raw) == ("16236", "CHEBI:16236")
@@ -1244,6 +1254,46 @@ def test_verify_chebi_file_rejects_a_directory(tmp_path: Path) -> None:
     a_dir.mkdir()
     with pytest.raises(ChebiTermsError, match="not a file"):
         verify_chebi_file(a_dir, "chebi_id", tmp_path / "out.csv")
+
+
+def test_verify_chebi_file_refuses_to_overwrite_its_input(tmp_path: Path) -> None:
+    """
+    In-place enrichment reads fine but truncates on write.
+
+    The whole input is read before the output is opened, so it looks like it
+    works — until the outage abort fires mid-run and leaves the curator with only
+    the rows processed so far.
+    """
+    src = tmp_path / "curated.csv"
+    _write_csv(src, ["chebi_id"], [["CHEBI:16236"]])
+    before = src.read_text(encoding="utf-8")
+
+    with pytest.raises(ChebiTermsError, match="input file"):
+        verify_chebi_file(src, "chebi_id", src)
+
+    assert src.read_text(encoding="utf-8") == before
+
+
+def test_verify_chebi_file_refuses_the_input_by_another_path(tmp_path: Path) -> None:
+    src = tmp_path / "curated.csv"
+    _write_csv(src, ["chebi_id"], [["CHEBI:16236"]])
+    indirect = tmp_path / "sub" / ".." / "curated.csv"
+    (tmp_path / "sub").mkdir()
+
+    with pytest.raises(ChebiTermsError, match="input file"):
+        verify_chebi_file(src, "chebi_id", indirect)
+
+
+@pytest.mark.parametrize("check_col", ["name_column", "cas_column"])
+def test_verify_chebi_file_rejects_a_check_column_that_is_the_id_column(
+    tmp_path: Path, check_col: str
+) -> None:
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["chebi_id"], [["CHEBI:16236"]])
+    with pytest.raises(ChebiTermsError, match="same as --chebi-column"):
+        verify_chebi_file(
+            src, "chebi_id", tmp_path / "out.csv", **{check_col: "chebi_id"}
+        )
 
 
 @pytest.mark.parametrize("bad_output", ["a_dir", "missing_parent"])

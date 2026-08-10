@@ -14,6 +14,8 @@ CHEBI_LIVE = FIXTURES / "chebi_live"
 # Recorded fixtures, keyed by the *requested* numeric ID.
 ETHANOL = "16236"
 EPICATECHIN_SECONDARY = "18484"  # resolves to CHEBI:90
+# Markup-heavy name *and* no CAS xref: the no_cas_recorded coverage rests on the
+# second property, so do not swap in another markup-heavy ID that has a CAS.
 MARKUP_NAME = "44567"
 
 

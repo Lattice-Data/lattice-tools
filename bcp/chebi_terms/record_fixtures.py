@@ -21,7 +21,11 @@ FIXTURES_ROOT = (
     / "chebi_live"
 )
 
-# ethanol, a secondary ID that resolves to CHEBI:90, and a markup-heavy name.
+# Each is load-bearing for a specific behaviour — a refresh must preserve these
+# properties, not just the IDs:
+#   16236 ethanol, the healthy case, with CAS xrefs and English synonyms
+#   18484 a secondary ID that resolves to CHEBI:90
+#   44567 a markup-heavy name AND no CAS xref at all (covers no_cas_recorded)
 DEFAULT_IDS = ["CHEBI:16236", "CHEBI:18484", "CHEBI:44567"]
 
 

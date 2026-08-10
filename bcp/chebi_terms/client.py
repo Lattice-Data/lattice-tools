@@ -115,10 +115,14 @@ def normalize_chebi_id(chebi_id: Any) -> tuple[str, str] | None:
 
     Accepts "16236", "CHEBI:16236", and "chebi:16236". Returns None when the
     value is not a ChEBI identifier at all, so malformed input costs no request.
+
+    All whitespace is dropped, not just the surrounding kind, so a pasted
+    "CHEBI: 16236" parses rather than reporting invalid — five such values would
+    otherwise trip suspect_column and blame the column for a formatting quirk.
     """
     if chebi_id is None:
         return None
-    match = _ACCESSION_RE.match(str(chebi_id).strip())
+    match = _ACCESSION_RE.match("".join(str(chebi_id).split()))
     if match is None:
         return None
     numeric = match.group(1).lstrip("0")
@@ -205,9 +209,16 @@ def check_payload_shape(payload: Any, numeric_id: str = "?") -> None:
         raise ChebiUnavailableError(
             f"Response for ChEBI ID {numeric_id} carries no is_released field"
         )
-    if not clean_name(payload.get("name")):
+    if payload.get("is_released") is True and not clean_name(payload.get("name")):
         # A blank name degrades every exact-name check to synonym_match or
         # mismatch, so a rename would read as a sheet full of bad curator data.
+        #
+        # Only required of a released record. Every status the /public/ endpoint
+        # serves today (CHECKED, OK, SUBMITTED) comes back is_released True with a
+        # name, so an unreleased record could not be checked — but if ChEBI ever
+        # starts serving one, a missing name there must report not_released rather
+        # than lookup_failed. A real input read as an outage is the inversion this
+        # module exists to prevent.
         raise ChebiUnavailableError(
             f"Response for ChEBI ID {numeric_id} carries no usable name"
         )
