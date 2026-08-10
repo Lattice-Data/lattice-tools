@@ -294,6 +294,21 @@ class TestReconcileTrimming:
         assert "1 trimmed wells" in report.verdict()
         assert report.counts["not_trimmed"] == 1
 
+    def test_verdict_appends_identity_mismatch_when_present(self):
+        wrong_barcode = TRIM_STEM_A.replace("CAGCTCGAATGCGAT", "AAAAAAAAAAAAAAAA")
+        source = _source_index(_vendor_keys(VENDOR_STEM_A))
+        trimmed = index_trimmed_upload(_trimmed_keys(wrong_barcode))
+        report = reconcile_trimming(source, trimmed)
+
+        assert "1 identity mismatches" in report.verdict()
+
+    def test_verdict_appends_metadata_unavailable_when_present(self):
+        source = _source_index(_vendor_keys(VENDOR_STEM_A))
+        trimmed = index_trimmed_upload(_trimmed_keys(TRIM_STEM_A))
+        report = reconcile_trimming(source, trimmed, self._fail_counts(TRIM_STEM_A, 1))
+
+        assert "1 metadata unavailable" in report.verdict()
+
 
 class TestReconcileDoesNotMutateItsInput:
     """Reconciling twice must give the same answer twice.

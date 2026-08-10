@@ -68,6 +68,8 @@ class TrimmingReport:
             ("size_not_reduced", "not smaller than source"),
             ("duplicate_source_well", "duplicate source wells"),
             ("duplicate_trimmed_well", "duplicate trimmed wells"),
+            ("identity_mismatch", "identity mismatches"),
+            ("metadata_unavailable", "metadata unavailable"),
         ):
             if counts.get(category):
                 verdict += f", {counts[category]} {label}"
