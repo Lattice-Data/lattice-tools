@@ -14,6 +14,7 @@ import requests
 from chebi_terms.client import (
     CAS_CONFIRMED,
     CAS_NOT_IN_CHEBI,
+    CAS_NOT_RECORDED,
     NAME_MATCH,
     NAME_MISMATCH,
     NAME_SYNONYM_MATCH,
@@ -277,10 +278,31 @@ def test_cas_verdict_confirmed() -> None:
 
 
 def test_cas_verdict_not_in_chebi() -> None:
+    # Ethanol has CAS xrefs on file, so this is a genuine disagreement.
     result = verify_payload(
         "CHEBI:16236", load_payload(ETHANOL), expected_cas="58-08-2"
     )
     assert result["cas_verdict"] == CAS_NOT_IN_CHEBI
+
+
+def test_cas_verdict_distinguishes_no_cas_on_file_from_disagreement() -> None:
+    """
+    Silence is not a negative answer.
+
+    CHEBI:44567 carries no CAS xrefs at all, so ChEBI is not contradicting the
+    supplied value — it has nothing to compare it against.
+    """
+    payload = load_payload(MARKUP_NAME)
+    assert extract_cas_numbers(payload) == []
+
+    result = verify_payload("CHEBI:44567", payload, expected_cas="1234-56-7")
+    assert result["cas_verdict"] == CAS_NOT_RECORDED
+    assert result["cas_verdict"] != CAS_NOT_IN_CHEBI
+
+
+def test_cas_verdict_not_recorded_still_not_checked_when_nothing_supplied() -> None:
+    result = verify_payload("CHEBI:44567", load_payload(MARKUP_NAME))
+    assert result["cas_verdict"] == NOT_CHECKED
 
 
 def test_cas_verdict_not_checked_when_expected_blank() -> None:
@@ -446,6 +468,32 @@ def test_fetch_compound_raises_when_accession_is_missing(
     """A body with no usable accession is a shape change, not a clean pass."""
     mock_get.return_value = mock_response(200, {"name": "ethanol"})
     with pytest.raises(ChebiUnavailableError, match="chebi_accession"):
+        fetch_compound("16236")
+
+
+@pytest.mark.parametrize(
+    "drop, expected",
+    [
+        ("is_released", "is_released"),
+        ("name", "no usable name"),
+    ],
+)
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_fetch_compound_raises_on_other_shape_changes(
+    mock_get: MagicMock, _sleep: MagicMock, drop: str, expected: str
+) -> None:
+    """
+    Every field whose absence would read as a clean pass must fail loudly.
+
+    A missing is_released turns unreleased records into `ok`; a missing name
+    degrades every exact-name check into mismatch, so a rename would read as a
+    sheet full of bad curator data.
+    """
+    payload = payload_copy(ETHANOL)
+    del payload[drop]
+    mock_get.return_value = mock_response(200, payload)
+    with pytest.raises(ChebiUnavailableError, match=expected):
         fetch_compound("16236")
 
 
@@ -888,6 +936,7 @@ def _summary(**kwargs) -> RunSummary:
         missing_rows=0,
         name_mismatches=0,
         cas_disagreements=0,
+        cas_not_recorded=0,
     )
     return RunSummary(**{**defaults, **kwargs})
 
@@ -1025,7 +1074,27 @@ def test_verify_chebi_file_reports_mismatch_counts_to_callers(
     # Available without re-parsing the output CSV.
     assert summary.name_mismatches == 1
     assert summary.cas_disagreements == 1
+    assert summary.cas_not_recorded == 0
     assert not summary.degraded
+
+
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_verify_chebi_file_reports_unverifiable_cas_separately(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """A compound with no CAS on file is not a disagreement."""
+    mock_get.side_effect = route_chebi_get
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["chebi_id", "CAS"], [["CHEBI:44567", "1234-56-7"]])
+    out = tmp_path / "out.csv"
+
+    summary = verify_chebi_file(src, "chebi_id", out, cas_column="CAS")
+
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert rows[0]["cas_verdict"] == CAS_NOT_RECORDED
+    assert summary.cas_not_recorded == 1
+    assert summary.cas_disagreements == 0
 
 
 @patch("chebi_terms.client.time.sleep")

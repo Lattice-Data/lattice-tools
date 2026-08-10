@@ -69,6 +69,10 @@ NAME_SYNONYM_MATCH = "synonym_match"
 NAME_MISMATCH = "mismatch"
 CAS_CONFIRMED = "confirmed"
 CAS_NOT_IN_CHEBI = "not_in_chebi"
+# ChEBI records no CAS at all for this compound, so it is not disagreeing with
+# you — it has nothing on file. Split out of not_in_chebi for the same reason
+# lookup_failed is not not_found: silence is not a negative answer.
+CAS_NOT_RECORDED = "no_cas_recorded"
 
 # ChEBI embeds inline markup in names: "(3<i>R</i>,4<i>S</i>)-...".
 _TAG_RE = re.compile(r"</?[A-Za-z][^>]*>")
@@ -209,6 +213,13 @@ def fetch_compound(numeric_id: str) -> dict[str, Any] | None:
         # would silently turn every unreleased record into `ok`.
         raise ChebiUnavailableError(
             f"Response for ChEBI ID {numeric_id} carries no is_released field"
+        )
+    if not clean_name(payload.get("name")):
+        # Same property again: a blank name degrades every exact-name check to
+        # synonym_match or mismatch, so a rename here would read as a sheet full
+        # of bad curator data rather than as a changed payload.
+        raise ChebiUnavailableError(
+            f"Response for ChEBI ID {numeric_id} carries no usable name"
         )
     return payload
 
@@ -368,7 +379,9 @@ def verify_payload(
     expected_cas_key = _cas_key(expected_cas) if expected_cas else ""
     if expected_cas_key:
         known = {_cas_key(cas) for cas in extract_cas_numbers(payload)}
-        if expected_cas_key in known:
+        if not known:
+            result["cas_verdict"] = CAS_NOT_RECORDED
+        elif expected_cas_key in known:
             result["cas_verdict"] = CAS_CONFIRMED
         else:
             result["cas_verdict"] = CAS_NOT_IN_CHEBI

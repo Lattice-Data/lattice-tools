@@ -13,6 +13,7 @@ from typing import Any, Literal, NamedTuple
 from . import client
 from .client import (
     CAS_NOT_IN_CHEBI,
+    CAS_NOT_RECORDED,
     NAME_MISMATCH,
     NOT_CHECKED,
     OUTPUT_FIELDS_APPENDED,
@@ -25,6 +26,7 @@ from .client import (
     STATUS_SECONDARY,
     ChebiUnavailableError,
     empty_result,
+    extract_cas_numbers,
     fetch_compound,
     normalize_chebi_id,
     verify_chebi_id,
@@ -75,6 +77,7 @@ class RunSummary(NamedTuple):
     missing_rows: int
     name_mismatches: int
     cas_disagreements: int
+    cas_not_recorded: int
 
     @property
     def suspect_endpoint(self) -> bool:
@@ -319,6 +322,7 @@ def verify_chebi_file(
     status_counts: Counter[str] = Counter()
     name_mismatches = 0
     cas_disagreements = 0
+    cas_not_recorded = 0
     consecutive_failures = 0
 
     with open(output_path, "w", newline="", encoding="utf-8") as out_fh:
@@ -410,9 +414,17 @@ def verify_chebi_file(
             if result["cas_verdict"] == CAS_NOT_IN_CHEBI:
                 cas_disagreements += 1
                 log.warning(
-                    "  CAS %s not recorded by ChEBI for %s",
+                    "  CAS mismatch: %r, but ChEBI records %s for %s",
                     (expected_cas or "").strip(),
+                    " / ".join(extract_cas_numbers(payload or {})) or "none",
                     result["chebi_accession"] or chebi_id,
+                )
+            elif result["cas_verdict"] == CAS_NOT_RECORDED:
+                cas_not_recorded += 1
+                log.info(
+                    "  ChEBI records no CAS for %s, so %r could not be checked",
+                    result["chebi_accession"] or chebi_id,
+                    (expected_cas or "").strip(),
                 )
 
     log.info("=" * 55)
@@ -424,6 +436,8 @@ def verify_chebi_file(
         log.info("  Name mismatches : %s", name_mismatches)
     if cas_column:
         log.info("  CAS disagreements: %s", cas_disagreements)
+        if cas_not_recorded:
+            log.info("  CAS unverifiable  : %s (ChEBI has no CAS)", cas_not_recorded)
     if status_counts[STATUS_LOOKUP_FAILED]:
         log.error(
             "ChEBI could not be reached for %s of %s rows — those rows say "
@@ -444,6 +458,7 @@ def verify_chebi_file(
         missing_rows=status_counts[STATUS_MISSING],
         name_mismatches=name_mismatches,
         cas_disagreements=cas_disagreements,
+        cas_not_recorded=cas_not_recorded,
     )
 
     if summary.suspect_endpoint:

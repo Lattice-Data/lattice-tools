@@ -117,15 +117,17 @@ When more than one of these could apply, precedence is `not_found` → `not_rele
 | Column | Values |
 |--------|--------|
 | `name_verdict` | `match` · `synonym_match` · `mismatch` · `not_checked` |
-| `cas_verdict` | `confirmed` · `not_in_chebi` · `not_checked` |
+| `cas_verdict` | `confirmed` · `not_in_chebi` · `no_cas_recorded` · `not_checked` |
 
 Both read `not_checked` unless you supply something to check against.
+
+`no_cas_recorded` means ChEBI holds no CAS number for that compound at all, so it is not contradicting you — it has nothing to compare against. Split out of `not_in_chebi` for the same reason `lookup_failed` is not `not_found`: silence is not a negative answer. Plenty of ChEBI entries have no CAS xref, so without the distinction a perfectly good pairing would read as a disagreement.
 
 Name comparison is deliberately permissive: markup is stripped, case is folded, Unicode dash variants are normalized to `-`, and the value is matched against the official name *and* every synonym type — including brand names, INNs, and ChEBI's ASCII spellings. So `(-)-epicatechin` matches ChEBI's `(−)-epicatechin` (U+2212), and `alcohol etilico` matches `alcohol etílico`. Output is stricter than matching: only English `SYNONYM` and `IUPAC NAME` entries are emitted, because acetylsalicylic acid alone carries 64 brand names.
 
 CAS comparison normalizes the same Unicode dash variants and strips stray whitespace, so a pasted `64‑17‑5` is not reported as a disagreement. Internal dashes are kept: collapsing `64-17-5` and `64175` onto one key would risk a false `confirmed`, which is the more dangerous direction to be wrong in.
 
-`cas_verdict` checks ChEBI's **own** CAS cross-references, not PubChem's. A `confirmed` verdict means ChEBI independently agrees that the CAS and the ChEBI ID describe the same compound.
+`cas_verdict` checks ChEBI's **own** CAS cross-references, not PubChem's. A `confirmed` verdict means ChEBI independently agrees that the CAS and the ChEBI ID describe the same compound; `not_in_chebi` means ChEBI records CAS numbers for it and yours is not among them.
 
 ---
 
@@ -221,7 +223,8 @@ summary.resolved_ids  # distinct IDs that came back
 summary.invalid_values  # distinct unparseable values seen
 summary.missing_rows  # rows with an empty ID cell
 summary.name_mismatches  # rows whose recorded name disagreed
-summary.cas_disagreements  # rows carrying a CAS ChEBI does not record
+summary.cas_disagreements  # rows whose CAS is not among the ones ChEBI records
+summary.cas_not_recorded  # rows ChEBI holds no CAS for, so unverifiable
 summary.suspect_endpoint  # every reachable lookup missed
 summary.suspect_column  # nothing was usable as a ChEBI ID
 summary.degraded  # any of the above — mirrors exit 1
