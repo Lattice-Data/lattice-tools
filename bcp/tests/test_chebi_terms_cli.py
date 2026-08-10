@@ -397,6 +397,34 @@ def test_cli_single_exits_1_on_unwritable_output(
     mock_get.assert_not_called()
 
 
+@patch("chebi_terms.client.time.sleep")
+@patch("chebi_terms.client.requests.get")
+def test_cli_batch_exits_1_on_unwritable_output(
+    mock_get: MagicMock,
+    _sleep: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """The batch counterpart to test_cli_single_exits_1_on_unwritable_output."""
+    import chebi_terms.cli
+
+    mock_get.side_effect = route_chebi_get
+
+    src = tmp_path / "in.csv"
+    src.write_text("chebi_id\nCHEBI:16236\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        sys.argv = [
+            "chebi_terms",
+            "--input",
+            str(src),
+            "--output",
+            str(tmp_path / "nope" / "out.csv"),
+        ]
+        chebi_terms.cli.main()
+    assert exc_info.value.code == 1
+    mock_get.assert_not_called()
+
+
 def test_cli_batch_missing_column_exits_1(tmp_path: Path) -> None:
     import chebi_terms.cli
 

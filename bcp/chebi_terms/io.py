@@ -92,8 +92,16 @@ class RunSummary(NamedTuple):
         past unnoticed. Distinct values for the invalid side — 500 rows of one
         junk string is a single mistake — and rows for the blank side, where
         there is no value to be distinct about.
+
+        A single lookup_failed disqualifies it. Failures are never cached, so an
+        outage leaves resolved_ids and missed_ids at 0 and would otherwise satisfy
+        the "nothing reached ChEBI" premise for entirely the wrong reason —
+        blaming the column for what the network did. suspect_endpoint needs no
+        such guard: it reasons only about IDs that did reach ChEBI.
         """
         if self.resolved_ids or self.missed_ids:
+            return False
+        if self.status_counts[STATUS_LOOKUP_FAILED]:
             return False
         return (self.invalid_values + self.missing_rows) >= SUSPICIOUS_TOTAL_MISS
 
@@ -290,6 +298,7 @@ def verify_chebi_file(
     # surface as a raw IsADirectoryError, and `--input ""` normalizes to Path('.').
     if not input_path.is_file():
         raise ChebiTermsError(f"Input file not found (or not a file): {input_path}")
+    check_output_path(output_path)
 
     with open(input_path, newline="", encoding="utf-8-sig") as fh:
         reader = csv.DictReader(fh)
@@ -448,9 +457,10 @@ def verify_chebi_file(
         )
     if summary.suspect_column:
         log.error(
-            "Not one of the %s rows held a usable ChEBI ID. Check that "
+            "No row held a usable ChEBI ID (%s invalid, %s blank). Check that "
             "--chebi-column '%s' is the right column.",
-            total,
+            status_counts[STATUS_INVALID],
+            status_counts[STATUS_MISSING],
             chebi_column,
         )
     log.info("Output: %s", output_path)

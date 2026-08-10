@@ -154,6 +154,8 @@ The same mistake from the cheaper direction: point `--chebi-column` at a name co
 
 Distinct values on the invalid side, because 500 rows of one junk string is a single mistake rather than evidence about the column; rows on the blank side, where there is no value to be distinct about.
 
+A single `lookup_failed` disqualifies this diagnosis. Failures are never cached, so an outage also leaves both ID counts at zero and would otherwise satisfy the "nothing reached ChEBI" premise for the wrong reason — blaming the column for what the network did. The run still exits 1 either way; only the message changes.
+
 **Exit 1** therefore means: any row `lookup_failed`, every reachable lookup missed, or no usable ID at all. Anything else — including a `mismatch` or a genuine `not_found` — exits **0**. `RunSummary.degraded` is the same predicate, for programmatic callers.
 
 ---

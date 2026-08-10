@@ -913,6 +913,17 @@ def test_suspect_column_clear_when_anything_reached_chebi() -> None:
         ).suspect_column
 
 
+def test_suspect_column_does_not_blame_the_column_for_an_outage() -> None:
+    """Failures are never cached, so an outage also leaves both ID counts at 0."""
+    summary = _summary(
+        invalid_values=SUSPICIOUS_TOTAL_MISS,
+        status_counts=Counter({STATUS_INVALID: 5, STATUS_LOOKUP_FAILED: 4}),
+    )
+    assert not summary.suspect_column
+    # Still a failed run, just diagnosed as the network rather than the column.
+    assert summary.degraded
+
+
 def test_degraded_covers_all_three_run_level_failures() -> None:
     assert _summary(status_counts=Counter({STATUS_LOOKUP_FAILED: 1})).degraded
     assert _summary(missed_ids=SUSPICIOUS_TOTAL_MISS).degraded  # suspect_endpoint
@@ -1100,6 +1111,23 @@ def test_verify_chebi_file_rejects_a_directory(tmp_path: Path) -> None:
     a_dir.mkdir()
     with pytest.raises(ChebiTermsError, match="not a file"):
         verify_chebi_file(a_dir, "chebi_id", tmp_path / "out.csv")
+
+
+@pytest.mark.parametrize("bad_output", ["a_dir", "missing_parent"])
+def test_verify_chebi_file_rejects_an_unwritable_output(
+    tmp_path: Path, bad_output: str
+) -> None:
+    """Batch mode needs the same guard single-ID mode got."""
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["chebi_id"], [["CHEBI:16236"]])
+    if bad_output == "a_dir":
+        out = tmp_path / "outdir"
+        out.mkdir()
+    else:
+        out = tmp_path / "nope" / "out.csv"
+
+    with pytest.raises(ChebiTermsError):
+        verify_chebi_file(src, "chebi_id", out)
 
 
 def test_verify_chebi_file_missing_chebi_column(tmp_path: Path) -> None:
