@@ -1007,6 +1007,22 @@ def test_a_match_inside_a_truncated_set_is_still_a_match() -> None:
     assert result["name_cas_verdict"] == MATCH
 
 
+def test_truncated_skeleton_difference_skips_refinement() -> None:
+    """
+    A truncated non-match is name_ambiguous no matter what refinement finds, so
+    calling it would spend up to 3 requests per candidate on a result that is
+    discarded either way.
+    """
+    from structure_check.client import MAX_NAME_CANDIDATES, NAME_AMBIGUOUS
+
+    capped = [f"BBBBBBBBBBBBB{n}-UHFFFAOYSA-N" for n in range(MAX_NAME_CANDIDATES)]
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(name=("acid", capped, 40))
+    with cas_p, chebi_p, name_p, refine_p as mock_refine:
+        result = check_row(cas="64-17-5", name="acid")
+    assert result["name_cas_verdict"] == NAME_AMBIGUOUS
+    mock_refine.assert_not_called()
+
+
 # --------------------------------------------------------------------------
 # a check that never worked once
 # --------------------------------------------------------------------------

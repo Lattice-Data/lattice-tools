@@ -196,8 +196,11 @@ def _resolve_columns(
                 f"row would be compared against itself."
             )
 
-    requested = [("--cas-column", cas_column)]
-    requested += [("--chebi-column", chebi_column), ("--name-column", name_column)]
+    requested = [
+        ("--cas-column", cas_column),
+        ("--chebi-column", chebi_column),
+        ("--name-column", name_column),
+    ]
     for label, column in requested:
         if not column:
             continue

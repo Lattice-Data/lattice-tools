@@ -211,3 +211,27 @@ def test_cli_batch_warns_that_format_is_ignored(
     structure_check.cli.main()
 
     assert "--format is ignored" in caplog.text
+
+
+@patch("structure_check.io.check_row")
+def test_cli_single_warns_that_column_flags_are_ignored(
+    mock_check: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    import structure_check.cli
+
+    mock_check.return_value = {**empty_result(), "review": REVIEW_OK}
+    sys.argv = [
+        "structure_check",
+        "--cas",
+        "64-17-5",
+        "--name",
+        "Ethanol",
+        "--chebi-column",
+        "ChEBI ID",
+        "--name-column",
+        "Name",
+    ]
+    structure_check.cli.main()
+
+    assert "--chebi-column is ignored" in caplog.text
+    assert "--name-column is ignored" in caplog.text

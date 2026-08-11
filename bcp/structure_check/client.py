@@ -599,7 +599,11 @@ def check_row(
             result["name_cas_verdict"] = cas_verdict_if_missing
         else:
             verdict = compare_structures(cas_key, name_keys)
-            if verdict == SKELETON_DIFFERS:
+            # A truncated row that lands here is heading for name_ambiguous
+            # below regardless of what refinement finds, so skip a refinement
+            # that costs up to 3 requests per candidate for a result that is
+            # about to be discarded.
+            if verdict == SKELETON_DIFFERS and not truncated:
                 verdict = refine_skeleton_difference(cas_key, name_keys)
             # PubChem returns structures in CID order, not relevance order, so the
             # true match may be among the ones we did not compare. Reporting a

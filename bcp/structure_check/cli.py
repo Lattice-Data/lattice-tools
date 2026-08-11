@@ -78,6 +78,12 @@ def main() -> None:
         if not args.chebi and not args.name:
             log.error("Pass --chebi and/or --name to check the CAS against.")
             sys.exit(1)
+        for flag, value in (
+            ("--chebi-column", args.chebi_column),
+            ("--name-column", args.name_column),
+        ):
+            if value is not None:
+                log.warning("%s is ignored in single mode; use --chebi/--name.", flag)
         try:
             emit_single_row(
                 Path(args.output) if args.output else None,
