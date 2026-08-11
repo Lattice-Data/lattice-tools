@@ -101,10 +101,17 @@ Plus the reasons a comparison could not be made, which are **never findings abou
 - `name_unresolved` — PubChem resolved no structure for the name
 - `cas_unresolved` — PubChem resolved no structure for the CAS
 - `chebi_unresolved` — malformed ID, or ChEBI has no such record
-- `chebi_unreachable` — ChEBI could not be asked at all
 - `name_ambiguous` — the name resolved to more structures than were compared, and none matched (see the cap below)
 - `chebi_no_structure` — ChEBI has the entry but records no structure (class terms and R-group entries do not)
 - `not_checked` — nothing was supplied for that check
+
+And separately, the three that mean **the upstream was never reached** — the only verdicts that say something about the network rather than about the compound:
+
+- `chebi_unreachable` — ChEBI could not be asked at all
+- `cas_unreachable` — PubChem could not be asked about the CAS
+- `name_unreachable` — PubChem could not be asked about the name
+
+That line matters more than it looks. "PubChem has no such CAS" is evidence about the compound; "PubChem never answered" is evidence about the afternoon. Only the second kind can be fixed by running again, and only the second kind is allowed to make the run itself untrustworthy.
 
 `compare_structures()` additionally returns `not_comparable` when handed an empty structure on either side. That never reaches a row (`check_row` guards both callers), but the function is public, so it says "could not compare" rather than expressing it as a difference.
 
@@ -116,6 +123,7 @@ Plus the reasons a comparison could not be made, which are **never findings abou
 |---|---|
 | `review_rank` | 1 `investigate` · 2 `check` · 3 `unverified` · 4 `ok` — **sort on this** |
 | `review` | The same answer in words |
+| `unasked` | `id`, `name`, `both`, or empty — which requested check went unasked because an upstream was unreachable. **Not** a finding: these rows need a re-run, not a curator. |
 | `id_cas_verdict`, `name_cas_verdict` | The two verdicts |
 | `cas_inchikey` | Structure PubChem gives for the CAS |
 | `cas_pubchem_name` | PubChem's preferred name for the CAS — useful for eyeballing a flagged row |
@@ -152,18 +160,35 @@ bcp/structure_check/
 
 Composes the two sibling packages rather than re-implementing their HTTP: PubChem access comes from `chebi_lookup.client`, ChEBI access from `chebi_terms.client`. It inherits their retry and rate limiting.
 
-**It does not inherit an answer-vs-outage distinction on the PubChem side, because there isn't one.** `chebi_lookup.get_with_retry` returns `None` for a 404 *and* for exhausted retries, so `cas_unresolved` and `name_unresolved` cannot tell "PubChem has no such compound" from "PubChem was unreachable". The ChEBI side can, because `fetch_compound` raises rather than returning `None` — which is why `chebi_unreachable` and `chebi_unresolved` are separate verdicts here rather than one.
+Both sides can now tell an answer from a silence. `chebi_terms.fetch_compound` raises `ChebiUnavailableError`; on the PubChem side `chebi_lookup.get_with_retry_status` reports whether a request 404'd or ran out of retries, and the resolvers here raise `PubChemUnavailableError` when it was the latter. `get_with_retry` is still there, unchanged, as a thin wrapper for callers that only want the payload.
 
-### A check that never worked is not a clean sheet
+A 200 carrying something that is not this endpoint's JSON — a maintenance page, a moved endpoint — counts as unreachable too. Read as "no such compound" it would look exactly like a column full of junk.
 
-Two ways a run can produce a complete-looking CSV that means nothing:
+### Is this run trustworthy?
 
-1. **Nothing was compared at all.** Point `--cas-column` at an existing but wrong column, or let PubChem go down, and every row lands on `unverified`.
-2. **One side failed run-wide while the other passed.** This is the subtler one. If ChEBI is unreachable but the name column resolves fine, every row gets `chebi_unresolved`/`chebi_unreachable` on the ID side *and* a name match — so `review` says `ok`, `review_rank` is 4, and the sheet reads as clean with the ID question never answered on a single row.
+A complete-looking CSV whose emptiness means nothing is the worst thing this tool could produce, so `RunSummary.degraded` answers that question and the CLI exits **1** when it is true. Findings themselves still exit 0 — they are the product, and the "N rows need attention" line is logged *before* the degraded exit so a network blip cannot swallow the pointer to real findings.
 
-So `RunSummary.degraded` fires on either, across at least 5 rows so a two-row spot check stays quiet, and the CLI exits **1**. `dead_checks` names the specific check that never succeeded, so the error says *which* question went unanswered rather than just that something went wrong. Findings themselves still exit 0 — they are the product.
+**`degraded` is three separate signals, not one predicate, and that is the whole design.** A single boolean here was wrong four times running, each fix correct for the input it targeted and blind to the next. The reason is that it was being asked two unrelated questions at once — *"was upstream up?"* and *"is this the right column?"* — which have different evidence, different natural units, and different remedies. A re-run fixes one and cannot fix the other.
 
-A dead check is counted against the rows where that side was **attempted** — cells that were non-empty — not against every row. A partly-mapped sheet with blank ChEBI cells is the normal input for a tool whose job is checking ChEBI IDs, and measuring against total rows would let a single blank cell hide a total outage. A column that is entirely blank was never attempted, so it is not a dead check; those rows come out `unverified` and the first condition covers them.
+| Signal | Fires when | Counted in |
+|---|---|---|
+| `outages` | on some side, **more rows went unanswered by an unreachable upstream than were answered** | rows |
+| `suspect_columns` | on some side, nothing resolved across **≥ 5 distinct values**, with no outage on *that* side | distinct values |
+| `nothing_compared` | every row came out `unverified`, across at least 5 rows | rows |
+
+Why each is shaped the way it is:
+
+- **A majority, not "any outage at all."** The sibling `chebi_terms` degrades on a single failed lookup, and can afford to: it makes one request per ID. This tool makes 3–44 per row against an API that rate-limits, and a throttle that outlasts its retries is indistinguishable from an outage. Firing on one occurrence would exit 1 on healthy large runs, and an exit code that cries wolf stops being read — which costs more than the case it was added to catch. A majority needs no tuned constant: once most of what was asked went unanswered, the output is not a verdict whatever the rest says.
+- **Rows below that line are still not hidden.** They get `cas_unreachable`/`name_unreachable`/`chebi_unreachable` in their verdict column, a mark in **`unasked`**, and a WARNING naming the count. The `review` column deliberately does *not* change: `ok` means every comparison that was made agreed, which stays true when the other side was unreachable. Overloading the one documented sort key would bury a real `skeleton_differs` behind a transient 503.
+- **Distinct values, not rows, for a wrong column.** A dose-response sheet repeats each compound thirty times; 500 rows of one junk string is a single mistake, not 500 pieces of evidence. Two retired ChEBI IDs on a 117-row sheet is a *finding* — exactly what this tool exists to surface — and must not be reported as a broken run.
+- **The outage guard is per side.** A ChEBI column full of free text is rejected by a regex without a single request, so a PubChem outage is logically incapable of explaining it. Disqualifying globally would hide a real misconfiguration behind an unrelated blip.
+- **`nothing_compared` earns its place** because it is the only term that reasons about *comparisons performed* rather than identifiers resolved, and the two genuinely diverge. A ChEBI column of class terms resolves perfectly — ChEBI holds every record — and still compares nothing, because a class term carries no structure. Both other signals stay silent on that sheet.
+
+Blank cells never enter any of these counts. A partly-mapped sheet is the normal input for a tool whose job is checking ChEBI IDs, and a column that is entirely blank is not evidence about anything.
+
+Two things are deliberately excluded from the outage signal. **Upstream answers** — `chebi_unresolved`, `chebi_no_structure`, `name_ambiguous` — are answers, not silences, and belong in the `Not compared` breakdown rather than in a predicate that exits 1 and tells the operator to check their network. And **the salt-form refinement**: it only ever downgrades a difference already found, so a failure there leaves a row flagged for a human, the safe direction. It is also by far the highest-volume caller, so counting it would exit 1 on a run whose only content is a genuine finding. It logs a warning instead.
+
+Finally, a run against a wholly unreachable upstream stops after `MAX_CONSECUTIVE_OUTAGE_ROWS` (5) consecutive rows that produced nothing, rather than spending the rest of the sheet on backoff to reach a verdict already settled — as `chebi_terms` does. The partial output is left in place for inspection.
 
 **Programmatic use:**
 
@@ -185,7 +210,7 @@ print(r["review"], r["id_cas_verdict"], r["name_cas_verdict"])
 
 Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), typically 1–2 for the name (more if neither whole-string form resolves and the token fallback tries each token in turn), and 1 ChEBI call. Plus 3 per structure for the desalted-parent check, which only runs where a difference was already found and the name was not truncated; successful parents are cached for the run, failures are not.
 
-A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated, since each extra candidate costs three more requests during refinement. **Truncation can never produce a finding.** PubChem returns structures in CID order rather than relevance order, so the true match may sit past the cap; a truncated comparison that finds no match therefore reports `name_ambiguous`, not a difference. A match *inside* the compared set is still a match, since matching any candidate is sound. Either way the row records `(truncated: N structures)` in `name_query`, so a flagged row is auditable from the CSV alone. Identical triples are cached within a run, so repeated compounds cost nothing extra. Expect roughly 2–3 seconds per distinct row.
+A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated, since each extra candidate costs three more requests during refinement. **Truncation can never produce a finding.** PubChem returns structures in CID order rather than relevance order, so the true match may sit past the cap; a truncated comparison that finds no match therefore reports `name_ambiguous`, not a difference. A match *inside* the compared set is still a match, since matching any candidate is sound. Either way the row records `(truncated: N structures)` in `name_query`, so a flagged row is auditable from the CSV alone. Identical triples are cached within a run, so repeated compounds cost nothing extra — **except** a triple whose lookup hit an outage, which is retried rather than cached, so one unlucky moment does not decide every row that repeats it. Expect roughly 2–3 seconds per distinct row.
 
 Findings exit **0** — they are the product, not a failure. Only a broken run (missing file, bad column, unwritable output, or a degraded run — see above) exits 1.
 

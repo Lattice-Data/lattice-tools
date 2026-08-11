@@ -57,16 +57,35 @@ def empty_result() -> dict[str, Any]:
     return {field: "" for field in OUTPUT_FIELDS_APPENDED}
 
 
-def get_with_retry(url: str, params: dict | None = None) -> requests.Response | None:
-    """GET with exponential backoff on 429/503. Returns None on 404 or exhausted retries."""
+# What a request turned out to be, for callers that need to tell an answer from a
+# silence. get_with_retry collapses the last two into None, which is fine when the
+# caller only wants the payload and wrong when it wants to know whether PubChem was
+# asked at all.
+OUTCOME_OK = "ok"
+OUTCOME_NOT_FOUND = "not_found"
+OUTCOME_UNREACHABLE = "unreachable"
+
+
+def get_with_retry_status(
+    url: str, params: dict | None = None
+) -> tuple[requests.Response | None, str]:
+    """
+    GET with exponential backoff on 429/503, reporting *why* it returned nothing.
+
+    Same request behaviour as get_with_retry — which is now a wrapper over this —
+    but a 404 comes back as OUTCOME_NOT_FOUND and exhausted retries as
+    OUTCOME_UNREACHABLE. PubChem answering "no such compound" is evidence about the
+    compound; PubChem never answering is not, and a caller that cannot tell them
+    apart has to treat every outage as a finding.
+    """
     delay = RETRY_BACKOFF
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             resp = requests.get(url, params=params, timeout=15)
             if resp.status_code == 200:
-                return resp
+                return resp, OUTCOME_OK
             if resp.status_code == 404:
-                return None
+                return None, OUTCOME_NOT_FOUND
             if resp.status_code in (429, 503):
                 log.warning(
                     "Rate limited (%s), waiting %ss [%s/%s]",
@@ -97,7 +116,42 @@ def get_with_retry(url: str, params: dict | None = None) -> requests.Response | 
             time.sleep(delay)
             delay *= 2
     log.error("Retries exhausted: %s", url)
-    return None
+    return None, OUTCOME_UNREACHABLE
+
+
+def get_with_retry(url: str, params: dict | None = None) -> requests.Response | None:
+    """GET with exponential backoff on 429/503. Returns None on 404 or exhausted retries."""
+    resp, _outcome = get_with_retry_status(url, params)
+    return resp
+
+
+def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
+    """
+    Resolve CAS → PubChem CID, reporting whether PubChem was reachable.
+
+    A 200 whose body is not the JSON this endpoint is documented to return means
+    something is answering that is not this API — a maintenance page, a proxy, a
+    moved endpoint. That is an outage wearing a success code, so it reports
+    UNREACHABLE rather than being mistaken for "no such CAS". An empty CID list is
+    a real answer and stays NOT_FOUND.
+    """
+    resp, outcome = get_with_retry_status(f"{BASE}/compound/name/{cas}/cids/JSON")
+    time.sleep(REQUEST_DELAY)
+    if resp is None:
+        return None, outcome
+    try:
+        cids = resp.json().get("IdentifierList", {}).get("CID", [])
+    except (ValueError, KeyError, AttributeError, TypeError):
+        log.error("Unparseable CID payload for %s — treating as unreachable", cas)
+        return None, OUTCOME_UNREACHABLE
+    if len(cids) > 1:
+        log.debug(
+            "CAS %s → %s CIDs, using first (canonical): %s",
+            cas,
+            len(cids),
+            cids[0],
+        )
+    return (cids[0], OUTCOME_OK) if cids else (None, OUTCOME_NOT_FOUND)
 
 
 def cas_to_cid(cas: str) -> int | None:
@@ -106,22 +160,8 @@ def cas_to_cid(cas: str) -> int | None:
 
     When multiple CIDs are returned, the first is PubChem's canonical choice.
     """
-    resp = get_with_retry(f"{BASE}/compound/name/{cas}/cids/JSON")
-    time.sleep(REQUEST_DELAY)
-    if resp is None:
-        return None
-    try:
-        cids = resp.json().get("IdentifierList", {}).get("CID", [])
-        if len(cids) > 1:
-            log.debug(
-                "CAS %s → %s CIDs, using first (canonical): %s",
-                cas,
-                len(cids),
-                cids[0],
-            )
-        return cids[0] if cids else None
-    except (ValueError, KeyError):
-        return None
+    cid, _outcome = cas_to_cid_status(cas)
+    return cid
 
 
 def cid_to_properties(cid: int) -> dict[str, Any]:

@@ -27,7 +27,14 @@ import time
 import urllib.parse
 from typing import Any
 
-from chebi_lookup.client import BASE, REQUEST_DELAY, cas_to_cid, get_with_retry
+from chebi_lookup.client import (
+    BASE,
+    OUTCOME_UNREACHABLE,
+    REQUEST_DELAY,
+    cas_to_cid_status,
+    get_with_retry,
+    get_with_retry_status,
+)
 from chebi_terms.client import (
     ChebiUnavailableError,
     fetch_compound,
@@ -35,6 +42,19 @@ from chebi_terms.client import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class PubChemUnavailableError(RuntimeError):
+    """
+    PubChem could not be asked — not "PubChem has no such compound".
+
+    The mirror of chebi_terms.ChebiUnavailableError, and raised for the same
+    reason: a resolver that returns "nothing" for both cases forces every caller
+    to treat an outage as evidence about the compound. Raised rather than
+    returned so the signal can be added without widening the return tuple of
+    every resolver between here and check_row.
+    """
+
 
 # An InChIKey is SKELETON(14) "-" STEREO+FLAGS(10) "-" PROTONATION(1).
 # The first block hashes molecular connectivity, so a difference there is a
@@ -202,22 +222,54 @@ NAME_UNRESOLVED = "name_unresolved"
 # finding manufactured by our own truncation.
 NAME_AMBIGUOUS = "name_ambiguous"
 CAS_UNRESOLVED = "cas_unresolved"
-# Kept apart so a run-wide outage is distinguishable from a sheet of bad IDs. The
-# ChEBI side can draw this line because fetch_compound raises rather than
-# returning None; the PubChem side cannot.
+# Kept apart so a run-wide outage is distinguishable from a sheet of bad IDs. Both
+# sides can draw this line now: fetch_compound raises, and the PubChem side raises
+# PubChemUnavailableError off get_with_retry_status.
 CHEBI_UNREACHABLE = "chebi_unreachable"
+CAS_UNREACHABLE = "cas_unreachable"
+NAME_UNREACHABLE = "name_unreachable"
 CHEBI_UNRESOLVED = "chebi_unresolved"
 CHEBI_NO_STRUCTURE = "chebi_no_structure"
 NOT_CHECKED = "not_checked"
+
+# An upstream was asked and never answered. The only verdicts that say something
+# about the *network* rather than about the compound, which is why they are the
+# only ones a run-level outage verdict is allowed to count.
+OUTAGE_VERDICTS = (
+    CHEBI_UNREACHABLE,
+    CAS_UNREACHABLE,
+    NAME_UNREACHABLE,
+)
 
 UNRESOLVED_VERDICTS = (
     NAME_UNRESOLVED,
     NAME_AMBIGUOUS,
     CAS_UNRESOLVED,
+    CAS_UNREACHABLE,
+    NAME_UNREACHABLE,
     CHEBI_UNREACHABLE,
     CHEBI_UNRESOLVED,
     CHEBI_NO_STRUCTURE,
 )
+
+# What happened when one identifier was resolved, independent of any comparison.
+# check_file's run-level accounting reads these rather than re-deriving intent from
+# the sheet cell: the cell says what was asked for, only the resolver knows what
+# actually happened, and every previous version of the run verdict was wrong
+# because it measured one against the other.
+IDENTIFIER_NOT_CHECKED = "not_checked"
+IDENTIFIER_RESOLVED = "resolved"
+IDENTIFIER_MISSING = "missing"
+IDENTIFIER_UNREACHABLE = "unreachable"
+
+# Which requested check went unasked because an upstream could not be reached.
+# Kept out of `review`, whose four values are a verdict on the chemistry; this is
+# a verdict on the run, and it belongs in its own column so a re-run after the
+# outage clears can be diffed against this one.
+UNASKED_NONE = ""
+UNASKED_ID = "id"
+UNASKED_NAME = "name"
+UNASKED_BOTH = "both"
 
 # The single sortable column: what a curator should do with this row.
 REVIEW_INVESTIGATE = "investigate"
@@ -237,6 +289,7 @@ REVIEW_RANK = {
 OUTPUT_FIELDS_APPENDED = [
     "review_rank",
     "review",
+    "unasked",
     "id_cas_verdict",
     "name_cas_verdict",
     "cas_inchikey",
@@ -246,6 +299,11 @@ OUTPUT_FIELDS_APPENDED = [
     "name_inchikey",
 ]
 
+# Per-identifier outcomes. Returned by check_row for the run-level accounting but
+# deliberately not written to the CSV: the verdict columns already say what
+# happened to each row, and three more columns would be restating them.
+STATUS_FIELDS = ["cas_status", "chebi_status", "name_status"]
+
 
 def empty_result() -> dict[str, Any]:
     """A result row with both verdicts unchecked and nothing resolved."""
@@ -254,6 +312,9 @@ def empty_result() -> dict[str, Any]:
     result["name_cas_verdict"] = NOT_CHECKED
     result["review"] = REVIEW_UNVERIFIED
     result["review_rank"] = REVIEW_RANK[REVIEW_UNVERIFIED]
+    result["unasked"] = UNASKED_NONE
+    for field in STATUS_FIELDS:
+        result[field] = IDENTIFIER_NOT_CHECKED
     return result
 
 
@@ -301,6 +362,13 @@ def parent_inchikey(inchikey: str) -> str:
     PubChem's parent assignment is unreliable for multi-component salts — for
     pyrvinium pamoate it returns the pamoic acid counterion — so a wrong answer
     here can only leave a row flagged, never wave one through.
+
+    Deliberately stays on the lenient get_with_retry rather than raising, and its
+    failures never reach the run-level outage verdict. This is the one path where
+    an outage cannot produce a false clean sheet — it can only leave a row flagged
+    for a human — and counting it would exit 1 on a run whose only content is a
+    genuine finding, since it is by far the highest-volume caller here. Failures
+    are logged so a flagged row is still traceable to the network.
     """
     if not inchikey:
         return ""
@@ -309,7 +377,12 @@ def parent_inchikey(inchikey: str) -> str:
 
     result = ""
     key = urllib.parse.quote(inchikey, safe="")
-    resp = get_with_retry(f"{BASE}/compound/inchikey/{key}/cids/JSON")
+    resp, outcome = get_with_retry_status(f"{BASE}/compound/inchikey/{key}/cids/JSON")
+    if outcome == OUTCOME_UNREACHABLE:
+        log.warning(
+            "Parent lookup unreachable for %s; leaving the difference as found.",
+            inchikey,
+        )
     time.sleep(REQUEST_DELAY)
     cid = _first_cid(resp)
     if cid is not None:
@@ -398,16 +471,30 @@ def name_candidates(raw: Any) -> tuple[list[str], list[str]]:
 
 
 def inchikeys_for_name(name: str) -> list[str]:
-    """Every InChIKey PubChem resolves a name to. Empty when it resolves none."""
+    """
+    Every InChIKey PubChem resolves a name to. Empty when it resolves none.
+
+    Raises PubChemUnavailableError when PubChem could not be asked, so "this name
+    is not a compound" stays distinguishable from "we never found out".
+    """
     query = urllib.parse.quote(name, safe="")
-    resp = get_with_retry(f"{BASE}/compound/name/{query}/property/InChIKey/JSON")
+    resp, outcome = get_with_retry_status(
+        f"{BASE}/compound/name/{query}/property/InChIKey/JSON"
+    )
     time.sleep(REQUEST_DELAY)
+    if outcome == OUTCOME_UNREACHABLE:
+        raise PubChemUnavailableError(f"PubChem unreachable resolving name {name!r}")
     if resp is None:
         return []
     try:
         properties = resp.json()["PropertyTable"]["Properties"]
-    except (ValueError, KeyError, TypeError):
-        return []
+    except (ValueError, KeyError, TypeError) as exc:
+        # A 200 that is not this endpoint's JSON is something other than this API
+        # answering — a maintenance page or a moved endpoint. Not evidence that
+        # the name is unknown.
+        raise PubChemUnavailableError(
+            f"PubChem returned an unparseable payload for name {name!r}"
+        ) from exc
     keys = []
     for entry in properties:
         key = entry.get("InChIKey") if isinstance(entry, dict) else None
@@ -429,6 +516,12 @@ def name_structure(raw: Any) -> tuple[str, list[str], int]:
     reported so the comparison is auditable — a difference should never be
     traceable to a query the caller cannot see — and total_found lets the caller
     tell a complete comparison from a truncated one.
+
+    PubChemUnavailableError from any candidate propagates rather than being caught,
+    which deliberately suppresses the token fallback. The fallback's premise is
+    that no whole-string form resolves; an unreachable whole-string query never
+    established that, and falling through would compare the row against a free
+    base the sheet never named while the audit trail read like a normal fallback.
     """
     whole, tokens = name_candidates(raw)
 
@@ -497,29 +590,38 @@ def cas_structure(cas: Any) -> tuple[str, str]:
     are wanted, and fetching xrefs and synonyms for every row spent about a minute
     of REQUEST_DELAY on a 117-row sheet producing data that was discarded.
 
-    Caveat inherited from chebi_lookup.get_with_retry: it returns None for a 404
-    *and* for exhausted retries, so an empty result here cannot distinguish
-    "PubChem has no such CAS" from "PubChem was unreachable". The ChEBI side does
-    draw that distinction; this side does not, which is why a run where nothing
-    resolved is reported as degraded rather than as a clean sheet.
+    Raises PubChemUnavailableError when *either* request could not be answered, so
+    "PubChem has no such CAS" stays distinguishable from "PubChem was unreachable".
+    Both requests matter: a property call that fails after the CID resolved is
+    still a CAS this run never saw the structure of.
     """
     text = str(cas or "").strip()
     if not text:
         return "", ""
-    # chebi_lookup.cas_to_cid interpolates straight into the URL path, and these
-    # cells come from the same untrusted sheet as the names: a stray "/" or "?"
-    # would rewrite or truncate the request. Every other URL here is quoted too.
-    cid = cas_to_cid(urllib.parse.quote(text, safe=""))
+    # chebi_lookup.cas_to_cid_status interpolates straight into the URL path, and
+    # these cells come from the same untrusted sheet as the names: a stray "/" or
+    # "?" would rewrite or truncate the request. Every other URL here is quoted too.
+    cid, outcome = cas_to_cid_status(urllib.parse.quote(text, safe=""))
+    if outcome == OUTCOME_UNREACHABLE:
+        raise PubChemUnavailableError(f"PubChem unreachable resolving CAS {text!r}")
     if cid is None:
         return "", ""
-    resp = get_with_retry(f"{BASE}/compound/cid/{cid}/property/InChIKey,Title/JSON")
+    resp, outcome = get_with_retry_status(
+        f"{BASE}/compound/cid/{cid}/property/InChIKey,Title/JSON"
+    )
     time.sleep(REQUEST_DELAY)
+    if outcome == OUTCOME_UNREACHABLE:
+        raise PubChemUnavailableError(
+            f"PubChem unreachable fetching properties for CAS {text!r}"
+        )
     if resp is None:
         return "", ""
     try:
         properties = resp.json()["PropertyTable"]["Properties"][0]
-    except (ValueError, KeyError, IndexError, TypeError):
-        return "", ""
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise PubChemUnavailableError(
+            f"PubChem returned an unparseable payload for CAS {text!r}"
+        ) from exc
     return properties.get("InChIKey") or "", properties.get("Title") or ""
 
 
@@ -560,22 +662,51 @@ def check_row(
     wants_name_check = bool(str(name or "").strip())
     if not wants_id_check and not wants_name_check:
         # Nothing to compare the CAS against, so resolving it would cost requests
-        # for a result that is discarded either way.
+        # for a result that is discarded either way. cas_status stays not_checked:
+        # a CAS this run never asked about is not a CAS that failed.
         return result
 
-    cas_key, cas_name = cas_structure(cas)
+    has_cas = bool(str(cas or "").strip())
+    cas_unreachable = False
+    cas_key, cas_name = "", ""
+    if has_cas:
+        try:
+            cas_key, cas_name = cas_structure(cas)
+        except PubChemUnavailableError as exc:
+            log.error("%s", exc)
+            cas_unreachable = True
+        result["cas_status"] = (
+            IDENTIFIER_UNREACHABLE
+            if cas_unreachable
+            else IDENTIFIER_RESOLVED
+            if cas_key
+            else IDENTIFIER_MISSING
+        )
     result["cas_inchikey"] = cas_key
     result["cas_pubchem_name"] = cas_name
-    # A blank cell was never asked about; only a non-blank CAS that PubChem
-    # could not resolve is a failed check. cas_structure() cannot draw this line
-    # itself (it returns ("", "") for both), so the caller does it here.
-    cas_verdict_if_missing = (
-        NOT_CHECKED if not str(cas or "").strip() else CAS_UNRESOLVED
-    )
+    # A blank cell was never asked about, and an unreachable one was asked without
+    # an answer. Only a non-blank CAS that PubChem answered "no" about is a failed
+    # check. cas_structure() cannot draw these lines itself, so the caller does.
+    if cas_unreachable:
+        cas_verdict_if_missing = CAS_UNREACHABLE
+    elif has_cas:
+        cas_verdict_if_missing = CAS_UNRESOLVED
+    else:
+        cas_verdict_if_missing = NOT_CHECKED
 
     if wants_id_check:
         chebi_key, problem = chebi_structure(chebi_id)
         result["chebi_inchikey"] = chebi_key
+        result["chebi_status"] = (
+            IDENTIFIER_UNREACHABLE
+            if problem == CHEBI_UNREACHABLE
+            else IDENTIFIER_MISSING
+            if problem == CHEBI_UNRESOLVED
+            # chebi_no_structure means ChEBI held the record and it legitimately
+            # carries no structure, as class terms and R-group entries do. That is
+            # a real ChEBI ID, so it must not count as evidence of a wrong column.
+            else IDENTIFIER_RESOLVED
+        )
         if problem:
             result["id_cas_verdict"] = problem
         elif not cas_key:
@@ -587,7 +718,14 @@ def check_row(
             result["id_cas_verdict"] = verdict
 
     if wants_name_check:
-        query, name_keys, total_found = name_structure(name)
+        try:
+            query, name_keys, total_found = name_structure(name)
+        except PubChemUnavailableError as exc:
+            log.error("%s", exc)
+            result["name_status"] = IDENTIFIER_UNREACHABLE
+            result["name_cas_verdict"] = NAME_UNREACHABLE
+            return _finish(result)
+        result["name_status"] = IDENTIFIER_RESOLVED if name_keys else IDENTIFIER_MISSING
         truncated = total_found > len(name_keys)
         if truncated:
             query = f"{query} (truncated: {total_found} structures)"
@@ -612,8 +750,27 @@ def check_row(
                 verdict = NAME_AMBIGUOUS
             result["name_cas_verdict"] = verdict
 
+    return _finish(result)
+
+
+def _finish(result: dict[str, Any]) -> dict[str, Any]:
+    """Fill in the derived columns: review, review_rank, unasked."""
     result["review"] = review_level(
         result["id_cas_verdict"], result["name_cas_verdict"]
     )
     result["review_rank"] = REVIEW_RANK[result["review"]]
+
+    # `review` stays a verdict on the chemistry — `ok` still means every comparison
+    # that was made agreed, which is true even when the other side was unreachable.
+    # Which question went unasked is a different fact about a different subject, so
+    # it gets its own column rather than a fifth review level: overloading the sort
+    # key would bury a real skeleton_differs finding behind a transient 503.
+    id_unasked = result["id_cas_verdict"] in OUTAGE_VERDICTS
+    name_unasked = result["name_cas_verdict"] in OUTAGE_VERDICTS
+    if id_unasked and name_unasked:
+        result["unasked"] = UNASKED_BOTH
+    elif id_unasked:
+        result["unasked"] = UNASKED_ID
+    elif name_unasked:
+        result["unasked"] = UNASKED_NAME
     return result

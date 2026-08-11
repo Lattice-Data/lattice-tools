@@ -35,6 +35,7 @@ from structure_check.client import (
 )
 from structure_check.io import (
     RunSummary,
+    SideTally,
     StructureCheckError,
     check_file,
     check_output_path,
@@ -173,9 +174,14 @@ def test_nothing_comparable_is_unverified_not_ok() -> None:
 
 
 def test_empty_result_starts_unverified() -> None:
+    from structure_check.client import IDENTIFIER_NOT_CHECKED, STATUS_FIELDS
+
     result = empty_result()
     assert result["review"] == REVIEW_UNVERIFIED
-    assert set(result) == set(OUTPUT_FIELDS_APPENDED)
+    assert set(result) == set(OUTPUT_FIELDS_APPENDED) | set(STATUS_FIELDS)
+    # Nothing was asked, so nothing failed.
+    assert all(result[f] == IDENTIFIER_NOT_CHECKED for f in STATUS_FIELDS)
+    assert result["unasked"] == ""
 
 
 # --------------------------------------------------------------------------
@@ -796,6 +802,7 @@ def test_degraded_when_no_row_compared_anything() -> None:
         verdict_counts=Counter(),
         rows=8,
     )
+    assert summary.nothing_compared
     assert summary.degraded
 
 
@@ -814,6 +821,27 @@ def test_not_degraded_on_a_tiny_spot_check() -> None:
         review_counts=Counter({REVIEW_UNVERIFIED: 2}), verdict_counts=Counter(), rows=2
     )
     assert not summary.degraded
+
+
+def test_nothing_compared_survives_a_column_that_resolved_perfectly() -> None:
+    """
+    The case the identifier-level signals cannot see.
+
+    A ChEBI column of class terms resolves every single value — ChEBI holds the
+    records — and still compares nothing, because a class term carries no
+    structure. Both other signals are silent, so this term has to exist.
+    """
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 117}),
+        verdict_counts=Counter(),
+        rows=117,
+        cas=SideTally(resolved_values=117, resolved_rows=117),
+        chebi=SideTally(resolved_values=117, resolved_rows=117),
+    )
+    assert not summary.outages
+    assert not summary.suspect_columns
+    assert summary.nothing_compared
+    assert summary.degraded
 
 
 @patch("structure_check.io.check_row")
@@ -1024,100 +1052,6 @@ def test_truncated_skeleton_difference_skips_refinement() -> None:
 
 
 # --------------------------------------------------------------------------
-# a check that never worked once
-# --------------------------------------------------------------------------
-
-
-def _summary(**kwargs) -> RunSummary:
-    defaults = dict(review_counts=Counter(), verdict_counts=Counter(), rows=117)
-    return RunSummary(**{**defaults, **kwargs})
-
-
-def test_dead_check_when_chebi_failed_run_wide_but_names_matched() -> None:
-    """
-    The hole this closes: ChEBI unreachable, names fine.
-
-    Every row gets a name match, review_level says ok, review_rank is 4, and the
-    ID question — the one a curator actually asked — was never answered once.
-    """
-    summary = _summary(
-        review_counts=Counter({REVIEW_OK: 117}),
-        id_unresolved_rows=117,
-        name_unresolved_rows=0,
-        id_attempted_rows=117,
-        name_attempted_rows=117,
-    )
-    assert summary.review_counts[REVIEW_UNVERIFIED] == 0
-    assert summary.dead_checks == ("ChEBI ID vs CAS",)
-    assert summary.degraded
-
-
-def test_dead_check_ignores_a_side_that_was_never_requested() -> None:
-    summary = _summary(
-        review_counts=Counter({REVIEW_OK: 117}),
-        id_unresolved_rows=117,
-        id_attempted_rows=0,
-        name_attempted_rows=117,
-    )
-    assert summary.dead_checks == ()
-    assert not summary.degraded
-
-
-def test_dead_check_clear_when_the_check_worked_even_once() -> None:
-    summary = _summary(
-        review_counts=Counter({REVIEW_OK: 117}),
-        id_unresolved_rows=116,
-        id_attempted_rows=117,
-    )
-    assert summary.dead_checks == ()
-    assert not summary.degraded
-
-
-def test_dead_check_can_name_both_sides() -> None:
-    summary = _summary(
-        review_counts=Counter({REVIEW_UNVERIFIED: 117}),
-        id_unresolved_rows=117,
-        name_unresolved_rows=117,
-        id_attempted_rows=117,
-        name_attempted_rows=117,
-    )
-    assert summary.dead_checks == ("ChEBI ID vs CAS", "name vs CAS")
-
-
-@patch("structure_check.io.check_row")
-def test_check_file_flags_a_run_wide_chebi_failure(
-    mock_check: MagicMock, tmp_path: Path
-) -> None:
-    """End to end: the name side passes, the ID side never resolves, run is degraded."""
-    from structure_check.client import CHEBI_UNREACHABLE
-
-    mock_check.return_value = {
-        **empty_result(),
-        "review": REVIEW_OK,
-        "id_cas_verdict": CHEBI_UNREACHABLE,
-        "name_cas_verdict": MATCH,
-    }
-    src = tmp_path / "in.csv"
-    _write_csv(
-        src,
-        ["Name", "CAS", "ChEBI ID"],
-        [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(6)],
-    )
-
-    summary = check_file(
-        src,
-        tmp_path / "out.csv",
-        cas_column="CAS",
-        chebi_column="ChEBI ID",
-        name_column="Name",
-    )
-
-    assert summary.review_counts[REVIEW_OK] == 6
-    assert summary.dead_checks == ("ChEBI ID vs CAS",)
-    assert summary.degraded
-
-
-# --------------------------------------------------------------------------
 # untrusted sheet cells become URL path segments
 # --------------------------------------------------------------------------
 
@@ -1143,54 +1077,213 @@ def test_cas_structure_quotes_the_sheet_cell(
     assert "?" not in segment
 
 
-def test_one_blank_cell_does_not_hide_a_total_outage() -> None:
-    """
-    Measuring against total rows let a single blank cell defeat the guard.
+# --------------------------------------------------------------------------
+# is this run trustworthy: outage vs wrong column vs nothing compared
+#
+# One boolean answering two questions was wrong four rounds running, each fix
+# correct for its own input and blind to the next. These cases are the input
+# shapes that broke it, kept together so the next change has to face all of them
+# at once rather than one at a time.
+# --------------------------------------------------------------------------
 
-    116 of 117 ChEBI cells failed and the 117th was blank, so it was never
-    attempted — not a success. A partly-mapped sheet is the normal input here.
+
+def _summary(**kwargs) -> RunSummary:
+    defaults = dict(review_counts=Counter(), verdict_counts=Counter(), rows=117)
+    return RunSummary(**{**defaults, **kwargs})
+
+
+# --- outage: the majority rule --------------------------------------------
+
+
+def test_chebi_down_run_wide_while_names_matched_is_an_outage() -> None:
+    """
+    The hole round 2 closed, restated.
+
+    ChEBI unreachable, names fine: every row gets a name match, review_level says
+    ok, review_rank is 4, and the ID question a curator actually asked was never
+    answered once. The review column alone cannot show this.
     """
     summary = _summary(
         review_counts=Counter({REVIEW_OK: 117}),
-        id_unresolved_rows=116,
-        id_attempted_rows=116,
-        name_attempted_rows=117,
+        chebi=SideTally(outage_rows=117),
+        name=SideTally(resolved_values=117, resolved_rows=117),
     )
-    assert summary.dead_checks == ("ChEBI ID vs CAS",)
+    assert summary.review_counts[REVIEW_UNVERIFIED] == 0
+    assert summary.outages == ("ChEBI ID",)
     assert summary.degraded
 
 
-def test_an_empty_sheet_has_not_failed_a_check() -> None:
-    """0 == 0 is vacuously true; a check not run is not a check that failed."""
-    summary = _summary(rows=0, id_unresolved_rows=0, id_attempted_rows=0)
-    assert summary.dead_checks == ()
+def test_a_few_transient_failures_do_not_condemn_a_healthy_run() -> None:
+    """
+    The false-alarm direction, and the reason outages are not "fires on >= 1".
+
+    This tool makes 3-44 requests per row against an API that rate-limits, and a
+    throttle that outlasts its retries is indistinguishable from an outage. Three
+    unlucky rows in 117 is a normal large run; exiting 1 on it teaches an operator
+    to stop reading the exit code, which costs more than the case it would catch.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 114, REVIEW_UNVERIFIED: 3}),
+        cas=SideTally(
+            resolved_values=114, missing_values=0, resolved_rows=114, outage_rows=3
+        ),
+    )
+    assert summary.outages == ()
     assert not summary.degraded
 
 
-def test_all_blank_cells_in_the_checked_column_is_not_a_dead_check() -> None:
-    """The column was given but never had anything to try."""
+def test_an_outage_that_outweighs_what_it_answered_is_degraded() -> None:
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 57, REVIEW_UNVERIFIED: 60}),
+        cas=SideTally(resolved_values=57, resolved_rows=57, outage_rows=60),
+    )
+    assert summary.outages == ("CAS",)
+    assert summary.degraded
+
+
+def test_an_outage_exactly_matching_what_resolved_is_not_a_majority() -> None:
+    """The boundary is strict: a tie still has as much answered as unanswered."""
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 50}),
+        cas=SideTally(resolved_values=50, resolved_rows=50, outage_rows=50),
+    )
+    assert summary.outages == ()
+
+
+def test_an_outage_on_a_side_nothing_resolved_on_is_always_a_majority() -> None:
+    """No floor needed: zero answers means any outage at all outweighs them."""
+    summary = _summary(rows=3, chebi=SideTally(outage_rows=1))
+    assert summary.outages == ("ChEBI ID",)
+    assert summary.degraded
+
+
+# --- suspect column: distinct values, per-side guard -----------------------
+
+
+def test_a_column_of_junk_is_suspect() -> None:
+    summary = _summary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 117}),
+        chebi=SideTally(missing_values=117),
+        name=SideTally(resolved_values=117, resolved_rows=117),
+    )
+    assert summary.suspect_columns == ("ChEBI ID",)
+    assert summary.degraded
+
+
+def test_two_retired_ids_on_a_big_sheet_are_a_finding_not_a_broken_run() -> None:
+    """
+    The live bug this redesign was called for.
+
+    117 rows, only 2 carry a ChEBI ID, and both are genuinely obsolete. That is
+    exactly the finding this tool exists to surface, and the old floor reported it
+    as a broken run and exited 1, throwing the other 115 good rows away.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 115, REVIEW_UNVERIFIED: 2}),
+        cas=SideTally(resolved_values=117, resolved_rows=117),
+        chebi=SideTally(missing_values=2),
+    )
+    assert summary.suspect_columns == ()
+    assert summary.outages == ()
+    assert not summary.degraded
+
+
+def test_repeating_one_junk_value_is_one_mistake_not_five_hundred() -> None:
+    """Distinct values, not rows: a dose-response sheet repeats every compound."""
+    summary = _summary(
+        rows=500,
+        review_counts=Counter({REVIEW_OK: 500}),
+        chebi=SideTally(missing_values=1),
+    )
+    assert summary.suspect_columns == ()
+
+
+def test_a_column_of_class_terms_is_a_real_chebi_column() -> None:
+    """
+    chebi_no_structure means ChEBI held the record and it carries no structure, as
+    class terms and R-group entries do. That is a correct ChEBI ID, so it must not
+    read as evidence that the column holds something else.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 117}),
+        chebi=SideTally(resolved_values=117, resolved_rows=117),
+    )
+    assert summary.suspect_columns == ()
+
+
+def test_an_outage_on_one_upstream_does_not_excuse_another_columns_junk() -> None:
+    """
+    The guard is per side, never global.
+
+    A ChEBI column full of free text is rejected by a regex without one request,
+    so a PubChem outage is logically incapable of explaining it. Blanket
+    disqualification would hide a real misconfiguration behind an unrelated blip.
+    """
+    summary = _summary(
+        chebi=SideTally(missing_values=117),
+        cas=SideTally(resolved_values=50, resolved_rows=50, outage_rows=67),
+    )
+    assert "ChEBI ID" in summary.suspect_columns
+    assert summary.outages == ("CAS",)
+
+
+def test_a_side_that_is_out_is_not_also_accused_of_being_the_wrong_column() -> None:
+    summary = _summary(chebi=SideTally(missing_values=6, outage_rows=40))
+    assert summary.suspect_columns == ()
+
+
+def test_an_all_blank_column_is_not_suspect() -> None:
+    """A partly-filled sheet is normal input; blanks never enter these counts."""
     summary = _summary(
         review_counts=Counter({REVIEW_OK: 117}),
-        id_attempted_rows=0,
-        name_attempted_rows=117,
+        cas=SideTally(resolved_values=117, resolved_rows=117),
+        name=SideTally(resolved_values=117, resolved_rows=117),
     )
-    assert summary.dead_checks == ()
+    assert summary.suspect_columns == ()
+    assert not summary.degraded
+
+
+def test_an_empty_sheet_has_not_failed_anything() -> None:
+    assert not _summary(rows=0).degraded
+
+
+# --------------------------------------------------------------------------
+# end to end through check_file: the counters must agree with what happened
+#
+# Every previous version of this verdict divided "rows whose cell was non-empty"
+# by "rows whose verdict looked unresolved" — two numbers derived from different
+# things, which is why one blank cell, and later one not_checked verdict, could
+# defeat it. check_row now reports what actually happened per identifier, and
+# check_file counts only that. These tests pin that agreement.
+# --------------------------------------------------------------------------
+
+
+def _row_result(**over) -> dict:
+    return {**empty_result(), **over}
 
 
 @patch("structure_check.io.check_row")
-def test_check_file_flags_an_outage_despite_a_blank_cell(
+def test_check_file_counts_an_outage_against_rows_not_cells(
     mock_check: MagicMock, tmp_path: Path
 ) -> None:
-    """End to end, with one blank ChEBI cell among six rows."""
-    from structure_check.client import CHEBI_UNREACHABLE, NOT_CHECKED
+    """One blank ChEBI cell among six rows used to hide a total ChEBI outage."""
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+        NOT_CHECKED,
+    )
 
     def per_row(*, cas, chebi_id, name):
-        return {
-            **empty_result(),
-            "review": REVIEW_OK,
-            "id_cas_verdict": CHEBI_UNREACHABLE if chebi_id else NOT_CHECKED,
-            "name_cas_verdict": MATCH,
-        }
+        return _row_result(
+            review=REVIEW_OK,
+            id_cas_verdict=CHEBI_UNREACHABLE if chebi_id else NOT_CHECKED,
+            name_cas_verdict=MATCH,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE if chebi_id else "not_checked",
+            name_status=IDENTIFIER_RESOLVED,
+        )
 
     mock_check.side_effect = per_row
     src = tmp_path / "in.csv"
@@ -1206,44 +1299,332 @@ def test_check_file_flags_an_outage_despite_a_blank_cell(
         name_column="Name",
     )
 
-    assert summary.id_attempted_rows == 5
-    assert summary.id_unresolved_rows == 5
-    assert summary.dead_checks == ("ChEBI ID vs CAS",)
+    assert summary.chebi.outage_rows == 5
+    assert summary.chebi.resolved_rows == 0
+    assert summary.outages == ("ChEBI ID",)
     assert summary.degraded
 
 
 @patch("structure_check.io.check_row")
-def test_check_file_small_dead_check_does_not_shout(
-    mock_check: MagicMock, tmp_path: Path, caplog: pytest.LogCaptureFixture
+def test_check_file_does_not_count_a_cas_it_never_asked_about(
+    mock_check: MagicMock, tmp_path: Path
 ) -> None:
     """
-    A three-row spot check where ChEBI genuinely has no record is not degradation.
+    A filled CAS column with nothing to compare it against.
 
-    The ERROR is gated on the same row floor as the verdict, so the log and the
-    exit code cannot disagree.
+    check_row short-circuits before making a request, so those CAS values were
+    never asked about. Counting them as failures would accuse a perfectly good
+    --cas-column of being the wrong column.
     """
-    from structure_check.client import CHEBI_UNRESOLVED
-
-    mock_check.return_value = {
-        **empty_result(),
-        "review": REVIEW_OK,
-        "id_cas_verdict": CHEBI_UNRESOLVED,
-        "name_cas_verdict": MATCH,
-    }
+    mock_check.return_value = empty_result()  # all statuses not_checked
     src = tmp_path / "in.csv"
     _write_csv(
         src,
-        ["Name", "CAS", "ChEBI ID"],
-        [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(3)],
+        ["CAS", "ChEBI ID"],
+        [[f"{n}-00-0", ""] for n in range(6)],
     )
 
     summary = check_file(
-        src,
-        tmp_path / "out.csv",
-        cas_column="CAS",
-        chebi_column="ChEBI ID",
-        name_column="Name",
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID"
     )
 
-    assert not summary.degraded
-    assert "never succeeded" not in caplog.text
+    assert summary.cas.missing_values == 0
+    assert summary.suspect_columns == ()
+    # It is still a run that compared nothing, and that is what it says.
+    assert summary.nothing_compared
+    assert summary.degraded
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_counts_distinct_values_not_rows_for_a_column(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """A dose-response sheet repeats each compound; that is one value, not thirty."""
+    from structure_check.client import CHEBI_UNRESOLVED, IDENTIFIER_MISSING
+
+    mock_check.return_value = _row_result(
+        review=REVIEW_OK,
+        id_cas_verdict=CHEBI_UNRESOLVED,
+        chebi_status=IDENTIFIER_MISSING,
+    )
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["CAS", "ChEBI ID"], [[f"{n}-00-0", "junk"] for n in range(30)])
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID"
+    )
+
+    assert summary.chebi.missing_values == 1
+    assert summary.suspect_columns == ()
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_flags_a_wrong_column_across_enough_distinct_values(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    from structure_check.client import CHEBI_UNRESOLVED, IDENTIFIER_MISSING
+
+    mock_check.return_value = _row_result(
+        review=REVIEW_UNVERIFIED,
+        id_cas_verdict=CHEBI_UNRESOLVED,
+        chebi_status=IDENTIFIER_MISSING,
+    )
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["CAS", "note"],
+        [[f"{n}-00-0", f"internal note {n}"] for n in range(6)],
+    )
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="note"
+    )
+
+    assert summary.chebi.missing_values == 6
+    assert summary.suspect_columns == ("ChEBI ID",)
+    assert summary.degraded
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_does_not_cache_an_outage(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    A transient failure on one triple must not be replayed as a settled answer.
+
+    The same rule parent_inchikey already applies to its own cache: caching a
+    failure would let one unlucky moment decide every row that repeats it.
+    """
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+
+    calls = []
+
+    def per_row(*, cas, chebi_id, name):
+        calls.append((cas, chebi_id, name))
+        # Fails the first time, succeeds after — the shape of a transient blip.
+        if len(calls) == 1:
+            return _row_result(
+                review=REVIEW_UNVERIFIED,
+                id_cas_verdict=CHEBI_UNREACHABLE,
+                chebi_status=IDENTIFIER_UNREACHABLE,
+                cas_status=IDENTIFIER_RESOLVED,
+            )
+        return _row_result(
+            review=REVIEW_OK,
+            id_cas_verdict=MATCH,
+            chebi_status=IDENTIFIER_RESOLVED,
+            cas_status=IDENTIFIER_RESOLVED,
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["CAS", "ChEBI ID"], [["64-17-5", "CHEBI:16236"]] * 3)
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID"
+    )
+
+    # Row 1 outaged and was retried rather than replayed; rows 2-3 came from cache.
+    assert len(calls) == 2
+    assert summary.chebi.outage_rows == 1
+    assert summary.chebi.resolved_rows == 2
+    assert summary.outages == ()
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_stops_rather_than_grinding_through_a_dead_upstream(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    A wholly unreachable upstream is decided by the first few rows.
+
+    Every remaining row would cost seconds of backoff to reach a verdict already
+    settled, so the run stops and says so, as chebi_terms does.
+    """
+    from structure_check.client import CAS_UNREACHABLE, IDENTIFIER_UNREACHABLE
+
+    mock_check.return_value = _row_result(
+        review=REVIEW_UNVERIFIED,
+        id_cas_verdict=CAS_UNREACHABLE,
+        cas_status=IDENTIFIER_UNREACHABLE,
+    )
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src, ["CAS", "ChEBI ID"], [[f"{n}-00-0", f"CHEBI:{n}"] for n in range(40)]
+    )
+    out = tmp_path / "out.csv"
+
+    with pytest.raises(StructureCheckError, match="could not be reached"):
+        check_file(src, out, cas_column="CAS", chebi_column="ChEBI ID")
+
+    # It stopped early rather than walking all 40 rows.
+    assert mock_check.call_count < 40
+    # The partial output is still there for inspection.
+    assert out.exists()
+
+
+# --------------------------------------------------------------------------
+# an answer and a silence are different things, on the PubChem side too
+#
+# chebi_lookup.get_with_retry returns None for a 404 and for exhausted retries
+# alike, which is why cas_unresolved could not be told from "PubChem was down".
+# --------------------------------------------------------------------------
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_cas_structure_raises_when_pubchem_is_unreachable(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    from structure_check.client import PubChemUnavailableError, cas_structure
+
+    down = MagicMock()
+    down.status_code = 503
+    mock_get.return_value = down
+
+    with pytest.raises(PubChemUnavailableError):
+        cas_structure("64-17-5")
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_cas_structure_still_answers_no_for_a_real_404(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """A 404 is PubChem answering. It must not be mistaken for an outage."""
+    from structure_check.client import cas_structure
+
+    missing = MagicMock()
+    missing.status_code = 404
+    mock_get.return_value = missing
+
+    assert cas_structure("00-00-0") == ("", "")
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_two_hundred_that_is_not_json_is_an_outage_not_an_answer(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """
+    A maintenance page served with HTTP 200 is something other than this API
+    answering. Read as 'no such compound' it would look like a wrong column.
+    """
+    from structure_check.client import PubChemUnavailableError, cas_structure
+
+    html = MagicMock()
+    html.status_code = 200
+    html.json.side_effect = ValueError("not json")
+    mock_get.return_value = html
+
+    with pytest.raises(PubChemUnavailableError):
+        cas_structure("64-17-5")
+
+
+@patch("structure_check.client.cas_structure")
+@patch("structure_check.client.chebi_structure")
+def test_check_row_never_raises_on_a_pubchem_outage(
+    mock_chebi: MagicMock, mock_cas: MagicMock
+) -> None:
+    """check_row's contract is that nothing upstream can make it throw."""
+    from structure_check.client import (
+        CAS_UNREACHABLE,
+        IDENTIFIER_UNREACHABLE,
+        PubChemUnavailableError,
+    )
+
+    mock_cas.side_effect = PubChemUnavailableError("down")
+    mock_chebi.return_value = (ETHANOL, "")
+
+    result = check_row(cas="64-17-5", chebi_id="CHEBI:16236")
+
+    assert result["id_cas_verdict"] == CAS_UNREACHABLE
+    assert result["cas_status"] == IDENTIFIER_UNREACHABLE
+    assert result["unasked"] == "both" or result["unasked"] == "id"
+
+
+@patch("structure_check.client.time.sleep")
+@patch("structure_check.client.inchikeys_for_name")
+def test_an_unreachable_whole_name_does_not_fall_through_to_tokens(
+    mock_keys: MagicMock, _sleep: MagicMock
+) -> None:
+    """
+    The token fallback's premise is that no whole-string form resolved.
+
+    An unreachable whole-string query never established that, so falling through
+    would compare the row against a free base the sheet never named — and the
+    audit trail would read like an ordinary deliberate fallback.
+    """
+    from structure_check.client import PubChemUnavailableError, name_structure
+
+    mock_keys.side_effect = PubChemUnavailableError("down")
+
+    with pytest.raises(PubChemUnavailableError):
+        name_structure("ABT_263_Navitoclax")
+
+    # It stopped at the first whole-string form rather than trying the tokens.
+    assert mock_keys.call_count == 1
+
+
+def test_get_with_retry_still_collapses_both_silences_for_old_callers() -> None:
+    """The wrapper must stay exactly as it was for every existing caller."""
+    from chebi_lookup.client import (
+        OUTCOME_NOT_FOUND,
+        OUTCOME_UNREACHABLE,
+        get_with_retry,
+        get_with_retry_status,
+    )
+
+    with (
+        patch("chebi_lookup.client.requests.get") as mock_get,
+        patch("chebi_lookup.client.time.sleep"),
+    ):
+        missing = MagicMock()
+        missing.status_code = 404
+        mock_get.return_value = missing
+        assert get_with_retry("https://example.invalid/x") is None
+        assert (
+            get_with_retry_status("https://example.invalid/x")[1] == OUTCOME_NOT_FOUND
+        )
+
+        down = MagicMock()
+        down.status_code = 503
+        mock_get.return_value = down
+        assert get_with_retry("https://example.invalid/x") is None
+        assert (
+            get_with_retry_status("https://example.invalid/x")[1] == OUTCOME_UNREACHABLE
+        )
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_parent_lookup_outage_never_degrades_the_run(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock, caplog
+) -> None:
+    """
+    The one path where an outage cannot produce a false clean sheet.
+
+    Refinement only ever downgrades a difference already found, so a failure there
+    leaves a row flagged for a human — the safe direction. It is also by far the
+    highest-volume caller, so counting it would exit 1 on a run whose only content
+    is a genuine finding.
+    """
+    from structure_check.client import _parent_cache, parent_inchikey
+
+    _parent_cache.clear()
+    down = MagicMock()
+    down.status_code = 503
+    mock_get.return_value = down
+
+    # Returns benignly rather than raising, and says why in the log.
+    assert parent_inchikey(ETHANOL) == ""
+    assert "unreachable" in caplog.text.lower()

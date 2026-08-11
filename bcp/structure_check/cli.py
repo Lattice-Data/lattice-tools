@@ -124,18 +124,19 @@ def main() -> None:
         log.error("%s", exc)
         sys.exit(1)
 
-    # A run where nothing was compared is a broken run, not a clean sheet, and must
-    # not be mistaken for one by a wrapper script.
-    if summary.degraded:
-        sys.exit(1)
-
-    # Findings themselves are the product, not a failure: exit 0 and let the review
-    # ranking drive what happens next.
+    # Logged before the degraded exit: a run can be both untrustworthy overall and
+    # full of real findings, and the pointer to them must not be swallowed by it.
     if summary.needs_attention:
         log.info(
             "%s row(s) need attention — sort the output by 'review_rank'.",
             summary.needs_attention,
         )
+
+    # A run that cannot be read as a verdict on the sheet is a broken run, not a
+    # clean one, and must not be mistaken for one by a wrapper script. Findings
+    # themselves are the product, not a failure, and still exit 0.
+    if summary.degraded:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
