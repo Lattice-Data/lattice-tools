@@ -100,7 +100,9 @@ Plus the reasons a comparison could not be made, which are **never findings abou
 
 - `name_unresolved` — PubChem resolved no structure for the name
 - `cas_unresolved` — PubChem resolved no structure for the CAS
-- `chebi_unresolved` — malformed ID, no such record, or ChEBI unreachable
+- `chebi_unresolved` — malformed ID, or ChEBI has no such record
+- `chebi_unreachable` — ChEBI could not be asked at all
+- `name_ambiguous` — the name resolved to more structures than were compared, and none matched (see the cap below)
 - `chebi_no_structure` — ChEBI has the entry but records no structure (class terms and R-group entries do not)
 - `not_checked` — nothing was supplied for that check
 
@@ -150,13 +152,16 @@ bcp/structure_check/
 
 Composes the two sibling packages rather than re-implementing their HTTP: PubChem access comes from `chebi_lookup.client`, ChEBI access from `chebi_terms.client`. It inherits their retry and rate limiting.
 
-**It does not inherit an answer-vs-outage distinction on the PubChem side, because there isn't one.** `chebi_lookup.get_with_retry` returns `None` for a 404 *and* for exhausted retries, so `cas_unresolved` and `name_unresolved` cannot tell "PubChem has no such compound" from "PubChem was unreachable". The ChEBI side does draw that line (`ChebiUnavailableError` → `chebi_unresolved`). That asymmetry is why the run-level degraded check below exists: it is the only thing standing between a total PubChem failure and a clean-looking sheet.
+**It does not inherit an answer-vs-outage distinction on the PubChem side, because there isn't one.** `chebi_lookup.get_with_retry` returns `None` for a 404 *and* for exhausted retries, so `cas_unresolved` and `name_unresolved` cannot tell "PubChem has no such compound" from "PubChem was unreachable". The ChEBI side can, because `fetch_compound` raises rather than returning `None` — which is why `chebi_unreachable` and `chebi_unresolved` are separate verdicts here rather than one.
 
-### A run that compared nothing is a broken run
+### A check that never worked is not a clean sheet
 
-Point `--cas-column` at an existing but wrong column, or let PubChem go down, and every row lands on `unverified` — a complete-looking CSV with no findings, which a curator sorting by rank would read as clean.
+Two ways a run can produce a complete-looking CSV that means nothing:
 
-So when **every** row came back `unverified` (across at least 5 rows, so a two-row spot check stays quiet), the run logs an error naming the likely causes and exits **1**. `RunSummary.degraded` is the same predicate for programmatic callers. Findings themselves still exit 0 — they are the product.
+1. **Nothing was compared at all.** Point `--cas-column` at an existing but wrong column, or let PubChem go down, and every row lands on `unverified`.
+2. **One side failed run-wide while the other passed.** This is the subtler one. If ChEBI is unreachable but the name column resolves fine, every row gets `chebi_unresolved`/`chebi_unreachable` on the ID side *and* a name match — so `review` says `ok`, `review_rank` is 4, and the sheet reads as clean with the ID question never answered on a single row.
+
+So `RunSummary.degraded` fires on either, across at least 5 rows so a two-row spot check stays quiet, and the CLI exits **1**. `dead_checks` names the specific check that never succeeded, so the error says *which* question went unanswered rather than just that something went wrong. Findings themselves still exit 0 — they are the product.
 
 **Programmatic use:**
 
@@ -178,7 +183,7 @@ print(r["review"], r["id_cas_verdict"], r["name_cas_verdict"])
 
 Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), 1–4 for the name, and 1 ChEBI call. Plus 3 per structure for the desalted-parent check, which only runs where a difference was already found; successful parents are cached for the run, failures are not.
 
-A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated with a warning, since each extra candidate costs three more requests during refinement. Identical triples are cached within a run, so repeated compounds cost nothing extra. Expect roughly 2–3 seconds per distinct row.
+A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated, since each extra candidate costs three more requests during refinement. **Truncation can never produce a finding.** PubChem returns structures in CID order rather than relevance order, so the true match may sit past the cap; a truncated comparison that finds no match therefore reports `name_ambiguous`, not a difference. A match *inside* the compared set is still a match, since matching any candidate is sound. Either way the row records `(truncated: N structures)` in `name_query`, so a flagged row is auditable from the CSV alone. Identical triples are cached within a run, so repeated compounds cost nothing extra. Expect roughly 2–3 seconds per distinct row.
 
 Findings exit **0** — they are the product, not a failure. Only a broken run (missing file, bad column, unwritable output) exits 1.
 

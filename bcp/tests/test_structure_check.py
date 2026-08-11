@@ -13,6 +13,7 @@ import pytest
 from structure_check.client import (
     CAS_UNRESOLVED,
     CHEBI_NO_STRUCTURE,
+    CHEBI_UNREACHABLE,
     CHEBI_UNRESOLVED,
     MATCH,
     NAME_UNRESOLVED,
@@ -229,7 +230,7 @@ def test_refine_leaves_the_row_flagged_when_parents_are_unavailable(
 def _patch_lookups(cas_key=ETHANOL, cas_name="Ethanol", chebi=(ETHANOL, ""), name=None):
     """Patch the three resolvers structure_check composes."""
     if name is None:
-        name = ("Ethanol", [ETHANOL])
+        name = ("Ethanol", [ETHANOL], 1)
     return (
         patch("structure_check.client.cas_structure", return_value=(cas_key, cas_name)),
         patch("structure_check.client.chebi_structure", return_value=chebi),
@@ -254,7 +255,9 @@ def test_check_row_all_three_agree() -> None:
 
 def test_check_row_isolates_a_wrong_name_from_a_right_id() -> None:
     """The Alexidine shape: ChEBI matches the CAS, the row's own name does not."""
-    cas_p, chebi_p, name_p, refine_p = _patch_lookups(name=("Alexidine", [ALEXIDINE]))
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(
+        name=("Alexidine", [ALEXIDINE], 1)
+    )
     with cas_p, chebi_p, name_p, refine_p:
         result = check_row(cas="22573-88-2", chebi_id="CHEBI:27391", name="Alexidine")
     assert result["id_cas_verdict"] == MATCH
@@ -274,7 +277,7 @@ def test_check_row_reports_stereo_difference_as_check_not_investigate() -> None:
     cas_p, chebi_p, name_p, refine_p = _patch_lookups(
         cas_key=UCN01_OTHER_EPIMER,
         chebi=(UCN01_OTHER_EPIMER, ""),
-        name=("UCN-01", [UCN01]),
+        name=("UCN-01", [UCN01], 1),
     )
     with cas_p, chebi_p, name_p, refine_p:
         result = check_row(cas="112953-11-4", chebi_id="CHEBI:221840", name="UCN-01")
@@ -283,7 +286,7 @@ def test_check_row_reports_stereo_difference_as_check_not_investigate() -> None:
 
 
 def test_check_row_unresolved_name_is_not_a_finding() -> None:
-    cas_p, chebi_p, name_p, refine_p = _patch_lookups(name=("", []))
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(name=("", [], 0))
     with cas_p, chebi_p, name_p, refine_p:
         result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Widget_9000")
     assert result["name_cas_verdict"] == NAME_UNRESOLVED
@@ -320,7 +323,7 @@ def test_check_row_skips_a_check_it_was_given_nothing_for() -> None:
 def test_check_row_records_the_query_it_actually_used() -> None:
     """A difference must never be traceable to a query the caller cannot see."""
     cas_p, chebi_p, name_p, refine_p = _patch_lookups(
-        name=("tokens: Vorinostat|SAHA", [ETHANOL])
+        name=("tokens: Vorinostat|SAHA", [ETHANOL], 1)
     )
     with cas_p, chebi_p, name_p, refine_p:
         result = check_row(cas="64-17-5", name="Vorinostat_SAHA")
@@ -377,9 +380,10 @@ def test_name_structure_stops_at_the_first_whole_string_hit(
     from structure_check.client import name_structure
 
     mock_get.return_value = _pubchem_name_response([ETHANOL])
-    query, keys = name_structure("PIK-75_HCl")
+    query, keys, total = name_structure("PIK-75_HCl")
     assert query == "PIK-75_HCl"
     assert keys == [ETHANOL]
+    assert total == 1
     assert mock_get.call_count == 1
 
 
@@ -404,7 +408,7 @@ def test_name_structure_falls_back_to_a_token_union(
         return responses.get(name, empty)
 
     mock_get.side_effect = route
-    query, keys = name_structure("ABT_263_Navitoclax")
+    query, keys, _total = name_structure("ABT_263_Navitoclax")
     assert query == "tokens: Navitoclax"
     assert keys == [ALEXIDINE]
 
@@ -419,7 +423,7 @@ def test_name_structure_unresolved_returns_no_keys(
     resp = MagicMock()
     resp.status_code = 404
     mock_get.return_value = resp
-    assert name_structure("Widget_9000") == ("", [])
+    assert name_structure("Widget_9000") == ("", [], 0)
 
 
 @patch("structure_check.client.fetch_compound")
@@ -452,7 +456,8 @@ def test_chebi_structure_unreachable_is_not_a_finding(mock_fetch: MagicMock) -> 
     from structure_check.client import chebi_structure
 
     mock_fetch.side_effect = ChebiUnavailableError("down")
-    assert chebi_structure("CHEBI:16236") == ("", CHEBI_UNRESOLVED)
+    # Distinct from "no such record": only a universal outage implies degradation.
+    assert chebi_structure("CHEBI:16236") == ("", CHEBI_UNREACHABLE)
 
 
 def test_chebi_structure_rejects_junk_without_fetching() -> None:
@@ -752,17 +757,20 @@ def test_parent_inchikey_of_nothing_costs_nothing() -> None:
 
 @patch("structure_check.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_inchikeys_for_name_caps_a_runaway_name(
+def test_name_structure_caps_a_runaway_name_and_reports_the_total(
     mock_get: MagicMock, _sleep: MagicMock
 ) -> None:
     """Each extra candidate costs three more requests during refinement."""
-    from structure_check.client import MAX_NAME_CANDIDATES, inchikeys_for_name
+    from structure_check.client import MAX_NAME_CANDIDATES, name_structure
 
     many = [f"AAAAAAAAAAAAA{n}-UHFFFAOYSA-N" for n in range(MAX_NAME_CANDIDATES + 15)]
     mock_get.return_value = _json_response(
         {"PropertyTable": {"Properties": [{"InChIKey": k} for k in many]}}
     )
-    assert len(inchikeys_for_name("acid")) == MAX_NAME_CANDIDATES
+    _query, keys, total = name_structure("acid")
+    assert len(keys) == MAX_NAME_CANDIDATES
+    # The caller needs the real total to know the comparison was incomplete.
+    assert total == MAX_NAME_CANDIDATES + 15
 
 
 # --------------------------------------------------------------------------
@@ -848,7 +856,9 @@ def test_review_rank_sorts_worst_first() -> None:
 def test_check_row_sets_a_rank_matching_its_review() -> None:
     from structure_check.client import REVIEW_RANK
 
-    cas_p, chebi_p, name_p, refine_p = _patch_lookups(name=("Alexidine", [ALEXIDINE]))
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(
+        name=("Alexidine", [ALEXIDINE], 1)
+    )
     with cas_p, chebi_p, name_p, refine_p:
         result = check_row(cas="22573-88-2", chebi_id="CHEBI:27391", name="Alexidine")
     assert result["review"] == REVIEW_INVESTIGATE
@@ -877,3 +887,229 @@ def test_compare_reports_incomparable_rather_than_a_difference(
     from structure_check.client import NOT_COMPARABLE
 
     assert compare_structures(reference, candidates) == NOT_COMPARABLE
+
+
+# --------------------------------------------------------------------------
+# the salt guard's non-obvious branches
+#
+# The six cases parametrized above all resolve through exact SALT_TOKENS
+# membership, so none of them touched the machinery added to close the escapes.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("raw", ["PIK-75_2HCl", "Compound_3HCl", "Thing_2hydrate"])
+def test_salt_guard_strips_a_count_prefix_digit(raw: str) -> None:
+    """'2HCl' is not a SALT_TOKENS entry; the digit strip is what catches it."""
+    _whole, tokens = name_candidates(raw)
+    assert tokens == []
+
+
+@pytest.mark.parametrize("fragment", ["trisodium", "dipotassium", "dinitrate"])
+def test_salt_guard_strips_a_multiplier_word(fragment: str) -> None:
+    """
+    These match only via _COUNT_PREFIXES.
+
+    Not redundant with the suffix list: 'sodium', 'potassium', and 'nitrate' are
+    SALT_TOKENS entries but deliberately not _SALT_SUFFIXES, so nothing else here
+    would catch them.
+    """
+    from structure_check.client import SALT_TOKENS, _is_salt_word, _SALT_SUFFIXES
+
+    assert fragment not in SALT_TOKENS
+    assert not fragment.endswith(_SALT_SUFFIXES)
+    assert _is_salt_word(fragment)
+    assert name_candidates(f"Compound_{fragment}")[1] == []
+
+
+@pytest.mark.parametrize(
+    "fragment", ["Doxorubicinhcl", "compoundhydrogensulfate", "thingpamoate"]
+)
+def test_salt_guard_matches_a_counterion_suffix(fragment: str) -> None:
+    """Run-together spellings that are neither a token nor prefix+token."""
+    from structure_check.client import SALT_TOKENS, _is_salt_word
+
+    assert fragment.casefold() not in SALT_TOKENS
+    assert _is_salt_word(fragment)
+
+
+def test_salt_guard_sees_a_counterion_behind_a_space() -> None:
+    """
+    'Doxorubicin HCl_Adriamycin' hides its counterion behind a space.
+
+    Splitting the guard on '_' alone would leave the fallback enabled and compare
+    the free base 'Adriamycin' against the hydrochloride's CAS.
+    """
+    whole, tokens = name_candidates("Doxorubicin HCl_Adriamycin")
+    assert tokens == []
+    assert whole[0] == "Doxorubicin HCl_Adriamycin"
+
+
+def test_salt_guard_leaves_genuine_alias_pairs_alone() -> None:
+    """The guard must not swallow the case the fallback exists for."""
+    for raw in ("Vorinostat_SAHA", "ABT_263_Navitoclax", "Actinomycin_D_Dactinomycin"):
+        assert name_candidates(raw)[1], raw
+
+
+# --------------------------------------------------------------------------
+# truncation must not manufacture a finding
+# --------------------------------------------------------------------------
+
+
+def test_truncated_name_with_no_match_is_ambiguous_not_a_difference() -> None:
+    """
+    PubChem returns structures in CID order, not relevance order, so the true match
+    may sit past the cap. Calling that a different molecule would be a finding of
+    the tool's own making.
+    """
+    from structure_check.client import MAX_NAME_CANDIDATES, NAME_AMBIGUOUS
+
+    capped = [f"BBBBBBBBBBBBB{n}-UHFFFAOYSA-N" for n in range(MAX_NAME_CANDIDATES)]
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(
+        name=("acid", capped, MAX_NAME_CANDIDATES + 30)
+    )
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas="64-17-5", name="acid")
+
+    assert result["name_cas_verdict"] == NAME_AMBIGUOUS
+    assert result["name_cas_verdict"] != SKELETON_DIFFERS
+
+
+def test_truncated_name_records_the_truncation_in_the_row() -> None:
+    """A flagged row has to be auditable from the CSV alone."""
+    from structure_check.client import MAX_NAME_CANDIDATES
+
+    capped = [f"BBBBBBBBBBBBB{n}-UHFFFAOYSA-N" for n in range(MAX_NAME_CANDIDATES)]
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(name=("acid", capped, 40))
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas="64-17-5", name="acid")
+    assert "truncated: 40" in result["name_query"]
+
+
+def test_a_match_inside_a_truncated_set_is_still_a_match() -> None:
+    """Matching any candidate is sound; only a non-match is unsafe when truncated."""
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(
+        name=("acid", [ALEXIDINE, ETHANOL], 40)
+    )
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas="64-17-5", name="acid")
+    assert result["name_cas_verdict"] == MATCH
+
+
+# --------------------------------------------------------------------------
+# a check that never worked once
+# --------------------------------------------------------------------------
+
+
+def _summary(**kwargs) -> RunSummary:
+    defaults = dict(review_counts=Counter(), verdict_counts=Counter(), rows=117)
+    return RunSummary(**{**defaults, **kwargs})
+
+
+def test_dead_check_when_chebi_failed_run_wide_but_names_matched() -> None:
+    """
+    The hole this closes: ChEBI unreachable, names fine.
+
+    Every row gets a name match, review_level says ok, review_rank is 4, and the
+    ID question — the one a curator actually asked — was never answered once.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        id_unresolved_rows=117,
+        name_unresolved_rows=0,
+        id_requested=True,
+        name_requested=True,
+    )
+    assert summary.review_counts[REVIEW_UNVERIFIED] == 0
+    assert summary.dead_checks == ("ChEBI ID vs CAS",)
+    assert summary.degraded
+
+
+def test_dead_check_ignores_a_side_that_was_never_requested() -> None:
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        id_unresolved_rows=117,
+        id_requested=False,
+        name_requested=True,
+    )
+    assert summary.dead_checks == ()
+    assert not summary.degraded
+
+
+def test_dead_check_clear_when_the_check_worked_even_once() -> None:
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        id_unresolved_rows=116,
+        id_requested=True,
+    )
+    assert summary.dead_checks == ()
+    assert not summary.degraded
+
+
+def test_dead_check_can_name_both_sides() -> None:
+    summary = _summary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 117}),
+        id_unresolved_rows=117,
+        name_unresolved_rows=117,
+        id_requested=True,
+        name_requested=True,
+    )
+    assert summary.dead_checks == ("ChEBI ID vs CAS", "name vs CAS")
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_flags_a_run_wide_chebi_failure(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """End to end: the name side passes, the ID side never resolves, run is degraded."""
+    from structure_check.client import CHEBI_UNREACHABLE
+
+    mock_check.return_value = {
+        **empty_result(),
+        "review": REVIEW_OK,
+        "id_cas_verdict": CHEBI_UNREACHABLE,
+        "name_cas_verdict": MATCH,
+    }
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["Name", "CAS", "ChEBI ID"],
+        [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(6)],
+    )
+
+    summary = check_file(
+        src,
+        tmp_path / "out.csv",
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    assert summary.review_counts[REVIEW_OK] == 6
+    assert summary.dead_checks == ("ChEBI ID vs CAS",)
+    assert summary.degraded
+
+
+# --------------------------------------------------------------------------
+# untrusted sheet cells become URL path segments
+# --------------------------------------------------------------------------
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_cas_structure_quotes_the_sheet_cell(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """A stray '/' or '?' in a CAS cell must not rewrite the request path."""
+    from structure_check.client import cas_structure
+
+    missing = MagicMock()
+    missing.status_code = 404
+    mock_get.return_value = missing
+
+    cas_structure("64-17-5/../../evil?x=1")
+
+    path = mock_get.call_args_list[0][0][0].split("/compound/name/")[1]
+    segment = path.split("/cids")[0]
+    assert "/" not in segment
+    assert "?" not in segment

@@ -197,14 +197,24 @@ NOT_COMPARABLE = "not_comparable"
 # Reasons a comparison could not be made. None of these is a finding about the
 # compound — the distinction chebi_terms draws between an answer and a silence.
 NAME_UNRESOLVED = "name_unresolved"
+# The name resolved to more structures than were compared, and none matched. Not a
+# difference: the evidence is incomplete, so saying "different molecule" would be a
+# finding manufactured by our own truncation.
+NAME_AMBIGUOUS = "name_ambiguous"
 CAS_UNRESOLVED = "cas_unresolved"
+# Kept apart so a run-wide outage is distinguishable from a sheet of bad IDs. The
+# ChEBI side can draw this line because fetch_compound raises rather than
+# returning None; the PubChem side cannot.
+CHEBI_UNREACHABLE = "chebi_unreachable"
 CHEBI_UNRESOLVED = "chebi_unresolved"
 CHEBI_NO_STRUCTURE = "chebi_no_structure"
 NOT_CHECKED = "not_checked"
 
 UNRESOLVED_VERDICTS = (
     NAME_UNRESOLVED,
+    NAME_AMBIGUOUS,
     CAS_UNRESOLVED,
+    CHEBI_UNREACHABLE,
     CHEBI_UNRESOLVED,
     CHEBI_NO_STRUCTURE,
 )
@@ -403,18 +413,10 @@ def inchikeys_for_name(name: str) -> list[str]:
         key = entry.get("InChIKey") if isinstance(entry, dict) else None
         if key and key not in keys:
             keys.append(key)
-    if len(keys) > MAX_NAME_CANDIDATES:
-        log.warning(
-            "Name %r resolved to %s structures; comparing the first %s.",
-            name,
-            len(keys),
-            MAX_NAME_CANDIDATES,
-        )
-        keys = keys[:MAX_NAME_CANDIDATES]
     return keys
 
 
-def name_structure(raw: Any) -> tuple[str, list[str]]:
+def name_structure(raw: Any) -> tuple[str, list[str], int]:
     """
     Resolve a name to (query_actually_used, inchikeys).
 
@@ -423,15 +425,17 @@ def name_structure(raw: Any) -> tuple[str, list[str]]:
     unioned: "Vorinostat_SAHA" means one compound under two aliases, and a token
     that resolves to something unrelated can only add a key.
 
-    query_actually_used is reported so the comparison is auditable — a difference
-    should never be traceable to a query the caller cannot see.
+    Returns (query_actually_used, capped_keys, total_found). query_actually_used is
+    reported so the comparison is auditable — a difference should never be
+    traceable to a query the caller cannot see — and total_found lets the caller
+    tell a complete comparison from a truncated one.
     """
     whole, tokens = name_candidates(raw)
 
     for candidate in whole:
         keys = inchikeys_for_name(candidate)
         if keys:
-            return candidate, keys
+            return candidate, _cap(candidate, keys), len(keys)
 
     union: list[str] = []
     used: list[str] = []
@@ -441,19 +445,35 @@ def name_structure(raw: Any) -> tuple[str, list[str]]:
             used.append(token)
             union.extend(key for key in keys if key not in union)
     if union:
-        return "tokens: " + "|".join(used), union
+        query = "tokens: " + "|".join(used)
+        return query, _cap(query, union), len(union)
 
-    return "", []
+    return "", [], 0
+
+
+def _cap(query: str, keys: list[str]) -> list[str]:
+    """Limit how many structures one cell can cost, loudly."""
+    if len(keys) <= MAX_NAME_CANDIDATES:
+        return keys
+    log.warning(
+        "Name %r resolved to %s structures; comparing the first %s.",
+        query,
+        len(keys),
+        MAX_NAME_CANDIDATES,
+    )
+    return keys[:MAX_NAME_CANDIDATES]
 
 
 def chebi_structure(chebi_id: Any) -> tuple[str, str]:
     """
     Resolve a ChEBI ID to (inchikey, problem), where problem is "" when fine.
 
-    CHEBI_UNRESOLVED covers a malformed ID, a missing record, and an unreachable
-    ChEBI alike: all mean "no structure to compare", never a claim about the
-    compound. CHEBI_NO_STRUCTURE means ChEBI has the entry but records no
-    structure, as class terms and R-group entries do not.
+    CHEBI_UNREACHABLE means ChEBI could not be asked; CHEBI_UNRESOLVED means it was
+    asked and has no such record (or the ID was malformed). Both mean "no structure
+    to compare" for this row, but only the first one being universal implies an
+    outage, so the run-level check can tell them apart. CHEBI_NO_STRUCTURE means
+    ChEBI has the entry and records no structure, as class terms and R-group
+    entries do not.
     """
     parsed = normalize_chebi_id(chebi_id)
     if parsed is None:
@@ -462,7 +482,7 @@ def chebi_structure(chebi_id: Any) -> tuple[str, str]:
         payload = fetch_compound(parsed[0])
     except ChebiUnavailableError as exc:
         log.error("%s", exc)
-        return "", CHEBI_UNRESOLVED
+        return "", CHEBI_UNREACHABLE
     if payload is None:
         return "", CHEBI_UNRESOLVED
     key = (payload.get("default_structure") or {}).get("standard_inchi_key") or ""
@@ -486,7 +506,10 @@ def cas_structure(cas: Any) -> tuple[str, str]:
     text = str(cas or "").strip()
     if not text:
         return "", ""
-    cid = cas_to_cid(text)
+    # chebi_lookup.cas_to_cid interpolates straight into the URL path, and these
+    # cells come from the same untrusted sheet as the names: a stray "/" or "?"
+    # would rewrite or truncate the request. Every other URL here is quoted too.
+    cid = cas_to_cid(urllib.parse.quote(text, safe=""))
     if cid is None:
         return "", ""
     resp = get_with_retry(f"{BASE}/compound/cid/{cid}/property/InChIKey,Title/JSON")
@@ -558,7 +581,10 @@ def check_row(
             result["id_cas_verdict"] = verdict
 
     if wants_name_check:
-        query, name_keys = name_structure(name)
+        query, name_keys, total_found = name_structure(name)
+        truncated = total_found > len(name_keys)
+        if truncated:
+            query = f"{query} (truncated: {total_found} structures)"
         result["name_query"] = query
         result["name_inchikey"] = " | ".join(name_keys)
         if not name_keys:
@@ -569,6 +595,11 @@ def check_row(
             verdict = compare_structures(cas_key, name_keys)
             if verdict == SKELETON_DIFFERS:
                 verdict = refine_skeleton_difference(cas_key, name_keys)
+            # PubChem returns structures in CID order, not relevance order, so the
+            # true match may be among the ones we did not compare. Reporting a
+            # difference here would be a finding of our own making.
+            if truncated and verdict != MATCH:
+                verdict = NAME_AMBIGUOUS
             result["name_cas_verdict"] = verdict
 
     result["review"] = review_level(

@@ -12,6 +12,7 @@ from typing import Any, Literal, NamedTuple
 
 from .client import (
     OUTPUT_FIELDS_APPENDED,
+    UNRESOLVED_VERDICTS as _UNRESOLVED,
     REVIEW_CHECK,
     REVIEW_INVESTIGATE,
     REVIEW_OK,
@@ -43,25 +44,49 @@ class RunSummary(NamedTuple):
     review_counts: Counter[str]
     verdict_counts: Counter[str]
     rows: int
+    # Per-side, because a check can fail run-wide while the other side sails through.
+    id_unresolved_rows: int = 0
+    name_unresolved_rows: int = 0
+    id_requested: bool = False
+    name_requested: bool = False
 
     @property
     def needs_attention(self) -> int:
         return self.review_counts[REVIEW_INVESTIGATE] + self.review_counts[REVIEW_CHECK]
 
     @property
+    def dead_checks(self) -> tuple[str, ...]:
+        """
+        Requested checks that came back unresolved on every single row.
+
+        A per-row verdict is honest about this, but the run-level verdict was not:
+        if ChEBI is unreachable while the name column resolves fine, every row gets
+        chebi_unresolved *and* a name match, review_level says `ok`, and the sheet
+        reads as clean — with the ID question, the one a curator actually asked,
+        never answered on a single row.
+        """
+        dead = []
+        if self.id_requested and self.id_unresolved_rows == self.rows:
+            dead.append("ChEBI ID vs CAS")
+        if self.name_requested and self.name_unresolved_rows == self.rows:
+            dead.append("name vs CAS")
+        return tuple(dead)
+
+    @property
     def degraded(self) -> bool:
         """
-        True when the run cannot be read as a verdict on the sheet at all.
+        True when the run cannot be read as a verdict on the sheet.
 
-        Every row unverified means nothing was ever compared. Point --cas-column at
-        an existing but wrong column and every lookup 404s; let PubChem go down and
-        the same thing happens. Either way the output is a complete-looking CSV with
-        no findings in it, which is the single most misleading thing this tool could
-        produce — a curator sorting by review would read it as a clean sheet.
+        Either nothing was compared at all, or a check that was asked for never
+        succeeded once. Both produce a complete-looking CSV whose emptiness means
+        nothing about the sheet — the single most misleading thing this tool could
+        produce.
         """
         if self.rows < MIN_ROWS_FOR_DEGRADED:
             return False
-        return self.review_counts[REVIEW_UNVERIFIED] == self.rows
+        if self.review_counts[REVIEW_UNVERIFIED] == self.rows:
+            return True
+        return bool(self.dead_checks)
 
 
 def check_output_path(output_path: Path | None, input_path: Path | None = None) -> None:
@@ -206,6 +231,8 @@ def check_file(
     cache: dict[tuple[str, str, str], dict[str, Any]] = {}
     review_counts: Counter[str] = Counter()
     verdict_counts: Counter[str] = Counter()
+    id_unresolved_rows = 0
+    name_unresolved_rows = 0
 
     with open(output_path, "w", newline="", encoding="utf-8") as out_fh:
         writer = csv.DictWriter(out_fh, fieldnames=output_fields)
@@ -229,6 +256,10 @@ def check_file(
             review_counts[review] += 1
             for field in ("id_cas_verdict", "name_cas_verdict"):
                 verdict_counts[result[field]] += 1
+            if result["id_cas_verdict"] in _UNRESOLVED:
+                id_unresolved_rows += 1
+            if result["name_cas_verdict"] in _UNRESOLVED:
+                name_unresolved_rows += 1
 
             label = name or chebi_id or cas or "(blank row)"
             if review in (REVIEW_INVESTIGATE, REVIEW_CHECK):
@@ -244,7 +275,15 @@ def check_file(
             else:
                 log.info("[%s/%s] %s — %s", i, total, label, review)
 
-    summary = RunSummary(review_counts, verdict_counts, total)
+    summary = RunSummary(
+        review_counts=review_counts,
+        verdict_counts=verdict_counts,
+        rows=total,
+        id_unresolved_rows=id_unresolved_rows,
+        name_unresolved_rows=name_unresolved_rows,
+        id_requested=bool(chebi_column),
+        name_requested=bool(name_column),
+    )
 
     log.info("=" * 58)
     log.info("Done. %s rows (%s distinct lookups).", total, len(cache))
@@ -259,7 +298,15 @@ def check_file(
             "  Not compared : %s",
             ", ".join(f"{k}={v}" for k, v in unresolved.items()),
         )
-    if summary.degraded:
+    if summary.dead_checks:
+        log.error(
+            "%s never succeeded on any of the %s rows, so this output says nothing "
+            "about that question. Check the column and that the upstream API is "
+            "reachable.",
+            " and ".join(summary.dead_checks),
+            total,
+        )
+    elif summary.degraded:
         log.error(
             "Nothing was compared on any of the %s rows. Check that --cas-column "
             "is the CAS column and that PubChem is reachable — this output says "
