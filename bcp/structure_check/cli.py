@@ -5,6 +5,7 @@ import logging
 import sys
 from pathlib import Path
 
+from .client import OUTAGE_VERDICTS
 from .io import StructureCheckError, check_file, emit_single_row
 
 log = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def main() -> None:
             if value is not None:
                 log.warning("%s is ignored in single mode; use --chebi/--name.", flag)
         try:
-            emit_single_row(
+            result = emit_single_row(
                 Path(args.output) if args.output else None,
                 name=args.name,
                 cas=args.cas,
@@ -94,6 +95,21 @@ def main() -> None:
             )
         except StructureCheckError as exc:
             log.error("%s", exc)
+            sys.exit(1)
+        # The same contract batch mode has: a check that could not be made is not
+        # a check that passed. Without this, `--cas X --name Y || alert` stays
+        # silent through a PubChem outage. A finding still exits 0 — only a row
+        # where every requested check went unasked is a failed run.
+        requested = [
+            result["id_cas_verdict"] if args.chebi else None,
+            result["name_cas_verdict"] if args.name else None,
+        ]
+        asked = [v for v in requested if v is not None]
+        if asked and all(v in OUTAGE_VERDICTS for v in asked):
+            log.error(
+                "Every requested check went unasked because an upstream could not "
+                "be reached. This says nothing about the compound; re-run it."
+            )
             sys.exit(1)
         return
 

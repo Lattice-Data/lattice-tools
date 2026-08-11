@@ -118,11 +118,21 @@ class RunSummary(NamedTuple):
         A majority needs no tuned constant: once most of what was asked went
         unanswered, the output is not a verdict on the sheet whatever the rest says.
         Rows below that line are still marked individually, in the `unasked` column.
+
+        The majority alone is not enough, though, because it goes degenerate when
+        nothing resolved: against zero answers a single outage is a majority. That
+        is the normal shape of a *sparse* column (two ChEBI IDs on a 117-row sheet,
+        both unlucky) and of a *wrong* one (nothing resolves by definition), so
+        without a floor one transient failure would condemn the run in exactly the
+        two cases this rewrite exists to stop condemning. The floor is on the
+        outage count itself, not on the sheet: what has to be substantial is the
+        evidence of an outage, not the size of the input.
         """
         return tuple(
             label
             for label, _flag, tally in self._sides
-            if tally.outage_rows > tally.resolved_rows and tally.outage_rows
+            if tally.outage_rows > tally.resolved_rows
+            and tally.outage_rows >= MIN_ROWS_FOR_DEGRADED
         )
 
     @property
@@ -139,12 +149,21 @@ class RunSummary(NamedTuple):
         letting one suppress the other would hide a real misconfiguration behind an
         unrelated blip. An all-blank column is not suspect either — a partly-filled
         sheet is normal input — because blanks never enter these counts.
+
+        Disqualified by that side appearing in `outages`, not merely by its outage
+        count being non-zero. A wrong column resolves nothing by definition, so any
+        single throttled request on it would otherwise suppress this diagnosis and
+        report an outage instead — telling the operator to re-run a multi-minute
+        sheet that will fail again for the reason nobody named. One unanswered row
+        beside a hundred answered ones is not a competing explanation for the
+        hundred; a genuine outage is, and that is what `outages` already decides.
         """
+        out = self.outages
         return tuple(
             label
             for label, _flag, tally in self._sides
             if not tally.resolved_values
-            and not tally.outage_rows
+            and label not in out
             and tally.missing_values >= SUSPICIOUS_DISTINCT_MISSES
         )
 

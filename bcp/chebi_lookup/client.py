@@ -141,17 +141,20 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
         return None, outcome
     try:
         cids = resp.json().get("IdentifierList", {}).get("CID", [])
-    except (ValueError, KeyError, AttributeError, TypeError):
+        if len(cids) > 1:
+            log.debug(
+                "CAS %s → %s CIDs, using first (canonical): %s",
+                cas,
+                len(cids),
+                cids[0],
+            )
+        # Inside the guard: a CID field that is an int or a dict rather than a
+        # list is the same kind of malformed payload, and must not escape as a
+        # traceback when the docstring above promises UNREACHABLE.
+        return (cids[0], OUTCOME_OK) if cids else (None, OUTCOME_NOT_FOUND)
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError):
         log.error("Unparseable CID payload for %s — treating as unreachable", cas)
         return None, OUTCOME_UNREACHABLE
-    if len(cids) > 1:
-        log.debug(
-            "CAS %s → %s CIDs, using first (canonical): %s",
-            cas,
-            len(cids),
-            cids[0],
-        )
-    return (cids[0], OUTCOME_OK) if cids else (None, OUTCOME_NOT_FOUND)
 
 
 def cas_to_cid(cas: str) -> int | None:

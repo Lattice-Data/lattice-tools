@@ -32,7 +32,6 @@ from chebi_lookup.client import (
     OUTCOME_UNREACHABLE,
     REQUEST_DELAY,
     cas_to_cid_status,
-    get_with_retry,
     get_with_retry_status,
 )
 from chebi_terms.client import (
@@ -375,25 +374,26 @@ def parent_inchikey(inchikey: str) -> str:
     if inchikey in _parent_cache:
         return _parent_cache[inchikey]
 
+    def _step(url: str) -> Any:
+        """One hop of the chain, noting an outage without letting it escape."""
+        resp, outcome = get_with_retry_status(url)
+        if outcome == OUTCOME_UNREACHABLE:
+            log.warning(
+                "Parent lookup unreachable for %s; leaving the difference as found.",
+                inchikey,
+            )
+        time.sleep(REQUEST_DELAY)
+        return resp
+
     result = ""
     key = urllib.parse.quote(inchikey, safe="")
-    resp, outcome = get_with_retry_status(f"{BASE}/compound/inchikey/{key}/cids/JSON")
-    if outcome == OUTCOME_UNREACHABLE:
-        log.warning(
-            "Parent lookup unreachable for %s; leaving the difference as found.",
-            inchikey,
-        )
-    time.sleep(REQUEST_DELAY)
-    cid = _first_cid(resp)
+    cid = _first_cid(_step(f"{BASE}/compound/inchikey/{key}/cids/JSON"))
     if cid is not None:
-        resp = get_with_retry(f"{BASE}/compound/cid/{cid}/cids/JSON?cids_type=parent")
-        time.sleep(REQUEST_DELAY)
-        parent_cid = _first_cid(resp)
+        parent_cid = _first_cid(
+            _step(f"{BASE}/compound/cid/{cid}/cids/JSON?cids_type=parent")
+        )
         if parent_cid is not None:
-            resp = get_with_retry(
-                f"{BASE}/compound/cid/{parent_cid}/property/InChIKey/JSON"
-            )
-            time.sleep(REQUEST_DELAY)
+            resp = _step(f"{BASE}/compound/cid/{parent_cid}/property/InChIKey/JSON")
             if resp is not None:
                 try:
                     result = resp.json()["PropertyTable"]["Properties"][0]["InChIKey"]
@@ -408,13 +408,21 @@ def parent_inchikey(inchikey: str) -> str:
 
 
 def _first_cid(resp: Any) -> int | None:
+    """
+    First CID in a PUG list response, or None for anything unusable.
+
+    The subscript is inside the guard: a 200 whose CID field is an int or a dict
+    rather than a list would otherwise raise out through parent_inchikey and
+    refine_skeleton_difference into check_row, which promises never to raise and
+    would take the whole sheet down with it.
+    """
     if resp is None:
         return None
     try:
         cids = resp.json()["IdentifierList"]["CID"]
-    except (ValueError, KeyError, TypeError):
+        return cids[0] if cids else None
+    except (ValueError, KeyError, TypeError, IndexError):
         return None
-    return cids[0] if cids else None
 
 
 def refine_skeleton_difference(reference: str, candidates: list[str]) -> str:

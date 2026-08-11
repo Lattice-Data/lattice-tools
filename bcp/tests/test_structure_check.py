@@ -1150,11 +1150,52 @@ def test_an_outage_exactly_matching_what_resolved_is_not_a_majority() -> None:
     assert summary.outages == ()
 
 
-def test_an_outage_on_a_side_nothing_resolved_on_is_always_a_majority() -> None:
-    """No floor needed: zero answers means any outage at all outweighs them."""
-    summary = _summary(rows=3, chebi=SideTally(outage_rows=1))
+def test_the_majority_rule_needs_a_floor_because_it_degenerates_against_zero() -> None:
+    """
+    Against zero answers a single outage is a "majority", which is the normal
+    shape of a sparse column, not of a broken run.
+
+    117 rows of which only 2 carry a ChEBI ID, and both are unlucky. Without a
+    floor on the outage count this condemns the run and throws away 115 good rows
+    — the same shape as the retired-ID bug, with `unreachable` swapped for
+    `missing`.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 115, REVIEW_UNVERIFIED: 2}),
+        cas=SideTally(resolved_values=117, resolved_rows=117),
+        chebi=SideTally(outage_rows=2),
+    )
+    assert summary.outages == ()
+    assert not summary.degraded
+
+
+def test_a_substantial_outage_still_fires_on_a_side_that_resolved_nothing() -> None:
+    summary = _summary(chebi=SideTally(outage_rows=5))
     assert summary.outages == ("ChEBI ID",)
+
+
+def test_one_blip_on_a_wrong_column_does_not_rename_the_diagnosis() -> None:
+    """
+    A wrong column resolves nothing by definition, so any single throttled
+    request on it would otherwise read as an outage and suppress the real
+    finding — sending the operator to re-run a sheet that will fail again for
+    the reason nobody named.
+    """
+    summary = _summary(
+        name=SideTally(resolved_values=0, missing_values=116, outage_rows=1),
+    )
+    assert summary.outages == ()
+    assert summary.suspect_columns == ("name",)
     assert summary.degraded
+
+
+def test_a_genuine_outage_still_outranks_a_wrong_column_diagnosis() -> None:
+    """When the upstream really is down, it is a competing explanation again."""
+    summary = _summary(
+        chebi=SideTally(resolved_values=0, missing_values=6, outage_rows=40),
+    )
+    assert summary.outages == ("ChEBI ID",)
+    assert summary.suspect_columns == ()
 
 
 # --- suspect column: distinct values, per-side guard -----------------------
@@ -1225,11 +1266,6 @@ def test_an_outage_on_one_upstream_does_not_excuse_another_columns_junk() -> Non
     )
     assert "ChEBI ID" in summary.suspect_columns
     assert summary.outages == ("CAS",)
-
-
-def test_a_side_that_is_out_is_not_also_accused_of_being_the_wrong_column() -> None:
-    summary = _summary(chebi=SideTally(missing_values=6, outage_rows=40))
-    assert summary.suspect_columns == ()
 
 
 def test_an_all_blank_column_is_not_suspect() -> None:

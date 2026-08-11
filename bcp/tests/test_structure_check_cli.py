@@ -235,3 +235,78 @@ def test_cli_single_warns_that_column_flags_are_ignored(
 
     assert "--chebi-column is ignored" in caplog.text
     assert "--name-column is ignored" in caplog.text
+
+
+@patch("structure_check.io.check_row")
+def test_cli_single_exits_1_when_every_check_went_unasked(
+    mock_check: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """
+    Single mode owes the same contract batch mode has.
+
+    Without this, `--cas X --name Y || alert` stays silent through a PubChem
+    outage: the row prints name_unreachable / unverified and exits 0.
+    """
+    import structure_check.cli
+    from structure_check.client import NAME_UNREACHABLE, empty_result
+
+    mock_check.return_value = {
+        **empty_result(),
+        "name_cas_verdict": NAME_UNREACHABLE,
+        "unasked": "name",
+    }
+    sys.argv = ["structure_check", "--cas", "64-17-5", "--name", "Ethanol"]
+
+    with pytest.raises(SystemExit) as exc_info:
+        structure_check.cli.main()
+    assert exc_info.value.code == 1
+    # The row itself is still emitted, for inspection.
+    assert "name_unreachable" in capsys.readouterr().out
+
+
+@patch("structure_check.io.check_row")
+def test_cli_single_still_exits_0_on_a_finding(
+    mock_check: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A finding is the product, not a failure — that must not change."""
+    import structure_check.cli
+    from structure_check.client import SKELETON_DIFFERS, empty_result
+
+    mock_check.return_value = {
+        **empty_result(),
+        "review": REVIEW_INVESTIGATE,
+        "name_cas_verdict": SKELETON_DIFFERS,
+    }
+    sys.argv = ["structure_check", "--cas", "64-17-5", "--name", "Alexidine"]
+
+    structure_check.cli.main()  # does not raise SystemExit
+    assert "skeleton_differs" in capsys.readouterr().out
+
+
+@patch("structure_check.io.check_row")
+def test_cli_single_exits_0_when_only_one_of_two_checks_was_unasked(
+    mock_check: MagicMock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One side answering is still a real comparison."""
+    import structure_check.cli
+    from structure_check.client import MATCH, NAME_UNREACHABLE, empty_result
+
+    mock_check.return_value = {
+        **empty_result(),
+        "review": REVIEW_OK,
+        "id_cas_verdict": MATCH,
+        "name_cas_verdict": NAME_UNREACHABLE,
+        "unasked": "name",
+    }
+    sys.argv = [
+        "structure_check",
+        "--cas",
+        "64-17-5",
+        "--name",
+        "Ethanol",
+        "--chebi",
+        "CHEBI:16236",
+    ]
+
+    structure_check.cli.main()
+    assert "match" in capsys.readouterr().out
