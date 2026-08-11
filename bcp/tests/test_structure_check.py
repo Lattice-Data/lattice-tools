@@ -1016,8 +1016,8 @@ def test_dead_check_when_chebi_failed_run_wide_but_names_matched() -> None:
         review_counts=Counter({REVIEW_OK: 117}),
         id_unresolved_rows=117,
         name_unresolved_rows=0,
-        id_requested=True,
-        name_requested=True,
+        id_attempted_rows=117,
+        name_attempted_rows=117,
     )
     assert summary.review_counts[REVIEW_UNVERIFIED] == 0
     assert summary.dead_checks == ("ChEBI ID vs CAS",)
@@ -1028,8 +1028,8 @@ def test_dead_check_ignores_a_side_that_was_never_requested() -> None:
     summary = _summary(
         review_counts=Counter({REVIEW_OK: 117}),
         id_unresolved_rows=117,
-        id_requested=False,
-        name_requested=True,
+        id_attempted_rows=0,
+        name_attempted_rows=117,
     )
     assert summary.dead_checks == ()
     assert not summary.degraded
@@ -1039,7 +1039,7 @@ def test_dead_check_clear_when_the_check_worked_even_once() -> None:
     summary = _summary(
         review_counts=Counter({REVIEW_OK: 117}),
         id_unresolved_rows=116,
-        id_requested=True,
+        id_attempted_rows=117,
     )
     assert summary.dead_checks == ()
     assert not summary.degraded
@@ -1050,8 +1050,8 @@ def test_dead_check_can_name_both_sides() -> None:
         review_counts=Counter({REVIEW_UNVERIFIED: 117}),
         id_unresolved_rows=117,
         name_unresolved_rows=117,
-        id_requested=True,
-        name_requested=True,
+        id_attempted_rows=117,
+        name_attempted_rows=117,
     )
     assert summary.dead_checks == ("ChEBI ID vs CAS", "name vs CAS")
 
@@ -1113,3 +1113,109 @@ def test_cas_structure_quotes_the_sheet_cell(
     segment = path.split("/cids")[0]
     assert "/" not in segment
     assert "?" not in segment
+
+
+def test_one_blank_cell_does_not_hide_a_total_outage() -> None:
+    """
+    Measuring against total rows let a single blank cell defeat the guard.
+
+    116 of 117 ChEBI cells failed and the 117th was blank, so it was never
+    attempted — not a success. A partly-mapped sheet is the normal input here.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        id_unresolved_rows=116,
+        id_attempted_rows=116,
+        name_attempted_rows=117,
+    )
+    assert summary.dead_checks == ("ChEBI ID vs CAS",)
+    assert summary.degraded
+
+
+def test_an_empty_sheet_has_not_failed_a_check() -> None:
+    """0 == 0 is vacuously true; a check not run is not a check that failed."""
+    summary = _summary(rows=0, id_unresolved_rows=0, id_attempted_rows=0)
+    assert summary.dead_checks == ()
+    assert not summary.degraded
+
+
+def test_all_blank_cells_in_the_checked_column_is_not_a_dead_check() -> None:
+    """The column was given but never had anything to try."""
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        id_attempted_rows=0,
+        name_attempted_rows=117,
+    )
+    assert summary.dead_checks == ()
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_flags_an_outage_despite_a_blank_cell(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """End to end, with one blank ChEBI cell among six rows."""
+    from structure_check.client import CHEBI_UNREACHABLE, NOT_CHECKED
+
+    def per_row(*, cas, chebi_id, name):
+        return {
+            **empty_result(),
+            "review": REVIEW_OK,
+            "id_cas_verdict": CHEBI_UNREACHABLE if chebi_id else NOT_CHECKED,
+            "name_cas_verdict": MATCH,
+        }
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    rows = [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(5)]
+    rows.append(["C5", "5-00-0", ""])  # the blank that used to hide everything
+    _write_csv(src, ["Name", "CAS", "ChEBI ID"], rows)
+
+    summary = check_file(
+        src,
+        tmp_path / "out.csv",
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    assert summary.id_attempted_rows == 5
+    assert summary.id_unresolved_rows == 5
+    assert summary.dead_checks == ("ChEBI ID vs CAS",)
+    assert summary.degraded
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_small_dead_check_does_not_shout(
+    mock_check: MagicMock, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """
+    A three-row spot check where ChEBI genuinely has no record is not degradation.
+
+    The ERROR is gated on the same row floor as the verdict, so the log and the
+    exit code cannot disagree.
+    """
+    from structure_check.client import CHEBI_UNRESOLVED
+
+    mock_check.return_value = {
+        **empty_result(),
+        "review": REVIEW_OK,
+        "id_cas_verdict": CHEBI_UNRESOLVED,
+        "name_cas_verdict": MATCH,
+    }
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["Name", "CAS", "ChEBI ID"],
+        [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(3)],
+    )
+
+    summary = check_file(
+        src,
+        tmp_path / "out.csv",
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    assert not summary.degraded
+    assert "never succeeded" not in caplog.text

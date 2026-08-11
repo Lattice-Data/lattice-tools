@@ -163,6 +163,8 @@ Two ways a run can produce a complete-looking CSV that means nothing:
 
 So `RunSummary.degraded` fires on either, across at least 5 rows so a two-row spot check stays quiet, and the CLI exits **1**. `dead_checks` names the specific check that never succeeded, so the error says *which* question went unanswered rather than just that something went wrong. Findings themselves still exit 0 — they are the product.
 
+A dead check is counted against the rows where that side was **attempted** — cells that were non-empty — not against every row. A partly-mapped sheet with blank ChEBI cells is the normal input for a tool whose job is checking ChEBI IDs, and measuring against total rows would let a single blank cell hide a total outage. A column that is entirely blank was never attempted, so it is not a dead check; those rows come out `unverified` and the first condition covers them.
+
 **Programmatic use:**
 
 ```python

@@ -44,11 +44,14 @@ class RunSummary(NamedTuple):
     review_counts: Counter[str]
     verdict_counts: Counter[str]
     rows: int
-    # Per-side, because a check can fail run-wide while the other side sails through.
+    # Per-side, because a check can fail run-wide while the other side sails
+    # through. Attempted counts rows whose cell was non-empty: a blank ChEBI cell
+    # leaves the verdict at not_checked, which is neither a failure nor an attempt,
+    # so measuring against total rows would let one blank cell hide an outage.
     id_unresolved_rows: int = 0
     name_unresolved_rows: int = 0
-    id_requested: bool = False
-    name_requested: bool = False
+    id_attempted_rows: int = 0
+    name_attempted_rows: int = 0
 
     @property
     def needs_attention(self) -> int:
@@ -64,12 +67,21 @@ class RunSummary(NamedTuple):
         chebi_unresolved *and* a name match, review_level says `ok`, and the sheet
         reads as clean — with the ID question, the one a curator actually asked,
         never answered on a single row.
+
+        Counted against rows where the side was *attempted*, not against every row.
+        A partly-mapped sheet with blank ChEBI cells is the normal input for a tool
+        whose job is checking ChEBI IDs, and measuring against total rows would let
+        a single blank cell hide a total outage.
         """
         dead = []
-        if self.id_requested and self.id_unresolved_rows == self.rows:
-            dead.append("ChEBI ID vs CAS")
-        if self.name_requested and self.name_unresolved_rows == self.rows:
-            dead.append("name vs CAS")
+        for label, attempted, unresolved in (
+            ("ChEBI ID vs CAS", self.id_attempted_rows, self.id_unresolved_rows),
+            ("name vs CAS", self.name_attempted_rows, self.name_unresolved_rows),
+        ):
+            # attempted > 0 guards the zero denominator: an empty sheet has not
+            # failed a check, it has not run one.
+            if attempted > 0 and unresolved == attempted:
+                dead.append(label)
         return tuple(dead)
 
     @property
@@ -233,6 +245,8 @@ def check_file(
     verdict_counts: Counter[str] = Counter()
     id_unresolved_rows = 0
     name_unresolved_rows = 0
+    id_attempted_rows = 0
+    name_attempted_rows = 0
 
     with open(output_path, "w", newline="", encoding="utf-8") as out_fh:
         writer = csv.DictWriter(out_fh, fieldnames=output_fields)
@@ -256,10 +270,14 @@ def check_file(
             review_counts[review] += 1
             for field in ("id_cas_verdict", "name_cas_verdict"):
                 verdict_counts[result[field]] += 1
-            if result["id_cas_verdict"] in _UNRESOLVED:
-                id_unresolved_rows += 1
-            if result["name_cas_verdict"] in _UNRESOLVED:
-                name_unresolved_rows += 1
+            if chebi_id:
+                id_attempted_rows += 1
+                if result["id_cas_verdict"] in _UNRESOLVED:
+                    id_unresolved_rows += 1
+            if name:
+                name_attempted_rows += 1
+                if result["name_cas_verdict"] in _UNRESOLVED:
+                    name_unresolved_rows += 1
 
             label = name or chebi_id or cas or "(blank row)"
             if review in (REVIEW_INVESTIGATE, REVIEW_CHECK):
@@ -281,8 +299,8 @@ def check_file(
         rows=total,
         id_unresolved_rows=id_unresolved_rows,
         name_unresolved_rows=name_unresolved_rows,
-        id_requested=bool(chebi_column),
-        name_requested=bool(name_column),
+        id_attempted_rows=id_attempted_rows,
+        name_attempted_rows=name_attempted_rows,
     )
 
     log.info("=" * 58)
@@ -298,20 +316,20 @@ def check_file(
             "  Not compared : %s",
             ", ".join(f"{k}={v}" for k, v in unresolved.items()),
         )
-    if summary.dead_checks:
-        log.error(
-            "%s never succeeded on any of the %s rows, so this output says nothing "
-            "about that question. Check the column and that the upstream API is "
-            "reachable.",
-            " and ".join(summary.dead_checks),
-            total,
-        )
-    elif summary.degraded:
-        log.error(
-            "Nothing was compared on any of the %s rows. Check that --cas-column "
-            "is the CAS column and that PubChem is reachable — this output says "
-            "nothing about the sheet.",
-            total,
-        )
+    if summary.degraded:
+        if summary.dead_checks:
+            log.error(
+                "%s never succeeded on a single row it was tried on, so this output "
+                "says nothing about that question. Check the column and that the "
+                "upstream API is reachable.",
+                " and ".join(summary.dead_checks),
+            )
+        else:
+            log.error(
+                "Nothing was compared on any of the %s rows. Check that --cas-column "
+                "is the CAS column and that PubChem is reachable — this output says "
+                "nothing about the sheet.",
+                total,
+            )
     log.info("Output: %s", output_path)
     return summary
