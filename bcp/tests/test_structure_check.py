@@ -303,6 +303,18 @@ def test_check_row_unresolved_cas_blocks_both_comparisons() -> None:
     assert result["review"] == REVIEW_UNVERIFIED
 
 
+def test_check_row_blank_cas_is_not_checked_rather_than_unresolved() -> None:
+    """A blank CAS cell was never asked about; that is not the same failure as
+    PubChem drawing a blank on a CAS it was given, so it must not be counted the
+    same way (dead_checks divides unresolved rows by attempted rows)."""
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(cas_key="", cas_name="")
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas="", chebi_id="CHEBI:16236", name="Ethanol")
+    assert result["id_cas_verdict"] == NOT_CHECKED
+    assert result["name_cas_verdict"] == NOT_CHECKED
+    assert result["review"] == REVIEW_UNVERIFIED
+
+
 def test_check_row_chebi_without_a_structure() -> None:
     """Class terms and R-group entries carry no InChIKey."""
     cas_p, chebi_p, name_p, refine_p = _patch_lookups(chebi=("", CHEBI_NO_STRUCTURE))

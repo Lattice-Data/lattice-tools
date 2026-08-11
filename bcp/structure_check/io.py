@@ -12,7 +12,6 @@ from typing import Any, Literal, NamedTuple
 
 from .client import (
     OUTPUT_FIELDS_APPENDED,
-    UNRESOLVED_VERDICTS as _UNRESOLVED,
     REVIEW_CHECK,
     REVIEW_INVESTIGATE,
     REVIEW_OK,
@@ -272,11 +271,11 @@ def check_file(
                 verdict_counts[result[field]] += 1
             if chebi_id:
                 id_attempted_rows += 1
-                if result["id_cas_verdict"] in _UNRESOLVED:
+                if result["id_cas_verdict"] in UNRESOLVED_VERDICTS:
                     id_unresolved_rows += 1
             if name:
                 name_attempted_rows += 1
-                if result["name_cas_verdict"] in _UNRESOLVED:
+                if result["name_cas_verdict"] in UNRESOLVED_VERDICTS:
                     name_unresolved_rows += 1
 
             label = name or chebi_id or cas or "(blank row)"

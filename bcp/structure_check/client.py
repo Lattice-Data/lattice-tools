@@ -418,7 +418,7 @@ def inchikeys_for_name(name: str) -> list[str]:
 
 def name_structure(raw: Any) -> tuple[str, list[str], int]:
     """
-    Resolve a name to (query_actually_used, inchikeys).
+    Resolve a name to (query_actually_used, inchikeys, total_found).
 
     Whole-string forms are tried first and the first hit wins, so a salt form stays
     intact. Only when none resolve are tokens tried, and then their results are
@@ -566,6 +566,12 @@ def check_row(
     cas_key, cas_name = cas_structure(cas)
     result["cas_inchikey"] = cas_key
     result["cas_pubchem_name"] = cas_name
+    # A blank cell was never asked about; only a non-blank CAS that PubChem
+    # could not resolve is a failed check. cas_structure() cannot draw this line
+    # itself (it returns ("", "") for both), so the caller does it here.
+    cas_verdict_if_missing = (
+        NOT_CHECKED if not str(cas or "").strip() else CAS_UNRESOLVED
+    )
 
     if wants_id_check:
         chebi_key, problem = chebi_structure(chebi_id)
@@ -573,7 +579,7 @@ def check_row(
         if problem:
             result["id_cas_verdict"] = problem
         elif not cas_key:
-            result["id_cas_verdict"] = CAS_UNRESOLVED
+            result["id_cas_verdict"] = cas_verdict_if_missing
         else:
             verdict = compare_structures(cas_key, [chebi_key])
             if verdict == SKELETON_DIFFERS:
@@ -590,7 +596,7 @@ def check_row(
         if not name_keys:
             result["name_cas_verdict"] = NAME_UNRESOLVED
         elif not cas_key:
-            result["name_cas_verdict"] = CAS_UNRESOLVED
+            result["name_cas_verdict"] = cas_verdict_if_missing
         else:
             verdict = compare_structures(cas_key, name_keys)
             if verdict == SKELETON_DIFFERS:
