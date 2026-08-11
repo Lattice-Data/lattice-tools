@@ -25,6 +25,10 @@ log = logging.getLogger(__name__)
 # Reported in this order, worst first, so the tail of the log is the to-do list.
 REVIEW_LEVELS = (REVIEW_INVESTIGATE, REVIEW_CHECK, REVIEW_UNVERIFIED, REVIEW_OK)
 
+# Below this many rows, "nothing resolved" is as likely to be a two-row spot check
+# as a broken run, so the degraded verdict stays quiet.
+MIN_ROWS_FOR_DEGRADED = 5
+
 SINGLE_INPUT_FIELDS = ["name", "cas", "chebi_id"]
 SINGLE_OUTPUT_FIELDS = [*SINGLE_INPUT_FIELDS, *OUTPUT_FIELDS_APPENDED]
 
@@ -43,6 +47,21 @@ class RunSummary(NamedTuple):
     @property
     def needs_attention(self) -> int:
         return self.review_counts[REVIEW_INVESTIGATE] + self.review_counts[REVIEW_CHECK]
+
+    @property
+    def degraded(self) -> bool:
+        """
+        True when the run cannot be read as a verdict on the sheet at all.
+
+        Every row unverified means nothing was ever compared. Point --cas-column at
+        an existing but wrong column and every lookup 404s; let PubChem go down and
+        the same thing happens. Either way the output is a complete-looking CSV with
+        no findings in it, which is the single most misleading thing this tool could
+        produce — a curator sorting by review would read it as a clean sheet.
+        """
+        if self.rows < MIN_ROWS_FOR_DEGRADED:
+            return False
+        return self.review_counts[REVIEW_UNVERIFIED] == self.rows
 
 
 def check_output_path(output_path: Path | None, input_path: Path | None = None) -> None:
@@ -129,6 +148,18 @@ def _resolve_columns(
             "Nothing to check against the CAS column: pass --chebi-column, "
             "--name-column, or both."
         )
+    for label, column in (
+        ("--chebi-column", chebi_column),
+        ("--name-column", name_column),
+    ):
+        if column and column == cas_column:
+            # Resolving the same string through two PubChem endpoints agrees with
+            # itself, so every row would report match/ok — a false all-clear.
+            raise StructureCheckError(
+                f"Column '{column}' ({label}) is the same as --cas-column, so every "
+                f"row would be compared against itself."
+            )
+
     requested = [("--cas-column", cas_column)]
     requested += [("--chebi-column", chebi_column), ("--name-column", name_column)]
     for label, column in requested:
@@ -200,21 +231,13 @@ def check_file(
                 verdict_counts[result[field]] += 1
 
             label = name or chebi_id or cas or "(blank row)"
-            if review == REVIEW_INVESTIGATE:
+            if review in (REVIEW_INVESTIGATE, REVIEW_CHECK):
                 log.warning(
-                    "[%s/%s] %s — INVESTIGATE: id_cas=%s name_cas=%s",
+                    "[%s/%s] %s — %s: id_cas=%s name_cas=%s",
                     i,
                     total,
                     label,
-                    result["id_cas_verdict"],
-                    result["name_cas_verdict"],
-                )
-            elif review == REVIEW_CHECK:
-                log.warning(
-                    "[%s/%s] %s — check: id_cas=%s name_cas=%s",
-                    i,
-                    total,
-                    label,
+                    review.upper() if review == REVIEW_INVESTIGATE else review,
                     result["id_cas_verdict"],
                     result["name_cas_verdict"],
                 )
@@ -235,6 +258,13 @@ def check_file(
         log.info(
             "  Not compared : %s",
             ", ".join(f"{k}={v}" for k, v in unresolved.items()),
+        )
+    if summary.degraded:
+        log.error(
+            "Nothing was compared on any of the %s rows. Check that --cas-column "
+            "is the CAS column and that PubChem is reachable — this output says "
+            "nothing about the sheet.",
+            total,
         )
     log.info("Output: %s", output_path)
     return summary

@@ -96,6 +96,8 @@ def main() -> None:
             log.warning(
                 "%s is ignored in batch mode; use --chebi-column/--name-column.", flag
             )
+    if args.format != "json":
+        log.warning("--format is ignored in batch mode; output is always CSV.")
 
     input_path = Path(args.input)
     output_path = (
@@ -116,11 +118,16 @@ def main() -> None:
         log.error("%s", exc)
         sys.exit(1)
 
-    # Findings are the product, not a failure: exit 0 and let the review column
-    # drive what happens next.
+    # A run where nothing was compared is a broken run, not a clean sheet, and must
+    # not be mistaken for one by a wrapper script.
+    if summary.degraded:
+        sys.exit(1)
+
+    # Findings themselves are the product, not a failure: exit 0 and let the review
+    # ranking drive what happens next.
     if summary.needs_attention:
         log.info(
-            "%s row(s) need attention — sort the output by the 'review' column.",
+            "%s row(s) need attention — sort the output by 'review_rank'.",
             summary.needs_attention,
         )
 

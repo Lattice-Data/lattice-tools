@@ -149,3 +149,65 @@ def test_cli_batch_without_anything_to_check_exits_1(tmp_path: Path) -> None:
         sys.argv = ["structure_check", "--input", str(src), "--cas-column", "CAS"]
         structure_check.cli.main()
     assert exc_info.value.code == 1
+
+
+@patch("structure_check.io.check_row")
+def test_cli_batch_exits_1_when_nothing_was_compared(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    A wrong --cas-column, or an unreachable PubChem, produces a complete-looking
+    CSV with no findings. That must not be mistaken for a clean sheet.
+    """
+    import structure_check.cli
+
+    mock_check.return_value = empty_result()  # review=unverified
+    src = tmp_path / "in.csv"
+    src.write_text(
+        "Name,note\n" + "".join(f"Compound {n},note {n}\n" for n in range(6)),
+        encoding="utf-8",
+    )
+    out = tmp_path / "out.csv"
+
+    with pytest.raises(SystemExit) as exc_info:
+        sys.argv = [
+            "structure_check",
+            "--input",
+            str(src),
+            "--cas-column",
+            "note",
+            "--name-column",
+            "Name",
+            "--output",
+            str(out),
+        ]
+        structure_check.cli.main()
+    assert exc_info.value.code == 1
+    # The partial output is still written, for inspection.
+    assert out.exists()
+
+
+@patch("structure_check.io.check_row")
+def test_cli_batch_warns_that_format_is_ignored(
+    mock_check: MagicMock, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import structure_check.cli
+
+    mock_check.return_value = {**empty_result(), "review": REVIEW_OK}
+    src = tmp_path / "in.csv"
+    src.write_text("Name,CAS\nEthanol,64-17-5\n", encoding="utf-8")
+
+    sys.argv = [
+        "structure_check",
+        "--input",
+        str(src),
+        "--name-column",
+        "Name",
+        "--format",
+        "csv",
+        "--output",
+        str(tmp_path / "out.csv"),
+    ]
+    structure_check.cli.main()
+
+    assert "--format is ignored" in caplog.text

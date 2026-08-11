@@ -12,6 +12,7 @@ import pytest
 
 from structure_check.client import (
     MATCH,
+    UNRESOLVED_VERDICTS,
     REVIEW_INVESTIGATE,
     SKELETON_DIFFERS,
     STEREO_DIFFERS,
@@ -23,10 +24,9 @@ pytestmark = [pytest.mark.pubchem, pytest.mark.chebi]
 
 def _skip_if_unresolved(result: dict) -> None:
     """Skip rather than fail when an upstream API is unreachable."""
-    unresolved = {"cas_unresolved", "chebi_unresolved", "name_unresolved"}
     if (
-        result["id_cas_verdict"] in unresolved
-        or result["name_cas_verdict"] in unresolved
+        result["id_cas_verdict"] in UNRESOLVED_VERDICTS
+        or result["name_cas_verdict"] in UNRESOLVED_VERDICTS
     ):
         pytest.skip(f"upstream unresolved: {result}")
 

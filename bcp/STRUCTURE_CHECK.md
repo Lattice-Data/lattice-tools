@@ -67,7 +67,7 @@ One column tells a curator what to do, ranked by what it would cost to be wrong:
 | `ok` | At least one comparison succeeded and every comparison made agreed. |
 | `unverified` | No comparison could be made at all. Not a finding — see the verdict columns for why. |
 
-Sorting the output by `review` puts everything needing a human at the top. That is the whole workflow.
+Sort by the **`review_rank`** column (1–4, worst first) — everything needing a human lands at the top. `review` carries the same answer in words, but alphabetically `check` sorts before `investigate`, so the rank column is there to make "sort by it" literally true.
 
 ### Why the skeleton/stereo split matters
 
@@ -81,7 +81,9 @@ A counterion is part of an InChIKey's connectivity block, so "Doxorubicin" and d
 
 So when a skeleton difference is found, both sides are re-resolved to their **desalted parent** via PubChem and compared again. Agreeing parents demote the row to `salt_differs` / `check`.
 
-This runs in one direction only. PubChem's parent assignment is unreliable for multi-component salts — for pyrvinium pamoate it returns the **pamoic acid counterion** — so it is used purely to *downgrade* a difference already found, never to claim a match. A wrong answer there can leave a row flagged; it can never wave one through. Pyrvinium is exactly that case and stays `investigate`.
+This runs in one direction only: it can *downgrade* a difference already found, never claim a match. PubChem's parent assignment is unreliable for multi-component salts — for pyrvinium pamoate it returns the **pamoic acid counterion** — so a wrong answer there leaves a row flagged rather than waving one through. Pyrvinium is exactly that case and stays `investigate`.
+
+**One caveat, stated precisely.** Because the demotion runs on both sides, two genuinely unrelated compounds cited as salts of the *same* counterion could each resolve to that counterion, agree, and have a real skeleton difference demoted from `investigate` to `check`. The row is still flagged and still needs a human, so nothing is waved through — but "false positives only" would be too strong a claim. In practice the demotion needs both `inchikey → CID → parent CID → InChIKey` chains to succeed, and for multi-component salts they usually do not (pyrvinium pamoate returns nothing at all via that path), which is why the pamoate rows stay at `investigate`.
 
 ---
 
@@ -102,13 +104,16 @@ Plus the reasons a comparison could not be made, which are **never findings abou
 - `chebi_no_structure` — ChEBI has the entry but records no structure (class terms and R-group entries do not)
 - `not_checked` — nothing was supplied for that check
 
+`compare_structures()` additionally returns `not_comparable` when handed an empty structure on either side. That never reaches a row (`check_row` guards both callers), but the function is public, so it says "could not compare" rather than expressing it as a difference.
+
 ---
 
 ## Output columns
 
 | Column | Contents |
 |---|---|
-| `review` | The sortable answer above |
+| `review_rank` | 1 `investigate` · 2 `check` · 3 `unverified` · 4 `ok` — **sort on this** |
+| `review` | The same answer in words |
 | `id_cas_verdict`, `name_cas_verdict` | The two verdicts |
 | `cas_inchikey` | Structure PubChem gives for the CAS |
 | `cas_pubchem_name` | PubChem's preferred name for the CAS — useful for eyeballing a flagged row |
@@ -143,7 +148,15 @@ bcp/structure_check/
 └── client.py    # resolvers, InChIKey comparison, verdicts
 ```
 
-Composes the two sibling packages rather than re-implementing their HTTP: PubChem access comes from `chebi_lookup.client`, ChEBI access from `chebi_terms.client`. It inherits their retry, rate limiting, and their distinction between an answer and an outage.
+Composes the two sibling packages rather than re-implementing their HTTP: PubChem access comes from `chebi_lookup.client`, ChEBI access from `chebi_terms.client`. It inherits their retry and rate limiting.
+
+**It does not inherit an answer-vs-outage distinction on the PubChem side, because there isn't one.** `chebi_lookup.get_with_retry` returns `None` for a 404 *and* for exhausted retries, so `cas_unresolved` and `name_unresolved` cannot tell "PubChem has no such compound" from "PubChem was unreachable". The ChEBI side does draw that line (`ChebiUnavailableError` → `chebi_unresolved`). That asymmetry is why the run-level degraded check below exists: it is the only thing standing between a total PubChem failure and a clean-looking sheet.
+
+### A run that compared nothing is a broken run
+
+Point `--cas-column` at an existing but wrong column, or let PubChem go down, and every row lands on `unverified` — a complete-looking CSV with no findings, which a curator sorting by rank would read as clean.
+
+So when **every** row came back `unverified` (across at least 5 rows, so a two-row spot check stays quiet), the run logs an error naming the likely causes and exits **1**. `RunSummary.degraded` is the same predicate for programmatic callers. Findings themselves still exit 0 — they are the product.
 
 **Programmatic use:**
 
@@ -163,7 +176,9 @@ print(r["review"], r["id_cas_verdict"], r["name_cas_verdict"])
 
 ## Cost
 
-Per distinct `(CAS, ChEBI ID, name)` triple: 4 PubChem calls for the CAS, 1–4 for the name, and 1 ChEBI call — plus 3 per structure for the desalted-parent check, which only runs on rows where a difference was already found (parents are cached across the run). Identical triples are cached within a run, so repeated compounds cost nothing extra. Expect roughly 2–3 seconds per distinct row.
+Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), 1–4 for the name, and 1 ChEBI call. Plus 3 per structure for the desalted-parent check, which only runs where a difference was already found; successful parents are cached for the run, failures are not.
+
+A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated with a warning, since each extra candidate costs three more requests during refinement. Identical triples are cached within a run, so repeated compounds cost nothing extra. Expect roughly 2–3 seconds per distinct row.
 
 Findings exit **0** — they are the product, not a failure. Only a broken run (missing file, bad column, unwritable output) exits 1.
 

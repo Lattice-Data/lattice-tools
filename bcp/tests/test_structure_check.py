@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -79,16 +80,6 @@ def test_compare_matches_against_any_candidate() -> None:
 
 def test_compare_prefers_exact_match_over_stereo_sibling() -> None:
     assert compare_structures(UCN01, [UCN01_OTHER_EPIMER, UCN01]) == MATCH
-
-
-@pytest.mark.parametrize(
-    "reference, candidates",
-    [("", [ETHANOL]), (ETHANOL, []), (ETHANOL, [""])],
-)
-def test_compare_without_both_sides_is_not_a_match(
-    reference: str, candidates: list[str]
-) -> None:
-    assert compare_structures(reference, candidates) != MATCH
 
 
 # --------------------------------------------------------------------------
@@ -609,3 +600,280 @@ def test_emit_single_row_checks_output_before_looking_anything_up(
     with pytest.raises(StructureCheckError):
         emit_single_row(tmp_path / "nope" / "out.json", cas="64-17-5", name="Ethanol")
     mock_check.assert_not_called()
+
+
+# --------------------------------------------------------------------------
+# resolvers with no mocking above them: the request chains and JSON shapes
+# --------------------------------------------------------------------------
+
+
+def _json_response(payload: dict) -> MagicMock:
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = payload
+    return resp
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_cas_structure_uses_two_requests_not_four(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """lookup_cas costs four; only InChIKey and Title are ever used."""
+    from structure_check.client import cas_structure
+
+    mock_get.side_effect = [
+        _json_response({"IdentifierList": {"CID": [702]}}),
+        _json_response(
+            {
+                "PropertyTable": {
+                    "Properties": [{"InChIKey": ETHANOL, "Title": "Ethanol"}]
+                }
+            }
+        ),
+    ]
+    assert cas_structure("64-17-5") == (ETHANOL, "Ethanol")
+    assert mock_get.call_count == 2
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_cas_structure_unresolved_cas(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    from structure_check.client import cas_structure
+
+    missing = MagicMock()
+    missing.status_code = 404
+    mock_get.return_value = missing
+    assert cas_structure("00-00-0") == ("", "")
+
+
+def test_cas_structure_blank_costs_nothing() -> None:
+    from structure_check.client import cas_structure
+
+    with patch("chebi_lookup.client.requests.get") as mock_get:
+        assert cas_structure("   ") == ("", "")
+        mock_get.assert_not_called()
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_parent_inchikey_walks_the_three_request_chain(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """Three distinct JSON shapes, none of them exercised by the mocked tests above."""
+    import structure_check.client as sc
+
+    sc._parent_cache.clear()
+    mock_get.side_effect = [
+        _json_response({"IdentifierList": {"CID": [443939]}}),  # inchikey -> cid
+        _json_response({"IdentifierList": {"CID": [31703]}}),  # cid -> parent cid
+        _json_response(
+            {"PropertyTable": {"Properties": [{"InChIKey": DOXORUBICIN_FREE_BASE}]}}
+        ),
+    ]
+    assert sc.parent_inchikey(DOXORUBICIN_HCL) == DOXORUBICIN_FREE_BASE
+    assert mock_get.call_count == 3
+    # The parent request must ask for the parent, not just any related CID.
+    assert "cids_type=parent" in mock_get.call_args_list[1][0][0]
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_parent_inchikey_caches_successes(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    import structure_check.client as sc
+
+    sc._parent_cache.clear()
+    mock_get.side_effect = [
+        _json_response({"IdentifierList": {"CID": [443939]}}),
+        _json_response({"IdentifierList": {"CID": [31703]}}),
+        _json_response(
+            {"PropertyTable": {"Properties": [{"InChIKey": DOXORUBICIN_FREE_BASE}]}}
+        ),
+    ]
+    sc.parent_inchikey(DOXORUBICIN_HCL)
+    sc.parent_inchikey(DOXORUBICIN_HCL)
+    assert mock_get.call_count == 3  # second call served from cache
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_parent_inchikey_does_not_cache_a_failure(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """One transient failure must not disable salt demotion for the whole run."""
+    import structure_check.client as sc
+
+    sc._parent_cache.clear()
+    missing = MagicMock()
+    missing.status_code = 404
+    mock_get.return_value = missing
+
+    assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
+    assert DOXORUBICIN_HCL not in sc._parent_cache
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"IdentifierList": {"CID": []}},
+        {"IdentifierList": {}},
+        {"unexpected": "shape"},
+    ],
+)
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_parent_inchikey_survives_unexpected_json(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock, payload: dict
+) -> None:
+    import structure_check.client as sc
+
+    sc._parent_cache.clear()
+    mock_get.return_value = _json_response(payload)
+    assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
+
+
+def test_parent_inchikey_of_nothing_costs_nothing() -> None:
+    import structure_check.client as sc
+
+    with patch("chebi_lookup.client.requests.get") as mock_get:
+        assert sc.parent_inchikey("") == ""
+        mock_get.assert_not_called()
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_inchikeys_for_name_caps_a_runaway_name(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """Each extra candidate costs three more requests during refinement."""
+    from structure_check.client import MAX_NAME_CANDIDATES, inchikeys_for_name
+
+    many = [f"AAAAAAAAAAAAA{n}-UHFFFAOYSA-N" for n in range(MAX_NAME_CANDIDATES + 15)]
+    mock_get.return_value = _json_response(
+        {"PropertyTable": {"Properties": [{"InChIKey": k} for k in many]}}
+    )
+    assert len(inchikeys_for_name("acid")) == MAX_NAME_CANDIDATES
+
+
+# --------------------------------------------------------------------------
+# a run that compared nothing is a broken run, not a clean sheet
+# --------------------------------------------------------------------------
+
+
+def test_degraded_when_no_row_compared_anything() -> None:
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 8}),
+        verdict_counts=Counter(),
+        rows=8,
+    )
+    assert summary.degraded
+
+
+def test_not_degraded_when_anything_resolved() -> None:
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 7, REVIEW_OK: 1}),
+        verdict_counts=Counter(),
+        rows=8,
+    )
+    assert not summary.degraded
+
+
+def test_not_degraded_on_a_tiny_spot_check() -> None:
+    """Two unverified rows is as likely a spot check as a broken run."""
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 2}), verdict_counts=Counter(), rows=2
+    )
+    assert not summary.degraded
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_flags_a_wrong_cas_column_as_degraded(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """--cas-column pointed at a note column: every lookup 404s, nothing compared."""
+    mock_check.return_value = empty_result()
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["Name", "note"],
+        [[f"Compound {n}", f"internal note {n}"] for n in range(6)],
+    )
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="note", name_column="Name"
+    )
+
+    assert summary.review_counts[REVIEW_UNVERIFIED] == 6
+    assert summary.degraded
+
+
+@pytest.mark.parametrize("other", ["chebi_column", "name_column"])
+def test_check_file_rejects_a_column_that_is_also_the_cas_column(
+    tmp_path: Path, other: str
+) -> None:
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["CAS"], [["64-17-5"]])
+    with pytest.raises(StructureCheckError, match="same as --cas-column"):
+        check_file(src, tmp_path / "out.csv", cas_column="CAS", **{other: "CAS"})
+
+
+# --------------------------------------------------------------------------
+# review_rank
+# --------------------------------------------------------------------------
+
+
+def test_review_rank_sorts_worst_first() -> None:
+    """Alphabetically 'check' < 'investigate'; the rank exists to fix that."""
+    from structure_check.client import REVIEW_RANK
+
+    ordered = sorted(REVIEW_RANK, key=lambda level: REVIEW_RANK[level])
+    assert ordered == [
+        REVIEW_INVESTIGATE,
+        REVIEW_CHECK,
+        REVIEW_UNVERIFIED,
+        REVIEW_OK,
+    ]
+
+
+def test_check_row_sets_a_rank_matching_its_review() -> None:
+    from structure_check.client import REVIEW_RANK
+
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(name=("Alexidine", [ALEXIDINE]))
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas="22573-88-2", chebi_id="CHEBI:27391", name="Alexidine")
+    assert result["review"] == REVIEW_INVESTIGATE
+    assert result["review_rank"] == REVIEW_RANK[REVIEW_INVESTIGATE]
+
+
+def test_check_row_with_nothing_to_compare_spends_no_requests() -> None:
+    with patch("structure_check.client.cas_structure") as mock_cas:
+        result = check_row(cas="64-17-5")
+        mock_cas.assert_not_called()
+    assert result["review"] == REVIEW_UNVERIFIED
+
+
+# --------------------------------------------------------------------------
+# compare_structures is public, so "could not compare" must not read as a difference
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "reference, candidates",
+    [("", [ETHANOL]), (ETHANOL, []), (ETHANOL, [""]), ("", [])],
+)
+def test_compare_reports_incomparable_rather_than_a_difference(
+    reference: str, candidates: list[str]
+) -> None:
+    from structure_check.client import NOT_COMPARABLE
+
+    assert compare_structures(reference, candidates) == NOT_COMPARABLE
