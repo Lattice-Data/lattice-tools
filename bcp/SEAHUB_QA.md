@@ -195,7 +195,7 @@ The three uploads this mode was built against, as of this branch:
 | --- | --- | --- | --- | --- |
 | REF3 | 2037 | 892 | 288 each of `duplicated_wafer_token`, `invalid_sublibrary_type`, `missing_trim_infix`; 21 `non_sequencing_artifact`; 7 `sublibrary_folder_truncated` | 336 — 48 `RENAMEABLE`, 288 `UNKNOWN`; all 336 `RENAMEABLE` with both vendor orders |
 | GENE7 | 5185 | 10 | 9 `sublibrary_folder_truncated`, 1 `bad_path_depth` | 864, all `RENAMEABLE` |
-| CHEM16 | 1450 | 14 | 10 `non_sequencing_artifact`, 3 `unexpected_suffix`, 1 `no_recognized_artifacts` | 0 — no well identifiable |
+| CHEM16 | 1450 | 14 | 10 `non_sequencing_artifact`, 3 `unexpected_suffix`, 1 `no_recognized_artifacts` | 480, all `DATA_GAP` — every artifact misspelled, so no well is *nameable* |
 
 All three report identically from an S3 listing and from a manifest of the same keys. The one field
 that cannot match is `discovered_wafers`: wafers are found by walking folders, which only s3 mode
