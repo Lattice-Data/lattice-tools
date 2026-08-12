@@ -545,7 +545,8 @@ def inchikeys_for_name(name: str) -> list[str]:
     """
     query = urllib.parse.quote(name, safe="")
     resp, outcome = get_with_retry_status(
-        f"{BASE}/compound/name/{query}/property/InChIKey/JSON"
+        f"{BASE}/compound/name/{query}/property/InChIKey/JSON",
+        malformed_is_answer=True,
     )
     time.sleep(REQUEST_DELAY)
     if outcome == OUTCOME_UNREACHABLE:

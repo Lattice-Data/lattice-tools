@@ -18,9 +18,9 @@ from .client import (
     IDENTIFIER_UNREACHABLE,
     OUTPUT_FIELDS_APPENDED,
     REVIEW_CHECK,
+    NOT_CHECKED,
     REVIEW_INVESTIGATE,
     REVIEW_OK,
-    NOT_CHECKED,
     REVIEW_UNVERIFIED,
     SIDES,
     UNRESOLVED_VERDICTS,
@@ -65,6 +65,14 @@ SIDE_INFO = (
     ("name", "name", "--name-column"),
 )
 SIDE_LABELS = {key: f"{label} ({flag})" for key, label, flag in SIDE_INFO}
+
+# The two questions, and the sides each one needs. A question is dead if either
+# its own identifier or the CAS pivot went missing, so an outage on either
+# explains it — written once rather than spelled out at each use.
+QUESTION_INFO = (
+    ("id", "ChEBI ID vs CAS", ("ChEBI ID", "CAS")),
+    ("name", "name vs CAS", ("name", "CAS")),
+)
 
 # A side that has failed this many attempts in a row is treated as down, and stops
 # being queried: the verdict is already settled and every further request costs
@@ -285,13 +293,28 @@ class RunSummary(NamedTuple):
     @property
     def dead_question_tallies(self) -> tuple[tuple[str, QuestionTally], ...]:
         """dead_questions, paired with the tally that condemned each one."""
+        tallies = {"id": self.id_question, "name": self.name_question}
         return tuple(
-            (label, tally)
-            for label, tally in (
-                ("ChEBI ID vs CAS", self.id_question),
-                ("name vs CAS", self.name_question),
-            )
-            if tally.asked >= MIN_ROWS_FOR_DEGRADED and not tally.compared
+            (label, tallies[key])
+            for key, label, _needs in QUESTION_INFO
+            if self._is_dead_question(tallies[key])
+        )
+
+    def _is_dead_question(self, tally: QuestionTally) -> bool:
+        """
+        Asked often enough to matter, and never once compared.
+
+        "Often enough" is a share of the sheet, not an absolute count. Six
+        legitimately unusable ChEBI IDs among 117 rows is six findings — the
+        product — and condemning the run for them is the retired-ID false alarm
+        in another guise, with the name question still comparing 111 rows
+        perfectly well. A question only speaks for the run when the run mostly
+        asked it.
+        """
+        return (
+            not tally.compared
+            and tally.asked >= MIN_ROWS_FOR_DEGRADED
+            and tally.asked * 2 > self.rows
         )
 
     @property
@@ -746,12 +769,11 @@ def check_file(
                 # without anything ever asking again.
                 from_cache = False
             if not from_cache:
-                # Only counted when something was actually asked, which needs the
-                # pivot *and* something to compare it against: check_row returns
-                # without a request when either is missing, and again when the
-                # breaker has skipped every side it would have queried. Counting
-                # those would overstate "N distinct lookups" in the same
-                # direction the cache undercounted it — and that number is what
+                # Only counted when a request was actually made, which needs the
+                # pivot *and* something to compare it against — check_row returns
+                # without asking anything when either is missing — and needs the
+                # CAS side not to be skipped, since it is resolved first and
+                # everything else short-circuits behind it. That number is what
                 # an operator uses to sanity-check runtime.
                 requested = {s for s, v in (("chebi", chebi_id), ("name", name)) if v}
                 if cas and requested and "cas" not in skipped:
@@ -926,10 +948,7 @@ def _report(
     # A question needs both its own identifier and the CAS pivot, so an outage on
     # either explains it — and "every row failed for a reason of its own" is the
     # one thing that is not true of a single run-wide outage.
-    already_explained = {
-        "ChEBI ID vs CAS": ("ChEBI ID", "CAS"),
-        "name vs CAS": ("name", "CAS"),
-    }
+    already_explained = {label: needs for _key, label, needs in QUESTION_INFO}
     for label, tally in summary.dead_question_tallies:
         if any(side in summary.outages for side in already_explained.get(label, ())):
             # The outage error above already said why, and "every row failed for

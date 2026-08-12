@@ -1836,7 +1836,9 @@ def test_a_client_error_is_an_answer_about_the_request_not_the_network(
     for code in sorted(MALFORMED_REQUEST_CODES):
         mock_get.reset_mock()
         mock_get.return_value = MagicMock(status_code=code)
-        _resp, outcome = get_with_retry_status("https://example.invalid/x")
+        _resp, outcome = get_with_retry_status(
+            "https://example.invalid/x", malformed_is_answer=True
+        )
         assert outcome == OUTCOME_NOT_FOUND, code
         assert mock_get.call_count == 1, f"{code} must not be retried"
 
@@ -2487,13 +2489,13 @@ def test_a_tripped_side_does_not_stop_the_row_cache(
     )
 
     def per_row(*, cas, chebi_id, name, skip=()):
-        chebi_down = "chebi" in skip or True  # ChEBI is dead for the whole run
+        # ChEBI is dead for the whole run, asked or skipped.
         return _row_result(
             review=REVIEW_OK,
             id_cas_verdict=CHEBI_UNREACHABLE,
             name_cas_verdict=MATCH,
             cas_status=IDENTIFIER_RESOLVED,
-            chebi_status=IDENTIFIER_UNREACHABLE if chebi_down else IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE,
             name_status=IDENTIFIER_RESOLVED,
         )
 
@@ -2642,3 +2644,59 @@ def test_a_repeating_sheet_still_re_probes_a_tripped_side(
     assert summary.chebi.resolved_rows > 0
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
     assert sum(1 for r in rows if r["unasked"] == "id") < 30
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_malformed_request_is_only_an_answer_on_a_url_built_from_a_cell(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """
+    A 400 means the request was wrong, which only says something about a *value*
+    when the value is in the URL.
+
+    On `/compound/cid/{cid}/...` the id came from PubChem itself, so a 400 there
+    is the server — and reading it as "no such compound" would mark a good CAS
+    column full of unknowns and trip suspect_columns against a column that was
+    never wrong.
+    """
+    from chebi_lookup.client import (
+        OUTCOME_NOT_FOUND,
+        OUTCOME_UNREACHABLE,
+        get_with_retry_status,
+    )
+
+    mock_get.return_value = MagicMock(status_code=400)
+
+    assert get_with_retry_status("u", malformed_is_answer=True)[1] == OUTCOME_NOT_FOUND
+    assert get_with_retry_status("u")[1] == OUTCOME_UNREACHABLE
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_400_on_the_property_call_is_an_outage_not_a_missing_cas(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """The CID came from PubChem, so the row must not be blamed for the reply."""
+    from structure_check.client import PubChemUnavailableError, cas_structure
+
+    with patch("structure_check.client.cas_to_cid_status", return_value=(702, "ok")):
+        mock_get.return_value = MagicMock(status_code=400)
+        with pytest.raises(PubChemUnavailableError):
+            cas_structure("64-17-5")
+
+
+def test_a_sparse_question_is_a_finding_not_a_dead_question() -> None:
+    """
+    Six unusable ChEBI IDs among 117 rows are six findings — the product — while
+    the name question compares 111 rows perfectly well. Flooring on an absolute
+    count condemned the run for them: the retired-ID false alarm again.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 111, REVIEW_UNVERIFIED: 6}),
+        id_question=QuestionTally(asked=6, compared=0),
+        name_question=QuestionTally(asked=117, compared=111),
+    )
+    assert summary.dead_questions == ()
+    assert not summary.degraded

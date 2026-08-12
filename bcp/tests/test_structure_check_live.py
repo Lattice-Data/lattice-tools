@@ -12,28 +12,36 @@ import pytest
 
 from structure_check.client import (
     MATCH,
+    OUTAGE_VERDICTS,
     REVIEW_INVESTIGATE,
     SKELETON_DIFFERS,
     STEREO_DIFFERS,
-    UNRESOLVED_VERDICTS,
     check_row,
 )
 
 pytestmark = [pytest.mark.pubchem, pytest.mark.chebi]
 
 
-def _skip_if_unresolved(result: dict) -> None:
-    """Skip rather than fail when an upstream API is unreachable."""
+def _skip_if_unreachable(result: dict) -> None:
+    """
+    Skip when an upstream could not be *asked*, and only then.
+
+    Not the whole of UNRESOLVED_VERDICTS: `name_unresolved`, `cas_unresolved`,
+    `chebi_unresolved`, `chebi_no_structure` and `name_ambiguous` are answers,
+    and an upstream that starts answering differently is precisely the drift
+    these tests exist to catch. Skipping on those would let PubChem forgetting
+    "Scriptaid", or that name growing past MAX_NAME_CANDIDATES, pass as green.
+    """
     if (
-        result["id_cas_verdict"] in UNRESOLVED_VERDICTS
-        or result["name_cas_verdict"] in UNRESOLVED_VERDICTS
+        result["id_cas_verdict"] in OUTAGE_VERDICTS
+        or result["name_cas_verdict"] in OUTAGE_VERDICTS
     ):
-        pytest.skip(f"upstream unresolved: {result}")
+        pytest.skip(f"upstream unreachable: {result}")
 
 
 def test_live_healthy_row_agrees_three_ways() -> None:
     result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol")
-    _skip_if_unresolved(result)
+    _skip_if_unreachable(result)
     assert result["id_cas_verdict"] == MATCH
     assert result["name_cas_verdict"] == MATCH
 
@@ -48,7 +56,7 @@ def test_live_wrong_cas_for_the_named_compound() -> None:
     result = check_row(
         cas="22573-88-2", chebi_id="CHEBI:27391", name="Alexidine_dihydrochloride"
     )
-    _skip_if_unresolved(result)
+    _skip_if_unreachable(result)
     assert result["id_cas_verdict"] == MATCH
     assert result["name_cas_verdict"] == SKELETON_DIFFERS
     assert result["review"] == REVIEW_INVESTIGATE
@@ -57,7 +65,7 @@ def test_live_wrong_cas_for_the_named_compound() -> None:
 def test_live_stereoisomer_difference_is_not_a_different_molecule() -> None:
     """UCN-01 vs the epimer its CAS resolves to: same skeleton, different stereo."""
     result = check_row(cas="112953-11-4", chebi_id="CHEBI:221840", name="UCN-01")
-    _skip_if_unresolved(result)
+    _skip_if_unreachable(result)
     assert result["name_cas_verdict"] == STEREO_DIFFERS
 
 
@@ -67,13 +75,13 @@ def test_live_chebi_id_agrees_with_its_cas_across_a_naming_mismatch() -> None:
     to any string comparison. The structures agree, which is the point.
     """
     result = check_row(cas="287383-59-9", chebi_id="CHEBI:92401", name="Scriptaid")
-    _skip_if_unresolved(result)
+    _skip_if_unreachable(result)
     assert result["id_cas_verdict"] == MATCH
     assert result["name_cas_verdict"] == MATCH
 
 
 def test_live_token_fallback_resolves_a_dual_alias_cell() -> None:
     result = check_row(cas="149647-78-9", name="Vorinostat_SAHA")
-    _skip_if_unresolved(result)
+    _skip_if_unreachable(result)
     assert result["name_cas_verdict"] == MATCH
     assert "tokens:" in result["name_query"]

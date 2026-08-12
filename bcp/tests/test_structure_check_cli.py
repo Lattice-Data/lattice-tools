@@ -310,3 +310,18 @@ def test_cli_single_exits_0_when_only_one_of_two_checks_was_unasked(
 
     structure_check.cli.main()
     assert "match" in capsys.readouterr().out
+
+
+def test_cli_single_rejects_an_empty_cas() -> None:
+    """
+    `--cas` doubles as the mode selector, so an unset shell variable selected
+    single mode with no pivot, reported not_checked on everything and exited 0 —
+    the silence the single-mode exit code exists to break.
+    """
+    import structure_check.cli
+
+    for blank in ("", "   "):
+        with pytest.raises(SystemExit) as exc_info:
+            sys.argv = ["structure_check", "--cas", blank, "--name", "Ethanol"]
+            structure_check.cli.main()
+        assert exc_info.value.code == 1

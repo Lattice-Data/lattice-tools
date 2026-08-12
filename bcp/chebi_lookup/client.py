@@ -81,7 +81,10 @@ MALFORMED_REQUEST_CODES = frozenset({400, 414, 422})
 
 
 def get_with_retry_status(
-    url: str, params: dict | None = None
+    url: str,
+    params: dict | None = None,
+    *,
+    malformed_is_answer: bool = False,
 ) -> tuple[requests.Response | None, str]:
     """
     GET with exponential backoff on 429/503, reporting *why* it returned nothing.
@@ -91,6 +94,14 @@ def get_with_retry_status(
     OUTCOME_UNREACHABLE. PubChem answering "no such compound" is evidence about the
     compound; PubChem never answering is not, and a caller that cannot tell them
     apart has to treat every outage as a finding.
+
+    `malformed_is_answer` says this URL carries a value taken from a spreadsheet,
+    so a status meaning "your request was wrong" is a statement about that value.
+    Only the callers that interpolate sheet text set it. On a URL built from an
+    id this code produced itself — a CID, say — a 400 cannot be the cell's fault
+    and must be the server, so it retries and reports UNREACHABLE like any other
+    server fault. Getting that backwards would report a good CAS column as full
+    of unknown compounds and send the operator to fix the column.
     """
     delay = RETRY_BACKOFF
     for attempt in range(1, MAX_RETRIES + 1):
@@ -113,7 +124,7 @@ def get_with_retry_status(
                     )
                     time.sleep(delay)
                 delay *= 2
-            elif resp.status_code in MALFORMED_REQUEST_CODES:
+            elif malformed_is_answer and resp.status_code in MALFORMED_REQUEST_CODES:
                 # These say the *request* was wrong, which is a statement about
                 # the cell: PUG REST returns 400 PUGREST.BadRequest for input it
                 # cannot parse and 414 for an over-long URL, which is exactly what
@@ -188,7 +199,8 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
     rewrite or truncate the request.
     """
     resp, outcome = get_with_retry_status(
-        f"{BASE}/compound/name/{urllib.parse.quote(str(cas), safe='')}/cids/JSON"
+        f"{BASE}/compound/name/{urllib.parse.quote(str(cas), safe='')}/cids/JSON",
+        malformed_is_answer=True,
     )
     time.sleep(REQUEST_DELAY)
     if resp is None:
@@ -203,6 +215,10 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
         cids = resp.json()["IdentifierList"]["CID"]
         if not isinstance(cids, list):
             raise TypeError("CID is not a list")
+        if cids and not isinstance(cids[0], int):
+            # The return is annotated int | None and is interpolated unquoted
+            # into a URL path, so anything else is a malformed payload.
+            raise TypeError("CID is not an integer")
         if len(cids) > 1:
             log.debug(
                 "CAS %s → %s CIDs, using first (canonical): %s",
