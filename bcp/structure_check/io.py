@@ -220,17 +220,37 @@ def _has_outage(result: dict[str, Any]) -> bool:
     )
 
 
-def _is_total_outage_row(result: dict[str, Any]) -> bool:
+class _ConsecutiveOutages:
     """
-    An outage row that yielded no comparison at all.
+    Consecutive unreachable rows, tracked per side.
 
-    Not "no identifier resolved": with ChEBI down and only a ChEBI column asked
-    for, every CAS still resolves perfectly and every row still compares nothing.
-    What makes a run worth abandoning is that it is spending requests and
-    producing no verdicts, which is exactly `unverified` plus an unreachable
-    upstream.
+    Per side rather than per row, because a row-level rule cannot see the case
+    that costs the most: with ChEBI dead run-wide and a live name column whose
+    names match, every row is `ok`, so any whole-row test resets on every row and
+    the sheet walks all 117 to reach a verdict `outages` settled by row 5 —
+    paying the full retry backoff on each one.
+
+    A blank cell neither increments nor resets: it says nothing about whether the
+    upstream is up, and a sparsely mapped column is normal input.
     """
-    return _has_outage(result) and result.get("review") == REVIEW_UNVERIFIED
+
+    def __init__(self) -> None:
+        self._streaks: Counter[str] = Counter()
+
+    def update(self, result: dict[str, Any]) -> None:
+        for side in ("cas", "chebi", "name"):
+            status = result.get(f"{side}_status")
+            if status == IDENTIFIER_UNREACHABLE:
+                self._streaks[side] += 1
+            elif status in (IDENTIFIER_RESOLVED, IDENTIFIER_MISSING):
+                self._streaks[side] = 0
+
+    def dead_side(self) -> str | None:
+        """The first side that has been unreachable for long enough to give up on."""
+        for side, streak in self._streaks.items():
+            if streak >= MAX_CONSECUTIVE_OUTAGE_ROWS:
+                return side
+        return None
 
 
 class _SideAccumulator:
@@ -391,6 +411,15 @@ def _resolve_columns(
                 f"row would be compared against itself."
             )
 
+    if chebi_column and chebi_column == name_column:
+        # Not a false all-clear — the ChEBI side rejects a compound name without a
+        # request — but every row comes back name_unresolved, which reads like a
+        # problem with the data rather than with the invocation.
+        raise StructureCheckError(
+            f"Column '{chebi_column}' was given as both --chebi-column and "
+            f"--name-column. One of them is pointed at the wrong column."
+        )
+
     requested = [
         ("--cas-column", cas_column),
         ("--chebi-column", chebi_column),
@@ -444,7 +473,7 @@ def check_file(
     review_counts: Counter[str] = Counter()
     verdict_counts: Counter[str] = Counter()
     tallies = _SideAccumulator()
-    consecutive_outage_rows = 0
+    consecutive = _ConsecutiveOutages()
 
     with open(output_path, "w", newline="", encoding="utf-8") as out_fh:
         writer = csv.DictWriter(out_fh, fieldnames=output_fields)
@@ -485,19 +514,17 @@ def check_file(
             # with repeated compounds slip past the guard entirely, alternating
             # free hits with live rows that each cost their full backoff.
             # chebi_terms refuses this for the same reason.
-            if from_cache:
-                pass
-            elif _is_total_outage_row(result):
-                consecutive_outage_rows += 1
-                if consecutive_outage_rows >= MAX_CONSECUTIVE_OUTAGE_ROWS:
+            if not from_cache:
+                consecutive.update(result)
+                dead = consecutive.dead_side()
+                if dead is not None:
                     raise StructureCheckError(
-                        f"{consecutive_outage_rows} rows in a row resolved nothing "
-                        f"because an upstream could not be reached, at row {i} of "
-                        f"{total}. Stopping rather than spending the rest of the "
-                        f"sheet on backoff. The partial output is at {output_path}."
+                        f"{MAX_CONSECUTIVE_OUTAGE_ROWS} rows in a row could not be "
+                        f"resolved for the {dead} column because its upstream could "
+                        f"not be reached, at row {i} of {total}. Stopping rather "
+                        f"than spending the rest of the sheet on backoff. The "
+                        f"partial output is at {output_path}."
                     )
-            else:
-                consecutive_outage_rows = 0
 
             label = name or chebi_id or cas or "(blank row)"
             if review in (REVIEW_INVESTIGATE, REVIEW_CHECK):

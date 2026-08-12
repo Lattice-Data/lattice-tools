@@ -12,10 +12,10 @@ import pytest
 
 from structure_check.client import (
     MATCH,
-    UNRESOLVED_VERDICTS,
     REVIEW_INVESTIGATE,
     SKELETON_DIFFERS,
     STEREO_DIFFERS,
+    UNRESOLVED_VERDICTS,
     check_row,
 )
 

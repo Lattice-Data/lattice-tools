@@ -6,6 +6,8 @@ ChEBI IDs are extracted from PubChem cross-references when present. A compound m
 
 To go the other way — from a ChEBI ID you already hold to its authoritative name, synonyms, and a correctness verdict — see [CHEBI_TERMS.md](CHEBI_TERMS.md).
 
+When the question is whether a whole sheet's identifiers agree with each other **by structure** rather than by name, see [STRUCTURE_CHECK.md](STRUCTURE_CHECK.md): it resolves the CAS, the name, and the ChEBI ID independently to InChIKeys and compares those.
+
 ---
 
 ## CLI entry point

@@ -4,6 +4,8 @@ Resolve **ChEBI identifiers** to their authoritative name and synonyms, and chec
 
 This is the inverse of [CHEBI_LOOKUP.md](CHEBI_LOOKUP.md), which starts from a CAS Registry Number and has no ChEBI ID yet. Use `chebi_terms` when you **already hold a ChEBI ID** — from a submitter, a curator, or a legacy spreadsheet — and need to know whether it is real, current, and the right compound.
 
+When the question is whether a whole sheet's identifiers agree with each other **by structure** rather than by name, see [STRUCTURE_CHECK.md](STRUCTURE_CHECK.md): it resolves the CAS, the name, and the ChEBI ID independently to InChIKeys and compares those.
+
 No local data cache and no extra dependencies: one HTTP GET per unique ID.
 
 ---

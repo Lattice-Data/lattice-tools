@@ -6,6 +6,8 @@ Comparing chemical names as strings does not work. ChEBI calls `CHEBI:92401` *"6
 
 InChIKeys do work, because they are derived from the structure itself. So this tool resolves each identifier in a row to a structure **independently** — the CAS number and the compound name through PubChem, the ChEBI ID through ChEBI — and compares those.
 
+The third of the three ChEBI tools here, and the only one that cross-checks identifiers against *each other*: [CHEBI_LOOKUP.md](CHEBI_LOOKUP.md) goes from a CAS number to a ChEBI ID, [CHEBI_TERMS.md](CHEBI_TERMS.md) goes from a ChEBI ID you already hold to its authoritative name and a correctness verdict.
+
 ---
 
 ## The two questions it answers separately
@@ -103,7 +105,7 @@ Plus the reasons a comparison could not be made, which are **never findings abou
 - `chebi_unresolved` — malformed ID, or ChEBI has no such record
 - `name_ambiguous` — the name resolved to more structures than were compared, and none matched (see the cap below)
 - `chebi_no_structure` — ChEBI has the entry but records no structure (class terms and R-group entries do not)
-- `not_checked` — nothing was supplied for that check
+- `not_checked` — nothing was supplied for that comparison. Either the row's own cell was blank, or the **CAS** was: the CAS is the pivot for both checks, so a blank one leaves nothing to compare a name or an ID *against*, and no request is made for either.
 
 And separately, the three that mean **the upstream was never reached** — the only verdicts that say something about the network rather than about the compound:
 

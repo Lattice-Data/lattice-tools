@@ -1328,9 +1328,16 @@ def _row_result(**over) -> dict:
 def test_check_file_counts_an_outage_against_rows_not_cells(
     mock_check: MagicMock, tmp_path: Path
 ) -> None:
-    """One blank ChEBI cell among six rows used to hide a total ChEBI outage."""
+    """
+    A blank ChEBI cell among the rows used to hide a mostly-dead ChEBI.
+
+    One row resolves in the middle, so the per-side fail-fast streak never
+    reaches its limit and the run completes — the tally is what is under test
+    here, not the abort.
+    """
     from structure_check.client import (
         CHEBI_UNREACHABLE,
+        IDENTIFIER_NOT_CHECKED,
         IDENTIFIER_RESOLVED,
         IDENTIFIER_UNREACHABLE,
         MATCH,
@@ -1338,19 +1345,27 @@ def test_check_file_counts_an_outage_against_rows_not_cells(
     )
 
     def per_row(*, cas, chebi_id, name):
+        if not chebi_id:
+            status, verdict = IDENTIFIER_NOT_CHECKED, NOT_CHECKED
+        elif chebi_id == "CHEBI:live":
+            status, verdict = IDENTIFIER_RESOLVED, MATCH
+        else:
+            status, verdict = IDENTIFIER_UNREACHABLE, CHEBI_UNREACHABLE
         return _row_result(
             review=REVIEW_OK,
-            id_cas_verdict=CHEBI_UNREACHABLE if chebi_id else NOT_CHECKED,
+            id_cas_verdict=verdict,
             name_cas_verdict=MATCH,
             cas_status=IDENTIFIER_RESOLVED,
-            chebi_status=IDENTIFIER_UNREACHABLE if chebi_id else "not_checked",
+            chebi_status=status,
             name_status=IDENTIFIER_RESOLVED,
         )
 
     mock_check.side_effect = per_row
     src = tmp_path / "in.csv"
-    rows = [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(5)]
-    rows.append(["C5", "5-00-0", ""])  # the blank that used to hide everything
+    rows = [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(3)]
+    rows.append(["Clive", "9-00-0", "CHEBI:live"])  # breaks the streak
+    rows += [[f"D{n}", f"1{n}-00-0", f"CHEBI:1{n}"] for n in range(3)]
+    rows.append(["Cblank", "5-00-0", ""])  # the blank that used to hide everything
     _write_csv(src, ["Name", "CAS", "ChEBI ID"], rows)
 
     summary = check_file(
@@ -1361,8 +1376,10 @@ def test_check_file_counts_an_outage_against_rows_not_cells(
         name_column="Name",
     )
 
-    assert summary.chebi.outage_rows == 5
-    assert summary.chebi.resolved_rows == 0
+    # The blank contributed to neither count, and the one live row is not enough
+    # to outweigh six unanswered ones.
+    assert summary.chebi.outage_rows == 6
+    assert summary.chebi.resolved_rows == 1
     assert summary.outages == ("ChEBI ID",)
     assert summary.degraded
 
@@ -1783,3 +1800,164 @@ def test_a_cache_hit_does_not_reset_the_fail_fast_counter(
 
     with pytest.raises(StructureCheckError, match="could not be reached"):
         check_file(src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID")
+
+
+@patch("structure_check.io.check_row")
+def test_fail_fast_fires_when_one_upstream_dies_and_another_keeps_answering(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    The case a whole-row rule cannot see.
+
+    With ChEBI dead run-wide and a live name column whose names match, every row
+    is `ok`, so any row-level test resets on every row and the sheet walks all of
+    itself to reach a verdict already settled — paying full retry backoff on each.
+    The streak is therefore tracked per side.
+    """
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+
+    mock_check.return_value = _row_result(
+        review=REVIEW_OK,  # the name side is fine, so the row reads as ok
+        id_cas_verdict=CHEBI_UNREACHABLE,
+        name_cas_verdict=MATCH,
+        cas_status=IDENTIFIER_RESOLVED,
+        chebi_status=IDENTIFIER_UNREACHABLE,
+        name_status=IDENTIFIER_RESOLVED,
+    )
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["Name", "CAS", "ChEBI ID"],
+        [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(40)],
+    )
+
+    with pytest.raises(StructureCheckError, match="chebi column"):
+        check_file(
+            src,
+            tmp_path / "out.csv",
+            cas_column="CAS",
+            chebi_column="ChEBI ID",
+            name_column="Name",
+        )
+    assert mock_check.call_count < 40
+
+
+@patch("structure_check.io.check_row")
+def test_a_blank_cell_neither_extends_nor_breaks_an_outage_streak(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """A sparsely mapped column says nothing about whether the upstream is up."""
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_NOT_CHECKED,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        NOT_CHECKED,
+    )
+
+    def per_row(*, cas, chebi_id, name):
+        unreachable = bool(chebi_id)
+        return _row_result(
+            review=REVIEW_UNVERIFIED,
+            id_cas_verdict=CHEBI_UNREACHABLE if unreachable else NOT_CHECKED,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=(
+                IDENTIFIER_UNREACHABLE if unreachable else IDENTIFIER_NOT_CHECKED
+            ),
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    # Only 4 ChEBI IDs, spread across 20 rows of blanks. Four unreachable rows is
+    # under the limit, and the 16 blanks must not be read as recoveries either.
+    rows = [[f"{n}-00-0", f"CHEBI:{n}" if n % 5 == 0 else ""] for n in range(20)]
+    _write_csv(src, ["CAS", "ChEBI ID"], rows)
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID"
+    )
+    assert summary.chebi.outage_rows == 4
+
+
+@patch("structure_check.client.cas_structure")
+@patch("structure_check.client.chebi_structure")
+@patch("structure_check.client.name_structure")
+def test_an_unreachable_cas_leaves_both_questions_unasked(
+    mock_name: MagicMock, mock_chebi: MagicMock, mock_cas: MagicMock
+) -> None:
+    """
+    The CAS is the pivot, so losing it costs both comparisons at once.
+
+    `unasked` is the whole record of which question went unanswered, so the
+    branch that says "neither of them" is the one most worth pinning.
+    """
+    from structure_check.client import (
+        CAS_UNREACHABLE,
+        IDENTIFIER_UNREACHABLE,
+        PubChemUnavailableError,
+    )
+
+    mock_cas.side_effect = PubChemUnavailableError("down")
+    mock_chebi.return_value = (ETHANOL, "")
+    mock_name.return_value = ("Ethanol", [ETHANOL], 1)
+
+    result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol")
+
+    assert result["id_cas_verdict"] == CAS_UNREACHABLE
+    assert result["name_cas_verdict"] == CAS_UNREACHABLE
+    assert result["unasked"] == "both"
+    assert result["cas_status"] == IDENTIFIER_UNREACHABLE
+    assert result["review"] == REVIEW_UNVERIFIED
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_client_error_is_an_answer_about_the_request_not_the_network(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """
+    PUG REST answers 400 for input it cannot parse — which is what a column of
+    free-text notes produces. Reported as unreachable it would blame the network
+    for a bad cell, and suppress the wrong-column diagnosis, since an outage
+    disqualifies suspect_columns.
+    """
+    from chebi_lookup.client import OUTCOME_NOT_FOUND, get_with_retry_status
+
+    for code in (400, 414, 403):
+        mock_get.reset_mock()
+        mock_get.return_value = MagicMock(status_code=code)
+        _resp, outcome = get_with_retry_status("https://example.invalid/x")
+        assert outcome == OUTCOME_NOT_FOUND, code
+        assert mock_get.call_count == 1, f"{code} must not be retried"
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_server_error_is_still_retried_and_still_an_outage(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    from chebi_lookup.client import OUTCOME_UNREACHABLE, get_with_retry_status
+
+    mock_get.return_value = MagicMock(status_code=500)
+    _resp, outcome = get_with_retry_status("https://example.invalid/x")
+    assert outcome == OUTCOME_UNREACHABLE
+    assert mock_get.call_count > 1
+
+
+def test_check_file_rejects_the_same_column_for_chebi_and_name(tmp_path: Path) -> None:
+    """Every row would come back name_unresolved, reading like a data problem."""
+    src = tmp_path / "in.csv"
+    _write_csv(src, ["CAS", "ChEBI ID"], [["64-17-5", "CHEBI:16236"]])
+    with pytest.raises(StructureCheckError, match="both --chebi-column"):
+        check_file(
+            src,
+            tmp_path / "out.csv",
+            cas_column="CAS",
+            chebi_column="ChEBI ID",
+            name_column="ChEBI ID",
+        )

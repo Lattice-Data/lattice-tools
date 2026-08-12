@@ -96,6 +96,17 @@ def get_with_retry_status(
                 )
                 time.sleep(delay)
                 delay *= 2
+            elif 400 <= resp.status_code < 500:
+                # A client error is an answer about the *request*, not about the
+                # server: PUG REST returns 400 PUGREST.BadRequest for input it
+                # cannot parse and 414 for an over-long URL, which is exactly what
+                # a column of free-text notes produces. Retrying gets the same
+                # reply twice more, and reporting it as unreachable would blame
+                # the network for a bad cell — and suppress the wrong-column
+                # diagnosis, since an outage disqualifies suspect_columns.
+                # chebi_terms fails fast on these for the same reason.
+                log.warning("HTTP %s (not retryable): %s", resp.status_code, url)
+                return None, OUTCOME_NOT_FOUND
             else:
                 log.warning(
                     "HTTP %s [%s/%s]: %s",
