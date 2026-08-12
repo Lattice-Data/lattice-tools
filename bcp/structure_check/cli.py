@@ -76,6 +76,13 @@ def main() -> None:
     )
 
     if args.cas is not None:
+        if not args.cas.strip():
+            # --cas doubles as the mode selector, so an unset shell variable
+            # selects single mode with no pivot: both verdicts come back
+            # not_checked, which is not an outage, and the run would exit 0.
+            # `--cas "$CAS" --name "$N" || alert` must not go quiet on that.
+            log.error("--cas is empty; there is nothing to check against.")
+            sys.exit(1)
         if not args.chebi and not args.name:
             log.error("Pass --chebi and/or --name to check the CAS against.")
             sys.exit(1)

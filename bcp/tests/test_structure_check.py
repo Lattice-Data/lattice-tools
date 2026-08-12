@@ -42,6 +42,23 @@ from structure_check.io import (
     emit_single_row,
 )
 
+
+@pytest.fixture(autouse=True)
+def _clear_parent_cache():
+    """
+    parent_inchikey memoises across a run, and the cache is a module global.
+
+    Cleared around every test rather than by hand in the five that remember to:
+    a test added later that exercises the real resolver would otherwise be
+    served another test's entries, and pass or fail depending on ordering.
+    """
+    import structure_check.client as sc
+
+    sc._parent_cache.clear()
+    yield
+    sc._parent_cache.clear()
+
+
 # Real InChIKeys, so the skeleton/stereo split is exercised against genuine data.
 ETHANOL = "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
 UCN01 = "PBCZSGKMGDDXIJ-KRUBCLEUSA-N"
@@ -512,6 +529,10 @@ def test_check_file_appends_verdicts_and_keeps_input_columns(
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
     assert rows[0]["note"] == "keep"
     assert rows[0]["review"] == REVIEW_OK
+    # The column both the docs and the runtime WARNING send operators to has to
+    # actually reach the file.
+    assert "unasked" in rows[0]
+    assert rows[0]["unasked"] == ""
 
 
 @patch("structure_check.io.check_row")
@@ -691,7 +712,6 @@ def test_parent_inchikey_walks_the_three_request_chain(
     """Three distinct JSON shapes, none of them exercised by the mocked tests above."""
     import structure_check.client as sc
 
-    sc._parent_cache.clear()
     mock_get.side_effect = [
         _json_response({"IdentifierList": {"CID": [443939]}}),  # inchikey -> cid
         _json_response({"IdentifierList": {"CID": [31703]}}),  # cid -> parent cid
@@ -713,7 +733,6 @@ def test_parent_inchikey_caches_successes(
 ) -> None:
     import structure_check.client as sc
 
-    sc._parent_cache.clear()
     mock_get.side_effect = [
         _json_response({"IdentifierList": {"CID": [443939]}}),
         _json_response({"IdentifierList": {"CID": [31703]}}),
@@ -735,7 +754,6 @@ def test_parent_inchikey_does_not_cache_an_outage(
     """One transient failure must not disable salt demotion for the whole run."""
     import structure_check.client as sc
 
-    sc._parent_cache.clear()
     down = MagicMock()
     down.status_code = 503
     mock_get.return_value = down
@@ -758,7 +776,6 @@ def test_parent_inchikey_caches_a_definitive_no_parent(
     """
     import structure_check.client as sc
 
-    sc._parent_cache.clear()
     missing = MagicMock()
     missing.status_code = 404
     mock_get.return_value = missing
@@ -786,7 +803,6 @@ def test_parent_inchikey_survives_unexpected_json(
 ) -> None:
     import structure_check.client as sc
 
-    sc._parent_cache.clear()
     mock_get.return_value = _json_response(payload)
     assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
 
@@ -1810,12 +1826,35 @@ def test_a_client_error_is_an_answer_about_the_request_not_the_network(
     """
     from chebi_lookup.client import OUTCOME_NOT_FOUND, get_with_retry_status
 
-    for code in (400, 414, 403):
+    for code in (400, 410, 413, 414, 422):
         mock_get.reset_mock()
         mock_get.return_value = MagicMock(status_code=code)
         _resp, outcome = get_with_retry_status("https://example.invalid/x")
         assert outcome == OUTCOME_NOT_FOUND, code
         assert mock_get.call_count == 1, f"{code} must not be retried"
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_blocked_client_is_an_outage_not_a_missing_compound(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """
+    401/403 say nothing about the compound — they say we were not let in.
+
+    Filed with the malformed-request codes, a run-wide block would report every
+    good CAS as "no such compound", leave `outages` empty, and trip
+    `suspect_columns` — telling the operator to check their column while the
+    real cause was access. That is the misdiagnosis the three signals exist to
+    keep apart, and the one direction a re-run can fix.
+    """
+    from chebi_lookup.client import OUTCOME_UNREACHABLE, get_with_retry_status
+
+    for code in (401, 403, 407):
+        mock_get.reset_mock()
+        mock_get.return_value = MagicMock(status_code=code)
+        _resp, outcome = get_with_retry_status("https://example.invalid/x")
+        assert outcome == OUTCOME_UNREACHABLE, code
 
 
 @patch("chebi_lookup.client.time.sleep")
@@ -1998,3 +2037,26 @@ def test_no_backoff_sleep_after_the_final_attempt(
 
     assert mock_get.call_count == MAX_RETRIES
     assert mock_sleep.call_count == MAX_RETRIES - 1
+
+
+@pytest.mark.parametrize(
+    "raw", ["Diclofenac_2Na", "Compound_Na2", "Foo_NaCl", "Bar_2K", "Baz_TsOH"]
+)
+def test_a_counterion_written_as_a_formula_also_disables_the_fallback(
+    raw: str,
+) -> None:
+    """
+    The guard covered counterions spelled as words but not as formulae.
+
+    'Diclofenac_2Na' split into tokens, so a cell that failed to resolve whole
+    would have queried the free base against the sodium salt's CAS — the
+    difference of the tool's own making this guard exists to prevent, and which
+    the docs claim it prevents absolutely.
+    """
+    assert name_candidates(raw)[1] == []
+
+
+def test_the_formula_guard_leaves_genuine_alias_pairs_alone() -> None:
+    """The guard must not swallow the case the fallback exists for."""
+    for raw in ("Vorinostat_SAHA", "ABT_263_Navitoclax", "Actinomycin_D_Dactinomycin"):
+        assert name_candidates(raw)[1], raw

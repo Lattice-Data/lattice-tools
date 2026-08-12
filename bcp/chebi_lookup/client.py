@@ -66,6 +66,12 @@ OUTCOME_OK = "ok"
 OUTCOME_NOT_FOUND = "not_found"
 OUTCOME_UNREACHABLE = "unreachable"
 
+# Statuses that describe the request rather than the server, so retrying is
+# pointless and the answer is about the value that was asked about. 401/403/407
+# are excluded on purpose: a blocked client is a network condition, and reporting
+# it as "no such compound" would blame the operator's column for it.
+MALFORMED_REQUEST_CODES = frozenset({400, 405, 410, 413, 414, 422})
+
 
 def get_with_retry_status(
     url: str, params: dict | None = None
@@ -88,25 +94,35 @@ def get_with_retry_status(
             if resp.status_code == 404:
                 return None, OUTCOME_NOT_FOUND
             if resp.status_code in (429, 503):
-                log.warning(
-                    "Rate limited (%s), waiting %ss [%s/%s]",
-                    resp.status_code,
-                    delay,
-                    attempt,
-                    MAX_RETRIES,
-                )
+                # Logged inside the guard so no message promises a delay that is
+                # not about to happen — the final attempt does not wait.
                 if attempt < MAX_RETRIES:
+                    log.warning(
+                        "Rate limited (%s), waiting %ss [%s/%s]",
+                        resp.status_code,
+                        delay,
+                        attempt,
+                        MAX_RETRIES,
+                    )
                     time.sleep(delay)
                 delay *= 2
-            elif 400 <= resp.status_code < 500:
-                # A client error is an answer about the *request*, not about the
-                # server: PUG REST returns 400 PUGREST.BadRequest for input it
+            elif resp.status_code in MALFORMED_REQUEST_CODES:
+                # These say the *request* was wrong, which is a statement about
+                # the cell: PUG REST returns 400 PUGREST.BadRequest for input it
                 # cannot parse and 414 for an over-long URL, which is exactly what
                 # a column of free-text notes produces. Retrying gets the same
-                # reply twice more, and reporting it as unreachable would blame
-                # the network for a bad cell — and suppress the wrong-column
+                # reply twice more, and calling it unreachable would blame the
+                # network for a bad cell — and suppress the wrong-column
                 # diagnosis, since an outage disqualifies suspect_columns.
-                # chebi_terms fails fast on these for the same reason.
+                #
+                # Deliberately *not* every 4xx. A 401/403 is a blocked or
+                # unauthenticated client, which says nothing about the compound;
+                # mapping it here would report a whole run of good CAS numbers as
+                # "no such compound" and send the operator to check their column
+                # while the real cause was access. Those fall through to the
+                # retry-then-unreachable path below, where chebi_terms also puts
+                # them (it raises ChebiUnavailableError rather than reporting a
+                # miss).
                 log.warning("HTTP %s (not retryable): %s", resp.status_code, url)
                 return None, OUTCOME_NOT_FOUND
             else:

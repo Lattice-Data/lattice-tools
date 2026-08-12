@@ -551,7 +551,15 @@ def check_file(
             from_cache = key in cache
             skipped = frozenset() if from_cache else breaker.skip()
             if not from_cache:
-                attempted_keys.add(key)
+                # Only counted when something was actually asked. A row whose
+                # every requested side was skipped by the breaker made no
+                # request, and counting it would overstate "N distinct lookups"
+                # in the same direction the undercount above understated it.
+                requested = {s for s, v in (("chebi", chebi_id), ("name", name)) if v}
+                if cas:
+                    requested.add("cas")
+                if requested - skipped:
+                    attempted_keys.add(key)
                 result = check_row(cas=cas, chebi_id=chebi_id, name=name, skip=skipped)
                 # Outages are not cached. A transient failure on one triple must
                 # not be replayed as a settled answer for every row that repeats

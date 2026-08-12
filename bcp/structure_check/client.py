@@ -136,6 +136,27 @@ SALT_TOKENS = frozenset(
         "trifluoroacetate",
         "embonate",
         "tfa",
+        # Counterions written as formulae rather than words: "Diclofenac_2Na",
+        # "Foo_Na2", "Bar_NaCl". Spelled-out forms were covered from the start,
+        # and these read as ordinary tokens without them — so the fallback would
+        # query the free base against a salt's CAS, the difference this guard
+        # exists to stop the tool inventing.
+        "na",
+        "na2",
+        "k",
+        "k2",
+        "ca",
+        "mg",
+        "li",
+        "cl",
+        "br",
+        "nacl",
+        "kcl",
+        "hbr",
+        "hi",
+        "tsoh",
+        "msoh",
+        "oh",
     }
 )
 
@@ -193,7 +214,9 @@ def _is_salt_word(fragment: str) -> bool:
     worst outcome is name_unresolved; failing to fire lets the fallback query a
     free base against a salt's CAS and invent a difference.
     """
-    word = "".join(fragment.split()).casefold().lstrip("0123456789")
+    # Stripped from both ends: a multiplicity prefix ("2Na") and a stoichiometry
+    # suffix ("Na2") are the same counterion written two ways.
+    word = "".join(fragment.split()).casefold().strip("0123456789")
     if not word:
         return False
     if word in SALT_TOKENS:
@@ -312,7 +335,7 @@ def empty_result() -> dict[str, Any]:
     result["name_cas_verdict"] = NOT_CHECKED
     result["review"] = REVIEW_UNVERIFIED
     result["review_rank"] = REVIEW_RANK[REVIEW_UNVERIFIED]
-    result["unasked"] = UNASKED_NONE
+    # `unasked` is already "" from the comprehension above, which is UNASKED_NONE.
     for field in STATUS_FIELDS:
         result[field] = IDENTIFIER_NOT_CHECKED
     return result

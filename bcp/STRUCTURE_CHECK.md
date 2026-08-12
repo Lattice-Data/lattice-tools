@@ -162,7 +162,7 @@ bcp/structure_check/
 
 Composes the two sibling packages rather than re-implementing their HTTP: PubChem access comes from `chebi_lookup.client`, ChEBI access from `chebi_terms.client`. It inherits their retry and rate limiting.
 
-Both sides can now tell an answer from a silence. `chebi_terms.fetch_compound` raises `ChebiUnavailableError`; on the PubChem side `chebi_lookup.get_with_retry_status` reports whether a request 404'd or ran out of retries, and the resolvers here raise `PubChemUnavailableError` when it was the latter. `get_with_retry` is still there, unchanged, as a thin wrapper for callers that only want the payload.
+Both sides can now tell an answer from a silence. `chebi_terms.fetch_compound` raises `ChebiUnavailableError`; on the PubChem side `chebi_lookup.get_with_retry_status` reports whether a request 404'd or ran out of retries, and the resolvers here raise `PubChemUnavailableError` when it was the latter. `get_with_retry` remains as a thin wrapper for callers that only want the payload — **same signature and same return semantics**, though its existing callers do inherit three behaviour changes: malformed-request 4xx are no longer retried, the pointless sleep after the final attempt is gone, and `cas_to_cid` now percent-encodes the CAS before it reaches the URL path (an injection fix, since these values come from untrusted sheets).
 
 A 200 carrying something that is not this endpoint's JSON — a maintenance page, a moved endpoint — counts as unreachable too. Read as "no such compound" it would look exactly like a column full of junk.
 
