@@ -1,9 +1,13 @@
 import numpy as np
 import pandas as pd
+import pytest
 
 from DB2_utils import (
+    collapse_dataframe,
     collapse_duplicate_columns,
     combine_bound_columns,
+    extract_controlled_term_id,
+    split_term_cell,
     strip_author_metadata_column_prefix,
 )
 
@@ -191,3 +195,43 @@ def test_strip_author_metadata_column_prefix_noop_without_match():
     df = pd.DataFrame({"sample_name": ["s1"], "disease": ["normal"]})
     result = strip_author_metadata_column_prefix(df)
     pd.testing.assert_frame_equal(result, df)
+
+
+# --- controlled term splitting: missing values are None, not pd.NA ---
+
+
+@pytest.mark.parametrize(
+    'value',
+    [
+        pytest.param(None, id='none'),
+        pytest.param([], id='empty_list'),
+        pytest.param('not a dict', id='plain_string'),
+        pytest.param([{'@id': '/controlled_terms/X:1/'}], id='dict_without_term_name'),
+    ],
+)
+def test_split_term_cell_missing_values_are_none(value):
+    """
+    None rather than pd.NA: these values flow back into is_empty() via to_items()
+    and single_or_list(), and `pd.NA == ""` evaluates to pd.NA rather than False,
+    which raises "boolean value of NA is ambiguous".
+    """
+    term_id, term_name = split_term_cell(value)
+    assert term_id is None
+    assert term_name is None
+
+
+def test_extract_controlled_term_id_empty_ref_is_none():
+    assert extract_controlled_term_id('') is None
+
+
+def test_collapse_dataframe_tolerates_missing_term_values():
+    """
+    Regression guard for the GEO build: a controlled term column populated for
+    some rows and empty for others must still collapse.
+    """
+    empty = split_term_cell(None)[1]
+    df = pd.DataFrame({'*library name': ['libA', 'libA'], '**tissue': ['lung', empty]})
+
+    result = collapse_dataframe(df, group_col='*library name')
+
+    assert result.iloc[0]['**tissue'] == 'lung'
