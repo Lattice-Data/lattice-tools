@@ -14,7 +14,7 @@ When the question is whether a whole sheet's identifiers agree with each other *
 
 Three things changed for **all** callers when that was added:
 
-- **Malformed-request 4xx are no longer retried.** `400`, `405`, `410`, `413`, `414`, `422` describe the request, so asking twice more gets the same reply. `401`/`403`/`407` are deliberately *not* in that set — a blocked client is a network condition, and treating it as "no such compound" would misreport a whole run of good CAS numbers.
+- **Malformed-request 4xx are no longer retried.** `400`, `414` and `422` are the statuses a bad *cell value* can provoke, so asking twice more gets the same reply. Every other 4xx is deliberately excluded, because no cell can cause it: `401`/`403`/`407` is a blocked client, `405` the endpoint refusing the method, `410` the endpoint retired, `413` a proxy. Treating any of those as "no such compound" would misreport a whole run of good CAS numbers and blame the column for it.
 - **No backoff sleep after the final attempt.** It delayed the next try, and there isn't one; this was ~8s per exhausted request.
 - **`cas_to_cid` percent-encodes the CAS.** These values come from untrusted spreadsheets and land in the URL path, where a stray `/` or `?` would rewrite or truncate the request. Quoting happens inside the function so every caller is covered rather than each one remembering.
 

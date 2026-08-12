@@ -335,6 +335,20 @@ class RunSummary(NamedTuple):
         )
 
 
+def _due_for_probe(cached: dict[str, Any], skipped: Collection[str]) -> bool:
+    """
+    True when a cached row was decided by a breaker trip that has since lapsed.
+
+    Outages are never cached, so an `unreachable` here is always a skip; if the
+    breaker is no longer skipping that side, the cached answer is a guess whose
+    re-test is due.
+    """
+    return any(
+        cached.get(f"{side}_status") == IDENTIFIER_UNREACHABLE and side not in skipped
+        for side in SIDES
+    )
+
+
 def _has_outage(result: dict[str, Any], *, ignoring: Collection[str] = ()) -> bool:
     """
     True when any identifier in this row could not be reached.
@@ -401,6 +415,11 @@ class _OutageBreaker:
         claim true: something did go back and check.
         """
         return frozenset(self._tripped & self._probe_failed)
+
+    def tick_skipped(self, sides: Collection[str]) -> None:
+        """Advance the probe clock without touching the streak."""
+        for side in sides:
+            self._since_probe[side] += 1
 
     def note(
         self,
@@ -717,8 +736,15 @@ def check_file(
             name = (row.get(name_column) or "").strip() if name_column else ""
 
             key = (cas, chebi_id, name)
+            skipped = breaker.skip()
             from_cache = key in cache
-            skipped = frozenset() if from_cache else breaker.skip()
+            if from_cache and _due_for_probe(cache[key], skipped):
+                # The cached row carries a breaker decision for a side that is
+                # now due to be re-tested. Serving it would make the probe
+                # unreachable on a repeating sheet — the side would never
+                # recover and every later row would be marked unreachable
+                # without anything ever asking again.
+                from_cache = False
             if not from_cache:
                 # Only counted when something was actually asked, which needs the
                 # pivot *and* something to compare it against: check_row returns
@@ -746,6 +772,17 @@ def check_file(
                     cache[key] = result
             else:
                 result = cache[key]
+                # Outages are never cached, so any `unreachable` on a cached
+                # result came from a breaker decision, not a failed request. It
+                # must be re-labelled as skipped on every repeat, or the cache
+                # smuggles the inference back into the majority it is excluded
+                # from — 5 real failures on a repeating sheet became 36 outage
+                # rows and condemned a run whose upstream had recovered.
+                skipped = frozenset(
+                    side
+                    for side in SIDES
+                    if result.get(f"{side}_status") == IDENTIFIER_UNREACHABLE
+                )
 
             out_row = {c: row.get(c, "") for c in carried}
             out_row.update({f: result.get(f, "") for f in OUTPUT_FIELDS_APPENDED})
@@ -763,8 +800,14 @@ def check_file(
             # *earlier*, possibly long before the upstream died. Folding one in
             # would let a sheet with repeated compounds clear the streak
             # forever. chebi_terms refuses this for the same reason.
-            if not from_cache:
-                present = {s for s, v in zip(SIDES, (cas, chebi_id, name)) if v}
+            present = {s for s, v in zip(SIDES, (cas, chebi_id, name)) if v}
+            if from_cache:
+                # The streak must not be cleared by a cache hit — it is no
+                # evidence the upstream recovered — but the probe clock should
+                # still run, or a repeating sheet never re-tests a tripped side
+                # and marks every later row unreachable without ever asking.
+                breaker.tick_skipped(present & skipped)
+            else:
                 tripped, recovered = breaker.note(result, skipped, present=present)
                 for side in tripped:
                     log.error(

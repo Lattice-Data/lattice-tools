@@ -2514,3 +2514,131 @@ def test_a_tripped_side_does_not_stop_the_row_cache(
     # Once the breaker trips, repeats come from the cache instead of re-querying
     # the sides that still work.
     assert mock_check.call_count < 20, mock_check.call_count
+
+
+@patch("structure_check.io.check_row")
+def test_the_cache_does_not_smuggle_skipped_rows_into_the_majority(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    A cached `unreachable` is a breaker decision, not a failed request.
+
+    Outages are never cached, so every one of them is a skip — and on a
+    repeating sheet each cache hit was re-counting it as independent evidence.
+    Five real failures became thirty-six outage rows and condemned a run whose
+    upstream had recovered.
+    """
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+
+    att = [0]
+
+    def per_row(*, cas, chebi_id, name, skip=()):
+        if "chebi" in skip:
+            return _row_result(
+                review=REVIEW_OK,
+                id_cas_verdict=CHEBI_UNREACHABLE,
+                name_cas_verdict=MATCH,
+                cas_status=IDENTIFIER_RESOLVED,
+                chebi_status=IDENTIFIER_UNREACHABLE,
+                name_status=IDENTIFIER_RESOLVED,
+            )
+        att[0] += 1
+        dead = att[0] <= MAX_CONSECUTIVE_OUTAGE_ROWS
+        return _row_result(
+            review=REVIEW_OK,
+            id_cas_verdict=CHEBI_UNREACHABLE if dead else MATCH,
+            name_cas_verdict=MATCH,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE if dead else IDENTIFIER_RESOLVED,
+            name_status=IDENTIFIER_RESOLVED,
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    # 60 rows over 4 distinct triples: almost every row is a cache hit.
+    _write_csv(
+        src,
+        ["Name", "CAS", "ChEBI ID"],
+        [[f"C{n % 4}", f"{n % 4}-00-0", f"CHEBI:{n % 4}"] for n in range(60)],
+    )
+
+    summary = check_file(
+        src,
+        tmp_path / "out.csv",
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    # Only the rows actually asked about count.
+    assert summary.chebi.outage_rows == MAX_CONSECUTIVE_OUTAGE_ROWS
+    assert summary.outages == ()
+    assert not summary.degraded
+
+
+@patch("structure_check.io.check_row")
+def test_a_repeating_sheet_still_re_probes_a_tripped_side(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    Cache hits bypass check_row, so without advancing the probe clock — and
+    declining the cache when a probe is due — a tripped side on a repeating
+    sheet is never re-tested, never recovers, and marks every later row
+    unreachable without anything asking again.
+    """
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+
+    att = [0]
+
+    def per_row(*, cas, chebi_id, name, skip=()):
+        if "chebi" in skip:
+            return _row_result(
+                review=REVIEW_OK,
+                id_cas_verdict=CHEBI_UNREACHABLE,
+                name_cas_verdict=MATCH,
+                cas_status=IDENTIFIER_RESOLVED,
+                chebi_status=IDENTIFIER_UNREACHABLE,
+                name_status=IDENTIFIER_RESOLVED,
+            )
+        att[0] += 1
+        dead = att[0] <= MAX_CONSECUTIVE_OUTAGE_ROWS
+        return _row_result(
+            review=REVIEW_OK,
+            id_cas_verdict=CHEBI_UNREACHABLE if dead else MATCH,
+            name_cas_verdict=MATCH,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE if dead else IDENTIFIER_RESOLVED,
+            name_status=IDENTIFIER_RESOLVED,
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["Name", "CAS", "ChEBI ID"],
+        [[f"C{n % 4}", f"{n % 4}-00-0", f"CHEBI:{n % 4}"] for n in range(60)],
+    )
+    out = tmp_path / "out.csv"
+
+    summary = check_file(
+        src,
+        out,
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    # It came back, so the tail is answered rather than written off.
+    assert summary.chebi.resolved_rows > 0
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    assert sum(1 for r in rows if r["unasked"] == "id") < 30
