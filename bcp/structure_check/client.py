@@ -442,6 +442,8 @@ def parent_inchikey(inchikey: str) -> str:
             if resp is not None:
                 try:
                     result = resp.json()["PropertyTable"]["Properties"][0]["InChIKey"]
+                    if not isinstance(result, str):
+                        raise TypeError("InChIKey is not a string")
                 except (ValueError, KeyError, IndexError, TypeError):
                     result = ""
                     unreachable = True
@@ -561,7 +563,10 @@ def inchikeys_for_name(name: str) -> list[str]:
             raise TypeError("Properties is not a list")
         for entry in properties:
             key = entry.get("InChIKey") if isinstance(entry, dict) else None
-            if key and key not in keys:
+            # Only a string is a structure. A numeric InChIKey would otherwise
+            # reach skeleton()'s slice and " | ".join() and raise TypeError
+            # straight through check_row, which promises never to.
+            if isinstance(key, str) and key and key not in keys:
                 keys.append(key)
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         # A 200 that is not this endpoint's JSON is something other than this API
@@ -698,7 +703,10 @@ def cas_structure(cas: Any) -> tuple[str, str]:
         # it, through check_row — which promises never to raise — and abort the
         # sheet at whatever row the bad payload landed on.
         properties = resp.json()["PropertyTable"]["Properties"][0]
-        return properties.get("InChIKey") or "", properties.get("Title") or ""
+        key, title = properties.get("InChIKey"), properties.get("Title")
+        if key is not None and not isinstance(key, str):
+            raise TypeError("InChIKey is not a string")
+        return key or "", (title if isinstance(title, str) else "")
     except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
         raise PubChemUnavailableError(
             f"PubChem returned an unparseable payload for CAS {text!r}"

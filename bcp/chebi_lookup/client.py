@@ -66,11 +66,18 @@ OUTCOME_OK = "ok"
 OUTCOME_NOT_FOUND = "not_found"
 OUTCOME_UNREACHABLE = "unreachable"
 
-# Statuses that describe the request rather than the server, so retrying is
-# pointless and the answer is about the value that was asked about. 401/403/407
-# are excluded on purpose: a blocked client is a network condition, and reporting
-# it as "no such compound" would blame the operator's column for it.
-MALFORMED_REQUEST_CODES = frozenset({400, 405, 410, 413, 414, 422})
+# Statuses a bad *cell value* can genuinely provoke, so retrying is pointless and
+# the answer is about the value: PUG REST returns 400 for input it cannot parse,
+# 414 for a URL made too long by one, and 422 for one it parses but cannot use.
+#
+# Everything else 4xx is deliberately excluded, because no cell can cause it.
+# 401/403/407 is a blocked client; 405 is the endpoint refusing the method; 410
+# is the endpoint retired; 413 on a bodyless GET is a proxy, since URL length is
+# 414. Classing any of those as "no such compound" would mark every value in the
+# column missing, leave `outages` empty because nothing was unreachable, and
+# trip `suspect_columns` — sending the operator to fix a column that was never
+# wrong. They fall through to the retry-then-unreachable path instead.
+MALFORMED_REQUEST_CODES = frozenset({400, 414, 422})
 
 
 def get_with_retry_status(

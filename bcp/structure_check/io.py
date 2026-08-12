@@ -209,11 +209,11 @@ class RunSummary(NamedTuple):
         return tuple(
             label
             for key, label, _flag, tally in self.sides
-            if self._unanswered(key, tally) > tally.answered_rows
-            and self._unanswered(key, tally) >= MIN_OUTAGE_ROWS_FOR_DEGRADED
+            if self.unanswered(key, tally) > tally.answered_rows
+            and self.unanswered(key, tally) >= MIN_OUTAGE_ROWS_FOR_DEGRADED
         )
 
-    def _unanswered(self, key: str, tally: SideTally) -> int:
+    def unanswered(self, key: str, tally: SideTally) -> int:
         """
         Rows this side left unanswered, counting skipped ones only if it never
         came back.
@@ -335,9 +335,18 @@ class RunSummary(NamedTuple):
         )
 
 
-def _has_outage(result: dict[str, Any]) -> bool:
-    """True when any identifier in this row could not be reached."""
-    return any(result.get(f"{side}_status") == IDENTIFIER_UNREACHABLE for side in SIDES)
+def _has_outage(result: dict[str, Any], *, ignoring: Collection[str] = ()) -> bool:
+    """
+    True when any identifier in this row could not be reached.
+
+    `ignoring` names sides whose unreachable status the caller already knows to
+    be a breaker decision rather than a failed request.
+    """
+    return any(
+        result.get(f"{side}_status") == IDENTIFIER_UNREACHABLE
+        for side in SIDES
+        if side not in ignoring
+    )
 
 
 class _OutageBreaker:
@@ -722,11 +731,18 @@ def check_file(
                 if cas and requested and "cas" not in skipped:
                     attempted_keys.add(key)
                 result = check_row(cas=cas, chebi_id=chebi_id, name=name, skip=skipped)
-                # Outages are not cached. A transient failure on one triple must
+                # Outages are not cached: a transient failure on one triple must
                 # not be replayed as a settled answer for every row that repeats
-                # it — the same rule parent_inchikey already applies to its cache,
-                # and the reason chebi_terms never caches a failure either.
-                if not _has_outage(result):
+                # it — the same rule parent_inchikey applies to its own cache.
+                #
+                # A side the breaker *skipped* is different. It cost no request
+                # and its answer is fixed for as long as the trip holds, so
+                # treating it as an outage here would stop caching anything at
+                # all once one side died, and re-query the healthy sides on
+                # every repeat — paying more per row than before the breaker,
+                # which is the opposite of its purpose. Entries are dropped if
+                # the side ever comes back, below.
+                if not _has_outage(result, ignoring=skipped):
                     cache[key] = result
             else:
                 result = cache[key]
@@ -761,6 +777,11 @@ def check_file(
                         i,
                         total,
                     )
+                if recovered:
+                    # Cached rows may carry an `unreachable` for this side that
+                    # was a breaker decision, not an answer. Now that it is
+                    # answering they are stale, and cheap to redo.
+                    cache.clear()
                 for side in recovered:
                     log.warning(
                         "%s is answering again at row %s.", SIDE_LABELS[side], i
@@ -842,8 +863,8 @@ def _report(
                 "question. The API was unreachable, not merely unhelpful; re-run "
                 "once it is back.",
                 label,
-                summary._unanswered(key, tally),
-                summary._unanswered(key, tally) + tally.answered_rows,
+                summary.unanswered(key, tally),
+                summary.unanswered(key, tally) + tally.answered_rows,
                 tally.answered_rows,
                 _also_skipped(tally),
             )
@@ -859,12 +880,15 @@ def _report(
                 label,
                 flag,
             )
+    # A question needs both its own identifier and the CAS pivot, so an outage on
+    # either explains it — and "every row failed for a reason of its own" is the
+    # one thing that is not true of a single run-wide outage.
     already_explained = {
-        "ChEBI ID vs CAS": "ChEBI ID",
-        "name vs CAS": "name",
+        "ChEBI ID vs CAS": ("ChEBI ID", "CAS"),
+        "name vs CAS": ("name", "CAS"),
     }
     for label, tally in summary.dead_question_tallies:
-        if already_explained.get(label) in summary.outages:
+        if any(side in summary.outages for side in already_explained.get(label, ())):
             # The outage error above already said why, and "every row failed for
             # a reason of its own" is not true of a single run-wide outage.
             continue

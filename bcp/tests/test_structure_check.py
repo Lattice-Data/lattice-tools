@@ -2467,3 +2467,50 @@ def test_an_outage_below_the_line_still_warns_with_its_full_reach(
     text = _report_text(summary, caplog)
     assert "a further 20 rows were not asked at all" in text
     assert "a re-run would answer them" in text
+
+
+@patch("structure_check.io.check_row")
+def test_a_tripped_side_does_not_stop_the_row_cache(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    A breaker-skipped side costs no request and its answer is fixed while the
+    trip holds, so it must not be read as an outage that blocks caching — that
+    would re-query the healthy sides on every repeat and cost more per row than
+    before the breaker existed.
+    """
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+
+    def per_row(*, cas, chebi_id, name, skip=()):
+        chebi_down = "chebi" in skip or True  # ChEBI is dead for the whole run
+        return _row_result(
+            review=REVIEW_OK,
+            id_cas_verdict=CHEBI_UNREACHABLE,
+            name_cas_verdict=MATCH,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE if chebi_down else IDENTIFIER_RESOLVED,
+            name_status=IDENTIFIER_RESOLVED,
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    # 60 rows over 3 distinct compounds — the dose-response shape.
+    rows = [[f"{n % 3}-00-0", f"CHEBI:{n % 3}", f"C{n % 3}"] for n in range(60)]
+    _write_csv(src, ["CAS", "ChEBI ID", "Name"], rows)
+
+    check_file(
+        src,
+        tmp_path / "out.csv",
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    # Once the breaker trips, repeats come from the cache instead of re-querying
+    # the sides that still work.
+    assert mock_check.call_count < 20, mock_check.call_count
