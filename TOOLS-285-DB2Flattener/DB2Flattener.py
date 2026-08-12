@@ -161,10 +161,6 @@ class DB2Flattener:
                                     field_name = f"{sample_type}_{field}_{'_'.join(key.split(' '))}"
                                     sample_metadata[sample_alias][field_name] = val
                             else:
-                                # Controlled term fields were previously written
-                                # through verbatim, leaving raw
-                                # '/controlled_terms/MONDO:0005148/' paths in the
-                                # column with no way to reach term_name
                                 if self._is_controlled_term_field(field, sample_refs):
                                     value = self._resolve_controlled_term_value(
                                         value, resolved_controlled_terms
