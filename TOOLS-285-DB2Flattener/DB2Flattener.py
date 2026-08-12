@@ -12,7 +12,6 @@ from constants import (
     TISSUE_TYPE_MAP,
     GENETIC_PERTURBATION_MAP,
     REFORMAT_LIST,
-    DEFAULT_DISEASE_TERM,
 )
 from DB2_utils import (
     split_controlled_term_columns, 
@@ -23,7 +22,6 @@ from DB2_utils import (
     combine_bound_columns,
     collapse_duplicate_columns,
     strip_author_metadata_column_prefix,
-    is_empty,
 )
 from generate_constants import load_and_return_constant_dicts
 import DB2lattice
@@ -163,18 +161,14 @@ class DB2Flattener:
                                     field_name = f"{sample_type}_{field}_{'_'.join(key.split(' '))}"
                                     sample_metadata[sample_alias][field_name] = val
                             else:
+                                # Controlled term fields were previously written
+                                # through verbatim, leaving raw
+                                # '/controlled_terms/MONDO:0005148/' paths in the
+                                # column with no way to reach term_name
                                 if self._is_controlled_term_field(field, sample_refs):
-                                    resolved = self._resolve_controlled_term_value(
+                                    value = self._resolve_controlled_term_value(
                                         value, resolved_controlled_terms
                                     )
-                                    # No disease recorded means normal.
-                                    if (
-                                        resolved is None
-                                        and field == 'diseases'
-                                        and is_empty(value)
-                                    ):
-                                        resolved = dict(DEFAULT_DISEASE_TERM)
-                                    value = resolved
                                 field_name = f'{sample_type}_{field}'
                                 sample_metadata[sample_alias][field_name] = value
 

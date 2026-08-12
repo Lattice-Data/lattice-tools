@@ -98,11 +98,6 @@ PROP_MAP_BIOHUB = {
     "genetic_modifications_strategy":"genetic_perturbation_strategy"
 }
 
-DEFAULT_DISEASE_TERM = {
-    "@id": "/controlled_terms/PATO:0000461/",
-    "term_name": "normal",
-}
-
 TISSUE_TYPE_MAP = {
     "CellLine": "cell line",
     "Organoid": "organoid",

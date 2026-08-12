@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 import DB2lattice
-from constants import Configs, DEFAULT_DISEASE_TERM
+from constants import Configs
 from DB2Flattener import DB2Flattener
 from DB2Gatherer import DB2Gatherer
 from DB2_utils import split_controlled_term_columns
@@ -299,7 +299,7 @@ def test_reference_on_a_related_object_resolves():
     assert row['human_donors_ethnicity_term_name'] == 'European'
 
 
-# --- disease defaulting ---
+# --- missing values ---
 
 
 @pytest.mark.parametrize(
@@ -309,25 +309,21 @@ def test_reference_on_a_related_object_resolves():
         pytest.param({'diseases': []}, id='diseases_empty_list'),
     ],
 )
-def test_absent_disease_defaults_to_normal(tissue_kwargs):
-    row = _main_row(_tissue(**tissue_kwargs))
+def test_absent_controlled_term_field_left_empty(tissue_kwargs):
+    """No value recorded means no value in the column - nothing is substituted."""
+    row = _main_row(_tissue(sample_terms=[LUNG['@id']], **tissue_kwargs))
 
-    assert row['tissues_diseases_term_id'] == 'PATO:0000461'
-    assert row['tissues_diseases_term_name'] == 'normal'
+    assert row['tissues_diseases'] is None
 
 
-def test_recorded_disease_is_not_overwritten_by_the_default():
+def test_recorded_disease_resolves():
     row = _main_row(_tissue(diseases=[DIABETES['@id']]))
 
     assert row['tissues_diseases_term_name'] == 'type 2 diabetes mellitus'
 
 
-def test_unresolvable_disease_stays_empty_rather_than_normal():
+def test_unresolvable_term_stays_empty():
     """
-    A disease that failed to resolve is not the same as no disease. Reporting it
-    as normal would hide the gatherer's resolution warning behind healthy-looking
-    data.
-
     Uses two samples so the column is mixed: a column that is empty for every
     row is never detected as a controlled term column and so is never split.
     """
@@ -338,17 +334,6 @@ def test_unresolvable_disease_stays_empty_rather_than_normal():
 
     assert df.loc['s1', 'tissues_diseases_term_name'] == 'type 2 diabetes mellitus'
     assert pd.isna(df.loc['s2', 'tissues_diseases_term_name'])
-
-
-def test_default_disease_term_is_not_shared_between_rows():
-    """Each row gets its own copy, so a downstream mutation cannot leak."""
-    f = make_flattener()
-    first = dict(DEFAULT_DISEASE_TERM)
-    second = dict(DEFAULT_DISEASE_TERM)
-
-    assert first == second
-    assert first is not second
-    assert f._resolve_controlled_term_value(None, RESOLVED_TERMS) is None
 
 
 # --- helpers ---
