@@ -6,6 +6,18 @@ ChEBI IDs are extracted from PubChem cross-references when present. A compound m
 
 To go the other way — from a ChEBI ID you already hold to its authoritative name, synonyms, and a correctness verdict — see [CHEBI_TERMS.md](CHEBI_TERMS.md).
 
+When the question is whether a whole sheet's identifiers agree with each other **by structure** rather than by name, see [STRUCTURE_CHECK.md](STRUCTURE_CHECK.md): it resolves the CAS, the name, and the ChEBI ID independently to InChIKeys and compares those.
+
+### Request behaviour
+
+`get_with_retry` keeps its signature and return semantics — a `Response`, or `None` for both "no such thing" and "could not ask". `get_with_retry_status` returns the same response alongside an outcome (`ok` / `not_found` / `unreachable`) for callers that need to tell those apart; `structure_check` does, because reporting an outage as "no such compound" would turn a network problem into a finding about the chemistry.
+
+Three things changed for **all** callers when that was added:
+
+- **Malformed-request 4xx are no longer retried.** `400`, `414` and `422` are the statuses a bad *cell value* can provoke, so asking twice more gets the same reply. Every other 4xx is deliberately excluded, because no cell can cause it: `401`/`403`/`407` is a blocked client, `405` the endpoint refusing the method, `410` the endpoint retired, `413` a proxy. Treating any of those as "no such compound" would misreport a whole run of good CAS numbers and blame the column for it.
+- **No backoff sleep after the final attempt.** It delayed the next try, and there isn't one; this was ~8s per exhausted request.
+- **`cas_to_cid` percent-encodes the CAS.** These values come from untrusted spreadsheets and land in the URL path, where a stray `/` or `?` would rewrite or truncate the request. Quoting happens inside the function so every caller is covered rather than each one remembering.
+
 ---
 
 ## CLI entry point

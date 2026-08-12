@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import urllib.parse
 from typing import Any
 
 import requests
@@ -57,26 +58,97 @@ def empty_result() -> dict[str, Any]:
     return {field: "" for field in OUTPUT_FIELDS_APPENDED}
 
 
-def get_with_retry(url: str, params: dict | None = None) -> requests.Response | None:
-    """GET with exponential backoff on 429/503. Returns None on 404 or exhausted retries."""
+# What a request turned out to be, for callers that need to tell an answer from a
+# silence. get_with_retry collapses the last two into None, which is fine when the
+# caller only wants the payload and wrong when it wants to know whether PubChem was
+# asked at all.
+OUTCOME_OK = "ok"
+OUTCOME_NOT_FOUND = "not_found"
+OUTCOME_UNREACHABLE = "unreachable"
+
+# Statuses a bad *cell value* can genuinely provoke, so retrying is pointless and
+# the answer is about the value: PUG REST returns 400 for input it cannot parse,
+# 414 for a URL made too long by one, and 422 for one it parses but cannot use.
+#
+# Everything else 4xx is deliberately excluded, because no cell can cause it.
+# 401/403/407 is a blocked client; 405 is the endpoint refusing the method; 410
+# is the endpoint retired; 413 on a bodyless GET is a proxy, since URL length is
+# 414. Classing any of those as "no such compound" would mark every value in the
+# column missing, leave `outages` empty because nothing was unreachable, and
+# trip `suspect_columns` — sending the operator to fix a column that was never
+# wrong. They fall through to the retry-then-unreachable path instead.
+MALFORMED_REQUEST_CODES = frozenset({400, 414, 422})
+
+
+def get_with_retry_status(
+    url: str,
+    params: dict | None = None,
+    *,
+    malformed_is_answer: bool = False,
+) -> tuple[requests.Response | None, str]:
+    """
+    GET with exponential backoff on 429/503, reporting *why* it returned nothing.
+
+    Same request behaviour as get_with_retry — which is now a wrapper over this —
+    but a 404 comes back as OUTCOME_NOT_FOUND and exhausted retries as
+    OUTCOME_UNREACHABLE. PubChem answering "no such compound" is evidence about the
+    compound; PubChem never answering is not, and a caller that cannot tell them
+    apart has to treat every outage as a finding.
+
+    `malformed_is_answer` says this URL carries a value taken from a spreadsheet,
+    so a status meaning "your request was wrong" is a statement about that value.
+    Only the callers that interpolate sheet text set it. On a URL built from an
+    id this code produced itself — a CID, say — a 400 cannot be the cell's fault
+    and must be the server, so it retries and reports UNREACHABLE like any other
+    server fault. Getting that backwards would report a good CAS column as full
+    of unknown compounds and send the operator to fix the column.
+    """
     delay = RETRY_BACKOFF
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             resp = requests.get(url, params=params, timeout=15)
             if resp.status_code == 200:
-                return resp
+                return resp, OUTCOME_OK
             if resp.status_code == 404:
-                return None
+                return None, OUTCOME_NOT_FOUND
             if resp.status_code in (429, 503):
-                log.warning(
-                    "Rate limited (%s), waiting %ss [%s/%s]",
-                    resp.status_code,
-                    delay,
-                    attempt,
-                    MAX_RETRIES,
-                )
-                time.sleep(delay)
+                # Logged inside the guard so no message promises a delay that is
+                # not about to happen — the final attempt does not wait.
+                if attempt < MAX_RETRIES:
+                    log.warning(
+                        "Rate limited (%s), waiting %ss [%s/%s]",
+                        resp.status_code,
+                        delay,
+                        attempt,
+                        MAX_RETRIES,
+                    )
+                    time.sleep(delay)
                 delay *= 2
+            elif malformed_is_answer and resp.status_code in MALFORMED_REQUEST_CODES:
+                # These say the *request* was wrong, which is a statement about
+                # the cell: PUG REST returns 400 PUGREST.BadRequest for input it
+                # cannot parse and 414 for an over-long URL, which is exactly what
+                # a column of free-text notes produces. Retrying gets the same
+                # reply twice more, and calling it unreachable would blame the
+                # network for a bad cell — and suppress the wrong-column
+                # diagnosis, since an outage disqualifies suspect_columns.
+                #
+                # Deliberately *not* every 4xx. A 401/403 is a blocked or
+                # unauthenticated client, which says nothing about the compound;
+                # mapping it here would report a whole run of good CAS numbers as
+                # "no such compound" and send the operator to check their column
+                # while the real cause was access. Those fall through to the
+                # retry-then-unreachable path below, where chebi_terms also puts
+                # them (it raises ChebiUnavailableError rather than reporting a
+                # miss).
+                #
+                # chebi_terms treats 400 as unavailable rather than as a miss,
+                # and that is right *there*: its URL is built from an ID already
+                # reduced to digits, so a 400 cannot have been caused by a sheet
+                # cell and must be the server. Here the path carries free text
+                # straight from the column, so a 400 usually is the cell.
+                log.warning("HTTP %s (not retryable): %s", resp.status_code, url)
+                return None, OUTCOME_NOT_FOUND
             else:
                 log.warning(
                     "HTTP %s [%s/%s]: %s",
@@ -85,7 +157,8 @@ def get_with_retry(url: str, params: dict | None = None) -> requests.Response | 
                     MAX_RETRIES,
                     url,
                 )
-                time.sleep(delay)
+                if attempt < MAX_RETRIES:
+                    time.sleep(delay)
                 delay *= 2
         except requests.exceptions.RequestException as exc:
             log.warning(
@@ -94,10 +167,69 @@ def get_with_retry(url: str, params: dict | None = None) -> requests.Response | 
                 attempt,
                 MAX_RETRIES,
             )
-            time.sleep(delay)
+            # No sleep after the final attempt: the backoff exists to space out
+            # the *next* try, and there isn't one. chebi_terms guards this too;
+            # it is 8 of the ~14s an exhausted request otherwise costs, paid on
+            # every row of a run against a dead upstream.
+            if attempt < MAX_RETRIES:
+                time.sleep(delay)
             delay *= 2
     log.error("Retries exhausted: %s", url)
-    return None
+    return None, OUTCOME_UNREACHABLE
+
+
+def get_with_retry(url: str, params: dict | None = None) -> requests.Response | None:
+    """GET with exponential backoff on 429/503. Returns None on 404 or exhausted retries."""
+    resp, _outcome = get_with_retry_status(url, params)
+    return resp
+
+
+def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
+    """
+    Resolve CAS → PubChem CID, reporting whether PubChem was reachable.
+
+    A 200 whose body is not the JSON this endpoint is documented to return means
+    something is answering that is not this API — a maintenance page, a proxy, a
+    moved endpoint. That is an outage wearing a success code, so it reports
+    UNREACHABLE rather than being mistaken for "no such CAS". An empty CID list is
+    a real answer and stays NOT_FOUND.
+
+    The CAS is quoted here rather than by the caller, since it reaches the URL
+    path and these values come from untrusted sheets: a stray "/" or "?" would
+    rewrite or truncate the request.
+    """
+    resp, outcome = get_with_retry_status(
+        f"{BASE}/compound/name/{urllib.parse.quote(str(cas), safe='')}/cids/JSON",
+        malformed_is_answer=True,
+    )
+    time.sleep(REQUEST_DELAY)
+    if resp is None:
+        return None, outcome
+    try:
+        # Subscripted, not .get()-with-a-default: a body that parses as JSON but
+        # carries no IdentifierList at all is a different server answering
+        # (`{"Fault": ...}`), not PubChem saying "no such CAS". Defaulting it to
+        # [] would report NOT_FOUND, and five such values would then blame the
+        # CAS column for what the network did — the very thing this function's
+        # outcome exists to prevent. Only an *empty* list is a real answer.
+        cids = resp.json()["IdentifierList"]["CID"]
+        if not isinstance(cids, list):
+            raise TypeError("CID is not a list")
+        if cids and not isinstance(cids[0], int):
+            # The return is annotated int | None and is interpolated unquoted
+            # into a URL path, so anything else is a malformed payload.
+            raise TypeError("CID is not an integer")
+        if len(cids) > 1:
+            log.debug(
+                "CAS %s → %s CIDs, using first (canonical): %s",
+                cas,
+                len(cids),
+                cids[0],
+            )
+        return (cids[0], OUTCOME_OK) if cids else (None, OUTCOME_NOT_FOUND)
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError):
+        log.error("Unparseable CID payload for %s — treating as unreachable", cas)
+        return None, OUTCOME_UNREACHABLE
 
 
 def cas_to_cid(cas: str) -> int | None:
@@ -106,22 +238,8 @@ def cas_to_cid(cas: str) -> int | None:
 
     When multiple CIDs are returned, the first is PubChem's canonical choice.
     """
-    resp = get_with_retry(f"{BASE}/compound/name/{cas}/cids/JSON")
-    time.sleep(REQUEST_DELAY)
-    if resp is None:
-        return None
-    try:
-        cids = resp.json().get("IdentifierList", {}).get("CID", [])
-        if len(cids) > 1:
-            log.debug(
-                "CAS %s → %s CIDs, using first (canonical): %s",
-                cas,
-                len(cids),
-                cids[0],
-            )
-        return cids[0] if cids else None
-    except (ValueError, KeyError):
-        return None
+    cid, _outcome = cas_to_cid_status(cas)
+    return cid
 
 
 def cid_to_properties(cid: int) -> dict[str, Any]:
