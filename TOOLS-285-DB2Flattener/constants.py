@@ -49,6 +49,12 @@ MAX_URL_LENGTH = 3800
 # Base URL overhead for chunking calculations (base URL + field params + safety margin)
 BASE_URL_OVERHEAD = 700
 
+# Fields requested when gathering ControlledTerm objects.
+# DB2_utils.split_term_cell derives the term id from '@id', so term_name is the
+# only other field needed downstream. The profile has 18 fields; requesting the
+# rest is dead weight on every request.
+CONTROLLED_TERM_FIELDS = ['@id', 'term_name']
+
 # Keys use _term_name suffix for columns produced by DB2_utils.split_controlled_term_columns
 PROP_MAP_GEO = {
     'droplet_based_libraries_CRO_group_identifier': '*library name',
@@ -71,12 +77,12 @@ PROP_MAP_BIOHUB = {
     "human_donors_taxa":"organism",
     "non_human_donors_sex":"sex",
     "human_donors_sex":"sex",
-    "human_donors_ethnicity":"self_reported_ethnicity",
+    "human_donors_ethnicity_term_name":"self_reported_ethnicity",
     "droplet_based_libraries_library_construction_technology_term_name":"assay",
     "tissues_upper_bound_age": "tissues_upper_bound_age",
     "tissues_lower_bound_age": "tissues_lower_bound_age",
     "tissues_age_units": "tissues_age_units",
-    "tissues_diseases": "disease",
+    "tissues_diseases_term_name": "disease",
     "tissues_sample_terms_term_name":"tissue",
     "tissues_developmental_stages_term_name":"development_stage",
     "tissues_multiplexing_barcodes": "sample_probe_barcode",
