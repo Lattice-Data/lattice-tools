@@ -188,6 +188,8 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
         # CAS column for what the network did — the very thing this function's
         # outcome exists to prevent. Only an *empty* list is a real answer.
         cids = resp.json()["IdentifierList"]["CID"]
+        if not isinstance(cids, list):
+            raise TypeError("CID is not a list")
         if len(cids) > 1:
             log.debug(
                 "CAS %s → %s CIDs, using first (canonical): %s",

@@ -7,6 +7,7 @@ import json
 import logging
 import sys
 from collections import Counter
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
@@ -53,6 +54,11 @@ SUSPICIOUS_DISTINCT_MISSES = 5
 # ~14s of backoff to confirm it. Mirrors chebi_terms.MAX_CONSECUTIVE_FAILURES.
 MAX_CONSECUTIVE_OUTAGE_ROWS = 5
 
+# Coupled to MIN_OUTAGE_ROWS_FOR_DEGRADED above: a side that trips has by
+# construction already met that floor, so past a trip only the majority test is
+# still doing work. Lowering the trip threshold below the floor would let a side
+# be dropped before its outage counts as evidence.
+#
 # ...but "down" is an inference, so it is re-tested this often. Long enough that a
 # genuine outage costs few probes, short enough that a sparse column which tripped
 # on scattered blips recovers well inside a normal sheet.
@@ -287,11 +293,23 @@ class _OutageBreaker:
         )
 
     def note(
-        self, result: dict[str, Any], skipped: frozenset[str]
+        self,
+        result: dict[str, Any],
+        skipped: frozenset[str],
+        *,
+        present: Collection[str] = (),
     ) -> tuple[list[str], list[str]]:
-        """Fold one row in. Returns (sides newly tripped, sides newly recovered)."""
+        """
+        Fold one row in. Returns (sides newly tripped, sides newly recovered).
+
+        `present` names the sides whose cell was non-blank, so the probe interval
+        counts attempts rather than rows: on a sparsely mapped column, rows with
+        nothing in them are not tries and must not bring the next probe forward.
+        """
         tripped, recovered = [], []
         for side in self.SIDES:
+            if side not in present:
+                continue
             if side in skipped:
                 self._since_probe[side] += 1
                 continue
@@ -337,13 +355,28 @@ class _SideAccumulator:
     _RANK = {IDENTIFIER_RESOLVED: 3, IDENTIFIER_MISSING: 2, IDENTIFIER_UNREACHABLE: 1}
 
     def add(
-        self, result: dict[str, Any], *, cas: str, chebi_id: str, name: str
+        self,
+        result: dict[str, Any],
+        *,
+        cas: str,
+        chebi_id: str,
+        name: str,
+        skipped: Collection[str] = (),
     ) -> None:
         for side, value in (("cas", cas), ("chebi", chebi_id), ("name", name)):
             status = result.get(f"{side}_status")
             if not value or status not in self._RANK:
                 # Blank cells and sides that were never checked are not evidence
                 # about anything: a partly-filled sheet is normal input.
+                continue
+            if side in skipped:
+                # The breaker inferred this row's `unreachable` from the rows that
+                # tripped it; it is not independent evidence, and folding it in
+                # would let the inference confirm itself. Five real failures
+                # would become twenty-five outage rows and flip a run that
+                # recovered into exit 1 — manufacturing the very verdict the
+                # majority test exists to require evidence for. The row is still
+                # honestly marked unreachable in `unasked`; it just does not vote.
                 continue
             if status == IDENTIFIER_RESOLVED:
                 self._resolved_rows[side] += 1
@@ -559,7 +592,7 @@ def check_file(
                 # direction the cache undercounted it — and that number is what
                 # an operator uses to sanity-check runtime.
                 requested = {s for s, v in (("chebi", chebi_id), ("name", name)) if v}
-                if cas and requested and (requested | {"cas"}) - skipped:
+                if cas and requested and "cas" not in skipped:
                     attempted_keys.add(key)
                 result = check_row(cas=cas, chebi_id=chebi_id, name=name, skip=skipped)
                 # Outages are not cached. A transient failure on one triple must
@@ -579,7 +612,7 @@ def check_file(
             review_counts[review] += 1
             for field in ("id_cas_verdict", "name_cas_verdict"):
                 verdict_counts[result[field]] += 1
-            tallies.add(result, cas=cas, chebi_id=chebi_id, name=name)
+            tallies.add(result, cas=cas, chebi_id=chebi_id, name=name, skipped=skipped)
 
             # A cache hit is not evidence the upstream recovered — since
             # outages are never cached, a hit means a row that succeeded
@@ -587,7 +620,12 @@ def check_file(
             # would let a sheet with repeated compounds clear the streak
             # forever. chebi_terms refuses this for the same reason.
             if not from_cache:
-                tripped, recovered = breaker.note(result, skipped)
+                present = {
+                    s
+                    for s, v in (("cas", cas), ("chebi", chebi_id), ("name", name))
+                    if v
+                }
+                tripped, recovered = breaker.note(result, skipped, present=present)
                 for side in tripped:
                     log.error(
                         "%s has been unreachable for %s attempts in a row, at row "
@@ -649,24 +687,24 @@ def _report(
     for label, _flag, tally in summary.sides:
         if tally.outage_rows and label not in summary.outages:
             log.warning(
-                "%s went unanswered on %s of %s rows because the upstream could not "
-                "be reached. Those rows are marked in the 'unasked' column; a re-run "
-                "would answer them.",
+                "%s went unanswered on %s of the %s rows it was tried on, because "
+                "the upstream could not be reached. Those rows are marked in the "
+                "'unasked' column; a re-run would answer them.",
                 label,
                 tally.outage_rows,
-                total,
+                tally.outage_rows + tally.answered_rows,
             )
 
     for label, _flag, tally in summary.sides:
         if label in summary.outages:
             log.error(
-                "%s went unanswered on %s of %s rows — more than the upstream "
-                "answered at all (%s), so this output is not a verdict on that "
-                "question. The API was unreachable, not merely unhelpful; re-run "
-                "once it is back.",
+                "%s went unanswered on %s of the %s rows it was tried on — more "
+                "than the upstream answered at all (%s), so this output is not a "
+                "verdict on that question. The API was unreachable, not merely "
+                "unhelpful; re-run once it is back.",
                 label,
                 tally.outage_rows,
-                total,
+                tally.outage_rows + tally.answered_rows,
                 tally.answered_rows,
             )
     for label, flag, tally in summary.sides:

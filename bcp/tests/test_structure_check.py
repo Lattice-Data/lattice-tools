@@ -34,6 +34,7 @@ from structure_check.client import (
     skeleton,
 )
 from structure_check.io import (
+    MAX_CONSECUTIVE_OUTAGE_ROWS,
     RunSummary,
     SideTally,
     StructureCheckError,
@@ -2090,3 +2091,133 @@ def test_unasked_names_whichever_side_went_unanswered(
         result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol")
 
     assert result["unasked"] == expected
+
+
+# --------------------------------------------------------------------------
+# check_row's skip= contract, exercised directly
+#
+# Every breaker test patches structure_check.io.check_row with a fake, so the
+# real branches were never executed. skip= is a public keyword argument whose
+# behaviour the docs describe ("marked unreachable without a request").
+# --------------------------------------------------------------------------
+
+
+@patch("structure_check.client.name_structure")
+@patch("structure_check.client.chebi_structure")
+@patch("structure_check.client.cas_structure")
+def test_skipping_the_cas_side_costs_no_request_at_all(
+    mock_cas: MagicMock, mock_chebi: MagicMock, mock_name: MagicMock
+) -> None:
+    """The CAS is the pivot, so skipping it settles both verdicts."""
+    from structure_check.client import CAS_UNREACHABLE, IDENTIFIER_UNREACHABLE
+
+    result = check_row(
+        cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol", skip={"cas"}
+    )
+
+    mock_cas.assert_not_called()
+    mock_chebi.assert_not_called()
+    mock_name.assert_not_called()
+    assert result["cas_status"] == IDENTIFIER_UNREACHABLE
+    assert result["id_cas_verdict"] == CAS_UNREACHABLE
+    assert result["name_cas_verdict"] == CAS_UNREACHABLE
+    assert result["unasked"] == "both"
+
+
+@patch("structure_check.client.name_structure")
+@patch("structure_check.client.chebi_structure")
+@patch("structure_check.client.cas_structure")
+def test_skipping_the_chebi_side_leaves_the_name_check_running(
+    mock_cas: MagicMock, mock_chebi: MagicMock, mock_name: MagicMock
+) -> None:
+    from structure_check.client import CHEBI_UNREACHABLE, IDENTIFIER_UNREACHABLE
+
+    mock_cas.return_value = (ETHANOL, "Ethanol")
+    mock_name.return_value = ("Ethanol", [ETHANOL], 1)
+
+    result = check_row(
+        cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol", skip={"chebi"}
+    )
+
+    mock_chebi.assert_not_called()
+    mock_name.assert_called_once()
+    assert result["chebi_status"] == IDENTIFIER_UNREACHABLE
+    assert result["id_cas_verdict"] == CHEBI_UNREACHABLE
+    assert result["name_cas_verdict"] == MATCH
+    assert result["unasked"] == "id"
+
+
+@patch("structure_check.client.name_structure")
+@patch("structure_check.client.chebi_structure")
+@patch("structure_check.client.cas_structure")
+def test_skipping_the_name_side_leaves_the_id_check_running(
+    mock_cas: MagicMock, mock_chebi: MagicMock, mock_name: MagicMock
+) -> None:
+    from structure_check.client import IDENTIFIER_UNREACHABLE, NAME_UNREACHABLE
+
+    mock_cas.return_value = (ETHANOL, "Ethanol")
+    mock_chebi.return_value = (ETHANOL, "")
+
+    result = check_row(
+        cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol", skip={"name"}
+    )
+
+    mock_name.assert_not_called()
+    mock_chebi.assert_called_once()
+    assert result["name_status"] == IDENTIFIER_UNREACHABLE
+    assert result["name_cas_verdict"] == NAME_UNREACHABLE
+    assert result["id_cas_verdict"] == MATCH
+    assert result["unasked"] == "name"
+
+
+@patch("structure_check.io.check_row")
+def test_breaker_skipped_rows_do_not_vote_in_the_outage_majority(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    The breaker must not manufacture the evidence that justifies it.
+
+    Five real failures trip it; the twenty rows it then skips are inferred from
+    those same five. Counting them turned 5-vs-25 into 25-vs-5 and flipped a run
+    that recovered into exit 1.
+    """
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+
+    live = [0]
+
+    def per_row(*, cas, chebi_id, name, skip=()):
+        if "chebi" in skip:
+            return _row_result(
+                review=REVIEW_UNVERIFIED,
+                id_cas_verdict=CHEBI_UNREACHABLE,
+                cas_status=IDENTIFIER_RESOLVED,
+                chebi_status=IDENTIFIER_UNREACHABLE,
+            )
+        live[0] += 1
+        down = live[0] <= MAX_CONSECUTIVE_OUTAGE_ROWS
+        return _row_result(
+            review=REVIEW_UNVERIFIED if down else REVIEW_OK,
+            id_cas_verdict=CHEBI_UNREACHABLE if down else MATCH,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE if down else IDENTIFIER_RESOLVED,
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src, ["CAS", "ChEBI ID"], [[f"{n}-00-0", f"CHEBI:{n}"] for n in range(30)]
+    )
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID"
+    )
+
+    # Only the rows actually asked about count as evidence.
+    assert summary.chebi.outage_rows == MAX_CONSECUTIVE_OUTAGE_ROWS
+    assert summary.outages == ()
+    assert not summary.degraded

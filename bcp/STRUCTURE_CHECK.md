@@ -200,6 +200,8 @@ It stops rather than *aborts* deliberately. Killing the run would throw away the
 
 Being tripped is an *inference*, so it is re-tested every `OUTAGE_PROBE_INTERVAL` (20) attempts, and a successful probe clears it. Without that, five scattered blips on a sparsely mapped column would poison every remaining row with an `unreachable` no request was ever made for — an answer manufactured from a silence, which is the one thing this tool refuses to do.
 
+For the same reason, **skipped rows do not vote in the `outages` majority.** They are marked `unreachable` in the CSV and in `unasked`, because that is what they are, but they are inferred from the rows that tripped the breaker and carry no evidence those rows did not already carry. Counting them would let the breaker confirm itself: five real failures on a thirty-row sheet became twenty-five outage rows against five answers, flipping a run whose upstream *recovered* into exit 1. A genuinely dead upstream still fires easily — the trip rows plus one failed probe per interval outnumber zero answers.
+
 **Programmatic use:**
 
 ```python

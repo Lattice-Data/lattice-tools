@@ -209,9 +209,13 @@ def _is_salt_word(fragment: str) -> bool:
     """
     True when a name fragment denotes a counterion, salt form, or hydration state.
 
-    Deliberately generous. Firing wrongly only disables the token fallback, whose
-    worst outcome is name_unresolved; failing to fire lets the fallback query a
-    free base against a salt's CAS and invent a difference.
+    Deliberately generous, and wider than "counterion" strictly implies: after
+    digits are stripped, bare element symbols match too, so "Vitamin_K3" and
+    "CA_074_Me" also lose the fallback. That is the safe direction — firing
+    wrongly only disables the token fallback, whose worst outcome is
+    name_unresolved, and the whole-string forms still run — while failing to fire
+    lets the fallback query a free base against a salt's CAS and invent a
+    difference.
     """
     # Stripped from both ends: a multiplicity prefix ("2Na") and a stoichiometry
     # suffix ("Na2") are the same counterion written two ways.
@@ -449,6 +453,11 @@ def _first_cid(resp: Any) -> int | None:
         return None
     try:
         cids = resp.json()["IdentifierList"]["CID"]
+        if not isinstance(cids, list):
+            # A string payload would otherwise subscript to its first character
+            # — "5291" quietly becoming "5" — the one malformed shape the int
+            # and dict guards let through.
+            raise TypeError("CID is not a list")
         return cids[0] if cids else None
     except (ValueError, KeyError, TypeError, IndexError):
         return None
