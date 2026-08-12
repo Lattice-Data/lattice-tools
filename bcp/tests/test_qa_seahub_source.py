@@ -14,7 +14,10 @@ import pytest
 
 from qa_seahub_recon import reconcile_trimming
 from qa_seahub_source import (
+    SourceCoverage,
+    UntrimmedSources,
     WaferSeeds,
+    _index_prefix,
     _wafer_seeds,
     derive_source_experiment,
     derive_source_order,
@@ -491,11 +494,14 @@ class TestIndexUntrimmedSources:
             == f"{entry.cram_key[: -len('.cram')]}.cram-metadata.json"
         )
 
-    def test_a_well_delivered_twice_keeps_one_and_reports_the_other(self):
-        """A re-delivery must not silently overwrite.
+    def test_a_well_delivered_twice_keeps_the_newest_and_reports_the_other(self):
+        """A re-delivery must not silently overwrite, and must not lose either.
 
         The previous single-prefix indexer assigned unconditionally, so one of
-        the two orders vanished with no record.
+        the two orders vanished with no record. The order-taking rule that
+        replaced it then took the lexicographic *minimum*, which keeps the
+        original and discards the re-delivery -- backwards, since a well is
+        mostly re-delivered because the first copy was wrong.
         """
         s3 = self._s3(
             ("NVUS0000000000-11", "437120", P04_STEM),
@@ -504,12 +510,31 @@ class TestIndexUntrimmedSources:
         result = index_untrimmed_sources(s3, [ORDER_11, ORDER_12])
 
         assert len(result.index) == 1
-        assert result.index[("437120", "Z0001")].source_order == "NVUS0000000000-11"
+        assert result.index[("437120", "Z0001")].source_order == "NVUS0000000000-12"
         duplicates = [
             f for f in result.findings if f["category"] == "duplicate_source_well"
         ]
         assert len(duplicates) == 1
-        assert "NVUS0000000000-12" in duplicates[0]["detail"]
+        assert "NVUS0000000000-11" in duplicates[0]["detail"]
+
+    def test_an_unplaceable_key_loses_to_a_well_formed_one(self):
+        """An empty order sorts before every real one, so it used to win outright.
+
+        The key here has no ``raw`` segment at the expected depth, so
+        ``derive_source_order`` reads no order from it -- and taking the minimum
+        then preferred the one copy whose provenance QA cannot state.
+        """
+        good = _vendor_layout_key("NVUS0000000000-11", "437120", P04_STEM)
+        odd = f"labalpha-seahub-bcp/NVUS0000000000-11/REF3/{P04_STEM}.cram"
+        result = index_untrimmed_sources(MockS3Client(keys=[good, odd]), [ORDER_11])
+
+        entry = result.index[("437120", "Z0001")]
+        assert entry.cram_key == good
+        assert entry.source_order == "NVUS0000000000-11"
+        duplicates = [
+            f for f in result.findings if f["category"] == "duplicate_source_well"
+        ]
+        assert [f["source_key"] for f in duplicates] == [odd]
 
     def test_the_winner_does_not_depend_on_the_caller_list_order(self):
         s3 = self._s3(
@@ -1017,3 +1042,71 @@ class TestWaferSeeds:
     def test_no_input_at_all_is_empty_rather_than_an_error(self):
         assert _wafer_seeds() == WaferSeeds()
         assert len(WaferSeeds()) == 0
+
+
+class TestASidecarStaysInItsOwnBucket:
+    """A CRAM must not be credited with a sidecar from a different bucket.
+
+    ``sidecar_by_stem_key`` outlives the per-prefix loop, so keying it on the
+    stem alone let a CRAM in one bucket resolve a sidecar that exists at the
+    same path in another. The entry then claims metadata it does not have, and
+    the fetch that follows misses and degrades to ``metadata_unavailable`` --
+    indistinguishable from a vendor sidecar with no ``read_count`` in it.
+
+    Driven through ``_index_prefix`` directly because ``MockS3Client`` returns
+    the same keys for every bucket, so the two-bucket case cannot be expressed
+    through ``index_untrimmed_sources`` yet.
+    """
+
+    PATH = f"labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120/{P04_STEM}"
+
+    class _Paginator:
+        def __init__(self, per_bucket: dict[str, list[str]]):
+            self.per_bucket = per_bucket
+
+        def paginate(self, Bucket: str, Prefix: str):
+            keys = [k for k in self.per_bucket.get(Bucket, []) if k.startswith(Prefix)]
+            return [{"Contents": [{"Key": k, "Size": 10} for k in keys]}]
+
+    def _index_both(self, per_bucket: dict[str, list[str]]):
+        """Index every bucket into one shared sidecar map, sidecar bucket first."""
+        sources = UntrimmedSources()
+        sidecars: dict[tuple[str, str], str] = {}
+        for bucket in per_bucket:
+            coverage = SourceCoverage(
+                source_uri=f"s3://{bucket}/x/", bucket=bucket, prefix="labalpha"
+            )
+            _index_prefix(
+                self._Paginator(per_bucket),
+                bucket,
+                "labalpha",
+                f"s3://{bucket}/x/",
+                "",
+                sources,
+                coverage,
+                sidecars,
+            )
+        return sources, sidecars
+
+    def test_a_sidecar_in_another_bucket_does_not_resolve(self):
+        sources, sidecars = self._index_both(
+            {
+                "czi-other": [f"{self.PATH}.cram-metadata.json"],
+                "czi-novogene": [f"{self.PATH}.cram"],
+            }
+        )
+        entry = sources.index[("437120", "Z0001")]
+
+        assert entry.bucket == "czi-novogene"
+        assert sidecars.get((entry.bucket, entry.cram_key[: -len(".cram")])) is None
+
+    def test_a_sidecar_beside_its_own_cram_still_resolves(self):
+        """The fix must not stop the ordinary same-bucket case working."""
+        sources, sidecars = self._index_both(
+            {"czi-novogene": [f"{self.PATH}.cram", f"{self.PATH}.cram-metadata.json"]}
+        )
+        entry = sources.index[("437120", "Z0001")]
+
+        assert sidecars[(entry.bucket, entry.cram_key[: -len(".cram")])] == (
+            f"{self.PATH}.cram-metadata.json"
+        )

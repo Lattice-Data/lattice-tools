@@ -374,6 +374,144 @@ def _dedupe_overlapping(
     return survivors, skipped
 
 
+def _prefer_source_entry(
+    a: SourceEntry, b: SourceEntry
+) -> tuple[SourceEntry, SourceEntry]:
+    """Choose between two vendor CRAMs claiming one ``(wafer, UG)``; ``(winner, loser)``.
+
+    A named predicate rather than an inline sort key, because which copy of a
+    re-delivered well QA compares against decides every downstream number for
+    that well, and the rule needs somewhere to be read and argued with.
+
+    Order of preference:
+
+    1. A key whose layout exposes an order beats one that does not.  An
+       unplaceable key -- wrong depth, no ``raw`` segment -- used to win
+       outright, because ``derive_source_order`` returns ``""`` for it and the
+       empty string sorts before every real order.
+    2. The **newest** order.  This reverses the previous rule, which took the
+       lexicographic minimum and so kept the *original* delivery and discarded
+       the re-delivery -- backwards for the case duplicates mostly arise from,
+       where the vendor re-sent a well because the first copy was wrong.
+    3. The lower key, so the answer never depends on listing or caller order.
+
+    Lexicographic comparison stands in for chronological here: a vendor order is
+    ``[A-Z]{2,}\\d{6,}-\\d{2,}`` (SEAHUB_VENDOR_ORDER_RE), so a fixed-width date
+    leads and orders from one vendor compare correctly.  Two orders whose date
+    parts differ in width would not, which is why rule 3 exists rather than
+    being unreachable.
+
+    This is deliberately *not* the final word.  The evidence that actually
+    settles which copy was trimmed is whether a candidate's ``read_count``
+    matches one of the trimmer's declared input totals -- and neither is known
+    here: ``load_source_read_counts`` runs after this function returns, and the
+    trimmer's totals come from the trimmed side, which is indexed later still.
+    Arbitrating on that evidence belongs after reconciliation has both.
+    """
+    if bool(a.source_order) != bool(b.source_order):
+        return (a, b) if a.source_order else (b, a)
+    if a.source_order != b.source_order:
+        return (a, b) if a.source_order > b.source_order else (b, a)
+    return (a, b) if a.cram_key < b.cram_key else (b, a)
+
+
+def _index_prefix(
+    paginator: Any,
+    bucket: str,
+    prefix: str,
+    uri: str,
+    experiment_id: str,
+    sources: UntrimmedSources,
+    coverage: SourceCoverage,
+    sidecar_by_stem_key: dict[tuple[str, str], str],
+) -> tuple[set[str], dict[str, int], int]:
+    """Index every per-well CRAM under one listed prefix into ``sources``.
+
+    Lifted out of :func:`index_untrimmed_sources` unchanged so that the object
+    loop -- the part wafer-seeded discovery needs to reuse against a prefix it
+    located itself, rather than one an operator typed -- has a caller boundary.
+    Everything around it stays where it was: the overlap pass, the per-prefix
+    findings, and the coverage finalisation all remain in the caller.
+
+    Mutates ``sources.index``, ``sources.findings``, ``coverage.cram_keys`` and
+    ``sidecar_by_stem_key``; returns the per-prefix tallies the caller needs to
+    emit its own findings -- orders seen, foreign wells by experiment, and the
+    count of wells whose key does not expose an ExperimentID.
+    """
+    orders_seen: set[str] = set()
+    foreign_wells: dict[str, int] = {}
+    unplaced_wells = 0
+
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if _is_skippable_source_key(key):
+                continue
+            name = key.split("/")[-1]
+            is_sidecar = name.endswith(_SIDECAR_SUFFIX)
+            if not is_sidecar and not name.endswith(_CRAM_SUFFIX):
+                continue
+            stem = (
+                name[: -len(_SIDECAR_SUFFIX)]
+                if is_sidecar
+                else name[: -len(_CRAM_SUFFIX)]
+            )
+            fields = parse_seahub_stem_fields(stem)
+            if fields is None:
+                continue
+            if is_sidecar:
+                sidecar_by_stem_key[(bucket, key[: -len(_SIDECAR_SUFFIX)])] = key
+                continue
+
+            if experiment_id:
+                experiment = derive_source_experiment(key)
+                if not experiment:
+                    unplaced_wells += 1
+                elif not source_experiment_matches(experiment, experiment_id):
+                    foreign_wells[experiment] = foreign_wells.get(experiment, 0) + 1
+                    continue
+
+            order = derive_source_order(key)
+            orders_seen.add(order or SEAHUB_UNKNOWN_ORDER_LABEL)
+            coverage.cram_keys += 1
+            candidate = SourceEntry(
+                wafer=str(fields["wafer"]),
+                ug=str(fields["ug"]),
+                barcode=str(fields["barcode"]),
+                group=str(fields["group"]),
+                assay=fields["assay"],
+                cram_key=key,
+                size_bytes=int(obj.get("Size", 0) or 0),
+                bucket=bucket,
+                source_uri=uri,
+                source_order=order,
+            )
+            identity = (candidate.wafer, candidate.ug)
+            incumbent = sources.index.get(identity)
+            if incumbent is None:
+                sources.index[identity] = candidate
+                continue
+
+            winner, loser = _prefer_source_entry(incumbent, candidate)
+            sources.index[identity] = winner
+            sources.findings.append(
+                finding_row(
+                    "duplicate_source_well",
+                    wafer=candidate.wafer,
+                    ug=candidate.ug,
+                    source_key=loser.cram_key,
+                    detail=(
+                        f"well delivered by more than one source: kept "
+                        f"{winner.s3_uri} (order {winner.source_order or '?'}), "
+                        f"ignored {loser.s3_uri} "
+                        f"(order {loser.source_order or '?'})"
+                    ),
+                )
+            )
+
+    return orders_seen, foreign_wells, unplaced_wells
+
+
 def index_untrimmed_sources(
     s3_client: Any, uris: Any, experiment_id: str = ""
 ) -> UntrimmedSources:
@@ -420,85 +558,29 @@ def index_untrimmed_sources(
         )
 
     paginator = s3_client.get_paginator("list_objects")
-    # Keyed on the stem so a sidecar can only ever attach to its own CRAM,
-    # independent of listing order.
-    sidecar_by_stem_key: dict[str, str] = {}
+    # Keyed on (bucket, stem) so a sidecar can only ever attach to its own CRAM,
+    # independent of listing order. The bucket belongs in the key because this
+    # dict outlives the per-prefix loop: with only the stem, a CRAM in one bucket
+    # is credited with a sidecar that exists at the same path in a *different*
+    # one, so the entry claims metadata it does not have. load_source_read_counts
+    # then fetches from the entry's own bucket, misses, and degrades to
+    # metadata_unavailable -- which reads as "the vendor's sidecar has no
+    # read_count" rather than "no sidecar was delivered here". Latent while one
+    # bucket is listed; likely once prefixes are discovered rather than typed.
+    sidecar_by_stem_key: dict[tuple[str, str], str] = {}
 
     for uri, bucket, prefix in survivors:
         coverage = SourceCoverage(source_uri=uri, bucket=bucket, prefix=prefix)
-        orders_seen: set[str] = set()
-        foreign_wells: dict[str, int] = {}
-        unplaced_wells = 0
-
-        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if _is_skippable_source_key(key):
-                    continue
-                name = key.split("/")[-1]
-                is_sidecar = name.endswith(_SIDECAR_SUFFIX)
-                if not is_sidecar and not name.endswith(_CRAM_SUFFIX):
-                    continue
-                stem = (
-                    name[: -len(_SIDECAR_SUFFIX)]
-                    if is_sidecar
-                    else name[: -len(_CRAM_SUFFIX)]
-                )
-                fields = parse_seahub_stem_fields(stem)
-                if fields is None:
-                    continue
-                if is_sidecar:
-                    sidecar_by_stem_key[key[: -len(_SIDECAR_SUFFIX)]] = key
-                    continue
-
-                if experiment_id:
-                    experiment = derive_source_experiment(key)
-                    if not experiment:
-                        unplaced_wells += 1
-                    elif not source_experiment_matches(experiment, experiment_id):
-                        foreign_wells[experiment] = foreign_wells.get(experiment, 0) + 1
-                        continue
-
-                order = derive_source_order(key)
-                orders_seen.add(order or SEAHUB_UNKNOWN_ORDER_LABEL)
-                coverage.cram_keys += 1
-                candidate = SourceEntry(
-                    wafer=str(fields["wafer"]),
-                    ug=str(fields["ug"]),
-                    barcode=str(fields["barcode"]),
-                    group=str(fields["group"]),
-                    assay=fields["assay"],
-                    cram_key=key,
-                    size_bytes=int(obj.get("Size", 0) or 0),
-                    bucket=bucket,
-                    source_uri=uri,
-                    source_order=order,
-                )
-                identity = (candidate.wafer, candidate.ug)
-                incumbent = sources.index.get(identity)
-                if incumbent is None:
-                    sources.index[identity] = candidate
-                    continue
-
-                winner, loser = sorted(
-                    (incumbent, candidate),
-                    key=lambda e: (e.source_order, e.cram_key),
-                )
-                sources.index[identity] = winner
-                sources.findings.append(
-                    finding_row(
-                        "duplicate_source_well",
-                        wafer=candidate.wafer,
-                        ug=candidate.ug,
-                        source_key=loser.cram_key,
-                        detail=(
-                            f"well delivered by more than one source: kept "
-                            f"{winner.s3_uri} (order {winner.source_order or '?'}), "
-                            f"ignored {loser.s3_uri} "
-                            f"(order {loser.source_order or '?'})"
-                        ),
-                    )
-                )
+        orders_seen, foreign_wells, unplaced_wells = _index_prefix(
+            paginator,
+            bucket,
+            prefix,
+            uri,
+            experiment_id,
+            sources,
+            coverage,
+            sidecar_by_stem_key,
+        )
 
         for experiment, count in sorted(foreign_wells.items()):
             sources.findings.append(
@@ -534,7 +616,9 @@ def index_untrimmed_sources(
         sources.coverage.append(coverage)
 
     for identity, entry in sources.index.items():
-        sidecar = sidecar_by_stem_key.get(entry.cram_key[: -len(_CRAM_SUFFIX)])
+        sidecar = sidecar_by_stem_key.get(
+            (entry.bucket, entry.cram_key[: -len(_CRAM_SUFFIX)])
+        )
         if sidecar:
             entry.metadata_key = sidecar
 
