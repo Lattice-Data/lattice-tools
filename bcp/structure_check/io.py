@@ -56,12 +56,15 @@ MIN_OUTAGE_ROWS_FOR_DEGRADED = 5
 # Mirrors chebi_terms.SUSPICIOUS_TOTAL_MISS, which draws the same line.
 SUSPICIOUS_DISTINCT_MISSES = 5
 
-# How each side is named in the log, so an internal key never reaches an operator.
-SIDE_LABELS = {
-    "cas": "CAS (--cas-column)",
-    "chebi": "ChEBI ID (--chebi-column)",
-    "name": "name (--name-column)",
-}
+# One table for the three sides: internal key, human label, selecting flag. Every
+# other spelling is derived from it, so a rename cannot leave two vocabularies
+# agreeing only by string equality.
+SIDE_INFO = (
+    ("cas", "CAS", "--cas-column"),
+    ("chebi", "ChEBI ID", "--chebi-column"),
+    ("name", "name", "--name-column"),
+)
+SIDE_LABELS = {key: f"{label} ({flag})" for key, label, flag in SIDE_INFO}
 
 # A side that has failed this many attempts in a row is treated as down, and stops
 # being queried: the verdict is already settled and every further request costs
@@ -157,19 +160,19 @@ class RunSummary(NamedTuple):
     name: SideTally = SideTally()
     id_question: QuestionTally = QuestionTally()
     name_question: QuestionTally = QuestionTally()
+    # Sides the breaker was still refusing to query when the run ended. The
+    # difference between a tail that was never asked and one that recovered.
+    abandoned: frozenset[str] = frozenset()
 
     @property
     def needs_attention(self) -> int:
         return self.review_counts[REVIEW_INVESTIGATE] + self.review_counts[REVIEW_CHECK]
 
     @property
-    def sides(self) -> tuple[tuple[str, str, SideTally], ...]:
-        """(human label, the flag that selects it, its tally), in report order."""
-        return (
-            ("CAS", "--cas-column", self.cas),
-            ("ChEBI ID", "--chebi-column", self.chebi),
-            ("name", "--name-column", self.name),
-        )
+    def sides(self) -> tuple[tuple[str, str, str, SideTally], ...]:
+        """(key, human label, selecting flag, tally), in report order."""
+        tallies = {"cas": self.cas, "chebi": self.chebi, "name": self.name}
+        return tuple((key, label, flag, tallies[key]) for key, label, flag in SIDE_INFO)
 
     @property
     def outages(self) -> tuple[str, ...]:
@@ -205,10 +208,29 @@ class RunSummary(NamedTuple):
         """
         return tuple(
             label
-            for label, _flag, tally in self.sides
-            if tally.outage_rows > tally.answered_rows
-            and tally.outage_rows >= MIN_OUTAGE_ROWS_FOR_DEGRADED
+            for key, label, _flag, tally in self.sides
+            if self._unanswered(key, tally) > tally.answered_rows
+            and self._unanswered(key, tally) >= MIN_OUTAGE_ROWS_FOR_DEGRADED
         )
+
+    def _unanswered(self, key: str, tally: SideTally) -> int:
+        """
+        Rows this side left unanswered, counting skipped ones only if it never
+        came back.
+
+        Skipped rows are inferred, so a side that *recovered* must not be judged
+        on them — five real failures plus twenty provisional skips would flip a
+        run whose upstream came back. But a side still abandoned at the end has
+        no un-probed tail to give it the benefit of the doubt: every one of those
+        rows really did go unanswered, and the probes that would have shown
+        otherwise all failed. Without this, `outages` could only ever fire on a
+        side that was dead *early* — an upstream dying at row 100 of 500 left
+        ~24 outage rows against 99 answers and exited 0 with most of the sheet
+        unasked.
+        """
+        if key in self.abandoned:
+            return tally.outage_rows + tally.skipped_rows
+        return tally.outage_rows
 
     @property
     def suspect_columns(self) -> tuple[str, ...]:
@@ -236,7 +258,7 @@ class RunSummary(NamedTuple):
         out = self.outages
         return tuple(
             label
-            for label, _flag, tally in self.sides
+            for _key, label, _flag, tally in self.sides
             if not tally.resolved_values
             and label not in out
             and tally.missing_values >= SUSPICIOUS_DISTINCT_MISSES
@@ -258,8 +280,13 @@ class RunSummary(NamedTuple):
         Floored on rows the question was actually asked on, so two retired ChEBI
         IDs among 117 rows stay a finding rather than becoming a broken run.
         """
+        return tuple(label for label, _tally in self.dead_question_tallies)
+
+    @property
+    def dead_question_tallies(self) -> tuple[tuple[str, QuestionTally], ...]:
+        """dead_questions, paired with the tally that condemned each one."""
         return tuple(
-            label
+            (label, tally)
             for label, tally in (
                 ("ChEBI ID vs CAS", self.id_question),
                 ("name vs CAS", self.name_question),
@@ -293,7 +320,7 @@ class RunSummary(NamedTuple):
         """
         if not self.rows or self.review_counts[REVIEW_UNVERIFIED] != self.rows:
             return False
-        if any(tally.outage_rows for _label, _flag, tally in self.sides):
+        if any(tally.outage_rows for *_ignored, tally in self.sides):
             return True
         return self.rows >= MIN_ROWS_FOR_DEGRADED
 
@@ -351,6 +378,10 @@ class _OutageBreaker:
             for side in self._tripped
             if self._since_probe[side] < OUTAGE_PROBE_INTERVAL
         )
+
+    def abandoned(self) -> frozenset[str]:
+        """Sides still being refused at the end of the run."""
+        return frozenset(self._tripped)
 
     def note(
         self,
@@ -475,7 +506,12 @@ class _SideAccumulator:
         )
 
     def summary(
-        self, *, review_counts: Counter[str], verdict_counts: Counter[str], rows: int
+        self,
+        *,
+        review_counts: Counter[str],
+        verdict_counts: Counter[str],
+        rows: int,
+        abandoned: frozenset[str] = frozenset(),
     ) -> RunSummary:
         return RunSummary(
             review_counts=review_counts,
@@ -486,6 +522,7 @@ class _SideAccumulator:
             name=self._tally("name"),
             id_question=QuestionTally(self._asked["id"], self._compared["id"]),
             name_question=QuestionTally(self._asked["name"], self._compared["name"]),
+            abandoned=abandoned,
         )
 
 
@@ -732,7 +769,10 @@ def check_file(
                 log.info("[%s/%s] %s — %s", i, total, label, review)
 
     summary = tallies.summary(
-        review_counts=review_counts, verdict_counts=verdict_counts, rows=total
+        review_counts=review_counts,
+        verdict_counts=verdict_counts,
+        rows=total,
+        abandoned=breaker.abandoned(),
     )
     _report(summary, total=total, distinct=len(attempted_keys), output_path=output_path)
     return summary
@@ -770,7 +810,7 @@ def _report(
     # An outage below the majority line does not degrade the run, but it still left
     # rows unanswered, and those rows are only distinguishable from genuine answers
     # if someone says so. Reported whether or not the run is degraded.
-    for label, _flag, tally in summary.sides:
+    for _key, label, _flag, tally in summary.sides:
         if tally.outage_rows and label not in summary.outages:
             log.warning(
                 "%s went unanswered on %s of the %s rows it was tried on%s, because "
@@ -782,7 +822,7 @@ def _report(
                 _also_skipped(tally),
             )
 
-    for label, _flag, tally in summary.sides:
+    for _key, label, _flag, tally in summary.sides:
         if label in summary.outages:
             log.error(
                 "%s went unanswered on %s of the %s rows it was tried on — more "
@@ -795,7 +835,7 @@ def _report(
                 tally.answered_rows,
                 _also_skipped(tally),
             )
-    for label, flag, tally in summary.sides:
+    for _key, label, flag, tally in summary.sides:
         if label in summary.suspect_columns:
             log.error(
                 "%s (%s) produced nothing usable across %s distinct values, with no "
@@ -807,15 +847,13 @@ def _report(
                 label,
                 flag,
             )
-    for label in summary.dead_questions:
+    for label, tally in summary.dead_question_tallies:
         log.error(
             "%s was asked on %s rows and compared on none of them, so this output "
             "says nothing about that question. Every row failed for a reason of "
             "its own — see the 'Not compared' tally above for which.",
             label,
-            summary.id_question.asked
-            if label.startswith("ChEBI")
-            else summary.name_question.asked,
+            tally.asked,
         )
     if summary.nothing_compared:
         log.error(

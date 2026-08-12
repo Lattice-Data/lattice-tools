@@ -11,6 +11,8 @@ from pathlib import Path
 
 import requests
 
+import urllib.parse
+
 from .client import BASE, PROPERTIES, REQUEST_DELAY, get_with_retry
 
 log = logging.getLogger(__name__)
@@ -39,7 +41,9 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
     """
     out_dir = (out_root or FIXTURES_ROOT) / cas
 
-    resp = get_with_retry(f"{BASE}/compound/name/{cas}/cids/JSON")
+    resp = get_with_retry(
+        f"{BASE}/compound/name/{urllib.parse.quote(str(cas), safe='')}/cids/JSON"
+    )
     time.sleep(REQUEST_DELAY)
     if resp is None:
         log.error("No CID response for CAS %s", cas)

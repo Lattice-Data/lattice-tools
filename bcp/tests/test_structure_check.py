@@ -2305,3 +2305,61 @@ def test_check_file_flags_a_chebi_column_that_never_compares(
     assert summary.name_question.compared == 8
     assert summary.dead_questions == ("ChEBI ID vs CAS",)
     assert summary.degraded
+
+
+def test_an_upstream_that_dies_midway_still_degrades_the_run() -> None:
+    """
+    Skipped rows count when the side never came back.
+
+    outage_rows stops growing once the breaker trips, so without this a side
+    that died at row 100 of 500 shows ~24 unanswered against 99 answered and
+    exits 0 — the majority could only ever fire on a side dead from the start.
+    """
+    summary = _summary(
+        rows=500,
+        review_counts=Counter({REVIEW_OK: 500}),
+        chebi=SideTally(
+            resolved_values=100, resolved_rows=100, outage_rows=24, skipped_rows=377
+        ),
+        abandoned=frozenset({"chebi"}),
+    )
+    assert summary.outages == ("ChEBI ID",)
+    assert summary.degraded
+
+
+def test_a_side_that_came_back_is_not_judged_on_its_skipped_rows() -> None:
+    """The same tally, minus the abandonment, must stay quiet."""
+    summary = _summary(
+        rows=500,
+        review_counts=Counter({REVIEW_OK: 500}),
+        chebi=SideTally(
+            resolved_values=100, resolved_rows=100, outage_rows=24, skipped_rows=377
+        ),
+        abandoned=frozenset(),
+    )
+    assert summary.outages == ()
+    assert not summary.degraded
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_parent_inchikey_does_not_cache_a_garbled_two_hundred(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """
+    A maintenance page is a silence, not "this structure has no parent".
+
+    _first_cid swallowed an unparseable body into None, so the empty result was
+    memoised for the rest of the run — against the cache's own stated invariant,
+    and everywhere else in the module a 200 that is not this endpoint's JSON is
+    treated as unreachable.
+    """
+    import structure_check.client as sc
+
+    html = MagicMock(status_code=200)
+    html.json.side_effect = ValueError("not json")
+    mock_get.return_value = html
+
+    assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
+    assert DOXORUBICIN_HCL not in sc._parent_cache

@@ -123,6 +123,12 @@ def get_with_retry_status(
                 # retry-then-unreachable path below, where chebi_terms also puts
                 # them (it raises ChebiUnavailableError rather than reporting a
                 # miss).
+                #
+                # chebi_terms treats 400 as unavailable rather than as a miss,
+                # and that is right *there*: its URL is built from an ID already
+                # reduced to digits, so a 400 cannot have been caused by a sheet
+                # cell and must be the server. Here the path carries free text
+                # straight from the column, so a 400 usually is the cell.
                 log.warning("HTTP %s (not retryable): %s", resp.status_code, url)
                 return None, OUTCOME_NOT_FOUND
             else:

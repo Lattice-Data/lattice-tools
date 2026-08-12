@@ -430,11 +430,13 @@ def parent_inchikey(inchikey: str) -> str:
 
     result = ""
     key = urllib.parse.quote(inchikey, safe="")
-    cid = _first_cid(_step(f"{BASE}/compound/inchikey/{key}/cids/JSON"))
+    cid, garbled = _first_cid(_step(f"{BASE}/compound/inchikey/{key}/cids/JSON"))
+    unreachable = unreachable or garbled
     if cid is not None:
-        parent_cid = _first_cid(
+        parent_cid, garbled = _first_cid(
             _step(f"{BASE}/compound/cid/{cid}/cids/JSON?cids_type=parent")
         )
+        unreachable = unreachable or garbled
         if parent_cid is not None:
             resp = _step(f"{BASE}/compound/cid/{parent_cid}/property/InChIKey/JSON")
             if resp is not None:
@@ -442,6 +444,7 @@ def parent_inchikey(inchikey: str) -> str:
                     result = resp.json()["PropertyTable"]["Properties"][0]["InChIKey"]
                 except (ValueError, KeyError, IndexError, TypeError):
                     result = ""
+                    unreachable = True
 
     # Answers are cached, silences are not. "PubChem has no parent for this
     # structure" is an answer and will not change during the run, so caching the
@@ -452,9 +455,9 @@ def parent_inchikey(inchikey: str) -> str:
     return result
 
 
-def _first_cid(resp: Any) -> int | None:
+def _first_cid(resp: Any) -> tuple[int | None, bool]:
     """
-    First CID in a PUG list response, or None for anything unusable.
+    (first CID, payload was unusable). None for a genuine empty list.
 
     The subscript is inside the guard: a 200 whose CID field is an int or a dict
     rather than a list would otherwise raise out through parent_inchikey and
@@ -462,7 +465,7 @@ def _first_cid(resp: Any) -> int | None:
     would take the whole sheet down with it.
     """
     if resp is None:
-        return None
+        return None, False
     try:
         cids = resp.json()["IdentifierList"]["CID"]
         if not isinstance(cids, list):
@@ -470,9 +473,12 @@ def _first_cid(resp: Any) -> int | None:
             # — "5291" quietly becoming "5" — the one malformed shape the int
             # and dict guards let through.
             raise TypeError("CID is not a list")
-        return cids[0] if cids else None
+        return (cids[0] if cids else None), False
     except (ValueError, KeyError, TypeError, IndexError):
-        return None
+        # A 200 that is not this endpoint's JSON is a server fault, not an
+        # answer — the same reading every other resolver here gives it. Reported
+        # so the caller does not cache it as "no parent".
+        return None, True
 
 
 def refine_skeleton_difference(reference: str, candidates: list[str]) -> str:
