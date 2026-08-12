@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import urllib.parse
 from typing import Any
 
 import requests
@@ -94,7 +95,8 @@ def get_with_retry_status(
                     attempt,
                     MAX_RETRIES,
                 )
-                time.sleep(delay)
+                if attempt < MAX_RETRIES:
+                    time.sleep(delay)
                 delay *= 2
             elif 400 <= resp.status_code < 500:
                 # A client error is an answer about the *request*, not about the
@@ -115,7 +117,8 @@ def get_with_retry_status(
                     MAX_RETRIES,
                     url,
                 )
-                time.sleep(delay)
+                if attempt < MAX_RETRIES:
+                    time.sleep(delay)
                 delay *= 2
         except requests.exceptions.RequestException as exc:
             log.warning(
@@ -124,7 +127,12 @@ def get_with_retry_status(
                 attempt,
                 MAX_RETRIES,
             )
-            time.sleep(delay)
+            # No sleep after the final attempt: the backoff exists to space out
+            # the *next* try, and there isn't one. chebi_terms guards this too;
+            # it is 8 of the ~14s an exhausted request otherwise costs, paid on
+            # every row of a run against a dead upstream.
+            if attempt < MAX_RETRIES:
+                time.sleep(delay)
             delay *= 2
     log.error("Retries exhausted: %s", url)
     return None, OUTCOME_UNREACHABLE
@@ -145,13 +153,25 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
     moved endpoint. That is an outage wearing a success code, so it reports
     UNREACHABLE rather than being mistaken for "no such CAS". An empty CID list is
     a real answer and stays NOT_FOUND.
+
+    The CAS is quoted here rather than by the caller, since it reaches the URL
+    path and these values come from untrusted sheets: a stray "/" or "?" would
+    rewrite or truncate the request.
     """
-    resp, outcome = get_with_retry_status(f"{BASE}/compound/name/{cas}/cids/JSON")
+    resp, outcome = get_with_retry_status(
+        f"{BASE}/compound/name/{urllib.parse.quote(str(cas), safe='')}/cids/JSON"
+    )
     time.sleep(REQUEST_DELAY)
     if resp is None:
         return None, outcome
     try:
-        cids = resp.json().get("IdentifierList", {}).get("CID", [])
+        # Subscripted, not .get()-with-a-default: a body that parses as JSON but
+        # carries no IdentifierList at all is a different server answering
+        # (`{"Fault": ...}`), not PubChem saying "no such CAS". Defaulting it to
+        # [] would report NOT_FOUND, and five such values would then blame the
+        # CAS column for what the network did — the very thing this function's
+        # outcome exists to prevent. Only an *empty* list is a real answer.
+        cids = resp.json()["IdentifierList"]["CID"]
         if len(cids) > 1:
             log.debug(
                 "CAS %s → %s CIDs, using first (canonical): %s",
@@ -159,9 +179,6 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
                 len(cids),
                 cids[0],
             )
-        # Inside the guard: a CID field that is an int or a dict rather than a
-        # list is the same kind of malformed payload, and must not escape as a
-        # traceback when the docstring above promises UNREACHABLE.
         return (cids[0], OUTCOME_OK) if cids else (None, OUTCOME_NOT_FOUND)
     except (ValueError, KeyError, AttributeError, TypeError, IndexError):
         log.error("Unparseable CID payload for %s — treating as unreachable", cas)

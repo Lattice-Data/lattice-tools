@@ -624,10 +624,10 @@ def cas_structure(cas: Any) -> tuple[str, str]:
     text = str(cas or "").strip()
     if not text:
         return "", ""
-    # chebi_lookup.cas_to_cid_status interpolates straight into the URL path, and
-    # these cells come from the same untrusted sheet as the names: a stray "/" or
-    # "?" would rewrite or truncate the request. Every other URL here is quoted too.
-    cid, outcome = cas_to_cid_status(urllib.parse.quote(text, safe=""))
+    # Not quoted here: cas_to_cid_status quotes the value itself, so that its
+    # other caller (chebi_lookup.lookup_cas) is covered by the same guard rather
+    # than by each call site remembering. Quoting twice would encode the '%'.
+    cid, outcome = cas_to_cid_status(text)
     if outcome == OUTCOME_UNREACHABLE:
         raise PubChemUnavailableError(f"PubChem unreachable resolving CAS {text!r}")
     if cid is None:

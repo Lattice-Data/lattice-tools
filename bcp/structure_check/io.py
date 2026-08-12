@@ -68,7 +68,20 @@ class SideTally(NamedTuple):
     resolved_values: int = 0
     missing_values: int = 0
     resolved_rows: int = 0
+    missing_rows: int = 0
     outage_rows: int = 0
+
+    @property
+    def answered_rows(self) -> int:
+        """
+        Rows where the upstream said something, whether or not it was useful.
+
+        "No such compound" is an answer. Counting only the rows that *resolved*
+        would let five throttled rows outweigh a hundred honest 404s, which reads
+        as an outage on precisely the sheet — a column of internal codes PubChem
+        does not carry — where the answer is that the column is wrong.
+        """
+        return self.resolved_rows + self.missing_rows
 
 
 SINGLE_INPUT_FIELDS = ["name", "cas", "chebi_id"]
@@ -104,8 +117,8 @@ class RunSummary(NamedTuple):
         return self.review_counts[REVIEW_INVESTIGATE] + self.review_counts[REVIEW_CHECK]
 
     @property
-    def _sides(self) -> tuple[tuple[str, str, SideTally], ...]:
-        """(human label, the flag that selects it, its tally)."""
+    def sides(self) -> tuple[tuple[str, str, SideTally], ...]:
+        """(human label, the flag that selects it, its tally), in report order."""
         return (
             ("CAS", "--cas-column", self.cas),
             ("ChEBI ID", "--chebi-column", self.chebi),
@@ -124,6 +137,13 @@ class RunSummary(NamedTuple):
         would exit 1 on healthy large runs, and an exit code that cries wolf stops
         being read — which would cost more than the case it was added to catch.
 
+        The majority is against every row the upstream *answered*, not just the
+        ones that resolved: a definite "no such compound" is an answer, and
+        leaving it out let five throttled rows outweigh a hundred honest 404s.
+        That misfires exactly where it costs most — against a wrong column
+        nothing resolves by construction, so the outage branch would fire and
+        suppress the diagnosis that would have named the real problem.
+
         A majority needs no tuned constant: once most of what was asked went
         unanswered, the output is not a verdict on the sheet whatever the rest says.
         Rows below that line are still marked individually, in the `unasked` column.
@@ -139,8 +159,8 @@ class RunSummary(NamedTuple):
         """
         return tuple(
             label
-            for label, _flag, tally in self._sides
-            if tally.outage_rows > tally.resolved_rows
+            for label, _flag, tally in self.sides
+            if tally.outage_rows > tally.answered_rows
             and tally.outage_rows >= MIN_OUTAGE_ROWS_FOR_DEGRADED
         )
 
@@ -170,7 +190,7 @@ class RunSummary(NamedTuple):
         out = self.outages
         return tuple(
             label
-            for label, _flag, tally in self._sides
+            for label, _flag, tally in self.sides
             if not tally.resolved_values
             and label not in out
             and tally.missing_values >= SUSPICIOUS_DISTINCT_MISSES
@@ -202,7 +222,7 @@ class RunSummary(NamedTuple):
         """
         if not self.rows or self.review_counts[REVIEW_UNVERIFIED] != self.rows:
             return False
-        if any(tally.outage_rows for _label, _flag, tally in self._sides):
+        if any(tally.outage_rows for _label, _flag, tally in self.sides):
             return True
         return self.rows >= MIN_ROWS_FOR_DEGRADED
 
@@ -271,6 +291,7 @@ class _SideAccumulator:
         # condemn a value that resolved on another row.
         self._values: dict[str, dict[str, str]] = {s: {} for s in self.SIDES}
         self._resolved_rows: Counter[str] = Counter()
+        self._missing_rows: Counter[str] = Counter()
         self._outage_rows: Counter[str] = Counter()
 
     # RESOLVED beats MISSING beats UNREACHABLE: an answer outranks a silence.
@@ -287,6 +308,8 @@ class _SideAccumulator:
                 continue
             if status == IDENTIFIER_RESOLVED:
                 self._resolved_rows[side] += 1
+            elif status == IDENTIFIER_MISSING:
+                self._missing_rows[side] += 1
             elif status == IDENTIFIER_UNREACHABLE:
                 self._outage_rows[side] += 1
             best = self._values[side].get(value)
@@ -299,6 +322,7 @@ class _SideAccumulator:
             resolved_values=sum(1 for s in statuses if s == IDENTIFIER_RESOLVED),
             missing_values=sum(1 for s in statuses if s == IDENTIFIER_MISSING),
             resolved_rows=self._resolved_rows[side],
+            missing_rows=self._missing_rows[side],
             outage_rows=self._outage_rows[side],
         )
 
@@ -570,7 +594,7 @@ def _report(
     # An outage below the majority line does not degrade the run, but it still left
     # rows unanswered, and those rows are only distinguishable from genuine answers
     # if someone says so. Reported whether or not the run is degraded.
-    for label, _flag, tally in summary._sides:
+    for label, _flag, tally in summary.sides:
         if tally.outage_rows and label not in summary.outages:
             log.warning(
                 "%s went unanswered on %s of %s rows because the upstream could not "
@@ -581,18 +605,19 @@ def _report(
                 total,
             )
 
-    for label, _flag, tally in summary._sides:
+    for label, _flag, tally in summary.sides:
         if label in summary.outages:
             log.error(
-                "%s could not be resolved on %s of %s rows — more than were answered "
-                "(%s), so this output is not a verdict on that question. The upstream "
-                "API was unreachable, not merely unhelpful; re-run once it is back.",
+                "%s went unanswered on %s of %s rows — more than the upstream "
+                "answered at all (%s), so this output is not a verdict on that "
+                "question. The API was unreachable, not merely unhelpful; re-run "
+                "once it is back.",
                 label,
                 tally.outage_rows,
                 total,
-                tally.resolved_rows,
+                tally.answered_rows,
             )
-    for label, flag, tally in summary._sides:
+    for label, flag, tally in summary.sides:
         if label in summary.suspect_columns:
             log.error(
                 "%s (%s) produced nothing usable across %s distinct values, with no "

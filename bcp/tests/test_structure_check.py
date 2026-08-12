@@ -312,7 +312,7 @@ def test_check_row_unresolved_cas_blocks_both_comparisons() -> None:
 def test_check_row_blank_cas_is_not_checked_rather_than_unresolved() -> None:
     """A blank CAS cell was never asked about; that is not the same failure as
     PubChem drawing a blank on a CAS it was given, so it must not be counted the
-    same way (dead_checks divides unresolved rows by attempted rows)."""
+    same way. cas_status stays not_checked and enters none of the run tallies."""
     cas_p, chebi_p, name_p, refine_p = _patch_lookups(cas_key="", cas_name="")
     with cas_p, chebi_p, name_p, refine_p:
         result = check_row(cas="", chebi_id="CHEBI:16236", name="Ethanol")
@@ -1961,3 +1961,158 @@ def test_check_file_rejects_the_same_column_for_chebi_and_name(tmp_path: Path) -
             chebi_column="ChEBI ID",
             name_column="ChEBI ID",
         )
+
+
+def test_an_answered_404_counts_as_an_answer_against_an_outage() -> None:
+    """
+    "No such compound" is an answer, so it belongs on the answered side of the
+    majority. Counting only rows that *resolved* let five throttled rows outweigh
+    a hundred honest 404s — a column of internal codes PubChem does not carry.
+    """
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_OK: 3, REVIEW_UNVERIFIED: 117}),
+        verdict_counts=Counter(),
+        rows=120,
+        name=SideTally(
+            resolved_values=3,
+            missing_values=112,
+            resolved_rows=3,
+            missing_rows=112,
+            outage_rows=5,
+        ),
+    )
+    assert summary.name.answered_rows == 115
+    assert summary.outages == ()
+    assert not summary.degraded
+
+
+def test_a_wrong_column_is_still_named_when_a_few_rows_were_throttled() -> None:
+    """
+    The costly version of the same bug: against a wrong column nothing resolves
+    by construction, so without counting answered-404s the outage branch fired
+    and suppressed the diagnosis that would have named the real problem.
+    """
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 120}),
+        verdict_counts=Counter(),
+        rows=120,
+        name=SideTally(missing_values=116, missing_rows=116, outage_rows=5),
+    )
+    assert summary.outages == ()
+    assert summary.suspect_columns == ("name",)
+    assert summary.degraded
+
+
+def test_a_real_outage_still_outweighs_the_rows_it_answered() -> None:
+    summary = _summary(
+        chebi=SideTally(resolved_rows=3, missing_rows=4, outage_rows=40),
+    )
+    assert summary.outages == ("ChEBI ID",)
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_counts_answered_and_unanswered_rows_apart(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """End to end: the three row counters must add up to the rows attempted."""
+    from structure_check.client import (
+        CHEBI_UNRESOLVED,
+        IDENTIFIER_MISSING,
+        IDENTIFIER_RESOLVED,
+        MATCH,
+    )
+
+    def per_row(*, cas, chebi_id, name):
+        hit = chebi_id.endswith(("0", "1", "2"))
+        return _row_result(
+            review=REVIEW_OK if hit else REVIEW_UNVERIFIED,
+            id_cas_verdict=MATCH if hit else CHEBI_UNRESOLVED,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_RESOLVED if hit else IDENTIFIER_MISSING,
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src, ["CAS", "ChEBI ID"], [[f"{n}-00-0", f"CHEBI:{n}"] for n in range(10)]
+    )
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID"
+    )
+
+    assert summary.chebi.resolved_rows == 3
+    assert summary.chebi.missing_rows == 7
+    assert summary.chebi.answered_rows == 10
+    assert summary.chebi.outage_rows == 0
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_200_carrying_unrelated_json_is_an_outage_not_a_missing_cas(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """
+    A proxy or maintenance page answering `{"Fault": ...}` parses fine as JSON.
+
+    Defaulting the missing IdentifierList to [] would report NOT_FOUND, and five
+    such values would then blame the CAS column for what the network did.
+    """
+    from chebi_lookup.client import OUTCOME_UNREACHABLE, cas_to_cid_status
+
+    fault = MagicMock(status_code=200)
+    fault.json.return_value = {"Fault": {"Code": "PUGREST.ServerBusy"}}
+    mock_get.return_value = fault
+
+    assert cas_to_cid_status("64-17-5") == (None, OUTCOME_UNREACHABLE)
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_an_empty_cid_list_is_still_a_real_answer(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    from chebi_lookup.client import OUTCOME_NOT_FOUND, cas_to_cid_status
+
+    empty = MagicMock(status_code=200)
+    empty.json.return_value = {"IdentifierList": {"CID": []}}
+    mock_get.return_value = empty
+
+    assert cas_to_cid_status("00-00-0") == (None, OUTCOME_NOT_FOUND)
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_cas_to_cid_status_quotes_the_sheet_cell_for_every_caller(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """Quoted inside, so lookup_cas is covered by the same guard as this module."""
+    from chebi_lookup.client import cas_to_cid_status
+
+    mock_get.return_value = MagicMock(status_code=404)
+    cas_to_cid_status("64-17-5/../../evil?x=1")
+
+    segment = mock_get.call_args[0][0].split("/compound/name/")[1].split("/cids")[0]
+    assert "/" not in segment
+    assert "?" not in segment
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_no_backoff_sleep_after_the_final_attempt(
+    mock_get: MagicMock, mock_sleep: MagicMock
+) -> None:
+    """
+    The backoff spaces out the *next* try, and after the last one there isn't one.
+
+    It is 8 of the ~14s an exhausted request costs, paid on every row of a run
+    against a dead upstream — which is what MAX_CONSECUTIVE_OUTAGE_ROWS is sized
+    against. chebi_terms already guards this.
+    """
+    from chebi_lookup.client import MAX_RETRIES, get_with_retry_status
+
+    mock_get.return_value = MagicMock(status_code=503)
+    get_with_retry_status("https://example.invalid/x")
+
+    assert mock_get.call_count == MAX_RETRIES
+    assert mock_sleep.call_count == MAX_RETRIES - 1
