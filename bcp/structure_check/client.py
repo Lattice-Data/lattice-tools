@@ -287,13 +287,14 @@ UNRESOLVED_VERDICTS = (
     CHEBI_NO_STRUCTURE,
 )
 
+# The three identifier columns, named once so io.py and client.py cannot drift.
+SIDES = ("cas", "chebi", "name")
+
 # What happened when one identifier was resolved, independent of any comparison.
 # check_file's run-level accounting reads these rather than re-deriving intent from
 # the sheet cell: the cell says what was asked for, only the resolver knows what
 # actually happened, and every previous version of the run verdict was wrong
 # because it measured one against the other.
-SIDES = ("cas", "chebi", "name")
-
 IDENTIFIER_NOT_CHECKED = "not_checked"
 IDENTIFIER_RESOLVED = "resolved"
 IDENTIFIER_MISSING = "missing"
@@ -744,7 +745,7 @@ def check_row(
         # Nothing to compare the CAS against, so resolving it would cost requests
         # for a result that is discarded either way. cas_status stays not_checked:
         # a CAS this run never asked about is not a CAS that failed.
-        return result
+        return _finish(result)
 
     has_cas = bool(str(cas or "").strip())
     cas_unreachable = False

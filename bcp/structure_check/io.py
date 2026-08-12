@@ -33,8 +33,12 @@ log = logging.getLogger(__name__)
 REVIEW_LEVELS = (REVIEW_INVESTIGATE, REVIEW_CHECK, REVIEW_UNVERIFIED, REVIEW_OK)
 
 # Below this many rows, "nothing was compared" is as likely to be a two-row spot
-# check as a broken run, so the degraded verdict stays quiet. Lifted when an
-# outage is in play — see RunSummary.nothing_compared.
+# check as a broken run, so the degraded verdict stays quiet. Read by two
+# predicates against two different denominators: nothing_compared counts rows in
+# the sheet (and lifts this floor entirely when an outage is in play), while
+# dead_questions counts rows one *question* was asked on, with no such lift. Same
+# threshold, same reasoning — "too few to conclude anything from" — but they are
+# not interchangeable, so a future tune has to consider both.
 MIN_ROWS_FOR_DEGRADED = 5
 
 # Below this many unanswered rows, an outage is not yet evidence about the run.
@@ -51,6 +55,13 @@ MIN_OUTAGE_ROWS_FOR_DEGRADED = 5
 # 500 rows of one junk string is a single mistake, not 500 pieces of evidence.
 # Mirrors chebi_terms.SUSPICIOUS_TOTAL_MISS, which draws the same line.
 SUSPICIOUS_DISTINCT_MISSES = 5
+
+# How each side is named in the log, so an internal key never reaches an operator.
+SIDE_LABELS = {
+    "cas": "CAS (--cas-column)",
+    "chebi": "ChEBI ID (--chebi-column)",
+    "name": "name (--name-column)",
+}
 
 # A side that has failed this many attempts in a row is treated as down, and stops
 # being queried: the verdict is already settled and every further request costs
@@ -696,13 +707,15 @@ def check_file(
                         "%s of %s. Not asking it again for a while: those rows are "
                         "marked unreachable in the 'unasked' column, and the run "
                         "continues on the columns that still answer.",
-                        side,
+                        SIDE_LABELS[side],
                         MAX_CONSECUTIVE_OUTAGE_ROWS,
                         i,
                         total,
                     )
                 for side in recovered:
-                    log.warning("%s is answering again at row %s.", side, i)
+                    log.warning(
+                        "%s is answering again at row %s.", SIDE_LABELS[side], i
+                    )
 
             label = name or chebi_id or cas or "(blank row)"
             if review in (REVIEW_INVESTIGATE, REVIEW_CHECK):
@@ -745,18 +758,28 @@ def _report(
             ", ".join(f"{k}={v}" for k, v in unresolved.items()),
         )
 
+    def _also_skipped(tally: SideTally) -> str:
+        """The rows the breaker never asked about, which still carry `unasked`."""
+        if not tally.skipped_rows:
+            return ""
+        return (
+            f", and a further {tally.skipped_rows} rows were not asked at all once "
+            f"it was given up on"
+        )
+
     # An outage below the majority line does not degrade the run, but it still left
     # rows unanswered, and those rows are only distinguishable from genuine answers
     # if someone says so. Reported whether or not the run is degraded.
     for label, _flag, tally in summary.sides:
         if tally.outage_rows and label not in summary.outages:
             log.warning(
-                "%s went unanswered on %s of the %s rows it was tried on, because "
+                "%s went unanswered on %s of the %s rows it was tried on%s, because "
                 "the upstream could not be reached. Those rows are marked in the "
                 "'unasked' column; a re-run would answer them.",
                 label,
                 tally.outage_rows,
                 tally.outage_rows + tally.answered_rows,
+                _also_skipped(tally),
             )
 
     for label, _flag, tally in summary.sides:
@@ -770,12 +793,7 @@ def _report(
                 tally.outage_rows,
                 tally.outage_rows + tally.answered_rows,
                 tally.answered_rows,
-                (
-                    f", and a further {tally.skipped_rows} rows were not asked at "
-                    f"all once it was given up on"
-                    if tally.skipped_rows
-                    else ""
-                ),
+                _also_skipped(tally),
             )
     for label, flag, tally in summary.sides:
         if label in summary.suspect_columns:

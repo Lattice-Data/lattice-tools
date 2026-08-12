@@ -41,6 +41,7 @@ python -m structure_check --help
 | `--chebi-column` | Optional: ChEBI ID column to check against the CAS |
 | `--name-column` | Optional: compound name column to check against the CAS |
 | `--output`, `-o` | Output CSV (default: `<input_stem>_structure_checked.csv`) |
+| `--format` | Ignored in batch mode — the output is always CSV. Warned about if passed. |
 | `-v`, `--verbose` | Debug logging |
 
 ```bash
@@ -55,6 +56,8 @@ python -m structure_check --input curated.csv \
 python -m structure_check --cas 22573-88-2 \
   --name "Alexidine_dihydrochloride" --chebi CHEBI:27391
 ```
+
+`--format json` (the default) or `--format csv` selects the shape; `--output` writes to a file instead of stdout. Exits **1** if every requested check went unasked because an upstream was unreachable, so `--cas "$C" --name "$N" || alert` does not go quiet through an outage.
 
 ---
 
@@ -222,7 +225,7 @@ print(r["review"], r["id_cas_verdict"], r["name_cas_verdict"])
 
 ## Cost
 
-Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), typically 1–2 for the name (more if neither whole-string form resolves and the token fallback tries each token in turn), and 1 ChEBI call. Plus 3 per structure for the desalted-parent check, which only runs where a difference was already found and the name was not truncated; successful parents are cached for the run, failures are not.
+Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), typically 1–2 for the name (more if neither whole-string form resolves and the token fallback tries each token in turn), and 1 ChEBI call. Plus 3 per structure for the desalted-parent check, which only runs where a difference was already found and the name was not truncated; answers are cached for the run — including a definitive "no parent" — but an outage is not, so one unlucky moment does not disable the demotion for every later row.
 
 A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against — and so does a row whose **CAS** is blank or unresolvable, since the pivot is gone and neither comparison can be made whatever the other identifiers turn out to be. That second case is what a misdirected `--cas-column` looks like, and it is the difference between paying full price for every row of a broken run and paying for one lookup. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated, since each extra candidate costs three more requests during refinement. **Truncation can never produce a finding.** PubChem returns structures in CID order rather than relevance order, so the true match may sit past the cap; a truncated comparison that finds no match therefore reports `name_ambiguous`, not a difference. A match *inside* the compared set is still a match, since matching any candidate is sound. Either way the row records `(truncated: N structures)` in `name_query`, so a flagged row is auditable from the CSV alone. Identical triples are cached within a run, so repeated compounds cost nothing extra — **except** a triple whose lookup hit an outage, which is retried rather than cached, so one unlucky moment does not decide every row that repeats it. Expect roughly 2–3 seconds per distinct row.
 
