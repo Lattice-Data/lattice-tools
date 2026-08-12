@@ -105,7 +105,7 @@ Plus the reasons a comparison could not be made, which are **never findings abou
 - `chebi_unresolved` — malformed ID, or ChEBI has no such record
 - `name_ambiguous` — the name resolved to more structures than were compared, and none matched (see the cap below)
 - `chebi_no_structure` — ChEBI has the entry but records no structure (class terms and R-group entries do not)
-- `not_checked` — nothing was supplied for that comparison. Either the row's own cell was blank, or the **CAS** was: the CAS is the pivot for both checks, so a blank one leaves nothing to compare a name or an ID *against*, and no request is made for either.
+- `not_checked` — nothing was supplied for that comparison. Either the row's own cell was blank, or the **CAS** was: the CAS is the pivot for both checks, so a blank one leaves nothing to compare a name or an ID *against*. (The ChEBI and name lookups still run on such a row, and their structures are still recorded in `chebi_inchikey` / `name_inchikey`; only the comparison is skipped.)
 
 And separately, the three that mean **the upstream was never reached** — the only verdicts that say something about the network rather than about the compound:
 
