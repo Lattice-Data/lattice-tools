@@ -12,6 +12,7 @@ from constants import (
     TISSUE_TYPE_MAP,
     GENETIC_PERTURBATION_MAP,
     REFORMAT_LIST,
+    DEFAULT_DISEASE_TERM,
 )
 from DB2_utils import (
     split_controlled_term_columns, 
@@ -163,9 +164,17 @@ class DB2Flattener:
                                     sample_metadata[sample_alias][field_name] = val
                             else:
                                 if self._is_controlled_term_field(field, sample_refs):
-                                    value = self._resolve_controlled_term_value(
+                                    resolved = self._resolve_controlled_term_value(
                                         value, resolved_controlled_terms
                                     )
+                                    # No disease recorded means normal.
+                                    if (
+                                        resolved is None
+                                        and field == 'diseases'
+                                        and is_empty(value)
+                                    ):
+                                        resolved = dict(DEFAULT_DISEASE_TERM)
+                                    value = resolved
                                 field_name = f'{sample_type}_{field}'
                                 sample_metadata[sample_alias][field_name] = value
 

@@ -185,21 +185,22 @@ def split_term_cell(val):
     """
     Convert one cell to parallel (term_id, term_name) values.
 
-    Single dict -> scalars; list of dicts -> parallel lists; empty -> pd.NA pair.
+    Single dict -> scalars; list of dicts -> parallel lists; empty -> None pair.
+
     """
     if is_empty(val):
-        return pd.NA, pd.NA
+        return None, None
 
     if isinstance(val, dict):
         dicts = [val]
     elif isinstance(val, list):
         dicts = val
     else:
-        return pd.NA, pd.NA
+        return None, None
 
     dicts = [d for d in dicts if isinstance(d, dict) and d.get("term_name")]
     if not dicts:
-        return pd.NA, pd.NA
+        return None, None
 
     term_ids = [extract_controlled_term_id(d.get("@id", "")) for d in dicts]
     term_names = [d["term_name"] for d in dicts]
@@ -244,7 +245,7 @@ def extract_controlled_term_id(ref: str):
     Example: '/controlled_terms/EFO:0920086/' -> 'EFO:0920086'
     """
     if not ref:
-        return pd.NA
+        return None
     if "/controlled_terms/" in ref:
         term_id = ref.split("/controlled_terms/")[-1]
         return term_id.rstrip("/")
