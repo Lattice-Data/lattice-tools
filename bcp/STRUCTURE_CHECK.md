@@ -172,9 +172,9 @@ A complete-looking CSV whose emptiness means nothing is the worst thing this too
 
 | Signal | Fires when | Counted in |
 |---|---|---|
-| `outages` | on some side, **more rows went unanswered by an unreachable upstream than were answered** | rows |
+| `outages` | on some side, **more rows went unanswered by an unreachable upstream than were answered**, and at least 5 such rows | rows |
 | `suspect_columns` | on some side, nothing resolved across **≥ 5 distinct values**, with no outage on *that* side | distinct values |
-| `nothing_compared` | every row came out `unverified`, across at least 5 rows | rows |
+| `nothing_compared` | every row came out `unverified` — across at least 5 rows, or any number if an outage was involved | rows |
 
 Why each is shaped the way it is:
 
@@ -182,7 +182,8 @@ Why each is shaped the way it is:
 - **Rows below that line are still not hidden.** They get `cas_unreachable`/`name_unreachable`/`chebi_unreachable` in their verdict column, a mark in **`unasked`**, and a WARNING naming the count. The `review` column deliberately does *not* change: `ok` means every comparison that was made agreed, which stays true when the other side was unreachable. Overloading the one documented sort key would bury a real `skeleton_differs` behind a transient 503.
 - **Distinct values, not rows, for a wrong column.** A dose-response sheet repeats each compound thirty times; 500 rows of one junk string is a single mistake, not 500 pieces of evidence. Two retired ChEBI IDs on a 117-row sheet is a *finding* — exactly what this tool exists to surface — and must not be reported as a broken run.
 - **The outage guard is per side.** A ChEBI column full of free text is rejected by a regex without a single request, so a PubChem outage is logically incapable of explaining it. Disqualifying globally would hide a real misconfiguration behind an unrelated blip.
-- **`nothing_compared` earns its place** because it is the only term that reasons about *comparisons performed* rather than identifiers resolved, and the two genuinely diverge. A ChEBI column of class terms resolves perfectly — ChEBI holds every record — and still compares nothing, because a class term carries no structure. Both other signals stay silent on that sheet.
+- **The two floors count different things.** `MIN_OUTAGE_ROWS_FOR_DEGRADED` exists because the majority test degenerates against zero: with nothing resolved, a *single* outage is a "majority", which is the normal shape of a sparse column (two ChEBI IDs on a 117-row sheet, both unlucky) and of a wrong one. What has to be substantial is the evidence of an outage, not the size of the sheet.
+- **`nothing_compared` earns its place** because it is the only term that reasons about *comparisons performed* rather than identifiers resolved, and the two genuinely diverge. A ChEBI column of class terms resolves perfectly — ChEBI holds every record — and still compares nothing, because a class term carries no structure. Both other signals stay silent on that sheet. Its row floor lifts when an outage is in play, so a four-row batch against a dead ChEBI is not quieter than the same row would be in single mode — which exits 1 on one unanswered check. An outage is positive evidence that we failed to ask, so it needs no volume; absence of results *without* one is only evidence in bulk.
 
 Blank cells never enter any of these counts. A partly-mapped sheet is the normal input for a tool whose job is checking ChEBI IDs, and a column that is entirely blank is not evidence about anything.
 
@@ -212,7 +213,7 @@ Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CI
 
 A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated, since each extra candidate costs three more requests during refinement. **Truncation can never produce a finding.** PubChem returns structures in CID order rather than relevance order, so the true match may sit past the cap; a truncated comparison that finds no match therefore reports `name_ambiguous`, not a difference. A match *inside* the compared set is still a match, since matching any candidate is sound. Either way the row records `(truncated: N structures)` in `name_query`, so a flagged row is auditable from the CSV alone. Identical triples are cached within a run, so repeated compounds cost nothing extra — **except** a triple whose lookup hit an outage, which is retried rather than cached, so one unlucky moment does not decide every row that repeats it. Expect roughly 2–3 seconds per distinct row.
 
-Findings exit **0** — they are the product, not a failure. Only a broken run (missing file, bad column, unwritable output, or a degraded run — see above) exits 1.
+Findings exit **0** — they are the product, not a failure. Only a broken run (missing file, bad column, unwritable output, or a degraded run — see above) exits 1. Single mode holds the same contract from the other end: it exits 1 when *every* requested check went unasked because an upstream was unreachable, so `--cas X --name Y || alert` does not stay silent through an outage.
 
 ---
 

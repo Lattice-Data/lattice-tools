@@ -29,8 +29,17 @@ log = logging.getLogger(__name__)
 REVIEW_LEVELS = (REVIEW_INVESTIGATE, REVIEW_CHECK, REVIEW_UNVERIFIED, REVIEW_OK)
 
 # Below this many rows, "nothing was compared" is as likely to be a two-row spot
-# check as a broken run, so the degraded verdict stays quiet.
+# check as a broken run, so the degraded verdict stays quiet. Lifted when an
+# outage is in play — see RunSummary.nothing_compared.
 MIN_ROWS_FOR_DEGRADED = 5
+
+# Below this many unanswered rows, an outage is not yet evidence about the run.
+# Separate from the row floor above because it counts a different thing: not how
+# big the sheet was, but how much of it an unreachable upstream actually ate.
+# Without it the majority test in RunSummary.outages goes degenerate — against
+# zero resolved rows, one outage is a "majority" — and a sparse or wrong column
+# would be condemned by a single throttled request.
+MIN_OUTAGE_ROWS_FOR_DEGRADED = 5
 
 # If a column produced nothing usable across at least this many *distinct* values,
 # the likelier explanation is that it is not the column it was said to be than that
@@ -132,7 +141,7 @@ class RunSummary(NamedTuple):
             label
             for label, _flag, tally in self._sides
             if tally.outage_rows > tally.resolved_rows
-            and tally.outage_rows >= MIN_ROWS_FOR_DEGRADED
+            and tally.outage_rows >= MIN_OUTAGE_ROWS_FOR_DEGRADED
         )
 
     @property
@@ -177,10 +186,25 @@ class RunSummary(NamedTuple):
         genuinely diverge. A ChEBI column of class terms resolves perfectly — ChEBI
         holds every record — and still compares nothing, because a class term
         carries no structure. Both other signals stay silent on that sheet.
+
+        The row floor lifts when an outage is in play, which is what keeps a small
+        batch from being quieter than the same input in single mode: four rows
+        against a dead ChEBI sit under every other threshold, while `--cas X
+        --chebi Y` on one of those same rows exits 1. An outage is positive
+        evidence that we failed to ask, so it needs no volume to be believed.
+        Absence of results *without* one is only evidence in bulk — two rows of
+        compounds PubChem happens not to know is a plausible spot check, not a
+        broken run — so that case keeps the floor.
+
+        This does not reopen the sparse-column hole the outage floor closed. Two
+        unlucky ChEBI IDs on a 117-row sheet leave the other 115 rows comparing
+        fine, so `nothing_compared` is false on the count alone.
         """
-        return self.rows >= MIN_ROWS_FOR_DEGRADED and (
-            self.review_counts[REVIEW_UNVERIFIED] == self.rows
-        )
+        if not self.rows or self.review_counts[REVIEW_UNVERIFIED] != self.rows:
+            return False
+        if any(tally.outage_rows for _label, _flag, tally in self._sides):
+            return True
+        return self.rows >= MIN_ROWS_FOR_DEGRADED
 
     @property
     def degraded(self) -> bool:
@@ -432,7 +456,8 @@ def check_file(
             name = (row.get(name_column) or "").strip() if name_column else ""
 
             key = (cas, chebi_id, name)
-            if key not in cache:
+            from_cache = key in cache
+            if not from_cache:
                 attempted_keys.add(key)
                 result = check_row(cas=cas, chebi_id=chebi_id, name=name)
                 # Outages are not cached. A transient failure on one triple must
@@ -454,7 +479,15 @@ def check_file(
                 verdict_counts[result[field]] += 1
             tallies.add(result, cas=cas, chebi_id=chebi_id, name=name)
 
-            if _is_total_outage_row(result):
+            # A cache hit is not evidence the outage is over — since outages are
+            # never cached, a hit means a row that succeeded *earlier*, possibly
+            # long before the upstream died. Resetting on one would let a sheet
+            # with repeated compounds slip past the guard entirely, alternating
+            # free hits with live rows that each cost their full backoff.
+            # chebi_terms refuses this for the same reason.
+            if from_cache:
+                pass
+            elif _is_total_outage_row(result):
                 consecutive_outage_rows += 1
                 if consecutive_outage_rows >= MAX_CONSECUTIVE_OUTAGE_ROWS:
                     raise StructureCheckError(

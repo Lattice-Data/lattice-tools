@@ -374,10 +374,14 @@ def parent_inchikey(inchikey: str) -> str:
     if inchikey in _parent_cache:
         return _parent_cache[inchikey]
 
+    unreachable = False
+
     def _step(url: str) -> Any:
         """One hop of the chain, noting an outage without letting it escape."""
+        nonlocal unreachable
         resp, outcome = get_with_retry_status(url)
         if outcome == OUTCOME_UNREACHABLE:
+            unreachable = True
             log.warning(
                 "Parent lookup unreachable for %s; leaving the difference as found.",
                 inchikey,
@@ -400,9 +404,11 @@ def parent_inchikey(inchikey: str) -> str:
                 except (ValueError, KeyError, IndexError, TypeError):
                     result = ""
 
-    # Only successes are cached: one transient failure must not disable the salt
-    # demotion for this key for the rest of the run.
-    if result:
+    # Answers are cached, silences are not. "PubChem has no parent for this
+    # structure" is an answer and will not change during the run, so caching the
+    # empty string saves re-walking three requests for every repeat. A transient
+    # failure must still not disable the salt demotion for the rest of the run.
+    if result or not unreachable:
         _parent_cache[inchikey] = result
     return result
 
@@ -494,20 +500,26 @@ def inchikeys_for_name(name: str) -> list[str]:
         raise PubChemUnavailableError(f"PubChem unreachable resolving name {name!r}")
     if resp is None:
         return []
+    keys: list[str] = []
     try:
+        # The iteration belongs inside the guard too: `Properties: null` or a bare
+        # number is as malformed as a missing key, and a dict would iterate its
+        # own keys and quietly yield nothing — reported as name_unresolved, which
+        # would be a claim about the compound rather than about the payload.
         properties = resp.json()["PropertyTable"]["Properties"]
-    except (ValueError, KeyError, TypeError) as exc:
+        if not isinstance(properties, list):
+            raise TypeError("Properties is not a list")
+        for entry in properties:
+            key = entry.get("InChIKey") if isinstance(entry, dict) else None
+            if key and key not in keys:
+                keys.append(key)
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
         # A 200 that is not this endpoint's JSON is something other than this API
         # answering — a maintenance page or a moved endpoint. Not evidence that
         # the name is unknown.
         raise PubChemUnavailableError(
             f"PubChem returned an unparseable payload for name {name!r}"
         ) from exc
-    keys = []
-    for entry in properties:
-        key = entry.get("InChIKey") if isinstance(entry, dict) else None
-        if key and key not in keys:
-            keys.append(key)
     return keys
 
 
@@ -586,7 +598,13 @@ def chebi_structure(chebi_id: Any) -> tuple[str, str]:
         return "", CHEBI_UNREACHABLE
     if payload is None:
         return "", CHEBI_UNRESOLVED
-    key = (payload.get("default_structure") or {}).get("standard_inchi_key") or ""
+    # `or {}` only rescues a falsy default_structure; a list or a string is truthy
+    # and has no .get, and check_payload_shape does not validate this field. An
+    # AttributeError here would escape check_row's never-raises contract.
+    structure = payload.get("default_structure")
+    key = (
+        structure.get("standard_inchi_key") or "" if isinstance(structure, dict) else ""
+    )
     return (key, "") if key else ("", CHEBI_NO_STRUCTURE)
 
 
@@ -625,12 +643,16 @@ def cas_structure(cas: Any) -> tuple[str, str]:
     if resp is None:
         return "", ""
     try:
+        # The .get() calls stay inside the guard: a Properties list holding
+        # strings rather than objects would otherwise raise AttributeError past
+        # it, through check_row — which promises never to raise — and abort the
+        # sheet at whatever row the bad payload landed on.
         properties = resp.json()["PropertyTable"]["Properties"][0]
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        return properties.get("InChIKey") or "", properties.get("Title") or ""
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
         raise PubChemUnavailableError(
             f"PubChem returned an unparseable payload for CAS {text!r}"
         ) from exc
-    return properties.get("InChIKey") or "", properties.get("Title") or ""
 
 
 def review_level(id_cas_verdict: str, name_cas_verdict: str) -> str:

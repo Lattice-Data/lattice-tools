@@ -729,10 +729,33 @@ def test_parent_inchikey_caches_successes(
 @patch("structure_check.client.time.sleep")
 @patch("chebi_lookup.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_parent_inchikey_does_not_cache_a_failure(
+def test_parent_inchikey_does_not_cache_an_outage(
     mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
 ) -> None:
     """One transient failure must not disable salt demotion for the whole run."""
+    import structure_check.client as sc
+
+    sc._parent_cache.clear()
+    down = MagicMock()
+    down.status_code = 503
+    mock_get.return_value = down
+
+    assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
+    assert DOXORUBICIN_HCL not in sc._parent_cache
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_parent_inchikey_caches_a_definitive_no_parent(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """
+    "PubChem has no parent for this structure" is an answer, not a silence.
+
+    It will not change during the run, so re-walking three requests for every
+    repeat of the same structure buys nothing.
+    """
     import structure_check.client as sc
 
     sc._parent_cache.clear()
@@ -741,7 +764,10 @@ def test_parent_inchikey_does_not_cache_a_failure(
     mock_get.return_value = missing
 
     assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
-    assert DOXORUBICIN_HCL not in sc._parent_cache
+    assert sc._parent_cache[DOXORUBICIN_HCL] == ""
+    calls = mock_get.call_count
+    assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
+    assert mock_get.call_count == calls  # served from cache, no new requests
 
 
 @pytest.mark.parametrize(
@@ -1584,7 +1610,8 @@ def test_check_row_never_raises_on_a_pubchem_outage(
 
     assert result["id_cas_verdict"] == CAS_UNREACHABLE
     assert result["cas_status"] == IDENTIFIER_UNREACHABLE
-    assert result["unasked"] == "both" or result["unasked"] == "id"
+    # Only the ID check was requested, so "id" is the only correct answer.
+    assert result["unasked"] == "id"
 
 
 @patch("structure_check.client.time.sleep")
@@ -1664,3 +1691,95 @@ def test_a_parent_lookup_outage_never_degrades_the_run(
     # Returns benignly rather than raising, and says why in the log.
     assert parent_inchikey(ETHANOL) == ""
     assert "unreachable" in caplog.text.lower()
+
+
+def test_a_small_batch_is_not_quieter_than_the_same_row_in_single_mode() -> None:
+    """
+    Four rows against a dead ChEBI sit under every threshold: too few outage rows
+    for `outages`, no `missing` values for `suspect_columns` (unreachable is not
+    an answer), too few rows for the `nothing_compared` floor. Meanwhile single
+    mode exits 1 on one such row. An outage is positive evidence that we failed
+    to ask, so it does not need volume to be believed.
+    """
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 4}),
+        verdict_counts=Counter(),
+        rows=4,
+        cas=SideTally(resolved_values=4, resolved_rows=4),
+        chebi=SideTally(outage_rows=4),
+    )
+    assert summary.outages == ()
+    assert summary.suspect_columns == ()
+    assert summary.nothing_compared
+    assert summary.degraded
+
+
+def test_lifting_that_floor_does_not_reopen_the_sparse_column_hole() -> None:
+    """The 115 rows that compared fine keep nothing_compared false on the count."""
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 115, REVIEW_UNVERIFIED: 2}),
+        cas=SideTally(resolved_values=117, resolved_rows=117),
+        chebi=SideTally(outage_rows=2),
+    )
+    assert not summary.nothing_compared
+    assert not summary.degraded
+
+
+def test_a_tiny_spot_check_with_no_outage_still_stays_quiet() -> None:
+    """Two compounds PubChem happens not to know is a spot check, not a breakage."""
+    summary = RunSummary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 2}),
+        verdict_counts=Counter(),
+        rows=2,
+        cas=SideTally(missing_values=2),
+    )
+    assert not summary.nothing_compared
+    assert not summary.degraded
+
+
+@patch("structure_check.io.check_row")
+def test_a_cache_hit_does_not_reset_the_fail_fast_counter(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    A cache hit is not evidence the outage is over.
+
+    Outages are never cached, so a hit means a row that succeeded *earlier* —
+    possibly long before the upstream died. Resetting on one lets a sheet with
+    repeated compounds alternate free hits with live rows and never trip the
+    guard, spending full backoff on each one to reach a settled verdict.
+    """
+    from structure_check.client import (
+        CAS_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+
+    good = _row_result(
+        review=REVIEW_OK,
+        id_cas_verdict=MATCH,
+        cas_status=IDENTIFIER_RESOLVED,
+        chebi_status=IDENTIFIER_RESOLVED,
+    )
+    dead = _row_result(
+        review=REVIEW_UNVERIFIED,
+        id_cas_verdict=CAS_UNREACHABLE,
+        cas_status=IDENTIFIER_UNREACHABLE,
+    )
+
+    def per_row(*, cas, chebi_id, name):
+        return good if cas == "repeat" else dead
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    # The repeated compound resolves once in row 1, then alternates with dead
+    # rows: every other row is a free cache hit.
+    rows = [["repeat", "CHEBI:1"]]
+    for n in range(12):
+        rows.append([f"{n}-00-0", f"CHEBI:{n}"])
+        rows.append(["repeat", "CHEBI:1"])
+    _write_csv(src, ["CAS", "ChEBI ID"], rows)
+
+    with pytest.raises(StructureCheckError, match="could not be reached"):
+        check_file(src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID")
