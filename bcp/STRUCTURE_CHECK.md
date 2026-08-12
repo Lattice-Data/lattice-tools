@@ -199,7 +199,7 @@ Two things are deliberately excluded from the outage signal. **Upstream answers*
 
 ### Giving up on one upstream without giving up on the run
 
-A side that fails `MAX_CONSECUTIVE_OUTAGE_ROWS` (5) attempts in a row is treated as down and **stops being queried**: its rows are marked `unreachable` without a request, which is what they are, and the run carries on with the columns that still answer. Tracked per side, because a whole-row rule cannot see the case that costs most — with ChEBI dead and a live `--name-column` whose names match, every row reads `ok`, so a row-level streak resets on every row and the sheet walks all of itself at ~14s of backoff each to reach a verdict already settled by row 5.
+A side that fails `MAX_CONSECUTIVE_OUTAGE_ROWS` (5) attempts in a row is treated as down and **stops being queried**: its rows are marked `unreachable` without a request, which is what they are, and the run carries on with the columns that still answer. Tracked per side, because a whole-row rule cannot see the case that costs most — with ChEBI dead and a live `--name-column` whose names match, every row reads `ok`, so a row-level streak resets on every row and the sheet walks all of itself at ~6s of backoff each to reach a verdict already settled by row 5.
 
 It stops rather than *aborts* deliberately. Killing the run would throw away the name check on every remaining row because ChEBI is down; the exit code and the CSV say the same thing either way, so there is nothing to gain by discarding the work that still succeeds.
 

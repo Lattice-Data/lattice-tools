@@ -7,11 +7,10 @@ import json
 import logging
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 import requests
-
-import urllib.parse
 
 from .client import BASE, PROPERTIES, REQUEST_DELAY, get_with_retry
 

@@ -68,7 +68,7 @@ SIDE_LABELS = {key: f"{label} ({flag})" for key, label, flag in SIDE_INFO}
 
 # A side that has failed this many attempts in a row is treated as down, and stops
 # being queried: the verdict is already settled and every further request costs
-# ~14s of backoff to confirm it. Mirrors chebi_terms.MAX_CONSECUTIVE_FAILURES.
+# ~6s of backoff to confirm it. Mirrors chebi_terms.MAX_CONSECUTIVE_FAILURES.
 MAX_CONSECUTIVE_OUTAGE_ROWS = 5
 
 # Coupled to MIN_OUTAGE_ROWS_FOR_DEGRADED above: a side that trips has by
@@ -370,6 +370,7 @@ class _OutageBreaker:
         self._streaks: Counter[str] = Counter()
         self._tripped: set[str] = set()
         self._since_probe: Counter[str] = Counter()
+        self._probe_failed: set[str] = set()
 
     def skip(self) -> frozenset[str]:
         """Sides to leave unqueried on the next row."""
@@ -380,8 +381,17 @@ class _OutageBreaker:
         )
 
     def abandoned(self) -> frozenset[str]:
-        """Sides still being refused at the end of the run."""
-        return frozenset(self._tripped)
+        """
+        Sides still refused at the end of the run, *and* re-tested at least once.
+
+        A trip alone is not enough to write the tail off. On a sheet whose
+        remaining attempts number fewer than OUTAGE_PROBE_INTERVAL the probe
+        never runs, so five transient failures near the end would condemn every
+        row after them on evidence that was never gathered — the scattered-blips
+        case the probe exists to protect. Requiring a failed probe makes the
+        claim true: something did go back and check.
+        """
+        return frozenset(self._tripped & self._probe_failed)
 
     def note(
         self,
@@ -409,6 +419,7 @@ class _OutageBreaker:
                 self._streaks[side] += 1
                 if side in self._tripped:
                     self._since_probe[side] = 0  # the probe failed; wait again
+                    self._probe_failed.add(side)
                 elif self._streaks[side] >= MAX_CONSECUTIVE_OUTAGE_ROWS:
                     self._tripped.add(side)
                     self._since_probe[side] = 0
@@ -417,6 +428,7 @@ class _OutageBreaker:
                 self._streaks[side] = 0
                 if side in self._tripped:
                     self._tripped.discard(side)
+                    self._probe_failed.discard(side)
                     recovered.append(side)
         return tripped, recovered
 
@@ -822,16 +834,16 @@ def _report(
                 _also_skipped(tally),
             )
 
-    for _key, label, _flag, tally in summary.sides:
+    for key, label, _flag, tally in summary.sides:
         if label in summary.outages:
             log.error(
-                "%s went unanswered on %s of the %s rows it was tried on — more "
-                "than the upstream answered at all (%s)%s, so this output is not a "
-                "verdict on that question. The API was unreachable, not merely "
-                "unhelpful; re-run once it is back.",
+                "%s went unanswered on %s of %s rows — more than the upstream "
+                "answered at all (%s)%s, so this output is not a verdict on that "
+                "question. The API was unreachable, not merely unhelpful; re-run "
+                "once it is back.",
                 label,
-                tally.outage_rows,
-                tally.outage_rows + tally.answered_rows,
+                summary._unanswered(key, tally),
+                summary._unanswered(key, tally) + tally.answered_rows,
                 tally.answered_rows,
                 _also_skipped(tally),
             )
@@ -847,7 +859,15 @@ def _report(
                 label,
                 flag,
             )
+    already_explained = {
+        "ChEBI ID vs CAS": "ChEBI ID",
+        "name vs CAS": "name",
+    }
     for label, tally in summary.dead_question_tallies:
+        if already_explained.get(label) in summary.outages:
+            # The outage error above already said why, and "every row failed for
+            # a reason of its own" is not true of a single run-wide outage.
+            continue
         log.error(
             "%s was asked on %s rows and compared on none of them, so this output "
             "says nothing about that question. Every row failed for a reason of "

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from collections import Counter
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -2363,3 +2364,106 @@ def test_parent_inchikey_does_not_cache_a_garbled_two_hundred(
 
     assert sc.parent_inchikey(DOXORUBICIN_HCL) == ""
     assert DOXORUBICIN_HCL not in sc._parent_cache
+
+
+# --------------------------------------------------------------------------
+# what the operator actually reads
+#
+# When `degraded` fires, the log line is the only thing that says which flag to
+# check or whether re-running would help. Nothing asserted these strings, which
+# is how an error that reported one number while deciding on another survived.
+# --------------------------------------------------------------------------
+
+
+def _report_text(summary: RunSummary, caplog: pytest.LogCaptureFixture) -> str:
+    from structure_check.io import _report
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="structure_check.io"):
+        _report(
+            summary, total=summary.rows, distinct=summary.rows, output_path=Path("o")
+        )
+    return caplog.text
+
+
+def test_the_outage_error_reports_the_number_it_decided_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    It fired on outage + skipped, so quoting outage alone read as a
+    contradiction: "unanswered on 24 ... more than the upstream answered (100)".
+    """
+    summary = _summary(
+        rows=500,
+        review_counts=Counter({REVIEW_OK: 500}),
+        chebi=SideTally(
+            resolved_values=100, resolved_rows=100, outage_rows=24, skipped_rows=377
+        ),
+        abandoned=frozenset({"chebi"}),
+    )
+    text = _report_text(summary, caplog)
+    assert "went unanswered on 401 of 501 rows" in text
+    assert "answered at all (100)" in text
+    assert "a further 377 rows were not asked at all" in text
+
+
+def test_the_suspect_column_error_names_the_flag(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    summary = _summary(
+        review_counts=Counter({REVIEW_UNVERIFIED: 117}),
+        chebi=SideTally(missing_values=117, missing_rows=117),
+    )
+    text = _report_text(summary, caplog)
+    assert "--chebi-column" in text
+    assert "117 distinct values" in text
+
+
+def test_the_dead_question_error_says_which_question(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        chebi=SideTally(resolved_values=117, resolved_rows=117),
+        id_question=QuestionTally(asked=117, compared=0),
+        name_question=QuestionTally(asked=117, compared=117),
+    )
+    text = _report_text(summary, caplog)
+    assert "ChEBI ID vs CAS was asked on 117 rows and compared on none" in text
+
+
+def test_a_run_wide_outage_does_not_also_blame_the_rows_individually(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    Both signals fire when ChEBI is down, but "every row failed for a reason of
+    its own" is not true of one run-wide outage, and the error above already
+    said why.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        chebi=SideTally(outage_rows=117),
+        name=SideTally(resolved_values=117, resolved_rows=117),
+        id_question=QuestionTally(asked=117, compared=0),
+    )
+    assert summary.outages == ("ChEBI ID",)
+    assert summary.dead_questions == ("ChEBI ID vs CAS",)
+    text = _report_text(summary, caplog)
+    assert "The API was unreachable" in text
+    assert "a reason of its own" not in text
+
+
+def test_an_outage_below_the_line_still_warns_with_its_full_reach(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    summary = _summary(
+        rows=30,
+        review_counts=Counter({REVIEW_OK: 30}),
+        chebi=SideTally(
+            resolved_values=5, resolved_rows=5, outage_rows=5, skipped_rows=20
+        ),
+    )
+    assert summary.outages == ()
+    text = _report_text(summary, caplog)
+    assert "a further 20 rows were not asked at all" in text
+    assert "a re-run would answer them" in text
