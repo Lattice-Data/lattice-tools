@@ -14,10 +14,7 @@ import pytest
 
 from qa_seahub_recon import reconcile_trimming
 from qa_seahub_source import (
-    SourceCoverage,
-    UntrimmedSources,
     WaferSeeds,
-    _index_prefix,
     _normalize_search_roots,
     _wafer_seeds,
     derive_source_experiment,
@@ -1054,63 +1051,57 @@ class TestASidecarStaysInItsOwnBucket:
     the fetch that follows misses and degrades to ``metadata_unavailable`` --
     indistinguishable from a vendor sidecar with no ``read_count`` in it.
 
-    Driven through ``_index_prefix`` directly because ``MockS3Client`` returns
-    the same keys for every bucket, so the two-bucket case cannot be expressed
-    through ``index_untrimmed_sources`` yet.
+    Driven through ``index_untrimmed_sources`` -- the observable effect is
+    ``metadata_key``, which the indexer assigns and which decides whether
+    ``load_source_read_counts`` has anything to fetch.
     """
 
-    PATH = f"labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120/{P04_STEM}"
+    ORDER = "labalpha-seahub-bcp/NVUS0000000000-11"
+    PATH = f"{ORDER}/REF3/raw/437120/{P04_STEM}"
 
-    class _Paginator:
-        def __init__(self, per_bucket: dict[str, list[str]]):
-            self.per_bucket = per_bucket
+    def _index(self, per_bucket: dict[str, list[str]]):
+        """List the same order prefix in every named bucket, sidecar bucket first."""
+        s3 = MockS3Client(buckets=per_bucket)
+        return index_untrimmed_sources(
+            s3, [f"s3://{bucket}/{self.ORDER}" for bucket in per_bucket]
+        )
 
-        def paginate(self, Bucket: str, Prefix: str):
-            keys = [k for k in self.per_bucket.get(Bucket, []) if k.startswith(Prefix)]
-            return [{"Contents": [{"Key": k, "Size": 10} for k in keys]}]
-
-    def _index_both(self, per_bucket: dict[str, list[str]]):
-        """Index every bucket into one shared sidecar map, sidecar bucket first."""
-        sources = UntrimmedSources()
-        sidecars: dict[tuple[str, str], str] = {}
-        for bucket in per_bucket:
-            coverage = SourceCoverage(
-                source_uri=f"s3://{bucket}/x/", bucket=bucket, prefix="labalpha"
-            )
-            _index_prefix(
-                self._Paginator(per_bucket),
-                bucket,
-                "labalpha",
-                f"s3://{bucket}/x/",
-                "",
-                sources,
-                coverage,
-                sidecars,
-            )
-        return sources, sidecars
-
-    def test_a_sidecar_in_another_bucket_does_not_resolve(self):
-        sources, sidecars = self._index_both(
+    def test_a_sidecar_in_another_bucket_is_not_claimed(self):
+        result = self._index(
             {
                 "czi-other": [f"{self.PATH}.cram-metadata.json"],
                 "czi-novogene": [f"{self.PATH}.cram"],
             }
         )
-        entry = sources.index[("437120", "Z0001")]
+        entry = result.index[("437120", "Z0001")]
 
         assert entry.bucket == "czi-novogene"
-        assert sidecars.get((entry.bucket, entry.cram_key[: -len(".cram")])) is None
+        assert entry.metadata_key == ""
 
     def test_a_sidecar_beside_its_own_cram_still_resolves(self):
         """The fix must not stop the ordinary same-bucket case working."""
-        sources, sidecars = self._index_both(
+        result = self._index(
             {"czi-novogene": [f"{self.PATH}.cram", f"{self.PATH}.cram-metadata.json"]}
         )
-        entry = sources.index[("437120", "Z0001")]
+        entry = result.index[("437120", "Z0001")]
 
-        assert sidecars[(entry.bucket, entry.cram_key[: -len(".cram")])] == (
-            f"{self.PATH}.cram-metadata.json"
+        assert entry.metadata_key == f"{self.PATH}.cram-metadata.json"
+
+    def test_the_well_then_reconciles_as_metadata_unavailable_not_as_a_count(self):
+        """What the operator actually sees, and why claiming the sidecar is wrong.
+
+        With no metadata_key there is nothing to fetch, so the well has no vendor
+        read_count and says so. Claiming a sidecar from another bucket reached the
+        same category by a worse route -- a fetch that could not succeed.
+        """
+        result = self._index(
+            {
+                "czi-other": [f"{self.PATH}.cram-metadata.json"],
+                "czi-novogene": [f"{self.PATH}.cram"],
+            }
         )
+
+        assert result.index[("437120", "Z0001")].read_count is None
 
 
 class TestNormalizeSearchRoots:
