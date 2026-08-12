@@ -258,6 +258,15 @@ CHEBI_UNRESOLVED = "chebi_unresolved"
 CHEBI_NO_STRUCTURE = "chebi_no_structure"
 NOT_CHECKED = "not_checked"
 
+# Verdicts that mean two structures were actually put side by side. Anything else
+# is a reason no comparison happened, however good the reason.
+COMPARISON_VERDICTS = (
+    MATCH,
+    STEREO_DIFFERS,
+    SALT_DIFFERS,
+    SKELETON_DIFFERS,
+)
+
 # An upstream was asked and never answered. The only verdicts that say something
 # about the *network* rather than about the compound, which is why they are the
 # only ones a run-level outage verdict is allowed to count.
@@ -283,6 +292,8 @@ UNRESOLVED_VERDICTS = (
 # the sheet cell: the cell says what was asked for, only the resolver knows what
 # actually happened, and every previous version of the run verdict was wrong
 # because it measured one against the other.
+SIDES = ("cas", "chebi", "name")
+
 IDENTIFIER_NOT_CHECKED = "not_checked"
 IDENTIFIER_RESOLVED = "resolved"
 IDENTIFIER_MISSING = "missing"

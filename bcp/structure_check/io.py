@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
 from .client import (
+    COMPARISON_VERDICTS,
     IDENTIFIER_MISSING,
     IDENTIFIER_RESOLVED,
     IDENTIFIER_UNREACHABLE,
@@ -19,7 +20,9 @@ from .client import (
     REVIEW_CHECK,
     REVIEW_INVESTIGATE,
     REVIEW_OK,
+    NOT_CHECKED,
     REVIEW_UNVERIFIED,
+    SIDES,
     UNRESOLVED_VERDICTS,
     check_row,
 )
@@ -65,6 +68,21 @@ MAX_CONSECUTIVE_OUTAGE_ROWS = 5
 OUTAGE_PROBE_INTERVAL = 20
 
 
+class QuestionTally(NamedTuple):
+    """
+    How often one of the two questions actually got compared.
+
+    Counted per *question* rather than per identifier column, because the two
+    axes differ: the ID question needs both the ChEBI ID and the CAS, and either
+    can be the reason it never happened. Both numbers come from the same verdict
+    field, so they cannot disagree the way an attempted/unresolved ratio drawn
+    from two different sources could.
+    """
+
+    asked: int = 0
+    compared: int = 0
+
+
 class SideTally(NamedTuple):
     """
     What happened to one identifier column over a run.
@@ -81,6 +99,10 @@ class SideTally(NamedTuple):
     resolved_rows: int = 0
     missing_rows: int = 0
     outage_rows: int = 0
+    # Rows the breaker never asked about. Recorded so the report can say how far
+    # the outage actually reached, but deliberately absent from every predicate:
+    # they are inferred from the rows that tripped it, not independent evidence.
+    skipped_rows: int = 0
 
     @property
     def answered_rows(self) -> int:
@@ -122,6 +144,8 @@ class RunSummary(NamedTuple):
     cas: SideTally = SideTally()
     chebi: SideTally = SideTally()
     name: SideTally = SideTally()
+    id_question: QuestionTally = QuestionTally()
+    name_question: QuestionTally = QuestionTally()
 
     @property
     def needs_attention(self) -> int:
@@ -208,6 +232,31 @@ class RunSummary(NamedTuple):
         )
 
     @property
+    def dead_questions(self) -> tuple[str, ...]:
+        """
+        Questions that were asked on enough rows and compared on none of them.
+
+        The signal the other three cannot produce, because it counts
+        *comparisons* rather than identifiers or rows. Point --chebi-column at a
+        column of class terms while --name-column is healthy: ChEBI holds every
+        record, so nothing is unresolved and nothing is unreachable; every row
+        comes out `ok` on the strength of the name side; and the ID question —
+        the headline column — is answered on no row at all. `nothing_compared`
+        cannot see it either, since the rows are not unverified.
+
+        Floored on rows the question was actually asked on, so two retired ChEBI
+        IDs among 117 rows stay a finding rather than becoming a broken run.
+        """
+        return tuple(
+            label
+            for label, tally in (
+                ("ChEBI ID vs CAS", self.id_question),
+                ("name vs CAS", self.name_question),
+            )
+            if tally.asked >= MIN_ROWS_FOR_DEGRADED and not tally.compared
+        )
+
+    @property
     def nothing_compared(self) -> bool:
         """
         Every row came out unverified: this run produced no comparison at all.
@@ -240,15 +289,17 @@ class RunSummary(NamedTuple):
     @property
     def degraded(self) -> bool:
         """True when the run cannot be read as a verdict on the sheet."""
-        return bool(self.outages or self.suspect_columns or self.nothing_compared)
+        return bool(
+            self.outages
+            or self.suspect_columns
+            or self.nothing_compared
+            or self.dead_questions
+        )
 
 
 def _has_outage(result: dict[str, Any]) -> bool:
     """True when any identifier in this row could not be reached."""
-    return any(
-        result.get(field) == IDENTIFIER_UNREACHABLE
-        for field in ("cas_status", "chebi_status", "name_status")
-    )
+    return any(result.get(f"{side}_status") == IDENTIFIER_UNREACHABLE for side in SIDES)
 
 
 class _OutageBreaker:
@@ -276,8 +327,6 @@ class _OutageBreaker:
     A blank cell neither increments nor resets a streak: it says nothing about
     whether the upstream is up, and a sparsely mapped column is normal input.
     """
-
-    SIDES = ("cas", "chebi", "name")
 
     def __init__(self) -> None:
         self._streaks: Counter[str] = Counter()
@@ -307,7 +356,7 @@ class _OutageBreaker:
         nothing in them are not tries and must not bring the next probe forward.
         """
         tripped, recovered = [], []
-        for side in self.SIDES:
+        for side in SIDES:
             if side not in present:
                 continue
             if side in skipped:
@@ -341,15 +390,16 @@ class _SideAccumulator:
     other. A status cannot disagree with itself.
     """
 
-    SIDES = ("cas", "chebi", "name")
-
     def __init__(self) -> None:
         # value -> best status seen for it, so one transient failure does not
         # condemn a value that resolved on another row.
-        self._values: dict[str, dict[str, str]] = {s: {} for s in self.SIDES}
+        self._values: dict[str, dict[str, str]] = {s: {} for s in SIDES}
         self._resolved_rows: Counter[str] = Counter()
         self._missing_rows: Counter[str] = Counter()
         self._outage_rows: Counter[str] = Counter()
+        self._skipped_rows: Counter[str] = Counter()
+        self._asked: Counter[str] = Counter()
+        self._compared: Counter[str] = Counter()
 
     # RESOLVED beats MISSING beats UNREACHABLE: an answer outranks a silence.
     _RANK = {IDENTIFIER_RESOLVED: 3, IDENTIFIER_MISSING: 2, IDENTIFIER_UNREACHABLE: 1}
@@ -363,7 +413,7 @@ class _SideAccumulator:
         name: str,
         skipped: Collection[str] = (),
     ) -> None:
-        for side, value in (("cas", cas), ("chebi", chebi_id), ("name", name)):
+        for side, value in zip(SIDES, (cas, chebi_id, name)):
             status = result.get(f"{side}_status")
             if not value or status not in self._RANK:
                 # Blank cells and sides that were never checked are not evidence
@@ -377,6 +427,7 @@ class _SideAccumulator:
                 # recovered into exit 1 — manufacturing the very verdict the
                 # majority test exists to require evidence for. The row is still
                 # honestly marked unreachable in `unasked`; it just does not vote.
+                self._skipped_rows[side] += 1
                 continue
             if status == IDENTIFIER_RESOLVED:
                 self._resolved_rows[side] += 1
@@ -388,6 +439,19 @@ class _SideAccumulator:
             if best is None or self._RANK[status] > self._RANK[best]:
                 self._values[side][value] = status
 
+    def add_questions(self, result: dict[str, Any]) -> None:
+        """Both counts read the same verdict field, so they cannot disagree."""
+        for question, field in (
+            ("id", "id_cas_verdict"),
+            ("name", "name_cas_verdict"),
+        ):
+            verdict = result.get(field)
+            if verdict == NOT_CHECKED:
+                continue
+            self._asked[question] += 1
+            if verdict in COMPARISON_VERDICTS:
+                self._compared[question] += 1
+
     def _tally(self, side: str) -> SideTally:
         statuses = self._values[side].values()
         return SideTally(
@@ -396,6 +460,7 @@ class _SideAccumulator:
             resolved_rows=self._resolved_rows[side],
             missing_rows=self._missing_rows[side],
             outage_rows=self._outage_rows[side],
+            skipped_rows=self._skipped_rows[side],
         )
 
     def summary(
@@ -408,6 +473,8 @@ class _SideAccumulator:
             cas=self._tally("cas"),
             chebi=self._tally("chebi"),
             name=self._tally("name"),
+            id_question=QuestionTally(self._asked["id"], self._compared["id"]),
+            name_question=QuestionTally(self._asked["name"], self._compared["name"]),
         )
 
 
@@ -613,6 +680,7 @@ def check_file(
             for field in ("id_cas_verdict", "name_cas_verdict"):
                 verdict_counts[result[field]] += 1
             tallies.add(result, cas=cas, chebi_id=chebi_id, name=name, skipped=skipped)
+            tallies.add_questions(result)
 
             # A cache hit is not evidence the upstream recovered — since
             # outages are never cached, a hit means a row that succeeded
@@ -620,11 +688,7 @@ def check_file(
             # would let a sheet with repeated compounds clear the streak
             # forever. chebi_terms refuses this for the same reason.
             if not from_cache:
-                present = {
-                    s
-                    for s, v in (("cas", cas), ("chebi", chebi_id), ("name", name))
-                    if v
-                }
+                present = {s for s, v in zip(SIDES, (cas, chebi_id, name)) if v}
                 tripped, recovered = breaker.note(result, skipped, present=present)
                 for side in tripped:
                     log.error(
@@ -699,13 +763,19 @@ def _report(
         if label in summary.outages:
             log.error(
                 "%s went unanswered on %s of the %s rows it was tried on — more "
-                "than the upstream answered at all (%s), so this output is not a "
+                "than the upstream answered at all (%s)%s, so this output is not a "
                 "verdict on that question. The API was unreachable, not merely "
                 "unhelpful; re-run once it is back.",
                 label,
                 tally.outage_rows,
                 tally.outage_rows + tally.answered_rows,
                 tally.answered_rows,
+                (
+                    f", and a further {tally.skipped_rows} rows were not asked at "
+                    f"all once it was given up on"
+                    if tally.skipped_rows
+                    else ""
+                ),
             )
     for label, flag, tally in summary.sides:
         if label in summary.suspect_columns:
@@ -719,6 +789,16 @@ def _report(
                 label,
                 flag,
             )
+    for label in summary.dead_questions:
+        log.error(
+            "%s was asked on %s rows and compared on none of them, so this output "
+            "says nothing about that question. Every row failed for a reason of "
+            "its own — see the 'Not compared' tally above for which.",
+            label,
+            summary.id_question.asked
+            if label.startswith("ChEBI")
+            else summary.name_question.asked,
+        )
     if summary.nothing_compared:
         log.error(
             "Nothing was compared on any of the %s rows, so this output says nothing "

@@ -35,6 +35,7 @@ from structure_check.client import (
 )
 from structure_check.io import (
     MAX_CONSECUTIVE_OUTAGE_ROWS,
+    QuestionTally,
     RunSummary,
     SideTally,
     StructureCheckError,
@@ -2221,3 +2222,86 @@ def test_breaker_skipped_rows_do_not_vote_in_the_outage_majority(
     assert summary.chebi.outage_rows == MAX_CONSECUTIVE_OUTAGE_ROWS
     assert summary.outages == ()
     assert not summary.degraded
+
+
+# --------------------------------------------------------------------------
+# a question asked on every row and compared on none
+# --------------------------------------------------------------------------
+
+
+def test_a_question_answered_on_no_row_is_degraded_even_when_rows_read_ok() -> None:
+    """
+    The shape none of the other three signals can see.
+
+    A ChEBI column of class terms: ChEBI holds every record, so nothing is
+    unresolved and nothing is unreachable; the healthy name column makes every
+    row `ok`, so nothing_compared is false. The ID question — the headline
+    column — was answered on no row at all.
+    """
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 117}),
+        chebi=SideTally(resolved_values=117, resolved_rows=117),
+        name=SideTally(resolved_values=117, resolved_rows=117),
+        id_question=QuestionTally(asked=117, compared=0),
+        name_question=QuestionTally(asked=117, compared=117),
+    )
+    assert summary.outages == ()
+    assert summary.suspect_columns == ()
+    assert not summary.nothing_compared
+    assert summary.dead_questions == ("ChEBI ID vs CAS",)
+    assert summary.degraded
+
+
+def test_a_question_asked_on_two_rows_is_a_finding_not_a_dead_question() -> None:
+    """The retired-ID case again: two bad IDs are the product, not a broken run."""
+    summary = _summary(
+        review_counts=Counter({REVIEW_OK: 115, REVIEW_UNVERIFIED: 2}),
+        id_question=QuestionTally(asked=2, compared=0),
+        name_question=QuestionTally(asked=117, compared=117),
+    )
+    assert summary.dead_questions == ()
+    assert not summary.degraded
+
+
+def test_one_successful_comparison_keeps_a_question_alive() -> None:
+    summary = _summary(
+        id_question=QuestionTally(asked=117, compared=1),
+    )
+    assert summary.dead_questions == ()
+
+
+@patch("structure_check.io.check_row")
+def test_check_file_flags_a_chebi_column_that_never_compares(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """End to end: ChEBI answers every row, and no comparison ever happens."""
+    from structure_check.client import CHEBI_NO_STRUCTURE, IDENTIFIER_RESOLVED, MATCH
+
+    mock_check.return_value = _row_result(
+        review=REVIEW_OK,
+        id_cas_verdict=CHEBI_NO_STRUCTURE,
+        name_cas_verdict=MATCH,
+        cas_status=IDENTIFIER_RESOLVED,
+        chebi_status=IDENTIFIER_RESOLVED,
+        name_status=IDENTIFIER_RESOLVED,
+    )
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["Name", "CAS", "ChEBI ID"],
+        [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(8)],
+    )
+
+    summary = check_file(
+        src,
+        tmp_path / "out.csv",
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    assert summary.review_counts[REVIEW_OK] == 8
+    assert summary.id_question == QuestionTally(asked=8, compared=0)
+    assert summary.name_question.compared == 8
+    assert summary.dead_questions == ("ChEBI ID vs CAS",)
+    assert summary.degraded
