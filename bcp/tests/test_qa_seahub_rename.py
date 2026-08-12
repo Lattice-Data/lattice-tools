@@ -42,6 +42,7 @@ from tests.qa_seahub_helpers import (
     PROJECT,
     RAW,
     TRIM_SUFFIXES,
+    UNTRIMMED_WAFER,
     VENDOR_ORDER,
     ref3_trimmed_keys,
     ref3_vendor_keys,
@@ -89,8 +90,8 @@ UPLOADED_SUBLIBRARIES = {
 }
 
 
-def _vendor_index():
-    s3 = MockS3Client(keys=ref3_vendor_keys())
+def _vendor_index(extra_wafer: bool = False):
+    s3 = MockS3Client(keys=ref3_vendor_keys(extra_wafer=extra_wafer))
     return index_untrimmed_sources(
         s3, [vendor_uri(VENDOR_ORDER), vendor_uri("NVUS0000000000-12")]
     ).index
@@ -1269,3 +1270,50 @@ class TestRuleVocabulary:
         sources = {r["name_source"] for r in mapping.rows if r["name_source"]}
 
         assert sources <= set(SEAHUB_RENAME_NAME_SOURCES)
+
+
+class TestAWholeUntrimmedWaferIsADataGap:
+    """The other half of the pin in test_qa_seahub_source.
+
+    A delivered wafer with nothing trimmed is a gap per well, and ``DATA_GAP``
+    is the only verdict the notebook writes to errors.txt -- so this is the path
+    on which a forgotten plate is either audible or silent. Pinned on the
+    current order-prefix behaviour, before vendor prefixes start being located
+    from the trimmed upload's wafer list, which would drop these wells out of
+    the index that seeds them.
+    """
+
+    def test_its_wells_roll_up_as_data_gaps(self):
+        rollup = roll_up_wells(
+            BUCKET, ref3_trimmed_keys(), _vendor_index(extra_wafer=True)
+        )
+
+        rows = [r for r in rollup.rows if r["wafer"] == UNTRIMMED_WAFER]
+        assert [(r["ug"], r["verdict"]) for r in rows] == [
+            ("Z0500", "DATA_GAP"),
+            ("Z0501", "DATA_GAP"),
+        ]
+
+    def test_it_adds_to_the_gap_count_rather_than_replacing_it(self):
+        """Wafer 438514's absent CRAM is the pre-existing gap; these are extra."""
+        rollup = roll_up_wells(
+            BUCKET, ref3_trimmed_keys(), _vendor_index(extra_wafer=True)
+        )
+
+        assert rollup_summary(rollup.rows)["DATA_GAP"] == 3
+
+    def test_each_row_names_the_vendor_key_it_can_be_re_trimmed_from(self):
+        """The action is 're-run trim on this', not 'find out what is missing'."""
+        rollup = roll_up_wells(
+            BUCKET, ref3_trimmed_keys(), _vendor_index(extra_wafer=True)
+        )
+
+        for row in (r for r in rollup.rows if r["wafer"] == UNTRIMMED_WAFER):
+            assert "nothing was uploaded" in row["detail"]
+            assert "the vendor delivered it as" in row["detail"]
+            assert row["missing_artifacts"].split("|")
+            assert row["sublibrary"] == "REF3_P08_1"
+
+    def test_the_wafer_is_absent_from_the_trimmed_upload_entirely(self):
+        """Guards the fixture: this must be a whole-wafer gap, not a partial one."""
+        assert not [k for k in ref3_trimmed_keys() if UNTRIMMED_WAFER in k]

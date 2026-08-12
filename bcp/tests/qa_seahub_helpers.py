@@ -128,6 +128,31 @@ VENDOR_WELLS = (
 )
 
 
+# A vendor wafer the trimmed upload never mentions at all -- the inverse of
+# wafer 439000 above, which is trimmed but undelivered. Opt-in via
+# ``ref3_vendor_keys(extra_wafer=True)``, because every caller of the default
+# fixture pins a well count or a verdict summary.
+#
+# Two wells rather than one, so a test can tell "this whole wafer is absent"
+# from "one of its wells is absent": the defect this exists to pin is that
+# locating vendor prefixes from the trimmed side makes an untouched wafer
+# unreachable, and a single-well version of that is indistinguishable from an
+# ordinary missing well.
+UNTRIMMED_WAFER = "440000"
+UNTRIMMED_WELLS = (
+    (
+        VENDOR_ORDER,
+        UNTRIMMED_WAFER,
+        f"{UNTRIMMED_WAFER}-REF3_P08_1_C1_GEX_hash_oligo-Z0500-ACGTACGTACGTACC",
+    ),
+    (
+        VENDOR_ORDER,
+        UNTRIMMED_WAFER,
+        f"{UNTRIMMED_WAFER}-REF3_P08_1_C2_GEX_hash_oligo-Z0501-ACGTACGTACGTACT",
+    ),
+)
+
+
 def ref3_trimmed_keys(include_junk: bool = True) -> list[str]:
     """Every object of the modelled trimmed upload."""
     keys: list[str] = []
@@ -145,10 +170,16 @@ def ref3_trimmed_keys(include_junk: bool = True) -> list[str]:
 
 def ref3_vendor_keys(
     orders: tuple[str, ...] = (VENDOR_ORDER, VENDOR_ORDER_2),
+    extra_wafer: bool = False,
 ) -> list[str]:
-    """Vendor CRAMs and sidecars, in the measured vendor layout."""
+    """Vendor CRAMs and sidecars, in the measured vendor layout.
+
+    ``extra_wafer`` adds :data:`UNTRIMMED_WELLS` -- a delivered wafer with no
+    trimmed counterpart of any kind.
+    """
     keys: list[str] = []
-    for order, wafer, stem in VENDOR_WELLS:
+    wells = VENDOR_WELLS + (UNTRIMMED_WELLS if extra_wafer else ())
+    for order, wafer, stem in wells:
         if order not in orders:
             continue
         base = f"{PROJECT}/{order}/{EXPERIMENT}/raw/{wafer}/{stem}"

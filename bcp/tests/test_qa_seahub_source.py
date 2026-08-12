@@ -25,6 +25,14 @@ from qa_seahub_source import (
     source_order_by_wafer,
 )
 
+from tests.qa_seahub_helpers import (
+    UNTRIMMED_WAFER,
+    VENDOR_ORDER,
+    VENDOR_ORDER_2,
+    ref3_trimmed_keys,
+    ref3_vendor_keys,
+    vendor_uri,
+)
 from tests.test_qa_gather import MockS3Client
 
 SOURCE_URI = "s3://czi-novogene/labalpha-seahub-bcp/NVUS0000000000-02"
@@ -845,3 +853,68 @@ class TestDuplicateTrimmedWell:
 
         assert len(findings) == 1
         assert findings[0]["category"] == "duplicate_trimmed_well"
+
+
+class TestAWholeUntrimmedWaferIsLoud:
+    """A delivered wafer with nothing trimmed must reach both reporting paths.
+
+    Pinned on the current order-prefix behaviour, ahead of the change that
+    locates vendor prefixes from the trimmed upload's wafer list instead. That
+    change makes ``wafer in trimmed_wafers`` true of every indexed identity by
+    construction, so a wafer the lab never touched would not be listed, not be
+    indexed, and produce no rows at all -- and the two paths it drives are the
+    only ones that would say so. ``not_trimmed`` here, and the vendor-only
+    ``DATA_GAP`` wells in test_qa_seahub_rename, which is what errors.txt
+    writes; between them, a forgotten plate reading as a clean upload.
+
+    Within-wafer completeness is a different question and is covered above:
+    wafer 438514 is trimmed with its CRAM absent, and still reports.
+    """
+
+    def _index(self):
+        s3 = MockS3Client(keys=ref3_vendor_keys(extra_wafer=True))
+        return index_untrimmed_sources(
+            s3, [vendor_uri(VENDOR_ORDER), vendor_uri(VENDOR_ORDER_2)]
+        ).index
+
+    def test_the_wafer_is_indexed_from_an_order_prefix(self):
+        """The premise of the rest: nothing about the upload gates the listing."""
+        index = self._index()
+
+        assert [ug for wafer, ug in sorted(index) if wafer == UNTRIMMED_WAFER] == [
+            "Z0500",
+            "Z0501",
+        ]
+
+    def test_every_well_of_it_reports_not_trimmed(self):
+        report = reconcile_trimming(
+            self._index(), index_trimmed_upload(ref3_trimmed_keys())
+        )
+
+        not_trimmed = [
+            r
+            for r in report.rows
+            if r["category"] == "not_trimmed" and r["wafer"] == UNTRIMMED_WAFER
+        ]
+        assert [r["ug"] for r in not_trimmed] == ["Z0500", "Z0501"]
+
+    def test_the_verdict_counts_it(self):
+        """The printed line is what an operator reads before opening any CSV."""
+        report = reconcile_trimming(
+            self._index(), index_trimmed_upload(ref3_trimmed_keys())
+        )
+
+        # Wafer 438514's absent CRAM is the third.
+        assert "3 not trimmed" in report.verdict()
+
+    def test_it_is_not_reported_as_an_unsourced_wafer(self):
+        """unsourced_wafers is the trimmed-side signal, so it cannot cover this.
+
+        It names wafers in the *upload* that no source delivered -- the opposite
+        direction -- which is why this wafer needs a pin of its own.
+        """
+        report = reconcile_trimming(
+            self._index(), index_trimmed_upload(ref3_trimmed_keys())
+        )
+
+        assert UNTRIMMED_WAFER not in report.unsourced_wafers
