@@ -361,6 +361,17 @@ SEAHUB_STEM_NO_TYPE_RE = re.compile(
     r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)$"
 )
 
+# A bare token standing alone as a wafer, anchored both ends.  The two stem
+# patterns embed ``\d{6,8}`` inside a larger expression, so this is the first
+# place a token has to prove it is a wafer on its own -- which matters because a
+# wafer is about to become a *search* term against the vendor bucket, and an
+# unvalidated one (``REF3_P04_1`` off a sublibrary folder, or ``437120_old``)
+# would be searched for as readily as a real one.  The bound is 6-8 to match
+# those two patterns exactly: wider makes a wafer discoverable but unparseable,
+# narrower the reverse.  Every wafer measured across the real listings is 6
+# digits; 7 and 8 are permitted but unobserved.
+SEAHUB_WAFER_RE = re.compile(r"^\d{6,8}$")
+
 SEAHUB_WELL_RE = re.compile(r"^[A-H]\d{1,2}$")
 
 SEAHUB_PLATE_SIZES = frozenset({48, 96})

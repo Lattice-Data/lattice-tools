@@ -14,6 +14,8 @@ import pytest
 
 from qa_seahub_recon import reconcile_trimming
 from qa_seahub_source import (
+    WaferSeeds,
+    _wafer_seeds,
     derive_source_experiment,
     derive_source_order,
     index_trimmed_upload,
@@ -918,3 +920,100 @@ class TestAWholeUntrimmedWaferIsLoud:
         )
 
         assert UNTRIMMED_WAFER not in report.unsourced_wafers
+
+
+class TestWaferSeeds:
+    """The vendor search terms, derived from the upload and nothing else.
+
+    Each of the three readings is here because it rescues a case the others
+    miss; the tests are named for the case rather than the reading, since the
+    union is the contract and which member supplies a wafer is not.
+    """
+
+    WAFER_DIR = "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/436830"
+    STEM = "436830-REF3_P05_1_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT"
+
+    def _seeds(self, *keys: str, discovered: set[str] | None = None):
+        keys_list = list(keys)
+        return _wafer_seeds(
+            trimmed_keys=keys_list,
+            trimmed_index=index_trimmed_upload(keys_list),
+            discovered_wafers=discovered,
+        )
+
+    def test_the_ordinary_case_yields_one_wafer(self):
+        seeds = self._seeds(f"{self.WAFER_DIR}/{self.STEM}.trim.cram")
+
+        assert seeds.wafers == ("436830",)
+        assert seeds.rejected == ()
+
+    def test_a_wafer_whose_filenames_do_not_parse_is_still_found(self):
+        """The measured ScaleBio delivery: 192 CRAMs, no Z#### UG anywhere.
+
+        The identity index is empty for these, so the folder reading is the only
+        one that sees the wafer -- and without it the vendor side would never be
+        searched for a wafer that is plainly present.
+        """
+        key = "labalpha-seahub-bcp/REF3/raw/RNA3_098/426971/426971-RNA3-098C_GEX_QSR-7_10A.cram"
+
+        assert index_trimmed_upload([key]) == {}
+        assert self._seeds(key).wafers == ("426971",)
+
+    def test_a_well_whose_folder_is_not_a_wafer_is_still_found(self):
+        """Only the filename reading sees this one, and the folder is refused."""
+        key = f"labalpha-seahub-bcp/REF3/raw/REF3_P05_1/oops/{self.STEM}.trim.cram"
+        seeds = self._seeds(key)
+
+        assert seeds.wafers == ("436830",)
+        assert seeds.rejected == ("oops",)
+
+    def test_a_folder_disagreeing_with_its_filename_seeds_both(self):
+        """wafer_mismatch is an SOP rule because this happens.
+
+        Which token is right is not decidable here, so both are searched: the
+        wrong one costs one lookup and reports as not found, whereas picking
+        wrong silently compares against the wrong delivery.
+        """
+        key = f"labalpha-seahub-bcp/REF3/raw/REF3_P05_1/999999/{self.STEM}.trim.cram"
+
+        assert self._seeds(key).wafers == ("436830", "999999")
+
+    def test_junk_in_a_wafer_folder_still_seeds_the_wafer(self):
+        assert self._seeds(f"{self.WAFER_DIR}/login.html").wafers == ("436830",)
+
+    def test_an_object_off_wafer_depth_seeds_nothing(self):
+        """Neither reading has a segment to read, and that is reported elsewhere.
+
+        Documented rather than worked around: bad_path_depth already names these
+        objects, and inventing a wafer for one would be a guess.
+        """
+        shallow = f"labalpha-seahub-bcp/REF3/raw/{self.STEM}.trim.cram"
+        deep = f"{self.WAFER_DIR}/extra/{self.STEM}.trim.cram"
+
+        assert self._seeds(shallow, deep) == WaferSeeds()
+
+    def test_a_sublibrary_name_is_never_searched_for(self):
+        """discovered_wafers is unvalidated at source, so it is filtered here."""
+        seeds = self._seeds(discovered={"REF3_P04_1", "437120_old", "437120"})
+
+        assert seeds.wafers == ("437120",)
+        assert seeds.rejected == ("437120_old", "REF3_P04_1")
+
+    def test_manifest_mode_still_yields_the_uploaded_wafers(self):
+        """discovered_wafers is populated by the folder walk, so s3 mode only."""
+        key = f"{self.WAFER_DIR}/{self.STEM}.trim.cram"
+
+        assert self._seeds(key, discovered=set()).wafers == ("436830",)
+
+    def test_the_whole_fixture_yields_its_five_wafers_once_each(self):
+        keys = ref3_trimmed_keys()
+        seeds = _wafer_seeds(
+            trimmed_keys=keys, trimmed_index=index_trimmed_upload(keys)
+        )
+
+        assert seeds.wafers == ("436830", "436831", "437120", "438514", "439000")
+        assert UNTRIMMED_WAFER not in seeds.wafers
+
+    def test_no_input_at_all_is_empty_rather_than_an_error(self):
+        assert _wafer_seeds() == WaferSeeds()
+        assert len(WaferSeeds()) == 0

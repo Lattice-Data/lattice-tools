@@ -55,11 +55,13 @@ from qa_constants import (
     SEAHUB_STEM_RE,
     SEAHUB_UNKNOWN_ORDER_LABEL,
     SEAHUB_VENDOR_ORDER_RE,
+    SEAHUB_WAFER_RE,
 )
 from qa_mods import parse_seahub_raw_path, seahub_stem_and_family
 
 __all__ = [
     "IdentityKey",
+    "WaferSeeds",
     "SourceCoverage",
     "SourceEntry",
     "TrimmedEntry",
@@ -139,6 +141,19 @@ class TrimmedEntry:
     # read_metadata nor bucket.
     # 0 means "unknown", not "empty": sizes are only collected in S3 mode.
     size_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class WaferSeeds:
+    """The wafers a vendor search will look for, and the tokens it refused."""
+
+    wafers: tuple[str, ...] = ()
+    # Tokens that reached the seed builder but are not wafer-shaped, so a
+    # malformed upload cannot turn into a search for a garbage term.
+    rejected: tuple[str, ...] = ()
+
+    def __len__(self) -> int:
+        return len(self.wafers)
 
 
 @dataclass
@@ -688,3 +703,56 @@ def index_trimmed_upload(
                 # Keep the largest when a well somehow carries several CRAMs.
                 entry.size_bytes = max(entry.size_bytes, int(sizes.get(key, 0) or 0))
     return index
+
+
+def _wafer_seeds(
+    trimmed_keys: list[str] | None = None,
+    trimmed_index: dict[IdentityKey, TrimmedEntry] | None = None,
+    discovered_wafers: set[str] | None = None,
+) -> WaferSeeds:
+    """Collect the wafers to look for on the vendor side, from the upload alone.
+
+    Pure, and takes no S3 client: the three readings it unions are all already
+    in hand by the time the notebook needs them, so locating the vendor
+    deliveries costs no extra listing of the trimmed bucket.
+
+    Why three readings rather than the identity index alone -- each rescues a
+    case the others miss, verified against the real listings:
+
+    * ``trimmed_index`` gives the wafer off the *filename*, so it is the only
+      one that sees a well whose folder is not a wafer at all, or disagrees with
+      its filename.  Both are real: ``wafer_mismatch`` is an SOP rule because
+      folder and filename do diverge in practice.  Where they disagree, both
+      tokens are searched for -- which of the two is right is not something this
+      can decide, and the wrong one costs one lookup and reports as not found.
+    * ``trimmed_keys`` gives the wafer off the *folder*, so it is the only one
+      that sees a wafer whose filenames do not parse.  That is the ScaleBio
+      delivery measured under ``RNA3_098``, whose 192 CRAMs carry no ``Z####``
+      UG at all and therefore produce no identity, and it is any upload that
+      misspells every artifact.
+    * ``discovered_wafers`` comes from the folder walk, so it sees a wafer
+      directory holding nothing this QA ingested -- an empty one included.  It
+      is empty in manifest mode, which is why it cannot be the only reading.
+
+    Neither path reading covers an object above or below wafer depth: the folder
+    reading needs the SOP's six segments and the identity needs them too.  Such
+    an object is reported as ``bad_path_depth`` and contributes no seed, which
+    is deliberate -- there is no segment it could be read from.
+    """
+    tokens: list[str] = []
+    if trimmed_index:
+        tokens.extend(entry.wafer for entry in trimmed_index.values())
+    for key in trimmed_keys or ():
+        path_info = parse_seahub_raw_path(key)
+        if path_info:
+            tokens.append(path_info["wafer"])
+    tokens.extend(discovered_wafers or ())
+
+    wafers: set[str] = set()
+    rejected: set[str] = set()
+    for token in tokens:
+        token = (token or "").strip()
+        if not token:
+            continue
+        (wafers if SEAHUB_WAFER_RE.match(token) else rejected).add(token)
+    return WaferSeeds(wafers=tuple(sorted(wafers)), rejected=tuple(sorted(rejected)))
