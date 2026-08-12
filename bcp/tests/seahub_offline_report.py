@@ -219,7 +219,7 @@ def report(
         "all_raw_files": len(data.all_raw_files),
         "raw_file_sizes": len(data.raw_file_sizes),
         # Populated by the folder walk, so s3 mode only -- see the parity note in
-        # the README. Not part of what the two modes are asserted to agree on.
+        # SEAHUB_QA.md. Not part of what the two modes are asserted to agree on.
         "discovered_wafers": len(data.discovered_wafers),
         "sop_rows": len(violations),
         "sop_rules": dict(sop_violation_summary(violations)),

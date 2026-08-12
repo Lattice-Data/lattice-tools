@@ -623,3 +623,5 @@ QA modules (`qa_checks.py`, `qa_gather.py`, `qa_mods.py`) still handle deeper co
 
 So a mapping can pass `mapping_validation` path/SOP checks but still fail downstream QA content checks (or vice versa).
 
+Collaborator lab SeaHub trimmed raw uploads are a separate notebook-only path, documented in **[SEAHUB_QA.md](SEAHUB_QA.md)**.
+

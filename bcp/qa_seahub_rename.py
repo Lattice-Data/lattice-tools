@@ -630,7 +630,7 @@ def roll_up_wells(
                 # always the folder the upload used -- a truncated folder is the
                 # commonest real defect, so an uploaded row can say "P07_1" where
                 # this one says "REF3_P07_1" for the same sublibrary. Documented
-                # in the README and pinned by
+                # in SEAHUB_QA.md and pinned by
                 # test_a_gap_row_names_the_sublibrary_the_vendor_used.
                 group = source.group
                 # index_untrimmed_sources does not normalize a doubled wafer, so
