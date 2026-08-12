@@ -18,6 +18,7 @@ from qa_seahub_source import (
     UntrimmedSources,
     WaferSeeds,
     _index_prefix,
+    _normalize_search_roots,
     _wafer_seeds,
     derive_source_experiment,
     derive_source_order,
@@ -1110,3 +1111,89 @@ class TestASidecarStaysInItsOwnBucket:
         assert sidecars[(entry.bucket, entry.cram_key[: -len(".cram")])] == (
             f"{self.PATH}.cram-metadata.json"
         )
+
+
+class TestNormalizeSearchRoots:
+    """A search root is descended with a delimiter, so a bucket root is legal.
+
+    The paired assertion lives in TestNormalizeSourceUris and must stay red on
+    the same input: the listing validator still refuses what this one accepts,
+    because the two feed different kinds of S3 call.
+    """
+
+    BUCKET_ROOT = "s3://czi-novogene"
+    PROJECT_ROOT = "s3://czi-novogene/labalpha-seahub-bcp"
+
+    def test_a_bucket_root_is_accepted(self):
+        assert _normalize_search_roots(self.BUCKET_ROOT) == ["s3://czi-novogene/"]
+
+    def test_the_listing_validator_still_rejects_the_same_root(self):
+        """The guard is repurposed, not relaxed -- pinned here as well as there."""
+        with pytest.raises(ValueError, match="too broad"):
+            normalize_source_uris(f"{self.BUCKET_ROOT}/")
+
+    def test_a_trailing_slash_is_never_the_difference_between_two_roots(self):
+        assert _normalize_search_roots([self.BUCKET_ROOT, f"{self.BUCKET_ROOT}/"]) == [
+            "s3://czi-novogene/"
+        ]
+
+    def test_a_project_root_is_accepted_and_is_the_recommended_shape(self):
+        assert _normalize_search_roots(self.PROJECT_ROOT) == [f"{self.PROJECT_ROOT}/"]
+
+    def test_a_bare_string_is_wrapped(self):
+        assert len(_normalize_search_roots(self.PROJECT_ROOT)) == 1
+
+    def test_none_and_empty_entries_are_dropped(self):
+        assert _normalize_search_roots(None) == []
+        assert _normalize_search_roots(["", "  "]) == []
+
+    def test_a_non_s3_root_raises(self):
+        with pytest.raises(ValueError):
+            _normalize_search_roots("/local/path")
+
+    def test_a_comma_is_never_split(self):
+        """An S3 prefix may contain a comma; splitting one lists the wrong thing."""
+        odd = "s3://czi-novogene/project,with-comma"
+        assert _normalize_search_roots(odd) == [f"{odd}/"]
+
+    def test_a_root_inside_another_root_is_dropped(self):
+        assert _normalize_search_roots([self.PROJECT_ROOT, self.BUCKET_ROOT]) == [
+            "s3://czi-novogene/"
+        ]
+
+    def test_the_same_prefix_in_another_bucket_is_kept(self):
+        roots = _normalize_search_roots(
+            [self.PROJECT_ROOT, "s3://czi-psomagen/labalpha-seahub-bcp"]
+        )
+
+        assert len(roots) == 2
+
+    def test_a_sibling_project_is_not_swallowed_by_a_prefix_match(self):
+        """``.../REF3/`` must not read as covering ``.../REF3_P05_1/``."""
+        roots = _normalize_search_roots(
+            ["s3://czi-novogene/REF3", "s3://czi-novogene/REF3_P05_1"]
+        )
+
+        assert len(roots) == 2
+
+    @pytest.mark.parametrize(
+        "root",
+        [
+            "s3://czi-novogene/labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw",
+            "s3://czi-novogene/labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120",
+        ],
+    )
+    def test_a_root_inside_a_raw_folder_is_rejected(self, root):
+        """That is an untrimmed_s3_paths entry, not a root to search from.
+
+        The descent stops at a child folder named raw, so starting inside one
+        locates nothing -- which would read as "this bucket holds no vendor data"
+        rather than "you gave me the wrong kind of path".
+        """
+        with pytest.raises(ValueError, match="inside a 'raw' folder"):
+            _normalize_search_roots(root)
+
+    def test_a_prefix_merely_containing_the_word_raw_is_fine(self):
+        """Segment-wise, not substring: a project may legitimately be named this."""
+        root = "s3://czi-novogene/rawlings-seahub-bcp"
+        assert _normalize_search_roots(root) == [f"{root}/"]

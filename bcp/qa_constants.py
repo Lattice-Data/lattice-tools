@@ -372,6 +372,12 @@ SEAHUB_STEM_NO_TYPE_RE = re.compile(
 # digits; 7 and 8 are permitted but unobserved.
 SEAHUB_WAFER_RE = re.compile(r"^\d{6,8}$")
 
+# The one path segment every vendor layout agrees on, and the folder name the
+# wafer descent stops at.  Named rather than inlined because two things have to
+# agree about it: the descent looks for a child folder called this, and
+# normalize_search_roots refuses a root that already contains one.
+SEAHUB_RAW_SEGMENT = "raw"
+
 SEAHUB_WELL_RE = re.compile(r"^[A-H]\d{1,2}$")
 
 SEAHUB_PLATE_SIZES = frozenset({48, 96})

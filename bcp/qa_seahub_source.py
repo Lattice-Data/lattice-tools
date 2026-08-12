@@ -51,6 +51,7 @@ import json
 import tempfile
 
 from qa_constants import (
+    SEAHUB_RAW_SEGMENT,
     SEAHUB_STEM_NO_TYPE_RE,
     SEAHUB_STEM_RE,
     SEAHUB_UNKNOWN_ORDER_LABEL,
@@ -248,6 +249,64 @@ def normalize_source_uris(uris: Any) -> list[str]:
         if uri not in normalized:
             normalized.append(uri)
     return normalized
+
+
+def _normalize_search_roots(roots: Any) -> list[str]:
+    """Validate the roots a wafer search may descend from; a sibling of the above.
+
+    :func:`normalize_source_uris` is deliberately left alone rather than given a
+    flag. Its "too broad" guard exists because the prefix it validates is handed
+    straight to a flat object paginate, so a shallow one walks a whole bucket by
+    accident -- and that is still true of every caller it has. A search root is a
+    different kind of thing: it is descended with a delimiter, level by level, and
+    a bucket root is the point of it. Two functions keep the two meanings apart;
+    one function with a flag would have re-opened the accident for the old
+    parameter.
+
+    Accepted: any depth, including a bare bucket. ``s3://czi-novogene`` and
+    ``s3://czi-novogene/`` normalize identically, so a trailing slash is never
+    the difference between two roots. Rejected:
+
+    * anything that is not ``s3://bucket[/prefix]`` -- as before, via
+      :func:`parse_source_uri`.
+    * a root containing a ``raw`` segment. That is a listing prefix, not a search
+      root -- the shape ``untrimmed_s3_paths`` took. The descent looks for a
+      child folder named ``raw``, so starting inside one finds nothing and would
+      report zero located wafers, which is indistinguishable from a vendor bucket
+      that genuinely holds none. Better to say so.
+
+    A root inside another root in the same bucket is dropped, because descending
+    the outer one already covers it. A string is never comma-split, for the same
+    reason as above: an S3 prefix may contain a comma.
+    """
+    if roots is None:
+        return []
+    candidates = [roots] if isinstance(roots, str) else list(roots)
+
+    parsed: list[tuple[str, str, str]] = []
+    for candidate in candidates:
+        uri = str(candidate).strip()
+        if not uri:
+            continue
+        bucket, prefix = parse_source_uri(uri)
+        if SEAHUB_RAW_SEGMENT in [s for s in prefix.split("/") if s]:
+            raise ValueError(
+                f"Search root {uri!r} is inside a {SEAHUB_RAW_SEGMENT!r} folder: "
+                "give the project or bucket to search, not one delivery's listing "
+                "prefix"
+            )
+        canonical = f"s3://{bucket}/{prefix}" if prefix else f"s3://{bucket}/"
+        if canonical not in [c for c, _b, _p in parsed]:
+            parsed.append((canonical, bucket, prefix))
+
+    # Shortest prefix first, so a parent is always seen before its children.
+    ordered = sorted(parsed, key=lambda item: (item[1], len(item[2]), item[2]))
+    kept: list[tuple[str, str, str]] = []
+    for canonical, bucket, prefix in ordered:
+        if any(b == bucket and prefix.startswith(p) for _c, b, p in kept):
+            continue
+        kept.append((canonical, bucket, prefix))
+    return [canonical for canonical, _b, _p in kept]
 
 
 def derive_source_order(cram_key: str) -> str:
