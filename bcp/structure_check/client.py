@@ -152,7 +152,6 @@ SALT_TOKENS = frozenset(
         "br",
         "nacl",
         "kcl",
-        "hbr",
         "hi",
         "tsoh",
         "msoh",

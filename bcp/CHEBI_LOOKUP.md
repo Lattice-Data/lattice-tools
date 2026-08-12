@@ -8,6 +8,16 @@ To go the other way — from a ChEBI ID you already hold to its authoritative na
 
 When the question is whether a whole sheet's identifiers agree with each other **by structure** rather than by name, see [STRUCTURE_CHECK.md](STRUCTURE_CHECK.md): it resolves the CAS, the name, and the ChEBI ID independently to InChIKeys and compares those.
 
+### Request behaviour
+
+`get_with_retry` keeps its signature and return semantics — a `Response`, or `None` for both "no such thing" and "could not ask". `get_with_retry_status` returns the same response alongside an outcome (`ok` / `not_found` / `unreachable`) for callers that need to tell those apart; `structure_check` does, because reporting an outage as "no such compound" would turn a network problem into a finding about the chemistry.
+
+Three things changed for **all** callers when that was added:
+
+- **Malformed-request 4xx are no longer retried.** `400`, `405`, `410`, `413`, `414`, `422` describe the request, so asking twice more gets the same reply. `401`/`403`/`407` are deliberately *not* in that set — a blocked client is a network condition, and treating it as "no such compound" would misreport a whole run of good CAS numbers.
+- **No backoff sleep after the final attempt.** It delayed the next try, and there isn't one; this was ~8s per exhausted request.
+- **`cas_to_cid` percent-encodes the CAS.** These values come from untrusted spreadsheets and land in the URL path, where a stray `/` or `?` would rewrite or truncate the request. Quoting happens inside the function so every caller is covered rather than each one remembering.
+
 ---
 
 ## CLI entry point

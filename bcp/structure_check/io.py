@@ -551,14 +551,15 @@ def check_file(
             from_cache = key in cache
             skipped = frozenset() if from_cache else breaker.skip()
             if not from_cache:
-                # Only counted when something was actually asked. A row whose
-                # every requested side was skipped by the breaker made no
-                # request, and counting it would overstate "N distinct lookups"
-                # in the same direction the undercount above understated it.
+                # Only counted when something was actually asked, which needs the
+                # pivot *and* something to compare it against: check_row returns
+                # without a request when either is missing, and again when the
+                # breaker has skipped every side it would have queried. Counting
+                # those would overstate "N distinct lookups" in the same
+                # direction the cache undercounted it — and that number is what
+                # an operator uses to sanity-check runtime.
                 requested = {s for s, v in (("chebi", chebi_id), ("name", name)) if v}
-                if cas:
-                    requested.add("cas")
-                if requested - skipped:
+                if cas and requested and (requested | {"cas"}) - skipped:
                     attempted_keys.add(key)
                 result = check_row(cas=cas, chebi_id=chebi_id, name=name, skip=skipped)
                 # Outages are not cached. A transient failure on one triple must

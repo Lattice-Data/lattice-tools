@@ -1824,9 +1824,13 @@ def test_a_client_error_is_an_answer_about_the_request_not_the_network(
     for a bad cell, and suppress the wrong-column diagnosis, since an outage
     disqualifies suspect_columns.
     """
-    from chebi_lookup.client import OUTCOME_NOT_FOUND, get_with_retry_status
+    from chebi_lookup.client import (
+        MALFORMED_REQUEST_CODES,
+        OUTCOME_NOT_FOUND,
+        get_with_retry_status,
+    )
 
-    for code in (400, 410, 413, 414, 422):
+    for code in sorted(MALFORMED_REQUEST_CODES):
         mock_get.reset_mock()
         mock_get.return_value = MagicMock(status_code=code)
         _resp, outcome = get_with_retry_status("https://example.invalid/x")
@@ -2060,3 +2064,29 @@ def test_the_formula_guard_leaves_genuine_alias_pairs_alone() -> None:
     """The guard must not swallow the case the fallback exists for."""
     for raw in ("Vorinostat_SAHA", "ABT_263_Navitoclax", "Actinomycin_D_Dactinomycin"):
         assert name_candidates(raw)[1], raw
+
+
+@pytest.mark.parametrize(
+    ("chebi_down", "name_down", "expected"),
+    [(True, False, "id"), (False, True, "name"), (True, True, "both")],
+)
+def test_unasked_names_whichever_side_went_unanswered(
+    chebi_down: bool, name_down: bool, expected: str
+) -> None:
+    """`unasked` is a documented output column; all three of its values are real."""
+    from structure_check.client import CHEBI_UNREACHABLE, PubChemUnavailableError
+
+    chebi = ("", CHEBI_UNREACHABLE) if chebi_down else (ETHANOL, "")
+    name_p = patch("structure_check.client.name_structure")
+    with (
+        patch("structure_check.client.cas_structure", return_value=(ETHANOL, "Eth")),
+        patch("structure_check.client.chebi_structure", return_value=chebi),
+        name_p as mock_name,
+    ):
+        if name_down:
+            mock_name.side_effect = PubChemUnavailableError("down")
+        else:
+            mock_name.return_value = ("Ethanol", [ETHANOL], 1)
+        result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol")
+
+    assert result["unasked"] == expected

@@ -66,7 +66,7 @@ One column tells a curator what to do, ranked by what it would cost to be wrong:
 |-------|---------|
 | `investigate` | A **different molecular skeleton**. The row points at another compound. |
 | `check` | Same skeleton with **different stereochemistry**, or the **same compound in a different salt form**. A form question, not a wrong compound. |
-| `ok` | At least one comparison succeeded and every comparison made agreed. |
+| `ok` | At least one comparison succeeded and every comparison made agreed. A side that could not be compared — `name_ambiguous`, `name_unresolved`, `chebi_unreachable` — does not undo the side that did; check the verdict columns and `unasked` for what was left open. |
 | `unverified` | No comparison could be made at all. Not a finding — see the verdict columns for why. |
 
 Sort by the **`review_rank`** column (1–4, worst first) — everything needing a human lands at the top. `review` carries the same answer in words, but alphabetically `check` sorts before `investigate`, so the rank column is there to make "sort by it" literally true.
