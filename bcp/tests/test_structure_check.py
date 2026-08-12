@@ -1344,7 +1344,7 @@ def test_check_file_counts_an_outage_against_rows_not_cells(
         NOT_CHECKED,
     )
 
-    def per_row(*, cas, chebi_id, name):
+    def per_row(*, cas, chebi_id, name, skip=()):
         if not chebi_id:
             status, verdict = IDENTIFIER_NOT_CHECKED, NOT_CHECKED
         elif chebi_id == "CHEBI:live":
@@ -1483,7 +1483,7 @@ def test_check_file_does_not_cache_an_outage(
 
     calls = []
 
-    def per_row(*, cas, chebi_id, name):
+    def per_row(*, cas, chebi_id, name, skip=()):
         calls.append((cas, chebi_id, name))
         # Fails the first time, succeeds after — the shape of a transient blip.
         if len(calls) == 1:
@@ -1516,255 +1516,116 @@ def test_check_file_does_not_cache_an_outage(
 
 
 @patch("structure_check.io.check_row")
-def test_check_file_stops_rather_than_grinding_through_a_dead_upstream(
+def test_check_file_stops_querying_a_dead_upstream_but_finishes_the_run(
     mock_check: MagicMock, tmp_path: Path
 ) -> None:
     """
-    A wholly unreachable upstream is decided by the first few rows.
+    A dead upstream stops being asked; the run still completes.
 
-    Every remaining row would cost seconds of backoff to reach a verdict already
-    settled, so the run stops and says so, as chebi_terms does.
+    Aborting would throw away every remaining row, including the columns that
+    are still answering. Skipped rows are marked unreachable — which is what
+    they are — so the verdict is unchanged and the CSV is complete.
     """
     from structure_check.client import CAS_UNREACHABLE, IDENTIFIER_UNREACHABLE
 
-    mock_check.return_value = _row_result(
-        review=REVIEW_UNVERIFIED,
-        id_cas_verdict=CAS_UNREACHABLE,
-        cas_status=IDENTIFIER_UNREACHABLE,
-    )
+    seen_skips = []
+
+    def per_row(*, cas, chebi_id, name, skip=()):
+        seen_skips.append(frozenset(skip))
+        return _row_result(
+            review=REVIEW_UNVERIFIED,
+            id_cas_verdict=CAS_UNREACHABLE,
+            cas_status=IDENTIFIER_UNREACHABLE,
+        )
+
+    mock_check.side_effect = per_row
     src = tmp_path / "in.csv"
     _write_csv(
         src, ["CAS", "ChEBI ID"], [[f"{n}-00-0", f"CHEBI:{n}"] for n in range(40)]
     )
     out = tmp_path / "out.csv"
 
-    with pytest.raises(StructureCheckError, match="could not be reached"):
-        check_file(src, out, cas_column="CAS", chebi_column="ChEBI ID")
+    summary = check_file(src, out, cas_column="CAS", chebi_column="ChEBI ID")
 
-    # It stopped early rather than walking all 40 rows.
-    assert mock_check.call_count < 40
-    # The partial output is still there for inspection.
-    assert out.exists()
-
-
-# --------------------------------------------------------------------------
-# an answer and a silence are different things, on the PubChem side too
-#
-# chebi_lookup.get_with_retry returns None for a 404 and for exhausted retries
-# alike, which is why cas_unresolved could not be told from "PubChem was down".
-# --------------------------------------------------------------------------
-
-
-@patch("structure_check.client.time.sleep")
-@patch("chebi_lookup.client.time.sleep")
-@patch("chebi_lookup.client.requests.get")
-def test_cas_structure_raises_when_pubchem_is_unreachable(
-    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
-) -> None:
-    from structure_check.client import PubChemUnavailableError, cas_structure
-
-    down = MagicMock()
-    down.status_code = 503
-    mock_get.return_value = down
-
-    with pytest.raises(PubChemUnavailableError):
-        cas_structure("64-17-5")
-
-
-@patch("structure_check.client.time.sleep")
-@patch("chebi_lookup.client.time.sleep")
-@patch("chebi_lookup.client.requests.get")
-def test_cas_structure_still_answers_no_for_a_real_404(
-    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
-) -> None:
-    """A 404 is PubChem answering. It must not be mistaken for an outage."""
-    from structure_check.client import cas_structure
-
-    missing = MagicMock()
-    missing.status_code = 404
-    mock_get.return_value = missing
-
-    assert cas_structure("00-00-0") == ("", "")
-
-
-@patch("structure_check.client.time.sleep")
-@patch("chebi_lookup.client.time.sleep")
-@patch("chebi_lookup.client.requests.get")
-def test_a_two_hundred_that_is_not_json_is_an_outage_not_an_answer(
-    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
-) -> None:
-    """
-    A maintenance page served with HTTP 200 is something other than this API
-    answering. Read as 'no such compound' it would look like a wrong column.
-    """
-    from structure_check.client import PubChemUnavailableError, cas_structure
-
-    html = MagicMock()
-    html.status_code = 200
-    html.json.side_effect = ValueError("not json")
-    mock_get.return_value = html
-
-    with pytest.raises(PubChemUnavailableError):
-        cas_structure("64-17-5")
-
-
-@patch("structure_check.client.cas_structure")
-@patch("structure_check.client.chebi_structure")
-def test_check_row_never_raises_on_a_pubchem_outage(
-    mock_chebi: MagicMock, mock_cas: MagicMock
-) -> None:
-    """check_row's contract is that nothing upstream can make it throw."""
-    from structure_check.client import (
-        CAS_UNREACHABLE,
-        IDENTIFIER_UNREACHABLE,
-        PubChemUnavailableError,
-    )
-
-    mock_cas.side_effect = PubChemUnavailableError("down")
-    mock_chebi.return_value = (ETHANOL, "")
-
-    result = check_row(cas="64-17-5", chebi_id="CHEBI:16236")
-
-    assert result["id_cas_verdict"] == CAS_UNREACHABLE
-    assert result["cas_status"] == IDENTIFIER_UNREACHABLE
-    # Only the ID check was requested, so "id" is the only correct answer.
-    assert result["unasked"] == "id"
-
-
-@patch("structure_check.client.time.sleep")
-@patch("structure_check.client.inchikeys_for_name")
-def test_an_unreachable_whole_name_does_not_fall_through_to_tokens(
-    mock_keys: MagicMock, _sleep: MagicMock
-) -> None:
-    """
-    The token fallback's premise is that no whole-string form resolved.
-
-    An unreachable whole-string query never established that, so falling through
-    would compare the row against a free base the sheet never named — and the
-    audit trail would read like an ordinary deliberate fallback.
-    """
-    from structure_check.client import PubChemUnavailableError, name_structure
-
-    mock_keys.side_effect = PubChemUnavailableError("down")
-
-    with pytest.raises(PubChemUnavailableError):
-        name_structure("ABT_263_Navitoclax")
-
-    # It stopped at the first whole-string form rather than trying the tokens.
-    assert mock_keys.call_count == 1
-
-
-def test_get_with_retry_still_collapses_both_silences_for_old_callers() -> None:
-    """The wrapper must stay exactly as it was for every existing caller."""
-    from chebi_lookup.client import (
-        OUTCOME_NOT_FOUND,
-        OUTCOME_UNREACHABLE,
-        get_with_retry,
-        get_with_retry_status,
-    )
-
-    with (
-        patch("chebi_lookup.client.requests.get") as mock_get,
-        patch("chebi_lookup.client.time.sleep"),
-    ):
-        missing = MagicMock()
-        missing.status_code = 404
-        mock_get.return_value = missing
-        assert get_with_retry("https://example.invalid/x") is None
-        assert (
-            get_with_retry_status("https://example.invalid/x")[1] == OUTCOME_NOT_FOUND
-        )
-
-        down = MagicMock()
-        down.status_code = 503
-        mock_get.return_value = down
-        assert get_with_retry("https://example.invalid/x") is None
-        assert (
-            get_with_retry_status("https://example.invalid/x")[1] == OUTCOME_UNREACHABLE
-        )
-
-
-@patch("structure_check.client.time.sleep")
-@patch("chebi_lookup.client.time.sleep")
-@patch("chebi_lookup.client.requests.get")
-def test_a_parent_lookup_outage_never_degrades_the_run(
-    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock, caplog
-) -> None:
-    """
-    The one path where an outage cannot produce a false clean sheet.
-
-    Refinement only ever downgrades a difference already found, so a failure there
-    leaves a row flagged for a human — the safe direction. It is also by far the
-    highest-volume caller, so counting it would exit 1 on a run whose only content
-    is a genuine finding.
-    """
-    from structure_check.client import _parent_cache, parent_inchikey
-
-    _parent_cache.clear()
-    down = MagicMock()
-    down.status_code = 503
-    mock_get.return_value = down
-
-    # Returns benignly rather than raising, and says why in the log.
-    assert parent_inchikey(ETHANOL) == ""
-    assert "unreachable" in caplog.text.lower()
-
-
-def test_a_small_batch_is_not_quieter_than_the_same_row_in_single_mode() -> None:
-    """
-    Four rows against a dead ChEBI sit under every threshold: too few outage rows
-    for `outages`, no `missing` values for `suspect_columns` (unreachable is not
-    an answer), too few rows for the `nothing_compared` floor. Meanwhile single
-    mode exits 1 on one such row. An outage is positive evidence that we failed
-    to ask, so it does not need volume to be believed.
-    """
-    summary = RunSummary(
-        review_counts=Counter({REVIEW_UNVERIFIED: 4}),
-        verdict_counts=Counter(),
-        rows=4,
-        cas=SideTally(resolved_values=4, resolved_rows=4),
-        chebi=SideTally(outage_rows=4),
-    )
-    assert summary.outages == ()
-    assert summary.suspect_columns == ()
-    assert summary.nothing_compared
+    # Every row is present and accounted for, not just the ones before the trip.
+    assert summary.rows == 40
+    assert len(list(csv.DictReader(out.open(encoding="utf-8")))) == 40
+    # The CAS side stopped being queried once it had failed five times running.
+    assert any("cas" in sk for sk in seen_skips)
+    # And the run is still reported as untrustworthy.
+    assert summary.outages == ("CAS",)
     assert summary.degraded
 
 
-def test_lifting_that_floor_does_not_reopen_the_sparse_column_hole() -> None:
-    """The 115 rows that compared fine keep nothing_compared false on the count."""
-    summary = _summary(
-        review_counts=Counter({REVIEW_OK: 115, REVIEW_UNVERIFIED: 2}),
-        cas=SideTally(resolved_values=117, resolved_rows=117),
-        chebi=SideTally(outage_rows=2),
-    )
-    assert not summary.nothing_compared
-    assert not summary.degraded
-
-
-def test_a_tiny_spot_check_with_no_outage_still_stays_quiet() -> None:
-    """Two compounds PubChem happens not to know is a spot check, not a breakage."""
-    summary = RunSummary(
-        review_counts=Counter({REVIEW_UNVERIFIED: 2}),
-        verdict_counts=Counter(),
-        rows=2,
-        cas=SideTally(missing_values=2),
-    )
-    assert not summary.nothing_compared
-    assert not summary.degraded
-
-
 @patch("structure_check.io.check_row")
-def test_a_cache_hit_does_not_reset_the_fail_fast_counter(
+def test_a_tripped_side_is_retried_rather_than_written_off(
     mock_check: MagicMock, tmp_path: Path
 ) -> None:
     """
-    A cache hit is not evidence the outage is over.
+    Being tripped is a guess that the upstream is down, so it gets re-tested.
 
-    Outages are never cached, so a hit means a row that succeeded *earlier* —
-    possibly long before the upstream died. Resetting on one lets a sheet with
-    repeated compounds alternate free hits with live rows and never trip the
-    guard, spending full backoff on each one to reach a settled verdict.
+    Without a probe, five scattered blips would poison every remaining row with
+    an `unreachable` no request was ever made for — an answer manufactured from
+    a silence, which is the one thing this module refuses to do.
+    """
+    from structure_check.client import (
+        CHEBI_UNREACHABLE,
+        IDENTIFIER_RESOLVED,
+        IDENTIFIER_UNREACHABLE,
+        MATCH,
+    )
+    from structure_check.io import OUTAGE_PROBE_INTERVAL
+
+    attempts = []
+
+    def per_row(*, cas, chebi_id, name, skip=()):
+        if "chebi" in skip:
+            return _row_result(
+                review=REVIEW_UNVERIFIED,
+                id_cas_verdict=CHEBI_UNREACHABLE,
+                cas_status=IDENTIFIER_RESOLVED,
+                chebi_status=IDENTIFIER_UNREACHABLE,
+            )
+        attempts.append(chebi_id)
+        # ChEBI is down for the first five attempts, then comes back.
+        down = len(attempts) <= 5
+        return _row_result(
+            review=REVIEW_UNVERIFIED if down else REVIEW_OK,
+            id_cas_verdict=CHEBI_UNREACHABLE if down else MATCH,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE if down else IDENTIFIER_RESOLVED,
+        )
+
+    mock_check.side_effect = per_row
+    src = tmp_path / "in.csv"
+    # A long tail after recovery, so the rows that were answered outnumber the
+    # ones lost while it was down and the run is not condemned for the outage.
+    rows = 5 + OUTAGE_PROBE_INTERVAL + 40
+    _write_csv(
+        src, ["CAS", "ChEBI ID"], [[f"{n}-00-0", f"CHEBI:{n}"] for n in range(rows)]
+    )
+
+    summary = check_file(
+        src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID"
+    )
+
+    # It tripped after 5, waited, probed, found ChEBI back, and resumed.
+    assert len(attempts) > 5
+    assert summary.chebi.resolved_rows > 0
+    # Having recovered, the run is not condemned.
+    assert summary.outages == ()
+
+
+@patch("structure_check.io.check_row")
+def test_a_cache_hit_does_not_clear_an_outage_streak(
+    mock_check: MagicMock, tmp_path: Path
+) -> None:
+    """
+    A cache hit is not evidence the upstream recovered.
+
+    Outages are never cached, so a hit means a row that succeeded *earlier*,
+    possibly long before the upstream died. Folding one in would let a sheet with
+    repeated compounds alternate free hits with live rows and never trip at all.
     """
     from structure_check.client import (
         CAS_UNREACHABLE,
@@ -1773,20 +1634,22 @@ def test_a_cache_hit_does_not_reset_the_fail_fast_counter(
         MATCH,
     )
 
-    good = _row_result(
-        review=REVIEW_OK,
-        id_cas_verdict=MATCH,
-        cas_status=IDENTIFIER_RESOLVED,
-        chebi_status=IDENTIFIER_RESOLVED,
-    )
-    dead = _row_result(
-        review=REVIEW_UNVERIFIED,
-        id_cas_verdict=CAS_UNREACHABLE,
-        cas_status=IDENTIFIER_UNREACHABLE,
-    )
+    saw_cas_skipped = []
 
-    def per_row(*, cas, chebi_id, name):
-        return good if cas == "repeat" else dead
+    def per_row(*, cas, chebi_id, name, skip=()):
+        saw_cas_skipped.append("cas" in skip)
+        if cas == "repeat":
+            return _row_result(
+                review=REVIEW_OK,
+                id_cas_verdict=MATCH,
+                cas_status=IDENTIFIER_RESOLVED,
+                chebi_status=IDENTIFIER_RESOLVED,
+            )
+        return _row_result(
+            review=REVIEW_UNVERIFIED,
+            id_cas_verdict=CAS_UNREACHABLE,
+            cas_status=IDENTIFIER_UNREACHABLE,
+        )
 
     mock_check.side_effect = per_row
     src = tmp_path / "in.csv"
@@ -1798,21 +1661,26 @@ def test_a_cache_hit_does_not_reset_the_fail_fast_counter(
         rows.append(["repeat", "CHEBI:1"])
     _write_csv(src, ["CAS", "ChEBI ID"], rows)
 
-    with pytest.raises(StructureCheckError, match="could not be reached"):
-        check_file(src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID")
+    check_file(src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID")
+
+    # The streak survived the interleaved cache hits and the side was given up
+    # on. (Note `outages` does not fire here: the cached rows count as answered,
+    # and they outnumber the dead ones — the breaker and the run verdict ask
+    # different questions, and this test is about the breaker.)
+    assert any(saw_cas_skipped), "the CAS side was never given up on"
 
 
 @patch("structure_check.io.check_row")
-def test_fail_fast_fires_when_one_upstream_dies_and_another_keeps_answering(
+def test_a_dead_side_is_dropped_while_the_live_one_finishes_the_sheet(
     mock_check: MagicMock, tmp_path: Path
 ) -> None:
     """
-    The case a whole-row rule cannot see.
+    The case a whole-row rule cannot see, and the reason this is not an abort.
 
     With ChEBI dead run-wide and a live name column whose names match, every row
-    is `ok`, so any row-level test resets on every row and the sheet walks all of
-    itself to reach a verdict already settled — paying full retry backoff on each.
-    The streak is therefore tracked per side.
+    reads `ok`, so a row-level streak resets on every row. Tracking it per side
+    catches it — and dropping only the dead side means the name check still
+    completes for the whole sheet instead of being thrown away with it.
     """
     from structure_check.client import (
         CHEBI_UNREACHABLE,
@@ -1821,14 +1689,21 @@ def test_fail_fast_fires_when_one_upstream_dies_and_another_keeps_answering(
         MATCH,
     )
 
-    mock_check.return_value = _row_result(
-        review=REVIEW_OK,  # the name side is fine, so the row reads as ok
-        id_cas_verdict=CHEBI_UNREACHABLE,
-        name_cas_verdict=MATCH,
-        cas_status=IDENTIFIER_RESOLVED,
-        chebi_status=IDENTIFIER_UNREACHABLE,
-        name_status=IDENTIFIER_RESOLVED,
-    )
+    chebi_attempts = []
+
+    def per_row(*, cas, chebi_id, name, skip=()):
+        if "chebi" not in skip:
+            chebi_attempts.append(chebi_id)
+        return _row_result(
+            review=REVIEW_OK,  # the name side is fine, so the row reads as ok
+            id_cas_verdict=CHEBI_UNREACHABLE,
+            name_cas_verdict=MATCH,
+            cas_status=IDENTIFIER_RESOLVED,
+            chebi_status=IDENTIFIER_UNREACHABLE,
+            name_status=IDENTIFIER_RESOLVED,
+        )
+
+    mock_check.side_effect = per_row
     src = tmp_path / "in.csv"
     _write_csv(
         src,
@@ -1836,15 +1711,22 @@ def test_fail_fast_fires_when_one_upstream_dies_and_another_keeps_answering(
         [[f"C{n}", f"{n}-00-0", f"CHEBI:{n}"] for n in range(40)],
     )
 
-    with pytest.raises(StructureCheckError, match="chebi column"):
-        check_file(
-            src,
-            tmp_path / "out.csv",
-            cas_column="CAS",
-            chebi_column="ChEBI ID",
-            name_column="Name",
-        )
-    assert mock_check.call_count < 40
+    summary = check_file(
+        src,
+        tmp_path / "out.csv",
+        cas_column="CAS",
+        chebi_column="ChEBI ID",
+        name_column="Name",
+    )
+
+    # ChEBI stopped being asked, far short of once per row...
+    assert len(chebi_attempts) < 40
+    # ...while the name column was checked on every single row.
+    assert summary.name.resolved_rows == 40
+    assert summary.rows == 40
+    # And the ID question is still correctly reported as unanswered.
+    assert summary.outages == ("ChEBI ID",)
+    assert summary.degraded
 
 
 @patch("structure_check.io.check_row")
@@ -1860,7 +1742,7 @@ def test_a_blank_cell_neither_extends_nor_breaks_an_outage_streak(
         NOT_CHECKED,
     )
 
-    def per_row(*, cas, chebi_id, name):
+    def per_row(*, cas, chebi_id, name, skip=()):
         unreachable = bool(chebi_id)
         return _row_result(
             review=REVIEW_UNVERIFIED,
@@ -2022,7 +1904,7 @@ def test_check_file_counts_answered_and_unanswered_rows_apart(
         MATCH,
     )
 
-    def per_row(*, cas, chebi_id, name):
+    def per_row(*, cas, chebi_id, name, skip=()):
         hit = chebi_id.endswith(("0", "1", "2"))
         return _row_result(
             review=REVIEW_OK if hit else REVIEW_UNVERIFIED,

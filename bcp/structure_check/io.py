@@ -48,10 +48,15 @@ MIN_OUTAGE_ROWS_FOR_DEGRADED = 5
 # Mirrors chebi_terms.SUSPICIOUS_TOTAL_MISS, which draws the same line.
 SUSPICIOUS_DISTINCT_MISSES = 5
 
-# A run against a wholly unreachable upstream is decided by its first few rows but
-# would otherwise grind through every remaining one at ~14s of backoff per request.
-# Mirrors chebi_terms.MAX_CONSECUTIVE_FAILURES.
+# A side that has failed this many attempts in a row is treated as down, and stops
+# being queried: the verdict is already settled and every further request costs
+# ~14s of backoff to confirm it. Mirrors chebi_terms.MAX_CONSECUTIVE_FAILURES.
 MAX_CONSECUTIVE_OUTAGE_ROWS = 5
+
+# ...but "down" is an inference, so it is re-tested this often. Long enough that a
+# genuine outage costs few probes, short enough that a sparse column which tripped
+# on scattered blips recovers well inside a normal sheet.
+OUTAGE_PROBE_INTERVAL = 20
 
 
 class SideTally(NamedTuple):
@@ -240,37 +245,71 @@ def _has_outage(result: dict[str, Any]) -> bool:
     )
 
 
-class _ConsecutiveOutages:
+class _OutageBreaker:
     """
-    Consecutive unreachable rows, tracked per side.
+    Stops querying an upstream that has stopped answering, per side.
 
-    Per side rather than per row, because a row-level rule cannot see the case
-    that costs the most: with ChEBI dead run-wide and a live name column whose
-    names match, every row is `ok`, so any whole-row test resets on every row and
-    the sheet walks all 117 to reach a verdict `outages` settled by row 5 —
-    paying the full retry backoff on each one.
+    Tracked per side rather than per row because a whole-row test cannot see the
+    case that costs the most: with ChEBI dead run-wide and a live name column
+    whose names match, every row is `ok`, so the streak resets on every row and
+    the sheet walks all of itself paying full retry backoff to reach a verdict
+    `outages` settled by row 5.
 
-    A blank cell neither increments nor resets: it says nothing about whether the
-    upstream is up, and a sparsely mapped column is normal input.
+    Once a side has failed MAX_CONSECUTIVE_OUTAGE_ROWS attempts in a row it is
+    tripped: its rows are marked unreachable without a request, which is what
+    they are, and the run finishes the columns that still work rather than
+    aborting. The alternative — killing the whole run — throws away the name
+    check on 400 remaining rows because ChEBI is down.
+
+    A tripped side is a *guess* that the upstream is down, so it is re-checked
+    every OUTAGE_PROBE_INTERVAL attempts. Without that, five scattered blips on a
+    sparsely mapped column would poison every remaining row with an `unreachable`
+    no request was ever made for — the exact conflation of an answer with a
+    silence this module exists to prevent. A successful probe clears the trip.
+
+    A blank cell neither increments nor resets a streak: it says nothing about
+    whether the upstream is up, and a sparsely mapped column is normal input.
     """
+
+    SIDES = ("cas", "chebi", "name")
 
     def __init__(self) -> None:
         self._streaks: Counter[str] = Counter()
+        self._tripped: set[str] = set()
+        self._since_probe: Counter[str] = Counter()
 
-    def update(self, result: dict[str, Any]) -> None:
-        for side in ("cas", "chebi", "name"):
+    def skip(self) -> frozenset[str]:
+        """Sides to leave unqueried on the next row."""
+        return frozenset(
+            side
+            for side in self._tripped
+            if self._since_probe[side] < OUTAGE_PROBE_INTERVAL
+        )
+
+    def note(
+        self, result: dict[str, Any], skipped: frozenset[str]
+    ) -> tuple[list[str], list[str]]:
+        """Fold one row in. Returns (sides newly tripped, sides newly recovered)."""
+        tripped, recovered = [], []
+        for side in self.SIDES:
+            if side in skipped:
+                self._since_probe[side] += 1
+                continue
             status = result.get(f"{side}_status")
             if status == IDENTIFIER_UNREACHABLE:
                 self._streaks[side] += 1
+                if side in self._tripped:
+                    self._since_probe[side] = 0  # the probe failed; wait again
+                elif self._streaks[side] >= MAX_CONSECUTIVE_OUTAGE_ROWS:
+                    self._tripped.add(side)
+                    self._since_probe[side] = 0
+                    tripped.append(side)
             elif status in (IDENTIFIER_RESOLVED, IDENTIFIER_MISSING):
                 self._streaks[side] = 0
-
-    def dead_side(self) -> str | None:
-        """The first side that has been unreachable for long enough to give up on."""
-        for side, streak in self._streaks.items():
-            if streak >= MAX_CONSECUTIVE_OUTAGE_ROWS:
-                return side
-        return None
+                if side in self._tripped:
+                    self._tripped.discard(side)
+                    recovered.append(side)
+        return tripped, recovered
 
 
 class _SideAccumulator:
@@ -497,7 +536,7 @@ def check_file(
     review_counts: Counter[str] = Counter()
     verdict_counts: Counter[str] = Counter()
     tallies = _SideAccumulator()
-    consecutive = _ConsecutiveOutages()
+    breaker = _OutageBreaker()
 
     with open(output_path, "w", newline="", encoding="utf-8") as out_fh:
         writer = csv.DictWriter(out_fh, fieldnames=output_fields)
@@ -510,9 +549,10 @@ def check_file(
 
             key = (cas, chebi_id, name)
             from_cache = key in cache
+            skipped = frozenset() if from_cache else breaker.skip()
             if not from_cache:
                 attempted_keys.add(key)
-                result = check_row(cas=cas, chebi_id=chebi_id, name=name)
+                result = check_row(cas=cas, chebi_id=chebi_id, name=name, skip=skipped)
                 # Outages are not cached. A transient failure on one triple must
                 # not be replayed as a settled answer for every row that repeats
                 # it — the same rule parent_inchikey already applies to its cache,
@@ -532,23 +572,26 @@ def check_file(
                 verdict_counts[result[field]] += 1
             tallies.add(result, cas=cas, chebi_id=chebi_id, name=name)
 
-            # A cache hit is not evidence the outage is over — since outages are
-            # never cached, a hit means a row that succeeded *earlier*, possibly
-            # long before the upstream died. Resetting on one would let a sheet
-            # with repeated compounds slip past the guard entirely, alternating
-            # free hits with live rows that each cost their full backoff.
-            # chebi_terms refuses this for the same reason.
+            # A cache hit is not evidence the upstream recovered — since
+            # outages are never cached, a hit means a row that succeeded
+            # *earlier*, possibly long before the upstream died. Folding one in
+            # would let a sheet with repeated compounds clear the streak
+            # forever. chebi_terms refuses this for the same reason.
             if not from_cache:
-                consecutive.update(result)
-                dead = consecutive.dead_side()
-                if dead is not None:
-                    raise StructureCheckError(
-                        f"{MAX_CONSECUTIVE_OUTAGE_ROWS} rows in a row could not be "
-                        f"resolved for the {dead} column because its upstream could "
-                        f"not be reached, at row {i} of {total}. Stopping rather "
-                        f"than spending the rest of the sheet on backoff. The "
-                        f"partial output is at {output_path}."
+                tripped, recovered = breaker.note(result, skipped)
+                for side in tripped:
+                    log.error(
+                        "%s has been unreachable for %s attempts in a row, at row "
+                        "%s of %s. Not asking it again for a while: those rows are "
+                        "marked unreachable in the 'unasked' column, and the run "
+                        "continues on the columns that still answer.",
+                        side,
+                        MAX_CONSECUTIVE_OUTAGE_ROWS,
+                        i,
+                        total,
                     )
+                for side in recovered:
+                    log.warning("%s is answering again at row %s.", side, i)
 
             label = name or chebi_id or cas or "(blank row)"
             if review in (REVIEW_INVESTIGATE, REVIEW_CHECK):

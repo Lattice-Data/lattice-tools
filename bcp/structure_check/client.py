@@ -25,6 +25,7 @@ import logging
 import re
 import time
 import urllib.parse
+from collections.abc import Collection
 from typing import Any
 
 from chebi_lookup.client import (
@@ -678,6 +679,7 @@ def check_row(
     cas: Any = None,
     chebi_id: Any = None,
     name: Any = None,
+    skip: Collection[str] = (),
 ) -> dict[str, Any]:
     """
     Cross-check one row's identifiers by structure.
@@ -685,6 +687,12 @@ def check_row(
     The CAS number is the pivot for both comparisons, so without it neither can be
     made. Never raises: anything unresolvable is reported as such rather than as a
     finding about the compound.
+
+    `skip` names sides ("cas", "chebi", "name") whose upstream a caller already
+    knows to be down, so the request is not made at all and the side is reported
+    unreachable directly. That is what it is — the row's question goes unanswered
+    either way — and it lets a batch run finish the columns that still work
+    instead of paying full retry backoff per row for a settled answer.
     """
     result = empty_result()
 
@@ -700,11 +708,14 @@ def check_row(
     cas_unreachable = False
     cas_key, cas_name = "", ""
     if has_cas:
-        try:
-            cas_key, cas_name = cas_structure(cas)
-        except PubChemUnavailableError as exc:
-            log.error("%s", exc)
+        if "cas" in skip:
             cas_unreachable = True
+        else:
+            try:
+                cas_key, cas_name = cas_structure(cas)
+            except PubChemUnavailableError as exc:
+                log.error("%s", exc)
+                cas_unreachable = True
         result["cas_status"] = (
             IDENTIFIER_UNREACHABLE
             if cas_unreachable
@@ -724,8 +735,25 @@ def check_row(
     else:
         cas_verdict_if_missing = NOT_CHECKED
 
+    if not cas_key:
+        # The pivot is gone, so both verdicts are already decided and resolving
+        # the other identifiers would spend 2-3 requests per row on structures
+        # nothing can be compared against. This is the mirror of the early return
+        # above, and it matters most on the sheet where --cas-column is pointed at
+        # the wrong header: every row would otherwise pay full price to produce
+        # `unverified`. Their statuses stay not_checked, which is accurate — this
+        # run learned nothing about those columns.
+        if wants_id_check:
+            result["id_cas_verdict"] = cas_verdict_if_missing
+        if wants_name_check:
+            result["name_cas_verdict"] = cas_verdict_if_missing
+        return _finish(result)
+
     if wants_id_check:
-        chebi_key, problem = chebi_structure(chebi_id)
+        if "chebi" in skip:
+            chebi_key, problem = "", CHEBI_UNREACHABLE
+        else:
+            chebi_key, problem = chebi_structure(chebi_id)
         result["chebi_inchikey"] = chebi_key
         result["chebi_status"] = (
             IDENTIFIER_UNREACHABLE
@@ -739,8 +767,6 @@ def check_row(
         )
         if problem:
             result["id_cas_verdict"] = problem
-        elif not cas_key:
-            result["id_cas_verdict"] = cas_verdict_if_missing
         else:
             verdict = compare_structures(cas_key, [chebi_key])
             if verdict == SKELETON_DIFFERS:
@@ -748,6 +774,10 @@ def check_row(
             result["id_cas_verdict"] = verdict
 
     if wants_name_check:
+        if "name" in skip:
+            result["name_status"] = IDENTIFIER_UNREACHABLE
+            result["name_cas_verdict"] = NAME_UNREACHABLE
+            return _finish(result)
         try:
             query, name_keys, total_found = name_structure(name)
         except PubChemUnavailableError as exc:
@@ -763,8 +793,6 @@ def check_row(
         result["name_inchikey"] = " | ".join(name_keys)
         if not name_keys:
             result["name_cas_verdict"] = NAME_UNRESOLVED
-        elif not cas_key:
-            result["name_cas_verdict"] = cas_verdict_if_missing
         else:
             verdict = compare_structures(cas_key, name_keys)
             # A truncated row that lands here is heading for name_ambiguous
