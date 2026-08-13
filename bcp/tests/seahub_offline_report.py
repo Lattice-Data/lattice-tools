@@ -55,7 +55,11 @@ from qa_gather import gather_qa_data
 from qa_mods import QARunContext, is_s3_folder_marker, resolve_qa_run_context
 from qa_seahub_rename import build_rename_mapping, roll_up_wells, rollup_summary
 from qa_seahub_sop import sop_violation_summary, validate_seahub_stems
-from qa_seahub_source import index_untrimmed_sources
+from qa_seahub_source import (
+    discover_untrimmed_sources,
+    index_trimmed_upload,
+    seahub_wafer_seeds,
+)
 
 from tests.test_qa_gather import MockS3Client
 
@@ -91,7 +95,15 @@ def load_listing(path: str | Path) -> tuple[str, list[str], dict[str, int]]:
             continue
         bucket = bucket or found
         keys.append(key)
-        sizes[key] = _first_int(row)
+        size = _first_int(row)
+        # Only when the row actually carries one. A key absent from the mapping
+        # means no size was collected; a key present with 0 means the object is
+        # genuinely empty, and a 0-byte CRAM is a DATA_GAP. Defaulting to 0 here
+        # conflated the two, so any listing without a size column -- a bare
+        # manifest of URIs, for instance -- reported every well in the upload as a
+        # data gap. The tool exists to check numbers, so it must not invent them.
+        if size is not None:
+            sizes[key] = size
     if not keys:
         raise SystemExit(f"{path}: no s3:// URIs found in any column")
     return bucket, keys, sizes
@@ -107,13 +119,17 @@ def _read_rows(path: Path) -> list[list[str]]:
         return [row for row in csv.reader(fh, delimiter=delimiter) if row]
 
 
-def _first_int(row: list[str]) -> int:
-    """The first plain integer in the row, which is the size column if present."""
+def _first_int(row: list[str]) -> int | None:
+    """The first plain integer in the row -- the size column -- or None.
+
+    None rather than 0, because the two mean different things downstream and only
+    one of them is a finding.
+    """
     for cell in row:
         text = str(cell).strip()
         if text.isdigit():
             return int(text)
-    return 0
+    return None
 
 
 def _synthetic_contents(keys: list[str]) -> dict[str, str]:
@@ -186,6 +202,7 @@ def report(
     untrimmed_index: dict = {}
     assay_by_identity: dict = {}
     findings: list = []
+    search = None
     if vendors:
         vendor_keys: list[str] = []
         vendor_bucket = ""
@@ -193,15 +210,28 @@ def report(
             found, more, _ = load_listing(path)
             vendor_bucket = vendor_bucket or found
             vendor_keys.extend(more)
-        prefixes = sorted({"/".join(k.split("/")[:2]) for k in vendor_keys})
-        sources = index_untrimmed_sources(
+        # Search roots, not order prefixes: the project alone, so the run
+        # exercises the same discovery the notebook does rather than being handed
+        # the answer. Deriving {project}/{order} from the vendor keys, as this
+        # used to, told the indexer where to look and so could not have caught a
+        # descent that failed to find it.
+        roots = sorted({k.split("/")[0] for k in vendor_keys})
+        seeds = seahub_wafer_seeds(
+            trimmed_keys=data.all_raw_files,
+            trimmed_index=index_trimmed_upload(data.all_raw_files),
+            discovered_wafers=data.discovered_wafers,
+        )
+        sources = discover_untrimmed_sources(
             MockS3Client(
-                keys=vendor_keys, file_contents=_synthetic_contents(vendor_keys)
+                buckets={vendor_bucket: vendor_keys},
+                file_contents=_synthetic_contents(vendor_keys),
             ),
-            [f"s3://{vendor_bucket}/{p}" for p in prefixes],
+            [f"s3://{vendor_bucket}/{root}" for root in roots],
+            seeds,
         )
         untrimmed_index = sources.index
         findings = list(sources.findings)
+        search = sources.search
         assay_by_identity = {k: e.assay for k, e in untrimmed_index.items() if e.assay}
 
     violations = validate_seahub_stems(
@@ -209,7 +239,18 @@ def report(
     )
     mapping = build_rename_mapping(ctx.bucket, data.all_raw_files, untrimmed_index)
     rollup = roll_up_wells(
-        ctx.bucket, data.all_raw_files, untrimmed_index, sizes=data.raw_file_sizes
+        ctx.bucket,
+        data.all_raw_files,
+        untrimmed_index,
+        # None, not an all-zero mapping, when the listing carried no size column.
+        # A key present with 0 means the CRAM is genuinely empty, which is a
+        # DATA_GAP; a key absent means nobody measured it. MockS3Client fills a
+        # missing Size with 0 in its listing output -- reasonable for a stub of an
+        # API that always returns one -- so handing it no sizes produced a
+        # complete set of zeros and reported every well of a clean upload as a
+        # data gap. The distinction is only knowable here, where whether the
+        # listing had the column is still in scope.
+        sizes=data.raw_file_sizes if sizes else None,
     )
 
     return {
@@ -230,6 +271,13 @@ def report(
         "rename_counts": dict(mapping.counts),
         "vendor_indexed": len(untrimmed_index),
         "source_findings": dict(Counter(f["category"] for f in findings)),
+        # Discovery accounting, so a differential shows whether the search saw
+        # everything and not only what it did with what it saw.
+        "wafers_sought": len(search.seeds.wafers) if search else 0,
+        "wafers_located": len(search.located) if search else 0,
+        "wafers_not_located": sorted(search.not_located) if search else [],
+        "search_listings": search.listings if search else 0,
+        "search_complete": bool(search.complete) if search else None,
         "warnings": len(data.gathering_warnings),
         "errors": len(data.gathering_errors),
         "warning_kinds": dict(

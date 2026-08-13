@@ -161,3 +161,54 @@ class TestCommandLine:
         main([str(_listing(tmp_path)), "--mode", "both", "--scratch", str(tmp_path)])
 
         assert "s3 and manifest agree" in capsys.readouterr().out
+
+
+class TestASizelessListingDoesNotInventEmptyFiles:
+    """A listing with no size column must not report every well as a data gap.
+
+    ``_first_int`` returned 0 when a row carried no integer, and ``load_listing``
+    stored that, so every key was "present with size 0" -- which ``roll_up_wells``
+    reads as a genuinely empty CRAM rather than as a size nobody collected. A bare
+    manifest of ``s3://`` URIs, which is what this tool itself writes beside a
+    listing, then reported all 864 wells of a clean upload as DATA_GAP. This is
+    the tool people use to check numbers; inventing them is the one thing it
+    cannot do.
+    """
+
+    def _sizeless(self, tmp_path):
+        listing = _listing(tmp_path)
+        bare = tmp_path / "bare.tsv"
+        bucket, keys, _sizes = load_listing(listing)
+        bare.write_text("".join(f"s3://{bucket}/{key}\n" for key in keys))
+        return bare
+
+    def test_no_size_column_means_no_sizes_rather_than_zero_sizes(self, tmp_path):
+        _bucket, keys, sizes = load_listing(self._sizeless(tmp_path))
+
+        assert keys
+        assert sizes == {}
+
+    def test_a_real_zero_is_still_recorded_as_zero(self, tmp_path):
+        """The distinction only works if a genuine 0 still comes through."""
+        listing = tmp_path / "with_zero.tsv"
+        listing.write_text(
+            "s3://czi-labalpha/labalpha-seahub-bcp/REF3/raw/P04_1/437120/x.trim.cram\t0\n"
+        )
+        _bucket, _keys, sizes = load_listing(listing)
+
+        assert list(sizes.values()) == [0]
+
+    def test_a_clean_upload_stays_clean_without_the_size_column(self, tmp_path):
+        """The verdict that must not move: absent sizes cannot create gaps.
+
+        Sizes legitimately change a verdict -- a 0-byte CRAM is a DATA_GAP -- so
+        the two runs need not agree in general. What they must agree on is that a
+        well whose artifacts all arrived is not a gap, which is the case a
+        size-less listing was turning into one.
+        """
+        with_sizes = report(_listing(tmp_path), scratch=tmp_path)
+        without = report(self._sizeless(tmp_path), scratch=tmp_path)
+
+        assert with_sizes["well_verdicts"]["DATA_GAP"] == 0
+        assert without["well_verdicts"]["DATA_GAP"] == 0
+        assert without["wells"] == with_sizes["wells"]
