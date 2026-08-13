@@ -78,6 +78,7 @@ PROP_MAP_BIOHUB = {
     "non_human_donors_sex":"sex",
     "human_donors_sex":"sex",
     "human_donors_ethnicity_term_name":"self_reported_ethnicity",
+    "human_donors_ethnicity_term_id":"self_reported_ethnicity_ontology_term_id",
     "droplet_based_libraries_library_construction_technology_term_name":"assay",
     "tissues_upper_bound_age": "tissues_upper_bound_age",
     "tissues_lower_bound_age": "tissues_lower_bound_age",
@@ -88,15 +89,24 @@ PROP_MAP_BIOHUB = {
     "tissues_multiplexing_barcodes": "sample_probe_barcode",
     "tissues_@type":"tissue_type",
     "tissues_selection_markers":"suspension_enrichment_factors",
+    "tissues_selection_kits":"suspension_selection_kits",
     "tissues_suspension_type":"suspension_type",
     "tissues_preservation_method":"preservation_method",
+    "treatments_ontological_term_term_id":"experimental_condition_ontology_term_id",
+    "treatments_ontological_term_term_name":"experimental_condition",
     "experimental_conditions_condition": "experimental_condition",
     "experimental_conditions_text_value": "experimental_perturbation",
     "experimental_conditions_upper_bound_duration": "experimental_conditions_upper_bound_duration",
     "experimental_conditions_lower_bound_duration": "experimental_conditions_lower_bound_duration",
     "experimental_conditions_duration_units": "experimental_conditions_duration_units",
-    "genetic_modifications_strategy":"genetic_perturbation_strategy"
+    "genetic_modifications_strategy":"genetic_perturbation_strategy",
+    "sequence_file_sets_is_pilot_order":"is_pilot_order"
 }
+
+BIOHUB_SORT_ONTOLOGY_IDS = [
+    "experimental_condition_ontology_term_id",
+    "self_reported_ethnicity_ontology_term_id",
+]
 
 TISSUE_TYPE_MAP = {
     "CellLine": "cell line",

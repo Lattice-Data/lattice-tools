@@ -18,6 +18,7 @@ from constants import Configs
 
 TERM_ID_SUFFIX = "_term_id"
 TERM_NAME_SUFFIX = "_term_name"
+ONTOLOGY_TERM_ID_SUFFIX = "_ontology_term_id"
 
 
 def is_empty(val) -> bool:
@@ -27,6 +28,54 @@ def is_empty(val) -> bool:
     if isinstance(val, float) and pd.isna(val):
         return True
     return val in ("", [])
+
+
+def _as_sequence(val):
+    """Return a list for list/tuple/set cells; otherwise None."""
+    if isinstance(val, set):
+        return list(val)
+    if isinstance(val, (list, tuple)):
+        return list(val)
+    return None
+
+
+def sort_ontology_term_id_column(df: pd.DataFrame, id_col: str) -> pd.DataFrame:
+    """
+    Lex-sort list/set/tuple cells in id_col.
+
+    If a paired label column exists (id_col with '_ontology_term_id' removed)
+    and that cell is a same-length sequence, reorder it with the same
+    permutation so id/label pairs stay aligned.
+
+    Sets become sorted lists. Non-sequence cells are left unchanged.
+    """
+    if id_col not in df.columns:
+        return df
+
+    out = df.copy()
+    paired_col = (
+        id_col[: -len(ONTOLOGY_TERM_ID_SUFFIX)]
+        if id_col.endswith(ONTOLOGY_TERM_ID_SUFFIX)
+        else None
+    )
+    has_pair = paired_col is not None and paired_col in out.columns
+
+    def _sort_row(row: pd.Series) -> pd.Series:
+        ids = _as_sequence(row[id_col])
+        if ids is None:
+            return row
+
+        order = sorted(range(len(ids)), key=lambda i: str(ids[i]))
+        row[id_col] = [ids[i] for i in order]
+
+        if has_pair:
+            labels = _as_sequence(row[paired_col])
+            if labels is not None and len(labels) == len(ids):
+                row[paired_col] = [labels[i] for i in order]
+
+        return row
+
+    return out.apply(_sort_row, axis=1)
 
 
 def strip_author_metadata_column_prefix(df: pd.DataFrame) -> pd.DataFrame:

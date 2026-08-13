@@ -7,6 +7,7 @@ from DB2_utils import (
     collapse_duplicate_columns,
     combine_bound_columns,
     extract_controlled_term_id,
+    sort_ontology_term_id_column,
     split_term_cell,
     strip_author_metadata_column_prefix,
 )
@@ -195,6 +196,66 @@ def test_strip_author_metadata_column_prefix_noop_without_match():
     df = pd.DataFrame({"sample_name": ["s1"], "disease": ["normal"]})
     result = strip_author_metadata_column_prefix(df)
     pd.testing.assert_frame_equal(result, df)
+
+
+def test_sort_ontology_term_id_column_reorders_paired_labels():
+    df = pd.DataFrame(
+        {
+            "experimental_condition_ontology_term_id": [["EFO:2", "EFO:1"]],
+            "experimental_condition": [["stim", "rest"]],
+        }
+    )
+    result = sort_ontology_term_id_column(
+        df, "experimental_condition_ontology_term_id"
+    )
+    assert result["experimental_condition_ontology_term_id"].iloc[0] == ["EFO:1", "EFO:2"]
+    assert result["experimental_condition"].iloc[0] == ["rest", "stim"]
+
+
+def test_sort_ontology_term_id_column_set_becomes_sorted_list():
+    df = pd.DataFrame(
+        {"self_reported_ethnicity_ontology_term_id": [{"HANCESTRO:2", "HANCESTRO:1"}]}
+    )
+    result = sort_ontology_term_id_column(
+        df, "self_reported_ethnicity_ontology_term_id"
+    )
+    assert result["self_reported_ethnicity_ontology_term_id"].iloc[0] == [
+        "HANCESTRO:1",
+        "HANCESTRO:2",
+    ]
+
+
+def test_sort_ontology_term_id_column_no_paired_column():
+    df = pd.DataFrame(
+        {"experimental_condition_ontology_term_id": [["EFO:2", "EFO:1"]]}
+    )
+    result = sort_ontology_term_id_column(
+        df, "experimental_condition_ontology_term_id"
+    )
+    assert result["experimental_condition_ontology_term_id"].iloc[0] == ["EFO:1", "EFO:2"]
+    assert list(result.columns) == ["experimental_condition_ontology_term_id"]
+
+
+def test_sort_ontology_term_id_column_missing_id_col_unchanged():
+    df = pd.DataFrame({"sample_name": ["s1"]})
+    result = sort_ontology_term_id_column(
+        df, "experimental_condition_ontology_term_id"
+    )
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_sort_ontology_term_id_column_length_mismatch_leaves_pair():
+    df = pd.DataFrame(
+        {
+            "experimental_condition_ontology_term_id": [["EFO:2", "EFO:1"]],
+            "experimental_condition": [["stim"]],
+        }
+    )
+    result = sort_ontology_term_id_column(
+        df, "experimental_condition_ontology_term_id"
+    )
+    assert result["experimental_condition_ontology_term_id"].iloc[0] == ["EFO:1", "EFO:2"]
+    assert result["experimental_condition"].iloc[0] == ["stim"]
 
 
 # --- controlled term splitting: missing values are None, not pd.NA ---

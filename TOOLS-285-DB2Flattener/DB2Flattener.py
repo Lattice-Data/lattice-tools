@@ -9,6 +9,7 @@ from constants import (
     Configs,
     PROP_MAP_GEO,
     PROP_MAP_BIOHUB,
+    BIOHUB_SORT_ONTOLOGY_IDS,
     TISSUE_TYPE_MAP,
     GENETIC_PERTURBATION_MAP,
     REFORMAT_LIST,
@@ -22,6 +23,7 @@ from DB2_utils import (
     combine_bound_columns,
     collapse_duplicate_columns,
     strip_author_metadata_column_prefix,
+    sort_ontology_term_id_column,
 )
 from generate_constants import load_and_return_constant_dicts
 import DB2lattice
@@ -330,6 +332,10 @@ class DB2Flattener:
         else:
             biohub_df.loc[biohub_df["self_reported_ethnicity"].isna() & (biohub_df["organism"] == "Homo sapiens"), "self_reported_ethnicity"] = "unknown"
             biohub_df.loc[biohub_df["self_reported_ethnicity"].isna() & (biohub_df["organism"] != "Homo sapiens"), "self_reported_ethnicity"] = "na"
+
+        for col in BIOHUB_SORT_ONTOLOGY_IDS:
+            if col in biohub_df.columns:
+                biohub_df = sort_ontology_term_id_column(biohub_df, col)
 
         # Combine multiple columns into one
         biohub_df = combine_bound_columns(
