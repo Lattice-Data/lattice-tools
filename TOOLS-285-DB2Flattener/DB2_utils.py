@@ -39,15 +39,20 @@ def _as_sequence(val):
     return None
 
 
+def _join_sorted_values(values: list) -> str:
+    """Join values as a string with ' || ' (no brackets/parentheses)."""
+    return " || ".join(map(str, values))
+
+
 def sort_ontology_term_id_column(df: pd.DataFrame, id_col: str) -> pd.DataFrame:
     """
-    Lex-sort list/set/tuple cells in id_col.
+    Lex-sort list/set/tuple cells in id_col, then join with ' || '.
 
     If a paired label column exists (id_col with '_ontology_term_id' removed)
     and that cell is a same-length sequence, reorder it with the same
-    permutation so id/label pairs stay aligned.
+    permutation so id/label pairs stay aligned, then join the same way.
 
-    Sets become sorted lists. Non-sequence cells are left unchanged.
+    Non-sequence cells are left unchanged.
     """
     if id_col not in df.columns:
         return df
@@ -66,12 +71,12 @@ def sort_ontology_term_id_column(df: pd.DataFrame, id_col: str) -> pd.DataFrame:
             return row
 
         order = sorted(range(len(ids)), key=lambda i: str(ids[i]))
-        row[id_col] = [ids[i] for i in order]
+        row[id_col] = _join_sorted_values([ids[i] for i in order])
 
         if has_pair:
             labels = _as_sequence(row[paired_col])
             if labels is not None and len(labels) == len(ids):
-                row[paired_col] = [labels[i] for i in order]
+                row[paired_col] = _join_sorted_values([labels[i] for i in order])
 
         return row
 

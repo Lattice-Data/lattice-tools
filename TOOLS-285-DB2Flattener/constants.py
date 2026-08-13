@@ -125,4 +125,5 @@ GENETIC_PERTURBATION_MAP = {
 REFORMAT_LIST = [
     "sample_probe_barcode",
     "suspension_enrichment_factors",
+    "suspension_selection_kits",
 ]

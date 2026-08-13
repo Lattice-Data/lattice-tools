@@ -336,6 +336,8 @@ class DB2Flattener:
         for col in BIOHUB_SORT_ONTOLOGY_IDS:
             if col in biohub_df.columns:
                 biohub_df = sort_ontology_term_id_column(biohub_df, col)
+        if "self_reported_ethnicity_ontology_term_id" in biohub_df.columns:
+            biohub_df.drop(columns=['self_reported_ethnicity_ontology_term_id'], inplace = True)
 
         # Combine multiple columns into one
         biohub_df = combine_bound_columns(

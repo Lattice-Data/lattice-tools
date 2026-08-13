@@ -208,21 +208,20 @@ def test_sort_ontology_term_id_column_reorders_paired_labels():
     result = sort_ontology_term_id_column(
         df, "experimental_condition_ontology_term_id"
     )
-    assert result["experimental_condition_ontology_term_id"].iloc[0] == ["EFO:1", "EFO:2"]
-    assert result["experimental_condition"].iloc[0] == ["rest", "stim"]
+    assert result["experimental_condition_ontology_term_id"].iloc[0] == "EFO:1 || EFO:2"
+    assert result["experimental_condition"].iloc[0] == "rest || stim"
 
 
-def test_sort_ontology_term_id_column_set_becomes_sorted_list():
+def test_sort_ontology_term_id_column_set_becomes_joined_string():
     df = pd.DataFrame(
         {"self_reported_ethnicity_ontology_term_id": [{"HANCESTRO:2", "HANCESTRO:1"}]}
     )
     result = sort_ontology_term_id_column(
         df, "self_reported_ethnicity_ontology_term_id"
     )
-    assert result["self_reported_ethnicity_ontology_term_id"].iloc[0] == [
-        "HANCESTRO:1",
-        "HANCESTRO:2",
-    ]
+    assert result["self_reported_ethnicity_ontology_term_id"].iloc[0] == (
+        "HANCESTRO:1 || HANCESTRO:2"
+    )
 
 
 def test_sort_ontology_term_id_column_no_paired_column():
@@ -232,7 +231,7 @@ def test_sort_ontology_term_id_column_no_paired_column():
     result = sort_ontology_term_id_column(
         df, "experimental_condition_ontology_term_id"
     )
-    assert result["experimental_condition_ontology_term_id"].iloc[0] == ["EFO:1", "EFO:2"]
+    assert result["experimental_condition_ontology_term_id"].iloc[0] == "EFO:1 || EFO:2"
     assert list(result.columns) == ["experimental_condition_ontology_term_id"]
 
 
@@ -254,7 +253,7 @@ def test_sort_ontology_term_id_column_length_mismatch_leaves_pair():
     result = sort_ontology_term_id_column(
         df, "experimental_condition_ontology_term_id"
     )
-    assert result["experimental_condition_ontology_term_id"].iloc[0] == ["EFO:1", "EFO:2"]
+    assert result["experimental_condition_ontology_term_id"].iloc[0] == "EFO:1 || EFO:2"
     assert result["experimental_condition"].iloc[0] == ["stim"]
 
 
