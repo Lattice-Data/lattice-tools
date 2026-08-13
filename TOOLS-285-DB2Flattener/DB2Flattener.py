@@ -22,7 +22,6 @@ from DB2_utils import (
     combine_bound_columns,
     collapse_duplicate_columns,
     strip_author_metadata_column_prefix,
-    is_empty,
 )
 from generate_constants import load_and_return_constant_dicts
 import DB2lattice
@@ -148,22 +147,13 @@ class DB2Flattener:
                         sample_alias = self._get_clean_alias(sample_obj)
                         if sample_alias in sample_metadata:
                             continue
-                        
-                        sample_metadata[sample_alias] = {
-                            'enriched_cell_types': self._get_cell_types_from_samples(
-                                [sample_obj], 'enriched_cell_types', resolved_controlled_terms
-                            ),
-                            'depleted_cell_types': self._get_cell_types_from_samples(
-                                [sample_obj], 'depleted_cell_types', resolved_controlled_terms
-                            ),
-                            'intended_cell_types': self._get_cell_types_from_samples(
-                                [sample_obj], 'intended_cell_types', resolved_controlled_terms
-                            ),
-                            'diseases': self._get_diseases_from_samples([sample_obj], resolved_controlled_terms),
-                        }
+
+                        sample_metadata[sample_alias] = {}
 
                         sample_type = get_config_obj_type(sample_obj, self.configs)
-                        for field in self.configs.OBJECT_CONFIG[sample_type].get('fields', []):
+                        sample_config = self.configs.OBJECT_CONFIG[sample_type]
+                        sample_refs = sample_config.get('references', {})
+                        for field in sample_config.get('fields', []):
                             value = sample_obj.get(field)
                             # Special handling for author_metadata dictionary
                             if field == 'author_metadata' and isinstance(value, dict):
@@ -171,6 +161,10 @@ class DB2Flattener:
                                     field_name = f"{sample_type}_{field}_{'_'.join(key.split(' '))}"
                                     sample_metadata[sample_alias][field_name] = val
                             else:
+                                if self._is_controlled_term_field(field, sample_refs):
+                                    value = self._resolve_controlled_term_value(
+                                        value, resolved_controlled_terms
+                                    )
                                 field_name = f'{sample_type}_{field}'
                                 sample_metadata[sample_alias][field_name] = value
 
@@ -413,7 +407,7 @@ class DB2Flattener:
                     if value is None:
                         continue
                     if is_controlled_term:
-                        value = self._resolve_controlled_term(
+                        value = self._resolve_controlled_term_value(
                             value, resolved_controlled_terms
                         )
                     if value not in (None, ''):
@@ -430,52 +424,94 @@ class DB2Flattener:
                     for key, vals in values_by_key.items():
                         col = f"{url_prefix}_{obj_field}_{key}"
                         sample_metadata[sample_alias][col] = self._join_unique(vals)
-                        
+
+                elif is_controlled_term:
+                    # _join_unique() would str() these dicts into the cell
+                    sample_metadata[sample_alias][col] = self._dedupe_terms(values)
+
                 else:
                     sample_metadata[sample_alias][col] = (
                         self._join_unique(values) if values else None
                     )
 
     def _resolve_controlled_term(self, term_ref, resolved_controlled_terms):
-        """Resolve a controlled term reference to its term_id (semantic identifier)"""
+        """
+        Resolve a controlled term reference to the ControlledTerm object
+
+        Returns the object ({'@id': ..., 'term_name': ...}) rather than the bare
+        term id, so split_controlled_term_columns() can emit both a _term_id and
+        a _term_name column. Some reference fields already arrive as embedded
+        dicts carrying term_name; those are passed through untouched, so 
+        both reference shapes end up identical downstream.
+        """
         if not term_ref:
-            return ''
-        
-        # Handle if it's already a dict with @id
+            return None
+
         if isinstance(term_ref, dict):
-            term_id = term_ref.get('@id', '')
+            # Already embedded with a term_name - nothing to look up
+            if term_ref.get('term_name'):
+                return term_ref
+            ref_id = term_ref.get('@id', '')
         else:
-            term_id = term_ref
-        
-        # Look up in the resolved controlled terms dictionary
-        return resolved_controlled_terms.get(term_id, '')
-    
-    def _get_cell_types_from_samples(self, samples, field_name, controlled_terms):
-        """Extract cell type terms from samples"""
-        cell_types = []
-        
-        for sample in samples:
-            field_value = sample.get(field_name, [])
-            for ref in field_value:
-                term_name = self._resolve_controlled_term(ref, controlled_terms)
-                if term_name:
-                    cell_types.append(term_name)
-        
-        return self._join_unique(cell_types)
-    
-    def _get_diseases_from_samples(self, samples, controlled_terms):
-        """Extract disease terms from samples"""
-        diseases = []
-        
-        for sample in samples:
-            disease_refs = sample.get('diseases', [])
-            for ref in disease_refs:
-                term_name = self._resolve_controlled_term(ref, controlled_terms)
-                if term_name:
-                    diseases.append(term_name)
-        
-        return self._join_unique(diseases)
-    
+            ref_id = term_ref
+
+        return resolved_controlled_terms.get(ref_id)
+
+    @staticmethod
+    def _is_controlled_term_field(field_name, references):
+        """True if OBJECT_CONFIG marks this field as a controlled_terms reference"""
+        ref_types = references.get(field_name, [])
+        if isinstance(ref_types, str):
+            ref_types = [ref_types]
+        return 'controlled_terms' in ref_types
+
+    def _resolve_controlled_term_value(self, value, resolved_controlled_terms):
+        """
+        Resolve a controlled term field value to a dict, or list of dicts
+
+        Deliberately not passed through _join_unique(): keeping dict shape is
+        what lets split_controlled_term_columns() split the column into
+        _term_id / _term_name. Array-typed fields keep list shape;
+        split_term_cell() collapses a single-element list to scalars itself.
+        """
+        if value is None or value == []:
+            return None
+
+        refs = value if isinstance(value, list) else [value]
+        resolved = [
+            term for term in (
+                self._resolve_controlled_term(ref, resolved_controlled_terms)
+                for ref in refs
+            )
+            if term
+        ]
+
+        if not resolved:
+            return None
+        return resolved if isinstance(value, list) else resolved[0]
+
+    @staticmethod
+    def _dedupe_terms(values):
+        """
+        Flatten and de-duplicate resolved controlled terms by @id,
+        while keeping them as dicts
+        """
+        flat = []
+        for value in values:
+            flat.extend(value if isinstance(value, list) else [value])
+
+        by_id = {
+            term['@id']: term
+            for term in flat
+            if isinstance(term, dict) and term.get('@id')
+        }
+        terms = sorted(by_id.values(), key=lambda term: term['@id'])
+
+        if not terms:
+            return None
+        return terms[0] if len(terms) == 1 else terms
+
+
     def _join_unique(self, items):
         """Join unique non-empty items with semicolon"""
         # Flatten any list-valued items (e.g. array-typed fields) before stringifying
