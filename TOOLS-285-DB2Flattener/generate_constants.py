@@ -314,7 +314,7 @@ def load_and_return_constant_dicts(mode: str) -> tuple[FieldTypes, ObjectConfig]
         loaded_config.update(new_config)
         create_yaml_config(
             configs=loaded_config,
-            yaml_path="old_constants.yaml",
+            yaml_path=YAML_PATH,
         )
 
 
