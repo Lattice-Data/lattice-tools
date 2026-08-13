@@ -354,7 +354,8 @@ def normalize_search_roots(roots: Any) -> list[str]:
     * anything that is not ``s3://bucket[/prefix]`` -- as before, via
       :func:`parse_source_uri`.
     * a root containing a ``raw`` segment. That is a listing prefix, not a search
-      root -- the shape ``untrimmed_s3_paths`` took. The descent looks for a
+      root -- the shape the retired ``untrimmed_s3_paths`` took, so it is what an
+      operator with muscle memory will paste. The descent looks for a
       child folder named ``raw``, so starting inside one finds nothing and would
       report zero located wafers, which is indistinguishable from a vendor bucket
       that genuinely holds none. Better to say so.

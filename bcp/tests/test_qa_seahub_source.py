@@ -651,13 +651,13 @@ class TestSizeAndCoverageReconciliation:
         assert self._pair(35_760_085_711, 0).rows == []
         assert self._pair(0, 14_400_000_000).rows == []
 
-    def test_a_wafer_with_no_listed_source_is_named_in_the_verdict(self):
-        """The signature of a forgotten vendor order.
+    def test_a_wafer_with_no_located_source_is_named_in_the_verdict(self):
+        """The signature of a delivery the search did not reach.
 
-        REF3 makes this real: order NVUS0000000000-11 holds six of its seven
-        sublibraries, so listing it alone leaves every REF3_P05_1 well
-        unsourced. Those wells surface as orphan_trimmed, which alone reads as a
-        completeness failure rather than as incomplete input.
+        REF3 makes this real: one order holds six of its seven sublibraries, so
+        searching too narrowly leaves every REF3_P05_1 well unsourced. Those wells
+        surface as orphan_trimmed, which alone reads as a completeness failure
+        rather than as an incomplete search.
         """
         source = _source_index(_vendor_keys(VENDOR_STEM_A))
         unlisted = "999999-REF5_P09_A1_GEX_hash_oligo-Z0009-CAGCTCGAATGCGAT"
@@ -669,7 +669,7 @@ class TestSizeAndCoverageReconciliation:
         report = reconcile_trimming(source, trimmed)
 
         assert report.unsourced_wafers == ["999999"]
-        assert "an untrimmed order is probably missing" in report.verdict()
+        assert "untrimmed_search_roots" in report.verdict()
 
     def test_coverage_carries_the_matched_count(self):
         s3 = MockS3Client(
@@ -1053,7 +1053,7 @@ class TestNormalizeSearchRoots:
         ],
     )
     def test_a_root_inside_a_raw_folder_is_rejected(self, root):
-        """That is an untrimmed_s3_paths entry, not a root to search from.
+        """That is a listing prefix, not a root to search from.
 
         The descent stops at a child folder named raw, so starting inside one
         locates nothing -- which would read as "this bucket holds no vendor data"
@@ -1263,9 +1263,9 @@ class TestDiscoverUntrimmedSources:
     def test_a_renamed_experiment_folder_is_still_found(self, segment):
         """Every one of these orphans the whole upload under name matching.
 
-        source_experiment_matches accepts REF3_reupload and refuses all of these,
-        which is what made the ExperimentID a bad key: the wafer inside the folder
-        is unchanged by whatever the folder is called.
+        The retired ExperimentID match accepted REF3_reupload and refused all of
+        these, which is what made it a bad key: the wafer inside the folder is
+        unchanged by whatever the folder is called.
         """
         renamed = [k.replace("/REF3/", f"/{segment}/") for k in ref3_vendor_keys()]
         discovered = self._discover(self._s3(renamed))

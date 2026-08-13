@@ -75,9 +75,9 @@ class TrimmingReport:
                 verdict += f", {counts[category]} {label}"
         if self.unsourced_wafers:
             verdict += (
-                f"; {len(self.unsourced_wafers)} wafer(s) have no listed source "
-                f"({', '.join(self.unsourced_wafers)}) -- an untrimmed order is "
-                "probably missing from untrimmed_s3_paths"
+                f"; {len(self.unsourced_wafers)} wafer(s) have no located source "
+                f"({', '.join(self.unsourced_wafers)}) -- untrimmed_search_roots "
+                "probably does not cover their delivery"
             )
         return verdict
 
