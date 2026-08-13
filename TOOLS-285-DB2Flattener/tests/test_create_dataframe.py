@@ -184,3 +184,43 @@ def test_author_metadata_non_dict_kept_as_normal_field():
 
     assert 'tissues_author_metadata' in main_df.columns
     assert 'tissues_mouse_litter_batch' not in main_df.columns
+
+
+# --- _join_unique: keep boolean False ---
+
+def test_join_unique_keeps_false():
+    f = make_flattener()
+    assert f._join_unique([False]) == 'False'
+    assert f._join_unique([True]) == 'True'
+    assert f._join_unique([False, True]) == 'False; True'
+
+
+def test_join_unique_still_drops_empty_values():
+    f = make_flattener()
+    assert f._join_unique([None, '', '  ']) is None
+    assert f._join_unique(['a', None, '', 'b']) == 'a; b'
+
+
+def test_create_dataframe_keeps_is_pilot_order_false():
+    f = make_flattener()
+    f.configs = Configs(
+        FIELD_TYPES={},
+        OBJECT_CONFIG={
+            **MIN_CONFIGS.OBJECT_CONFIG,
+            'sequence_file_sets': {
+                'api_type': 'SequenceFileSet',
+                'fields': ['is_pilot_order'],
+                'references': {},
+            },
+        },
+    )
+    sample = _tissue()
+    rmf = _rmf()
+    rmf['sequence_file_sets'] = [{'is_pilot_order': False}]
+    gex = _lib('/droplet_based_libraries/gex/', ['Gene Expression'])
+
+    main_df, _ = f.create_dataframe(_complete_data([
+        (gex, [rmf], [sample]),
+    ]))
+
+    assert main_df.iloc[0]['sequence_file_sets_is_pilot_order'] == 'False'

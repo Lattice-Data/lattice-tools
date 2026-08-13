@@ -100,7 +100,7 @@ PROP_MAP_BIOHUB = {
     "experimental_conditions_lower_bound_duration": "experimental_conditions_lower_bound_duration",
     "experimental_conditions_duration_units": "experimental_conditions_duration_units",
     "genetic_modifications_strategy":"genetic_perturbation_strategy",
-    "sequence_file_sets_is_pilot_order":"is_pilot_order"
+    "sequence_file_sets_is_pilot_order":"is_pilot_data"
 }
 
 BIOHUB_SORT_ONTOLOGY_IDS = [
