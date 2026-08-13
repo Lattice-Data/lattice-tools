@@ -16,9 +16,9 @@ from qa_seahub_recon import reconcile_trimming
 from qa_seahub_source import (
     WaferSeeds,
     _descend_to_raw_prefixes,
-    _discover_untrimmed_sources,
-    _normalize_search_roots,
-    _wafer_seeds,
+    discover_untrimmed_sources,
+    normalize_search_roots,
+    seahub_wafer_seeds,
     derive_source_order,
     index_trimmed_upload,
     index_untrimmed_sources,
@@ -836,7 +836,7 @@ class TestWaferSeeds:
 
     def _seeds(self, *keys: str, discovered: set[str] | None = None):
         keys_list = list(keys)
-        return _wafer_seeds(
+        return seahub_wafer_seeds(
             trimmed_keys=keys_list,
             trimmed_index=index_trimmed_upload(keys_list),
             discovered_wafers=discovered,
@@ -908,7 +908,7 @@ class TestWaferSeeds:
 
     def test_the_whole_fixture_yields_its_five_wafers_once_each(self):
         keys = ref3_trimmed_keys()
-        seeds = _wafer_seeds(
+        seeds = seahub_wafer_seeds(
             trimmed_keys=keys, trimmed_index=index_trimmed_upload(keys)
         )
 
@@ -916,7 +916,7 @@ class TestWaferSeeds:
         assert UNTRIMMED_WAFER not in seeds.wafers
 
     def test_no_input_at_all_is_empty_rather_than_an_error(self):
-        assert _wafer_seeds() == WaferSeeds()
+        assert seahub_wafer_seeds() == WaferSeeds()
         assert len(WaferSeeds()) == 0
 
 
@@ -994,7 +994,7 @@ class TestNormalizeSearchRoots:
     PROJECT_ROOT = "s3://czi-novogene/labalpha-seahub-bcp"
 
     def test_a_bucket_root_is_accepted(self):
-        assert _normalize_search_roots(self.BUCKET_ROOT) == ["s3://czi-novogene/"]
+        assert normalize_search_roots(self.BUCKET_ROOT) == ["s3://czi-novogene/"]
 
     def test_the_listing_validator_still_rejects_the_same_root(self):
         """The guard is repurposed, not relaxed -- pinned here as well as there."""
@@ -1002,36 +1002,36 @@ class TestNormalizeSearchRoots:
             normalize_source_uris(f"{self.BUCKET_ROOT}/")
 
     def test_a_trailing_slash_is_never_the_difference_between_two_roots(self):
-        assert _normalize_search_roots([self.BUCKET_ROOT, f"{self.BUCKET_ROOT}/"]) == [
+        assert normalize_search_roots([self.BUCKET_ROOT, f"{self.BUCKET_ROOT}/"]) == [
             "s3://czi-novogene/"
         ]
 
     def test_a_project_root_is_accepted_and_is_the_recommended_shape(self):
-        assert _normalize_search_roots(self.PROJECT_ROOT) == [f"{self.PROJECT_ROOT}/"]
+        assert normalize_search_roots(self.PROJECT_ROOT) == [f"{self.PROJECT_ROOT}/"]
 
     def test_a_bare_string_is_wrapped(self):
-        assert len(_normalize_search_roots(self.PROJECT_ROOT)) == 1
+        assert len(normalize_search_roots(self.PROJECT_ROOT)) == 1
 
     def test_none_and_empty_entries_are_dropped(self):
-        assert _normalize_search_roots(None) == []
-        assert _normalize_search_roots(["", "  "]) == []
+        assert normalize_search_roots(None) == []
+        assert normalize_search_roots(["", "  "]) == []
 
     def test_a_non_s3_root_raises(self):
         with pytest.raises(ValueError):
-            _normalize_search_roots("/local/path")
+            normalize_search_roots("/local/path")
 
     def test_a_comma_is_never_split(self):
         """An S3 prefix may contain a comma; splitting one lists the wrong thing."""
         odd = "s3://czi-novogene/project,with-comma"
-        assert _normalize_search_roots(odd) == [f"{odd}/"]
+        assert normalize_search_roots(odd) == [f"{odd}/"]
 
     def test_a_root_inside_another_root_is_dropped(self):
-        assert _normalize_search_roots([self.PROJECT_ROOT, self.BUCKET_ROOT]) == [
+        assert normalize_search_roots([self.PROJECT_ROOT, self.BUCKET_ROOT]) == [
             "s3://czi-novogene/"
         ]
 
     def test_the_same_prefix_in_another_bucket_is_kept(self):
-        roots = _normalize_search_roots(
+        roots = normalize_search_roots(
             [self.PROJECT_ROOT, "s3://czi-psomagen/labalpha-seahub-bcp"]
         )
 
@@ -1039,7 +1039,7 @@ class TestNormalizeSearchRoots:
 
     def test_a_sibling_project_is_not_swallowed_by_a_prefix_match(self):
         """``.../REF3/`` must not read as covering ``.../REF3_P05_1/``."""
-        roots = _normalize_search_roots(
+        roots = normalize_search_roots(
             ["s3://czi-novogene/REF3", "s3://czi-novogene/REF3_P05_1"]
         )
 
@@ -1060,19 +1060,19 @@ class TestNormalizeSearchRoots:
         rather than "you gave me the wrong kind of path".
         """
         with pytest.raises(ValueError, match="inside a 'raw' folder"):
-            _normalize_search_roots(root)
+            normalize_search_roots(root)
 
     def test_a_prefix_merely_containing_the_word_raw_is_fine(self):
         """Segment-wise, not substring: a project may legitimately be named this."""
         root = "s3://czi-novogene/rawlings-seahub-bcp"
-        assert _normalize_search_roots(root) == [f"{root}/"]
+        assert normalize_search_roots(root) == [f"{root}/"]
 
 
 class TestDescendToRawPrefixes:
     """Locating vendor deliveries by shape, without being told where they are.
 
     A root already inside a ``raw`` folder is not tested here: step 4's
-    ``_normalize_search_roots`` refuses one at the door, so the descent cannot
+    ``normalize_search_roots`` refuses one at the door, so the descent cannot
     receive it.
     """
 
@@ -1222,7 +1222,9 @@ class TestDiscoverUntrimmedSources:
 
     def _seeds(self, keys=None):
         keys = list(keys or ref3_trimmed_keys())
-        return _wafer_seeds(trimmed_keys=keys, trimmed_index=index_trimmed_upload(keys))
+        return seahub_wafer_seeds(
+            trimmed_keys=keys, trimmed_index=index_trimmed_upload(keys)
+        )
 
     def _s3(self, vendor_keys=None, **kwargs):
         keys = list(
@@ -1233,7 +1235,7 @@ class TestDiscoverUntrimmedSources:
         return MockS3Client(buckets={"czi-novogene": keys}, **kwargs)
 
     def _discover(self, s3=None, root=None, **kwargs):
-        return _discover_untrimmed_sources(
+        return discover_untrimmed_sources(
             s3 or self._s3(), root or self.ROOT, self._seeds(), **kwargs
         )
 
@@ -1369,7 +1371,7 @@ class TestDiscoverUntrimmedSources:
             f"{PROJECT}/NVUS0000000000-04/RNA3_098/raw/{wafer}/"
             f"{wafer}-RNA3-098C_GEX_QSR-7_10A.cram"
         ]
-        discovered = _discover_untrimmed_sources(
+        discovered = discover_untrimmed_sources(
             self._s3(scale), self.ROOT, self._seeds(trimmed)
         )
 
@@ -1394,7 +1396,7 @@ class TestDiscoverUntrimmedSources:
             "labalpha-seahub-bcp/REF3/raw/REF3_P09_1/not_a_wafer/x.trim.cram"
         ]
         seeds = self._seeds(keys)
-        discovered = _discover_untrimmed_sources(self._s3(), self.ROOT, seeds)
+        discovered = discover_untrimmed_sources(self._s3(), self.ROOT, seeds)
 
         assert "not_a_wafer" in seeds.rejected
         assert [
@@ -1441,8 +1443,8 @@ class TestDiscoverUntrimmedSources:
     def test_no_root_or_no_seed_is_no_work(self):
         s3 = self._s3()
 
-        assert _discover_untrimmed_sources(s3, [], self._seeds()).index == {}
-        assert _discover_untrimmed_sources(s3, self.ROOT, WaferSeeds()).index == {}
+        assert discover_untrimmed_sources(s3, [], self._seeds()).index == {}
+        assert discover_untrimmed_sources(s3, self.ROOT, WaferSeeds()).index == {}
         assert s3.listing_calls == []
 
     def test_the_summary_names_what_an_operator_has_to_act_on(self):

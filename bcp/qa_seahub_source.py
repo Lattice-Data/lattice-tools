@@ -73,13 +73,16 @@ __all__ = [
     "WaferSearchPlan",
     "WaferSeeds",
     "derive_source_order",
+    "discover_untrimmed_sources",
     "finding_row",
     "index_trimmed_upload",
     "index_untrimmed_sources",
     "load_source_read_counts",
+    "normalize_search_roots",
     "normalize_source_uris",
     "parse_seahub_stem_fields",
     "parse_source_uri",
+    "seahub_wafer_seeds",
     "source_order_by_wafer",
 ]
 
@@ -332,7 +335,7 @@ def normalize_source_uris(uris: Any) -> list[str]:
     return normalized
 
 
-def _normalize_search_roots(roots: Any) -> list[str]:
+def normalize_search_roots(roots: Any) -> list[str]:
     """Validate the roots a wafer search may descend from; a sibling of the above.
 
     :func:`normalize_source_uris` is deliberately left alone rather than given a
@@ -583,7 +586,7 @@ def _descend_to_raw_prefixes(
             return None
         return folders, objects
 
-    for root in _normalize_search_roots(roots):
+    for root in normalize_search_roots(roots):
         bucket, root_prefix = parse_source_uri(root)
         # (prefix, depth), depth counted from the root.
         pending: list[tuple[str, int]] = [(root_prefix, 0)]
@@ -785,22 +788,26 @@ def _index_prefix(
     return orders_seen
 
 
-def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
+def index_untrimmed_sources(
+    s3_client: Any, uris: Any, accept: Any = None
+) -> UntrimmedSources:
     """List one or more vendor prefixes and index per-well CRAMs by ``(wafer, UG)``.
 
     An identity delivered by two prefixes is a re-delivery, not a merge: the
-    winner is deterministic (lowest ``(source_order, cram_key)``) and the loser
-    becomes a ``duplicate_source_well`` finding. Overwriting blindly, as the
-    single-prefix version did, silently discarded one of them.
+    winner is chosen by :func:`_prefer_source_entry` and the loser becomes a
+    ``duplicate_source_well`` finding. Overwriting blindly, as the single-prefix
+    version did, silently discarded one of them.
 
-    ``experiment_id`` is the ExperimentID being QA'd. A prefix is documented as
-    order-level, and one order holds several experiments, so without it the index
-    also carries the *other* experiments' wells -- each of which then has no
-    counterpart in the upload and surfaces as ``not_trimmed`` plus an ``UNKNOWN``
-    well. Wells whose ExperimentID reads as a different one are excluded and
-    reported once per foreign experiment. A key whose shape hides the
-    ExperimentID is kept, since a spurious ``not_trimmed`` row is recoverable
-    and a silently dropped vendor well is not.
+    ``accept(key, fields)`` filters CRAMs before indexing;
+    :func:`discover_untrimmed_sources` uses it to hold a discovered delivery to
+    the wafers it was located for.
+
+    Callers hand in concrete listing prefixes, which is why
+    :func:`normalize_source_uris` still refuses a shallow one: each surviving
+    prefix is paginated *flat*, so a bucket or project root here would walk every
+    object under it. Discovery satisfies that guard by construction -- it only
+    ever emits a ``.../raw/`` prefix -- which makes the guard an invariant check
+    on the descent rather than dead weight.
     """
     sources = UntrimmedSources()
     normalized = normalize_source_uris(uris)
@@ -850,6 +857,7 @@ def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
             sources,
             coverage,
             sidecar_by_stem_key,
+            accept=accept,
         )
 
         coverage.orders_seen = tuple(sorted(orders_seen))
@@ -909,7 +917,7 @@ def _wafers_in_prefix(found: RawPrefix) -> tuple[set[str], set[str]]:
     return from_folders, from_names
 
 
-def _discover_untrimmed_sources(
+def discover_untrimmed_sources(
     s3_client: Any,
     roots: Any,
     seeds: WaferSeeds,
@@ -944,7 +952,7 @@ def _discover_untrimmed_sources(
     nothing because the descent enumerated them on its way past.
     """
     sources = UntrimmedSources()
-    normalized_roots = _normalize_search_roots(roots)
+    normalized_roots = normalize_search_roots(roots)
     plan = WaferSearchPlan(roots=tuple(normalized_roots), seeds=seeds)
     sources.search = plan
     if not normalized_roots or not seeds.wafers:
@@ -959,10 +967,10 @@ def _discover_untrimmed_sources(
     plan.depth_capped = scan.depth_capped
 
     wanted = set(seeds.wafers)
-    paginator = s3_client.get_paginator("list_objects")
-    sidecar_by_stem_key: dict[tuple[str, str], str] = {}
     located: dict[str, set[str]] = {}
     unseeded: list[tuple[str, str]] = []
+    wanted_by_uri: dict[str, set[str]] = {}
+    found_by_uri: dict[str, RawPrefix] = {}
 
     for found in sorted(scan.prefixes, key=lambda p: (p.bucket, p.prefix)):
         from_folders, from_names = _wafers_in_prefix(found)
@@ -973,86 +981,82 @@ def _discover_untrimmed_sources(
             # nothing points at is a number rather than a silence.
             unseeded.append((found.uri, found.experiment_segment))
             continue
-
         for wafer in hits:
             located.setdefault(wafer, set()).add(found.uri)
-        keep = present if expand_siblings else hits
-        for wafer in keep:
-            located.setdefault(wafer, set())
+        wanted_by_uri[found.uri] = present if expand_siblings else hits
+        found_by_uri[found.uri] = found
 
-        coverage = SourceCoverage(
-            source_uri=found.uri,
-            bucket=found.bucket,
-            prefix=found.prefix,
-            found_by="seed",
-            experiment_segment=found.experiment_segment,
+    if wanted_by_uri:
+        # Delegated rather than reimplemented. Every prefix handed over is a
+        # concrete `.../raw/`, four or five segments deep, so normalize_source_uris
+        # accepts it -- and the "too broad" guard it still applies becomes an
+        # invariant check on this walk: a bug in the descent cannot produce a
+        # prefix shallow enough to flat-paginate a bucket without raising here.
+        indexed = index_untrimmed_sources(
+            s3_client,
+            sorted(wanted_by_uri),
+            accept=lambda key, fields: (
+                str(fields["wafer"])
+                in wanted_by_uri.get(_uri_of(key, wanted_by_uri), set())
+            ),
         )
-        orders_seen = _index_prefix(
-            paginator,
-            found.bucket,
-            found.prefix,
-            found.uri,
-            sources,
-            coverage,
-            sidecar_by_stem_key,
-            accept=lambda _key, fields: str(fields["wafer"]) in keep,
-        )
-        coverage.orders_seen = tuple(sorted(orders_seen))
-        coverage.source_order = (
-            coverage.orders_seen[0]
-            if len(coverage.orders_seen) == 1
-            else _order_label_from_prefix(found.prefix)
-        )
-        if coverage.cram_keys == 0:
-            # Located by folder name, indexed nothing. The measured case is the
-            # ScaleBio delivery whose 192 CRAMs carry no Z#### UG at all, so
-            # parse_seahub_stem_fields refuses every one of them -- and without
-            # this the coverage row reads cram_keys=0, which is exactly what a
-            # mistyped prefix looks like. Present but unreadable is a different
-            # problem from absent, and only one of them is the operator's to fix.
-            coverage.skipped_reason = "no parseable wells"
-            sources.findings.append(
-                finding_row(
-                    "wafer_folder_no_wells",
-                    wafer=", ".join(sorted(hits)),
-                    source_key=found.uri,
-                    detail=(
-                        f"{found.uri} was located for wafer(s) "
-                        f"{', '.join(sorted(hits))} but yielded no vendor wells: "
-                        "no object under it has a name that parses as "
-                        "{wafer}-{sublibrary}_{type}-Z####-{barcode}.cram. The "
-                        "delivery is present and unreadable, not absent"
-                    ),
+        sources.index = indexed.index
+        sources.coverage = indexed.coverage
+        # source_prefix_empty says "check the prefix", which is the wrong advice
+        # for a prefix nobody typed: the same fact under discovery is a located
+        # delivery that yielded no wells, and wafer_folder_no_wells says so.
+        sources.findings = [
+            f for f in indexed.findings if f["category"] != "source_prefix_empty"
+        ]
+        for coverage in sources.coverage:
+            found = found_by_uri.get(coverage.source_uri)
+            if found is None:
+                continue
+            coverage.experiment_segment = found.experiment_segment
+            indexed_wafers = {
+                e.wafer
+                for e in sources.index.values()
+                if e.source_uri == coverage.source_uri
+            }
+            coverage.found_by = "sibling" if not indexed_wafers <= wanted else "seed"
+            if coverage.cram_keys == 0:
+                # Located by name, indexed nothing. The measured case is the
+                # ScaleBio delivery whose 192 CRAMs carry no Z#### UG at all, so
+                # every filename is refused by both stem patterns -- and the row
+                # then reads cram_keys=0, exactly like a mistyped prefix. Present
+                # and unreadable is a different problem from absent.
+                hit = sorted(
+                    wanted & _wafers_in_prefix(found)[0]
+                    | wanted & _wafers_in_prefix(found)[1]
                 )
-            )
-        sources.coverage.append(coverage)
-
-    for identity, entry in sources.index.items():
-        sidecar = sidecar_by_stem_key.get(
-            (entry.bucket, entry.cram_key[: -len(_CRAM_SUFFIX)])
-        )
-        if sidecar:
-            entry.metadata_key = sidecar
-
-    for coverage in sources.coverage:
-        coverage.indexed = sum(
-            1 for e in sources.index.values() if e.source_uri == coverage.source_uri
-        )
-        coverage.duplicate_losses = coverage.cram_keys - coverage.indexed
-        indexed_wafers = {
-            e.wafer
-            for e in sources.index.values()
-            if e.source_uri == coverage.source_uri
-        }
-        if not indexed_wafers & wanted:
-            continue
-        if coverage.found_by == "seed" and not indexed_wafers <= wanted:
-            coverage.found_by = "sibling"
+                coverage.skipped_reason = "no parseable wells"
+                sources.findings.append(
+                    finding_row(
+                        "wafer_folder_no_wells",
+                        wafer=", ".join(hit),
+                        source_key=coverage.source_uri,
+                        detail=(
+                            f"{coverage.source_uri} was located for wafer(s) "
+                            f"{', '.join(hit)} but yielded no vendor wells: no "
+                            "object under it has a name that parses as "
+                            "{wafer}-{sublibrary}_{type}-Z####-{barcode}.cram. "
+                            "The delivery is present and unreadable, not absent"
+                        ),
+                    )
+                )
 
     plan.located = {w: tuple(sorted(at)) for w, at in sorted(located.items()) if at}
     plan.unseeded = tuple(unseeded)
     _report_search(sources, plan)
     return sources
+
+
+def _uri_of(key: str, wanted_by_uri: dict[str, set[str]]) -> str:
+    """The registered ``raw/`` URI a listed key sits under."""
+    for uri in wanted_by_uri:
+        if key.startswith(uri.split("/", 3)[3]):
+            return uri
+    return ""
 
 
 def _report_search(sources: UntrimmedSources, plan: WaferSearchPlan) -> None:
@@ -1284,7 +1288,7 @@ def index_trimmed_upload(
     return index
 
 
-def _wafer_seeds(
+def seahub_wafer_seeds(
     trimmed_keys: list[str] | None = None,
     trimmed_index: dict[IdentityKey, TrimmedEntry] | None = None,
     discovered_wafers: set[str] | None = None,

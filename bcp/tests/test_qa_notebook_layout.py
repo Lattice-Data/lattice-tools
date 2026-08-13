@@ -193,12 +193,24 @@ class TestSharedPipelineIsIndependentOfTheSeahubBlock:
 
 
 class TestParameterBlock:
-    def test_the_untrimmed_source_parameter_is_a_list(self, cells):
-        """One experiment spans several vendor orders, so it cannot be a scalar."""
+    def test_the_untrimmed_search_root_parameter_is_a_list(self, cells):
+        """Several roots may be needed, so it cannot be a scalar.
+
+        It replaced ``untrimmed_s3_paths``, which named vendor *orders*: a
+        delivery is now located by the wafers inside it, so the operator gives a
+        project to search rather than a list of orders to trust.
+        """
         params = _source(cells[_index_of(cells, "# Choose data source:")])
 
-        assert "untrimmed_s3_paths = []" in params
-        assert "untrimmed_s3_path =" not in params
+        assert "untrimmed_search_roots = []" in params
+        assert "untrimmed_search_root =" not in params
+        assert "untrimmed_s3_paths" not in params
+
+    def test_sibling_expansion_defaults_on(self, cells):
+        """Off, a whole never-trimmed plate reads as a clean upload."""
+        params = _source(cells[_index_of(cells, "# Choose data source:")])
+
+        assert "untrimmed_search_siblings = True" in params
 
     def test_the_seahub_block_gates_on_seahub_active(self, cells):
         """Every SeaHub code cell must self-skip for other assays."""

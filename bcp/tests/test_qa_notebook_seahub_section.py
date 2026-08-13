@@ -22,10 +22,11 @@ import pytest
 
 from tests.qa_seahub_helpers import (
     BUCKET,
+    PROJECT,
+    VENDOR_BUCKET,
     ref3_sizes,
     ref3_trimmed_keys,
     ref3_vendor_keys,
-    vendor_uri,
 )
 from tests.test_qa_gather import MockS3Client
 
@@ -60,9 +61,8 @@ def _run_section(
     """Run the SeaHub block over a synthetic namespace.
 
     ``experiment_id`` and ``output_label`` are separate because the notebook's
-    ``order`` is ``ctx.output_label``, which ``run_label`` overrides, while the
-    source filter has to use ``ctx.order``. Defaulting them to the same value
-    mirrors an unset ``run_label``.
+    ``order`` is ``ctx.output_label``, which ``run_label`` overrides. Defaulting
+    them to the same value mirrors an unset ``run_label``.
     """
     cells = _notebook_cells()
     namespace = _import_namespace(cells[0])
@@ -75,13 +75,17 @@ def _run_section(
         if key.endswith(".cram-metadata.json")
     }
     if sources is None:
-        sources = [vendor_uri("NVUS0000000000-11"), vendor_uri("NVUS0000000000-12")]
+        # A project root, not the two orders: discovery finds both from the
+        # wafers in the upload, which is the point of the change.
+        sources = [f"s3://{VENDOR_BUCKET}/{PROJECT}"]
 
     namespace.update(
         {
             "pd": pd,
             "display": lambda *a, **k: None,
-            "s3client": MockS3Client(keys=vendor_keys, file_contents=sidecars),
+            "s3client": MockS3Client(
+                buckets={VENDOR_BUCKET: vendor_keys}, file_contents=sidecars
+            ),
             "raw_assay": raw_assay,
             "bucket": bucket,
             "ctx": SimpleNamespace(order=experiment_id),
@@ -94,7 +98,8 @@ def _run_section(
             "seahub_fail_counts": {},
             "sop_violations": [],
             "discovered_wafers": set(),
-            "untrimmed_s3_paths": list(sources),
+            "untrimmed_search_roots": list(sources),
+            "untrimmed_search_siblings": True,
         }
     )
 
@@ -218,11 +223,18 @@ class TestSectionRuns:
         }
 
 
-class TestSourceFilterUsesTheExperimentId:
-    """The filter reads ``ctx.order``; the notebook's ``order`` is the output label."""
+class TestTheVendorIndexIsIndependentOfTheLabel:
+    """No name the operator chooses can change which vendor wells are indexed.
+
+    This used to be a narrow guarantee -- the ExperimentID filter read
+    ``ctx.order`` rather than the notebook's ``order``, which ``run_label``
+    overrides, and filtering on the wrong one matched no vendor well and orphaned
+    the whole upload. Now that deliveries are located by the wafers inside them,
+    the property is stronger and worth keeping under a name that says so: neither
+    label reaches the vendor index at all.
+    """
 
     def test_a_run_label_changes_nothing_about_the_vendor_index(self, tmp_path):
-        """Filtering on ``order`` would match no vendor well and orphan the upload."""
         plain_dir, labelled_dir = tmp_path / "plain", tmp_path / "labelled"
         plain_dir.mkdir()
         labelled_dir.mkdir()
@@ -260,11 +272,11 @@ class TestSectionSkips:
     def test_no_untrimmed_source_names_what_will_not_run(self, tmp_path):
         output, _ns = _run_section(tmp_path, sources=[])
 
-        assert "NO untrimmed source given" in output
+        assert "NO untrimmed search root given" in output
         assert "trimming completeness" in output
-        assert "untrimmed_s3_paths = [" in output
+        assert "untrimmed_search_roots = [" in output
         errors = (tmp_path / "REF3_errors.txt").read_text()
-        assert "SEAHUB SOURCE COVERAGE: no untrimmed_s3_paths set" in errors
+        assert "SEAHUB SOURCE COVERAGE: no untrimmed_search_roots set" in errors
 
     def test_without_a_source_the_data_gap_is_still_reported(self, tmp_path):
         """DATA_GAP outranks the un-nameable UNKNOWN, by design."""
