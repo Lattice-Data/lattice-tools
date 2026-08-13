@@ -35,10 +35,10 @@ paginated a truncated listing costs `discovered_wafers` entries or the `processe
 raw file. In **manifest** mode it comes from the `order` argument if one is given, and is
 otherwise read off the manifest keys, which already contain it as a folder; a manifest mixing two
 ExperimentIDs is rejected at `resolve_qa_run_context` rather than per object, because QA writes one
-`{order}_*` output set and filters the vendor index to a single ExperimentID. `ctx.order` must never
-be empty for a SeaHub run: it is both the expected value of the cross-experiment check and the guard
-that enables the vendor index's experiment filter, so an empty one silently turns the first into one
-error per object and the second off entirely.
+`{order}_*` output set per run. `ctx.order` must never be empty for a SeaHub run: it is the expected
+value of the cross-experiment check on the *upload's* own paths, so an empty one turns that into one
+error per object. It no longer reaches the vendor side at all — see
+[Why the vendor ExperimentID is not the key](#why-the-vendor-experimentid-is-not-the-key).
 
 ---
 
@@ -99,12 +99,13 @@ rather than a rename.
   and through the rename gate that flipped a whole sublibrary to `UNKNOWN`. `expected_name` carries the corrected basename repairing that rule alone, and
   `expected_folder` the corrected path segment. A folder/filename disagreement is blamed on the
   **folder** when the filename says `{ExperimentID}_{folder}`, because the vendor delivery is the
-  source of truth for the sublibrary name. Given `untrimmed_s3_paths`, a missing sublibrary type is
-  filled from the vendor delivery. Written to `{order}_raw_sop_violations.csv`; violations are
+  source of truth for the sublibrary name. When a vendor delivery has been located, a missing
+  sublibrary type is filled from it. Written to `{order}_raw_sop_violations.csv`; violations are
   non-fatal.
 - **Cross-bucket trimming completeness** compares the upload against the untrimmed vendor deliveries
-  listed in the notebook's `untrimmed_s3_paths` parameter — a *list*, because one experiment spans
-  several Novogene orders and one order can hold several experiments. Wells match on `(wafer, UG)`,
+  found by searching the roots in the notebook's `untrimmed_search_roots` parameter — a *list* of
+  projects or buckets to look in, not of orders to trust, since one experiment spans several
+  Novogene orders and one order can hold several experiments. Wells match on `(wafer, UG)`,
   measured unique on a real delivery (48 CRAMs, 48 distinct UGs per wafer). The vendor layout is
   `{project}/{order}/{ExperimentID}/raw/{wafer}/`; note the segment before `raw` is the ExperimentID
   alone and carries **no** sublibrary, so the authoritative sublibrary comes from the vendor filename
@@ -163,6 +164,58 @@ collected in s3 mode only, and a key absent from the mapping reads as unknown ra
   produced objects the rename CSV said to move inside a well the status CSV called `UNKNOWN`. That
   set is still maintained as documentation of which defects a rename can fix, and a test reads the
   defect literals out of the module to keep it in step.
+
+---
+
+## Finding the untrimmed deliveries
+
+`untrimmed_search_roots` names where to look, and the wafers in the trimmed upload
+are what is looked for. A **project root** is the value to use —
+`s3://czi-novogene/{proj}` — because it needs only prefix-scoped `ListBucket` and
+costs roughly a tenth of the listings a bare bucket does. A bucket root is legal
+for the rare cross-project case.
+
+The search is a delimiter descent, one level at a time, stopping at a child folder
+named `raw`. That is what keeps it O(folders) rather than O(objects): the object
+indexer paginates *flat*, which is why `normalize_source_uris` refuses a prefix
+shallower than `{project}/{order}` and why a root goes through
+`normalize_search_roots` instead. Discovery only ever hands the indexer a concrete
+`.../raw/`, so that guard becomes an invariant check on the descent rather than
+something the new path had to route around.
+
+Wafers are read three ways, and each rescues a case the others miss:
+
+| reading | rescues |
+| --- | --- |
+| the identity index (filename) | a well whose folder is not a wafer, or disagrees with its filename |
+| the object path (folder) | a wafer whose filenames do not parse — a real delivery carries 192 CRAMs with no `Z####` UG at all |
+| `discovered_wafers` (folder walk) | a wafer directory holding nothing QA ingested; empty in manifest mode |
+
+Tokens that are not wafer-shaped are reported as `wafer_seed_rejected` rather than
+searched for. Where a folder and a filename disagree, **both** are searched: which
+is right is not decidable there, and the wrong one costs one lookup and reports as
+not found, whereas choosing silently compares against the wrong delivery.
+
+**Sibling expansion**, `untrimmed_search_siblings`, indexes every wafer in a
+delivery that a seed pointed at rather than only the seeded ones. Leave it on. A
+wafer the lab never trimmed cannot be a seed, so without expansion it is never
+listed, never indexed, and produces neither a `not_trimmed` row nor a vendor-only
+`DATA_GAP` well — and `DATA_GAP` is the only verdict written to `errors.txt`. A
+whole missed plate would read as a clean upload.
+
+What expansion cannot reach is a delivery that *no* uploaded wafer points at. The
+descent walks past those anyway, so each is reported as
+`unseeded_vendor_delivery` with its ExperimentID segment: if the segment is one
+you recognise, its wells were never uploaded at all. The residual blind spot after
+that is a delivery in a **different project or bucket** than the roots cover, which
+is the one case only a wider root can find.
+
+Three bounds keep the walk finite, and each is reported rather than raised, because
+a partial answer an operator can see beats a dead cell: `SEAHUB_SEARCH_MAX_DEPTH`
+levels below a root, `SEAHUB_SEARCH_MAX_LISTINGS` calls in total, and a refused
+listing recorded with its error code and stepped over so one inaccessible project
+does not cost the rest. `WaferSearchPlan.complete` asks all three at once, and
+`summary()` is the line the notebook prints.
 
 ---
 

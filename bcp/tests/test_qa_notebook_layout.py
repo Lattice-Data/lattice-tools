@@ -250,3 +250,40 @@ class TestCellZero:
         assert [type(n).__name__ for n in non_imports] == ["Assign"], (
             "cell 0 should contain imports plus the single s3client assignment"
         )
+
+
+class TestTheProseDefersToTheDoc:
+    """Every SeaHub markdown cell must point at the doc that carries the detail.
+
+    The cells were cut to tables, templates and pointers, on the review's grounds
+    that the table summary is what an operator needs inline and the reasoning
+    belongs in one place. That only holds while the pointer survives: a later prose
+    edit that drops it leaves the reader with a table and nowhere to go, and
+    orphans the doc.
+    """
+
+    def test_every_seahub_markdown_cell_links_the_doc(self, cells):
+        markdown = [
+            i for i in _seahub_indices(cells) if cells[i]["cell_type"] == "markdown"
+        ]
+        assert markdown, "no seahub markdown cells found"
+
+        missing = [i for i in markdown if "SEAHUB_QA.md" not in _source(cells[i])]
+        assert missing == [], f"markdown cells with no doc link: {missing}"
+
+    def test_the_seahub_prose_stays_within_its_budget(self, cells):
+        """It was 11,151 characters -- 91% of all prose in the notebook.
+
+        A ceiling rather than a ratio, because the rest of the notebook carries
+        almost no markdown, so a ratio would pass at almost any size. The number
+        is generous against the 6.6k it was cut to; tripping it means the
+        reasoning is migrating back out of SEAHUB_QA.md.
+        """
+        seahub = set(_seahub_indices(cells))
+        chars = sum(
+            len(_source(c))
+            for i, c in enumerate(cells)
+            if i in seahub and c["cell_type"] == "markdown"
+        )
+
+        assert chars < 8000, f"SeaHub prose is {chars} characters"
