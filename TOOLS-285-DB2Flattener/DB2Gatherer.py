@@ -1,6 +1,10 @@
-from constants import Configs, MAX_URL_LENGTH, BASE_URL_OVERHEAD
+from constants import (
+    Configs,
+    MAX_URL_LENGTH,
+    BASE_URL_OVERHEAD,
+    CONTROLLED_TERM_FIELDS,
+)
 from DB2_utils import (
-    extract_controlled_term_id,
     extract_uuid_from_id,
     extract_references_from_field,
     get_api_type_from_id,
@@ -15,75 +19,96 @@ class DB2Gatherer:
         self.configs = configs
         self.resolved_objects = {}  # {object_type: {id: object}}
     
-    def chunk_and_fetch(self, obj_type, object_ids):
-        """Fetch objects efficiently with URL chunking if needed"""
+    def chunk_and_fetch(self, obj_type, object_ids, filter_field='uuid', fields=None):
+        """
+        Fetch objects efficiently with URL chunking if needed
+
+        filter_field: report query parameter used to select objects. Defaults to
+            'uuid'. Controlled terms are selected by '@id' instead, because a
+            controlled term reference carries a semantic term id rather than a
+            uuid - see fetch_controlled_terms().
+        fields: overrides the field list from OBJECT_CONFIG, for when only a
+            subset of the profile is needed.
+        """
         if not object_ids:
             return []
-        
+
         config = None
         for cfg in self.configs.OBJECT_CONFIG.values():
             if cfg['api_type'] == obj_type:
                 config = cfg
                 break
-        
+
         if not config:
             print(f"Warning: No config found for {obj_type}")
             return []
-        
+
+        field_lst = fields or config['fields']
+
         print(f"Fetching {len(object_ids)} {obj_type} objects...")
-        
+
         # Remove duplicates
         unique_ids = list(set(object_ids))
-        
+
+        def build_filter(ids):
+            return '&' + '&'.join([f"{filter_field}={oid}" for oid in ids])
+
         # Build filter URL
-        filter_url = '&' + '&'.join([f"uuid={oid}" for oid in unique_ids])
-        
+        filter_url = build_filter(unique_ids)
+
         # Single request if under limit
         if len(filter_url) <= MAX_URL_LENGTH:
             try:
                 results = DB2lattice.get_report(
                     obj_type=obj_type,
                     filter_url=filter_url,
-                    field_lst=config['fields'],
+                    field_lst=field_lst,
                     connection=self.connection
                 )
                 return results or []
             except Exception as e:
                 print(f"Error fetching {obj_type}: {e}")
                 return []
-        
+
         # Chunked requests
         print("URL too long, chunking...")
         all_results = []
         chunk_size = (MAX_URL_LENGTH - BASE_URL_OVERHEAD) // 50  # Rough estimate
-        
+
         for i in range(0, len(unique_ids), chunk_size):
             chunk_ids = unique_ids[i:i + chunk_size]
-            chunk_filter = '&' + '&'.join([f"uuid={oid}" for oid in chunk_ids])
-            
+            chunk_filter = build_filter(chunk_ids)
+
             try:
                 chunk_results = DB2lattice.get_report(
                     obj_type=obj_type,
                     filter_url=chunk_filter,
-                    field_lst=config['fields'],
+                    field_lst=field_lst,
                     connection=self.connection
                 )
-                
+
                 if chunk_results:
                     all_results.extend(chunk_results)
-                    
+
             except Exception as e:
                 print(f"Chunk error: {e}")
                 continue
-        
+
         return all_results
         
     
     def resolve_references_for_samples(self, all_samples):
-        """Collect all references first, then batch fetch by type (excluding controlled terms)"""
+        """
+        Collect all references first, then batch fetch by type
+
+        Controlled terms are gathered last: the second pass below keeps finding
+        new controlled term references on objects that only exist once the
+        non-controlled-term fetch has completed, so fetching them any earlier
+        would miss those.
+        """
         all_reference_ids = {}  # {api_type: set(ids)}
-        controlled_term_values = {}  # {ref_path: extracted_term_id}
-        
+        controlled_term_refs = set()  # {ref_path}
+
         # First pass: collect ALL references from samples
         for sample in all_samples.values():
             sample_api_type = get_api_type_from_id(sample['@id'], self.configs)
@@ -106,9 +131,9 @@ class DB2Gatherer:
                 for ref in refs:
                     if ref.startswith('/'):
                         if 'controlled_terms' in ref_types and '/controlled_terms/' in ref:
-                            # Extract term ID directly for controlled terms
-                            term_id = extract_controlled_term_id(ref)
-                            controlled_term_values[ref] = term_id
+                            # Keep the whole path - it is what the ControlledTerm
+                            # fetch filters on, and what the flattener looks up by
+                            controlled_term_refs.add(ref)
                         else:
                             # Regular UUID-based reference
                             api_type = get_api_type_from_id(ref, self.configs)
@@ -126,14 +151,11 @@ class DB2Gatherer:
             for obj in ref_objects:
                 self.resolved_objects[api_type][obj['@id']] = obj
         
-        # Store controlled term values (no API calls needed)
-        self.resolved_objects['ControlledTerm'] = controlled_term_values
-        
         # Second pass: collect controlled term references from non-sample objects
-        for ref_dict in self.resolved_objects.values():
-            if ref_dict == controlled_term_values:  # Skip the controlled terms dict
+        for api_type, ref_dict in self.resolved_objects.items():
+            if api_type == 'ControlledTerm':  # Skip the controlled terms dict
                 continue
-                
+
             for obj in ref_dict.values():
                 obj_api_type = get_api_type_from_id(obj.get('@id', ''), self.configs)
                 config = None
@@ -152,8 +174,52 @@ class DB2Gatherer:
                         
                         for ref in refs:
                             if ref.startswith('/controlled_terms/'):
-                                term_id = extract_controlled_term_id(ref)
-                                controlled_term_values[ref] = term_id
+                                controlled_term_refs.add(ref)
+
+        # Now that no further controlled term references can turn up, fetch them
+        self.resolved_objects['ControlledTerm'] = self.fetch_controlled_terms(
+            controlled_term_refs
+        )
+
+    def fetch_controlled_terms(self, controlled_term_refs):
+        """
+        Fetch ControlledTerm objects, keyed by @id, so term_name is available
+
+        Controlled terms are the one object type filtered by '@id' rather than
+        'uuid': the reference carries a semantic term id, not a uuid, so there
+        is no uuid available to filter on until the object has been fetched.
+        """
+        if not controlled_term_refs:
+            return {}
+
+        requested = sorted(controlled_term_refs)
+        results = self.chunk_and_fetch(
+            'ControlledTerm',
+            requested,
+            filter_field='@id',
+            fields=CONTROLLED_TERM_FIELDS,
+        )
+
+        # If the '@id' filter were ever ignored, the response would be an
+        # unfiltered dump of every controlled term in the instance - silently
+        # wrong data rather than an error. Refuse it instead of flattening it.
+        if len(results) > len(requested):
+            raise RuntimeError(
+                f"Requested {len(requested)} controlled terms but the API returned "
+                f"{len(results)}. The '@id' filter does not appear to have been applied."
+            )
+
+        resolved = {obj['@id']: obj for obj in results if obj.get('@id')}
+
+        missing = [ref for ref in requested if ref not in resolved]
+        if missing:
+            print(
+                f"Warning: {len(missing)} of {len(requested)} controlled terms did not "
+                f"resolve, e.g. {missing[:5]}"
+            )
+
+        print(f"Resolved {len(resolved)} controlled terms")
+        return resolved
 
     def add_references_to_library(self, library_data, samples):
         """Add resolved non-controlled-term references to library data based on its samples"""

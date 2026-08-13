@@ -162,10 +162,13 @@ def test_author_metadata_dict_exploded_to_columns():
         (gex, [rmf], [sample]),
     ]))
 
-    assert 'tissues_mouse_litter_batch' in main_df.columns
-    assert 'tissues_diet' in main_df.columns
-    assert main_df.iloc[0]['tissues_mouse_litter_batch'] == 'A1'
-    assert main_df.iloc[0]['tissues_diet'] == 'fasted'
+    # The field name is retained in the column: create_biohub_dataframe selects
+    # these columns with re.search('_author_metadata_', k), and
+    # strip_author_metadata_column_prefix only drops the prefix later, for BIOHUB
+    assert 'tissues_author_metadata_mouse_litter_batch' in main_df.columns
+    assert 'tissues_author_metadata_diet' in main_df.columns
+    assert main_df.iloc[0]['tissues_author_metadata_mouse_litter_batch'] == 'A1'
+    assert main_df.iloc[0]['tissues_author_metadata_diet'] == 'fasted'
     assert 'tissues_author_metadata' not in main_df.columns
 
 
