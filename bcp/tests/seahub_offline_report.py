@@ -329,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--scratch",
         default="",
-        help="where to write intermediate manifests (default: beside the listing)",
+        help="where to write intermediate manifests (default: a temp directory)",
     )
     args = parser.parse_args(argv)
 

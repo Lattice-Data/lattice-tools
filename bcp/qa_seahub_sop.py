@@ -556,7 +556,7 @@ class SeahubStemGroup:
     ``(raw_dir, stem)``, which at least keeps the artifacts of one unparseable
     well together.
 
-    Only what something reads is carried. ``experiment_id``, ``sublibrary``,
+    Carries what a caller or its tests read. ``experiment_id``, ``sublibrary``,
     ``wafer_folder``, ``stems``, ``wafer`` and ``ug`` were populated here and
     read nowhere -- not by a caller and not by a test -- and each is already
     recoverable from ``keys`` via :func:`parse_seahub_raw_path` or from

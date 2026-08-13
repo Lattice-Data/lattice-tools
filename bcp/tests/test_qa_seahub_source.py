@@ -1452,3 +1452,45 @@ class TestDiscoverUntrimmedSources:
 
         assert "located 4 of 5 seed wafer(s)" in summary
         assert "not found: 439000" in summary
+
+
+class TestTwoBucketsSharingAPathDoNotCrossFilter:
+    """The accept filter must be keyed on the bucket as well as the prefix.
+
+    Two search roots in different buckets can share a
+    ``{project}/{order}/{exp}/raw/`` path -- a vendor delivery and a copy of it
+    under another account. Both are then wanted, for *different* sets of wafers,
+    and a lookup keyed on the prefix alone tests every key against whichever
+    delivery was registered first. That filter is the only thing keeping a
+    foreign experiment out of the comparison, so it must not be approximate.
+    """
+
+    ORDER = "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw"
+
+    def _delivery(self, *stems: str) -> list[str]:
+        return [f"{self.ORDER}/{s.split('-')[0]}/{s}.cram" for s in stems]
+
+    def test_a_sibling_in_one_bucket_is_not_judged_by_the_others_wanted_set(self):
+        """Each delivery holds the seed plus a sibling the other does not have."""
+        sibling_a = P07_STEM
+        sibling_b = "999999-REF3_P09_1_B1_GEX_hash_oligo-Z0909-ACGTACGTACGTACG"
+        s3 = MockS3Client(
+            buckets={
+                "czi-novogene": self._delivery(P04_STEM, sibling_a),
+                "czi-other": self._delivery(P04_STEM, sibling_b),
+            }
+        )
+        seeds = WaferSeeds(wafers=("437120",))
+
+        result = discover_untrimmed_sources(
+            s3, ["s3://czi-novogene", "s3://czi-other"], seeds
+        )
+
+        # Both siblings are indexed: each is wanted by its own delivery. Keyed on
+        # the prefix alone, whichever bucket lost the race had its sibling tested
+        # against the other's wanted set and dropped.
+        assert {wafer for wafer, _ug in result.index} == {
+            "437120",
+            "438514",
+            "999999",
+        }

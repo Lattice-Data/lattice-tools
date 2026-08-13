@@ -287,3 +287,23 @@ class TestTheProseDefersToTheDoc:
         )
 
         assert chars < 8000, f"SeaHub prose is {chars} characters"
+
+
+class TestTheGatherCellLogsWhatItSkipped:
+    """A run that silently skipped a check must not leave a clean error log.
+
+    Several gathering warnings say exactly that -- LISTING TRUNCATED (a folder
+    listing that saw at most 1000 entries), METADATA UNREADABLE and TRIM FAIL
+    UNREADABLE (a sidecar the pool could not read, so read-count QA did not run
+    for that well), EXPERIMENT UNKNOWN. All were printed to the cell and written
+    nowhere, so the archived log of such a run was indistinguishable from a clean
+    one. Asserted on the cell source because ``_run_section`` runs only the
+    SeaHub block, and this is the shared gather cell.
+    """
+
+    def test_warnings_are_written_to_the_error_file_not_only_printed(self, cells):
+        gather = _source(cells[_index_of(cells, "### Gather all raw + processed")])
+
+        block = gather[gather.index("for msg in data.gathering_warnings:") :]
+        head = block[: block.index("for e in data.gathering_errors:")]
+        assert "file.write" in head, "warnings are printed but never written"

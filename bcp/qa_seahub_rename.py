@@ -521,12 +521,6 @@ def roll_up_wells(
                 continue
             raw_stem = basename[: -len(suffix)]
             family = ""
-            normalized, _doubled = normalize_doubled_wafer(raw_stem)
-            if (
-                parse_seahub_stem_fields(normalized)
-                or parse_seahub_stem_fields(raw_stem)
-            ) is None:
-                continue
         else:
             raw_stem, suffix, family = parsed
         normalized, _doubled = normalize_doubled_wafer(raw_stem)
@@ -539,6 +533,11 @@ def roll_up_wells(
         fields = parse_seahub_stem_fields(normalized) or parse_seahub_stem_fields(
             raw_stem
         )
+        if parsed is None and fields is None:
+            # Browser junk under a well folder (login.html) has an unrecognized
+            # suffix and no parseable stem; only the misspelled-artifact case
+            # above belongs in the roll-up.
+            continue
         identity = (
             (str(fields["wafer"]), str(fields["ug"]))
             if fields is not None
@@ -550,7 +549,6 @@ def roll_up_wells(
                 "identity": identity,
                 "names": set(),
                 "suffixes": set(),
-                "families": set(),
                 "sublibrary": path_info["sublibrary"],
                 "keys": [],
                 "parseable": fields is not None,
@@ -559,7 +557,6 @@ def roll_up_wells(
         )
         well["names"].add(("/".join(key.split("/")[:-1]), raw_stem))
         well["suffixes"].add(suffix)
-        well["families"].add(family)
         well["keys"].append(key)
         # A CRAM that is present and empty carries no data, so it is not a
         # delivered artifact. Only a *known* zero counts: a key absent from the
@@ -575,7 +572,6 @@ def roll_up_wells(
                 "identity": identity,
                 "names": set(),
                 "suffixes": set(),
-                "families": set(),
                 "sublibrary": "",
                 "keys": [],
                 "parseable": True,

@@ -140,8 +140,6 @@ class MockS3Client:
         """
         for denied, code in self._deny_prefixes.items():
             if prefix.startswith(denied):
-                from botocore.exceptions import ClientError
-
                 raise ClientError(
                     {"Error": {"Code": code, "Message": f"denied at {denied}"}},
                     operation,

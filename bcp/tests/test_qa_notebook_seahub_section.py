@@ -23,6 +23,7 @@ import pytest
 from tests.qa_seahub_helpers import (
     BUCKET,
     PROJECT,
+    RAW,
     VENDOR_BUCKET,
     ref3_sizes,
     ref3_trimmed_keys,
@@ -353,3 +354,28 @@ class TestAnUploadInTheWrongPlaceIsNotSilent:
 
         assert "PER-WELL STATUS: COMPLIANT=1" in out
         assert "the right files" in out and "in the wrong place" in out
+
+
+class TestTheErrorFileStaysReadable:
+    """errors.txt has to stay bounded as well as complete."""
+
+    def test_the_data_gap_lines_are_bounded(self, tmp_path):
+        """An upload that misspells everything makes every well a gap.
+
+        480 near-identical lines on one real listing, for a defect the SOP cell
+        already reports once with a FAIL banner. The count and the CSV keep it
+        audible without the file becoming unreadable.
+        """
+        stem = "437120-REF3_P04_1_A{}_GEX_hash_oligo-Z{:04d}-CAGCTCGAATGCGAT"
+        keys = [
+            f"{RAW}/REF3_P04_1/437120/{stem.format(i, i)}.trimmed.ucram"
+            for i in range(1, 26)
+        ]
+        _output, _ns = _run_section(tmp_path, keys=keys, sources=[])
+        errors = (tmp_path / "REF3_errors.txt").read_text()
+
+        gap_lines = [
+            ln for ln in errors.splitlines() if ln.startswith("SEAHUB DATA GAP")
+        ]
+        assert len(gap_lines) <= 11, len(gap_lines)
+        assert any("more of" in ln for ln in gap_lines)

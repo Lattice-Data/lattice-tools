@@ -716,7 +716,9 @@ def _index_prefix(
     ``sidecar_by_stem_key``; returns the orders it saw, which the caller needs to
     label the coverage row.
 
-    ``accept(key, fields)`` filters CRAMs before they are indexed. Discovery uses
+    ``accept(bucket, key, fields)`` filters CRAMs before they are indexed. The
+    bucket is passed because two buckets can share a key path, so a filter keyed
+    on the path alone would test a key against the wrong delivery. Discovery uses
     it to keep a located delivery to the wafers it is there for, so that walking
     a whole project does not drag every other experiment's wells into one
     upload's comparison -- the contamination the ExperimentID filter used to
@@ -745,7 +747,7 @@ def _index_prefix(
                 sidecar_by_stem_key[(bucket, key[: -len(_SIDECAR_SUFFIX)])] = key
                 continue
 
-            if accept is not None and not accept(key, fields):
+            if accept is not None and not accept(bucket, key, fields):
                 continue
 
             order = derive_source_order(key)
@@ -799,7 +801,7 @@ def index_untrimmed_sources(
     ``duplicate_source_well`` finding. Overwriting blindly, as the single-prefix
     version did, silently discarded one of them.
 
-    ``accept(key, fields)`` filters CRAMs before indexing;
+    ``accept(bucket, key, fields)`` filters CRAMs before indexing;
     :func:`discover_untrimmed_sources` uses it to hold a discovered delivery to
     the wafers it was located for.
 
@@ -970,8 +972,9 @@ def discover_untrimmed_sources(
     wanted = set(seeds.wafers)
     located: dict[str, set[str]] = {}
     unseeded: list[tuple[str, str]] = []
-    wanted_by_uri: dict[str, set[str]] = {}
+    wanted_by_uri: dict[tuple[str, str], set[str]] = {}
     found_by_uri: dict[str, RawPrefix] = {}
+    present_by_uri: dict[str, set[str]] = {}
 
     for found in sorted(scan.prefixes, key=lambda p: (p.bucket, p.prefix)):
         from_folders, from_names = _wafers_in_prefix(found)
@@ -984,8 +987,11 @@ def discover_untrimmed_sources(
             continue
         for wafer in hits:
             located.setdefault(wafer, set()).add(found.uri)
-        wanted_by_uri[found.uri] = present if expand_siblings else hits
+        wanted_by_uri[(found.bucket, found.prefix)] = (
+            present if expand_siblings else hits
+        )
         found_by_uri[found.uri] = found
+        present_by_uri[found.uri] = present
 
     if wanted_by_uri:
         # Delegated rather than reimplemented. Every prefix handed over is a
@@ -995,10 +1001,9 @@ def discover_untrimmed_sources(
         # prefix shallow enough to flat-paginate a bucket without raising here.
         indexed = index_untrimmed_sources(
             s3_client,
-            sorted(wanted_by_uri),
-            accept=lambda key, fields: (
-                str(fields["wafer"])
-                in wanted_by_uri.get(_uri_of(key, wanted_by_uri), set())
+            sorted(f"s3://{b}/{p}" for b, p in wanted_by_uri),
+            accept=lambda bucket, key, fields: (
+                str(fields["wafer"]) in _wanted_for(bucket, key, wanted_by_uri)
             ),
         )
         sources.index = indexed.index
@@ -1026,10 +1031,7 @@ def discover_untrimmed_sources(
                 # every filename is refused by both stem patterns -- and the row
                 # then reads cram_keys=0, exactly like a mistyped prefix. Present
                 # and unreadable is a different problem from absent.
-                hit = sorted(
-                    wanted & _wafers_in_prefix(found)[0]
-                    | wanted & _wafers_in_prefix(found)[1]
-                )
+                hit = sorted(wanted & present_by_uri.get(coverage.source_uri, set()))
                 coverage.skipped_reason = "no parseable wells"
                 sources.findings.append(
                     finding_row(
@@ -1052,12 +1054,22 @@ def discover_untrimmed_sources(
     return sources
 
 
-def _uri_of(key: str, wanted_by_uri: dict[str, set[str]]) -> str:
-    """The registered ``raw/`` URI a listed key sits under."""
-    for uri in wanted_by_uri:
-        if key.startswith(uri.split("/", 3)[3]):
-            return uri
-    return ""
+def _wanted_for(
+    bucket: str, key: str, wanted_by_uri: dict[tuple[str, str], set[str]]
+) -> set[str]:
+    """The wafers a listed key's own delivery was located for.
+
+    Keyed on ``(bucket, prefix)`` rather than on the prefix alone. Two search
+    roots in different buckets can share a ``{project}/{order}/{exp}/raw/`` path
+    -- a vendor delivery and a copy of it under another account -- and a
+    prefix-only lookup would then test a key from one against the other's wanted
+    set. Narrow, but the accept filter is the only thing keeping a foreign
+    experiment out of this comparison, so it must not be approximate.
+    """
+    for (uri_bucket, prefix), wanted in wanted_by_uri.items():
+        if uri_bucket == bucket and key.startswith(prefix):
+            return wanted
+    return set()
 
 
 def _report_search(sources: UntrimmedSources, plan: WaferSearchPlan) -> None:

@@ -210,6 +210,15 @@ you recognise, its wells were never uploaded at all. The residual blind spot aft
 that is a delivery in a **different project or bucket** than the roots cover, which
 is the one case only a wider root can find.
 
+**One level, deliberately.** A delivery's wafers are read from what sits directly
+inside `raw/` — child folders and loose objects — while the indexer that follows
+paginates recursively. A vendor layout that nested a level deeper than
+`raw/{wafer}/` would therefore be located but not recognised, and reported as
+`unseeded_vendor_delivery` rather than indexed. No observed delivery does this, and
+the failure is loud rather than silent: the wafers it holds also report
+`wafer_not_found`, which reaches `errors.txt`. If such a layout ever appears, that
+pair of findings is the signal to widen the read.
+
 Three bounds keep the walk finite, and each is reported rather than raised, because
 a partial answer an operator can see beats a dead cell: `SEAHUB_SEARCH_MAX_DEPTH`
 levels below a root, `SEAHUB_SEARCH_MAX_LISTINGS` calls in total, and a refused
