@@ -530,8 +530,13 @@ class DB2Flattener:
             else:
                 flattened_items.append(item)
 
-        # Filter out empty/None values
-        filtered_items = [str(item).strip() for item in flattened_items if item and str(item).strip()]
+        # Filter out empty/None values. Do not use truthiness: False (and 0)
+        # must be kept so boolean fields like is_pilot_order survive flattening.
+        filtered_items = [
+            str(item).strip()
+            for item in flattened_items
+            if item is not None and str(item).strip() != ''
+        ]
         
         if not filtered_items:
             return
