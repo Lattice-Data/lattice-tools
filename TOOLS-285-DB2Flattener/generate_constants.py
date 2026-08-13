@@ -289,7 +289,7 @@ def load_and_return_constant_dicts(mode: str) -> tuple[FieldTypes, ObjectConfig]
         field_hash_mismatch = loaded_config[endpoint].field_types_sha256 != new_config[endpoint].field_types_sha256
         object_hash_mismatch = loaded_config[endpoint].object_config_sha256 != new_config[endpoint].object_config_sha256
 
-        if not all([field_hash_mismatch, object_hash_mismatch]):
+        if not any([field_hash_mismatch, object_hash_mismatch]):
             print("Hashes are the same for old and new configs")
         else:
             print("Hash mismatch")
