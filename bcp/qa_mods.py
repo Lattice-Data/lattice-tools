@@ -993,7 +993,7 @@ def seahub_trimmer_failure_storage_key(s3_key: str) -> tuple[str, str | None]:
 
 def parse_seahub_trim_fail_csv(
     csv_path: str | Path, warnings: list[str] | None = None
-) -> list[dict]:
+) -> list[dict] | None:
     """Read one per-well trim failure CSV into per-format blocks.
 
     Paired with :func:`apply_seahub_trim_fail_blocks`: parsing is separate from
@@ -1007,8 +1007,17 @@ def parse_seahub_trim_fail_csv(
     stats_df = pd.read_csv(csv_path)
     stats_df.columns = stats_df.columns.str.replace(" ", "_")
     required = {"format", "reason", "failed_read_count", "total_read_count"}
-    if not required.issubset(stats_df.columns):
-        return []
+    missing = required - set(stats_df.columns)
+    if missing:
+        # None, not [], so the caller can tell "this file's schema is wrong"
+        # from "this file parsed fine and genuinely has nothing to report" (every
+        # format's total is 0 or absent). Not appended to `warnings`: that list is
+        # extended into gathering_warnings once per well by _apply_seahub_trim_fail,
+        # and a header the trimmer renamed is renamed for the whole upload, so an
+        # identical line here would repeat once per well -- the same flood the
+        # collapsed TRIM FAIL UNREADABLE warning below exists to avoid. The caller
+        # collects this the same way and collapses it once.
+        return None
     stats_df["failed_read_count"] = pd.to_numeric(
         stats_df["failed_read_count"], errors="coerce"
     )

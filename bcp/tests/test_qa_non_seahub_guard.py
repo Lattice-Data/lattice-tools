@@ -150,7 +150,12 @@ EXPECTED_FASTQ_COUNT_MODES = {
     "sci_plex": "gex_hash",
     "sci_jumbo": "skip",
     "scale": "gex_hash",
-    "seahub_sci": "gex_hash",
+    # Not one of the six this guard exists to freeze -- seahub_sci's own value,
+    # updated when it moved from "gex_hash" to "skip": a SeaHub sublibrary
+    # carries one combined GEX_hash_oligo token, never separate GEX/hash_oligo
+    # files, so "gex_hash" mode reported "checked 0, no comparable pairs" on
+    # every clean upload.
+    "seahub_sci": "skip",
 }
 
 

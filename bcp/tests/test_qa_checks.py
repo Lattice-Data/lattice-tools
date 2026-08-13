@@ -7,6 +7,7 @@ import logging
 from qa_checks import (
     MIN_METADATA_READ_COUNT,
     MIN_PCT_Q30_THRESHOLD,
+    _fastq_count_mode,
     build_wafer_failure_stats,
     check_expected_raw_files,
     check_extra_raw_files,
@@ -256,6 +257,45 @@ class TestSummarizeFastqCountValidation:
         assert "10x_cram" in summary
         assert "not applicable" in summary
         assert "CRAM-only" in summary
+
+    def test_seahub_sci_clean_upload_does_not_report_missing_pairs(self):
+        """The scenario that reads as a defect on every compliant upload.
+
+        A SeaHub sublibrary carries one combined GEX_hash_oligo token, never
+        separate GEX and hash_oligo files, so grouping it with scale/sci_plex's
+        gex_hash mode made ``checked`` structurally 0 on every clean upload --
+        "No comparable pairs (missing modality pairs)" written to errors.txt
+        unconditionally, describing the normal case as a gap.
+        """
+        fastq_log = {
+            "REF3_P05_1": {"GEX_hash_oligo": ["a.trim.cram", "b.trim.cram"]},
+        }
+        errors = validate_fastq_counts(fastq_log, "seahub_sci")
+        assert errors == []
+
+        summary = summarize_fastq_count_validation(fastq_log, "seahub_sci", errors)
+        assert "seahub_sci" in summary
+        assert "not applicable" in summary
+        assert "combined" in summary
+        assert "missing modality pairs" not in summary
+        assert "checked 0" not in summary
+
+    def test_seahub_sci_mode_is_skip_not_gex_hash(self):
+        assert _fastq_count_mode("seahub_sci") == "skip"
+
+    def test_seahub_sci_logs_its_own_reason_not_the_viral_orf_fallback(self, caplog):
+        """The skip branch's else-clause is 10x_viral_ORF's message.
+
+        Adding seahub_sci to the skip set without its own elif would have every
+        SeaHub run log a message about legacy viral_ORF data.
+        """
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            validate_fastq_counts({}, "seahub_sci")
+
+        assert any("seahub_sci" in r.message for r in caplog.records)
+        assert not any("viral_ORF" in r.message for r in caplog.records)
 
 
 class TestValidateReadMetadata:

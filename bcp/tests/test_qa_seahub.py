@@ -5,6 +5,7 @@ Tests for SeaHub lab raw QA support (seahub_sci assay).
 from __future__ import annotations
 
 import os
+import tempfile
 import threading
 
 import pytest
@@ -1050,6 +1051,102 @@ class TestSeahubTrimFailIsFetchedInParallel:
         assert len(warnings) == 1
         assert f"{len(self.WAFERS)} object(s) could not be read" in warnings[0]
         assert "and 2 more" in warnings[0]
+
+    def _fail_csv_renamed_header(self, total: int) -> str:
+        """What a trimmer that renamed its own output looks like.
+
+        ``Format`` for ``format``: same content, a header the parser's required
+        set does not recognise -- the systemic case, since a renamed header is a
+        fact about the trimmer version, not about one file.
+        """
+        return (
+            "Format,Reason,Failed Reads,Total Reads\n"
+            f"JumboSciGEX,barcode,{total // 7},{total}\n"
+        )
+
+    def test_a_renamed_header_reconciles_as_metadata_unavailable_not_silently(self):
+        """The schema-mismatch case: read fine, columns wrong, nothing applied.
+
+        Before this, ``parse_seahub_trim_fail_csv`` returned ``[]`` on a schema it
+        did not recognise with no warning at all -- indistinguishable from "read
+        fine, nothing to report". A renamed header is a whole-upload fact, so
+        every well silently lost its trimmer-fail counts with nothing in
+        gathering_warnings to say why.
+        """
+        keys = self._keys()
+        fail_keys = self._fail_keys(keys)
+        contents = {k: self._fail_csv_renamed_header(1000) for k in fail_keys}
+
+        data = gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+        assert data.trimmer_failure_stats == {}
+        warnings = [
+            w
+            for w in data.gathering_warnings
+            if w.startswith("TRIM FAIL SCHEMA MISMATCH")
+        ]
+        assert len(warnings) == 1, (
+            "one warning, not one per well: a renamed header repeats identically "
+            "across the whole upload"
+        )
+        assert f"{len(self.WAFERS)} object(s) could not be read" in warnings[0]
+
+    def test_a_renamed_header_and_an_unreadable_file_are_reported_separately(self):
+        """The two failure modes must not be conflated into one collapsed line.
+
+        One names an object a download or a parse could not produce anything
+        from; the other names a header the trimmer renamed. An operator acts on
+        them differently, so collapsing them together would hide which one to
+        fix.
+        """
+        keys = self._keys()
+        fail_keys = self._fail_keys(keys)
+        contents = {k: self._fail_csv_renamed_header(1000) for k in fail_keys}
+        del contents[fail_keys[0]]  # genuinely unreadable
+
+        data = gather_qa_data(
+            self._ctx(), MockS3Client(keys=keys, file_contents=contents)
+        )
+
+        schema = [
+            w
+            for w in data.gathering_warnings
+            if w.startswith("TRIM FAIL SCHEMA MISMATCH")
+        ]
+        unreadable = [
+            w for w in data.gathering_warnings if w.startswith("TRIM FAIL UNREADABLE")
+        ]
+        assert len(schema) == 1 and f"{len(self.WAFERS) - 1}" in schema[0]
+        assert len(unreadable) == 1 and "1 object(s)" in unreadable[0]
+
+    def test_a_genuinely_empty_csv_is_still_distinct_from_a_schema_mismatch(self):
+        """``[]`` and ``None`` are not the same fact, and must stay distinguishable.
+
+        A well whose formats all declare a zero total legitimately has nothing to
+        report -- that is not a schema problem, and must not be reported as one.
+        """
+        from qa_mods import parse_seahub_trim_fail_csv
+
+        empty_but_valid = (
+            "format,reason,failed read count,total read count\n"
+            "JumboSciGEX,barcode,0,0\n"
+        )
+        wrong_schema = self._fail_csv_renamed_header(1000)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(empty_but_valid)
+            valid_path = f.name
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write(wrong_schema)
+            invalid_path = f.name
+        try:
+            assert parse_seahub_trim_fail_csv(valid_path) == []
+            assert parse_seahub_trim_fail_csv(invalid_path) is None
+        finally:
+            os.unlink(valid_path)
+            os.unlink(invalid_path)
 
 
 class TestSeahubListingTruncation:

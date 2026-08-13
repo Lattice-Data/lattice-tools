@@ -15,6 +15,7 @@ import contextlib
 import io
 import json
 import os
+from collections import Counter
 from types import SimpleNamespace
 
 import pandas as pd
@@ -25,6 +26,7 @@ from tests.qa_seahub_helpers import (
     PROJECT,
     RAW,
     VENDOR_BUCKET,
+    VENDOR_ORDER,
     ref3_sizes,
     ref3_trimmed_keys,
     ref3_vendor_keys,
@@ -55,6 +57,7 @@ def _run_section(
     raw_assay="seahub_sci",
     sources=None,
     keys=None,
+    vendor_keys=None,
     experiment_id="REF3",
     output_label="REF3",
     bucket=BUCKET,
@@ -69,7 +72,7 @@ def _run_section(
     namespace = _import_namespace(cells[0])
 
     trimmed_keys = ref3_trimmed_keys() if keys is None else keys
-    vendor_keys = ref3_vendor_keys()
+    vendor_keys = ref3_vendor_keys() if vendor_keys is None else vendor_keys
     sidecars = {
         key: json.dumps({"read_count": VENDOR_READ_COUNT})
         for key in vendor_keys
@@ -379,6 +382,81 @@ class TestTheErrorFileStaysReadable:
         ]
         assert len(gap_lines) <= 11, len(gap_lines)
         assert any("more of" in ln for ln in gap_lines)
+
+
+class TestTheReconCellBoundsItsErrorFileWrites:
+    """The recon cell's own errors.txt loop must be bounded like the console above it.
+
+    metadata_unavailable is in practice a whole-upload fact -- vendor sidecars are
+    generated for the upload as a whole, so a run where CZI never made them
+    reports it for every matched well. Unbounded, that write loop repeats near
+    identically once per well, exactly what the console output five lines above
+    it, and the DATA_GAP loop in the well-status cell, both already bound.
+    """
+
+    N_WELLS = 12  # > RECON_EXAMPLES_PER_CATEGORY (5), so the cap is exercised
+
+    def _many_matched_wells_with_no_sidecar(self):
+        """N trimmed wells, each with a vendor CRAM but no ``.cram-metadata.json``.
+
+        No sidecar means no read_count, so every one of them degrades to
+        ``metadata_unavailable`` rather than being checked against the trimmer's
+        declared totals.
+        """
+        trimmed, vendor = [], []
+        for i in range(self.N_WELLS):
+            wafer = f"5000{i:02d}"
+            stem = f"{wafer}-REF3_P05_1_A{i}_GEX_hash_oligo-Z0{i:03d}-CAGTCAGTTGCAGAT"
+            trimmed += [
+                f"{RAW}/REF3_P05_1/{wafer}/{stem}{suffix}"
+                for suffix in (
+                    ".trim.cram",
+                    ".trim.csv",
+                    ".trim.stderr",
+                    ".trim.stdout",
+                    ".trim_fail.csv",
+                )
+            ]
+            vendor.append(f"{PROJECT}/{VENDOR_ORDER}/REF3/raw/{wafer}/{stem}.cram")
+        return trimmed, vendor
+
+    def test_metadata_unavailable_is_capped_in_the_error_file(self, tmp_path):
+        trimmed, vendor = self._many_matched_wells_with_no_sidecar()
+        _output, ns = _run_section(tmp_path, keys=trimmed, vendor_keys=vendor)
+
+        report = ns["trimming_report"]
+        unavailable = [
+            r for r in report.rows if r["category"] == "metadata_unavailable"
+        ]
+        assert len(unavailable) == self.N_WELLS, "fixture must exceed the cap"
+
+        errors = (tmp_path / "REF3_errors.txt").read_text()
+        lines = [
+            ln
+            for ln in errors.splitlines()
+            if ln.startswith("TRIMMING METADATA_UNAVAILABLE")
+        ]
+        assert len(lines) <= 6, len(
+            lines
+        )  # RECON_EXAMPLES_PER_CATEGORY + 1 "more" line
+        assert any("more of" in ln for ln in lines)
+
+    def test_a_category_under_the_cap_is_not_truncated(self, tmp_path):
+        """The bound must not drop rows that fit inside it."""
+        _output, ns = _run_section(tmp_path)
+        report = ns["trimming_report"]
+
+        errors = (tmp_path / "REF3_errors.txt").read_text()
+        categories = ns["ERRORS_TXT_CATEGORIES"]
+        for category, count in Counter(r["category"] for r in report.rows).items():
+            if category not in categories or count > 5:
+                continue
+            lines = [
+                ln
+                for ln in errors.splitlines()
+                if ln.startswith(f"TRIMMING {category.upper()}")
+            ]
+            assert len(lines) == count, category
 
 
 class TestASearchRootWithNoWafersDoesNotCrash:

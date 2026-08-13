@@ -65,9 +65,9 @@ def validate_pct_q30(
 
 def _fastq_count_mode(raw_assay: str) -> str:
     """Internal: assay policy for fastq count validation and summaries."""
-    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram"):
+    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram", "seahub_sci"):
         return "skip"
-    if raw_assay in ("scale", "sci_plex", "seahub_sci"):
+    if raw_assay in ("scale", "sci_plex"):
         return "gex_hash"
     if raw_assay == "10x":
         return "10x"
@@ -86,6 +86,9 @@ def validate_fastq_counts(
     - 10x: GEX–CRI and GEX–ATAC pairs must have equal counts when present;
       GEX-only or ATAC-only → no check. Logs when CRI+ATAC present (future QA).
     - 10x_viral_ORF: No validation (legacy); logs that it is not validated.
+    - seahub_sci: No validation. A SeaHub sublibrary carries one combined
+      GEX_hash_oligo type token rather than separate GEX/hash_oligo files, so
+      there is nothing to compare; logs that it is not validated.
 
     Returns list of error messages.
     """
@@ -99,6 +102,16 @@ def validate_fastq_counts(
         elif raw_assay == "10x_cram":
             logger.warning(
                 "Not validating fastq counts for 10x_cram (CRAM-only raw layout)."
+            )
+        elif raw_assay == "seahub_sci":
+            # A SeaHub sublibrary carries one combined GEX_hash_oligo type token,
+            # never separate GEX and hash_oligo files, so this check's premise --
+            # two modalities to compare -- never holds. Grouping it with scale and
+            # sci_plex's gex_hash mode made every clean upload report "checked 0,
+            # no comparable pairs", which reads as a defect on a compliant upload.
+            logger.warning(
+                "Not validating fastq counts for seahub_sci (sublibraries carry a "
+                "single combined type token, not separate GEX/hash_oligo files)."
             )
         else:
             logger.warning(
@@ -115,7 +128,7 @@ def validate_fastq_counts(
                     f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
                     f"{len(hash_list)} hash_oligo"
                 )
-        elif raw_assay in ("sci_plex", "seahub_sci"):
+        elif raw_assay == "sci_plex":
             gex_list = v.get("GEX", [])
             hash_list = v.get("hash_oligo", [])
             if gex_list and hash_list and len(gex_list) != len(hash_list):
@@ -179,6 +192,13 @@ def summarize_fastq_count_validation(
                 "Fastq count validation (10x_cram): not applicable for CRAM-only raw "
                 f"inputs; mismatches: {mismatches}. No comparisons performed."
             )
+        if raw_assay == "seahub_sci":
+            return (
+                "Fastq count validation (seahub_sci): not applicable -- SeaHub "
+                "sublibraries carry a single combined GEX_hash_oligo type token, "
+                f"not separate GEX/hash_oligo files; mismatches: {mismatches}. "
+                "No comparisons performed."
+            )
         return (
             f"Fastq count validation ({raw_assay}): not validated by design; "
             f"mismatches: {mismatches}. No comparisons performed."
@@ -190,7 +210,7 @@ def summarize_fastq_count_validation(
             f"{mismatches}. No fastq_log data (nothing to compare)."
         )
 
-    if raw_assay in ("scale", "sci_plex", "seahub_sci"):
+    if raw_assay in ("scale", "sci_plex"):
         checked = sum(
             1
             for _sample, v in fastq_log.items()

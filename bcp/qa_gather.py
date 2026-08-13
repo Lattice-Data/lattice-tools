@@ -997,14 +997,24 @@ class QADataGatherer:
                         print(f"  read {done}/{total} trim failure CSV(s)")
 
         unreadable: list[tuple[str, str]] = []
-        for rf, blocks, warnings, error in results:
+        schema_mismatch: list[tuple[str, str]] = []
+        for rf, blocks, warnings, schema_error, error in results:
             if error:
                 unreadable.append((rf, error))
+                continue
+            if schema_error:
+                schema_mismatch.append((rf, schema_error))
                 continue
             self._apply_seahub_trim_fail(rf, blocks, warnings)
         self._append_unreadable_warning(
             unreadable,
             "TRIM FAIL UNREADABLE",
+            "their wells contribute no trimmer-fail counts and reconcile as "
+            "metadata_unavailable",
+        )
+        self._append_unreadable_warning(
+            schema_mismatch,
+            "TRIM FAIL SCHEMA MISMATCH",
             "their wells contribute no trimmer-fail counts and reconcile as "
             "metadata_unavailable",
         )
@@ -1031,12 +1041,16 @@ class QADataGatherer:
 
     def _fetch_seahub_trim_fail(
         self, rf: str
-    ) -> tuple[str, list[dict], list[str], str]:
+    ) -> tuple[str, list[dict], list[str], str, str]:
         """Download and parse one trim failure CSV. Runs in a worker thread.
 
         Deliberately touches no gatherer state: it returns what it parsed, its
         own warnings, and why it failed if it did, for the caller to merge in
-        order.
+        order. ``schema_error`` is separate from the download/parse ``error``
+        that follows it, because the two collapse into different warnings: one
+        names an object that could not be read, the other names a header the
+        trimmer renamed -- and the second is a fact about the whole upload, not
+        about one file, so it must not repeat once per well.
 
         A failure is returned rather than raised. There is one of these per
         well, so on GENE7 an empty or half-written CSV -- what an interrupted
@@ -1054,9 +1068,11 @@ class QADataGatherer:
             # distribution read_csv'd the same file twice, on an upload that has
             # one of these per well.
             blocks = parse_seahub_trim_fail_csv(local, warnings=warnings)
-            return rf, blocks, warnings, ""
+            if blocks is None:
+                return rf, [], warnings, "missing required column(s)", ""
+            return rf, blocks, warnings, "", ""
         except Exception as exc:  # noqa: BLE001 - unreadable is unreadable
-            return rf, [], warnings, f"{type(exc).__name__}: {exc}"
+            return rf, [], warnings, "", f"{type(exc).__name__}: {exc}"
         finally:
             Path(local).unlink(missing_ok=True)
 
