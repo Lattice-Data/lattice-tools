@@ -17,7 +17,15 @@ valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo
 
 # Raw pipeline types supported by qa.ipynb / qa_checks (normalize casing via qa_mods.normalize_raw_assay)
 ALLOWED_RAW_ASSAYS = frozenset(
-    ("10x", "10x_cram", "10x_viral_ORF", "sci_jumbo", "sci_plex", "scale")
+    (
+        "10x",
+        "10x_cram",
+        "10x_viral_ORF",
+        "sci_jumbo",
+        "sci_plex",
+        "scale",
+        "seahub_sci",
+    )
 )
 
 # https://www.10xgenomics.com/support/software/cell-ranger/latest/analysis/outputs/cr-3p-outputs-cellplex
@@ -221,6 +229,13 @@ raw_expected = {
         "_trimmer-stats.csv",
     ],
     "scale": [],
+    "seahub_sci": [
+        ".trim.cram",
+        ".trim.csv",
+        ".trim.stderr",
+        ".trim.stdout",
+        ".trim_fail.csv",
+    ],
 }
 
 raw_optional = {
@@ -237,7 +252,223 @@ raw_optional = {
         "_extract_stats.h5",
     ],
     "scale": [],
+    "seahub_sci": [
+        ".trim.cram-metadata.json",
+    ],
 }
+
+# ---------------------------------------------------------------------------
+# SeaHub lab raw upload patterns (trapnell / hamazaki *-seahub-bcp buckets)
+#
+# SOP layout:
+#   s3://czi-{lab}/{lastname}-{projectname}/{ExperimentID}/raw/{sublibrary}/{wafer}/
+# SOP filename:
+#   {wafer}-{sublibrary}[_{well}]_{sublibrary type}-{UG}-{barcode}.trim.*
+#
+# Known-good examples:
+#   .../hamazaki-seahub-bcp/CHEM3-R100/raw/R100E/441389/
+#       441389-R100E_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram
+#   .../trapnell-seahub-bcp/REF3/raw/REF3_P05_2/436830/
+#       436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram
+#
+# The ExperimentID is not a filename field: it appears in the trapnell example
+# only because it is part of that project's sublibrary name, and is absent from
+# the hamazaki example.  ExperimentID may contain hyphens (``CHEM3-R100``), so
+# path segments must never be hyphen-split.
+# ---------------------------------------------------------------------------
+
+# Sublibrary types valid for SeaHub, narrower than ``valid_assays`` (which also
+# carries ATAC and viral_ORF).  Ordered longest-first so alternation in
+# SEAHUB_STEM_RE prefers ``GEX_hash_oligo`` over ``GEX`` / ``hash_oligo``.
+SEAHUB_SUBLIBRARY_TYPES: tuple[str, ...] = (
+    "GEX_hash_oligo",
+    "hash_oligo",
+    "GEX",
+    "CRI",
+)
+
+# Both suffix tuples are ordered longest-first so ``.cram-metadata.json`` is
+# never truncated by ``.cram``.
+SEAHUB_TRIM_SUFFIXES: tuple[str, ...] = (
+    ".trim.cram-metadata.json",
+    ".trim_fail.csv",
+    ".trim.cram",
+    ".trim.csv",
+    ".trim.stderr",
+    ".trim.stdout",
+)
+
+# Non-compliant family seen in real uploads: the same six trim artifacts with
+# the ``.trim`` infix dropped.  Recognised so completeness still runs against
+# what was actually delivered (which is how a genuinely absent CRAM surfaces),
+# then reported as a ``missing_trim_infix`` SOP violation.
+SEAHUB_BARE_SUFFIXES: tuple[str, ...] = (
+    ".cram-metadata.json",
+    "_fail.csv",
+    ".cram",
+    ".csv",
+    ".stderr",
+    ".stdout",
+)
+
+# Maps a bare-family suffix to the SOP suffix it should have carried.
+SEAHUB_BARE_TO_TRIM_SUFFIX: dict[str, str] = {
+    ".cram-metadata.json": ".trim.cram-metadata.json",
+    "_fail.csv": ".trim_fail.csv",
+    ".cram": ".trim.cram",
+    ".csv": ".trim.csv",
+    ".stderr": ".trim.stderr",
+    ".stdout": ".trim.stdout",
+}
+
+SEAHUB_TRIM_TO_BARE_SUFFIX: dict[str, str] = {
+    trim: bare for bare, trim in SEAHUB_BARE_TO_TRIM_SUFFIX.items()
+}
+
+# Bare-family counterpart of raw_optional["seahub_sci"], derived so the optional
+# set has a single source of truth. There is no SEAHUB_BARE_EXPECTED beside it:
+# completeness asks which artifact *kinds* arrived, under either spelling, so the
+# bare-family required set had nothing left to answer.
+SEAHUB_BARE_OPTIONAL: tuple[str, ...] = tuple(
+    SEAHUB_TRIM_TO_BARE_SUFFIX[ending] for ending in raw_optional["seahub_sci"]
+)
+
+# Suffixes that carry per-well trimmer failure counts, in either family.
+# One entry, not two: ".trim_fail.csv" ends with "_fail.csv", so under the
+# endswith test that reads this it was never doing any work.
+SEAHUB_FAIL_SUFFIXES: tuple[str, ...] = ("_fail.csv",)
+
+# fastq_log bucket for wells whose filename omits the sublibrary type, so they
+# stay visible in per-sublibrary counts instead of dropping out.  The missing
+# type itself is reported as an invalid_sublibrary_type SOP violation.
+SEAHUB_UNTYPED_LABEL = "UNTYPED"
+
+_SEAHUB_TYPE_ALT = "|".join(SEAHUB_SUBLIBRARY_TYPES)
+
+# Group is non-greedy so ``R100E_GEX_hash_oligo`` parses as group ``R100E``
+# plus type ``GEX_hash_oligo``; a greedy group would instead yield group
+# ``R100E_GEX`` plus type ``hash_oligo``.
+SEAHUB_STEM_RE = re.compile(
+    rf"^(?P<wafer>\d{{6,8}})-(?P<group>.+?)"
+    rf"_(?P<assay>{_SEAHUB_TYPE_ALT})"
+    r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)$"
+)
+
+# Relaxed variant for stems that omit the sublibrary type entirely, so wafer /
+# UG / barcode stay recoverable for reporting and cross-bucket matching.
+SEAHUB_STEM_NO_TYPE_RE = re.compile(
+    r"^(?P<wafer>\d{6,8})-(?P<group>.+?)"
+    r"-(?P<ug>Z\d{4})-(?P<barcode>[ACGT]+)$"
+)
+
+# A bare token standing alone as a wafer, anchored both ends.  The two stem
+# patterns embed ``\d{6,8}`` inside a larger expression, so this is the first
+# place a token has to prove it is a wafer on its own -- which matters because a
+# wafer is about to become a *search* term against the vendor bucket, and an
+# unvalidated one (``REF3_P04_1`` off a sublibrary folder, or ``437120_old``)
+# would be searched for as readily as a real one.  The bound is 6-8 to match
+# those two patterns exactly: wider makes a wafer discoverable but unparseable,
+# narrower the reverse.  Every wafer measured across the real listings is 6
+# digits; 7 and 8 are permitted but unobserved.
+SEAHUB_WAFER_RE = re.compile(r"^\d{6,8}$")
+
+# The one path segment every vendor layout agrees on, and the folder name the
+# wafer descent stops at.  Named rather than inlined because two things have to
+# agree about it: the descent looks for a child folder called this, and
+# normalize_search_roots refuses a root that already contains one.
+SEAHUB_RAW_SEGMENT = "raw"
+
+# How many delimiter levels below a search root the descent will look for a
+# `raw` folder.  A bucket root needs three to reach it
+# ({project}/{order}/{ExperimentID}/raw), so 4 tolerates one unexpected level of
+# nesting and still stops a mistyped root walking a whole bucket's folder tree.
+SEAHUB_SEARCH_MAX_DEPTH = 4
+
+# Hard ceiling on delimiter listings per descent.  Exceeding it stops the walk
+# and is reported, rather than raising: a partial answer with a loud row beats a
+# cell that dies, and the alternative to a ceiling is an unbounded walk of
+# whatever the operator happened to point at.
+SEAHUB_SEARCH_MAX_LISTINGS = 4000
+
+SEAHUB_WELL_RE = re.compile(r"^[A-H]\d{1,2}$")
+
+SEAHUB_PLATE_SIZES = frozenset({48, 96})
+
+# A wafer token repeated at the head of the stem (``437120-437120-...``), seen on
+# six of REF3's seven sublibraries.  Two capture groups rather than a
+# backreference so callers can distinguish the two cases: the SOP rule fires only
+# when they are equal, and the rename mapping refuses to normalize when they
+# differ (two different wafers is not a repair QA can guess at).
+SEAHUB_DOUBLED_WAFER_RE = re.compile(r"^(?P<first>\d{6,8})-(?P<second>\d{6,8})-")
+
+# A bulk-download counter appended to a duplicate name (``ug-icon.png.1``).
+# Stripped only to form an additional classification candidate, never to rewrite.
+SEAHUB_DOWNLOAD_DUP_SUFFIX_RE = re.compile(r"\.\d+$")
+
+# Browser/tool leftovers found sitting in raw folders.  ``.txt`` is deliberately
+# absent: an unrecognized ``.txt`` must stay ``unexpected_suffix`` rather than be
+# waved through as junk.  Named ``.txt`` files are listed individually below.
+SEAHUB_NON_SEQ_EXTENSIONS = frozenset(
+    {".html", ".htm", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".css", ".js"}
+)
+SEAHUB_NON_SEQ_BASENAMES = frozenset({"urls.txt", ".ds_store", "thumbs.db"})
+SEAHUB_NON_SEQ_NAME_RES = (re.compile(r"^objects_list[-_.].*\.txt$"),)
+
+# How widely one violation applies, which drives dedup when reporting.  A folder
+# defect is one fact about a sublibrary, not one fact per object beneath it.
+SEAHUB_VIOLATION_SCOPES = ("object", "stem", "folder", "suffix", "upload")
+
+# The closed set of SOP rule names.  Kept explicit so a typo in a new rule shows
+# up as a test failure rather than as a silently missing category.
+SEAHUB_SOP_RULES = frozenset(
+    {
+        "bad_bucket",
+        "lab_project_mismatch",
+        "bad_path_depth",
+        "unexpected_suffix",
+        "no_recognized_artifacts",
+        "non_sequencing_artifact",
+        "missing_trim_infix",
+        "duplicated_wafer_token",
+        "repeated_token",
+        "unparseable_stem",
+        "invalid_sublibrary_type",
+        "wafer_mismatch",
+        "sublibrary_folder_truncated",
+        "sublibrary_mismatch",
+        "bad_well",
+    }
+)
+
+# A vendor order label (``NVUS2024101701-11``).  Used only to label a source
+# prefix that yielded no objects; per-object derivation is positional.
+SEAHUB_VENDOR_ORDER_RE = re.compile(r"^[A-Z]{2,}\d{6,}-\d{2,}$")
+SEAHUB_UNKNOWN_ORDER_LABEL = "UNKNOWN_ORDER"
+
+# Per-well roll-up vocabulary.  DISPLAY order only — precedence when a well
+# qualifies for several is documented on the roll-up itself.
+SEAHUB_WELL_VERDICTS = ("COMPLIANT", "RENAMEABLE", "DATA_GAP", "UNKNOWN")
+
+# Defects a rename can repair.  Everything else in SEAHUB_SOP_RULES describes a
+# fact about the data that renaming cannot fix.  Documentation, not the decision:
+# the per-well roll-up asks ``RenameProposal.renameable`` directly, so the two
+# headline CSVs cannot disagree about what is moveable.  Kept in step with the
+# code by ``test_renameable_set_matches_what_proposals_carry``.
+SEAHUB_RENAMEABLE_SOP_TYPES = frozenset(
+    {
+        "missing_trim_infix",
+        "duplicated_wafer_token",
+        "sublibrary_folder_truncated",
+        "invalid_sublibrary_type",
+        # Repairable only because it is appended *after* the vendor group is
+        # confirmed; with no vendor the mismatch path returns unresolved instead.
+        "sublibrary_mismatch",
+    }
+)
+
+SEAHUB_RENAME_STATUSES = ("rename", "blocked", "unresolved", "not_data")
+SEAHUB_RENAME_NAME_SOURCES = ("vendor", "inferred")
+SEAHUB_RENAME_FIELD_SEP = "|"
 
 # ---------------------------------------------------------------------------
 # Scale raw file patterns

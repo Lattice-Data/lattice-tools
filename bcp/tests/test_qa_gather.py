@@ -10,6 +10,7 @@ import json
 import os
 
 import pytest
+from botocore.exceptions import ClientError
 
 from qa_gather import (
     QAGatheredData,
@@ -35,14 +36,37 @@ class MockPaginator:
         self._s3 = s3_client
 
     def paginate(self, **kwargs):
+        bucket = kwargs.get("Bucket", "")
         prefix = kwargs.get("Prefix", "")
         delimiter = kwargs.get("Delimiter", "")
+        self._s3.listing_calls.append((bucket, prefix, delimiter))
+        self._s3._raise_if_denied(prefix, "ListObjects")
         pages = self._s3._paginated_pages.get((prefix, delimiter))
         if pages is not None:
             yield from pages
             return
-        result = self._s3.list_objects(**kwargs)
-        yield result
+        contents, prefixes = self._s3._list_all(prefix, delimiter, bucket)
+        limit = self._s3._list_limit
+        if not limit:
+            yield _page(contents, prefixes)
+            return
+        # A paginator follows continuation tokens, so `list_limit` is a page
+        # size here, not a ceiling: everything still comes back. That is the
+        # difference the gatherer relies on, and modelling it wrong would have
+        # made the paginated object walk look truncated too.
+        for start in range(0, max(len(contents), len(prefixes), 1), limit):
+            yield _page(
+                contents[start : start + limit], prefixes[start : start + limit]
+            )
+
+
+def _page(contents: list[dict], prefixes: list[str]) -> dict:
+    page: dict = {}
+    if contents:
+        page["Contents"] = contents
+    if prefixes:
+        page["CommonPrefixes"] = [{"Prefix": p} for p in prefixes]
+    return page
 
 
 class MockS3Client:
@@ -57,6 +81,24 @@ class MockS3Client:
     file_contents : dict[str, str | bytes]
         Mapping of S3 key → file content.  ``download_file`` writes this to
         the local path.  Keys not in this mapping trigger a ``FileNotFoundError``.
+    list_limit : int | None
+        Cap on entries returned by one ``list_objects`` call, setting
+        ``IsTruncated`` when it bites -- what real S3 does at 1000.  Without it
+        no test could express a truncated listing, which is why the silent
+        truncation went unnoticed.
+    buckets : dict[str, list[str]]
+        Per-bucket keys.  When given, a listing sees only the named bucket's
+        keys and an unknown bucket is empty; ``keys`` alone stays visible to
+        every bucket, which is what every existing caller expects.  Needed
+        because the vendor side is no longer one bucket by assumption, so
+        anything that must not leak across buckets -- a sidecar attaching to its
+        own CRAM, a wafer search not finding another lab's copy -- has no way to
+        fail in a mock that answers every bucket identically.
+    deny_prefixes : dict[str, str]
+        Prefix → botocore error code, raised as ``ClientError`` from any listing
+        at or below it.  A descent has to keep going when one branch is denied
+        rather than dying, and that behaviour cannot be tested without a mock
+        that can refuse.
     """
 
     def __init__(
@@ -64,13 +106,72 @@ class MockS3Client:
         keys: list[str] | None = None,
         file_contents: dict[str, str | bytes] | None = None,
         paginated_pages: dict[tuple[str, str], list[dict]] | None = None,
+        sizes: dict[str, int] | None = None,
+        list_limit: int | None = None,
+        buckets: dict[str, list[str]] | None = None,
+        deny_prefixes: dict[str, str] | None = None,
     ):
         self._keys = keys or []
         self._file_contents = file_contents or {}
         self._paginated_pages = paginated_pages or {}
+        # Real listings always carry Size; default 0 keeps existing tests
+        # untouched, and the size checks read 0 as "unknown".
+        self._sizes = sizes or {}
+        self._list_limit = list_limit
+        self._buckets = buckets or {}
+        self._deny_prefixes = deny_prefixes or {}
+        # Every (Bucket, Prefix, Delimiter) a listing was issued for. Recorded
+        # rather than counted so a test can assert the *shape* of a walk -- above
+        # all that no call was made with an empty Delimiter against a shallow
+        # prefix, which is the flat bucket scan the "too broad" guard exists to
+        # prevent and the only thing that would silently make a descent
+        # expensive.
+        self.listing_calls: list[tuple[str, str, str]] = []
 
     def get_paginator(self, _operation: str) -> MockPaginator:
         return MockPaginator(self)
+
+    def _raise_if_denied(self, prefix: str, operation: str) -> None:
+        """Refuse a listing at or below a denied prefix.
+
+        At or below only, never above: a descent has to be able to reach a denied
+        branch in order to skip it, so denying one order must not deny the
+        project listing that discovers it. Deny ``""`` for the whole bucket.
+        """
+        for denied, code in self._deny_prefixes.items():
+            if prefix.startswith(denied):
+                raise ClientError(
+                    {"Error": {"Code": code, "Message": f"denied at {denied}"}},
+                    operation,
+                )
+
+    def _keys_for(self, bucket: str) -> list[str]:
+        """``buckets`` when it was given, else the bucket-blind ``keys``."""
+        if self._buckets:
+            return self._buckets.get(bucket, [])
+        return self._keys
+
+    def _list_all(
+        self, prefix: str, delimiter: str, bucket: str = ""
+    ) -> tuple[list[dict], list[str]]:
+        """Everything under ``prefix``, before any page limit is applied."""
+        contents: list[dict] = []
+        prefixes: set[str] = set()
+
+        for key in self._keys_for(bucket):
+            if not key.startswith(prefix):
+                continue
+
+            suffix = key[len(prefix) :]
+
+            if delimiter and delimiter in suffix:
+                # There is a delimiter deeper in the suffix → this is a "folder"
+                folder_end = suffix.index(delimiter)
+                prefixes.add(prefix + suffix[: folder_end + len(delimiter)])
+            else:
+                contents.append({"Key": key, "Size": self._sizes.get(key, 0)})
+
+        return contents, sorted(prefixes)
 
     def list_objects(
         self,
@@ -78,32 +179,28 @@ class MockS3Client:
         Prefix: str = "",
         Delimiter: str = "",
     ) -> dict:
+        self.listing_calls.append((Bucket, Prefix, Delimiter))
+        self._raise_if_denied(Prefix, "ListObjects")
         pages = self._paginated_pages.get((Prefix, Delimiter))
         if pages is not None:
             return pages[0] if pages else {}
 
-        result: dict = {}
-        contents = []
-        prefixes: set[str] = set()
+        contents, prefixes = self._list_all(Prefix, Delimiter, Bucket)
 
-        for key in self._keys:
-            if not key.startswith(Prefix):
-                continue
+        # One un-paginated call, so the limit is a hard ceiling and the caller
+        # is told via IsTruncated -- exactly what real S3 does at 1000.
+        truncated = False
+        if self._list_limit is not None:
+            if len(contents) > self._list_limit:
+                contents = contents[: self._list_limit]
+                truncated = True
+            if len(prefixes) > self._list_limit:
+                prefixes = prefixes[: self._list_limit]
+                truncated = True
 
-            suffix = key[len(Prefix) :]
-
-            if Delimiter and Delimiter in suffix:
-                # There is a delimiter deeper in the suffix → this is a "folder"
-                folder_end = suffix.index(Delimiter)
-                common = Prefix + suffix[: folder_end + len(Delimiter)]
-                prefixes.add(common)
-            else:
-                contents.append({"Key": key})
-
-        if contents:
-            result["Contents"] = contents
-        if prefixes:
-            result["CommonPrefixes"] = [{"Prefix": p} for p in sorted(prefixes)]
+        result = _page(contents, prefixes)
+        if truncated:
+            result["IsTruncated"] = True
         return result
 
     def download_file(self, bucket: str, key: str, local_path: str) -> None:
@@ -1205,3 +1302,130 @@ class TestInvalidDataSource:
         s3 = MockS3Client()
         with pytest.raises(ValueError, match="Invalid data_source"):
             gather_qa_data(ctx, s3)
+
+
+class TestMockS3Delimiter:
+    """The mock's own contract, for the wafer descent that is about to rely on it.
+
+    Pinned here rather than assumed: the descent walks a vendor bucket level by
+    level with ``Delimiter='/'``, and every property it depends on -- folders
+    coming back as CommonPrefixes, loose objects arriving alongside them,
+    pagination not truncating, buckets not leaking into each other, a denied
+    branch not killing the walk -- is a property of this class, not of the code
+    under test. A mock that answered any of them wrongly would make the descent
+    tests agree with each other and disagree with S3.
+    """
+
+    VENDOR = (
+        "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120/"
+        "437120-REF3_P04_1_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.cram"
+    )
+    LOOSE = "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/stray.txt"
+
+    def _descend(self, s3, bucket, prefix):
+        """One delimiter level: (folders, object keys)."""
+        folders: list[str] = []
+        objects: list[str] = []
+        for page in s3.get_paginator("list_objects").paginate(
+            Bucket=bucket, Prefix=prefix, Delimiter="/"
+        ):
+            folders += [p["Prefix"] for p in page.get("CommonPrefixes", [])]
+            objects += [o["Key"] for o in page.get("Contents", [])]
+        return folders, objects
+
+    def test_a_delimiter_walk_reaches_the_raw_level_from_a_bucket_root(self):
+        s3 = MockS3Client(buckets={"czi-novogene": [self.VENDOR]})
+
+        prefix = ""
+        for _depth in range(5):
+            folders, _objects = self._descend(s3, "czi-novogene", prefix)
+            assert len(folders) == 1, prefix
+            prefix = folders[0]
+
+        assert prefix == "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120/"
+
+    def test_loose_objects_arrive_with_the_folders_at_the_same_level(self):
+        """This is how the wafer-in-the-filename layout gets noticed at all.
+
+        Four of six real vendor prefixes have no wafer directory, so the wafer is
+        only in the filename. If a page carried folders *or* objects but never
+        both, that layout would be invisible from the raw/ level.
+        """
+        s3 = MockS3Client(buckets={"czi-novogene": [self.VENDOR, self.LOOSE]})
+
+        folders, objects = self._descend(
+            s3, "czi-novogene", "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/"
+        )
+
+        assert folders == ["labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120/"]
+        assert objects == [self.LOOSE]
+
+    def test_pagination_does_not_truncate_a_wide_level(self):
+        """list_limit is a page size to a paginator and a ceiling to one call.
+
+        The distinction is the whole reason the descent must paginate: qa_gather's
+        own _list_folders issues a bare list_objects and only appends a warning
+        when IsTruncated comes back, so a vendor project with more than 1000
+        orders would silently walk a fraction of itself.
+        """
+        keys = [f"proj/order-{i:04d}/REF3/raw/x.cram" for i in range(1500)]
+        s3 = MockS3Client(buckets={"b": keys}, list_limit=1000)
+
+        folders, _objects = self._descend(s3, "b", "proj/")
+        one_call = s3.list_objects(Bucket="b", Prefix="proj/", Delimiter="/")
+
+        assert len(folders) == 1500
+        assert len(one_call["CommonPrefixes"]) == 1000
+        assert one_call["IsTruncated"] is True
+
+    def test_a_key_in_one_bucket_is_invisible_from_another(self):
+        s3 = MockS3Client(buckets={"czi-novogene": [self.VENDOR], "czi-other": []})
+
+        assert self._descend(s3, "czi-novogene", "")[0]
+        assert self._descend(s3, "czi-other", "") == ([], [])
+        assert self._descend(s3, "czi-never-heard-of-it", "") == ([], [])
+
+    def test_plain_keys_stay_visible_to_every_bucket(self):
+        """Backwards compatibility: every existing caller passes keys, not buckets."""
+        s3 = MockS3Client(keys=[self.VENDOR])
+
+        assert self._descend(s3, "any-bucket", "")[0] == ["labalpha-seahub-bcp/"]
+        assert self._descend(s3, "another-bucket", "")[0] == ["labalpha-seahub-bcp/"]
+
+    def test_a_denied_prefix_raises_from_both_listing_paths(self):
+        s3 = MockS3Client(
+            buckets={"b": ["proj/x.cram"]}, deny_prefixes={"proj/": "AccessDenied"}
+        )
+
+        with pytest.raises(ClientError, match="AccessDenied"):
+            s3.list_objects(Bucket="b", Prefix="proj/", Delimiter="/")
+        with pytest.raises(ClientError, match="AccessDenied"):
+            self._descend(s3, "b", "proj/")
+
+    def test_denying_one_branch_leaves_its_parent_listable(self):
+        """Otherwise no test could express "skip that branch and carry on".
+
+        A descent must be able to reach a denied prefix in order to record it and
+        continue, so the denial has to apply at or below the prefix and never
+        above it.
+        """
+        s3 = MockS3Client(
+            buckets={"b": ["proj/order-a/x.cram", "proj/order-b/y.cram"]},
+            deny_prefixes={"proj/order-b/": "AccessDenied"},
+        )
+
+        folders, _objects = self._descend(s3, "b", "proj/")
+        assert folders == ["proj/order-a/", "proj/order-b/"]
+        assert self._descend(s3, "b", "proj/order-a/") == ([], ["proj/order-a/x.cram"])
+        with pytest.raises(ClientError):
+            self._descend(s3, "b", "proj/order-b/")
+
+    def test_every_listing_is_recorded_with_its_delimiter(self):
+        """The recording that makes "this walk never flat-scanned" assertable."""
+        s3 = MockS3Client(buckets={"b": ["proj/x.cram"]})
+
+        self._descend(s3, "b", "")
+        self._descend(s3, "b", "proj/")
+
+        assert s3.listing_calls == [("b", "", "/"), ("b", "proj/", "/")]
+        assert not [call for call in s3.listing_calls if call[2] == ""]

@@ -18,6 +18,10 @@ from bs4 import BeautifulSoup
 
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
+    SEAHUB_BARE_SUFFIXES,
+    SEAHUB_STEM_NO_TYPE_RE,
+    SEAHUB_STEM_RE,
+    SEAHUB_TRIM_SUFFIXES,
     cellranger_expected,
     cellranger_ignore,
     chemistries,
@@ -56,6 +60,14 @@ __all__ = [
     "PCT_PF_Q30_METRIC",
     "parse_pct_pf_q30_from_text",
     "grab_trimmer_failure_codes_wafer_metrics",
+    "parse_seahub_raw_path",
+    "seahub_file_stem",
+    "seahub_stem_and_family",
+    "seahub_trimmer_failure_storage_key",
+    "seahub_trimmer_group_storage_key",
+    "parse_seahub_trim_fail_csv",
+    "apply_seahub_trim_fail_blocks",
+    "is_s3_folder_marker",
     "merge_partial_wafer_stats",
     "finalize_merged_wafer_stats",
     "parse_scale_workflow_info",
@@ -137,7 +149,7 @@ def normalize_raw_assay(value: str | None) -> str:
     if value is None or not str(value).strip():
         raise ValueError(
             "ERROR: raw_assay is not specified. "
-            "Set it to one of: '10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "Set it to one of: '10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale', 'seahub_sci'."
         )
     s = str(value).strip()
     lower = s.lower()
@@ -149,7 +161,7 @@ def normalize_raw_assay(value: str | None) -> str:
         raise ValueError(
             f"HUGE ERROR: raw_assay='{s}' is not recognized. "
             "Update the parameter to one of: "
-            "'10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale'."
+            "'10x', '10x_cram', '10x_viral_ORF', 'sci_jumbo', 'sci_plex', 'scale', 'seahub_sci'."
         )
     return s
 
@@ -217,21 +229,48 @@ def _split_s3_uri(uri: str) -> tuple[str | None, str]:
     return bucket or None, key
 
 
-def _manifest_buckets_from_column(
+def _manifest_keys_and_buckets(
     manifest_path: str,
     delimiter: str,
     s3_column: int,
     has_header: bool,
-) -> frozenset[str]:
+) -> tuple[list[str], frozenset[str]]:
+    """Read the manifest column once and return its S3 keys and distinct buckets."""
     df = pd.read_csv(manifest_path, sep=delimiter, header=0 if has_header else None)
+    keys: list[str] = []
     buckets: set[str] = set()
     for cell in df.iloc[:, s3_column]:
         if cell is None or (isinstance(cell, float) and pd.isna(cell)):
             continue
-        b, _ = _split_s3_uri(str(cell).strip())
+        b, key = _split_s3_uri(str(cell).strip())
         if b:
             buckets.add(b)
-    return frozenset(buckets)
+        if key:
+            keys.append(key)
+    return keys, frozenset(buckets)
+
+
+def _seahub_experiment_from_keys(keys: list[str]) -> str:
+    """The single ExperimentID a SeaHub manifest describes, or ``""`` if none parse.
+
+    The ExperimentID is a folder in the key, so the manifest already carries it and
+    the notebook need not repeat it. Two distinct values mean the manifest mixes
+    experiments, which is raised here rather than left to the per-object check: QA
+    writes one ``{order}_*`` output set and filters the vendor index to one
+    ExperimentID, so there is no run that could serve both.
+    """
+    found = {
+        info["experiment_id"]
+        for info in (parse_seahub_raw_path(key) for key in keys)
+        if info is not None
+    }
+    if len(found) > 1:
+        raise ValueError(
+            f"Manifest mixes SeaHub ExperimentIDs {sorted(found)}; expected one. "
+            "QA runs against a single ExperimentID — split the manifest, or set "
+            "`order` to the one being checked."
+        )
+    return next(iter(found), "")
 
 
 @dataclass(frozen=True)
@@ -276,8 +315,13 @@ def resolve_qa_run_context(
 
     * **s3** mode: require either ``s3://czi-*/proj/order`` or ``provider`` + ``proj`` + ``order``.
       Output files use ``run_label`` if set, else ``order``.
+      For SeaHub lab uploads (``seahub_sci``), use ``provider`` = ``trapnell`` or
+      ``hamazaki``, ``proj`` = ``{lab}-seahub-bcp``, ``order`` = ExperimentID
+      (e.g. ``REF3``), or ``s3_path`` = ``s3://czi-trapnell/trapnell-seahub-bcp/REF3``.
     * **manifest** mode: require ``manifest_path`` and non-empty ``run_label`` for output names.
       ``bucket`` is inferred from ``s3://czi-*`` URIs in the manifest column (single bucket).
+      For ``seahub_sci``, ``order`` (the ExperimentID) is taken from the argument if given,
+      else read off the manifest keys; a manifest mixing two ExperimentIDs is an error.
 
     Set ``allow_truncated_stats_name=True`` to accept files ending in
     ``_stats.csv`` as aliases of ``_trimmer-stats.csv`` for completeness
@@ -300,7 +344,7 @@ def resolve_qa_run_context(
             raise ValueError(
                 "manifest mode requires run_label (used for output files, e.g. *_errors.txt)."
             )
-        buckets = _manifest_buckets_from_column(
+        keys, buckets = _manifest_keys_and_buckets(
             mp, manifest_delimiter, manifest_s3_column, manifest_has_header
         )
         if not buckets:
@@ -315,13 +359,20 @@ def resolve_qa_run_context(
         if not bucket.startswith("czi-"):
             raise ValueError(f"Invalid bucket in manifest (expected czi-*): {bucket!r}")
         provider_name = bucket[len("czi-") :]
+        # An explicit `order` wins; otherwise a SeaHub manifest names its own
+        # ExperimentID in every key. Returning "" here, as this branch once did,
+        # reached the cross-experiment check as the *expected* value and made it
+        # true for every object, and disabled the vendor index's experiment filter.
+        manifest_order = str(order).strip()
+        if not manifest_order and assay == "seahub_sci":
+            manifest_order = _seahub_experiment_from_keys(keys)
         return QARunContext(
             data_source="manifest",
             raw_assay=assay,
             bucket=bucket,
             provider=provider_name,
             proj="",
-            order="",
+            order=manifest_order,
             output_label=rl,
             listing_prefix="",
             manifest_path=mp,
@@ -863,6 +914,170 @@ def ingest_merged_trimmer_from_s3(
         Path(local).unlink(missing_ok=True)
 
 
+def is_s3_folder_marker(key: str) -> bool:
+    """True for S3 placeholder keys that end in ``/`` and carry no object."""
+    return not key or key.endswith("/")
+
+
+def seahub_stem_and_family(filename: str) -> tuple[str, str, str] | None:
+    """
+    Split a SeaHub raw artifact into ``(stem, suffix, family)``.
+
+    ``family`` is ``"trim"`` for SOP-compliant ``*.trim.*`` artifacts and
+    ``"bare"`` for the same six artifacts delivered without the ``.trim``
+    infix (seen in real uploads).  Recognising the bare family is what lets
+    completeness run against what was actually delivered, so a genuinely
+    absent CRAM is reported rather than the whole well silently dropping out.
+
+    A bare suffix is only accepted when what precedes it parses as a stem.
+    ``.csv``, ``.stdout`` and ``.stderr`` are generic enough to match names
+    that are not SeaHub artifacts at all: an upload naming its artifacts
+    ``<well>.trimmer_stats.csv`` and ``<well>.failure_codes.csv`` otherwise
+    yields the two *distinct* stems ``<well>.trimmer_stats`` and
+    ``<well>.failure_codes``, doubling the well count -- measured at 960 wells
+    for a real 480-well upload.  The ``.trim.*`` suffixes need no such guard,
+    being distinctive enough that a match is never accidental, and gating them
+    too would hide a genuinely malformed stem behind an unknown-suffix report.
+
+    Returns ``None`` for names in neither family (run reports, browser junk).
+    """
+    name = filename.split("/")[-1]
+    for suffix in SEAHUB_TRIM_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)], suffix, "trim"
+    for suffix in SEAHUB_BARE_SUFFIXES:
+        if name.endswith(suffix):
+            stem = name[: -len(suffix)]
+            if SEAHUB_STEM_RE.match(stem) or SEAHUB_STEM_NO_TYPE_RE.match(stem):
+                return stem, suffix, "bare"
+    return None
+
+
+def seahub_file_stem(filename: str) -> str | None:
+    """Return the shared filename stem for a SeaHub raw artifact."""
+    parsed = seahub_stem_and_family(filename)
+    return None if parsed is None else parsed[0]
+
+
+def parse_seahub_raw_path(s3_key: str) -> dict[str, str] | None:
+    """
+    Parse SeaHub S3 key layout:
+    ``{proj}/{ExperimentID}/raw/{sublibrary}/{wafer}/{filename}``.
+    """
+    parts = s3_key.split("/")
+    if len(parts) != 6 or parts[2] != "raw":
+        return None
+    return {
+        "experiment_id": parts[1],
+        "sublibrary": parts[3],
+        "wafer": parts[4],
+    }
+
+
+def seahub_trimmer_group_storage_key(s3_key: str) -> str:
+    """Sublibrary aggregation key: ``{ExperimentID}/{sublibrary}``."""
+    info = parse_seahub_raw_path(s3_key)
+    if info is None:
+        return trimmer_group_storage_key(s3_key)
+    return f"{info['experiment_id']}/{info['sublibrary']}"
+
+
+def seahub_trimmer_failure_storage_key(s3_key: str) -> tuple[str, str | None]:
+    """Wafer-native storage key for SeaHub per-well trim failure CSVs."""
+    info = parse_seahub_raw_path(s3_key)
+    if info is None:
+        return trimmer_failure_storage_key(s3_key)
+    run_id = info["wafer"]
+    return run_id, run_id
+
+
+def parse_seahub_trim_fail_csv(
+    csv_path: str | Path, warnings: list[str] | None = None
+) -> list[dict] | None:
+    """Read one per-well trim failure CSV into per-format blocks.
+
+    Paired with :func:`apply_seahub_trim_fail_blocks`: parsing is separate from
+    applying so the gatherer can read a file once and fold it into both the
+    wafer-level and the sublibrary-level distributions, and so the read can run
+    in a thread while the fold stays ordered and single-threaded.
+
+    Applies to both ``*.trim_fail.csv`` (SOP) and ``*_fail.csv`` (the same
+    artifact delivered without the ``.trim`` infix).
+    """
+    stats_df = pd.read_csv(csv_path)
+    stats_df.columns = stats_df.columns.str.replace(" ", "_")
+    required = {"format", "reason", "failed_read_count", "total_read_count"}
+    missing = required - set(stats_df.columns)
+    if missing:
+        # None, not [], so the caller can tell "this file's schema is wrong"
+        # from "this file parsed fine and genuinely has nothing to report" (every
+        # format's total is 0 or absent). Not appended to `warnings`: that list is
+        # extended into gathering_warnings once per well by _apply_seahub_trim_fail,
+        # and a header the trimmer renamed is renamed for the whole upload, so an
+        # identical line here would repeat once per well -- the same flood the
+        # collapsed TRIM FAIL UNREADABLE warning below exists to avoid. The caller
+        # collects this the same way and collapses it once.
+        return None
+    stats_df["failed_read_count"] = pd.to_numeric(
+        stats_df["failed_read_count"], errors="coerce"
+    )
+    stats_df["total_read_count"] = pd.to_numeric(
+        stats_df["total_read_count"], errors="coerce"
+    )
+
+    blocks: list[dict] = []
+    for fmt, block in stats_df.groupby("format", sort=False):
+        totals = block["total_read_count"].dropna()
+        if totals.empty:
+            continue
+        if warnings is not None and totals.nunique() > 1:
+            warnings.append(
+                f"INCONSISTENT TOTAL: {csv_path} format {fmt!r} has multiple "
+                f"total_read_count values {sorted(totals.unique().tolist())}; "
+                f"using {int(totals.iloc[0])}"
+            )
+        total = int(totals.iloc[0])
+        if total <= 0:
+            continue
+        non_rsq = block[block["reason"] != "rsq file"]
+        blocks.append(
+            {
+                "format": str(fmt),
+                "total": total,
+                "trimmer_fail": int(non_rsq["failed_read_count"].sum()),
+                "rsq_failed": [
+                    row.failed_read_count
+                    for row in block[block["reason"] == "rsq file"].itertuples()
+                ],
+            }
+        )
+    return blocks
+
+
+def apply_seahub_trim_fail_blocks(
+    blocks: list[dict],
+    trimmer_failure_stats: dict,
+    exp: str,
+    fail_counts: dict | None = None,
+    stem_key: Any = None,
+) -> None:
+    """Fold parsed blocks into one distribution, keyed by ``exp``."""
+    if exp not in trimmer_failure_stats:
+        trimmer_failure_stats[exp] = {"rsq": [], "trimmer_fail": []}
+    for block in blocks:
+        total = block["total"]
+        for failed in block["rsq_failed"]:
+            trimmer_failure_stats[exp]["rsq"].append(100 * failed / total)
+        trimmer_failure_stats[exp]["trimmer_fail"].append(
+            100 * block["trimmer_fail"] / total
+        )
+        if fail_counts is not None and stem_key is not None:
+            fail_counts.setdefault(stem_key, {})[block["format"]] = {
+                "failed": block["trimmer_fail"],
+                "total": total,
+            }
+
+
 def parse_raw_filename(f, raw_assay):
     """
     For scale data, use regex for determining assay, and "group" is replaced by "experiment", and there is no "barcode". This is because
@@ -870,6 +1085,31 @@ def parse_raw_filename(f, raw_assay):
     Otherwise, parse 10x/sci filenames from the right so group IDs can include hyphens.
     """
     filename = f.split("/")[-1]
+
+    if raw_assay == "seahub_sci":
+        path_info = parse_seahub_raw_path(f)
+        if path_info is None:
+            return None
+        stem = seahub_file_stem(filename)
+        if stem is None:
+            return None
+        m = SEAHUB_STEM_RE.match(stem)
+        assay = m.group("assay") if m else None
+        if m is None:
+            # Uploads that omit the sublibrary type are still identifiable by
+            # wafer / UG / barcode; returning them with assay=None keeps them in
+            # read and wafer reporting instead of dropping them silently.  The
+            # missing type is reported separately as an SOP violation.
+            m = SEAHUB_STEM_NO_TYPE_RE.match(stem)
+            if m is None:
+                return None
+        return (
+            m.group("wafer"),
+            path_info["sublibrary"],
+            assay,
+            m.group("ug"),
+            m.group("barcode"),
+        )
 
     if raw_assay == "scale":
         path = filename.split("-")
@@ -1023,6 +1263,9 @@ def load_files_from_manifest(
                 continue
         else:
             key = uri  # Assume it's already a key
+
+        if is_s3_folder_marker(key):
+            continue
 
         # Separate into raw vs processed
         if "/raw/" in key:

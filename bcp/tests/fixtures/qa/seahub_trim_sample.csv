@@ -1,0 +1,5 @@
+read group,format,segment index,segment label,is required,is trimmed,num input reads,num prefiltered reads,num failed reads,num discarded reads,num filtered reads,num trimmed reads,num failures,num matches,num matched bases
+Z0128,JumboSciHash,0,Illumina R1,false,true,260527531,0,182217250,0,0,260386555,377383,479651,479651
+Z0128,JumboSciHash,3,UMI,false,true,260527531,0,182217250,0,0,259165112,377383,479651,479651
+Z0128,JumboSciGEX,0,Illumina R1,false,true,158233602,0,89821273,0,0,158092626,377383,479651,479651
+Z0128,JumboSciGEX,7,insert,true,true,158233602,0,89821273,0,0,139221573,1473,257150465,1285752325

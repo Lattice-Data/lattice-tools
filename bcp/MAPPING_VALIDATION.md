@@ -4,7 +4,7 @@ This document explains how to run the `mapping_validation` checks from `bcp` and
 
 The validator is implemented in `mapping_validation.cli.main` and is exercised end‑to‑end in `test_mapping_validation_e2e.py` and `test_mapping_validation_cli.py`.
 
-**Scope note (important):** this guide covers the `mapping_validation` CLI only. The CLI now includes a dedicated `--assay 10x_cram` raw mode for CRAM bundle/SOP checks. Deeper metadata-content QA checks (for example read-count thresholds from `*.fastq.gz-metadata.json` / `*.cram-metadata.json`) still live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`.
+**Scope note (important):** this guide covers the `mapping_validation` CLI only. The CLI now includes a dedicated `--assay 10x_cram` raw mode for CRAM bundle/SOP checks. Deeper metadata-content QA checks (for example read-count thresholds from `*.fastq.gz-metadata.json` / `*.cram-metadata.json`) still live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`. Collaborator lab SeaHub trimmed raw uploads on `czi-trapnell` / `czi-hamazaki` (`*-seahub-bcp` paths, `*.trim.*` artifacts) are validated separately via `qa.ipynb` with `raw_assay='seahub_sci'`, not the Novogene-oriented `validate_s3_seahub_raw` checks below. That notebook path now also enforces the full SeaHub SOP path/filename structure (`qa_seahub_sop.py`) and reconciles a trimmed upload against the untrimmed vendor delivery it came from (`qa_seahub_source.py` + `qa_seahub_recon.py`, which locate those deliveries by searching the vendor projects named in the notebook's `untrimmed_search_roots` parameter for the wafers the upload carries). It also proposes corrected SOP keys and a per-well verdict (`qa_seahub_rename.py`). Those checks are notebook-only by design: they need the whole listing plus per-well trimmer counts and metadata sidecars, which the per-path CLI validators do not gather.
 
 ---
 
@@ -622,4 +622,6 @@ QA modules (`qa_checks.py`, `qa_gather.py`, `qa_mods.py`) still handle deeper co
 - notebook/report-layer validations and downstream processed-output QA logic.
 
 So a mapping can pass `mapping_validation` path/SOP checks but still fail downstream QA content checks (or vice versa).
+
+Collaborator lab SeaHub trimmed raw uploads are a separate notebook-only path, documented in **[SEAHUB_QA.md](SEAHUB_QA.md)**.
 

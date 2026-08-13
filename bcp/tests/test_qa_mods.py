@@ -28,6 +28,7 @@ from qa_mods import (
     parse_scale_workflow_info,
     parse_web_summ,
     resolve_qa_run_context,
+    is_s3_folder_marker,
 )
 
 
@@ -104,6 +105,9 @@ class TestNormalizeRawAssay:
 
     def test_10x_cram_allowed(self):
         assert normalize_raw_assay("10x_cram") == "10x_cram"
+
+    def test_seahub_sci_allowed(self):
+        assert normalize_raw_assay("seahub_sci") == "seahub_sci"
 
     def test_empty_raises(self):
         with pytest.raises(ValueError, match="raw_assay"):
@@ -1155,3 +1159,11 @@ class TestMakeReadPartner:
     def test_no_indicator_returns_unchanged(self):
         f = "439047-G1_GEX-Z0273-BC01.csv"
         assert make_read_partner(f, "R1", "R2") == f
+
+
+class TestIsS3FolderMarker:
+    def test_trailing_slash_is_a_marker(self):
+        assert is_s3_folder_marker("proj/REF3/raw/P05_1/")
+
+    def test_a_normal_key_is_not(self):
+        assert not is_s3_folder_marker("proj/REF3/raw/P05_1/well.cram")

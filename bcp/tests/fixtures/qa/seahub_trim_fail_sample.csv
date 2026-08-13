@@ -1,0 +1,17 @@
+read group,code,format,segment,reason,failed read count,total read count
+Z0128,103,JumboSciHash,Illumina R1,no match,140976,260527531
+Z0128,203,JumboSciHash,ligation_768_bc,no match,23928974,260527531
+Z0128,207,JumboSciHash,ligation_768_bc,ambiguous match,119366,260527531
+Z0128,303,JumboSciHash,Shendure Middle,no match,10151990,260527531
+Z0128,402,JumboSciHash,UMI,sequence was too long,1362419,260527531
+Z0128,503,JumboSciHash,RT_768_bc,no match,12829545,260527531
+Z0128,603,JumboSciHash,polyT,no match,33190272,260527531
+Z0128,702,JumboSciHash,bases_after_polyT,sequence was too long,75998839,260527531
+Z0128,10103,JumboSciGEX,Illumina R1,no match,140976,158233602
+Z0128,10203,JumboSciGEX,ligation_768_bc,no match,23928974,158233602
+Z0128,10207,JumboSciGEX,ligation_768_bc,ambiguous match,119366,158233602
+Z0128,10303,JumboSciGEX,Shendure Middle,no match,10151990,158233602
+Z0128,10402,JumboSciGEX,UMI,sequence was too long,1362419,158233602
+Z0128,10503,JumboSciGEX,RT_768_bc,no match,12829545,158233602
+Z0128,10603,JumboSciGEX,polyT,no match,33190272,158233602
+Z0128,10901,JumboSciGEX,insert,sequence was too short,19012029,158233602

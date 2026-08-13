@@ -18,6 +18,8 @@ from qa_constants import (
     SCALE_SAMPLES_FORBIDDEN_COLUMNS,
     SCALE_WAFER_MISC_RE,
     SCALE_WORKFLOW_REQUIRED_PARAMS,
+    SEAHUB_TRIM_TO_BARE_SUFFIX,
+    SEAHUB_BARE_OPTIONAL,
 )
 from qa_mods import (
     cellranger_expected,
@@ -26,9 +28,11 @@ from qa_mods import (
     is_trimmer_stats_basename,
     make_read_partner,
     parse_raw_filename,
+    parse_seahub_raw_path,
     raw_expected,
     raw_optional,
     resolve_wafer_run_id,
+    seahub_stem_and_family,
 )
 
 
@@ -61,7 +65,7 @@ def validate_pct_q30(
 
 def _fastq_count_mode(raw_assay: str) -> str:
     """Internal: assay policy for fastq count validation and summaries."""
-    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram"):
+    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram", "seahub_sci"):
         return "skip"
     if raw_assay in ("scale", "sci_plex"):
         return "gex_hash"
@@ -82,6 +86,9 @@ def validate_fastq_counts(
     - 10x: GEX–CRI and GEX–ATAC pairs must have equal counts when present;
       GEX-only or ATAC-only → no check. Logs when CRI+ATAC present (future QA).
     - 10x_viral_ORF: No validation (legacy); logs that it is not validated.
+    - seahub_sci: No validation. A SeaHub sublibrary carries one combined
+      GEX_hash_oligo type token rather than separate GEX/hash_oligo files, so
+      there is nothing to compare; logs that it is not validated.
 
     Returns list of error messages.
     """
@@ -95,6 +102,16 @@ def validate_fastq_counts(
         elif raw_assay == "10x_cram":
             logger.warning(
                 "Not validating fastq counts for 10x_cram (CRAM-only raw layout)."
+            )
+        elif raw_assay == "seahub_sci":
+            # A SeaHub sublibrary carries one combined GEX_hash_oligo type token,
+            # never separate GEX and hash_oligo files, so this check's premise --
+            # two modalities to compare -- never holds. Grouping it with scale and
+            # sci_plex's gex_hash mode made every clean upload report "checked 0,
+            # no comparable pairs", which reads as a defect on a compliant upload.
+            logger.warning(
+                "Not validating fastq counts for seahub_sci (sublibraries carry a "
+                "single combined type token, not separate GEX/hash_oligo files)."
             )
         else:
             logger.warning(
@@ -174,6 +191,13 @@ def summarize_fastq_count_validation(
             return (
                 "Fastq count validation (10x_cram): not applicable for CRAM-only raw "
                 f"inputs; mismatches: {mismatches}. No comparisons performed."
+            )
+        if raw_assay == "seahub_sci":
+            return (
+                "Fastq count validation (seahub_sci): not applicable -- SeaHub "
+                "sublibraries carry a single combined GEX_hash_oligo type token, "
+                f"not separate GEX/hash_oligo files; mismatches: {mismatches}. "
+                "No comparisons performed."
             )
         return (
             f"Fastq count validation ({raw_assay}): not validated by design; "
@@ -298,7 +322,7 @@ def validate_read_metadata(
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
 
-    skip_r1_r2_pairing = raw_assay == "10x_cram"
+    skip_r1_r2_pairing = raw_assay in ("10x_cram", "seahub_sci")
 
     # Optional instrumentation for stdout-only reporting.
     matched_examples: list[str] = []
@@ -500,29 +524,93 @@ def check_expected_raw_files(
     ``<beginning>_stats.csv`` is present in ``all_raw_files``; that sibling
     is then added to ``raw_found`` so it is not double-flagged as extra.
     """
-    beginnings: dict[str, dict[str, Any]] = {}
+    # Keyed by (raw_dir, beginning) for seahub_sci, and by the beginning alone
+    # for everything else.
+    #
+    # A SeaHub beginning is unique inside a wafer folder and not across them, and
+    # the value carries the folder every expected path is built from -- so with
+    # one key the second folder's copy of a well kept the *first* folder's
+    # raw_dir and its artifacts matched nothing. Measured on a well uploaded
+    # under two sublibrary folders: two complete wells reported as one complete
+    # well plus five unexpected files, because the second copy's required five
+    # never reached raw_found and check_extra_raw_files takes everything not
+    # there. That upload is already reported as duplicate_trimmed_well, and the
+    # roll-up calls the well UNKNOWN; the inventory was the one output
+    # describing it wrongly rather than merely differently.
+    #
+    # Only for seahub_sci. Per-directory keying was tried for every assay and is
+    # not a no-op: `scale` derives its group from the key rather than the folder,
+    # and _gather_group_raw unions several run subfolders under one group, so
+    # sibling folders sharing a beginning would each become a well. Those layouts
+    # are outside this mode and have no SOP notion of a well directory to check
+    # against.
+    beginnings: dict[Any, dict[str, Any]] = {}
     for fullpath in all_raw_files:
+        raw_dir = "/".join(fullpath.split("/")[:-1])
+        if raw_assay == "seahub_sci":
+            parsed_stem = seahub_stem_and_family(fullpath.split("/")[-1])
+            if parsed_stem is None:
+                continue
+            # An object outside a wafer folder belongs to no well. Registering
+            # one would invent a well at a path that must not exist -- reporting
+            # its other four artifacts as missing from there, and taking the
+            # stray itself out of the extra list, which is the only place it
+            # should appear. The recursive raw/ walk collects these deliberately
+            # so bad_path_depth can see them, and roll_up_wells counts them as
+            # unaccounted for the same reason.
+            if parse_seahub_raw_path(fullpath) is None:
+                continue
+            b, _suffix, _family = parsed_stem
+            # Completeness asks only whether each of the five artifact *kinds*
+            # arrived; the spelling is a separate axis, reported once per stem by
+            # the SOP validator as missing_trim_infix. Judging by family instead
+            # let one optional sidecar with the other family's name decide the
+            # whole requirement set, so a complete well could be reported as
+            # missing five files that were never meant to exist -- and this path
+            # and roll_up_wells disagreed about which five.
+            beginnings.setdefault(
+                (raw_dir, b),
+                {
+                    "raw_dir": raw_dir,
+                    "beginning": b,
+                    "endings": list(raw_expected[raw_assay]),
+                },
+            )
+            continue
+
         parsed = parse_raw_filename(fullpath, raw_assay)
         if parsed is None:
             continue
         run, group, assay, ug, barcode = parsed
         b = f"{run}-{group}_{assay}-{ug}-{barcode}"
         if b not in beginnings:
-            raw_dir = "/".join(fullpath.split("/")[:-1])
             endings = list(raw_expected.get(raw_assay, []))
             if raw_assay == "10x_viral_ORF" and assay == "GEX":
                 endings = list(raw_expected.get("10x", []))
-            beginnings[b] = {"raw_dir": raw_dir, "endings": endings}
+            beginnings[b] = {"raw_dir": raw_dir, "beginning": b, "endings": endings}
 
     all_good = 0
     raw_lost: list[dict[str, Any]] = []
     raw_found: list[str] = []
     raw_found_set = set(all_raw_files)
 
-    for b, v in beginnings.items():
+    for v in beginnings.values():
+        raw_dir, b = v["raw_dir"], v["beginning"]
+        # "path" stays the beginning alone, so the CSV keeps its shape -- but for
+        # seahub_sci it is no longer unique across rows, since two folders can
+        # each contribute one. The per-ending columns hold full paths, which is
+        # what tells those rows apart.
         temp_missing: dict[str, Any] = {"path": b}
         for e in v["endings"]:
-            f = f"{v['raw_dir']}/{b}{e}"
+            f = f"{raw_dir}/{b}{e}"
+            # A SeaHub artifact counts under either spelling: the SOP name or the
+            # same file with the ".trim" infix dropped. Only the SOP name is
+            # reported as missing, since that is what should exist.
+            if raw_assay == "seahub_sci" and f not in raw_found_set:
+                bare = SEAHUB_TRIM_TO_BARE_SUFFIX.get(e)
+                if bare and f"{raw_dir}/{b}{bare}" in raw_found_set:
+                    raw_found.append(f"{raw_dir}/{b}{bare}")
+                    continue
             if f not in raw_found_set:
                 if e.endswith("-metadata.json") and (
                     f.replace("-metadata.json", "") not in raw_found_set
@@ -631,6 +719,23 @@ def check_extra_raw_files(
             f, allow_truncated_stats_name=allow_truncated_stats_name
         ):
             continue
+        if raw_assay == "seahub_sci":
+            # Optional endings are family-specific, and the generic
+            # parse_raw_filename path below cannot rebuild a SeaHub stem (its
+            # group is the folder sublibrary, not the filename token), so the
+            # SeaHub decision is made entirely here.
+            parsed_stem = seahub_stem_and_family(f.split("/")[-1])
+            if parsed_stem is not None:
+                _stem, suffix, family = parsed_stem
+                family_optional = (
+                    raw_optional.get(raw_assay, [])
+                    if family == "trim"
+                    else SEAHUB_BARE_OPTIONAL
+                )
+                if suffix in family_optional:
+                    continue
+            extra.append(f)
+            continue
         if (raw_assay in raw_optional or raw_assay == "10x_viral_ORF") and (
             optional_endings
         ):
@@ -639,7 +744,17 @@ def check_extra_raw_files(
                 run, group, assay, ug, barcode = parsed
                 b = f"{run}-{group}_{assay}-{ug}-{barcode}"
                 raw_dir = "/".join(f.split("/")[:-1])
-                suffix = f.replace(f"{raw_dir}/{b}", "")
+                # The reconstructed beginning is not always the literal filename
+                # prefix: parse_raw_filename's fallback can duplicate a token
+                # (`439047-G1-Z0169-ACGT` parses to `439047-G1_G1-Z0169-ACGT`).
+                # Slicing by length would then take a misaligned tail that can
+                # coincidentally match an optional ending — silently accepting a
+                # file that belongs in the extra list.
+                prefix = f"{raw_dir}/{b}"
+                if not f.startswith(prefix):
+                    extra.append(f)
+                    continue
+                suffix = f[len(prefix) :]
                 endings = (
                     raw_optional["10x"]
                     if (raw_assay == "10x_viral_ORF" and assay == "GEX")

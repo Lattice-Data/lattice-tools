@@ -760,6 +760,13 @@ For `bcp/qa.ipynb` and `qa_gather` raw-file validation, 10x group comparisons no
 
 This avoids false-positive group errors when providers use different separators between folder names and file names.
 
+### SeaHub lab raw QA (`raw_assay='seahub_sci'`)
+
+Collaborator lab trimmed uploads (`czi-trapnell` / `czi-hamazaki`, `*-seahub-bcp`) are QA'd in
+`bcp/qa.ipynb` with `raw_assay='seahub_sci'`; processed validation is off for this mode. The SOP, the
+checks, the output files and how to re-derive a report without S3 access are documented in
+**[SEAHUB_QA.md](SEAHUB_QA.md)**.
+
 ## Version
 
 Current version: 1.0.0

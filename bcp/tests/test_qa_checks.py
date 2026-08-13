@@ -7,6 +7,7 @@ import logging
 from qa_checks import (
     MIN_METADATA_READ_COUNT,
     MIN_PCT_Q30_THRESHOLD,
+    _fastq_count_mode,
     build_wafer_failure_stats,
     check_expected_raw_files,
     check_extra_raw_files,
@@ -256,6 +257,45 @@ class TestSummarizeFastqCountValidation:
         assert "10x_cram" in summary
         assert "not applicable" in summary
         assert "CRAM-only" in summary
+
+    def test_seahub_sci_clean_upload_does_not_report_missing_pairs(self):
+        """The scenario that reads as a defect on every compliant upload.
+
+        A SeaHub sublibrary carries one combined GEX_hash_oligo token, never
+        separate GEX and hash_oligo files, so grouping it with scale/sci_plex's
+        gex_hash mode made ``checked`` structurally 0 on every clean upload --
+        "No comparable pairs (missing modality pairs)" written to errors.txt
+        unconditionally, describing the normal case as a gap.
+        """
+        fastq_log = {
+            "REF3_P05_1": {"GEX_hash_oligo": ["a.trim.cram", "b.trim.cram"]},
+        }
+        errors = validate_fastq_counts(fastq_log, "seahub_sci")
+        assert errors == []
+
+        summary = summarize_fastq_count_validation(fastq_log, "seahub_sci", errors)
+        assert "seahub_sci" in summary
+        assert "not applicable" in summary
+        assert "combined" in summary
+        assert "missing modality pairs" not in summary
+        assert "checked 0" not in summary
+
+    def test_seahub_sci_mode_is_skip_not_gex_hash(self):
+        assert _fastq_count_mode("seahub_sci") == "skip"
+
+    def test_seahub_sci_logs_its_own_reason_not_the_viral_orf_fallback(self, caplog):
+        """The skip branch's else-clause is 10x_viral_ORF's message.
+
+        Adding seahub_sci to the skip set without its own elif would have every
+        SeaHub run log a message about legacy viral_ORF data.
+        """
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            validate_fastq_counts({}, "seahub_sci")
+
+        assert any("seahub_sci" in r.message for r in caplog.records)
+        assert not any("viral_ORF" in r.message for r in caplog.records)
 
 
 class TestValidateReadMetadata:
@@ -548,6 +588,54 @@ class Test10xCramRawFiles:
         assert len(raw_found) == 8
         extra = check_extra_raw_files(all_raw, raw_found, "10x_cram")
         assert extra == []
+
+
+class TestBeginningsStayFolderBlindOutsideSeahub:
+    """Per-directory keying is a seahub_sci rule, and deliberately not general.
+
+    It was tried for every assay on the assumption that a beginning embeds its
+    group and each group owns its raw directory. That is false for `scale`,
+    whose group comes from the key rather than the folder, and for the layouts
+    where ``_gather_group_raw`` unions several run subfolders under one group --
+    sibling folders sharing a beginning would each become a well, and a misfiled
+    object would be reported as a well missing every other artifact instead of
+    as an extra file. These assays have no SOP notion of a well directory to
+    check a path against, which is what makes the rule safe for seahub_sci.
+    """
+
+    ENDINGS = (
+        ".cram",
+        ".cram-metadata.json",
+        ".csv",
+        ".json",
+        "_FlowQ.metric",
+        "_SNVQ.metric",
+        "_trimmer-failure_codes.csv",
+        "_trimmer-stats.csv",
+    )
+    STEM = "439047-G1_GEX-Z0273-BC01"
+
+    def _keys(self, *dirs: str) -> list[str]:
+        return [f"{d}/{self.STEM}{e}" for d in dirs for e in self.ENDINGS]
+
+    def test_one_beginning_under_two_folders_is_still_one_well(self):
+        keys = self._keys("proj/orderA/G1/raw", "proj/orderB/G1/raw")
+
+        all_good, raw_lost, _found = check_expected_raw_files(keys, "10x_cram")
+
+        assert (all_good, raw_lost) == (1, [])
+
+    def test_the_second_folder_is_still_reported_as_extra(self):
+        """Unchanged, and the honest answer: the first folder's well is
+        complete, and nothing here can say whether the second is a duplicate
+        upload or a misfile."""
+        keys = self._keys("proj/orderA/G1/raw", "proj/orderB/G1/raw")
+
+        _good, _lost, raw_found = check_expected_raw_files(keys, "10x_cram")
+        extra = check_extra_raw_files(keys, raw_found, "10x_cram")
+
+        assert all(e.startswith("proj/orderB/") for e in extra)
+        assert len(extra) == len(self.ENDINGS) - 1  # the sidecar is optional
 
 
 class TestCheckExpectedRawFiles:
