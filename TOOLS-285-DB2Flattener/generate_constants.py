@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import json
 import re
@@ -18,6 +19,8 @@ from extract_lattice_profiles import (
 )
 
 YAML_PATH = Path("constants.yaml")
+DEFAULT_DEMO_MODE = "db2_demo"
+DEFAULT_PROD_MODE = "db2_prod"
 CONFIGS_TO_SAVE = {
     "https://api.data.lattice-data.org/",
     "https://lattice-api-dev.demo.lattice-data.org/",
@@ -318,16 +321,65 @@ def load_and_return_constant_dicts(mode: str) -> tuple[FieldTypes, ObjectConfig]
         )
 
 
+    # endpoint is only in loaded_config if it was already stored or just saved above,
+    # so a custom mode pointing at an unsaved instance has no import hashes to show
+    stored_config = loaded_config.get(endpoint)
+
     print(f"field start hash: {field_hash}")
-    print(f"field import hash: {hash_constant_dict(loaded_config[connection.server].field_types)}")
     print(f"object config start hash: {object_hash}")
-    print(f"object config import hash: {hash_constant_dict(loaded_config[connection.server].object_config)}")
+
+    if stored_config is None:
+        print(f"'{endpoint}' not stored in {YAML_PATH}, no import hashes to compare")
+    else:
+        print(f"field import hash: {hash_constant_dict(stored_config.field_types)}")
+        print(f"object config import hash: {hash_constant_dict(stored_config.object_config)}")
 
     return field_types, object_config
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Generate/refresh constants.yaml from Lattice JSON profiles",
+        epilog=(
+            "With no arguments, both the demo and prod defaults are run. "
+            "Pass a flag alone to run only that instance with its default mode, "
+            "or give the flag your own mode/instance name."
+        ),
+    )
+
+    parser.add_argument(
+        "--demo", "-d",
+        nargs="?",
+        const=DEFAULT_DEMO_MODE,
+        default=None,
+        help=f"mode/instance for the demo server (bare flag uses '{DEFAULT_DEMO_MODE}')",
+    )
+
+    parser.add_argument(
+        "--prod", "-p",
+        nargs="?",
+        const=DEFAULT_PROD_MODE,
+        default=None,
+        help=f"mode/instance for the prod server (bare flag uses '{DEFAULT_PROD_MODE}')",
+    )
+
+    return parser
+
+
+def resolve_modes(demo: str | None, prod: str | None) -> list[str]:
+    """Neither flag given means run both defaults, otherwise run only what was given"""
+    if demo is None and prod is None:
+        return [DEFAULT_DEMO_MODE, DEFAULT_PROD_MODE]
+
+    return [mode for mode in (demo, prod) if mode is not None]
+
+
 def main() -> None:
-    _, _ = load_and_return_constant_dicts("db2_demo")
+    args = build_parser().parse_args()
+
+    for mode in resolve_modes(args.demo, args.prod):
+        print(f"\nGenerating constants for '{mode}'...")
+        _, _ = load_and_return_constant_dicts(mode)
 
 
 if __name__ == "__main__":
