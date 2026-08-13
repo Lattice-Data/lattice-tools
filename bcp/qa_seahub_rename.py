@@ -122,6 +122,22 @@ class RenameProposal:
         return asdict(self)
 
 
+def _vendor_group_sans_wafer(group: str, wafer: str) -> str:
+    """Drop a leading wafer token a vendor group still carries.
+
+    ``index_untrimmed_sources`` does not normalize a doubled vendor wafer, so a
+    stem like ``438514-438514-REF3_P07_1_A3-...`` leaves the second wafer inside
+    the group. Both readers of a vendor group have to strip it, and for a while
+    only one did: the gap row reached the CSV as sublibrary
+    ``438514-REF3_P07_1``, and the ``sublibrary_mismatch`` repair proposed a key
+    that re-validated as ``duplicated_wafer_token`` and was therefore withheld --
+    turning a well that could have been renamed into ``UNKNOWN``. The self-check
+    meant no bad key was ever proposed, so this cost a repair rather than
+    producing a wrong one.
+    """
+    return group[len(wafer) + 1 :] if wafer and group.startswith(f"{wafer}-") else group
+
+
 def _vendor_sublibrary(group: str) -> str:
     """Strip a trailing well token off a vendor filename group.
 
@@ -227,7 +243,9 @@ def expected_trimmed_key(
                 ug=ug,
                 artifact=trim_suffix,
             )
-        folder, well = _vendor_sublibrary_and_well(vendor_group)
+        folder, well = _vendor_sublibrary_and_well(
+            _vendor_group_sans_wafer(vendor_group, getattr(source, "wafer", ""))
+        )
         defects.append("sublibrary_mismatch")
 
     if well and not SEAHUB_WELL_RE.match(well):
@@ -629,13 +647,9 @@ def roll_up_wells(
                 # in SEAHUB_QA.md and pinned by
                 # test_a_gap_row_names_the_sublibrary_the_vendor_used.
                 group = source.group
-                # index_untrimmed_sources does not normalize a doubled wafer, so
-                # a vendor stem like 438514-438514-REF3_P07_1_A3-... leaves the
-                # second wafer inside the group. Unstripped, that reached the CSV
-                # as sublibrary "438514-REF3_P07_1".
-                if source.wafer and group.startswith(f"{source.wafer}-"):
-                    group = group[len(source.wafer) + 1 :]
-                sublibrary, well_id = _vendor_sublibrary_and_well(group)
+                sublibrary, well_id = _vendor_sublibrary_and_well(
+                    _vendor_group_sans_wafer(group, source.wafer)
+                )
         elif not well["parseable"] or len(well["names"]) > 1:
             verdict = "UNKNOWN"
             detail = (

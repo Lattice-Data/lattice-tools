@@ -5,6 +5,7 @@ Tests for corrected-name composition and the per-well roll-up (qa_seahub_rename)
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 import json
 import pathlib
 import re
@@ -1317,3 +1318,49 @@ class TestAWholeUntrimmedWaferIsADataGap:
     def test_the_wafer_is_absent_from_the_trimmed_upload_entirely(self):
         """Guards the fixture: this must be a whole-wafer gap, not a partial one."""
         assert not [k for k in ref3_trimmed_keys() if UNTRIMMED_WAFER in k]
+
+
+class TestADoubledVendorWaferDoesNotCostARepair:
+    """Both readers of a vendor group must strip a leading wafer token.
+
+    index_untrimmed_sources does not normalize a doubled vendor wafer, so the
+    group can arrive as ``438514-REF3_P07_1_A3``. The gap-row path stripped it;
+    the sublibrary_mismatch repair did not, so it proposed a key that re-validated
+    as duplicated_wafer_token and was withheld -- a well that could have been
+    renamed rolled up UNKNOWN instead. The self-check meant no bad key was ever
+    proposed, so this cost a repair rather than producing a wrong one.
+    """
+
+    KEY = (
+        f"{RAW}/OTHER_P09/438514/"
+        "438514-REF3_P07_1_A3_GEX_hash_oligo-Z0305-CACACACAACATGAT.trim.cram"
+    )
+    DOUBLED = SourceEntry(
+        wafer="438514",
+        ug="Z0305",
+        barcode="CACACACAACATGAT",
+        group="438514-REF3_P07_1_A3",
+        assay="GEX_hash_oligo",
+        cram_key="v/REF3/raw/438514/x.cram",
+        bucket="czi-novogene",
+    )
+
+    def test_the_mismatch_repair_is_proposed_rather_than_withheld(self):
+        proposal = expected_trimmed_key(BUCKET, self.KEY, self.DOUBLED)
+
+        assert proposal.defects == ("sublibrary_mismatch",)
+        assert proposal.unresolved == ()
+        assert proposal.renameable is True
+        assert proposal.expected_s3_uri.endswith(
+            "/REF3_P07_1/438514/"
+            "438514-REF3_P07_1_A3_GEX_hash_oligo-Z0305-CACACACAACATGAT.trim.cram"
+        )
+
+    def test_a_vendor_group_with_no_doubled_wafer_is_unchanged(self):
+        plain = replace(self.DOUBLED, group="REF3_P07_1_A3")
+        proposal = expected_trimmed_key(BUCKET, self.KEY, plain)
+
+        assert proposal.renameable is True
+        assert proposal.expected_s3_uri == (
+            expected_trimmed_key(BUCKET, self.KEY, self.DOUBLED).expected_s3_uri
+        )

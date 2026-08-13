@@ -255,7 +255,11 @@ def seahub_group_parts(
 
 
 def _check_group_token(
-    group: str, sublibrary: str, experiment_id: str, s3_path: str
+    group: str,
+    sublibrary: str,
+    experiment_id: str,
+    s3_path: str,
+    trailing_claimed: bool = False,
 ) -> list[SopViolation]:
     """Attribute a folder/filename disagreement to whichever side is wrong.
 
@@ -263,6 +267,14 @@ def _check_group_token(
     the filename carries the full ``{ExperimentID}_{sublibrary}`` and the folder
     carries only part of it, the folder is at fault.  ``sublibrary_mismatch``
     then means what it says: the two genuinely disagree.
+
+    ``trailing_claimed`` says the caller has already reported the trailing token
+    under another rule.  The relaxed-stem branch does exactly that: a trailing
+    token that is not a well is reported as ``invalid_sublibrary_type``, and
+    ``bad_well`` would then describe the same token again with contradictory
+    advice -- one row saying it should be a type, the next saying it should be a
+    well.  An upload that misspells its type token on every well doubled its SOP
+    table that way, against a module built on one row per distinct fact.
     """
     implied_folder, trailing, state = seahub_group_parts(
         group, sublibrary, experiment_id
@@ -283,7 +295,7 @@ def _check_group_token(
         ]
 
     # Orthogonal to the folder question, so it can co-occur with truncation.
-    if trailing and not SEAHUB_WELL_RE.match(trailing):
+    if trailing and not trailing_claimed and not SEAHUB_WELL_RE.match(trailing):
         violations.append(
             SopViolation(
                 type="bad_well",
@@ -451,6 +463,9 @@ def validate_seahub_key(
             )
         )
 
+    # False on the strict path: a stem that matched SEAHUB_STEM_RE has its type
+    # token accounted for, so the trailing token is genuinely a well or nothing.
+    type_token_claimed = False
     match = SEAHUB_STEM_RE.match(stem)
     if match is None:
         relaxed = SEAHUB_STEM_NO_TYPE_RE.match(stem)
@@ -480,6 +495,7 @@ def validate_seahub_key(
             match.group("group"), path_info["sublibrary"], path_info["experiment_id"]
         )
         unrecognized = bool(trailing) and not SEAHUB_WELL_RE.match(trailing)
+        type_token_claimed = unrecognized
         if unrecognized:
             corrected = ""
             detail = (
@@ -536,6 +552,7 @@ def validate_seahub_key(
             path_info["sublibrary"],
             path_info["experiment_id"],
             s3_path,
+            trailing_claimed=type_token_claimed,
         )
     )
 

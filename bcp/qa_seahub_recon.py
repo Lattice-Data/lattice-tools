@@ -217,7 +217,17 @@ def reconcile_trimming(
     bare index cannot report a forgotten order as anything but orphans.
     """
     fail_counts = fail_counts or {}
-    if isinstance(untrimmed, UntrimmedSources):
+    if untrimmed is None:
+        # Total rather than trusting the caller: the notebook has two cells that
+        # must agree about whether a vendor index exists, and when they drifted
+        # apart this raised TypeError mid-run-all, taking the rename cell and the
+        # headline per-well table with it. Checked with ``is None`` and not for
+        # truthiness -- UntrimmedSources defines __len__, so one that located
+        # nothing is falsy while still carrying the findings that say so.
+        untrimmed_index: dict[IdentityKey, SourceEntry] = {}
+        seeded = []
+        coverage = []
+    elif isinstance(untrimmed, UntrimmedSources):
         untrimmed_index = untrimmed.index
         seeded = list(untrimmed.findings)
         # Copies, not aliases. list() duplicates the list and not the

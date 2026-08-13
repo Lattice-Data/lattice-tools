@@ -1027,3 +1027,38 @@ class TestFailCsvSuffixes:
             w for w in data.gathering_warnings if w.startswith("SOP VIOLATIONS:")
         ]
         assert len(sop_warnings) == 1
+
+
+class TestOneTokenIsClaimedByOneRuleOnly:
+    """An unrecognised type token must not also be reported as a bad well.
+
+    The relaxed stem pattern matches whether the type token is absent or merely
+    unrecognised, and the trailing-token check ran unconditionally afterwards. So
+    ``438514-REF3_P01_ATAC-...`` produced two rows about ``ATAC`` giving opposite
+    advice -- one saying it should be a sublibrary type, the next saying it should
+    be a well -- and an upload that misspells its type token on every well doubled
+    its SOP table. This module is built on one row per distinct fact.
+    """
+
+    def _types(self, stem: str, folder: str = "REF3_P01") -> list[str]:
+        key = f"labalpha-seahub-bcp/REF3/raw/{folder}/438514/{stem}.trim.cram"
+        return [v.type for v in validate_seahub_key("czi-labalpha", key)]
+
+    def test_an_unrecognised_type_token_is_reported_once(self):
+        types = self._types("438514-REF3_P01_ATAC-Z0305-CACACACAACATGAT")
+
+        assert types == ["invalid_sublibrary_type"]
+
+    def test_a_genuinely_bad_well_on_a_typed_stem_still_fires(self):
+        """The suppression must not swallow the rule it shares a token with."""
+        types = self._types("438514-REF3_P01_Z9_GEX-Z0305-CACACACAACATGAT")
+
+        assert "bad_well" in types
+        assert "invalid_sublibrary_type" not in types
+
+    def test_a_missing_type_token_is_still_reported(self):
+        """A trailing *well* with no type is the other relaxed-branch case."""
+        types = self._types("438514-REF3_P01_A3-Z0305-CACACACAACATGAT")
+
+        assert "invalid_sublibrary_type" in types
+        assert "bad_well" not in types

@@ -379,3 +379,38 @@ class TestTheErrorFileStaysReadable:
         ]
         assert len(gap_lines) <= 11, len(gap_lines)
         assert any("more of" in ln for ln in gap_lines)
+
+
+class TestASearchRootWithNoWafersDoesNotCrash:
+    """The two cells must agree about whether a vendor index exists.
+
+    The index cell needs a root *and* a wafer to search for; the recon cell
+    checked only the root. With a root set and an upload yielding no seed,
+    reconcile_trimming received None and raised TypeError mid-run -- aborting the
+    rename cell and the headline per-well table with it.
+
+    Zero seeds is reachable on exactly the input this mode exists to catch: every
+    seed reading needs a six-segment well path, so an upload delivered flat under
+    raw/ has none. That is the case the SOP block reports as bad_path_depth, and
+    it must fail loudly rather than with a stack trace.
+    """
+
+    FLAT = f"{RAW}/438514-REF3_P07_1_A3_GEX_hash_oligo-Z0305-CACACACAACATGAT.trim.cram"
+
+    def test_the_section_completes_and_writes_the_headline(self, tmp_path):
+        output, _ns = _run_section(tmp_path, keys=[self.FLAT])
+
+        assert "Skipping trimming reconciliation" in output
+        assert "no wafer to search for" in output
+        assert "REF3_seahub_well_status.csv" in os.listdir(tmp_path)
+
+    def test_it_says_so_in_the_error_file(self, tmp_path):
+        _run_section(tmp_path, keys=[self.FLAT])
+        errors = (tmp_path / "REF3_errors.txt").read_text()
+
+        assert "TRIMMING NOT RECONCILED" in errors
+
+    def test_an_empty_root_list_still_says_that_instead(self, tmp_path):
+        output, _ns = _run_section(tmp_path, sources=[])
+
+        assert "untrimmed_search_roots is empty" in output
