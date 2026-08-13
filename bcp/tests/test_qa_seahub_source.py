@@ -16,6 +16,7 @@ from qa_seahub_recon import reconcile_trimming
 from qa_seahub_source import (
     WaferSeeds,
     _descend_to_raw_prefixes,
+    _discover_untrimmed_sources,
     _normalize_search_roots,
     _wafer_seeds,
     derive_source_experiment,
@@ -30,6 +31,7 @@ from qa_seahub_source import (
 )
 
 from tests.qa_seahub_helpers import (
+    PROJECT,
     UNTRIMMED_WAFER,
     VENDOR_ORDER,
     VENDOR_ORDER_2,
@@ -1336,3 +1338,240 @@ class TestDescendToRawPrefixes:
 
         assert scan.prefixes == [] and s3.listing_calls == []
         assert scan.complete is True
+
+
+class TestDiscoverUntrimmedSources:
+    """Vendor deliveries found from the upload's own wafers, not from a typed order."""
+
+    ROOT = f"s3://czi-novogene/{PROJECT}"
+
+    def _seeds(self, keys=None):
+        keys = list(keys or ref3_trimmed_keys())
+        return _wafer_seeds(trimmed_keys=keys, trimmed_index=index_trimmed_upload(keys))
+
+    def _s3(self, vendor_keys=None, **kwargs):
+        keys = list(
+            vendor_keys
+            if vendor_keys is not None
+            else ref3_vendor_keys(extra_wafer=True)
+        )
+        return MockS3Client(buckets={"czi-novogene": keys}, **kwargs)
+
+    def _discover(self, s3=None, root=None, **kwargs):
+        return _discover_untrimmed_sources(
+            s3 or self._s3(), root or self.ROOT, self._seeds(), **kwargs
+        )
+
+    def test_it_reproduces_the_order_prefix_index_exactly(self):
+        """The headline: the same answer, without naming either order.
+
+        The operator has to know and type both orders to get this index today,
+        and REF3_P05_1 is in neither the obvious one nor findable by name.
+        """
+        s3 = self._s3()
+        by_order = index_untrimmed_sources(
+            s3, [vendor_uri(VENDOR_ORDER), vendor_uri(VENDOR_ORDER_2)]
+        )
+        discovered = self._discover(s3)
+
+        assert sorted(discovered.index) == sorted(by_order.index)
+        assert {k: e.cram_key for k, e in discovered.index.items()} == {
+            k: e.cram_key for k, e in by_order.index.items()
+        }
+
+    @pytest.mark.parametrize(
+        "segment",
+        ["REF3-reupload", "reupload_REF3", "ref3", "REF2", "delivery_7"],
+    )
+    def test_a_renamed_experiment_folder_is_still_found(self, segment):
+        """Every one of these orphans the whole upload under name matching.
+
+        source_experiment_matches accepts REF3_reupload and refuses all of these,
+        which is what made the ExperimentID a bad key: the wafer inside the folder
+        is unchanged by whatever the folder is called.
+        """
+        renamed = [k.replace("/REF3/", f"/{segment}/") for k in ref3_vendor_keys()]
+        discovered = self._discover(self._s3(renamed))
+
+        assert len(discovered.index) == 4
+        assert {c.experiment_segment for c in discovered.coverage} == {segment}
+
+    def test_a_never_trimmed_sibling_wafer_is_still_indexed(self):
+        """The step-1 pin, now green through discovery rather than a typed order.
+
+        Wafer 440000 cannot be a seed -- nothing was uploaded for it -- so this
+        works only because a delivery a seed *did* point at is indexed whole.
+        """
+        discovered = self._discover()
+
+        assert UNTRIMMED_WAFER in {e.wafer for e in discovered.index.values()}
+
+    def test_the_sibling_wafer_reports_not_trimmed_and_a_data_gap(self):
+        """Both reporting paths, which is what makes a forgotten plate audible."""
+        keys = ref3_trimmed_keys()
+        discovered = self._discover()
+
+        report = reconcile_trimming(discovered.index, index_trimmed_upload(keys))
+        not_trimmed = [
+            r
+            for r in report.rows
+            if r["category"] == "not_trimmed" and r["wafer"] == UNTRIMMED_WAFER
+        ]
+
+        assert [r["ug"] for r in not_trimmed] == ["Z0500", "Z0501"]
+
+    def test_turning_off_expansion_loses_the_sibling_again(self):
+        """States the cost of the option rather than leaving it implied."""
+        discovered = self._discover(expand_siblings=False)
+
+        assert UNTRIMMED_WAFER not in {e.wafer for e in discovered.index.values()}
+
+    def test_another_experiment_under_the_same_root_is_not_indexed(self):
+        """What replaces the ExperimentID filter: the upload's own contents.
+
+        The foreign delivery is enumerated -- the descent walked past it -- and
+        named, but none of its wells reach the comparison.
+        """
+        foreign = [
+            f"{PROJECT}/NVUS0000000000-99/GENE7/raw/999999/"
+            "999999-GENE7_P01_A1_GEX_hash_oligo-Z0900-ACGTACGTACGTACG.cram"
+        ]
+        discovered = self._discover(self._s3(ref3_vendor_keys() + foreign))
+
+        assert "999999" not in {e.wafer for e in discovered.index.values()}
+        unseeded = [
+            f
+            for f in discovered.findings
+            if f["category"] == "unseeded_vendor_delivery"
+        ]
+        assert len(unseeded) == 1
+        assert "GENE7" in unseeded[0]["detail"]
+        assert ("s3://czi-novogene/" + foreign[0].rsplit("/", 2)[0] + "/") in [
+            uri for uri, _seg in discovered.search.unseeded
+        ]
+
+    def test_a_seed_found_nowhere_is_reported(self):
+        """439000 is uploaded but was never delivered -- the orphan direction."""
+        discovered = self._discover()
+
+        assert discovered.search.not_located == ("439000",)
+        assert [
+            f["wafer"]
+            for f in discovered.findings
+            if f["category"] == "wafer_not_found"
+        ] == ["439000"]
+
+    def test_a_wafer_in_two_deliveries_is_one_row_not_one_per_well(self):
+        copy = [
+            k.replace("NVUS0000000000-11", "NVUS0000000000-77")
+            for k in ref3_vendor_keys()
+        ]
+        discovered = self._discover(self._s3(ref3_vendor_keys() + copy))
+
+        multiple = [
+            f
+            for f in discovered.findings
+            if f["category"] == "wafer_multiple_deliveries"
+        ]
+        assert {f["wafer"] for f in multiple} == set(discovered.search.collided)
+        assert len(multiple) == len(discovered.search.collided)
+
+    def test_a_located_delivery_that_yields_no_wells_is_reported_not_silent(self):
+        """The measured ScaleBio delivery: 192 CRAMs, no Z#### UG anywhere.
+
+        The wafer is seeded, so its delivery is wanted and indexed -- and every
+        filename is refused by both stem patterns, so it indexes nothing. Without
+        this the coverage row reads cram_keys=0, which is indistinguishable from
+        the prefix being wrong. Present-and-unreadable is a different problem from
+        absent, and only one of them is the operator's to fix.
+        """
+        wafer = "426971"
+        trimmed = [
+            f"labalpha-seahub-bcp/REF3/raw/RNA3_098/{wafer}/"
+            f"{wafer}-RNA3_098_A1_GEX_hash_oligo-Z0700-ACGTACGTACGTACG.trim.cram"
+        ]
+        scale = [
+            f"{PROJECT}/NVUS0000000000-04/RNA3_098/raw/{wafer}/"
+            f"{wafer}-RNA3-098C_GEX_QSR-7_10A.cram"
+        ]
+        discovered = _discover_untrimmed_sources(
+            self._s3(scale), self.ROOT, self._seeds(trimmed)
+        )
+
+        no_wells = [
+            f for f in discovered.findings if f["category"] == "wafer_folder_no_wells"
+        ]
+        assert len(no_wells) == 1
+        assert no_wells[0]["wafer"] == wafer
+        assert discovered.index == {}
+        assert [c.skipped_reason for c in discovered.coverage] == ["no parseable wells"]
+
+    def test_a_flat_vendor_layout_is_discovered_by_filename(self):
+        """No wafer directory: four of six real vendor prefixes look like this."""
+        stem = "436830-REF3_P05_1_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT"
+        flat = [f"{PROJECT}/NVUS0000000000-33/REF3/raw/{stem}.cram"]
+        discovered = self._discover(self._s3(flat))
+
+        assert ("436830", "Z0169") in discovered.index
+
+    def test_a_non_wafer_token_is_reported_rather_than_searched_for(self):
+        keys = ref3_trimmed_keys() + [
+            "labalpha-seahub-bcp/REF3/raw/REF3_P09_1/not_a_wafer/x.trim.cram"
+        ]
+        seeds = self._seeds(keys)
+        discovered = _discover_untrimmed_sources(self._s3(), self.ROOT, seeds)
+
+        assert "not_a_wafer" in seeds.rejected
+        assert [
+            f["category"]
+            for f in discovered.findings
+            if f["category"] == "wafer_seed_rejected"
+        ] == ["wafer_seed_rejected"]
+
+    def test_a_refused_listing_becomes_a_finding_not_an_exception(self):
+        s3 = self._s3(deny_prefixes={f"{PROJECT}/{VENDOR_ORDER_2}/": "AccessDenied"})
+        discovered = self._discover(s3)
+
+        assert any(
+            f["category"] == "search_prefix_unreadable" for f in discovered.findings
+        )
+        assert discovered.search.complete is False
+
+    def test_an_exhausted_budget_is_a_finding_not_a_silent_short_answer(self):
+        discovered = self._discover(max_listings=2)
+
+        assert discovered.search.budget_exhausted is True
+        assert any(
+            f["category"] == "search_budget_exhausted" for f in discovered.findings
+        )
+
+    def test_coverage_is_one_row_per_delivery_with_its_provenance(self):
+        """One row labelled UNKNOWN_ORDER for the whole search would be useless."""
+        discovered = self._discover()
+
+        assert len(discovered.coverage) == 2
+        assert all(c.experiment_segment == "REF3" for c in discovered.coverage)
+        assert {c.found_by for c in discovered.coverage} <= {"seed", "sibling"}
+        assert sum(c.indexed for c in discovered.coverage) == len(discovered.index)
+
+    def test_running_it_twice_gives_the_same_answer_twice(self):
+        """A fresh container per run, so re-executing the cell cannot double rows."""
+        s3 = self._s3()
+        first = self._discover(s3)
+        second = self._discover(s3)
+
+        assert len(first.findings) == len(second.findings)
+        assert sorted(first.index) == sorted(second.index)
+
+    def test_no_root_or_no_seed_is_no_work(self):
+        s3 = self._s3()
+
+        assert _discover_untrimmed_sources(s3, [], self._seeds()).index == {}
+        assert _discover_untrimmed_sources(s3, self.ROOT, WaferSeeds()).index == {}
+        assert s3.listing_calls == []
+
+    def test_the_summary_names_what_an_operator_has_to_act_on(self):
+        summary = self._discover().search.summary()
+
+        assert "located 4 of 5 seed wafer(s)" in summary
+        assert "not found: 439000" in summary

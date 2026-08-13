@@ -70,6 +70,7 @@ __all__ = [
     "SourceEntry",
     "TrimmedEntry",
     "UntrimmedSources",
+    "WaferSearchPlan",
     "WaferSeeds",
     "derive_source_experiment",
     "derive_source_order",
@@ -162,6 +163,74 @@ class WaferSeeds:
 
 
 @dataclass
+class WaferSearchPlan:
+    """What a wafer search looked for, where it found it, and what it missed.
+
+    Carried on :class:`UntrimmedSources` so discovery has one return value and
+    :func:`~qa_seahub_recon.reconcile_trimming` -- which reads only ``index``,
+    ``coverage`` and ``findings`` -- needs no changes at all.
+    """
+
+    roots: tuple[str, ...] = ()
+    seeds: WaferSeeds = field(default_factory=WaferSeeds)
+    # wafer -> the raw/ prefix URIs it was found under. More than one is the
+    # collision case, and is never silently collapsed to a choice.
+    located: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # (uri, experiment_segment) per delivery the descent saw and did not index,
+    # because no uploaded wafer pointed at it. Free -- the walk enumerated them
+    # anyway -- and the only signal that a delivery nothing points at exists.
+    unseeded: tuple[tuple[str, str], ...] = ()
+    listings: int = 0
+    unreadable: tuple[tuple[str, str], ...] = ()
+    budget_exhausted: bool = False
+    depth_capped: tuple[str, ...] = ()
+
+    @property
+    def not_located(self) -> tuple[str, ...]:
+        return tuple(w for w in self.seeds.wafers if w not in self.located)
+
+    @property
+    def collided(self) -> tuple[str, ...]:
+        return tuple(sorted(w for w, at in self.located.items() if len(at) > 1))
+
+    @property
+    def complete(self) -> bool:
+        """False when something stopped the search seeing everything it should."""
+        return not (
+            self.unreadable
+            or self.budget_exhausted
+            or self.depth_capped
+            or self.not_located
+        )
+
+    def summary(self) -> str:
+        """The one line an operator reads before opening any CSV."""
+        parts = [
+            f"located {len(self.located)} of {len(self.seeds.wafers)} seed wafer(s) "
+            f"in {self.listings} listing(s)"
+        ]
+        if self.not_located:
+            parts.append(f"not found: {', '.join(self.not_located)}")
+        if self.collided:
+            parts.append(f"{len(self.collided)} wafer(s) in more than one delivery")
+        if self.unseeded:
+            named = ", ".join(sorted({seg or "?" for _uri, seg in self.unseeded}))
+            parts.append(
+                f"{len(self.unseeded)} delivery(ies) under these roots were not "
+                f"indexed because no uploaded wafer matched ({named})"
+            )
+        if self.seeds.rejected:
+            parts.append(f"{len(self.seeds.rejected)} token(s) were not wafer-shaped")
+        if self.unreadable:
+            parts.append(f"{len(self.unreadable)} prefix(es) could not be listed")
+        if self.budget_exhausted:
+            parts.append("listing budget exhausted -- the search is incomplete")
+        if self.depth_capped:
+            parts.append(f"{len(self.depth_capped)} prefix(es) hit the depth cap")
+        return "; ".join(parts)
+
+
+@dataclass
 class SourceCoverage:
     """What one untrimmed prefix contributed, so partial input is visible."""
 
@@ -176,6 +245,13 @@ class SourceCoverage:
     skipped_reason: str = ""
     # Filled in by the reconciliation, which is the only place that knows it.
     matched: int = 0
+    # How this prefix came to be listed: "operator" for one that was handed in,
+    # "seed" for one a wafer in the upload pointed at, "sibling" for a delivery
+    # found beside a seeded one. A not_trimmed count that moves after a vendor
+    # reorganisation is then explainable rather than mysterious.
+    found_by: str = "operator"
+    # The path segment before ``raw``, advisory, for naming a delivery in a report.
+    experiment_segment: str = ""
 
     @property
     def unmatched(self) -> int:
@@ -189,6 +265,9 @@ class UntrimmedSources:
     index: dict[IdentityKey, SourceEntry] = field(default_factory=dict)
     coverage: list[SourceCoverage] = field(default_factory=list)
     findings: list[dict[str, Any]] = field(default_factory=list)
+    # None for the explicit-prefix path, so nothing that reads coverage or
+    # findings has to know discovery exists.
+    search: WaferSearchPlan | None = None
 
     def __len__(self) -> int:
         return len(self.index)
@@ -652,6 +731,7 @@ def _index_prefix(
     sources: UntrimmedSources,
     coverage: SourceCoverage,
     sidecar_by_stem_key: dict[tuple[str, str], str],
+    accept: Any = None,
 ) -> tuple[set[str], dict[str, int], int]:
     """Index every per-well CRAM under one listed prefix into ``sources``.
 
@@ -665,6 +745,12 @@ def _index_prefix(
     ``sidecar_by_stem_key``; returns the per-prefix tallies the caller needs to
     emit its own findings -- orders seen, foreign wells by experiment, and the
     count of wells whose key does not expose an ExperimentID.
+
+    ``accept(key, fields)`` filters CRAMs before they are indexed. Discovery uses
+    it to keep a located delivery to the wafers it is there for, so that walking
+    a whole project does not drag every other experiment's wells into one
+    upload's comparison -- the contamination the ExperimentID filter used to
+    prevent, now prevented by the upload's own contents instead of by a name.
     """
     orders_seen: set[str] = set()
     foreign_wells: dict[str, int] = {}
@@ -698,6 +784,9 @@ def _index_prefix(
                 elif not source_experiment_matches(experiment, experiment_id):
                     foreign_wells[experiment] = foreign_wells.get(experiment, 0) + 1
                     continue
+
+            if accept is not None and not accept(key, fields):
+                continue
 
             order = derive_source_order(key)
             orders_seen.add(order or SEAHUB_UNKNOWN_ORDER_LABEL)
@@ -871,6 +960,257 @@ def index_untrimmed_sources(
                 )
             )
     return sources
+
+
+def _wafers_in_prefix(found: RawPrefix) -> tuple[set[str], set[str]]:
+    """Wafers a located prefix holds, read both ways: (from folders, from names).
+
+    Both, because the two layouts put the wafer in different places and a prefix
+    may use either -- or, for a foldered delivery with wafer-level files beside
+    its folders, both at once.
+    """
+    from_folders = {f for f in found.wafer_folders if SEAHUB_WAFER_RE.match(f)}
+    from_names: set[str] = set()
+    for key in found.loose_objects:
+        name = key.split("/")[-1]
+        if not name.endswith(_CRAM_SUFFIX) or _is_skippable_source_key(key):
+            continue
+        fields = parse_seahub_stem_fields(name[: -len(_CRAM_SUFFIX)])
+        if fields is not None:
+            from_names.add(str(fields["wafer"]))
+    return from_folders, from_names
+
+
+def _discover_untrimmed_sources(
+    s3_client: Any,
+    roots: Any,
+    seeds: WaferSeeds,
+    expand_siblings: bool = True,
+    max_depth: int = SEAHUB_SEARCH_MAX_DEPTH,
+    max_listings: int = SEAHUB_SEARCH_MAX_LISTINGS,
+) -> UntrimmedSources:
+    """Index the vendor deliveries an upload's own wafers point at.
+
+    Replaces naming the vendor orders. The identity of a delivery is taken from
+    what is inside it -- a wafer, machine-assigned -- rather than from a path
+    segment someone typed, which fails on every plausible vendor rename
+    (``REF3-reupload``, ``reupload_REF3``, ``ref3``, a renumbered ``REF2``) and
+    silently *succeeds* on some things it should not (``REF3_2`` matched
+    ``REF3``; the real ``RNA3_098`` matches ``RNA3``).
+
+    What replaces the ExperimentID filter as the guard against cross-experiment
+    contamination is the seed set itself: a delivery is only indexed for the
+    wafers the upload actually mentions, so walking a whole project cannot drag a
+    foreign experiment's wells into this comparison. That is a positive assertion
+    about contents rather than a string comparison, which is the point.
+
+    ``expand_siblings`` indexes every wafer in a delivery that any seed pointed
+    at, not just the seeded ones. It is on by default and it is what keeps the
+    whole-wafer gap visible: a wafer the lab never trimmed cannot be a seed, so
+    without expansion it would never be listed, never indexed, and produce
+    neither a ``not_trimmed`` row nor a vendor-only ``DATA_GAP`` well -- and
+    ``DATA_GAP`` is the only verdict the notebook writes to errors.txt. REF3
+    delivers six wafers under one prefix, so one trimmed wafer drags in the other
+    five. What expansion cannot reach is a delivery *no* uploaded wafer points at;
+    those are reported as ``unseeded_vendor_delivery`` instead, which costs
+    nothing because the descent enumerated them on its way past.
+    """
+    sources = UntrimmedSources()
+    normalized_roots = _normalize_search_roots(roots)
+    plan = WaferSearchPlan(roots=tuple(normalized_roots), seeds=seeds)
+    sources.search = plan
+    if not normalized_roots or not seeds.wafers:
+        return sources
+
+    scan = _descend_to_raw_prefixes(
+        s3_client, normalized_roots, max_depth=max_depth, max_listings=max_listings
+    )
+    plan.listings = scan.listings
+    plan.unreadable = scan.unreadable
+    plan.budget_exhausted = scan.budget_exhausted
+    plan.depth_capped = scan.depth_capped
+
+    wanted = set(seeds.wafers)
+    paginator = s3_client.get_paginator("list_objects")
+    sidecar_by_stem_key: dict[tuple[str, str], str] = {}
+    located: dict[str, set[str]] = {}
+    unseeded: list[tuple[str, str]] = []
+
+    for found in sorted(scan.prefixes, key=lambda p: (p.bucket, p.prefix)):
+        from_folders, from_names = _wafers_in_prefix(found)
+        present = from_folders | from_names
+        hits = present & wanted
+        if not hits:
+            # Present, enumerated, deliberately not indexed. Named so a delivery
+            # nothing points at is a number rather than a silence.
+            unseeded.append((found.uri, found.experiment_segment))
+            continue
+
+        for wafer in hits:
+            located.setdefault(wafer, set()).add(found.uri)
+        keep = present if expand_siblings else hits
+        for wafer in keep:
+            located.setdefault(wafer, set())
+
+        coverage = SourceCoverage(
+            source_uri=found.uri,
+            bucket=found.bucket,
+            prefix=found.prefix,
+            found_by="seed",
+            experiment_segment=found.experiment_segment,
+        )
+        orders_seen, _foreign, _unplaced = _index_prefix(
+            paginator,
+            found.bucket,
+            found.prefix,
+            found.uri,
+            "",
+            sources,
+            coverage,
+            sidecar_by_stem_key,
+            accept=lambda _key, fields: str(fields["wafer"]) in keep,
+        )
+        coverage.orders_seen = tuple(sorted(orders_seen))
+        coverage.source_order = (
+            coverage.orders_seen[0]
+            if len(coverage.orders_seen) == 1
+            else _order_label_from_prefix(found.prefix)
+        )
+        if coverage.cram_keys == 0:
+            # Located by folder name, indexed nothing. The measured case is the
+            # ScaleBio delivery whose 192 CRAMs carry no Z#### UG at all, so
+            # parse_seahub_stem_fields refuses every one of them -- and without
+            # this the coverage row reads cram_keys=0, which is exactly what a
+            # mistyped prefix looks like. Present but unreadable is a different
+            # problem from absent, and only one of them is the operator's to fix.
+            coverage.skipped_reason = "no parseable wells"
+            sources.findings.append(
+                finding_row(
+                    "wafer_folder_no_wells",
+                    wafer=", ".join(sorted(hits)),
+                    source_key=found.uri,
+                    detail=(
+                        f"{found.uri} was located for wafer(s) "
+                        f"{', '.join(sorted(hits))} but yielded no vendor wells: "
+                        "no object under it has a name that parses as "
+                        "{wafer}-{sublibrary}_{type}-Z####-{barcode}.cram. The "
+                        "delivery is present and unreadable, not absent"
+                    ),
+                )
+            )
+        sources.coverage.append(coverage)
+
+    for identity, entry in sources.index.items():
+        sidecar = sidecar_by_stem_key.get(
+            (entry.bucket, entry.cram_key[: -len(_CRAM_SUFFIX)])
+        )
+        if sidecar:
+            entry.metadata_key = sidecar
+
+    for coverage in sources.coverage:
+        coverage.indexed = sum(
+            1 for e in sources.index.values() if e.source_uri == coverage.source_uri
+        )
+        coverage.duplicate_losses = coverage.cram_keys - coverage.indexed
+        indexed_wafers = {
+            e.wafer
+            for e in sources.index.values()
+            if e.source_uri == coverage.source_uri
+        }
+        if not indexed_wafers & wanted:
+            continue
+        if coverage.found_by == "seed" and not indexed_wafers <= wanted:
+            coverage.found_by = "sibling"
+
+    plan.located = {w: tuple(sorted(at)) for w, at in sorted(located.items()) if at}
+    plan.unseeded = tuple(unseeded)
+    _report_search(sources, plan)
+    return sources
+
+
+def _report_search(sources: UntrimmedSources, plan: WaferSearchPlan) -> None:
+    """Turn the search accounting into findings rows.
+
+    One row per fact, at the grain the fact has: a wafer that was not found is
+    about that wafer, a delivery nothing pointed at is about that delivery, and
+    an exhausted budget is about the whole search.
+    """
+    for wafer in plan.not_located:
+        sources.findings.append(
+            finding_row(
+                "wafer_not_found",
+                wafer=wafer,
+                detail=(
+                    f"no vendor delivery under {', '.join(plan.roots) or '(no root)'} "
+                    f"holds wafer {wafer}; it cannot be reconciled, and if the "
+                    "delivery exists elsewhere the search root does not cover it"
+                ),
+            )
+        )
+    for wafer in plan.collided:
+        sources.findings.append(
+            finding_row(
+                "wafer_multiple_deliveries",
+                wafer=wafer,
+                detail=(
+                    f"wafer {wafer} was found under {len(plan.located[wafer])} "
+                    f"deliveries ({', '.join(plan.located[wafer])}); per-well "
+                    "arbitration is reported as duplicate_source_well"
+                ),
+            )
+        )
+    for uri, segment in plan.unseeded:
+        sources.findings.append(
+            finding_row(
+                "unseeded_vendor_delivery",
+                detail=(
+                    f"{uri} holds a vendor delivery"
+                    + (f" for {segment!r}" if segment else "")
+                    + " that no uploaded wafer points at, so it was not indexed; "
+                    "if it belongs to this experiment its wells are missing from "
+                    "the upload entirely"
+                ),
+            )
+        )
+    for token in plan.seeds.rejected:
+        sources.findings.append(
+            finding_row(
+                "wafer_seed_rejected",
+                detail=(
+                    f"{token!r} came from the upload where a wafer was expected but "
+                    "is not wafer-shaped, so it was not searched for"
+                ),
+            )
+        )
+    for uri, code in plan.unreadable:
+        sources.findings.append(
+            finding_row(
+                "search_prefix_unreadable",
+                source_key=uri,
+                detail=f"listing {uri} was refused ({code}); the search skipped it",
+            )
+        )
+    if plan.budget_exhausted:
+        sources.findings.append(
+            finding_row(
+                "search_budget_exhausted",
+                detail=(
+                    f"the search stopped after {plan.listings} listings; it is "
+                    "incomplete, so narrow the root to a project rather than a bucket"
+                ),
+            )
+        )
+    for uri in plan.depth_capped:
+        sources.findings.append(
+            finding_row(
+                "search_depth_capped",
+                source_key=uri,
+                detail=(
+                    f"stopped descending at {uri} without reaching a "
+                    f"{SEAHUB_RAW_SEGMENT!r} folder; anything below it was not searched"
+                ),
+            )
+        )
 
 
 def load_source_read_counts(
