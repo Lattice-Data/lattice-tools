@@ -1,5 +1,5 @@
-https://lattice-api-dev.demo.lattice-data.org/:
-  date_parsed: '2026-07-02'
+https://api.data.lattice-data.org/:
+  date_parsed: '2026-08-13'
   field_types:
     '@id':
       type: string
@@ -10,6 +10,9 @@ https://lattice-api-dev.demo.lattice-data.org/:
       type: string
     CRO_order:
       type: string
+    RT_indexes:
+      elements: string
+      type: array
     access_key_id:
       type: string
     age_units:
@@ -32,6 +35,8 @@ https://lattice-api-dev.demo.lattice-data.org/:
     collection_geographical_location:
       type: string
     condition:
+      type: string
+    content_type:
       type: string
     controlled_term:
       type: string
@@ -103,6 +108,11 @@ https://lattice-api-dev.demo.lattice-data.org/:
     groups:
       elements: string
       type: array
+    guide_rna_files:
+      elements: string
+      type: array
+    guides_signature:
+      type: string
     host:
       type: string
     host_tissue:
@@ -117,6 +127,8 @@ https://lattice-api-dev.demo.lattice-data.org/:
       elements: string
       type: array
     is_multiplexed:
+      type: boolean
+    is_pilot_order:
       type: boolean
     job_title:
       type: string
@@ -251,6 +263,9 @@ https://lattice-api-dev.demo.lattice-data.org/:
     synonyms:
       elements: string
       type: array
+    targeted_genes:
+      elements: string
+      type: array
     taxa:
       type: string
     term_id:
@@ -292,7 +307,7 @@ https://lattice-api-dev.demo.lattice-data.org/:
     viewing_groups:
       elements: string
       type: array
-  field_types_sha256: 861113e02ff7b7c19d65c02c1dead11f79fb0b1c22cb0479f69f0ffc80317ab5
+  field_types_sha256: f43e980ffe113aca4dd899a2161a70f225c5fb31c0632a219af2aea020a3fe5b
   object_config:
     access_keys:
       api_type: AccessKey
@@ -301,29 +316,26 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - access_key_id
       - aliases
-      - creation_timestamp
       - description
       - notes
       - schema_version
       - secret_access_key_hash
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - user
       - uuid
       references:
-        submitted_by: users
         user: users
     cell_lines:
       api_type: CellLine
       fields:
       - '@id'
       - '@type'
+      - RT_indexes
       - aliases
       - author_metadata
       - collection_geographical_location
-      - creation_timestamp
       - date_obtained
       - dbxrefs
       - depleted_cell_types
@@ -350,7 +362,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - selection_methods
       - sources
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - suspension_type
@@ -373,7 +384,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         intended_cell_types: controlled_terms
         lab: labs
         sample_terms: controlled_terms
-        submitted_by: users
         treatments: treatments
     controlled_terms:
       api_type: ControlledTerm
@@ -381,7 +391,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@id'
       - '@type'
       - aliases
-      - creation_timestamp
       - dbxrefs
       - definition
       - description
@@ -389,15 +398,13 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - ontology_source
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - synonyms
       - term_id
       - term_name
       - uuid
-      references:
-        submitted_by: users
+      references: {}
     documents:
       api_type: Document
       fields:
@@ -405,21 +412,18 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - aliases
       - attachment
-      - creation_timestamp
       - description
       - document_type
       - lab
       - notes
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - urls
       - uuid
       references:
         lab: labs
-        submitted_by: users
     droplet_based_libraries:
       api_type: DropletBasedLibrary
       fields:
@@ -428,7 +432,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - CRO_group_identifier
       - aliases
       - author_metadata
-      - creation_timestamp
       - dbxrefs
       - description
       - feature_types
@@ -441,7 +444,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - samples
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
@@ -454,7 +456,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         - organoids
         - primary_cell_cultures
         - tissues
-        submitted_by: users
     experimental_conditions:
       api_type: ExperimentalCondition
       fields:
@@ -463,7 +464,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - aliases
       - condition
       - controlled_term
-      - creation_timestamp
       - description
       - duration_units
       - lab
@@ -471,7 +471,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - notes
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - text_value
@@ -482,25 +481,24 @@ https://lattice-api-dev.demo.lattice-data.org/:
       references:
         controlled_term: controlled_terms
         lab: labs
-        submitted_by: users
     genetic_modifications:
       api_type: GeneticModification
       fields:
       - '@id'
       - '@type'
       - aliases
-      - creation_timestamp
       - description
+      - guide_rna_files
       - notes
       - schema_version
       - status
       - strategy
-      - submitted_by
       - submitter_comment
       - summary
+      - targeted_genes
       - uuid
       references:
-        submitted_by: users
+        guide_rna_files: tabular_files
     human_donors:
       api_type: HumanDonor
       fields:
@@ -508,7 +506,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - aliases
       - author_metadata
-      - creation_timestamp
       - cxg_donor_id
       - description
       - ethnicity
@@ -517,7 +514,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - schema_version
       - sex
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - taxa
@@ -525,7 +521,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       references:
         ethnicity: controlled_terms
         lab: labs
-        submitted_by: users
     images:
       api_type: Image
       fields:
@@ -534,25 +529,21 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - aliases
       - attachment
       - caption
-      - creation_timestamp
       - description
       - download_url
       - notes
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
-      references:
-        submitted_by: users
+      references: {}
     labs:
       api_type: Lab
       fields:
       - '@id'
       - '@type'
       - aliases
-      - creation_timestamp
       - description
       - institute_label
       - name
@@ -560,7 +551,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - pi
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - title
@@ -568,14 +558,12 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - uuid
       references:
         pi: users
-        submitted_by: users
     matrix_file_sets:
       api_type: MatrixFileSet
       fields:
       - '@id'
       - '@type'
       - aliases
-      - creation_timestamp
       - description
       - lab
       - notes
@@ -583,7 +571,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - raw_matrix_files
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
@@ -591,7 +578,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         lab: labs
         processed_matrix_files: processed_matrix_files
         raw_matrix_files: raw_matrix_files
-        submitted_by: users
     non_human_donors:
       api_type: NonHumanDonor
       fields:
@@ -599,7 +585,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - aliases
       - author_metadata
-      - creation_timestamp
       - cxg_donor_id
       - description
       - lab
@@ -607,23 +592,21 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - schema_version
       - sex
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - taxa
       - uuid
       references:
         lab: labs
-        submitted_by: users
     organoids:
       api_type: Organoid
       fields:
       - '@id'
       - '@type'
+      - RT_indexes
       - aliases
       - author_metadata
       - collection_geographical_location
-      - creation_timestamp
       - date_obtained
       - dbxrefs
       - depleted_cell_types
@@ -649,7 +632,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - selection_methods
       - sources
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - suspension_type
@@ -669,7 +651,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         lab: labs
         origin_cell_types: controlled_terms
         sample_terms: controlled_terms
-        submitted_by: users
         treatments: treatments
     pages:
       api_type: Page
@@ -678,7 +659,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - aliases
       - canonical_uri
-      - creation_timestamp
       - description
       - lab
       - layout
@@ -687,7 +667,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - parent
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - title
@@ -695,7 +674,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       references:
         lab: labs
         parent: pages
-        submitted_by: users
     plate_based_libraries:
       api_type: PlateBasedLibrary
       fields:
@@ -704,40 +682,40 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - CRO_group_identifier
       - aliases
       - author_metadata
-      - creation_timestamp
       - dbxrefs
       - description
       - feature_types
       - lab
+      - library_cardinality
       - library_construction_technology
+      - linked_libraries
       - multiplexing_method
       - notes
       - samples
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
       references:
         lab: labs
         library_construction_technology: controlled_terms
+        linked_libraries: plate_based_libraries
         samples:
         - cell_lines
         - organoids
         - primary_cell_cultures
         - tissues
-        submitted_by: users
     primary_cell_cultures:
       api_type: PrimaryCellCulture
       fields:
       - '@id'
       - '@type'
+      - RT_indexes
       - age_units
       - aliases
       - author_metadata
       - collection_geographical_location
-      - creation_timestamp
       - date_obtained
       - dbxrefs
       - depleted_cell_types
@@ -763,7 +741,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - selection_methods
       - sources
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - suspension_type
@@ -782,7 +759,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         genetic_modification: genetic_modifications
         lab: labs
         sample_terms: controlled_terms
-        submitted_by: users
         treatments: treatments
     processed_matrix_files:
       api_type: ProcessedMatrixFile
@@ -791,7 +767,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - aliases
       - crc64nvme_base64
-      - creation_timestamp
       - derived_from
       - description
       - feature_counts
@@ -808,7 +783,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - samples
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
@@ -824,7 +798,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         - organoids
         - primary_cell_cultures
         - tissues
-        submitted_by: users
     raw_matrix_files:
       api_type: RawMatrixFile
       fields:
@@ -832,7 +805,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - aliases
       - crc64nvme_base64
-      - creation_timestamp
       - derived_from
       - description
       - feature_counts
@@ -852,7 +824,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - software
       - software_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
@@ -868,7 +839,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         - organoids
         - primary_cell_cultures
         - tissues
-        submitted_by: users
     sequence_file_sets:
       api_type: SequenceFileSet
       fields:
@@ -876,10 +846,10 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - CRO_order
       - aliases
-      - creation_timestamp
       - description
       - index1
       - index2
+      - is_pilot_order
       - lab
       - library
       - notes
@@ -890,7 +860,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - schema_version
       - sequencing_platform
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - trimmed_cram
@@ -906,7 +875,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         read1: sequence_files
         read2: sequence_files
         read3: sequence_files
-        submitted_by: users
         trimmed_cram: sequence_files
         untrimmed_cram: sequence_files
     sequence_files:
@@ -916,7 +884,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - '@type'
       - aliases
       - crc64nvme_base64
-      - creation_timestamp
       - derived_from
       - description
       - file_format
@@ -929,7 +896,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - schema_version
       - sequence_file_sets
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
@@ -940,46 +906,42 @@ https://lattice-api-dev.demo.lattice-data.org/:
         - sequence_files
         - tabular_files
         lab: labs
-        submitted_by: users
     sources:
       api_type: Source
       fields:
       - '@id'
       - '@type'
       - aliases
-      - creation_timestamp
       - description
       - name
       - notes
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - title
       - url
       - uuid
-      references:
-        submitted_by: users
+      references: {}
     tabular_files:
       api_type: TabularFile
       fields:
       - '@id'
       - '@type'
       - aliases
+      - content_type
       - crc64nvme_base64
-      - creation_timestamp
       - derived_from
       - description
       - file_format
       - file_size
+      - guides_signature
       - lab
       - no_file_available
       - notes
       - s3_uri
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - uuid
@@ -990,17 +952,16 @@ https://lattice-api-dev.demo.lattice-data.org/:
         - sequence_files
         - tabular_files
         lab: labs
-        submitted_by: users
     tissues:
       api_type: Tissue
       fields:
       - '@id'
       - '@type'
+      - RT_indexes
       - age_units
       - aliases
       - author_metadata
       - collection_geographical_location
-      - creation_timestamp
       - date_obtained
       - dbxrefs
       - depleted_cell_types
@@ -1028,7 +989,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - sources
       - spatial_information
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - suspension_type
@@ -1049,7 +1009,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
         genetic_modification: genetic_modifications
         lab: labs
         sample_terms: controlled_terms
-        submitted_by: users
         treatments: treatments
     treatments:
       api_type: Treatment
@@ -1059,7 +1018,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - aliases
       - amount
       - amount_units
-      - creation_timestamp
       - description
       - duration_units
       - lab
@@ -1068,7 +1026,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - ontological_term
       - schema_version
       - status
-      - submitted_by
       - submitter_comment
       - summary
       - upper_bound_duration
@@ -1076,14 +1033,12 @@ https://lattice-api-dev.demo.lattice-data.org/:
       references:
         lab: labs
         ontological_term: controlled_terms
-        submitted_by: users
     users:
       api_type: User
       fields:
       - '@id'
       - '@type'
       - aliases
-      - creation_timestamp
       - description
       - email
       - first_name
@@ -1095,7 +1050,6 @@ https://lattice-api-dev.demo.lattice-data.org/:
       - schema_version
       - status
       - submits_for
-      - submitted_by
       - submitter_comment
       - summary
       - title
@@ -1104,5 +1058,1065 @@ https://lattice-api-dev.demo.lattice-data.org/:
       references:
         lab: labs
         submits_for: labs
-        submitted_by: users
-  object_config_sha256: d198177a80098ae57e51d677c44e22e565037b8885accaeb853a8efe50b9fd8d
+  object_config_sha256: 853c00d52c4a4bafcf9f25ef042787aa15b000b85977698b8ca2810a29479eed
+https://lattice-api-dev.demo.lattice-data.org/:
+  date_parsed: '2026-08-13'
+  field_types:
+    '@id':
+      type: string
+    '@type':
+      elements: string
+      type: array
+    CRO_group_identifier:
+      type: string
+    CRO_order:
+      type: string
+    RT_indexes:
+      elements: string
+      type: array
+    access_key_id:
+      type: string
+    age_units:
+      type: string
+    aliases:
+      elements: string
+      type: array
+    amount:
+      type: number
+    amount_units:
+      type: string
+    attachment:
+      type: object
+    author_metadata:
+      type: object
+    canonical_uri:
+      type: string
+    caption:
+      type: string
+    collection_geographical_location:
+      type: string
+    condition:
+      type: string
+    content_type:
+      type: string
+    controlled_term:
+      type: string
+    crc64nvme_base64:
+      type: string
+    creation_timestamp:
+      type: string
+    cxg_donor_id:
+      type: string
+    date_obtained:
+      type: string
+    dbxrefs:
+      elements: string
+      type: array
+    definition:
+      type: string
+    depleted_cell_types:
+      elements: string
+      type: array
+    derived_from:
+      elements: string
+      type: array
+    description:
+      type: string
+    developmental_stages:
+      elements: string
+      type: array
+    diseases:
+      elements: string
+      type: array
+    document_type:
+      type: string
+    donors:
+      elements: string
+      type: array
+    download_url:
+      type: string
+    duration_units:
+      type: string
+    email:
+      type: string
+    enriched_cell_types:
+      elements: string
+      type: array
+    ethnicity:
+      type: string
+    experimental_conditions:
+      elements: string
+      type: array
+    feature_counts:
+      elements: object
+      type: array
+    feature_keys:
+      elements: string
+      type: array
+    feature_types:
+      elements: string
+      type: array
+    file_format:
+      type: string
+    file_size:
+      type: integer
+    first_name:
+      type: string
+    genetic_modification:
+      type: string
+    genome_assembly:
+      type: string
+    groups:
+      elements: string
+      type: array
+    guide_rna_files:
+      elements: string
+      type: array
+    guides_signature:
+      type: string
+    host:
+      type: string
+    host_tissue:
+      type: string
+    index1:
+      type: string
+    index2:
+      type: string
+    institute_label:
+      type: string
+    intended_cell_types:
+      elements: string
+      type: array
+    is_multiplexed:
+      type: boolean
+    is_pilot_order:
+      type: boolean
+    job_title:
+      type: string
+    lab:
+      type: string
+    last_name:
+      type: string
+    layout:
+      type: object
+    libraries:
+      elements: string
+      type: array
+    library:
+      type: string
+    library_cardinality:
+      type: string
+    library_construction_technology:
+      type: string
+    linked_libraries:
+      elements: string
+      type: array
+    lower_bound_age:
+      type: number
+    lower_bound_duration:
+      type: number
+    matrix_file_sets:
+      elements: string
+      type: array
+    multiplexing_barcodes:
+      elements: string
+      type: array
+    multiplexing_method:
+      elements: string
+      type: array
+    name:
+      type: string
+    no_file_available:
+      type: boolean
+    notes:
+      type: string
+    observation_count:
+      type: integer
+    ontological_term:
+      type: string
+    ontology_source:
+      type: string
+    orientation:
+      type: string
+    origin_cell_types:
+      elements: string
+      type: array
+    parent:
+      type: string
+    passage_number:
+      type: integer
+    pi:
+      type: string
+    preservation_method:
+      type: string
+    processed_matrix_files:
+      elements: string
+      type: array
+    raw_matrix_files:
+      elements: string
+      type: array
+    read1:
+      type: string
+    read2:
+      type: string
+    read3:
+      type: string
+    read_count:
+      type: integer
+    run_cardinality:
+      type: string
+    s3_uri:
+      type: string
+    sample_procurement_interval:
+      type: integer
+    sample_procurement_interval_units:
+      type: string
+    sample_terms:
+      elements: string
+      type: array
+    samples:
+      elements: string
+      type: array
+    schema_version:
+      type: string
+    secret_access_key_hash:
+      type: string
+    selection_kits:
+      elements: string
+      type: array
+    selection_markers:
+      elements: string
+      type: array
+    selection_methods:
+      elements: string
+      type: array
+    sequence_file_sets:
+      elements: string
+      type: array
+    sequencing_platform:
+      type: string
+    sex:
+      type: string
+    software:
+      type: string
+    software_version:
+      type: string
+    sources:
+      elements: string
+      type: array
+    spatial_information:
+      type: string
+    status:
+      type: string
+    strategy:
+      type: string
+    submits_for:
+      elements: string
+      type: array
+    submitted_by:
+      type: string
+    submitter_comment:
+      type: string
+    summary:
+      type: string
+    suspension_type:
+      type: string
+    synonyms:
+      elements: string
+      type: array
+    targeted_genes:
+      elements: string
+      type: array
+    taxa:
+      type: string
+    term_id:
+      type: string
+    term_name:
+      type: string
+    text_value:
+      type: string
+    thickness:
+      type: number
+    thickness_units:
+      type: string
+    title:
+      type: string
+    treatments:
+      elements: string
+      type: array
+    trimmed_cram:
+      type: string
+    units:
+      type: string
+    untrimmed_cram:
+      type: string
+    upper_bound_age:
+      type: number
+    upper_bound_duration:
+      type: number
+    url:
+      type: string
+    urls:
+      elements: string
+      type: array
+    user:
+      type: string
+    uuid:
+      type: string
+    value:
+      type: number
+    viewing_groups:
+      elements: string
+      type: array
+  field_types_sha256: f43e980ffe113aca4dd899a2161a70f225c5fb31c0632a219af2aea020a3fe5b
+  object_config:
+    access_keys:
+      api_type: AccessKey
+      fields:
+      - '@id'
+      - '@type'
+      - access_key_id
+      - aliases
+      - description
+      - notes
+      - schema_version
+      - secret_access_key_hash
+      - status
+      - submitter_comment
+      - summary
+      - user
+      - uuid
+      references:
+        user: users
+    cell_lines:
+      api_type: CellLine
+      fields:
+      - '@id'
+      - '@type'
+      - RT_indexes
+      - aliases
+      - author_metadata
+      - collection_geographical_location
+      - date_obtained
+      - dbxrefs
+      - depleted_cell_types
+      - description
+      - developmental_stages
+      - diseases
+      - donors
+      - enriched_cell_types
+      - experimental_conditions
+      - genetic_modification
+      - host
+      - host_tissue
+      - intended_cell_types
+      - lab
+      - libraries
+      - multiplexing_barcodes
+      - notes
+      - sample_procurement_interval
+      - sample_procurement_interval_units
+      - sample_terms
+      - schema_version
+      - selection_kits
+      - selection_markers
+      - selection_methods
+      - sources
+      - status
+      - submitter_comment
+      - summary
+      - suspension_type
+      - treatments
+      - uuid
+      references:
+        depleted_cell_types: controlled_terms
+        developmental_stages: controlled_terms
+        diseases: controlled_terms
+        donors:
+        - human_donors
+        - non_human_donors
+        enriched_cell_types: controlled_terms
+        experimental_conditions: experimental_conditions
+        genetic_modification: genetic_modifications
+        host:
+        - human_donors
+        - non_human_donors
+        host_tissue: controlled_terms
+        intended_cell_types: controlled_terms
+        lab: labs
+        sample_terms: controlled_terms
+        treatments: treatments
+    controlled_terms:
+      api_type: ControlledTerm
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - dbxrefs
+      - definition
+      - description
+      - notes
+      - ontology_source
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - synonyms
+      - term_id
+      - term_name
+      - uuid
+      references: {}
+    documents:
+      api_type: Document
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - attachment
+      - description
+      - document_type
+      - lab
+      - notes
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - urls
+      - uuid
+      references:
+        lab: labs
+    droplet_based_libraries:
+      api_type: DropletBasedLibrary
+      fields:
+      - '@id'
+      - '@type'
+      - CRO_group_identifier
+      - aliases
+      - author_metadata
+      - dbxrefs
+      - description
+      - feature_types
+      - lab
+      - library_cardinality
+      - library_construction_technology
+      - linked_libraries
+      - multiplexing_method
+      - notes
+      - samples
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references:
+        lab: labs
+        library_construction_technology: controlled_terms
+        linked_libraries: droplet_based_libraries
+        samples:
+        - cell_lines
+        - organoids
+        - primary_cell_cultures
+        - tissues
+    experimental_conditions:
+      api_type: ExperimentalCondition
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - condition
+      - controlled_term
+      - description
+      - duration_units
+      - lab
+      - lower_bound_duration
+      - notes
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - text_value
+      - units
+      - upper_bound_duration
+      - uuid
+      - value
+      references:
+        controlled_term: controlled_terms
+        lab: labs
+    genetic_modifications:
+      api_type: GeneticModification
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - description
+      - guide_rna_files
+      - notes
+      - schema_version
+      - status
+      - strategy
+      - submitter_comment
+      - summary
+      - targeted_genes
+      - uuid
+      references:
+        guide_rna_files: tabular_files
+    human_donors:
+      api_type: HumanDonor
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - author_metadata
+      - cxg_donor_id
+      - description
+      - ethnicity
+      - lab
+      - notes
+      - schema_version
+      - sex
+      - status
+      - submitter_comment
+      - summary
+      - taxa
+      - uuid
+      references:
+        ethnicity: controlled_terms
+        lab: labs
+    images:
+      api_type: Image
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - attachment
+      - caption
+      - description
+      - download_url
+      - notes
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references: {}
+    labs:
+      api_type: Lab
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - description
+      - institute_label
+      - name
+      - notes
+      - pi
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - title
+      - url
+      - uuid
+      references:
+        pi: users
+    matrix_file_sets:
+      api_type: MatrixFileSet
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - description
+      - lab
+      - notes
+      - processed_matrix_files
+      - raw_matrix_files
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references:
+        lab: labs
+        processed_matrix_files: processed_matrix_files
+        raw_matrix_files: raw_matrix_files
+    non_human_donors:
+      api_type: NonHumanDonor
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - author_metadata
+      - cxg_donor_id
+      - description
+      - lab
+      - notes
+      - schema_version
+      - sex
+      - status
+      - submitter_comment
+      - summary
+      - taxa
+      - uuid
+      references:
+        lab: labs
+    organoids:
+      api_type: Organoid
+      fields:
+      - '@id'
+      - '@type'
+      - RT_indexes
+      - aliases
+      - author_metadata
+      - collection_geographical_location
+      - date_obtained
+      - dbxrefs
+      - depleted_cell_types
+      - description
+      - developmental_stages
+      - diseases
+      - donors
+      - enriched_cell_types
+      - experimental_conditions
+      - genetic_modification
+      - intended_cell_types
+      - lab
+      - libraries
+      - multiplexing_barcodes
+      - notes
+      - origin_cell_types
+      - sample_procurement_interval
+      - sample_procurement_interval_units
+      - sample_terms
+      - schema_version
+      - selection_kits
+      - selection_markers
+      - selection_methods
+      - sources
+      - status
+      - submitter_comment
+      - summary
+      - suspension_type
+      - treatments
+      - uuid
+      references:
+        depleted_cell_types: controlled_terms
+        developmental_stages: controlled_terms
+        diseases: controlled_terms
+        donors:
+        - human_donors
+        - non_human_donors
+        enriched_cell_types: controlled_terms
+        experimental_conditions: experimental_conditions
+        genetic_modification: genetic_modifications
+        intended_cell_types: controlled_terms
+        lab: labs
+        origin_cell_types: controlled_terms
+        sample_terms: controlled_terms
+        treatments: treatments
+    pages:
+      api_type: Page
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - canonical_uri
+      - description
+      - lab
+      - layout
+      - name
+      - notes
+      - parent
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - title
+      - uuid
+      references:
+        lab: labs
+        parent: pages
+    plate_based_libraries:
+      api_type: PlateBasedLibrary
+      fields:
+      - '@id'
+      - '@type'
+      - CRO_group_identifier
+      - aliases
+      - author_metadata
+      - dbxrefs
+      - description
+      - feature_types
+      - lab
+      - library_cardinality
+      - library_construction_technology
+      - linked_libraries
+      - multiplexing_method
+      - notes
+      - samples
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references:
+        lab: labs
+        library_construction_technology: controlled_terms
+        linked_libraries: plate_based_libraries
+        samples:
+        - cell_lines
+        - organoids
+        - primary_cell_cultures
+        - tissues
+    primary_cell_cultures:
+      api_type: PrimaryCellCulture
+      fields:
+      - '@id'
+      - '@type'
+      - RT_indexes
+      - age_units
+      - aliases
+      - author_metadata
+      - collection_geographical_location
+      - date_obtained
+      - dbxrefs
+      - depleted_cell_types
+      - description
+      - developmental_stages
+      - diseases
+      - donors
+      - enriched_cell_types
+      - experimental_conditions
+      - genetic_modification
+      - lab
+      - libraries
+      - lower_bound_age
+      - multiplexing_barcodes
+      - notes
+      - passage_number
+      - sample_procurement_interval
+      - sample_procurement_interval_units
+      - sample_terms
+      - schema_version
+      - selection_kits
+      - selection_markers
+      - selection_methods
+      - sources
+      - status
+      - submitter_comment
+      - summary
+      - suspension_type
+      - treatments
+      - upper_bound_age
+      - uuid
+      references:
+        depleted_cell_types: controlled_terms
+        developmental_stages: controlled_terms
+        diseases: controlled_terms
+        donors:
+        - human_donors
+        - non_human_donors
+        enriched_cell_types: controlled_terms
+        experimental_conditions: experimental_conditions
+        genetic_modification: genetic_modifications
+        lab: labs
+        sample_terms: controlled_terms
+        treatments: treatments
+    processed_matrix_files:
+      api_type: ProcessedMatrixFile
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - crc64nvme_base64
+      - derived_from
+      - description
+      - feature_counts
+      - feature_keys
+      - file_format
+      - file_size
+      - is_multiplexed
+      - lab
+      - matrix_file_sets
+      - no_file_available
+      - notes
+      - observation_count
+      - s3_uri
+      - samples
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references:
+        derived_from:
+        - processed_matrix_files
+        - raw_matrix_files
+        - sequence_files
+        - tabular_files
+        lab: labs
+        samples:
+        - cell_lines
+        - organoids
+        - primary_cell_cultures
+        - tissues
+    raw_matrix_files:
+      api_type: RawMatrixFile
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - crc64nvme_base64
+      - derived_from
+      - description
+      - feature_counts
+      - feature_keys
+      - file_format
+      - file_size
+      - genome_assembly
+      - is_multiplexed
+      - lab
+      - matrix_file_sets
+      - no_file_available
+      - notes
+      - observation_count
+      - s3_uri
+      - samples
+      - schema_version
+      - software
+      - software_version
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references:
+        derived_from:
+        - processed_matrix_files
+        - raw_matrix_files
+        - sequence_files
+        - tabular_files
+        lab: labs
+        samples:
+        - cell_lines
+        - organoids
+        - primary_cell_cultures
+        - tissues
+    sequence_file_sets:
+      api_type: SequenceFileSet
+      fields:
+      - '@id'
+      - '@type'
+      - CRO_order
+      - aliases
+      - description
+      - index1
+      - index2
+      - is_pilot_order
+      - lab
+      - library
+      - notes
+      - read1
+      - read2
+      - read3
+      - run_cardinality
+      - schema_version
+      - sequencing_platform
+      - status
+      - submitter_comment
+      - summary
+      - trimmed_cram
+      - untrimmed_cram
+      - uuid
+      references:
+        index1: sequence_files
+        index2: sequence_files
+        lab: labs
+        library:
+        - droplet_based_libraries
+        - plate_based_libraries
+        read1: sequence_files
+        read2: sequence_files
+        read3: sequence_files
+        trimmed_cram: sequence_files
+        untrimmed_cram: sequence_files
+    sequence_files:
+      api_type: SequenceFile
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - crc64nvme_base64
+      - derived_from
+      - description
+      - file_format
+      - file_size
+      - lab
+      - no_file_available
+      - notes
+      - read_count
+      - s3_uri
+      - schema_version
+      - sequence_file_sets
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references:
+        derived_from:
+        - processed_matrix_files
+        - raw_matrix_files
+        - sequence_files
+        - tabular_files
+        lab: labs
+    sources:
+      api_type: Source
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - description
+      - name
+      - notes
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - title
+      - url
+      - uuid
+      references: {}
+    tabular_files:
+      api_type: TabularFile
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - content_type
+      - crc64nvme_base64
+      - derived_from
+      - description
+      - file_format
+      - file_size
+      - guides_signature
+      - lab
+      - no_file_available
+      - notes
+      - s3_uri
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - uuid
+      references:
+        derived_from:
+        - processed_matrix_files
+        - raw_matrix_files
+        - sequence_files
+        - tabular_files
+        lab: labs
+    tissues:
+      api_type: Tissue
+      fields:
+      - '@id'
+      - '@type'
+      - RT_indexes
+      - age_units
+      - aliases
+      - author_metadata
+      - collection_geographical_location
+      - date_obtained
+      - dbxrefs
+      - depleted_cell_types
+      - description
+      - developmental_stages
+      - diseases
+      - donors
+      - enriched_cell_types
+      - experimental_conditions
+      - genetic_modification
+      - lab
+      - libraries
+      - lower_bound_age
+      - multiplexing_barcodes
+      - notes
+      - orientation
+      - preservation_method
+      - sample_procurement_interval
+      - sample_procurement_interval_units
+      - sample_terms
+      - schema_version
+      - selection_kits
+      - selection_markers
+      - selection_methods
+      - sources
+      - spatial_information
+      - status
+      - submitter_comment
+      - summary
+      - suspension_type
+      - thickness
+      - thickness_units
+      - treatments
+      - upper_bound_age
+      - uuid
+      references:
+        depleted_cell_types: controlled_terms
+        developmental_stages: controlled_terms
+        diseases: controlled_terms
+        donors:
+        - human_donors
+        - non_human_donors
+        enriched_cell_types: controlled_terms
+        experimental_conditions: experimental_conditions
+        genetic_modification: genetic_modifications
+        lab: labs
+        sample_terms: controlled_terms
+        treatments: treatments
+    treatments:
+      api_type: Treatment
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - amount
+      - amount_units
+      - description
+      - duration_units
+      - lab
+      - lower_bound_duration
+      - notes
+      - ontological_term
+      - schema_version
+      - status
+      - submitter_comment
+      - summary
+      - upper_bound_duration
+      - uuid
+      references:
+        lab: labs
+        ontological_term: controlled_terms
+    users:
+      api_type: User
+      fields:
+      - '@id'
+      - '@type'
+      - aliases
+      - description
+      - email
+      - first_name
+      - groups
+      - job_title
+      - lab
+      - last_name
+      - notes
+      - schema_version
+      - status
+      - submits_for
+      - submitter_comment
+      - summary
+      - title
+      - uuid
+      - viewing_groups
+      references:
+        lab: labs
+        submits_for: labs
+  object_config_sha256: 853c00d52c4a4bafcf9f25ef042787aa15b000b85977698b8ca2810a29479eed
