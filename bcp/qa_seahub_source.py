@@ -52,6 +52,8 @@ import tempfile
 
 from qa_constants import (
     SEAHUB_RAW_SEGMENT,
+    SEAHUB_SEARCH_MAX_DEPTH,
+    SEAHUB_SEARCH_MAX_LISTINGS,
     SEAHUB_STEM_NO_TYPE_RE,
     SEAHUB_STEM_RE,
     SEAHUB_UNKNOWN_ORDER_LABEL,
@@ -62,11 +64,13 @@ from qa_mods import parse_seahub_raw_path, seahub_stem_and_family
 
 __all__ = [
     "IdentityKey",
-    "WaferSeeds",
+    "RawPrefix",
+    "RawPrefixScan",
     "SourceCoverage",
     "SourceEntry",
     "TrimmedEntry",
     "UntrimmedSources",
+    "WaferSeeds",
     "derive_source_experiment",
     "derive_source_order",
     "finding_row",
@@ -431,6 +435,171 @@ def _dedupe_overlapping(
             continue
         survivors.append((uri, bucket, prefix))
     return survivors, skipped
+
+
+@dataclass(frozen=True)
+class RawPrefix:
+    """One ``.../raw/`` prefix a descent located, and what was directly inside it.
+
+    Both layouts are described by the same record, because a vendor delivery may
+    use either and the descent cannot tell which until it looks: ``wafer_folders``
+    is populated for the foldered layout, ``loose_objects`` for the flat one where
+    the wafer appears only in the filename, and a real prefix can carry both --
+    wafer folders plus wafer-level files beside them.
+    """
+
+    bucket: str
+    prefix: str
+    # The path segment immediately before ``raw``. Read off the path rather than
+    # via derive_source_experiment, which needs an exact six-segment key and
+    # returns "" for four of the six real vendor layouts. Advisory only: it names
+    # a delivery in a report, and never decides whether one is indexed.
+    experiment_segment: str = ""
+    wafer_folders: tuple[str, ...] = ()
+    loose_objects: tuple[str, ...] = ()
+
+    @property
+    def uri(self) -> str:
+        return f"s3://{self.bucket}/{self.prefix}"
+
+
+@dataclass
+class RawPrefixScan:
+    """Every ``raw/`` prefix a descent found, and how completely it looked."""
+
+    prefixes: list[RawPrefix] = field(default_factory=list)
+    listings: int = 0
+    # (prefix, botocore error code) per listing that was refused, so a partly
+    # readable bucket yields a partial answer plus a row rather than an exception.
+    unreadable: tuple[tuple[str, str], ...] = ()
+    budget_exhausted: bool = False
+    # Roots whose descent hit SEAHUB_SEARCH_MAX_DEPTH without finding raw/.
+    depth_capped: tuple[str, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        """False when anything stopped the walk seeing everything it should."""
+        return not (self.unreadable or self.budget_exhausted or self.depth_capped)
+
+
+def _descend_to_raw_prefixes(
+    s3_client: Any,
+    roots: Any,
+    max_depth: int = SEAHUB_SEARCH_MAX_DEPTH,
+    max_listings: int = SEAHUB_SEARCH_MAX_LISTINGS,
+) -> RawPrefixScan:
+    """Find the ``raw/`` prefixes under one or more search roots.
+
+    Structural only: it locates deliveries and reports what is in them, and
+    decides nothing about which are relevant. Filtering to the wafers an upload
+    actually mentions is the caller's job, which is what lets the same walk
+    answer both "where is my vendor data" and "what else is here that nothing
+    points at".
+
+    Every level is listed with ``Delimiter='/'`` through ``get_paginator``, which
+    matters twice. The delimiter is what keeps this O(folders) instead of
+    O(objects) -- the flat paginate ``index_untrimmed_sources`` uses would walk
+    every object in the bucket, which is the whole reason a bucket root is
+    refused there. And the paginator is what stops a level being silently
+    truncated at 1000: ``qa_gather._list_folders`` issues a bare ``list_objects``
+    and only appends a warning, so a project with more than 1000 orders would
+    quietly walk a fraction of itself.
+
+    Three things bound it, and each is reported rather than raised, because a
+    partial answer an operator can see beats a dead cell:
+
+    * ``max_depth`` levels below each root. A bucket root needs three to reach
+      ``{project}/{order}/{ExperimentID}/raw``; the default tolerates one more.
+    * ``max_listings`` calls in total.
+    * a refused listing, recorded with its error code and stepped over, so one
+      inaccessible project does not cost the rest of the bucket.
+    """
+    scan = RawPrefixScan()
+    unreadable: list[tuple[str, str]] = []
+    depth_capped: list[str] = []
+    paginator = s3_client.get_paginator("list_objects")
+
+    def _level(bucket: str, prefix: str) -> tuple[list[str], list[str]] | None:
+        """One delimiter listing: (child folder prefixes, object keys), or None."""
+        if scan.listings >= max_listings:
+            scan.budget_exhausted = True
+            return None
+        scan.listings += 1
+        folders: list[str] = []
+        objects: list[str] = []
+        try:
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+                folders += [entry["Prefix"] for entry in page.get("CommonPrefixes", [])]
+                objects += [entry["Key"] for entry in page.get("Contents", [])]
+        except Exception as exc:  # noqa: BLE001 - botocore ClientError and kin
+            unreadable.append((f"s3://{bucket}/{prefix}", _error_code(exc)))
+            return None
+        return folders, objects
+
+    for root in _normalize_search_roots(roots):
+        bucket, root_prefix = parse_source_uri(root)
+        # (prefix, depth), depth counted from the root.
+        pending: list[tuple[str, int]] = [(root_prefix, 0)]
+        while pending:
+            prefix, depth = pending.pop(0)
+            listed = _level(bucket, prefix)
+            if listed is None:
+                if scan.budget_exhausted:
+                    break
+                continue
+            folders, _objects = listed
+            for child in folders:
+                if _segment_name(child) != SEAHUB_RAW_SEGMENT:
+                    continue
+                inside = _level(bucket, child)
+                if inside is None:
+                    if scan.budget_exhausted:
+                        break
+                    continue
+                wafer_folders, loose = inside
+                scan.prefixes.append(
+                    RawPrefix(
+                        bucket=bucket,
+                        prefix=child,
+                        experiment_segment=_segment_name(prefix),
+                        wafer_folders=tuple(
+                            _segment_name(folder) for folder in wafer_folders
+                        ),
+                        loose_objects=tuple(loose),
+                    )
+                )
+            if scan.budget_exhausted:
+                break
+            deeper = [
+                (child, depth + 1)
+                for child in folders
+                if _segment_name(child) != SEAHUB_RAW_SEGMENT
+            ]
+            if deeper and depth + 1 > max_depth:
+                depth_capped.append(f"s3://{bucket}/{prefix}")
+                continue
+            pending += deeper
+        if scan.budget_exhausted:
+            break
+
+    scan.unreadable = tuple(unreadable)
+    scan.depth_capped = tuple(sorted(set(depth_capped)))
+    return scan
+
+
+def _segment_name(prefix: str) -> str:
+    """Last path segment of a folder prefix, without its trailing slash."""
+    return prefix.rstrip("/").split("/")[-1]
+
+
+def _error_code(exc: Exception) -> str:
+    """Botocore's error code when there is one, else the exception class name."""
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = response.get("Error", {}).get("Code")
+        if code:
+            return str(code)
+    return type(exc).__name__
 
 
 def _prefer_source_entry(

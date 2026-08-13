@@ -15,6 +15,7 @@ import pytest
 from qa_seahub_recon import reconcile_trimming
 from qa_seahub_source import (
     WaferSeeds,
+    _descend_to_raw_prefixes,
     _normalize_search_roots,
     _wafer_seeds,
     derive_source_experiment,
@@ -1188,3 +1189,150 @@ class TestNormalizeSearchRoots:
         """Segment-wise, not substring: a project may legitimately be named this."""
         root = "s3://czi-novogene/rawlings-seahub-bcp"
         assert _normalize_search_roots(root) == [f"{root}/"]
+
+
+class TestDescendToRawPrefixes:
+    """Locating vendor deliveries by shape, without being told where they are.
+
+    A root already inside a ``raw`` folder is not tested here: step 4's
+    ``_normalize_search_roots`` refuses one at the door, so the descent cannot
+    receive it.
+    """
+
+    FOLDERED = f"labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120/{P04_STEM}.cram"
+    # Real inside czi-novogene: no wafer directory, wafer only in the filename.
+    FLAT = (
+        "project-killifish/NVUS0000000000-20/CH13/raw/"
+        "438586-CH13_GEX_hash_oligo-Z0005-ACGTACGTACGTACG.cram"
+    )
+
+    def _scan(self, keys, root="s3://czi-novogene", **kwargs):
+        s3 = MockS3Client(buckets={"czi-novogene": list(keys)})
+        return s3, _descend_to_raw_prefixes(s3, root, **kwargs)
+
+    def test_it_finds_the_foldered_layout_from_a_bucket_root(self):
+        _s3, scan = self._scan([self.FOLDERED])
+
+        assert len(scan.prefixes) == 1
+        found = scan.prefixes[0]
+        assert found.prefix == "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/"
+        assert found.experiment_segment == "REF3"
+        assert found.wafer_folders == ("437120",)
+        assert found.loose_objects == ()
+        assert scan.complete is True
+
+    def test_it_finds_the_flat_layout_by_its_loose_objects(self):
+        """Four of six real vendor prefixes have no wafer directory at all."""
+        _s3, scan = self._scan([self.FLAT])
+
+        found = scan.prefixes[0]
+        assert found.prefix == "project-killifish/NVUS0000000000-20/CH13/raw/"
+        assert found.experiment_segment == "CH13"
+        assert found.wafer_folders == ()
+        assert found.loose_objects == (self.FLAT,)
+
+    def test_a_prefix_can_carry_both_shapes_at_once(self):
+        """A wafer folder and a wafer-level file are not mutually exclusive."""
+        loose = "labalpha-seahub-bcp/NVUS0000000000-11/REF3/raw/437120_LibraryInfo.xml"
+        _s3, scan = self._scan([self.FOLDERED, loose])
+
+        found = scan.prefixes[0]
+        assert found.wafer_folders == ("437120",)
+        assert found.loose_objects == (loose,)
+
+    def test_several_deliveries_under_one_root_are_all_found(self):
+        _s3, scan = self._scan([self.FOLDERED, self.FLAT])
+
+        assert sorted(p.experiment_segment for p in scan.prefixes) == ["CH13", "REF3"]
+
+    def test_it_never_lists_without_a_delimiter(self):
+        """The mechanical proof that this is not the flat bucket scan.
+
+        index_untrimmed_sources paginates with no Delimiter, which is why a
+        bucket root is refused there; if this walk ever did the same it would
+        still pass every other test here while listing every object in the
+        bucket. Nothing else would notice.
+        """
+        s3, _scan = self._scan([self.FOLDERED, self.FLAT])
+
+        assert s3.listing_calls
+        assert [call for call in s3.listing_calls if call[2] != "/"] == []
+
+    def test_a_wide_level_is_paginated_rather_than_truncated(self):
+        keys = [
+            f"proj/order-{i:04d}/REF3/raw/437120/{P04_STEM}.cram" for i in range(1200)
+        ]
+        s3 = MockS3Client(buckets={"czi-novogene": keys}, list_limit=1000)
+
+        scan = _descend_to_raw_prefixes(s3, "s3://czi-novogene", max_listings=10_000)
+
+        assert len(scan.prefixes) == 1200
+
+    def test_the_depth_cap_stops_a_decoy_tree_and_says_so(self):
+        deep = "a/b/c/d/e/f/g/REF3/raw/437120/x.cram"
+        _s3, scan = self._scan([deep])
+
+        assert scan.prefixes == []
+        assert scan.depth_capped
+        assert scan.complete is False
+
+    def test_the_depth_cap_still_reaches_a_bucket_root_delivery(self):
+        """Three levels to raw/ from a bucket root, so the default must allow it."""
+        _s3, scan = self._scan([self.FOLDERED])
+
+        assert len(scan.prefixes) == 1
+        assert scan.depth_capped == ()
+
+    def test_a_denied_branch_is_recorded_and_the_rest_still_walked(self):
+        s3 = MockS3Client(
+            buckets={"czi-novogene": [self.FOLDERED, self.FLAT]},
+            deny_prefixes={"project-killifish/": "AccessDenied"},
+        )
+
+        scan = _descend_to_raw_prefixes(s3, "s3://czi-novogene")
+
+        assert [p.experiment_segment for p in scan.prefixes] == ["REF3"]
+        assert scan.unreadable == (
+            ("s3://czi-novogene/project-killifish/", "AccessDenied"),
+        )
+        assert scan.complete is False
+
+    def test_a_denied_root_yields_nothing_rather_than_raising(self):
+        s3 = MockS3Client(
+            buckets={"czi-novogene": [self.FOLDERED]},
+            deny_prefixes={"": "AccessDenied"},
+        )
+
+        scan = _descend_to_raw_prefixes(s3, "s3://czi-novogene")
+
+        assert scan.prefixes == []
+        assert scan.unreadable and scan.unreadable[0][1] == "AccessDenied"
+
+    def test_the_listing_budget_stops_the_walk_and_is_reported(self):
+        keys = [f"proj/order-{i:03d}/REF3/raw/437120/x.cram" for i in range(50)]
+        s3 = MockS3Client(buckets={"czi-novogene": keys})
+
+        scan = _descend_to_raw_prefixes(s3, "s3://czi-novogene", max_listings=5)
+
+        assert scan.budget_exhausted is True
+        assert scan.listings <= 5
+        assert scan.complete is False
+
+    def test_a_project_root_is_cheaper_than_a_bucket_root(self):
+        """The documented recommendation, made checkable rather than asserted."""
+        keys = [self.FOLDERED, self.FLAT]
+        bucket_s3 = MockS3Client(buckets={"czi-novogene": keys})
+        project_s3 = MockS3Client(buckets={"czi-novogene": keys})
+
+        _descend_to_raw_prefixes(bucket_s3, "s3://czi-novogene")
+        _descend_to_raw_prefixes(project_s3, "s3://czi-novogene/labalpha-seahub-bcp")
+
+        assert len(project_s3.listing_calls) < len(bucket_s3.listing_calls)
+
+    def test_no_root_is_no_work(self):
+        s3 = MockS3Client(buckets={"czi-novogene": [self.FOLDERED]})
+
+        scan = _descend_to_raw_prefixes(s3, [])
+
+        assert scan.prefixes == [] and s3.listing_calls == []
+        assert scan.complete is True

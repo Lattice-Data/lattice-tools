@@ -378,6 +378,18 @@ SEAHUB_WAFER_RE = re.compile(r"^\d{6,8}$")
 # normalize_search_roots refuses a root that already contains one.
 SEAHUB_RAW_SEGMENT = "raw"
 
+# How many delimiter levels below a search root the descent will look for a
+# `raw` folder.  A bucket root needs three to reach it
+# ({project}/{order}/{ExperimentID}/raw), so 4 tolerates one unexpected level of
+# nesting and still stops a mistyped root walking a whole bucket's folder tree.
+SEAHUB_SEARCH_MAX_DEPTH = 4
+
+# Hard ceiling on delimiter listings per descent.  Exceeding it stops the walk
+# and is reported, rather than raising: a partial answer with a loud row beats a
+# cell that dies, and the alternative to a ceiling is an unbounded walk of
+# whatever the operator happened to point at.
+SEAHUB_SEARCH_MAX_LISTINGS = 4000
+
 SEAHUB_WELL_RE = re.compile(r"^[A-H]\d{1,2}$")
 
 SEAHUB_PLATE_SIZES = frozenset({48, 96})
