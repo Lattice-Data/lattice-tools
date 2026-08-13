@@ -72,7 +72,6 @@ __all__ = [
     "UntrimmedSources",
     "WaferSearchPlan",
     "WaferSeeds",
-    "derive_source_experiment",
     "derive_source_order",
     "finding_row",
     "index_trimmed_upload",
@@ -81,7 +80,6 @@ __all__ = [
     "normalize_source_uris",
     "parse_seahub_stem_fields",
     "parse_source_uri",
-    "source_experiment_matches",
     "source_order_by_wafer",
 ]
 
@@ -405,36 +403,6 @@ def derive_source_order(cram_key: str) -> str:
     return ""
 
 
-def derive_source_experiment(cram_key: str) -> str:
-    """Read the experiment segment out of a key, positionally.
-
-    ``{project}/{order}/{ExperimentID}/raw/{wafer}/{file}`` -- the segment before
-    ``raw``, and the one an order-level prefix spans several of. Returns ``""``
-    for any other shape; callers keep those entries rather than dropping a well
-    they cannot place. Compare it with :func:`source_experiment_matches` rather
-    than by equality, since the segment is not always the ExperimentID alone.
-    """
-    parts = cram_key.split("/")
-    if len(parts) == 6 and parts[3] == "raw":
-        return parts[2]
-    return ""
-
-
-def source_experiment_matches(segment: str, experiment_id: str) -> bool:
-    """Does a pre-``raw`` segment belong to ``experiment_id``?
-
-    The current vendor layout carries the ExperimentID alone (``REF3``); an older
-    one appends the sublibrary (``REF5_P01``), which
-    :func:`derive_source_experiment` above reads off the key, and a
-    re-delivery appends something else again (``GENE7_reupload``, measured in
-    order ``NVUS2024101701-11`` alongside ``REF3``). So the rule is any
-    ``{ExperimentID}_...`` folder, not a sublibrary shape: a bare equality test
-    would exclude every well of such a delivery and report the whole upload as
-    orphaned. The underscore is required so ``REF50`` is not read as ``REF5``.
-    """
-    return segment == experiment_id or segment.startswith(f"{experiment_id}_")
-
-
 def _order_label_from_prefix(prefix: str) -> str:
     """Best-effort order label for a prefix that produced no objects.
 
@@ -529,10 +497,10 @@ class RawPrefix:
 
     bucket: str
     prefix: str
-    # The path segment immediately before ``raw``. Read off the path rather than
-    # via derive_source_experiment, which needs an exact six-segment key and
-    # returns "" for four of the six real vendor layouts. Advisory only: it names
-    # a delivery in a report, and never decides whether one is indexed.
+    # The path segment immediately before ``raw``, read off the path so it
+    # survives a key depth the six-segment positional readers cannot parse --
+    # four of the six real vendor layouts. Advisory only: it names a delivery in
+    # a report, and never decides whether one is indexed.
     experiment_segment: str = ""
     wafer_folders: tuple[str, ...] = ()
     loose_objects: tuple[str, ...] = ()
@@ -727,12 +695,11 @@ def _index_prefix(
     bucket: str,
     prefix: str,
     uri: str,
-    experiment_id: str,
     sources: UntrimmedSources,
     coverage: SourceCoverage,
     sidecar_by_stem_key: dict[tuple[str, str], str],
     accept: Any = None,
-) -> tuple[set[str], dict[str, int], int]:
+) -> set[str]:
     """Index every per-well CRAM under one listed prefix into ``sources``.
 
     Lifted out of :func:`index_untrimmed_sources` unchanged so that the object
@@ -742,9 +709,8 @@ def _index_prefix(
     findings, and the coverage finalisation all remain in the caller.
 
     Mutates ``sources.index``, ``sources.findings``, ``coverage.cram_keys`` and
-    ``sidecar_by_stem_key``; returns the per-prefix tallies the caller needs to
-    emit its own findings -- orders seen, foreign wells by experiment, and the
-    count of wells whose key does not expose an ExperimentID.
+    ``sidecar_by_stem_key``; returns the orders it saw, which the caller needs to
+    label the coverage row.
 
     ``accept(key, fields)`` filters CRAMs before they are indexed. Discovery uses
     it to keep a located delivery to the wafers it is there for, so that walking
@@ -753,8 +719,6 @@ def _index_prefix(
     prevent, now prevented by the upload's own contents instead of by a name.
     """
     orders_seen: set[str] = set()
-    foreign_wells: dict[str, int] = {}
-    unplaced_wells = 0
 
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
@@ -776,14 +740,6 @@ def _index_prefix(
             if is_sidecar:
                 sidecar_by_stem_key[(bucket, key[: -len(_SIDECAR_SUFFIX)])] = key
                 continue
-
-            if experiment_id:
-                experiment = derive_source_experiment(key)
-                if not experiment:
-                    unplaced_wells += 1
-                elif not source_experiment_matches(experiment, experiment_id):
-                    foreign_wells[experiment] = foreign_wells.get(experiment, 0) + 1
-                    continue
 
             if accept is not None and not accept(key, fields):
                 continue
@@ -826,12 +782,10 @@ def _index_prefix(
                 )
             )
 
-    return orders_seen, foreign_wells, unplaced_wells
+    return orders_seen
 
 
-def index_untrimmed_sources(
-    s3_client: Any, uris: Any, experiment_id: str = ""
-) -> UntrimmedSources:
+def index_untrimmed_sources(s3_client: Any, uris: Any) -> UntrimmedSources:
     """List one or more vendor prefixes and index per-well CRAMs by ``(wafer, UG)``.
 
     An identity delivered by two prefixes is a re-delivery, not a merge: the
@@ -888,41 +842,15 @@ def index_untrimmed_sources(
 
     for uri, bucket, prefix in survivors:
         coverage = SourceCoverage(source_uri=uri, bucket=bucket, prefix=prefix)
-        orders_seen, foreign_wells, unplaced_wells = _index_prefix(
+        orders_seen = _index_prefix(
             paginator,
             bucket,
             prefix,
             uri,
-            experiment_id,
             sources,
             coverage,
             sidecar_by_stem_key,
         )
-
-        for experiment, count in sorted(foreign_wells.items()):
-            sources.findings.append(
-                finding_row(
-                    "source_prefix_spans_experiments",
-                    detail=(
-                        f"untrimmed source {uri} also holds {count} well(s) of "
-                        f"experiment {experiment!r}, which were excluded from the "
-                        f"{experiment_id!r} comparison; narrow the prefix to "
-                        f"{uri.rstrip('/')}/{experiment_id} to stop listing them"
-                    ),
-                )
-            )
-        if unplaced_wells:
-            sources.findings.append(
-                finding_row(
-                    "source_experiment_unreadable",
-                    detail=(
-                        f"untrimmed source {uri} holds {unplaced_wells} CRAM(s) whose "
-                        "key does not expose an ExperimentID (expected "
-                        "{project}/{order}/{ExperimentID}/raw/{wafer}/{file}); kept "
-                        f"in the {experiment_id!r} comparison rather than dropped"
-                    ),
-                )
-            )
 
         coverage.orders_seen = tuple(sorted(orders_seen))
         coverage.source_order = (
@@ -1059,12 +987,11 @@ def _discover_untrimmed_sources(
             found_by="seed",
             experiment_segment=found.experiment_segment,
         )
-        orders_seen, _foreign, _unplaced = _index_prefix(
+        orders_seen = _index_prefix(
             paginator,
             found.bucket,
             found.prefix,
             found.uri,
-            "",
             sources,
             coverage,
             sidecar_by_stem_key,

@@ -108,16 +108,10 @@ rather than a rename.
   measured unique on a real delivery (48 CRAMs, 48 distinct UGs per wafer). The vendor layout is
   `{project}/{order}/{ExperimentID}/raw/{wafer}/`; note the segment before `raw` is the ExperimentID
   alone and carries **no** sublibrary, so the authoritative sublibrary comes from the vendor filename
-  with its trailing well token stripped. Since the listed prefix is order-level, the index is filtered
-  to the ExperimentID being QA'd (`ctx.order`, not the notebook's `order`, which `run_label` overrides);
-  without that filter the other experiments' wells are indexed too and each reports as `not_trimmed`.
-  Both segment shapes count as a match — the ExperimentID alone (`REF3`) and the older
-  `{ExperimentID}_{sublibrary}` (`REF5_P01`) — because a bare equality test would orphan every well of
-  an old-shape delivery. `qa_seahub_source.py` builds and merges the per-well indexes;
+  with its trailing well token stripped. `qa_seahub_source.py` builds and merges the per-well indexes;
   `qa_seahub_recon.py` classifies them (`not_trimmed`, `orphan_trimmed`, `identity_mismatch`,
   `read_count_mismatch`, `size_not_reduced`, `duplicate_source_well`, `duplicate_trimmed_well`,
-  `source_prefix_empty`, `overlapping_source_prefix`, `source_prefix_spans_experiments`,
-  `source_experiment_unreadable`, `metadata_unavailable`) into
+  `source_prefix_empty`, `overlapping_source_prefix`, `metadata_unavailable`) into
   `{order}_trimming_completeness.csv`, with per-order coverage in
   `{order}_seahub_source_coverage.csv`. Coverage matters: wells of an order missing from the list can
   only surface as `orphan_trimmed`, which reads as a completeness failure rather than incomplete
@@ -169,6 +163,50 @@ collected in s3 mode only, and a key absent from the mapping reads as unknown ra
   produced objects the rename CSV said to move inside a well the status CSV called `UNKNOWN`. That
   set is still maintained as documentation of which defects a rename can fix, and a test reads the
   defect literals out of the module to keep it in step.
+
+---
+
+## Why the vendor ExperimentID is not the key
+
+The vendor index used to be filtered to the ExperimentID being QA'd, matching a
+pre-`raw` path segment against `ctx.order` with `segment == id or
+segment.startswith(f"{id}_")`. That is recorded here because the reasoning still
+explains the shape of what replaced it, and because the rule was subtler than it
+looked.
+
+It existed for a real reason: a listed prefix was order-level, one order holds
+several experiments, and without the filter the other experiments' wells were
+indexed too — each then having no counterpart in the upload and reporting as
+`not_trimmed` plus an `UNKNOWN` well. The `_`-prefix arm was equally deliberate,
+measured against a `GENE7_reupload` delivered alongside `REF3` in one order, and
+against the older `{ExperimentID}_{sublibrary}` shape (`REF5_P01`) that a bare
+equality test would have orphaned entirely.
+
+It was still the wrong key, in three ways:
+
+- **It failed on every plausible rename except the one it was written for.**
+  `REF3_reupload` matched. `REF3-reupload`, `REF3reupload`, `reupload_REF3`,
+  `ref3` and a renumbered `REF2` did not, and each one orphans a whole upload —
+  surfaced only as a `source_prefix_spans_experiments` note somebody had to read.
+- **It silently matched things it should not.** `REF3_2`, `REF3_v2` and `REF3_redo`
+  all matched `REF3` with no finding at all, and the shape is used for genuinely
+  different things: the real segment `RNA3_098` matches `RNA3`.
+- **It did nothing on two-thirds of real layouts.** `derive_source_experiment`
+  required an exact six-segment key, which only the foldered Novogene layout has;
+  the other four real vendor prefixes fell through to `unplaced_wells`, were kept,
+  and produced a `source_experiment_unreadable` row instead of any filtering.
+
+What replaces it is the **seed set**: a delivery is indexed only for the wafers
+the upload actually mentions. That is a positive assertion about contents rather
+than a comparison of names, so it cannot be defeated by a rename and cannot
+accidentally admit a neighbour. The ExperimentID segment survives as an advisory
+label — it names a delivery in the coverage table and in
+`unseeded_vendor_delivery` — and never decides whether one is indexed.
+
+`source_prefix_spans_experiments` and `source_experiment_unreadable` retired with
+the filter. The check they served did not: a foreign experiment's wells staying
+out of the comparison is now pinned against a delivery discovered under the same
+project root.
 
 ---
 

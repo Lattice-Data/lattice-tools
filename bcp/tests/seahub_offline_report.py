@@ -199,7 +199,6 @@ def report(
                 keys=vendor_keys, file_contents=_synthetic_contents(vendor_keys)
             ),
             [f"s3://{vendor_bucket}/{p}" for p in prefixes],
-            experiment_id=ctx.order,
         )
         untrimmed_index = sources.index
         findings = list(sources.findings)
