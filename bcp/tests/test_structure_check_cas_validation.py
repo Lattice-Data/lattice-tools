@@ -112,10 +112,28 @@ def test_rotated_segments_are_repaired_only_when_the_result_validates() -> None:
     assert repair_rotation(ETHANOL) == ""
 
 
-def test_strip_leading_zero_reports_nothing_to_do() -> None:
+def test_strip_leading_zero_repairs_or_declines() -> None:
+    """All three branches, including the one that declines a real leading zero.
+
+    `05-00-0` does begin with a zero, but stripping it leaves a single-digit first
+    segment, which is not CAS-shaped -- so the repair is refused rather than
+    producing a malformed number. That branch had no coverage.
+    """
     assert strip_leading_zero("0362-07-2") == TWO_METHOXYESTRADIOL
+    assert strip_leading_zero("09-17-5") == ""  # len(trimmed) < 2
+    assert strip_leading_zero("00-17-5") == ""  # not trimmed
+    assert strip_leading_zero("007-00-1") == ""  # a zero survives the strip
     assert strip_leading_zero(ETHANOL) == ""
     assert strip_leading_zero("") == ""
+
+
+def test_a_rotation_that_can_only_yield_a_leading_zero_is_refused() -> None:
+    """`0-1-007` rotates to a first segment that is all zeros but one.
+
+    The rotation gate passes it, because the check digit cannot see leading zeros;
+    the final guard is what refuses it.
+    """
+    assert classify_cas("0-1-007")[1] == CAS_INVALID_FORMAT
 
 
 # --------------------------------------------------------------------------
@@ -139,8 +157,13 @@ def test_a_failing_check_digit_classifies_invalid_checksum() -> None:
 
 def test_a_repaired_rotation_classifies_valid_and_says_so() -> None:
     cas, cas_class, repairs = classify_cas("3-4-7689")
-    assert (cas, cas_class) == (CAMPTOTHECIN, CAS_VALID)
-    assert REPAIR_SEGMENT_ROTATION in repairs
+    # Exact, not `in`: a substring assertion keeps passing if classify_cas drops
+    # the repairs it inherited from normalize_cas and reports only its own.
+    assert (cas, cas_class, repairs) == (
+        CAMPTOTHECIN,
+        CAS_VALID,
+        REPAIR_SEGMENT_ROTATION,
+    )
 
 
 def test_a_bare_digit_run_is_never_guessed_into_a_cas() -> None:
@@ -158,7 +181,7 @@ def test_repairs_are_reported_through_classification() -> None:
     """A curator has to see that the value looked up is not the value in the cell."""
     cas, cas_class, repairs = classify_cas("0362-07-02")
     assert (cas, cas_class) == (TWO_METHOXYESTRADIOL, CAS_VALID)
-    assert repairs
+    assert repairs == (f"{REPAIR_ZERO_PADDED_CHECK_DIGIT}+{REPAIR_LEADING_ZERO}")
 
 
 # --------------------------------------------------------------------------
@@ -175,8 +198,9 @@ def test_rotation_can_expose_a_leading_zero_and_it_is_repaired() -> None:
     """
     cas, cas_class, repairs = classify_cas("3-4-07689")
     assert (cas, cas_class) == (CAMPTOTHECIN, CAS_VALID)
-    assert REPAIR_LEADING_ZERO in repairs
-    assert REPAIR_SEGMENT_ROTATION in repairs
+    # Both labels, in order, exactly: asserting membership of each would pass if
+    # classify_cas truncated the joined record to its first element.
+    assert repairs == f"{REPAIR_LEADING_ZERO}+{REPAIR_SEGMENT_ROTATION}"
 
 
 @pytest.mark.parametrize("raw", ["00-00-0", "0000-00-0", "007-00-1", "0-00-0"])

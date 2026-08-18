@@ -92,6 +92,19 @@ ABT702_2HCL = (
     "(H2,24,26,27,28);2*1H"
 )
 
+# Apomorphine hydrochloride against its hemihydrate. Real PubChem records, and the
+# only fixture here whose *principal* component carries a stoichiometric multiplier
+# on one side and not the other -- 2C17H17NO2 against C17H17NO2. The ABT-702 pair
+# does not pin that, because there the multiplier sits on the counterion.
+APOMORPHINE_HCL = (
+    "InChI=1S/2C17H17NO2.2ClH.H2O/c2*1-18-8-7-10-3-2-4-12-15(10)13(18)9-11-5-6-"
+    "14(19)17(20)16(11)12;;;/h2*2-6,13,19-20H,7-9H2,1H3;2*1H;1H2/t2*13-;;;/m11.../s1"
+)
+APOMORPHINE_HCL_HEMIHYDRATE = (
+    "InChI=1S/C17H17NO2.ClH.H2O/c1-18-8-7-10-3-2-4-12-15(10)13(18)9-11-5-6-14(19)"
+    "17(20)16(11)12;;/h2-6,13,19-20H,7-9H2,1H3;1H;1H2/t13-;;/m1../s1"
+)
+
 # Pyrvinium pamoate: the drug cation and the pamoate counterion have formulas of
 # equal character length, so ranking components by string length picks the
 # counterion. This is the same wrong answer PubChem's desalting gives.
@@ -212,11 +225,24 @@ def test_salt_and_free_base_differ_by_form_not_by_compound() -> None:
 def test_different_stoichiometry_of_one_base_is_a_form_difference() -> None:
     """ABT-702 mono-HCl against di-HCl: two forms of one compound.
 
-    The stoichiometric multiplier has to be ignored when deciding which component
-    is the parent, or `C22H19BrN6O` and `2ClH` compare as different compounds and
-    a salt-form question is reported as a wrong-molecule question.
+    Here the multiplier sits on the *counterion*, so this pins the formula-layer
+    comparison but NOT the multiplier stripping -- see the apomorphine test below.
     """
     assert classify_pair(ABT702_HCL, ABT702_2HCL) == FORM_DIFFERS
+
+
+def test_a_multiplier_on_the_principal_component_is_ignored() -> None:
+    """Apomorphine hydrochloride against its hemihydrate: 2C17H17NO2 vs C17H17NO2.
+
+    The stoichiometric multiplier has to be stripped before the principal
+    components are compared, or one apomorphine and two compare as *different
+    molecules* and a hydrate question is reported as a wrong-compound question.
+
+    This is the only fixture that pins that stripping. Deleting both
+    `_LEADING_COUNT.sub()` calls from `classify_pair` left every other test in this
+    module passing.
+    """
+    assert classify_pair(APOMORPHINE_HCL, APOMORPHINE_HCL_HEMIHYDRATE) == FORM_DIFFERS
 
 
 def test_unrelated_compounds_differ_by_compound() -> None:

@@ -20,6 +20,8 @@ from chebi_lookup.io import (
 )
 from tests.chebi_lookup_helpers import (
     FIXTURES,
+    PUBCHEM_LIVE,
+    load_json,
     load_json_name,
     mock_response,
     route_pubchem_get,
@@ -257,3 +259,28 @@ def test_map_cas_file_tolerates_a_short_row(
     assert out.exists()
     assert "cmp_001" in out.read_text(encoding="utf-8")
     assert mock_get.call_count == 0
+
+
+def test_the_unit_and_recorded_property_fixtures_agree_on_key_names() -> None:
+    """The unit fixture is unreachable through `route_pubchem_get`, so pin it here.
+
+    Live routing keys off the CID, and every mocked lookup resolves to CID 702,
+    which the recorded `pubchem_live/64-17-5/` fixture also claims — so the live
+    payload always wins and `properties.json` is never served. That made it a
+    silent copy of PubChem's *retired* response shape, which is precisely what let
+    the SMILES rename hide under a green suite: the mocked parser was fed keys
+    matching the wrong code.
+
+    Comparing the hand-written fixture against the recorded one keeps them honest
+    in both directions, and re-recording the live fixture will fail this test until
+    the hand-written one is updated too.
+    """
+    unit = load_json_name("properties.json")["PropertyTable"]["Properties"][0]
+    live = load_json(PUBCHEM_LIVE / "64-17-5" / "properties.json")
+    live_props = live["PropertyTable"]["Properties"][0]
+    assert set(unit) == set(live_props), (
+        "the hand-written property fixture has drifted from the recorded PubChem "
+        "response shape"
+    )
+    assert "SMILES" in unit
+    assert "ConnectivitySMILES" in unit
