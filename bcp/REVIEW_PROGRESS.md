@@ -24,19 +24,23 @@ into the permanent packages, so the reasoning survives the data. Agreed scope:
 
 | check | state |
 |---|---|
-| `pytest tests/` | **1878 passed**, 13 skipped, 21 deselected |
+| `pytest tests/` | **1883 passed**, 13 skipped, 21 deselected |
 | `ruff check bcp/` | clean |
 | `ruff format --check bcp/` | clean |
-| new offline tests | 90 (35 inchi + 40 cas + 15 chebi_lookup) |
+| new offline tests | 95 (38 inchi + 41 cas + 16 chebi_lookup) |
 
-## Adversarial review: 44 findings, 27 verified, 17 never verified
+## Adversarial review: complete
 
-The review workflow (`wf_b7f1006e-d80`) raised 44 findings across five dimensions.
-**17 of 49 verify agents died on a session limit**, so those findings have no
-refutation verdict. `.chebi_review_findings.json` holds all 44 with a `status` field.
+The review workflow (`wf_b7f1006e-d80`) raised **44 findings** across five dimensions.
+The first pass lost **17 of 49 verify agents to a session limit**; the run was resumed
+with `resumeFromRunId`, which replayed the cached agents and re-ran only the dead ones.
+It now reports **49 of 49 agents done, 0 errors** — every finding has a verdict.
 
-- **20 addressed** in the working tree (4 blocking, 8 important, 8 nit).
-- **24 open** (0 blocking, 9 important, 15 nit).
+- **57 refuted**, **14 survived** refutation.
+- Every survivor has been acted on: fixed, or (for the one irreducible ambiguity and the
+  one scope boundary) documented explicitly.
+
+**Nothing is open.** The gate is green at 1883 tests.
 
 Where a reviewer's claim was reproduced by direct execution, it was fixed regardless of
 what a refuter said — several refuters were wrong. Where it could not be reproduced, it
@@ -51,43 +55,39 @@ was left alone.
 | `inchi.py` | layers keyed by assignment, so `/t /m /s` re-emitted after `/i` overwrote the real ones | `setdefault` — first occurrence wins |
 | tests | (same as the `/c`/`/h` finding, reported from the test dimension) | 3 tests added |
 
-### Open, important — these need a decision or a fix
+### What the second pass found that the first missed
 
-1. **`inchi.py`: `FORM_DIFFERS` returns before the stereo comparison.** A salt pair that
-   *also* has a stereo mismatch reports only `form_differs`, so the reason code is
-   incomplete. Safe direction (it still refuses), but possibly worth a combined verdict.
-2. **`CHEBI_IDENTIFICATION.md`: "six apparent disagreements in the first batch"** is a
-   pre-correction snapshot; re-running the audit gave 17. Check and correct.
-3. **`CHEBI_IDENTIFICATION.md`: "Five of six regression assertions fail against the
-   implementation they replaced"** — was measured against the *stereo-only* predecessor,
-   before the `/c`/`/h` fix. Re-measure or reword.
-4. **`CHEBI_IDENTIFICATION.md`: the name ladder is attributed to `structure_check`**, but
-   five of its six rules live only in `mashroom2/phase3_name_structure.py` and were NOT
-   promoted. Either promote them or stop crediting the package for them. **This is the
-   most substantive open item: the doc currently overstates what survives deletion.**
-5. **`tests`: the "never identical" parametrize only covers junk with no `/`** — add a
-   truncated-InChI case (a real one now exists elsewhere in the file).
-6. **`tests`: `test_map_cas_file_tolerates_a_short_row` may reach live PubChem** — it
-   patches nothing. Verify it is genuinely offline; if not, patch `requests.get`.
-7. **`tests`: `"@" not in canonical_smiles` is satisfied by an empty string** — assert the
-   exact expected value instead.
-8. **`tests`: `test_numeric_synonyms...` passes if numeric synonyms are silently dropped**
-   — assert the numeric one survives, not just that "ethanol" is present.
-9. **`properties.json`: the fixture edit may be dead** — `route_pubchem_get` prefers the
-   recorded `pubchem_live/64-17-5/` fixture, which already had the new keys. Confirm which
-   fixture the SMILES tests actually exercise; if the unit fixture is unused by them, the
-   test does not pin what it claims.
+- **`comparison_verdict_from_inchi()` did not exist**, though `inchi.py`'s docstring told
+  callers to use it. Written, and it asserts at import time that it maps every verdict.
+- **Three doc numbers contradicted the run data**: the batch-1 alternate-registry count
+  (six → **17**), the batch-2 xref coverage (94% → **91%** of resolved CAS numbers), and
+  the regression count (five of six → **12 of 14**).
+- **The name ladder was credited to `structure_check`** when five of its six rules live
+  only in the per-run script being deleted. The section now says so in its first sentence
+  and reads as a specification to re-implement from. Promoting the ladder is the clear
+  next piece of work and is *not* done.
+- **Four tests passed for the wrong reason**, each demonstrated by a mutation that stayed
+  green: `"@" not in` satisfied by an empty string; a numeric synonym silently dropped;
+  a short-CSV-row test that patched nothing and would have reached live PubChem; and the
+  multiplier stripping in `classify_pair` with no coverage at all — the ABT-702 fixture
+  carries its multiplier on the *counterion*, so it could never pin it. A real
+  apomorphine hydrochloride / hemihydrate pair does, and the mutation now fails.
+- **The `properties.json` unit fixture was genuinely dead.** Live routing keys off the
+  CID and every mocked lookup yields CID 702, so the recorded fixture always wins. It is
+  now re-keyed to PubChem's current shape *and* pinned against the recorded one, so
+  neither can drift.
 
-### Open, nit — lower value, listed for completeness
+### Deliberately not fixed, with the reason
 
-`inchi.py` docstring points at `structure_check.client.comparison_verdict_from_inchi()`,
-**which does not exist** (either write it or drop the reference); no whitespace
-normalisation on InChI input; `defined_stereo` counts rather than checks containment;
-batch-2 xref "94%" not reproducible from run data (89% or 95% depending on denominator);
-`test_every_verdict_returned_is_declared` is close to a tautology; `defined_stereo`'s last
-assertion is self-referential; two committed CSVs (`cas_batch_input*_mapped.csv`) carry the
-empty SMILES columns the fixed bug produced; `mashroom/HANDOFF_NEXT_BATCH.md` still lists
-the SMILES rename as open (that file is gitignored and being deleted — ignore).
+- **A genuine date can still classify as a valid CAS.** `2020-01-01 00:00:00` → `2020-01-1`
+  passes the checksum. No string rule separates it from `2113-05-05`, whose real number is
+  year-shaped. Documented, and pinned by a test so it is known rather than surprising.
+- **`FORM_DIFFERS` returns before the stereo comparison**, so a salt pair that also
+  mismatches on stereo reports only the form difference. It still refuses the row, which is
+  the safe direction; a combined verdict would be more informative but changes the
+  vocabulary.
+- **Two committed CSVs** (`cas_batch_input*_mapped.csv`) carry the empty SMILES columns the
+  fixed bug produced. Regenerating them needs live PubChem calls — a separate job.
 
 ## An injected fault, and why it matters
 
