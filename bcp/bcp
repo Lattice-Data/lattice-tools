@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Thin dispatcher so `bcp order-qa ...` works, without repackaging the repo.
+#
+# Every tool here is a `python -m <tool>` module that expects to be run from this
+# directory: the qa_* modules import each other flat (`from qa_constants import
+# ...`), so bcp/ has to be on sys.path. Rather than make that the caller's
+# problem, this script cd's to its own location first, which is also what lets
+# `bcp` be symlinked onto PATH from anywhere.
+#
+#   ln -s "$PWD/bcp/bcp" ~/.local/bin/bcp
+#   bcp order-qa czi-psomagen/marson-crispra/AN00028352 --assay 10x
+
+set -euo pipefail
+
+here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$here"
+
+usage() {
+    cat <<'USAGE'
+usage: bcp <command> [args...]
+
+commands:
+  order-qa        QA one sequencing order (verify upload, run checks, report)
+  file-extract    Extract S3 metadata for FASTQ/CRAM/h5 deliverables
+  chebi-lookup    Map CAS numbers to ChEBI IDs
+  chebi-terms     Check ChEBI terms
+  structure-check Cross-check curation rows by structure
+
+Any command not listed is forwarded as `python -m <command with _ for ->`, so a
+new tool works here as soon as it has a __main__.py.
+
+Run `bcp <command> --help` for a command's own options.
+USAGE
+}
+
+if [[ $# -eq 0 ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
+command="$1"
+shift
+
+# Subcommands are kebab-case; module names are snake_case.
+module="${command//-/_}"
+
+if [[ ! -f "$module/__main__.py" ]]; then
+    echo "bcp: unknown command '$command' (no $module/__main__.py)" >&2
+    echo >&2
+    usage >&2
+    exit 2
+fi
+
+exec "${PYTHON:-python3}" -m "$module" "$@"
