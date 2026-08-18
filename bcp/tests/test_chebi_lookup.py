@@ -118,3 +118,129 @@ def test_map_cas_file_missing_column(tmp_path: Path) -> None:
 def test_map_cas_file_missing_input(tmp_path: Path) -> None:
     with pytest.raises(CasMappingError, match="Input file not found"):
         map_cas_file(tmp_path / "missing.csv", "CAS", tmp_path / "out.csv")
+
+
+# --------------------------------------------------------------------------
+# Regressions: defects that were silent because nothing asserted on them
+# --------------------------------------------------------------------------
+
+# L-alanine. Its stereo-bearing and connectivity-only SMILES genuinely differ, so
+# a test using it catches a swap that ethanol ("CCO" both ways) cannot.
+L_ALANINE_PROPERTIES = {
+    "PropertyTable": {
+        "Properties": [
+            {
+                "CID": 5950,
+                "Title": "L-Alanine",
+                "MolecularFormula": "C3H7NO2",
+                "SMILES": "C[C@@H](C(=O)O)N",
+                "ConnectivitySMILES": "CC(C(=O)O)N",
+                "InChIKey": "QNAYBMKLOCPYGJ-REOHCLBHSA-N",
+            }
+        ]
+    }
+}
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_lookup_cas_populates_both_smiles_columns(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """PubChem renamed these properties and the columns silently emptied.
+
+    The request kept working, because PubChem still accepts the retired names in
+    the URL; only the response keys changed. Nothing in the suite asserted on
+    either column, which is why every lookup returned "" for both without anyone
+    noticing.
+    """
+    mock_get.side_effect = route_pubchem_get
+    result = lookup_cas("64-17-5")
+    assert result["isomeric_smiles"] == "CCO"
+    assert result["canonical_smiles"] == "CCO"
+
+
+def _route_l_alanine(url: str, *args: object, **kwargs: object) -> MagicMock:
+    """Route by endpoint: CID first, then properties, then empty for the rest."""
+    if "/cids/" in url:
+        return mock_response(200, {"IdentifierList": {"CID": [5950]}})
+    if "/property/" in url:
+        return mock_response(200, L_ALANINE_PROPERTIES)
+    return mock_response(200, {})
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_isomeric_and_canonical_smiles_are_not_swapped(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """The rename crosses the two names, so a naive fix inverts their meaning.
+
+    `IsomericSMILES` became `SMILES` and `CanonicalSMILES` became
+    `ConnectivitySMILES`. Mapping `SMILES` onto `canonical_smiles` would put
+    stereochemistry in the column consumers read as connectivity-only.
+    """
+    mock_get.side_effect = _route_l_alanine
+    result = lookup_cas("56-41-7")
+    assert "@" in result["isomeric_smiles"]
+    assert "@" not in result["canonical_smiles"]
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_lookup_cas_survives_a_valid_json_body_of_the_wrong_shape(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """A proxy or maintenance page can be valid JSON and still not be this API.
+
+    A list body makes `.get()` raise AttributeError and a scalar `Properties`
+    makes `[0]` raise TypeError, neither of which the except clause caught.
+    """
+
+    def route(url: str, *args: object, **kwargs: object) -> MagicMock:
+        if "/cids/" in url:
+            return mock_response(200, {"IdentifierList": {"CID": [702]}})
+        return mock_response(200, ["unexpected"])
+
+    mock_get.side_effect = route
+    result = lookup_cas("64-17-5")
+    assert result["pubchem_cid"] == 702
+    assert result["isomeric_smiles"] == ""
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_numeric_synonyms_do_not_abort_the_lookup(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """PubChem has shipped synonyms as bare numbers; join() raises on the first."""
+    payload = {
+        "InformationList": {
+            "Information": [{"CID": 702, "Synonym": ["ethanol", 64175]}]
+        }
+    }
+
+    def route(url: str, *args: object, **kwargs: object) -> MagicMock:
+        if "/cids/" in url:
+            return mock_response(200, {"IdentifierList": {"CID": [702]}})
+        if "/synonyms/" in url:
+            return mock_response(200, payload)
+        return mock_response(200, {})
+
+    mock_get.side_effect = route
+    result = lookup_cas("64-17-5")
+    assert "ethanol" in result["synonyms"]
+
+
+def test_map_cas_file_tolerates_a_short_row(tmp_path: Path) -> None:
+    """DictReader fills a truncated row's fields with None.
+
+    `None.strip()` aborted the whole run partway through, after the output file
+    had already been opened and partly written. A missing cell is an empty CAS.
+    """
+    src = tmp_path / "in.csv"
+    src.write_text("compound_id,CAS,notes\ncmp_001\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+    map_cas_file(src, "CAS", out)
+    assert out.exists()
+    assert "cmp_001" in out.read_text(encoding="utf-8")

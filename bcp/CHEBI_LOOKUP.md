@@ -8,6 +8,8 @@ To go the other way — from a ChEBI ID you already hold to its authoritative na
 
 When the question is whether a whole sheet's identifiers agree with each other **by structure** rather than by name, see [STRUCTURE_CHECK.md](STRUCTURE_CHECK.md): it resolves the CAS, the name, and the ChEBI ID independently to InChIKeys and compares those.
 
+When a whole batch has **no trustworthy identifier at all** — only a compound name and a CAS number per row — see [CHEBI_IDENTIFICATION.md](CHEBI_IDENTIFICATION.md), the phased method that establishes one from scratch and builds on this tool.
+
 ### Request behaviour
 
 `get_with_retry` keeps its signature and return semantics — a `Response`, or `None` for both "no such thing" and "could not ask". `get_with_retry_status` returns the same response alongside an outcome (`ok` / `not_found` / `unreachable`) for callers that need to tell those apart; `structure_check` does, because reporting an outage as "no such compound" would turn a network problem into a finding about the chemistry.

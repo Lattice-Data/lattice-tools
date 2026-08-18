@@ -109,7 +109,11 @@ def map_cas_file(
         writer.writeheader()
 
         for i, row in enumerate(rows, 1):
-            cas = row[cas_column].strip()
+            # DictReader fills a short row's missing fields with None, so a
+            # truncated final line made None.strip() abort the run partway through
+            # -- after the output file had already been opened and written to.
+            # A missing cell now takes the existing "Empty CAS, skipping" path.
+            cas = (row.get(cas_column) or "").strip()
             log.info("[%s/%s] CAS: %s", i, total, cas)
 
             out_row = {

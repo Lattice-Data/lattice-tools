@@ -6,6 +6,8 @@ This is the inverse of [CHEBI_LOOKUP.md](CHEBI_LOOKUP.md), which starts from a C
 
 When the question is whether a whole sheet's identifiers agree with each other **by structure** rather than by name, see [STRUCTURE_CHECK.md](STRUCTURE_CHECK.md): it resolves the CAS, the name, and the ChEBI ID independently to InChIKeys and compares those.
 
+When a whole batch has **no trustworthy identifier at all** — only a compound name and a CAS number per row — see [CHEBI_IDENTIFICATION.md](CHEBI_IDENTIFICATION.md), the phased method that establishes one from scratch and builds on this tool.
+
 No local data cache and no extra dependencies: one HTTP GET per unique ID.
 
 ---

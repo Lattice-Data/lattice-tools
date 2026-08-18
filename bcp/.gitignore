@@ -42,3 +42,29 @@ venv.bak/
 
 # Local documentation / data files (mapping CSVs, SIFs, SOPs, etc.)
 docs/
+
+# --- Per-run working directories for the ChEBI identification method ----------
+#
+# The method is documented in CHEBI_IDENTIFICATION.md and its reusable parts live
+# in structure_check/ and chebi_terms/. Everything one run produces is either a
+# regenerable network cache or data derived from a single input spreadsheet, so
+# none of it belongs in history: a finished run is a few MB of TSV answering a
+# question nobody will ask again in that exact form.
+#
+# Written against mashroom*/ (the 2026-08 runs) and a generic chebi_run_*/ so a
+# later batch can use either name.
+mashroom*/
+chebi_run_*/
+
+# Bulk artifacts, in case a run directory is deliberately kept under another name.
+**/.cache_pubchem.json
+**/.cache_chebi.json
+**/master.tsv
+**/chebi_submission*.sdf
+
+# Deliverables: communication artifacts addressed to ChEBI, the Lattice DB and
+# the experimental team, with a date on them. Not source.
+verified_chebi.tsv
+unverified_chebi.tsv
+chebi_submissions.tsv
+lab_followup.tsv
