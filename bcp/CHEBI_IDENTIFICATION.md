@@ -171,9 +171,18 @@ three of them (`Cromakalim`, `PSB 11`, `UB 165 fumarate`) — so the caution was
 
 ## Resolving the name independently of the CAS
 
-`structure_check`'s name ladder tries query forms most-faithful-first. What it must
-**never** do is widen the query, because a widened query returns a confident wrong answer
-rather than no answer.
+**Scope note, stated first because the rest of this section is easy to misread.** These
+rules are **recorded here, not promoted.** `structure_check.client` supplies
+`name_candidates()` and the `SALT_TOKENS` list; everything else below —
+`_COUNTERION`, `fragments()`, `lost_apostrophe()`, `strip_racemic()`, the `GREEK`
+transliteration map and `_CODE_NOISE` — lives only in a per-run script and does **not**
+survive the deletion of those directories. Promoting the ladder is the obvious next piece
+of this work, and until it happens this section is a specification to re-implement from,
+not a description of code in the package.
+
+A name ladder tries query forms most-faithful-first. What it must **never** do is widen
+the query, because a widened query returns a confident wrong answer rather than no
+answer.
 
 - **Salt words are never stripped.** `PIK-75 HCl` and `PIK-75` are different structures;
   dropping the counterion manufactures a disagreement that is our own doing.
@@ -220,8 +229,9 @@ stated reason.
 **Route A alone is not enough.** PubChem's cross-reference reached 59% of rows in the
 first batch. Route C found an exact ChEBI match for **64 rows** route A missed, including
 Auranofin, Cisplatin, Bestatin and Gemcitabine hydrochloride. Coverage varies a lot by
-library: the same cross-reference reached 94% on the second batch, which was mostly
-well-characterised clinical drugs.
+library: the same cross-reference reached **91%** of the second batch's resolved CAS
+numbers (106 of 116), and 95% of its rows counting a hit on either the CAS or the name
+side. That batch was mostly well-characterised clinical drugs.
 
 **Route B contributed nothing and can be dropped.** It was asked about all 389 structures
 routes A and C left empty and returned a ChEBI ID for **zero** of them. That is a clean
@@ -362,8 +372,10 @@ available evidence that the strict policy is calibrated rather than merely sever
 
 **A different registry number is not a different compound.** CAS issues more than one
 number per substance and ChEBI may file the entry under the other one. Resolve ChEBI's
-number and compare structures before calling it a finding: six apparent disagreements in
-the first batch were all this, and 18 in the second.
+number and compare structures before calling it a finding: **17** apparent disagreements
+in the first batch were all this, and 18 in the second. (The first batch originally
+reported six; re-running the audit after the stereo corrections raised it, because three
+rows moved out of the verified set and others moved in.)
 
 ### What the CAS cross-check cannot see
 
@@ -426,9 +438,13 @@ pytest tests/test_structure_check_inchi_layers.py tests/test_structure_check_cas
 
 Every lesson above that is enforceable is a test rather than a paragraph, and the fixtures
 are the **real compounds that failed** — CCMI's opposing `/b` layers, dihydrosphingosine's
-`/m` flip, formoterol's `/m` flip inside a multi-component salt, pyrvinium pamoate's
-tied component lengths, `2113-05-05 00:00:00`, `6857789`. Five of six regression assertions
-fail against the implementation they replaced.
+`/m` flip, formoterol's `/m` flip inside a multi-component salt, pyrvinium pamoate's tied
+component lengths, ABT-702 as its mono- and di-hydrochloride, `2113-05-05 00:00:00`,
+`6857789`. Replayed against the implementation they replaced, **12 of 14** structure
+assertions fail — and the component-ranking assertions fail against *both* predecessors,
+each of which got one real drug right and the other wrong: string length picked
+diatrizoate correctly and pyrvinium's counterion, total atoms picked pyrvinium correctly
+and meglumine.
 
 This matters more than it sounds. The first batch's own record already contained the
 sentence *"Stereochemistry: strict. Racemate-for-enantiomer is never acceptable."* It was

@@ -126,7 +126,10 @@ def test_defined_stereo_counts_all_four_layers() -> None:
     assert defined_stereo(inchi_layers(SU4312_UNDEFINED)[0]) == 0
     assert defined_stereo(inchi_layers(SU4312_Z)[0]) == 1
     assert defined_stereo(inchi_layers(SPHINGANINE)[0]) == 3
-    assert defined_stereo(inchi_layers(FORMOTEROL_FUMARATE)[0]) == len(STEREO_LAYERS)
+    # Spelled 4, not len(STEREO_LAYERS): comparing against the constant under test
+    # would keep passing if a layer were dropped from it.
+    assert defined_stereo(inchi_layers(FORMOTEROL_FUMARATE)[0]) == 4
+    assert len(STEREO_LAYERS) == 4
 
 
 # --------------------------------------------------------------------------
@@ -232,6 +235,8 @@ def test_a_structure_is_identical_to_itself() -> None:
         (ETHANOL, ""),
         ("", ETHANOL),
         (ETHANOL, "not an inchi"),
+        (ETHANOL, "a/b"),
+        ("InChI=1S//c1-2-3", "InChI=1S//c1-2-3"),
     ],
 )
 def test_missing_structure_is_not_comparable_never_identical(a: str, b: str) -> None:
@@ -256,18 +261,28 @@ def test_comparison_is_symmetric_under_argument_order() -> None:
         assert classify_pair(a, b) == classify_pair(b, a)
 
 
-def test_every_verdict_returned_is_declared() -> None:
-    """Guards against a new branch returning a string no consumer maps."""
-    pairs = [
-        (CCMI_Z, CCMI_E),
-        (SU4312_UNDEFINED, SU4312_Z),
-        (DOXORUBICIN, DOXORUBICIN_HCL),
-        (ETHANOL, DOXORUBICIN),
-        (ETHANOL, ETHANOL),
-        (ETHANOL, ""),
-    ]
-    for a, b in pairs:
-        assert classify_pair(a, b) in INCHI_VERDICTS
+def test_every_declared_verdict_is_reachable() -> None:
+    """Exhaustiveness, not membership.
+
+    Asserting each result is *in* INCHI_VERDICTS is nearly a tautology -- the
+    function only ever returns those constants. What is worth pinning is the other
+    direction: every verdict the module declares is produced by some real pair, so a
+    constant cannot be declared and then never returned, and a consumer's mapping
+    cannot silently go stale.
+    """
+    observed = {
+        classify_pair(a, b)
+        for a, b in [
+            (ETHANOL, ETHANOL),
+            (DOXORUBICIN, DOXORUBICIN_HCL),
+            (CCMI_Z, CCMI_E),
+            (SU4312_UNDEFINED, SU4312_Z),
+            (ETHANOL, ETHANOL_D6),
+            (ETHANOL, DIMETHYL_ETHER),
+            (ETHANOL, ""),
+        ]
+    }
+    assert observed == set(INCHI_VERDICTS)
 
 
 # --------------------------------------------------------------------------

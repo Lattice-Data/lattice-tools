@@ -182,6 +182,9 @@ def test_isomeric_and_canonical_smiles_are_not_swapped(
     """
     mock_get.side_effect = _route_l_alanine
     result = lookup_cas("56-41-7")
+    assert result["isomeric_smiles"] == "C[C@@H](C(=O)O)N"
+    assert result["canonical_smiles"] == "CC(C(=O)O)N"
+    # and, the point of the test: the stereocentre is in one column and not the other
     assert "@" in result["isomeric_smiles"]
     assert "@" not in result["canonical_smiles"]
 
@@ -229,14 +232,23 @@ def test_numeric_synonyms_do_not_abort_the_lookup(
 
     mock_get.side_effect = route
     result = lookup_cas("64-17-5")
-    assert "ethanol" in result["synonyms"]
+    # Both survive: asserting only on "ethanol" would pass if the numeric synonym
+    # were silently dropped, which is a different behaviour from not crashing.
+    assert result["synonyms"] == "ethanol | 64175"
 
 
-def test_map_cas_file_tolerates_a_short_row(tmp_path: Path) -> None:
+@patch("chebi_lookup.client.requests.get")
+def test_map_cas_file_tolerates_a_short_row(
+    mock_get: MagicMock, tmp_path: Path
+) -> None:
     """DictReader fills a truncated row's fields with None.
 
-    `None.strip()` aborted the whole run partway through, after the output file
-    had already been opened and partly written. A missing cell is an empty CAS.
+    `None.strip()` aborted the whole run partway through, after the output file had
+    already been opened and partly written. A missing cell is an empty CAS.
+
+    The transport is patched and asserted unused, for two reasons: the test is then
+    offline by construction rather than by the guard happening to work, and "an
+    empty cell costs no request" is itself the behaviour worth pinning.
     """
     src = tmp_path / "in.csv"
     src.write_text("compound_id,CAS,notes\ncmp_001\n", encoding="utf-8")
@@ -244,3 +256,4 @@ def test_map_cas_file_tolerates_a_short_row(tmp_path: Path) -> None:
     map_cas_file(src, "CAS", out)
     assert out.exists()
     assert "cmp_001" in out.read_text(encoding="utf-8")
+    assert mock_get.call_count == 0
