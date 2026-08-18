@@ -1,0 +1,1126 @@
+experimental_perturbation	cas	verdict	term_id	chebi_name	reason_code	inchikey	identity_evidence	first_seen_batch	last_updated_batch
+(+)-AJ 76 hydrochloride	85378-82-1	verified	CHEBI:64115	(1S,2R)-5-methoxy-1-methyl-2-(propylamino)tetralin hydrochloride		KIRYNZFMOLYYQB-YECZQDJWSA-N	name and CAS resolved independently to the same structure	1	2
+(+)-Bicuculline	485-49-4	verified	CHEBI:3092	bicuculline		IYGYMKDQCDOMRE-ZWKOTPCHSA-N	name and CAS resolved independently to the same structure	1	2
+(+)-MK 801 maleate	77086-22-7	verified	CHEBI:176788	dizocilpine maleate		QLTXKCWMEZIHBJ-PJGJYSAQSA-N	name and CAS resolved independently to the same structure	1	2
+(+)-PD 128907 hydrochloride	300576-59-4	unverified			in_pubchem_not_in_chebi	DCFXOTRONMKUJB-QMDUSEKHSA-N	name and CAS resolved independently to the same structure	1	2
+(+)-SK&F 10047 hydrochloride	133005-41-1	unverified			in_pubchem_not_in_chebi	LGQCVMYAEFTEFN-VUOHQMJNSA-N	the experimental team supplied the structure as SMILES	1	2
+(+)-UH 232 maleate	1217473-50-1	unverified			in_pubchem_not_in_chebi	MEQAJDYHKYAPJE-GUUGRXDUSA-N	name and CAS resolved independently to the same structure	1	2
+(-)-Bicuculline methiodide	40709-69-1	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+(-)-Bicuculline methobromide	66016-70-4	unverified			in_pubchem_not_in_chebi	BWXCECYGGMGBHD-GRTNUQQKSA-M	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+(-)-Bicuculline methochloride	38641-83-7	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+(-)-Cytisine	485-35-8	verified	CHEBI:4055	cytisine		ANJTVLIZGCUXLD-DTWKUNHWSA-N	name and CAS resolved independently to the same structure	1	2
+(-)-MK 801 maleate	121917-57-5	unverified			in_pubchem_not_in_chebi	QLTXKCWMEZIHBJ-FWHYOZOBSA-N	name and CAS resolved independently to the same structure	1	2
+(-)-Quinpirole hydrochloride	85798-08-9	verified	CHEBI:749711	quinpirole hydrochloride		HJHVRVJTYPKTHX-HTMVYDOJSA-N	name and CAS resolved independently to the same structure	1	2
+(-)-Terreic acid	121-40-4	verified	CHEBI:156546	terreic acid		ATFNSNUJZOYXFC-RQJHMYQMSA-N	name and CAS resolved independently to the same structure	1	2
+(2R,3S)-Chlorpheg	140924-23-8	unverified			in_pubchem_not_in_chebi	ZHXBCPSYEAQEHB-PSASIEDQSA-N	name and CAS resolved independently to the same structure	1	2
+(?)-Epibatidine	148152-66-3	unverified			chebi_has_only_a_different_form	NLPRAJRHRHZCQQ-IVZWLZJFSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	2	2
+(?)-Nipecotic acid	60252-41-7	verified	CHEBI:116931	nipecotic acid		XJLSEXAGTJCILF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+(?)-threo-3-Methylglutamic acid	63088-04-0	unverified			in_pubchem_not_in_chebi	FHJNAFIJPFGZRI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+(E)-Capsaicin	404-86-4	verified	CHEBI:3374	capsaicin		YKPUWZUDDOIDPM-SOFGYWHQSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-(+)-HA-966	123931-04-4	unverified			in_pubchem_not_in_chebi	HCKUBNLZMKAEIN-GSVOUGTGSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-(+)-Propranolol hydrochloride	13071-11-9	verified	CHEBI:51161	dexpropranolol hydrochloride		ZMRUPTIKESYGQW-PFEQFJNWSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-(-)- ?-Methylhistamine dihydrobromide	868698-49-1	unverified			in_pubchem_not_in_chebi	RWHNAAABSGVRDT-ZJIMSODOSA-N	name and CAS resolved independently to the same structure	2	2
+(R)-(-)-Apomorphine hydrochloride	314-19-2	unverified			in_pubchem_not_in_chebi	SKYZYDSNJIOXRL-BTQNPOSSSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-(-)-Niguldipine hydrochloride	113145-70-3	verified	CHEBI:231360	(R)-(-)-niguldipine hydrochloride		MHOSUIMBPQVOEU-MGDILKBHSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-(-)-Rolipram	85416-75-7	verified	CHEBI:40133	(−)-rolipram		HJORMJIFDVBMOB-LBPRGKRZSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-(-)-α-Methylhistamine dihydrobromide	868698-49-1	unverified			in_pubchem_not_in_chebi	RWHNAAABSGVRDT-ZJIMSODOSA-N	name and CAS resolved independently to the same structure	1	1
+(R)-3,4-DCPG	201730-10-1	unverified			in_pubchem_not_in_chebi	IJVMOGKBEVRBPP-SSDOTTSWSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-3-Carboxy-4-hydroxyphenylglycine	13861-03-5	unverified			in_pubchem_not_in_chebi	CHZBCZTXSTWCIG-SSDOTTSWSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-4-Carboxyphenylglycine	134052-68-9	unverified			in_pubchem_not_in_chebi	VTMJKPGFERYGJF-SSDOTTSWSA-N	name and CAS resolved independently to the same structure	1	2
+(R)-CR8	1786438-30-9	unverified			in_pubchem_not_in_chebi	ORYSYXHQFOWNDK-RGFWRHHQSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+(R)-DRF053 dihydrochloride	1241675-76-2	unverified			in_pubchem_not_in_chebi	BQPRBNGSDBTKAK-ZEECNFPPSA-N	name and CAS resolved independently to the same structure	1	2
+(RS)-(Tetrazol-5-yl)glycine	138199-51-6	verified	CHEBI:35003	Tet-glycine		UKBRUIZWQZHXFL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(RS)-(±)-Sulpiride	15676-16-1	verified	CHEBI:32168	sulpiride		BGRJTUBHPOOWDU-UHFFFAOYSA-N	single_source	1	2
+(RS)-4-Carboxy-3-hydroxyphenylglycine	134052-66-7	verified	CHEBI:93904	4-[amino(carboxy)methyl]-2-hydroxybenzoic acid		GXZSAQLJWLCLOX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(RS)-4-Carboxyphenylglycine	7292-81-1	verified	CHEBI:178134	4-Carboxyphenylglycine		VTMJKPGFERYGJF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(RS)-Atenolol	29122-68-7	verified	CHEBI:2904	atenolol		METKIMKYRPQLGS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(RS)-Baclofen	1134-47-0	verified	CHEBI:2972	baclofen		KPYSYYIEGFHWSV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(RS)-CPP	100828-16-8	unverified			in_pubchem_not_in_chebi	CUVGUPIVTLGRGI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(+)-a-Methylhistamine dihydrobromide	75614-93-6	unverified			in_pubchem_not_in_chebi	RWHNAAABSGVRDT-XRIGFGBMSA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(+)-Niguldipine hydrochloride	113145-69-0	unverified			in_pubchem_not_in_chebi	MHOSUIMBPQVOEU-WAQYZQTGSA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(+)-Rolipram	85416-73-5	verified	CHEBI:59540	(+)-rolipram		HJORMJIFDVBMOB-GFCCVEGCSA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(-)-5-Iodowillardiine	140187-25-3	unverified			in_pubchem_not_in_chebi	AXXYLTBQIQBTES-BYPYZUCNSA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(-)-Bay K 8644	98625-26-4	verified	CHEBI:131347	(S)-Bay-K-8644		ZFLWDHHVRRZMEI-ZDUSSCGKSA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(-)-HA-966	111821-58-0	unverified			in_pubchem_not_in_chebi	HCKUBNLZMKAEIN-VKHMYHEASA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(-)-Pindolol	26328-11-0	verified	CHEBI:48281	(S)-(−)-pindolol		JZQKKSLKJUAGIC-NSHDSACASA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(-)-Propranolol hydrochloride	4199-10-4	unverified			in_pubchem_not_in_chebi	ZMRUPTIKESYGQW-UQKRIMTDSA-N	name and CAS resolved independently to the same structure	1	2
+(S)-(-)-Sulpiride	23672-07-3	verified	CHEBI:64119	(S)-(−)-sulpiride		BGRJTUBHPOOWDU-NSHDSACASA-N	name and CAS resolved independently to the same structure	1	2
+(S)-Timolol maleate	26921-17-5	verified	CHEBI:9600	(S)-timolol maleate		WLRMANUAADYWEA-NWASOUNVSA-N	name and CAS resolved independently to the same structure	1	2
+(±)-1-(1,2-Diphenylethyl)piperidine maleate	207461-99-2	unverified			in_pubchem_not_in_chebi	AEHZEDLXDLPQQD-UHFFFAOYSA-N	the experimental team supplied the structure as SMILES	1	2
+(±)-5'-Chloro-5'-deoxy-ENBA	103626-26-2	unverified			identity_single_source_only	PVJGDYDNVNCGBT-STHLEMNDSA-N	single_source	1	2
+(±)-AC 7954 hydrochloride	477313-09-0	unverified			in_pubchem_not_in_chebi	AJPGLOWFIBOGMH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(±)-Bay K 8644	71145-03-4	verified	CHEBI:131345	methyl 2,6-dimethyl-5-nitro-4-[2-(trifluoromethyl)phenyl]-1,4-dihydropyridine-3-carboxylate		ZFLWDHHVRRZMEI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(±)-Bisoprolol hemifumarate	104344-23-2	verified	CHEBI:3128	bisoprolol fumarate		VMDFASMUILANOL-WXXKFALUSA-N	name and CAS resolved independently to the same structure	1	2
+(±)-Blebbistatin	674289-55-5	verified	CHEBI:75379	blebbistatin		LZAXPYOBKSJSEX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(±)-Cloprostenol sodium salt	55028-72-3	unverified			in_pubchem_not_in_chebi	IFEJLMHZNQJGQU-KXXGZHCCSA-M	name and CAS resolved independently to the same structure	1	2
+(±)-Epibatidine	148152-66-3	unverified			chebi_has_only_a_different_form	NLPRAJRHRHZCQQ-IVZWLZJFSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	1
+(±)-Nipecotic acid	60252-41-7	verified	CHEBI:116931	nipecotic acid		XJLSEXAGTJCILF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	1
+(±)-Palmitoylcarnitine chloride	6865-14-1	unverified			in_pubchem_not_in_chebi	GAMKNLFIHBMGQT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+(±)-threo-3-Methylglutamic acid	63088-04-0	unverified			in_pubchem_not_in_chebi	FHJNAFIJPFGZRI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	1
+1,2,3,4,5,6-Hexabromocyclohexane	1837-91-8	verified	CHEBI:93940	1,2,3,4,5,6-hexabromocyclohexane		QFQZKISCBJKVHI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+1,3-Dipropyl-8-phenylxanthine	85872-53-3	verified	CHEBI:107631	8-phenyl-1,3-dipropyl-7H-purine-2,6-dione		CLIGSMOZKDCDRZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+1-Acetyl-4-methylpiperazine hydrochloride	144205-68-5	unverified			in_pubchem_not_in_chebi	MQTVMZTUPOGGGV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+1-EBIO	10045-45-1	verified	CHEBI:34076	1-Ethyl-2-benzimidazolinone		CXUCKELNYMZTRT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+1-Naphthyl PP1	221243-82-9	verified	CHEBI:52310	1-NA-PP1		XSHQBIXMLULFEV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+1-Phenylbiguanide hydrochloride	55-57-2	unverified			in_pubchem_not_in_chebi	FHUDRDSKZQDCBC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+10-DEBC hydrochloride	925681-41-0	verified	CHEBI:231361	10-DEBC hydrochloride		SVKSJUIYYCQZEC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+17-ODYA	34450-18-5	verified	CHEBI:142447	octadec-17-ynoic acid		DZIILFGADWDKMF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2'-MeCCPA	205171-12-6	unverified			in_pubchem_not_in_chebi	MMPAUXMIDJWGFO-ROMFRFKVSA-N	name and CAS resolved independently to the same structure	1	2
+2,4-Diamino-6-hydroxypyrimidine	56-06-4	verified	CHEBI:195830	2,4-Diamino-6-hydroxypyrimidine		SWELIMKTDYHAOY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2,6-DIMETHOXYQUINONE	530-55-2	unverified			in_pubchem_not_in_chebi	OLBNOBQOQZRLMP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-[1-(4-Piperonyl)piperazinyl]benzothiazole	155106-73-3	verified	CHEBI:113557	2-[4-(1,3-benzodioxol-5-ylmethyl)-1-piperazinyl]-1,3-benzothiazole		BYHKGNWKJMGHGE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-APB	524-95-8	verified	CHEBI:131184	2-aminoethoxydiphenylborane		BLZVCIGGICSWIG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-Chloro-N6-cyclopentyladenosine	37739-05-2	unverified			in_pubchem_not_in_chebi	XSMYYYQVWPZWIZ-IDTAVKCVSA-N	name and CAS resolved independently to the same structure	1	2
+2-Chloroadenosine	146-77-0	verified	CHEBI:125640	(2R,3R,4S,5R)-2-(6-amino-2-chloro-9-purinyl)-5-(hydroxymethyl)oxolane-3,4-diol		BIXYYZIIJIXVFW-UUOKFMHZSA-N	name and CAS resolved independently to the same structure	2	2
+2-Cl-IB-MECA	163042-96-4	verified	CHEBI:747623	2-Cl-IB-MECA		IPSYPUKKXMNCNQ-PFHKOEEOSA-N	name and CAS resolved independently to the same structure	1	2
+2-CMDO	24140-98-5	unverified			in_pubchem_not_in_chebi	OOHVXDUNWCMZCI-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+2-Hydroxysaclofen	117354-64-0	verified	CHEBI:111179	3-amino-2-(4-chlorophenyl)-2-hydroxy-1-propanesulfonic acid		WBSMZVIMANOCNX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-Iodomelatonin	93515-00-5	verified	CHEBI:109558	N-[2-(2-iodo-5-methoxy-1H-indol-3-yl)ethyl]acetamide		FJDDSMSDZHURBJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-Methoxyestradiol	362-07-2	verified	CHEBI:28955	2-methoxy-17β-estradiol		CQOQDQWUFQDJMK-SSTWWWIQSA-N	name and CAS resolved independently to the same structure	1	2
+2-Methyl-5-hydroxytryptamine hydrochloride	845861-49-6	unverified			in_pubchem_not_in_chebi	ZNVRHQPXSBWLQP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-Methylthioadenosine triphosphate tetrasodium salt	100020-57-3	verified	CHEBI:231750	2-Methylthio-ATP		UEEFBRHXFDJPTA-KWIZKVQNSA-J	name and CAS resolved independently to the same structure	1	2
+2-Phenylmelatonin	151889-03-1	verified	CHEBI:107661	N-[2-(5-methoxy-2-phenyl-1H-indol-3-yl)ethyl]acetamide		OFCLARYYBGKCHN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-Pyridylethylamine dihydrochloride	3343-39-3	unverified			in_pubchem_not_in_chebi	GPIFKSYYILNJNR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+2-TEDC	132465-10-2	unverified			in_pubchem_not_in_chebi	KCGLTUBCAGZLHP-XYOKQWHBSA-N	name and CAS resolved independently to the same structure	1	2
+3'-Fluorobenzylspiperone maleate	1135278-61-3	unverified			in_pubchem_not_in_chebi	JURUFADWVGXLOY-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+3-Aminobenzamide	3544-24-9	verified	CHEBI:64042	3-aminobenzamide		GSCPDZHWVNUUFI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+3-AQC	201216-42-4	unverified			in_pubchem_not_in_chebi	UHLVYEOCPBNJNA-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+3-Methyl-GABA	1216629-00-3	unverified			in_pubchem_not_in_chebi	XDPUYXWLPXNCDY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+3-METHYLORSELLINIC ACID	4707-46-4	verified	CHEBI:146309	3-methylorsellinic acid		VHNLJRRECIZZPX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+4 -DEMETHYLEPIPODOPHYLLOTOXIN	518-28-5	unverified			cas_and_name_are_different_compounds		compound_disagreement	2	2
+4-(4-Fluorobenzoyl)-1-(4-phenylbutyl)-piperidine oxalate	144734-36-1	unverified			in_pubchem_not_in_chebi	VUJYJCRJPFMHEM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+4-Acetyl-1,1-dimethylpiperazinium iodide	75667-84-4	unverified			in_pubchem_not_in_chebi	VXBLRKDEHGKPAC-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+4-Aminopyridine	504-24-5	verified	CHEBI:34385	4-aminopyridine		NUKYPUAOHBNCPY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+4-DAMP	1952-15-4	verified	CHEBI:73340	4-DAMP methiodide		WWJHRSCUAQPFQO-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+4-HQN	491-36-1	verified	CHEBI:113558	1H-quinazolin-4-one		QMNUDYFKZYBWQX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+4-IBP	155798-08-6	verified	CHEBI:114190	4-iodo-N-[1-(phenylmethyl)-4-piperidinyl]benzamide		HELCSESNNDZLFM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+4-IPP	41270-96-6	verified	CHEBI:91213	4-iodo-6-phenylpyrimidine		ZTCJXHNJVLUUMR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+4-Methylhistamine dihydrochloride	36376-47-3	unverified			in_pubchem_not_in_chebi	BVJIXYJOFWYOBL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+4-P-PDOT	620170-78-7	unverified			chebi_has_only_a_different_form	RCYLUNPFECYGDW-SJLPKXTDSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+4-PPBP maleate	201216-39-9	unverified			in_pubchem_not_in_chebi	OASPNIMFGJVLES-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+5,7-Dichlorokynurenic acid	131123-76-7	verified	CHEBI:107660	5,7-dichloro-4-oxo-1H-quinoline-2-carboxylic acid		BGKFPRIGXAVYNX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+5-BDBD	768404-03-1	unverified			in_pubchem_not_in_chebi	NKYMVQPXXTZHSF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+5-Carboxamidotryptamine maleate	74885-72-6	unverified			in_pubchem_not_in_chebi	PZQZSWAOVAMBQM-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+5-Iodo-A-85380 dihydrochloride	1217837-17-6	unverified			in_pubchem_not_in_chebi	ZJVVFYWEBSHGBV-JZGIKJSDSA-N	name and CAS resolved independently to the same structure	1	2
+5-Methylfurmethiodide	1197-60-0	unverified			in_pubchem_not_in_chebi	IHTCZSNKQINGDD-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+6-Chloromelatonin	63762-74-3	verified	CHEBI:109545	N-[2-(6-chloro-5-methoxy-1H-indol-3-yl)ethyl]acetamide		LUINDDOUWHRIPW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+6-Iodo-nordihydrocapsaicin	859171-97-4	verified	CHEBI:107654	N-[(4-hydroxy-2-iodo-5-methoxyphenyl)methyl]nonanamide		AAORACFZMYMFCG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+7-Chlorokynurenic acid	18000-24-3	verified	CHEBI:63965	7-chlorokynurenic acid		UAWVRVFHMOSAPU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+7-Hydroxy-DPAT hydrobromide	76135-30-3	unverified			in_pubchem_not_in_chebi	ODNDMTWHRYECKX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+7-Hydroxy-PIPAT maleate	200722-46-9	verified	CHEBI:64134	2-{[(2E)-3-iodoprop-2-en-1-yl](propyl)amino}tetralin-7-ol maleate		IQRDHLSQXOATHD-HBRCEPSSSA-N	name and CAS resolved independently to the same structure	1	2
+7-NINA	161467-34-1	unverified			in_pubchem_not_in_chebi	DJMLKKIIBMJGIQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+7-Nitroindazole	2942-42-9	verified	CHEBI:40287	7-nitroindazole		PQCAUHUKTBHUSA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+8-Bromo-cAMP, sodium salt	76939-46-3	unverified			in_pubchem_not_in_chebi	DMRMZQATXPQOTP-GWTDSMLYSA-M	name and CAS resolved independently to the same structure	1	2
+8-Hydroxy-DPAT hydrobromide	76135-31-4	unverified			in_pubchem_not_in_chebi	BATPBOZTBNNDLN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+8-M-PDOT	134865-70-6	unverified			chebi_has_only_a_different_form	RVIGBTUDFAGRTQ-LLVKDONJSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+9-AC	723-62-6	verified	CHEBI:34507	9-anthroic acid		XGWFJBFNAQHLEF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+?-CCB	84454-35-3	verified	CHEBI:34867	N-Butyl-beta-carboline-3-carboxylate		WGNGIELOOKACSB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+?-Funaltrexamine hydrochloride	72786-10-8	unverified			in_pubchem_not_in_chebi	BIPHUOBUKMPSQR-NQGXHZAGSA-N	name and CAS resolved independently to the same structure	2	2
+?DGG	6729-55-1	verified	CHEBI:73843	D-γ-Glu-Gly		ACIJGUBIMXQCMF-SCSAIBSYSA-N	name and CAS resolved independently to the same structure	2	2
+A 205804	251992-66-2	verified	CHEBI:114180	4-[(4-methylphenyl)thio]-2-thieno[2,3-c]pyridinecarboxamide		QQGWEXFLMJGCAL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+A 740003	861393-28-4	unverified			in_pubchem_not_in_chebi	PUHSRMSFDASMAE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+A-7 hydrochloride	79127-24-5	verified	CHEBI:231363	A-7 hydrochloride		XDJCAQBTSCRBHS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ABT 263 Navitoclax	923564-51-6	verified	CHEBI:131174	navitoclax		JLYAXFNOILIKPP-KXQOOQHDSA-N	name and CAS resolved independently to the same structure	2	2
+ABT 702 dihydrochloride	2624336-92-9	unverified			in_pubchem_not_in_chebi	KXHYOZCVILMBFV-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+ABT 724 trihydrochloride	587870-77-7	unverified			in_pubchem_not_in_chebi	AZFUVPBLKQGSRI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ABT-737	852808-04-9	verified	CHEBI:47575	ABT-737		HPLNQCPCUACXLM-PGUFJCEWSA-N	name and CAS resolved independently to the same structure	2	2
+AC 264613	1051487-82-1	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+AC 55649	59662-49-6	verified	CHEBI:95048	4-(4-octylphenyl)benzoic acid		HXBKPYIEQLLNBK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AC-93253 iodide	108527-83-9	verified	CHEBI:233224	AC-93253 iodide		TWBRXRGFFUATNI-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+Acarbose	56180-94-0	unverified			chebi_entry_same_name_different_structure	CEMXHAPUFJOOSV-XGWNLRGSSA-N	name and CAS resolved independently to the same structure	1	2
+ACBC	22264-50-2	verified	CHEBI:190867	1-AMINOCYCLOBUTANE CARBOXYLIC ACID		FVTVMQPGKVHSEY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Acetaminophen	103-90-2	verified	CHEBI:46195	paracetamol		RZVAJINKPMORJF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ACETYL ISOGAMBOGIC ACID		unverified			identity_single_source_only	REDMIYQFNIRTDF-AKZXAPPFSA-N	single_source	2	2
+ACETYL ISOGAMBOGIC ACID	6857-78-9	unverified			in_pubchem_not_in_chebi	REDMIYQFNIRTDF-AKZXAPPFSA-N	the experimental team confirmed the compound name	1	1
+Acifran	72420-38-3	unverified			chebi_entry_exists_but_has_no_structure	DFDGRKNOFOJBAJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Actinomycin D Dactinomycin	50-76-0	verified	CHEBI:27666	actinomycin D		RJURFGZVJUQBHK-IIXSONLDSA-N	name and CAS resolved independently to the same structure	2	2
+Adefovir Dipivoxil	142340-99-6	verified	CHEBI:31175	adefovir pivoxil		WOZSCQDILHKSGG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+AEG 3482	63735-71-7	verified	CHEBI:114182	6-phenyl-2-imidazo[2,1-b][1,3,4]thiadiazolesulfonamide		MQUYTXDAVCOCMX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AG 18	118409-57-7	verified	CHEBI:92862	2-[(3,4-dihydroxyphenyl)methylidene]propanedinitrile		VTJXFTPMFYAJJU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AG 490	133550-30-8	verified	CHEBI:131968	tyrphostin B42		TUCIOBMMDDOEMM-RIYZIHGNSA-N	name and CAS resolved independently to the same structure	1	2
+AG 825	149092-50-2	verified	CHEBI:75405	tyrphostin AG 825		KXDONFLNGBQLTN-WUXMJOGZSA-N	name and CAS resolved independently to the same structure	1	2
+Agmatine sulfate	2482-00-0	unverified			in_pubchem_not_in_chebi	PTAYFGHRDOMJGC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AH 6809	33458-93-4	verified	CHEBI:95289	9-oxo-6-propan-2-yloxy-2-xanthenecarboxylic acid		AQFFXPQJLZFABJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Alexidine dihydrochloride	22573-88-2	unverified			chebi_has_only_a_different_form	BRJJFBHTDVWTCJ-UHFFFAOYSA-N	the experimental team confirmed the compound name	1	2
+Alrestatin	51411-04-2	unverified			in_pubchem_not_in_chebi	GCUCIFQCGJIRNT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Altanserin hydrochloride	1135280-78-2	unverified			in_pubchem_not_in_chebi	JFPPLMAMMZZOEA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ALX 5407 hydrochloride	200006-08-2	verified	CHEBI:231644	ALX 5407 hydrochloride		RPDGSZCYSJWQEE-GNAFDRTKSA-N	name and CAS resolved independently to the same structure	1	2
+AM 251	183232-66-8	verified	CHEBI:90724	AM-251		BUZAJRPLUGXRAB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AM 281	202463-68-1	verified	CHEBI:93039	1-(2,4-dichlorophenyl)-5-(4-iodophenyl)-4-methyl-N-(4-morpholinyl)-3-pyrazolecarboxamide		AJFFBPZYXRNAIC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AM 404	183718-77-6	verified	CHEBI:197140	AM404		IJBZOOZRAXHERC-DOFZRALJSA-N	name and CAS resolved independently to the same structure	1	2
+AM 630	164178-33-0	verified	CHEBI:93112	[6-iodo-2-methyl-1-[2-(4-morpholinyl)ethyl]-3-indolyl]-(4-methoxyphenyl)methanone		JHOTYHDSLIUKCJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AM 92016 hydrochloride	133229-11-5	unverified			in_pubchem_not_in_chebi	TXOARFPCQOBODS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AM580	102121-60-8	verified	CHEBI:64210	4-{[(5,5,8,8-tetramethyl-5,6,7,8-tetrahydronaphthalen-2-yl)carbonyl]amino}benzoic acid		SZWKGOZKRMMLAJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ambroxol hydrochloride	23828-92-4	unverified			chebi_has_only_a_different_form	QNVKOSLOVOTXKF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AMG 9810	545395-94-6	unverified			chebi_has_only_a_different_form	GZTFUVZVLYUPRG-IZZDOVSWSA-N	name and CAS resolved independently to the same structure	1	2
+AMI-193	510-74-7	verified	CHEBI:64207	spiramide		FJUKDAZEABGEIH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Amiloride hydrochloride	2016-88-8	verified	CHEBI:84743	amiloride hydrochloride		ACHKKGDWZVCSNH-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+AMINACRINE	90-45-9	verified	CHEBI:74789	9-aminoacridine		XJGFWWJLMVZSIG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Amiodarone HCl	19774-82-4	verified	CHEBI:2664	Amiodarone hydrochloride		ITPDYQOUSLNIHG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Amisulpride	71675-85-9	verified	CHEBI:64045	amisulpride		NTJOBXMMWNYJFB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Amlodipine besylate	111470-99-6	verified	CHEBI:2669	amlodipine benzenesulfonate		ZPBWCRDSRKPIDG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ammonium pyrrolidinedithiocarbamate	5108-96-3	verified	CHEBI:234321	ammonium pyrrolidinedithiocarbamate		MDDIUTVUBYEEEM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Amsacrine	51264-14-3	verified	CHEBI:2687	amsacrine		XCPGHVQEEXUHNC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Amthamine dihydrobromide	142457-00-9	unverified			in_pubchem_not_in_chebi	XFXNNOPUDSFVJE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ANCITABINE HYDROCHLORIDE	10212-25-6	verified	CHEBI:74843	ancitabine hydrochloride		KZOWNALBTMILAP-JBMRGDGGSA-N	name and CAS resolved independently to the same structure	1	2
+Aniracetam	72432-10-1	verified	CHEBI:47943	aniracetam		ZXNRTKGTQJPIJK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ANISOMYCIN	22862-76-6	verified	CHEBI:338412	(−)-anisomycin		YKJYKKNCCRKFSL-RDBSUJKOSA-N	name and CAS resolved independently to the same structure	2	2
+Anpirtoline hydrochloride	99201-87-3	unverified			in_pubchem_not_in_chebi	GRXDJABVNGUGCW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ansamitocin p-3 (Maytansinol isobutyrate, NSC292222)	66547-09-9	unverified			in_pubchem_not_in_chebi	WLKHTIAFMSHJLG-BYXOJEECSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+Antazoline hydrochloride	2508-72-7	verified	CHEBI:749727	antazoline hydrochloride		SWKDMSRRIBZZAY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ANTHOTHECOL	80286-58-4	unverified			chebi_has_only_a_different_form	AJTULIWKBMDPCJ-IYGCLJFQSA-N	the experimental team confirmed the compound name	1	2
+ANTIAROL	642-71-7	verified	CHEBI:2760	3,4,5-trimethoxyphenol		VTCDZPUMZAZMSB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Antimycin A	1397-94-0	verified	CHEBI:2762	antimycin A		UIFFUZWRFRDZJC-SBOOETFBSA-N	name and CAS resolved independently to the same structure	2	2
+API-2	35943-35-2	verified	CHEBI:65310	triciribine		HOGVTUZUJGHKPL-HTVVRFAVSA-N	single_source	1	2
+Apigenin	520-36-5	verified	CHEBI:18388	apigenin		KZNIFHPLKGYRTM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+APOMORPHINE HYDROCHLORIDE	41372-20-7	verified	CHEBI:31228	apomorphine hydrochloride		CXWQXGNFZLHLHQ-DPFCLETOSA-N	the experimental team confirmed the compound name	1	2
+Apoptosis Activator 2	79183-19-0	verified	CHEBI:92273	1-[(3,4-dichlorophenyl)methyl]indole-2,3-dione		KGRJPLRFGLMQMV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ara-G hydrate	38819-10-2	verified	CHEBI:73141	9-β-D-arabinofuranosylguanine		NYHBQMYGNKIUIF-FJFJXFQQSA-N	name and CAS resolved independently to the same structure	2	2
+ARC 239 dihydrochloride	55974-42-0	unverified			in_pubchem_not_in_chebi	SAJKHRHHDGSJEZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Arcaine sulfate	14923-17-2	unverified			in_pubchem_not_in_chebi	RWTGFMPOODRXIM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Arctigenin	7770-78-7	verified	CHEBI:79	(-)-Arctigenin		NQWVSMVXKMHKTF-JKSUJKDBSA-N	name and CAS resolved independently to the same structure	1	2
+Arcyriaflavin A	118458-54-1	verified	CHEBI:93276	LSM-3627		KAJXOWFGKYKMMZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Arecaidine but-2-ynyl ester tosylate	119630-77-2	unverified			in_pubchem_not_in_chebi	GKPXMGUNTQSFGA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Arecaidine propargyl ester tosylate	147202-94-6	unverified			in_pubchem_not_in_chebi	LYHWIOMAWPVTPI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ARL 67156 trisodium salt	1021868-83-6	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+Artemisinin	63968-64-9	verified	CHEBI:223316	(+)-artemisinin		BLUAFEHZUWYNDE-NNWCWBAJSA-N	name and CAS resolved independently to the same structure	1	2
+AS 1949490	1203680-76-5	unverified			in_pubchem_not_in_chebi	RFZPGNRLOKVZJY-AWEZNQCLSA-N	name and CAS resolved independently to the same structure	1	2
+Astemizole	68844-77-9	verified	CHEBI:2896	astemizole		GXDALQBWZGODGZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AT 101	90141-22-3	unverified			identity_single_source_only	QBKSWRVVCFFDOT-UHFFFAOYSA-N	single_source	1	2
+AT9283	896466-04-9	verified	CHEBI:125514	AT9283		LOLPPWBBNUVNQZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+ATPA	140158-50-5	verified	CHEBI:91806	2-amino-3-(5-tert-butyl-3-oxo-4-isoxazolyl)propanoic acid		PIXJURSCCVBKRF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Auranofin	34031-32-8	verified	CHEBI:2922	auranofin		AUJRCFUBUPVWSZ-XTZHGVARSA-M	name and CAS resolved independently to the same structure	1	2
+AY 9944	366-93-8	unverified			in_pubchem_not_in_chebi	NRVIEWRSGDDWHP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+AZ 10417808	331645-84-2	verified	CHEBI:92637	2-(3,4-dichloroanilino)-6-nitro-4-oxo-N-prop-2-enyl-1H-quinazoline-8-carboxamide		VUBILPOZTRGZJK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BADGE	1675-54-3	verified	CHEBI:34578	Bisphenol A diglycidyl ether		LCFVJGUPQDGYKZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Baicalein	491-67-8	verified	CHEBI:2979	baicalein		FXNFHKRTJBSTCS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BAN ORL 24	1401463-54-4	unverified			in_pubchem_not_in_chebi	NEEVITHVDIQNJY-KHZPMNTOSA-N	name and CAS resolved independently to the same structure	1	2
+Bardoxolone Methyl	218600-53-4	verified	CHEBI:177406	Bardoxolone methyl		WPTTVJLTNAWYAO-KPOXMGGZSA-N	name and CAS resolved independently to the same structure	2	2
+Bay 11-7082	19542-67-7	verified	CHEBI:85928	(E)-3-tosylacrylonitrile		DOEWDSDBFRHVAP-KRXBUXKQSA-N	name and CAS resolved independently to the same structure	2	2
+Bay 11-7085	19542-67-7	unverified			cas_and_name_are_different_compounds		compound_disagreement	2	2
+Bay 11-7821	19542-67-7	verified	CHEBI:85928	(E)-3-tosylacrylonitrile		DOEWDSDBFRHVAP-KRXBUXKQSA-N	name and CAS resolved independently to the same structure	2	2
+BD 1008 dihydrobromide	138356-09-9	unverified			in_pubchem_not_in_chebi	YTBUMHOSKIAYCZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BD 1047 dihydrobromide	138356-21-5	unverified			in_pubchem_not_in_chebi	WOALTFHGLDVJHK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BD 1063 dihydrochloride	206996-13-6	unverified			in_pubchem_not_in_chebi	NXFDBTLQOARIMH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Belinostat	866323-14-0	verified	CHEBI:61076	belinostat		NCNRHFGMJRPRSK-MDZDMXLPSA-N	name and CAS resolved independently to the same structure	2	2
+Belotecan (CKD-602) hydrochloride	213819-48-8	verified	CHEBI:752561	belotecan hydrochloride		SJKBXKKZBKCHET-UQIIZPHYSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+Benazepril hydrochloride	86541-74-4	verified	CHEBI:3012	benazepril hydrochloride		VPSRQEHTHIMDQM-FKLPMGAJSA-N	name and CAS resolved independently to the same structure	1	2
+BENURESTAT	1477-55-0	verified	CHEBI:177645	benurestat		JFZGBMJPJZDNNT-UHFFFAOYSA-N	the experimental team confirmed the compound name	1	2
+Benzalkonium chloride	8001-54-5	unverified			in_pubchem_not_in_chebi	XIWFQDBQMCDYJT-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+Benzethonium Chloride	121-54-0	verified	CHEBI:31264	benzethonium chloride		UREZNYTWGJKWBI-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+Benzoquinonium dibromide	311-09-1	unverified			chebi_has_only_a_different_form	CDXLNLASGZNDKJ-UHFFFAOYSA-O	the experimental team confirmed the CAS / catalogue product	1	2
+BENZOXIQUINE	86-75-9	verified	CHEBI:93233	benzoic acid 8-quinolinyl ester		BHKPHCKISVSDGV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Bestatin	58970-76-6	verified	CHEBI:3070	bestatin		VGGGPCQERPFHOB-RDBSUJKOSA-N	name and CAS resolved independently to the same structure	1	2
+beta-PELTATIN	518-29-6	verified	CHEBI:74867	β-peltatin		HLBPOYVRLSXWJJ-PDSMFRHLSA-N	name and CAS resolved independently to the same structure	1	2
+Betaxolol hydrochloride	63659-19-8	verified	CHEBI:643228	betaxolol hydrochloride		CHDPSNLJFOQTRK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BF 2649	903576-44-3	verified	CHEBI:756622	pitolisant hydrochloride		XLFKECRRMPOAQS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BHQ	88-58-4	verified	CHEBI:41094	2,5-di-tert-butylbenzene-1,4-diol		JZODKRWQWUWGCD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BI 2536	755038-02-9	verified	CHEBI:49868	BI-2536		XQVVPGYIWAGRNI-JOCHJYFZSA-N	name and CAS resolved independently to the same structure	2	2
+BI 78D3	883065-90-5	verified	CHEBI:94732	4-(2,3-dihydro-1,4-benzodioxin-6-yl)-3-[(5-nitro-2-thiazolyl)thio]-1H-1,2,4-triazol-5-one		QFRLDZGQEZCCJZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+BIO	667463-62-9	unverified			chebi_has_only_a_different_form	SAQUSDSPQYQNBG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Bleomycin sulfate	9041-93-4	unverified			in_pubchem_not_in_chebi	WUIABRMSWOKTOF-OYALTWQYSA-O	name and CAS resolved independently to the same structure	1	2
+BML-190	2854-32-2	unverified			chebi_has_only_a_different_form	OOKFHWWAUUITQR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BMS 191011	202821-81-6	verified	CHEBI:93672	3-[(5-chloro-2-hydroxyphenyl)methyl]-5-[4-(trifluoromethyl)phenyl]-1,3,4-oxadiazol-2-one		QKOWACXSXTXRKA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BMS 649	146670-40-8	unverified			in_pubchem_not_in_chebi	ZZUKALQMHNSWTK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BMY 14802 hydrochloride	105565-55-7	unverified			in_pubchem_not_in_chebi	NIBVEFRJDFVQLM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BMY 45778	152575-66-1	verified	CHEBI:51544	BMY 45778		DSRSEEYZGWTODH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BMY 7378 dihydrochloride	21102-95-4	unverified			in_pubchem_not_in_chebi	NIBOMXUDFLRHRV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BNTX maleate	864461-31-4	unverified			in_pubchem_not_in_chebi	GKHUUKGUNNYVGB-LQDKARLYSA-N	name and CAS resolved independently to the same structure	1	2
+Bortezomib (PS-341)	179324-69-7	verified	CHEBI:52717	bortezomib		GXJABQQUPOEUTA-RDJZCZTQSA-N	name and CAS resolved independently to the same structure	2	2
+Brefeldin A	20350-15-6	verified	CHEBI:48080	brefeldin A		KQNZDYYTLMIZCT-KQPMLPITSA-N	name and CAS resolved independently to the same structure	2	2
+Bretazenil	84379-13-5	verified	CHEBI:748670	bretazenil		LWUDDYHYYNNIQI-ZDUSSCGKSA-N	name and CAS resolved independently to the same structure	1	2
+BRL 15572 hydrochloride	1173022-77-9	verified	CHEBI:64057	3-[4-(3-chlorophenyl)piperazin-1-yl]-1,1-diphenylpropan-2-ol hydrochloride		KQGJIKWDFWLCHO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BRL 44408 maleate	681806-46-2	unverified			in_pubchem_not_in_chebi	DDIQGSUEJOOQQQ-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+BRL 50481	433695-36-4	verified	CHEBI:93472	BRL-50481		IFIUFCJFLGCQPH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Bromoacetyl alprenolol menthane	76298-90-3	unverified			in_pubchem_not_in_chebi	RTYBGDQNUBLFSW-XIJGOZNCSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+Bromocriptine mesylate	22260-51-1	verified	CHEBI:3182	bromocriptine methanesulfonate		NOJMTMIRQRDZMT-GSPXQYRGSA-N	name and CAS resolved independently to the same structure	1	2
+BTS	1576-37-0	unverified			identity_single_source_only	WTHKAJZQYNKTCJ-UHFFFAOYSA-N	single_source	1	2
+Budesonide	51333-22-3	verified	CHEBI:3207	budesonide		VOVIALXJUBGFJZ-KWVAZRHASA-N	name and CAS resolved independently to the same structure	2	2
+Butabindide oxalate	185213-03-0	unverified			in_pubchem_not_in_chebi	KKMJFDVOXSGHBF-SLHAJLBXSA-N	name and CAS resolved independently to the same structure	1	2
+BVT 948	39674-97-0	unverified			in_pubchem_not_in_chebi	LLPBUXODFQZPFH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BW 373U86	155836-50-3	verified	CHEBI:114187	4-[(R)-[(2S,5R)-2,5-dimethyl-4-prop-2-enyl-1-piperazinyl]-(3-hydroxyphenyl)methyl]-N,N-diethylbenzamide		LBLDMHBSVIVJPM-YZIHRLCOSA-N	name and CAS resolved independently to the same structure	1	2
+BW 723C86 hydrochloride	160521-72-2	unverified			in_pubchem_not_in_chebi	PYJBJMIBANAOFJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+BW-B 70C	134470-38-5	verified	CHEBI:75307	BW B70C		UAIYNMRLUHHRMF-AATRIKPKSA-N	name and CAS resolved independently to the same structure	1	2
+BYK 204165	1104546-89-5	unverified			in_pubchem_not_in_chebi	BTYSIDSTHDDAJW-LCYFTJDESA-N	name and CAS resolved independently to the same structure	1	2
+C-1	84468-24-6	verified	CHEBI:93271	5-(1-piperazinylsulfonyl)isoquinoline		UPTYCYWTFGTCCG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Caffeic acid phenethyl ester	104594-70-9	verified	CHEBI:8062	phenethyl caffeate		SWUARLUWKZWEBQ-VQHVLOKHSA-N	name and CAS resolved independently to the same structure	1	2
+Calcipotriol	112965-21-6	verified	CHEBI:50749	calcipotriol		LWQQLNNNIPYSNX-UROSTWAQSA-N	name and CAS resolved independently to the same structure	1	2
+Calmidazolium chloride	3895-92-9	unverified			cas_and_name_are_different_compounds		compound_disagreement	2	2
+Calpeptin	117591-20-5	verified	CHEBI:3330	Calpeptin		PGGUOGKHUUUWAF-ROUUACIJSA-N	name and CAS resolved independently to the same structure	1	2
+Camptothecin	7689-03-4	verified	CHEBI:27656	camptothecin		VSJKWCGYPAHWDS-FQEVSTJZSA-N	name and CAS resolved independently to the same structure	1	2
+Capsazepine	138977-28-3	verified	CHEBI:70773	capsazepine		DRCMAZOSEIMCHM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Carbetapentane citrate	23142-01-0	verified	CHEBI:31352	Carbetapentane citrate		AKJDEXBCRLOVTH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Carfilzomib (PR-171)	868540-17-4	verified	CHEBI:65347	carfilzomib		BLMPQMFVWMYDKT-NZTKNTHTSA-N	name and CAS resolved independently to the same structure	2	2
+Carmoxirole hydrochloride	115092-85-8	verified	CHEBI:64199	carmoxirole hydrochloride		LRJUHOBITQUXIO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Castanospermine	79831-76-8	verified	CHEBI:27860	castanospermine		JDVVGAQPNNXQDW-TVNFTVLESA-N	name and CAS resolved independently to the same structure	1	2
+CB-5083	1542705-92-9	verified	CHEBI:232521	CB-5083		RDALZZCKQFLGJP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+CCMI	917837-54-8	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+CCMQ	132623-44-0	verified	CHEBI:92111	3-(carboxymethyl)-2-quinolinecarboxylic acid		IFXJDEHFADWURH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CCT 018159	171009-07-7	verified	CHEBI:41656	CCT-018159		OWPMENVYXDJDOW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CD 1530	107430-66-0	unverified			in_pubchem_not_in_chebi	VCQGNUWOMLYNNG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CD 437	125316-60-1	verified	CHEBI:88334	CD437		LDGIHZJOIQSHPB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CEDRELONE	1254-85-9	verified	CHEBI:197237	CEDRELONE		OQMUOVSEPOBWMK-BWLMZZBKSA-N	name and CAS resolved independently to the same structure	2	2
+Celastrol	34157-83-0	verified	CHEBI:63959	celastrol		KQJSQWZMSAGSHN-JJWQIEBTSA-N	name and CAS resolved independently to the same structure	2	2
+Ceritinib (LDK378)	1032900-25-6	verified	CHEBI:78432	ceritinib		VERWOWGGCGHDQE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Cetirizine dihydrochloride	83881-52-1	verified	CHEBI:3562	Cetirizine hydrochloride		PGLIUCLTXOYQMV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CETRIMONIUM BROMIDE	57-09-0	verified	CHEBI:3567	cetyltrimethylammonium bromide		LZZYPRNAOMGNLH-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+Cetylpyridinium Chloride	123-03-5	verified	CHEBI:32915	cetylpyridinium chloride		YMKDRGPMQRFJGP-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+CFM 1571 hydrochloride	1215548-30-3	unverified			in_pubchem_not_in_chebi	DFVHCFCSCUCAPD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CFTRinh 172	307510-92-5	unverified			chebi_has_only_a_different_form	JIMHYXZZCWVCMI-RIYZIHGNSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+CGH 2466 dihydrochloride	1177618-54-0	unverified			in_pubchem_not_in_chebi	WHXRCTIBFLXKFD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGK 733	905973-89-9	verified	CHEBI:91739	2,2-diphenyl-N-[2,2,2-trichloro-1-[[(4-fluoro-3-nitroanilino)-sulfanylidenemethyl]amino]ethyl]acetamide		HLCDNLNLQNYZTK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 12177 hydrochloride	64208-32-8	unverified			in_pubchem_not_in_chebi	YQVFCYCTITZLSX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 13501	56189-68-5	verified	CHEBI:93680	3-(3,5-ditert-butyl-4-hydroxyphenyl)-2,2-dimethylpropanal		XGWATTXMMMANFJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 35348	123690-79-9	unverified			in_pubchem_not_in_chebi	QIIVUOWTHWIXFO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 37157	75450-34-9	verified	CHEBI:91650	7-chloro-5-(2-chlorophenyl)-1,5-dihydro-4,1-benzothiazepin-2-one		KQEPIRKXSUIUTH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 37849	127910-31-0	unverified			in_pubchem_not_in_chebi	BDYHNCZIGYIOGJ-DUXPYHPUSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 39551	127910-32-1	unverified			in_pubchem_not_in_chebi	OKDOWCKDTWNRCB-GQCTYLIASA-N	name and CAS resolved independently to the same structure	1	2
+CGP 46381	123691-14-5	unverified			in_pubchem_not_in_chebi	XOESDNIUAWGCLU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 52432	139667-74-6	verified	CHEBI:91493	3-[(3,4-dichlorophenyl)methylamino]propyl-(diethoxymethyl)phosphinic acid		GJZVQXWEIYRHBE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 53353	145915-60-2	verified	CHEBI:92560	5,6-bis(4-fluoroanilino)isoindole-1,3-dione		RONQPWQYDRPRGG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 54626 hydrochloride	149184-21-4	verified	CHEBI:234136	CGP 54626 hydrochloride		ZQCFHOVIXCJPLE-LINSIKMZSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 55845	149184-22-5	unverified			chebi_has_only_a_different_form	PXQAIXBYWZBYKJ-LINSIKMZSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+CGP 57380	522629-08-9	verified	CHEBI:92749	N3-(4-fluorophenyl)-2H-pyrazolo[3,4-d]pyrimidine-3,4-diamine		UQPMANVRZYYQMD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGP 78608	1135278-54-4	verified	CHEBI:64065	CGP 78608 hydrochloride		MZQQZBPMRPDKTB-JEDNCBNOSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+CGP 7930	57717-80-3	verified	CHEBI:93152	2,6-ditert-butyl-4-(3-hydroxy-2,2-dimethylpropyl)phenol		XLWJPQQFJNGUPA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGS 15943	104615-18-1	verified	CHEBI:131351	CGS 15943		MSJODEOZODDVGW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGS 19755	110347-85-8	verified	CHEBI:34973	Selfotel		LPMRCCNDNGONCD-RITPCOANSA-N	name and CAS resolved independently to the same structure	1	2
+CGS 20625	111205-55-1	verified	CHEBI:93192	LSM-3520		UBLXQFIFWUEVGJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CGS 9343B	109826-27-9	unverified			in_pubchem_not_in_chebi	NGODOSILXOFQPH-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+CH 223191	301326-22-7	verified	CHEBI:195599	CH-223191		LKTNEXPODAWWFM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ch 55	110368-33-7	unverified			chebi_has_only_a_different_form	FOUVTBKPJRMLPE-FMIVXFBMSA-N	name and CAS resolved independently to the same structure	1	2
+Chelerythrine chloride	3895-92-9	verified	CHEBI:201466	Chelerythrine chloride		WEEFNMFMNMASJY-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+Chicago Sky Blue 6B	2610-05-1	unverified			chebi_entry_same_name_different_structure	BPHHNXJPFPEJOF-UHFFFAOYSA-J	name and CAS resolved independently to the same structure	1	2
+Chlorisondamine diiodide	96750-66-2	unverified			in_pubchem_not_in_chebi	FPNVAOZHQUJJJQ-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+Chlormethiazole hydrochloride	6001-74-7	unverified			in_pubchem_not_in_chebi	OFXYKSLKNMTBHK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CHR 2797	238750-77-1	verified	CHEBI:95044	(2S)-2-[[(2R)-2-[(1S)-1-hydroxy-2-(hydroxyamino)-2-oxoethyl]-4-methyl-1-oxopentyl]amino]-2-phenylacetic acid cyclopentyl ester		FWFGIHPGRQZWIW-SQNIBIBYSA-N	name and CAS resolved independently to the same structure	1	2
+CI 966 hydrochloride	110283-66-4	unverified			in_pubchem_not_in_chebi	NUQWSOWKRTZJTO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CI 976	114289-47-3	verified	CHEBI:95040	2,2-dimethyl-N-(2,4,6-trimethoxyphenyl)dodecanamide		WAFNZAURAWBNDZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ciglitazone	74772-77-3	verified	CHEBI:64227	ciglitazone		YZFWTZACSRHJQD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Cilnidipine	132203-70-4	verified	CHEBI:31399	cilnidipine		KJEBULYHNRNJTE-DHZHZOJOSA-N	name and CAS resolved independently to the same structure	1	2
+Cilostamide	68550-75-4	verified	CHEBI:92503	N-cyclohexyl-N-methyl-4-[(2-oxo-1H-quinolin-6-yl)oxy]butanamide		UIAYVIIHMORPSJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Cilostazol	73963-72-1	verified	CHEBI:31401	cilostazol		RRGUKTPIGVIEKM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Cimaterol	54239-37-1	verified	CHEBI:91807	2-amino-5-[1-hydroxy-2-(propan-2-ylamino)ethyl]benzonitrile		BUXRLJCGHZZYNE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Cimetidine	51481-61-9	verified	CHEBI:3699	cimetidine		AQIXAKUUQRKLND-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Cinalukast	128312-51-6	verified	CHEBI:126598	cinalukast		BZMKNPGKXJAIDV-VAWYXSNFSA-N	name and CAS resolved independently to the same structure	1	2
+Cinanserin hydrochloride	54-84-2	verified	CHEBI:147284	cinanserin hydrochloride		LXGJPDKYMJJWRB-IERUDJENSA-N	name and CAS resolved independently to the same structure	1	2
+cis-ACPD	477331-06-9	unverified			in_pubchem_not_in_chebi	DXLSPTHQGVGVTN-ATXZCBKLSA-N	the experimental team supplied the structure as SMILES	1	2
+Cisplatin	15663-27-1	verified	CHEBI:27899	cisplatin		LXZZYRPGZAFOLE-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+CITCO	338404-52-7	unverified			chebi_has_only_a_different_form	ZQWBOKJVVYNKTL-AUEPDCJTSA-N	name and CAS resolved independently to the same structure	1	2
+CL 218872	66548-69-4	verified	CHEBI:92018	3-methyl-6-[3-(trifluoromethyl)phenyl]-[1,2,4]triazolo[4,3-b]pyridazine		GUOQUXNJZHGPQF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Cladribine	4291-63-8	verified	CHEBI:567361	cladribine		PTOAARAWEBMLNO-KVQBGUIXSA-N	name and CAS resolved independently to the same structure	2	2
+Clemastine fumarate	14976-57-9	verified	CHEBI:3739	clemastine fumarate		PMGQWSIVQFOFOQ-YKVZVUFRSA-N	name and CAS resolved independently to the same structure	1	2
+Clobenpropit dihydrobromide	145231-35-2	verified	CHEBI:64165	clobenpropit dihydrobromide		JIJQPEZAVLJZBO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Clofarabine	123318-82-1	verified	CHEBI:681569	clofarabine		WDDPHFBMKLOVOX-AYQXTPAHSA-N	name and CAS resolved independently to the same structure	2	2
+Clofibric acid	882-09-7	verified	CHEBI:34648	clofibric acid		TXCGAZHTZHNUAI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Clonidine hydrochloride	4205-91-8	verified	CHEBI:3758	Clonidine hydrochloride		ZNIFSRGNXRYGHF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Clozapine	5786-21-0	verified	CHEBI:3766	clozapine		QZUDBNBUXVUHMW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CMPD-1	41179-33-3	verified	CHEBI:92949	4-[4-(2-fluorophenyl)phenyl]-N-(4-hydroxyphenyl)butanamide		ODYAQBDIXCVKAE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CNQX	115066-14-3	verified	CHEBI:34468	6-Cyano-7-nitroquinoxaline-2,3-dione		RPXVIAFEQBNEAX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CNQX disodium salt	479347-85-8	unverified			in_pubchem_not_in_chebi	YCXDDPGRZKUGDG-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+Co 102862	181144-66-1	unverified			chebi_has_only_a_different_form	MHUUDVZSPFRUSK-RQZCQDPDSA-N	name and CAS resolved independently to the same structure	1	2
+Colchicine	64-86-8	verified	CHEBI:27882	(S)-colchicine		IAKHMKGGTNLKSZ-INIZCTEOSA-N	name and CAS resolved independently to the same structure	1	2
+Compound 401	168425-64-7	unverified			in_pubchem_not_in_chebi	BVRDQVRQVGRNHG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Compound W	173550-33-9	verified	CHEBI:113561	3,5-bis(4-nitrophenoxy)benzoic acid		JOSXKPZXMVHRKU-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+CP 339818 hydrochloride	478341-55-8	unverified			in_pubchem_not_in_chebi	JIRISCAPZWLWCG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+CPT 11	100286-90-6	verified	CHEBI:5971	irinotecan hydrochloride (anhydrous)		GURKHSYORGJETM-WAQYZQTGSA-N	name and CAS resolved independently to the same structure	1	2
+Cromakalim	94470-67-4	unverified			identity_single_source_only	TVZCRIROJQEVOT-LSDHHAIUSA-N	single_source	1	2
+Crystal Violet	548-62-9	verified	CHEBI:41688	crystal violet		ZXJXZNDDNMQXFV-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+CV 1808	53296-10-9	verified	CHEBI:175603	2-Phenylaminoadenosine		SCNILGOVBBRMBK-SDBHATRESA-N	name and CAS resolved independently to the same structure	1	2
+Cyanopindolol hemifumarate	69906-86-1	unverified			in_pubchem_not_in_chebi	ZSBITJKBOWVCCI-WXXKFALUSA-N	name and CAS resolved independently to the same structure	1	2
+Cyclopiazonic Acid	18172-33-3	verified	CHEBI:22450	(6aR,11aS,11bR)-10-acetyl-11-hydroxy-7,7-dimethyl-2,6,6a,7,11a,11b-hexahydro-9H-pyrrolo[1',2':2,3]isoindolo[4,5,6-cd]indol-9-one		SZINUGQCTHLQAZ-DQYPLSBCSA-N	name and CAS resolved independently to the same structure	1	2
+Cyclosporin A	59865-13-3	verified	CHEBI:4031	cyclosporin A		PMATZTZNYRCHOR-CGLBZJNRSA-N	name and CAS resolved independently to the same structure	2	2
+Cyclosporine	59865-13-3	verified	CHEBI:4031	cyclosporin A		PMATZTZNYRCHOR-CGLBZJNRSA-N	name and CAS resolved independently to the same structure	2	2
+Cyproheptadine hydrochloride	969-33-5	verified	CHEBI:59695	cyproheptadine hydrochloride (anhydrous)		ZPMVNZLARAEGHB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Cytarabine	147-94-4	verified	CHEBI:28680	cytarabine		UHDGCWIWMRVCDJ-CCXZUQQUSA-N	name and CAS resolved independently to the same structure	2	2
+Cytosine-1-beta-D-arabinofuranoside hydrochloride	69-74-9	verified	CHEBI:749710	cytarabine hydrochloride		KCURWTAZOZXKSJ-JBMRGDGGSA-N	name and CAS resolved independently to the same structure	1	2
+D 4476	301836-43-1	verified	CHEBI:91448	4-[4-(2,3-dihydro-1,4-benzodioxin-6-yl)-5-(2-pyridinyl)-1H-imidazol-2-yl]benzamide		DPDZHVCKYBCJHW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+D-64131	74588-78-6	verified	CHEBI:92475	(5-methoxy-1H-indol-2-yl)-phenylmethanone		ICMIJSRDISNKOC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+D-Alanine	338-69-2	verified	CHEBI:15570	D-alanine		QNAYBMKLOCPYGJ-UWTATZPHSA-N	name and CAS resolved independently to the same structure	1	2
+D-AP4	78739-01-2	unverified			in_pubchem_not_in_chebi	DDOQBQRIEWHWBT-GSVOUGTGSA-N	name and CAS resolved independently to the same structure	1	2
+D-AP5	79055-68-8	unverified			in_pubchem_not_in_chebi	VOROEQBFPPIACJ-SCSAIBSYSA-M	name and CAS resolved independently to the same structure	1	2
+D-AP7	81338-23-0	unverified			in_pubchem_not_in_chebi	MYDMWESTDPJANS-ZCFIWIBFSA-N	name and CAS resolved independently to the same structure	1	2
+D-Aspartic acid	1783-96-6	verified	CHEBI:17364	D-aspartic acid		CKLJMWTZIZZHCS-UWTATZPHSA-N	name and CAS resolved independently to the same structure	1	2
+D-erythro-Sphingosine (synthetic)	123-78-4	verified	CHEBI:16393	sphingosine		WWUZIQQURGPMPG-KRWOKUGFSA-N	name and CAS resolved independently to the same structure	1	2
+D609	83373-60-8	unverified			in_pubchem_not_in_chebi	IGULCCCBGBDZKQ-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+Dacinostat (LAQ824)	404951-53-7	verified	CHEBI:748566	dacinostat		BWDQBBCUWLSASG-MDZDMXLPSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	2	2
+Dacinostat_LAQ824	404951-53-7	verified	CHEBI:748566	dacinostat		BWDQBBCUWLSASG-MDZDMXLPSA-N	name and CAS resolved independently to the same structure	1	1
+DACTINOMYCIN	50-76-0	verified	CHEBI:27666	actinomycin D		RJURFGZVJUQBHK-IIXSONLDSA-N	name and CAS resolved independently to the same structure	2	2
+Daidzein	486-66-8	verified	CHEBI:28197	daidzein		ZQSIJRDFPHDXIC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Dantrolene, sodium salt	14663-23-1	verified	CHEBI:748253	dantrolene sodium		KSRLIXGNPXAZHD-HAZZGOGXSA-M	name and CAS resolved independently to the same structure	1	2
+DAPT	208255-80-5	verified	CHEBI:86193	DAPT		DWJXYEABWRJFSP-XOBRGWDASA-N	name and CAS resolved independently to the same structure	1	2
+DAU 5884 hydrochloride	131780-48-8	unverified			in_pubchem_not_in_chebi	FDERDDSQHZRNGC-LIWIJTDLSA-N	name and CAS resolved independently to the same structure	1	2
+Daunorubicin hydrochloride	23541-50-6	verified	CHEBI:31456	Daunorubicin hydrochloride		GUGHGUXZJWAIAS-QQYBVWGSSA-N	name and CAS resolved independently to the same structure	2	2
+DCA	2156-56-1	verified	CHEBI:748334	sodium dichloroacetate		LUPNKHXLFSSUGS-UHFFFAOYSA-M	the experimental team confirmed the CAS / catalogue product	1	2
+DCEBIO	60563-36-2	verified	CHEBI:34662	DCEBIO		LKHRMULASXZCLG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DCG IV	147782-19-2	unverified			in_pubchem_not_in_chebi	MATPZHBYOVDBLI-FKNRSBSYSA-N	the experimental team supplied the structure as SMILES	1	2
+DCPIB	82749-70-0	verified	CHEBI:91677	4-[(2-butyl-6,7-dichloro-2-cyclopentyl-1-oxo-3H-inden-5-yl)oxy]butanoic acid		KHKGTPJPBOQECW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Decitabine	2353-33-5	verified	CHEBI:50131	5-aza-2'-deoxycytidine		XAUDJQYHKZQPEU-KVQBGUIXSA-N	name and CAS resolved independently to the same structure	2	2
+Decitabine (5-Aza-2'-deoxycytidine; 5-AZA-CdR; NSC 127716)	2353-33-5	verified	CHEBI:50131	5-aza-2'-deoxycytidine		XAUDJQYHKZQPEU-KVQBGUIXSA-N	name and CAS resolved independently to the same structure	1	2
+DEGUELIN(-)	522-17-8	verified	CHEBI:4357	deguelin		ORDAZKGHSNRHTD-UXHICEINSA-N	name and CAS resolved independently to the same structure	1	2
+Dequalinium dichloride	522-51-0	verified	CHEBI:31466	dequalinium chloride		LTNZEXKYNRNOGT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+DESOXYMETASONE	382-67-2	verified	CHEBI:691037	desoximetasone		VWVSBHGCDBMOOT-IIEHVVJPSA-N	name and CAS resolved independently to the same structure	2	2
+Dexamethasone	50-02-2	verified	CHEBI:41879	dexamethasone		UREBDLICKHMUKA-CXSFZGCWSA-N	name and CAS resolved independently to the same structure	1	2
+Dexrazoxane hydrochloride	1263283-43-7	verified	CHEBI:50224	dexrazoxane hydrochloride		BIFMNMPSIYHKDN-FJXQXJEOSA-N	name and CAS resolved independently to the same structure	1	2
+DH 97	220339-00-4	verified	CHEBI:92107	N-[2-[2-(phenylmethyl)-1H-indol-3-yl]ethyl]pentanamide		HDOIPCLEKCEANF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DHBP dibromide	6159-05-3	unverified			in_pubchem_not_in_chebi	VRXAJMCFEOESJO-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+Dibutyryl-cAMP, sodium salt	16980-89-5	verified	CHEBI:31313	Bucladesine sodium		KRBZRVBLIUDQNG-JBVYASIDSA-M	name and CAS resolved independently to the same structure	1	2
+Diflucortolone valerate	59130-69-7	verified	CHEBI:31484	Diflucortolone valerate		HHJIUUAMYGBVSD-YTFFSALGSA-N	the experimental team confirmed the compound name	1	2
+Dihydroergocristine mesylate	24730-10-7	verified	CHEBI:31490	dihydroergocristine mesylate		SPXACGZWWVIDGR-SPZWACKZSA-N	name and CAS resolved independently to the same structure	1	2
+Dihydroergotamine mesylate	6190-39-2	verified	CHEBI:59756	dihydroergotamine mesylate		ADYPXRFPBQGGAH-UMYZUSPBSA-N	name and CAS resolved independently to the same structure	1	2
+Dihydroergotoxine mesylate	8067-24-1	verified	CHEBI:181460	Alkergot		YLXBZBPHTNJZQE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Dihydrokainic acid	52497-36-6	verified	CHEBI:43562	dihydrokainic acid		JQPDCKOQOOQUSC-OOZYFLPDSA-N	name and CAS resolved independently to the same structure	1	2
+Dihydrosphingosine	3102-56-5	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+Dilazep dihydrochloride	20153-98-4	verified	CHEBI:31493	dilazep dihydrochloride		VILIWRRWAWKXRW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Diltiazem hydrochloride	33286-22-5	verified	CHEBI:645509	diltiazem hydrochloride		HDRXZJPWHTXQRI-BHDTVMLSSA-N	name and CAS resolved independently to the same structure	1	2
+Dimaprit dihydrochloride	23256-33-9	unverified			in_pubchem_not_in_chebi	XFELLTMDCGRCBW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Dinaciclib		unverified			identity_single_source_only	PIMQWRZWLQKKBJ-SFHVURJKSA-N	single_source	2	2
+Diphenyleneiodonium chloride	4673-26-1	verified	CHEBI:77967	dibenziodolium chloride		FCFZKAVCDNTYID-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+Dipyridamole	58-32-2	verified	CHEBI:4653	dipyridamole		IZEKFCXSFNUWAM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Disulfiram	97-77-8	verified	CHEBI:4659	disulfiram		AUZONCFQVSMFAP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+DL-AP4	6323-99-5	unverified			in_pubchem_not_in_chebi	DDOQBQRIEWHWBT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DL-AP5	76326-31-3	verified	CHEBI:138644	2-amino-5-phosphonopentanoic acid		VOROEQBFPPIACJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DL-AP7	85797-13-3	unverified			in_pubchem_not_in_chebi	MYDMWESTDPJANS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DL-TBOA	205309-81-5	verified	CHEBI:230819	(3s)-3-(Benzyloxy)-L-Aspartic Acid		BYOBCYXURWDEDS-IUCAKERBSA-N	name and CAS resolved independently to the same structure	1	2
+DMAB-anabaseine dihydrochloride	154149-38-9	unverified			in_pubchem_not_in_chebi	DHCNEWWWKHBASC-YNHPUKFJSA-N	name and CAS resolved independently to the same structure	1	2
+DMNB	20357-25-9	verified	CHEBI:108597	4,5-dimethoxy-2-nitrobenzaldehyde		YWSPWKXREVSQCA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DMP 543	160588-45-4	verified	CHEBI:93560	10,10-bis[(2-fluoro-4-pyridinyl)methyl]-9-anthracenone		MUJBUUDUXGDXLW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DMPQ dihydrochloride	1123491-15-5	unverified			in_pubchem_not_in_chebi	YBBAOKYVJCNJIV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DNQX	2379-57-9	verified	CHEBI:93492	6,7-dinitro-1,4-dihydroquinoxaline-2,3-dione		RWVIMCIPOAXUDG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DNQX disodium salt	1312992-24-7	unverified			in_pubchem_not_in_chebi	GPSBSOYURFUVKJ-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+Dobutamine hydrochloride	49745-95-1	verified	CHEBI:4671	dobutamine hydrochloride		BQKADKWNRWCIJL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Domperidone	57808-66-9	verified	CHEBI:31515	domperidone		FGXWKSZFVQUSTL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Doramectin	117704-25-3	unverified			chebi_entry_same_name_different_structure	QLFZZSKTJWDQOS-YDBLARSUSA-N	name and CAS resolved independently to the same structure	1	2
+Doxepin hydrochloride	1229-29-4	verified	CHEBI:4711	Doxepin Hydrochloride		MHNSPTUQQIYJOT-SJDTYFKWSA-N	name and CAS resolved independently to the same structure	1	2
+Doxorubicin	23214-92-8	verified	CHEBI:28748	doxorubicin		AOJJSUZBOXZQNB-TZSSRYMLSA-N	name and CAS resolved independently to the same structure	1	2
+Doxorubicin hydrochloride	23214-92-8	unverified			cas_and_name_disagree_on_form		form_disagreement	2	2
+Doxorubicin hydrochloride	25316-40-9	verified	CHEBI:31522	Doxorubicin hydrochloride		MWWSFMDVAYGXBV-RUELKSSGSA-N	name and CAS resolved independently to the same structure	1	1
+DPCPX	102146-07-6	verified	CHEBI:73282	DPCPX		FFBDFADSZUINTG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DPN	1428-67-7	verified	CHEBI:63949	2,3-bis(4-hydroxyphenyl)propionitrile		GHZHWDWADLAOIQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DPO-1	43077-30-1	verified	CHEBI:93748	[[(1S,2S,5R)-5-methyl-2-propan-2-ylcyclohexyl]-phenylphosphoryl]benzene		BPCNGVCAHAIZEE-COPCDDAFSA-N	name and CAS resolved independently to the same structure	1	2
+DR 2313	284028-90-6	unverified			identity_single_source_only	HRYKZAKEAVZGJD-UHFFFAOYSA-N	single_source	1	2
+DS2	374084-31-8	unverified			in_pubchem_not_in_chebi	AZKMWHRDICVYEI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DTG	97-39-2	verified	CHEBI:92585	1,2-bis(2-methylphenyl)guanidine		OPNUROKCUBTKLF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DuP 697	88149-94-4	verified	CHEBI:4720	DuP 697		AJFTZWGGHJXZOB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+DY131	95167-41-2	verified	CHEBI:228584	DY131		WLKOCYWYAWBGKY-CPNJWEJPSA-N	name and CAS resolved independently to the same structure	1	2
+DYCLONINE HYDROCHLORIDE	536-43-6	verified	CHEBI:4725	dyclonine hydrochloride		KNZADIMHVBBPOA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+EBPC	4450-98-0	verified	CHEBI:190040	Ethyl 1-benzyl-3-hydroxy- 2-oxo[5H]pyrrole-4-carboxylate		IGYRPDIWSYGHMY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ebselen	60940-34-3	verified	CHEBI:77543	ebselen		DYEFUKCXAQOFHX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Efaroxan hydrochloride	89197-00-2	unverified			in_pubchem_not_in_chebi	DWOIUCRHVWIHAH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Efonidipine hydrochloride monoethanolate	111011-76-8	unverified			chebi_has_only_a_different_form	OXVTXPCIJDYQIS-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+EHNA hydrochloride	58337-38-5	verified	CHEBI:64139	(2R,3S)-EHNA hydrochloride		VVDXNJRUNJMYOZ-DHXVBOOMSA-N	name and CAS resolved independently to the same structure	1	2
+Elacestrant (RAD1901)	722533-56-4	verified	CHEBI:229213	elacestrant		SIFNOOUKXBRGGB-AREMUKBSSA-N	name and CAS resolved independently to the same structure	1	2
+Eliprodil	119431-25-3	verified	CHEBI:180651	1-(4-chlorophenyl)-2-[4-(4-fluorobenzyl)piperidin-1-yl]ethanol		GGUSQTSTQSHJAH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Embelin	550-24-3	verified	CHEBI:4778	embelin		IRSFLDGTOHBADP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+EMD 386088 hydrochloride	1171123-46-8	unverified			in_pubchem_not_in_chebi	WWSNDUWIZDYGIQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+EMD 66684	1216884-39-7	unverified			in_pubchem_not_in_chebi	YMFXGXGDHBXTPY-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+EMETINE	483-18-1	verified	CHEBI:4781	emetine		AUVVAXYIELKVAI-CKBKHPSWSA-N	name and CAS resolved independently to the same structure	2	2
+Entospletinib (GS-9973)	1229208-44-9	verified	CHEBI:755246	entospletinib		XSMSNFMDVXXHGJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Entospletinib_GS-9973	1229208-44-9	verified	CHEBI:755246	entospletinib		XSMSNFMDVXXHGJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	1
+EO 1428	321351-00-2	verified	CHEBI:91468	[4-(2-amino-4-bromoanilino)-2-chlorophenyl]-(2-methylphenyl)methanone		HDCLCHNAEZNGNV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Epirubicin (IMI 28)	56420-45-2	verified	CHEBI:47898	4'-epidoxorubicin		AOJJSUZBOXZQNB-VTZDEGQISA-N	name and CAS resolved independently to the same structure	2	2
+Epirubicin HCl	56390-09-1	verified	CHEBI:232543	epirubicin hydrochloride		MWWSFMDVAYGXBV-FGBSZODSSA-N	name and CAS resolved independently to the same structure	1	2
+Eplerenone	107724-20-9	verified	CHEBI:31547	eplerenone		JUKPWJGBANNWMW-VWBFHTRKSA-N	name and CAS resolved independently to the same structure	1	2
+ER 27319 maleate	1204480-26-1	verified	CHEBI:231345	ER 27319 maleate		WVUQPGFRFBVJKH-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+ERYTHROSINE SODIUM	16423-68-0	unverified			chebi_has_only_a_different_form	OALHHIHQOFIMEF-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Etazolate hydrochloride	35838-58-5	verified	CHEBI:749714	etazolate hydrochloride		GQJUGJHJUZSJLZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Eticlopride hydrochloride	97612-24-3	unverified			in_pubchem_not_in_chebi	HFJFXXDHVWLIKX-YDALLXLXSA-N	name and CAS resolved independently to the same structure	1	2
+Etomidate	33125-97-2	verified	CHEBI:4910	etomidate		NPUKDXXFDDZOKR-LLVKDONJSA-N	name and CAS resolved independently to the same structure	1	2
+Etonitazenyl isothiocyanate	85951-65-1	unverified			in_pubchem_not_in_chebi	QIIKEXXYYPDZHL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Etoposide	33419-42-0	verified	CHEBI:4911	etoposide		VJJPUSNTGOMMGY-MRVIYFEKSA-N	name and CAS resolved independently to the same structure	1	2
+Evans Blue	314-13-6	verified	CHEBI:82467	Evans blue		ATNOAWAQFYGAOY-UHFFFAOYSA-J	name and CAS resolved independently to the same structure	2	2
+Evans Blue tetrasodium salt	314-13-6	verified	CHEBI:82467	Evans blue		ATNOAWAQFYGAOY-UHFFFAOYSA-J	the experimental team confirmed the CAS / catalogue product	1	2
+Exo1	461681-88-9	verified	CHEBI:93386	2-[[(4-fluorophenyl)-oxomethyl]amino]benzoic acid methyl ester		KIAPWMKFHIKQOZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Fananserin	127625-29-0	verified	CHEBI:92159	LSM-2183		VGIGHGMPMUCLIQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Fasudil hydrochloride	105628-07-7	verified	CHEBI:31593	fasudil hydrochloride		LFVPBERIVUNMGV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Felbamate	25451-15-4	verified	CHEBI:4995	felbamate		WKGXYQFOCVYPAC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Fenretinide	65646-68-6	verified	CHEBI:42588	4-hydroxyphenyl retinamide		AKJHMTWEGVYYSE-FXILSDISSA-N	name and CAS resolved independently to the same structure	1	2
+FERb 033	1111084-78-6	unverified			in_pubchem_not_in_chebi	LRRMQNGSYOUANY-OMCISZLKSA-N	name and CAS resolved independently to the same structure	1	2
+Fexaramine	574013-66-4	verified	CHEBI:80003	Fexaramine		VLQTUNDJHLEFEQ-KGENOOAVSA-N	name and CAS resolved independently to the same structure	1	2
+Fexofenadine hydrochloride	153439-40-8	verified	CHEBI:5051	Fexofenadine hydrochloride		RRJFVPUCXDGFJB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+FG 7142	78538-74-6	verified	CHEBI:93081	N-methyl-9H-pyrido[3,4-b]indole-3-carboxamide		QMCOPDWHWYSJSA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+FGIN-1-27	142720-24-9	verified	CHEBI:92171	2-[2-(4-fluorophenyl)-1H-indol-3-yl]-N,N-dihexylacetamide		VUWXAQFLTSBUDB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+FGIN-1-43	145040-29-5	verified	CHEBI:93159	2-[5-chloro-2-(4-chlorophenyl)-1H-indol-3-yl]-N,N-dihexylacetamide		XTZUPNNVXIMWAR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+FIT	85951-63-9	verified	CHEBI:92323	N-[1-[2-(4-isothiocyanatophenyl)ethyl]-4-piperidinyl]-N-phenylpropanamide		VDKBIFPJULZUPU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+FK 888	138449-07-7	verified	CHEBI:93463	(2S,4R)-4-hydroxy-1-[(1-methyl-3-indolyl)-oxomethyl]-N-[(2S)-1-[methyl-(phenylmethyl)amino]-3-(2-naphthalenyl)-1-oxopropan-2-yl]-2-pyrrolidinecarboxamide		BFNKQTIJVFGCKQ-PDJGWCFMSA-N	name and CAS resolved independently to the same structure	1	2
+Flavopiridol	131740-09-5	verified	CHEBI:90998	alvocidib hydrochloride		LGMSNQNWOCSPIK-LWHGMNCYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Flecainide acetate	54143-56-5	verified	CHEBI:5091	flecainide acetate		RKXNZRPQSOPPRN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Fludarabine	21679-14-1	verified	CHEBI:94701	(2R,3S,4S,5R)-2-(6-amino-2-fluoro-9-purinyl)-5-(hydroxymethyl)oxolane-3,4-diol		HBUBKKRHXORPQB-FJFJXFQQSA-N	name and CAS resolved independently to the same structure	1	1
+Fludarabine (F-ara-A; NSC 118218)	21679-14-1	verified	CHEBI:94701	(2R,3S,4S,5R)-2-(6-amino-2-fluoro-9-purinyl)-5-(hydroxymethyl)oxolane-3,4-diol		HBUBKKRHXORPQB-FJFJXFQQSA-N	name and CAS resolved independently to the same structure	1	2
+Flumazenil	78755-81-4	verified	CHEBI:5103	flumazenil		OFBIFZUFASYYRE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Flunarizine dihydrochloride	30484-77-6	verified	CHEBI:31621	Flunarizine hydrochloride		RXKMOPXNWTYEHI-RDRKJGRWSA-N	name and CAS resolved independently to the same structure	1	2
+Flurbiprofen	5104-49-4	verified	CHEBI:5130	flurbiprofen		SYTBZMRGLBWNTM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Fluticasone propionate	80474-14-2	verified	CHEBI:31441	fluticasone propionate		WMWTYOKRWGGJOA-CENSZEJFSA-N	name and CAS resolved independently to the same structure	1	2
+Formoterol hemifumarate	43229-80-7	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+Forskolin	66575-29-9	verified	CHEBI:42471	forskolin		OHCQJHSOBUTRHG-KGGHGJDLSA-N	name and CAS resolved independently to the same structure	1	2
+FPA 124	902779-59-3	unverified			in_pubchem_not_in_chebi	HZRXQEVFXXQYFS-KHDHKOIVSA-L	name and CAS resolved independently to the same structure	1	2
+FPL 55712	40785-97-5	verified	CHEBI:91977	7-[3-(4-acetyl-3-hydroxy-2-propylphenoxy)-2-hydroxypropoxy]-4-oxo-8-propyl-1-benzopyran-2-carboxylic acid		LMQBMWHHGVZWMR-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+FPL 64176	120934-96-5	verified	CHEBI:249982	FPL 64176		MDMWHKZANMNXTF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+FR 122047 hydrochloride	130717-51-0	unverified			in_pubchem_not_in_chebi	YWMAVHIKOAOSFM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+FR 180204	865362-74-9	verified	CHEBI:91383	5-(2-phenyl-3-pyrazolo[1,5-a]pyridinyl)-2H-pyrazolo[3,4-c]pyridazin-3-amine		XVECMUKVOMUNLE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+G-1	881639-98-1	verified	CHEBI:156296	G-1		VHSVKVWHYFBIFJ-HKZYLEAXSA-N	name and CAS resolved independently to the same structure	1	2
+G-15	1161002-05-6	unverified			chebi_has_only_a_different_form	LBBDCJLRQXMUAE-FWHYVADDSA-N	the experimental team supplied the structure as SMILES	1	2
+Gabapentin	60142-96-3	verified	CHEBI:42797	gabapentin		UGJMXCAKCUNAIE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Gabexate mesylate	56974-61-9	verified	CHEBI:31641	gabexate methanesulfonate		DNTNDFLIKUKKOC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ganaxolone	38398-32-2	verified	CHEBI:177658	Ganaxolone		PGTVWKLGGCQMBR-FLBATMFCSA-N	name and CAS resolved independently to the same structure	1	2
+GBLD 345	122479-08-7	unverified			in_pubchem_not_in_chebi	HQRHGSRWOHGIRI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GBR 12909 dihydrochloride	67469-78-7	verified	CHEBI:64086	vanoxerine dihydrochloride		MIBSKSYCRFWIRU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Gedunin	2753-30-2	verified	CHEBI:65954	gedunin		YJXDGWUNRYLINJ-BHAPSIHVSA-N	name and CAS resolved independently to the same structure	1	2
+Gemcitabine	95058-81-4	verified	CHEBI:175901	gemcitabine		SDUQYLNIPVEERB-QPPQHZFASA-N	name and CAS resolved independently to the same structure	2	2
+Gemcitabine hydrochloride	122111-03-9	verified	CHEBI:31647	gemcitabine hydrochloride		OKKDEIYWILRZIA-OSZBKLCCSA-N	name and CAS resolved independently to the same structure	1	2
+Genistein	446-72-0	verified	CHEBI:28088	genistein		TZBJGXHYKVUXJN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GENTIAN VIOLET	548-62-9	verified	CHEBI:41688	crystal violet		ZXJXZNDDNMQXFV-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+GF 109203X	133052-90-1	verified	CHEBI:229916	bim-1		QMGUOJYZJKLOLH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ginkgolide B	15291-77-7	unverified			chebi_entry_same_name_different_structure	SQOJOAFXDQDRGF-ZMVGXLHTSA-N	name and CAS resolved independently to the same structure	1	2
+Glibenclamide	10238-21-8	verified	CHEBI:5441	glyburide		ZNNLBTZKUZBEKO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Glimepiride	93479-97-1	verified	CHEBI:92609	4-ethyl-3-methyl-N-[2-[4-[[[(4-methylcyclohexyl)amino]-oxomethyl]sulfamoyl]phenyl]ethyl]-5-oxo-2H-pyrrole-1-carboxamide		WIGIZIANZCJQQY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Glycine	56-40-6	verified	CHEBI:15428	glycine		DHMQDGOQFOQNFH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GP 1a	511532-96-0	verified	CHEBI:93145	1-(2,4-dichlorophenyl)-6-methyl-N-(1-piperidinyl)-4H-indeno[1,2-c]pyrazole-3-carboxamide		FNOMTMVRTBHRET-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GP 2a	919077-81-9	verified	CHEBI:92606	N-cyclohexyl-1-(2,4-dichlorophenyl)-6-methyl-4H-indeno[1,2-c]pyrazole-3-carboxamide		SPEFJYZGXZENAF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GR 103691	162408-66-4	verified	CHEBI:92882	4-(4-acetylphenyl)-N-[4-[4-(2-methoxyphenyl)-1-piperazinyl]butyl]benzamide		JARNORYOPMINDY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GR 135531	190277-13-5	verified	CHEBI:93457	N-[3-(2-acetamidoethyl)-1H-indol-5-yl]carbamic acid methyl ester		MPZVHKLZCUEJFO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GR 144053 trihydrochloride	1215333-48-4	unverified			in_pubchem_not_in_chebi	YKRNPHOBDOUQTG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GR 159897	158848-32-9	verified	CHEBI:92912	5-fluoro-3-[2-[4-methoxy-4-[[(R)-phenylsulfinyl]methyl]-1-piperidinyl]ethyl]-1H-indole		BANYJBHWTOJQDU-GDLZYMKVSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+GR 79236	124555-18-6	verified	CHEBI:92714	(2R,3R,4S,5R)-2-[6-[[(1S,2S)-2-hydroxycyclopentyl]amino]-9-purinyl]-5-(hydroxymethyl)oxolane-3,4-diol		GYWXTRVEUURNEW-TVDBPQCTSA-N	name and CAS resolved independently to the same structure	1	2
+GS 39783	39069-52-8	verified	CHEBI:93326	N4,N6-dicyclopentyl-2-(methylthio)-5-nitropyrimidine-4,6-diamine		GSGVDKOCBKBMGG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GSK 0660 GSK 0660	1014691-61-2	verified	CHEBI:94813	3-[(4-anilino-2-methoxyphenyl)sulfamoyl]-2-thiophenecarboxylic acid methyl ester		NDFKBGWLUHKMFY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GSK 650394	890842-28-1	verified	CHEBI:95066	2-cyclopentyl-4-(5-phenyl-1H-pyrrolo[2,3-b]pyridin-3-yl)benzoic acid		WVSBGSNVCDAMCF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GTP 14564	34823-86-4	verified	CHEBI:92300	3-phenyl-1H-benzofuro[3,2-c]pyrazole		DZQLVVLATXPWBK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Guanabenz acetate	23256-50-0	verified	CHEBI:5554	Guanabenz acetate		MCSPBPXATWBACD-GAYQJXMFSA-N	name and CAS resolved independently to the same structure	1	2
+Guanfacine hydrochloride	29110-48-3	verified	CHEBI:5559	Guanfacine hydrochloride		DGFYECXYGUIODH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Guggulsterone	95975-55-6	verified	CHEBI:229515	(Z)-Guggulsterone		WDXRGPWQVHZTQJ-OSJVMJFVSA-N	name and CAS resolved independently to the same structure	1	2
+Guvacine hydrochloride	6027-91-4	unverified			in_pubchem_not_in_chebi	FGNUNVVTHHKDAM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 0742	317318-84-6	verified	CHEBI:79991	GW 0742		HWVNEWGKWRGSRK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 1929	1217466-21-1	unverified			chebi_has_only_a_different_form	KXNKIKXTGRMLEY-YCBFMBTMSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+GW 3965 hydrochloride	405911-17-3	verified	CHEBI:232793	GW3965 hydrochloride		NMPUWJFHNOUNQU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 405833	180002-83-9	verified	CHEBI:92184	GW405833		FSFZRNZSZYDVLI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 4064	278779-30-9	verified	CHEBI:79997	GW 4064		BYTNEISLBIENSA-MDZDMXLPSA-N	name and CAS resolved independently to the same structure	1	2
+GW 441756	504433-23-2	unverified			chebi_has_only_a_different_form	NXNQLECPAXXYTR-LCYFTJDESA-N	the experimental team confirmed the CAS / catalogue product	1	2
+GW 5074	220904-83-6	verified	CHEBI:231667	GW5074		LMXYVLFTZRPNRV-KMKOMSMNSA-N	name and CAS resolved independently to the same structure	1	2
+GW 583340 dihydrochloride	1173023-85-2	unverified			in_pubchem_not_in_chebi	WIMITXDBYLKRKB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 6471	880635-03-0	unverified			chebi_entry_same_name_different_structure	TYEFSRMOUXWTDN-DYQICHDWSA-N	name and CAS resolved independently to the same structure	1	2
+GW 7647	265129-71-3	verified	CHEBI:70778	GW 7647		PKNYXWMTHFMHKD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 843682X	660868-91-7	verified	CHEBI:91334	GW843682X		JSKUWFIZUALZLX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 9508	885101-89-3	verified	CHEBI:93259	3-[4-[(3-phenoxyphenyl)methylamino]phenyl]propanoic acid		DGENZVKCTGIDRZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+GW 9662	22978-25-2	verified	CHEBI:79993	GW 9662		DNTSIBUQMRRYIU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+H 89 dihydrochloride	130964-39-5	unverified			chebi_has_only_a_different_form	GELOGQJVGPIKAM-WTVBWJGASA-N	name and CAS resolved independently to the same structure	1	2
+HA 1100 hydrochloride	155558-32-0	unverified			in_pubchem_not_in_chebi	XWWFOUVDVJGNNG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+HA14-1	65673-63-4	verified	CHEBI:94328	2-amino-6-bromo-4-(1-cyano-2-ethoxy-2-oxoethyl)-4H-1-benzopyran-3-carboxylic acid ethyl ester		SXJDCULZDFWMJC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Halicin (SU3327)	2157-24-6	unverified			cas_and_name_are_different_compounds		compound_disagreement	2	2
+Halicin_SU3327	2157-24-6	verified	CHEBI:146227	halicin		NQQBNZBOOHHVQP-UHFFFAOYSA-N	the experimental team confirmed the compound name	1	1
+Halofuginone	55837-20-2	unverified			chebi_entry_exists_but_has_no_structure	LVASCWIMLIKXLA-CABCVRRESA-N	name and CAS resolved independently to the same structure	1	2
+Haloperidol hydrochloride	1511-16-6	unverified			in_pubchem_not_in_chebi	JMRYYMBDXNZQMH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Haloprogin	2302-17-2	verified	CHEBI:5614	Haloprogin		CTETYYAZBPJBHE-UHFFFAOYSA-N	the experimental team confirmed the compound name	1	2
+Harmane	486-84-0	verified	CHEBI:5623	harman		PSFDQSOCUJVVGF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+HEMADO	403842-38-6	unverified			in_pubchem_not_in_chebi	KOCIMZNSNPOGOP-IWCJZZDYSA-N	name and CAS resolved independently to the same structure	1	2
+Histamine dihydrochloride	56-92-8	verified	CHEBI:749857	histamine dihydrochloride		PPZMYIBUHIPZOS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Homoharringtonine	26833-87-4	verified	CHEBI:71019	omacetaxine mepesuccinate		HYFHYPWGAURHIV-JFIAXGOJSA-N	name and CAS resolved independently to the same structure	2	2
+Homoharringtonine (Omacetaxine)	26833-87-4	verified	CHEBI:71019	omacetaxine mepesuccinate		HYFHYPWGAURHIV-JFIAXGOJSA-N	name and CAS resolved independently to the same structure	2	2
+Homoquinolinic acid	490-75-5	unverified			in_pubchem_not_in_chebi	HQPMJFFEXJELOQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+HTMT dimaleate	195867-54-0	unverified			in_pubchem_not_in_chebi	ODAOZWTYNWZSBY-SPIKMXEPSA-N	name and CAS resolved independently to the same structure	1	2
+Hypotaurine	300-84-5	verified	CHEBI:16668	hypotaurine		VVIUBCNYACGLLV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+IB-MECA	152918-18-8	verified	CHEBI:73286	3-iodobenzyl-5'-N-methylcarboxamidoadenosine		HUJXGQILHAUCCV-MOROJQBDSA-N	name and CAS resolved independently to the same structure	1	2
+IBC 293	306935-41-1	verified	CHEBI:92275	1-propan-2-yl-5-benzotriazolecarboxylic acid		RUTVRAJKELSHCC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ibotenic acid	2552-55-8	verified	CHEBI:5854	Ibotenic acid		IRJCBFDCFXCWGO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ibudilast	50847-11-5	verified	CHEBI:31684	Ibudilast		ZJVFLBOZORBYFE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ICI 182,780	129453-61-8	verified	CHEBI:31638	fulvestrant		VWUXBMIQPBEWFH-WCCTWKNTSA-N	name and CAS resolved independently to the same structure	1	2
+ICI 192,605	117621-64-4	unverified			in_pubchem_not_in_chebi	WHUIENZXNGAHQI-YGPRPMEGSA-N	name and CAS resolved independently to the same structure	1	2
+ICI 63197	27277-00-5	verified	CHEBI:92909	2-amino-6-methyl-4-propyl-[1,2,4]triazolo[1,5-a]pyrimidin-5-one		UQDVRVNMIJAGRK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ICI-118,551 hydrochloride	72795-01-8	unverified			in_pubchem_not_in_chebi	VFIDUCMKNJIJTO-XJKSGUPXSA-N	the experimental team supplied the structure as SMILES	1	2
+ICI-162,846	84545-30-2	verified	CHEBI:93167	5-[3-[[amino(2,2,2-trifluoroethylimino)methyl]amino]-1-pyrazolyl]pentanamide		ALCSGJCIESECFD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ICI-185,282	106393-80-0	verified	CHEBI:168382	7-[2-Trifluoromethyl-4-(2-hydroxyphenyl)-1,3-dioxan-cis-5-yl]-hept-5z-enoic acid		ZWAVGFSZMACJHA-PMNBYGLBSA-N	name and CAS resolved independently to the same structure	1	2
+ICI-89406	53671-71-9	verified	CHEBI:91488	1-[2-[[3-(2-cyanophenoxy)-2-hydroxypropyl]amino]ethyl]-3-phenylurea		HTLWRKRZKFAAAH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Idarubicin	58957-92-9	verified	CHEBI:42068	idarubicin		XDXDZDZNSLXDNA-TZNDIEGXSA-N	name and CAS resolved independently to the same structure	2	2
+Idarubicin hydrochloride (4-Demethoxydaunorubicin hydrochloride)	57852-57-0	verified	CHEBI:31686	Idarubicin hydrochloride		JVHPTYWUBOQMBP-RVFAQHLVSA-N	name and CAS resolved independently to the same structure	1	2
+Idazoxan hydrochloride	79944-56-2	unverified			in_pubchem_not_in_chebi	MYUBYOVCLMEAOH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ifenprodil hemitartrate	23210-58-4	verified	CHEBI:31688	Ifenprodil tartrate		DMPRDSPPYMZQBT-CEAXSRTFSA-N	name and CAS resolved independently to the same structure	1	2
+IKK 16	1186195-62-9	unverified			chebi_has_only_a_different_form	XFVDIVQCZWDBCW-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+IMD 0354	978-62-1	verified	CHEBI:93310	N-[3,5-bis(trifluoromethyl)phenyl]-5-chloro-2-hydroxybenzamide		CHILCFMQWMQVAL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Imetit dihydrobromide	32385-58-3	verified	CHEBI:64151	imetit dihydrobromide		DOBOYMKCRRLTRF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Imiloxan hydrochloride	81167-22-8	unverified			chebi_entry_exists_but_has_no_structure	ANDJPJNFVJXEKX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Immepip dihydrobromide	164391-47-3	unverified			in_pubchem_not_in_chebi	YGNJPNRDGXJQJX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Immethridine dihydrobromide	699020-93-4	unverified			in_pubchem_not_in_chebi	CYNKWHIKNDIVDR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Impentamine dihydrobromide	149629-70-9	unverified			in_pubchem_not_in_chebi	QSDXAAWBBPWGEL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+INCA-6	3519-82-2	verified	CHEBI:92582	INCA-6		GCHPUOHXXCNSQL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Indiplon	325715-02-4	verified	CHEBI:188583	Indiplon		CBIAWPMZSFFRGN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Indirubin-3'-oxime	160807-49-8	unverified			chebi_has_only_a_different_form	FQCPPVRJPILDIK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Indomethacin	53-86-1	verified	CHEBI:49662	indometacin		CGIGDMFJXJATDK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+INH1	1780260-01-6	unverified			in_pubchem_not_in_chebi	DYJVVODHGPIUPM-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Iodophenpropit dihydrobromide	145196-87-8	unverified			in_pubchem_not_in_chebi	BOSOGNBLIWPCMS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+IPAG	193527-91-2	verified	CHEBI:231348	IPAG		UUKPIWYXWLJPJF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ipratropium bromide	22254-24-6	unverified			chebi_has_only_a_different_form	LHLMOSXCXGLMMN-CLTUNHJMSA-M	name and CAS resolved independently to the same structure	1	2
+IRL-2500	169545-27-1	unverified			in_pubchem_not_in_chebi	UZDORQWMYRRLQV-JHOUSYSJSA-N	name and CAS resolved independently to the same structure	1	2
+Irsogladine maleate	84504-69-8	verified	CHEBI:31721	Irsogladine maleate		PJLVTVAIERNDEQ-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+iso-PPADS tetrasodium salt	207572-67-6	unverified			in_pubchem_not_in_chebi	SDCXIPVOUDBGDK-UHFFFAOYSA-J	name and CAS resolved independently to the same structure	1	2
+Isoguvacine hydrochloride	68547-97-7	unverified			in_pubchem_not_in_chebi	SUWREQRNTXCCBL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Isoproterenol hydrochloride	51-30-9	verified	CHEBI:31453	DL-Isoprenaline hydrochloride		IROWCYIEJAOFOW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ispinesib	336113-53-2	verified	CHEBI:94692	N-(3-aminopropyl)-N-[(1R)-1-[7-chloro-4-oxo-3-(phenylmethyl)-2-quinazolinyl]-2-methylpropyl]-4-methylbenzamide		QJZRFPJCWMNVAV-HHHXNRCGSA-N	name and CAS resolved independently to the same structure	2	2
+Isradipine	75695-93-1	verified	CHEBI:6073	Isradipine		HMJIYCCIJYRONP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ivermectin	70288-86-7	unverified			no_structure_could_be_resolved		no_structure	1	2
+Ixazomib (MLN2238)	1072833-77-2	verified	CHEBI:90942	ixazomib		MXAYKZJJDUDWDS-LBPRGKRZSA-N	name and CAS resolved independently to the same structure	2	2
+JLK 6	62252-26-0	verified	CHEBI:92395	7-amino-4-chloro-3-methoxy-2-benzopyran-1-one		AMDGKLWVCUXONP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+JNJ 10191584 maleate	869497-75-6	unverified			in_pubchem_not_in_chebi	KOTJFAYEELTYCZ-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+JNJ 17203212	821768-06-3	unverified			in_pubchem_not_in_chebi	JFRYYGVYCWYIDQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+JTC 801	244218-51-7	unverified			in_pubchem_not_in_chebi	NQLIYKXNAXKMBL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+JTE 013	383150-41-2	verified	CHEBI:195541	JTE-013		RNSLRQNDXRSASX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+JTE 907	282089-49-0	verified	CHEBI:93098	N-(1,3-benzodioxol-5-ylmethyl)-7-methoxy-2-oxo-8-pentoxy-1H-quinoline-3-carboxamide		GRAJFFFXJYFVOC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+JX 401	349087-34-9	verified	CHEBI:92098	[2-methoxy-4-(methylthio)phenyl]-[4-(phenylmethyl)-1-piperidinyl]methanone		OMGLGPKQUFSRNN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+K 858	72926-24-0	verified	CHEBI:94425	N-(4-acetyl-5-methyl-5-phenyl-1,3,4-thiadiazol-2-yl)acetamide		JEFVYQYZCAVNTP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Kaempferol	520-18-3	verified	CHEBI:28499	kaempferol		IYRMWMYZSQPJKC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+KB-R7943 mesylate	182004-65-5	verified	CHEBI:232494	KB-R7943		WGIKEBHIKKWJLG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Kenpaullone	142273-20-9	verified	CHEBI:92658	kenpaullone		QQUXFYAWXPMDOE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ketanserin tartrate	83846-83-7	verified	CHEBI:183637	ketanserin tartrate		KMTLTEVOQLMYRS-LREBCSMRSA-N	name and CAS resolved independently to the same structure	1	2
+Ketoconazole	65277-42-1	verified	CHEBI:47518	(2S,4R)-ketoconazole		XMAYWYJOQHXEEK-ZEQKJWHPSA-N	name and CAS resolved independently to the same structure	1	2
+Ketotifen fumarate	34580-14-8	verified	CHEBI:31750	ketotifen fumarate		YNQQEYBLVYAWNX-WLHGVMLRSA-N	name and CAS resolved independently to the same structure	1	2
+KF 38789	257292-29-8	unverified			identity_single_source_only	NHFIAAAMCYVRIW-UHFFFAOYSA-N	single_source	1	2
+Ki 8751	228559-41-9	verified	CHEBI:92822	1-(2,4-difluorophenyl)-3-[4-[(6,7-dimethoxy-4-quinolinyl)oxy]-2-fluorophenyl]urea		LFKQSJNCVRGFCC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+KINETIN RIBOSIDE	4338-47-0	verified	CHEBI:95050	(2R,3R,4S,5R)-2-[6-(2-furanylmethylamino)-9-purinyl]-5-(hydroxymethyl)oxolane-3,4-diol		CAGLGYNQQSIUGX-SDBHATRESA-N	name and CAS resolved independently to the same structure	1	2
+KU 55933	587871-26-9	verified	CHEBI:228209	KU-55933		XRKYMMUGXMWDAO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+KU14R	189224-48-4	verified	CHEBI:91671	2-(2-ethyl-3H-benzofuran-2-yl)-1H-imidazole		JCWVNNMJXQJVNC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Kynurenic acid	492-27-3	verified	CHEBI:18344	kynurenic acid		HCZHHEIFKROPDY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L 655240	103253-15-2	verified	CHEBI:93563	3-[1-[(4-chlorophenyl)methyl]-5-fluoro-3-methyl-2-indolyl]-2,2-dimethylpropanoic acid		JLPYLHLUHJOPNL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L 670596	121083-05-4	verified	CHEBI:91930	2-[6,8-difluoro-9-[(4-methylsulfonylphenyl)methyl]-1,2,3,4-tetrahydrocarbazol-1-yl]acetic acid		GMJWAIMJHBTYPD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-(-)-threo-3-Hydroxyaspartic acid	7298-99-9	verified	CHEBI:10696	(3S)-3-hydroxy-L-aspartic acid		YYLQUHNPNCGKJQ-LWMBPPNESA-N	name and CAS resolved independently to the same structure	1	2
+L-161,982	147776-06-5	verified	CHEBI:92695	N-[2-[4-[[3-butyl-5-oxo-1-[2-(trifluoromethyl)phenyl]-1,2,4-triazol-4-yl]methyl]phenyl]phenyl]sulfonyl-3-methyl-2-thiophenecarboxamide		MMDNKTXNUZFVKD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-165,041	79558-09-1	verified	CHEBI:94812	2-[4-[3-(4-acetyl-3-hydroxy-2-propylphenoxy)propoxy]phenoxy]acetic acid		HBBVCKCCQCQCTJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-168,049	191034-25-0	verified	CHEBI:92326	4-[3-(5-bromo-2-propoxyphenyl)-5-(4-chlorophenyl)-1H-pyrrol-2-yl]pyridine		HHBOWXZOLYQFNY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-368,899 hydrochloride	160312-62-9	unverified			in_pubchem_not_in_chebi	GIUFQWFJHXXXEQ-PHSYAEQHSA-N	name and CAS resolved independently to the same structure	1	2
+L-655,708	130477-52-0	unverified			in_pubchem_not_in_chebi	YKYOQIXTECBVBB-AWEZNQCLSA-N	name and CAS resolved independently to the same structure	1	2
+L-689,560	139051-78-8	unverified			chebi_has_only_a_different_form	UCKHICKHGAOGAP-KGLIPLIRSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+L-693,403 maleate	207455-21-8	unverified			in_pubchem_not_in_chebi	WAZQVIBRRAMDNX-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+L-701,252	151057-13-5	verified	CHEBI:92179	7-chloro-3-[cyclopropyl(oxo)methyl]-4-hydroxy-1H-quinolin-2-one		MXEFWCFPCLDOOG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-701,324	142326-59-8	verified	CHEBI:92140	7-chloro-4-hydroxy-3-(3-phenoxyphenyl)-1H-quinolin-2-one		FLVRDMUHUXVRET-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-732,138	148451-96-1	unverified			in_pubchem_not_in_chebi	BYYQYXVAWXAYQC-IBGZPJMESA-N	name and CAS resolved independently to the same structure	1	2
+L-733,060 hydrochloride	148687-76-7	unverified			in_pubchem_not_in_chebi	DYEUTIUITGHIEO-APTPAJQOSA-N	name and CAS resolved independently to the same structure	1	2
+L-741,742 hydrochloride	874882-93-6	unverified			in_pubchem_not_in_chebi	HZRPUQURUAXOHB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-745,870 trihydrochloride	866021-03-6	unverified			in_pubchem_not_in_chebi	KJSOYZLYCFYXFC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+L-798,106	244101-02-8	verified	CHEBI:138743	L-798106		ODTKFNUPVBULRJ-NTCAYCPXSA-N	name and CAS resolved independently to the same structure	1	2
+L-Alanine	56-41-7	verified	CHEBI:16977	L-alanine		QNAYBMKLOCPYGJ-REOHCLBHSA-N	name and CAS resolved independently to the same structure	1	2
+L-AP5	79055-67-7	unverified			in_pubchem_not_in_chebi	VOROEQBFPPIACJ-BYPYZUCNSA-N	name and CAS resolved independently to the same structure	1	2
+L-Arginine	74-79-3	verified	CHEBI:16467	L-arginine		ODKSFYDXXFIFQN-BYPYZUCNSA-N	name and CAS resolved independently to the same structure	1	2
+L-Aspartic acid	56-84-8	verified	CHEBI:17053	L-aspartic acid		CKLJMWTZIZZHCS-REOHCLBHSA-N	name and CAS resolved independently to the same structure	1	2
+L-Canavanine sulfate	2219-31-0	verified	CHEBI:78901	L-canavanine sulfate		MVIPJKVMOKFIEV-DFWYDOINSA-N	name and CAS resolved independently to the same structure	1	2
+L-Cysteinesulfinic acid	1115-65-7	verified	CHEBI:16345	3-sulfino-L-alanine		ADVPTQAUNPRNPO-REOHCLBHSA-N	name and CAS resolved independently to the same structure	1	2
+L-NAME hydrochloride	51298-62-5	verified	CHEBI:131182	Nγ-nitro-L-arginine methyl ester hydrochloride		QBNXAGZYLSRPJK-JEDNCBNOSA-N	name and CAS resolved independently to the same structure	1	2
+L-NIO dihydrochloride	159190-44-0	unverified			in_pubchem_not_in_chebi	RYCMAAFECCXGHI-ILKKLZGPSA-N	name and CAS resolved independently to the same structure	1	2
+L-NMMA acetate	53308-83-1	verified	CHEBI:749704	tilarginine acetate		IKPNWIGTWUZCKM-JEDNCBNOSA-N	name and CAS resolved independently to the same structure	1	2
+L-NNA	2149-70-4	verified	CHEBI:27960	Nγ-nitro-L-arginine		MRAUNPAHJZDYCK-BYPYZUCNSA-N	name and CAS resolved independently to the same structure	1	2
+L-Serine	56-45-1	verified	CHEBI:17115	L-serine		MTCFGRXMJLQNBG-REOHCLBHSA-N	name and CAS resolved independently to the same structure	1	2
+L-trans-2,4-PDC	64769-66-0	unverified			in_pubchem_not_in_chebi	NRSBQSJHFYZIPH-DMTCNVIQSA-N	name and CAS resolved independently to the same structure	1	2
+Lansoprazole	103577-45-3	verified	CHEBI:6375	lansoprazole		MJIHNNLFOKEZEW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LE 135	155877-83-1	verified	CHEBI:92124	4-(5,7,7,10,10-pentamethyl-8,9-dihydronaphtho[2,3-b][1,4]benzodiazepin-13-yl)benzoic acid		YZZAIQOVMHVWBS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Leelamine hydrochloride	16496-99-4	unverified			in_pubchem_not_in_chebi	CVPQLGCAWUAYPF-WFBUOHSLSA-N	name and CAS resolved independently to the same structure	1	1
+Leflunomide	75706-12-6	verified	CHEBI:6402	leflunomide		VHOGYURTWQBHIL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Levcromakalim	94535-50-9	verified	CHEBI:6436	Levcromakalim		TVZCRIROJQEVOT-CABCVRRESA-N	name and CAS resolved independently to the same structure	1	2
+LFM-A13	62004-35-7	verified	CHEBI:183517	LFM-A13		UVSVTDVJQAJIFG-VURMDHGXSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+Linopirdine dihydrochloride	113168-57-3	unverified			in_pubchem_not_in_chebi	ZEVVHCGTTNRYOY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Lobeline hydrochloride	134-63-4	verified	CHEBI:234117	lobeline hydrochloride		MKMYPTLXLWOUSO-NFQNBQCWSA-N	name and CAS resolved independently to the same structure	1	2
+Lonidamine	50264-69-2	verified	CHEBI:50138	lonidamine		WDRYRZXSPDWGEB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Loperamide hydrochloride	34552-83-5	verified	CHEBI:6533	loperamide hydrochloride		PGYPOBZJRVSMDS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Loratidine	79794-75-5	verified	CHEBI:6538	loratadine		JCCNYMKQOSZNPW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Loreclezole hydrochloride	2227372-56-5	unverified			in_pubchem_not_in_chebi	AWKSVFLKVCVVFQ-MDZFRNKHSA-N	name and CAS resolved independently to the same structure	1	2
+Lovastatin	75330-75-5	verified	CHEBI:40303	lovastatin		PCZOHLXUXFIOCF-BXMDZJJMSA-N	name and CAS resolved independently to the same structure	1	2
+Luzindole	117946-91-5	verified	CHEBI:131788	luzindole		WVVXBPKOIZGVNS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LY 2183240	874902-19-9	verified	CHEBI:92670	LY-2183240		GZNIYOXWFCDBBJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LY 225910	133040-77-4	verified	CHEBI:92592	2-[2-(5-bromo-1H-indol-3-yl)ethyl]-3-(3-propan-2-yloxyphenyl)-4-quinazolinone		KUECXUACQOYKNB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LY 235959	137433-06-8	unverified			in_pubchem_not_in_chebi	STIRHCNEGQQBOY-QEYWKRMJSA-N	name and CAS resolved independently to the same structure	1	2
+LY 2365109 hydrochloride	1779796-27-8	unverified			in_pubchem_not_in_chebi	ZQVOAGQZHDAFRM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LY 255283	117690-79-6	verified	CHEBI:93616	1-[5-ethyl-2-hydroxy-4-[6-methyl-6-(2H-tetrazol-5-yl)heptoxy]phenyl]ethanone		WCGXJPFHTHQNJL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LY 288513	147523-65-7	verified	CHEBI:92436	(4S,5R)-N-(4-bromophenyl)-3-oxo-4,5-diphenyl-1-pyrazolidinecarboxamide		LMUQHXHWJWQXSD-PMACEKPBSA-N	name and CAS resolved independently to the same structure	1	2
+LY 294002 hydrochloride	934389-88-5	unverified			in_pubchem_not_in_chebi	OQZQSRICUOWBLW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LY 320135	176977-56-3	verified	CHEBI:93387	4-[[6-methoxy-2-(4-methoxyphenyl)-3-benzofuranyl]-oxomethyl]benzonitrile		RYNSGDFWBJWWSZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+LY2835219	1231929-97-7	verified	CHEBI:233362	Abemaciclib		UZWDCWONPYILKI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Lylamine hydrochloride	16496-99-4	unverified			in_pubchem_not_in_chebi	CVPQLGCAWUAYPF-WFBUOHSLSA-N	name and CAS resolved independently to the same structure	2	2
+m-3M3FBS	200933-14-8	verified	CHEBI:92167	2,4,6-trimethyl-N-[3-(trifluoromethyl)phenyl]benzenesulfonamide		ZIIUUSVHCHPIQD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+m-Chlorophenylbiguanide hydrochloride	2113-05-5	unverified			in_pubchem_not_in_chebi	FOWAIJYHRWFTHR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MDL 11,939	107703-78-6	verified	CHEBI:91790	phenyl-[1-(2-phenylethyl)-4-piperidinyl]methanol		AXNGJCOYCMDPQG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MDL 72222	40796-97-2	unverified			in_pubchem_not_in_chebi	MNJNPLVXBISNSX-PBWFPOADSA-N	name and CAS resolved independently to the same structure	1	2
+Medetomidine hydrochloride	86347-15-1	verified	CHEBI:48556	medetomidine hydrochloride		VPNGEIHDPSLNMU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Meisoindigo	97207-47-1	unverified			in_pubchem_not_in_chebi	XZYXCQXTKOYHGK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Melatonin	73-31-4	verified	CHEBI:16796	melatonin		DRLFMBDRBRZALE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Melperone hydrochloride	1622-79-3	unverified			in_pubchem_not_in_chebi	MQHYXXIJLKFQGY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Melphalan	148-82-3	verified	CHEBI:28876	melphalan		SGDBTWWWUNNDEQ-LBPRGKRZSA-N	name and CAS resolved independently to the same structure	2	2
+Memantine hydrochloride	41100-52-1	verified	CHEBI:64323	memantine hydrochloride		LDDHMLJTFXJGPI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Mepyramine maleate	59-33-6	verified	CHEBI:749355	pyrilamine maleate		JXYWFNAQESKDNC-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+Metaphit	96316-00-6	unverified			in_pubchem_not_in_chebi	FGSGBQAQSPSRJK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Metergoline	17692-51-2	verified	CHEBI:64216	metergoline		WZHJKEUHNJHDLS-QTGUNEKASA-N	name and CAS resolved independently to the same structure	1	2
+Methiothepin maleate	19728-88-2	verified	CHEBI:64202	methiothepin maleate		IWDBEHWZGDSFHR-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+METHYLBENZETHONIUM CHLORIDE	25155-18-4	unverified			no_structure_could_be_resolved		no_structure	1	2
+Methyllycaconitine citrate	351344-10-0	unverified			chebi_entry_same_name_different_structure	XLTANAWLDBYGFU-VGISAMKQSA-N	the experimental team supplied the structure as SMILES	1	2
+Methysergide maleate	129-49-7	verified	CHEBI:6894	Methysergide maleate		LWYXFDXUMVEZKS-ZVFOLQIPSA-N	name and CAS resolved independently to the same structure	1	2
+Mevastatin	73573-88-3	verified	CHEBI:34848	mevastatin		AJLFOPYRIVGYMJ-INTXDZFKSA-N	name and CAS resolved independently to the same structure	1	2
+Mexiletine hydrochloride	5370-01-4	verified	CHEBI:6917	mexiletine hydrochloride		NFEIBWMZVIVJLQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MG 624	77257-42-2	verified	CHEBI:749733	stilonium iodide		RDTKUZXIHMTSJO-UEIGIMKUSA-M	name and CAS resolved independently to the same structure	1	2
+Mianserin hydrochloride	21535-47-7	verified	CHEBI:31843	mianserin hydrochloride		YNPFMWCWRVTGKJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Mibefradil dihydrochloride	116666-63-8	verified	CHEBI:749859	mibefradil dihydrochloride		MTJLQTFHJIHXIX-GDUXWEAWSA-N	name and CAS resolved independently to the same structure	1	2
+Mifepristone	84371-65-3	verified	CHEBI:50692	mifepristone		VKHAHZOOUSRJNA-GCNJZUOMSA-N	name and CAS resolved independently to the same structure	1	2
+Milbemycin Oxime	129496-10-2	unverified			in_pubchem_not_in_chebi	CKVMAPHTVCTEMM-ALPQRHTBSA-N	name and CAS resolved independently to the same structure	1	2
+Minoxidil	38304-91-5	verified	CHEBI:92128	3-hydroxy-2-imino-6-(1-piperidinyl)-4-pyrimidinamine		ZIMGGGWCDYVHOY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MIRA-1	72835-26-8	unverified			in_pubchem_not_in_chebi	YXEWPGYLMHXLPS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Mirtazepine	85650-52-8	verified	CHEBI:6950	mirtazapine		RONZAEMNMFQXRA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Mitoxantrone (Mitozantrone; NSC 301739)	65271-80-9	verified	CHEBI:50729	mitoxantrone		KKZJGLLVHKMTCM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MK 212 hydrochloride	61655-58-1	unverified			in_pubchem_not_in_chebi	PFIZGLUIYAZQFU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MK 886	118414-82-7	verified	CHEBI:75390	3-[3-(tert-butylsulfanyl)-1-(4-chlorobenzyl)-5-(propan-2-yl)-1H-indol-2-yl]-2,2-dimethylpropanoic acid		QAOAOVKBIIKRNL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ML 9 hydrochloride	105637-50-1	unverified			in_pubchem_not_in_chebi	ZNRYCIVTNLZOGI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MM 77 dihydrochloride	159187-70-9	unverified			in_pubchem_not_in_chebi	ZYCVVOZXHNDRCO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MNI-caged-L-glutamate	295325-62-1	unverified			in_pubchem_not_in_chebi	GXIDBZKXGUNITQ-VIFPVBQESA-N	name and CAS resolved independently to the same structure	1	2
+Moexipril hydrochloride	82586-52-5	verified	CHEBI:6961	Moexipril hydrochloride		JXRAXHBVZQZSIC-JKVLGAQCSA-N	name and CAS resolved independently to the same structure	1	2
+Monastrol	254753-54-3	verified	CHEBI:75384	(S)-monastrol		LOBCDGHHHHGHFA-LBPRGKRZSA-N	name and CAS resolved independently to the same structure	1	2
+Moxidectin	113507-06-5	verified	CHEBI:183811	Moxidectin		YZBLFMPOMVTDJY-LSGXYNIPSA-N	name and CAS resolved independently to the same structure	2	2
+Moxonidine hydrochloride	75536-04-8	unverified			in_pubchem_not_in_chebi	ZZPAWQYZQVUVHX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MPDC	159262-32-5	unverified			in_pubchem_not_in_chebi	UNNFLFDQCHJXPI-QTBDOELSSA-N	name and CAS resolved independently to the same structure	1	2
+MRS 1220	183721-15-5	verified	CHEBI:92667	N-[9-chloro-2-(2-furanyl)-[1,2,4]triazolo[1,5-c]quinazolin-5-yl]-2-phenylacetamide		TWWFAXQOKNBUCR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MRS 1334	192053-05-7	unverified			identity_single_source_only	QFLOJAMZLQXHFS-UHFFFAOYSA-N	single_source	1	2
+MRS 1706	264622-53-9	unverified			in_pubchem_not_in_chebi	ZKUCFFYOQOJLGT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MRS 1845	544478-19-5	unverified			in_pubchem_not_in_chebi	BITHABUTZRAUGT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MRS 2179 tetrasodium salt	1454889-37-2	unverified			in_pubchem_not_in_chebi	XLPQPYQWGFCKEY-IDAKGYGSSA-J	name and CAS resolved independently to the same structure	1	2
+MRS 2219	14141-47-0	unverified			in_pubchem_not_in_chebi	KCAJHODRYGNBSX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MRS 3777 hemioxalate	1186195-57-2	unverified			in_pubchem_not_in_chebi	ICOKMZZMQHZKGX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Muscimol	2763-96-4	verified	CHEBI:7035	muscimol		ZJQHPWUVQPJPQT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+MY-5445	78351-75-4	verified	CHEBI:93577	N-(3-chlorophenyl)-4-phenyl-1-phthalazinamine		CEHQLKSLMFIHBF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+N ?-Methylhistamine dihydrochloride	16503-22-3	unverified			in_pubchem_not_in_chebi	AYUQICXJAMPXPF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+N-[2-(Acetoxy)ethyl]-3-pyridinecarboxamide	83440-03-3	verified	CHEBI:92313	acetic acid 2-[[oxo(3-pyridinyl)methyl]amino]ethyl ester		JQICNNKLTFYSLS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+N-[2-(Piperidinylamino)ethyl]-4-iodobenzamide	155054-42-5	verified	CHEBI:93391	4-iodo-N-[2-(1-piperidinyl)ethyl]benzamide		WCMWVYQHPUQKHW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+N-Acetyl-L-leucyl-L-leucyl-L-methional	145757-50-2	unverified			identity_single_source_only	WYOGLXGZDPVOOI-YVZMLIKISA-N	single_source	1	2
+N-Acetyltryptamine	1016-47-3	verified	CHEBI:55515	N-acetyltryptamine		NVUGEQAEQJTCIX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+N-Benzylnaltrindole hydrochloride	1206487-81-1	unverified			in_pubchem_not_in_chebi	KDEBSUYWJUBPCB-ZHYTUUPESA-N	name and CAS resolved independently to the same structure	1	2
+N-Desmethylclozapine	6104-71-8	verified	CHEBI:64050	N-desmethylclozapine		JNNOSTQEZICQQP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+N-Methylquipazine dimaleate	171205-17-7	verified	CHEBI:64162	N-methylquipazine dimaleate		HNSITEGFVDCKMF-SPIKMXEPSA-N	name and CAS resolved independently to the same structure	1	2
+N1,N12-Diethylspermine tetrahydrochloride	113812-15-0	unverified			identity_single_source_only	SCYOBNRPMHJGLB-UHFFFAOYSA-N	single_source	1	2
+N20C hydrochloride	1177583-87-7	unverified			in_pubchem_not_in_chebi	JCJDLPUASJEVRN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+N6-Cyclopentyladenosine	41552-82-3	unverified			in_pubchem_not_in_chebi	SQMWSBKSHWARHU-SDBHATRESA-N	name and CAS resolved independently to the same structure	1	2
+Nafadotride	149649-22-9	verified	CHEBI:64191	nafadotride		IDZASIQMRGPBCQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Naloxonazine dihydrochloride	880759-65-9	unverified			in_pubchem_not_in_chebi	VIAIHLLKDJKEKM-HOQHGZPCSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+Naloxone benzoylhydrazone	119630-94-3	unverified			in_pubchem_not_in_chebi	AKXCFAYOTIEFOH-XTNAHFASSA-N	name and CAS resolved independently to the same structure	1	2
+Naloxone hydrochloride	357-08-4	verified	CHEBI:31892	naloxone hydrochloride		RGPDIGOSVORSAK-STHHAXOLSA-N	name and CAS resolved independently to the same structure	1	2
+Naltriben mesylate	122517-78-6	unverified			in_pubchem_not_in_chebi	XRRFZOCDAWPIBB-IDRHMUJXSA-N	name and CAS resolved independently to the same structure	1	2
+Naltrindole hydrochloride	111469-81-9	unverified			in_pubchem_not_in_chebi	KNJKRQXCFJCQHC-IDRHMUJXSA-N	name and CAS resolved independently to the same structure	1	2
+Naproxen sodium	26159-34-2	verified	CHEBI:7477	naproxen sodium		CDBRNDSHEYLDJV-FVGYRXGTSA-M	name and CAS resolved independently to the same structure	1	2
+NCS-382	520505-01-5	unverified			in_pubchem_not_in_chebi	UADPGHINQMWEAG-CSKARUKUSA-N	name and CAS resolved independently to the same structure	1	2
+Nebivolol hydrochloride	152520-56-4	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+NECA	35920-39-9	verified	CHEBI:73284	N-ethyl-5'-carboxamidoadenosine		JADDQZYHOWSFJD-FLNNQWSLSA-N	name and CAS resolved independently to the same structure	1	2
+Necrostatin-1	4311-88-0	verified	CHEBI:91658	5-(1H-indol-3-ylmethyl)-3-methyl-2-sulfanylidene-4-imidazolidinone		TXUWMXQFNYDOEZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Nefazodone hydrochloride	82752-99-6	verified	CHEBI:7495	nefazodone hydrochloride		DYCKFEBIOUQECE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Nelarabine (506U78; GW 506U78; Nelzarabine)	121032-29-9	verified	CHEBI:63612	nelarabine		IXOXBSCIXZEQEQ-UHTZMRCNSA-N	name and CAS resolved independently to the same structure	1	2
+Nemonapride	75272-39-8	verified	CHEBI:64219	(2R,3R)-nemonapride		KRVOJOCLBAAKSJ-RDTXWAMCSA-N	name and CAS resolved independently to the same structure	1	2
+NF 023	104869-31-0	unverified			in_pubchem_not_in_chebi	FMQURVHYTBGYSQ-UHFFFAOYSA-H	name and CAS resolved independently to the same structure	1	2
+NF 279	202983-32-2	unverified			in_pubchem_not_in_chebi	RJMCMLNRWDKUDB-UHFFFAOYSA-H	the experimental team confirmed the CAS / catalogue product	1	2
+NGB 2904	189061-11-8	unverified			chebi_has_only_a_different_form	PFIWYJNBKGCVFM-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+NH 125	278603-08-0	unverified			in_pubchem_not_in_chebi	RVWOHCBHAGBLLT-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+Nicergoline	27848-84-6	verified	CHEBI:31902	Nicergoline		YSEXMKHXIOCEJA-FVFQAYNVSA-N	name and CAS resolved independently to the same structure	1	2
+Nicorandil	65141-46-0	verified	CHEBI:31905	nicorandil		LBHIOVVIQHSOQN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Nifedipine	21829-25-4	verified	CHEBI:7565	nifedipine		HYIMSNHJOBLJNT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Nimbulide		unverified			no_structure_could_be_resolved		no_structure	1	2
+Nimesulide	51803-78-2	verified	CHEBI:44445	nimesulide		HYWYRSMBCFDLJT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Nimodipine	66085-59-4	verified	CHEBI:7575	nimodipine		UIAGMCDKSXEBJQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Nitrendipine	39562-70-4	verified	CHEBI:7582	nitrendipine		PVHUJELLJLJGLN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NMDA	6384-92-5	verified	CHEBI:31882	N-methyl-D-aspartic acid		HOKKHZGPKSLGJE-GSVOUGTGSA-N	name and CAS resolved independently to the same structure	1	2
+NNC 05-2090 hydrochloride	184845-18-9	verified	CHEBI:231346	NNC 05-2090 hydrochloride		WDFXPKKFSNMGOO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NNC 55-0396	224789-21-3	verified	CHEBI:194301	NNC 55-0396 dihydrochloride		BCCQNBXHUMKLFW-HNQRYHMESA-N	the experimental team confirmed the compound name	1	2
+NNC 55-0396 dihydrochloride	357400-13-6	verified	CHEBI:194301	NNC 55-0396 dihydrochloride		BCCQNBXHUMKLFW-HNQRYHMESA-N	name and CAS resolved independently to the same structure	1	2
+NNC 63-0532	250685-44-0	unverified			chebi_has_only_a_different_form	AQMPIDSGLFVVPL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NNC 711	145645-62-1	unverified			in_pubchem_not_in_chebi	YZYRTEYMUTWJPL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Nocodazole	31430-18-9	verified	CHEBI:34892	nocodazole		KYRVNWMVYQXFEU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Norketamine hydrochloride	79499-59-5	unverified			in_pubchem_not_in_chebi	CLPOJGPBUGCUKT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Noscapine hydrochloride	912-60-7	verified	CHEBI:752193	noscapine hydrochloride		MFLVZFXCSKVCSH-URBRKQAFSA-N	name and CAS resolved independently to the same structure	1	2
+NPPB	107254-86-4	verified	CHEBI:34457	5-Nitro-2-(3-phenylpropylamino)benzoic acid		WBSMIPAMAXNXFS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NSC 23766	1177865-17-6	verified	CHEBI:144949	NSC 23766 trihydrochloride		CPUHORIUXPQCHW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NSC 3852	3565-26-2	verified	CHEBI:191001	5-nitroso-8-quinolinol		RZWRYPGAUIOOMK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+NSC 625987	141992-47-4	verified	CHEBI:114175	1,4-dimethoxy-10H-acridine-9-thione		KFAKESMKRPNZTM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NSC 632839 hydrochloride	157654-67-6	unverified			in_pubchem_not_in_chebi	ZOKZLTXPTLIWOJ-BYCVLTJGSA-N	name and CAS resolved independently to the same structure	1	2
+NSC 663284	383907-43-5	verified	CHEBI:92053	6-chloro-7-[2-(4-morpholinyl)ethylamino]quinoline-5,8-dione		BMKPVDQDJQWBPD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NSC 693868	40254-90-8	verified	CHEBI:92540	2H-pyrazolo[4,3-b]quinoxalin-3-amine		DWHVZCLBMTZRQM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NSC 95397	93718-83-3	verified	CHEBI:93193	2,3-bis(2-hydroxyethylthio)naphthalene-1,4-dione		MAASHDQFQDDECQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+NSC632839	19545-26-7	unverified			chebi_has_only_a_different_form	ZOKZLTXPTLIWOJ-BYCVLTJGSA-N	the experimental team confirmed the compound name	1	2
+NU 1025	90417-38-2	verified	CHEBI:75399	NU 1025		YJDAOHJWLUNFLX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NU 7026	154447-35-5	verified	CHEBI:92165	2-(4-morpholinyl)-4-benzo[h][1]benzopyranone		KKTZALUTXUZPSN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+NVP DPP 728 dihydrochloride	207556-62-5	unverified			in_pubchem_not_in_chebi	VNACOBVZDCLAEV-GXKRWWSZSA-N	name and CAS resolved independently to the same structure	1	2
+Nα-Methylhistamine dihydrochloride	16503-22-3	unverified			in_pubchem_not_in_chebi	AYUQICXJAMPXPF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	1
+O-1918	536697-79-7	verified	CHEBI:92328	1,3-dimethoxy-5-methyl-2-[(1R,6R)-3-methyl-6-(1-methylethenyl)-1-cyclohex-2-enyl]benzene		ICHJMVMWPKLUKT-JKSUJKDBSA-N	name and CAS resolved independently to the same structure	1	2
+Obatoclax Mesylate	803712-79-0	unverified			in_pubchem_not_in_chebi	ZVAGBRFUYHSUHA-LZOXOEDVSA-N	name and CAS resolved independently to the same structure	1	2
+Octenidine Dihydrochloride	70775-75-6	verified	CHEBI:748127	octenidine hydrochloride		SMGTYJPMKXNQFY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ODM-201	1297538-32-9	unverified			in_pubchem_not_in_chebi	BLIJXOOIHRSQRB-PXYINDEMSA-N	name and CAS resolved independently to the same structure	1	1
+ODQ	41443-28-1	verified	CHEBI:91215	1H-[1,2,4]oxadiazolo[4,3-a]quinoxalin-1-one		LZMHWZHOZLVYDL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Olanexidine Hydrochloride semihydrate	218282-71-4	verified	CHEBI:31931	Olanexidine hydrochloride hydrate		PMKCJSVTNJUCGR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+OLDA	105955-11-1	verified	CHEBI:31883	N-oleoyldopamine		QQBPLXNESPTPNU-KTKRTIGZSA-N	name and CAS resolved independently to the same structure	1	2
+Oleamide	301-02-0	verified	CHEBI:116314	oleamide		FATBGEAMYMYZAF-KTKRTIGZSA-N	name and CAS resolved independently to the same structure	1	2
+Oleylethanolamide	111-58-0	verified	CHEBI:71466	oleoyl ethanolamide		BOWVQLFMWHZBEF-KTKRTIGZSA-N	name and CAS resolved independently to the same structure	1	2
+Olmutinib (HM61713, BI 1482694)	1353550-13-6	verified	CHEBI:755885	olmutinib		FDMQDKQUTRLUBU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Olvanil	58493-49-5	verified	CHEBI:177616	N-Vanillyloleamide		OPZKBPQVWDSATI-KHPPLWFESA-N	name and CAS resolved independently to the same structure	1	2
+OMDM-2	616884-63-0	unverified			in_pubchem_not_in_chebi	ICDMLAQPOAVWNH-HAAQQRBASA-N	name and CAS resolved independently to the same structure	1	2
+Omeprazole	73590-58-6	verified	CHEBI:77260	5-methoxy-2-{[(4-methoxy-3,5-dimethylpyridin-2-yl)methyl]sulfinyl}-1H-benzimidazole		SUBDBMMJDZJVOS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Omeprazole Sodium	95510-70-6	verified	CHEBI:31934	Omeprazole sodium		RYXPMWYHEBGTRV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Oncrasin 1	75629-57-1	verified	CHEBI:178196	oncrasin-1		ZDRQMXCSSAPUMM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ONX 0912	935888-69-0	verified	CHEBI:747352	oprozomib		SWZXEVABPLUDIO-WSZYKNRRSA-N	name and CAS resolved independently to the same structure	2	2
+Orlistat	96829-58-2	verified	CHEBI:94686	orlistat		AHLBNYSZXLDEJQ-FWEHEUNISA-N	name and CAS resolved independently to the same structure	1	2
+Ouabain	630-60-4	verified	CHEBI:472805	ouabain		LPMXVESGRSUGHW-HBYQJFLCSA-N	name and CAS resolved independently to the same structure	1	2
+Oxotremorine M	3854-04-4	unverified			chebi_has_only_a_different_form	CHRKORSYUQVKAQ-UHFFFAOYSA-M	the experimental team confirmed the CAS / catalogue product	1	2
+Oxotremorine sesquifumarate	17360-35-9	unverified			in_pubchem_not_in_chebi	WLYYOFJEBGHKEC-VQYXCCSOSA-N	name and CAS resolved independently to the same structure	1	2
+Ozagrel hydrochloride	78712-43-3	verified	CHEBI:31954	Ozagrel hydrochloride		CWKFWBJJNNPGAM-IPZCTEOASA-N	name and CAS resolved independently to the same structure	1	2
+P276-00	920113-03-7	unverified			chebi_entry_same_name_different_structure	OOVTUOCTLAERQD-OJMBIDBESA-N	name and CAS resolved independently to the same structure	1	2
+PAC 1	315183-21-2	verified	CHEBI:231696	Pac-1		YQNRVGJCPCNMKT-LFVJCYFKSA-N	name and CAS resolved independently to the same structure	1	2
+PACOCF3	141022-99-3	verified	CHEBI:186740	Palmityl Trifluoromethyl Ketone		MAHYXYTYTLCTQD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Pacritinib (SB1518)	937272-79-2	verified	CHEBI:231350	pacritinib		HWXVIOGONBBTBY-ONEGZZNKSA-N	name and CAS resolved independently to the same structure	2	2
+Palmitoylethanolamide	544-31-0	verified	CHEBI:71464	palmitoyl ethanolamide		HXYVTAGFYLMHSO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Pancuronium dibromide	15500-66-0	verified	CHEBI:7908	pancuronium bromide		NPIJXCQZLFKBMV-YTGGZNJNSA-L	name and CAS resolved independently to the same structure	1	2
+Panobinostat (LBH589)	404950-80-7	verified	CHEBI:85990	panobinostat		FPOHNWQLNRZRFC-ZHACJKMWSA-N	name and CAS resolved independently to the same structure	2	2
+Pantoprazole	102625-70-7	verified	CHEBI:7915	pantoprazole		IQPSEEYGBUAQFF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+PARAROSANILINE PAMOATE	569-61-9	verified	CHEBI:751667	pararosaniline pamoate		HFAAHEOLTBJLBO-UHFFFAOYSA-N	the experimental team confirmed the compound name	1	2
+Parthenolide	20554-84-1	verified	CHEBI:181553	(1Ar,7aS,10aS,10bS)-1a,5-dimethyl-8-methylidene-2,3,6,7,7a,8,10a,10b-octahydrooxireno[9,10]cyclodeca[1,2-b]furan-9(1aH)-one		KTEXNACQROZXEV-SLXBATTESA-N	name and CAS resolved independently to the same structure	2	2
+PATULIN	149-29-1	verified	CHEBI:74926	patulin		ZRWPUFFVAOMMNM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+PCA 4248	123875-01-4	verified	CHEBI:91615	2,4,6-trimethyl-1,4-dihydropyridine-3,5-dicarboxylic acid O3-methyl ester O5-[2-(phenylthio)ethyl] ester		DHCNAWNKZMNTIS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PCI-24781	783355-60-2	verified	CHEBI:92223	abexinostat		MAUCONCHVWBMHK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+PD 102807	23062-91-1	verified	CHEBI:91945	LSM-1888		VDDUJINYXKGZLV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PD 161570	192705-80-9	unverified			in_pubchem_not_in_chebi	MKVMEJKNLUWFSQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PD 166793	199850-67-4	unverified			in_pubchem_not_in_chebi	GJOCABIDMCKCEG-INIZCTEOSA-N	name and CAS resolved independently to the same structure	1	2
+PD 168077 maleate	630117-19-0	unverified			in_pubchem_not_in_chebi	NAEUGRPISCANHO-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+PD 198306	212631-61-3	verified	CHEBI:93541	N-(cyclopropylmethoxy)-3,4,5-trifluoro-2-(4-iodo-2-methylanilino)benzamide		UHAXDAKQGVISBZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PD 407824	622864-54-4	unverified			in_pubchem_not_in_chebi	IAUZTOZLTFSMIE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PD 81723	132861-87-1	unverified			in_pubchem_not_in_chebi	KKDKAWKYGCUOGR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PD 98059	167869-21-8	verified	CHEBI:77954	2-(2-amino-3-methoxyphenyl)chromen-4-one		QFWCYNPOPKQOKV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Penfluridol	26864-56-2	verified	CHEBI:92278	1-[4,4-bis(4-fluorophenyl)butyl]-4-[4-chloro-3-(trifluoromethyl)phenyl]-4-piperidinol		MDLAAYDRRZXJIF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+PERHEXILINE MALEATE	6724-53-4	verified	CHEBI:232991	Perhexiline maleate		JDZOTSLZMQDFLG-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	2	2
+PERUVOSIDE	1182-87-2	verified	CHEBI:135825	peruvoside		PMTSPAGBAFCORP-HBUONDEYSA-N	name and CAS resolved independently to the same structure	2	2
+PETCM	10129-56-3	verified	CHEBI:91963	1,1,1-trichloro-3-pyridin-4-yl-2-propanol		NGTDJJKTGRNNAU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PHA 665752	477575-56-7	verified	CHEBI:90197	PHA-665752		OYONTEXKYJZFHA-SSHUPFPWSA-N	name and CAS resolved independently to the same structure	1	2
+PHA 767491	845714-00-3	verified	CHEBI:95058	2-pyridin-4-yl-1,5,6,7-tetrahydropyrrolo[3,2-c]pyridin-4-one		DKXHSOUZPMHNIZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PHA-767491 (CAY10572)	845714-00-3	verified	CHEBI:95058	2-pyridin-4-yl-1,5,6,7-tetrahydropyrrolo[3,2-c]pyridin-4-one		DKXHSOUZPMHNIZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Phaclofen	114012-12-3	verified	CHEBI:188150	phaclofen zwitterion		VSGNGLJPOGUDON-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PHENYLMERCURIC ACETATE	62-38-4	verified	CHEBI:27684	phenylmercury acetate		XEBWQGVWTUSTLN-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+PHTPP	805239-56-9	verified	CHEBI:93344	4-[2-phenyl-5,7-bis(trifluoromethyl)-3-pyrazolo[1,5-a]pyrimidinyl]phenol		AEZPAUSGTAHLOQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PI 828	942289-87-4	verified	CHEBI:93710	8-(4-aminophenyl)-2-(4-morpholinyl)-1-benzopyran-4-one		WUKMIBOGGXMBAC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Piceatannol	10083-24-6	verified	CHEBI:28814	piceatannol		CDRPUGZCRXZLFL-OWOJBTEDSA-N	name and CAS resolved independently to the same structure	1	2
+Picrotoxin	124-87-8	unverified			chebi_entry_exists_but_has_no_structure	VJKUPQSHOVKBCO-ZTYBEOBUSA-N	name and CAS resolved independently to the same structure	1	2
+Pifithrin- ? hydrobromide	63208-82-2	verified	CHEBI:229924	pifithrin-α hydrobromide		HAGVCKULCLQGRF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Pifithrin->m	64984-31-2	verified	CHEBI:93704	2-phenylethynesulfonamide		ZZUZYEMRHCMVTB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Pifithrin-α hydrobromide	63208-82-2	verified	CHEBI:229924	pifithrin-α hydrobromide		HAGVCKULCLQGRF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	1
+Pifithrin-μ	64984-31-2	verified	CHEBI:93704	2-phenylethynesulfonamide		ZZUZYEMRHCMVTB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	1
+PIK-75 HCl	371942-69-7	unverified			chebi_has_only_a_different_form	VOUDEIAYNKZQKM-MYHMWQFYSA-N	the experimental team confirmed the compound name	1	2
+Pilocarpine hydrochloride	54-71-7	verified	CHEBI:141029	pilocarpine hydrochloride		RNAICSBVACLLGM-GNAZCLTHSA-N	name and CAS resolved independently to the same structure	1	2
+PIM 1 Inhibitor 2	477845-12-8	unverified			in_pubchem_not_in_chebi	AQVFETGXIRKVAQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Pimozide	2062-78-4	verified	CHEBI:8212	pimozide		YVUQSNJEYSNKRX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Pirarubicin	72496-41-4	verified	CHEBI:94770	pirarubicin		KMSKQZKKOZQFFG-YXRRJAAWSA-N	name and CAS resolved independently to the same structure	2	2
+Piribedil	1451048-94-4	unverified			chebi_has_only_a_different_form	LTXWEVPOJXPWAD-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Piroxicam	36322-90-4	verified	CHEBI:8249	piroxicam		QYSPLQLAKJAUJT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PIT	56583-49-4	unverified			in_pubchem_not_in_chebi	MMPTYEXNPWSTOR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Pixantrone Maleate	144675-97-8	verified	CHEBI:750493	pixantrone dimaleate		SVAGFBGXEWPNJC-SPIKMXEPSA-N	name and CAS resolved independently to the same structure	1	2
+PK 11195	85532-75-8	verified	CHEBI:73290	PK-11195		RAVIZVQZGXBOQO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PMPA (NAALADase inhibitor)	173039-10-6	unverified			in_pubchem_not_in_chebi	ISEYJGQFXSTPMQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PNU 120596	501925-31-1	verified	CHEBI:93263	1-(5-chloro-2,4-dimethoxyphenyl)-3-(5-methyl-3-isoxazolyl)urea		CEIIEALEIHQDBX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PNU 22394 hydrochloride	15923-42-9	unverified			in_pubchem_not_in_chebi	SAIGGEUWSYESTR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PNU 282987	711085-63-1	verified	CHEBI:92508	N-[(3R)-1-azabicyclo[2.2.2]octan-3-yl]-4-chlorobenzamide		WECKJONDRAUFDD-ZDUSSCGKSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+PNU 37883 hydrochloride	57568-80-6	unverified			in_pubchem_not_in_chebi	FZALCKUJYZCDOX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PNU 74654	113906-27-7	verified	CHEBI:228251	PNU-74654		JJEDWBQZCRESJL-DEDYPNTBSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+Podophyllotoxin	518-28-5	verified	CHEBI:50305	podophyllotoxin		YJGVMLPVUAXIQN-XVVDYKMHSA-N	name and CAS resolved independently to the same structure	2	2
+PP 1	172889-26-8	unverified			in_pubchem_not_in_chebi	ZVPDNRVYHLRXLX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PP 2	172889-27-9	verified	CHEBI:78331	PP2		PBBRWFOVCUAONR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PPADS tetrasodium salt	192575-19-2	verified	CHEBI:91080	tetrasodium 5'-phosphonatopyridoxal-6-azobenzene-2,4-disulfonate		KURWUCJJNVPCHT-UHFFFAOYSA-J	name and CAS resolved independently to the same structure	1	2
+PPT	263717-53-9	verified	CHEBI:64110	4,4',4''-(4-propylpyrazole-1,3,5-triyl)trisphenol		IOTXSIGGFRQYKW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PQ 401	196868-63-0	verified	CHEBI:93181	1-(5-chloro-2-methoxyphenyl)-3-(2-methyl-4-quinolinyl)urea		YBLWOZUPHDKFOT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Pracinostat (SB939)	929016-96-6	verified	CHEBI:95071	pracinostat		JHDKZFFAIZKUCU-ZRDIBKRKSA-N	name and CAS resolved independently to the same structure	2	2
+Pravastatin sodium salt	81131-70-6	verified	CHEBI:8361	pravastatin sodium		VWBQYTRBTXKKOG-IYNICTALSA-M	name and CAS resolved independently to the same structure	1	2
+Prazosin hydrochloride	19237-84-4	verified	CHEBI:8365	prazosin hydrochloride		WFXFYZULCQKPIP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PRE-084 hydrochloride	138847-85-5	verified	CHEBI:93007	1-phenyl-1-cyclohexanecarboxylic acid 2-(4-morpholinyl)ethyl ester		RQHKZUBCUZVZEF-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+PRIMA-1	5608-24-2	verified	CHEBI:94995	2,2-bis(hydroxymethyl)-1-azabicyclo[2.2.2]octan-3-one		RFBVBRVVOPAAFS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Primidone	125-33-7	verified	CHEBI:8412	primidone		DQMZLTXERSFNPB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PRISTIMERIN	1258-84-0	verified	CHEBI:8416	Pristimerin		JFACETXYABVHFD-WXPPGMDDSA-N	name and CAS resolved independently to the same structure	2	2
+Procaterol hydrochloride	62929-91-3	unverified			chebi_entry_same_name_different_structure	AEQDBKHAAWUCMT-KKJWGQAZSA-N	name and CAS resolved independently to the same structure	1	2
+Pronethalol hydrochloride	51-02-5	verified	CHEBI:82525	Pronetalol hydrochloride		QONLGXRPRAIDGI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Propranolol glycol	36112-95-5	unverified			in_pubchem_not_in_chebi	BYNNMWGWFIGTIC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Propranolol hydrochloride	318-98-9	verified	CHEBI:8500	propranolol hydrochloride		ZMRUPTIKESYGQW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Prostaglandin E2	363-24-6	verified	CHEBI:15551	prostaglandin E2		XEYBRNLFEZDVAW-ARSRFYASSA-N	name and CAS resolved independently to the same structure	1	2
+Proxyfan Oxalate	1620017-81-3	unverified			in_pubchem_not_in_chebi	QVMZCQMJBQSPSW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PSB 11	453591-58-7	unverified			identity_single_source_only	GXTWRDNRTCRTTO-RFVHGSKJSA-N	single_source	1	2
+PSB 1115	152529-79-8	verified	CHEBI:92848	4-(2,6-dioxo-1-propyl-3,7-dihydropurin-8-yl)benzenesulfonic acid		UYDRRQPGDSIMNU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PSB 36	524944-72-7	verified	CHEBI:91832	LSM-1748		CIBIXJYFYPFMTN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+PSN 375963 hydrochloride	1781834-82-9	unverified			in_pubchem_not_in_chebi	ONDLSENXTCSHGC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Puromycin 2HCl	58-58-2	verified	CHEBI:8642	puromycin dihydrochloride		MKSVFGKWZLUTTO-FZFAUISWSA-N	name and CAS resolved independently to the same structure	1	2
+PYRITHIONE ZINC	13463-41-7	verified	CHEBI:32076	zinc pyrithione		OTPSWLRZXRHDNX-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+Pyrrolidinedithiocarbamate ammonium	5108-96-3	verified	CHEBI:234321	ammonium pyrrolidinedithiocarbamate		MDDIUTVUBYEEEM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+pyrvinium	3546-41-6	verified	CHEBI:8687	pyrvinium		QMHSXPLYMTVAMK-UHFFFAOYSA-N	the experimental team confirmed the compound name	1	2
+Quercetin	117-39-5	verified	CHEBI:16243	quercetin		REFJWTPEDVJJIY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Quinolinic acid	89-00-9	verified	CHEBI:16675	quinolinic acid		GJAWHXHKYYXBSV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Quipazine dimaleate	150323-78-7	unverified			in_pubchem_not_in_chebi	VAOSOCRJSSWBEQ-SPIKMXEPSA-N	name and CAS resolved independently to the same structure	1	2
+QX 222	5369-00-6	unverified			chebi_has_only_a_different_form	WFKXSWWTOZBDME-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+QX 314 bromide	24003-58-5	unverified			in_pubchem_not_in_chebi	DLHMKHREUTXMCH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+QX 314 chloride	5369-03-9	unverified			in_pubchem_not_in_chebi	LLPPOMUAOGMYQI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+R 59-022	93076-89-2	verified	CHEBI:92958	6-[2-[4-[(4-fluorophenyl)-phenylmethylidene]-1-piperidinyl]ethyl]-7-methyl-5-thiazolo[3,2-a]pyrimidinone		MFVJXLPANKSLLD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+R(-)-2,10,11-Trihydroxy-N-propylnoraporphine hydrobromide	79640-85-0	unverified			in_pubchem_not_in_chebi	KIAIFHTWTMKEDI-XFULWGLBSA-N	name and CAS resolved independently to the same structure	1	2
+R-96544 hydrochloride	167144-80-1	unverified			in_pubchem_not_in_chebi	OUKRSTJUAQEATQ-GZJHNZOKSA-N	name and CAS resolved independently to the same structure	1	2
+Raclopride	84225-95-6	verified	CHEBI:92070	3,5-dichloro-N-[[(2S)-1-ethyl-2-pyrrolidinyl]methyl]-2-hydroxy-6-methoxybenzamide		WAOQONBSWFLFPE-VIFPVBQESA-N	name and CAS resolved independently to the same structure	1	2
+Raloxifene hydrochloride	82640-04-8	verified	CHEBI:50740	raloxifene hydrochloride		BKXVVCILCIUCLG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ranitidine hydrochloride	66357-59-3	verified	CHEBI:8777	ranitidine hydrochloride		GGWBHVILAJZWKJ-KJEVSKRMSA-N	name and CAS resolved independently to the same structure	1	2
+Rauwolscine hydrochloride	6211-32-1	unverified			in_pubchem_not_in_chebi	PIPZGJSEDRMUAW-ZKKXXTDSSA-N	name and CAS resolved independently to the same structure	1	2
+Remacemide hydrochloride	111686-79-4	unverified			chebi_entry_exists_but_has_no_structure	HYQMIUSWZXGTCC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Remoxipride hydrochloride	73220-03-8	unverified			chebi_has_only_a_different_form	WCPXLMIPGMFZMY-MERQFXBCSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Repaglinide	135062-02-1	verified	CHEBI:8805	Repaglinide		FAEKWTJYAYMJKF-QHCPKHFHSA-N	name and CAS resolved independently to the same structure	1	2
+Reserpine	50-55-5	verified	CHEBI:28487	reserpine		QEVHRUUCFGRFIF-MDEJGZGSSA-N	name and CAS resolved independently to the same structure	1	2
+Resminostat	864814-88-0	verified	CHEBI:231352	resminostat		FECGNJPYVFEKOD-VMPITWQZSA-N	name and CAS resolved independently to the same structure	2	2
+Resveratrol	501-36-0	verified	CHEBI:45713	trans-resveratrol		LUKBXSAWLPMMSZ-OWOJBTEDSA-N	name and CAS resolved independently to the same structure	1	2
+Retinoic acid	302-79-4	verified	CHEBI:15367	all-trans-retinoic acid		SHGAZHPCJJPHSC-YCNIQYBTSA-N	name and CAS resolved independently to the same structure	1	2
+RHC 80267	83654-05-1	verified	CHEBI:92984	N-[6-[[(cyclohexylideneamino)oxy-oxomethyl]amino]hexyl]carbamic acid (cyclohexylideneamino) ester		RXSVYGIGWRDVQC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Rigosertib (ON-01910)	1225497-78-8	verified	CHEBI:145421	rigosertib sodium		VLQLUZFVFXYXQE-USRGLUTNSA-M	name and CAS resolved independently to the same structure	2	2
+Rigosertib_ON-01910	1225497-78-8	verified	CHEBI:145421	rigosertib sodium		VLQLUZFVFXYXQE-USRGLUTNSA-M	the experimental team confirmed the CAS / catalogue product	1	1
+Rilmenidine hemifumarate	207572-68-7	unverified			in_pubchem_not_in_chebi	LZFATBMLSYHRTC-WXXKFALUSA-N	name and CAS resolved independently to the same structure	1	2
+Riluzole hydrochloride	850608-87-6	unverified			in_pubchem_not_in_chebi	QEAOELIJQRYJJS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Rimcazole dihydrochloride	75859-03-9	verified	CHEBI:754968	rimcazole hydrochloride		ZWHRZGHGYMUSRM-VWDRLOGHSA-N	name and CAS resolved independently to the same structure	1	2
+Ritanserin	87051-43-2	verified	CHEBI:64195	ritanserin		JUQLTPCYUFPYKE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+RJR 2403 oxalate	220662-95-3	unverified			in_pubchem_not_in_chebi	WTIZFOAIQXMQHC-DPZBITMOSA-N	name and CAS resolved independently to the same structure	1	2
+RN 1734	946387-07-1	unverified			in_pubchem_not_in_chebi	IHYZMEAZAIFMTN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+RN 1747	1024448-59-6	unverified			in_pubchem_not_in_chebi	ZNLVYSJQUMALEO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ro 08-2750	37854-59-4	verified	CHEBI:92012	7,10-dimethyl-2,4-dioxo-8-benzo[g]pteridinecarboxaldehyde		JDEMVNYMYPJJIM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ro 10-5824	189744-94-3	unverified			in_pubchem_not_in_chebi	UZHMRJRDYCRKIZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ro 106-9920	62645-28-7	verified	CHEBI:110186	6-(benzenesulfinyl)tetrazolo[1,5-b]pyridazine		JFSXSNSCPNFCDM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Ro 15-4513	91917-65-6	verified	CHEBI:93452	8-azido-5-methyl-6-oxo-4H-imidazo[1,5-a][1,4]benzodiazepine-3-carboxylic acid ethyl ester		CFSOJZTUTOQNIA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ro 19-4605	99632-94-7	verified	CHEBI:34952	Ro 19-4603		ZIGMMUKDYCABPW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ro 20-1724	29925-17-5	verified	CHEBI:111173	4-[(3-butoxy-4-methoxyphenyl)methyl]-2-imidazolidinone		PDMUULPVBYQBBK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ro 31-8220 mesylate	138489-18-6	unverified			in_pubchem_not_in_chebi	SAWVGDJBSPLRRB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ro 60-0175 fumarate	169675-09-6	unverified			in_pubchem_not_in_chebi	CEPHEXXZGQBXGT-XZTIXWOLSA-N	name and CAS resolved independently to the same structure	1	2
+Rolipram	61413-54-5	verified	CHEBI:104872	rolipram		HJORMJIFDVBMOB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Romidepsin		unverified			identity_single_source_only	OHRURASPPZQGQM-GCCNXGTGSA-N	single_source	2	2
+Rosmarinic acid	20283-92-5	verified	CHEBI:50371	(R)-rosmarinic acid		DOUMFZQKYFQNTF-WUTVXBCWSA-N	name and CAS resolved independently to the same structure	1	2
+Roxindole hydrochloride	108050-82-4	unverified			in_pubchem_not_in_chebi	ZCEPVNSWLLJECX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+RS 102221 hydrochloride	187397-18-8	unverified			in_pubchem_not_in_chebi	SZJZEJZLRDIHPB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+RS 102895 hydrochloride	1173022-16-6	unverified			in_pubchem_not_in_chebi	KRRISOFSWVKYBF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+RS 16566 dihydrochloride	1217788-97-0	unverified			in_pubchem_not_in_chebi	LPEOWDMQSXDYRJ-CKUXDGONSA-N	name and CAS resolved independently to the same structure	1	2
+RS 17053 hydrochloride	169505-93-5	verified	CHEBI:231359	RS 17053 hydrochloride		QFOPFGRPNPCPBX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+RS 504393	300816-15-3	verified	CHEBI:93525	6-methyl-1'-[2-(5-methyl-2-phenyl-4-oxazolyl)ethyl]-2-spiro[1H-3,1-benzoxazine-4,4'-piperidine]one		ODNICNWASXKNNQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+RS 56812 hydrochloride	143339-12-2	unverified			in_pubchem_not_in_chebi	NHWCYXITJPBOHX-RSAXXLAASA-N	name and CAS resolved independently to the same structure	1	2
+RS 79948 hydrochloride	186002-54-0	unverified			in_pubchem_not_in_chebi	DZTZUOBWDBPPJQ-BQBHMPFISA-N	name and CAS resolved independently to the same structure	1	2
+RU 28318, potassium salt	76676-34-1	unverified			in_pubchem_not_in_chebi	HXJITUGMCJCKCE-UYOQDFFISA-M	name and CAS resolved independently to the same structure	1	2
+Ruthenium Red	11103-72-3	unverified			chebi_entry_same_name_different_structure	GOOXRYWLNNXLFL-UHFFFAOYSA-H	name and CAS resolved independently to the same structure	1	2
+RWJ 21757	121288-39-9	verified	CHEBI:748263	loxoribine		VDCRFBBZFHHYGT-IOSLPCCCSA-N	name and CAS resolved independently to the same structure	1	2
+RX 821002 hydrochloride	109544-45-8	unverified			in_pubchem_not_in_chebi	IMPOOMVZVWKSAP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Ryuvidine	265312-55-8	verified	CHEBI:92119	ryuvidine		HFPLHASLIOXVGS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+S-(-)-Atenolol	93379-54-5	verified	CHEBI:31556	esatenolol		METKIMKYRPQLGS-LBPRGKRZSA-N	name and CAS resolved independently to the same structure	1	2
+S-Trityl-L-cysteine	2799-07-7	verified	CHEBI:91461	(2R)-2-amino-3-[(triphenylmethyl)thio]propanoic acid		DLMYFMLKORXJPO-FQEVSTJZSA-N	name and CAS resolved independently to the same structure	1	2
+S26948	353280-43-0	unverified			in_pubchem_not_in_chebi	NSMJEHGOMXSLCW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Saclofen	125464-42-8	verified	CHEBI:91596	3-amino-2-(4-chlorophenyl)-1-propanesulfonic acid		JYLNVJYYQQXNEK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Saikosaponin A	20736-09-8	verified	CHEBI:8996	Saikosaponin A		KYWSCMDFVARMPN-MSSMMRRTSA-N	name and CAS resolved independently to the same structure	1	2
+Sal 003	1164470-53-4	unverified			in_pubchem_not_in_chebi	TVNBASWNLOIQML-IZZDOVSWSA-N	name and CAS resolved independently to the same structure	1	2
+Salmeterol	89365-50-4	verified	CHEBI:64064	2-(hydroxymethyl)-4-(1-hydroxy-2-{[6-(4-phenylbutoxy)hexyl]amino}ethyl)phenol		GIIZNNXWQWCKIB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Salubrinal	405060-95-9	verified	CHEBI:131923	salubrinal		LCOIAYJMPKXARU-VAWYXSNFSA-N	name and CAS resolved independently to the same structure	1	2
+Sanguinarine chloride	5578-73-4	verified	CHEBI:748927	sanguinarium chloride		GIZKAXHWLRYMLE-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+SANT-1	304909-07-7	unverified			chebi_has_only_a_different_form	FOORCIAZMIWALX-JJIBRWJFSA-N	name and CAS resolved independently to the same structure	1	2
+SANT-2	329196-48-7	unverified			in_pubchem_not_in_chebi	VQOJFGFKIVFMDH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SARAFLOXACIN HYDROCHLORIDE	91296-87-6	verified	CHEBI:201434	Sarafloxacin hydrochloride		KNWODGJQLCISLC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Satraplatin (JM216)		unverified			identity_single_source_only	CKNPWBAXEKSCRG-UHFFFAOYSA-J	single_source	1	2
+SB 200646 hydrochloride	143797-62-0	unverified			in_pubchem_not_in_chebi	IGRYPUQJEDJLHC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 202190	152121-30-7	verified	CHEBI:79090	SB-202190		QHKYPYXTTXKZST-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 203580	152121-47-6	verified	CHEBI:90705	SB 203580		CDMGBJANTYXAIV-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 203580 hydrochloride	869185-85-3	unverified			in_pubchem_not_in_chebi	WOSGGXINSLMASH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 204741	152239-46-8	verified	CHEBI:140936	1-(1-methylindol-5-yl)-3-(3-methyl-1,2-thiazol-5-yl)urea		USFUFHFQWXDVMH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 205384	160296-13-9	verified	CHEBI:91586	4-amino-7-hydroxy-2-methyl-5,6,7,8-tetrahydro-[1]benzothiolo[2,3-b]pyridine-3-carboxylic acid but-2-ynyl ester		JDTZAGLGBRRCJT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 206553 hydrochloride	1197334-04-5	unverified			in_pubchem_not_in_chebi	VGEMBOFBPSNOIO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 216641 hydrochloride	193611-67-5	verified	CHEBI:234390	SB216641		JPBMDMNORXKGHZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 216763	280744-09-4	verified	CHEBI:91421	3-(2,4-dichlorophenyl)-4-(1-methyl-3-indolyl)pyrrole-2,5-dione		JCSGFHVFHSKIJH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 218078	135897-06-2	verified	CHEBI:91500	LSM-1274		OTPNDVKVEAIXTI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 218795	174635-53-1	verified	CHEBI:93066	(2R)-2-[[oxo-(2-phenyl-4-quinolinyl)methyl]amino]-2-phenylacetic acid methyl ester		IUMQXQJZIHWLIN-HSZRJFAPSA-N	name and CAS resolved independently to the same structure	1	2
+SB 221284	196965-14-7	verified	CHEBI:8978	SB 221284		OQZOXHCRSXYSPM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 222200	174635-69-9	verified	CHEBI:92079	3-methyl-2-phenyl-N-[(1S)-1-phenylpropyl]-4-quinolinecarboxamide		MQNYRKWJSMQECI-QFIPXVFZSA-N	name and CAS resolved independently to the same structure	1	2
+SB 225002	182498-32-4	verified	CHEBI:93074	SB225002		MQBZVUNNWUIPMK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 228357	181629-93-6	verified	CHEBI:8979	SB 228357		RRJLJKRFFRZRAF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 239063	193551-21-2	verified	CHEBI:91347	4-[4-(4-fluorophenyl)-5-(2-methoxy-4-pyrimidinyl)-1-imidazolyl]-1-cyclohexanol		ZQUSFAUAYSEREK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 258585 hydrochloride	1216468-02-8	unverified			in_pubchem_not_in_chebi	BFGOZFXMAJBFGI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 269970 hydrochloride	261901-57-9	verified	CHEBI:232896	SB-269970 hydrochloride		XQCJOYZLWFNDIO-PKLMIRHRSA-N	name and CAS resolved independently to the same structure	1	2
+SB 328437	247580-43-4	unverified			in_pubchem_not_in_chebi	VMFGCGRAIBLAFY-IBGZPJMESA-N	name and CAS resolved independently to the same structure	1	2
+SB 334867	792173-99-0	verified	CHEBI:92733	1-(2-methyl-1,3-benzoxazol-6-yl)-3-(1,5-naphthyridin-4-yl)urea		AKMNUCBQGHFICM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 366791	472981-92-3	unverified			chebi_has_only_a_different_form	RYAMDQKWNKKFHD-JXMROGBWSA-N	name and CAS resolved independently to the same structure	1	2
+SB 408124	288150-92-5	verified	CHEBI:92941	1-(6,8-difluoro-2-methyl-4-quinolinyl)-3-[4-(dimethylamino)phenyl]urea		JTARFZSNUAGHRB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 415286	264218-23-7	verified	CHEBI:91107	SB 415286		PQCXVIPXISBFPN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 431542	301836-41-9	verified	CHEBI:91108	SB 431542		FHYUGAJXYORMHI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SB 657510	474960-44-6	unverified			in_pubchem_not_in_chebi	KQCZCINJGIRLCD-CYBMUJFWSA-N	name and CAS resolved independently to the same structure	1	2
+SC 514	354812-17-2	verified	CHEBI:92464	3-amino-5-(3-thiophenyl)-2-thiophenecarboxamide		BMUACLADCKCNKZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SC 560	188817-13-2	verified	CHEBI:76274	SC560		PQUGCKBLVKJMNT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SC-10	102649-79-6	verified	CHEBI:92094	5-chloro-N-heptyl-1-naphthalenesulfonamide		MJMJERJFCHYXEM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SC-9	102649-78-5	verified	CHEBI:92454	5-chloro-N-(6-phenylhexyl)-1-naphthalenesulfonamide		YUXMTDYHFPRPLG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SCH 23390 hydrochloride	125941-87-9	unverified			in_pubchem_not_in_chebi	OYCAEWMSOPMASE-XFULWGLBSA-N	name and CAS resolved independently to the same structure	1	2
+SCH 28080	76081-98-6	verified	CHEBI:92978	2-(2-methyl-8-phenylmethoxy-3-imidazo[1,2-a]pyridinyl)acetonitrile		PYKJFEPAUKAXNN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SCH 50911	733717-87-8	unverified			in_pubchem_not_in_chebi	SEYCKMQSPUVYEF-LURJTMIESA-N	the experimental team confirmed the CAS / catalogue product	1	2
+SCH 58261	160098-96-4	verified	CHEBI:93424	LSM-3822		UTLPKQYUXOEJIL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Scopolamine hydrobromide	114-49-8	unverified			chebi_has_only_a_different_form	WTGQALLALWYDJH-WYHSTMEOSA-N	name and CAS resolved independently to the same structure	1	2
+Scriptaid	287383-59-9	verified	CHEBI:92401	6-(1,3-dioxo-2-benzo[de]isoquinolinyl)-N-hydroxyhexanamide		JTDYUFSDZATMKU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+SCS	3232-36-8	unverified			chebi_has_only_a_different_form	OMCYEZUIYGPHDJ-OQLLNIDSSA-N	name and CAS resolved independently to the same structure	1	2
+SD 169	1670-87-7	verified	CHEBI:93599	1H-indole-5-carboxamide		GQMYQEAXTITUAE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SDM25N hydrochloride	342884-71-3	verified	CHEBI:231365	SDM25N hydrochloride		QLLCUVACGPLGAX-XXCZMEBESA-N	name and CAS resolved independently to the same structure	1	2
+SDZ 205-557 hydrochloride	1197334-02-3	unverified			in_pubchem_not_in_chebi	JOWUQCJWCRNVMQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SDZ 220-040	174575-40-7	unverified			in_pubchem_not_in_chebi	NYZFUZCCDOSQBG-AWEZNQCLSA-N	name and CAS resolved independently to the same structure	1	2
+SDZ 220-581	174575-17-8	unverified			in_pubchem_not_in_chebi	VBRJFXSFCYEZMQ-HNNXBMFYSA-N	name and CAS resolved independently to the same structure	1	2
+SDZ NKT 343	180046-99-5	unverified			in_pubchem_not_in_chebi	PCVSIMQAFWRUEC-JDXGNMNLSA-N	name and CAS resolved independently to the same structure	1	2
+SDZ SER 082 fumarate	1417343-80-6	unverified			in_pubchem_not_in_chebi	DXUZZRDHJMOLTN-MRYVXRNOSA-N	name and CAS resolved independently to the same structure	1	2
+SDZ WAG 994	130714-47-5	unverified			in_pubchem_not_in_chebi	JAKAFSGZUXCHLF-LSCFUAHRSA-N	name and CAS resolved independently to the same structure	1	2
+Selamectin	220119-17-5	verified	CHEBI:177562	Selamectin		AFJYYKSVHJGXSN-XHKIUTQPSA-N	name and CAS resolved independently to the same structure	2	2
+Selinexor (KPT-330)	1393477-72-9	verified	CHEBI:229764	selinexor		DEVSOMFAQLZNKR-RJRFIUFISA-N	name and CAS resolved independently to the same structure	2	2
+Serotonin	153-98-0	verified	CHEBI:181195	Serotonin hydrochloride		MDIGAZPGKJFIAH-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+SEW 2871	256414-75-2	verified	CHEBI:92283	5-[4-phenyl-5-(trifluoromethyl)-2-thiophenyl]-3-[3-(trifluoromethyl)phenyl]-1,2,4-oxadiazole		OYMNPJXKQVTQTR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SIB 1757	31993-01-8	unverified			chebi_has_only_a_different_form	LOCPVWIREQIGNQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SID 7969543	868224-64-0	verified	CHEBI:91707	2-[[2-[2-(2,3-dihydro-1,4-benzodioxin-6-ylamino)-2-oxoethyl]-1-oxo-5-isoquinolinyl]oxy]propanoic acid ethyl ester		KWMBIIQCLUIHDI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Siguazodan	115344-47-3	verified	CHEBI:91791	1-cyano-2-methyl-3-[4-(4-methyl-6-oxo-4,5-dihydro-1H-pyridazin-3-yl)phenyl]guanidine		NUHPODZZKHQQET-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Simvastatin	79902-63-9	verified	CHEBI:9150	simvastatin		RYMZZMVNJRMUDD-HGQWONQESA-N	name and CAS resolved independently to the same structure	1	2
+Sirtinol	410536-97-9	verified	CHEBI:73158	sirtinol		UXJFDYIHRJGPFS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SKA 31	40172-65-4	verified	CHEBI:233330	SKA-31		FECQXVPRUCCUIL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SKF 86002 dihydrochloride	116339-68-5	unverified			in_pubchem_not_in_chebi	GQQCNUNCYVXBTF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SKF 89976A hydrochloride	85375-15-1	unverified			in_pubchem_not_in_chebi	SNGGBKYQZVAQKA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SKF 91488 dihydrochloride	68941-21-9	unverified			in_pubchem_not_in_chebi	NPLHSMBWWIIWAQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SKF 96365 hydrochloride	130495-35-1	verified	CHEBI:145121	SKF-96365 hydrochloride		FWLPKVQUECFKSW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SKF 97541	127729-35-5	verified	CHEBI:232376	3-aminopropyl(methyl)phosphinic acid		NHVRIDDXGZPJTJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SKI II	312636-16-1	verified	CHEBI:92375	4-[[4-(4-chlorophenyl)-2-thiazolyl]amino]phenol		ZFGXZJKLOFCECI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SL 327	305350-87-2	verified	CHEBI:92211	SL-327		JLOXTZFYJNCPIS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SLV 320	251945-92-3	verified	CHEBI:749114	derenofylline		RBZNJGHIKXAKQE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SN 38	86639-52-3	verified	CHEBI:8988	SN-38		FJHBVJOVLFPMQE-QFIPXVFZSA-N	name and CAS resolved independently to the same structure	1	2
+SN-6	415697-08-4	unverified			in_pubchem_not_in_chebi	ZVYIJXLMBWCGHP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SNC 80	156727-74-1	verified	CHEBI:231727	SNC-80		KQWVAUSXZDRQPZ-UMTXDNHDSA-N	name and CAS resolved independently to the same structure	1	2
+sodium 4-Phenylbutyrate	1716-12-7	verified	CHEBI:75316	sodium phenylbutyrate		VPZRWNZGLKXFOE-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+Sotalol hydrochloride	959-24-0	verified	CHEBI:9207	sotalol hydrochloride		VIDRYROWYFWGSY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SP 600125	129-56-6	verified	CHEBI:90695	anthra[1,9-cd]pyrazol-6(2H)-one		ACPOUJIDANTYHO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Spiperone hydrochloride	2022-29-9	unverified			in_pubchem_not_in_chebi	QUIKMLCZZMOBLH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Spiroxatrine	1054-88-2	verified	CHEBI:91845	8-(2,3-dihydro-1,4-benzodioxin-3-ylmethyl)-1-phenyl-1,3,8-triazaspiro[4.5]decan-4-one		JVGBTTIJPBFLTE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Splitomicin	5690-03-9	verified	CHEBI:75272	splitomicin		ISFPDBUKMJDAJH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SQ 22536	17318-31-9	verified	CHEBI:90232	9-(tetrahydrofuryl)adenine		UKHMZCMKHPHFOT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SR 11302	160162-42-5	verified	CHEBI:197438	SR11302		RQANARBNMTXCDM-DKOHIBGUSA-N	name and CAS resolved independently to the same structure	1	2
+SR 202	76541-72-5	verified	CHEBI:91842	phosphoric acid [(4-chlorophenyl)-dimethoxyphosphorylmethyl] dimethyl ester		VQHUQHAPWMNBLP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SR 2640 hydrochloride	146662-42-2	unverified			in_pubchem_not_in_chebi	KDSYWFCTUKABKE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SR 27897	136381-85-6	verified	CHEBI:92624	2-[2-[[[4-(2-chlorophenyl)-2-thiazolyl]amino]-oxomethyl]-1-indolyl]acetic acid		ILNRQFBVVQUOLP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SR 33805 oxalate	121346-33-6	unverified			in_pubchem_not_in_chebi	MZWPPDAHWIKZID-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SR 57227 hydrochloride	77145-61-0	unverified			in_pubchem_not_in_chebi	FUMINTAAUJUVMP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SR 95531 hydrobromide	104104-50-9	unverified			in_pubchem_not_in_chebi	GFZHNFOGCMEYTA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Src I1	179248-59-0	verified	CHEBI:78332	Src Inhibitor-1		DMWVGXGXHPOEPT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SRT1720 HCL	1001645-58-4	verified	CHEBI:747808	SRT1720 HCl		DTGRRMPPXCRRIM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ST 91	4749-61-5	unverified			chebi_has_only_a_different_form	ZLRWFGBEDNTMEU-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Statil	72702-95-5	verified	CHEBI:93199	2-[3-[(4-bromo-2-fluorophenyl)methyl]-4-oxo-1-phthalazinyl]acetic acid		LKBFFDOJUKLQNY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Stattic	19983-44-9	verified	CHEBI:86989	stattic		ZRRGOUHITGRLBA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+SU 3327	40045-50-9	verified	CHEBI:146227	halicin		NQQBNZBOOHHVQP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SU 4312	5812-07-7	unverified			chebi_has_only_a_different_form	UAKWLVYMKBWHMX-PTNGSMBKSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+SU 5416	204005-46-9	verified	CHEBI:91083	semaxanib		WUWDLXZGHZSWQZ-WQLSENKSSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+SU 6668	252916-29-3	unverified			in_pubchem_not_in_chebi	NHFDRBXTEDBWCZ-ZROIWOOFSA-N	name and CAS resolved independently to the same structure	1	2
+Sulfisoxazole	127-69-5	verified	CHEBI:102484	sulfisoxazole		NHUHCSRWZMLRLA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Sulindac	38194-50-2	verified	CHEBI:9352	sulindac		MLKXDPUZXIRXEP-MFOYZWKCSA-N	name and CAS resolved independently to the same structure	1	2
+SUN-B 8155	345893-91-6	unverified			in_pubchem_not_in_chebi	SGJLINMLDNLWOS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Suramin hexasodium salt	129-46-4	verified	CHEBI:9364	suramin sodium		VAPNKLKDKUDFHK-UHFFFAOYSA-H	name and CAS resolved independently to the same structure	1	2
+SX 011	309913-42-6	unverified			in_pubchem_not_in_chebi	GUTYHDCSDBBMGW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+SYM 2081	31137-74-3	verified	CHEBI:45753	(4R)-4-methyl-L-glutamate(1−)		KRKRAOXTGDJWNI-DMTCNVIQSA-M	name and CAS resolved independently to the same structure	1	2
+Synthalin sulfate	182285-12-7	unverified			in_pubchem_not_in_chebi	MNKRJRJDADVBJJ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+T 0070907	313516-66-4	verified	CHEBI:92553	2-chloro-5-nitro-N-pyridin-4-ylbenzamide		FRPJSHKMZHWJBE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+T 0156 hydrochloride	324572-93-2	unverified			in_pubchem_not_in_chebi	RBJCBXAXUHCWBR-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+T 0901317	293754-55-9	unverified			in_pubchem_not_in_chebi	SGIWFELWJPNFDH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tabimorelin	242143-80-2	unverified			in_pubchem_not_in_chebi	YQDJPWXYLLPOPW-LWTUVRFUSA-N	name and CAS resolved independently to the same structure	2	2
+Tabimorelin hemifumarate	242143-80-2	unverified			in_pubchem_not_in_chebi	YQDJPWXYLLPOPW-LWTUVRFUSA-N	name and CAS resolved independently to the same structure	1	1
+TACA	38090-53-8	unverified			in_pubchem_not_in_chebi	FMKJUUQOYOHLTF-OWOJBTEDSA-N	name and CAS resolved independently to the same structure	1	2
+TAK 165	366017-09-6	verified	CHEBI:233310	Mubritinib		ZTFBIUXIQYRUNT-MDWZMJQESA-N	name and CAS resolved independently to the same structure	1	2
+Talniflumate	66898-62-2	verified	CHEBI:91991	2-[3-(trifluoromethyl)anilino]-3-pyridinecarboxylic acid (3-oxo-1H-isobenzofuran-1-yl) ester		ANMLJLFWUCQGKZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tamoxifen citrate	54965-24-1	verified	CHEBI:9397	tamoxifen citrate		FQZYTYWMLGAPFJ-OQKDUQJOSA-N	name and CAS resolved independently to the same structure	1	2
+TAS0612		unverified			identity_single_source_only	JXSXWPCGHMFVGR-UHFFFAOYSA-N	single_source	1	2
+Taurine	107-35-7	verified	CHEBI:15891	taurine		XOAAWQZATWQOTB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Taxol	33069-62-4	verified	CHEBI:45863	paclitaxel		RCINICONZNJXQF-MZXODVADSA-N	name and CAS resolved independently to the same structure	1	2
+TBB	17374-26-4	unverified			in_pubchem_not_in_chebi	OMZYUVOATZSGJY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+TC 1	362512-81-0	verified	CHEBI:91540	LSM-1328		FYGREZKTJIXWIH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+TC 2559 difumarate	2454492-41-0	unverified			in_pubchem_not_in_chebi	GEWVPSJQGJBDLM-MYBAKCFCSA-N	name and CAS resolved independently to the same structure	1	2
+TCS 2002	1005201-24-0	unverified			in_pubchem_not_in_chebi	RCKYSTKYIVULEK-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+TCS 359	301305-73-7	verified	CHEBI:93427	2-[[(3,4-dimethoxyphenyl)-oxomethyl]amino]-4,5,6,7-tetrahydro-1-benzothiophene-3-carboxamide		FSPQCTGGIANIJZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tebipenem Pivoxil	161796-78-7	verified	CHEBI:135799	tebipenem pivoxil		SNUDIPVBUUXCDG-QHSBEEBCSA-N	the experimental team confirmed the compound name	1	2
+Tegaserod Maleate	189188-57-6	verified	CHEBI:51044	tegaserod maleate		CPDDZSSEAVLMRY-FEQFWAPWSA-N	name and CAS resolved independently to the same structure	1	2
+Tenidap	120210-48-2	unverified			chebi_has_only_a_different_form	IZSFDUMVCVVWKW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Terazosin hydrochloride	63074-08-8	unverified			chebi_has_only_a_different_form	IWSWDOUXSCRCKW-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Tetrabenazine	58-46-8	verified	CHEBI:64028	9,10-dimethoxy-3-isobutyl-1,3,4,6,7,11b-hexahydro-2H-pyrido[2,1-a]isoquinolin-2-one		MKJIEFSOBYUXJB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tetraethylthiuram disulfide	97-77-8	verified	CHEBI:4659	disulfiram		AUZONCFQVSMFAP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Thalidomide	50-35-1	verified	CHEBI:74947	2-(2,6-dioxopiperidin-3-yl)-1H-isoindole-1,3(2H)-dione		UEJJHQNACJXSKW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Thimerosal	54-64-8	verified	CHEBI:9546	thimerosal		RTKIYNMVFMVABJ-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+Thioguanine	154-42-7	verified	CHEBI:9555	tioguanine		WYWHKKSPHMUBEB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Thioperamide	106243-16-7	verified	CHEBI:81391	Thioperamide		QKDDJDBFONZGBW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+THIP hydrochloride	85118-33-8	unverified			in_pubchem_not_in_chebi	ZDZDSZQYRBZPNN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+THIRAM	137-26-8	verified	CHEBI:9495	thiram		KUAZQDVKQLNFPE-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Thonzonium bromide	553-08-2	verified	CHEBI:749334	thonzonium bromide		WBWDWFZTSDZAIG-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	1	2
+Tin protoporphyrin IX dichloride	14325-05-4	unverified			no_structure_could_be_resolved		no_structure	1	2
+Tiotidine	69014-14-8	verified	CHEBI:747967	tiotidine		YDDXVAXDYKBWDX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tizanidine hydrochloride	64461-82-1	verified	CHEBI:9609	Tizanidine hydrochloride		ZWUKMNZJRDGCTQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+TMPH hydrochloride	849461-91-2	unverified			in_pubchem_not_in_chebi	XIDDVJIJIFWGIX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+TMS	24144-92-1	unverified			chebi_has_only_a_different_form	JDBCWSHYEQUBLW-AATRIKPKSA-N	name and CAS resolved independently to the same structure	1	2
+Topiramate	97240-79-4	verified	CHEBI:63631	topiramate		KJADKKWYZYXHBB-XBWDGYHZSA-N	name and CAS resolved independently to the same structure	1	2
+Topotecan hydrochloride	119413-54-6	verified	CHEBI:232548	topotecan hydrochloride		DGHHQBMTXTWTJV-BQAIUKQQSA-N	name and CAS resolved independently to the same structure	2	2
+TP-0903	1341200-45-0	verified	CHEBI:750377	dubermatinib		YUAALFPUEOYPNX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+TPCA-1	507475-17-4	verified	CHEBI:91403	2-(carbamoylamino)-5-(4-fluorophenyl)-3-thiophenecarboxamide		SAYGKHKXGCPTLX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tracazolate hydrochloride	1135210-68-2	unverified			in_pubchem_not_in_chebi	TUIXDPUEMQXVHO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tranilast	53902-12-8	verified	CHEBI:77572	tranilast		NZHGWWWHIYHZNX-CSKARUKUSA-N	name and CAS resolved independently to the same structure	1	2
+Tranylcypromine hydrochloride	1986-47-6	verified	CHEBI:131514	(1R,2S)-tranylcypromine hydrochloride		ZPEFMSTTZXJOTM-OULXEKPRSA-N	name and CAS resolved independently to the same structure	1	2
+Trap 101	1216621-00-9	unverified			in_pubchem_not_in_chebi	YEVMLMQAMCKVSC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Trequinsin hydrochloride	78416-81-6	unverified			in_pubchem_not_in_chebi	DTCZZBVPTHVXFA-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Triciribine	35943-35-2	verified	CHEBI:65310	triciribine		HOGVTUZUJGHKPL-HTVVRFAVSA-N	name and CAS resolved independently to the same structure	2	2
+Trimethoprim	738-70-5	verified	CHEBI:45924	trimethoprim		IEDVJHCEMCRBQM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Triptolide (PG490)	38748-32-2	verified	CHEBI:9747	Triptolide		DFBIRQPKNDILPW-CIVMWXNOSA-N	the experimental team supplied the structure as SMILES	1	2
+Triptonide	38647-11-9	verified	CHEBI:132267	triptonide		SWOVVKGLGOOUKI-ZHGGVEMFSA-N	name and CAS resolved independently to the same structure	2	2
+Tropanyl-3,5-dimethylbenzoate	85181-40-4	unverified			chebi_has_only_a_different_form	HDDNYFLPWFSBLN-XYPWUTKMSA-N	name and CAS resolved independently to the same structure	1	2
+Tropicamide	1508-75-4	verified	CHEBI:9757	Tropicamide		BGDKAVGWHJFAGW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Tropisetron hydrochloride	105826-92-4	unverified			chebi_has_only_a_different_form	XIEGSJAEZIGKSA-KOQCZNHOSA-N	name and CAS resolved independently to the same structure	1	2
+TTNPB	71441-28-6	verified	CHEBI:75261	arotinoid acid		FOIVPCKZDPCJJY-JQIJEIRASA-N	name and CAS resolved independently to the same structure	1	2
+TYROTHRICIN	1404-88-2	unverified			chebi_entry_same_name_different_structure	NLJVXZFCYKWXLH-DXTIXLATSA-N	name and CAS resolved independently to the same structure	1	2
+U 18666A	3039-71-2	verified	CHEBI:190404	3β-(2-diethylaminoethoxy)androst-5-en-17-one hydrochloride		GZFYZYBWLCYBMI-MYZJJQSMSA-N	name and CAS resolved independently to the same structure	1	2
+U 73122	112648-68-7	verified	CHEBI:90690	U-73122		LUFAORPFSVMJIW-ZRJUGLEFSA-N	name and CAS resolved independently to the same structure	1	2
+U 99194 maleate	234757-41-6	unverified			in_pubchem_not_in_chebi	FSIQDESGRQTFNN-BTJKTKAUSA-N	name and CAS resolved independently to the same structure	1	2
+U0126	109511-58-2	verified	CHEBI:90693	U0126		DVEXZJFMOKTQEZ-JYFOCSDGSA-N	name and CAS resolved independently to the same structure	1	2
+UB 165 fumarate	200432-86-6	unverified			identity_single_source_only	DZFRKSLRKAKJIB-UHFFFAOYSA-N	single_source	1	2
+UBP 296	745055-86-1	verified	CHEBI:91719	2-[[3-(2-amino-2-carboxyethyl)-2,6-dioxo-1-pyrimidinyl]methyl]benzoic acid		UUIYULWYHDSXHL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+UBP 302	745055-91-8	unverified			in_pubchem_not_in_chebi	UUIYULWYHDSXHL-NSHDSACASA-N	name and CAS resolved independently to the same structure	1	2
+UCN-01	112953-11-4	unverified			cas_and_name_are_different_stereoisomers		stereoisomer_disagreement	1	2
+UK 14,304	59803-98-4	verified	CHEBI:3175	brimonidine		XYLJNLCSTIOKRM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+UK 14,304 tartrate	70359-46-5	unverified			in_pubchem_not_in_chebi	QZHBYNSSDLTCRG-LREBCSMRSA-N	name and CAS agree; PubChem stereo-duplicate, anchored on the defined side	1	2
+UPF 1069	1048371-03-4	unverified			in_pubchem_not_in_chebi	JJWMRRNGWSITSQ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Venetoclax	1257044-40-8	verified	CHEBI:133021	venetoclax		LQBVNQSMGBZMKD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+Vidarabine	5536-17-4	verified	CHEBI:45327	adenine arabinoside		OIRDTQYFTABQOQ-UHTZMRCNSA-N	name and CAS resolved independently to the same structure	2	2
+Vigabatrin	68506-86-5	verified	CHEBI:63638	vigabatrin		PJDFLNIOAUIZSL-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Vinblastine sulfate	143-67-9	verified	CHEBI:748751	vinblastine sulfate		KDQAABAKXDWYSZ-PNYVAJAMSA-N	name and CAS resolved independently to the same structure	1	2
+Vincristine sulfate	2068-78-2	verified	CHEBI:79401	vincristine sulfate		AQTQHPDCURKLKT-JKDPCDLQSA-N	name and CAS resolved independently to the same structure	1	2
+Vinpocetine	42971-09-5	verified	CHEBI:32297	Vinpocetine		DDNCQMVWWZOMLN-IRLDBZIGSA-N	name and CAS resolved independently to the same structure	1	2
+Voglibose	83480-29-9	verified	CHEBI:32300	Voglibose		FZNCGRZWXLXZSZ-CIQUZCHMSA-N	name and CAS resolved independently to the same structure	1	2
+Voreloxin (SNS-595) hydrochloride	175519-16-1	unverified			in_pubchem_not_in_chebi	JJZCCQHWCOXGCL-QNTKWALQSA-N	name and CAS resolved independently to the same structure	1	2
+Vorinostat (SAHA, MK0683)	149647-78-9	verified	CHEBI:45716	vorinostat		WAEXFXRVDQXREF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Vortioxetine (Lu AA21004) HBr	960203-27-4	verified	CHEBI:76015	vortioxetine hydrobromide		VNGRUFUIHGGOOM-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	2	2
+VU 0155069	1781834-89-6	unverified			in_pubchem_not_in_chebi	RQULTQQAHGYYDG-LMOVPXPDSA-N	name and CAS resolved independently to the same structure	1	2
+VU 0238429	1160247-92-6	unverified			in_pubchem_not_in_chebi	CKLGZXFOLMHCMC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+WAY 161503 hydrochloride	276695-22-8	unverified			in_pubchem_not_in_chebi	YPNWSZJDAKOUAW-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+WAY 170523	307002-73-9	verified	CHEBI:92636	N-[2-[4-[[2-[(hydroxyamino)-oxomethyl]-4,6-dimethylphenyl]-(phenylmethyl)sulfamoyl]phenoxy]ethyl]-2-benzofurancarboxamide		FARMEEAGJWMFSZ-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+WAY 200070	440122-66-7	unverified			in_pubchem_not_in_chebi	BAAILVWEAXFTSF-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+WAY 213613	868359-05-1	unverified			in_pubchem_not_in_chebi	BNYDDAAZMBUFRG-ZDUSSCGKSA-N	name and CAS resolved independently to the same structure	1	2
+WAY 629 hydrochloride	57756-44-2	unverified			in_pubchem_not_in_chebi	PZXUJERSOFOWES-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+WEB 2086	105219-56-5	verified	CHEBI:92490	LSM-2613		JGPJQFOROWSRRS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+WIN 64338 hydrochloride	163727-74-0	verified	CHEBI:231367	WIN 64338 hydrochloride		YYJGBEZPVOUBMJ-KRFCICRISA-N	name and CAS resolved independently to the same structure	1	2
+WY 14643	50892-23-4	verified	CHEBI:32509	pirinixic acid		SZRPDCCEHVWOJX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Xamoterol hemifumarate	73210-73-8	unverified			in_pubchem_not_in_chebi	ZLLZLWSSDRBWMN-UHFFFAOYSA-N	the experimental team confirmed the compound name	1	2
+XAV 939	284028-89-3	verified	CHEBI:62878	XAV939		KLGQSVMIPOVQAX-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+XE 991 dihydrochloride	122955-13-9	unverified			in_pubchem_not_in_chebi	WOGWMARIFDNZON-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Y 134	849662-80-2	verified	CHEBI:93654	[6-hydroxy-2-(4-hydroxyphenyl)-1-benzothiophen-3-yl]-[4-(4-propan-2-yl-1-piperazinyl)phenyl]methanone		LQEOPHGPHCWOAC-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Y 29794 oxalate	146794-84-5	unverified			in_pubchem_not_in_chebi	UUSSHPPSOUAHHP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Y-26763	127408-31-5	verified	CHEBI:92788	N-[(3S,4R)-6-cyano-3-hydroxy-2,2-dimethyl-3,4-dihydro-2H-1-benzopyran-4-yl]-N-hydroxyacetamide		IWTCFIIOUXJOOV-OLZOCXBDSA-N	name and CAS resolved independently to the same structure	1	2
+Y-27152	127408-30-4	verified	CHEBI:92752	N-[(3S,4R)-6-cyano-3-hydroxy-2,2-dimethyl-3,4-dihydro-2H-1-benzopyran-4-yl]-N-phenylmethoxyacetamide		RHFUXPCCELGMFC-UXHICEINSA-N	name and CAS resolved independently to the same structure	1	2
+Y-27632 dihydrochloride	129830-38-2	verified	CHEBI:232591	Y-27632 dihydrochloride		IDDDVXIUIXWAGJ-DDSAHXNVSA-N	name and CAS resolved independently to the same structure	1	2
+YM 90709	163769-88-8	verified	CHEBI:92125	LSM-2128		HIXSPVQXXDULHS-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+YM 976	191219-80-4	verified	CHEBI:92225	4-(3-chlorophenyl)-1,7-diethyl-2-pyrido[2,3-d]pyrimidinone		MNHXYNNKDDXKNP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+YM155	781661-94-7	verified	CHEBI:139608	sepantronium bromide		QBIYUDDJPRGKNJ-UHFFFAOYSA-M	name and CAS resolved independently to the same structure	2	2
+Yohimbine hydrochloride	65-19-0	verified	CHEBI:749043	yohimbine hydrochloride		PIPZGJSEDRMUAW-VJDCAHTMSA-N	name and CAS resolved independently to the same structure	1	2
+YS-035 hydrochloride	89805-39-0	unverified			in_pubchem_not_in_chebi	GYBONEHHSUABAO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Zacopride hydrochloride	101303-98-4	unverified			chebi_entry_exists_but_has_no_structure	ITXVOUSORXSTQH-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+Zamifenacin fumarate	127308-98-9	unverified			in_pubchem_not_in_chebi	PMHKTAIGYOVZEZ-ZHWJIHCSSA-N	name and CAS resolved independently to the same structure	1	2
+ZAPA sulphate	371962-01-5	unverified			in_pubchem_not_in_chebi	UWVNHPNVOMFDHW-ODZAUARKSA-N	name and CAS resolved independently to the same structure	1	2
+Zaprinast	37762-06-4	verified	CHEBI:748089	zaprinast		REZGGXNDEMKIQB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Zardaverine	101975-10-4	verified	CHEBI:46548	zardaverine		HJMQDJPMQIHLPB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Zatebradine hydrochloride	91940-87-3	unverified			in_pubchem_not_in_chebi	ZRNKXJHEQKMWCH-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZD 7155 hydrochloride	146709-78-6	unverified			in_pubchem_not_in_chebi	NAGGAAHTUXEGFG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Zebularine	3690-10-6	verified	CHEBI:46938	zebularine		RPQZTTQVRYEKCR-WCTZXXKLSA-N	name and CAS resolved independently to the same structure	1	2
+Zinc protoporphyrin IX	15442-64-5	unverified			in_pubchem_not_in_chebi	FUTVBRXUIKZACV-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+Zinc Pyrithione	13463-41-7	verified	CHEBI:32076	zinc pyrithione		OTPSWLRZXRHDNX-UHFFFAOYSA-L	name and CAS resolved independently to the same structure	1	2
+ZK 164015	177583-70-9	verified	CHEBI:92087	2-(4-hydroxyphenyl)-3-methyl-1-(10-pentylsulfonyldecyl)-5-indolol		LYJSJVYJLZOMCD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZK 200775	161605-73-8	verified	CHEBI:748015	fanapanel		WZMQMKNCWDCCMT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZK 93423	1216574-52-5	verified	CHEBI:231362	ZK 93423 hydrochloride		KHMDBPAODAAMBQ-UHFFFAOYSA-N	the experimental team confirmed the CAS / catalogue product	1	2
+ZK 93426 hydrochloride	1216792-30-1	unverified			in_pubchem_not_in_chebi	RNQJDOYVHCISJU-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 226600	147695-92-9	verified	CHEBI:110192	N-[4-(benzenesulfonyl)phenyl]-3,3,3-trifluoro-2-hydroxy-2-methylpropanamide		LJLXQHHFAKVTNP-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 241385	139180-30-6	verified	CHEBI:92361	4-[2-[[7-amino-2-(2-furanyl)-[1,2,4]triazolo[1,5-a][1,3,5]triazin-5-yl]amino]ethyl]phenol		PWTBZOIUWZOPFT-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 306416 hydrochloride	196603-47-1	unverified			in_pubchem_not_in_chebi	SCUXIROMWPQVJO-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 323881 hydrochloride	193000-39-4	verified	CHEBI:91182	ZM 323881 hydrochloride		AVRHWGLIYGJSOD-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 336372	208260-29-1	verified	CHEBI:95033	3-(dimethylamino)-N-[3-[[(4-hydroxyphenyl)-oxomethyl]amino]-4-methylphenyl]benzamide		PYEFPDQFAZNXLI-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 39923 hydrochloride	1021868-92-7	unverified			in_pubchem_not_in_chebi	NJTUORMLOPXPBY-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 447439	331771-20-1	verified	CHEBI:91376	ZM447439		OGNYUTNQZVRGMN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+ZM 449829	4452-06-6	verified	CHEBI:93674	1-(2-naphthalenyl)-2-propen-1-one		FOTCGZPFSUWZBN-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+Zolantidine dimaleate	104076-39-3	unverified			in_pubchem_not_in_chebi	IECBEVAUEBZJCF-SPIKMXEPSA-N	name and CAS resolved independently to the same structure	1	2
+Zonisamide	68291-97-4	verified	CHEBI:10127	zonisamide		UBQNRHZMVUUOMG-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	2
+β-CCB	84454-35-3	verified	CHEBI:34867	N-Butyl-beta-carboline-3-carboxylate		WGNGIELOOKACSB-UHFFFAOYSA-N	name and CAS resolved independently to the same structure	1	1
+β-Funaltrexamine hydrochloride	72786-10-8	unverified			in_pubchem_not_in_chebi	BIPHUOBUKMPSQR-NQGXHZAGSA-N	name and CAS resolved independently to the same structure	1	1
+γDGG	6729-55-1	verified	CHEBI:73843	D-γ-Glu-Gly		ACIJGUBIMXQCMF-SCSAIBSYSA-N	name and CAS resolved independently to the same structure	1	1

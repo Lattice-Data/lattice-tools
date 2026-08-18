@@ -71,11 +71,41 @@ Phase 3 is the one that matters most. Phase 5 is deliberately separate from phas
 the policy is a judgement call that may be revisited, and re-deciding must not mean
 re-querying.
 
+### What carries between batches
+
+Two things persist, and confusing them is expensive.
+
+`chebi_answer_ledger.tsv` is **committed**, and is the reason each batch costs less
+than the last: one row per distinct `(name, CAS)`, with the verdict, the identifier,
+the structure it was matched on and the evidence. 1125 rows so far — 722 verified, 403
+diagnosed dead ends. `chebi_ledger.py` reads, merges and writes it.
+
+It is tracked while every other data file here is ignored, because it is the one that
+**cannot be regenerated at any price**. A network cache is slow to rebuild;
+these verdicts embody a round of 113 questions to the experimental team, a set of
+hand-adjudicated promotions, and a stereochemistry correction that withdrew eight
+published identifiers. Losing the file means asking the lab the same questions again.
+
+The **network caches** are regenerable and live outside the repository, at
+`~/.cache/lattice-bcp-chebi/{pubchem,chebi}.json` — 2362 and 4659 entries, about
+14,100 HTTP requests and 45 minutes of wall clock inside PubChem's rate limits. Worth
+keeping, not worth committing, and *not* worth trusting for SMILES: they were written
+before the `SMILES`/`ConnectivitySMILES` rename was fixed, so every cached
+`isomeric_smiles` and `canonical_smiles` is empty. InChI, InChIKey and formula are
+unaffected, which is everything the method uses.
+
+**A later batch may change an answer, but never silently.** `merge()` returns every
+key whose verdict or identifier moved, so a run reports it. Those eight withdrawn
+identifiers are precisely what that return value is for: an answer moving is a finding
+about what has already been deposited, not bookkeeping.
+
 ### Deduplicate against finished batches before any network work
 
 A second batch from the same screening library is mostly the first batch again. The
 second real batch was 3597 rows, which collapsed to 1106 distinct `(name, CAS)` pairs, of
-which **987 already had a verdict** — 89% answered for free. Only 119 needed the network.
+which **987 already had a verdict** — 89% answered for free, covering 2340 of 2612 source
+rows. Only 119 needed the network. Across both batches there are 1125 distinct keys and
+986 of them appear in both, so the overlap is the norm rather than a coincidence.
 
 Match on the **full set** of CAS values a finished row carries, not just the sheet's
 original: a completed row may hold the original, a mechanical repair, a lab correction

@@ -68,3 +68,14 @@ verified_chebi.tsv
 unverified_chebi.tsv
 chebi_submissions.tsv
 lab_followup.tsv
+
+# chebi_answer_ledger.tsv is the deliberate exception to all of the above. It is
+# cumulative curation knowledge -- the answer for every compound identified so far,
+# carried forward between batches -- and it is the one file here that cannot be
+# regenerated: it embodies a round of questions to the experimental team and a
+# correction that withdrew eight published identifiers. It is tracked on purpose.
+#
+# No rule above currently matches that name, so this negation is defensive rather
+# than load-bearing: it is here so that broadening the deliverable rules to `*.tsv`
+# cannot quietly stop tracking the one file that must never be lost.
+!chebi_answer_ledger.tsv
