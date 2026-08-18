@@ -41,6 +41,8 @@ from chebi_terms.client import (
     normalize_chebi_id,
 )
 
+from .inchi import INCHI_VERDICTS, classify_pair
+
 log = logging.getLogger(__name__)
 
 
@@ -382,6 +384,60 @@ def compare_structures(reference: str, candidates: list[str]) -> str:
     if any(skeleton(key) == skeleton(reference) for key in present):
         return STEREO_DIFFERS
     return SKELETON_DIFFERS
+
+
+# --- the InChI-layer comparison, expressed in this module's vocabulary --------
+
+# structure_check.inchi answers a finer question than COMPARISON_VERDICTS can state:
+# it can say "one side simply does not specify the stereochemistry", and it can tell
+# an isotopologue from a stereoisomer. This map is the lossy projection onto the
+# four coarse verdicts, kept here rather than in inchi.py so the vocabulary is
+# defined in exactly one place -- the same reason SIDES is named once.
+#
+# Two mappings are judgement calls and are made in the conservative direction:
+#
+#   STEREO_UNDEFINED_ON_ONE_SIDE -> STEREO_DIFFERS. The identification policy treats
+#     this as agreement anchored on the defined side, but the coarse vocabulary has
+#     no way to say "agree, one side vaguer". Reporting it as a difference surfaces
+#     the row for review; reporting it as a match would pass it silently.
+#   ISOTOPE_DIFFERS -> STEREO_DIFFERS. An isotopic label sits in the InChIKey's
+#     second block, so the key-based compare_structures() already calls such a pair
+#     STEREO_DIFFERS. Matching that keeps the two paths from disagreeing about the
+#     same pair -- which is exactly how the stereo bug in this package was found.
+_INCHI_TO_COMPARISON = {
+    "layers_identical": MATCH,
+    "form_differs": SALT_DIFFERS,
+    "stereo_differs": STEREO_DIFFERS,
+    "stereo_undefined_on_one_side": STEREO_DIFFERS,
+    "isotope_differs": STEREO_DIFFERS,
+    "different_compound": SKELETON_DIFFERS,
+    "not_comparable": NOT_COMPARABLE,
+}
+assert set(_INCHI_TO_COMPARISON) == set(INCHI_VERDICTS), (
+    "structure_check.inchi grew a verdict this module does not map; add it here "
+    "rather than letting it fall through to a default"
+)
+
+
+def comparison_verdict_from_inchi(reference_inchi: str, candidate_inchi: str) -> str:
+    """
+    Compare two structures from their InChI strings, with **no network calls**.
+
+    Returns one of COMPARISON_VERDICTS, or NOT_COMPARABLE. This is the zero-request
+    counterpart to compare_structures() followed by refine_skeleton_difference():
+    it can distinguish a salt from a free base, which the InChIKey path needs three
+    PubChem requests to attempt and gets wrong for multi-component salts.
+
+    Use this wherever the InChI string is already in hand -- chebi_lookup.lookup_cas()
+    returns one in `inchi`, and chebi_terms.fetch_compound() carries one too. Where
+    only InChIKeys are available, compare_structures() is still the only option,
+    because a formula cannot be recovered from a 14-character connectivity hash.
+
+    Read structure_check.inchi.classify_pair() directly when the finer distinction
+    matters: this projection cannot express "one side does not specify the
+    stereochemistry", and collapses an isotopologue onto a stereoisomer.
+    """
+    return _INCHI_TO_COMPARISON[classify_pair(reference_inchi, candidate_inchi)]
 
 
 _parent_cache: dict[str, str] = {}

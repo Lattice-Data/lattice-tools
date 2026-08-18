@@ -70,8 +70,10 @@ IONISATION_LAYERS = ("q", "p")
 ISOTOPE_LAYER = "i"
 
 # Verdicts. Finer-grained than this package's COMPARISON_VERDICTS, which cannot
-# express "one side simply does not say". Map onto the coarse vocabulary with
-# structure_check.client.comparison_verdict_from_inchi().
+# express "one side simply does not say" and cannot tell an isotopologue from a
+# stereoisomer. `structure_check.client.comparison_verdict_from_inchi()` is the
+# lossy projection onto the coarse vocabulary, and asserts at import time that it
+# maps every verdict named here.
 LAYERS_IDENTICAL = "layers_identical"
 FORM_DIFFERS = "form_differs"
 STEREO_DIFFERS = "stereo_differs"
@@ -113,7 +115,9 @@ def inchi_layers(inchi: str) -> tuple[dict[str, str], str]:
     caller in this package is on a path that promises not to raise, and a
     structure we cannot parse must read as *unknown*, never as *equal*.
     """
-    parts = inchi.split("/") if inchi else []
+    # Stripped: a trailing newline from a text file or a CSV cell would otherwise
+    # land in the final layer's value and make a structure differ from itself.
+    parts = inchi.strip().split("/") if inchi else []
     layers: dict[str, str] = {}
     for part in parts[2:]:
         if part:
@@ -275,15 +279,23 @@ def defined_side(inchi_a: str, inchi_b: str) -> str:
     """
     Of two structures, the one specifying more stereochemistry.
 
-    Ties -- including the case where each side defines a layer the other omits, so
-    neither is strictly more specific -- return `inchi_a`. That is a real
-    possibility rather than a theoretical one, and it is left to the caller's
-    downstream exact-structure match to reject: an anchor chosen from a tie will
-    simply fail to match any ChEBI entry, which is the safe direction.
+    "More specific" means its set of defined stereo layers is a strict **superset**,
+    not merely larger. A side defining only `/b` and a side defining only `/t` both
+    define one layer and neither dominates; counting would have picked whichever was
+    passed first. Such ties, and exact ties, return `inchi_a`, and the caller's
+    downstream exact-structure match is what rejects them: an anchor chosen from a
+    tie simply fails to match any ChEBI entry, which is the safe direction.
     """
     layers_a, _ = inchi_layers(inchi_a)
     layers_b, _ = inchi_layers(inchi_b)
-    return inchi_a if defined_stereo(layers_a) >= defined_stereo(layers_b) else inchi_b
+    set_a = {k for k in STEREO_LAYERS if layers_a.get(k) is not None}
+    set_b = {k for k in STEREO_LAYERS if layers_b.get(k) is not None}
+    # Containment, not a count: a side defining {b} and a side defining {t} both
+    # count 1, and neither is more specific than the other. Only a strict superset
+    # is grounds for preferring one.
+    if set_b > set_a:
+        return inchi_b
+    return inchi_a
 
 
 def is_multi_component(inchi: str) -> bool:
