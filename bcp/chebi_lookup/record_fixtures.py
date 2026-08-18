@@ -53,7 +53,7 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
     try:
         cids = cids_payload.get("IdentifierList", {}).get("CID", [])
         cid = cids[0] if cids else None
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError):
         cid = None
     if cid is None:
         log.error("Could not parse CID for CAS %s", cas)
@@ -66,12 +66,16 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
         return None
     _save_json(out_dir / "properties.json", resp.json())
 
-    resp = get_with_retry(f"{BASE}/compound/cid/{cid}/xrefs/RegistryID/JSON")
+    reg_resp = get_with_retry(f"{BASE}/compound/cid/{cid}/xrefs/RegistryID/JSON")
     time.sleep(REQUEST_DELAY)
-    if resp is None:
+    if reg_resp is None:
         log.error("No registry ID response for CID %s", cid)
         return None
-    _save_json(out_dir / "registry_ids.json", resp.json())
+    # Held in its own name: `resp` is rebound to the synonyms response below, and
+    # the xref parse used to read RegistryID back out of that instead, so chebi_id
+    # was always "" and the recorder logged "ChEBI --" for every compound.
+    registry_payload = reg_resp.json()
+    _save_json(out_dir / "registry_ids.json", registry_payload)
 
     resp = get_with_retry(f"{BASE}/compound/cid/{cid}/synonyms/JSON")
     time.sleep(REQUEST_DELAY)
@@ -83,8 +87,7 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
     chebi_id = ""
     try:
         reg_ids = (
-            resp.json()
-            .get("InformationList", {})
+            registry_payload.get("InformationList", {})
             .get("Information", [{}])[0]
             .get("RegistryID", [])
         )
@@ -92,7 +95,7 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
             if rid.upper().startswith("CHEBI:"):
                 chebi_id = rid
                 break
-    except (ValueError, KeyError, IndexError):
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError):
         pass
 
     log.info(

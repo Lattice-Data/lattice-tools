@@ -6,7 +6,7 @@ Comparing chemical names as strings does not work. ChEBI calls `CHEBI:92401` *"6
 
 InChIKeys do work, because they are derived from the structure itself. So this tool resolves each identifier in a row to a structure **independently** — the CAS number and the compound name through PubChem, the ChEBI ID through ChEBI — and compares those.
 
-The third of the three ChEBI tools here, and the only one that cross-checks identifiers against *each other*: [CHEBI_LOOKUP.md](CHEBI_LOOKUP.md) goes from a CAS number to a ChEBI ID, [CHEBI_TERMS.md](CHEBI_TERMS.md) goes from a ChEBI ID you already hold to its authoritative name and a correctness verdict.
+The only one of the ChEBI tools here that cross-checks identifiers against *each other*: [CHEBI_LOOKUP.md](CHEBI_LOOKUP.md) goes from a CAS number to a ChEBI ID, [CHEBI_TERMS.md](CHEBI_TERMS.md) goes from a ChEBI ID you already hold to its authoritative name and a correctness verdict, and [CHEBI_IDENTIFICATION.md](CHEBI_IDENTIFICATION.md) is the phased method above all three, for a batch that has no trustworthy identifier yet. Its `structure_check.inchi` and `structure_check.cas` modules came out of that work.
 
 ---
 

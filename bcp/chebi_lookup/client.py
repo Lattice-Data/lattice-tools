@@ -23,8 +23,13 @@ PROPERTIES = ",".join(
         "IUPACName",
         "MolecularFormula",
         "MolecularWeight",
-        "IsomericSMILES",
-        "CanonicalSMILES",
+        # PubChem renamed these: IsomericSMILES -> SMILES (stereo-bearing) and
+        # CanonicalSMILES -> ConnectivitySMILES (connectivity only). The old names
+        # are still ACCEPTED in the request URL, but the response comes back keyed
+        # by the new ones, so asking with the old names and reading with them
+        # returned "" on every lookup without any error, non-200 or log line.
+        "SMILES",
+        "ConnectivitySMILES",
         "InChI",
         "InChIKey",
         "XLogP",
@@ -256,14 +261,19 @@ def cid_to_properties(cid: int) -> dict[str, Any]:
             result["iupac_name"] = props.get("IUPACName", "")
             result["molecular_formula"] = props.get("MolecularFormula", "")
             result["molecular_weight"] = props.get("MolecularWeight", "")
-            result["isomeric_smiles"] = props.get("IsomericSMILES", "")
-            result["canonical_smiles"] = props.get("CanonicalSMILES", "")
+            result["isomeric_smiles"] = props.get("SMILES", "")
+            result["canonical_smiles"] = props.get("ConnectivitySMILES", "")
             result["inchi"] = props.get("InChI", "")
             result["inchikey"] = props.get("InChIKey", "")
             result["xlogp"] = props.get("XLogP", "")
             result["tpsa"] = props.get("TPSA", "")
-        except (ValueError, KeyError, IndexError):
-            pass
+        except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+            # A 200 whose body is not this endpoint's JSON is an outage wearing a
+            # success code, exactly as cas_to_cid_status documents. This function
+            # returns no outcome, so the least it can do is refuse to be silent:
+            # swallowing it bare would leave the row indistinguishable from
+            # "PubChem has no properties for this CID".
+            log.warning("Unusable property payload for CID %s: %s", cid, exc)
 
     resp2 = get_with_retry(f"{BASE}/compound/cid/{cid}/xrefs/RegistryID/JSON")
     time.sleep(REQUEST_DELAY)
@@ -279,8 +289,11 @@ def cid_to_properties(cid: int) -> dict[str, Any]:
                 if rid.upper().startswith("CHEBI:"):
                     result["chebi_id"] = rid
                     break
-        except (ValueError, KeyError, IndexError):
-            pass
+        except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+            # Same reasoning: without this line an unusable xref body reads as
+            # "this compound has no ChEBI cross-reference", which is a finding
+            # about chemistry rather than about the network.
+            log.warning("Unusable registry-ID payload for CID %s: %s", cid, exc)
 
     return result
 
@@ -298,8 +311,13 @@ def cid_to_synonyms(cid: int) -> str:
             .get("Information", [{}])[0]
             .get("Synonym", [])
         )
-        return " | ".join(syns[:MAX_SYNONYMS])
-    except (ValueError, KeyError, IndexError):
+        # str() each synonym: PubChem has shipped numeric-looking synonyms as bare
+        # numbers, and join() raises TypeError on the first one it meets. Widen the
+        # except tuple too -- a valid-JSON body of the wrong shape (a proxy or
+        # maintenance page) raises AttributeError here, not ValueError.
+        return " | ".join(str(s) for s in syns[:MAX_SYNONYMS])
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+        log.warning("Unusable synonym payload for CID %s: %s", cid, exc)
         return ""
 
 
