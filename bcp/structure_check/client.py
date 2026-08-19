@@ -560,14 +560,50 @@ def _first_cid(resp: Any) -> tuple[int | None, bool]:
         return None, True
 
 
-def refine_skeleton_difference(reference: str, candidates: list[str]) -> str:
+def refine_skeleton_difference(
+    reference: str,
+    candidates: list[str],
+    *,
+    reference_inchi: str = "",
+    candidate_inchis: tuple[str, ...] = (),
+) -> str:
     """
     Decide whether a skeleton difference is only a salt-form difference.
 
     Returns SALT_DIFFERS when the two sides share a desalted parent, otherwise
-    leaves SKELETON_DIFFERS. Costs three requests per structure and so is only
-    worth calling once a difference has already been found.
+    leaves SKELETON_DIFFERS.
+
+    **Two routes, and the free one is tried first.** Given the InChI strings, the
+    formula layer answers this directly: `comparison_verdict_from_inchi()` costs no
+    requests and is right about multi-component salts, where PubChem's desalted
+    parent is documented as unreliable -- for pyrvinium pamoate it returns the
+    pamoate counterion. Without them, the parent route costs three requests per
+    structure, which is why it is only reached once a difference is already known.
+
+    The InChI route is used only when every side has a string and every verdict is
+    one this function can express. A missing or non-standard string falls back
+    silently; a verdict of MATCH or STEREO_DIFFERS means the layers and the keys
+    disagree about a pair whose keys differ in connectivity, which cannot both be
+    true, so it is logged and the request route decides. Two independently written
+    comparisons disagreeing is how the stereo bug in this package was found, and
+    that redundancy only pays if the disagreement is reported.
     """
+    if reference_inchi and candidate_inchis and all(candidate_inchis):
+        verdicts = {
+            comparison_verdict_from_inchi(reference_inchi, candidate_inchi)
+            for candidate_inchi in candidate_inchis
+        }
+        if verdicts <= {SALT_DIFFERS, SKELETON_DIFFERS}:
+            return SALT_DIFFERS if SALT_DIFFERS in verdicts else SKELETON_DIFFERS
+        if verdicts - {SALT_DIFFERS, SKELETON_DIFFERS, NOT_COMPARABLE}:
+            log.warning(
+                "InChI layers and InChIKeys disagree about %s: the keys differ in "
+                "connectivity while the layers report %s. Refining with PubChem "
+                "parents instead.",
+                reference,
+                sorted(verdicts),
+            )
+
     reference_parent = parent_inchikey(reference)
     if not reference_parent:
         return SKELETON_DIFFERS
@@ -613,16 +649,22 @@ def name_candidates(raw: Any) -> tuple[list[str], list[str]]:
     return whole, tokens if len(tokens) > 1 else []
 
 
-def inchikeys_for_name(name: str) -> list[str]:
+def structures_for_name(name: str) -> list[tuple[str, str]]:
     """
-    Every InChIKey PubChem resolves a name to. Empty when it resolves none.
+    Every `(InChIKey, InChI)` PubChem resolves a name to. Empty when it resolves none.
+
+    The InChI comes back in the same response as the key, so carrying it costs
+    nothing and lets `refine_skeleton_difference()` read the formula layer rather than
+    ask PubChem for a desalted parent. An entry whose InChI is missing or is not a
+    string keeps its key and carries `""`, which reads downstream as "no string for
+    this side" -- never as agreement.
 
     Raises PubChemUnavailableError when PubChem could not be asked, so "this name
     is not a compound" stays distinguishable from "we never found out".
     """
     query = urllib.parse.quote(name, safe="")
     resp, outcome = get_with_retry_status(
-        f"{BASE}/compound/name/{query}/property/InChIKey/JSON",
+        f"{BASE}/compound/name/{query}/property/InChIKey,InChI/JSON",
         malformed_is_answer=True,
     )
     time.sleep(REQUEST_DELAY)
@@ -630,7 +672,8 @@ def inchikeys_for_name(name: str) -> list[str]:
         raise PubChemUnavailableError(f"PubChem unreachable resolving name {name!r}")
     if resp is None:
         return []
-    keys: list[str] = []
+    structures: list[tuple[str, str]] = []
+    seen: set[str] = set()
     try:
         # The iteration belongs inside the guard too: `Properties: null` or a bare
         # number is as malformed as a missing key, and a dict would iterate its
@@ -641,11 +684,14 @@ def inchikeys_for_name(name: str) -> list[str]:
             raise TypeError("Properties is not a list")
         for entry in properties:
             key = entry.get("InChIKey") if isinstance(entry, dict) else None
+            inchi = entry.get("InChI") if isinstance(entry, dict) else None
             # Only a string is a structure. A numeric InChIKey would otherwise
             # reach skeleton()'s slice and " | ".join() and raise TypeError
-            # straight through check_row, which promises never to.
-            if isinstance(key, str) and key and key not in keys:
-                keys.append(key)
+            # straight through check_row, which promises never to. The same test
+            # on the InChI, which reaches classify_pair()'s .strip().
+            if isinstance(key, str) and key and key not in seen:
+                seen.add(key)
+                structures.append((key, inchi if isinstance(inchi, str) else ""))
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         # A 200 that is not this endpoint's JSON is something other than this API
         # answering — a maintenance page or a moved endpoint. Not evidence that
@@ -653,12 +699,14 @@ def inchikeys_for_name(name: str) -> list[str]:
         raise PubChemUnavailableError(
             f"PubChem returned an unparseable payload for name {name!r}"
         ) from exc
-    return keys
+    return structures
 
 
-def name_structure(raw: Any) -> tuple[str, list[str], int]:
+def name_structure(raw: Any) -> tuple[str, list[tuple[str, str]], int]:
     """
-    Resolve a name to (query_actually_used, inchikeys, total_found).
+    Resolve a name to (query_actually_used, structures, total_found).
+
+    Each structure is the `(InChIKey, InChI)` pair `structures_for_name()` returns.
 
     Whole-string forms are tried first and the first hit wins, so a salt form stays
     intact. Only when none resolve are tokens tried, and then their results are
@@ -679,17 +727,18 @@ def name_structure(raw: Any) -> tuple[str, list[str], int]:
     whole, tokens = name_candidates(raw)
 
     for candidate in whole:
-        keys = inchikeys_for_name(candidate)
-        if keys:
-            return candidate, _cap(candidate, keys), len(keys)
+        found = structures_for_name(candidate)
+        if found:
+            return candidate, _cap(candidate, found), len(found)
 
-    union: list[str] = []
+    union: list[tuple[str, str]] = []
     used: list[str] = []
     for token in tokens:
-        keys = inchikeys_for_name(token)
-        if keys:
+        found = structures_for_name(token)
+        if found:
             used.append(token)
-            union.extend(key for key in keys if key not in union)
+            have = {key for key, _ in union}
+            union.extend(structure for structure in found if structure[0] not in have)
     if union:
         query = "tokens: " + "|".join(used)
         return query, _cap(query, union), len(union)
@@ -697,22 +746,28 @@ def name_structure(raw: Any) -> tuple[str, list[str], int]:
     return "", [], 0
 
 
-def _cap(query: str, keys: list[str]) -> list[str]:
+def _cap(query: str, structures: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Limit how many structures one cell can cost, loudly."""
-    if len(keys) <= MAX_NAME_CANDIDATES:
-        return keys
+    if len(structures) <= MAX_NAME_CANDIDATES:
+        return structures
     log.warning(
         "Name %r resolved to %s structures; comparing the first %s.",
         query,
-        len(keys),
+        len(structures),
         MAX_NAME_CANDIDATES,
     )
-    return keys[:MAX_NAME_CANDIDATES]
+    return structures[:MAX_NAME_CANDIDATES]
 
 
-def chebi_structure(chebi_id: Any) -> tuple[str, str]:
+def chebi_structure(chebi_id: Any) -> tuple[str, str, str]:
     """
-    Resolve a ChEBI ID to (inchikey, problem), where problem is "" when fine.
+    Resolve a ChEBI ID to (inchikey, problem, inchi); problem is "" when fine.
+
+    The InChI comes from the same `default_structure` block as the key, so carrying
+    it costs no request and lets a salt difference be read off the formula layer
+    instead of guessed at from PubChem's desalted parent. It is `""` when ChEBI
+    records no string or records a non-string, which reads as "no string for this
+    side" and never as agreement.
 
     CHEBI_UNREACHABLE means ChEBI could not be asked; CHEBI_UNRESOLVED means it was
     asked and has no such record (or the ID was malformed). Both mean "no structure
@@ -723,31 +778,46 @@ def chebi_structure(chebi_id: Any) -> tuple[str, str]:
     """
     parsed = normalize_chebi_id(chebi_id)
     if parsed is None:
-        return "", CHEBI_UNRESOLVED
+        return "", CHEBI_UNRESOLVED, ""
     try:
         payload = fetch_compound(parsed[0])
     except ChebiUnavailableError as exc:
         log.error("%s", exc)
-        return "", CHEBI_UNREACHABLE
+        return "", CHEBI_UNREACHABLE, ""
     if payload is None:
-        return "", CHEBI_UNRESOLVED
+        return "", CHEBI_UNRESOLVED, ""
     # `or {}` only rescues a falsy default_structure; a list or a string is truthy
     # and has no .get, and check_payload_shape does not validate this field. An
     # AttributeError here would escape check_row's never-raises contract.
-    structure = payload.get("default_structure")
-    key = (
-        structure.get("standard_inchi_key") or "" if isinstance(structure, dict) else ""
-    )
-    return (key, "") if key else ("", CHEBI_NO_STRUCTURE)
+    structure = payload.get("default_structure") if isinstance(payload, dict) else None
+    if not isinstance(structure, dict):
+        return "", CHEBI_NO_STRUCTURE, ""
+    key = structure.get("standard_inchi_key") or ""
+    inchi = structure.get("standard_inchi") or ""
+    if not isinstance(key, str) or not isinstance(inchi, str):
+        # A non-string key reaches skeleton()'s slice and " | ".join(); a non-string
+        # InChI reaches classify_pair()'s .strip(). Either would raise out through
+        # check_row, which promises not to.
+        log.warning("ChEBI %s records a non-string structure; ignoring it", parsed[0])
+        return "", CHEBI_NO_STRUCTURE, ""
+    return (key, "", inchi) if key else ("", CHEBI_NO_STRUCTURE, "")
 
 
-def cas_structure(cas: Any) -> tuple[str, str]:
+def cas_structure(cas: Any) -> tuple[str, str, str]:
     """
-    Resolve a CAS number to (inchikey, pubchem_preferred_name).
+    Resolve a CAS number to (inchikey, pubchem_preferred_name, inchi).
 
-    Two requests, not chebi_lookup.lookup_cas()'s four: only the InChIKey and Title
-    are wanted, and fetching xrefs and synonyms for every row spent about a minute
-    of REQUEST_DELAY on a 117-row sheet producing data that was discarded.
+    Two requests, not chebi_lookup.lookup_cas()'s four: only the InChIKey, Title and
+    InChI are wanted, and fetching xrefs and synonyms for every row spent about a
+    minute of REQUEST_DELAY on a 117-row sheet producing data that was discarded.
+    Zero requests when the cell is not a registry number: cas_to_cid_status()
+    validates before it asks, so a compound name in a CAS column no longer resolves
+    as a name.
+
+    The InChI rides along in the property request that already fetches the key, and
+    is what lets refine_skeleton_difference() read a salt off the formula layer for
+    free rather than spend three requests on a desalted parent that is unreliable
+    for multi-component salts.
 
     Raises PubChemUnavailableError when *either* request could not be answered, so
     "PubChem has no such CAS" stays distinguishable from "PubChem was unreachable".
@@ -756,17 +826,17 @@ def cas_structure(cas: Any) -> tuple[str, str]:
     """
     text = str(cas or "").strip()
     if not text:
-        return "", ""
-    # Not quoted here: cas_to_cid_status quotes the value itself, so that its
-    # other caller (chebi_lookup.lookup_cas) is covered by the same guard rather
+        return "", "", ""
+    # Not validated or quoted here: cas_to_cid_status does both itself, so that its
+    # other caller (chebi_lookup.lookup_cas) is covered by the same guards rather
     # than by each call site remembering. Quoting twice would encode the '%'.
     cid, outcome = cas_to_cid_status(text)
     if outcome == OUTCOME_UNREACHABLE:
         raise PubChemUnavailableError(f"PubChem unreachable resolving CAS {text!r}")
     if cid is None:
-        return "", ""
+        return "", "", ""
     resp, outcome = get_with_retry_status(
-        f"{BASE}/compound/cid/{cid}/property/InChIKey,Title/JSON"
+        f"{BASE}/compound/cid/{cid}/property/InChIKey,Title,InChI/JSON"
     )
     time.sleep(REQUEST_DELAY)
     if outcome == OUTCOME_UNREACHABLE:
@@ -774,7 +844,7 @@ def cas_structure(cas: Any) -> tuple[str, str]:
             f"PubChem unreachable fetching properties for CAS {text!r}"
         )
     if resp is None:
-        return "", ""
+        return "", "", ""
     try:
         # The .get() calls stay inside the guard: a Properties list holding
         # strings rather than objects would otherwise raise AttributeError past
@@ -782,9 +852,14 @@ def cas_structure(cas: Any) -> tuple[str, str]:
         # sheet at whatever row the bad payload landed on.
         properties = resp.json()["PropertyTable"]["Properties"][0]
         key, title = properties.get("InChIKey"), properties.get("Title")
+        inchi = properties.get("InChI")
         if key is not None and not isinstance(key, str):
             raise TypeError("InChIKey is not a string")
-        return key or "", (title if isinstance(title, str) else "")
+        return (
+            key or "",
+            (title if isinstance(title, str) else ""),
+            (inchi if isinstance(inchi, str) else ""),
+        )
     except (ValueError, KeyError, IndexError, TypeError, AttributeError) as exc:
         raise PubChemUnavailableError(
             f"PubChem returned an unparseable payload for CAS {text!r}"
@@ -841,13 +916,13 @@ def check_row(
 
     has_cas = bool(str(cas or "").strip())
     cas_unreachable = False
-    cas_key, cas_name = "", ""
+    cas_key, cas_name, cas_inchi = "", "", ""
     if has_cas:
         if "cas" in skip:
             cas_unreachable = True
         else:
             try:
-                cas_key, cas_name = cas_structure(cas)
+                cas_key, cas_name, cas_inchi = cas_structure(cas)
             except PubChemUnavailableError as exc:
                 log.error("%s", exc)
                 cas_unreachable = True
@@ -886,9 +961,9 @@ def check_row(
 
     if wants_id_check:
         if "chebi" in skip:
-            chebi_key, problem = "", CHEBI_UNREACHABLE
+            chebi_key, problem, chebi_inchi = "", CHEBI_UNREACHABLE, ""
         else:
-            chebi_key, problem = chebi_structure(chebi_id)
+            chebi_key, problem, chebi_inchi = chebi_structure(chebi_id)
         result["chebi_inchikey"] = chebi_key
         result["chebi_status"] = (
             IDENTIFIER_UNREACHABLE
@@ -905,7 +980,12 @@ def check_row(
         else:
             verdict = compare_structures(cas_key, [chebi_key])
             if verdict == SKELETON_DIFFERS:
-                verdict = refine_skeleton_difference(cas_key, [chebi_key])
+                verdict = refine_skeleton_difference(
+                    cas_key,
+                    [chebi_key],
+                    reference_inchi=cas_inchi,
+                    candidate_inchis=(chebi_inchi,),
+                )
             result["id_cas_verdict"] = verdict
 
     if wants_name_check:
@@ -914,12 +994,14 @@ def check_row(
             result["name_cas_verdict"] = NAME_UNREACHABLE
             return _finish(result)
         try:
-            query, name_keys, total_found = name_structure(name)
+            query, name_structures, total_found = name_structure(name)
         except PubChemUnavailableError as exc:
             log.error("%s", exc)
             result["name_status"] = IDENTIFIER_UNREACHABLE
             result["name_cas_verdict"] = NAME_UNREACHABLE
             return _finish(result)
+        name_keys = [key for key, _ in name_structures]
+        name_inchis = tuple(inchi for _, inchi in name_structures)
         result["name_status"] = IDENTIFIER_RESOLVED if name_keys else IDENTIFIER_MISSING
         truncated = total_found > len(name_keys)
         if truncated:
@@ -935,7 +1017,12 @@ def check_row(
             # that costs up to 3 requests per candidate for a result that is
             # about to be discarded.
             if verdict == SKELETON_DIFFERS and not truncated:
-                verdict = refine_skeleton_difference(cas_key, name_keys)
+                verdict = refine_skeleton_difference(
+                    cas_key,
+                    name_keys,
+                    reference_inchi=cas_inchi,
+                    candidate_inchis=name_inchis,
+                )
             # PubChem returns structures in CID order, not relevance order, so the
             # true match may be among the ones we did not compare. Reporting a
             # difference here would be a finding of our own making.

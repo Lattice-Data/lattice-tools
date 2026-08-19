@@ -18,12 +18,14 @@ matching it to the wrong stereoisomer, and a curator triages them differently. O
 is "ChEBI has this compound but not this form"; the other is "we do not know which
 molecule this row means".
 
-**This module is deliberately not wired into `refine_skeleton_difference()`.** That
-function receives InChIKeys, and a molecular formula cannot be recovered from a
-14-character connectivity hash -- so the cheap path is unavailable to it without
-changing its signature and both its call sites in `check_row()`. Callers that hold
-the InChI string (`chebi_lookup.lookup_cas()` returns one) should use this module
-directly and skip the request entirely.
+`refine_skeleton_difference()` now tries this route first. It used to be unreachable
+from there: that function receives InChI**Keys**, and a molecular formula cannot be
+recovered from a 14-character connectivity hash, so reaching it meant widening the
+signature and both call sites in `check_row()` -- which is what happened. The
+resolvers carry the InChI string alongside the key, at no extra request, because
+PubChem and ChEBI both return the two in the same payload. Where a string is missing
+the parent-lookup route still decides, so nothing regressed for a record that has no
+InChI.
 
 The comparison here is the corrected form of one that shipped wrong. An earlier
 version compared only `/t` and `/m`, which meant it could not see `/b` double-bond

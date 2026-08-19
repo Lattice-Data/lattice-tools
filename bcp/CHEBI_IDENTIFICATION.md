@@ -288,9 +288,16 @@ shipped wrong.
 Salt and stereo differences are discriminated from the **InChI layers**, not from
 PubChem's desalted-parent lookup. `refine_skeleton_difference` costs three requests per
 structure and misclassified **15 of 36** rows; comparing the principal component of the
-formula layer got all 36. Note the plumbing limit: that function receives InChI**Keys**,
-and a formula cannot be recovered from a 14-character connectivity hash, so the cheap path
-is available only to callers holding the InChI string.
+formula layer got all 36.
+
+The plumbing that used to block this is now in place. That function receives
+InChI**Keys**, and a formula cannot be recovered from a 14-character connectivity hash,
+so the layer route was available only to a caller holding the InChI string — so the
+resolvers carry one. `cas_structure()` asks PubChem for `InChIKey,Title,InChI` in the
+property call it was already making, `chebi_structure()` reads `standard_inchi` from the
+`default_structure` block it was already reading, and `structures_for_name()` returns
+`(key, InChI)` pairs from one response. No extra requests, and the parent lookup still
+decides where a record carries no string.
 
 **Enumerate the layers you are willing to ignore, not the ones you remember to check.**
 This is the single most expensive lesson here, and it had to be learned **twice**.
