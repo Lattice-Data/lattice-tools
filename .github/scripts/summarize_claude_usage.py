@@ -5,6 +5,12 @@ Reads the newline-delimited OTLP JSON written by the collector's file exporter
 and emits a markdown report of token usage per model, plus Claude Code's own
 list-price USD estimate.
 
+When the workflow supplies the diff size (PR_ADDITIONS, PR_DELETIONS,
+PR_CHANGED_FILES), the report also records it and embeds every figure as JSON in
+an HTML comment. Tokens per review is a function of diff size, not a constant,
+so a pile of bare totals cannot be turned into an estimate afterwards - the
+covariate has to be captured at the time or the early reviews are wasted.
+
 Usage:
     summarize_claude_usage.py <telemetry.jsonl> <report.md>
 
@@ -14,6 +20,7 @@ a zero total, because zero tokens and no data mean very different things.
 """
 
 import json
+import os
 import sys
 from collections import defaultdict
 
@@ -190,6 +197,38 @@ def human(n):
     return f"{int(round(n)):,}"
 
 
+# Supplied by the workflow. Absent when the script is run by hand, in which case
+# the report simply omits the diff figures.
+DIFF_ENV = (
+    ("changed_files", "PR_CHANGED_FILES"),
+    ("additions", "PR_ADDITIONS"),
+    ("deletions", "PR_DELETIONS"),
+)
+
+
+def diff_context():
+    """Diff size for this review, or {} when the workflow did not supply it."""
+    out = {}
+    for key, var in DIFF_ENV:
+        value = as_number(os.environ.get(var))
+        if value is not None:
+            out[key] = int(value)
+    return out
+
+
+def data_comment(record):
+    """Machine-readable copy of the report, for scraping many PRs later.
+
+    Lives in an HTML comment so it renders as nothing. `--` would terminate the
+    comment early, so any run of hyphens is escaped - it stays valid JSON
+    because \\u002d is just a hyphen.
+    """
+    blob = json.dumps(record, sort_keys=True, separators=(",", ":"))
+    while "--" in blob:
+        blob = blob.replace("--", "-\\u002d")
+    return f"<!-- claude-cost-data: {blob} -->"
+
+
 def render(token_totals, cost_totals, api_requests, parse_errors):
     lines = ["<!-- claude-cost-report -->", "### Claude review usage", ""]
 
@@ -234,10 +273,50 @@ def render(token_totals, cost_totals, api_requests, parse_errors):
             f"**${total_cost:,.4f}**."
         )
 
+    durations = [as_number(r.get("duration_ms")) for r in api_requests]
+    wall = sum(d for d in durations if d is not None) / 1000.0
     if api_requests:
-        durations = [as_number(r.get("duration_ms")) for r in api_requests]
-        wall = sum(d for d in durations if d is not None) / 1000.0
         lines.append(f"{len(api_requests)} API requests, {wall:,.1f}s of model time.")
+
+    diff = diff_context()
+    if diff:
+        changed = diff.get("additions", 0) + diff.get("deletions", 0)
+        files = diff.get("changed_files", 0)
+        sentence = (
+            f"Diff reviewed: {human(files)} file{'' if files == 1 else 's'}, "
+            f"+{human(diff.get('additions', 0))}/-{human(diff.get('deletions', 0))} lines"
+        )
+        # Guard the ratio: a PR can legitimately change zero lines, e.g. a pure
+        # rename or a mode change.
+        if changed:
+            sentence += (
+                f", about {human(grand_total / changed)} tokens per changed line"
+            )
+        lines.append(sentence + ".")
+
+    # Everything above, machine-readable, so N of these comments can be scraped
+    # into a table without parsing markdown. Inserted after the marker rather
+    # than appended, but the marker stays first so the sticky-comment selector
+    # (which matches on startswith) is unaffected.
+    record = {
+        "pr": as_number(os.environ.get("PR_NUMBER")),
+        "run_id": os.environ.get("GITHUB_RUN_ID") or None,
+        "diff": diff or None,
+        "tokens": {
+            model: {
+                type_key: int(round(token_totals.get((model, type_key), 0.0)))
+                for type_key, _ in TOKEN_TYPES
+            }
+            for model in models
+        },
+        "total_tokens": int(round(grand_total)),
+        "cost_usd": round(total_cost, 6),
+        "api_requests": len(api_requests),
+        "model_time_s": round(wall, 1),
+    }
+    if record["pr"] is not None:
+        record["pr"] = int(record["pr"])
+    lines.insert(1, data_comment(record))
 
     lines += [
         "",

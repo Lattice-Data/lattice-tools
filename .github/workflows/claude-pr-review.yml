@@ -239,11 +239,45 @@ jobs:
             gh api -X DELETE "repos/${{ github.repository }}/issues/comments/$id"
           done
 
+      # Tokens per review is a function of diff size, not a constant - cache
+      # reads alone were 92% of the first measured review, and they scale with
+      # turns over a context, not with the diff. Recording the diff alongside the
+      # totals is what makes the accumulating reports add up to an estimate
+      # rather than a list of numbers, and it cannot be backfilled: a review
+      # already posted has no diff size attached to it.
+      #
+      # Read from the API rather than the event payload, so the value is
+      # authoritative and does not depend on which fields the webhook happened
+      # to include.
+      - name: Resolve the diff size
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if sizes=$(gh api \
+              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" \
+              --jq '"\(.additions) \(.deletions) \(.changed_files)"'); then
+            set -- $sizes
+            {
+              echo "PR_ADDITIONS=$1"
+              echo "PR_DELETIONS=$2"
+              echo "PR_CHANGED_FILES=$3"
+            } >> "$GITHUB_ENV"
+            echo "diff: $3 files, +$1/-$2"
+          else
+            echo "::warning::could not resolve the diff size; the report will omit it."
+          fi
+
       - name: Summarize token usage
         if: always()
         continue-on-error: true
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           # Exits 0 even with nothing to report, so this can never fail the job.
+          # PR_ADDITIONS/DELETIONS/CHANGED_FILES arrive via GITHUB_ENV above and
+          # are simply absent from the report if that step could not resolve them.
           python3 .github/scripts/summarize_claude_usage.py \
             "${RUNNER_TEMP}/otel-out/claude-telemetry.jsonl" \
             "${RUNNER_TEMP}/usage-report.md"
