@@ -88,8 +88,8 @@ Appended columns (batch mode) or fields (single-CAS mode):
 - `iupac_name`
 - `molecular_formula`
 - `molecular_weight`
-- `isomeric_smiles`
-- `canonical_smiles`
+- `isomeric_smiles` — PubChem's `SMILES` property (stereo-bearing)
+- `canonical_smiles` — PubChem's `ConnectivitySMILES` property
 - `inchi`
 - `inchikey`
 - `xlogp`
@@ -97,6 +97,22 @@ Appended columns (batch mode) or fields (single-CAS mode):
 - `synonyms` (pipe-separated, capped at 20)
 
 Single-CAS JSON includes a top-level `"CAS"` key plus these fields.
+
+**The two SMILES column names predate PubChem's rename and are kept on purpose.** PubChem
+retired `IsomericSMILES` in favour of `SMILES` and `CanonicalSMILES` in favour of
+`ConnectivitySMILES`. The request asks by the new names; the output columns keep the old
+ones, because downstream consumers read them. The mapping is not the one the names
+suggest: `SMILES` is the **stereo-bearing** property and belongs in `isomeric_smiles`, so
+putting it in `canonical_smiles` would quietly swap the two columns.
+
+**Two tracked outputs still carry the empty columns the rename produced.**
+`bcp/cas_batch_input_chebi_mapped.csv` and `bcp/cas_batch_input_set2_mapped.csv` were
+generated while the code asked by the retired names *and* read the response by them, so
+every lookup returned `""` for both SMILES fields with no error, no non-200 and no log
+line. The empty `isomeric_smiles` and `canonical_smiles` cells in those files are that
+bug, **not** PubChem's answer for those compounds. Regenerating them needs live PubChem —
+about 4 calls for each of 224 rows — and has not been done; every other column in them is
+unaffected.
 
 ---
 

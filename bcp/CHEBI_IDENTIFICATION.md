@@ -25,6 +25,13 @@ Upstream services: [PubChem PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-
 the ChEBI backend REST API, and ChEBI's Elasticsearch index. The EBI SOAP service and
 `libChEBIpy` are both dead — do not reach for them.
 
+**How to read the numbers in this document.** Every measured figure below — dedup rates,
+repair counts, agreement tallies, replay results — was taken from the two 2026-08 batches,
+whose per-run directories are `.gitignore`d and did not survive the runs. They are a
+record of what happened on real data, and they are *not* reproducible from this
+repository. What is checkable here is the behaviour they motivated, which the tests in
+`bcp/tests/` pin.
+
 ---
 
 ## What "identified" has to mean
@@ -120,7 +127,16 @@ the lab had already corrected once.
 
 ## Traps the check digit cannot catch
 
-`structure_check.cas` implements this. **A valid check digit means the number is
+`structure_check.cas` implements this.
+
+**Scope note, as for the name ladder below: this module is promoted but not yet
+wired.** `classify_cas()` and `normalize_cas()` have no caller outside their tests.
+`chebi_lookup.cas_to_cid()` and `structure_check.cas_structure()` still send whatever the
+spreadsheet contained straight to PubChem — the defect `structure_check/cas.py` names in
+its own opening paragraph. Calling it from both paths is the next piece of this work;
+until then this section describes a module that exists, not a check the pipeline performs.
+
+**A valid check digit means the number is
 well-formed, not that it is the right compound's number.** Two corruptions are
 arithmetically invisible to it:
 
@@ -300,9 +316,19 @@ Three more layers were invisible for the same reason, all of which leave the for
 as the neutral parent's: `/i` (ethanol against ethanol-d6, a separate ChEBI entry with its
 own CAS), and `/q` and `/p` (acetic acid against acetate). The comparison is now tiered —
 principal component, then formula, then constitution, then ionisation, then isotope, then
-stereo — so a difference can never be misfiled as the wrong *kind* of difference. Replayed
-over all 2071 real name/CAS structure pairs from both batches, it reports **zero** pairs
-with differing InChIKeys as identical.
+stereo — so a difference is never misfiled as a *finer* kind of difference than it is.
+Replayed over all 2071 real name/CAS structure pairs from both batches, it reports **zero**
+pairs with differing InChIKeys as identical.
+
+**The tiering reports only the coarsest difference, and that is a real limit.** A pair
+differing in both salt form and stereochemistry returns `form_differs` and says nothing
+about its stereo layers, because the formula tier returns before the stereo comparison
+runs. Deliberate: the tier order is forced (a salt's extra component also changes `/c`, so
+the formula relationship has to be settled first), and the practical cost today is nil —
+`comparison_verdict_from_inchi()` projects `form_differs` onto `salt_differs`, which
+`review_level()` ranks identically to `stereo_differs`, so such a row surfaces for review
+either way. But one call describes one kind of disagreement, not all of them, and a
+caller wanting both has to compare the layers itself.
 
 What surfaced the first bug was **phase 3 and phase 5 disagreeing about the same pair**. Both compare
 the same two structures with independently written code, and that redundancy is a

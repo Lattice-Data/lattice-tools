@@ -161,8 +161,11 @@ def defined_stereo(layers: dict[str, str]) -> int:
     """
     How many stereo layers this structure actually specifies.
 
-    Used to pick which of two structures is "the defined side" when one is more
-    specific than the other.
+    A measure of how specific a structure is, for reporting. **Not** the way to pick
+    an anchor: use `defined_side()`, which tests containment of the defined-layer
+    sets. A count makes a side defining only `/b` and a side defining only `/t` look
+    equally specific, and whichever was passed first then won -- the tie that
+    containment exists to refuse.
 
     Counting all four layers matters, and the way the predecessor failed is worth
     being precise about. It compared only `/t` and `/m`, so a pair whose sole
@@ -255,14 +258,20 @@ def classify_pair(inchi_a: str, inchi_b: str) -> str:
       defect it exists to remove.
     - `LAYERS_IDENTICAL` -- same formula, same value in every stereo layer.
     - `FORM_DIFFERS` -- same principal component, different formula layer: a salt,
-      a hydrate, or a different stoichiometry of the same cation.
+      a hydrate, or a different stoichiometry of the same cation. Returned before the
+      constitution, ionisation, isotope and stereo comparisons run, so a pair that
+      differs in **both** form and stereochemistry reports only the form difference.
+      The tier order is forced -- a salt's extra component also changes `/c`, so the
+      formula relationship has to be settled first -- but it means one call names one
+      kind of disagreement, not every kind. A caller needing both must compare the
+      stereo layers itself.
     - `STEREO_DIFFERS` -- same formula, and some stereo layer is present on **both**
       sides with **different** values. A genuine stereoisomer difference.
     - `STEREO_UNDEFINED_ON_ONE_SIDE` -- same formula, and every differing layer is
       absent on one side. PubChem holds both a stereo-defined and a
       stereo-undefined record for many substances, so this is a cataloguing
-      artifact rather than a disagreement; anchor on the side with the higher
-      `defined_stereo()`.
+      artifact rather than a disagreement; anchor on `defined_side()`, which is
+      containment of the defined-layer sets rather than a count of them.
     - `DIFFERENT_COMPOUND` -- the principal components differ.
 
     The `STEREO_DIFFERS` / `STEREO_UNDEFINED_ON_ONE_SIDE` split is the whole point
