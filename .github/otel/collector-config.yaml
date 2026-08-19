@@ -1,0 +1,43 @@
+# Ephemeral OTel collector for capturing Claude Code telemetry inside a GitHub
+# Actions job. Receives OTLP over HTTP on :4318 and writes every metric and log
+# record to one newline-delimited JSON file that a later step parses. Nothing
+# leaves the runner and no credentials are involved.
+#
+# This is measurement scaffolding, not observability infrastructure. To make it
+# permanent, replace the `file` exporter with `otlphttp` pointed at a real
+# backend; this file is then the only one that has to change.
+extensions:
+  # The workflow polls this before starting the review, so a collector that
+  # failed to parse its config is caught before Claude burns any tokens.
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  # `file` ships in the contrib distribution only. The core
+  # otel/opentelemetry-collector image fails to start on this config.
+  file:
+    path: /output/claude-telemetry.jsonl
+    # Claude Code can exit seconds after its last export, and the container is
+    # stopped right after. Flush often so the tail is not lost.
+    flush_interval: 1s
+
+service:
+  extensions: [health_check]
+  pipelines:
+    # Metrics and logs share one file. Records are told apart by their
+    # top-level key: resourceMetrics vs resourceLogs.
+    metrics:
+      receivers: [otlp]
+      exporters: [file]
+    logs:
+      receivers: [otlp]
+      exporters: [file]
+  telemetry:
+    logs:
+      level: warn
