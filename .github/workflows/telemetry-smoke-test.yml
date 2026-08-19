@@ -1,0 +1,312 @@
+# Confirms the token accounting in claude-pr-review.yml works on a real runner
+# without opening a pull request.
+#
+# Two modes, both run by hand from the Actions tab:
+#
+#   synthetic  Sends a fixed, known OTLP payload straight at the collector and
+#              asserts the report comes back with the exact expected totals.
+#              Costs no Claude tokens. Proves the collector, the bind mount,
+#              the flush on stop, the parser, the artifact and the sticky
+#              comment - everything except Claude's own exporter.
+#
+#   live       Makes one trivial Claude call instead. Costs a few hundred
+#              tokens. This is the only way to prove the thing synthetic mode
+#              cannot: that the `settings` env block actually reaches the
+#              Claude Code process the action spawns.
+#
+# Unlike the production accounting steps, this workflow is *meant* to fail when
+# nothing is captured. That inversion is the whole point: there, silence must
+# not block a PR; here, silence is the bug being hunted.
+#
+# Temporary, like the accounting it tests. Delete this file when the
+# instrumentation goes (see the exit criteria on PR #356).
+name: Telemetry smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "synthetic (free, no Claude) or live (one trivial Claude call)"
+        type: choice
+        options: [synthetic, live]
+        default: synthetic
+      comment_on:
+        description: "Issue/PR number to post the sticky comment to. Blank to skip."
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  id-token: write
+
+env:
+  # Must match claude-pr-review.yml, since the point is to exercise the same
+  # sticky-comment selector the production workflow uses.
+  USAGE_MARKER: "<!-- claude-cost-report -->"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Shallow is fine: this needs the collector config and the parser, not
+      # history, so it sidesteps the blob problem the review workflow has.
+      - uses: actions/checkout@v6
+
+      # Byte-for-byte the production step, so the test exercises the real thing.
+      - name: Start telemetry collector
+        env:
+          CONFIG: ${{ github.workspace }}/.github/otel/collector-config.yaml
+        run: |
+          if [ ! -f "$CONFIG" ]; then
+            echo "::error::$CONFIG is missing."
+            exit 1
+          fi
+          mkdir -p "${RUNNER_TEMP}/otel-out"
+          chmod 777 "${RUNNER_TEMP}/otel-out"
+          docker run -d --name otel-collector \
+            -p 4318:4318 -p 13133:13133 \
+            -v "${CONFIG}:/etc/otelcol-contrib/config.yaml:ro" \
+            -v "${RUNNER_TEMP}/otel-out:/output" \
+            otel/opentelemetry-collector-contrib:0.158.0
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:13133 >/dev/null; then
+              echo "collector ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::collector never became healthy."
+          docker logs otel-collector 2>&1 | tail -n 40 || true
+          exit 1
+
+      # ------------------------------------------------------------------
+      # synthetic mode. Two metric batches and one log batch shaped like
+      # Claude Code's own output, with deliberately awkward properties: delta
+      # temporality split across batches (so a parser that takes the last
+      # value instead of the sum gets it wrong), two models, int64 as JSON
+      # strings, and one unrelated event that must be ignored.
+      # ------------------------------------------------------------------
+      - name: Emit synthetic telemetry
+        if: inputs.mode == 'synthetic'
+        run: |
+          python3 - <<'PY'
+          import json, urllib.request
+
+          def s(k, v): return {"key": k, "value": {"stringValue": v}}
+          def i(k, v): return {"key": k, "value": {"intValue": str(v)}}
+          def d(k, v): return {"key": k, "value": {"doubleValue": v}}
+
+          COMMON = [s("session.id", "smoke"), s("terminal.type", "github_actions")]
+
+          def post(path, payload):
+              req = urllib.request.Request(
+                  f"http://localhost:4318/v1/{path}",
+                  data=json.dumps(payload).encode(),
+                  headers={"Content-Type": "application/json"},
+              )
+              with urllib.request.urlopen(req, timeout=10) as r:
+                  print(f"  {path} -> HTTP {r.status}")
+
+          def metrics(tokens, costs):
+              def sum_metric(name, unit, points):
+                  return {"name": name, "unit": unit,
+                          "sum": {"aggregationTemporality": 1, "isMonotonic": True,
+                                  "dataPoints": points}}
+              return {"resourceMetrics": [{
+                  "resource": {"attributes": [s("service.name", "claude-code")]},
+                  "scopeMetrics": [{"scope": {"name": "com.anthropic.claude_code"},
+                    "metrics": [
+                      sum_metric("claude_code.token.usage", "tokens", [
+                        {"asInt": str(n), "attributes": COMMON + [s("type", t), s("model", m)]}
+                        for m, t, n in tokens]),
+                      sum_metric("claude_code.cost.usage", "USD", [
+                        {"asDouble": c, "attributes": COMMON + [s("model", m)]}
+                        for m, c in costs]),
+                    ]}]}]}
+
+          post("metrics", metrics(
+              [("claude-opus-5", "input", 1200), ("claude-opus-5", "output", 840),
+               ("claude-opus-5", "cacheRead", 45000), ("claude-opus-5", "cacheCreation", 9000)],
+              [("claude-opus-5", 0.4125)]))
+          post("metrics", metrics(
+              [("claude-opus-5", "input", 300), ("claude-opus-5", "output", 160),
+               ("claude-opus-5", "cacheRead", 15000), ("claude-opus-5", "cacheCreation", 1000),
+               ("claude-3-5-haiku-20241022", "input", 500),
+               ("claude-3-5-haiku-20241022", "output", 90)],
+              [("claude-opus-5", 0.1500), ("claude-3-5-haiku-20241022", 0.0031)]))
+
+          def api_request(model, dur):
+              return {"timeUnixNano": "1700000003000000000",
+                      "body": {"stringValue": "Claude Code API request"},
+                      "eventName": "claude_code.api_request",
+                      "attributes": COMMON + [s("event.name", "claude_code.api_request"),
+                                              s("model", model), i("duration_ms", dur),
+                                              d("cost_usd", 0.1)]}
+
+          post("logs", {"resourceLogs": [{
+              "resource": {"attributes": [s("service.name", "claude-code")]},
+              "scopeLogs": [{"scope": {"name": "com.anthropic.claude_code"}, "logRecords": [
+                  api_request("claude-opus-5", 18240),
+                  api_request("claude-opus-5", 7010),
+                  api_request("claude-3-5-haiku-20241022", 940),
+                  # Must be ignored by the parser.
+                  {"timeUnixNano": "1700000004000000000",
+                   "eventName": "claude_code.tool_decision",
+                   "body": {"stringValue": "tool"},
+                   "attributes": [s("event.name", "claude_code.tool_decision")]},
+              ]}]}]})
+          PY
+          # The file exporter flushes on a 1s timer; give it a beat before stop.
+          sleep 3
+
+      # ------------------------------------------------------------------
+      # live mode. The smallest call that still produces token counters. The
+      # prompt is deliberately trivial and the turn cap tiny, because the
+      # question here is only whether telemetry escapes the process at all.
+      # ------------------------------------------------------------------
+      - name: Trivial live Claude call
+        if: inputs.mode == 'live'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Reply with exactly the word OK and nothing else. Do not use any
+            tools. Do not read any files.
+          claude_args: |
+            --model claude-opus-5
+            --max-turns 2
+          # Identical to the block in claude-pr-review.yml. If this reaches the
+          # spawned process here, it reaches it there.
+          settings: |
+            {
+              "env": {
+                "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                "OTEL_METRICS_EXPORTER": "otlp",
+                "OTEL_LOGS_EXPORTER": "otlp",
+                "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+                "OTEL_METRIC_EXPORT_INTERVAL": "5000",
+                "OTEL_LOGS_EXPORT_INTERVAL": "2000",
+                "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta",
+                "OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES": "false",
+                "OTEL_RESOURCE_ATTRIBUTES": "ci=github_actions,repo=${{ github.repository }},smoke=live,run_id=${{ github.run_id }}"
+              }
+            }
+
+      - name: Wait for the final export
+        if: inputs.mode == 'live'
+        # Metrics export every 5s, logs every 2s. Claude can exit inside that
+        # window, so give the last interval room before SIGTERM.
+        run: sleep 8
+
+      - name: Flush and stop telemetry collector
+        if: always()
+        run: |
+          docker stop -t 30 otel-collector || true
+          echo "--- collector logs ---"
+          docker logs otel-collector 2>&1 | tail -n 40 || true
+          echo "--- captured records ---"
+          wc -l "${RUNNER_TEMP}/otel-out/claude-telemetry.jsonl" \
+            || echo "no telemetry file was written"
+          # Acceptance check: both kinds should be present. Anchored to the
+          # top-level keys so the nested "resource" object is not counted too.
+          echo "--- record kinds ---"
+          grep -oE '"resource(Metrics|Logs)":' "${RUNNER_TEMP}/otel-out/claude-telemetry.jsonl" \
+            | sort | uniq -c || true
+
+      - name: Summarize token usage
+        if: always()
+        run: |
+          python3 .github/scripts/summarize_claude_usage.py \
+            "${RUNNER_TEMP}/otel-out/claude-telemetry.jsonl" \
+            "${RUNNER_TEMP}/usage-report.md"
+          cat "${RUNNER_TEMP}/usage-report.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload raw telemetry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-telemetry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/otel-out/claude-telemetry.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Here a silent exporter is a failure, not something to shrug off.
+      - name: Assert the accounting worked
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          REPORT="${RUNNER_TEMP}/usage-report.md"
+          if grep -q 'No telemetry was captured' "$REPORT"; then
+            echo "::error::nothing reached the collector - the exporter is the problem, not the report."
+            exit 1
+          fi
+          if grep -q 'could not be parsed' "$REPORT"; then
+            echo "::error::some telemetry lines were unparseable."
+            exit 1
+          fi
+          if [ "$MODE" = "synthetic" ]; then
+            # The payload is fixed, so the numbers are known exactly. Anything
+            # else means the parser changed behaviour.
+            for expected in '| **All models** |  |  |  |  | **73,090** |' \
+                            '| `claude-opus-5` | 1,500 | 1,000 | 60,000 | 10,000 | 72,500 |' \
+                            '| `claude-3-5-haiku-20241022` | 500 | 90 | 0 | 0 | 590 |' \
+                            '**$0.5656**' \
+                            '3 API requests, 26.2s of model time.'; do
+              if ! grep -qF "$expected" "$REPORT"; then
+                echo "::error::report is missing the expected line: $expected"
+                exit 1
+              fi
+            done
+            echo "synthetic totals match exactly, including the split-batch delta sum"
+          else
+            grep -qE '^\| `[^`]+` \|' "$REPORT" \
+              || { echo "::error::no per-model row in the report."; exit 1; }
+            echo "live telemetry captured: the settings env block reaches the Claude process"
+          fi
+
+      - name: Post the usage comment
+        if: always() && inputs.comment_on != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.comment_on }}
+        run: |
+          REPORT="${RUNNER_TEMP}/usage-report.md"
+          [ -s "$REPORT" ] || { echo "::warning::no report to post."; exit 0; }
+          existing=$(gh api "repos/${{ github.repository }}/issues/${TARGET}/comments" \
+            --paginate \
+            --jq '.[] | select(.user.type == "Bot") | select(.body | startswith(env.USAGE_MARKER)) | .id' \
+            | head -n 1)
+          if [ -n "$existing" ]; then
+            echo "Updating usage comment $existing"
+            gh api --silent -X PATCH \
+              "repos/${{ github.repository }}/issues/comments/$existing" -F body=@"$REPORT"
+          else
+            echo "Posting a new usage comment"
+            gh api --silent -X POST \
+              "repos/${{ github.repository }}/issues/${TARGET}/comments" -F body=@"$REPORT"
+          fi
+
+      # Dispatch twice against the same target: a second comment here means the
+      # sticky logic is appending rather than editing.
+      - name: Assert the comment is sticky
+        if: always() && inputs.comment_on != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.comment_on }}
+        run: |
+          # One id per line, so this stays correct across --paginate pages;
+          # a `length` jq would emit one count per page instead.
+          count=$(gh api "repos/${{ github.repository }}/issues/${TARGET}/comments" \
+            --paginate \
+            --jq '.[] | select(.user.type == "Bot") | select(.body | startswith(env.USAGE_MARKER)) | .id' \
+            | wc -l | tr -d '[:space:]')
+          echo "usage comments on #${TARGET}: ${count}"
+          if [ "$count" -ne 1 ]; then
+            echo "::error::expected exactly 1 usage comment, found ${count} - not sticky."
+            exit 1
+          fi
+          echo "sticky: one comment, edited in place"
