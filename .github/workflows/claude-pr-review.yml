@@ -13,6 +13,10 @@ env:
   # how a later run recognises its own stale reviews without touching comments
   # written by humans or by other workflows.
   REVIEW_MARKER: "<!-- claude-pr-review -->"
+  # Same idea for the token-accounting comment. Kept distinct from
+  # REVIEW_MARKER so the two stickies never match each other's selector: the
+  # review cleanup below deletes stale reviews, and must not delete this.
+  USAGE_MARKER: "<!-- claude-cost-report -->"
 
 jobs:
   review:
@@ -66,6 +70,58 @@ jobs:
             echo "STALE_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # ------------------------------------------------------------------
+      # Token accounting for the review below.
+      #
+      # This workflow authenticates with a subscription OAuth token, so its
+      # reviews are never metered in dollars anywhere - no Console line item,
+      # no invoice row, no spend report. Token counts are the only recoverable
+      # quantity, and Claude Code will only emit them over OpenTelemetry. So
+      # stand up a throwaway collector here: it receives that telemetry on
+      # localhost:4318 and appends every record to a file a later step parses.
+      # Nothing leaves the runner and no new credentials are involved.
+      #
+      # Every step in this group is best-effort. Accounting is secondary to
+      # the review, so none of it may turn a passing job red.
+      # ------------------------------------------------------------------
+      - name: Start telemetry collector
+        id: collector
+        continue-on-error: true
+        env:
+          CONFIG: ${{ github.workspace }}/.github/otel/collector-config.yaml
+        run: |
+          if [ ! -f "$CONFIG" ]; then
+            echo "::warning::$CONFIG is missing; running the review without token accounting."
+            exit 0
+          fi
+          mkdir -p "${RUNNER_TEMP}/otel-out"
+          # The contrib image runs as a non-root user and cannot otherwise
+          # write into a directory owned by the runner user.
+          chmod 777 "${RUNNER_TEMP}/otel-out"
+          # Published on 0.0.0.0 rather than bound to 127.0.0.1, because the
+          # Claude process may not share the host network namespace. The
+          # runner is ephemeral with no inbound route from outside, so the
+          # wider bind buys an attacker nothing.
+          if ! docker run -d --name otel-collector \
+              -p 4318:4318 -p 13133:13133 \
+              -v "${CONFIG}:/etc/otelcol-contrib/config.yaml:ro" \
+              -v "${RUNNER_TEMP}/otel-out:/output" \
+              otel/opentelemetry-collector-contrib:0.158.0; then
+            echo "::warning::could not start the telemetry collector; running the review without token accounting."
+            exit 0
+          fi
+          # Wait for health before burning any tokens, so a collector that
+          # died on a bad config is visible here and not three steps later.
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:13133 >/dev/null; then
+              echo "collector ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::warning::collector did not become healthy; running the review without token accounting."
+          docker logs otel-collector 2>&1 | tail -n 40 || true
+
       - name: Run github-pr-review skill
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -107,6 +163,43 @@ jobs:
             --model claude-opus-5
             --max-turns 80
             --allowedTools "Read,Write,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh api:*),Bash(git show:*),Bash(git log:*),Bash(git diff:*)"
+          # Telemetry for the Claude Code process this action spawns, which
+          # reads it from the settings env block. All values must be strings.
+          # OTEL_EXPORTER_OTLP_PROTOCOL has no default in Claude Code, and
+          # omitting it makes the export fail silently. Both export intervals
+          # are far below the defaults (60s metrics, 5s logs) because a quick
+          # review can finish before the first flush would have happened, and
+          # unexported counters die with the process.
+          settings: |
+            {
+              "env": {
+                "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+                "OTEL_METRICS_EXPORTER": "otlp",
+                "OTEL_LOGS_EXPORTER": "otlp",
+                "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+                "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+                "OTEL_METRIC_EXPORT_INTERVAL": "5000",
+                "OTEL_LOGS_EXPORT_INTERVAL": "2000",
+                "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "delta",
+                "OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES": "false",
+                "OTEL_RESOURCE_ATTRIBUTES": "ci=github_actions,repo=${{ github.repository }},pr=${{ github.event.pull_request.number }},run_id=${{ github.run_id }}"
+              }
+            }
+
+      # SIGTERM is what makes the file exporter flush and close cleanly, so stop
+      # the container here rather than at the end of the job: the review-posting
+      # steps below are allowed to fail, and the tail of the telemetry would go
+      # with them.
+      - name: Flush and stop telemetry collector
+        if: always()
+        continue-on-error: true
+        run: |
+          docker stop -t 30 otel-collector || true
+          echo "--- collector logs ---"
+          docker logs otel-collector 2>&1 | tail -n 40 || true
+          echo "--- captured records ---"
+          wc -l "${RUNNER_TEMP}/otel-out/claude-telemetry.jsonl" \
+            || echo "no telemetry file was written"
 
       # claude-code-action refuses to run when this file differs from the copy on
       # the default branch - a guard against a PR rewriting the review workflow to
@@ -145,3 +238,59 @@ jobs:
             echo "Deleting superseded review comment $id"
             gh api -X DELETE "repos/${{ github.repository }}/issues/comments/$id"
           done
+
+      - name: Summarize token usage
+        if: always()
+        continue-on-error: true
+        run: |
+          # Exits 0 even with nothing to report, so this can never fail the job.
+          python3 .github/scripts/summarize_claude_usage.py \
+            "${RUNNER_TEMP}/otel-out/claude-telemetry.jsonl" \
+            "${RUNNER_TEMP}/usage-report.md"
+          cat "${RUNNER_TEMP}/usage-report.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload raw telemetry
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          # run_attempt is in the name because v4 rejects an upload whose name
+          # already exists in the run, which is every re-run of a failed job.
+          name: claude-telemetry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/otel-out/claude-telemetry.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Sticky comment: edits the report in place rather than adding another one
+      # on every push to the branch. Skipped when Claude never ran at all, since
+      # "no telemetry" would then read as a broken exporter rather than as the
+      # deliberate skip noted above.
+      - name: Post the usage comment
+        if: always() && steps.claude.outputs.execution_file != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPORT="${RUNNER_TEMP}/usage-report.md"
+          if [ ! -s "$REPORT" ]; then
+            echo "::warning::no usage report to post."
+            exit 0
+          fi
+          # Bot-authored and marker-prefixed, so a human quoting the report
+          # cannot be mistaken for it.
+          existing=$(gh api \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --paginate \
+            --jq '.[] | select(.user.type == "Bot") | select(.body | startswith(env.USAGE_MARKER)) | .id' \
+            | head -n 1)
+          if [ -n "$existing" ]; then
+            echo "Updating usage comment $existing"
+            gh api --silent -X PATCH \
+              "repos/${{ github.repository }}/issues/comments/$existing" \
+              -F body=@"$REPORT"
+          else
+            echo "Posting a new usage comment"
+            gh api --silent -X POST \
+              "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -F body=@"$REPORT"
+          fi
