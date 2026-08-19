@@ -123,14 +123,26 @@ ones, because downstream consumers read them. The mapping is not the one the nam
 suggest: `SMILES` is the **stereo-bearing** property and belongs in `isomeric_smiles`, so
 putting it in `canonical_smiles` would quietly swap the two columns.
 
-**Two tracked outputs still carry the empty columns the rename produced.**
-`bcp/cas_batch_input_chebi_mapped.csv` and `bcp/cas_batch_input_set2_mapped.csv` were
-generated while the code asked by the retired names *and* read the response by them, so
-every lookup returned `""` for both SMILES fields with no error, no non-200 and no log
-line. The empty `isomeric_smiles` and `canonical_smiles` cells in those files are that
-bug, **not** PubChem's answer for those compounds. Regenerating them needs live PubChem —
-about 4 calls for each of 224 rows — and has not been done; every other column in them is
-unaffected.
+**The two tracked outputs were regenerated on 2026-08-19**, against live PubChem, with
+the fixed property names and CAS validation in place. `bcp/cas_batch_input_chebi_mapped.csv`
+(52 rows) and `bcp/cas_batch_input_set2_mapped.csv` (172 rows) previously carried empty
+`isomeric_smiles`/`canonical_smiles` on every row: they were produced while the code asked
+by the retired names *and* read the response by them, so each lookup returned `""` for both
+with no error, no non-200 and no log line.
+
+Three things changed beyond those two columns, and none of them is a re-interpretation of
+the same data:
+
+- **Five rows in the second batch resolved for the first time**, all five zero-padded check
+  digits the repair recovered: `56390-09-01` → Epirubicin Hydrochloride, `553-08-02` →
+  Thonzonium Bromide, `123-03-05` → Cetylpyridinium Chloride, `20736-09-08` → Saikosaponin
+  A, `66547-09-09` → Maytansinol butyrate. Three of them also gained a ChEBI ID.
+- **One row stopped resolving.** PubChem answers `PUGREST.NotFound` for `215247-95-3`,
+  which it previously mapped to CID 11845128. The number is well-formed and passes its
+  check digit, so it is sent as before — this is drift on PubChem's side, not a refusal on
+  ours.
+- **Synonym lists reordered** on 47 and 104 rows. PubChem returns them in its own order and
+  the column is capped at 20, so a reordering above the cap changes which ones appear.
 
 ---
 
