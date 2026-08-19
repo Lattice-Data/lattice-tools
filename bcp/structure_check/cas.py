@@ -254,8 +254,12 @@ def classify_cas(raw: str) -> tuple[str, str, str]:
         if trimmed:
             rotated = trimmed
             repairs = "+".join([r for r in (repairs, REPAIR_LEADING_ZERO) if r])
+        # Reported on both exits, because the value returned is the rotated one
+        # either way. Omitting the label on the refusal path handed a curator a
+        # string that appears in no spreadsheet with no account of where it came
+        # from -- exactly the silent repair normalize_cas() promises never to make.
+        repairs = "+".join([r for r in (repairs, REPAIR_SEGMENT_ROTATION) if r])
         if _has_leading_zero(rotated):
             return rotated, CAS_INVALID_FORMAT, repairs
-        joined = "+".join([r for r in (repairs, REPAIR_SEGMENT_ROTATION) if r])
-        return rotated, CAS_VALID, joined
+        return rotated, CAS_VALID, repairs
     return cas, CAS_INVALID_FORMAT, repairs

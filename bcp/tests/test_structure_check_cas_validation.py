@@ -132,8 +132,16 @@ def test_a_rotation_that_can_only_yield_a_leading_zero_is_refused() -> None:
 
     The rotation gate passes it, because the check digit cannot see leading zeros;
     the final guard is what refuses it.
+
+    All three fields, not just the class: the value returned is the **rotated**
+    string, so omitting the label handed a curator `007-00-1` -- a number that
+    appears in no spreadsheet -- with no record of how it got there.
     """
-    assert classify_cas("0-1-007")[1] == CAS_INVALID_FORMAT
+    assert classify_cas("0-1-007") == (
+        "007-00-1",
+        CAS_INVALID_FORMAT,
+        REPAIR_SEGMENT_ROTATION,
+    )
 
 
 # --------------------------------------------------------------------------

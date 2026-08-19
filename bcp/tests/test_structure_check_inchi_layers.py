@@ -5,8 +5,12 @@ from __future__ import annotations
 import pytest
 
 from structure_check.inchi import (
+    COMPARED_LAYERS,
+    CONSTITUTION_LAYERS,
     DIFFERENT_COMPOUND,
+    IONISATION_LAYERS,
     ISOTOPE_DIFFERS,
+    ISOTOPE_LAYER,
     FORM_DIFFERS,
     INCHI_VERDICTS,
     LAYERS_IDENTICAL,
@@ -172,6 +176,21 @@ def test_principal_component_of_single_component_is_itself() -> None:
 def test_is_multi_component_detects_salts() -> None:
     assert is_multi_component(DOXORUBICIN_HCL) is True
     assert is_multi_component(DOXORUBICIN) is False
+
+
+@pytest.mark.parametrize(
+    "raw", ["", "   ", "C2H6O", "not an inchi", "a/b", "InChI=1S/??/c1", "InChI=1S"]
+)
+def test_an_unreadable_structure_has_no_component_count(raw: str) -> None:
+    """`None`, not `False`: exactly the inputs `classify_pair()` refuses.
+
+    Each of these has no parseable formula layer, and `False` would report that as
+    "one component" -- indistinguishable from a genuine free base. The answer
+    decides whether a compound absent from ChEBI needs a new entry or a salt on an
+    existing parent, so the wrong direction here is a wrong submission.
+    """
+    assert is_multi_component(raw) is None
+    assert classify_pair(raw, DOXORUBICIN) == LAYERS_NOT_COMPARABLE
 
 
 # --------------------------------------------------------------------------
@@ -418,3 +437,61 @@ def test_a_string_that_merely_contains_a_slash_is_not_comparable(
 ) -> None:
     """The gate matches a formula pattern rather than checking for non-emptiness."""
     assert classify_pair(a, b) == LAYERS_NOT_COMPARABLE
+
+
+# --------------------------------------------------------------------------
+# Layers this comparison does not know how to read
+# --------------------------------------------------------------------------
+
+# Non-standard InChI. Standard InChI is `InChI=1S`; the non-standard flavour is
+# `InChI=1` and can carry two layers that do not exist in the standard one -- `/f`,
+# the fixed-H layer, which names a specific tautomer, and `/r`, the reconnected
+# layer, which restores the metal bonds standard InChI breaks. Both change which
+# molecule the string denotes, and neither is in COMPARED_LAYERS.
+NONSTANDARD_ACETIC_ACID = "InChI=1/C2H4O2/c1-2(3)4/h1H3,(H,3,4)"
+NONSTANDARD_ACETIC_ACID_FIXED_H = NONSTANDARD_ACETIC_ACID + "/f/h3H"
+
+
+def test_a_non_standard_inchi_gets_no_verdict() -> None:
+    """The tiers read a fixed layer list, complete for standard InChI only.
+
+    Nothing in the parser rejects `InChI=1`, so before this gate a non-standard
+    string was compared on the layers that happened to be recognised and the rest
+    treated as absent on both sides -- a confident answer from an admittedly partial
+    reading, which is the defect this module exists to remove.
+    """
+    assert classify_pair(NONSTANDARD_ACETIC_ACID, ACETIC_ACID) == LAYERS_NOT_COMPARABLE
+    assert (
+        classify_pair(NONSTANDARD_ACETIC_ACID, NONSTANDARD_ACETIC_ACID)
+        == LAYERS_NOT_COMPARABLE
+    )
+    assert (
+        classify_pair(NONSTANDARD_ACETIC_ACID_FIXED_H, NONSTANDARD_ACETIC_ACID)
+        == LAYERS_NOT_COMPARABLE
+    )
+
+
+@pytest.mark.parametrize("layer", ["/f/h3H", "/rC2H6O", "/x1"])
+def test_an_unrecognised_layer_gets_no_verdict(layer: str) -> None:
+    """Refused on the layer itself, not only on the version string.
+
+    Version and residue are checked separately so that a layer this module has
+    never heard of is refused even when it arrives on a string claiming to be
+    standard -- which is what makes COMPARED_LAYERS enforced rather than merely
+    declared.
+    """
+    assert classify_pair(ETHANOL + layer, ETHANOL) == LAYERS_NOT_COMPARABLE
+    assert classify_pair(ETHANOL, ETHANOL + layer) == LAYERS_NOT_COMPARABLE
+
+
+def test_the_declared_layer_set_covers_every_layer_the_tiers_read() -> None:
+    """COMPARED_LAYERS is the union of the tiers, not a hand-maintained copy.
+
+    A tier that grew a layer without it being declared would refuse every real
+    structure carrying that layer; a declared layer no tier reads would be silently
+    ignored. Both are caught by building the set from the tiers themselves, which is
+    what this pins.
+    """
+    assert COMPARED_LAYERS == set(
+        CONSTITUTION_LAYERS + IONISATION_LAYERS + (ISOTOPE_LAYER,) + STEREO_LAYERS
+    )

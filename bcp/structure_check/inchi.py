@@ -69,6 +69,16 @@ IONISATION_LAYERS = ("q", "p")
 # CAS number, so it is neither a form nor a stereoisomer of the unlabelled one.
 ISOTOPE_LAYER = "i"
 
+# Every layer this comparison reads. A layer outside this set is not ignored --
+# `classify_pair()` refuses the pair. The module's claim is that it enumerates the
+# layers it is willing to ignore rather than the ones it remembers to look at, and
+# only a residue check enforces that rather than restating it: non-standard InChI
+# adds `/f` (fixed-H) and `/r` (reconnected metal), either of which can change
+# which molecule the string denotes.
+COMPARED_LAYERS = frozenset(
+    CONSTITUTION_LAYERS + IONISATION_LAYERS + (ISOTOPE_LAYER,) + STEREO_LAYERS
+)
+
 # Verdicts. Finer-grained than this package's COMPARISON_VERDICTS, which cannot
 # express "one side simply does not say" and cannot tell an isotopologue from a
 # stereoisomer. `structure_check.client.comparison_verdict_from_inchi()` is the
@@ -97,6 +107,12 @@ INCHI_VERDICTS = (
 # a "/" -- the old gate only checked that the second field was non-empty, so
 # "a/b" against "x/b" compared identical.
 _FORMULA_RE = re.compile(r"^[0-9]*[A-Z][A-Za-z0-9]*(?:\.[0-9]*[A-Z][A-Za-z0-9]*)*\Z")
+
+# The version field of a **standard** InChI. The layer set above is complete for
+# this version only, so `classify_pair()` requires it rather than assuming it: a
+# non-standard string parses cleanly through `inchi_layers()` and would otherwise
+# be handed a confident verdict drawn from an incomplete reading.
+_STANDARD_VERSION = "InChI=1S"
 
 _ELEMENT = re.compile(r"([A-Z][a-z]?)([0-9]*)")
 _LEADING_COUNT = re.compile(r"^[0-9]+")
@@ -127,6 +143,18 @@ def inchi_layers(inchi: str) -> tuple[dict[str, str], str]:
             # could manufacture a stereo difference out of an isotopic label.
             layers.setdefault(part[0], part[1:])
     return layers, (parts[1] if len(parts) > 1 else "")
+
+
+def inchi_version(inchi: str) -> str:
+    """
+    The version field of an InChI string -- `"InChI=1S"` for standard -- or `""`.
+
+    Re-splits rather than widening `inchi_layers()`'s documented two-tuple: one
+    gate in one function needs this, and every other caller would have had to grow
+    a third name it never reads.
+    """
+    parts = inchi.strip().split("/") if inchi else []
+    return parts[0] if parts else ""
 
 
 def defined_stereo(layers: dict[str, str]) -> int:
@@ -214,7 +242,11 @@ def classify_pair(inchi_a: str, inchi_b: str) -> str:
 
     Returns one of `INCHI_VERDICTS`:
 
-    - `LAYERS_NOT_COMPARABLE` -- one or both structures are missing or unparseable.
+    - `LAYERS_NOT_COMPARABLE` -- one or both structures are missing or unparseable,
+      or either carries a layer outside `COMPARED_LAYERS`, or neither is standard
+      InChI. The last two are the same refusal as the first: a verdict reached by
+      quietly skipping a layer whose meaning this module does not know would be the
+      defect it exists to remove.
     - `LAYERS_IDENTICAL` -- same formula, same value in every stereo layer.
     - `FORM_DIFFERS` -- same principal component, different formula layer: a salt,
       a hydrate, or a different stoichiometry of the same cation.
@@ -242,6 +274,15 @@ def classify_pair(inchi_a: str, inchi_b: str) -> str:
     layers_a, formula_a = inchi_layers(inchi_a)
     layers_b, formula_b = inchi_layers(inchi_b)
     if not _FORMULA_RE.match(formula_a or "") or not _FORMULA_RE.match(formula_b or ""):
+        return LAYERS_NOT_COMPARABLE
+    # Both gates below refuse rather than ignore. The tiers that follow read a fixed
+    # list of layers, which is complete for standard InChI and for nothing else, so
+    # a non-standard string or an unrecognised layer must not be handed a verdict
+    # drawn from the layers that happen to be recognised.
+    versions = (inchi_version(inchi_a), inchi_version(inchi_b))
+    if any(version != _STANDARD_VERSION for version in versions):
+        return LAYERS_NOT_COMPARABLE
+    if (set(layers_a) | set(layers_b)) - COMPARED_LAYERS:
         return LAYERS_NOT_COMPARABLE
 
     # Tiered, coarsest first, so a difference is never misfiled as the wrong *kind*
@@ -298,13 +339,21 @@ def defined_side(inchi_a: str, inchi_b: str) -> str:
     return inchi_a
 
 
-def is_multi_component(inchi: str) -> bool:
+def is_multi_component(inchi: str) -> bool | None:
     """
     Whether the formula layer has more than one component -- a salt or a hydrate.
 
     ChEBI registers a salt as its own entry, separate from the free base, so this
     is what decides whether a compound absent from ChEBI needs a new entry or only
     a salt added to an existing parent.
+
+    Returns `None` for exactly the input `classify_pair()` refuses: missing, or a
+    formula layer that does not parse. `False` there would report "I could not read
+    this" as "one component" -- the collapse of unknown onto an answer that the
+    rest of this module refuses -- and it would send a curator the wrong way round,
+    to a new ChEBI entry rather than a salt on an existing parent.
     """
     _, formula = inchi_layers(inchi)
+    if not _FORMULA_RE.match(formula or ""):
+        return None
     return "." in formula
