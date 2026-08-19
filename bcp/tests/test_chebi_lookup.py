@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -112,6 +113,32 @@ def test_lookup_cas_no_chebi_xref(mock_get: MagicMock, _sleep: MagicMock) -> Non
     result = lookup_cas("64-17-5")
     assert result["pubchem_cid"] == 702
     assert result["chebi_id"] == ""
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_an_unresolved_row_still_says_why(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """The rows that need the cas_* columns most are the empty ones.
+
+    Batch output used to write the row before merging the lookup's result, so a
+    refused cell and a genuinely unindexed number both came back with every appended
+    column blank -- indistinguishable from "PubChem does not hold this compound".
+    """
+    mock_get.side_effect = route_pubchem_get
+    src = tmp_path / "in.csv"
+    src.write_text("CAS\nEthanol\n779353-01-3\n64-17-5\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+    map_cas_file(src, "CAS", out)
+
+    rows = {r["CAS"]: r for r in csv.DictReader(out.open(encoding="utf-8"))}
+    assert rows["Ethanol"]["cas_class"] == "invalid_format"
+    assert rows["Ethanol"]["cas_queried"] == ""
+    assert rows["779353-01-3"]["cas_class"] == "invalid_checksum"
+    assert rows["779353-01-3"]["cas_queried"] == "779353-01-3"
+    assert rows["64-17-5"]["cas_class"] == "valid"
+    assert rows["64-17-5"]["pubchem_cid"] == "702"
 
 
 def test_lookup_cas_empty() -> None:

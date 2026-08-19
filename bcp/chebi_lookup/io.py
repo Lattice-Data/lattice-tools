@@ -128,6 +128,12 @@ def map_cas_file(
                 continue
 
             props = lookup_cas(cas)
+            # Merged before the CID is tested, not after: the cas_class and
+            # cas_repairs columns are the row's account of *why* it is empty, and
+            # writing out_row unmerged discarded exactly the rows that needed them --
+            # a number no repair could rescue, and one whose check digit disagrees,
+            # both read as "PubChem does not index this compound".
+            out_row.update(props)
             cid = props.get("pubchem_cid", "")
             if not cid:
                 log.warning("No PubChem CID for CAS: %s", cas)
@@ -136,8 +142,6 @@ def map_cas_file(
 
             found_cid += 1
             log.info("  CID: %s", cid)
-
-            out_row.update(props)
 
             if props.get("chebi_id"):
                 found_chebi += 1
