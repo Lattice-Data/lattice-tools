@@ -13,9 +13,10 @@ env:
   # how a later run recognises its own stale reviews without touching comments
   # written by humans or by other workflows.
   REVIEW_MARKER: "<!-- claude-pr-review -->"
-  # Same idea for the token-accounting comment. Kept distinct from
-  # REVIEW_MARKER so the two stickies never match each other's selector: the
-  # review cleanup below deletes stale reviews, and must not delete this.
+  # Documents the marker summarize_claude_usage.py writes as the first line of
+  # the usage report. Unused by this workflow (each run POSTs a new comment),
+  # but it is how later scraping identifies these comments. Distinct from
+  # REVIEW_MARKER so review cleanup never matches a usage report.
   USAGE_MARKER: "<!-- claude-cost-report -->"
 
 jobs:
@@ -295,10 +296,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # Sticky comment: edits the report in place rather than adding another one
-      # on every push to the branch. Skipped when Claude never ran at all, since
-      # "no telemetry" would then read as a broken exporter rather than as the
-      # deliberate skip noted above.
+      # One comment per run: each review leaves its own usage report on the PR
+      # rather than overwriting the previous one. Skipped when Claude never ran
+      # at all, since "no telemetry" would then read as a broken exporter rather
+      # than as the deliberate skip noted above.
       - name: Post the usage comment
         if: always() && steps.claude.outputs.execution_file != ''
         continue-on-error: true
@@ -310,21 +311,7 @@ jobs:
             echo "::warning::no usage report to post."
             exit 0
           fi
-          # Bot-authored and marker-prefixed, so a human quoting the report
-          # cannot be mistaken for it.
-          existing=$(gh api \
+          echo "Posting a new usage comment"
+          gh api --silent -X POST \
             "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-            --paginate \
-            --jq '.[] | select(.user.type == "Bot") | select(.body | startswith(env.USAGE_MARKER)) | .id' \
-            | head -n 1)
-          if [ -n "$existing" ]; then
-            echo "Updating usage comment $existing"
-            gh api --silent -X PATCH \
-              "repos/${{ github.repository }}/issues/comments/$existing" \
-              -F body=@"$REPORT"
-          else
-            echo "Posting a new usage comment"
-            gh api --silent -X POST \
-              "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-              -F body=@"$REPORT"
-          fi
+            -F body=@"$REPORT"
