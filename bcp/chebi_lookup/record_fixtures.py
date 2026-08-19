@@ -95,8 +95,11 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
             if rid.upper().startswith("CHEBI:"):
                 chebi_id = rid
                 break
-    except (ValueError, KeyError, AttributeError, TypeError, IndexError):
-        pass
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+        # Logged for the reason client.py gives at the same parse: an unusable xref
+        # body would otherwise read as "this compound has no ChEBI cross-reference",
+        # and the recorder would write a fixture asserting that.
+        log.warning("Unusable registry-ID payload for CID %s: %s", cid, exc)
 
     log.info(
         "Recorded fixtures for CAS %s (CID %s, ChEBI %s) → %s",

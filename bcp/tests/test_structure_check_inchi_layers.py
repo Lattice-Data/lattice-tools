@@ -306,30 +306,6 @@ def test_comparison_is_symmetric_under_argument_order() -> None:
         assert classify_pair(a, b) == classify_pair(b, a)
 
 
-def test_every_declared_verdict_is_reachable() -> None:
-    """Exhaustiveness, not membership.
-
-    Asserting each result is *in* INCHI_VERDICTS is nearly a tautology -- the
-    function only ever returns those constants. What is worth pinning is the other
-    direction: every verdict the module declares is produced by some real pair, so a
-    constant cannot be declared and then never returned, and a consumer's mapping
-    cannot silently go stale.
-    """
-    observed = {
-        classify_pair(a, b)
-        for a, b in [
-            (ETHANOL, ETHANOL),
-            (DOXORUBICIN, DOXORUBICIN_HCL),
-            (CCMI_Z, CCMI_E),
-            (SU4312_UNDEFINED, SU4312_Z),
-            (ETHANOL, ETHANOL_D6),
-            (ETHANOL, DIMETHYL_ETHER),
-            (ETHANOL, ""),
-        ]
-    }
-    assert observed == set(INCHI_VERDICTS)
-
-
 # --------------------------------------------------------------------------
 # Same formula, different molecule: what the stereo-only comparison could not see
 # --------------------------------------------------------------------------
@@ -403,6 +379,30 @@ def test_a_conjugate_base_is_a_different_form_not_the_same_structure() -> None:
     """
     assert classify_pair(ACETIC_ACID, ACETATE) == FORM_DIFFERS
     assert classify_pair(ACETIC_ACID, ACETIC_ACID + "/q+1") == FORM_DIFFERS
+
+
+def test_every_declared_verdict_is_reachable() -> None:
+    """Exhaustiveness, not membership.
+
+    Asserting each result is *in* INCHI_VERDICTS is nearly a tautology -- the
+    function only ever returns those constants. What is worth pinning is the other
+    direction: every verdict the module declares is produced by some real pair, so a
+    constant cannot be declared and then never returned, and a consumer's mapping
+    cannot silently go stale.
+    """
+    observed = {
+        classify_pair(a, b)
+        for a, b in [
+            (ETHANOL, ETHANOL),
+            (DOXORUBICIN, DOXORUBICIN_HCL),
+            (CCMI_Z, CCMI_E),
+            (SU4312_UNDEFINED, SU4312_Z),
+            (ETHANOL, ETHANOL_D6),
+            (ETHANOL, DIMETHYL_ETHER),
+            (ETHANOL, ""),
+        ]
+    }
+    assert observed == set(INCHI_VERDICTS)
 
 
 def test_isotopic_sublayers_do_not_overwrite_the_real_stereo_layers() -> None:

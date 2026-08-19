@@ -178,17 +178,30 @@ def defined_stereo(layers: dict[str, str]) -> int:
 
 
 def _atom_counts(component: str) -> tuple[int, int]:
-    """`(total atoms, heavy atoms)` for one component of a formula layer."""
-    component = _LEADING_COUNT.sub("", component)
+    """`(total atoms, heavy atoms)` for one component of a formula layer.
+
+    The stoichiometric multiplier needs no stripping here: `_ELEMENT` only matches
+    from `[A-Z]`, so `findall` skips a leading digit run either way. It does have to
+    be stripped where components are *compared*, which is what the `_LEADING_COUNT`
+    calls in `_rank()` and `classify_pair()` are for.
+    """
     total = heavy = 0
     for element, count in _ELEMENT.findall(component):
-        if not element:
-            continue
         n = int(count) if count else 1
         total += n
         if element != "H":
             heavy += n
     return total, heavy
+
+
+def _rank(component: str) -> tuple[int, int, str]:
+    """`principal_component`'s ordering: heavy atoms, then total atoms, then text.
+
+    The multiplier is dropped from the text tiebreak only, so `"2C26H28N3"` ranks on
+    the atoms of one unit and ties break on the formula rather than on the count.
+    """
+    total, heavy = _atom_counts(component)
+    return heavy, total, _LEADING_COUNT.sub("", component)
 
 
 def principal_component(formula: str) -> str:
@@ -226,14 +239,7 @@ def principal_component(formula: str) -> str:
     components = [c for c in (formula or "").split(".") if c]
     if not components:
         return ""
-    return max(
-        components,
-        key=lambda c: (
-            _atom_counts(c)[1],
-            _atom_counts(c)[0],
-            _LEADING_COUNT.sub("", c),
-        ),
-    )
+    return max(components, key=_rank)
 
 
 def classify_pair(inchi_a: str, inchi_b: str) -> str:

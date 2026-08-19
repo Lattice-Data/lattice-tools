@@ -41,7 +41,17 @@ from chebi_terms.client import (
     normalize_chebi_id,
 )
 
-from .inchi import INCHI_VERDICTS, classify_pair
+from .inchi import (
+    DIFFERENT_COMPOUND,
+    FORM_DIFFERS,
+    INCHI_VERDICTS,
+    ISOTOPE_DIFFERS,
+    LAYERS_IDENTICAL,
+    LAYERS_NOT_COMPARABLE,
+    STEREO_DIFFERS as INCHI_STEREO_DIFFERS,
+    STEREO_UNDEFINED_ON_ONE_SIDE,
+    classify_pair,
+)
 
 log = logging.getLogger(__name__)
 
@@ -404,19 +414,30 @@ def compare_structures(reference: str, candidates: list[str]) -> str:
 #     second block, so the key-based compare_structures() already calls such a pair
 #     STEREO_DIFFERS. Matching that keeps the two paths from disagreeing about the
 #     same pair -- which is exactly how the stereo bug in this package was found.
+#
+# Keyed by inchi.py's constants rather than by their string values, so the link
+# between the two vocabularies is checkable by a reader and by an import, not by
+# eye. INCHI_STEREO_DIFFERS is inchi.py's; STEREO_DIFFERS on the right is this
+# module's, and they are distinct names for distinct vocabularies that happen to
+# share a spelling.
 _INCHI_TO_COMPARISON = {
-    "layers_identical": MATCH,
-    "form_differs": SALT_DIFFERS,
-    "stereo_differs": STEREO_DIFFERS,
-    "stereo_undefined_on_one_side": STEREO_DIFFERS,
-    "isotope_differs": STEREO_DIFFERS,
-    "different_compound": SKELETON_DIFFERS,
-    "not_comparable": NOT_COMPARABLE,
+    LAYERS_IDENTICAL: MATCH,
+    FORM_DIFFERS: SALT_DIFFERS,
+    INCHI_STEREO_DIFFERS: STEREO_DIFFERS,
+    STEREO_UNDEFINED_ON_ONE_SIDE: STEREO_DIFFERS,
+    ISOTOPE_DIFFERS: STEREO_DIFFERS,
+    DIFFERENT_COMPOUND: SKELETON_DIFFERS,
+    LAYERS_NOT_COMPARABLE: NOT_COMPARABLE,
 }
-assert set(_INCHI_TO_COMPARISON) == set(INCHI_VERDICTS), (
-    "structure_check.inchi grew a verdict this module does not map; add it here "
-    "rather than letting it fall through to a default"
-)
+# Raised, not asserted: `python -O` strips an assert, and the drift it guards
+# against would then surface as a KeyError from comparison_verdict_from_inchi() at
+# call time -- an unhandled exception on a path whose whole contract is to return a
+# verdict rather than raise.
+if set(_INCHI_TO_COMPARISON) != set(INCHI_VERDICTS):
+    raise RuntimeError(
+        "structure_check.inchi grew a verdict this module does not map; add it to "
+        "_INCHI_TO_COMPARISON rather than letting it fall through to a default"
+    )
 
 
 def comparison_verdict_from_inchi(reference_inchi: str, candidate_inchi: str) -> str:

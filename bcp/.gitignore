@@ -57,10 +57,16 @@ mashroom*/
 chebi_run_*/
 
 # Bulk artifacts, in case a run directory is deliberately kept under another name.
-**/.cache_pubchem.json
-**/.cache_chebi.json
-**/master.tsv
-**/chebi_submission*.sdf
+#
+# Written without the `**/` prefix that the deliverables below also omit: a pattern
+# containing no slash already matches at any depth, so the two forms were one rule
+# written two ways. `master.tsv` is generic enough to catch an unrelated file some
+# day -- `git check-ignore -v <path>` says why a path is ignored and `git add -f`
+# overrides it.
+.cache_pubchem.json
+.cache_chebi.json
+master.tsv
+chebi_submission*.sdf
 
 # Deliverables: communication artifacts addressed to ChEBI, the Lattice DB and
 # the experimental team, with a date on them. Not source.
