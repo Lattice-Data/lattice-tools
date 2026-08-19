@@ -95,8 +95,26 @@ Appended columns (batch mode) or fields (single-CAS mode):
 - `xlogp`
 - `tpsa`
 - `synonyms` (pipe-separated, capped at 20)
+- `cas_queried` — the value actually sent to PubChem, empty when nothing was
+- `cas_class` — `valid`, `invalid_checksum`, `invalid_format` or `missing`
+- `cas_repairs` — `+`-joined record of the mechanical repairs applied, empty when none
 
 Single-CAS JSON includes a top-level `"CAS"` key plus these fields.
+
+**The CAS is validated and repaired before it is looked up.** `structure_check.cas`
+does this, and the three `cas_*` columns are its report: a repair a curator cannot see is
+indistinguishable from PubChem having answered about the value in the cell. Two
+consequences worth knowing before pointing this at a sheet:
+
+- **A cell that no repair can turn into a registry number costs no request** and comes
+  back empty with `cas_class: invalid_format`. This endpoint is PubChem's *name*
+  endpoint, which resolves anything, so an unchecked cell holding a compound name used to
+  resolve *as a name* — and a row's CAS answer then agreed with its name answer because
+  both had asked the same question. Point `--cas-column` at a name column and every row
+  now reports `invalid_format` rather than quietly resolving.
+- **A well-formed number whose check digit disagrees is still sent.** It is not a
+  registry number, but PubChem indexes vendor synonyms verbatim, so what it answers is
+  evidence about the row. `cas_class: invalid_checksum` flags it either way.
 
 **The two SMILES column names predate PubChem's rename and are kept on purpose.** PubChem
 retired `IsomericSMILES` in favour of `SMILES` and `CanonicalSMILES` in favour of
@@ -118,7 +136,8 @@ unaffected.
 
 ## PubChem API usage
 
-Per CAS, the tool makes up to **3 REST calls**:
+Per CAS, the tool makes up to **3 REST calls**, or **none** when validation refuses the
+cell:
 
 1. CAS → CID (`/compound/name/{CAS}/cids`)
 2. CID → properties + ChEBI xref (`/property/...` and `/xrefs/RegistryID`)

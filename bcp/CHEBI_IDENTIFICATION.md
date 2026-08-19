@@ -129,12 +129,19 @@ the lab had already corrected once.
 
 `structure_check.cas` implements this.
 
-**Scope note, as for the name ladder below: this module is promoted but not yet
-wired.** `classify_cas()` and `normalize_cas()` have no caller outside their tests.
-`chebi_lookup.cas_to_cid()` and `structure_check.cas_structure()` still send whatever the
-spreadsheet contained straight to PubChem — the defect `structure_check/cas.py` names in
-its own opening paragraph. Calling it from both paths is the next piece of this work;
-until then this section describes a module that exists, not a check the pipeline performs.
+**Wired, unlike the name ladder below.** Both call paths named in
+`structure_check/cas.py`'s opening paragraph — `chebi_lookup.cas_to_cid()` and
+`structure_check.cas_structure()` — funnel through `chebi_lookup.cas_to_cid_status()`,
+which classifies and repairs before it spends a request. A value no repair turns into a
+registry number is reported `not_found` without one; a value whose check digit disagrees
+is still sent, since PubChem indexes vendor synonyms verbatim and what it answers is
+evidence about the row. `chebi_lookup`'s batch output carries `cas_queried`, `cas_class`
+and `cas_repairs` so the repair is visible in the row rather than only in the log.
+
+That matters most because the CAS lookup uses PubChem's **name** endpoint, which resolves
+anything: an unvalidated cell holding a compound name resolved *as a name*, and the row's
+two supposedly independent identifiers then agreed because both had asked the same
+question.
 
 **A valid check digit means the number is
 well-formed, not that it is the right compound's number.** Two corruptions are

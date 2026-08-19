@@ -57,8 +57,13 @@ def test_lookup_cas_live_returns_both_smiles_fields() -> None:
 
 
 def test_lookup_cas_live_unknown_cas() -> None:
+    """Well-formed, checksum-valid, and not a registry number PubChem indexes.
+
+    Not "00-00-0": validation refuses that without a request, so it would assert an
+    empty result while never reaching PubChem.
+    """
     try:
-        result = lookup_cas("00-00-0")
+        result = lookup_cas("9999999-99-5")
     except requests.exceptions.RequestException as exc:
         _skip_on_network_error(exc)
         raise

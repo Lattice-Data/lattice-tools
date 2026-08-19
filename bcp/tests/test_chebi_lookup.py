@@ -10,6 +10,7 @@ import pytest
 from chebi_lookup.client import (
     OUTPUT_FIELDS_APPENDED,
     cas_to_cid,
+    cas_to_cid_status,
     lookup_cas,
 )
 from chebi_lookup.io import (
@@ -38,8 +39,54 @@ def test_cas_to_cid_success(mock_get: MagicMock, _sleep: MagicMock) -> None:
 @patch("chebi_lookup.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
 def test_cas_to_cid_not_found(mock_get: MagicMock, _sleep: MagicMock) -> None:
+    """A well-formed number PubChem does not index.
+
+    Not "00-00-0", which validation now refuses before any request: that would
+    still assert None while testing nothing about the 404 path.
+    """
     mock_get.return_value = mock_response(404)
-    assert cas_to_cid("00-00-0") is None
+    assert cas_to_cid("50-00-0") is None
+    assert mock_get.call_count == 1
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_cell_that_is_not_a_cas_number_costs_no_request(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """The endpoint is PubChem's *name* endpoint, so it resolves anything.
+
+    A compound name in the CAS column used to resolve as a name, which made the CAS
+    side of a row agree with the name side because both had asked the same question --
+    the one thing two supposedly independent identifiers must never do. "6857789" is
+    the real case: a PubChem CID in a CAS column, which would read as `6857-78-9` and
+    belongs to an unrelated compound.
+    """
+    mock_get.side_effect = route_pubchem_get
+    for cell in ["Ethanol", "6857789", "00-00-0", ""]:
+        assert cas_to_cid(cell) is None, cell
+    assert mock_get.call_count == 0
+    assert cas_to_cid_status("Ethanol") == (None, "not_found")
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_repaired_cas_is_queried_repaired_and_the_row_says_so(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """`64-17-05` is ethanol with a zero-padded check digit.
+
+    Sent verbatim it 404s and the row reads "PubChem does not index this compound".
+    The repair is applied before the request and reported in the row, because a repair
+    a curator cannot see is indistinguishable from PubChem having answered about the
+    value in the cell.
+    """
+    mock_get.side_effect = route_pubchem_get
+    result = lookup_cas("64-17-05")
+    assert result["pubchem_cid"] == 702
+    assert (result["cas_queried"], result["cas_class"]) == ("64-17-5", "valid")
+    assert result["cas_repairs"] == "zero_padded_check_digit"
+    assert "64-17-5" in mock_get.call_args_list[0].args[0]
 
 
 @patch("chebi_lookup.client.time.sleep")
@@ -68,8 +115,12 @@ def test_lookup_cas_no_chebi_xref(mock_get: MagicMock, _sleep: MagicMock) -> Non
 
 
 def test_lookup_cas_empty() -> None:
+    """An empty result still says *why* it is empty."""
     result = lookup_cas("  ")
-    assert result == {field: "" for field in OUTPUT_FIELDS_APPENDED}
+    assert result == {
+        **{field: "" for field in OUTPUT_FIELDS_APPENDED},
+        "cas_class": "missing",
+    }
 
 
 @patch("chebi_lookup.client.time.sleep")

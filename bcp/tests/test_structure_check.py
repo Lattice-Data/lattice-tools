@@ -1104,22 +1104,29 @@ def test_truncated_skeleton_difference_skips_refinement() -> None:
 @patch("structure_check.client.time.sleep")
 @patch("chebi_lookup.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_cas_structure_quotes_the_sheet_cell(
+def test_cas_structure_never_puts_a_sheet_cell_in_a_request_path(
     mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
 ) -> None:
-    """A stray '/' or '?' in a CAS cell must not rewrite the request path."""
+    """A stray '/' or '?' in a CAS cell cannot rewrite the request path.
+
+    Two guards now, in this order: CAS validation refuses anything that is not
+    digits-and-hyphens, so a traversal payload costs no request at all, and the
+    quoting in cas_to_cid_status is what holds if that ever loosens. The stronger
+    property is the one worth pinning -- the value never reaches the network.
+    """
     from structure_check.client import cas_structure
 
     missing = MagicMock()
     missing.status_code = 404
     mock_get.return_value = missing
 
-    cas_structure("64-17-5/../../evil?x=1")
+    assert cas_structure("64-17-5/../../evil?x=1") == ("", "")
+    assert mock_get.call_count == 0
 
-    path = mock_get.call_args_list[0][0][0].split("/compound/name/")[1]
-    segment = path.split("/cids")[0]
-    assert "/" not in segment
-    assert "?" not in segment
+    # A validated value does reach it, and reaches it intact.
+    cas_structure("64-17-5")
+    segment = mock_get.call_args_list[0][0][0].split("/compound/name/")[1]
+    assert segment.split("/cids")[0] == "64-17-5"
 
 
 # --------------------------------------------------------------------------
@@ -2008,23 +2015,29 @@ def test_an_empty_cid_list_is_still_a_real_answer(
     empty.json.return_value = {"IdentifierList": {"CID": []}}
     mock_get.return_value = empty
 
-    assert cas_to_cid_status("00-00-0") == (None, OUTCOME_NOT_FOUND)
+    # Not "00-00-0": a first segment of zeros is refused before the request, so the
+    # answer would be NOT_FOUND without this payload ever being read.
+    assert cas_to_cid_status("50-00-0") == (None, OUTCOME_NOT_FOUND)
+    assert mock_get.call_count == 1
 
 
 @patch("chebi_lookup.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_cas_to_cid_status_quotes_the_sheet_cell_for_every_caller(
+def test_cas_to_cid_status_guards_the_sheet_cell_for_every_caller(
     mock_get: MagicMock, _sleep: MagicMock
 ) -> None:
-    """Quoted inside, so lookup_cas is covered by the same guard as this module."""
-    from chebi_lookup.client import cas_to_cid_status
+    """Guarded inside, so lookup_cas is covered by the same rule as this module.
+
+    Validation refuses the payload before the URL is built, and quoting stays as the
+    second line: `urllib.parse.quote` is still applied to what does get through, but
+    a validated CAS is `[0-9-]+` and has nothing to encode. Both call paths -- this
+    module's cas_structure and chebi_lookup.lookup_cas -- come through here.
+    """
+    from chebi_lookup.client import OUTCOME_NOT_FOUND, cas_to_cid_status
 
     mock_get.return_value = MagicMock(status_code=404)
-    cas_to_cid_status("64-17-5/../../evil?x=1")
-
-    segment = mock_get.call_args[0][0].split("/compound/name/")[1].split("/cids")[0]
-    assert "/" not in segment
-    assert "?" not in segment
+    assert cas_to_cid_status("64-17-5/../../evil?x=1") == (None, OUTCOME_NOT_FOUND)
+    assert mock_get.call_count == 0
 
 
 @patch("chebi_lookup.client.time.sleep")
