@@ -5,6 +5,23 @@ from __future__ import annotations
 from typing import Any
 
 
+def _decode_attr_str(value: Any) -> str:
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
+
+def _n_from_index_member(member: Any) -> int:
+    """Length of an AnnData index dataset, or categorical ``codes``."""
+    import h5py
+
+    if isinstance(member, h5py.Dataset):
+        return int(member.shape[0])
+    if isinstance(member, h5py.Group) and "codes" in member:
+        return int(member["codes"].shape[0])
+    raise RuntimeError("AnnData index member is not a dataset or categorical codes")
+
+
 def _n_axis_from_h5(h5: Any, axis: str) -> int:
     """Return n_obs or n_vars from an open AnnData HDF5 file."""
     import h5py
@@ -15,9 +32,16 @@ def _n_axis_from_h5(h5: Any, axis: str) -> int:
     if isinstance(obj, h5py.Dataset):
         return int(obj.shape[0])
     if isinstance(obj, h5py.Group):
+        names: list[str] = []
+        attr_name = obj.attrs.get("_index")
+        if attr_name is not None:
+            names.append(_decode_attr_str(attr_name))
         for name in ("_index", "index"):
+            if name not in names:
+                names.append(name)
+        for name in names:
             if name in obj:
-                return int(obj[name].shape[0])
+                return _n_from_index_member(obj[name])
         raise RuntimeError(f"AnnData {axis} group has no _index or index")
     raise RuntimeError(f"Unexpected {axis} object; not an AnnData h5ad")
 

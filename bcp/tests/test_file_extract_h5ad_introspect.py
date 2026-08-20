@@ -106,3 +106,53 @@ def test_count_h5ad_observations_local_obs_group_without_index(tmp_path) -> None
         var.create_dataset("_index", data=np.array([b"g0"], dtype="S"))
     with pytest.raises(RuntimeError, match="_index"):
         count_h5ad_observations_local(str(path))
+
+
+def test_count_h5ad_dims_local_uses_attrs_index(tmp_path) -> None:
+    path = tmp_path / "attrs.h5ad"
+    with h5py.File(path, "w") as h5:
+        obs = h5.create_group("obs")
+        obs.attrs["_index"] = "cell_id"
+        obs.create_dataset(
+            "cell_id",
+            data=np.array([f"c{i}".encode() for i in range(4)], dtype="S"),
+        )
+        var = h5.create_group("var")
+        var.attrs["_index"] = "gene_id"
+        var.create_dataset(
+            "gene_id",
+            data=np.array([f"g{i}".encode() for i in range(9)], dtype="S"),
+        )
+    assert count_h5ad_dims_local(str(path)) == (4, 9)
+
+
+def test_count_h5ad_dims_local_attrs_index_bytes(tmp_path) -> None:
+    path = tmp_path / "attrs_bytes.h5ad"
+    with h5py.File(path, "w") as h5:
+        obs = h5.create_group("obs")
+        obs.attrs["_index"] = b"barcode"
+        obs.create_dataset(
+            "barcode",
+            data=np.array([b"bc0", b"bc1"], dtype="S"),
+        )
+        var = h5.create_group("var")
+        var.create_dataset(
+            "_index",
+            data=np.array([b"g0"], dtype="S"),
+        )
+    assert count_h5ad_dims_local(str(path)) == (2, 1)
+
+
+def test_count_h5ad_dims_local_categorical_codes(tmp_path) -> None:
+    path = tmp_path / "categorical.h5ad"
+    with h5py.File(path, "w") as h5:
+        obs = h5.create_group("obs")
+        obs.attrs["_index"] = "cell_id"
+        cell_id = obs.create_group("cell_id")
+        cell_id.create_dataset("categories", data=np.array([b"a", b"b"], dtype="S"))
+        cell_id.create_dataset("codes", data=np.array([0, 1, 0, 1, 0], dtype="i4"))
+        var = h5.create_group("var")
+        gene_id = var.create_group("_index")
+        gene_id.create_dataset("categories", data=np.array([b"g"], dtype="S"))
+        gene_id.create_dataset("codes", data=np.array([0, 0, 0], dtype="i4"))
+    assert count_h5ad_dims_local(str(path)) == (5, 3)
