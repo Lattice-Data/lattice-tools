@@ -115,6 +115,8 @@ SCALE_H5AD_COLUMNS = [
     "crc64nvme_base64",
     "sample",
     "samples",
+    "file_size",
+    "observation_count",
 ]
 
 H5_INTROSPECT_COLUMNS = [

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -16,8 +17,10 @@ from file_extract.scale_h5ad import (
     file_belongs_to_sample,
     format_samples_column,
     is_scale_h5ad_key,
+    is_scale_mtx_key,
     parse_samples_csv,
     sample_from_filename,
+    tsv_filename,
 )
 from file_extract.scale_wells import ScaleExtractError
 from tests.file_extract_helpers import FIXTURES, MockS3Client
@@ -34,6 +37,15 @@ SAMP02_QSR = f"{RUNDATE}samples/SAMP-02.QSR-1_anndata.h5ad"
 CTRL_QSR = f"{RUNDATE}samples/CTRL-01.QSR-1_anndata.h5ad"
 ALLCELLS = f"{RUNDATE}samples/SAMP-01.merged.allCells.csv"
 CR_H5 = f"{RUNDATE}samples/sample_filtered_feature_bc_matrix.h5"
+SAMP01_MTX_DIR = "SAMP-01.QSR-1-SCALEPLEX.filtered.matrix"
+SAMP02_MTX_DIR = "SAMP-02.QSR-1-SCALEPLEX.filtered.matrix"
+CTRL_MTX_DIR = "CTRL-01.QSR-1-SCALEPLEX.filtered.matrix"
+SAMP01_MTX = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/matrix.mtx.gz"
+SAMP02_MTX = f"{RUNDATE}scaleplex/{SAMP02_MTX_DIR}/matrix.mtx.gz"
+CTRL_MTX = f"{RUNDATE}scaleplex/{CTRL_MTX_DIR}/matrix.mtx.gz"
+SAMP01_BARCODES = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/barcodes.tsv.gz"
+NESTED_MTX = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/extra/matrix.mtx.gz"
+OTHER_MTX = f"{RUNDATE}scaleplex/SAMP-01.noplex.filtered.matrix/matrix.mtx.gz"
 
 
 def _sheet_text() -> str:
@@ -62,6 +74,17 @@ def test_is_scale_h5ad_key() -> None:
     assert not is_scale_h5ad_key(CR_H5, RUNDATE)
     assert not is_scale_h5ad_key(OTHER, RUNDATE)
     assert not is_scale_h5ad_key(f"{RUNDATE}samples.csv", RUNDATE)
+
+
+def test_is_scale_mtx_key() -> None:
+    assert is_scale_mtx_key(SAMP01_MTX, RUNDATE)
+    assert is_scale_mtx_key(f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/matrix.mtx", RUNDATE)
+    assert not is_scale_mtx_key(SAMP01_BARCODES, RUNDATE)
+    assert not is_scale_mtx_key(NESTED_MTX, RUNDATE)
+    assert not is_scale_mtx_key(OTHER_MTX, RUNDATE)
+    assert not is_scale_mtx_key(SAMP01_QSR, RUNDATE)
+    assert tsv_filename(SAMP01_MTX, RUNDATE) == f"{SAMP01_MTX_DIR}/matrix.mtx.gz"
+    assert sample_from_filename(tsv_filename(SAMP01_MTX, RUNDATE)) == "SAMP-01"
 
 
 def test_default_scale_h5ad_output_name() -> None:
@@ -132,6 +155,20 @@ def test_validate_id_list_rejects_empty() -> None:
     ]
 
 
+def _obs_by_key(bucket: str, key: str) -> int:
+    counts = {SAMP01_QSR: 11, SAMP02_QSR: 22, CTRL_QSR: 3}
+    if key not in counts:
+        raise RuntimeError(f"unexpected h5ad key {key}")
+    return counts[key]
+
+
+def _mtx_obs(s3_client: object, bucket: str, key: str) -> int:
+    counts = {SAMP01_MTX: 101, SAMP02_MTX: 202, CTRL_MTX: 3}
+    if key not in counts:
+        raise RuntimeError(f"unexpected mtx key {key}")
+    return counts[key]
+
+
 def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     keys = [
         f"{RUNDATE}samples.csv",
@@ -142,42 +179,80 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
         ALLCELLS,
         CR_H5,
         OTHER,
+        SAMP01_MTX,
+        SAMP02_MTX,
+        CTRL_MTX,
+        SAMP01_BARCODES,
+        NESTED_MTX,
+        OTHER_MTX,
     ]
     client = MockS3Client(
         keys=keys,
+        sizes={
+            SAMP01_QSR: 111,
+            SAMP02_QSR: 222,
+            CTRL_QSR: 33,
+            SAMP01_MTX: 1001,
+            SAMP02_MTX: 2002,
+            CTRL_MTX: 33,
+        },
         object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
         crc_by_key={
             SAMP01_MERGED: "crc-merged",
             SAMP01_QSR: "crc-qsr1",
             SAMP02_QSR: "crc-qsr2",
             CTRL_QSR: "crc-ctrl",
+            SAMP01_MTX: "crc-mtx1",
+            SAMP02_MTX: "crc-mtx2",
+            CTRL_MTX: "crc-mtx-ctrl",
         },
     )
     out = tmp_path / "out.tsv"
-    summary = extract_scale_h5ad(
-        client,
-        BUCKET,
-        RUNDATE,
-        str(out),
-        metadata_gid="sheet-uuid",
-        lab="example-lab",
-        cro_orders=["ORD01"],
-        wafers=["426971"],
-        show_progress=False,
-        sheet_csv=_sheet_text(),
-    )
+    with (
+        patch(
+            "file_extract.scale_h5ad.count_h5ad_observations", side_effect=_obs_by_key
+        ),
+        patch("file_extract.scale_h5ad.count_mtx_observations", side_effect=_mtx_obs),
+    ):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            lab="example-lab",
+            cro_orders=["ORD01"],
+            wafers=["426971"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
 
-    assert summary.total == 2
-    assert summary.crc_ok == 2
+    assert summary.total == 4
+    assert summary.crc_ok == 4
+    assert summary.enrichment_ok == 4
     assert any("CTRL-01" in warning for warning in summary.warnings)
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     assert [row["filename"] for row in rows] == [
         "SAMP-01.QSR-1_anndata.h5ad",
         "SAMP-02.QSR-1_anndata.h5ad",
+        f"{SAMP01_MTX_DIR}/matrix.mtx.gz",
+        f"{SAMP02_MTX_DIR}/matrix.mtx.gz",
     ]
     assert rows[0]["sample"] == "SAMP-01"
     assert rows[0]["s3_uri"] == f"s3://{BUCKET}/{SAMP01_QSR}"
     assert rows[0]["crc64nvme_base64"] == "crc-qsr1"
+    assert rows[0]["file_size"] == "111"
+    assert rows[0]["observation_count"] == "11"
+    assert rows[1]["file_size"] == "222"
+    assert rows[1]["observation_count"] == "22"
+    assert rows[2]["sample"] == "SAMP-01"
+    assert rows[2]["s3_uri"] == f"s3://{BUCKET}/{SAMP01_MTX}"
+    assert rows[2]["crc64nvme_base64"] == "crc-mtx1"
+    assert rows[2]["file_size"] == "1001"
+    assert rows[2]["observation_count"] == "101"
+    assert rows[3]["sample"] == "SAMP-02"
+    assert rows[3]["file_size"] == "2002"
+    assert rows[3]["observation_count"] == "202"
     assert json.loads(rows[0]["samples"]) == [
         "example-lab:tissue-1A",
         "example-lab:tissue-1B",
@@ -200,8 +275,11 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
         "example-lab:tissue-3F",
         "example-lab:tissue-3G",
     ]
+    assert json.loads(rows[2]["samples"]) == json.loads(rows[0]["samples"])
+    assert json.loads(rows[3]["samples"]) == json.loads(rows[1]["samples"])
     assert all(row["filename"] != "SAMP-01_anndata.h5ad" for row in rows)
     assert all(row["filename"] != "CTRL-01.QSR-1_anndata.h5ad" for row in rows)
+    assert all(CTRL_MTX_DIR not in row["filename"] for row in rows)
 
 
 def test_extract_scale_h5ad_zero_matches_does_not_write(tmp_path: Path) -> None:
@@ -240,24 +318,70 @@ def test_extract_scale_h5ad_uses_fetch_sheet(tmp_path: Path) -> None:
         return _sheet_text()
 
     out = tmp_path / "fetched.tsv"
-    extract_scale_h5ad(
-        client,
-        BUCKET,
-        RUNDATE,
-        str(out),
-        metadata_gid="sheet-uuid",
-        lab="/labs/example-lab/",
-        cro_orders=["ORD01"],
-        wafers=["426971"],
-        show_progress=False,
-        fetch_sheet=fetch_sheet,
-    )
+    with patch(
+        "file_extract.scale_h5ad.count_h5ad_observations", side_effect=_obs_by_key
+    ):
+        extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            lab="/labs/example-lab/",
+            cro_orders=["ORD01"],
+            wafers=["426971"],
+            show_progress=False,
+            fetch_sheet=fetch_sheet,
+        )
     assert fetched == ["sheet-uuid"]
     assert out.exists()
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     assert all(
         value.startswith("example-lab:") for value in json.loads(rows[0]["samples"])
     )
+
+
+def test_extract_scale_h5ad_obs_failure_leaves_count_empty(tmp_path: Path) -> None:
+    client = MockS3Client(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR, SAMP02_QSR],
+        sizes={SAMP01_QSR: 111, SAMP02_QSR: 222},
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        crc_by_key={SAMP01_QSR: "crc-qsr1", SAMP02_QSR: "crc-qsr2"},
+    )
+
+    def count_obs(bucket: str, key: str) -> int:
+        if key == SAMP01_QSR:
+            raise RuntimeError("No 'obs' group or dataset; not an AnnData h5ad")
+        return 22
+
+    out = tmp_path / "partial.tsv"
+    with patch(
+        "file_extract.scale_h5ad.count_h5ad_observations", side_effect=count_obs
+    ):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            lab="example-lab",
+            cro_orders=["ORD01"],
+            wafers=["426971"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
+
+    assert summary.total == 2
+    assert summary.crc_ok == 2
+    assert summary.enrichment_ok == 1
+    assert len(summary.failures) == 1
+    assert summary.failures[0][0] == SAMP01_QSR
+    assert "obs" in summary.failures[0][2]
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    by_name = {row["filename"]: row for row in rows}
+    assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["observation_count"] == ""
+    assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["file_size"] == "111"
+    assert by_name["SAMP-02.QSR-1_anndata.h5ad"]["observation_count"] == "22"
 
 
 def test_extract_scale_h5ad_missing_samples_csv() -> None:

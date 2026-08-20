@@ -159,7 +159,7 @@ pip install h5py fsspec s3fs
 
 ### Scale h5ad mode
 
-Point at a ScaleRna **rundate** directory (one level past `processed/`). Pairs rundate `samples.csv` barcodes to the Google Sheet `sample template` `RT_index` column, warns about control samples that have no pairing, and writes one TSV row per non-control `{rundate}/samples/*.h5ad` whose filename contains `QSR`.
+Point at a ScaleRna **rundate** directory (one level past `processed/`). Pairs rundate `samples.csv` barcodes to the Google Sheet `sample template` `RT_index` column, warns about control samples that have no pairing, and writes one TSV row per non-control `{rundate}/samples/*.h5ad` whose filename contains `QSR`, plus each `{rundate}/scaleplex/{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`.
 
 ```bash
 python -m file_extract scale_h5ad \
@@ -178,15 +178,21 @@ python -m file_extract scale_h5ad \
 | `--cro-order` | **Required.** One or more CRO order identifiers |
 | `--wafers` | **Required.** One or more wafer / RunIDs |
 | `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
-| `--workers` | Thread count (default: min(64, n_files)) |
+| `--workers` | Thread count (default: min(16, n_files)) |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
-| `--strict` | Exit 1 if any per-file CRC fetch fails |
+| `--strict` | Exit 1 if any per-file CRC or observation-count fetch fails |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
 
-**Pairing:** `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad files are omitted.
+**Pairing:** `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad and ScalePlex mtx files are omitted.
 
-**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`)
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx)
+
+**Optional introspection dependencies** (needed to read `observation_count`):
+
+```bash
+pip install h5py fsspec s3fs
+```
 
 `scale_cram` is not implemented yet; it can reuse the same `--lab`, `--metadata-gid`, `--cro-order`, and `--wafers` flags later.
 

@@ -315,6 +315,7 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     print(f"Metadata sheet: {metadata_gid}")
     print(f"CRO orders: {', '.join(cro_orders)}")
     print(f"Wafers: {', '.join(wafers)}")
+    check_introspection_deps()
     print("Listing samples/*.h5ad ...")
 
     s3_client = boto3.client("s3")
@@ -338,7 +339,10 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
         print("Nothing to do.")
         return 0
 
-    print(f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}")
+    print(
+        f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}"
+        f" | introspect OK: {summary.enrichment_ok}"
+    )
     print(f"Output: {output}")
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
@@ -533,12 +537,16 @@ def build_parser() -> argparse.ArgumentParser:
         "scale_h5ad",
         help="Extract Scale processed AnnData (.h5ad) metadata.",
         description=(
-            "List QSR *.h5ad files under {rundate}/samples/ and write a TSV.\n"
+            "List QSR *.h5ad files under {rundate}/samples/ and ScalePlex\n"
+            "matrix.mtx.gz under {rundate}/scaleplex/, then write a TSV.\n"
             "Pairs samples.csv barcodes to the Google Sheet 'sample template'\n"
             "RT_index wells. Control samples with no pairing are omitted.\n\n"
-            "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples.\n"
+            "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples,\n"
+            "file_size, observation_count.\n"
             "samples is a JSON list of correlating sample_name values, each\n"
-            "prefixed with {lab}: from --lab."
+            "prefixed with {lab}: from --lab. file_size is the S3 object size.\n"
+            "observation_count is n_obs from the h5ad obs table, or barcodes\n"
+            "in a ScalePlex filtered.matrix directory."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -577,7 +585,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output TSV (default: <run_date>_scale_h5ad_info.tsv)",
     )
-    scale_h5ad.add_argument("--workers", type=int, default=None, help="Thread count")
+    scale_h5ad.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Thread count (default: min(16, n_files))",
+    )
     scale_h5ad.add_argument(
         "--retries",
         type=int,
@@ -587,7 +600,7 @@ def build_parser() -> argparse.ArgumentParser:
     scale_h5ad.add_argument(
         "--strict",
         action="store_true",
-        help="Exit 1 if any per-file CRC fetch fails",
+        help="Exit 1 if any per-file CRC or observation-count fetch fails",
     )
 
     return parser

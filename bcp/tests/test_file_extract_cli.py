@@ -60,6 +60,10 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "<lab>:<sample_name>" in out
     assert "QSR" in out
     assert "samples" in out
+    assert "file_size" in out
+    assert "observation_count" in out
+    assert "observation-count" in out
+    assert "scaleplex" in out
 
 
 def test_cli_invalid_uri() -> None:
@@ -630,8 +634,13 @@ def test_cli_scale_h5ad_requires_flags() -> None:
 
 @patch("file_extract.cli.extract_scale_h5ad")
 @patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
 def test_cli_scale_h5ad_success(
-    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path, capsys
+    mock_deps: MagicMock,
+    mock_boto: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path: Path,
+    capsys,
 ) -> None:
     from file_extract.models import RunSummary
 
@@ -668,8 +677,9 @@ def test_cli_scale_h5ad_success(
 
 @patch("file_extract.cli.extract_scale_h5ad")
 @patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
 def test_cli_scale_h5ad_strips_lab_path(
-    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+    mock_deps: MagicMock, mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
 ) -> None:
     from file_extract.models import RunSummary
 
@@ -692,8 +702,9 @@ def test_cli_scale_h5ad_strips_lab_path(
 
 @patch("file_extract.cli.extract_scale_h5ad")
 @patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
 def test_cli_scale_h5ad_strict_on_failure(
-    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+    mock_deps: MagicMock, mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
 ) -> None:
     from file_extract.models import RunSummary
 
