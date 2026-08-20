@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 
 from bs4 import BeautifulSoup
 
-from .scale_wells import ScaleExtractError, normalize_rt_index
+from .scale_wells import ScaleExtractError, parse_rt_index_cell
 
 SAMPLE_TEMPLATE_TAB = "sample template"
 
@@ -73,23 +73,32 @@ def fetch_sample_template(
 
 
 def parse_sample_template(csv_text: str) -> list[dict[str, str]]:
-    """Return rows with sample_name, RT_index, and normalized well."""
+    """Return one row per well with sample_name, RT_index, and normalized well.
+
+    Rows whose first column starts with ``#`` are Lattice comment rows and
+    are skipped entirely.
+    """
     reader = csv.DictReader(io.StringIO(csv_text))
     if not reader.fieldnames or "RT_index" not in reader.fieldnames:
         raise ScaleExtractError("sample template must include an RT_index column")
+    first_col = reader.fieldnames[0]
     rows: list[dict[str, str]] = []
     for raw in reader:
+        first_val = (raw.get(first_col) or "").strip()
+        if first_val.startswith("#"):
+            continue
         rt_index = (raw.get("RT_index") or "").strip()
         if not rt_index:
             continue
         sample_name = (raw.get("sample_name") or "").strip()
-        rows.append(
-            {
-                "sample_name": sample_name,
-                "RT_index": rt_index,
-                "well": normalize_rt_index(rt_index),
-            }
-        )
+        for well in parse_rt_index_cell(rt_index):
+            rows.append(
+                {
+                    "sample_name": sample_name,
+                    "RT_index": rt_index,
+                    "well": well,
+                }
+            )
     return rows
 
 

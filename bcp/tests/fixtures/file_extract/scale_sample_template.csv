@@ -1,4 +1,5 @@
 sample_name,RT_index
+# comment,Plate only: if multiple indices, list using a comma as separator
 tissue-1A,SCALEQUANT-A1
 tissue-1B,SCALEQUANT-B1
 tissue-1C,SCALEQUANT-C1

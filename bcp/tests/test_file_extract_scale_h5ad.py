@@ -80,6 +80,33 @@ def test_parse_sample_template_normalizes_wells() -> None:
     assert "2G" in wells
     assert "11A" not in wells
     assert sheet_wells_from_csv(_sheet_text()) == wells
+    assert not any("Plate only" in (row.get("RT_index") or "") for row in rows)
+
+
+def test_parse_sample_template_skips_hash_comment_rows() -> None:
+    csv_text = (
+        "sample_name,RT_index\n"
+        "# comment,Plate only: if multiple indices, list using a comma as separator\n"
+        "tissue-1A,SCALEQUANT-A1\n"
+    )
+    rows = parse_sample_template(csv_text)
+    assert [row["well"] for row in rows] == ["1A"]
+    assert sheet_wells_from_csv(csv_text) == {"1A"}
+
+
+def test_parse_sample_template_splits_comma_separated_rt_index() -> None:
+    csv_text = (
+        "sample_name,RT_index\n"
+        'tissue-pool,"SCALEQUANT-A1,SCALEQUANT-B1,SCALEQUANT-C12"\n'
+    )
+    rows = parse_sample_template(csv_text)
+    assert [row["well"] for row in rows] == ["1A", "1B", "12C"]
+    assert {row["sample_name"] for row in rows} == {"tissue-pool"}
+
+
+def test_parse_sample_template_invalid_data_row_still_errors() -> None:
+    with pytest.raises(ScaleExtractError, match="SCALEQUANT-Z1"):
+        parse_sample_template("sample_name,RT_index\ntissue-bad,SCALEQUANT-Z1\n")
 
 
 def test_validate_id_list_rejects_empty() -> None:

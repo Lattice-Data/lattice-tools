@@ -9,6 +9,7 @@ from file_extract.scale_wells import (
     correlate_samples,
     expand_barcodes,
     normalize_rt_index,
+    parse_rt_index_cell,
     parse_well,
 )
 
@@ -27,6 +28,23 @@ def test_normalize_rt_index_rejects_bad_values() -> None:
         normalize_rt_index("SCALEQUANT-Z1")
     with pytest.raises(ScaleExtractError):
         normalize_rt_index("SCALEQUANT-A13")
+
+
+def test_parse_rt_index_cell_splits_commas() -> None:
+    assert parse_rt_index_cell("SCALEQUANT-A1,SCALEQUANT-B1,SCALEQUANT-H11") == (
+        "1A",
+        "1B",
+        "11H",
+    )
+    assert parse_rt_index_cell("SCALEQUANT-A1, SCALEQUANT-B1") == ("1A", "1B")
+    assert parse_rt_index_cell("") == ()
+
+
+def test_parse_rt_index_cell_rejects_invalid_token() -> None:
+    from file_extract.scale_wells import ScaleExtractError
+
+    with pytest.raises(ScaleExtractError, match="SCALEQUANT-Z1"):
+        parse_rt_index_cell("SCALEQUANT-A1,SCALEQUANT-Z1")
 
 
 def test_expand_barcodes_1a_to_2c() -> None:

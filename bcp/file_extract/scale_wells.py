@@ -72,6 +72,24 @@ def normalize_rt_index(value: str) -> str:
     raise ScaleExtractError(f"Invalid RT_index {value!r}")
 
 
+def parse_rt_index_cell(value: str) -> tuple[str, ...]:
+    """Normalize a comma-separated RT_index cell to column-row wells."""
+    text = (value or "").strip()
+    if not text:
+        return ()
+    wells: list[str] = []
+    seen: set[str] = set()
+    for token in text.split(","):
+        part = token.strip()
+        if not part:
+            continue
+        well = normalize_rt_index(part)
+        if well not in seen:
+            wells.append(well)
+            seen.add(well)
+    return tuple(wells)
+
+
 def parse_well(token: str) -> str:
     """Parse a samples.csv well in column-row form (1A, 12H)."""
     text = (token or "").strip()
