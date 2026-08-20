@@ -24,6 +24,9 @@ from .fastq import (
 from .h5 import default_h5_output_name, extract_h5
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
+from .scale_flags import validate_raw_subdirs
+from .scale_h5ad import default_scale_h5ad_output_name, extract_scale_h5ad
+from .scale_wells import ScaleExtractError
 from .sheets import (
     LabIdentity,
     SheetBuildError,
@@ -45,7 +48,12 @@ def _configure_logging(verbose: bool) -> None:
     )
 
 
-def _print_failures(failures: list[tuple[str, str, str]], limit: int = 10) -> None:
+PRINT_LIMIT = 50
+
+
+def _print_failures(
+    failures: list[tuple[str, str, str]], limit: int = PRINT_LIMIT
+) -> None:
     if not failures:
         return
     print(f"\nFailures (first {limit}):")
@@ -59,7 +67,7 @@ def _print_failures(failures: list[tuple[str, str, str]], limit: int = 10) -> No
         print(f"  ... and {len(failures) - limit} more")
 
 
-def _print_warnings(warnings: list[str], limit: int = 10) -> None:
+def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
     for warning in warnings[:limit]:
         print(f"  WARNING: {warning}")
     if len(warnings) > limit:
@@ -296,6 +304,59 @@ def _run_h5(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_scale_h5ad(args: argparse.Namespace) -> int:
+    location = parse_s3_uri(args.s3_uri)
+    output = args.output or default_scale_h5ad_output_name(location.prefix)
+    raw_subdirs = validate_raw_subdirs(args.raw_subdirs)
+    metadata_gid = (args.metadata_gid or "").strip()
+    if not metadata_gid:
+        raise ScaleExtractError("--metadata-gid must not be empty")
+    metadata_experiment = (args.metadata_experiment or "").strip()
+    if not metadata_experiment:
+        raise ScaleExtractError("--metadata-experiment must not be empty")
+    lab = LabIdentity.parse(args.lab)
+
+    print(f"Bucket: {location.bucket}")
+    print(f"Prefix: {location.prefix}")
+    print(f"Lab: {lab.name}")
+    print(f"Metadata sheet: {metadata_gid}")
+    print(f"Metadata experiment: {metadata_experiment}")
+    print(f"Raw subdirs: {', '.join(raw_subdirs)}")
+    check_introspection_deps()
+    print("Listing samples/*.h5ad, scaleplex/*.mtx, and raw *.cram ...")
+
+    s3_client = boto3.client("s3")
+    summary = extract_scale_h5ad(
+        s3_client,
+        location.bucket,
+        location.prefix,
+        output,
+        metadata_gid=metadata_gid,
+        metadata_experiment=metadata_experiment,
+        lab=lab.name,
+        raw_subdirs=raw_subdirs,
+        workers=args.workers,
+        retries=args.retries,
+        show_progress=not args.quiet,
+    )
+
+    _print_warnings(summary.warnings)
+    print(f"Found {summary.total} matching files")
+    if summary.total == 0:
+        print("Nothing to do.")
+        return 0
+
+    print(
+        f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}"
+        f" | introspect OK: {summary.enrichment_ok}"
+    )
+    print(f"Output: {output}")
+    _print_failures(summary.failures)
+    if args.strict and summary.has_failures:
+        return 1
+    return 0
+
+
 def _invalid_uri_exit(message: str) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(2)
@@ -354,7 +415,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Extract S3 metadata for FASTQ.gz, CRAM, and Cell Ranger h5 deliverables."
+            "Extract S3 metadata for FASTQ.gz, CRAM, Cell Ranger h5, "
+            "and Scale h5ad deliverables."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -478,6 +540,83 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exit 1 if any per-file enrichment fails",
     )
 
+    scale_h5ad = subparsers.add_parser(
+        "scale_h5ad",
+        help="Extract Scale processed AnnData (.h5ad) metadata.",
+        description=(
+            "List QSR *.h5ad files under {rundate}/samples/ and ScalePlex\n"
+            "matrix.mtx.gz under {rundate}/scaleplex/, then write a TSV.\n"
+            "Pairs samples.csv barcodes to the Google Sheet 'sample template'\n"
+            "RT_index wells. Control samples with no pairing are omitted.\n\n"
+            "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples,\n"
+            "file_size, observation_count, feature_counts, derived_from.\n"
+            "samples is a JSON list of correlating sample_name values, each\n"
+            "prefixed with {lab}: from --lab. file_size is the S3 object size.\n"
+            "observation_count is n_obs from the h5ad obs table, or barcodes\n"
+            "in a ScalePlex filtered.matrix directory.\n"
+            "feature_counts is a JSON list of {feature_type, feature_count}:\n"
+            "QSR h5ad uses gene / n_vars; ScalePlex mtx uses hash oligo / the\n"
+            "features sibling or MTX header first dimension.\n"
+            "derived_from is a JSON list of {lab}:{cram_filename} values\n"
+            "whose well and QSR# match the row, taken from --raw-subdirs."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[parent],
+    )
+    scale_h5ad.add_argument(
+        "s3_uri",
+        help="s3://bucket/project/order/processed/run_date/",
+    )
+    scale_h5ad.add_argument(
+        "--lab",
+        required=True,
+        help=(
+            "Lab name, or /labs/<lab>/ path. Prefixes samples as <lab>:<sample_name>"
+        ),
+    )
+    scale_h5ad.add_argument(
+        "--metadata-gid",
+        required=True,
+        help="Google Sheet UUID (spreadsheet id in the Sheets URL)",
+    )
+    scale_h5ad.add_argument(
+        "--metadata-experiment",
+        required=True,
+        help=("Keep only sample template rows whose experiment_name equals this value"),
+    )
+    scale_h5ad.add_argument(
+        "--raw-subdirs",
+        nargs="+",
+        required=True,
+        help=(
+            "Comma-separated group directories (or s3:// URIs) whose "
+            "raw/{numeric}/ folders hold the CRAMs"
+        ),
+    )
+    scale_h5ad.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output TSV (default: <run_date>_scale_h5ad_info.tsv)",
+    )
+    scale_h5ad.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Thread count (default: min(16, n_files))",
+    )
+    scale_h5ad.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        help="Max attempts per transient operation (default: 5)",
+    )
+    scale_h5ad.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 if any per-file CRC or observation-count fetch fails",
+    )
+
     return parser
 
 
@@ -498,7 +637,12 @@ def main(argv: list[str] | None = None) -> int:
             return _run_cram(args)
         if args.command == "h5":
             return _run_h5(args)
+        if args.command == "scale_h5ad":
+            return _run_scale_h5ad(args)
     except SheetBuildError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ScaleExtractError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"Unknown command: {args.command}")
