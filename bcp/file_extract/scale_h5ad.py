@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Sequence
 
 from tqdm import tqdm
 
 from .constants import SCALE_H5AD_COLUMNS
-from .metadata_sheet import fetch_sample_template, sheet_wells_from_csv
+from .metadata_sheet import fetch_sample_template, parse_sample_template
 from .models import ListedObject, RunSummary
 from .retry import retry_with_backoff
 from .s3_utils import (
@@ -23,12 +24,19 @@ from .scale_wells import (
     ScaleExtractError,
     correlate_samples,
 )
+from .sheets import LabIdentity
 from .tsv_writer import TsvWriter
 
 SAMPLES_CSV_NAME = "samples.csv"
 SAMPLES_DIR = "samples"
 H5AD_SUFFIX = ".h5ad"
 MERGED_ANNDATA_SUFFIX = "_anndata.h5ad"
+
+
+def format_samples_column(sample_names: Sequence[str], lab: str) -> str:
+    """JSON list of sheet sample_name values prefixed with ``{lab}:``."""
+    prefix = LabIdentity.parse(lab).name
+    return json.dumps([f"{prefix}:{name}" for name in sample_names])
 
 
 def default_scale_h5ad_output_name(prefix: str) -> str:
@@ -45,12 +53,14 @@ def samples_dir_prefix(prefix: str) -> str:
 
 
 def is_scale_h5ad_key(key: str, rundate_prefix: str) -> bool:
-    """True for .h5ad files sitting directly under {rundate}/samples/."""
+    """True for .h5ad files under {rundate}/samples/ whose name contains QSR."""
     base = samples_dir_prefix(rundate_prefix)
     if not key.startswith(base):
         return False
     name = key[len(base) :]
-    return bool(name) and "/" not in name and name.endswith(H5AD_SUFFIX)
+    return (
+        bool(name) and "/" not in name and name.endswith(H5AD_SUFFIX) and "QSR" in name
+    )
 
 
 def sample_from_filename(filename: str) -> str:
@@ -105,6 +115,7 @@ def extract_scale_h5ad(
     output_path: str,
     *,
     metadata_gid: str,
+    lab: str,
     cro_orders: Sequence[str],
     wafers: Sequence[str],
     workers: int | None = None,
@@ -113,12 +124,13 @@ def extract_scale_h5ad(
     sheet_csv: str | None = None,
     fetch_sheet: Callable[[str], str] | None = None,
 ) -> RunSummary:
-    """List non-control samples/*.h5ad, fetch CRC64NVME, write the 4-column TSV.
+    """List non-control samples/*.h5ad, fetch CRC64NVME, write the TSV.
 
     ``cro_orders`` and ``wafers`` are accepted for the Scale CLI contract and
     later scale_cram reuse; they are not written to this TSV.
     """
     del cro_orders, wafers
+    lab_name = LabIdentity.parse(lab).name
 
     csv_key = samples_csv_key(prefix)
     try:
@@ -132,8 +144,10 @@ def extract_scale_h5ad(
     if sheet_csv is None:
         loader = fetch_sheet or fetch_sample_template
         sheet_csv = loader(metadata_gid)
-    sheet_wells = sheet_wells_from_csv(sheet_csv)
-    correlation = correlate_samples(sample_rows, sheet_wells)
+    template_rows = parse_sample_template(sheet_csv)
+    sheet_wells = {row["well"] for row in template_rows}
+    sheet_names = [(row["well"], row["sample_name"]) for row in template_rows]
+    correlation = correlate_samples(sample_rows, sheet_wells, sheet_names)
     control_names = set(correlation.control_set)
 
     summary = RunSummary()
@@ -179,12 +193,16 @@ def extract_scale_h5ad(
     for obj in targets:
         filename = obj.key.rsplit("/", 1)[-1]
         crc, crc_err = results[obj.key]
+        sample = sample_from_filename(filename)
         writer.append_row(
             [
                 filename,
                 s3_uri_for(bucket, obj.key),
                 crc if crc is not None else "",
-                sample_from_filename(filename),
+                sample,
+                format_samples_column(
+                    correlation.sample_names.get(sample, ()), lab_name
+                ),
             ]
         )
         if not crc_err:

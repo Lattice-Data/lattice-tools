@@ -159,11 +159,12 @@ pip install h5py fsspec s3fs
 
 ### Scale h5ad mode
 
-Point at a ScaleRna **rundate** directory (one level past `processed/`). Pairs rundate `samples.csv` barcodes to the Google Sheet `sample template` `RT_index` column, warns about control samples that have no pairing, and writes one TSV row per non-control `{rundate}/samples/*.h5ad`.
+Point at a ScaleRna **rundate** directory (one level past `processed/`). Pairs rundate `samples.csv` barcodes to the Google Sheet `sample template` `RT_index` column, warns about control samples that have no pairing, and writes one TSV row per non-control `{rundate}/samples/*.h5ad` whose filename contains `QSR`.
 
 ```bash
 python -m file_extract scale_h5ad \
   s3://czi-cro/project/order/processed/run_date/ \
+  --lab example-lab \
   --metadata-gid <google-sheet-uuid> \
   --cro-order NVUS0000000000-04 NVUS0000000000-05 \
   --wafers 426971 441969
@@ -172,6 +173,7 @@ python -m file_extract scale_h5ad \
 | Flag | Description |
 |------|-------------|
 | `s3_uri` | **Required.** Rundate prefix, e.g. `s3://czi-cro/project/order/processed/run_date/` |
+| `--lab` | **Required.** `example-lab` or `/labs/example-lab/` (the lab name prefixes `samples`) |
 | `--metadata-gid` | **Required.** Google Sheet UUID (spreadsheet id in the URL). Reads tab `sample template` |
 | `--cro-order` | **Required.** One or more CRO order identifiers |
 | `--wafers` | **Required.** One or more wafer / RunIDs |
@@ -184,9 +186,9 @@ python -m file_extract scale_h5ad \
 
 **Pairing:** `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad files are omitted.
 
-**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`)
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`)
 
-`scale_cram` is not implemented yet; it can reuse the same `--metadata-gid`, `--cro-order`, and `--wafers` flags later.
+`scale_cram` is not implemented yet; it can reuse the same `--lab`, `--metadata-gid`, `--cro-order`, and `--wafers` flags later.
 
 ---
 

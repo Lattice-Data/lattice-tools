@@ -48,6 +48,20 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "scale_h5ad" in out
 
 
+def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["scale_h5ad", "--help"])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "--lab" in out
+    assert "--metadata-gid" in out
+    assert "--cro-order" in out
+    assert "--wafers" in out
+    assert "<lab>:<sample_name>" in out
+    assert "QSR" in out
+    assert "samples" in out
+
+
 def test_cli_invalid_uri() -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["fastq", "not-a-uri"])
@@ -562,6 +576,8 @@ def test_cli_cram_strict_on_failure(
 
 
 SCALE_H5AD_ARGS = [
+    "--lab",
+    "example-lab",
     "--metadata-gid",
     "sheet-uuid",
     "--cro-order",
@@ -597,6 +613,19 @@ def test_cli_scale_h5ad_requires_flags() -> None:
                 "ORD01",
             ]
         )
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                "--metadata-gid",
+                "sheet-uuid",
+                "--cro-order",
+                "ORD01",
+                "--wafers",
+                "426971",
+            ]
+        )
 
 
 @patch("file_extract.cli.extract_scale_h5ad")
@@ -629,11 +658,36 @@ def test_cli_scale_h5ad_success(
     assert code == 0
     mock_extract.assert_called_once()
     kwargs = mock_extract.call_args.kwargs
+    assert kwargs["lab"] == "example-lab"
     assert kwargs["metadata_gid"] == "sheet-uuid"
     assert kwargs["cro_orders"] == ["ORD01", "ORD02"]
     assert kwargs["wafers"] == ["426971", "441969"]
     printed = capsys.readouterr().out
     assert "CTRL-01" in printed
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+def test_cli_scale_h5ad_strips_lab_path(
+    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1)
+    out = tmp_path / "scale_lab.tsv"
+    args = [
+        "scale_h5ad",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(out),
+        "--quiet",
+        *SCALE_H5AD_ARGS,
+    ]
+    lab_idx = args.index("--lab") + 1
+    args[lab_idx] = "/labs/example-lab/"
+    assert main(args) == 0
+    assert mock_extract.call_args.kwargs["lab"] == "example-lab"
 
 
 @patch("file_extract.cli.extract_scale_h5ad")

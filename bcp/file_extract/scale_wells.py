@@ -39,6 +39,7 @@ class ControlSample:
 class CorrelationResult:
     paired: tuple[str, ...]
     controls: tuple[ControlSample, ...]
+    sample_names: dict[str, tuple[str, ...]]
 
     @property
     def paired_set(self) -> frozenset[str]:
@@ -142,14 +143,23 @@ def expand_barcodes(barcodes: str) -> tuple[str, ...]:
 def correlate_samples(
     sample_rows: Sequence[tuple[str, str]],
     sheet_wells: Iterable[str],
+    sheet_names: Iterable[tuple[str, str]] = (),
 ) -> CorrelationResult:
     """Pair samples.csv rows to sheet wells; unpaired rows are controls.
 
     ``sample_rows`` is ``(sample, barcodes)``. ``sheet_wells`` are already
-    normalized to column-row form (``11A``). A well claimed by two rows
-    raises ``WellOwnershipError``.
+    normalized to column-row form (``11A``). ``sheet_names`` is
+    ``(well, sample_name)`` from the sample template. A well claimed by two
+    rows raises ``WellOwnershipError``.
     """
     sheet = set(sheet_wells)
+    names_by_well: dict[str, list[str]] = {}
+    for well, name in sheet_names:
+        if not name:
+            continue
+        bucket = names_by_well.setdefault(well, [])
+        if name not in bucket:
+            bucket.append(name)
 
     owner: dict[str, str] = {}
     expanded: list[tuple[str, str, tuple[str, ...]]] = []
@@ -166,9 +176,20 @@ def correlate_samples(
 
     paired: list[str] = []
     controls: list[ControlSample] = []
+    sample_names: dict[str, tuple[str, ...]] = {}
     for sample, barcodes, wells in expanded:
+        seen: list[str] = []
+        for well in wells:
+            for name in names_by_well.get(well, []):
+                if name not in seen:
+                    seen.append(name)
+        sample_names[sample] = tuple(seen)
         if any(well in sheet for well in wells):
             paired.append(sample)
         else:
             controls.append(ControlSample(sample=sample, barcodes=barcodes))
-    return CorrelationResult(paired=tuple(paired), controls=tuple(controls))
+    return CorrelationResult(
+        paired=tuple(paired),
+        controls=tuple(controls),
+        sample_names=sample_names,
+    )

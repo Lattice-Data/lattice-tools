@@ -112,6 +112,23 @@ def test_correlate_samples_paired_vs_control() -> None:
     assert result.paired == ("SAMP-01", "SAMP-02")
     assert [item.sample for item in result.controls] == ["CTRL-01"]
     assert result.controls[0].barcodes == "12H"
+    assert result.sample_names["CTRL-01"] == ()
+
+
+def test_correlate_samples_collects_sheet_sample_names() -> None:
+    result = correlate_samples(
+        [("SAMP-01", "1A-2C"), ("SAMP-02", "3A-3B")],
+        sheet_wells={"1A", "1B", "2A", "3A", "3B"},
+        sheet_names=[
+            ("1A", "tissue-1A"),
+            ("1B", "tissue-1B"),
+            ("2A", "tissue-2A"),
+            ("3A", "tissue-3A"),
+            ("3B", "tissue-3A"),
+        ],
+    )
+    assert result.sample_names["SAMP-01"] == ("tissue-1A", "tissue-1B", "tissue-2A")
+    assert result.sample_names["SAMP-02"] == ("tissue-3A",)
 
 
 def test_correlate_samples_duplicate_well_is_error() -> None:

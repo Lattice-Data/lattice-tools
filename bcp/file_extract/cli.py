@@ -307,9 +307,11 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     metadata_gid = (args.metadata_gid or "").strip()
     if not metadata_gid:
         raise ScaleExtractError("--metadata-gid must not be empty")
+    lab = LabIdentity.parse(args.lab)
 
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
+    print(f"Lab: {lab.name}")
     print(f"Metadata sheet: {metadata_gid}")
     print(f"CRO orders: {', '.join(cro_orders)}")
     print(f"Wafers: {', '.join(wafers)}")
@@ -322,6 +324,7 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
         location.prefix,
         output,
         metadata_gid=metadata_gid,
+        lab=lab.name,
         cro_orders=cro_orders,
         wafers=wafers,
         workers=args.workers,
@@ -529,12 +532,27 @@ def build_parser() -> argparse.ArgumentParser:
     scale_h5ad = subparsers.add_parser(
         "scale_h5ad",
         help="Extract Scale processed AnnData (.h5ad) metadata.",
+        description=(
+            "List QSR *.h5ad files under {rundate}/samples/ and write a TSV.\n"
+            "Pairs samples.csv barcodes to the Google Sheet 'sample template'\n"
+            "RT_index wells. Control samples with no pairing are omitted.\n\n"
+            "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples.\n"
+            "samples is a JSON list of correlating sample_name values, each\n"
+            "prefixed with {lab}: from --lab."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
     )
     scale_h5ad.add_argument(
         "s3_uri",
         help="s3://bucket/project/order/processed/run_date/",
+    )
+    scale_h5ad.add_argument(
+        "--lab",
+        required=True,
+        help=(
+            "Lab name, or /labs/<lab>/ path. Prefixes samples as <lab>:<sample_name>"
+        ),
     )
     scale_h5ad.add_argument(
         "--metadata-gid",
@@ -569,7 +587,7 @@ def build_parser() -> argparse.ArgumentParser:
     scale_h5ad.add_argument(
         "--strict",
         action="store_true",
-        help="Exit 1 if any per-file enrichment fails",
+        help="Exit 1 if any per-file CRC fetch fails",
     )
 
     return parser

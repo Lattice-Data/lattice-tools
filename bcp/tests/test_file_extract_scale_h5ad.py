@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from file_extract.scale_h5ad import (
     default_scale_h5ad_output_name,
     extract_scale_h5ad,
     file_belongs_to_sample,
+    format_samples_column,
     is_scale_h5ad_key,
     parse_samples_csv,
     sample_from_filename,
@@ -55,6 +57,7 @@ def test_file_belongs_to_sample() -> None:
 
 def test_is_scale_h5ad_key() -> None:
     assert is_scale_h5ad_key(SAMP01_QSR, RUNDATE)
+    assert not is_scale_h5ad_key(SAMP01_MERGED, RUNDATE)
     assert not is_scale_h5ad_key(ALLCELLS, RUNDATE)
     assert not is_scale_h5ad_key(CR_H5, RUNDATE)
     assert not is_scale_h5ad_key(OTHER, RUNDATE)
@@ -109,6 +112,17 @@ def test_parse_sample_template_invalid_data_row_still_errors() -> None:
         parse_sample_template("sample_name,RT_index\ntissue-bad,SCALEQUANT-Z1\n")
 
 
+def test_format_samples_column_prefixes_lab() -> None:
+    names = ("tissue-1A", "tissue-1B")
+    assert json.loads(format_samples_column(names, "example-lab")) == [
+        "example-lab:tissue-1A",
+        "example-lab:tissue-1B",
+    ]
+    assert format_samples_column(names, "/labs/example-lab/") == format_samples_column(
+        names, "example-lab"
+    )
+
+
 def test_validate_id_list_rejects_empty() -> None:
     with pytest.raises(ScaleExtractError):
         validate_id_list([""], flag="--wafers")
@@ -146,24 +160,47 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
         RUNDATE,
         str(out),
         metadata_gid="sheet-uuid",
+        lab="example-lab",
         cro_orders=["ORD01"],
         wafers=["426971"],
         show_progress=False,
         sheet_csv=_sheet_text(),
     )
 
-    assert summary.total == 3
-    assert summary.crc_ok == 3
+    assert summary.total == 2
+    assert summary.crc_ok == 2
     assert any("CTRL-01" in warning for warning in summary.warnings)
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     assert [row["filename"] for row in rows] == [
-        "SAMP-01_anndata.h5ad",
         "SAMP-01.QSR-1_anndata.h5ad",
         "SAMP-02.QSR-1_anndata.h5ad",
     ]
-    assert rows[1]["sample"] == "SAMP-01"
-    assert rows[1]["s3_uri"] == f"s3://{BUCKET}/{SAMP01_QSR}"
-    assert rows[1]["crc64nvme_base64"] == "crc-qsr1"
+    assert rows[0]["sample"] == "SAMP-01"
+    assert rows[0]["s3_uri"] == f"s3://{BUCKET}/{SAMP01_QSR}"
+    assert rows[0]["crc64nvme_base64"] == "crc-qsr1"
+    assert json.loads(rows[0]["samples"]) == [
+        "example-lab:tissue-1A",
+        "example-lab:tissue-1B",
+        "example-lab:tissue-1C",
+        "example-lab:tissue-1D",
+        "example-lab:tissue-1E",
+        "example-lab:tissue-1F",
+        "example-lab:tissue-1G",
+        "example-lab:tissue-1H",
+        "example-lab:tissue-2A",
+        "example-lab:tissue-2B",
+        "example-lab:tissue-2C",
+    ]
+    assert json.loads(rows[1]["samples"]) == [
+        "example-lab:tissue-3A",
+        "example-lab:tissue-3B",
+        "example-lab:tissue-3C",
+        "example-lab:tissue-3D",
+        "example-lab:tissue-3E",
+        "example-lab:tissue-3F",
+        "example-lab:tissue-3G",
+    ]
+    assert all(row["filename"] != "SAMP-01_anndata.h5ad" for row in rows)
     assert all(row["filename"] != "CTRL-01.QSR-1_anndata.h5ad" for row in rows)
 
 
@@ -180,6 +217,7 @@ def test_extract_scale_h5ad_zero_matches_does_not_write(tmp_path: Path) -> None:
         RUNDATE,
         str(out),
         metadata_gid="sheet-uuid",
+        lab="example-lab",
         cro_orders=["ORD01"],
         wafers=["426971"],
         show_progress=False,
@@ -208,6 +246,7 @@ def test_extract_scale_h5ad_uses_fetch_sheet(tmp_path: Path) -> None:
         RUNDATE,
         str(out),
         metadata_gid="sheet-uuid",
+        lab="/labs/example-lab/",
         cro_orders=["ORD01"],
         wafers=["426971"],
         show_progress=False,
@@ -215,6 +254,10 @@ def test_extract_scale_h5ad_uses_fetch_sheet(tmp_path: Path) -> None:
     )
     assert fetched == ["sheet-uuid"]
     assert out.exists()
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    assert all(
+        value.startswith("example-lab:") for value in json.loads(rows[0]["samples"])
+    )
 
 
 def test_extract_scale_h5ad_missing_samples_csv() -> None:
@@ -226,6 +269,7 @@ def test_extract_scale_h5ad_missing_samples_csv() -> None:
             RUNDATE,
             "unused.tsv",
             metadata_gid="sheet-uuid",
+            lab="example-lab",
             cro_orders=["ORD01"],
             wafers=["426971"],
             show_progress=False,

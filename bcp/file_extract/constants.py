@@ -114,6 +114,7 @@ SCALE_H5AD_COLUMNS = [
     "s3_uri",
     "crc64nvme_base64",
     "sample",
+    "samples",
 ]
 
 H5_INTROSPECT_COLUMNS = [
