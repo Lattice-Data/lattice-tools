@@ -55,8 +55,11 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     out = capsys.readouterr().out
     assert "--lab" in out
     assert "--metadata-gid" in out
-    assert "--cro-order" in out
-    assert "--wafers" in out
+    assert "--metadata-experiment" in out
+    assert "experiment_name" in out
+    assert "--cro-order" not in out
+    assert "--raw-subdirs" in out
+    assert "--wafers" not in out
     assert "<lab>:<sample_name>" in out
     assert "QSR" in out
     assert "samples" in out
@@ -64,6 +67,7 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "observation_count" in out
     assert "observation-count" in out
     assert "feature_counts" in out
+    assert "derived_from" in out
     assert "hash oligo" in out
     assert "scaleplex" in out
 
@@ -586,10 +590,9 @@ SCALE_H5AD_ARGS = [
     "example-lab",
     "--metadata-gid",
     "sheet-uuid",
-    "--cro-order",
-    "ORD01",
-    "ORD02",
-    "--wafers",
+    "--metadata-experiment",
+    "RNA3_098",
+    "--raw-subdirs",
     "426971",
     "441969",
 ]
@@ -615,8 +618,8 @@ def test_cli_scale_h5ad_requires_flags() -> None:
                 f"s3://{BUCKET}/{H5_PREFIX}",
                 "--metadata-gid",
                 "sheet-uuid",
-                "--cro-order",
-                "ORD01",
+                "--metadata-experiment",
+                "RNA3_098",
             ]
         )
     with pytest.raises(SystemExit):
@@ -626,9 +629,9 @@ def test_cli_scale_h5ad_requires_flags() -> None:
                 f"s3://{BUCKET}/{H5_PREFIX}",
                 "--metadata-gid",
                 "sheet-uuid",
-                "--cro-order",
-                "ORD01",
-                "--wafers",
+                "--metadata-experiment",
+                "RNA3_098",
+                "--raw-subdirs",
                 "426971",
             ]
         )
@@ -671,8 +674,9 @@ def test_cli_scale_h5ad_success(
     kwargs = mock_extract.call_args.kwargs
     assert kwargs["lab"] == "example-lab"
     assert kwargs["metadata_gid"] == "sheet-uuid"
-    assert kwargs["cro_orders"] == ["ORD01", "ORD02"]
-    assert kwargs["wafers"] == ["426971", "441969"]
+    assert kwargs["metadata_experiment"] == "RNA3_098"
+    assert "cro_orders" not in kwargs
+    assert kwargs["raw_subdirs"] == ["426971", "441969"]
     printed = capsys.readouterr().out
     assert "CTRL-01" in printed
 

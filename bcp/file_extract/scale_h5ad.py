@@ -6,7 +6,9 @@ import csv
 import io
 import json
 import re
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from typing import Any, Callable, Sequence
 
 from tqdm import tqdm
@@ -21,11 +23,14 @@ from .s3_utils import (
     fetch_crc64nvme,
     get_object_text,
     list_objects_with_size,
+    parse_s3_uri,
     s3_uri_for,
 )
 from .scale_wells import (
     ScaleExtractError,
     correlate_samples,
+    expand_barcodes,
+    parse_well,
 )
 from .sheets import LabIdentity
 from .tsv_writer import TsvWriter
@@ -39,6 +44,17 @@ MTX_BASENAMES = frozenset({"matrix.mtx.gz", "matrix.mtx"})
 SCALEPLEX_MATRIX_DIR_RE = re.compile(r"\.QSR-\d+-SCALEPLEX\.filtered\.matrix$")
 H5AD_FEATURE_TYPE = "gene"
 SCALEPLEX_FEATURE_TYPE = "hash oligo"
+CRAM_QSR_WELL_RE = re.compile(
+    r"QSR-(\d+)(?:-SCALEPLEX)?[_-](\d{1,2}[A-H])\.cram$",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class ScaleCram:
+    qsr: str
+    well: str
+    scaleplex: bool
 
 
 def format_samples_column(sample_names: Sequence[str], lab: str) -> str:
@@ -50,6 +66,146 @@ def format_samples_column(sample_names: Sequence[str], lab: str) -> str:
 def format_feature_counts(feature_type: str, count: int) -> str:
     """Same list-of-dicts JSON shape as 10x h5 ``feature_counts``."""
     return json.dumps([{"feature_type": feature_type, "feature_count": count}])
+
+
+def format_derived_from(uris: Sequence[str]) -> str:
+    """JSON list of CRAM S3 URIs attached to one processed file."""
+    return json.dumps(list(uris))
+
+
+def is_deliverable_cram_key(key: str) -> bool:
+    """True for ``*.cram`` objects that are not unmatched leftovers."""
+    name = key.rsplit("/", 1)[-1]
+    return name.lower().endswith(".cram") and "unmatched" not in name.lower()
+
+
+def parse_scale_cram_name(filename: str) -> ScaleCram | None:
+    """Read QSR#, well, and ScalePlex from a Scale CRAM basename."""
+    name = filename.rsplit("/", 1)[-1]
+    if not is_deliverable_cram_key(name):
+        return None
+    match = CRAM_QSR_WELL_RE.search(name)
+    if not match:
+        return None
+    try:
+        well = parse_well(match.group(2))
+    except ScaleExtractError:
+        return None
+    return ScaleCram(
+        qsr=str(int(match.group(1))),
+        well=well,
+        scaleplex="SCALEPLEX" in name.upper(),
+    )
+
+
+def derived_from_filenames(sample: str, parsed: ScaleCram) -> tuple[str, ...]:
+    """TSV ``filename`` values a CRAM can attach to."""
+    if parsed.scaleplex:
+        dirname = f"{sample}.QSR-{parsed.qsr}-SCALEPLEX.filtered.matrix"
+        return (f"{dirname}/matrix.mtx.gz", f"{dirname}/matrix.mtx")
+    return (f"{sample}.QSR-{parsed.qsr}_anndata.h5ad",)
+
+
+def well_to_sample_map(sample_rows: Sequence[tuple[str, str]]) -> dict[str, str]:
+    """Map each expanded barcodes well to its samples.csv sample."""
+    owner: dict[str, str] = {}
+    for sample, barcodes in sample_rows:
+        for well in expand_barcodes(barcodes):
+            owner[well] = sample
+    return owner
+
+
+def resolve_raw_subdir(
+    processed_bucket: str, processed_prefix: str, subdir: str
+) -> tuple[str, str]:
+    """Turn a ``--raw-subdirs`` value into ``(bucket, prefix/)``.
+
+    A name such as ``426971`` is the folder under the ``raw/`` sibling of
+    the processed rundate. An ``s3://`` URI is used as given.
+    """
+    item = (subdir or "").strip().rstrip("/")
+    if not item:
+        raise ScaleExtractError("--raw-subdirs must not contain empty values")
+    if item.startswith("s3://"):
+        location = parse_s3_uri(item + "/")
+        return location.bucket, location.prefix
+    parts = processed_prefix.rstrip("/").split("/")
+    try:
+        idx = parts.index("processed")
+    except ValueError as exc:
+        raise ScaleExtractError(
+            f"processed prefix {processed_prefix!r} does not contain a "
+            "processed/ segment; pass an s3:// URI in --raw-subdirs"
+        ) from exc
+    parent = "/".join(parts[:idx])
+    prefix = f"{parent}/raw/{item}/" if parent else f"raw/{item}/"
+    return processed_bucket, prefix
+
+
+def list_raw_crams(
+    s3_client: Any,
+    processed_bucket: str,
+    processed_prefix: str,
+    raw_subdirs: Sequence[str],
+) -> list[tuple[str, str]]:
+    """List ``(bucket, key)`` for deliverable CRAMs under each raw subdir."""
+    found: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for subdir in raw_subdirs:
+        bucket, prefix = resolve_raw_subdir(processed_bucket, processed_prefix, subdir)
+        for obj in list_objects_with_size(
+            s3_client, bucket, prefix, predicate=is_deliverable_cram_key
+        ):
+            ident = (bucket, obj.key)
+            if ident in seen:
+                continue
+            seen.add(ident)
+            found.append(ident)
+    return found
+
+
+def derived_from_by_filename(
+    crams: Sequence[tuple[str, str]],
+    well_to_sample: dict[str, str],
+    control_samples: set[str] | frozenset[str],
+) -> dict[str, list[str]]:
+    """Group CRAM S3 URIs by the processed TSV filename they derive."""
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for bucket, key in crams:
+        parsed = parse_scale_cram_name(key)
+        if parsed is None:
+            continue
+        sample = well_to_sample.get(parsed.well)
+        if sample is None or sample in control_samples:
+            continue
+        uri = s3_uri_for(bucket, key)
+        for filename in derived_from_filenames(sample, parsed):
+            if uri not in grouped[filename]:
+                grouped[filename].append(uri)
+    for filename in grouped:
+        grouped[filename].sort()
+    return grouped
+
+
+def leftover_cram_uris(
+    crams: Sequence[tuple[str, str]],
+    derived_map: dict[str, list[str]],
+    target_filenames: set[str] | frozenset[str],
+) -> list[str]:
+    """S3 URIs of listed CRAMs that did not attach to an output row."""
+    attached: set[str] = set()
+    for filename in target_filenames:
+        attached.update(derived_map.get(filename, ()))
+    leftover: list[str] = []
+    for bucket, key in crams:
+        uri = s3_uri_for(bucket, key)
+        if uri not in attached:
+            leftover.append(uri)
+    return leftover
+
+
+def leftover_cram_warning(uri: str) -> str:
+    return f"cram {uri} was not added to derived_from"
 
 
 def default_scale_h5ad_output_name(prefix: str) -> str:
@@ -169,9 +325,9 @@ def extract_scale_h5ad(
     output_path: str,
     *,
     metadata_gid: str,
+    metadata_experiment: str,
     lab: str,
-    cro_orders: Sequence[str],
-    wafers: Sequence[str],
+    raw_subdirs: Sequence[str],
     workers: int | None = None,
     retries: int = 5,
     show_progress: bool = True,
@@ -180,10 +336,10 @@ def extract_scale_h5ad(
 ) -> RunSummary:
     """List non-control samples/*.h5ad and scaleplex mtx files, write the TSV.
 
-    ``cro_orders`` and ``wafers`` are accepted for the Scale CLI contract and
-    later scale_cram reuse; they are not written to this TSV.
+    ``metadata_experiment`` selects sample template rows by
+    ``experiment_name``. ``raw_subdirs`` are walked for ``*.cram`` files
+    that fill ``derived_from``.
     """
-    del cro_orders, wafers
     lab_name = LabIdentity.parse(lab).name
 
     csv_key = samples_csv_key(prefix)
@@ -198,11 +354,17 @@ def extract_scale_h5ad(
     if sheet_csv is None:
         loader = fetch_sheet or fetch_sample_template
         sheet_csv = loader(metadata_gid)
-    template_rows = parse_sample_template(sheet_csv)
+    template_rows = parse_sample_template(sheet_csv, experiment=metadata_experiment)
     sheet_wells = {row["well"] for row in template_rows}
     sheet_names = [(row["well"], row["sample_name"]) for row in template_rows]
     correlation = correlate_samples(sample_rows, sheet_wells, sheet_names)
     control_names = set(correlation.control_set)
+    crams = list_raw_crams(s3_client, bucket, prefix, raw_subdirs)
+    derived_map = derived_from_by_filename(
+        crams,
+        well_to_sample_map(sample_rows),
+        control_names,
+    )
 
     summary = RunSummary()
     for control in correlation.controls:
@@ -228,6 +390,10 @@ def extract_scale_h5ad(
         if is_control_file(filename, control_names):
             continue
         targets.append(obj)
+
+    target_names = {tsv_filename(obj.key, prefix) for obj in targets}
+    for uri in leftover_cram_uris(crams, derived_map, target_names):
+        summary.warnings.append(leftover_cram_warning(uri))
 
     summary.total = len(targets)
     if not targets:
@@ -268,6 +434,7 @@ def extract_scale_h5ad(
                 obj.size_bytes,
                 obs if obs is not None else "",
                 feature_counts if feature_counts is not None else "",
+                format_derived_from(derived_map.get(filename, ())),
             ]
         )
         if not crc_err:

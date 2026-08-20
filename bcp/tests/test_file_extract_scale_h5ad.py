@@ -10,20 +10,29 @@ from unittest.mock import patch
 import pytest
 
 from file_extract.metadata_sheet import parse_sample_template, sheet_wells_from_csv
-from file_extract.scale_flags import validate_id_list
+from file_extract.scale_flags import validate_id_list, validate_raw_subdirs
 from file_extract.scale_h5ad import (
+    ScaleCram,
     _introspect_counts,
     _process_one,
     default_scale_h5ad_output_name,
+    derived_from_by_filename,
+    derived_from_filenames,
     extract_scale_h5ad,
     file_belongs_to_sample,
+    format_derived_from,
     format_feature_counts,
     format_samples_column,
     is_scale_h5ad_key,
     is_scale_mtx_key,
+    leftover_cram_uris,
+    leftover_cram_warning,
+    parse_scale_cram_name,
     parse_samples_csv,
+    resolve_raw_subdir,
     sample_from_filename,
     tsv_filename,
+    well_to_sample_map,
 )
 from file_extract.scale_wells import ScaleExtractError
 from tests.file_extract_helpers import FIXTURES, MockS3Client
@@ -46,6 +55,15 @@ CTRL_MTX_DIR = "CTRL-01.QSR-1-SCALEPLEX.filtered.matrix"
 SAMP01_MTX = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/matrix.mtx.gz"
 SAMP02_MTX = f"{RUNDATE}scaleplex/{SAMP02_MTX_DIR}/matrix.mtx.gz"
 CTRL_MTX = f"{RUNDATE}scaleplex/{CTRL_MTX_DIR}/matrix.mtx.gz"
+RAW = "proj/ORD01/raw/426971/"
+CRAM_SAMP01_GEX = f"{RAW}426971-RNA3-098C_GEX_QSR-1_1A.cram"
+CRAM_SAMP01_GEX_B = f"{RAW}426971-RNA3-098C_GEX_QSR-1_2B.cram"
+CRAM_SAMP02_GEX = f"{RAW}426971-RNA3-098C_GEX_QSR-1_3A.cram"
+CRAM_SAMP01_PLX = f"{RAW}426971-RNA3-098C_hash_oligo_QSR-1-SCALEPLEX_1H.cram"
+CRAM_SAMP02_PLX = f"{RAW}426971-RNA3-098C_hash_oligo_QSR-1-SCALEPLEX_3C.cram"
+CRAM_CTRL = f"{RAW}426971-RNA3-098C_GEX_QSR-1_12H.cram"
+CRAM_UNMATCHED = f"{RAW}426971-RNA3-098C_GEX_QSR-1_unmatched.cram"
+CRAM_OTHER_QSR = f"{RAW}426971-RNA3-098C_GEX_QSR-2_1A.cram"
 SAMP01_BARCODES = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/barcodes.tsv.gz"
 NESTED_MTX = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/extra/matrix.mtx.gz"
 OTHER_MTX = f"{RUNDATE}scaleplex/SAMP-01.noplex.filtered.matrix/matrix.mtx.gz"
@@ -138,6 +156,34 @@ def test_parse_sample_template_invalid_data_row_still_errors() -> None:
         parse_sample_template("sample_name,RT_index\ntissue-bad,SCALEQUANT-Z1\n")
 
 
+def test_parse_sample_template_filters_by_experiment_name() -> None:
+    csv_text = (
+        "sample_name,RT_index,experiment_name\n"
+        "keep-1A,SCALEQUANT-A1,RNA3_098\n"
+        "drop-1B,SCALEQUANT-B1,CHEM13-R096\n"
+        "keep-1C,SCALEQUANT-C1, RNA3_098 \n"
+    )
+    rows = parse_sample_template(csv_text, experiment="RNA3_098")
+    assert [row["sample_name"] for row in rows] == ["keep-1A", "keep-1C"]
+    assert sheet_wells_from_csv(csv_text, experiment="RNA3_098") == {"1A", "1C"}
+
+
+def test_parse_sample_template_requires_experiment_name_when_filtering() -> None:
+    with pytest.raises(ScaleExtractError, match="experiment_name"):
+        parse_sample_template(
+            "sample_name,RT_index\ntissue-1A,SCALEQUANT-A1\n",
+            experiment="RNA3_098",
+        )
+
+
+def test_parse_sample_template_no_matching_experiment() -> None:
+    csv_text = (
+        "sample_name,RT_index,experiment_name\nother-1A,SCALEQUANT-A1,CHEM13-R096\n"
+    )
+    with pytest.raises(ScaleExtractError, match="RNA3_098"):
+        parse_sample_template(csv_text, experiment="RNA3_098")
+
+
 def test_format_samples_column_prefixes_lab() -> None:
     names = ("tissue-1A", "tissue-1B")
     assert json.loads(format_samples_column(names, "example-lab")) == [
@@ -151,11 +197,121 @@ def test_format_samples_column_prefixes_lab() -> None:
 
 def test_validate_id_list_rejects_empty() -> None:
     with pytest.raises(ScaleExtractError):
-        validate_id_list([""], flag="--wafers")
-    assert validate_id_list([" 426971 ", "441969"], flag="--wafers") == [
+        validate_id_list([""], flag="--raw-subdirs")
+    assert validate_id_list([" 426971 ", "441969"], flag="--raw-subdirs") == [
         "426971",
         "441969",
     ]
+
+
+def test_validate_raw_subdirs_allows_names_and_s3_uris() -> None:
+    assert validate_raw_subdirs([" 426971 ", "441969/"]) == ["426971", "441969"]
+    assert validate_raw_subdirs(["s3://czi-novogene/proj/raw/426971/"]) == [
+        "s3://czi-novogene/proj/raw/426971"
+    ]
+    with pytest.raises(ScaleExtractError, match="empty"):
+        validate_raw_subdirs([""])
+    with pytest.raises(ScaleExtractError, match="s3://"):
+        validate_raw_subdirs(["proj/raw/426971"])
+
+
+def test_parse_scale_cram_name() -> None:
+    gex = parse_scale_cram_name("426971-RNA3-098C_GEX_QSR-7_10A.cram")
+    assert gex == ScaleCram(qsr="7", well="10A", scaleplex=False)
+    hyphen = parse_scale_cram_name("440115-R115H_GEX_QSR-8-5B.cram")
+    assert hyphen == ScaleCram(qsr="8", well="5B", scaleplex=False)
+    plex = parse_scale_cram_name("426971-RNA3-098C_hash_oligo_QSR-7-SCALEPLEX_1E.cram")
+    assert plex == ScaleCram(qsr="7", well="1E", scaleplex=True)
+    plex_hyphen = parse_scale_cram_name(
+        "440115-R115H_hash_oligo_QSR-8-SCALEPLEX-1A.cram"
+    )
+    assert plex_hyphen == ScaleCram(qsr="8", well="1A", scaleplex=True)
+    assert parse_scale_cram_name("426971-RNA3-098C_GEX_QSR-7_unmatched.cram") is None
+    assert (
+        parse_scale_cram_name("426971-RNA3-098C_GEX_QSR-7_10C_unmatched.cram") is None
+    )
+    assert parse_scale_cram_name("notes.txt") is None
+    assert parse_scale_cram_name("440115-R115H_GEX_QSR-8-13A.cram") is None
+
+
+def test_derived_from_filenames() -> None:
+    gex = ScaleCram(qsr="1", well="1A", scaleplex=False)
+    plex = ScaleCram(qsr="1", well="1A", scaleplex=True)
+    assert derived_from_filenames("SAMP-01", gex) == ("SAMP-01.QSR-1_anndata.h5ad",)
+    assert derived_from_filenames("SAMP-01", plex) == (
+        "SAMP-01.QSR-1-SCALEPLEX.filtered.matrix/matrix.mtx.gz",
+        "SAMP-01.QSR-1-SCALEPLEX.filtered.matrix/matrix.mtx",
+    )
+
+
+def test_resolve_raw_subdir_uses_processed_sibling() -> None:
+    assert resolve_raw_subdir("czi-cro", RUNDATE, "426971") == (
+        "czi-cro",
+        RAW,
+    )
+    assert resolve_raw_subdir(
+        "czi-cro", RUNDATE, "s3://czi-novogene/lab/raw/441969"
+    ) == ("czi-novogene", "lab/raw/441969/")
+
+
+def test_well_to_sample_map_expands_barcodes() -> None:
+    owners = well_to_sample_map([("SAMP-01", "1A-2C"), ("SAMP-02", "3A-3G")])
+    assert owners["1A"] == "SAMP-01"
+    assert owners["2C"] == "SAMP-01"
+    assert owners["3A"] == "SAMP-02"
+    assert "2D" not in owners
+
+
+def test_derived_from_by_filename_groups_crams() -> None:
+    owners = well_to_sample_map(_parse_fixture_samples())
+    grouped = derived_from_by_filename(
+        [
+            (BUCKET, CRAM_SAMP01_GEX),
+            (BUCKET, CRAM_SAMP01_GEX_B),
+            (BUCKET, CRAM_SAMP02_GEX),
+            (BUCKET, CRAM_SAMP01_PLX),
+            (BUCKET, CRAM_CTRL),
+            (BUCKET, CRAM_UNMATCHED),
+            (BUCKET, CRAM_OTHER_QSR),
+        ],
+        owners,
+        {"CTRL-01"},
+    )
+    assert grouped["SAMP-01.QSR-1_anndata.h5ad"] == [
+        f"s3://{BUCKET}/{CRAM_SAMP01_GEX}",
+        f"s3://{BUCKET}/{CRAM_SAMP01_GEX_B}",
+    ]
+    assert grouped["SAMP-02.QSR-1_anndata.h5ad"] == [f"s3://{BUCKET}/{CRAM_SAMP02_GEX}"]
+    assert grouped[f"{SAMP01_MTX_DIR}/matrix.mtx.gz"] == [
+        f"s3://{BUCKET}/{CRAM_SAMP01_PLX}"
+    ]
+    assert "SAMP-01.QSR-2_anndata.h5ad" in grouped
+    assert "CTRL-01.QSR-1_anndata.h5ad" not in grouped
+    leftover = leftover_cram_uris(
+        [
+            (BUCKET, CRAM_SAMP01_GEX),
+            (BUCKET, CRAM_CTRL),
+            (BUCKET, CRAM_UNMATCHED),
+            (BUCKET, CRAM_OTHER_QSR),
+        ],
+        grouped,
+        {"SAMP-01.QSR-1_anndata.h5ad"},
+    )
+    assert leftover == [
+        f"s3://{BUCKET}/{CRAM_CTRL}",
+        f"s3://{BUCKET}/{CRAM_UNMATCHED}",
+        f"s3://{BUCKET}/{CRAM_OTHER_QSR}",
+    ]
+    assert leftover_cram_warning(leftover[0]).startswith("cram s3://")
+
+
+def test_format_derived_from() -> None:
+    assert json.loads(format_derived_from([])) == []
+    assert json.loads(format_derived_from(["s3://b/a.cram"])) == ["s3://b/a.cram"]
+
+
+def _parse_fixture_samples() -> list[tuple[str, str]]:
+    return parse_samples_csv(_samples_text())
 
 
 def _h5ad_dims(bucket: str, key: str) -> tuple[int, int]:
@@ -188,6 +344,14 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
         SAMP01_BARCODES,
         NESTED_MTX,
         OTHER_MTX,
+        CRAM_SAMP01_GEX,
+        CRAM_SAMP01_GEX_B,
+        CRAM_SAMP02_GEX,
+        CRAM_SAMP01_PLX,
+        CRAM_SAMP02_PLX,
+        CRAM_CTRL,
+        CRAM_UNMATCHED,
+        CRAM_OTHER_QSR,
     ]
     client = MockS3Client(
         keys=keys,
@@ -221,9 +385,9 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
             RUNDATE,
             str(out),
             metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
             lab="example-lab",
-            cro_orders=["ORD01"],
-            wafers=["426971"],
+            raw_subdirs=["426971"],
             show_progress=False,
             sheet_csv=_sheet_text(),
         )
@@ -232,6 +396,12 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     assert summary.crc_ok == 4
     assert summary.enrichment_ok == 4
     assert any("CTRL-01" in warning for warning in summary.warnings)
+    leftover = [w for w in summary.warnings if w.startswith("cram s3://")]
+    leftover_uris = " ".join(leftover)
+    assert CRAM_CTRL in leftover_uris
+    assert CRAM_OTHER_QSR in leftover_uris
+    assert CRAM_UNMATCHED not in leftover_uris
+    assert CRAM_SAMP01_GEX not in leftover_uris
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     assert [row["filename"] for row in rows] == [
         "SAMP-01.QSR-1_anndata.h5ad",
@@ -295,9 +465,45 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     ]
     assert json.loads(rows[2]["samples"]) == json.loads(rows[0]["samples"])
     assert json.loads(rows[3]["samples"]) == json.loads(rows[1]["samples"])
+    assert json.loads(rows[0]["derived_from"]) == [
+        f"s3://{BUCKET}/{CRAM_SAMP01_GEX}",
+        f"s3://{BUCKET}/{CRAM_SAMP01_GEX_B}",
+    ]
+    assert json.loads(rows[1]["derived_from"]) == [f"s3://{BUCKET}/{CRAM_SAMP02_GEX}"]
+    assert json.loads(rows[2]["derived_from"]) == [f"s3://{BUCKET}/{CRAM_SAMP01_PLX}"]
+    assert json.loads(rows[3]["derived_from"]) == [f"s3://{BUCKET}/{CRAM_SAMP02_PLX}"]
     assert all(row["filename"] != "SAMP-01_anndata.h5ad" for row in rows)
     assert all(row["filename"] != "CTRL-01.QSR-1_anndata.h5ad" for row in rows)
     assert all(CTRL_MTX_DIR not in row["filename"] for row in rows)
+
+
+def test_extract_scale_h5ad_derived_from_merges_raw_subdirs(tmp_path: Path) -> None:
+    other_raw = "proj/ORD01/raw/441969/"
+    other_cram = f"{other_raw}441969-RNA3-098C_GEX_QSR-1_1C.cram"
+    client = MockS3Client(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR, CRAM_SAMP01_GEX, other_cram],
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        crc_by_key={SAMP01_QSR: "crc-qsr1"},
+    )
+    out = tmp_path / "merged.tsv"
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims):
+        extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["426971", "441969"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    assert json.loads(rows[0]["derived_from"]) == [
+        f"s3://{BUCKET}/{CRAM_SAMP01_GEX}",
+        f"s3://{BUCKET}/{other_cram}",
+    ]
 
 
 def test_format_feature_counts() -> None:
@@ -343,9 +549,9 @@ def test_extract_scale_h5ad_zero_matches_does_not_write(tmp_path: Path) -> None:
         RUNDATE,
         str(out),
         metadata_gid="sheet-uuid",
+        metadata_experiment="RNA3_098",
         lab="example-lab",
-        cro_orders=["ORD01"],
-        wafers=["426971"],
+        raw_subdirs=["426971"],
         show_progress=False,
         sheet_csv=_sheet_text(),
     )
@@ -373,9 +579,9 @@ def test_extract_scale_h5ad_uses_fetch_sheet(tmp_path: Path) -> None:
             RUNDATE,
             str(out),
             metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
             lab="/labs/example-lab/",
-            cro_orders=["ORD01"],
-            wafers=["426971"],
+            raw_subdirs=["426971"],
             show_progress=False,
             fetch_sheet=fetch_sheet,
         )
@@ -385,6 +591,41 @@ def test_extract_scale_h5ad_uses_fetch_sheet(tmp_path: Path) -> None:
     assert all(
         value.startswith("example-lab:") for value in json.loads(rows[0]["samples"])
     )
+
+
+def test_extract_scale_h5ad_ignores_other_experiment_rows(tmp_path: Path) -> None:
+    sheet = (
+        _sheet_text().rstrip()
+        + "\n"
+        + "other-1A,SCALEQUANT-A1,CHEM13-R096\n"
+        + "other-ctrl,SCALEQUANT-H12,CHEM13-R096\n"
+    )
+    client = MockS3Client(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR, CTRL_QSR],
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        crc_by_key={SAMP01_QSR: "crc-qsr1", CTRL_QSR: "crc-ctrl"},
+    )
+    out = tmp_path / "filtered.tsv"
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["426971"],
+            show_progress=False,
+            sheet_csv=sheet,
+        )
+    assert any("CTRL-01" in warning for warning in summary.warnings)
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    assert [row["filename"] for row in rows] == ["SAMP-01.QSR-1_anndata.h5ad"]
+    samples = json.loads(rows[0]["samples"])
+    assert "example-lab:tissue-1A" in samples
+    assert "example-lab:other-1A" not in samples
+    assert "example-lab:other-ctrl" not in samples
 
 
 def test_extract_scale_h5ad_obs_failure_leaves_count_empty(tmp_path: Path) -> None:
@@ -408,9 +649,9 @@ def test_extract_scale_h5ad_obs_failure_leaves_count_empty(tmp_path: Path) -> No
             RUNDATE,
             str(out),
             metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
             lab="example-lab",
-            cro_orders=["ORD01"],
-            wafers=["426971"],
+            raw_subdirs=["426971"],
             show_progress=False,
             sheet_csv=_sheet_text(),
         )
@@ -441,9 +682,9 @@ def test_extract_scale_h5ad_missing_samples_csv() -> None:
             RUNDATE,
             "unused.tsv",
             metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
             lab="example-lab",
-            cro_orders=["ORD01"],
-            wafers=["426971"],
+            raw_subdirs=["426971"],
             show_progress=False,
             sheet_csv=_sheet_text(),
         )

@@ -72,21 +72,37 @@ def fetch_sample_template(
     return fetch_sheet_csv(sheet_id, gid, opener=opener)
 
 
-def parse_sample_template(csv_text: str) -> list[dict[str, str]]:
+def parse_sample_template(
+    csv_text: str, *, experiment: str | None = None
+) -> list[dict[str, str]]:
     """Return one row per well with sample_name, RT_index, and normalized well.
 
     Rows whose first column starts with ``#`` are Lattice comment rows and
-    are skipped entirely.
+    are skipped entirely. When ``experiment`` is set, only rows whose
+    ``experiment_name`` equals that value (after strip) are kept.
     """
     reader = csv.DictReader(io.StringIO(csv_text))
     if not reader.fieldnames or "RT_index" not in reader.fieldnames:
         raise ScaleExtractError("sample template must include an RT_index column")
+    wanted = None
+    if experiment is not None:
+        wanted = experiment.strip()
+        if not wanted:
+            raise ScaleExtractError("experiment must not be empty")
+        if "experiment_name" not in reader.fieldnames:
+            raise ScaleExtractError(
+                "sample template must include an experiment_name column"
+            )
     first_col = reader.fieldnames[0]
     rows: list[dict[str, str]] = []
     for raw in reader:
         first_val = (raw.get(first_col) or "").strip()
         if first_val.startswith("#"):
             continue
+        if wanted is not None:
+            experiment_name = (raw.get("experiment_name") or "").strip()
+            if experiment_name != wanted:
+                continue
         rt_index = (raw.get("RT_index") or "").strip()
         if not rt_index:
             continue
@@ -99,8 +115,14 @@ def parse_sample_template(csv_text: str) -> list[dict[str, str]]:
                     "well": well,
                 }
             )
+    if wanted is not None and not rows:
+        raise ScaleExtractError(
+            f"no sample template rows with experiment_name {wanted!r}"
+        )
     return rows
 
 
-def sheet_wells_from_csv(csv_text: str) -> set[str]:
-    return {row["well"] for row in parse_sample_template(csv_text)}
+def sheet_wells_from_csv(csv_text: str, *, experiment: str | None = None) -> set[str]:
+    return {
+        row["well"] for row in parse_sample_template(csv_text, experiment=experiment)
+    }

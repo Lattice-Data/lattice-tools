@@ -24,7 +24,7 @@ from .fastq import (
 from .h5 import default_h5_output_name, extract_h5
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
-from .scale_flags import validate_id_list
+from .scale_flags import validate_raw_subdirs
 from .scale_h5ad import default_scale_h5ad_output_name, extract_scale_h5ad
 from .scale_wells import ScaleExtractError
 from .sheets import (
@@ -302,21 +302,23 @@ def _run_h5(args: argparse.Namespace) -> int:
 def _run_scale_h5ad(args: argparse.Namespace) -> int:
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_scale_h5ad_output_name(location.prefix)
-    cro_orders = validate_id_list(args.cro_order, flag="--cro-order")
-    wafers = validate_id_list(args.wafers, flag="--wafers")
+    raw_subdirs = validate_raw_subdirs(args.raw_subdirs)
     metadata_gid = (args.metadata_gid or "").strip()
     if not metadata_gid:
         raise ScaleExtractError("--metadata-gid must not be empty")
+    metadata_experiment = (args.metadata_experiment or "").strip()
+    if not metadata_experiment:
+        raise ScaleExtractError("--metadata-experiment must not be empty")
     lab = LabIdentity.parse(args.lab)
 
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
     print(f"Lab: {lab.name}")
     print(f"Metadata sheet: {metadata_gid}")
-    print(f"CRO orders: {', '.join(cro_orders)}")
-    print(f"Wafers: {', '.join(wafers)}")
+    print(f"Metadata experiment: {metadata_experiment}")
+    print(f"Raw subdirs: {', '.join(raw_subdirs)}")
     check_introspection_deps()
-    print("Listing samples/*.h5ad and scaleplex/*.mtx ...")
+    print("Listing samples/*.h5ad, scaleplex/*.mtx, and raw *.cram ...")
 
     s3_client = boto3.client("s3")
     summary = extract_scale_h5ad(
@@ -325,9 +327,9 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
         location.prefix,
         output,
         metadata_gid=metadata_gid,
+        metadata_experiment=metadata_experiment,
         lab=lab.name,
-        cro_orders=cro_orders,
-        wafers=wafers,
+        raw_subdirs=raw_subdirs,
         workers=args.workers,
         retries=args.retries,
         show_progress=not args.quiet,
@@ -542,14 +544,16 @@ def build_parser() -> argparse.ArgumentParser:
             "Pairs samples.csv barcodes to the Google Sheet 'sample template'\n"
             "RT_index wells. Control samples with no pairing are omitted.\n\n"
             "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples,\n"
-            "file_size, observation_count, feature_counts.\n"
+            "file_size, observation_count, feature_counts, derived_from.\n"
             "samples is a JSON list of correlating sample_name values, each\n"
             "prefixed with {lab}: from --lab. file_size is the S3 object size.\n"
             "observation_count is n_obs from the h5ad obs table, or barcodes\n"
             "in a ScalePlex filtered.matrix directory.\n"
             "feature_counts is a JSON list of {feature_type, feature_count}:\n"
             "QSR h5ad uses gene / n_vars; ScalePlex mtx uses hash oligo / the\n"
-            "features sibling or MTX header first dimension."
+            "features sibling or MTX header first dimension.\n"
+            "derived_from is a JSON list of raw *.cram S3 URIs whose well and\n"
+            "QSR# match the row, taken from --raw-subdirs."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -571,16 +575,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Google Sheet UUID (spreadsheet id in the Sheets URL)",
     )
     scale_h5ad.add_argument(
-        "--cro-order",
-        nargs="+",
+        "--metadata-experiment",
         required=True,
-        help="One or more CRO order identifiers",
+        help=("Keep only sample template rows whose experiment_name equals this value"),
     )
     scale_h5ad.add_argument(
-        "--wafers",
+        "--raw-subdirs",
         nargs="+",
         required=True,
-        help="One or more wafer / RunIDs",
+        help=("One or more raw/ folder names, or s3:// URIs of those folders"),
     )
     scale_h5ad.add_argument(
         "-o",

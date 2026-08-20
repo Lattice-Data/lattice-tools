@@ -166,8 +166,8 @@ python -m file_extract scale_h5ad \
   s3://czi-cro/project/order/processed/run_date/ \
   --lab example-lab \
   --metadata-gid <google-sheet-uuid> \
-  --cro-order NVUS0000000000-04 NVUS0000000000-05 \
-  --wafers 426971 441969
+  --metadata-experiment RNA3_098 \
+  --raw-subdirs 426971 441969
 ```
 
 | Flag | Description |
@@ -175,8 +175,8 @@ python -m file_extract scale_h5ad \
 | `s3_uri` | **Required.** Rundate prefix, e.g. `s3://czi-cro/project/order/processed/run_date/` |
 | `--lab` | **Required.** `example-lab` or `/labs/example-lab/` (the lab name prefixes `samples`) |
 | `--metadata-gid` | **Required.** Google Sheet UUID (spreadsheet id in the URL). Reads tab `sample template` |
-| `--cro-order` | **Required.** One or more CRO order identifiers |
-| `--wafers` | **Required.** One or more wafer / RunIDs |
+| `--metadata-experiment` | **Required.** Keep only `sample template` rows whose `experiment_name` equals this value |
+| `--raw-subdirs` | **Required.** One or more folder names under the `raw/` sibling of the rundate, or `s3://` URIs of those folders |
 | `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
 | `--workers` | Thread count (default: min(16, n_files)) |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
@@ -184,9 +184,11 @@ python -m file_extract scale_h5ad \
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
 
-**Pairing:** `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad and ScalePlex mtx files are omitted.
+**Pairing:** Only `sample template` rows whose `experiment_name` equals `--metadata-experiment` are used. `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad and ScalePlex mtx files are omitted.
 
-**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension)
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of raw `*.cram` S3 URIs from `--raw-subdirs`)
+
+**derived_from:** Each `--raw-subdirs` name is the folder under the `raw/` sibling of the processed rundate (`…/processed/run_date/` → `…/raw/{subdir}/`). An `s3://` URI is listed as given. Each deliverable `*.cram` (not `unmatched`) is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. A CRAM that does not attach to an output row is printed as a warning.
 
 **Optional introspection dependencies** (needed to read `observation_count` and `feature_counts`):
 
@@ -194,7 +196,7 @@ python -m file_extract scale_h5ad \
 pip install h5py fsspec s3fs
 ```
 
-`scale_cram` is not implemented yet; it can reuse the same `--lab`, `--metadata-gid`, `--cro-order`, and `--wafers` flags later.
+`scale_cram` is not implemented yet; it can reuse the same `--lab`, `--metadata-gid`, `--metadata-experiment`, and `--raw-subdirs` flags later.
 
 ---
 
