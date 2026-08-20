@@ -27,6 +27,11 @@ PubChem and ChEBI both return the two in the same payload. Where a string is mis
 the parent-lookup route still decides, so nothing regressed for a record that has no
 InChI.
 
+`defined_stereo()`, `defined_side()` and `is_multi_component()` are library surface
+for callers outside this repo. They have no production caller here, and that is
+deliberate: they are the reusable pieces the identification method this module was
+promoted from.
+
 The comparison here is the corrected form of one that shipped wrong. An earlier
 version compared only `/t` and `/m`, which meant it could not see `/b` double-bond
 geometry at all, and -- because `/t`-equal-but-`/m`-opposite fell through to the
@@ -215,7 +220,11 @@ def principal_component(formula: str) -> str:
 
     `"C27H29NO11.ClH"` -> `"C27H29NO11"`. Two structures sharing this differ only
     by counterion or water. The stoichiometric multiplier is kept in the returned
-    string but ignored when choosing, so `"2C26H28N3"` can win over `"C23H16O6"`.
+    string but ignored when choosing, so ranking is on the atoms of one unit. That
+    makes pyrvinium a heavy-atom tie -- 29 against pamoate's 29 -- decided by the
+    hydrogen-inclusive total, 57 against 45. Counting the multiplier would decide
+    it 58 to 29 and pick the same component; it is ignored because a component's
+    identity is its formula, not how many equivalents of it the salt carries.
 
     Components are ranked by **heavy-atom count, then total atoms**, not by the
     length of the formula string and not by total atoms alone. Length ties on
@@ -340,9 +349,10 @@ def defined_side(inchi_a: str, inchi_b: str) -> str:
     "More specific" means its set of defined stereo layers is a strict **superset**,
     not merely larger. A side defining only `/b` and a side defining only `/t` both
     define one layer and neither dominates; counting would have picked whichever was
-    passed first. Such ties, and exact ties, return `inchi_a`, and the caller's
-    downstream exact-structure match is what rejects them: an anchor chosen from a
-    tie simply fails to match any ChEBI entry, which is the safe direction.
+    passed first. Such ties, and exact ties, return `inchi_a`. A caller using this
+    as an identification anchor should treat a tie as no preference: an
+    exact-structure match against the returned side then fails to match any ChEBI
+    entry, which is the safe direction.
     """
     layers_a, _ = inchi_layers(inchi_a)
     layers_b, _ = inchi_layers(inchi_b)

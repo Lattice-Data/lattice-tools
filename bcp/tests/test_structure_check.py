@@ -19,6 +19,7 @@ from structure_check.client import (
     MATCH,
     NAME_UNRESOLVED,
     NOT_CHECKED,
+    NOT_COMPARABLE,
     OUTPUT_FIELDS_APPENDED,
     REVIEW_CHECK,
     REVIEW_INVESTIGATE,
@@ -29,10 +30,22 @@ from structure_check.client import (
     STEREO_DIFFERS,
     check_row,
     compare_structures,
+    comparison_verdict_from_inchi,
     empty_result,
     name_candidates,
     review_level,
     skeleton,
+)
+from structure_check.inchi import (
+    DIFFERENT_COMPOUND,
+    FORM_DIFFERS,
+    INCHI_VERDICTS,
+    ISOTOPE_DIFFERS,
+    LAYERS_IDENTICAL,
+    LAYERS_NOT_COMPARABLE,
+    STEREO_DIFFERS as INCHI_STEREO_DIFFERS,
+    STEREO_UNDEFINED_ON_ONE_SIDE,
+    classify_pair,
 )
 from structure_check.io import (
     MAX_CONSECUTIVE_OUTAGE_ROWS,
@@ -86,6 +99,20 @@ DOXORUBICIN_HCL_INCHI = (
     "h3-5,10,13,15,17,22,29,31,33,35-36H,6-9,28H2,1-2H3;1H/"
     "t10-,13-,15-,17-,22+,27-;/m0./s1"
 )
+# Hydroxyzine (CID 3658) against hydroxyzine pamoate (CID 25096). Pamoate is 29
+# heavy atoms, hydroxyzine 26, so principal_component() ranks the counterion on
+# the salt side and the drug on the free-base side -- the pair the layer route
+# must not answer as a different compound.
+HYDROXYZINE_INCHI = (
+    "InChI=1S/C21H27ClN2O2/c22-20-8-6-19(7-9-20)21(18-4-2-1-3-5-18)24-12-10-23"
+    "(11-13-24)14-16-26-17-15-25/h1-9,21,25H,10-17H2"
+)
+HYDROXYZINE_PAMOATE_INCHI = (
+    "InChI=1S/C23H16O6.C21H27ClN2O2/c24-20-16(14-7-3-1-5-12(14)9-18(20)22(26)27)"
+    "11-17-15-8-4-2-6-13(15)10-19(21(17)25)23(28)29;22-20-8-6-19(7-9-20)21(18-4-"
+    "2-1-3-5-18)24-12-10-23(11-13-24)14-16-26-17-15-25/h1-10,24-25H,11H2,(H,26,"
+    "27)(H,28,29);1-9,21,25H,10-17H2"
+)
 
 
 # --------------------------------------------------------------------------
@@ -121,6 +148,71 @@ def test_compare_matches_against_any_candidate() -> None:
 
 def test_compare_prefers_exact_match_over_stereo_sibling() -> None:
     assert compare_structures(UCN01, [UCN01_OTHER_EPIMER, UCN01]) == MATCH
+
+
+# --------------------------------------------------------------------------
+# InChI-layer projection onto the coarse vocabulary
+# --------------------------------------------------------------------------
+
+# Each pair was run against classify_pair and comparison_verdict_from_inchi.
+# The two STEREO_DIFFERS projections that are not stereo_differs in the layers
+# are the conservative-direction judgement calls the module comment describes.
+_ETHANOL_FORMULA_ONLY = "InChI=1S/C2H6O"
+PROJECTION_CASES = (
+    (LAYERS_IDENTICAL, ETHANOL_INCHI, ETHANOL_INCHI, MATCH),
+    (FORM_DIFFERS, ETHANOL_INCHI + "/q+1", ETHANOL_INCHI + "/q+2", SALT_DIFFERS),
+    (
+        INCHI_STEREO_DIFFERS,
+        ETHANOL_INCHI + "/t2-",
+        ETHANOL_INCHI + "/t2+",
+        STEREO_DIFFERS,
+    ),
+    # Conservative: the coarse vocabulary has no "agree, one side vaguer".
+    (
+        STEREO_UNDEFINED_ON_ONE_SIDE,
+        ETHANOL_INCHI + "/t2-",
+        ETHANOL_INCHI,
+        STEREO_DIFFERS,
+    ),
+    # Conservative: an isotope sits in the InChIKey's second block, so the
+    # key-based path already calls this STEREO_DIFFERS; matching that keeps the
+    # two paths from disagreeing about the same pair.
+    (
+        ISOTOPE_DIFFERS,
+        ETHANOL_INCHI + "/i1+1",
+        ETHANOL_INCHI + "/i2+1",
+        STEREO_DIFFERS,
+    ),
+    (
+        DIFFERENT_COMPOUND,
+        _ETHANOL_FORMULA_ONLY + "/c1-2-3/h3H,2H2,1H3",
+        _ETHANOL_FORMULA_ONLY + "/c1-3-2/h3H,2H2,1H3",
+        SKELETON_DIFFERS,
+    ),
+    (LAYERS_NOT_COMPARABLE, ETHANOL_INCHI + "/f1", ETHANOL_INCHI, NOT_COMPARABLE),
+)
+
+
+def test_every_inchi_verdict_is_covered_by_this_table() -> None:
+    """The import-time check in client.py catches a missing key, not a wrong one.
+
+    A verdict added to inchi.INCHI_VERDICTS and mapped by eye would pass that check
+    and be pinned by nothing, so the table above has to be exhaustive by assertion
+    rather than by intention.
+    """
+    assert {v for v, _, _, _ in PROJECTION_CASES} == set(INCHI_VERDICTS)
+
+
+@pytest.mark.parametrize(
+    "inchi_verdict, left, right, coarse_verdict",
+    PROJECTION_CASES,
+    ids=[case[0] for case in PROJECTION_CASES],
+)
+def test_comparison_verdict_from_inchi_projects_every_layer_verdict(
+    inchi_verdict: str, left: str, right: str, coarse_verdict: str
+) -> None:
+    assert classify_pair(left, right) == inchi_verdict
+    assert comparison_verdict_from_inchi(left, right) == coarse_verdict
 
 
 # --------------------------------------------------------------------------
@@ -218,6 +310,10 @@ def test_empty_result_starts_unverified() -> None:
     result = empty_result()
     assert result["review"] == REVIEW_UNVERIFIED
     assert set(result) == set(OUTPUT_FIELDS_APPENDED) | set(STATUS_FIELDS)
+    assert "cas_class" in OUTPUT_FIELDS_APPENDED
+    assert "cas_repairs" in OUTPUT_FIELDS_APPENDED
+    assert result["cas_class"] == ""
+    assert result["cas_repairs"] == ""
     # Nothing was asked, so nothing failed.
     assert all(result[f] == IDENTIFIER_NOT_CHECKED for f in STATUS_FIELDS)
     assert result["unasked"] == ""
@@ -229,6 +325,8 @@ def test_empty_result_starts_unverified() -> None:
 
 DOXORUBICIN_FREE_BASE = "AOJJSUZBOXZQNB-TZSSRYMLSA-N"
 DOXORUBICIN_HCL = "MWWSFMDVAYGXBV-RUELKSSGSA-N"
+HYDROXYZINE = "ZQDWXGKKHFNSQK-UHFFFAOYSA-N"
+HYDROXYZINE_PAMOATE = "ASDOKGIIKXGMNB-UHFFFAOYSA-N"
 
 
 @patch("structure_check.client.parent_inchikey")
@@ -262,6 +360,9 @@ def test_refine_reads_a_salt_off_the_formula_layer_without_a_request(
     And a better answer on exactly these compounds -- PubChem's desalted parent is
     documented as unreliable for multi-component salts, which is what a hydrochloride
     is. Three requests per structure saved on every row that reaches refinement.
+
+    The free route now answers only this way: a salt finding is exact, a layer
+    reading of "different compound" is not and falls through to the parent route.
     """
     from structure_check.client import refine_skeleton_difference
 
@@ -274,6 +375,25 @@ def test_refine_reads_a_salt_off_the_formula_layer_without_a_request(
         )
         == SALT_DIFFERS
     )
+    mock_parent.assert_not_called()
+
+
+@patch("structure_check.client.parent_inchikey")
+def test_a_layer_verdict_of_different_compound_still_asks_pubchem_for_parents(
+    mock_parent: MagicMock,
+) -> None:
+    """Ethanol vs doxorubicin is a real different compound; the layers say so.
+
+    Answering that off the layers used to skip the parent route. The parent
+    mock returns a distinct parent per key, so the row stays skeleton_differs --
+    the same pattern as test_refine_keeps_a_genuine_difference.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    mock_parent.side_effect = lambda key: {
+        ETHANOL: ETHANOL,
+        DOXORUBICIN_FREE_BASE: DOXORUBICIN_FREE_BASE,
+    }[key]
     assert (
         refine_skeleton_difference(
             ETHANOL,
@@ -282,6 +402,57 @@ def test_refine_reads_a_salt_off_the_formula_layer_without_a_request(
             candidate_inchis=(DOXORUBICIN_INCHI,),
         )
         == SKELETON_DIFFERS
+    )
+    assert mock_parent.called
+
+
+@patch("structure_check.client.parent_inchikey")
+def test_a_pamoate_salt_is_not_answered_off_the_layers(
+    mock_parent: MagicMock,
+) -> None:
+    """Hydroxyzine pamoate vs hydroxyzine: 26 heavy atoms against pamoate's 29.
+
+    principal_component() ranks the counterion on the salt side and the drug on
+    the free-base side, so classify_pair returns different_compound. Answering
+    skeleton_differs from that reopened the largest false-positive class this
+    refinement exists to close. With a shared mocked parent the row is a salt.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    mock_parent.return_value = HYDROXYZINE
+    assert (
+        refine_skeleton_difference(
+            HYDROXYZINE_PAMOATE,
+            [HYDROXYZINE],
+            reference_inchi=HYDROXYZINE_PAMOATE_INCHI,
+            candidate_inchis=(HYDROXYZINE_INCHI,),
+        )
+        == SALT_DIFFERS
+    )
+    assert mock_parent.called
+
+
+@patch("structure_check.client.parent_inchikey")
+def test_one_unreadable_candidate_does_not_discard_a_salt_finding(
+    mock_parent: MagicMock,
+) -> None:
+    """A sibling with a non-standard InChI must not mask a definite salt answer.
+
+    `/f` is a layer this comparison refuses, so that candidate is not_comparable;
+    the other is doxorubicin HCl against its free base. compare_structures' contract
+    is that a candidate can only ever mask a finding, never invent one -- the same
+    direction, inverted, forbids discarding a salt because a sibling was unreadable.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    assert (
+        refine_skeleton_difference(
+            DOXORUBICIN_HCL,
+            [DOXORUBICIN_FREE_BASE, ETHANOL],
+            reference_inchi=DOXORUBICIN_HCL_INCHI,
+            candidate_inchis=(DOXORUBICIN_INCHI, ETHANOL_INCHI + "/f1"),
+        )
+        == SALT_DIFFERS
     )
     mock_parent.assert_not_called()
 
@@ -484,6 +655,39 @@ def test_check_row_unresolved_cas_blocks_both_comparisons() -> None:
     assert result["id_cas_verdict"] == CAS_UNRESOLVED
     assert result["name_cas_verdict"] == CAS_UNRESOLVED
     assert result["review"] == REVIEW_UNVERIFIED
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_cell_that_is_not_a_registry_number_says_so_in_its_own_column(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """cas_unresolved used to mean "PubChem said no"; this cell was never asked.
+
+    cas_class is what distinguishes "not a registry number" from "PubChem has no
+    such CAS". The request is the thing we must not make: this endpoint is
+    PubChem's name endpoint, which resolves anything.
+    """
+    result = check_row(cas="not a cas", chebi_id="CHEBI:16236", name="Ethanol")
+    assert result["cas_class"] == "invalid_format"
+    assert result["cas_repairs"] == ""
+    assert result["id_cas_verdict"] == CAS_UNRESOLVED
+    assert mock_get.call_count == 0
+
+
+def test_a_repaired_cas_is_recorded_next_to_the_verdict_it_produced() -> None:
+    """A silent repair is indistinguishable from PubChem answering the cell's value.
+
+    `0362-07-02` is 2-methoxyestradiol after a padded check digit and a leading
+    zero are stripped. Produced by normalize_cas, not the rotation branch.
+    """
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(cas_key="", cas_name="")
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas="0362-07-02", chebi_id="CHEBI:16236", name="x")
+    assert result["cas_repairs"] == "zero_padded_check_digit+leading_zero"
+    assert result["cas_class"] == "valid"
+    assert result["id_cas_verdict"] == CAS_UNRESOLVED
 
 
 def test_check_row_blank_cas_is_not_checked_rather_than_unresolved() -> None:

@@ -1,8 +1,10 @@
 """
 Validate and repair CAS Registry Numbers before spending a request on them.
 
-Nothing else in `bcp/` checks a CAS number, yet `chebi_lookup.cas_to_cid()` and
-`structure_check.cas_structure()` both send whatever the spreadsheet contained
+Shared by `chebi_lookup` and `structure_check`. It lives at the `bcp/` top level
+rather than inside either package so neither has to import the other for a check
+that belongs to both. Without it, `chebi_lookup.cas_to_cid()` and
+`structure_check.client.cas_structure()` both send whatever the spreadsheet contained
 straight to PubChem. A malformed number costs a request and comes back as "PubChem
 does not know this", which reads identically to "this compound is not indexed" --
 so the defect is attributed to the database instead of the cell.
@@ -63,8 +65,12 @@ import unicodedata
 # trailing newline.
 CAS_RE = re.compile(r"^([0-9]{2,7})-([0-9]{2})-([0-9])\Z")
 
-# Hyphen-like characters, plus the "?" a failed encoding leaves behind.
-_SEPARATORS = re.compile(r"[‐-―−－?]")
+# The Unicode dashes NFKC does not already fold, plus the soft hyphen, which is a
+# format character but in a CAS column is a hyphen that survived a round trip as a
+# discretionary break -- the same corruption as 864461?31?4. U+FF0D is in the
+# class even though NFKC already folds it to ASCII hyphen: redundant, but the
+# class is the documented set rather than the remainder after folding.
+_SEPARATORS = re.compile(r"[‐-―−－?\u00ad\u2043\u02d7\u2e3a-\u2e3b]")
 _EXCEL_TIME = re.compile(r"^(.*?)\s+00:00:00\Z")
 # First group bounded like a real CAS body, so an 8-digit first segment is not
 # "repaired" into something that can never be a registry number anyway.
@@ -167,7 +173,7 @@ def normalize_cas(raw: str) -> tuple[str, str]:
     rather than applied silently: a curator has to be able to see that the value
     in the cell is not the value that was looked up.
 
-    Repairs are applied in the order the corruptions occur, because they compose --
+    Repairs are recorded in the order they are applied, because they compose --
     a spreadsheet can only read a CAS number as a date *after* the check digit has
     been padded to two digits, and `0362-07-02` carries both a leading zero and a
     padded check digit.
@@ -204,6 +210,10 @@ def normalize_cas(raw: str) -> tuple[str, str]:
 
     match = _ZERO_PADDED_CHECK.match(text)
     if match:
+        # Unconditional, including on a string that is a date rather than a CAS.
+        # The date/CAS ambiguity is irreducible and is argued for in the module
+        # docstring (the one-in-ten collision, `2020-01-01` vs `2113-05-05`); the
+        # repair is reported in `repairs`.
         text = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
         repairs.append(REPAIR_ZERO_PADDED_CHECK_DIGIT)
 
@@ -249,7 +259,10 @@ def classify_cas(raw: str) -> tuple[str, str, str]:
         # Rotation can expose a leading zero that normalize_cas never saw, because
         # in the rotated form it sat in the last segment: "3-4-07689" rotates to
         # "07689-03-4", which passes the check digit (leading zeros are invisible
-        # to it) and would otherwise be reported CAS_VALID.
+        # to it) and would otherwise be reported CAS_VALID. The rotation label
+        # comes first because the rotation is what exposed the leading zero --
+        # repairs are recorded in the order they are applied.
+        repairs = "+".join([r for r in (repairs, REPAIR_SEGMENT_ROTATION) if r])
         trimmed = strip_leading_zero(rotated)
         if trimmed:
             rotated = trimmed
@@ -258,7 +271,6 @@ def classify_cas(raw: str) -> tuple[str, str, str]:
         # either way. Omitting the label on the refusal path handed a curator a
         # string that appears in no spreadsheet with no account of where it came
         # from -- exactly the silent repair normalize_cas() promises never to make.
-        repairs = "+".join([r for r in (repairs, REPAIR_SEGMENT_ROTATION) if r])
         if _has_leading_zero(rotated):
             return rotated, CAS_INVALID_FORMAT, repairs
         return rotated, CAS_VALID, repairs

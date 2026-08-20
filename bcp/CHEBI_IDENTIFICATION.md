@@ -74,6 +74,8 @@ separator character cannot corrupt a verdict.
 | 6 | independent cross-checks over the verified set | yes |
 | 7 | write the deliverables | no |
 
+Phase 1 does not exist; the numbering follows the per-run scripts.
+
 Phase 3 is the one that matters most. Phase 5 is deliberately separate from phase 4:
 the policy is a judgement call that may be revisited, and re-deciding must not mean
 re-querying.
@@ -127,11 +129,11 @@ the lab had already corrected once.
 
 ## Traps the check digit cannot catch
 
-`structure_check.cas` implements this.
+`cas_registry` implements this.
 
 **Wired, unlike the name ladder below.** Both call paths named in
-`structure_check/cas.py`'s opening paragraph — `chebi_lookup.cas_to_cid()` and
-`structure_check.cas_structure()` — funnel through `chebi_lookup.cas_to_cid_status()`,
+`cas_registry.py`'s opening paragraph — `chebi_lookup.cas_to_cid()` and
+`structure_check.client.cas_structure()` — funnel through `chebi_lookup.cas_to_cid_status()`,
 which classifies and repairs before it spends a request. A value no repair turns into a
 registry number is reported `not_found` without one; a value whose check digit disagrees
 is still sent, since PubChem indexes vendor synonyms verbatim and what it answers is
@@ -473,7 +475,7 @@ Offline by default, from the `bcp` directory:
 
 ```bash
 cd bcp
-pytest tests/test_structure_check_inchi_layers.py tests/test_structure_check_cas_validation.py
+pytest tests/test_structure_check_inchi_layers.py tests/test_cas_registry.py
 ```
 
 Every lesson above that is enforceable is a test rather than a paragraph, and the fixtures

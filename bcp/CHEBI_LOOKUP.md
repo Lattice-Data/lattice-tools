@@ -101,7 +101,7 @@ Appended columns (batch mode) or fields (single-CAS mode):
 
 Single-CAS JSON includes a top-level `"CAS"` key plus these fields.
 
-**The CAS is validated and repaired before it is looked up.** `structure_check.cas`
+**The CAS is validated and repaired before it is looked up.** `cas_registry`
 does this, and the three `cas_*` columns are its report: a repair a curator cannot see is
 indistinguishable from PubChem having answered about the value in the cell. Two
 consequences worth knowing before pointing this at a sheet:

@@ -6,7 +6,7 @@ Comparing chemical names as strings does not work. ChEBI calls `CHEBI:92401` *"6
 
 InChIKeys do work, because they are derived from the structure itself. So this tool resolves each identifier in a row to a structure **independently** — the CAS number and the compound name through PubChem, the ChEBI ID through ChEBI — and compares those.
 
-The only one of the ChEBI tools here that cross-checks identifiers against *each other*: [CHEBI_LOOKUP.md](CHEBI_LOOKUP.md) goes from a CAS number to a ChEBI ID, [CHEBI_TERMS.md](CHEBI_TERMS.md) goes from a ChEBI ID you already hold to its authoritative name and a correctness verdict, and [CHEBI_IDENTIFICATION.md](CHEBI_IDENTIFICATION.md) is the phased method above all three, for a batch that has no trustworthy identifier yet. Its `structure_check.inchi` and `structure_check.cas` modules came out of that work.
+The only one of the ChEBI tools here that cross-checks identifiers against *each other*: [CHEBI_LOOKUP.md](CHEBI_LOOKUP.md) goes from a CAS number to a ChEBI ID, [CHEBI_TERMS.md](CHEBI_TERMS.md) goes from a ChEBI ID you already hold to its authoritative name and a correctness verdict, and [CHEBI_IDENTIFICATION.md](CHEBI_IDENTIFICATION.md) is the phased method above all three, for a batch that has no trustworthy identifier yet. Its `structure_check.inchi` and `cas_registry` modules came out of that work.
 
 ---
 
@@ -86,15 +86,17 @@ A counterion is part of an InChIKey's connectivity block, so "Doxorubicin" and d
 
 So when a skeleton difference is found, it is examined again — by **two routes, cheapest first**.
 
-The formula layer of the InChI string settles it outright: `C27H29NO11.ClH` against `C27H29NO11` is the same principal component with a counterion attached, and that is a salt difference by definition rather than by inference. The strings arrive in the same payloads as the InChIKeys, so this costs **no extra request**, and it is right about multi-component salts, where PubChem's desalted parent is not.
+The formula layer of the InChI string can **confirm a salt difference** for free: `C27H29NO11.ClH` against `C27H29NO11` is the same principal component with a counterion attached, and that is a salt difference by definition rather than by inference. The strings arrive in the same payloads as the InChIKeys, so this costs **no extra request**. A layer reading of "different compound" is **not** answered from the layers: `principal_component()` ranks by heavy atoms and picks the counterion when the counterion is the larger fragment — pamoate is 29 heavy atoms, so hydroxyzine pamoate (26), pyrantel pamoate (14) and amitriptyline embonate (21) all rank the counterion on the salt side and the drug on the free-base side. Answering `skeleton_differs` there reopened the largest false-positive class this refinement exists to close. Those rows go to the parent route.
 
-Where either side has no InChI string — ChEBI records none for class terms and R-group entries — both sides are re-resolved to their **desalted parent** via PubChem and compared again. Agreeing parents demote the row to `salt_differs` / `check`.
+Where either side has no InChI string — ChEBI records none for class terms and R-group entries — or the layers reported a different compound, both sides are re-resolved to their **desalted parent** via PubChem and compared again. Agreeing parents demote the row to `salt_differs` / `check`.
 
 Two independently written comparisons on the same pair is a cross-check, not duplication. When the InChIKeys say the connectivity differs and the layers say the structures are identical, both cannot be true, so the row goes to the parent route and the disagreement is logged. That kind of disagreement is what surfaced the stereo bug this package shipped with.
 
 This runs in one direction only: it can *downgrade* a difference already found, never claim a match. PubChem's parent assignment is unreliable for multi-component salts — for pyrvinium pamoate it returns the **pamoic acid counterion** — so a wrong answer there leaves a row flagged rather than waving one through. Pyrvinium is exactly that case and stays `investigate`.
 
-**One caveat, stated precisely.** Because the demotion runs on both sides, two genuinely unrelated compounds cited as salts of the *same* counterion could each resolve to that counterion, agree, and have a real skeleton difference demoted from `investigate` to `check`. The row is still flagged and still needs a human, so nothing is waved through — but "false positives only" would be too strong a claim. In practice the demotion needs both `inchikey → CID → parent CID → InChIKey` chains to succeed, and for multi-component salts they usually do not (pyrvinium pamoate returns nothing at all via that path), which is why the pamoate rows stay at `investigate`.
+**One caveat, stated precisely.** Because the demotion runs on both sides, two genuinely unrelated compounds cited as salts of the *same* counterion could each resolve to that counterion, agree, and have a real skeleton difference demoted from `investigate` to `check`. The row is still flagged and still needs a human, so nothing is waved through — but "false positives only" would be too strong a claim. In practice the parent-route demotion needs both `inchikey → CID → parent CID → InChIKey` chains to succeed, and for multi-component salts they usually do not (pyrvinium pamoate returns nothing at all via that path), which is why the pamoate rows stay at `investigate` on that route.
+
+The same demotion exists on the **layer route** and is deterministic there: two unrelated salts of the same counterion have the same principal component, so `classify_pair` returns `form_differs` → `salt_differs`. Hydroxyzine pamoate against pyrantel pamoate is that pair. The row is still flagged (`check`, not `ok`), so nothing is waved through.
 
 ---
 
@@ -110,7 +112,7 @@ This runs in one direction only: it can *downgrade* a difference already found, 
 Plus the reasons a comparison could not be made, which are **never findings about the compound**:
 
 - `name_unresolved` — PubChem resolved no structure for the name
-- `cas_unresolved` — PubChem resolved no structure for the CAS
+- `cas_unresolved` — PubChem resolved no structure for the CAS — or the cell was never a registry number and no request was made. `cas_class` says which.
 - `chebi_unresolved` — malformed ID, or ChEBI has no such record
 - `name_ambiguous` — the name resolved to more structures than were compared, and none matched (see the cap below)
 - `chebi_no_structure` — ChEBI has the entry but records no structure (class terms and R-group entries do not)
@@ -138,6 +140,8 @@ That line matters more than it looks. "PubChem has no such CAS" is evidence abou
 | `id_cas_verdict`, `name_cas_verdict` | The two verdicts |
 | `cas_inchikey` | Structure PubChem gives for the CAS |
 | `cas_pubchem_name` | PubChem's preferred name for the CAS — useful for eyeballing a flagged row |
+| `cas_class` | `valid`, `invalid_checksum`, `invalid_format` or `missing` |
+| `cas_repairs` | `+`-joined record of the mechanical repairs applied, empty when none |
 | `chebi_inchikey` | Structure ChEBI gives for the ID |
 | `name_query` | **The exact string that resolved.** A difference must never be traceable to a query you cannot see. |
 | `name_inchikey` | Structure(s) the name resolved to, pipe-separated |
@@ -231,9 +235,9 @@ print(r["review"], r["id_cas_verdict"], r["name_cas_verdict"])
 
 ## Cost
 
-Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title,InChI` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), typically 1–2 for the name (more if neither whole-string form resolves and the token fallback tries each token in turn), and 1 ChEBI call. **Zero** for a CAS cell that is not a registry number: it is validated before it is sent.
+Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title,InChI` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), typically 1–2 for the name (more if neither whole-string form resolves and the token fallback tries each token in turn), and 1 ChEBI call. **Zero** for a CAS cell that is not a registry number: it is validated before it is sent. The class and any repair are recorded per row in `cas_class` and `cas_repairs`.
 
-Salt refinement is free where the InChI strings are present, since they ride along in calls already being made. Only a side without one falls back to the desalted-parent check at 3 requests per structure, which runs where a difference was already found and the name was not truncated; answers are cached for the run — including a definitive "no parent" — but an outage is not, so one unlucky moment does not disable the demotion for every later row.
+Salt refinement is free where the layers find a salt, since the InChI strings ride along in calls already being made. A row the layers call a different compound still pays the parent route, and that is deliberate — it is the verdict a curator pays the most for. Only a side without an InChI string, or that layer reading, falls back to the desalted-parent check at 3 requests per structure, which runs where a difference was already found and the name was not truncated; answers are cached for the run — including a definitive "no parent" — but an outage is not, so one unlucky moment does not disable the demotion for every later row.
 
 A row with neither a ChEBI ID nor a name costs nothing — the CAS is not resolved when there is nothing to compare it against — and so does a row whose **CAS** is blank or unresolvable, since the pivot is gone and neither comparison can be made whatever the other identifiers turn out to be. That second case is what a misdirected `--cas-column` looks like, and it is the difference between paying full price for every row of a broken run and paying for one lookup. A name that resolves to more than `MAX_NAME_CANDIDATES` (10) structures is truncated, since each extra candidate can cost three more requests if refinement has to fall back to desalted parents. **Truncation can never produce a finding.** PubChem returns structures in CID order rather than relevance order, so the true match may sit past the cap; a truncated comparison that finds no match therefore reports `name_ambiguous`, not a difference. A match *inside* the compared set is still a match, since matching any candidate is sound. Either way the row records `(truncated: N structures)` in `name_query`, so a flagged row is auditable from the CSV alone. Identical triples are cached within a run, so repeated compounds cost nothing extra — **except** a triple whose lookup hit an outage, which is retried rather than cached, so one unlucky moment does not decide every row that repeats it. Expect roughly 2–3 seconds per distinct row.
 

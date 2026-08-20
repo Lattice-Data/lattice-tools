@@ -9,6 +9,8 @@ from typing import Any
 
 import requests
 
+from cas_registry import CAS_INVALID_FORMAT, CAS_MISSING, classify_cas
+
 # PubChem rate limits: 5 req/s, 400 req/min.
 # 3 calls per compound at 0.25s each ≈ 1.3 req/s — well under the limit.
 REQUEST_DELAY = 0.25
@@ -56,7 +58,7 @@ OUTPUT_FIELDS_APPENDED = [
     "tpsa",
     "synonyms",
     # What was actually asked, and what was wrong with what the cell held.
-    # structure_check.cas repairs mechanical corruption before the request, and a
+    # cas_registry repairs mechanical corruption before the request, and a
     # repair applied without being reported is the one thing that module refuses to
     # do: a curator has to be able to see that the value looked up is not the value
     # in the spreadsheet. cas_queried is empty when no request was made.
@@ -200,18 +202,9 @@ def _cas_for_lookup(raw: str) -> tuple[str, str, str]:
     as a class the caller has to interpret, so "do not ask" is one truth test and the
     `cas_queried` column is literally what was asked.
 
-    `structure_check.cas` does the work. The import is deferred to keep the package
-    graph acyclic: structure_check.client imports *this* module at module scope, so a
-    top-level import of a structure_check submodule here would re-enter that package
-    while this one is half-executed, and its `from chebi_lookup.client import BASE`
-    would fail. After the first call it is a sys.modules lookup.
-
-    The direction is the awkward part, not the import: CAS validation is used by both
-    packages and lives in the higher one. Moving it down is the fix if a second
-    deferred import ever becomes necessary.
+    CAS validation lives in `cas_registry`, a top-level module that belongs to
+    neither package, so both can import it at module scope without a cycle.
     """
-    from structure_check.cas import CAS_INVALID_FORMAT, CAS_MISSING, classify_cas
-
     queried, cas_class, repairs = classify_cas(raw)
     if cas_class in (CAS_MISSING, CAS_INVALID_FORMAT):
         return "", cas_class, repairs
@@ -239,8 +232,8 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
     rewrite or truncate the request.
 
     **The value is validated and mechanically repaired before it is sent**, by
-    structure_check.cas, and this is the one place both call paths pass through --
-    chebi_lookup.lookup_cas() and structure_check.cas_structure(). It matters here
+    cas_registry, and this is the one place both call paths pass through --
+    chebi_lookup.lookup_cas() and structure_check.client.cas_structure(). It matters here
     more than anywhere else because the endpoint is PubChem's **name** endpoint: it
     resolves anything, so an unchecked cell holding a compound name resolves *as a
     name*, and a row's CAS side then agrees with its name side because both asked

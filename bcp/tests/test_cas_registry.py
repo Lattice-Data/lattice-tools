@@ -1,10 +1,10 @@
-"""Unit tests for structure_check.cas validation and repair (no network)."""
+"""Unit tests for cas_registry validation and repair (no network)."""
 
 from __future__ import annotations
 
 import pytest
 
-from structure_check.cas import (
+from cas_registry import (
     CAS_INVALID_CHECKSUM,
     CAS_INVALID_FORMAT,
     CAS_MISSING,
@@ -99,6 +99,41 @@ def test_mojibake_separators_are_restored() -> None:
     cas, repairs = normalize_cas("86?75?9")
     assert cas == BENZOXIQUINE
     assert repairs == REPAIR_SEPARATOR_MOJIBAKE
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "7689\u00ad03\u00ad4",  # U+00AD SOFT HYPHEN
+        "7689\u204303\u20434",  # U+2043 HYPHEN BULLET
+        "7689\u02d703\u02d74",  # U+02D7 MODIFIER LETTER MINUS SIGN
+        "7689\u2e3a03\u2e3a4",  # U+2E3A TWO-EM DASH
+        "7689\u2e3b03\u2e3b4",  # U+2E3B THREE-EM DASH
+    ],
+)
+def test_dashes_nfkc_does_not_fold_are_restored(raw: str) -> None:
+    """Separators the original class missed, attributed as encoding artifacts.
+
+    Without these, a soft hyphen or hyphen bullet landed in invalid_format -- the
+    cell's shape, not the encoding -- which is the distinction this module exists
+    to draw. Camptothecin `7689-03-4`.
+    """
+    cas, cas_class, repairs = classify_cas(raw)
+    assert (cas, cas_class, repairs) == (
+        CAMPTOTHECIN,
+        CAS_VALID,
+        REPAIR_SEPARATOR_MOJIBAKE,
+    )
+
+
+def test_a_soft_hyphen_inside_a_digit_run_is_still_not_a_cas() -> None:
+    """Substituting rather than stripping is what makes the repair safe.
+
+    A genuine invisible break inside a digit run becomes a two-segment string that
+    fails CAS_RE and lands in invalid_format -- no invented registry number.
+    """
+    _, cas_class, _ = classify_cas("7689\u00ad034")
+    assert cas_class == CAS_INVALID_FORMAT
 
 
 def test_a_clean_number_is_left_alone_and_reports_no_repair() -> None:
@@ -208,7 +243,7 @@ def test_rotation_can_expose_a_leading_zero_and_it_is_repaired() -> None:
     assert (cas, cas_class) == (CAMPTOTHECIN, CAS_VALID)
     # Both labels, in order, exactly: asserting membership of each would pass if
     # classify_cas truncated the joined record to its first element.
-    assert repairs == f"{REPAIR_LEADING_ZERO}+{REPAIR_SEGMENT_ROTATION}"
+    assert repairs == f"{REPAIR_SEGMENT_ROTATION}+{REPAIR_LEADING_ZERO}"
 
 
 @pytest.mark.parametrize("raw", ["00-00-0", "0000-00-0", "007-00-1", "0-00-0"])

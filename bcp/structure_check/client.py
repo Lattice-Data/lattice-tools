@@ -28,6 +28,7 @@ import urllib.parse
 from collections.abc import Collection
 from typing import Any
 
+from cas_registry import classify_cas
 from chebi_lookup.client import (
     BASE,
     OUTCOME_UNREACHABLE,
@@ -344,6 +345,8 @@ OUTPUT_FIELDS_APPENDED = [
     "name_cas_verdict",
     "cas_inchikey",
     "cas_pubchem_name",
+    "cas_class",
+    "cas_repairs",
     "chebi_inchikey",
     "name_query",
     "name_inchikey",
@@ -574,28 +577,36 @@ def refine_skeleton_difference(
     leaves SKELETON_DIFFERS.
 
     **Two routes, and the free one is tried first.** Given the InChI strings, the
-    formula layer answers this directly: `comparison_verdict_from_inchi()` costs no
-    requests and is right about multi-component salts, where PubChem's desalted
-    parent is documented as unreliable -- for pyrvinium pamoate it returns the
-    pamoate counterion. Without them, the parent route costs three requests per
-    structure, which is why it is only reached once a difference is already known.
+    formula layer can confirm a salt difference at no cost: `form_differs` is exact,
+    and that is the only verdict the free route is now allowed to return. A layer
+    reading of "different compound" is not. `principal_component()` ranks by heavy
+    atoms and picks the counterion when the counterion is the larger fragment --
+    pamoate is 29 heavy atoms, so hydroxyzine pamoate (26), pyrantel pamoate (14)
+    and amitriptyline embonate (21) all rank the counterion on the salt side and
+    the drug on the free-base side. Answering `SKELETON_DIFFERS` from that
+    reopened the largest false-positive class this refinement exists to close.
+    Those rows fall through to the parent route, which costs three requests per
+    structure and is why it is only reached once a difference is already known.
 
-    The InChI route is used only when every side has a string and every verdict is
-    one this function can express. A missing or non-standard string falls back
-    silently; a verdict of MATCH or STEREO_DIFFERS means the layers and the keys
-    disagree about a pair whose keys differ in connectivity, which cannot both be
-    true, so it is logged and the request route decides. Two independently written
-    comparisons disagreeing is how the stereo bug in this package was found, and
-    that redundancy only pays if the disagreement is reported.
+    A missing or non-standard string falls back silently. A verdict of MATCH or
+    STEREO_DIFFERS means the layers and the keys disagree about a pair whose keys
+    already differ in connectivity, which cannot both be true, so it is logged and
+    the request route decides. Two independently written comparisons disagreeing is
+    how the stereo bug in this package was found, and that redundancy only pays if
+    the disagreement is reported.
     """
     if reference_inchi and candidate_inchis and all(candidate_inchis):
         verdicts = {
             comparison_verdict_from_inchi(reference_inchi, candidate_inchi)
             for candidate_inchi in candidate_inchis
         }
-        if verdicts <= {SALT_DIFFERS, SKELETON_DIFFERS}:
-            return SALT_DIFFERS if SALT_DIFFERS in verdicts else SKELETON_DIFFERS
-        if verdicts - {SALT_DIFFERS, SKELETON_DIFFERS, NOT_COMPARABLE}:
+        # MATCH or STEREO_DIFFERS from the layers means the layers and the keys
+        # disagree about a pair whose keys already differ in connectivity. Both
+        # cannot be true, so one input is wrong and nothing read off the layers is
+        # trustworthy for this pair -- the request route decides, and the
+        # disagreement is reported, because two independently written comparisons
+        # are only worth the duplication if they are heard when they differ.
+        if verdicts & {MATCH, STEREO_DIFFERS}:
             log.warning(
                 "InChI layers and InChIKeys disagree about %s: the keys differ in "
                 "connectivity while the layers report %s. Refining with PubChem "
@@ -603,6 +614,23 @@ def refine_skeleton_difference(
                 reference,
                 sorted(verdicts),
             )
+        elif SALT_DIFFERS in verdicts:
+            # One comparable candidate reading "salt" settles it. A candidate can
+            # only ever mask a finding, never invent one (compare_structures'
+            # contract), so a definite salt answer must not be discarded because a
+            # sibling candidate carried an unreadable InChI.
+            return SALT_DIFFERS
+        # Everything else -- every candidate reporting a different compound, or
+        # none of them readable -- defers to the parent route rather than
+        # answering. The layers say "different compound" whenever the two sides'
+        # principal components differ, and principal_component() picks the
+        # counterion for a salt whose counterion outweighs its parent: pamoate is
+        # 29 heavy atoms, so hydroxyzine pamoate (26), pyrantel pamoate (14) and
+        # amitriptyline embonate (21) all rank the counterion on the salt side and
+        # the drug on the free-base side. Answering skeleton_differs here reopened
+        # the largest false-positive class this refinement exists to close. Three
+        # requests per structure is the right price for the verdict that costs a
+        # curator the most to be wrong about.
 
     reference_parent = parent_inchikey(reference)
     if not reference_parent:
@@ -898,6 +926,12 @@ def check_row(
     made. Never raises: anything unresolvable is reported as such rather than as a
     finding about the compound.
 
+    `cas_class` and `cas_repairs` are a fact about the cell, not about the network,
+    and are set for every non-blank CAS including when `"cas" in skip`. A row that
+    was not examined at all -- no ChEBI ID and no name, so this function returns
+    without looking at the CAS -- leaves both empty, matching `cas_status:
+    not_checked`.
+
     `skip` names sides ("cas", "chebi", "name") whose upstream a caller already
     knows to be down, so the request is not made at all and the side is reported
     unreachable directly. That is what it is — the row's question goes unanswered
@@ -915,6 +949,16 @@ def check_row(
         return _finish(result)
 
     has_cas = bool(str(cas or "").strip())
+    if has_cas:
+        # Classified here as well as inside cas_to_cid_status: the class and the
+        # repairs are the row's account of why cas_unresolved happened -- whether
+        # PubChem said no, or was never asked because the cell is not a registry
+        # number, or was asked about a value the sheet does not contain. classify_cas
+        # is pure and deterministic, so calling it twice costs nothing and keeps the
+        # "worth a request" rule in one place.
+        _, cas_class, cas_repairs = classify_cas(cas)
+        result["cas_class"] = cas_class
+        result["cas_repairs"] = cas_repairs
     cas_unreachable = False
     cas_key, cas_name, cas_inchi = "", "", ""
     if has_cas:

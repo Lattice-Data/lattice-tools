@@ -6,11 +6,8 @@ import pytest
 
 from structure_check.inchi import (
     COMPARED_LAYERS,
-    CONSTITUTION_LAYERS,
     DIFFERENT_COMPOUND,
-    IONISATION_LAYERS,
     ISOTOPE_DIFFERS,
-    ISOTOPE_LAYER,
     FORM_DIFFERS,
     INCHI_VERDICTS,
     LAYERS_IDENTICAL,
@@ -96,15 +93,17 @@ ABT702_2HCL = (
     "(H2,24,26,27,28);2*1H"
 )
 
-# Apomorphine hydrochloride against its hemihydrate. Real PubChem records, and the
-# only fixture here whose *principal* component carries a stoichiometric multiplier
-# on one side and not the other -- 2C17H17NO2 against C17H17NO2. The ABT-702 pair
-# does not pin that, because there the multiplier sits on the counterion.
-APOMORPHINE_HCL = (
+# Apomorphine hydrochloride hemihydrate against its monohydrate. Real PubChem
+# records, and the only fixture here whose *principal* component carries a
+# stoichiometric multiplier on one side and not the other -- 2C17H17NO2 against
+# C17H17NO2. The ABT-702 pair does not pin that, because there the multiplier
+# sits on the counterion. Half a water per apomorphine is the hemihydrate;
+# one water per apomorphine is the monohydrate.
+APOMORPHINE_HCL_HEMIHYDRATE = (
     "InChI=1S/2C17H17NO2.2ClH.H2O/c2*1-18-8-7-10-3-2-4-12-15(10)13(18)9-11-5-6-"
     "14(19)17(20)16(11)12;;;/h2*2-6,13,19-20H,7-9H2,1H3;2*1H;1H2/t2*13-;;;/m11.../s1"
 )
-APOMORPHINE_HCL_HEMIHYDRATE = (
+APOMORPHINE_HCL_MONOHYDRATE = (
     "InChI=1S/C17H17NO2.ClH.H2O/c1-18-8-7-10-3-2-4-12-15(10)13(18)9-11-5-6-14(19)"
     "17(20)16(11)12;;/h2-6,13,19-20H,7-9H2,1H3;1H;1H2/t13-;;/m1../s1"
 )
@@ -261,7 +260,10 @@ def test_a_multiplier_on_the_principal_component_is_ignored() -> None:
     `_LEADING_COUNT.sub()` calls from `classify_pair` left every other test in this
     module passing.
     """
-    assert classify_pair(APOMORPHINE_HCL, APOMORPHINE_HCL_HEMIHYDRATE) == FORM_DIFFERS
+    assert (
+        classify_pair(APOMORPHINE_HCL_HEMIHYDRATE, APOMORPHINE_HCL_MONOHYDRATE)
+        == FORM_DIFFERS
+    )
 
 
 def test_unrelated_compounds_differ_by_compound() -> None:
@@ -484,14 +486,55 @@ def test_an_unrecognised_layer_gets_no_verdict(layer: str) -> None:
     assert classify_pair(ETHANOL, ETHANOL + layer) == LAYERS_NOT_COMPARABLE
 
 
-def test_the_declared_layer_set_covers_every_layer_the_tiers_read() -> None:
-    """COMPARED_LAYERS is the union of the tiers, not a hand-maintained copy.
+# Every layer this module declares, the value pair that makes it differ, and the
+# verdict the tier reading it must reach. Written as literals rather than rebuilt
+# from CONSTITUTION_LAYERS + IONISATION_LAYERS + ... : a test that reassembles
+# COMPARED_LAYERS from the same expression inchi.py uses to define it cannot fail
+# when a tier grows a layer, which is the drift it is supposed to catch.
+LAYER_READ_BY_A_TIER = {
+    "c": (("1-2-3", "1-3-2"), DIFFERENT_COMPOUND),
+    "h": (("3H,2H2,1H3", "2H,3H2,1H3"), DIFFERENT_COMPOUND),
+    "q": (("+1", "+2"), FORM_DIFFERS),
+    "p": (("-1", "-2"), FORM_DIFFERS),
+    "i": (("1+1", "2+1"), ISOTOPE_DIFFERS),
+    "b": (("1-2+", "1-2-"), STEREO_DIFFERS),
+    "t": (("2-", "2+"), STEREO_DIFFERS),
+    "m": (("0", "1"), STEREO_DIFFERS),
+    "s": (("1", "2"), STEREO_DIFFERS),
+}
+_BARE_ETHANOL_FORMULA = "InChI=1S/C2H6O"
 
-    A tier that grew a layer without it being declared would refuse every real
-    structure carrying that layer; a declared layer no tier reads would be silently
-    ignored. Both are caught by building the set from the tiers themselves, which is
-    what this pins.
-    """
-    assert COMPARED_LAYERS == set(
-        CONSTITUTION_LAYERS + IONISATION_LAYERS + (ISOTOPE_LAYER,) + STEREO_LAYERS
+
+def _inchi_for_layer(layer: str, value: str) -> str:
+    # /c and /h are already present in ETHANOL and inchi_layers uses setdefault,
+    # so those two rows are built on the bare formula rather than appended.
+    base = _BARE_ETHANOL_FORMULA if layer in {"c", "h"} else ETHANOL
+    return f"{base}/{layer}{value}"
+
+
+def test_every_declared_layer_is_read_by_a_tier() -> None:
+    """A declared layer no tier reads, or a tier layer never declared, fails here."""
+    assert COMPARED_LAYERS == set(LAYER_READ_BY_A_TIER)
+
+
+@pytest.mark.parametrize("layer", sorted(LAYER_READ_BY_A_TIER))
+def test_a_declared_layer_is_actually_read(layer: str) -> None:
+    """The differing pair produces the stated verdict -- the layer is read."""
+    (left, right), verdict = LAYER_READ_BY_A_TIER[layer]
+    assert (
+        classify_pair(
+            _inchi_for_layer(layer, left),
+            _inchi_for_layer(layer, right),
+        )
+        == verdict
     )
+
+
+@pytest.mark.parametrize("layer", sorted(LAYER_READ_BY_A_TIER))
+def test_a_declared_layer_is_accepted_when_both_sides_agree(layer: str) -> None:
+    """The same value on both sides is layers_identical -- the layer is accepted,
+    not refused.
+    """
+    (value, _), _verdict = LAYER_READ_BY_A_TIER[layer]
+    same = _inchi_for_layer(layer, value)
+    assert classify_pair(same, same) == LAYERS_IDENTICAL
