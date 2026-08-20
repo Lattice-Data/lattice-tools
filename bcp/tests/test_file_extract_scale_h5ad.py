@@ -12,9 +12,12 @@ import pytest
 from file_extract.metadata_sheet import parse_sample_template, sheet_wells_from_csv
 from file_extract.scale_flags import validate_id_list
 from file_extract.scale_h5ad import (
+    _introspect_counts,
+    _process_one,
     default_scale_h5ad_output_name,
     extract_scale_h5ad,
     file_belongs_to_sample,
+    format_feature_counts,
     format_samples_column,
     is_scale_h5ad_key,
     is_scale_mtx_key,
@@ -155,15 +158,15 @@ def test_validate_id_list_rejects_empty() -> None:
     ]
 
 
-def _obs_by_key(bucket: str, key: str) -> int:
-    counts = {SAMP01_QSR: 11, SAMP02_QSR: 22, CTRL_QSR: 3}
+def _h5ad_dims(bucket: str, key: str) -> tuple[int, int]:
+    counts = {SAMP01_QSR: (11, 18129), SAMP02_QSR: (22, 900), CTRL_QSR: (3, 4)}
     if key not in counts:
         raise RuntimeError(f"unexpected h5ad key {key}")
     return counts[key]
 
 
-def _mtx_obs(s3_client: object, bucket: str, key: str) -> int:
-    counts = {SAMP01_MTX: 101, SAMP02_MTX: 202, CTRL_MTX: 3}
+def _mtx_dims(s3_client: object, bucket: str, key: str) -> tuple[int, int]:
+    counts = {SAMP01_MTX: (101, 8), SAMP02_MTX: (202, 12), CTRL_MTX: (3, 2)}
     if key not in counts:
         raise RuntimeError(f"unexpected mtx key {key}")
     return counts[key]
@@ -209,10 +212,8 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     )
     out = tmp_path / "out.tsv"
     with (
-        patch(
-            "file_extract.scale_h5ad.count_h5ad_observations", side_effect=_obs_by_key
-        ),
-        patch("file_extract.scale_h5ad.count_mtx_observations", side_effect=_mtx_obs),
+        patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims),
+        patch("file_extract.scale_h5ad.count_mtx_dims", side_effect=_mtx_dims),
     ):
         summary = extract_scale_h5ad(
             client,
@@ -243,16 +244,33 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     assert rows[0]["crc64nvme_base64"] == "crc-qsr1"
     assert rows[0]["file_size"] == "111"
     assert rows[0]["observation_count"] == "11"
+    assert json.loads(rows[0]["feature_counts"]) == [
+        {"feature_type": "gene", "feature_count": 18129}
+    ]
+    assert rows[1]["crc64nvme_base64"] == "crc-qsr2"
     assert rows[1]["file_size"] == "222"
     assert rows[1]["observation_count"] == "22"
+    assert json.loads(rows[1]["feature_counts"]) == [
+        {"feature_type": "gene", "feature_count": 900}
+    ]
     assert rows[2]["sample"] == "SAMP-01"
     assert rows[2]["s3_uri"] == f"s3://{BUCKET}/{SAMP01_MTX}"
     assert rows[2]["crc64nvme_base64"] == "crc-mtx1"
     assert rows[2]["file_size"] == "1001"
     assert rows[2]["observation_count"] == "101"
+    assert json.loads(rows[2]["feature_counts"]) == [
+        {"feature_type": "hash oligo", "feature_count": 8}
+    ]
     assert rows[3]["sample"] == "SAMP-02"
+    assert rows[3]["crc64nvme_base64"] == "crc-mtx2"
     assert rows[3]["file_size"] == "2002"
     assert rows[3]["observation_count"] == "202"
+    assert json.loads(rows[3]["feature_counts"]) == [
+        {"feature_type": "hash oligo", "feature_count": 12}
+    ]
+    assert all(row["crc64nvme_base64"] for row in rows)
+    assert all(row["observation_count"] for row in rows)
+    assert all(row["feature_counts"] for row in rows)
     assert json.loads(rows[0]["samples"]) == [
         "example-lab:tissue-1A",
         "example-lab:tissue-1B",
@@ -280,6 +298,36 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     assert all(row["filename"] != "SAMP-01_anndata.h5ad" for row in rows)
     assert all(row["filename"] != "CTRL-01.QSR-1_anndata.h5ad" for row in rows)
     assert all(CTRL_MTX_DIR not in row["filename"] for row in rows)
+
+
+def test_format_feature_counts() -> None:
+    assert json.loads(format_feature_counts("gene", 18129)) == [
+        {"feature_type": "gene", "feature_count": 18129}
+    ]
+
+
+def test_process_one_gathers_crc_and_obs_for_h5ad_and_mtx() -> None:
+    client = MockS3Client(crc_by_key={SAMP01_QSR: "crc-h5ad", SAMP01_MTX: "crc-mtx"})
+    with (
+        patch("file_extract.scale_h5ad.count_h5ad_dims", return_value=(11, 18129)),
+        patch("file_extract.scale_h5ad.count_mtx_dims", return_value=(101, 8)),
+    ):
+        h5ad_crc, h5ad_crc_err, h5ad_obs, h5ad_fc, h5ad_err = _process_one(
+            client, BUCKET, SAMP01_QSR, retries=1
+        )
+        mtx_crc, mtx_crc_err, mtx_obs, mtx_fc, mtx_err = _process_one(
+            client, BUCKET, SAMP01_MTX, retries=1
+        )
+    assert (h5ad_crc, h5ad_crc_err, h5ad_obs, h5ad_err) == ("crc-h5ad", "", 11, "")
+    assert json.loads(h5ad_fc or "") == [
+        {"feature_type": "gene", "feature_count": 18129}
+    ]
+    assert (mtx_crc, mtx_crc_err, mtx_obs, mtx_err) == ("crc-mtx", "", 101, "")
+    assert json.loads(mtx_fc or "") == [
+        {"feature_type": "hash oligo", "feature_count": 8}
+    ]
+    with pytest.raises(RuntimeError, match="observation counter"):
+        _introspect_counts(client, BUCKET, f"{RUNDATE}samples/notes.txt")
 
 
 def test_extract_scale_h5ad_zero_matches_does_not_write(tmp_path: Path) -> None:
@@ -318,9 +366,7 @@ def test_extract_scale_h5ad_uses_fetch_sheet(tmp_path: Path) -> None:
         return _sheet_text()
 
     out = tmp_path / "fetched.tsv"
-    with patch(
-        "file_extract.scale_h5ad.count_h5ad_observations", side_effect=_obs_by_key
-    ):
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims):
         extract_scale_h5ad(
             client,
             BUCKET,
@@ -349,15 +395,13 @@ def test_extract_scale_h5ad_obs_failure_leaves_count_empty(tmp_path: Path) -> No
         crc_by_key={SAMP01_QSR: "crc-qsr1", SAMP02_QSR: "crc-qsr2"},
     )
 
-    def count_obs(bucket: str, key: str) -> int:
+    def count_dims(bucket: str, key: str) -> tuple[int, int]:
         if key == SAMP01_QSR:
             raise RuntimeError("No 'obs' group or dataset; not an AnnData h5ad")
-        return 22
+        return 22, 900
 
     out = tmp_path / "partial.tsv"
-    with patch(
-        "file_extract.scale_h5ad.count_h5ad_observations", side_effect=count_obs
-    ):
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=count_dims):
         summary = extract_scale_h5ad(
             client,
             BUCKET,
@@ -380,8 +424,12 @@ def test_extract_scale_h5ad_obs_failure_leaves_count_empty(tmp_path: Path) -> No
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     by_name = {row["filename"]: row for row in rows}
     assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["observation_count"] == ""
+    assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["feature_counts"] == ""
     assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["file_size"] == "111"
     assert by_name["SAMP-02.QSR-1_anndata.h5ad"]["observation_count"] == "22"
+    assert json.loads(by_name["SAMP-02.QSR-1_anndata.h5ad"]["feature_counts"]) == [
+        {"feature_type": "gene", "feature_count": 900}
+    ]
 
 
 def test_extract_scale_h5ad_missing_samples_csv() -> None:

@@ -63,6 +63,8 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "file_size" in out
     assert "observation_count" in out
     assert "observation-count" in out
+    assert "feature_counts" in out
+    assert "hash oligo" in out
     assert "scaleplex" in out
 
 

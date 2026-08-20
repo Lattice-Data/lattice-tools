@@ -186,9 +186,9 @@ python -m file_extract scale_h5ad \
 
 **Pairing:** `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad and ScalePlex mtx files are omitted.
 
-**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx)
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension)
 
-**Optional introspection dependencies** (needed to read `observation_count`):
+**Optional introspection dependencies** (needed to read `observation_count` and `feature_counts`):
 
 ```bash
 pip install h5py fsspec s3fs

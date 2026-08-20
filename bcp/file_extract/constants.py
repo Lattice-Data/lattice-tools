@@ -117,6 +117,7 @@ SCALE_H5AD_COLUMNS = [
     "samples",
     "file_size",
     "observation_count",
+    "feature_counts",
 ]
 
 H5_INTROSPECT_COLUMNS = [

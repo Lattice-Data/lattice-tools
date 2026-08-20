@@ -316,7 +316,7 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     print(f"CRO orders: {', '.join(cro_orders)}")
     print(f"Wafers: {', '.join(wafers)}")
     check_introspection_deps()
-    print("Listing samples/*.h5ad ...")
+    print("Listing samples/*.h5ad and scaleplex/*.mtx ...")
 
     s3_client = boto3.client("s3")
     summary = extract_scale_h5ad(
@@ -542,11 +542,14 @@ def build_parser() -> argparse.ArgumentParser:
             "Pairs samples.csv barcodes to the Google Sheet 'sample template'\n"
             "RT_index wells. Control samples with no pairing are omitted.\n\n"
             "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples,\n"
-            "file_size, observation_count.\n"
+            "file_size, observation_count, feature_counts.\n"
             "samples is a JSON list of correlating sample_name values, each\n"
             "prefixed with {lab}: from --lab. file_size is the S3 object size.\n"
             "observation_count is n_obs from the h5ad obs table, or barcodes\n"
-            "in a ScalePlex filtered.matrix directory."
+            "in a ScalePlex filtered.matrix directory.\n"
+            "feature_counts is a JSON list of {feature_type, feature_count}:\n"
+            "QSR h5ad uses gene / n_vars; ScalePlex mtx uses hash oligo / the\n"
+            "features sibling or MTX header first dimension."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],

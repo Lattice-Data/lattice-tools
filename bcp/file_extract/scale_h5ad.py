@@ -12,9 +12,9 @@ from typing import Any, Callable, Sequence
 from tqdm import tqdm
 
 from .constants import SCALE_H5AD_COLUMNS
-from .h5ad_introspect import count_h5ad_observations
+from .h5ad_introspect import count_h5ad_dims
 from .metadata_sheet import fetch_sample_template, parse_sample_template
-from .mtx_introspect import count_mtx_observations
+from .mtx_introspect import count_mtx_dims
 from .models import ListedObject, RunSummary
 from .retry import retry_with_backoff
 from .s3_utils import (
@@ -37,12 +37,19 @@ H5AD_SUFFIX = ".h5ad"
 MERGED_ANNDATA_SUFFIX = "_anndata.h5ad"
 MTX_BASENAMES = frozenset({"matrix.mtx.gz", "matrix.mtx"})
 SCALEPLEX_MATRIX_DIR_RE = re.compile(r"\.QSR-\d+-SCALEPLEX\.filtered\.matrix$")
+H5AD_FEATURE_TYPE = "gene"
+SCALEPLEX_FEATURE_TYPE = "hash oligo"
 
 
 def format_samples_column(sample_names: Sequence[str], lab: str) -> str:
     """JSON list of sheet sample_name values prefixed with ``{lab}:``."""
     prefix = LabIdentity.parse(lab).name
     return json.dumps([f"{prefix}:{name}" for name in sample_names])
+
+
+def format_feature_counts(feature_type: str, count: int) -> str:
+    """Same list-of-dicts JSON shape as 10x h5 ``feature_counts``."""
+    return json.dumps([{"feature_type": feature_type, "feature_count": count}])
 
 
 def default_scale_h5ad_output_name(prefix: str) -> str:
@@ -129,21 +136,30 @@ def control_warning(sample: str, barcodes: str) -> str:
     )
 
 
+def _introspect_counts(s3_client: Any, bucket: str, key: str) -> tuple[int, str]:
+    """n_obs and feature_counts JSON from one open of each listed file."""
+    if key.endswith(H5AD_SUFFIX):
+        n_obs, n_vars = count_h5ad_dims(bucket, key)
+        return n_obs, format_feature_counts(H5AD_FEATURE_TYPE, n_vars)
+    if key.rsplit("/", 1)[-1] in MTX_BASENAMES:
+        n_obs, n_features = count_mtx_dims(s3_client, bucket, key)
+        return n_obs, format_feature_counts(SCALEPLEX_FEATURE_TYPE, n_features)
+    raise RuntimeError(f"no observation counter for {key}")
+
+
 def _process_one(
     s3_client: Any, bucket: str, key: str, *, retries: int
-) -> tuple[str | None, str, int | None, str]:
+) -> tuple[str | None, str, int | None, str | None, str]:
     crc, crc_err = retry_with_backoff(
         fetch_crc64nvme, s3_client, bucket, key, retries=retries
     )
-    if key.endswith(H5AD_SUFFIX):
-        obs, obs_err = retry_with_backoff(
-            count_h5ad_observations, bucket, key, retries=retries
-        )
-    else:
-        obs, obs_err = retry_with_backoff(
-            count_mtx_observations, s3_client, bucket, key, retries=retries
-        )
-    return crc, crc_err or "", obs, obs_err or ""
+    intro, intro_err = retry_with_backoff(
+        _introspect_counts, s3_client, bucket, key, retries=retries
+    )
+    if intro is None:
+        return crc, crc_err or "", None, None, intro_err or ""
+    obs, feature_counts = intro
+    return crc, crc_err or "", obs, feature_counts, intro_err or ""
 
 
 def extract_scale_h5ad(
@@ -231,14 +247,14 @@ def extract_scale_h5ad(
             iterator = tqdm(iterator, total=len(targets), desc="Processing")
 
         # Keep TSV rows in listing order, not completion order.
-        results: dict[str, tuple[str | None, str, int | None, str]] = {}
+        results: dict[str, tuple[str | None, str, int | None, str | None, str]] = {}
         for fut in iterator:
             obj = futures[fut]
             results[obj.key] = fut.result()
 
     for obj in targets:
         filename = tsv_filename(obj.key, prefix)
-        crc, crc_err, obs, obs_err = results[obj.key]
+        crc, crc_err, obs, feature_counts, intro_err = results[obj.key]
         sample = sample_from_filename(filename)
         writer.append_row(
             [
@@ -251,13 +267,14 @@ def extract_scale_h5ad(
                 ),
                 obj.size_bytes,
                 obs if obs is not None else "",
+                feature_counts if feature_counts is not None else "",
             ]
         )
         if not crc_err:
             summary.crc_ok += 1
-        if not obs_err:
+        if not intro_err:
             summary.enrichment_ok += 1
-        if crc_err or obs_err:
-            summary.failures.append((obj.key, crc_err, obs_err))
+        if crc_err or intro_err:
+            summary.failures.append((obj.key, crc_err, intro_err))
 
     return summary
