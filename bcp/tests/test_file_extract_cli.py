@@ -7,7 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from file_extract.cli import build_parser, main
+from file_extract.cli import (
+    PRINT_LIMIT,
+    _print_failures,
+    _print_warnings,
+    build_parser,
+    main,
+)
 from file_extract.models import ListedObject
 from tests.file_extract_helpers import MockS3Client
 
@@ -70,6 +76,7 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "observation-count" in out
     assert "feature_counts" in out
     assert "derived_from" in out
+    assert "{lab}:{cram_filename}" in out
     assert "hash oligo" in out
     assert "scaleplex" in out
 
@@ -78,6 +85,26 @@ def test_cli_invalid_uri() -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["fastq", "not-a-uri"])
     assert exc_info.value.code == 2
+
+
+def test_print_warnings_caps_at_fifty(capsys: pytest.CaptureFixture[str]) -> None:
+    _print_warnings([f"warn-{i}" for i in range(PRINT_LIMIT + 3)])
+    out = capsys.readouterr().out
+    assert out.count("WARNING:") == PRINT_LIMIT
+    assert "warn-0" in out
+    assert f"warn-{PRINT_LIMIT - 1}" in out
+    assert f"warn-{PRINT_LIMIT}" not in out
+    assert "... and 3 more warning(s)" in out
+
+
+def test_print_failures_caps_at_fifty(capsys: pytest.CaptureFixture[str]) -> None:
+    _print_failures([(f"key-{i}", "crc-err", "") for i in range(PRINT_LIMIT + 2)])
+    out = capsys.readouterr().out
+    assert out.count("crc:") == PRINT_LIMIT
+    assert "key-0" in out
+    assert f"key-{PRINT_LIMIT - 1}" in out
+    assert f"key-{PRINT_LIMIT}" not in out
+    assert "... and 2 more" in out
 
 
 @patch("file_extract.cli.extract_fastq")

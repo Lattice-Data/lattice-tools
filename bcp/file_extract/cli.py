@@ -48,7 +48,12 @@ def _configure_logging(verbose: bool) -> None:
     )
 
 
-def _print_failures(failures: list[tuple[str, str, str]], limit: int = 10) -> None:
+PRINT_LIMIT = 50
+
+
+def _print_failures(
+    failures: list[tuple[str, str, str]], limit: int = PRINT_LIMIT
+) -> None:
     if not failures:
         return
     print(f"\nFailures (first {limit}):")
@@ -62,7 +67,7 @@ def _print_failures(failures: list[tuple[str, str, str]], limit: int = 10) -> No
         print(f"  ... and {len(failures) - limit} more")
 
 
-def _print_warnings(warnings: list[str], limit: int = 10) -> None:
+def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
     for warning in warnings[:limit]:
         print(f"  WARNING: {warning}")
     if len(warnings) > limit:
@@ -552,8 +557,8 @@ def build_parser() -> argparse.ArgumentParser:
             "feature_counts is a JSON list of {feature_type, feature_count}:\n"
             "QSR h5ad uses gene / n_vars; ScalePlex mtx uses hash oligo / the\n"
             "features sibling or MTX header first dimension.\n"
-            "derived_from is a JSON list of raw *.cram S3 URIs whose well and\n"
-            "QSR# match the row, taken from --raw-subdirs."
+            "derived_from is a JSON list of {lab}:{cram_filename} values\n"
+            "whose well and QSR# match the row, taken from --raw-subdirs."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],

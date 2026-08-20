@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from file_extract.metadata_sheet import parse_sample_template, sheet_wells_from_csv
-from file_extract.scale_flags import validate_id_list, validate_raw_subdirs
+from file_extract.metadata_sheet import parse_sample_template
+from file_extract.scale_flags import validate_raw_subdirs
 from file_extract.scale_h5ad import (
     ScaleCram,
     _introspect_counts,
@@ -18,6 +18,7 @@ from file_extract.scale_h5ad import (
     default_scale_h5ad_output_name,
     derived_from_by_filename,
     derived_from_filenames,
+    derived_from_label,
     extract_scale_h5ad,
     file_belongs_to_sample,
     format_derived_from,
@@ -129,7 +130,6 @@ def test_parse_sample_template_normalizes_wells() -> None:
     assert "1A" in wells
     assert "2G" in wells
     assert "11A" not in wells
-    assert sheet_wells_from_csv(_sheet_text()) == wells
     assert not any("Plate only" in (row.get("RT_index") or "") for row in rows)
 
 
@@ -141,7 +141,6 @@ def test_parse_sample_template_skips_hash_comment_rows() -> None:
     )
     rows = parse_sample_template(csv_text)
     assert [row["well"] for row in rows] == ["1A"]
-    assert sheet_wells_from_csv(csv_text) == {"1A"}
 
 
 def test_parse_sample_template_splits_comma_separated_rt_index() -> None:
@@ -168,7 +167,7 @@ def test_parse_sample_template_filters_by_experiment_name() -> None:
     )
     rows = parse_sample_template(csv_text, experiment="RNA3_098")
     assert [row["sample_name"] for row in rows] == ["keep-1A", "keep-1C"]
-    assert sheet_wells_from_csv(csv_text, experiment="RNA3_098") == {"1A", "1C"}
+    assert {row["well"] for row in rows} == {"1A", "1C"}
 
 
 def test_parse_sample_template_requires_experiment_name_when_filtering() -> None:
@@ -196,15 +195,6 @@ def test_format_samples_column_prefixes_lab() -> None:
     assert format_samples_column(names, "/labs/example-lab/") == format_samples_column(
         names, "example-lab"
     )
-
-
-def test_validate_id_list_rejects_empty() -> None:
-    with pytest.raises(ScaleExtractError):
-        validate_id_list([""], flag="--raw-subdirs")
-    assert validate_id_list([" 426971 ", "441969"], flag="--raw-subdirs") == [
-        "426971",
-        "441969",
-    ]
 
 
 def test_validate_raw_subdirs_allows_names_and_s3_uris() -> None:
@@ -318,6 +308,15 @@ def test_well_to_sample_map_expands_barcodes() -> None:
     assert "2D" not in owners
 
 
+def test_derived_from_label_prefixes_basename() -> None:
+    assert derived_from_label("example-lab", CRAM_SAMP01_GEX) == (
+        "example-lab:426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    )
+    assert derived_from_label("/labs/example-lab/", "file.cram") == (
+        "example-lab:file.cram"
+    )
+
+
 def test_derived_from_by_filename_groups_crams() -> None:
     owners = well_to_sample_map(_parse_fixture_samples())
     grouped = derived_from_by_filename(
@@ -332,14 +331,17 @@ def test_derived_from_by_filename_groups_crams() -> None:
         ],
         owners,
         {"CTRL-01"},
+        "example-lab",
     )
     assert grouped["SAMP-01.QSR-1_anndata.h5ad"] == [
-        f"s3://{BUCKET}/{CRAM_SAMP01_GEX}",
-        f"s3://{BUCKET}/{CRAM_SAMP01_GEX_B}",
+        derived_from_label("example-lab", CRAM_SAMP01_GEX),
+        derived_from_label("example-lab", CRAM_SAMP01_GEX_B),
     ]
-    assert grouped["SAMP-02.QSR-1_anndata.h5ad"] == [f"s3://{BUCKET}/{CRAM_SAMP02_GEX}"]
+    assert grouped["SAMP-02.QSR-1_anndata.h5ad"] == [
+        derived_from_label("example-lab", CRAM_SAMP02_GEX)
+    ]
     assert grouped[f"{SAMP01_MTX_DIR}/matrix.mtx.gz"] == [
-        f"s3://{BUCKET}/{CRAM_SAMP01_PLX}"
+        derived_from_label("example-lab", CRAM_SAMP01_PLX)
     ]
     assert "SAMP-01.QSR-2_anndata.h5ad" in grouped
     assert "CTRL-01.QSR-1_anndata.h5ad" not in grouped
@@ -352,6 +354,7 @@ def test_derived_from_by_filename_groups_crams() -> None:
         ],
         grouped,
         {"SAMP-01.QSR-1_anndata.h5ad"},
+        "example-lab",
     )
     assert leftover == [
         f"s3://{BUCKET}/{CRAM_CTRL}",
@@ -363,7 +366,17 @@ def test_derived_from_by_filename_groups_crams() -> None:
 
 def test_format_derived_from() -> None:
     assert json.loads(format_derived_from([])) == []
-    assert json.loads(format_derived_from(["s3://b/a.cram"])) == ["s3://b/a.cram"]
+    assert json.loads(
+        format_derived_from(
+            [
+                "example-lab:441479-R096A_GEX_QSR-1-10A.cram",
+                "example-lab:441479-R096A_GEX_QSR-1-10B.cram",
+            ]
+        )
+    ) == [
+        "example-lab:441479-R096A_GEX_QSR-1-10A.cram",
+        "example-lab:441479-R096A_GEX_QSR-1-10B.cram",
+    ]
 
 
 def _parse_fixture_samples() -> list[tuple[str, str]]:
@@ -522,12 +535,18 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     assert json.loads(rows[2]["samples"]) == json.loads(rows[0]["samples"])
     assert json.loads(rows[3]["samples"]) == json.loads(rows[1]["samples"])
     assert json.loads(rows[0]["derived_from"]) == [
-        f"s3://{BUCKET}/{CRAM_SAMP01_GEX}",
-        f"s3://{BUCKET}/{CRAM_SAMP01_GEX_B}",
+        derived_from_label("example-lab", CRAM_SAMP01_GEX),
+        derived_from_label("example-lab", CRAM_SAMP01_GEX_B),
     ]
-    assert json.loads(rows[1]["derived_from"]) == [f"s3://{BUCKET}/{CRAM_SAMP02_GEX}"]
-    assert json.loads(rows[2]["derived_from"]) == [f"s3://{BUCKET}/{CRAM_SAMP01_PLX}"]
-    assert json.loads(rows[3]["derived_from"]) == [f"s3://{BUCKET}/{CRAM_SAMP02_PLX}"]
+    assert json.loads(rows[1]["derived_from"]) == [
+        derived_from_label("example-lab", CRAM_SAMP02_GEX)
+    ]
+    assert json.loads(rows[2]["derived_from"]) == [
+        derived_from_label("example-lab", CRAM_SAMP01_PLX)
+    ]
+    assert json.loads(rows[3]["derived_from"]) == [
+        derived_from_label("example-lab", CRAM_SAMP02_PLX)
+    ]
     assert all(row["filename"] != "SAMP-01_anndata.h5ad" for row in rows)
     assert all(row["filename"] != "CTRL-01.QSR-1_anndata.h5ad" for row in rows)
     assert all(CTRL_MTX_DIR not in row["filename"] for row in rows)
@@ -557,8 +576,8 @@ def test_extract_scale_h5ad_derived_from_merges_raw_subdirs(tmp_path: Path) -> N
         )
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     assert json.loads(rows[0]["derived_from"]) == [
-        f"s3://{BUCKET}/{CRAM_SAMP01_GEX}",
-        f"s3://{BUCKET}/{other_cram}",
+        derived_from_label("example-lab", CRAM_SAMP01_GEX),
+        derived_from_label("example-lab", other_cram),
     ]
 
 
@@ -588,7 +607,9 @@ def test_extract_scale_h5ad_derived_from_group_uri_numeric_raw(
             sheet_csv=_sheet_text(),
         )
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
-    assert json.loads(rows[0]["derived_from"]) == [f"s3://czi-novogene/{nested}"]
+    assert json.loads(rows[0]["derived_from"]) == [
+        derived_from_label("example-lab", nested)
+    ]
 
 
 def test_format_feature_counts() -> None:

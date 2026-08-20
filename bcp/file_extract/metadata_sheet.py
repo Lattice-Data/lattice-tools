@@ -120,9 +120,3 @@ def parse_sample_template(
             f"no sample template rows with experiment_name {wanted!r}"
         )
     return rows
-
-
-def sheet_wells_from_csv(csv_text: str, *, experiment: str | None = None) -> set[str]:
-    return {
-        row["well"] for row in parse_sample_template(csv_text, experiment=experiment)
-    }

@@ -186,17 +186,15 @@ python -m file_extract scale_h5ad \
 
 **Pairing:** Only `sample template` rows whose `experiment_name` equals `--metadata-experiment` are used. `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad and ScalePlex mtx files are omitted.
 
-**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of raw `*.cram` S3 URIs from `--raw-subdirs`)
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of `{lab}:{cram_filename}` values from `--raw-subdirs`)
 
-**derived_from:** Each `--raw-subdirs` value is listed as `…/raw/{numeric}/*.cram`. An `s3://` URI of the group directory (or of `raw/` itself) is walked one level down into numeric folders; CRAMs are not expected at the listed prefix. A numeric name such as `426971` is still `…/processed/run_date/` → `…/raw/{subdir}/`. Each deliverable `*.cram` (not `unmatched`) is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. A CRAM that does not attach to an output row is printed as a warning.
+**derived_from:** Each `--raw-subdirs` value is listed as `…/raw/{numeric}/*.cram`. An `s3://` URI of the group directory (or of `raw/` itself) is walked one level down into numeric folders; CRAMs are not expected at the listed prefix. A numeric name such as `426971` is still `…/processed/run_date/` → `…/raw/{subdir}/`. Each deliverable `*.cram` (not `unmatched`) is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. The TSV value is `{lab}:{cram_filename}` using `--lab`. A CRAM that does not attach to an output row is printed as a warning.
 
 **Optional introspection dependencies** (needed to read `observation_count` and `feature_counts`):
 
 ```bash
 pip install h5py fsspec s3fs
 ```
-
-`scale_cram` is not implemented yet; it can reuse the same `--lab`, `--metadata-gid`, `--metadata-experiment`, and `--raw-subdirs` flags later.
 
 ---
 

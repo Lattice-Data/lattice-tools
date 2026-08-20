@@ -68,9 +68,15 @@ def format_feature_counts(feature_type: str, count: int) -> str:
     return json.dumps([{"feature_type": feature_type, "feature_count": count}])
 
 
-def format_derived_from(uris: Sequence[str]) -> str:
-    """JSON list of CRAM S3 URIs attached to one processed file."""
-    return json.dumps(list(uris))
+def format_derived_from(labels: Sequence[str]) -> str:
+    """JSON list of ``{lab}:{cram_filename}`` values attached to one file."""
+    return json.dumps(list(labels))
+
+
+def derived_from_label(lab: str, key: str) -> str:
+    """``{lab}:{basename}`` for a CRAM object key."""
+    prefix = LabIdentity.parse(lab).name
+    return f"{prefix}:{key.rsplit('/', 1)[-1]}"
 
 
 def is_deliverable_cram_key(key: str) -> bool:
@@ -199,20 +205,21 @@ def derived_from_by_filename(
     crams: Sequence[tuple[str, str]],
     well_to_sample: dict[str, str],
     control_samples: set[str] | frozenset[str],
+    lab: str,
 ) -> dict[str, list[str]]:
-    """Group CRAM S3 URIs by the processed TSV filename they derive."""
+    """Group ``{lab}:{cram_filename}`` labels by the processed TSV filename."""
     grouped: dict[str, list[str]] = defaultdict(list)
-    for bucket, key in crams:
+    for _bucket, key in crams:
         parsed = parse_scale_cram_name(key)
         if parsed is None:
             continue
         sample = well_to_sample.get(parsed.well)
         if sample is None or sample in control_samples:
             continue
-        uri = s3_uri_for(bucket, key)
+        label = derived_from_label(lab, key)
         for filename in derived_from_filenames(sample, parsed):
-            if uri not in grouped[filename]:
-                grouped[filename].append(uri)
+            if label not in grouped[filename]:
+                grouped[filename].append(label)
     for filename in grouped:
         grouped[filename].sort()
     return grouped
@@ -222,6 +229,7 @@ def leftover_cram_uris(
     crams: Sequence[tuple[str, str]],
     derived_map: dict[str, list[str]],
     target_filenames: set[str] | frozenset[str],
+    lab: str,
 ) -> list[str]:
     """S3 URIs of listed CRAMs that did not attach to an output row."""
     attached: set[str] = set()
@@ -229,9 +237,8 @@ def leftover_cram_uris(
         attached.update(derived_map.get(filename, ()))
     leftover: list[str] = []
     for bucket, key in crams:
-        uri = s3_uri_for(bucket, key)
-        if uri not in attached:
-            leftover.append(uri)
+        if derived_from_label(lab, key) not in attached:
+            leftover.append(s3_uri_for(bucket, key))
     return leftover
 
 
@@ -395,6 +402,7 @@ def extract_scale_h5ad(
         crams,
         well_to_sample_map(sample_rows),
         control_names,
+        lab_name,
     )
 
     summary = RunSummary()
@@ -423,7 +431,7 @@ def extract_scale_h5ad(
         targets.append(obj)
 
     target_names = {tsv_filename(obj.key, prefix) for obj in targets}
-    for uri in leftover_cram_uris(crams, derived_map, target_names):
+    for uri in leftover_cram_uris(crams, derived_map, target_names, lab_name):
         summary.warnings.append(leftover_cram_warning(uri))
 
     summary.total = len(targets)

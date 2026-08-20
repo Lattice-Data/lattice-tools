@@ -1,7 +1,4 @@
-"""96-well pairing for Scale samples.csv barcodes and sheet RT_index.
-
-No I/O. Shared with future scale_cram.
-"""
+"""96-well pairing for Scale samples.csv barcodes and sheet RT_index."""
 
 from __future__ import annotations
 
@@ -40,10 +37,6 @@ class CorrelationResult:
     paired: tuple[str, ...]
     controls: tuple[ControlSample, ...]
     sample_names: dict[str, tuple[str, ...]]
-
-    @property
-    def paired_set(self) -> frozenset[str]:
-        return frozenset(self.paired)
 
     @property
     def control_set(self) -> frozenset[str]:

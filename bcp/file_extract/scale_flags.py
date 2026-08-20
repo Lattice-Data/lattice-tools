@@ -1,4 +1,4 @@
-"""Shared Scale CLI list-flag validation for scale_h5ad and later scale_cram."""
+"""Scale CLI list-flag validation for scale_h5ad."""
 
 from __future__ import annotations
 
@@ -8,23 +8,6 @@ from .s3_utils import parse_s3_uri
 from .scale_wells import ScaleExtractError
 
 _FORBIDDEN = frozenset("/\\\t\n\r")
-
-
-def validate_id_list(values: Sequence[str], *, flag: str) -> list[str]:
-    """Strip and reject empty or path-like identifiers."""
-    cleaned: list[str] = []
-    for value in values:
-        item = (value or "").strip()
-        if not item:
-            raise ScaleExtractError(f"{flag} must not contain empty values")
-        if any(char in item for char in _FORBIDDEN):
-            raise ScaleExtractError(
-                f"Invalid {flag} {value!r}: expected an identifier without path characters"
-            )
-        cleaned.append(item)
-    if not cleaned:
-        raise ScaleExtractError(f"{flag} must not be empty")
-    return cleaned
 
 
 def validate_raw_subdirs(values: Sequence[str]) -> list[str]:
