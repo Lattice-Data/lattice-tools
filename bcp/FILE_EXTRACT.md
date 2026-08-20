@@ -1,6 +1,6 @@
 ## File extract
 
-Extract S3 metadata for **FASTQ.gz**, **CRAM**, and **Cell Ranger h5** matrices. Part of BCP tooling under `bcp/file_extract`.
+Extract S3 metadata for **FASTQ.gz**, **CRAM**, **Cell Ranger h5**, and **Scale h5ad** matrices. Part of BCP tooling under `bcp/file_extract`.
 
 Requires AWS credentials with read access to the target bucket (standard `boto3` credential chain).
 
@@ -16,6 +16,7 @@ python -m file_extract --help
 python -m file_extract fastq --help
 python -m file_extract cram --help
 python -m file_extract h5 --help
+python -m file_extract scale_h5ad --help
 ```
 
 ### FASTQ mode
@@ -156,6 +157,37 @@ python -m file_extract h5 s3://.../per_sample_outs --genome --metrics
 pip install h5py fsspec s3fs
 ```
 
+### Scale h5ad mode
+
+Point at a ScaleRna **rundate** directory (one level past `processed/`). Pairs rundate `samples.csv` barcodes to the Google Sheet `sample template` `RT_index` column, warns about control samples that have no pairing, and writes one TSV row per non-control `{rundate}/samples/*.h5ad`.
+
+```bash
+python -m file_extract scale_h5ad \
+  s3://czi-cro/project/order/processed/run_date/ \
+  --metadata-gid <google-sheet-uuid> \
+  --cro-order NVUS0000000000-04 NVUS0000000000-05 \
+  --wafers 426971 441969
+```
+
+| Flag | Description |
+|------|-------------|
+| `s3_uri` | **Required.** Rundate prefix, e.g. `s3://czi-cro/project/order/processed/run_date/` |
+| `--metadata-gid` | **Required.** Google Sheet UUID (spreadsheet id in the URL). Reads tab `sample template` |
+| `--cro-order` | **Required.** One or more CRO order identifiers |
+| `--wafers` | **Required.** One or more wafer / RunIDs |
+| `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
+| `--workers` | Thread count (default: min(64, n_files)) |
+| `--retries` | Max attempts per transient S3 error (default: 5) |
+| `--strict` | Exit 1 if any per-file CRC fetch fails |
+| `-v`, `--verbose` | Debug logging |
+| `-q`, `--quiet` | Disable progress bars |
+
+**Pairing:** `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad files are omitted.
+
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`)
+
+`scale_cram` is not implemented yet; it can reuse the same `--metadata-gid`, `--cro-order`, and `--wafers` flags later.
+
 ---
 
 ## Testing
@@ -172,4 +204,4 @@ All tests use mocked S3; no AWS credentials required for the default suite.
 
 ## Migration from prototypes
 
-The standalone prototypes in `bcp/docs/file_extractor.py` and `bcp/docs/extract_h5.py` are superseded by this package. Use `python -m file_extract fastq`, `python -m file_extract cram`, and `python -m file_extract h5` instead.
+The standalone prototypes in `bcp/docs/file_extractor.py` and `bcp/docs/extract_h5.py` are superseded by this package. Use `python -m file_extract fastq`, `python -m file_extract cram`, `python -m file_extract h5`, and `python -m file_extract scale_h5ad` instead.

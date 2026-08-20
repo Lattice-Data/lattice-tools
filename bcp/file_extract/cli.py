@@ -24,6 +24,9 @@ from .fastq import (
 from .h5 import default_h5_output_name, extract_h5
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
+from .scale_flags import validate_id_list
+from .scale_h5ad import default_scale_h5ad_output_name, extract_scale_h5ad
+from .scale_wells import ScaleExtractError
 from .sheets import (
     LabIdentity,
     SheetBuildError,
@@ -296,6 +299,50 @@ def _run_h5(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_scale_h5ad(args: argparse.Namespace) -> int:
+    location = parse_s3_uri(args.s3_uri)
+    output = args.output or default_scale_h5ad_output_name(location.prefix)
+    cro_orders = validate_id_list(args.cro_order, flag="--cro-order")
+    wafers = validate_id_list(args.wafers, flag="--wafers")
+    metadata_gid = (args.metadata_gid or "").strip()
+    if not metadata_gid:
+        raise ScaleExtractError("--metadata-gid must not be empty")
+
+    print(f"Bucket: {location.bucket}")
+    print(f"Prefix: {location.prefix}")
+    print(f"Metadata sheet: {metadata_gid}")
+    print(f"CRO orders: {', '.join(cro_orders)}")
+    print(f"Wafers: {', '.join(wafers)}")
+    print("Listing samples/*.h5ad ...")
+
+    s3_client = boto3.client("s3")
+    summary = extract_scale_h5ad(
+        s3_client,
+        location.bucket,
+        location.prefix,
+        output,
+        metadata_gid=metadata_gid,
+        cro_orders=cro_orders,
+        wafers=wafers,
+        workers=args.workers,
+        retries=args.retries,
+        show_progress=not args.quiet,
+    )
+
+    _print_warnings(summary.warnings)
+    print(f"Found {summary.total} matching files")
+    if summary.total == 0:
+        print("Nothing to do.")
+        return 0
+
+    print(f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}")
+    print(f"Output: {output}")
+    _print_failures(summary.failures)
+    if args.strict and summary.has_failures:
+        return 1
+    return 0
+
+
 def _invalid_uri_exit(message: str) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(2)
@@ -354,7 +401,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Extract S3 metadata for FASTQ.gz, CRAM, and Cell Ranger h5 deliverables."
+            "Extract S3 metadata for FASTQ.gz, CRAM, Cell Ranger h5, "
+            "and Scale h5ad deliverables."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -478,6 +526,52 @@ def build_parser() -> argparse.ArgumentParser:
         help="Exit 1 if any per-file enrichment fails",
     )
 
+    scale_h5ad = subparsers.add_parser(
+        "scale_h5ad",
+        help="Extract Scale processed AnnData (.h5ad) metadata.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[parent],
+    )
+    scale_h5ad.add_argument(
+        "s3_uri",
+        help="s3://bucket/project/order/processed/run_date/",
+    )
+    scale_h5ad.add_argument(
+        "--metadata-gid",
+        required=True,
+        help="Google Sheet UUID (spreadsheet id in the Sheets URL)",
+    )
+    scale_h5ad.add_argument(
+        "--cro-order",
+        nargs="+",
+        required=True,
+        help="One or more CRO order identifiers",
+    )
+    scale_h5ad.add_argument(
+        "--wafers",
+        nargs="+",
+        required=True,
+        help="One or more wafer / RunIDs",
+    )
+    scale_h5ad.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output TSV (default: <run_date>_scale_h5ad_info.tsv)",
+    )
+    scale_h5ad.add_argument("--workers", type=int, default=None, help="Thread count")
+    scale_h5ad.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        help="Max attempts per transient operation (default: 5)",
+    )
+    scale_h5ad.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 if any per-file enrichment fails",
+    )
+
     return parser
 
 
@@ -498,7 +592,12 @@ def main(argv: list[str] | None = None) -> int:
             return _run_cram(args)
         if args.command == "h5":
             return _run_h5(args)
+        if args.command == "scale_h5ad":
+            return _run_scale_h5ad(args)
     except SheetBuildError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ScaleExtractError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"Unknown command: {args.command}")

@@ -45,6 +45,7 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "fastq" in out
     assert "cram" in out
     assert "h5" in out
+    assert "scale_h5ad" in out
 
 
 def test_cli_invalid_uri() -> None:
@@ -555,6 +556,109 @@ def test_cli_cram_strict_on_failure(
             "--quiet",
             "--strict",
             *CRAM_SHEET_ARGS,
+        ]
+    )
+    assert code == 1
+
+
+SCALE_H5AD_ARGS = [
+    "--metadata-gid",
+    "sheet-uuid",
+    "--cro-order",
+    "ORD01",
+    "ORD02",
+    "--wafers",
+    "426971",
+    "441969",
+]
+
+
+def test_cli_scale_h5ad_requires_flags() -> None:
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["scale_h5ad", f"s3://{BUCKET}/{H5_PREFIX}"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                "--metadata-gid",
+                "sheet-uuid",
+            ]
+        )
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                "--metadata-gid",
+                "sheet-uuid",
+                "--cro-order",
+                "ORD01",
+            ]
+        )
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+def test_cli_scale_h5ad_success(
+    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path, capsys
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(
+        total=2,
+        crc_ok=2,
+        warnings=[
+            "control sample 'CTRL-01' (barcodes '12H') has no RT_index pairing; "
+            "excluding from output"
+        ],
+    )
+    out = tmp_path / "scale.tsv"
+    code = main(
+        [
+            "scale_h5ad",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(out),
+            "--quiet",
+            *SCALE_H5AD_ARGS,
+        ]
+    )
+    assert code == 0
+    mock_extract.assert_called_once()
+    kwargs = mock_extract.call_args.kwargs
+    assert kwargs["metadata_gid"] == "sheet-uuid"
+    assert kwargs["cro_orders"] == ["ORD01", "ORD02"]
+    assert kwargs["wafers"] == ["426971", "441969"]
+    printed = capsys.readouterr().out
+    assert "CTRL-01" in printed
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+def test_cli_scale_h5ad_strict_on_failure(
+    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(
+        total=1,
+        crc_ok=0,
+        failures=[("key", "crc failed", "")],
+    )
+    out = tmp_path / "scale_strict.tsv"
+    code = main(
+        [
+            "scale_h5ad",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(out),
+            "--quiet",
+            "--strict",
+            *SCALE_H5AD_ARGS,
         ]
     )
     assert code == 1

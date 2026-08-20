@@ -109,6 +109,13 @@ H5_BASE_COLUMNS = [
     "crc64nvme_base64",
 ]
 
+SCALE_H5AD_COLUMNS = [
+    "filename",
+    "s3_uri",
+    "crc64nvme_base64",
+    "sample",
+]
+
 H5_INTROSPECT_COLUMNS = [
     "observation_count",
     "feature_counts",
