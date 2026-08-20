@@ -167,7 +167,7 @@ python -m file_extract scale_h5ad \
   --lab example-lab \
   --metadata-gid <google-sheet-uuid> \
   --metadata-experiment RNA3_098 \
-  --raw-subdirs 426971 441969
+  --raw-subdirs s3://czi-novogene/lab/order/RNA3_098,s3://czi-novogene/lab/order/CHEM13-R096
 ```
 
 | Flag | Description |
@@ -176,7 +176,7 @@ python -m file_extract scale_h5ad \
 | `--lab` | **Required.** `example-lab` or `/labs/example-lab/` (the lab name prefixes `samples`) |
 | `--metadata-gid` | **Required.** Google Sheet UUID (spreadsheet id in the URL). Reads tab `sample template` |
 | `--metadata-experiment` | **Required.** Keep only `sample template` rows whose `experiment_name` equals this value |
-| `--raw-subdirs` | **Required.** One or more folder names under the `raw/` sibling of the rundate, or `s3://` URIs of those folders |
+| `--raw-subdirs` | **Required.** Comma-separated group directories (or `s3://` URIs) that contain `raw/{numeric}/*.cram`. A numeric name such as `426971` is still treated as the `raw/` sibling of the rundate |
 | `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
 | `--workers` | Thread count (default: min(16, n_files)) |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
@@ -188,7 +188,7 @@ python -m file_extract scale_h5ad \
 
 **TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of raw `*.cram` S3 URIs from `--raw-subdirs`)
 
-**derived_from:** Each `--raw-subdirs` name is the folder under the `raw/` sibling of the processed rundate (`…/processed/run_date/` → `…/raw/{subdir}/`). An `s3://` URI is listed as given. Each deliverable `*.cram` (not `unmatched`) is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. A CRAM that does not attach to an output row is printed as a warning.
+**derived_from:** Each `--raw-subdirs` value is listed as `…/raw/{numeric}/*.cram`. An `s3://` URI of the group directory (or of `raw/` itself) is walked one level down into numeric folders; CRAMs are not expected at the listed prefix. A numeric name such as `426971` is still `…/processed/run_date/` → `…/raw/{subdir}/`. Each deliverable `*.cram` (not `unmatched`) is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. A CRAM that does not attach to an output row is printed as a warning.
 
 **Optional introspection dependencies** (needed to read `observation_count` and `feature_counts`):
 

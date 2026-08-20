@@ -583,7 +583,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--raw-subdirs",
         nargs="+",
         required=True,
-        help=("One or more raw/ folder names, or s3:// URIs of those folders"),
+        help=(
+            "Comma-separated group directories (or s3:// URIs) whose "
+            "raw/{numeric}/ folders hold the CRAMs"
+        ),
     )
     scale_h5ad.add_argument(
         "-o",

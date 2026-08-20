@@ -59,6 +59,8 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "experiment_name" in out
     assert "--cro-order" not in out
     assert "--raw-subdirs" in out
+    assert "Comma-separated" in out
+    assert "raw/{numeric}" in out
     assert "--wafers" not in out
     assert "<lab>:<sample_name>" in out
     assert "QSR" in out
@@ -679,6 +681,44 @@ def test_cli_scale_h5ad_success(
     assert kwargs["raw_subdirs"] == ["426971", "441969"]
     printed = capsys.readouterr().out
     assert "CTRL-01" in printed
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_raw_subdirs_comma_separated(
+    mock_deps: MagicMock,
+    mock_boto: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1)
+    code = main(
+        [
+            "scale_h5ad",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(tmp_path / "scale.tsv"),
+            "--quiet",
+            "--lab",
+            "example-lab",
+            "--metadata-gid",
+            "sheet-uuid",
+            "--metadata-experiment",
+            "RNA3_098",
+            "--raw-subdirs",
+            "s3://czi-novogene/lab/order/RNA3_098,"
+            "s3://czi-novogene/lab/order/CHEM13-R096",
+        ]
+    )
+    assert code == 0
+    assert mock_extract.call_args.kwargs["raw_subdirs"] == [
+        "s3://czi-novogene/lab/order/RNA3_098",
+        "s3://czi-novogene/lab/order/CHEM13-R096",
+    ]
 
 
 @patch("file_extract.cli.extract_scale_h5ad")

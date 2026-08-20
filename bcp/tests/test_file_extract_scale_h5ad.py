@@ -27,8 +27,11 @@ from file_extract.scale_h5ad import (
     is_scale_mtx_key,
     leftover_cram_uris,
     leftover_cram_warning,
+    is_cram_in_raw_search,
+    list_raw_crams,
     parse_scale_cram_name,
     parse_samples_csv,
+    raw_cram_search_prefix,
     resolve_raw_subdir,
     sample_from_filename,
     tsv_filename,
@@ -206,11 +209,28 @@ def test_validate_id_list_rejects_empty() -> None:
 
 def test_validate_raw_subdirs_allows_names_and_s3_uris() -> None:
     assert validate_raw_subdirs([" 426971 ", "441969/"]) == ["426971", "441969"]
+    assert validate_raw_subdirs(["426971,441969"]) == ["426971", "441969"]
+    assert validate_raw_subdirs(["426971, 441969", "555000"]) == [
+        "426971",
+        "441969",
+        "555000",
+    ]
     assert validate_raw_subdirs(["s3://czi-novogene/proj/raw/426971/"]) == [
         "s3://czi-novogene/proj/raw/426971"
     ]
+    assert validate_raw_subdirs(
+        [
+            "s3://czi-novogene/lab/order/RNA3_098,"
+            "s3://czi-novogene/lab/order/CHEM13-R096/"
+        ]
+    ) == [
+        "s3://czi-novogene/lab/order/RNA3_098",
+        "s3://czi-novogene/lab/order/CHEM13-R096",
+    ]
     with pytest.raises(ScaleExtractError, match="empty"):
         validate_raw_subdirs([""])
+    with pytest.raises(ScaleExtractError, match="empty"):
+        validate_raw_subdirs(["426971,"])
     with pytest.raises(ScaleExtractError, match="s3://"):
         validate_raw_subdirs(["proj/raw/426971"])
 
@@ -252,6 +272,42 @@ def test_resolve_raw_subdir_uses_processed_sibling() -> None:
     assert resolve_raw_subdir(
         "czi-cro", RUNDATE, "s3://czi-novogene/lab/raw/441969"
     ) == ("czi-novogene", "lab/raw/441969/")
+    assert resolve_raw_subdir(
+        "czi-cro", RUNDATE, "s3://czi-novogene/lab/NVUS-04/RNA3_098"
+    ) == ("czi-novogene", "lab/NVUS-04/RNA3_098/")
+
+
+def test_raw_cram_search_prefix_walks_numeric_dirs_under_raw() -> None:
+    assert raw_cram_search_prefix("lab/NVUS-04/RNA3_098/") == (
+        "lab/NVUS-04/RNA3_098/raw/"
+    )
+    assert raw_cram_search_prefix("lab/NVUS-04/RNA3_098/raw") == (
+        "lab/NVUS-04/RNA3_098/raw/"
+    )
+    assert raw_cram_search_prefix(RAW) == RAW
+
+
+def test_is_cram_in_raw_search_requires_numeric_folder() -> None:
+    group_raw = "lab/NVUS-04/RNA3_098/raw/"
+    assert is_cram_in_raw_search(f"{group_raw}426971/file.cram", group_raw)
+    assert not is_cram_in_raw_search(f"{group_raw}file.cram", group_raw)
+    assert not is_cram_in_raw_search(f"{group_raw}notes/file.cram", group_raw)
+    assert is_cram_in_raw_search(CRAM_SAMP01_GEX, RAW)
+    assert not is_cram_in_raw_search(CRAM_UNMATCHED, RAW)
+
+
+def test_list_raw_crams_finds_numeric_children_of_group_uri() -> None:
+    group = "lab/NVUS-04/RNA3_098/"
+    nested = f"{group}raw/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    stray = f"{group}file.cram"
+    client = MockS3Client(keys=[nested, stray, CRAM_SAMP01_GEX])
+    found = list_raw_crams(
+        client,
+        BUCKET,
+        RUNDATE,
+        ["s3://czi-novogene/lab/NVUS-04/RNA3_098"],
+    )
+    assert found == [("czi-novogene", nested)]
 
 
 def test_well_to_sample_map_expands_barcodes() -> None:
@@ -504,6 +560,35 @@ def test_extract_scale_h5ad_derived_from_merges_raw_subdirs(tmp_path: Path) -> N
         f"s3://{BUCKET}/{CRAM_SAMP01_GEX}",
         f"s3://{BUCKET}/{other_cram}",
     ]
+
+
+def test_extract_scale_h5ad_derived_from_group_uri_numeric_raw(
+    tmp_path: Path,
+) -> None:
+    group = "lab/NVUS-04/RNA3_098/"
+    nested = f"{group}raw/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    stray = f"{group}file.cram"
+    client = MockS3Client(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR, nested, stray],
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        crc_by_key={SAMP01_QSR: "crc-qsr1"},
+    )
+    out = tmp_path / "group.tsv"
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims):
+        extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["s3://czi-novogene/lab/NVUS-04/RNA3_098"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    assert json.loads(rows[0]["derived_from"]) == [f"s3://czi-novogene/{nested}"]
 
 
 def test_format_feature_counts() -> None:

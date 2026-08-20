@@ -121,7 +121,8 @@ def resolve_raw_subdir(
     """Turn a ``--raw-subdirs`` value into ``(bucket, prefix/)``.
 
     A name such as ``426971`` is the folder under the ``raw/`` sibling of
-    the processed rundate. An ``s3://`` URI is used as given.
+    the processed rundate. An ``s3://`` URI is used as given (typically the
+    group directory that contains ``raw/{numeric}/``).
     """
     item = (subdir or "").strip().rstrip("/")
     if not item:
@@ -142,20 +143,50 @@ def resolve_raw_subdir(
     return processed_bucket, prefix
 
 
+def raw_cram_search_prefix(prefix: str) -> str:
+    """Prefix whose ``raw/{numeric}/`` folders hold the deliverable CRAMs.
+
+    ``--raw-subdirs`` is often the group directory (or its ``raw/`` folder),
+    not the numeric run folder that actually contains ``*.cram``.
+    """
+    normalized = prefix.rstrip("/") + "/"
+    parts = [part for part in prefix.strip("/").split("/") if part]
+    last = parts[-1] if parts else ""
+    if last.isdigit() and len(parts) >= 2 and parts[-2] == "raw":
+        return normalized
+    if last == "raw":
+        return normalized
+    return f"{normalized}raw/"
+
+
+def is_cram_in_raw_search(key: str, search_prefix: str) -> bool:
+    """True for a deliverable CRAM in a numeric folder under ``raw/``."""
+    if not is_deliverable_cram_key(key) or not key.startswith(search_prefix):
+        return False
+    rest = key[len(search_prefix) :]
+    folder, sep, _name = rest.partition("/")
+    if not sep:
+        return search_prefix.rstrip("/").rsplit("/", 1)[-1].isdigit()
+    return folder.isdigit()
+
+
 def list_raw_crams(
     s3_client: Any,
     processed_bucket: str,
     processed_prefix: str,
     raw_subdirs: Sequence[str],
 ) -> list[tuple[str, str]]:
-    """List ``(bucket, key)`` for deliverable CRAMs under each raw subdir."""
+    """List ``(bucket, key)`` for CRAMs under each ``raw/{numeric}/`` folder."""
     found: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for subdir in raw_subdirs:
         bucket, prefix = resolve_raw_subdir(processed_bucket, processed_prefix, subdir)
-        for obj in list_objects_with_size(
-            s3_client, bucket, prefix, predicate=is_deliverable_cram_key
-        ):
+        search = raw_cram_search_prefix(prefix)
+
+        def _keep(key: str, _search: str = search) -> bool:
+            return is_cram_in_raw_search(key, _search)
+
+        for obj in list_objects_with_size(s3_client, bucket, search, predicate=_keep):
             ident = (bucket, obj.key)
             if ident in seen:
                 continue
