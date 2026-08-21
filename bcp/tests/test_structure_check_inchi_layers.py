@@ -266,6 +266,67 @@ def test_a_multiplier_on_the_principal_component_is_ignored() -> None:
     )
 
 
+# --------------------------------------------------------------------------
+# The formula tier's limit, and the fix that looks right and is not
+# --------------------------------------------------------------------------
+#
+# Both pairs below are decided at the formula tier -- FORM_DIFFERS returns before
+# CONSTITUTION_LAYERS is read -- so only the formula layers carry meaning here and
+# the /c and /h values are placeholders. The formulas are the real ones. Written
+# this way rather than with two real records because the second pamoate salt would
+# have to be a hand-renumbered InChI, and a fixture nobody can check is worse than
+# one that says what it is testing.
+def _formula_tier(formula: str) -> str:
+    """An InChI that parses and reaches the formula tier, and no further."""
+    return f"InChI=1S/{formula}/c1-2;3-4/h1H;2H"
+
+
+def test_two_salts_of_the_same_counterion() -> None:
+    """Two different drugs, reported as a salt-form difference. A known limit.
+
+    Hydroxyzine pamoate against pyrantel pamoate. Pamoate is 29 heavy atoms against
+    hydroxyzine's 26 and pyrantel's 14, so principal_component() returns the
+    counterion for both and the formula tier sees one shared principal with
+    differing formulas -- which is what a salt is. The row still surfaces, as
+    `salt_differs` -> `check` rather than `investigate`, so nothing is waved
+    through; but it is a genuine wrong-compound row demoted out of the worst
+    bucket, and the pair is pinned here so the limit cannot be mistaken for an
+    oversight. classify_pair's docstring says why no formula-only rule fixes it.
+    """
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.C23H16O6"),
+            _formula_tier("C11H14N2S.C23H16O6"),
+        )
+        == FORM_DIFFERS
+    )
+
+
+@pytest.mark.parametrize(
+    "counterion", ["BrH", "CH4O3S", "C7H8O3S"], ids=["bromide", "mesylate", "tosylate"]
+)
+def test_one_drug_with_two_different_counterions_is_still_a_form_difference(
+    counterion: str,
+) -> None:
+    """The guard on the fix that test_two_salts_of_the_same_counterion invites.
+
+    Requiring the component sets to be in a subset relation would catch the pamoate
+    pair -- and would report a hydrochloride against a hydrobromide, a mesylate or a
+    tosylate of the *same* drug as DIFFERENT_COMPOUND, because `{drug, ClH}` and
+    `{drug, BrH}` are neither a subset of the other. That is the false positive this
+    module exists to remove, and it is far more common in a real sheet than two
+    unrelated salts of one counterion. Any future gate on the formula tier has to
+    keep these passing.
+    """
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.ClH"),
+            _formula_tier(f"C21H27ClN2O2.{counterion}"),
+        )
+        == FORM_DIFFERS
+    )
+
+
 def test_unrelated_compounds_differ_by_compound() -> None:
     assert classify_pair(ETHANOL, DOXORUBICIN) == DIFFERENT_COMPOUND
 

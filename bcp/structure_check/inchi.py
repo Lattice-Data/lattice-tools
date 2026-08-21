@@ -276,6 +276,25 @@ def classify_pair(inchi_a: str, inchi_b: str) -> str:
       formula relationship has to be settled first -- but it means one call names one
       kind of disagreement, not every kind. A caller needing both must compare the
       stereo layers itself.
+
+      **Wrong for two unrelated salts of the same heavy counterion, and this is not
+      fixable here.** `principal_component()` picks the counterion when it is the
+      largest fragment, so hydroxyzine pamoate and pyrantel pamoate share a
+      principal component and report `FORM_DIFFERS` -- two different drugs called a
+      salt-form difference. No formula-only rule separates that from a genuine
+      salt-form difference: `{drug, ClH}` against `{drug, BrH}` and
+      `{hydroxyzine, pamoate}` against `{pyrantel, pamoate}` are the same shape,
+      one shared component and one differing component per side, and the only
+      formula-derived discriminator is size. Size is what already failed -- pamoate
+      is 29 heavy atoms against hydroxyzine's 26 and pyrantel's 14, and real
+      counterions run from chloride's 1 to pamoate's 29, overlapping the drugs
+      outright. Requiring the component sets to be in a subset relation looks like
+      the fix and is not: it would report a hydrochloride against a hydrobromide of
+      the same drug as `DIFFERENT_COMPOUND`, which is the false positive this
+      module exists to remove. Deciding it needs the per-component `/c` sublayers,
+      not the formula. The direction is safe -- `salt_differs` still surfaces the
+      row as `check` rather than `ok` -- and `test_two_salts_of_the_same_counterion`
+      pins it so the limit cannot be mistaken for an oversight.
     - `STEREO_DIFFERS` -- same formula, and some stereo layer is present on **both**
       sides with **different** values. A genuine stereoisomer difference.
     - `STEREO_UNDEFINED_ON_ONE_SIDE` -- same formula, and every differing layer is

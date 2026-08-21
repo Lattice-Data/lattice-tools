@@ -432,16 +432,25 @@ def test_a_pamoate_salt_is_not_answered_off_the_layers(
     assert mock_parent.called
 
 
+# The two ways a candidate can be unreadable. Both must behave identically, and
+# the empty string is the one that matters in practice: PubChem's name endpoint
+# omits the InChI field on some records, so structures_for_name() carries "" for
+# them. Gating the free route on all(candidate_inchis) treated the common case as
+# fatal and the exotic one as skippable.
+@pytest.mark.parametrize(
+    "unreadable", ["", ETHANOL_INCHI + "/f1"], ids=["missing", "non_standard"]
+)
 @patch("structure_check.client.parent_inchikey")
 def test_one_unreadable_candidate_does_not_discard_a_salt_finding(
-    mock_parent: MagicMock,
+    mock_parent: MagicMock, unreadable: str
 ) -> None:
-    """A sibling with a non-standard InChI must not mask a definite salt answer.
+    """A sibling this comparison cannot read must not mask a definite salt answer.
 
-    `/f` is a layer this comparison refuses, so that candidate is not_comparable;
-    the other is doxorubicin HCl against its free base. compare_structures' contract
-    is that a candidate can only ever mask a finding, never invent one -- the same
-    direction, inverted, forbids discarding a salt because a sibling was unreadable.
+    An empty string and a `/f` layer are both refused by classify_pair, so either
+    candidate is not_comparable; the other is doxorubicin HCl against its free base.
+    compare_structures' contract is that a candidate can only ever mask a finding,
+    never invent one -- the same direction, inverted, forbids discarding a salt
+    because a sibling was unreadable.
     """
     from structure_check.client import refine_skeleton_difference
 
@@ -450,7 +459,7 @@ def test_one_unreadable_candidate_does_not_discard_a_salt_finding(
             DOXORUBICIN_HCL,
             [DOXORUBICIN_FREE_BASE, ETHANOL],
             reference_inchi=DOXORUBICIN_HCL_INCHI,
-            candidate_inchis=(DOXORUBICIN_INCHI, ETHANOL_INCHI + "/f1"),
+            candidate_inchis=(DOXORUBICIN_INCHI, unreadable),
         )
         == SALT_DIFFERS
     )
@@ -458,14 +467,16 @@ def test_one_unreadable_candidate_does_not_discard_a_salt_finding(
 
 
 @patch("structure_check.client.parent_inchikey")
-def test_refine_falls_back_to_parents_when_a_side_has_no_string(
+def test_refine_falls_back_to_parents_when_no_candidate_has_a_string(
     mock_parent: MagicMock,
 ) -> None:
-    """A side with no InChI is not a side that agrees; it is one we cannot read.
+    """No readable candidate at all is the one case that declines to answer.
 
     ChEBI records no structure for class terms and R-group entries, and PubChem
     omits the field on some records, so this is the ordinary case rather than the
-    exotic one.
+    exotic one. One unreadable candidate among several is skipped; when every
+    candidate is unreadable there is nothing to skip to, and the parent route
+    decides.
     """
     from structure_check.client import refine_skeleton_difference
 

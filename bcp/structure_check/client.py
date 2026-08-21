@@ -588,14 +588,23 @@ def refine_skeleton_difference(
     Those rows fall through to the parent route, which costs three requests per
     structure and is why it is only reached once a difference is already known.
 
-    A missing or non-standard string falls back silently. A verdict of MATCH or
-    STEREO_DIFFERS means the layers and the keys disagree about a pair whose keys
+    An unreadable candidate is skipped, not fatal to the route: a missing or
+    non-standard string is one candidate this comparison cannot read, and only when
+    *no* candidate is readable does the route decline to answer. A verdict of MATCH
+    or STEREO_DIFFERS means the layers and the keys disagree about a pair whose keys
     already differ in connectivity, which cannot both be true, so it is logged and
     the request route decides. Two independently written comparisons disagreeing is
     how the stereo bug in this package was found, and that redundancy only pays if
     the disagreement is reported.
     """
-    if reference_inchi and candidate_inchis and all(candidate_inchis):
+    # No `all(candidate_inchis)` here, and the omission is load-bearing.
+    # classify_pair() already refuses an empty string, so an unreadable candidate
+    # contributes NOT_COMPARABLE and is ignored unless it is all there is -- which
+    # is exactly the rule stated below, that a sibling must not mask a definite
+    # salt answer. Gating on all() enforced the opposite: PubChem's name endpoint
+    # omits the InChI field on some records, so one such sibling among up to ten
+    # candidates sent the whole row to the parent route.
+    if reference_inchi and candidate_inchis:
         verdicts = {
             comparison_verdict_from_inchi(reference_inchi, candidate_inchi)
             for candidate_inchi in candidate_inchis
