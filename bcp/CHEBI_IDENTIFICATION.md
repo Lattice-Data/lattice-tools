@@ -3,8 +3,10 @@
 Establish a **verified ChEBI identifier** for every compound in a batch of experimental
 perturbations, given only a name and a CAS number per row. Part of BCP tooling. There is
 no CLI: this is a method run in phases against one spreadsheet at a time, and its
-reusable parts live in `bcp/structure_check` (InChI layers, CAS validation, structure
-comparison) and `bcp/chebi_terms` (ChEBI records, names, CAS accessions).
+reusable parts live in `bcp/structure_check` (InChI layers, structure comparison),
+`bcp/cas_registry.py` (CAS validation and repair — at the `bcp/` top level, not inside
+either package, because it is shared with `chebi_lookup` and belongs to neither) and
+`bcp/chebi_terms` (ChEBI records, names, CAS accessions).
 
 The constraint that forces the design: a name and a CAS number in adjacent cells look
 like two facts about one compound, and often are not. Across two real batches, 25 rows
@@ -287,10 +289,18 @@ an outage and reporting a thousand unchecked absences is worse than stopping.
 `structure_check.inchi` implements this, and it is the correction of a comparison that
 shipped wrong.
 
-Salt and stereo differences are discriminated from the **InChI layers**, not from
-PubChem's desalted-parent lookup. `refine_skeleton_difference` costs three requests per
+Salt and stereo differences are discriminated from the **InChI layers** rather than from
+PubChem's desalted-parent lookup. Per-run, the parent lookup cost three requests per
 structure and misclassified **15 of 36** rows; comparing the principal component of the
 formula layer got all 36.
+
+The shipped `structure_check.refine_skeleton_difference` is deliberately more cautious
+than that measurement. It lets the layers *confirm* a salt difference and never lets them
+declare a different compound, because the principal-component ranking picks the
+counterion whenever the counterion is the larger fragment. See
+[STRUCTURE_CHECK.md](STRUCTURE_CHECK.md) for what the two routes now do and which rows
+still pay for the parent lookup; the numbers above describe the per-run scripts, not that
+function.
 
 The plumbing that used to block this is now in place. That function receives
 InChI**Keys**, and a formula cannot be recovered from a 14-character connectivity hash,

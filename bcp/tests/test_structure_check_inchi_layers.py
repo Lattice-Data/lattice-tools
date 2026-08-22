@@ -276,9 +276,13 @@ def test_a_multiplier_on_the_principal_component_is_ignored() -> None:
 # this way rather than with two real records because the second pamoate salt would
 # have to be a hand-renumbered InChI, and a fixture nobody can check is worse than
 # one that says what it is testing.
-def _formula_tier(formula: str) -> str:
-    """An InChI that parses and reaches the formula tier, and no further."""
-    return f"InChI=1S/{formula}/c1-2;3-4/h1H;2H"
+def _formula_tier(formula: str, c: str = "1-2;3-4") -> str:
+    """An InChI that parses and reaches the formula tier.
+
+    `c` only matters for the pairs that are meant to reach the constitution tier --
+    where the formulas are equal, so FORM_DIFFERS does not short-circuit first.
+    """
+    return f"InChI=1S/{formula}/c{c}/h1H;2H"
 
 
 def test_two_salts_of_the_same_counterion() -> None:
@@ -299,6 +303,34 @@ def test_two_salts_of_the_same_counterion() -> None:
             _formula_tier("C11H14N2S.C23H16O6"),
         )
         == FORM_DIFFERS
+    )
+
+
+def test_two_isomers_with_different_counterions() -> None:
+    """Constitutional isomers reported as a salt difference. The second known limit.
+
+    The principal components match on **formula** while the molecules differ in
+    `/c`, and the formula tier returns FORM_DIFFERS before `/c` is read. Only the
+    counterion difference hides it: with the same counterion on both sides the pair
+    reaches the constitution tier and comes back DIFFERENT_COMPOUND, which the
+    second assertion pins so this test cannot pass for the wrong reason.
+
+    This is the case the per-component `/c` sublayers could decide; classify_pair's
+    docstring says why that alignment is not a drop-in.
+    """
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.ClH", c="1-2-3;"),
+            _formula_tier("C21H27ClN2O2.BrH", c="1-3-2;"),
+        )
+        == FORM_DIFFERS
+    )
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.ClH", c="1-2-3;"),
+            _formula_tier("C21H27ClN2O2.ClH", c="1-3-2;"),
+        )
+        == DIFFERENT_COMPOUND
     )
 
 
@@ -468,16 +500,93 @@ def test_every_declared_verdict_is_reachable() -> None:
     assert observed == set(INCHI_VERDICTS)
 
 
-def test_isotopic_sublayers_do_not_overwrite_the_real_stereo_layers() -> None:
-    """InChI re-emits /t /m /s after /i to give the isotopic stereochemistry.
+def test_the_isotopic_block_is_one_value_and_does_not_leak_into_the_real_layers() -> (
+    None
+):
+    """InChI re-emits /h /t /m /s after /i to give the *isotopic* ones.
 
-    Keying layers by first character and assigning meant the isotopic /m replaced
-    the real one, so a deuterium label could manufacture a stereo difference.
+    They share the single-letter namespace with the ordinary layers, so the two have
+    to be kept apart, and both directions of merging them were live bugs. Here the
+    ordinary /m must survive as "0" rather than being replaced by the isotopic "1",
+    which is how a deuterium label used to manufacture a stereo difference; and the
+    whole isotopic block has to be retained rather than dropped, which is what
+    test_heavy_water_is_not_tritiated_water covers.
     """
     labelled = "InChI=1S/C3H8O/c1-2-3/h3H,2H2,1H3/t3-/m0/s1/i1D3/t3-/m1/s1"
     layers, _ = inchi_layers(labelled)
     assert layers["m"] == "0"
-    assert layers["i"] == "1D3"
+    assert layers["t"] == "3-"
+    assert layers["i"] == "1D3/t3-/m1/s1"
+
+
+def test_surrounding_whitespace_does_not_make_a_structure_differ_from_itself() -> None:
+    """`inchi_layers` strips, and nothing pinned that it does.
+
+    A trailing newline from a text file or a CSV cell lands in the final layer's
+    value otherwise, so a structure compares unequal to itself and the row is
+    reported as a stereo or constitution difference that is entirely our own doing.
+    Removing the `.strip()` left the whole suite green.
+    """
+    assert classify_pair(ETHANOL, ETHANOL + "\n") == LAYERS_IDENTICAL
+    assert classify_pair(ETHANOL, f"  {ETHANOL}\r\n") == LAYERS_IDENTICAL
+
+
+def test_an_empty_layer_is_skipped_rather_than_indexed() -> None:
+    """A doubled slash yields an empty part, and `part[0]` on it raises IndexError.
+
+    Out through classify_pair, which documents that unparseable input reads as
+    unknown rather than raising, and out through check_row, which promises never to
+    raise at all. Removing the guard left the whole suite green, so the shape is
+    pinned here directly: the layers either side of the empty one still parse.
+    """
+    doubled = "InChI=1S/C2H6O//c1-2-3/h3H,2H2,1H3"
+    assert inchi_layers(doubled) == ({"c": "1-2-3", "h": "3H,2H2,1H3"}, "C2H6O")
+    assert classify_pair(doubled, ETHANOL) == LAYERS_IDENTICAL
+
+
+def test_an_absurd_stoichiometric_count_is_refused_rather_than_raising() -> None:
+    """`int()` refuses a run past 4300 digits, and this module refuses to raise.
+
+    The formula gate's digit runs were unbounded, so a formula carrying a
+    4400-digit count passed it and then raised ValueError out of `_atom_counts`,
+    through classify_pair -- which documents that unparseable input reads as
+    *unknown* -- and out through check_row, which promises never to raise at all.
+    Six digits is four orders of magnitude past any real stoichiometry.
+    """
+    absurd = "InChI=1S/C" + "9" * 4400 + "/c1-2"
+    assert classify_pair(absurd, ETHANOL) == LAYERS_NOT_COMPARABLE
+    assert classify_pair(absurd, absurd) == LAYERS_NOT_COMPARABLE
+    # Bounded in _ELEMENT too, so the public helper is safe called directly.
+    principal_component("C" + "9" * 4400)
+
+
+def test_heavy_water_is_not_tritiated_water() -> None:
+    """The isotopic block carried the only difference, and it was being dropped.
+
+    `/i/hD2` against `/i/hT2`: both structures also carry an ordinary `/h1H2`, so an
+    earlier-wins rule on a shared namespace discarded `hD2` and `hT2` and the two
+    compared LAYERS_IDENTICAL -- projected to `match`, the one direction this module
+    exists to make impossible. Deuterium oxide and tritium oxide are separate ChEBI
+    entries with separate CAS numbers.
+    """
+    heavy = "InChI=1S/H2O/h1H2/i/hD2"
+    tritiated = "InChI=1S/H2O/h1H2/i/hT2"
+    assert classify_pair(heavy, tritiated) == ISOTOPE_DIFFERS
+    assert classify_pair(heavy, heavy) == LAYERS_IDENTICAL
+
+
+def test_an_isotopic_stereo_layer_is_not_read_as_the_ordinary_one() -> None:
+    """The same merge, in the other direction.
+
+    A structure whose only `/t` is the isotopic one had that value adopted as its
+    ordinary stereochemistry, which manufactures a stereo difference against a
+    structure that genuinely specifies `/t`. Now the isotopic `/t` stays inside the
+    isotopic block and the pair differs by isotope, which is what it is.
+    """
+    isotopic_t_only = "InChI=1S/C6H12O6/c1-2/h1H/i1D3/t3-/m1/s1"
+    ordinary_t = "InChI=1S/C6H12O6/c1-2/h1H/t3-/m1/s1"
+    assert inchi_layers(isotopic_t_only)[0].get("t") is None
+    assert classify_pair(isotopic_t_only, ordinary_t) == ISOTOPE_DIFFERS
 
 
 def test_principal_component_ranks_heavy_atoms_before_hydrogens() -> None:

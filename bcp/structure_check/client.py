@@ -28,7 +28,7 @@ import urllib.parse
 from collections.abc import Collection
 from typing import Any
 
-from cas_registry import classify_cas
+from cas_registry import CAS_INVALID_FORMAT, CAS_MISSING, classify_cas
 from chebi_lookup.client import (
     BASE,
     OUTCOME_UNREACHABLE,
@@ -345,6 +345,7 @@ OUTPUT_FIELDS_APPENDED = [
     "name_cas_verdict",
     "cas_inchikey",
     "cas_pubchem_name",
+    "cas_queried",
     "cas_class",
     "cas_repairs",
     "chebi_inchikey",
@@ -577,25 +578,52 @@ def refine_skeleton_difference(
     leaves SKELETON_DIFFERS.
 
     **Two routes, and the free one is tried first.** Given the InChI strings, the
-    formula layer can confirm a salt difference at no cost: `form_differs` is exact,
-    and that is the only verdict the free route is now allowed to return. A layer
-    reading of "different compound" is not. `principal_component()` ranks by heavy
-    atoms and picks the counterion when the counterion is the larger fragment --
-    pamoate is 29 heavy atoms, so hydroxyzine pamoate (26), pyrantel pamoate (14)
-    and amitriptyline embonate (21) all rank the counterion on the salt side and
-    the drug on the free-base side. Answering `SKELETON_DIFFERS` from that
-    reopened the largest false-positive class this refinement exists to close.
-    Those rows fall through to the parent route, which costs three requests per
-    structure and is why it is only reached once a difference is already known.
+    formula layer can confirm a salt difference at no cost, and `form_differs` is
+    the only verdict the free route is allowed to return. A layer reading of
+    "different compound" is not: `principal_component()` ranks by heavy atoms and
+    picks the counterion when the counterion is the larger fragment -- pamoate is 29
+    heavy atoms, so hydroxyzine pamoate (26), pyrantel pamoate (14) and
+    amitriptyline embonate (21) all rank the counterion on the salt side and the
+    drug on the free-base side. Answering `SKELETON_DIFFERS` from that reopened the
+    largest false-positive class this refinement exists to close. Those rows fall
+    through to the parent route, which costs three requests per structure and is why
+    it is only reached once a difference is already known.
+
+    **`form_differs` is not exact either, and the direction of its error is what
+    makes it usable.** The formula tier returns it as soon as the stripped principal
+    components match and the full formulas differ, before `/c` and `/h` are read, so
+    it is exact only where the shared principal component is the same molecule on
+    both sides and is the compound rather than the counterion. Two pairs break that
+    and both are pinned in `tests/test_structure_check_inchi_layers.py`: two
+    unrelated drugs sharing a heavy counterion, and two constitutional isomers
+    carrying *different* counterions -- `C21H27ClN2O2.ClH` against an isomer's
+    `C21H27ClN2O2.BrH` never reaches the `/c` comparison. Both report a
+    wrong-compound row as `salt_differs`, so it surfaces as `check` rather than
+    `investigate`: still surfaced, never waved through, but a systematic move out of
+    the bucket a curator reads first. `structure_check.inchi.classify_pair` records
+    why no formula-only rule fixes it and what deciding it would take.
 
     An unreadable candidate is skipped, not fatal to the route: a missing or
     non-standard string is one candidate this comparison cannot read, and only when
-    *no* candidate is readable does the route decline to answer. A verdict of MATCH
-    or STEREO_DIFFERS means the layers and the keys disagree about a pair whose keys
-    already differ in connectivity, which cannot both be true, so it is logged and
-    the request route decides. Two independently written comparisons disagreeing is
-    how the stereo bug in this package was found, and that redundancy only pays if
-    the disagreement is reported.
+    *no* candidate is readable does the route decline to answer.
+
+    **The MATCH / STEREO_DIFFERS branch is defence, not a described behaviour.**
+    Every layer verdict that projects onto those two is reached only *after*
+    `classify_pair()`'s ionisation tier has returned, so the formula, `/c`, `/h`,
+    `/q` and `/p` layers are all equal by then. Block 1 of an InChIKey is fixed by
+    formula, `/c`, `/h` and `/q` -- `/q` matters and is easy to forget: adding
+    `/q+1` to ethanol moves the block from `LFQSCWFLJHTTHZ` to `MMFGLAVKOXZMDF`,
+    while `/p` moves only the final character. So the two keys must share their
+    skeleton block, `compare_structures()` would have returned MATCH or
+    STEREO_DIFFERS, and this function would never have been called. Reordering the
+    tiers so a verdict can be reached with `/q` still unequal is what would make the
+    branch live.
+
+    It can therefore only fire on an upstream record whose InChIKey and InChI
+    disagree with each other, which is why it logs rather than decides: two
+    independently written comparisons disagreeing is how the stereo bug in this
+    package was found, and that redundancy only pays if the disagreement is
+    reported.
     """
     # No `all(candidate_inchis)` here, and the omission is load-bearing.
     # classify_pair() already refuses an empty string, so an unreadable candidate
@@ -609,12 +637,16 @@ def refine_skeleton_difference(
             comparison_verdict_from_inchi(reference_inchi, candidate_inchi)
             for candidate_inchi in candidate_inchis
         }
-        # MATCH or STEREO_DIFFERS from the layers means the layers and the keys
-        # disagree about a pair whose keys already differ in connectivity. Both
-        # cannot be true, so one input is wrong and nothing read off the layers is
-        # trustworthy for this pair -- the request route decides, and the
-        # disagreement is reported, because two independently written comparisons
-        # are only worth the duplication if they are heard when they differ.
+        # Unreachable from check_row, and kept anyway -- see the docstring. Both
+        # verdicts are reached only past the ionisation tier, so formula, /c, /h, /q
+        # and /p are equal, and those four fix an InChIKey's skeleton block; the two
+        # keys therefore share it and compare_structures would not have said
+        # SKELETON_DIFFERS. What can still get here is an upstream record whose
+        # InChIKey and InChI disagree with each other, and then nothing read off the
+        # layers is trustworthy for this pair: the request route decides, and the
+        # disagreement is reported rather than resolved, because two independently
+        # written comparisons are only worth the duplication if they are heard when
+        # they differ.
         if verdicts & {MATCH, STEREO_DIFFERS}:
             log.warning(
                 "InChI layers and InChIKeys disagree about %s: the keys differ in "
@@ -662,9 +694,22 @@ def name_candidates(raw: Any) -> tuple[list[str], list[str]]:
     packs two aliases for one compound into one cell. A cell naming a salt form is
     not that, so any SALT_TOKENS match disables the fallback entirely: reporting
     name_unresolved is better than comparing a molecule the row never claimed.
+
+    A cell that cannot be encoded as UTF-8 yields no candidates. It reaches here
+    from `sys.argv`, which decodes an undecodable byte to a lone surrogate under
+    `surrogateescape`, and `urllib.parse.quote()` raises UnicodeEncodeError on
+    one -- out through `check_row`, which promises never to raise, and out of
+    single-row mode as a traceback where its contract is an exit code. Refused here
+    rather than caught at the request, because this function is already the one
+    place that decides what is worth querying.
     """
     text = " ".join(str(raw or "").split())
     if not text:
+        return [], []
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        log.warning("Name is not encodable and cannot be queried: %r", text)
         return [], []
 
     whole = [text]
@@ -831,12 +876,22 @@ def chebi_structure(chebi_id: Any) -> tuple[str, str, str]:
         return "", CHEBI_NO_STRUCTURE, ""
     key = structure.get("standard_inchi_key") or ""
     inchi = structure.get("standard_inchi") or ""
-    if not isinstance(key, str) or not isinstance(inchi, str):
-        # A non-string key reaches skeleton()'s slice and " | ".join(); a non-string
-        # InChI reaches classify_pair()'s .strip(). Either would raise out through
-        # check_row, which promises not to.
-        log.warning("ChEBI %s records a non-string structure; ignoring it", parsed[0])
+    if not isinstance(key, str):
+        # A non-string key reaches skeleton()'s slice and " | ".join(), which would
+        # raise out through check_row, and there is no comparison to make without
+        # it. Only the key is fatal.
+        log.warning("ChEBI %s records a non-string InChIKey; ignoring it", parsed[0])
         return "", CHEBI_NO_STRUCTURE, ""
+    if not isinstance(inchi, str):
+        # A non-string InChI reaches classify_pair()'s .strip(), so it cannot be
+        # passed on -- but dropping the *key* with it threw away the whole
+        # comparison and reported chebi_no_structure, whose documented meaning is
+        # that ChEBI holds no structure for this entry. It holds one; we could not
+        # read one field of it. "" reads downstream as "no string for this side",
+        # which sends the row to the parent route exactly as structures_for_name()
+        # does for the same shape.
+        log.warning("ChEBI %s records a non-string InChI; ignoring it", parsed[0])
+        inchi = ""
     return (key, "", inchi) if key else ("", CHEBI_NO_STRUCTURE, "")
 
 
@@ -847,9 +902,11 @@ def cas_structure(cas: Any) -> tuple[str, str, str]:
     Two requests, not chebi_lookup.lookup_cas()'s four: only the InChIKey, Title and
     InChI are wanted, and fetching xrefs and synonyms for every row spent about a
     minute of REQUEST_DELAY on a 117-row sheet producing data that was discarded.
-    Zero requests when the cell is not a registry number: cas_to_cid_status()
-    validates before it asks, so a compound name in a CAS column no longer resolves
-    as a name.
+    Zero requests for a cell no repair turns into a registry number:
+    cas_to_cid_status() validates before it asks, so a compound name in a CAS column
+    no longer resolves as a name. A value whose check digit merely disagrees is still
+    sent, deliberately -- PubChem indexes vendor synonyms verbatim, so what it
+    answers is evidence about the row.
 
     The InChI rides along in the property request that already fetches the key, and
     is what lets refine_skeleton_difference() read a salt off the formula layer for
@@ -965,9 +1022,17 @@ def check_row(
         # number, or was asked about a value the sheet does not contain. classify_cas
         # is pure and deterministic, so calling it twice costs nothing and keeps the
         # "worth a request" rule in one place.
-        _, cas_class, cas_repairs = classify_cas(cas)
+        queried, cas_class, cas_repairs = classify_cas(cas)
         result["cas_class"] = cas_class
         result["cas_repairs"] = cas_repairs
+        # `cas_repairs: segment_rotation` without the result says the number looked
+        # up was not the number in the cell, and then does not say what it was.
+        # Emptied for the classes cas_to_cid_status refuses to send, so the column
+        # is literally what was asked rather than what was considered -- the same
+        # rule chebi_lookup's identically named column follows.
+        result["cas_queried"] = (
+            "" if cas_class in (CAS_MISSING, CAS_INVALID_FORMAT) else queried
+        )
     cas_unreachable = False
     cas_key, cas_name, cas_inchi = "", "", ""
     if has_cas:

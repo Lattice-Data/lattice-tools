@@ -96,7 +96,12 @@ This runs in one direction only: it can *downgrade* a difference already found, 
 
 **One caveat, stated precisely.** Because the demotion runs on both sides, two genuinely unrelated compounds cited as salts of the *same* counterion could each resolve to that counterion, agree, and have a real skeleton difference demoted from `investigate` to `check`. The row is still flagged and still needs a human, so nothing is waved through — but "false positives only" would be too strong a claim. In practice the parent-route demotion needs both `inchikey → CID → parent CID → InChIKey` chains to succeed, and for multi-component salts they usually do not (pyrvinium pamoate returns nothing at all via that path), which is why the pamoate rows stay at `investigate` on that route.
 
-The same demotion exists on the **layer route** and is deterministic there: two unrelated salts of the same counterion have the same principal component, so `classify_pair` returns `form_differs` → `salt_differs`. Hydroxyzine pamoate against pyrantel pamoate is that pair. The row is still flagged (`check`, not `ok`), so nothing is waved through.
+The same demotion exists on the **layer route**, where it is *deterministic* rather than dependent on two lookups succeeding — so these rows now reach `check` where before they stayed at `investigate`. `form_differs` is returned as soon as the stripped principal components match and the full formulas differ, before `/c` and `/h` are read, so it is exact only where that shared component is the same molecule on both sides **and** is the compound rather than the counterion. Two pairs break that:
+
+- **two unrelated drugs sharing a heavy counterion** — hydroxyzine pamoate against pyrantel pamoate, where pamoate's 29 heavy atoms outrank hydroxyzine's 26 and pyrantel's 14, so both sides' principal component is the counterion;
+- **two constitutional isomers carrying different counterions** — `C21H27ClN2O2.ClH` against an isomer's `C21H27ClN2O2.BrH` matches on the principal component's *formula* and never reaches the `/c` comparison. With the same counterion on both sides the pair is correctly `different_compound`, so only the counterion difference hides it.
+
+Both report a wrong-compound row as `salt_differs`, so it surfaces as `check` rather than `investigate`: still flagged, never waved through, but a systematic move out of the bucket a curator reads first, arriving as a side effect of a cost optimisation. `structure_check.inchi.classify_pair`'s docstring records why no formula-only rule separates either case from a genuine salt difference, and both are pinned by tests so neither reads as an oversight.
 
 ---
 
@@ -106,7 +111,7 @@ The same demotion exists on the **layer route** and is deterministic there: two 
 
 - `match` — identical InChIKey
 - `stereo_differs` — same skeleton, different stereo/isotope/charge layer
-- `salt_differs` — different skeleton, but both sides share a desalted parent
+- `salt_differs` — different skeleton, but the **same principal component in the InChI formula layer**, or (only where the layers cannot answer) both sides share a PubChem desalted parent. Most rows now take the first route, which costs no request
 - `skeleton_differs` — different molecule
 
 Plus the reasons a comparison could not be made, which are **never findings about the compound**:
@@ -140,6 +145,7 @@ That line matters more than it looks. "PubChem has no such CAS" is evidence abou
 | `id_cas_verdict`, `name_cas_verdict` | The two verdicts |
 | `cas_inchikey` | Structure PubChem gives for the CAS |
 | `cas_pubchem_name` | PubChem's preferred name for the CAS — useful for eyeballing a flagged row |
+| `cas_queried` | **The exact value sent to PubChem**, empty when nothing was. A repaired cell was not looked up as written, and this is what it was looked up as. |
 | `cas_class` | `valid`, `invalid_checksum`, `invalid_format` or `missing` |
 | `cas_repairs` | `+`-joined record of the mechanical repairs applied, empty when none |
 | `chebi_inchikey` | Structure ChEBI gives for the ID |
@@ -170,6 +176,7 @@ bcp/structure_check/
 ├── __main__.py
 ├── cli.py       # argparse entrypoint
 ├── io.py        # CSV batch + single row
+├── inchi.py     # InChI-layer comparison, no network
 └── client.py    # resolvers, InChIKey comparison, verdicts
 ```
 
@@ -235,7 +242,7 @@ print(r["review"], r["id_cas_verdict"], r["name_cas_verdict"])
 
 ## Cost
 
-Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title,InChI` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), typically 1–2 for the name (more if neither whole-string form resolves and the token fallback tries each token in turn), and 1 ChEBI call. **Zero** for a CAS cell that is not a registry number: it is validated before it is sent. The class and any repair are recorded per row in `cas_class` and `cas_repairs`.
+Per distinct `(CAS, ChEBI ID, name)` triple: **2** PubChem calls for the CAS (CID, then a targeted `InChIKey,Title,InChI` property call — not `lookup_cas`'s four, whose xrefs and synonyms were being discarded), typically 1–2 for the name (more if neither whole-string form resolves and the token fallback tries each token in turn), and 1 ChEBI call. **Zero** for a cell no repair turns into a registry number (`cas_class: invalid_format` or `missing`): it is validated before it is sent. A value whose check digit merely disagrees is still sent, deliberately — PubChem indexes vendor synonyms verbatim, so what it answers is evidence about the row. The class, any repair, and the value actually sent are recorded per row in `cas_class`, `cas_repairs` and `cas_queried`.
 
 Salt refinement is free where the layers find a salt, since the InChI strings ride along in calls already being made. A row the layers call a different compound still pays the parent route, and that is deliberate — it is the verdict a curator pays the most for. Only that layer reading, a CAS side with no InChI string, or a row where no candidate has a readable one, falls back to the desalted-parent check at 3 requests per structure, which runs where a difference was already found and the name was not truncated; answers are cached for the run — including a definitive "no parent" — but an outage is not, so one unlucky moment does not disable the demotion for every later row.
 

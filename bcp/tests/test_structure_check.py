@@ -270,6 +270,32 @@ def test_name_candidates_of_blank_is_empty() -> None:
     assert name_candidates("   ") == ([], [])
 
 
+def test_a_name_that_cannot_be_encoded_yields_no_candidates() -> None:
+    """`urllib.parse.quote` raises UnicodeEncodeError on a lone surrogate.
+
+    `sys.argv` decodes an undecodable byte to one under surrogateescape, so
+    `--name $'aspirin\\xff'` used to come out of single-row mode as a traceback
+    through check_row, which promises never to raise, and past an interface whose
+    documented contract is an exit code.
+    """
+    assert name_candidates("aspirin\udcff") == ([], [])
+
+
+@patch("structure_check.client.structures_for_name")
+@patch("structure_check.client.cas_structure", return_value=(ETHANOL, "Ethanol", ""))
+def test_check_row_does_not_raise_on_an_unencodable_name(
+    _mock_cas: MagicMock, mock_resolve: MagicMock
+) -> None:
+    """The never-raises contract, at the boundary that used to break it.
+
+    Patched below `name_structure` so the real `name_candidates` runs: it is what
+    refuses the cell, and no request is made for a string that cannot be encoded.
+    """
+    result = check_row(cas="64-17-5", name="aspirin\udcff")
+    assert result["name_cas_verdict"] == NAME_UNRESOLVED
+    mock_resolve.assert_not_called()
+
+
 # --------------------------------------------------------------------------
 # review level
 # --------------------------------------------------------------------------
@@ -503,6 +529,14 @@ def test_refine_reports_the_two_comparisons_disagreeing(
     independently written comparisons disagreeing about the same structures is how
     the stereo bug in this package was found. The request route decides, and the
     disagreement is logged rather than resolved silently.
+
+    Reached here by calling the function directly, which is the only way: every
+    verdict that takes this branch is reached past `classify_pair`'s ionisation tier,
+    so formula, /c, /h, /q and /p are equal -- and those four fix an InChIKey's
+    skeleton block -- so `compare_structures` would have returned MATCH or
+    STEREO_DIFFERS rather than the SKELETON_DIFFERS that gets refinement called at
+    all. What the branch defends against is an upstream record whose InChIKey and
+    InChI disagree with each other, so this test is the only thing that exercises it.
     """
     from structure_check.client import refine_skeleton_difference
 
@@ -698,7 +732,40 @@ def test_a_repaired_cas_is_recorded_next_to_the_verdict_it_produced() -> None:
         result = check_row(cas="0362-07-02", chebi_id="CHEBI:16236", name="x")
     assert result["cas_repairs"] == "zero_padded_check_digit+leading_zero"
     assert result["cas_class"] == "valid"
+    # The repairs column says the value looked up was not the cell's; without this
+    # one it does not say what it was.
+    assert result["cas_queried"] == "362-07-2"
     assert result["id_cas_verdict"] == CAS_UNRESOLVED
+
+
+@pytest.mark.parametrize(
+    ("cas", "expected"),
+    [
+        ("64-17-5", "64-17-5"),
+        ("0362-07-02", "362-07-2"),
+        # A failing check digit is still sent -- PubChem indexes vendor synonyms
+        # verbatim -- so it is still what was queried.
+        # Off by one in the check digit; the real number is 779353-01-4.
+        ("779353-01-3", "779353-01-3"),
+        # Never sent, so nothing was queried.
+        ("what?", ""),
+        ("", ""),
+    ],
+    ids=["clean", "repaired", "bad_checksum", "not_a_cas", "blank"],
+)
+def test_cas_queried_is_what_was_sent_and_empty_when_nothing_was(
+    cas: str, expected: str
+) -> None:
+    """The column is what was asked, not what was considered.
+
+    Mirrors chebi_lookup's identically named column, including that a failing check
+    digit is still sent: refusing to ask would be a claim about PubChem's index
+    rather than about the number.
+    """
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(cas_key="", cas_name="")
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas=cas, chebi_id="CHEBI:16236", name="x")
+    assert result["cas_queried"] == expected
 
 
 def test_check_row_blank_cas_is_not_checked_rather_than_unresolved() -> None:
@@ -885,6 +952,39 @@ def test_chebi_structure_without_a_structure_block(mock_fetch: MagicMock) -> Non
 
     mock_fetch.return_value = {"default_structure": None}
     assert chebi_structure("CHEBI:33697") == ("", CHEBI_NO_STRUCTURE, "")
+
+
+@patch("structure_check.client.fetch_compound")
+def test_a_non_string_inchi_does_not_cost_the_inchikey(mock_fetch: MagicMock) -> None:
+    """One unreadable field is not the same as ChEBI holding no structure.
+
+    The guard exists because a non-string InChI reaches classify_pair's `.strip()`,
+    but dropping the *key* alongside it threw away the whole comparison and reported
+    `chebi_no_structure`, whose documented meaning is that ChEBI has the entry and
+    it legitimately carries no structure -- a false claim about ChEBI's record. The
+    key is kept and the InChI reads as "no string for this side", which is what
+    structures_for_name() already does with the same shape.
+    """
+    from structure_check.client import chebi_structure
+
+    mock_fetch.return_value = {
+        "default_structure": {
+            "standard_inchi_key": ETHANOL,
+            "standard_inchi": ["InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3"],
+        }
+    }
+    assert chebi_structure("CHEBI:16236") == (ETHANOL, "", "")
+
+
+@patch("structure_check.client.fetch_compound")
+def test_a_non_string_inchikey_is_still_no_structure(mock_fetch: MagicMock) -> None:
+    """The other half: without a key there is no comparison to make."""
+    from structure_check.client import chebi_structure
+
+    mock_fetch.return_value = {
+        "default_structure": {"standard_inchi_key": 12345, "standard_inchi": ""}
+    }
+    assert chebi_structure("CHEBI:16236") == ("", CHEBI_NO_STRUCTURE, "")
 
 
 @patch("structure_check.client.fetch_compound")
@@ -1879,6 +1979,28 @@ def test_check_file_counts_distinct_values_not_rows_for_a_column(
     assert summary.suspect_columns == ()
 
 
+def test_a_cas_column_of_names_reports_no_distinct_lookups(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The misdirected --cas-column run, which is what the count is for.
+
+    cas_registry refuses a cell no repair turns into a registry number, so not one
+    of these rows costs a request. Counting the cell rather than the row's own
+    account reported "6 distinct lookups" for a run that made zero — and this is
+    precisely the run where the number needs to look wrong. check_row is real here,
+    not mocked, because the refusal happens inside it.
+    """
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["CAS", "ChEBI ID"],
+        [[n, "CHEBI:16236"] for n in ("Alexidine", "PIK-75", "Scriptaid", "UCN-01")],
+    )
+    with caplog.at_level(logging.INFO, logger="structure_check.io"):
+        check_file(src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID")
+    assert "4 rows (0 distinct lookups)" in caplog.text
+
+
 @patch("structure_check.io.check_row")
 def test_check_file_flags_a_wrong_column_across_enough_distinct_values(
     mock_check: MagicMock, tmp_path: Path
@@ -2227,8 +2349,12 @@ def test_an_unreachable_cas_leaves_both_questions_unasked(
     )
 
     mock_cas.side_effect = PubChemUnavailableError("down")
-    mock_chebi.return_value = (ETHANOL, "")
-    mock_name.return_value = ("Ethanol", [ETHANOL], 1)
+    # Current shapes, though the early return means neither is reached: a 3-tuple
+    # from chebi_structure and (key, inchi) pairs from name_structure. Left stale
+    # they would have failed this test for the wrong reason the first time that
+    # early return moved.
+    mock_chebi.return_value = (ETHANOL, "", ETHANOL_INCHI)
+    mock_name.return_value = ("Ethanol", [(ETHANOL, ETHANOL_INCHI)], 1)
 
     result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol")
 

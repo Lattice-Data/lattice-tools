@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import Any
 
 # A CAS Registry Number: two to seven digits, two digits, one check digit.
 #
@@ -86,9 +87,11 @@ def _has_leading_zero(cas: str) -> bool:
 
     A real CAS Registry Number never does. This is the residue the check digit
     cannot see: `00-00-0` sums to 0 and its check digit *is* 0, so an all-zero
-    placeholder cell satisfies the checksum, and `007-00-1` survives the
-    leading-zero repair with one zero still on the front. Both used to be reported
-    as well-formed and worth a request.
+    placeholder cell satisfies the checksum. `007-00-1` is the other shape --
+    `_LEADING_ZERO` requires the remainder to start `[1-9]`, precisely so the repair
+    does not turn it into `07-00-1` and call it fixed, so it arrives here untouched
+    with both zeros still on the front. Both used to be reported as well-formed and
+    worth a request.
     """
     match = CAS_RE.match(cas or "")
     return bool(match) and match.group(1).startswith("0")
@@ -154,17 +157,21 @@ def strip_leading_zero(raw: str) -> str:
     detect this defect -- both forms produce the same one -- so a caller that only
     validates will pass the broken value straight to PubChem, where it 404s. A real
     registry number has no leading zero in its first segment.
+
+    The single implementation of this repair, and `_LEADING_ZERO` is the single
+    statement of what it accepts. There used to be two: this function gated on
+    `CAS_RE`, which caps the first segment at seven digits, so `"01234567-07-2"` --
+    a leading zero on a legitimate seven-digit body -- was repaired by
+    `normalize_cas` via the regex and declined here. Nothing kept them agreeing, and
+    they did not.
     """
-    match = CAS_RE.match(raw or "")
-    if not match or not match.group(1).startswith("0"):
+    match = _LEADING_ZERO.match(raw or "")
+    if not match:
         return ""
-    trimmed = match.group(1).lstrip("0")
-    if not trimmed or len(trimmed) < 2:
-        return ""
-    return f"{trimmed}-{match.group(2)}-{match.group(3)}"
+    return f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
 
 
-def normalize_cas(raw: str) -> tuple[str, str]:
+def normalize_cas(raw: Any) -> tuple[str, str]:
     """
     Repair the mechanical corruptions of a CAS number.
 
@@ -217,15 +224,15 @@ def normalize_cas(raw: str) -> tuple[str, str]:
         text = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
         repairs.append(REPAIR_ZERO_PADDED_CHECK_DIGIT)
 
-    match = _LEADING_ZERO.match(text)
-    if match:
-        text = f"{match.group(1)}-{match.group(2)}-{match.group(3)}"
+    stripped = strip_leading_zero(text)
+    if stripped:
+        text = stripped
         repairs.append(REPAIR_LEADING_ZERO)
 
     return text, "+".join(repairs)
 
 
-def classify_cas(raw: str) -> tuple[str, str, str]:
+def classify_cas(raw: Any) -> tuple[str, str, str]:
     """
     Normalise a CAS number and say whether it is usable.
 
@@ -235,17 +242,31 @@ def classify_cas(raw: str) -> tuple[str, str, str]:
     - `CAS_VALID` -- well-formed and the check digit agrees. Worth a request.
     - `CAS_INVALID_CHECKSUM` -- well-formed but the check digit disagrees. Usually a
       wholesale wrong number rather than a typo, so it is not worth guessing at.
-    - `CAS_INVALID_FORMAT` -- not shaped like a CAS number, and no mechanical repair
-      produced one that validates.
+    - `CAS_INVALID_FORMAT` -- no repair produced a registry number. Two shapes, and
+      they return different things on purpose. Where nothing CAS-shaped came out at
+      all, the value comes back **as the cell held it** with `repairs` empty: a
+      repair that produced nothing usable is not information a curator needs, and
+      nothing on that path is looked up, so there is no looked-up value that could
+      differ from the cell. Where a repair *did* produce a CAS-shaped string that is
+      still not a registry number -- a first segment that keeps a leading zero, such
+      as `"0-1-007"` rotating to `"007-00-1"` -- the **repaired** value is returned
+      and every repair is reported, because otherwise a curator gets a string that
+      appears in no spreadsheet with no account of where it came from.
 
     `CAS_VALID` means *worth asking about*, never *correct*. The number can be
     perfectly formed and belong to an entirely different compound -- which is why
     the method that uses this resolves the compound's **name** independently and
     compares structures, rather than trusting a number that validates.
+
+    `raw` is annotated `Any` deliberately: these values come from spreadsheet cells,
+    so `None`, an `int` and `float("nan")` all arrive here and are all handled.
     """
     cas, repairs = normalize_cas(raw)
     if not cas:
         return "", CAS_MISSING, repairs
+    # What the cell held, for the refusal path at the end. Recomputed rather than
+    # returned from normalize_cas, which has two callers and one documented tuple.
+    text = (raw if isinstance(raw, str) else str(raw)).strip()
 
     if CAS_RE.match(cas):
         if _has_leading_zero(cas):
@@ -274,4 +295,13 @@ def classify_cas(raw: str) -> tuple[str, str, str]:
         if _has_leading_zero(rotated):
             return rotated, CAS_INVALID_FORMAT, repairs
         return rotated, CAS_VALID, repairs
-    return cas, CAS_INVALID_FORMAT, repairs
+
+    # No repair produced anything CAS-shaped, so the cell is reported as it was and
+    # no repair is claimed. Substituting separators before classifying means a cell
+    # that is plainly a name comes through here -- "what?" folded to "what-",
+    # "N-methylamine" from an em dash -- and reporting `separator_mojibake` on those
+    # is noise in the one column whose job is auditability. Nothing is hidden by
+    # dropping it: the promise is that a value which *was* looked up is never
+    # silently different from the cell, and nothing on this path is looked up at all
+    # (`_cas_for_lookup` refuses CAS_INVALID_FORMAT without a request).
+    return text, CAS_INVALID_FORMAT, ""

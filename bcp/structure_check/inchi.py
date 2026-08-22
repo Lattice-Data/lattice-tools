@@ -113,7 +113,21 @@ INCHI_VERDICTS = (
 # counts, with "." between components. Used to reject strings that merely contain
 # a "/" -- the old gate only checked that the second field was non-empty, so
 # "a/b" against "x/b" compared identical.
-_FORMULA_RE = re.compile(r"^[0-9]*[A-Z][A-Za-z0-9]*(?:\.[0-9]*[A-Z][A-Za-z0-9]*)*\Z")
+#
+# Every digit run is bounded. Unbounded, a formula carrying a 4400-digit count
+# passed this gate and then raised ValueError out of `int()` in _atom_counts --
+# CPython refuses an int conversion past 4300 digits -- straight through
+# classify_pair, which documents that unparseable input reads as *unknown* rather
+# than raising, and out through check_row, which promises never to raise at all.
+# Six digits is already four orders of magnitude past any real stoichiometry, and
+# a longer run now fails the gate and reads as LAYERS_NOT_COMPARABLE.
+# Modelled as "optional multiplier, then one or more (element symbol, optional
+# count)" rather than as a looser character class, because a bound on a digit run
+# inside a repeated alternation is no bound at all: `(?:[A-Za-z]|[0-9]{0,6})*`
+# happily matches 4400 digits as several shorter runs.
+_COUNT = "[0-9]{0,6}"
+_COMPONENT = rf"{_COUNT}(?:[A-Z][a-z]?{_COUNT})+"
+_FORMULA_RE = re.compile(rf"^{_COMPONENT}(?:\.{_COMPONENT})*\Z")
 
 # The version field of a **standard** InChI. The layer set above is complete for
 # this version only, so `classify_pair()` requires it rather than assuming it: a
@@ -121,7 +135,10 @@ _FORMULA_RE = re.compile(r"^[0-9]*[A-Z][A-Za-z0-9]*(?:\.[0-9]*[A-Z][A-Za-z0-9]*)
 # be handed a confident verdict drawn from an incomplete reading.
 _STANDARD_VERSION = "InChI=1S"
 
-_ELEMENT = re.compile(r"([A-Z][a-z]?)([0-9]*)")
+# Counts bounded here too, so `principal_component()` is safe when called
+# directly with a formula that never went through _FORMULA_RE: int() on a run
+# past 4300 digits raises, and this module documents that it does not.
+_ELEMENT = re.compile(rf"([A-Z][a-z]?)({_COUNT})")
 _LEADING_COUNT = re.compile(r"^[0-9]+")
 
 
@@ -137,18 +154,39 @@ def inchi_layers(inchi: str) -> tuple[dict[str, str], str]:
     Returns `({}, "")` for empty or malformed input rather than raising: every
     caller in this package is on a path that promises not to raise, and a
     structure we cannot parse must read as *unknown*, never as *equal*.
+
+    **Everything from `/i` onwards is one value under `"i"`, not separate layers.**
+    An InChI re-emits `/h`, `/t`, `/m` and `/s` after `/i` to give the *isotopic*
+    hydrogen positions and stereochemistry, in the same single-letter namespace as
+    the ordinary ones. Merging the two namespaces loses a whole molecule's worth of
+    information in both directions, and both directions were live:
+
+    - Heavy water against tritiated water is `/i/hD2` against `/i/hT2`. Both carry
+      an ordinary `/h1H2` first, so an earlier-wins rule dropped `hD2` and `hT2`
+      entirely and the two compared **`LAYERS_IDENTICAL`** -- a false `match`, the
+      one direction this module exists to make impossible.
+    - Going the other way, a structure with an isotopic `/t` but no ordinary one
+      had the isotopic value adopted as its ordinary stereochemistry, which
+      manufactures a stereo difference against a structure that really has one.
+
+    Keeping the isotopic block whole in `layers["i"]` fixes both and keeps every key
+    a single letter, so `COMPARED_LAYERS` still covers the residue check.
     """
     # Stripped: a trailing newline from a text file or a CSV cell would otherwise
     # land in the final layer's value and make a structure differ from itself.
     parts = inchi.strip().split("/") if inchi else []
     layers: dict[str, str] = {}
-    for part in parts[2:]:
-        if part:
-            # setdefault, not assignment: InChI re-emits /t /m /s after /i to give
-            # the isotopic stereo, and overwriting meant "…/t3-/m0/s1/i1D3/t3-/m1/s1"
-            # reported /m as 1 -- the isotopic value replacing the real one, which
-            # could manufacture a stereo difference out of an isotopic label.
-            layers.setdefault(part[0], part[1:])
+    for index, part in enumerate(parts[2:]):
+        if not part:
+            continue
+        if part[0] == ISOTOPE_LAYER:
+            # The rest of the string, rejoined as it arrived, so the isotopic block
+            # is compared as a unit by the isotope tier.
+            layers[ISOTOPE_LAYER] = "/".join(parts[2 + index :])[1:]
+            break
+        # setdefault rather than assignment for the ordinary layers too: a
+        # malformed string repeating a prefix must not have the later value win.
+        layers.setdefault(part[0], part[1:])
     return layers, (parts[1] if len(parts) > 1 else "")
 
 
@@ -268,33 +306,61 @@ def classify_pair(inchi_a: str, inchi_b: str) -> str:
       quietly skipping a layer whose meaning this module does not know would be the
       defect it exists to remove.
     - `LAYERS_IDENTICAL` -- same formula, same value in every stereo layer.
-    - `FORM_DIFFERS` -- same principal component, different formula layer: a salt,
-      a hydrate, or a different stoichiometry of the same cation. Returned before the
-      constitution, ionisation, isotope and stereo comparisons run, so a pair that
-      differs in **both** form and stereochemistry reports only the form difference.
-      The tier order is forced -- a salt's extra component also changes `/c`, so the
-      formula relationship has to be settled first -- but it means one call names one
-      kind of disagreement, not every kind. A caller needing both must compare the
-      stereo layers itself.
+    - `FORM_DIFFERS` -- two ways in, and they are different questions with one
+      answer. Either the principal components match and the **formula layers
+      differ**, which is a salt, a hydrate, or a different stoichiometry of the same
+      cation; or the formulas are *equal*, the constitution matches, and a `/q` or
+      `/p` layer differs, which is a charge or protonation state -- acetic acid
+      against acetate. Both are "the same compound in another form", which is why
+      they share a verdict, but a caller must not read `FORM_DIFFERS` as implying the
+      formula layers differ.
 
-      **Wrong for two unrelated salts of the same heavy counterion, and this is not
-      fixable here.** `principal_component()` picks the counterion when it is the
-      largest fragment, so hydroxyzine pamoate and pyrantel pamoate share a
-      principal component and report `FORM_DIFFERS` -- two different drugs called a
-      salt-form difference. No formula-only rule separates that from a genuine
-      salt-form difference: `{drug, ClH}` against `{drug, BrH}` and
-      `{hydroxyzine, pamoate}` against `{pyrantel, pamoate}` are the same shape,
-      one shared component and one differing component per side, and the only
-      formula-derived discriminator is size. Size is what already failed -- pamoate
-      is 29 heavy atoms against hydroxyzine's 26 and pyrantel's 14, and real
-      counterions run from chloride's 1 to pamoate's 29, overlapping the drugs
-      outright. Requiring the component sets to be in a subset relation looks like
-      the fix and is not: it would report a hydrochloride against a hydrobromide of
-      the same drug as `DIFFERENT_COMPOUND`, which is the false positive this
-      module exists to remove. Deciding it needs the per-component `/c` sublayers,
-      not the formula. The direction is safe -- `salt_differs` still surfaces the
-      row as `check` rather than `ok` -- and `test_two_salts_of_the_same_counterion`
-      pins it so the limit cannot be mistaken for an oversight.
+      The first route returns before the constitution, isotope and stereo
+      comparisons run, so a pair that differs in **both** form and stereochemistry
+      reports only the form difference. The tier order is forced -- a salt's extra
+      component also changes `/c`, so the formula relationship has to be settled
+      first -- but it means one call names one kind of disagreement, not every kind.
+      A caller needing both must compare the stereo layers itself.
+
+      **Two pairs get this wrong, and neither is fixable from the formula.** The
+      verdict is reached as soon as the stripped principal components match and the
+      full formulas differ, so it is exact only where that shared component is the
+      same molecule on both sides *and* is the compound rather than the counterion.
+
+      1. *Two unrelated drugs sharing a heavy counterion.* `principal_component()`
+         picks the counterion when it is the largest fragment, so hydroxyzine
+         pamoate and pyrantel pamoate share a principal component. No formula-only
+         rule separates that from a genuine salt difference: `{drug, ClH}` against
+         `{drug, BrH}` and `{hydroxyzine, pamoate}` against `{pyrantel, pamoate}`
+         are one shape -- one shared component, one differing component per side --
+         so the only formula-derived discriminator is size, and size is what already
+         failed. Pamoate is 29 heavy atoms against hydroxyzine's 26 and pyrantel's
+         14, and real counterions run from chloride's 1 to pamoate's 29, overlapping
+         the drugs outright. Requiring the component sets to be in a subset relation
+         looks like the fix and is not: it would report a hydrochloride against a
+         hydrobromide of the same drug as `DIFFERENT_COMPOUND`, the false positive
+         this module exists to remove.
+      2. *Two constitutional isomers carrying different counterions.*
+         `C21H27ClN2O2.ClH` against an isomer's `C21H27ClN2O2.BrH` matches on the
+         principal component's **formula** while the molecules differ in `/c`, and
+         the formula tier returns before `/c` is read. With the *same* counterion
+         the same pair reaches the constitution tier and is correctly
+         `DIFFERENT_COMPOUND`, so only the counterion difference hides it.
+
+      Case 2 is the one the per-component `/c` sublayers could decide, and the
+      alignment is harder than it looks: `/c` enumerates component **instances** and
+      compresses runs with `N*`, so apomorphine hemihydrate's three formula
+      components `2C17H17NO2.2ClH.H2O` give four `;`-separated sublayers
+      `['2*1-18-8-7-10', '', '', '']` standing for five instances. Getting that
+      wrong would corrupt `FORM_DIFFERS` for every ordinary salt, so it is left for
+      a change that can carry its own fixtures. Case 1 needs to know which fragment
+      is the drug and is not decidable here at all.
+
+      The direction is safe for both -- `salt_differs` surfaces the row as `check`
+      rather than `ok`, so nothing is waved through, though it is a systematic move
+      out of `investigate`. `test_two_salts_of_the_same_counterion` and
+      `test_two_isomers_with_different_counterions` pin them, so neither reads as an
+      oversight.
     - `STEREO_DIFFERS` -- same formula, and some stereo layer is present on **both**
       sides with **different** values. A genuine stereoisomer difference.
     - `STEREO_UNDEFINED_ON_ONE_SIDE` -- same formula, and every differing layer is
@@ -393,11 +459,19 @@ def is_multi_component(inchi: str) -> bool | None:
     is what decides whether a compound absent from ChEBI needs a new entry or only
     a salt added to an existing parent.
 
-    Returns `None` for exactly the input `classify_pair()` refuses: missing, or a
-    formula layer that does not parse. `False` there would report "I could not read
-    this" as "one component" -- the collapse of unknown onto an answer that the
-    rest of this module refuses -- and it would send a curator the wrong way round,
-    to a new ChEBI entry rather than a salt on an existing parent.
+    Returns `None` on exactly one input: a missing string, or a formula layer that
+    does not parse. `False` there would report "I could not read this" as "one
+    component" -- the collapse of unknown onto an answer that the rest of this
+    module refuses -- and it would send a curator the wrong way round, to a new
+    ChEBI entry rather than a salt on an existing parent.
+
+    **A narrower refusal than `classify_pair()`'s, deliberately.** That function also
+    refuses non-standard InChI and any layer outside `COMPARED_LAYERS`, because it
+    reads a fixed list of layers and one it does not recognise could change which
+    molecule the string denotes. This function reads the formula layer only, and the
+    formula layer means the same thing in `InChI=1` as in `InChI=1S` and is not
+    changed by an `/f` or `/r` layer sitting after it -- so `InChI=1/C27H29NO11.ClH/…`
+    answers `True` here and `LAYERS_NOT_COMPARABLE` there, and both are right.
     """
     _, formula = inchi_layers(inchi)
     if not _FORMULA_RE.match(formula or ""):

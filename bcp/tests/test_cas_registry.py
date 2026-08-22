@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from cas_registry import (
+    _SEPARATORS,
+    CAS_CLASSES,
     CAS_INVALID_CHECKSUM,
     CAS_INVALID_FORMAT,
     CAS_MISSING,
@@ -13,6 +15,7 @@ from cas_registry import (
     REPAIR_LEADING_ZERO,
     REPAIR_SEGMENT_ROTATION,
     REPAIR_SEPARATOR_MOJIBAKE,
+    REPAIR_UNICODE_FOLD,
     REPAIR_ZERO_PADDED_CHECK_DIGIT,
     cas_check_digit_ok,
     classify_cas,
@@ -101,28 +104,56 @@ def test_mojibake_separators_are_restored() -> None:
     assert repairs == REPAIR_SEPARATOR_MOJIBAKE
 
 
-@pytest.mark.parametrize(
-    "raw",
-    [
-        "7689\u00ad03\u00ad4",  # U+00AD SOFT HYPHEN
-        "7689\u204303\u20434",  # U+2043 HYPHEN BULLET
-        "7689\u02d703\u02d74",  # U+02D7 MODIFIER LETTER MINUS SIGN
-        "7689\u2e3a03\u2e3a4",  # U+2E3A TWO-EM DASH
-        "7689\u2e3b03\u2e3b4",  # U+2E3B THREE-EM DASH
-    ],
-)
-def test_dashes_nfkc_does_not_fold_are_restored(raw: str) -> None:
-    """Separators the original class missed, attributed as encoding artifacts.
+# Derived from the class itself rather than listed by hand, so a member cannot be
+# added or deleted without a test moving: `[a-b]` ranges are expanded by scanning
+# the code points the compiled pattern actually matches. Listing them instead left
+# the seven ordinary dashes -- the original members -- pinned by nothing, and
+# deleting them from the class kept the whole suite green.
+_SEPARATOR_CODEPOINTS = [
+    cp
+    for cp in range(0x20, 0x30000)
+    if chr(cp) not in "?-" and _SEPARATORS.match(chr(cp))
+]
 
-    Without these, a soft hyphen or hyphen bullet landed in invalid_format -- the
-    cell's shape, not the encoding -- which is the distinction this module exists
-    to draw. Camptothecin `7689-03-4`.
+
+def test_the_separator_class_is_not_silently_narrowed() -> None:
+    """A member removed from `_SEPARATORS` must fail a test, not just a review."""
+    assert len(_SEPARATOR_CODEPOINTS) == 13
+
+
+@pytest.mark.parametrize(
+    "codepoint", _SEPARATOR_CODEPOINTS, ids=lambda cp: f"U+{cp:04X}"
+)
+def test_every_separator_in_the_class_is_restored(codepoint: int) -> None:
+    """Each dash-like character is read as an encoding artifact, not a bad cell.
+
+    Camptothecin `7689-03-4`. Without the class these land in invalid_format -- the
+    cell's shape rather than the encoding -- which is the distinction this module
+    exists to draw.
+
+    Which *label* the repair carries is not asserted per character, because two of
+    the thirteen are folded before the class is reached: U+FF0D becomes an ASCII
+    hyphen in NFKC and so reports `unicode_fold` alone, and U+2011 folds to U+2010
+    and reports both. What must hold for every member is that the number comes out
+    right and the change is reported at all -- the module's actual promise.
     """
-    cas, cas_class, repairs = classify_cas(raw)
-    assert (cas, cas_class, repairs) == (
+    dash = chr(codepoint)
+    cas, cas_class, repairs = classify_cas(f"7689{dash}03{dash}4")
+    assert (cas, cas_class) == (CAMPTOTHECIN, CAS_VALID)
+    assert REPAIR_SEPARATOR_MOJIBAKE in repairs or REPAIR_UNICODE_FOLD in repairs
+
+
+def test_a_fold_alone_is_enough_for_a_fullwidth_hyphen() -> None:
+    """The one member the separator substitution never sees, pinned exactly.
+
+    NFKC turns U+FF0D into an ASCII hyphen first, so `separator_mojibake` would be a
+    false account of what happened. It stays in the class anyway, because the class
+    is the documented set rather than the remainder after folding.
+    """
+    assert classify_cas("7689－03－4") == (
         CAMPTOTHECIN,
         CAS_VALID,
-        REPAIR_SEPARATOR_MOJIBAKE,
+        REPAIR_UNICODE_FOLD,
     )
 
 
@@ -148,17 +179,18 @@ def test_rotated_segments_are_repaired_only_when_the_result_validates() -> None:
 
 
 def test_strip_leading_zero_repairs_or_declines() -> None:
-    """All three branches, including the one that declines a real leading zero.
+    """Every way `_LEADING_ZERO` declines, including a real leading zero.
 
-    `05-00-0` does begin with a zero, but stripping it leaves a single-digit first
+    `09-17-5` does begin with a zero, but stripping it leaves a single-digit first
     segment, which is not CAS-shaped -- so the repair is refused rather than
-    producing a malformed number. That branch had no coverage.
+    producing a malformed number. Each refusal below is a different clause of the
+    pattern, and the reasons are what the pattern is for.
     """
     assert strip_leading_zero("0362-07-2") == TWO_METHOXYESTRADIOL
-    assert strip_leading_zero("09-17-5") == ""  # len(trimmed) < 2
-    assert strip_leading_zero("00-17-5") == ""  # not trimmed
-    assert strip_leading_zero("007-00-1") == ""  # a zero survives the strip
-    assert strip_leading_zero(ETHANOL) == ""
+    assert strip_leading_zero("09-17-5") == ""  # remainder is one digit
+    assert strip_leading_zero("00-17-5") == ""  # nothing but zeros to strip
+    assert strip_leading_zero("007-00-1") == ""  # remainder is one digit
+    assert strip_leading_zero(ETHANOL) == ""  # no leading zero at all
     assert strip_leading_zero("") == ""
 
 
@@ -186,6 +218,44 @@ def test_a_rotation_that_can_only_yield_a_leading_zero_is_refused() -> None:
 
 def test_a_clean_number_classifies_valid() -> None:
     assert classify_cas(ETHANOL) == (ETHANOL, CAS_VALID, "")
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        ETHANOL,
+        DINACICLIB_WRONG,
+        "0362-07-02",
+        "3-4-7689",
+        "what?",
+        "6857789",
+        "",
+        "  ",
+        "0-1-007",
+        6857789,
+        None,
+        float("nan"),
+    ],
+)
+def test_every_class_returned_is_one_this_module_declares(raw: object) -> None:
+    """`CAS_CLASSES` is the declared vocabulary, and nothing read it.
+
+    It was documented in classify_cas's own docstring and referenced nowhere else in
+    the repo, so a class returned that is not in the tuple -- or a member added to
+    the tuple that nothing returns -- would have gone unnoticed. This is the same
+    enforcement `INCHI_VERDICTS` gets from its import-time check: a declared
+    vocabulary that nothing checks is a comment.
+    """
+    _, cas_class, _ = classify_cas(raw)
+    assert cas_class in CAS_CLASSES
+
+
+def test_every_declared_class_is_reachable() -> None:
+    """The other direction: a member nothing can return is dead weight."""
+    observed = {
+        classify_cas(raw)[1] for raw in (ETHANOL, DINACICLIB_WRONG, "what?", "")
+    }
+    assert observed == set(CAS_CLASSES)
 
 
 def test_an_empty_cell_is_missing_not_invalid() -> None:
@@ -218,6 +288,55 @@ def test_a_bare_digit_run_is_never_guessed_into_a_cas() -> None:
     cas, cas_class, _ = classify_cas("6857789")
     assert cas_class == CAS_INVALID_FORMAT
     assert cas == "6857789"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["what?", "N—methylamine", "beta?alanine", "2‑amino‑ethanol"],
+    ids=["question_mark", "em_dash", "mojibake_name", "hyphenated_name"],
+)
+def test_a_cell_that_is_plainly_a_name_claims_no_repair(raw: str) -> None:
+    """Separators are folded before classification, so names come through here.
+
+    "what?" folds to "what-" and an em dash to a hyphen, and reporting
+    `separator_mojibake` on those is noise in the one column whose job is
+    auditability. The cell comes back as it was, because nothing on this path is
+    looked up: `_cas_for_lookup` refuses CAS_INVALID_FORMAT without a request, so
+    there is no looked-up value that could differ from the cell.
+    """
+    cas, cas_class, repairs = classify_cas(raw)
+    assert (cas, cas_class, repairs) == (raw, CAS_INVALID_FORMAT, "")
+
+
+def test_a_repair_that_reaches_a_registry_number_is_still_reported() -> None:
+    """The other side of the rule above, so it cannot be read as "stop reporting".
+
+    Each of these was changed before it was looked up, and each says so. The
+    checksum case matters most: the value is not in the spreadsheet and is in no
+    registry either, and `repairs` is the only account of where it came from.
+    """
+    assert classify_cas("864461?31?4") == (
+        "864461-31-4",
+        CAS_VALID,
+        "separator_mojibake",
+    )
+    assert classify_cas("12345-67-08") == (
+        "12345-67-8",
+        CAS_INVALID_CHECKSUM,
+        REPAIR_ZERO_PADDED_CHECK_DIGIT,
+    )
+
+
+def test_the_leading_zero_repair_has_one_implementation() -> None:
+    """`normalize_cas` and the rotation branch used to disagree on what it accepts.
+
+    `strip_leading_zero()` gated on CAS_RE, which caps the first segment at seven
+    digits, so `01234567-07-2` -- a leading zero on a legitimate seven-digit body --
+    was repaired by `normalize_cas`'s regex and declined by the function. They agree
+    now because there is only one rule, and this is the input that told them apart.
+    """
+    assert strip_leading_zero("01234567-07-2") == "1234567-07-2"
+    assert normalize_cas("01234567-07-2") == ("1234567-07-2", REPAIR_LEADING_ZERO)
 
 
 def test_repairs_are_reported_through_classification() -> None:
@@ -305,7 +424,7 @@ def test_a_mojibake_time_suffix_is_still_stripped() -> None:
 @pytest.mark.parametrize("raw", [6857789, 64175, None, float("nan")])
 def test_non_string_input_classifies_rather_than_crashing(raw: object) -> None:
     """A spreadsheet reader hands back int64 and float('nan'), not str."""
-    cas, cas_class, _ = classify_cas(raw)  # type: ignore[arg-type]
+    cas, cas_class, _ = classify_cas(raw)
     assert cas_class in (CAS_INVALID_FORMAT, CAS_MISSING)
 
 
