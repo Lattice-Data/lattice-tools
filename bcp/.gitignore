@@ -46,15 +46,17 @@ docs/
 # --- Per-run working directories for the ChEBI identification method ----------
 #
 # The method is documented in CHEBI_IDENTIFICATION.md and its reusable parts live
-# in structure_check/ and chebi_terms/. Everything one run produces is either a
-# regenerable network cache or data derived from a single input spreadsheet, so
-# none of it belongs in history: a finished run is a few MB of TSV answering a
-# question nobody will ask again in that exact form.
+# in structure_check/, cas_registry.py and chebi_terms/. Everything one run produces
+# is either a regenerable network cache or data derived from a single input
+# spreadsheet, so none of it belongs in history: a finished run is a few MB of TSV
+# answering a question nobody will ask again in that exact form.
 #
-# Written against mashroom*/ (the 2026-08 runs) and a generic chebi_run_*/ so a
-# later batch can use either name.
-mashroom*/
+# chebi_run_*/ is the name to use for a new run. The other pattern covers the two
+# 2026-08 directories, which predate that convention; it stays until they are gone,
+# because the ruff pre-commit hooks lint all of bcp/ and those scripts would fail
+# them. Rename such a directory to chebi_run_* rather than adding a pattern here.
 chebi_run_*/
+mashroom*/
 
 # Bulk artifacts, in case a run directory is deliberately kept under another name.
 #

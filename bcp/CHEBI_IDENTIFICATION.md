@@ -27,12 +27,22 @@ Upstream services: [PubChem PUG REST](https://pubchem.ncbi.nlm.nih.gov/docs/pug-
 the ChEBI backend REST API, and ChEBI's Elasticsearch index. The EBI SOAP service and
 `libChEBIpy` are both dead — do not reach for them.
 
-**How to read the numbers in this document.** Every measured figure below — dedup rates,
-repair counts, agreement tallies, replay results — was taken from the two 2026-08 batches,
-whose per-run directories are `.gitignore`d and did not survive the runs. They are a
-record of what happened on real data, and they are *not* reproducible from this
-repository. What is checkable here is the behaviour they motivated, which the tests in
-`bcp/tests/` pin.
+**The per-run scripts are deliberately not tracked, and are not coming back.** Each phase
+below was implemented by throwaway scripts in a per-run working directory, which
+`bcp/.gitignore` excludes: everything a run produces is either a regenerable network cache
+or data derived from one input spreadsheet, and a finished run is a few MB of TSV answering
+a question nobody will ask again in that exact form. Do not go looking for them. What was
+worth keeping has been extracted into `bcp/structure_check`, `bcp/cas_registry.py` and
+`bcp/chebi_terms`, and the parts *not* yet extracted are called out where they appear —
+the name ladder under "Resolving the name independently of the CAS" is the main one, and
+promoting it is the obvious next piece of this work.
+
+**So the numbers in this document are a record, not a reproducible result.** Every measured
+figure below — dedup rates, repair counts, agreement tallies, replay results — came from
+two real batches whose working directories no longer exist. Nothing in this repository can
+check them, and they should be read as "this is what happened on real data", never as a
+claim you can re-derive. What *is* checkable is the behaviour they motivated, which the
+tests in `bcp/tests/` pin.
 
 ---
 

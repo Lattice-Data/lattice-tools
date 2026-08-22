@@ -25,9 +25,9 @@ nowhere near sufficient, and two whole classes of corruption are invisible to it
 
 Two further shapes seen in real submissions, both repairable:
 
-- **Rotated segments.** `3-4-7689` for `7689-03-4`. Twelve of twelve rows repaired
-  this way passed their check digit afterwards, which is what established the rule;
-  the repair is still only offered when the result validates.
+- **Rotated segments.** `3-4-7689` for `7689-03-4`. Offered only when the rotated
+  reading passes its check digit, so a number that merely resembles the pattern is
+  never mangled further.
 - **Mojibake separators.** `864461?31?4`, where the hyphens did not survive an
   encoding round trip.
 
@@ -44,11 +44,10 @@ way; this only means the error surfaces as an unresolvable number rather than as
 malformed one.
 
 And one shape that is deliberately **not** repaired: a bare digit run such as
-`6857789`. It is tempting to read that as `6857-78-9`, and something upstream once
-did -- but the value was a PubChem **CID**, and `6857-78-9` is a real registry
-number belonging to an unrelated compound. Guessing here does not recover a lost
-number, it invents a wrong one. `classify_cas()` returns `CAS_INVALID_FORMAT` and
-the row goes to a human.
+`6857789`. Reading it as `6857-78-9` is tempting and wrong -- such values are
+PubChem **CIDs**, and `6857-78-9` is a real registry number belonging to an
+unrelated compound. Guessing does not recover a lost number, it invents a wrong
+one. `classify_cas()` returns `CAS_INVALID_FORMAT` and the row goes to a human.
 """
 
 from __future__ import annotations
@@ -90,8 +89,8 @@ def _has_leading_zero(cas: str) -> bool:
     placeholder cell satisfies the checksum. `007-00-1` is the other shape --
     `_LEADING_ZERO` requires the remainder to start `[1-9]`, precisely so the repair
     does not turn it into `07-00-1` and call it fixed, so it arrives here untouched
-    with both zeros still on the front. Both used to be reported as well-formed and
-    worth a request.
+    with both zeros still on the front. Without this check both are well-formed by
+    the checksum and worth a request.
     """
     match = CAS_RE.match(cas or "")
     return bool(match) and match.group(1).startswith("0")
@@ -158,12 +157,11 @@ def strip_leading_zero(raw: str) -> str:
     validates will pass the broken value straight to PubChem, where it 404s. A real
     registry number has no leading zero in its first segment.
 
-    The single implementation of this repair, and `_LEADING_ZERO` is the single
-    statement of what it accepts. There used to be two: this function gated on
-    `CAS_RE`, which caps the first segment at seven digits, so `"01234567-07-2"` --
-    a leading zero on a legitimate seven-digit body -- was repaired by
-    `normalize_cas` via the regex and declined here. Nothing kept them agreeing, and
-    they did not.
+    `_LEADING_ZERO` is the single statement of what this accepts, and this is its
+    single implementation -- including for `normalize_cas`, which calls it rather
+    than matching the pattern itself. Two implementations diverge: a `CAS_RE` gate
+    caps the first segment at seven digits and so declines `"01234567-07-2"`, a
+    leading zero on a legitimate seven-digit body, which the pattern repairs.
     """
     match = _LEADING_ZERO.match(raw or "")
     if not match:

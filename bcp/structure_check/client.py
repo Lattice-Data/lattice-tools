@@ -584,10 +584,10 @@ def refine_skeleton_difference(
     picks the counterion when the counterion is the larger fragment -- pamoate is 29
     heavy atoms, so hydroxyzine pamoate (26), pyrantel pamoate (14) and
     amitriptyline embonate (21) all rank the counterion on the salt side and the
-    drug on the free-base side. Answering `SKELETON_DIFFERS` from that reopened the
-    largest false-positive class this refinement exists to close. Those rows fall
-    through to the parent route, which costs three requests per structure and is why
-    it is only reached once a difference is already known.
+    drug on the free-base side. Answering `SKELETON_DIFFERS` from that would reopen
+    the largest false-positive class this refinement exists to close, so those rows
+    fall through to the parent route -- three requests per structure, which is why it
+    is only reached once a difference is already known.
 
     **`form_differs` is not exact either, and the direction of its error is what
     makes it usable.** The formula tier returns it as soon as the stripped principal
@@ -625,13 +625,12 @@ def refine_skeleton_difference(
     package was found, and that redundancy only pays if the disagreement is
     reported.
     """
-    # No `all(candidate_inchis)` here, and the omission is load-bearing.
+    # No `all(candidate_inchis)` here, and the omission is load-bearing:
     # classify_pair() already refuses an empty string, so an unreadable candidate
-    # contributes NOT_COMPARABLE and is ignored unless it is all there is -- which
-    # is exactly the rule stated below, that a sibling must not mask a definite
-    # salt answer. Gating on all() enforced the opposite: PubChem's name endpoint
+    # contributes NOT_COMPARABLE and is ignored unless it is all there is. Requiring
+    # every candidate to be readable does the opposite -- PubChem's name endpoint
     # omits the InChI field on some records, so one such sibling among up to ten
-    # candidates sent the whole row to the parent route.
+    # sends the whole row to the parent route.
     if reference_inchi and candidate_inchis:
         verdicts = {
             comparison_verdict_from_inchi(reference_inchi, candidate_inchi)
@@ -661,17 +660,12 @@ def refine_skeleton_difference(
             # contract), so a definite salt answer must not be discarded because a
             # sibling candidate carried an unreadable InChI.
             return SALT_DIFFERS
-        # Everything else -- every candidate reporting a different compound, or
-        # none of them readable -- defers to the parent route rather than
-        # answering. The layers say "different compound" whenever the two sides'
-        # principal components differ, and principal_component() picks the
-        # counterion for a salt whose counterion outweighs its parent: pamoate is
-        # 29 heavy atoms, so hydroxyzine pamoate (26), pyrantel pamoate (14) and
-        # amitriptyline embonate (21) all rank the counterion on the salt side and
-        # the drug on the free-base side. Answering skeleton_differs here reopened
-        # the largest false-positive class this refinement exists to close. Three
-        # requests per structure is the right price for the verdict that costs a
-        # curator the most to be wrong about.
+        # Everything else -- every candidate reporting a different compound, or none
+        # of them readable -- defers to the parent route rather than answering, for
+        # the reason the docstring gives: principal_component() picks the counterion
+        # whenever the counterion is the larger fragment. Three requests per structure
+        # is the right price for the verdict that costs a curator the most to be wrong
+        # about.
 
     reference_parent = parent_inchikey(reference)
     if not reference_parent:
@@ -884,12 +878,11 @@ def chebi_structure(chebi_id: Any) -> tuple[str, str, str]:
         return "", CHEBI_NO_STRUCTURE, ""
     if not isinstance(inchi, str):
         # A non-string InChI reaches classify_pair()'s .strip(), so it cannot be
-        # passed on -- but dropping the *key* with it threw away the whole
-        # comparison and reported chebi_no_structure, whose documented meaning is
-        # that ChEBI holds no structure for this entry. It holds one; we could not
-        # read one field of it. "" reads downstream as "no string for this side",
-        # which sends the row to the parent route exactly as structures_for_name()
-        # does for the same shape.
+        # passed on. Dropping the *key* with it would report chebi_no_structure,
+        # whose documented meaning is that ChEBI holds no structure for this entry --
+        # it holds one, and one field of it was unreadable. "" reads downstream as
+        # "no string for this side", exactly as structures_for_name() does for the
+        # same shape.
         log.warning("ChEBI %s records a non-string InChI; ignoring it", parsed[0])
         inchi = ""
     return (key, "", inchi) if key else ("", CHEBI_NO_STRUCTURE, "")
