@@ -51,12 +51,12 @@ docs/
 # spreadsheet, so none of it belongs in history: a finished run is a few MB of TSV
 # answering a question nobody will ask again in that exact form.
 #
-# chebi_run_*/ is the name to use for a new run. The other pattern covers the two
-# 2026-08 directories, which predate that convention; it stays until they are gone,
-# because the ruff pre-commit hooks lint all of bcp/ and those scripts would fail
-# them. Rename such a directory to chebi_run_* rather than adding a pattern here.
+# One pattern, and a run directory has to be named to match it. That is not just
+# tidiness: the ruff pre-commit hooks lint all of bcp/ with no file list, so a run
+# directory outside this pattern puts its throwaway scripts into `ruff check bcp/`
+# and blocks every commit until they are clean. Name it chebi_run_<something>
+# rather than adding a second pattern here.
 chebi_run_*/
-mashroom*/
 
 # Bulk artifacts, in case a run directory is deliberately kept under another name.
 #
