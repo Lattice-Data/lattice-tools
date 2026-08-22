@@ -1027,11 +1027,17 @@ def check_row(
         result["cas_repairs"] = cas_repairs
         # `cas_repairs: segment_rotation` without the result says the number looked
         # up was not the number in the cell, and then does not say what it was.
-        # Emptied for the classes cas_to_cid_status refuses to send, so the column
-        # is literally what was asked rather than what was considered -- the same
-        # rule chebi_lookup's identically named column follows.
+        # Emptied for the classes cas_to_cid_status refuses to send *and* for a side
+        # the breaker skipped, so the column is literally what was asked rather than
+        # what was considered -- the same rule chebi_lookup's identically named
+        # column follows. chebi_lookup cannot break that rule because it has no skip
+        # mechanism; this function does, so the skip has to be named here. The class
+        # and the repairs stay populated either way: those are facts about the cell,
+        # which a skipped request does not change.
         result["cas_queried"] = (
-            "" if cas_class in (CAS_MISSING, CAS_INVALID_FORMAT) else queried
+            ""
+            if "cas" in skip or cas_class in (CAS_MISSING, CAS_INVALID_FORMAT)
+            else queried
         )
     cas_unreachable = False
     cas_key, cas_name, cas_inchi = "", "", ""

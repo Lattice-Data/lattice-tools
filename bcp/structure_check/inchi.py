@@ -76,6 +76,15 @@ IONISATION_LAYERS = ("q", "p")
 # CAS number, so it is neither a form nor a stereoisomer of the unlabelled one.
 ISOTOPE_LAYER = "i"
 
+# The sublayers a standard InChI may re-emit *inside* the isotopic block, and they
+# need their own set. `inchi_layers()` keeps everything from `/i` onwards under one
+# key so the two namespaces cannot merge, which means a layer arriving after `/i` is
+# invisible to the COMPARED_LAYERS residue check below: `…/i1D3/x1` was absorbed
+# into the isotope value and handed a confident `isotope_differs`, while the same
+# `/x1` before `/i` was correctly refused. Declaring the layers we are willing to
+# ignore is this module's whole thesis, so the isotopic block is checked too.
+ISOTOPE_SUBLAYERS = frozenset("bhmst")
+
 # Every layer this comparison reads. A layer outside this set is not ignored --
 # `classify_pair()` refuses the pair. The module's claim is that it enumerates the
 # layers it is willing to ignore rather than the ones it remembers to look at, and
@@ -190,6 +199,19 @@ def inchi_layers(inchi: str) -> tuple[dict[str, str], str]:
     return layers, (parts[1] if len(parts) > 1 else "")
 
 
+def _isotope_residue(layers: dict[str, str]) -> set[str]:
+    """Prefixes inside the isotopic block that this module does not recognise.
+
+    The block is `<substitution spec>[/<sublayer>…]`, and the spec carries no prefix
+    letter of its own -- a leading `/` means there is no spec at all, as in
+    `…/i/hD2`. So the sublayers are everything after the first `/`.
+    """
+    block = layers.get(ISOTOPE_LAYER)
+    if not block:
+        return set()
+    return {part[0] for part in block.split("/")[1:] if part} - ISOTOPE_SUBLAYERS
+
+
 def inchi_version(inchi: str) -> str:
     """
     The version field of an InChI string -- `"InChI=1S"` for standard -- or `""`.
@@ -301,10 +323,14 @@ def classify_pair(inchi_a: str, inchi_b: str) -> str:
     Returns one of `INCHI_VERDICTS`:
 
     - `LAYERS_NOT_COMPARABLE` -- one or both structures are missing or unparseable,
-      or either carries a layer outside `COMPARED_LAYERS`, or neither is standard
-      InChI. The last two are the same refusal as the first: a verdict reached by
-      quietly skipping a layer whose meaning this module does not know would be the
-      defect it exists to remove.
+      or either carries a layer outside `COMPARED_LAYERS` (or a sublayer outside
+      `ISOTOPE_SUBLAYERS` inside the isotopic block), or **either** is not standard
+      InChI. Either, not neither: a standard string against an `InChI=1` one is
+      refused, and that mixed pair is the likely one here -- ChEBI's
+      `standard_inchi` against a vendor or legacy string. The last two conditions
+      are the same refusal as the first: a verdict reached by quietly skipping a
+      layer whose meaning this module does not know would be the defect it exists
+      to remove.
     - `LAYERS_IDENTICAL` -- same formula, same value in every stereo layer.
     - `FORM_DIFFERS` -- two ways in, and they are different questions with one
       answer. Either the principal components match and the **formula layers
@@ -394,6 +420,9 @@ def classify_pair(inchi_a: str, inchi_b: str) -> str:
     if any(version != _STANDARD_VERSION for version in versions):
         return LAYERS_NOT_COMPARABLE
     if (set(layers_a) | set(layers_b)) - COMPARED_LAYERS:
+        return LAYERS_NOT_COMPARABLE
+    # The isotopic block is one value, so the check above cannot see inside it.
+    if _isotope_residue(layers_a) | _isotope_residue(layers_b):
         return LAYERS_NOT_COMPARABLE
 
     # Tiered, coarsest first, so a difference is never misfiled as the wrong *kind*

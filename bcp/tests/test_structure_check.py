@@ -768,6 +768,23 @@ def test_cas_queried_is_what_was_sent_and_empty_when_nothing_was(
     assert result["cas_queried"] == expected
 
 
+def test_a_skipped_cas_side_queried_nothing_and_says_so() -> None:
+    """The breaker's path, where `chebi_lookup`'s version of this column cannot go.
+
+    `skip` means the request was never made, so a value in `cas_queried` would be a
+    claim that something was sent. The class and the repairs stay populated: those
+    are facts about the cell, which a skipped request does not change.
+    """
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups()
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(
+            cas="0362-07-02", chebi_id="CHEBI:16236", name="x", skip=("cas",)
+        )
+    assert result["cas_queried"] == ""
+    assert result["cas_class"] == "valid"
+    assert result["cas_repairs"] == "zero_padded_check_digit+leading_zero"
+
+
 def test_check_row_blank_cas_is_not_checked_rather_than_unresolved() -> None:
     """A blank CAS cell was never asked about; that is not the same failure as
     PubChem drawing a blank on a CAS it was given, so it must not be counted the

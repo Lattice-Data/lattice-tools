@@ -656,6 +656,43 @@ def test_an_unrecognised_layer_gets_no_verdict(layer: str) -> None:
     assert classify_pair(ETHANOL, ETHANOL + layer) == LAYERS_NOT_COMPARABLE
 
 
+@pytest.mark.parametrize("layer", ["/f/h3H", "/rC2H6O", "/x1"])
+def test_an_unrecognised_layer_after_the_isotopic_block_is_refused_too(
+    layer: str,
+) -> None:
+    """Position must not decide whether an unknown layer is seen.
+
+    `inchi_layers` keeps everything from `/i` onwards under one key, which is what
+    stops the isotopic and ordinary namespaces merging -- and it also put an unknown
+    layer arriving *after* `/i` out of the COMPARED_LAYERS residue check's reach.
+    `…/i1D3,2D2,3D/x1` was absorbed into the isotope value and handed a confident
+    `isotope_differs`, while the identical `/x1` before `/i` was refused. Same
+    layers, same refusal, either side of the block.
+    """
+    assert classify_pair(ETHANOL_D6 + layer, ETHANOL_D6) == LAYERS_NOT_COMPARABLE
+    assert classify_pair(ETHANOL_D6, ETHANOL_D6 + layer) == LAYERS_NOT_COMPARABLE
+
+
+@pytest.mark.parametrize(
+    "inchi",
+    [
+        "InChI=1S/H2O/h1H2/i/hD2",
+        "InChI=1S/C2H4O2/c1-2(3)4/h1H3,(H,3,4)/i1D3/hD",
+        "InChI=1S/C3H8O/c1-2-3/h3H,2H2,1H3/t3-/m0/s1/i1D3/t3-/m1/s1",
+        ETHANOL_D6,
+    ],
+    ids=["exchangeable_h", "spec_then_h", "isotopic_stereo", "numbered_spec"],
+)
+def test_the_sublayers_a_real_isotopic_block_carries_are_accepted(inchi: str) -> None:
+    """The other half: enforcing the block must not refuse real records.
+
+    All four are shapes standard InChI actually emits -- an exchangeable-hydrogen
+    block with no substitution spec, a spec followed by `/h`, a spec followed by
+    re-emitted `/t /m /s`, and a numbered spec alone.
+    """
+    assert classify_pair(inchi, inchi) == LAYERS_IDENTICAL
+
+
 # Every layer this module declares, the value pair that makes it differ, and the
 # verdict the tier reading it must reach. Written as literals rather than rebuilt
 # from CONSTITUTION_LAYERS + IONISATION_LAYERS + ... : a test that reassembles
