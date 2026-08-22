@@ -109,7 +109,11 @@ def map_cas_file(
         writer.writeheader()
 
         for i, row in enumerate(rows, 1):
-            cas = row[cas_column].strip()
+            # DictReader fills a short row's missing fields with None, so a
+            # truncated final line made None.strip() abort the run partway through
+            # -- after the output file had already been opened and written to.
+            # A missing cell now takes the existing "Empty CAS, skipping" path.
+            cas = (row.get(cas_column) or "").strip()
             log.info("[%s/%s] CAS: %s", i, total, cas)
 
             out_row = {
@@ -124,6 +128,12 @@ def map_cas_file(
                 continue
 
             props = lookup_cas(cas)
+            # Merged before the CID is tested, not after: the cas_class and
+            # cas_repairs columns are the row's account of *why* it is empty, and
+            # writing out_row unmerged discarded exactly the rows that needed them --
+            # a number no repair could rescue, and one whose check digit disagrees,
+            # both read as "PubChem does not index this compound".
+            out_row.update(props)
             cid = props.get("pubchem_cid", "")
             if not cid:
                 log.warning("No PubChem CID for CAS: %s", cas)
@@ -132,8 +142,6 @@ def map_cas_file(
 
             found_cid += 1
             log.info("  CID: %s", cid)
-
-            out_row.update(props)
 
             if props.get("chebi_id"):
                 found_chebi += 1

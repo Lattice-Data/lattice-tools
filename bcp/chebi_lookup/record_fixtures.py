@@ -12,6 +12,8 @@ from pathlib import Path
 
 import requests
 
+from cas_registry import CAS_INVALID_FORMAT, CAS_MISSING, classify_cas
+
 from .client import BASE, PROPERTIES, REQUEST_DELAY, get_with_retry
 
 log = logging.getLogger(__name__)
@@ -37,11 +39,26 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
     Fetch PubChem responses for one CAS and write fixture JSON files.
 
     Returns the resolved CID, or None if CAS did not resolve.
+
+    The recorder validates the CAS the same way production does, then queries and
+    names the fixture directory after the normalised value. An operator pasting a
+    corrupted number from the sheet would otherwise write a fixture for a URL
+    production would never issue, and the live test would pass against a request
+    path the shipped code cannot reach.
     """
-    out_dir = (out_root or FIXTURES_ROOT) / cas
+    queried, cas_class, repairs = classify_cas(cas)
+    if cas_class in (CAS_MISSING, CAS_INVALID_FORMAT):
+        log.error("Not a CAS Registry Number, not recording: %r (%s)", cas, cas_class)
+        return None
+    if repairs:
+        log.warning(
+            "CAS %r repaired to %r before recording (%s)", cas, queried, repairs
+        )
+
+    out_dir = (out_root or FIXTURES_ROOT) / queried
 
     resp = get_with_retry(
-        f"{BASE}/compound/name/{urllib.parse.quote(str(cas), safe='')}/cids/JSON"
+        f"{BASE}/compound/name/{urllib.parse.quote(queried, safe='')}/cids/JSON"
     )
     time.sleep(REQUEST_DELAY)
     if resp is None:
@@ -53,7 +70,7 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
     try:
         cids = cids_payload.get("IdentifierList", {}).get("CID", [])
         cid = cids[0] if cids else None
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError):
         cid = None
     if cid is None:
         log.error("Could not parse CID for CAS %s", cas)
@@ -66,12 +83,16 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
         return None
     _save_json(out_dir / "properties.json", resp.json())
 
-    resp = get_with_retry(f"{BASE}/compound/cid/{cid}/xrefs/RegistryID/JSON")
+    reg_resp = get_with_retry(f"{BASE}/compound/cid/{cid}/xrefs/RegistryID/JSON")
     time.sleep(REQUEST_DELAY)
-    if resp is None:
+    if reg_resp is None:
         log.error("No registry ID response for CID %s", cid)
         return None
-    _save_json(out_dir / "registry_ids.json", resp.json())
+    # Held in its own name: `resp` is rebound to the synonyms response below, and
+    # the xref parse used to read RegistryID back out of that instead, so chebi_id
+    # was always "" and the recorder logged "ChEBI --" for every compound.
+    registry_payload = reg_resp.json()
+    _save_json(out_dir / "registry_ids.json", registry_payload)
 
     resp = get_with_retry(f"{BASE}/compound/cid/{cid}/synonyms/JSON")
     time.sleep(REQUEST_DELAY)
@@ -83,8 +104,7 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
     chebi_id = ""
     try:
         reg_ids = (
-            resp.json()
-            .get("InformationList", {})
+            registry_payload.get("InformationList", {})
             .get("Information", [{}])[0]
             .get("RegistryID", [])
         )
@@ -92,12 +112,15 @@ def record_fixtures_for_cas(cas: str, out_root: Path | None = None) -> int | Non
             if rid.upper().startswith("CHEBI:"):
                 chebi_id = rid
                 break
-    except (ValueError, KeyError, IndexError):
-        pass
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+        # Logged for the reason client.py gives at the same parse: an unusable xref
+        # body would otherwise read as "this compound has no ChEBI cross-reference",
+        # and the recorder would write a fixture asserting that.
+        log.warning("Unusable registry-ID payload for CID %s: %s", cid, exc)
 
     log.info(
         "Recorded fixtures for CAS %s (CID %s, ChEBI %s) → %s",
-        cas,
+        queried,
         cid,
         chebi_id or "—",
         out_dir,

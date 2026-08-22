@@ -8,6 +8,8 @@ To go the other way — from a ChEBI ID you already hold to its authoritative na
 
 When the question is whether a whole sheet's identifiers agree with each other **by structure** rather than by name, see [STRUCTURE_CHECK.md](STRUCTURE_CHECK.md): it resolves the CAS, the name, and the ChEBI ID independently to InChIKeys and compares those.
 
+When a whole batch has **no trustworthy identifier at all** — only a compound name and a CAS number per row — see [CHEBI_IDENTIFICATION.md](CHEBI_IDENTIFICATION.md), the phased method that establishes one from scratch and builds on this tool.
+
 ### Request behaviour
 
 `get_with_retry` keeps its signature and return semantics — a `Response`, or `None` for both "no such thing" and "could not ask". `get_with_retry_status` returns the same response alongside an outcome (`ok` / `not_found` / `unreachable`) for callers that need to tell those apart; `structure_check` does, because reporting an outage as "no such compound" would turn a network problem into a finding about the chemistry.
@@ -86,21 +88,68 @@ Appended columns (batch mode) or fields (single-CAS mode):
 - `iupac_name`
 - `molecular_formula`
 - `molecular_weight`
-- `isomeric_smiles`
-- `canonical_smiles`
+- `isomeric_smiles` — PubChem's `SMILES` property (stereo-bearing)
+- `canonical_smiles` — PubChem's `ConnectivitySMILES` property
 - `inchi`
 - `inchikey`
 - `xlogp`
 - `tpsa`
 - `synonyms` (pipe-separated, capped at 20)
+- `cas_queried` — the value actually sent to PubChem, empty when nothing was
+- `cas_class` — `valid`, `invalid_checksum`, `invalid_format` or `missing`
+- `cas_repairs` — `+`-joined record of the mechanical repairs applied, empty when none
 
 Single-CAS JSON includes a top-level `"CAS"` key plus these fields.
+
+**The CAS is validated and repaired before it is looked up.** `cas_registry`
+does this, and the three `cas_*` columns are its report: a repair a curator cannot see is
+indistinguishable from PubChem having answered about the value in the cell. Two
+consequences worth knowing before pointing this at a sheet:
+
+- **A cell that no repair can turn into a registry number costs no request** and comes
+  back empty with `cas_class: invalid_format`. This endpoint is PubChem's *name*
+  endpoint, which resolves anything, so an unchecked cell holding a compound name used to
+  resolve *as a name* — and a row's CAS answer then agreed with its name answer because
+  both had asked the same question. Point `--cas-column` at a name column and every row
+  now reports `invalid_format` rather than quietly resolving.
+- **A well-formed number whose check digit disagrees is still sent.** It is not a
+  registry number, but PubChem indexes vendor synonyms verbatim, so what it answers is
+  evidence about the row. `cas_class: invalid_checksum` flags it either way.
+
+**The two SMILES column names predate PubChem's rename and are kept on purpose.** PubChem
+retired `IsomericSMILES` in favour of `SMILES` and `CanonicalSMILES` in favour of
+`ConnectivitySMILES`. The request asks by the new names; the output columns keep the old
+ones, because downstream consumers read them. The mapping is not the one the names
+suggest: `SMILES` is the **stereo-bearing** property and belongs in `isomeric_smiles`, so
+putting it in `canonical_smiles` would quietly swap the two columns.
+
+**The two tracked outputs were regenerated on 2026-08-19**, against live PubChem, with
+the fixed property names and CAS validation in place. `bcp/cas_batch_input_chebi_mapped.csv`
+(52 rows) and `bcp/cas_batch_input_set2_mapped.csv` (172 rows) previously carried empty
+`isomeric_smiles`/`canonical_smiles` on every row: they were produced while the code asked
+by the retired names *and* read the response by them, so each lookup returned `""` for both
+with no error, no non-200 and no log line.
+
+Three things changed beyond those two columns, and none of them is a re-interpretation of
+the same data:
+
+- **Five rows in the second batch resolved for the first time**, all five zero-padded check
+  digits the repair recovered: `56390-09-01` → Epirubicin Hydrochloride, `553-08-02` →
+  Thonzonium Bromide, `123-03-05` → Cetylpyridinium Chloride, `20736-09-08` → Saikosaponin
+  A, `66547-09-09` → Maytansinol butyrate. Three of them also gained a ChEBI ID.
+- **One row stopped resolving.** PubChem answers `PUGREST.NotFound` for `215247-95-3`,
+  which it previously mapped to CID 11845128. The number is well-formed and passes its
+  check digit, so it is sent as before — this is drift on PubChem's side, not a refusal on
+  ours.
+- **Synonym lists reordered** on 47 and 104 rows. PubChem returns them in its own order and
+  the column is capped at 20, so a reordering above the cap changes which ones appear.
 
 ---
 
 ## PubChem API usage
 
-Per CAS, the tool makes up to **3 REST calls**:
+Per CAS, the tool makes up to **3 REST calls**, or **none** when validation refuses the
+cell:
 
 1. CAS → CID (`/compound/name/{CAS}/cids`)
 2. CID → properties + ChEBI xref (`/property/...` and `/xrefs/RegistryID`)

@@ -42,3 +42,37 @@ venv.bak/
 
 # Local documentation / data files (mapping CSVs, SIFs, SOPs, etc.)
 docs/
+
+# --- Per-run working directories for the ChEBI identification method ----------
+#
+# The method is documented in CHEBI_IDENTIFICATION.md and its reusable parts live
+# in structure_check/, cas_registry.py and chebi_terms/. Everything one run produces
+# is either a regenerable network cache or data derived from a single input
+# spreadsheet, so none of it belongs in history: a finished run is a few MB of TSV
+# answering a question nobody will ask again in that exact form.
+#
+# One pattern, and a run directory has to be named to match it. That is not just
+# tidiness: the ruff pre-commit hooks lint all of bcp/ with no file list, so a run
+# directory outside this pattern puts its throwaway scripts into `ruff check bcp/`
+# and blocks every commit until they are clean. Name it chebi_run_<something>
+# rather than adding a second pattern here.
+chebi_run_*/
+
+# Bulk artifacts, in case a run directory is deliberately kept under another name.
+#
+# Written without the `**/` prefix that the deliverables below also omit: a pattern
+# containing no slash already matches at any depth, so the two forms were one rule
+# written two ways. `master.tsv` is generic enough to catch an unrelated file some
+# day -- `git check-ignore -v <path>` says why a path is ignored and `git add -f`
+# overrides it.
+.cache_pubchem.json
+.cache_chebi.json
+master.tsv
+chebi_submission*.sdf
+
+# Deliverables: communication artifacts addressed to ChEBI, the Lattice DB and
+# the experimental team, with a date on them. Not source.
+verified_chebi.tsv
+unverified_chebi.tsv
+chebi_submissions.tsv
+lab_followup.tsv

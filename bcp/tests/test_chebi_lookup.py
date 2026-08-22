@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ import pytest
 from chebi_lookup.client import (
     OUTPUT_FIELDS_APPENDED,
     cas_to_cid,
+    cas_to_cid_status,
     lookup_cas,
 )
 from chebi_lookup.io import (
@@ -20,6 +22,8 @@ from chebi_lookup.io import (
 )
 from tests.chebi_lookup_helpers import (
     FIXTURES,
+    PUBCHEM_LIVE,
+    load_json,
     load_json_name,
     mock_response,
     route_pubchem_get,
@@ -36,8 +40,54 @@ def test_cas_to_cid_success(mock_get: MagicMock, _sleep: MagicMock) -> None:
 @patch("chebi_lookup.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
 def test_cas_to_cid_not_found(mock_get: MagicMock, _sleep: MagicMock) -> None:
+    """A well-formed number PubChem does not index.
+
+    Not "00-00-0", which validation now refuses before any request: that would
+    still assert None while testing nothing about the 404 path.
+    """
     mock_get.return_value = mock_response(404)
-    assert cas_to_cid("00-00-0") is None
+    assert cas_to_cid("50-00-0") is None
+    assert mock_get.call_count == 1
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_cell_that_is_not_a_cas_number_costs_no_request(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """The endpoint is PubChem's *name* endpoint, so it resolves anything.
+
+    A compound name in the CAS column used to resolve as a name, which made the CAS
+    side of a row agree with the name side because both had asked the same question --
+    the one thing two supposedly independent identifiers must never do. "6857789" is
+    the real case: a PubChem CID in a CAS column, which would read as `6857-78-9` and
+    belongs to an unrelated compound.
+    """
+    mock_get.side_effect = route_pubchem_get
+    for cell in ["Ethanol", "6857789", "00-00-0", ""]:
+        assert cas_to_cid(cell) is None, cell
+    assert mock_get.call_count == 0
+    assert cas_to_cid_status("Ethanol") == (None, "not_found")
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_repaired_cas_is_queried_repaired_and_the_row_says_so(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """`64-17-05` is ethanol with a zero-padded check digit.
+
+    Sent verbatim it 404s and the row reads "PubChem does not index this compound".
+    The repair is applied before the request and reported in the row, because a repair
+    a curator cannot see is indistinguishable from PubChem having answered about the
+    value in the cell.
+    """
+    mock_get.side_effect = route_pubchem_get
+    result = lookup_cas("64-17-05")
+    assert result["pubchem_cid"] == 702
+    assert (result["cas_queried"], result["cas_class"]) == ("64-17-5", "valid")
+    assert result["cas_repairs"] == "zero_padded_check_digit"
+    assert "64-17-5" in mock_get.call_args_list[0].args[0]
 
 
 @patch("chebi_lookup.client.time.sleep")
@@ -65,9 +115,39 @@ def test_lookup_cas_no_chebi_xref(mock_get: MagicMock, _sleep: MagicMock) -> Non
     assert result["chebi_id"] == ""
 
 
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_an_unresolved_row_still_says_why(
+    mock_get: MagicMock, _sleep: MagicMock, tmp_path: Path
+) -> None:
+    """The rows that need the cas_* columns most are the empty ones.
+
+    Batch output used to write the row before merging the lookup's result, so a
+    refused cell and a genuinely unindexed number both came back with every appended
+    column blank -- indistinguishable from "PubChem does not hold this compound".
+    """
+    mock_get.side_effect = route_pubchem_get
+    src = tmp_path / "in.csv"
+    src.write_text("CAS\nEthanol\n779353-01-3\n64-17-5\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+    map_cas_file(src, "CAS", out)
+
+    rows = {r["CAS"]: r for r in csv.DictReader(out.open(encoding="utf-8"))}
+    assert rows["Ethanol"]["cas_class"] == "invalid_format"
+    assert rows["Ethanol"]["cas_queried"] == ""
+    assert rows["779353-01-3"]["cas_class"] == "invalid_checksum"
+    assert rows["779353-01-3"]["cas_queried"] == "779353-01-3"
+    assert rows["64-17-5"]["cas_class"] == "valid"
+    assert rows["64-17-5"]["pubchem_cid"] == "702"
+
+
 def test_lookup_cas_empty() -> None:
+    """An empty result still says *why* it is empty."""
     result = lookup_cas("  ")
-    assert result == {field: "" for field in OUTPUT_FIELDS_APPENDED}
+    assert result == {
+        **{field: "" for field in OUTPUT_FIELDS_APPENDED},
+        "cas_class": "missing",
+    }
 
 
 @patch("chebi_lookup.client.time.sleep")
@@ -118,3 +198,167 @@ def test_map_cas_file_missing_column(tmp_path: Path) -> None:
 def test_map_cas_file_missing_input(tmp_path: Path) -> None:
     with pytest.raises(CasMappingError, match="Input file not found"):
         map_cas_file(tmp_path / "missing.csv", "CAS", tmp_path / "out.csv")
+
+
+# --------------------------------------------------------------------------
+# Regressions: defects that were silent because nothing asserted on them
+# --------------------------------------------------------------------------
+
+# L-alanine. Its stereo-bearing and connectivity-only SMILES genuinely differ, so
+# a test using it catches a swap that ethanol ("CCO" both ways) cannot.
+L_ALANINE_PROPERTIES = {
+    "PropertyTable": {
+        "Properties": [
+            {
+                "CID": 5950,
+                "Title": "L-Alanine",
+                "MolecularFormula": "C3H7NO2",
+                "SMILES": "C[C@@H](C(=O)O)N",
+                "ConnectivitySMILES": "CC(C(=O)O)N",
+                "InChIKey": "QNAYBMKLOCPYGJ-REOHCLBHSA-N",
+            }
+        ]
+    }
+}
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_lookup_cas_populates_both_smiles_columns(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """PubChem renamed these properties and the columns silently emptied.
+
+    The request kept working, because PubChem still accepts the retired names in
+    the URL; only the response keys changed. Nothing in the suite asserted on
+    either column, which is why every lookup returned "" for both without anyone
+    noticing.
+    """
+    mock_get.side_effect = route_pubchem_get
+    result = lookup_cas("64-17-5")
+    assert result["isomeric_smiles"] == "CCO"
+    assert result["canonical_smiles"] == "CCO"
+
+
+def _route_l_alanine(url: str, *args: object, **kwargs: object) -> MagicMock:
+    """Route by endpoint: CID first, then properties, then empty for the rest."""
+    if "/cids/" in url:
+        return mock_response(200, {"IdentifierList": {"CID": [5950]}})
+    if "/property/" in url:
+        return mock_response(200, L_ALANINE_PROPERTIES)
+    return mock_response(200, {})
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_isomeric_and_canonical_smiles_are_not_swapped(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """The rename crosses the two names, so a naive fix inverts their meaning.
+
+    `IsomericSMILES` became `SMILES` and `CanonicalSMILES` became
+    `ConnectivitySMILES`. Mapping `SMILES` onto `canonical_smiles` would put
+    stereochemistry in the column consumers read as connectivity-only.
+    """
+    mock_get.side_effect = _route_l_alanine
+    result = lookup_cas("56-41-7")
+    assert result["isomeric_smiles"] == "C[C@@H](C(=O)O)N"
+    assert result["canonical_smiles"] == "CC(C(=O)O)N"
+    # and, the point of the test: the stereocentre is in one column and not the other
+    assert "@" in result["isomeric_smiles"]
+    assert "@" not in result["canonical_smiles"]
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_lookup_cas_survives_a_valid_json_body_of_the_wrong_shape(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """A proxy or maintenance page can be valid JSON and still not be this API.
+
+    A list body makes `.get()` raise AttributeError and a scalar `Properties`
+    makes `[0]` raise TypeError, neither of which the except clause caught.
+    """
+
+    def route(url: str, *args: object, **kwargs: object) -> MagicMock:
+        if "/cids/" in url:
+            return mock_response(200, {"IdentifierList": {"CID": [702]}})
+        return mock_response(200, ["unexpected"])
+
+    mock_get.side_effect = route
+    result = lookup_cas("64-17-5")
+    assert result["pubchem_cid"] == 702
+    assert result["isomeric_smiles"] == ""
+
+
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_numeric_synonyms_do_not_abort_the_lookup(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """PubChem has shipped synonyms as bare numbers; join() raises on the first."""
+    payload = {
+        "InformationList": {
+            "Information": [{"CID": 702, "Synonym": ["ethanol", 64175]}]
+        }
+    }
+
+    def route(url: str, *args: object, **kwargs: object) -> MagicMock:
+        if "/cids/" in url:
+            return mock_response(200, {"IdentifierList": {"CID": [702]}})
+        if "/synonyms/" in url:
+            return mock_response(200, payload)
+        return mock_response(200, {})
+
+    mock_get.side_effect = route
+    result = lookup_cas("64-17-5")
+    # Both survive: asserting only on "ethanol" would pass if the numeric synonym
+    # were silently dropped, which is a different behaviour from not crashing.
+    assert result["synonyms"] == "ethanol | 64175"
+
+
+@patch("chebi_lookup.client.requests.get")
+def test_map_cas_file_tolerates_a_short_row(
+    mock_get: MagicMock, tmp_path: Path
+) -> None:
+    """DictReader fills a truncated row's fields with None.
+
+    `None.strip()` aborted the whole run partway through, after the output file had
+    already been opened and partly written. A missing cell is an empty CAS.
+
+    The transport is patched and asserted unused, for two reasons: the test is then
+    offline by construction rather than by the guard happening to work, and "an
+    empty cell costs no request" is itself the behaviour worth pinning.
+    """
+    src = tmp_path / "in.csv"
+    src.write_text("compound_id,CAS,notes\ncmp_001\n", encoding="utf-8")
+    out = tmp_path / "out.csv"
+    map_cas_file(src, "CAS", out)
+    assert out.exists()
+    assert "cmp_001" in out.read_text(encoding="utf-8")
+    assert mock_get.call_count == 0
+
+
+def test_the_unit_and_recorded_property_fixtures_agree_on_key_names() -> None:
+    """The unit fixture is unreachable through `route_pubchem_get`, so pin it here.
+
+    Live routing keys off the CID, and every mocked lookup resolves to CID 702,
+    which the recorded `pubchem_live/64-17-5/` fixture also claims — so the live
+    payload always wins and `properties.json` is never served. That made it a
+    silent copy of PubChem's *retired* response shape, which is precisely what let
+    the SMILES rename hide under a green suite: the mocked parser was fed keys
+    matching the wrong code.
+
+    Comparing the hand-written fixture against the recorded one keeps them honest
+    in both directions, and re-recording the live fixture will fail this test until
+    the hand-written one is updated too.
+    """
+    unit = load_json_name("properties.json")["PropertyTable"]["Properties"][0]
+    live = load_json(PUBCHEM_LIVE / "64-17-5" / "properties.json")
+    live_props = live["PropertyTable"]["Properties"][0]
+    assert set(unit) == set(live_props), (
+        "the hand-written property fixture has drifted from the recorded PubChem "
+        "response shape"
+    )
+    assert "SMILES" in unit
+    assert "ConnectivitySMILES" in unit
