@@ -30,6 +30,7 @@ from qa_mods import (
 )
 from qa_seahub_sop import (
     group_seahub_keys,
+    seahub_group_parts,
     sop_violation_summary,
     unrecognized_suffix,
     validate_seahub_key,
@@ -52,7 +53,13 @@ GOOD_LABALPHA = (
     "labalpha-seahub-bcp/REF3/raw/REF3_P05_2/436830/"
     "436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
 )
-# A real object from the upload: four independent defects at once.
+# The same sublibrary with the redundant ExperimentID prefix elided from the
+# folder, which is the shape every real trimmed upload uses.
+GOOD_ELIDED_PREFIX = (
+    "labalpha-seahub-bcp/REF3/raw/P05_2/436830/"
+    "436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
+)
+# A real object from the upload: three independent defects at once.
 REAL_MISNAMED = (
     "labalpha-seahub-bcp/REF3/raw/P05_2/436830/"
     "436830-436830-REF3_P05_2_A10-Z0169-CTCGCAATAGATGAT.cram"
@@ -231,6 +238,65 @@ class TestRuleSetIsClosed:
         assert self._declared_literals("scope") <= set(SEAHUB_VIOLATION_SCOPES)
 
 
+class TestGroupPartsCandidateOrder:
+    """Both folder spellings are accepted, so the order is only a tie-break.
+
+    It used to decide a verdict -- try the folder as-is first, or a correct
+    folder reported as truncated. Now it decides only which prefix is stripped
+    off the trailing token, and for that it is immaterial unless both candidates
+    can explain the group. Pinned because the docstring makes that claim.
+    """
+
+    @staticmethod
+    def _reversed(group, sublibrary, experiment_id):
+        candidates = (
+            [f"{experiment_id}_{sublibrary}", sublibrary]
+            if experiment_id
+            else [sublibrary]
+        )
+        for candidate in candidates:
+            if group == candidate:
+                return candidate, "", True
+            if group.startswith(f"{candidate}_"):
+                return candidate, group[len(candidate) + 1 :], True
+        return sublibrary, "", False
+
+    @pytest.mark.parametrize(
+        "experiment_id,sublibrary,group",
+        [
+            # The three real shapes, in both folder spellings.
+            ("REF3", "REF3_P05_2", "REF3_P05_2_A10"),
+            ("REF3", "P05_2", "REF3_P05_2_A10"),
+            ("CHEM16", "P03", "CHEM16_P03_A1"),
+            ("CHEM3-R100", "R100E", "R100E"),
+            # A genuine mismatch, and a trailing token that is not a well.
+            ("REF3", "P05_2", "SOMETHING_ELSE_A10"),
+            ("REF3", "P05", "REF3_P05_1_A10"),
+        ],
+    )
+    def test_the_order_is_immaterial_on_every_realistic_input(
+        self, experiment_id, sublibrary, group
+    ):
+        assert seahub_group_parts(group, sublibrary, experiment_id) == self._reversed(
+            group, sublibrary, experiment_id
+        )
+
+    def test_candidate_order_only_matters_when_both_can_explain_the_group(self):
+        """Folder ``P10`` under ExperimentID ``P10_2``: full form ``P10_2_P10``.
+
+        That starts with ``P10_`` too, so both candidates match and the order
+        picks between them. The folder as delivered is tried first, which is the
+        literal reading of the path. No real upload has this shape.
+        """
+        forward = seahub_group_parts("P10_2_P10_A1", "P10", "P10_2")
+        assert forward == ("P10", "2_P10_A1", True)
+        assert self._reversed("P10_2_P10_A1", "P10", "P10_2") == (
+            "P10_2_P10",
+            "A1",
+            True,
+        )
+
+
 class TestKnownGoodNamesAreClean:
     def test_labbeta_example_has_no_violations(self):
         assert validate_seahub_key("czi-labbeta", GOOD_LABBETA) == []
@@ -250,28 +316,19 @@ class TestKnownGoodNamesAreClean:
 
 
 class TestRealMisnamedObject:
-    def test_reports_exactly_the_four_defects(self):
+    def test_reports_exactly_the_three_defects(self):
+        """Its folder elides the ExperimentID prefix, which is not a defect."""
         violations = validate_seahub_key("czi-labalpha", REAL_MISNAMED)
         assert _types(violations) == {
             "missing_trim_infix",
             "duplicated_wafer_token",
             "invalid_sublibrary_type",
-            "sublibrary_folder_truncated",
         }
 
     def test_expected_name_restores_the_trim_infix(self):
         violations = validate_seahub_key("czi-labalpha", REAL_MISNAMED)
         infix = next(v for v in violations if v.type == "missing_trim_infix")
         assert infix.expected_name.endswith(".trim.cram")
-
-    def test_folder_truncation_names_the_corrected_folder(self):
-        violations = validate_seahub_key("czi-labalpha", REAL_MISNAMED)
-        truncated = next(
-            v for v in violations if v.type == "sublibrary_folder_truncated"
-        )
-        assert truncated.expected_folder == "REF3_P05_2"
-        assert truncated.scope == "folder"
-        assert "P05_2" in truncated.detail
 
     def test_duplicated_wafer_expected_name_drops_the_repeat(self):
         violations = validate_seahub_key("czi-labalpha", REAL_MISNAMED)
@@ -439,18 +496,26 @@ class TestFilenameRules:
         )
         assert "bad_well" in _types(validate_seahub_key("czi-labalpha", key))
 
-    def test_folder_truncation_is_blamed_on_the_folder_not_the_filename(self):
-        """The vendor delivery is the source of truth for the sublibrary name.
+    def test_a_folder_that_elides_the_experiment_prefix_is_clean(self):
+        """The accepted spelling every real trimmed upload uses.
 
-        A correctly-named file under a plate-only folder is a folder defect, so
-        the old sublibrary_mismatch (which blamed the filename) must not fire.
+        The ExperimentID is already an ancestor segment, so the prefix carries
+        nothing the path does not. Demanding the full form reported every GENE7
+        sublibrary as broken and proposed a move for all 5184 of its objects.
+        """
+        assert validate_seahub_key("czi-labalpha", GOOD_ELIDED_PREFIX) == []
+
+    def test_the_real_reported_path_is_clean(self):
+        """The CHEM16 object that reported sublibrary_folder_truncated in review.
+
+        Folder ``P03`` under ExperimentID ``CHEM16``, filename ``CHEM16_P03``.
+        Sanitized to the fixture lab, keeping the shape exactly.
         """
         key = (
-            "labalpha-seahub-bcp/REF3/raw/P05_2/436830/"
-            "436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
+            "labalpha-seahub-bcp/CHEM16/raw/P03/432640/"
+            "432640-CHEM16_P03_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram"
         )
-        types = _types(validate_seahub_key("czi-labalpha", key))
-        assert types == {"sublibrary_folder_truncated"}
+        assert validate_seahub_key("czi-labalpha", key) == []
 
     def test_sublibrary_mismatch_when_the_two_cannot_be_reconciled(self):
         """Neither the folder nor {ExperimentID}_{folder} explains the name."""
@@ -673,13 +738,13 @@ class TestStemLevelReporting:
         ]
         assert validate_seahub_stems("czi-labalpha", keys) == []
 
-    def test_a_truncated_folder_is_one_row_however_many_wells_sit_under_it(self):
-        """A folder defect is one fact about a sublibrary, not one per object.
+    def test_a_whole_sublibrary_under_an_elided_folder_reports_nothing(self):
+        """The shape of a real upload: many wells and wafers, one folder spelling.
 
-        Reported per object, REF3's seven truncated folders would produce several
-        hundred rows and bury every other finding. The wafer is deliberately
-        excluded from the dedup key, so two wafers of one sublibrary still
-        collapse to a single row.
+        This used to be the folder-scope dedup test -- these same keys produced
+        one ``sublibrary_folder_truncated`` row for the sublibrary, and reported
+        per object would have produced one per well. Now the spelling is accepted
+        and there is nothing to collapse, so the whole listing is clean.
         """
         keys = []
         for wafer, ugs in (
@@ -694,7 +759,7 @@ class TestStemLevelReporting:
 
         summary = sop_violation_summary(validate_seahub_stems("czi-labalpha", keys))
 
-        assert summary == {"sublibrary_folder_truncated": 1}
+        assert summary == {}
 
 
 class TestStemGrouping:

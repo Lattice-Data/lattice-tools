@@ -6,15 +6,17 @@ upload of 2035 objects and a 2597-object vendor delivery -- with lab and order
 identifiers sanitized. The vendor side uses the measured layout, where the
 segment before ``raw`` is the ExperimentID alone and carries no sublibrary.
 
-Wells, one per defect combination:
+Wells, one per defect combination.  Every folder here but D's elides the
+redundant ``{ExperimentID}_`` prefix, which is an accepted spelling and not a
+defect -- so B, whose filename is otherwise correct, is compliant:
 
 ===== ============================================================= ========
 well  defect                                                        verdict
 ===== ============================================================= ========
-A     truncated folder + doubled wafer + no type tag + no ``.trim``  RENAMEABLE
-B     correct filename, truncated folder only                        RENAMEABLE
+A     doubled wafer + no type tag + no ``.trim``                     RENAMEABLE
+B     none; elided folder prefix, correct filename                   COMPLIANT
 C     four sidecars and no CRAM anywhere                             DATA_GAP
-D     fully SOP-compliant                                            COMPLIANT
+D     fully SOP-compliant, folder prefix spelled in full             COMPLIANT
 G1    no vendor match, but the type tag is present                   RENAMEABLE
 G2    no vendor match and no type tag, so not inferable              UNKNOWN
 ===== ============================================================= ========

@@ -149,30 +149,39 @@ class TestKnownGoodIsIdempotent:
 
 
 class TestExpectedTrimmedKey:
-    def test_all_four_defects_compose_into_one_key(self):
+    def test_all_three_defects_compose_into_one_key(self):
+        """And the folder is left exactly as delivered.
+
+        The elided ``{ExperimentID}_`` prefix is an accepted spelling, so the
+        object stays in ``P04_1/`` while the three filename defects are repaired.
+        """
         proposal = expected_trimmed_key(BUCKET, f"{WELL_A}.cram", VENDOR_A)
 
         assert proposal.expected_s3_uri == (
-            f"s3://{BUCKET}/{RAW}/REF3_P04_1/437120/"
+            f"s3://{BUCKET}/{RAW}/P04_1/437120/"
             "437120-REF3_P04_1_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram"
         )
         assert proposal.defects == (
             "duplicated_wafer_token",
             "invalid_sublibrary_type",
             "missing_trim_infix",
-            "sublibrary_folder_truncated",
         )
         assert proposal.name_source == "vendor"
+        # The authoritative name, which is the filename's -- not the folder's.
+        assert proposal.sublibrary == "REF3_P04_1"
 
-    def test_a_truncated_folder_changes_only_the_folder(self):
+    def test_an_elided_folder_prefix_proposes_no_move_at_all(self):
+        """Idempotent: the whole object is already compliant.
+
+        Composing the folder and the filename name into one variable is what made
+        this propose a move into ``REF3_P05_1/`` -- on GENE7, all 5184 objects.
+        """
         proposal = expected_trimmed_key(BUCKET, f"{WELL_B}.trim.cram")
 
-        assert proposal.defects == ("sublibrary_folder_truncated",)
-        assert proposal.expected_s3_uri.endswith(
-            "/REF3_P05_1/436830/"
-            "436830-REF3_P05_1_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
-        )
-        assert proposal.name_source == "inferred"
+        assert proposal.defects == ()
+        assert proposal.compliant
+        assert not proposal.renameable
+        assert proposal.expected_s3_uri == f"s3://{BUCKET}/{WELL_B}.trim.cram"
 
     @pytest.mark.parametrize("bare,trim", sorted(SEAHUB_BARE_TO_TRIM_SUFFIX.items()))
     def test_every_bare_suffix_maps_to_its_trim_form(self, bare, trim):
@@ -345,8 +354,8 @@ class TestRollUpWells:
         rollup = roll_up_wells(BUCKET, ref3_trimmed_keys(), _vendor_index())
 
         assert rollup_summary(rollup.rows) == {
-            "COMPLIANT": 1,
-            "RENAMEABLE": 3,
+            "COMPLIANT": 2,
+            "RENAMEABLE": 2,
             "DATA_GAP": 1,
             "UNKNOWN": 1,
         }

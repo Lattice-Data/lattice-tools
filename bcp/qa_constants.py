@@ -414,9 +414,12 @@ SEAHUB_NON_SEQ_EXTENSIONS = frozenset(
 SEAHUB_NON_SEQ_BASENAMES = frozenset({"urls.txt", ".ds_store", "thumbs.db"})
 SEAHUB_NON_SEQ_NAME_RES = (re.compile(r"^objects_list[-_.].*\.txt$"),)
 
-# How widely one violation applies, which drives dedup when reporting.  A folder
-# defect is one fact about a sublibrary, not one fact per object beneath it.
-SEAHUB_VIOLATION_SCOPES = ("object", "stem", "folder", "suffix", "upload")
+# How widely one violation applies, which drives dedup when reporting.  An
+# upload-scope defect is one fact about the bucket or project, not one fact per
+# object beneath it.  There is no ``folder`` scope: the only rule that ever used
+# it was ``sublibrary_folder_truncated``, and an elided ExperimentID prefix on a
+# sublibrary folder is now an accepted spelling rather than a defect.
+SEAHUB_VIOLATION_SCOPES = ("object", "stem", "suffix", "upload")
 
 # The closed set of SOP rule names.  Kept explicit so a typo in a new rule shows
 # up as a test failure rather than as a silently missing category.
@@ -434,7 +437,6 @@ SEAHUB_SOP_RULES = frozenset(
         "unparseable_stem",
         "invalid_sublibrary_type",
         "wafer_mismatch",
-        "sublibrary_folder_truncated",
         "sublibrary_mismatch",
         "bad_well",
     }
@@ -458,7 +460,6 @@ SEAHUB_RENAMEABLE_SOP_TYPES = frozenset(
     {
         "missing_trim_infix",
         "duplicated_wafer_token",
-        "sublibrary_folder_truncated",
         "invalid_sublibrary_type",
         # Repairable only because it is appended *after* the vendor group is
         # confirmed; with no vendor the mismatch path returns unresolved instead.
