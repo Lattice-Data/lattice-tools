@@ -281,10 +281,16 @@ def leftover_cram_warning(uri: str) -> str:
 
 
 def empty_raw_subdir_warning(subdir: str, uris: Sequence[str]) -> str:
-    """One ``--raw-subdirs`` entry found nothing to fill ``derived_from``."""
+    """One ``--raw-subdirs`` entry found nothing to fill ``derived_from``.
+
+    The advice has to hold for every prefix printed: a flat ``*.cram`` is
+    read only when the prefix is itself the numeric run folder, so a
+    ``raw/`` prefix never accepts one.
+    """
     return (
         f"--raw-subdirs {subdir!r} matched no crams under {' or '.join(uris)}; "
-        "expected *.cram there or in a numeric run folder under it"
+        "*.cram must sit in a numeric run folder -- one of those prefixes "
+        "itself, or a folder directly under one"
     )
 
 

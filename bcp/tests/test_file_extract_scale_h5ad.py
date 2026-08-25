@@ -346,6 +346,25 @@ def test_list_raw_crams_finds_numeric_children_under_top_level_raw() -> None:
     assert found.empty_subdirs == []
 
 
+def test_list_raw_crams_overlapping_subdirs_are_not_reported_empty() -> None:
+    """A subdir whose crams an earlier entry claimed still counts as matched.
+
+    Both values resolve to the same prefix, so the second finds only
+    duplicates. The match counter therefore has to run before the dedup
+    check -- counting after it would call the second entry empty and, under
+    --strict, fail the run.
+    """
+    client = MockS3Client(keys=[CRAM_SAMP01_GEX])
+    found = list_raw_crams(
+        client,
+        BUCKET,
+        RUNDATE,
+        ["426971", f"s3://{BUCKET}/proj/ORD01/raw/426971"],
+    )
+    assert found.crams == [(BUCKET, CRAM_SAMP01_GEX)]
+    assert found.empty_subdirs == []
+
+
 def test_list_raw_crams_reports_subdirs_that_matched_nothing() -> None:
     client = MockS3Client(keys=[CRAM_SAMP01_GEX])
     found = list_raw_crams(client, BUCKET, RUNDATE, ["426971", "999999"])
