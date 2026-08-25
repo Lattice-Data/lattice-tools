@@ -57,3 +57,8 @@ coverage.xml
 # Temporary files
 *.tmp
 *.temp
+
+# Local ChEBI curation runs: per-batch pipelines, deliverables, and API
+# caches that are not part of the toolset. Ignored so the ruff hooks, which
+# lint all of bcp/, do not fail commits on unrelated work in progress.
+bcp/chebi_run_*/
