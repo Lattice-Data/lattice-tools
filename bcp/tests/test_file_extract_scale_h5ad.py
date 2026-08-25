@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -356,13 +357,34 @@ def test_list_raw_crams_finds_numeric_children_of_group_uri() -> None:
     assert client.paginate_calls == 1
 
 
-def test_list_raw_crams_walks_the_fallback_only_after_a_miss() -> None:
-    """The fallback costs a second listing, so it is only reached on a miss."""
+def test_list_raw_crams_walks_the_fallback_only_after_a_miss(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The fallback costs a second listing, so it is only reached on a miss.
+
+    The debug line must name the prefix that actually supplied the crams,
+    which here is the fallback rather than the raw/ child that missed.
+    """
     nested = "proj/ORD01/raw/RNA3_098/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
     client = MockS3Client(keys=[nested])
-    found = list_raw_crams(client, BUCKET, RUNDATE, ["RNA3_098"])
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="file_extract.scale_h5ad"):
+        found = list_raw_crams(client, BUCKET, RUNDATE, ["RNA3_098"])
     assert found.crams == [(BUCKET, nested)]
     assert client.paginate_calls == 2
+    assert f"1 crams under s3://{BUCKET}/proj/ORD01/raw/RNA3_098/" in caplog.text
+    assert "RNA3_098/raw/" not in caplog.text
+
+
+def test_list_raw_crams_logs_nothing_when_a_subdir_is_empty(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No prefix supplied crams, so there is no winner to name."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="file_extract.scale_h5ad"):
+        found = list_raw_crams(MockS3Client(keys=[]), BUCKET, RUNDATE, ["999999"])
+    assert found.crams == []
+    assert "crams under" not in caplog.text
 
 
 def test_list_raw_crams_finds_numeric_children_of_bare_name() -> None:
