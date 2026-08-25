@@ -180,9 +180,14 @@ def raw_cram_search_prefixes(prefix: str) -> tuple[str, ...]:
     A delivery holds its CRAMs at one of these levels, never both, so
     the first prefix that lists any CRAM has all of them. Searching the
     remaining prefixes as well would only re-walk a group subtree.
+
+    Only a prefix whose final *segment* is ``raw`` is already at that
+    level. A name that merely ends in ``raw``, such as ``ORD01_raw``,
+    still needs its ``raw/`` child probed.
     """
-    normalized = prefix.rstrip("/") + "/"
-    if normalized.endswith("raw/"):
+    trimmed = prefix.strip("/")
+    normalized = f"{trimmed}/" if trimmed else ""
+    if normalized == "raw/" or normalized.endswith("/raw/"):
         return (normalized,)
     return (f"{normalized}raw/", normalized)
 

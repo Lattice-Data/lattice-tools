@@ -281,6 +281,24 @@ def test_raw_cram_search_prefixes_does_not_probe_raw_twice() -> None:
     assert raw_cram_search_prefixes("lab/NVUS-04/RNA3_098/raw") == (
         "lab/NVUS-04/RNA3_098/raw/",
     )
+    assert raw_cram_search_prefixes("raw/") == ("raw/",)
+
+
+def test_raw_cram_search_prefixes_tests_the_segment_not_the_suffix() -> None:
+    """A name merely ending in "raw" is not itself the raw/ level."""
+    assert raw_cram_search_prefixes("proj/ORD01/raw/ORD01_raw/") == (
+        "proj/ORD01/raw/ORD01_raw/raw/",
+        "proj/ORD01/raw/ORD01_raw/",
+    )
+
+
+def test_raw_cram_search_prefixes_never_yields_a_leading_slash() -> None:
+    """An s3:// bucket root resolves to "", which is not a "/" prefix."""
+    assert raw_cram_search_prefixes("") == ("raw/", "")
+    assert raw_cram_search_prefixes("/proj/ORD01/") == (
+        "proj/ORD01/raw/",
+        "proj/ORD01/",
+    )
 
 
 def test_raw_cram_search_prefixes_covers_both_non_numeric_layouts() -> None:
@@ -322,12 +340,31 @@ def test_list_raw_crams_finds_numeric_children_of_group_uri() -> None:
     )
     assert found.crams == [("czi-novogene", nested)]
     assert found.empty_subdirs == []
+    # The raw/ candidate hit, so the fallback prefix must not be walked.
+    assert client.paginate_calls == 1
+
+
+def test_list_raw_crams_walks_the_fallback_only_after_a_miss() -> None:
+    """The fallback costs a second listing, so it is only reached on a miss."""
+    nested = "proj/ORD01/raw/RNA3_098/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    client = MockS3Client(keys=[nested])
+    found = list_raw_crams(client, BUCKET, RUNDATE, ["RNA3_098"])
+    assert found.crams == [(BUCKET, nested)]
+    assert client.paginate_calls == 2
 
 
 def test_list_raw_crams_finds_numeric_children_of_bare_name() -> None:
     """A bare non-numeric name resolves to raw/{name}/{numeric}/."""
     nested = "proj/ORD01/raw/RNA3_098/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
     found = list_raw_crams(MockS3Client(keys=[nested]), BUCKET, RUNDATE, ["RNA3_098"])
+    assert found.crams == [(BUCKET, nested)]
+    assert found.empty_subdirs == []
+
+
+def test_list_raw_crams_finds_crams_under_a_raw_suffixed_name() -> None:
+    """A subdir named e.g. ORD01_raw still gets its raw/ child searched."""
+    nested = "proj/ORD01/raw/ORD01_raw/raw/426971/426971-R_GEX_QSR-1_1A.cram"
+    found = list_raw_crams(MockS3Client(keys=[nested]), BUCKET, RUNDATE, ["ORD01_raw"])
     assert found.crams == [(BUCKET, nested)]
     assert found.empty_subdirs == []
 
