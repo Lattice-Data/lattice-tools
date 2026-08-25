@@ -7,7 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from file_extract.cli import build_parser, main
+from file_extract.cli import (
+    PRINT_LIMIT,
+    _print_failures,
+    _print_warnings,
+    build_parser,
+    main,
+)
 from file_extract.models import ListedObject
 from tests.file_extract_helpers import MockS3Client
 
@@ -45,12 +51,60 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "fastq" in out
     assert "cram" in out
     assert "h5" in out
+    assert "scale_h5ad" in out
+
+
+def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["scale_h5ad", "--help"])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "--lab" in out
+    assert "--metadata-gid" in out
+    assert "--metadata-experiment" in out
+    assert "experiment_name" in out
+    assert "--cro-order" not in out
+    assert "--raw-subdirs" in out
+    assert "Comma-separated" in out
+    assert "raw/{numeric}" in out
+    assert "--wafers" not in out
+    assert "<lab>:<sample_name>" in out
+    assert "QSR" in out
+    assert "samples" in out
+    assert "file_size" in out
+    assert "observation_count" in out
+    assert "observation-count" in out
+    assert "feature_counts" in out
+    assert "derived_from" in out
+    assert "{lab}:{cram_filename}" in out
+    assert "hash oligo" in out
+    assert "scaleplex" in out
 
 
 def test_cli_invalid_uri() -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["fastq", "not-a-uri"])
     assert exc_info.value.code == 2
+
+
+def test_print_warnings_caps_at_fifty(capsys: pytest.CaptureFixture[str]) -> None:
+    _print_warnings([f"warn-{i}" for i in range(PRINT_LIMIT + 3)])
+    out = capsys.readouterr().out
+    assert out.count("WARNING:") == PRINT_LIMIT
+    assert "warn-0" in out
+    assert f"warn-{PRINT_LIMIT - 1}" in out
+    assert f"warn-{PRINT_LIMIT}" not in out
+    assert "... and 3 more warning(s)" in out
+
+
+def test_print_failures_caps_at_fifty(capsys: pytest.CaptureFixture[str]) -> None:
+    _print_failures([(f"key-{i}", "crc-err", "") for i in range(PRINT_LIMIT + 2)])
+    out = capsys.readouterr().out
+    assert out.count("crc:") == PRINT_LIMIT
+    assert "key-0" in out
+    assert f"key-{PRINT_LIMIT - 1}" in out
+    assert f"key-{PRINT_LIMIT}" not in out
+    assert "... and 2 more" in out
 
 
 @patch("file_extract.cli.extract_fastq")
@@ -555,6 +609,194 @@ def test_cli_cram_strict_on_failure(
             "--quiet",
             "--strict",
             *CRAM_SHEET_ARGS,
+        ]
+    )
+    assert code == 1
+
+
+SCALE_H5AD_ARGS = [
+    "--lab",
+    "example-lab",
+    "--metadata-gid",
+    "sheet-uuid",
+    "--metadata-experiment",
+    "RNA3_098",
+    "--raw-subdirs",
+    "426971",
+    "441969",
+]
+
+
+def test_cli_scale_h5ad_requires_flags() -> None:
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["scale_h5ad", f"s3://{BUCKET}/{H5_PREFIX}"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                "--metadata-gid",
+                "sheet-uuid",
+            ]
+        )
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                "--metadata-gid",
+                "sheet-uuid",
+                "--metadata-experiment",
+                "RNA3_098",
+            ]
+        )
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                "--metadata-gid",
+                "sheet-uuid",
+                "--metadata-experiment",
+                "RNA3_098",
+                "--raw-subdirs",
+                "426971",
+            ]
+        )
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_success(
+    mock_deps: MagicMock,
+    mock_boto: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(
+        total=2,
+        crc_ok=2,
+        warnings=[
+            "control sample 'CTRL-01' (barcodes '12H') has no RT_index pairing; "
+            "excluding from output"
+        ],
+    )
+    out = tmp_path / "scale.tsv"
+    code = main(
+        [
+            "scale_h5ad",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(out),
+            "--quiet",
+            *SCALE_H5AD_ARGS,
+        ]
+    )
+    assert code == 0
+    mock_extract.assert_called_once()
+    kwargs = mock_extract.call_args.kwargs
+    assert kwargs["lab"] == "example-lab"
+    assert kwargs["metadata_gid"] == "sheet-uuid"
+    assert kwargs["metadata_experiment"] == "RNA3_098"
+    assert "cro_orders" not in kwargs
+    assert kwargs["raw_subdirs"] == ["426971", "441969"]
+    printed = capsys.readouterr().out
+    assert "CTRL-01" in printed
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_raw_subdirs_comma_separated(
+    mock_deps: MagicMock,
+    mock_boto: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1)
+    code = main(
+        [
+            "scale_h5ad",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(tmp_path / "scale.tsv"),
+            "--quiet",
+            "--lab",
+            "example-lab",
+            "--metadata-gid",
+            "sheet-uuid",
+            "--metadata-experiment",
+            "RNA3_098",
+            "--raw-subdirs",
+            "s3://czi-novogene/lab/order/RNA3_098,"
+            "s3://czi-novogene/lab/order/CHEM13-R096",
+        ]
+    )
+    assert code == 0
+    assert mock_extract.call_args.kwargs["raw_subdirs"] == [
+        "s3://czi-novogene/lab/order/RNA3_098",
+        "s3://czi-novogene/lab/order/CHEM13-R096",
+    ]
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_strips_lab_path(
+    mock_deps: MagicMock, mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1)
+    out = tmp_path / "scale_lab.tsv"
+    args = [
+        "scale_h5ad",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(out),
+        "--quiet",
+        *SCALE_H5AD_ARGS,
+    ]
+    lab_idx = args.index("--lab") + 1
+    args[lab_idx] = "/labs/example-lab/"
+    assert main(args) == 0
+    assert mock_extract.call_args.kwargs["lab"] == "example-lab"
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_strict_on_failure(
+    mock_deps: MagicMock, mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(
+        total=1,
+        crc_ok=0,
+        failures=[("key", "crc failed", "")],
+    )
+    out = tmp_path / "scale_strict.tsv"
+    code = main(
+        [
+            "scale_h5ad",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(out),
+            "--quiet",
+            "--strict",
+            *SCALE_H5AD_ARGS,
         ]
     )
     assert code == 1

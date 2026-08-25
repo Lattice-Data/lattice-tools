@@ -1,6 +1,6 @@
 ## File extract
 
-Extract S3 metadata for **FASTQ.gz**, **CRAM**, and **Cell Ranger h5** matrices. Part of BCP tooling under `bcp/file_extract`.
+Extract S3 metadata for **FASTQ.gz**, **CRAM**, **Cell Ranger h5**, and **Scale h5ad** matrices. Part of BCP tooling under `bcp/file_extract`.
 
 Requires AWS credentials with read access to the target bucket (standard `boto3` credential chain).
 
@@ -16,6 +16,7 @@ python -m file_extract --help
 python -m file_extract fastq --help
 python -m file_extract cram --help
 python -m file_extract h5 --help
+python -m file_extract scale_h5ad --help
 ```
 
 ### FASTQ mode
@@ -156,6 +157,45 @@ python -m file_extract h5 s3://.../per_sample_outs --genome --metrics
 pip install h5py fsspec s3fs
 ```
 
+### Scale h5ad mode
+
+Point at a ScaleRna **rundate** directory (one level past `processed/`). Pairs rundate `samples.csv` barcodes to the Google Sheet `sample template` `RT_index` column, warns about control samples that have no pairing, and writes one TSV row per non-control `{rundate}/samples/*.h5ad` whose filename contains `QSR`, plus each `{rundate}/scaleplex/{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`.
+
+```bash
+python -m file_extract scale_h5ad \
+  s3://czi-cro/project/order/processed/run_date/ \
+  --lab example-lab \
+  --metadata-gid <google-sheet-uuid> \
+  --metadata-experiment RNA3_098 \
+  --raw-subdirs s3://czi-novogene/lab/order/RNA3_098,s3://czi-novogene/lab/order/CHEM13-R096
+```
+
+| Flag | Description |
+|------|-------------|
+| `s3_uri` | **Required.** Rundate prefix, e.g. `s3://czi-cro/project/order/processed/run_date/` |
+| `--lab` | **Required.** `example-lab` or `/labs/example-lab/` (the lab name prefixes `samples`) |
+| `--metadata-gid` | **Required.** Google Sheet UUID (spreadsheet id in the URL). Reads tab `sample template` |
+| `--metadata-experiment` | **Required.** Keep only `sample template` rows whose `experiment_name` equals this value |
+| `--raw-subdirs` | **Required.** Comma-separated group directories (or `s3://` URIs) that contain `raw/{numeric}/*.cram`. A numeric name such as `426971` is still treated as the `raw/` sibling of the rundate |
+| `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
+| `--workers` | Thread count (default: min(16, n_files)) |
+| `--retries` | Max attempts per transient S3 error (default: 5) |
+| `--strict` | Exit 1 if any per-file CRC or observation-count fetch fails |
+| `-v`, `--verbose` | Debug logging |
+| `-q`, `--quiet` | Disable progress bars |
+
+**Pairing:** Only `sample template` rows whose `experiment_name` equals `--metadata-experiment` are used. `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad and ScalePlex mtx files are omitted.
+
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of `{lab}:{cram_filename}` values from `--raw-subdirs`)
+
+**derived_from:** Each `--raw-subdirs` value is listed as `…/raw/{numeric}/*.cram`. An `s3://` URI of the group directory (or of `raw/` itself) is walked one level down into numeric folders; CRAMs are not expected at the listed prefix. A numeric name such as `426971` is still `…/processed/run_date/` → `…/raw/{subdir}/`. Each deliverable `*.cram` (not `unmatched`) is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. The TSV value is `{lab}:{cram_filename}` using `--lab`. A CRAM that does not attach to an output row is printed as a warning.
+
+**Optional introspection dependencies** (needed to read `observation_count` and `feature_counts`):
+
+```bash
+pip install h5py fsspec s3fs
+```
+
 ---
 
 ## Testing
@@ -172,4 +212,4 @@ All tests use mocked S3; no AWS credentials required for the default suite.
 
 ## Migration from prototypes
 
-The standalone prototypes in `bcp/docs/file_extractor.py` and `bcp/docs/extract_h5.py` are superseded by this package. Use `python -m file_extract fastq`, `python -m file_extract cram`, and `python -m file_extract h5` instead.
+The standalone prototypes in `bcp/docs/file_extractor.py` and `bcp/docs/extract_h5.py` are superseded by this package. Use `python -m file_extract fastq`, `python -m file_extract cram`, `python -m file_extract h5`, and `python -m file_extract scale_h5ad` instead.
