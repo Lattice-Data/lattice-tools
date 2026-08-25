@@ -32,7 +32,7 @@ from file_extract.scale_h5ad import (
     list_raw_crams,
     parse_scale_cram_name,
     parse_samples_csv,
-    raw_cram_search_prefix,
+    raw_cram_search_prefixes,
     resolve_raw_subdir,
     sample_from_filename,
     tsv_filename,
@@ -267,21 +267,37 @@ def test_resolve_raw_subdir_uses_processed_sibling() -> None:
     ) == ("czi-novogene", "lab/NVUS-04/RNA3_098/")
 
 
-def test_raw_cram_search_prefix_walks_numeric_dirs_under_raw() -> None:
-    assert raw_cram_search_prefix("lab/NVUS-04/RNA3_098/") == (
-        "lab/NVUS-04/RNA3_098/raw/"
+def test_raw_cram_search_prefixes_tries_raw_child_then_prefix() -> None:
+    """The raw/ child is probed first; the prefix itself is the fallback."""
+    assert raw_cram_search_prefixes("lab/NVUS-04/RNA3_098/") == (
+        "lab/NVUS-04/RNA3_098/raw/",
+        "lab/NVUS-04/RNA3_098/",
     )
-    assert raw_cram_search_prefix("lab/NVUS-04/RNA3_098/raw") == (
-        "lab/NVUS-04/RNA3_098/raw/"
-    )
-    assert raw_cram_search_prefix(RAW) == RAW
+    assert raw_cram_search_prefixes(RAW) == (f"{RAW}raw/", RAW)
 
 
-def test_raw_cram_search_prefix_keeps_non_numeric_folder_under_raw() -> None:
-    """A bare non-numeric --raw-subdirs value must not get a second raw/."""
-    resolved = resolve_raw_subdir("czi-cro", RUNDATE, "RNA3_098")[1]
-    assert resolved == "proj/ORD01/raw/RNA3_098/"
-    assert raw_cram_search_prefix(resolved) == resolved
+def test_raw_cram_search_prefixes_does_not_probe_raw_twice() -> None:
+    """A prefix already at the raw/ level needs no raw/raw/ probe."""
+    assert raw_cram_search_prefixes("lab/NVUS-04/RNA3_098/raw") == (
+        "lab/NVUS-04/RNA3_098/raw/",
+    )
+
+
+def test_raw_cram_search_prefixes_covers_both_non_numeric_layouts() -> None:
+    """No segment name separates these two shapes, so both must be tried.
+
+    A bare name resolves under raw/, and an s3:// group directory can
+    itself sit under a top-level raw/. Each keeps its own layout.
+    """
+    bare = resolve_raw_subdir("czi-cro", RUNDATE, "RNA3_098")[1]
+    assert bare == "proj/ORD01/raw/RNA3_098/"
+    assert bare in raw_cram_search_prefixes(bare)
+
+    group = resolve_raw_subdir(
+        "czi-cro", RUNDATE, "s3://novogene-delivery/raw/ORD01/RNA3_098"
+    )[1]
+    assert group == "raw/ORD01/RNA3_098/"
+    assert f"{group}raw/" in raw_cram_search_prefixes(group)
 
 
 def test_is_cram_in_raw_search_requires_numeric_folder() -> None:
@@ -316,11 +332,33 @@ def test_list_raw_crams_finds_numeric_children_of_bare_name() -> None:
     assert found.empty_subdirs == []
 
 
+def test_list_raw_crams_finds_numeric_children_under_top_level_raw() -> None:
+    """A group dir that itself sits under raw/ still gets its raw/ level."""
+    group = "raw/ORD01/RNA3_098/"
+    nested = f"{group}raw/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    found = list_raw_crams(
+        MockS3Client(keys=[nested]),
+        BUCKET,
+        RUNDATE,
+        ["s3://novogene-delivery/raw/ORD01/RNA3_098"],
+    )
+    assert found.crams == [("novogene-delivery", nested)]
+    assert found.empty_subdirs == []
+
+
 def test_list_raw_crams_reports_subdirs_that_matched_nothing() -> None:
     client = MockS3Client(keys=[CRAM_SAMP01_GEX])
     found = list_raw_crams(client, BUCKET, RUNDATE, ["426971", "999999"])
     assert found.crams == [(BUCKET, CRAM_SAMP01_GEX)]
-    assert found.empty_subdirs == [("999999", f"s3://{BUCKET}/proj/ORD01/raw/999999/")]
+    assert found.empty_subdirs == [
+        (
+            "999999",
+            (
+                f"s3://{BUCKET}/proj/ORD01/raw/999999/raw/",
+                f"s3://{BUCKET}/proj/ORD01/raw/999999/",
+            ),
+        )
+    ]
 
 
 def test_well_to_sample_map_expands_barcodes() -> None:

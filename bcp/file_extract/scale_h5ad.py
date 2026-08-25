@@ -61,13 +61,14 @@ class ScaleCram:
 class RawCramSearch:
     """CRAMs found under ``--raw-subdirs``, and the entries that found none.
 
-    ``empty_subdirs`` holds ``(subdir, searched_uri)`` so a mistyped or
-    wrong-layout entry can be named in a warning instead of quietly
-    leaving ``derived_from`` empty.
+    ``empty_subdirs`` holds ``(subdir, searched_uris)`` so a mistyped or
+    wrong-layout entry can be named in a warning -- alongside every
+    prefix tried for it -- instead of quietly leaving ``derived_from``
+    empty.
     """
 
     crams: list[tuple[str, str]]
-    empty_subdirs: list[tuple[str, str]]
+    empty_subdirs: list[tuple[str, tuple[str, ...]]]
 
 
 def format_samples_column(sample_names: Sequence[str], lab: str) -> str:
@@ -162,18 +163,24 @@ def resolve_raw_subdir(
     return processed_bucket, prefix
 
 
-def raw_cram_search_prefix(prefix: str) -> str:
-    """Prefix whose ``raw/{numeric}/`` folders hold the deliverable CRAMs.
+def raw_cram_search_prefixes(prefix: str) -> tuple[str, ...]:
+    """Prefixes to try for the CRAMs under one ``--raw-subdirs`` value.
 
-    ``--raw-subdirs`` is often the group directory, which sits above the
-    ``raw/`` level that actually contains ``*.cram``. Add that level only
-    when the prefix is not already at or below it.
+    A ``--raw-subdirs`` value is either the numeric run folder holding
+    ``*.cram`` directly or a group directory whose ``raw/`` child holds
+    the numeric folders. No segment name tells the two apart -- a group
+    directory can itself sit under a ``raw/`` level -- so try the ``raw/``
+    child first and fall back to the prefix itself. Whichever lists CRAMs
+    wins, which makes the layout observed rather than inferred.
+
+    The ``raw/`` child comes first because listing a group directory
+    walks its whole subtree only to reject every CRAM under
+    ``raw/{numeric}/``; the reverse order wastes one empty listing.
     """
     normalized = prefix.rstrip("/") + "/"
-    parts = [part for part in prefix.strip("/").split("/") if part]
-    if "raw" in parts:
-        return normalized
-    return f"{normalized}raw/"
+    if normalized.endswith("raw/"):
+        return (normalized,)
+    return (f"{normalized}raw/", normalized)
 
 
 def is_cram_in_raw_search(key: str, search_prefix: str) -> bool:
@@ -195,25 +202,32 @@ def list_raw_crams(
 ) -> RawCramSearch:
     """Find CRAMs under each ``raw/{numeric}/`` folder, per ``--raw-subdirs``."""
     found: list[tuple[str, str]] = []
-    empty: list[tuple[str, str]] = []
+    empty: list[tuple[str, tuple[str, ...]]] = []
     seen: set[tuple[str, str]] = set()
     for subdir in raw_subdirs:
         bucket, prefix = resolve_raw_subdir(processed_bucket, processed_prefix, subdir)
-        search = raw_cram_search_prefix(prefix)
-
-        def _keep(key: str, _search: str = search) -> bool:
-            return is_cram_in_raw_search(key, _search)
-
+        candidates = raw_cram_search_prefixes(prefix)
         matched = 0
-        for obj in list_objects_with_size(s3_client, bucket, search, predicate=_keep):
-            matched += 1
-            ident = (bucket, obj.key)
-            if ident in seen:
-                continue
-            seen.add(ident)
-            found.append(ident)
+        for search in candidates:
+
+            def _keep(key: str, _search: str = search) -> bool:
+                return is_cram_in_raw_search(key, _search)
+
+            for obj in list_objects_with_size(
+                s3_client, bucket, search, predicate=_keep
+            ):
+                matched += 1
+                ident = (bucket, obj.key)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                found.append(ident)
+            if matched:
+                break
         if not matched:
-            empty.append((subdir, s3_uri_for(bucket, search)))
+            empty.append(
+                (subdir, tuple(s3_uri_for(bucket, cand) for cand in candidates))
+            )
     return RawCramSearch(crams=found, empty_subdirs=empty)
 
 
@@ -262,11 +276,11 @@ def leftover_cram_warning(uri: str) -> str:
     return f"cram {uri} was not added to derived_from"
 
 
-def empty_raw_subdir_warning(subdir: str, uri: str) -> str:
+def empty_raw_subdir_warning(subdir: str, uris: Sequence[str]) -> str:
     """One ``--raw-subdirs`` entry found nothing to fill ``derived_from``."""
     return (
-        f"--raw-subdirs {subdir!r} matched no crams under {uri}; "
-        "expected *.cram in a numeric run folder there"
+        f"--raw-subdirs {subdir!r} matched no crams under {' or '.join(uris)}; "
+        "expected *.cram there or in a numeric run folder under it"
     )
 
 
@@ -433,9 +447,9 @@ def extract_scale_h5ad(
     summary = RunSummary()
     for control in correlation.controls:
         summary.warnings.append(control_warning(control.sample, control.barcodes))
-    for subdir, searched_uri in raw_search.empty_subdirs:
+    for subdir, searched_uris in raw_search.empty_subdirs:
         summary.empty_raw_subdirs.append(subdir)
-        summary.warnings.append(empty_raw_subdir_warning(subdir, searched_uri))
+        summary.warnings.append(empty_raw_subdir_warning(subdir, searched_uris))
 
     listed = list_objects_with_size(
         s3_client,
