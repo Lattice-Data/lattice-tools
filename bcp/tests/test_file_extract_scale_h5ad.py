@@ -309,10 +309,11 @@ def test_raw_cram_search_prefixes_never_yields_a_leading_slash() -> None:
     )
 
 
-def test_raw_cram_search_prefixes_never_falls_back_to_a_bucket_root() -> None:
-    """An empty fallback would list the whole bucket, so it is not offered."""
-    assert raw_cram_search_prefixes("") == ("raw/",)
-    assert "" not in raw_cram_search_prefixes("")
+def test_raw_cram_search_prefixes_refuses_a_bucket_root() -> None:
+    """Even raw/ at a bucket root spans deliveries, so there is no candidate."""
+    for prefix in ["", "/"]:
+        with pytest.raises(ScaleExtractError, match="not a bucket root"):
+            raw_cram_search_prefixes(prefix)
 
 
 def test_raw_cram_search_prefixes_covers_both_non_numeric_layouts() -> None:

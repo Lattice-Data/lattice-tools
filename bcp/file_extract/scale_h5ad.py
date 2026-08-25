@@ -188,15 +188,19 @@ def raw_cram_search_prefixes(prefix: str) -> tuple[str, ...]:
     level. A name that merely ends in ``raw``, such as ``ORD01_raw``,
     still needs its ``raw/`` child probed.
 
-    An empty prefix is a bucket root, and falling back to it would list
-    the whole bucket and accept CRAMs from any numeric folder in it, so
-    only the ``raw/`` probe is offered there. ``validate_raw_subdirs``
-    already rejects a bucket-alone value, so this is defence in depth for
-    a direct caller rather than a path the CLI can reach.
+    An empty prefix is a bucket root. Probing ``raw/`` there would still
+    accept ``raw/{numeric}/`` from any delivery in the bucket, so there is
+    no candidate that both honours the request and stays inside one
+    delivery -- hence the error. ``validate_raw_subdirs`` rejects a
+    bucket-alone value before the CLI reaches here; this keeps a direct
+    caller from searching a whole bucket instead.
     """
     trimmed = prefix.strip("/")
     if not trimmed:
-        return ("raw/",)
+        raise ScaleExtractError(
+            "raw cram search needs a directory, not a bucket root: a "
+            "bucket-wide search could match crams from another delivery"
+        )
     normalized = f"{trimmed}/"
     if trimmed.rsplit("/", 1)[-1] == "raw":
         return (normalized,)

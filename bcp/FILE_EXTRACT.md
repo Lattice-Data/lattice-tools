@@ -176,7 +176,7 @@ python -m file_extract scale_h5ad \
 | `--lab` | **Required.** `example-lab` or `/labs/example-lab/` (the lab name prefixes `samples`) |
 | `--metadata-gid` | **Required.** Google Sheet UUID (spreadsheet id in the URL). Reads tab `sample template` |
 | `--metadata-experiment` | **Required.** Keep only `sample template` rows whose `experiment_name` equals this value |
-| `--raw-subdirs` | **Required.** Comma-separated group directories (or `s3://` URIs) that contain `raw/{numeric}/*.cram`. A numeric name such as `426971` is still treated as the `raw/` sibling of the rundate |
+| `--raw-subdirs` | **Required.** Comma-separated directories holding the deliverable CRAMs — either a group directory whose `raw/{numeric}/` folders hold them, or the numeric run folder itself. A bare numeric name such as `426971` is the `raw/` sibling of the rundate; an `s3://` URI must name a directory, not a bucket alone. See **derived_from search** below |
 | `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
 | `--workers` | Thread count (default: min(16, n_files)) |
 | `--retries` | Max attempts per transient S3 error (default: 5) |

@@ -589,8 +589,10 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         required=True,
         help=(
-            "Comma-separated group directories (or s3:// URIs) whose "
-            "raw/{numeric}/ folders hold the CRAMs"
+            "Comma-separated directories holding the CRAMs: a group "
+            "directory whose raw/{numeric}/ folders hold them, or the "
+            "numeric run folder itself. An s3:// URI must name a "
+            "directory, not a bucket alone"
         ),
     )
     scale_h5ad.add_argument(
