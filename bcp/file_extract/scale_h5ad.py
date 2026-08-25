@@ -57,6 +57,19 @@ class ScaleCram:
     scaleplex: bool
 
 
+@dataclass(frozen=True)
+class RawCramSearch:
+    """CRAMs found under ``--raw-subdirs``, and the entries that found none.
+
+    ``empty_subdirs`` holds ``(subdir, searched_uri)`` so a mistyped or
+    wrong-layout entry can be named in a warning instead of quietly
+    leaving ``derived_from`` empty.
+    """
+
+    crams: list[tuple[str, str]]
+    empty_subdirs: list[tuple[str, str]]
+
+
 def format_samples_column(sample_names: Sequence[str], lab: str) -> str:
     """JSON list of sheet sample_name values prefixed with ``{lab}:``."""
     prefix = LabIdentity.parse(lab).name
@@ -152,15 +165,13 @@ def resolve_raw_subdir(
 def raw_cram_search_prefix(prefix: str) -> str:
     """Prefix whose ``raw/{numeric}/`` folders hold the deliverable CRAMs.
 
-    ``--raw-subdirs`` is often the group directory (or its ``raw/`` folder),
-    not the numeric run folder that actually contains ``*.cram``.
+    ``--raw-subdirs`` is often the group directory, which sits above the
+    ``raw/`` level that actually contains ``*.cram``. Add that level only
+    when the prefix is not already at or below it.
     """
     normalized = prefix.rstrip("/") + "/"
     parts = [part for part in prefix.strip("/").split("/") if part]
-    last = parts[-1] if parts else ""
-    if last.isdigit() and len(parts) >= 2 and parts[-2] == "raw":
-        return normalized
-    if last == "raw":
+    if "raw" in parts:
         return normalized
     return f"{normalized}raw/"
 
@@ -181,9 +192,10 @@ def list_raw_crams(
     processed_bucket: str,
     processed_prefix: str,
     raw_subdirs: Sequence[str],
-) -> list[tuple[str, str]]:
-    """List ``(bucket, key)`` for CRAMs under each ``raw/{numeric}/`` folder."""
+) -> RawCramSearch:
+    """Find CRAMs under each ``raw/{numeric}/`` folder, per ``--raw-subdirs``."""
     found: list[tuple[str, str]] = []
+    empty: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for subdir in raw_subdirs:
         bucket, prefix = resolve_raw_subdir(processed_bucket, processed_prefix, subdir)
@@ -192,13 +204,17 @@ def list_raw_crams(
         def _keep(key: str, _search: str = search) -> bool:
             return is_cram_in_raw_search(key, _search)
 
+        matched = 0
         for obj in list_objects_with_size(s3_client, bucket, search, predicate=_keep):
+            matched += 1
             ident = (bucket, obj.key)
             if ident in seen:
                 continue
             seen.add(ident)
             found.append(ident)
-    return found
+        if not matched:
+            empty.append((subdir, s3_uri_for(bucket, search)))
+    return RawCramSearch(crams=found, empty_subdirs=empty)
 
 
 def derived_from_by_filename(
@@ -244,6 +260,14 @@ def leftover_cram_uris(
 
 def leftover_cram_warning(uri: str) -> str:
     return f"cram {uri} was not added to derived_from"
+
+
+def empty_raw_subdir_warning(subdir: str, uri: str) -> str:
+    """One ``--raw-subdirs`` entry found nothing to fill ``derived_from``."""
+    return (
+        f"--raw-subdirs {subdir!r} matched no crams under {uri}; "
+        "expected *.cram in a numeric run folder there"
+    )
 
 
 def default_scale_h5ad_output_name(prefix: str) -> str:
@@ -397,7 +421,8 @@ def extract_scale_h5ad(
     sheet_names = [(row["well"], row["sample_name"]) for row in template_rows]
     correlation = correlate_samples(sample_rows, sheet_wells, sheet_names)
     control_names = set(correlation.control_set)
-    crams = list_raw_crams(s3_client, bucket, prefix, raw_subdirs)
+    raw_search = list_raw_crams(s3_client, bucket, prefix, raw_subdirs)
+    crams = raw_search.crams
     derived_map = derived_from_by_filename(
         crams,
         well_to_sample_map(sample_rows),
@@ -408,6 +433,9 @@ def extract_scale_h5ad(
     summary = RunSummary()
     for control in correlation.controls:
         summary.warnings.append(control_warning(control.sample, control.barcodes))
+    for subdir, searched_uri in raw_search.empty_subdirs:
+        summary.empty_raw_subdirs.append(subdir)
+        summary.warnings.append(empty_raw_subdir_warning(subdir, searched_uri))
 
     listed = list_objects_with_size(
         s3_client,

@@ -277,6 +277,13 @@ def test_raw_cram_search_prefix_walks_numeric_dirs_under_raw() -> None:
     assert raw_cram_search_prefix(RAW) == RAW
 
 
+def test_raw_cram_search_prefix_keeps_non_numeric_folder_under_raw() -> None:
+    """A bare non-numeric --raw-subdirs value must not get a second raw/."""
+    resolved = resolve_raw_subdir("czi-cro", RUNDATE, "RNA3_098")[1]
+    assert resolved == "proj/ORD01/raw/RNA3_098/"
+    assert raw_cram_search_prefix(resolved) == resolved
+
+
 def test_is_cram_in_raw_search_requires_numeric_folder() -> None:
     group_raw = "lab/NVUS-04/RNA3_098/raw/"
     assert is_cram_in_raw_search(f"{group_raw}426971/file.cram", group_raw)
@@ -297,7 +304,23 @@ def test_list_raw_crams_finds_numeric_children_of_group_uri() -> None:
         RUNDATE,
         ["s3://czi-novogene/lab/NVUS-04/RNA3_098"],
     )
-    assert found == [("czi-novogene", nested)]
+    assert found.crams == [("czi-novogene", nested)]
+    assert found.empty_subdirs == []
+
+
+def test_list_raw_crams_finds_numeric_children_of_bare_name() -> None:
+    """A bare non-numeric name resolves to raw/{name}/{numeric}/."""
+    nested = "proj/ORD01/raw/RNA3_098/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    found = list_raw_crams(MockS3Client(keys=[nested]), BUCKET, RUNDATE, ["RNA3_098"])
+    assert found.crams == [(BUCKET, nested)]
+    assert found.empty_subdirs == []
+
+
+def test_list_raw_crams_reports_subdirs_that_matched_nothing() -> None:
+    client = MockS3Client(keys=[CRAM_SAMP01_GEX])
+    found = list_raw_crams(client, BUCKET, RUNDATE, ["426971", "999999"])
+    assert found.crams == [(BUCKET, CRAM_SAMP01_GEX)]
+    assert found.empty_subdirs == [("999999", f"s3://{BUCKET}/proj/ORD01/raw/999999/")]
 
 
 def test_well_to_sample_map_expands_barcodes() -> None:
@@ -610,6 +633,37 @@ def test_extract_scale_h5ad_derived_from_group_uri_numeric_raw(
     assert json.loads(rows[0]["derived_from"]) == [
         derived_from_label("example-lab", nested)
     ]
+
+
+def test_extract_scale_h5ad_warns_when_raw_subdir_matched_nothing(
+    tmp_path: Path,
+) -> None:
+    """An empty derived_from is reported, not written out silently."""
+    client = MockS3Client(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR],
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        crc_by_key={SAMP01_QSR: "crc-qsr1"},
+    )
+    out = tmp_path / "no_crams.tsv"
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["RNA3_098"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
+    assert summary.empty_raw_subdirs == ["RNA3_098"]
+    warning = next(w for w in summary.warnings if w.startswith("--raw-subdirs"))
+    assert "RNA3_098" in warning
+    assert f"s3://{BUCKET}/proj/ORD01/raw/RNA3_098/" in warning
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    assert json.loads(rows[0]["derived_from"]) == []
 
 
 def test_format_feature_counts() -> None:

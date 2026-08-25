@@ -800,3 +800,55 @@ def test_cli_scale_h5ad_strict_on_failure(
         ]
     )
     assert code == 1
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_strict_on_empty_raw_subdir(
+    mock_deps: MagicMock, mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    """A --raw-subdirs entry that matched no crams fails under --strict."""
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    summary = RunSummary(total=1, crc_ok=1, enrichment_ok=1)
+    summary.empty_raw_subdirs.append("RNA3_098")
+    mock_extract.return_value = summary
+    args = [
+        "scale_h5ad",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(tmp_path / "scale_empty.tsv"),
+        "--quiet",
+        *SCALE_H5AD_ARGS,
+    ]
+    assert main(args) == 0
+    assert main([*args, "--strict"]) == 1
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_strict_on_empty_raw_subdir_with_no_targets(
+    mock_deps: MagicMock, mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    """The zero-matches early return honours --strict too."""
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    summary = RunSummary(total=0)
+    summary.empty_raw_subdirs.append("RNA3_098")
+    mock_extract.return_value = summary
+    code = main(
+        [
+            "scale_h5ad",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(tmp_path / "scale_none.tsv"),
+            "--quiet",
+            "--strict",
+            *SCALE_H5AD_ARGS,
+        ]
+    )
+    assert code == 1

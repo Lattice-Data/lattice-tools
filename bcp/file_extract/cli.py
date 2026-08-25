@@ -344,7 +344,7 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     print(f"Found {summary.total} matching files")
     if summary.total == 0:
         print("Nothing to do.")
-        return 0
+        return 1 if args.strict and summary.empty_raw_subdirs else 0
 
     print(
         f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}"
@@ -352,7 +352,7 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     )
     print(f"Output: {output}")
     _print_failures(summary.failures)
-    if args.strict and summary.has_failures:
+    if args.strict and (summary.has_failures or summary.empty_raw_subdirs):
         return 1
     return 0
 
@@ -614,7 +614,10 @@ def build_parser() -> argparse.ArgumentParser:
     scale_h5ad.add_argument(
         "--strict",
         action="store_true",
-        help="Exit 1 if any per-file CRC or observation-count fetch fails",
+        help=(
+            "Exit 1 if any per-file CRC or observation-count fetch fails, or "
+            "if a --raw-subdirs entry matched no crams"
+        ),
     )
 
     return parser
