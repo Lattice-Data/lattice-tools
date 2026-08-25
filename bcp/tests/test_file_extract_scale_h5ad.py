@@ -225,6 +225,13 @@ def test_validate_raw_subdirs_allows_names_and_s3_uris() -> None:
         validate_raw_subdirs(["proj/raw/426971"])
 
 
+def test_validate_raw_subdirs_rejects_a_bucket_with_no_directory() -> None:
+    """A bucket alone would be searched whole and match foreign crams."""
+    for value in ["s3://novogene-delivery", "s3://novogene-delivery/"]:
+        with pytest.raises(ScaleExtractError, match="name a directory"):
+            validate_raw_subdirs([value])
+
+
 def test_parse_scale_cram_name() -> None:
     gex = parse_scale_cram_name("426971-RNA3-098C_GEX_QSR-7_10A.cram")
     assert gex == ScaleCram(qsr="7", well="10A", scaleplex=False)
@@ -294,11 +301,16 @@ def test_raw_cram_search_prefixes_tests_the_segment_not_the_suffix() -> None:
 
 def test_raw_cram_search_prefixes_never_yields_a_leading_slash() -> None:
     """An s3:// bucket root resolves to "", which is not a "/" prefix."""
-    assert raw_cram_search_prefixes("") == ("raw/", "")
     assert raw_cram_search_prefixes("/proj/ORD01/") == (
         "proj/ORD01/raw/",
         "proj/ORD01/",
     )
+
+
+def test_raw_cram_search_prefixes_never_falls_back_to_a_bucket_root() -> None:
+    """An empty fallback would list the whole bucket, so it is not offered."""
+    assert raw_cram_search_prefixes("") == ("raw/",)
+    assert "" not in raw_cram_search_prefixes("")
 
 
 def test_raw_cram_search_prefixes_covers_both_non_numeric_layouts() -> None:

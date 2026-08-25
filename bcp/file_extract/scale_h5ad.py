@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import re
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -34,6 +35,8 @@ from .scale_wells import (
 )
 from .sheets import LabIdentity
 from .tsv_writer import TsvWriter
+
+log = logging.getLogger(__name__)
 
 SAMPLES_CSV_NAME = "samples.csv"
 SAMPLES_DIR = "samples"
@@ -184,10 +187,16 @@ def raw_cram_search_prefixes(prefix: str) -> tuple[str, ...]:
     Only a prefix whose final *segment* is ``raw`` is already at that
     level. A name that merely ends in ``raw``, such as ``ORD01_raw``,
     still needs its ``raw/`` child probed.
+
+    An empty prefix is a bucket root, and falling back to it would list
+    the whole bucket and accept CRAMs from any numeric folder in it, so
+    only the ``raw/`` probe is offered there.
     """
     trimmed = prefix.strip("/")
-    normalized = f"{trimmed}/" if trimmed else ""
-    if normalized == "raw/" or normalized.endswith("/raw/"):
+    if not trimmed:
+        return ("raw/",)
+    normalized = f"{trimmed}/"
+    if trimmed.rsplit("/", 1)[-1] == "raw":
         return (normalized,)
     return (f"{normalized}raw/", normalized)
 
@@ -209,7 +218,13 @@ def list_raw_crams(
     processed_prefix: str,
     raw_subdirs: Sequence[str],
 ) -> RawCramSearch:
-    """Find CRAMs under each ``raw/{numeric}/`` folder, per ``--raw-subdirs``."""
+    """Find the CRAMs each ``--raw-subdirs`` value points at.
+
+    A CRAM is read from a numeric run folder, which is either the prefix
+    searched or a folder directly under it. Which prefix won is logged at
+    debug level, so an unexpected layout is visible under ``-v`` even
+    though the search itself succeeded.
+    """
     found: list[tuple[str, str]] = []
     empty: list[tuple[str, tuple[str, ...]]] = []
     seen: set[tuple[str, str]] = set()
@@ -232,6 +247,12 @@ def list_raw_crams(
                 seen.add(ident)
                 found.append(ident)
             if matched:
+                log.debug(
+                    "--raw-subdirs %r: %d crams under %s",
+                    subdir,
+                    matched,
+                    s3_uri_for(bucket, search),
+                )
                 break
         if not matched:
             empty.append(
