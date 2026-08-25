@@ -190,7 +190,9 @@ def raw_cram_search_prefixes(prefix: str) -> tuple[str, ...]:
 
     An empty prefix is a bucket root, and falling back to it would list
     the whole bucket and accept CRAMs from any numeric folder in it, so
-    only the ``raw/`` probe is offered there.
+    only the ``raw/`` probe is offered there. ``validate_raw_subdirs``
+    already rejects a bucket-alone value, so this is defence in depth for
+    a direct caller rather than a path the CLI can reach.
     """
     trimmed = prefix.strip("/")
     if not trimmed:
@@ -202,7 +204,13 @@ def raw_cram_search_prefixes(prefix: str) -> tuple[str, ...]:
 
 
 def is_cram_in_raw_search(key: str, search_prefix: str) -> bool:
-    """True for a deliverable CRAM in a numeric folder under ``raw/``."""
+    """True for a deliverable CRAM in a numeric run folder.
+
+    That folder is either a child of ``search_prefix`` or, when the
+    prefix's own final segment is numeric, the prefix itself. The prefix
+    need not contain a ``raw`` segment: since the search falls back to
+    the bare ``--raw-subdirs`` prefix, it often does not.
+    """
     if not is_deliverable_cram_key(key) or not key.startswith(search_prefix):
         return False
     rest = key[len(search_prefix) :]

@@ -833,22 +833,22 @@ def test_cli_scale_h5ad_strict_on_empty_raw_subdir(
 def test_cli_scale_h5ad_strict_on_empty_raw_subdir_with_no_targets(
     mock_deps: MagicMock, mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
 ) -> None:
-    """The zero-matches early return honours --strict too."""
+    """The zero-matches early return honours --strict, and only --strict."""
     from file_extract.models import RunSummary
 
     mock_boto.return_value = MockS3Client()
     summary = RunSummary(total=0)
     summary.empty_raw_subdirs.append("RNA3_098")
     mock_extract.return_value = summary
-    code = main(
-        [
-            "scale_h5ad",
-            f"s3://{BUCKET}/{H5_PREFIX}",
-            "-o",
-            str(tmp_path / "scale_none.tsv"),
-            "--quiet",
-            "--strict",
-            *SCALE_H5AD_ARGS,
-        ]
-    )
-    assert code == 1
+    args = [
+        "scale_h5ad",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(tmp_path / "scale_none.tsv"),
+        "--quiet",
+        *SCALE_H5AD_ARGS,
+    ]
+    # Without --strict this path must still exit 0, or a plain run over a
+    # prefix with no rows and one mistyped entry starts failing pipelines.
+    assert main(args) == 0
+    assert main([*args, "--strict"]) == 1

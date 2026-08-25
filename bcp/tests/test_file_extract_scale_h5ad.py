@@ -29,6 +29,7 @@ from file_extract.scale_h5ad import (
     is_scale_mtx_key,
     leftover_cram_uris,
     leftover_cram_warning,
+    empty_raw_subdir_warning,
     is_cram_in_raw_search,
     list_raw_crams,
     parse_scale_cram_name,
@@ -338,6 +339,21 @@ def test_is_cram_in_raw_search_requires_numeric_folder() -> None:
     assert not is_cram_in_raw_search(f"{group_raw}notes/file.cram", group_raw)
     assert is_cram_in_raw_search(CRAM_SAMP01_GEX, RAW)
     assert not is_cram_in_raw_search(CRAM_UNMATCHED, RAW)
+
+
+def test_empty_raw_subdir_warning_names_the_entry_and_every_prefix() -> None:
+    """Literal text, because the docs promise the entry and all prefixes."""
+    assert empty_raw_subdir_warning("999999", ("s3://b/p/raw/", "s3://b/p/")) == (
+        "--raw-subdirs '999999' matched no crams under "
+        "s3://b/p/raw/ or s3://b/p/; "
+        "*.cram must sit in a numeric run folder -- one of those prefixes "
+        "itself, or a folder directly under one"
+    )
+    assert empty_raw_subdir_warning("RNA3_098", ("s3://b/g/raw/",)) == (
+        "--raw-subdirs 'RNA3_098' matched no crams under s3://b/g/raw/; "
+        "*.cram must sit in a numeric run folder -- one of those prefixes "
+        "itself, or a folder directly under one"
+    )
 
 
 def test_list_raw_crams_finds_numeric_children_of_group_uri() -> None:
@@ -788,8 +804,16 @@ def test_extract_scale_h5ad_warns_when_raw_subdir_matched_nothing(
         )
     assert summary.empty_raw_subdirs == ["RNA3_098"]
     warning = next(w for w in summary.warnings if w.startswith("--raw-subdirs"))
-    assert "RNA3_098" in warning
-    assert f"s3://{BUCKET}/proj/ORD01/raw/RNA3_098/" in warning
+    # Equality, not substrings: the fallback uri is a substring of the raw/
+    # one, so "uri in warning" is satisfied by the raw/ uri alone and pins
+    # neither the subdir name nor that both prefixes are named.
+    assert warning == empty_raw_subdir_warning(
+        "RNA3_098",
+        (
+            f"s3://{BUCKET}/proj/ORD01/raw/RNA3_098/raw/",
+            f"s3://{BUCKET}/proj/ORD01/raw/RNA3_098/",
+        ),
+    )
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     assert json.loads(rows[0]["derived_from"]) == []
 
