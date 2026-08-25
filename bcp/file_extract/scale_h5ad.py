@@ -176,6 +176,10 @@ def raw_cram_search_prefixes(prefix: str) -> tuple[str, ...]:
     The ``raw/`` child comes first because listing a group directory
     walks its whole subtree only to reject every CRAM under
     ``raw/{numeric}/``; the reverse order wastes one empty listing.
+
+    A delivery holds its CRAMs at one of these levels, never both, so
+    the first prefix that lists any CRAM has all of them. Searching the
+    remaining prefixes as well would only re-walk a group subtree.
     """
     normalized = prefix.rstrip("/") + "/"
     if normalized.endswith("raw/"):
