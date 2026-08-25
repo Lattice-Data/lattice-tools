@@ -4,7 +4,7 @@ Part of BCP tooling. Unlike the other tools documented here there is no CLI: the
 `qa_seahub_sop.py`, `qa_seahub_source.py`, `qa_seahub_recon.py` and `qa_seahub_rename.py`, and are
 driven from `bcp/qa.ipynb`.
 
-Collaborator lab trimmed uploads (`czi-trapnell` / `czi-hamazaki`, `*-seahub-bcp`) are QA'd in
+Collaborator lab trimmed uploads (`czi-{lab}`, `{lab}-seahub-bcp`) are QA'd in
 `bcp/qa.ipynb` with `raw_assay='seahub_sci'`; processed validation is off for this mode. The SOP is:
 
 ```
@@ -30,7 +30,7 @@ deep, never too shallow, and a `raw/` holding only loose objects was reported as
 listing prefix. Folder enumeration — the `processed/` check, the sublibrary list and the wafer list —
 uses single `list_objects` calls, which return at most 1000 entries and say so only in `IsTruncated`;
 that flag is now checked and reported, so a cap nobody would think to test for cannot pass silently.
-Unreachable with anything observed (REF3 has 7 sublibraries, GENE7 has 9), and since objects are
+Unreachable with anything observed (the largest has 9 sublibraries), and since objects are
 paginated a truncated listing costs `discovered_wafers` entries or the `processed/` notice, never a
 raw file. In **manifest** mode it comes from the `order` argument if one is given, and is
 otherwise read off the manifest keys, which already contain it as a folder; a manifest mixing two
@@ -51,9 +51,9 @@ table says what is wrong, the per-well status says how many wells are affected a
 rather than a rename.
 
 - **Per-well fetches share one thread pool.** A SeaHub upload carries one trim failure CSV *and* one
-  `.cram-metadata.json` per well, so 336 of each on REF3 and 864 on GENE7. Both go through a
+  `.cram-metadata.json` per well, so 336 of each on upload A and 864 on upload B. Both go through a
   16-worker pool; fetching the failure CSVs inside the walk instead made them one sequential
-  round-trip per well (measured on REF3 at 20 ms per object: 10.6 s against 1.2 s). Only the download
+  round-trip per well (measured on upload A at 20 ms per object: 10.6 s against 1.2 s). Only the download
   and the parse are concurrent — the parsed blocks are applied single-threaded in listing order,
   which is what keeps this lock-free and makes the output identical to the serial version rather
   than merely equivalent, since the three structures they feed are appended to. Neither worker
@@ -73,7 +73,7 @@ rather than a rename.
   A CRAM whose `.cram-metadata.json` sidecar is absent is reported too, since read-count QA cannot
   run without it — as one warning naming the count and two examples, broken down by delivered
   spelling, not one per well. CZI generates these sidecars for the upload as a whole, so absence is
-  an upload-wide fact; the per-well form printed 336 lines on REF3 and 864 on GENE7.
+  an upload-wide fact; the per-well form printed 336 lines on upload A and 864 on upload B.
 - **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at four
   scopes: `object` (per object), `stem` (per well), `suffix` (per distinct unrecognised
   extension) and `upload` (per distinct bucket/project fact, so a wrong bucket is one row rather
@@ -103,10 +103,10 @@ rather than a rename.
   already an ancestor segment, so the prefix carries nothing the path does not; the filename holds
   the authoritative name; and wells match across buckets on `(wafer, UG)`, so no check depends on
   which spelling was used. Every real trimmed upload measured elides it on *every* sublibrary —
-  REF3 `P04_1`…`P07_1`, GENE7 `P02`…`P10`, CHEM16 `P03`…`P07` — and not one mixes the two.
+  `P04_1`…`P07_1`, `P02`…`P10`, `P03`…`P07` — and not one mixes the two.
   Demanding the full form was `sublibrary_folder_truncated`, which made those folders the whole of
-  GENE7's finding set: 9 SOP rows, 864 wells `RENAMEABLE` and a proposed move for all 5184 objects
-  of an upload that is fine. The rule is gone, along with the `folder` scope and the
+  one upload's entire finding set: 9 SOP rows, 864 wells `RENAMEABLE` and a proposed move for all
+  5184 objects of an upload that is fine. The rule is gone, along with the `folder` scope and the
   `expected_folder` column it alone populated. `sublibrary_mismatch` still fires for a filename
   neither spelling explains, and the rename mapping now tracks the folder segment and the
   filename's sublibrary name separately — collapsing them is what proposed the move.
@@ -249,9 +249,9 @@ It existed for a real reason: a listed prefix was order-level, one order holds
 several experiments, and without the filter the other experiments' wells were
 indexed too — each then having no counterpart in the upload and reporting as
 `not_trimmed` plus an `UNKNOWN` well. The `_`-prefix arm was equally deliberate,
-measured against a `GENE7_reupload` delivered alongside `REF3` in one order, and
-against the older `{ExperimentID}_{sublibrary}` shape (`REF5_P01`) that a bare
-equality test would have orphaned entirely.
+measured against an `{ExperimentID}_reupload` delivered alongside another
+experiment in one order, and against the older `{ExperimentID}_{sublibrary}`
+shape (`REF5_P01`) that a bare equality test would have orphaned entirely.
 
 It was still the wrong key, in three ways:
 
@@ -302,15 +302,15 @@ The three uploads this mode was built against, as of this branch:
 
 | listing | objects | SOP rows | rules | wells |
 | --- | --- | --- | --- | --- |
-| REF3 | 2037 | 885 | 288 each of `duplicated_wafer_token`, `invalid_sublibrary_type`, `missing_trim_infix`; 21 `non_sequencing_artifact` | 336 — 48 `COMPLIANT`, 288 `UNKNOWN`; 48 `COMPLIANT` and 288 `RENAMEABLE` with both vendor orders |
-| GENE7 | 5185 | 1 | 1 `bad_path_depth` | 864, all `COMPLIANT` |
-| CHEM16 | 1450 | 14 | 10 `non_sequencing_artifact`, 3 `unexpected_suffix`, 1 `no_recognized_artifacts` | 480, all `DATA_GAP` — every artifact misspelled, so no well is *nameable* |
+| A | 2037 | 885 | 288 each of `duplicated_wafer_token`, `invalid_sublibrary_type`, `missing_trim_infix`; 21 `non_sequencing_artifact` | 336 — 48 `COMPLIANT`, 288 `UNKNOWN`; 48 `COMPLIANT` and 288 `RENAMEABLE` with both vendor orders |
+| B | 5185 | 1 | 1 `bad_path_depth` | 864, all `COMPLIANT` |
+| C | 1450 | 14 | 10 `non_sequencing_artifact`, 3 `unexpected_suffix`, 1 `no_recognized_artifacts` | 480, all `DATA_GAP` — no artifact name carries the `.trim` infix, so no well is *nameable* |
 
-Accepting the elided folder prefix is what moved those numbers: REF3 shed 7 SOP rows and its 48
+Accepting the elided folder prefix is what moved those numbers: A shed 7 SOP rows and its 48
 folder-only wells went `RENAMEABLE` to `COMPLIANT` (2016 moveable objects to 1728 with both vendor
-orders), and GENE7 went from 9 rows and 864 `RENAMEABLE` wells to 1 row and none, dropping all 5184
-of its proposed moves. CHEM16 did not move at all: every artifact is misspelled, so no name ever
-reached the folder question. Every other field in the snapshot — including all of the vendor
+orders), and B went from 9 rows and 864 `RENAMEABLE` wells to 1 row and none, dropping all 5184 of
+its proposed moves. C did not move at all: none of its artifact names carry the `.trim` infix, so
+no name ever reached the folder question. Every other field in the snapshot — including all of the vendor
 reconciliation — is unchanged.
 
 All three report identically from an S3 listing and from a manifest of the same keys. The one field

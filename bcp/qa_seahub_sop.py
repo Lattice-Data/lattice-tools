@@ -8,11 +8,11 @@ Validates the full S3 location and filename structure against the SOP::
 
 Known-good examples (all three must produce zero violations)::
 
-    czi-hamazaki  hamazaki-seahub-bcp/CHEM3-R100/raw/R100E/441389/
+    czi-labbeta   labbeta-seahub-bcp/CHEM3-R100/raw/R100E/441389/
         441389-R100E_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram
-    czi-trapnell  trapnell-seahub-bcp/REF3/raw/REF3_P05_2/436830/
+    czi-labalpha  labalpha-seahub-bcp/REF3/raw/REF3_P05_2/436830/
         436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram
-    czi-trapnell  trapnell-seahub-bcp/CHEM16/raw/P03/432640/
+    czi-labalpha  labalpha-seahub-bcp/CHEM16/raw/P03/432640/
         432640-CHEM16_P03_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram
 
 Design notes
@@ -23,18 +23,18 @@ Design notes
   a single ``unparseable_stem``.
 * There is deliberately no "ExperimentID must not appear in the filename" rule.
   The ExperimentID legitimately appears inside sublibrary names such as
-  ``REF3_P05_2``, and is absent entirely from the hamazaki example, so
+  ``REF3_P05_2``, and is absent entirely from the second example, so
   sublibrary agreement is the only rule governing that token.
 * The sublibrary folder may be spelled either ``{sublibrary}`` or with the
   redundant ``{ExperimentID}_`` elided, and neither is a defect: the third
   example above is the elided form.  The ExperimentID is already an ancestor
   path segment, so the prefix carries nothing the path does not, and every real
-  trimmed upload measured -- REF3, GENE7, CHEM16 -- elides it on every
-  sublibrary; not one mixes the two spellings.  Nothing downstream depends on
-  which is used: the filename is the authoritative sublibrary name, and the
-  cross-bucket identity is ``(wafer, UG)``.  Demanding the full form reported
-  every GENE7 sublibrary as broken and proposed a move for all 5184 of its
-  objects, on an upload that is fine.  ``sublibrary_mismatch`` is reserved for a
+  trimmed upload measured elides it on every sublibrary; not one mixes the two
+  spellings.  Nothing downstream depends on which is used: the filename is the
+  authoritative sublibrary name, and the cross-bucket identity is
+  ``(wafer, UG)``.  Demanding the full form reported every sublibrary of one
+  real 5184-object upload as broken and proposed a move for all of them, on an
+  upload that is fine.  ``sublibrary_mismatch`` is reserved for a
   filename neither spelling explains.
 * A repeated leading wafer token is normalized away *before* any token rule
   runs, and the rules then see only the normalized stem.  On the raw stem the
@@ -240,9 +240,8 @@ def seahub_group_parts(
     same name with the redundant ``{ExperimentID}_`` elided
     (``P03/…CHEM16_P03_A1…``).  The ExperimentID is already an ancestor path
     segment, so the prefix carries nothing the path does not, and every real
-    trimmed upload measured -- REF3, GENE7, CHEM16 -- elides it on every
-    sublibrary.  A filename carrying no ExperimentID at all (``R100E/…R100E…``)
-    matches the first form directly.
+    trimmed upload measured elides it on every sublibrary.  A filename carrying
+    no ExperimentID at all (``R100E/…R100E…``) matches the first form directly.
 
     Candidate order decides the answer only when *both* candidates can explain
     the group, which needs the folder name to be a leading token-prefix of its

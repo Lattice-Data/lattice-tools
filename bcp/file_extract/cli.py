@@ -311,7 +311,7 @@ def _add_sheet_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--cro-order",
         required=True,
-        help="CRO order identifier, e.g. NVUS2024101701-15",
+        help="CRO order identifier, e.g. NVUS0000000000-15",
     )
     parser.add_argument(
         "--is-pilot-order",

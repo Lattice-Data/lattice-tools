@@ -539,7 +539,7 @@ def validate_cro_order(value: str) -> str:
     ):
         raise SheetBuildError(
             f"Invalid --cro-order {value!r}: expected an order identifier such as "
-            "'NVUS2024101701-15'"
+            "'NVUS0000000000-15'"
         )
     return order
 

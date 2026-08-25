@@ -258,7 +258,7 @@ raw_optional = {
 }
 
 # ---------------------------------------------------------------------------
-# SeaHub lab raw upload patterns (trapnell / hamazaki *-seahub-bcp buckets)
+# SeaHub lab raw upload patterns ({lab}-seahub-bcp buckets)
 #
 # SOP layout:
 #   s3://czi-{lab}/{lastname}-{projectname}/{ExperimentID}/raw/{sublibrary}/{wafer}/
@@ -266,14 +266,14 @@ raw_optional = {
 #   {wafer}-{sublibrary}[_{well}]_{sublibrary type}-{UG}-{barcode}.trim.*
 #
 # Known-good examples:
-#   .../hamazaki-seahub-bcp/CHEM3-R100/raw/R100E/441389/
+#   .../labbeta-seahub-bcp/CHEM3-R100/raw/R100E/441389/
 #       441389-R100E_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram
-#   .../trapnell-seahub-bcp/REF3/raw/REF3_P05_2/436830/
+#   .../labalpha-seahub-bcp/REF3/raw/REF3_P05_2/436830/
 #       436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram
 #
-# The ExperimentID is not a filename field: it appears in the trapnell example
+# The ExperimentID is not a filename field: it appears in the first example
 # only because it is part of that project's sublibrary name, and is absent from
-# the hamazaki example.  ExperimentID may contain hyphens (``CHEM3-R100``), so
+# the second example.  ExperimentID may contain hyphens (``CHEM3-R100``), so
 # path segments must never be hyphen-split.
 # ---------------------------------------------------------------------------
 
@@ -442,7 +442,7 @@ SEAHUB_SOP_RULES = frozenset(
     }
 )
 
-# A vendor order label (``NVUS2024101701-11``).  Used only to label a source
+# A vendor order label (``NVUS0000000000-11``).  Used only to label a source
 # prefix that yielded no objects; per-object derivation is positional.
 SEAHUB_VENDOR_ORDER_RE = re.compile(r"^[A-Z]{2,}\d{6,}-\d{2,}$")
 SEAHUB_UNKNOWN_ORDER_LABEL = "UNKNOWN_ORDER"

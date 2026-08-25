@@ -10,8 +10,8 @@ EPILOG = """
 Script run parallel_curated.py in a parallel fashion
 
 Example:
-    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --groupfile groups.txt --csvofguidescan guidescan_output.csv
-    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --csvofguidescan guidescan_output.csv --grouplist CD4i_R1L01 CD4i_R1L02
+    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project labalpha-mapping-grns-perturb-seq --groupfile groups.txt --csvofguidescan guidescan_output.csv
+    python parallel_curated.py --bucket czi-psomagen --sheet your_sheet_id --project labalpha-mapping-grns-perturb-seq --csvofguidescan guidescan_output.csv --grouplist CD4i_R1L01 CD4i_R1L02
 
 For more details:
     python %(prog)s --help

@@ -249,9 +249,9 @@ def to_temp_files(test_data: AtacTestData, tmp_path: Path | str) -> dict:
 """
 Setup for fixtures with guide metadata for genetic pertubations:
 csvs for uns metadata stored in guide_csvs/ directory:
-    human_guides.csv based off of Marson Order 1 AN00024294
-    mouse_guides.csv based off of Trapnell Scale GENE12-R117 NVUS202101701-66
-    zebrafish_guides.csv based off of Weissman Order 3 AN00025549
+    human_guides.csv based off of a 10x guide order
+    mouse_guides.csv based off of a Scale order
+    zebrafish_guides.csv based off of a 10x guide order
 
 """
 
