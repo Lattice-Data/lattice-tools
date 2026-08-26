@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import ClassVar
+from typing import ClassVar, TypeAlias
 from urllib.parse import urljoin
 
 import requests
@@ -99,7 +101,7 @@ class LatticeNode:
     @staticmethod
     def get_ids(obj, excluded_schemas):
         """
-        Yield all string values starting with '/' anywhere in a nested structure.
+        Yield all string values starting and ending with '/' anywhere in a nested structure.
 
         Recurses through dicts (values only) and lists/tuples/sets.
         """
@@ -122,3 +124,8 @@ class LatticeNode:
         neighbor_set = set(self.get_ids(self.object_json, self.excluded))
         neighbor_set.discard(self.uuid_path)
         return neighbor_set
+
+
+GroupedBatchRequest: TypeAlias = dict[str, set]
+BatchResponse: TypeAlias = list[dict]
+GraphDict = dict[str, LatticeNode]
