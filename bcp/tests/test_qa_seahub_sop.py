@@ -241,12 +241,14 @@ class TestRuleSetIsClosed:
 
 
 class TestGroupPartsCandidateOrder:
-    """Both folder spellings are accepted, so the order is only a tie-break.
+    """Candidate order must not affect the result, in any shape.
 
     It used to decide a verdict -- try the folder as-is first, or a correct
-    folder reported as truncated. Now it decides only which prefix is stripped
-    off the trailing token, and for that it is immaterial unless both candidates
-    can explain the group. Pinned because the docstring makes that claim.
+    folder reported as truncated. Then, once both spellings were accepted, it
+    still decided which prefix got stripped, and in one shape it decided wrongly:
+    a compliant object reported bad_well because the shorter candidate was tried
+    first. The matcher now picks by the leftover rather than by position, so the
+    order genuinely does not matter -- which is what these tests pin.
     """
 
     @staticmethod
@@ -281,20 +283,29 @@ class TestGroupPartsCandidateOrder:
             group, sublibrary, experiment_id
         )
 
-    def test_candidate_order_only_matters_when_both_can_explain_the_group(self):
-        """Folder ``P10`` under ExperimentID ``P10_2``: full form ``P10_2_P10``.
+    def test_candidate_order_does_not_affect_the_result(self):
+        """The one shape where both candidates can explain the group.
 
-        That starts with ``P10_`` too, so both candidates match and the order
-        picks between them. The folder as delivered is tried first, which is the
-        literal reading of the path. No real upload has this shape.
+        Folder ``P10`` under ExperimentID ``P10_2`` makes the full form
+        ``P10_2_P10``, which itself starts with ``P10_``. This object is
+        compliant: sublibrary ``P10_2_P10``, well ``A1``. Picking the first
+        prefix match instead returned trailing ``2_P10_A1`` and reported
+        ``bad_well`` on it, so the order was deciding correctness rather than
+        breaking a tie. No real upload has this shape.
         """
-        forward = seahub_group_parts("P10_2_P10_A1", "P10", "P10_2")
-        assert forward == ("P10", "2_P10_A1", True)
-        assert self._reversed("P10_2_P10_A1", "P10", "P10_2") == (
-            "P10_2_P10",
-            "A1",
-            True,
+        expected = ("P10_2_P10", "A1", True)
+
+        assert seahub_group_parts("P10_2_P10_A1", "P10", "P10_2") == expected
+        assert self._reversed("P10_2_P10_A1", "P10", "P10_2") == expected
+
+    def test_the_compliant_degenerate_object_reports_no_bad_well(self):
+        """The defect the order used to produce, at the rule level."""
+        key = (
+            "labalpha-seahub-bcp/P10_2/raw/P10/432640/"
+            "432640-P10_2_P10_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram"
         )
+
+        assert "bad_well" not in _types(validate_seahub_key("czi-labalpha", key))
 
 
 class TestKnownGoodNamesAreClean:
@@ -836,9 +847,14 @@ class TestCompletenessIsPerFolderNotPerStem:
         ".trim.stdout",
         ".trim_fail.csv",
     )
+    # Two *spellings of one sublibrary*, not two sublibraries: the second folder
+    # elides the ExperimentID prefix the first carries. That is the shape the
+    # accepted-both-spellings rule makes possible, so it is the one the inventory
+    # has to key per folder -- and the one whose duplicate is pinned by
+    # test_one_well_under_both_folder_spellings_is_still_caught.
     DIRS = (
         "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479",
-        "labalpha-seahub-bcp/REF3/raw/REF3_P05_2/430479",
+        "labalpha-seahub-bcp/REF3/raw/P05_1/430479",
     )
 
     def _keys(self, omit: tuple[str, str] | None = None) -> list[str]:

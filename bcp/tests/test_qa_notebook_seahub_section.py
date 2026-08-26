@@ -223,9 +223,16 @@ class TestSectionRuns:
         frame = pd.read_csv(tmp_path / "REF3_raw_sop_violations.csv")
 
         assert "expected_folder" not in frame.columns
-        for folder in ("P04_1", "P05_1", "P06_1", "P07_1"):
-            named = frame[frame["detail"].str.contains(f"'{folder}'", regex=False)]
-            assert named.empty, named[["type", "detail"]].to_dict("records")
+        # The set of types, not a substring of `detail`: searching for "'P04_1'"
+        # passed only because every other rule quotes the *full stem*, which
+        # contains P04_1 without the quotes -- so a change in quoting style would
+        # have silently turned this into a test of nothing.
+        assert set(frame["type"]) == {
+            "duplicated_wafer_token",
+            "invalid_sublibrary_type",
+            "missing_trim_infix",
+            "non_sequencing_artifact",
+        }
 
 
 class TestTheVendorIndexIsIndependentOfTheLabel:

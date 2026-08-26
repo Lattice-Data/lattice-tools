@@ -306,7 +306,7 @@ def _add_sheet_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--lab",
         required=True,
-        help="Lab name or path, e.g. heather-marlow or /labs/heather-marlow/",
+        help="Lab name or path, e.g. example-lab or /labs/example-lab/",
     )
     parser.add_argument(
         "--cro-order",

@@ -242,18 +242,37 @@ def _folder_candidates(sublibrary: str, experiment_id: str) -> list[str]:
 def _match_folder_candidates(
     group: str, candidates: list[str], fallback: str
 ) -> tuple[str, str, bool]:
-    """First candidate that explains ``group``, plus whatever token is left over.
+    """The candidate that best explains ``group``, plus the token left over.
+
+    "Best" is the one whose leftover is nothing or a well, because that is what
+    the SOP name actually is; only if no candidate manages that does the first
+    bare prefix match win.  Taking the first prefix match unconditionally, as
+    this did, made the *order* of the candidate list decide correctness rather
+    than merely break a tie: folder ``P10`` under ExperimentID ``P10_2`` holding
+    ``…-P10_2_P10_A1_…`` is a compliant object whose sublibrary is ``P10_2_P10``
+    and whose well is ``A1``, but stripping the shorter ``P10_`` first handed
+    back ``2_P10_A1`` and reported ``bad_well`` on it.
+
+    The fallback is what keeps ``bad_well`` alive for a genuinely bad token: on
+    ``REF3_P05_2_Z99`` no candidate yields a well, so the first match is returned
+    with ``Z99`` left over and the rule fires as before.
 
     Takes the candidate list rather than building it, so the ordering test can
     feed the same matcher a reversed list and compare.
     """
+    first_match: tuple[str, str, bool] | None = None
     for candidate in candidates:
         if group == candidate:
             return candidate, "", True
         prefix = f"{candidate}_"
-        if group.startswith(prefix):
-            return candidate, group[len(prefix) :], True
-    return fallback, "", False
+        if not group.startswith(prefix):
+            continue
+        trailing = group[len(prefix) :]
+        if SEAHUB_WELL_RE.match(trailing):
+            return candidate, trailing, True
+        if first_match is None:
+            first_match = (candidate, trailing, True)
+    return first_match if first_match is not None else (fallback, "", False)
 
 
 def seahub_group_parts(
@@ -284,14 +303,16 @@ def seahub_group_parts(
     vendor path carries none.  Measured across 54,633 real objects: 47,443 elide
     on the folder, 5,300 agree exactly, and the reverse shape does not occur.
 
-    Candidate order decides the answer only when *both* candidates can explain
-    the group, which needs the folder name to be a leading token-prefix of its
-    own ExperimentID -- folder ``P10`` under ExperimentID ``P10_2`` makes the full
-    form ``P10_2_P10``, which itself starts with ``P10_``.  Trying the folder as
-    delivered first prefers the literal reading of the path.  No real upload has
-    that shape, and every other input reaches the same result either way, so this
-    order is a tie-break rather than a rule; it is pinned by
-    ``test_candidate_order_only_matters_when_both_can_explain_the_group``.
+    Candidate order does not affect the result, because
+    :func:`_match_folder_candidates` picks by the *leftover* rather than by
+    position: the candidate whose remainder is nothing or a well wins wherever it
+    sits in the list.  That matters only in one shape -- a folder name that is a
+    leading token-prefix of its own ExperimentID, so that both candidates can
+    explain the group (folder ``P10`` under ExperimentID ``P10_2`` makes the full
+    form ``P10_2_P10``, which itself starts with ``P10_``).  Order used to decide
+    it, and decided it wrongly, reporting ``bad_well`` on a compliant object.
+    No real upload has that shape; the independence is pinned by
+    ``test_candidate_order_does_not_affect_the_result``.
     """
     return _match_folder_candidates(
         group, _folder_candidates(sublibrary, experiment_id), sublibrary

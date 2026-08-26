@@ -35,7 +35,11 @@ from qa_seahub_rename import (
     rollup_summary,
 )
 from qa_seahub_sop import validate_seahub_key, validate_seahub_stems
-from qa_seahub_source import SourceEntry, index_untrimmed_sources
+from qa_seahub_source import (
+    SourceEntry,
+    index_trimmed_upload,
+    index_untrimmed_sources,
+)
 
 from tests.qa_seahub_helpers import (
     BUCKET,
@@ -337,6 +341,44 @@ class TestBuildRenameMapping:
         reverse = build_rename_mapping(BUCKET, list(reversed(keys)), index).rows
 
         assert forward == reverse
+
+
+class TestBothFolderSpellingsForOneSublibrary:
+    """Deleting the folder rule rests on this still being caught.
+
+    Accepting both spellings means an upload *can* put one well under
+    ``REF3_P05_1/`` and ``P05_1/`` at once, and neither path is a defect any
+    more, so no SOP rule fires and the rename mapping proposes nothing -- every
+    object is already where it belongs. The duplicate is still reported, by the
+    two checks that key on identity rather than on the folder. Pinned because it
+    is the safety argument for removing ``sublibrary_folder_truncated``, and
+    nothing else asserted it.
+    """
+
+    STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
+    FOLDERS = ("REF3_P05_1", "P05_1")
+
+    def _keys(self) -> list[str]:
+        return [
+            f"{RAW}/{folder}/430479/{self.STEM}{suffix}"
+            for folder in self.FOLDERS
+            for suffix in TRIM_SUFFIXES
+        ]
+
+    def test_no_sop_rule_fires_on_either_spelling(self):
+        assert validate_seahub_stems(BUCKET, self._keys()) == []
+
+    def test_the_duplicate_is_reported_by_the_trimmed_index(self):
+        findings: list[dict] = []
+        index_trimmed_upload(self._keys(), findings=findings)
+
+        assert [f["category"] for f in findings] == ["duplicate_trimmed_well"]
+
+    def test_the_well_is_unknown_rather_than_silently_accepted(self):
+        rollup = roll_up_wells(BUCKET, self._keys())
+
+        assert [r["verdict"] for r in rollup.rows] == ["UNKNOWN"]
+        assert "2 different names" in rollup.rows[0]["detail"]
 
 
 class TestRollUpWells:

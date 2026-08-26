@@ -260,6 +260,12 @@ def expected_trimmed_key(
         sublibrary, well = _vendor_sublibrary_and_well(
             _vendor_group_sans_wafer(vendor_group, getattr(source, "wafer", ""))
         )
+        # Both names come from the vendor, which spells the sublibrary in full.
+        # On an upload that elides the prefix everywhere else, that leaves one
+        # folder in the other spelling. Not resolved here on purpose: which
+        # spelling prevails is a fact about the whole listing, and this function
+        # sees one object. Harmless -- both spellings are SOP-clean, and the
+        # alternative is threading a listing-wide tally through every caller.
         folder = sublibrary
         defects.append("sublibrary_mismatch")
 

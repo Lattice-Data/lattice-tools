@@ -60,7 +60,7 @@ class LabIdentity:
 
     @classmethod
     def parse(cls, lab: str, *, namespace: str | None = None) -> "LabIdentity":
-        """Accept `heather-marlow` or `/labs/heather-marlow/` interchangeably."""
+        """Accept `example-lab` or `/labs/example-lab/` interchangeably."""
         name = (lab or "").strip()
         if name.startswith(_LAB_PATH_PREFIX):
             name = name[len(_LAB_PATH_PREFIX) :]
@@ -68,13 +68,13 @@ class LabIdentity:
         if not _LAB_NAME_RE.match(name):
             raise SheetBuildError(
                 f"Invalid --lab {lab!r}: expected a lab name such as "
-                "'heather-marlow' or '/labs/heather-marlow/'"
+                "'example-lab' or '/labs/example-lab/'"
             )
         alias_ns = (namespace or name).strip()
         if not _LAB_NAME_RE.match(alias_ns):
             raise SheetBuildError(
                 f"Invalid --alias-namespace {namespace!r}: expected a bare "
-                "namespace such as 'heather-marlow'"
+                "namespace such as 'example-lab'"
             )
         return cls(name=name, namespace=alias_ns)
 
