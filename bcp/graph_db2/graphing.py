@@ -50,6 +50,10 @@ def create_nodes_for_pyvis(graph_dict: GraphDict) -> list[dict]:
                 "n_id": uuid_path,
                 "label": node.alias if node.alias is not None else uuid_path,
                 "color": NodeColor(node.schema_ids.api_name).value,
+                "title": "Neighbors: <br>"
+                + "<br>".join(
+                    [graph_dict[neighbor].alias for neighbor in node.neighbors]
+                ),
             }
         )
     return result
