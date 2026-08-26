@@ -1,3 +1,5 @@
+DEFAULT_MODE = "db2_prod"
+
 EXCLUDED_SCHEMAS = {
     "access_keys",
     "controlled_terms",
