@@ -226,6 +226,36 @@ def is_non_sequencing_artifact(basename: str) -> bool:
     return False
 
 
+def _folder_candidates(sublibrary: str, experiment_id: str) -> list[str]:
+    """Folder spellings that can explain a filename's sublibrary token, in order.
+
+    Split out so the order-sensitivity test can reverse *this* list rather than
+    re-deriving it: a hand-written mirror stops testing the ordering property the
+    moment a third candidate appears here, and does so silently.
+    """
+    candidates = [sublibrary]
+    if experiment_id:
+        candidates.append(f"{experiment_id}_{sublibrary}")
+    return candidates
+
+
+def _match_folder_candidates(
+    group: str, candidates: list[str], fallback: str
+) -> tuple[str, str, bool]:
+    """First candidate that explains ``group``, plus whatever token is left over.
+
+    Takes the candidate list rather than building it, so the ordering test can
+    feed the same matcher a reversed list and compare.
+    """
+    for candidate in candidates:
+        if group == candidate:
+            return candidate, "", True
+        prefix = f"{candidate}_"
+        if group.startswith(prefix):
+            return candidate, group[len(prefix) :], True
+    return fallback, "", False
+
+
 def seahub_group_parts(
     group: str, sublibrary: str, experiment_id: str
 ) -> tuple[str, str, bool]:
@@ -243,6 +273,17 @@ def seahub_group_parts(
     trimmed upload measured elides it on every sublibrary.  A filename carrying
     no ExperimentID at all (``R100E/…R100E…``) matches the first form directly.
 
+    The acceptance runs in one direction only, and deliberately: both candidates
+    are built *from the folder*, so an elided folder under a full filename is
+    clean while the reverse -- folder ``REF3_P05_2`` holding ``…-P05_2_A10_…`` --
+    is ``sublibrary_mismatch``.  Eliding is lossless where the context supplies
+    the prefix and lossy where it does not: the folder sits beneath the
+    ExperimentID segment, whereas a filename travels alone -- copied, attached,
+    named inside its own ``.cram-metadata.json`` -- and is the only place either
+    side of the cross-bucket comparison records the sublibrary at all, since the
+    vendor path carries none.  Measured across 54,633 real objects: 47,443 elide
+    on the folder, 5,300 agree exactly, and the reverse shape does not occur.
+
     Candidate order decides the answer only when *both* candidates can explain
     the group, which needs the folder name to be a leading token-prefix of its
     own ExperimentID -- folder ``P10`` under ExperimentID ``P10_2`` makes the full
@@ -252,17 +293,9 @@ def seahub_group_parts(
     order is a tie-break rather than a rule; it is pinned by
     ``test_candidate_order_only_matters_when_both_can_explain_the_group``.
     """
-    candidates = [sublibrary]
-    if experiment_id:
-        candidates.append(f"{experiment_id}_{sublibrary}")
-
-    for candidate in candidates:
-        if group == candidate:
-            return candidate, "", True
-        prefix = f"{candidate}_"
-        if group.startswith(prefix):
-            return candidate, group[len(prefix) :], True
-    return sublibrary, "", False
+    return _match_folder_candidates(
+        group, _folder_candidates(sublibrary, experiment_id), sublibrary
+    )
 
 
 def _check_group_token(
@@ -292,15 +325,19 @@ def _check_group_token(
     )
 
     if not matched:
-        accepted = f"{sublibrary!r}"
-        if experiment_id:
-            accepted += f" nor {f'{experiment_id}_{sublibrary}'!r}"
+        # Listed off the same helper the match ran on, so the message cannot name
+        # a different set of spellings than the one actually tried -- and reads
+        # grammatically when there is only one (an empty ExperimentID, which
+        # ``proj//raw/...`` really produces).
+        accepted = _folder_candidates(sublibrary, experiment_id)
+        shown = " nor ".join(repr(c) for c in accepted)
+        lead = "is neither" if len(accepted) > 1 else "is not"
         return [
             SopViolation(
                 type="sublibrary_mismatch",
                 s3_path=s3_path,
                 detail=(
-                    f"filename sublibrary {group!r} is neither {accepted}, with or "
+                    f"filename sublibrary {group!r} {lead} {shown}, with or "
                     "without a trailing _<well>; rename either the folder or the "
                     "files so they agree"
                 ),

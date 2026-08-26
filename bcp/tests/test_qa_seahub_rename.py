@@ -484,11 +484,12 @@ class TestRollUpWells:
     def test_a_gap_row_names_the_sublibrary_the_vendor_used(self):
         """The two sources of `sublibrary` can disagree, and that is deliberate.
 
-        An uploaded row carries the folder the upload actually used, which for
-        the commonest real defect is truncated; a gap row has no folder, so it
-        carries the vendor's SOP name for the same sublibrary. Filtering the CSV
-        on one spelling therefore misses the other -- pinned here so the
-        divergence stays a documented property rather than a surprise.
+        An uploaded row carries the folder the upload actually used, which in
+        every real upload elides the ExperimentID prefix; a gap row has no folder,
+        so it carries the vendor's SOP name for the same sublibrary. Both
+        spellings are clean, so the divergence is permanent rather than something
+        a rename resolves -- filtering the CSV on one spelling therefore misses
+        the other, pinned here so that stays a documented property.
         """
         gap = SourceEntry(
             wafer="438515",

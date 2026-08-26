@@ -29,6 +29,8 @@ from qa_mods import (
     seahub_stem_and_family,
 )
 from qa_seahub_sop import (
+    _folder_candidates,
+    _match_folder_candidates,
     group_seahub_keys,
     seahub_group_parts,
     sop_violation_summary,
@@ -249,17 +251,15 @@ class TestGroupPartsCandidateOrder:
 
     @staticmethod
     def _reversed(group, sublibrary, experiment_id):
-        candidates = (
-            [f"{experiment_id}_{sublibrary}", sublibrary]
-            if experiment_id
-            else [sublibrary]
-        )
-        for candidate in candidates:
-            if group == candidate:
-                return candidate, "", True
-            if group.startswith(f"{candidate}_"):
-                return candidate, group[len(candidate) + 1 :], True
-        return sublibrary, "", False
+        """The production matcher, fed the production candidates in reverse.
+
+        Reversing the real list rather than re-implementing it: a hand-written
+        mirror silently stops testing the ordering property the moment
+        ``_folder_candidates`` grows a third entry or ``_match_folder_candidates``
+        changes how it strips a prefix.
+        """
+        candidates = list(reversed(_folder_candidates(sublibrary, experiment_id)))
+        return _match_folder_candidates(group, candidates, sublibrary)
 
     @pytest.mark.parametrize(
         "experiment_id,sublibrary,group",

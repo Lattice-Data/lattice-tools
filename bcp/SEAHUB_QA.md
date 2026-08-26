@@ -110,6 +110,15 @@ rather than a rename.
   `expected_folder` column it alone populated. `sublibrary_mismatch` still fires for a filename
   neither spelling explains, and the rename mapping now tracks the folder segment and the
   filename's sublibrary name separately — collapsing them is what proposed the move.
+  **The acceptance runs one way only.** Both spellings are derived *from the folder*, so an
+  elided folder under a full filename is clean while the reverse — `REF3_P05_2/` holding
+  `…-P05_2_A10_…` — is still `sublibrary_mismatch`. Eliding is lossless where the context
+  supplies the prefix and lossy where it does not: the folder sits beneath the ExperimentID
+  segment, whereas a filename travels alone — copied, attached, named inside its own
+  `.cram-metadata.json` — and is the only place either side of the cross-bucket comparison
+  records the sublibrary at all, since the vendor path carries none. Measured across 54,633
+  real objects: 47,443 elide on the folder, 5,300 agree exactly, and the reverse shape does
+  not occur.
 - **Cross-bucket trimming completeness** compares the upload against the untrimmed vendor deliveries
   found by searching the roots in the notebook's `untrimmed_search_roots` parameter — a *list* of
   projects or buckets to look in, not of orders to trust, since one experiment spans several
