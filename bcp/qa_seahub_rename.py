@@ -29,8 +29,9 @@ keeps the folder exactly as delivered and rebuilds the filename around the name
 the filename itself gives.  Collapsing the two into one variable, as this did, is
 what made an accepted upload propose a move of every object into
 ``{ExperimentID}_{folder}/`` -- or, had the folder been preferred instead,
-rewrite every filename.  They diverge only when the vendor has to arbitrate a
-``sublibrary_mismatch``, where its name becomes both.
+rewrite every filename.  In the ordinary elided case the two *differ* -- folder
+``P04_1`` beside sublibrary ``REF3_P04_1``.  They converge only when the vendor
+has to arbitrate a ``sublibrary_mismatch``, where its name becomes both.
 
 Safety properties
 -----------------

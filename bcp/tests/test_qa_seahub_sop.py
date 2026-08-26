@@ -298,14 +298,21 @@ class TestGroupPartsCandidateOrder:
         assert seahub_group_parts("P10_2_P10_A1", "P10", "P10_2") == expected
         assert self._reversed("P10_2_P10_A1", "P10", "P10_2") == expected
 
-    def test_the_compliant_degenerate_object_reports_no_bad_well(self):
-        """The defect the order used to produce, at the rule level."""
+    def test_the_degenerate_object_reports_the_repeat_and_not_a_bad_well(self):
+        """The whole violation set, because the object is not clean either way.
+
+        A folder token that is a leading token of its own ExperimentID repeats
+        inside the full form, so ``repeated_token`` fires however the group is
+        split and the well stays UNKNOWN. Asserting only ``"bad_well" not in``
+        would claim a compliance this object does not have, and would keep
+        passing if some other rule started firing here instead.
+        """
         key = (
             "labalpha-seahub-bcp/P10_2/raw/P10/432640/"
             "432640-P10_2_P10_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram"
         )
 
-        assert "bad_well" not in _types(validate_seahub_key("czi-labalpha", key))
+        assert _types(validate_seahub_key("czi-labalpha", key)) == {"repeated_token"}
 
 
 class TestKnownGoodNamesAreClean:
@@ -851,7 +858,7 @@ class TestCompletenessIsPerFolderNotPerStem:
     # elides the ExperimentID prefix the first carries. That is the shape the
     # accepted-both-spellings rule makes possible, so it is the one the inventory
     # has to key per folder -- and the one whose duplicate is pinned by
-    # test_one_well_under_both_folder_spellings_is_still_caught.
+    # TestBothFolderSpellingsForOneSublibrary in test_qa_seahub_rename.py.
     DIRS = (
         "labalpha-seahub-bcp/REF3/raw/REF3_P05_1/430479",
         "labalpha-seahub-bcp/REF3/raw/P05_1/430479",

@@ -247,11 +247,19 @@ def _match_folder_candidates(
     "Best" is the one whose leftover is nothing or a well, because that is what
     the SOP name actually is; only if no candidate manages that does the first
     bare prefix match win.  Taking the first prefix match unconditionally, as
-    this did, made the *order* of the candidate list decide correctness rather
-    than merely break a tie: folder ``P10`` under ExperimentID ``P10_2`` holding
-    ``…-P10_2_P10_A1_…`` is a compliant object whose sublibrary is ``P10_2_P10``
-    and whose well is ``A1``, but stripping the shorter ``P10_`` first handed
-    back ``2_P10_A1`` and reported ``bad_well`` on it.
+    this did, let the *order* of the candidate list pick the reading: folder
+    ``P10`` under ExperimentID ``P10_2`` holding ``…-P10_2_P10_A1_…`` decomposes
+    as sublibrary ``P10_2_P10`` and well ``A1``, but stripping the shorter
+    ``P10_`` first handed back ``2_P10_A1`` and reported ``bad_well`` on it.
+
+    No verdict rides on this.  That shape needs the folder token to be a leading
+    token of its own ExperimentID, which forces the full form to repeat the token
+    -- ``_split_tokens("P10_2_P10_A1")`` gives ``["P10", "2", "P10", "A1"]`` --
+    so ``_check_repeated_tokens`` fires whichever prefix is stripped, the object
+    is never clean, and the well was ``UNKNOWN`` before and after.  What changes
+    is only that the report no longer misdescribes the trailing token.  Kept
+    because the well-preferring reading is the correct one and costs nothing;
+    no real upload has the shape at all.
 
     The fallback is what keeps ``bad_well`` alive for a genuinely bad token: on
     ``REF3_P05_2_Z99`` no candidate yields a well, so the first match is returned
@@ -309,10 +317,12 @@ def seahub_group_parts(
     sits in the list.  That matters only in one shape -- a folder name that is a
     leading token-prefix of its own ExperimentID, so that both candidates can
     explain the group (folder ``P10`` under ExperimentID ``P10_2`` makes the full
-    form ``P10_2_P10``, which itself starts with ``P10_``).  Order used to decide
-    it, and decided it wrongly, reporting ``bad_well`` on a compliant object.
-    No real upload has that shape; the independence is pinned by
-    ``test_candidate_order_does_not_affect_the_result``.
+    form ``P10_2_P10``, which itself starts with ``P10_``).  Order used to pick
+    the reading there, and picked the wrong one; the object is not clean either
+    way, since a folder token repeated inside the full form trips
+    ``repeated_token``, so this buys an accurate ``bad_well`` rather than a
+    changed verdict.  No real upload has that shape; the independence is pinned
+    by ``test_candidate_order_does_not_affect_the_result``.
     """
     return _match_folder_candidates(
         group, _folder_candidates(sublibrary, experiment_id), sublibrary

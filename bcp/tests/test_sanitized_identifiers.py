@@ -3,18 +3,23 @@
 Two layers, because neither is sufficient alone.
 
 **Known names, anywhere** (:data:`BLOCKED_PATTERNS`). A denylist is the only
-thing that can catch a name in *prose* -- "the trapnell example" in a docstring
+thing that can catch a name in *prose* -- a docstring reading "the <lab> example"
 sits in no structured position -- and it is the only layer that knows a
 particular string is real. It cannot catch a name nobody has added to it.
 
+This file names no real identifier outside that list, deliberately: it excludes
+itself from the scan (see :data:`SELF`), so anything quoted here as an example
+could never be flagged. Every probe and every narrative example below is
+invented.
+
 **Structured slots, allowlisted** (:data:`ALLOWED_SLOT_TOKENS`). That ceiling is
 not theoretical, twice over. The commit that first widened this guard beyond
-``bcp/tests`` still shipped ``wang-tetrapod-atlas``, on the same notebook line
-whose order number it rewrote, because "wang" was not in the denylist. And the
-first version of *this* layer covered only the project segment written directly
-after a ``czi-…`` bucket, which is not the form the tree mostly uses -- so
-``smith-seahub-bcp/REF3/raw/…`` passed both layers, and a real person-shaped lab
-name sat in ``--lab`` help text reading "Lab name or path, e.g. <name>" until
+``bcp/tests`` still shipped a surname in a notebook example -- on the same line
+whose order number it rewrote -- because that surname was not in the denylist.
+And the first version of *this* layer covered only the project segment written
+directly after a ``czi-…`` bucket, which is not the form the tree mostly uses --
+so ``smith-seahub-bcp/REF3/raw/…`` passed both layers, and a real person-shaped
+lab name sat in ``--lab`` help text reading "Lab name or path, e.g. <name>" until
 review found it. :data:`SLOT_PATTERNS` now covers all five ways one gets written.
 
 An unrecognised token in any of those slots fails whether or not anyone has seen
@@ -36,6 +41,7 @@ lookaheads exempt, so any length of pad works.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 import re
 import subprocess
@@ -65,7 +71,7 @@ SCANNED_SUFFIXES = frozenset(
 BLOCKED_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
         r"\b(?:weissman|trapnell|hamazaki|marson|lange|ucsf|califano"
-        r"|liguo|pennyyang)\b",
+        r"|liguo|pennyyang|wang|marlow)\b",
         re.IGNORECASE,
     ),
     re.compile(r"\b(?:NVUS(?!0{6,})\d{6,}-\d+|AN(?!0{6,})\d{6,})\b"),
@@ -210,12 +216,16 @@ def _tracked_text_files() -> list[Path]:
     return paths
 
 
-def _readable_files() -> list[tuple[Path, str]]:
-    return [
-        (p, p.read_text(encoding="utf-8", errors="replace"))
-        for p in _tracked_text_files()
-        if p.is_file()
-    ]
+def _readable_files() -> Iterator[tuple[Path, str]]:
+    """Stream ``(path, text)``, so the whole tree is never resident at once.
+
+    A list held ~77 MB of file text per test. Reading is not the cost here --
+    every tracked file reads in 0.05s from cache -- so there is nothing to gain
+    by keeping it.
+    """
+    for path in _tracked_text_files():
+        if path.is_file():
+            yield path, path.read_text(encoding="utf-8", errors="replace")
 
 
 def known_identifiers(text: str) -> list[str]:
@@ -274,7 +284,7 @@ def test_path_slots_use_synthetic_tokens() -> None:
         ("AN0000000", False),
         ("AN00000001", False),
         # Layer 2, the case no denylist can reach: a lab nobody has named here.
-        ("s3://czi-novogene/wang-tetrapod-atlas/x", True),
+        ("s3://czi-novogene/smith-tetrapod-atlas/x", True),
         ("s3://czi-schmidt/schmidt-seahub-bcp/EXP1", True),
         # The three slots the bucket-prefixed pattern could not see. A bare key
         # is the tree's commonest form, and a CLI help string is prose to every
