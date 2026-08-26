@@ -84,6 +84,22 @@ def fetch_full(node: LatticeNode) -> dict:
     return response.json()
 
 
+def normalize_path(path: str) -> str:
+    """
+    Canonicalize an object path to the '/object_type/uuid/' form.
+
+    '/tissues/<uuid>/', 'tissues/<uuid>' and 'tissues/<uuid>/' all name the same
+    object. LatticeNode normalizes internally, so mixing a raw input string with
+    a LatticeNode.uuid_path silently produces edges whose endpoints match no
+    node id - and cytoscape drops the whole graph rather than one bad edge.
+    """
+    cleaned = path.strip().strip("/")
+    parts = cleaned.split("/")
+    if len(parts) != 2 or not all(parts):
+        raise ValueError(f"Expected 'object_type/uuid', got {path!r}")
+    return f"/{cleaned}/"
+
+
 def object_url(uuid_path: str, mode: str = DEFAULT_MODE) -> str:
     return urljoin(get_connection(mode).server, uuid_path)
 
@@ -205,6 +221,9 @@ def expand(
     type actually drawn. Grouped types cost nothing until the user fans them
     out, since a neighbor's type is readable from its path alone.
     """
+    # everything downstream keys off node ids, so work from the canonical form
+    # rather than whatever the caller typed
+    uuid_path = normalize_path(uuid_path)
     node = LatticeNode(uuid_path, mode=mode)
     if node.uuid_path not in _fully_fetched:
         node.object_json = fetch_full(node)  # setter writes through to _cache
