@@ -1,14 +1,13 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import cached_property
 from typing import ClassVar
 from urllib.parse import urljoin
 
 import requests
+from connection import get_connection
+from constants import ABSTRACT_MAPPING, DEFAULT_MODE, EXCLUDED_SCHEMAS
 from db2_flattener.gather.lattice import Connection
 from db2_flattener.schema.generate import SchemaIDs
-
-from constants import ABSTRACT_MAPPING, EXCLUDED_SCHEMAS
 
 
 class NodeColor(Enum):
@@ -43,50 +42,59 @@ class NodeColor(Enum):
 @dataclass
 class LatticeNode:
     type_and_uuid: str
+    mode: str = DEFAULT_MODE
     excluded: set[str] = field(default_factory=lambda: EXCLUDED_SCHEMAS, repr=False)
     _cache: ClassVar[dict] = {}
-    connection: ClassVar[Connection] = Connection("db2_prod")
 
     def __post_init__(self):
         self.type_and_uuid = self.type_and_uuid.strip("/")
         schema_ids, self.uuid = self.type_and_uuid.split("/")
         self.schema_ids = SchemaIDs(schema_ids)
         self.node_type = self.schema_ids.url_prefix
+        self.uuid_path = f"/{self.type_and_uuid}/"
 
-    def get_object_json(self, refetch: bool = False) -> dict:
-        if refetch:
-            del self._cache[self.type_and_uuid]
+    @property
+    def connection(self) -> Connection:
+        return get_connection(self.mode)
 
-        if self.type_and_uuid in self._cache:
-            return self._cache[self.type_and_uuid]
-
-        if self.node_type in self.excluded:
-            entry = {"@id": None}
-            self._cache[self.type_and_uuid] = entry
-            return entry
-
-        print(f"API request for {self.type_and_uuid}")
-        response = requests.get(
+    def fetch_object_json(self) -> dict:
+        print(f"API request for {self.uuid_path}")
+        return requests.get(
             urljoin(
                 self.connection.server,
-                self.type_and_uuid,
+                self.uuid_path,
             )
         ).json()
-        self._cache[self.type_and_uuid] = response
+
+    @property
+    def object_json(self) -> dict:
+        if self.uuid_path in self._cache:
+            return self._cache[self.uuid_path]
+        response = self.fetch_object_json()
+        self.object_json = response
         return response
 
-    @cached_property
-    def object_json(self, refetch: bool = False) -> dict:
-        return self.get_object_json(refetch)
+    @object_json.setter
+    def object_json(self, value: dict) -> None:
+        self._cache[self.uuid_path] = value
+
+    @staticmethod
+    def batch_cache_update(result_response: list[dict]) -> None:
+        """
+        Add batched report results to the cache to prevent individual API calls
+        Expects list of dicts from DB2Gatherer.chunk_and_fetch()
+        """
+        for index, json_object in enumerate(result_response):
+            uuid_path = json_object.get("@id")
+            if uuid_path is None:
+                print(f"Could not find '@id' at index: {index} of batch response")
+                continue
+            LatticeNode._cache[uuid_path] = json_object
 
     @property
     def alias(self) -> str | None:
         aliases = self.object_json.get("aliases")
         return aliases[0] if aliases is not None else None
-
-    @property
-    def object_path(self) -> str:
-        return f"/{self.type_and_uuid}/"
 
     @staticmethod
     def get_ids(obj, excluded_schemas):
@@ -112,5 +120,5 @@ class LatticeNode:
     @property
     def neighbors(self) -> set[str]:
         neighbor_set = set(self.get_ids(self.object_json, self.excluded))
-        neighbor_set.discard(self.object_path)
+        neighbor_set.discard(self.uuid_path)
         return neighbor_set
