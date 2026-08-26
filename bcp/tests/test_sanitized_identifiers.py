@@ -109,11 +109,28 @@ SLOT_PATTERNS: tuple[tuple[str, tuple[str, ...], re.Pattern[str]], ...] = (
         ("-seahub-bcp",),
         re.compile(r"\b([A-Za-z][A-Za-z0-9-]*)-seahub-bcp\b"),
     ),
-    # CLI example values, which are prose to every path pattern above.
+    # CLI example values, which are prose to every path pattern above. Split by
+    # flag, because the two slots have different shapes and therefore different
+    # safe patterns.
+    #
+    # A project is ``{lastname}-{projectname}``, always hyphenated, so requiring a
+    # hyphen or dot costs no coverage and drops the false positive the loose form
+    # had: a sentence like "--project is required" reported the token ``is``.
+    # Not hypothetical -- a review reply discussing this very pattern tripped it.
     (
         "cli flag",
-        ("--lab", "--project"),
-        re.compile(r"--(?:lab|project)[= ]+([A-Za-z][A-Za-z0-9_.-]*)"),
+        ("--project",),
+        re.compile(r"--project[= ]+([A-Za-z][A-Za-z0-9_.]*[-.][A-Za-z0-9_.-]*)"),
+    ),
+    # A lab namespace is ``{lastname}`` and may be a single word, so this one
+    # cannot require a hyphen -- ``--lab smith`` is the case that matters most,
+    # and the hyphen rule above would wave it straight through. The cost is that
+    # prose like "--lab is optional" would report ``is``; no such line exists, and
+    # a stopword in the allowlist is a cheaper fix than losing the slot.
+    (
+        "cli flag",
+        ("--lab",),
+        re.compile(r"--lab[= ]+([A-Za-z][A-Za-z0-9_.-]*)"),
     ),
     # The lab namespace as a path, which is where a real person-shaped name was
     # found: ``--lab`` help text reading "Lab name or path, e.g. <name>".
