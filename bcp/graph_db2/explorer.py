@@ -34,6 +34,7 @@ from cyto_elements import (
     make_gatherer,
     member_options,
     merge_elements,
+    normalize_path,
     not_yet_drawn,
     object_url,
     promote_members,
@@ -116,14 +117,32 @@ BASE_STYLESHEET = [
     },
 ]
 
+# a column so the type filter can sit in a pinned footer while the legend and
+# the (unbounded) property table scroll above it
 PANEL_STYLE = {
     "width": "330px",
     "flex": "0 0 330px",
     "padding": "10px 14px",
     "borderLeft": "1px solid #e2e2e2",
-    "overflowY": "auto",
+    "display": "flex",
+    "flexDirection": "column",
+    "height": "100%",
+    "boxSizing": "border-box",
+    "overflow": "hidden",
     "fontFamily": "system-ui, sans-serif",
     "fontSize": "12px",
+}
+# minHeight 0 or the flex child refuses to shrink below its content and the
+# footer gets pushed off the panel instead of the content scrolling
+PANEL_SCROLL_STYLE = {"flex": "1 1 auto", "overflowY": "auto", "minHeight": 0}
+PANEL_FOOTER_STYLE = {
+    "flex": "0 0 auto",
+    "borderTop": "1px solid #e2e2e2",
+    "paddingTop": "8px",
+    "marginTop": "8px",
+    # its own scroll, so a graph with many types can't crowd out the details
+    "maxHeight": "38%",
+    "overflowY": "auto",
 }
 
 
@@ -269,6 +288,8 @@ def build_app(seed: str, mode: str) -> Dash:
         notice = [html.P(f"Connected to {mode}. Load an object path to start.")]
     else:
         try:
+            # so the input box shows the canonical form of whatever was typed
+            seed = normalize_path(seed)
             seed_nodes, seed_edges = expand(seed, gatherer, mode=mode)
             elements = merge_elements([], seed_nodes, seed_edges)
             status = status_text(f"{seed} - {fan_summary(seed_nodes)}")
@@ -342,6 +363,7 @@ def build_app(seed: str, mode: str) -> Dash:
                 ],
                 style={
                     "display": "flex",
+                    "flex": "0 0 auto",
                     "gap": "10px",
                     "alignItems": "center",
                     "padding": "8px 12px",
@@ -371,24 +393,45 @@ def build_app(seed: str, mode: str) -> Dash:
                     ),
                     html.Div(
                         [
-                            html.Div("Show types", style={"color": "#666"}),
-                            dcc.Checklist(id="type-filter", options=[], value=[]),
-                            html.Hr(style={"margin": "10px 0"}),
-                            html.Div(notice, id="details"),
-                            html.Hr(style={"margin": "10px 0"}),
-                            html.Div("Legend", style={"color": "#666"}),
-                            legend(),
+                            html.Div(
+                                [
+                                    html.Div("Legend", style={"color": "#666"}),
+                                    legend(),
+                                    html.Hr(style={"margin": "10px 0"}),
+                                    html.Div(notice, id="details"),
+                                ],
+                                style=PANEL_SCROLL_STYLE,
+                            ),
+                            html.Div(
+                                [
+                                    html.Div("Show types", style={"color": "#666"}),
+                                    dcc.Checklist(
+                                        id="type-filter", options=[], value=[]
+                                    ),
+                                ],
+                                style=PANEL_FOOTER_STYLE,
+                            ),
                         ],
                         style=PANEL_STYLE,
                     ),
                 ],
-                style={"display": "flex", "height": "calc(100vh - 43px)"},
+                # minHeight 0 lets this row shrink to the space the toolbar
+                # leaves, instead of forcing its content height onto the page
+                style={"display": "flex", "flex": "1 1 auto", "minHeight": 0},
             ),
         ],
-        # pinned light, so the inline text colours below stay legible whatever
-        # colour scheme the browser prefers
+        # Fixed to the viewport rather than sized with calc(100vh - toolbar):
+        # that magic number ignored the body's default margin, so the panel
+        # (and its pinned footer) hung below the fold. Colours are pinned light
+        # so the inline text colours stay legible whatever the browser prefers.
         style={
-            "margin": "0",
+            "position": "fixed",
+            "top": 0,
+            "left": 0,
+            "right": 0,
+            "bottom": 0,
+            "display": "flex",
+            "flexDirection": "column",
             "background": "#ffffff",
             "color": "#222",
             "colorScheme": "light",
@@ -418,7 +461,11 @@ def build_app(seed: str, mode: str) -> Dash:
                     status_text("Enter an object path to load.", ok=False),
                     no_update,
                 )
-            target, elements = seed_value.strip(), []
+            try:
+                target = normalize_path(seed_value)
+            except ValueError as error:
+                return no_update, status_text(str(error), ok=False), no_update
+            elements = []
         else:
             if not tapped:
                 return no_update, no_update, no_update
