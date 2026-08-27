@@ -20,7 +20,7 @@ from collections import Counter
 
 import dash_cytoscape as cyto
 import requests
-from constants import DEFAULT_MODE
+from constants import DEFAULT_MODE, FETCH_NEW
 from cyto_elements import (
     DRAW_BUDGET,
     FAN_THRESHOLD,
@@ -279,8 +279,8 @@ def detail_panel(node_data: dict | None, mode: str) -> list:
     ]
 
 
-def build_app(seed: str, mode: str) -> Dash:
-    gatherer = make_gatherer(mode)
+def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
+    gatherer = make_gatherer(mode, fetch_new)
 
     elements: list[dict] = []
     if not seed:
@@ -615,12 +615,14 @@ def main() -> None:
     parser.add_argument("--mode", default=DEFAULT_MODE)
     parser.add_argument("--port", type=int, default=8050)
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--fetch-new", action="store_true", default=FETCH_NEW)
     args = parser.parse_args()
+    print(args.fetch_new)
 
     # SAMPLE_SEED only exists on DEFAULT_MODE's server; carrying it over to
     # another deployment just 404s into an empty canvas
     seed = args.seed or (SAMPLE_SEED if args.mode == DEFAULT_MODE else "")
-    build_app(seed, args.mode).run(debug=args.debug, port=args.port)
+    build_app(seed, args.mode, args.fetch_new).run(debug=args.debug, port=args.port)
 
 
 if __name__ == "__main__":
