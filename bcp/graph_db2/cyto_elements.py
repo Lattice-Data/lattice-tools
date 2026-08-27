@@ -50,10 +50,7 @@ def make_gatherer(mode: str = DEFAULT_MODE, fetch_new: bool = FETCH_NEW) -> DB2G
     """DB2Gatherer for the server behind `mode`, configured from constants.yaml"""
     connection = get_connection(mode)
     config = create_configs(mode, fetch_new)
-    return DB2Gatherer(
-        connection,
-        config
-    )
+    return DB2Gatherer(connection, config)
 
 
 def fetch_full(node: LatticeNode) -> dict:
@@ -284,8 +281,7 @@ def member_options(members: list[str], mode: str = DEFAULT_MODE) -> list[dict]:
     uuid prefix and the dropdown is unsearchable.
     """
     options = [
-        {"label": label_for(LatticeNode(path)), "value": path}
-        for path in members
+        {"label": label_for(LatticeNode(path)), "value": path} for path in members
     ]
     return sorted(options, key=lambda option: option["label"])
 
