@@ -20,8 +20,10 @@ from collections import Counter
 
 import dash_cytoscape as cyto
 import requests
-from constants import DEFAULT_MODE, FETCH_NEW
-from cyto_elements import (
+from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
+
+from .constants import DEFAULT_MODE, FETCH_NEW
+from .cyto_elements import (
     DRAW_BUDGET,
     FAN_THRESHOLD,
     css_color,
@@ -40,8 +42,7 @@ from cyto_elements import (
     promote_members,
     properties_of,
 )
-from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
-from models import LatticeNode, NodeColor
+from .models import LatticeNode, NodeColor
 
 cyto.load_extra_layouts()  # dagre, cose-bilkent, klay, cola
 
@@ -618,7 +619,6 @@ def main() -> None:
     parser.add_argument("--debug", action="store_true")
     parser.add_argument("--fetch-new", action="store_true", default=FETCH_NEW)
     args = parser.parse_args()
-    print(args.fetch_new)
 
     # SAMPLE_SEED only exists on DEFAULT_MODE's server; carrying it over to
     # another deployment just 404s into an empty canvas

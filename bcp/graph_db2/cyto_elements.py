@@ -21,15 +21,15 @@ from collections.abc import Collection
 from urllib.parse import urljoin
 
 import requests
-from connection import get_connection
-from constants import DEFAULT_MODE, FETCH_NEW
-from models import (
+from .connection import get_connection
+from .constants import DEFAULT_MODE, FETCH_NEW
+from .models import (
     LatticeNode,
     NodeColor,
     batch_request_chunk_and_fetch,
     group_batch_request,
 )
-from schema import create_configs
+from .schema import create_configs
 
 from db2_flattener.gather.gatherer import DB2Gatherer
 
