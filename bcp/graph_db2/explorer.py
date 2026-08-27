@@ -1,28 +1,9 @@
-"""
-Dash + Cytoscape explorer for the DB2 reference graph.
-
-Seeded from a single object path, the graph grows only where the user clicks:
-each tap resolves that node's neighbors and folds them in. Nothing is
-precomputed, so the seed can sit anywhere in the database.
-
-Run from this directory (the package uses flat imports) in an environment with
-db2_flattener installed and DB2_<MODE>_KEY / _SECRET / _SERVER set:
-
-    python explorer.py
-    python explorer.py --mode db2_demo --seed /matrix_file_sets/<uuid>/
-
-A seed only has meaning on the server it came from, so --mode without --seed
-starts on an empty canvas rather than guessing a path from another deployment.
-"""
-
-import argparse
 from collections import Counter
 
 import dash_cytoscape as cyto
 import requests
 from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 
-from .constants import DEFAULT_MODE, FETCH_NEW
 from .cyto_elements import (
     DRAW_BUDGET,
     FAN_THRESHOLD,
@@ -605,26 +586,3 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         return detail_panel(tapped, mode)
 
     return app
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--seed",
-        help=f"object path to start from; defaults to a sample on {DEFAULT_MODE} "
-        "and to an empty canvas elsewhere",
-    )
-    parser.add_argument("--mode", default=DEFAULT_MODE)
-    parser.add_argument("--port", type=int, default=8050)
-    parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--fetch-new", action="store_true", default=FETCH_NEW)
-    args = parser.parse_args()
-
-    # SAMPLE_SEED only exists on DEFAULT_MODE's server; carrying it over to
-    # another deployment just 404s into an empty canvas
-    seed = args.seed or (SAMPLE_SEED if args.mode == DEFAULT_MODE else "")
-    build_app(seed, args.mode, args.fetch_new).run(debug=args.debug, port=args.port)
-
-
-if __name__ == "__main__":
-    main()
