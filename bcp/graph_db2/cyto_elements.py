@@ -22,14 +22,14 @@ from urllib.parse import urljoin
 
 import requests
 from connection import get_connection
-from constants import DEFAULT_MODE
+from constants import DEFAULT_MODE, FETCH_NEW
 from models import (
     LatticeNode,
     NodeColor,
     batch_request_chunk_and_fetch,
     group_batch_request,
 )
-from schema import load_config
+from schema import create_configs
 
 from db2_flattener.gather.gatherer import DB2Gatherer
 from db2_flattener.schema.constants import Configs
@@ -47,22 +47,13 @@ GROUP_SEPARATOR = "::group:"
 _fully_fetched: set[str] = set()
 
 
-def make_gatherer(mode: str = DEFAULT_MODE) -> DB2Gatherer:
+def make_gatherer(mode: str = DEFAULT_MODE, fetch_new: bool = FETCH_NEW) -> DB2Gatherer:
     """DB2Gatherer for the server behind `mode`, configured from constants.yaml"""
     connection = get_connection(mode)
-    config = load_config()
-    if connection.server not in config:
-        raise KeyError(
-            f"No constants.yaml entry for {connection.server}. "
-            f"Available: {sorted(config)}"
-        )
-    server_config = config[connection.server]
+    config = create_configs(mode, fetch_new)
     return DB2Gatherer(
         connection,
-        Configs(
-            FIELD_TYPES=server_config.field_types,
-            OBJECT_CONFIG=server_config.object_config,
-        ),
+        config
     )
 
 

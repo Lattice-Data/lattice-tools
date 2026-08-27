@@ -1,4 +1,5 @@
 DEFAULT_MODE = "db2_prod"
+FETCH_NEW = False
 
 EXCLUDED_SCHEMAS = {
     "access_keys",
