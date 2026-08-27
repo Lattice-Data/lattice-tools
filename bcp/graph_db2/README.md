@@ -203,7 +203,7 @@ between unrelated graphs.
 | `connection.py` | Cached `Connection` per mode. |
 | `schema.py` | Builds `Configs` from `constants.yaml` or live profiles. |
 | `constants.py` | Defaults, `EXCLUDED_SCHEMAS`, `ABSTRACT_MAPPING`. |
-| `playground.ipynb` | Scratch notebook for the pyvis path. |
+| `graphing_playground.ipynb` | Scratch notebook for the pyvis path. |
 
 `cyto_elements.py` holds no Dash imports on purpose, so expansion and grouping
 can be driven from a notebook or a test without starting a server.
