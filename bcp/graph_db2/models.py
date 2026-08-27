@@ -63,12 +63,17 @@ class LatticeNode:
 
     def fetch_object_json(self) -> dict:
         print(f"API request for {self.uuid_path}")
-        return requests.get(
+        response = requests.get(
             urljoin(
                 self.connection.server,
                 self.uuid_path,
-            )
-        ).json()
+            ),
+            auth=self.connection.auth,
+            headers=self.connection.headers,
+            timeout=60,
+        )
+        response.raise_for_status()
+        return response.json()
 
     @property
     def object_json(self) -> dict:

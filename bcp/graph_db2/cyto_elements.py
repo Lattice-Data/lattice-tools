@@ -32,7 +32,6 @@ from models import (
 from schema import create_configs
 
 from db2_flattener.gather.gatherer import DB2Gatherer
-from db2_flattener.schema.constants import Configs
 
 UNMAPPED_COLOR = "#e8e8e8"
 # neighbors drawn individually before any grouping kicks in
