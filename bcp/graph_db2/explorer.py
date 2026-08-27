@@ -41,7 +41,7 @@ from cyto_elements import (
     properties_of,
 )
 from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
-from models import NodeColor
+from models import LatticeNode, NodeColor
 
 cyto.load_extra_layouts()  # dagre, cose-bilkent, klay, cola
 
@@ -281,6 +281,7 @@ def detail_panel(node_data: dict | None, mode: str) -> list:
 
 def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
     gatherer = make_gatherer(mode, fetch_new)
+    LatticeNode.mode = mode
 
     elements: list[dict] = []
     if not seed:

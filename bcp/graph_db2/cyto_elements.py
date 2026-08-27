@@ -172,7 +172,7 @@ def group_element(
             "id": group_id(parent_path, api_name),
             "label": f"{api_name} × {len(members)}",
             "node_type": api_name,
-            "color": color_for(LatticeNode(members[0], mode=mode)),
+            "color": color_for(LatticeNode(members[0])),
             "expanded": False,
             "is_group": True,
             "parent_path": parent_path,
@@ -214,7 +214,7 @@ def expand(
     # everything downstream keys off node ids, so work from the canonical form
     # rather than whatever the caller typed
     uuid_path = normalize_path(uuid_path)
-    node = LatticeNode(uuid_path, mode=mode)
+    node = LatticeNode(uuid_path)
     if node.uuid_path not in _fully_fetched:
         node.object_json = fetch_full(node)  # setter writes through to _cache
         _fully_fetched.add(node.uuid_path)
@@ -222,7 +222,7 @@ def expand(
     neighbors = sorted(node.neighbors)
     by_type = defaultdict(list)
     for neighbor in neighbors:
-        by_type[LatticeNode(neighbor, mode=mode).schema_ids.api_name].append(neighbor)
+        by_type[LatticeNode(neighbor).schema_ids.api_name].append(neighbor)
 
     drawn: list[str] = []
     grouped: dict[str, list[str]] = {}
@@ -240,7 +240,7 @@ def expand(
     nodes = [node_element(node)]
     edges = []
     for path in drawn:
-        nodes.append(node_element(LatticeNode(path, mode=mode)))
+        nodes.append(node_element(LatticeNode(path)))
         edges.append(edge_element(uuid_path, path))
     for api_name, paths in sorted(grouped.items()):
         nodes.append(group_element(uuid_path, api_name, paths, mode))
@@ -262,7 +262,7 @@ def promote_members(
     per type rather than one per node.
     """
     fetch_labels(paths, gatherer)
-    nodes = [node_element(LatticeNode(path, mode=mode)) for path in paths]
+    nodes = [node_element(LatticeNode(path)) for path in paths]
     edges = [edge_element(parent_path, path) for path in paths]
     return nodes, edges
 
@@ -284,7 +284,7 @@ def member_options(members: list[str], mode: str = DEFAULT_MODE) -> list[dict]:
     uuid prefix and the dropdown is unsearchable.
     """
     options = [
-        {"label": label_for(LatticeNode(path, mode=mode)), "value": path}
+        {"label": label_for(LatticeNode(path)), "value": path}
         for path in members
     ]
     return sorted(options, key=lambda option: option["label"])
