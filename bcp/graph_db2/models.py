@@ -46,7 +46,7 @@ class NodeColor(Enum):
 @dataclass
 class LatticeNode:
     type_and_uuid: str
-    mode: str = DEFAULT_MODE
+    mode: ClassVar[str] = DEFAULT_MODE
     excluded: set[str] = field(default_factory=lambda: EXCLUDED_SCHEMAS, repr=False)
     _cache: ClassVar[dict] = {}
 
