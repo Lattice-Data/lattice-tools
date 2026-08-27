@@ -39,6 +39,18 @@ def find_edges(graph_dict: GraphDict) -> list[tuple[str, str]]:
     return result
 
 
+def node_label(node: LatticeNode) -> str:
+    """
+    Alias when the object has one, otherwise its path.
+
+    Reads the cache rather than LatticeNode.alias, which returns None for an
+    object with no aliases and raises IndexError on an empty aliases list.
+    Either one breaks the '<br>'.join() below, which needs every item to be str.
+    """
+    aliases = node.object_json.get("aliases") or []
+    return aliases[0] if aliases else node.uuid_path
+
+
 def create_nodes_for_pyvis(graph_dict: GraphDict) -> list[dict]:
     """
     Create input for pyvis visual graphing
@@ -48,11 +60,11 @@ def create_nodes_for_pyvis(graph_dict: GraphDict) -> list[dict]:
         result.append(
             {
                 "n_id": uuid_path,
-                "label": node.alias if node.alias is not None else uuid_path,
+                "label": node_label(node),
                 "color": NodeColor(node.schema_ids.api_name).value,
                 "title": "Neighbors: <br>"
                 + "<br>".join(
-                    [graph_dict[neighbor].alias for neighbor in node.neighbors]
+                    node_label(graph_dict[neighbor]) for neighbor in node.neighbors
                 ),
             }
         )
