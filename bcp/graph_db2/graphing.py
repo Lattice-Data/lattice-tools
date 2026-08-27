@@ -1,4 +1,4 @@
-from models import GraphDict, LatticeNode, NodeColor
+from .models import GraphDict, LatticeNode, NodeColor
 
 graph_dict: GraphDict = {}
 

@@ -7,8 +7,8 @@ from typing import ClassVar, Collection, TypeAlias
 from urllib.parse import urljoin
 
 import requests
-from connection import get_connection
-from constants import ABSTRACT_MAPPING, DEFAULT_MODE, EXCLUDED_SCHEMAS
+from .connection import get_connection
+from .constants import ABSTRACT_MAPPING, DEFAULT_MODE, EXCLUDED_SCHEMAS
 from db2_flattener.gather.lattice import Connection
 from db2_flattener.gather.gatherer import DB2Gatherer
 from db2_flattener.schema.generate import SchemaIDs

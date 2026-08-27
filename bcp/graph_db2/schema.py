@@ -1,6 +1,6 @@
 from functools import cache
 
-from constants import DEFAULT_MODE
+from .constants import DEFAULT_MODE
 from db2_flattener.gather.lattice import Connection
 from db2_flattener.schema.constants import Configs
 from db2_flattener.schema.generate import (
