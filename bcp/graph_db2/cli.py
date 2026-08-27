@@ -9,8 +9,8 @@ Run from the bcp directory in an environment with
     db2_flattener installed
     DB2_<MODE>_KEY / _SECRET / _SERVER set:
 
-    python -m db2_graph
-    python -m db2_graph --mode db2_demo --seed /matrix_file_sets/<uuid>/
+    python -m graph_db2
+    python -m graph_db2 --mode db2_demo --seed /matrix_file_sets/<uuid>/
 
 A seed only has meaning on the server it came from, so --mode without --seed
 starts on an empty canvas rather than guessing a path from another deployment.
