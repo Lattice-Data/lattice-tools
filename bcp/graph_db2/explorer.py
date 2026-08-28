@@ -13,10 +13,10 @@ from .cyto_elements import (
     explode,
     fan_summary,
     fetch_labels,
-    is_expanded,
     make_gatherer,
     member_options,
     merge_elements,
+    neighbors_drawn,
     normalize_path,
     not_yet_drawn,
     object_url,
@@ -461,7 +461,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                     status_text(f"{tapped['label']} - choose from the panel."),
                     no_update,
                 )
-            if is_expanded(target):
+            # canvas state, not the fetch cache: a reload empties the canvas
+            # while leaving every profile cached, and those nodes still need
+            # their edges drawn again
+            if neighbors_drawn(elements, target):
                 return (
                     no_update,
                     status_text(f"{tapped['label']} is already expanded."),

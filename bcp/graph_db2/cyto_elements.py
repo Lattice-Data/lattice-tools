@@ -91,8 +91,30 @@ def object_url(uuid_path: str, mode: str = DEFAULT_MODE) -> str:
     return urljoin(get_connection(mode).server, uuid_path)
 
 
-def is_expanded(uuid_path: str) -> bool:
+def is_fully_fetched(uuid_path: str) -> bool:
+    """
+    Whether this node's complete profile is in the cache.
+
+    A process-wide fact, not a canvas one: pressing Load wipes the elements but
+    leaves the cache warm, so this must not be used to decide whether a node's
+    edges are on screen. See neighbors_drawn().
+    """
     return uuid_path in _fully_fetched
+
+
+def neighbors_drawn(elements: list[dict], node_id: str) -> bool:
+    """
+    Whether this node's neighbors are already on the given canvas.
+
+    The `expanded` flag lives on the element, so it resets with the canvas.
+    Reading the fetch cache here instead made a re-Load unrecoverable: every
+    node clicked before the reload was still "expanded", so the second pass
+    refused to redraw any of their edges.
+    """
+    for element in elements:
+        if element["data"]["id"] == node_id:
+            return bool(element["data"].get("expanded"))
+    return False
 
 
 def css_color(value: str) -> str:
@@ -138,14 +160,19 @@ def label_for(node: LatticeNode) -> str:
     return json_object.get("accession") or node.uuid[:8]
 
 
-def node_element(node: LatticeNode) -> dict:
+def node_element(node: LatticeNode, expanded: bool = False) -> dict:
+    """
+    One cytoscape node. `expanded` means "its neighbors are on this canvas", so
+    only the centre of an expansion sets it - a node re-emitted as someone
+    else's neighbor arrives False and merge_elements() keeps the older True.
+    """
     return {
         "data": {
             "id": node.uuid_path,
             "label": label_for(node),
             "node_type": node.schema_ids.api_name,
             "color": color_for(node),
-            "expanded": is_expanded(node.uuid_path),
+            "expanded": expanded,
         }
     }
 
@@ -234,7 +261,7 @@ def expand(
 
     fetch_labels(drawn, gatherer)
 
-    nodes = [node_element(node)]
+    nodes = [node_element(node, expanded=True)]
     edges = []
     for path in drawn:
         nodes.append(node_element(LatticeNode(path)))
@@ -312,12 +339,18 @@ def merge_elements(
     Fold an expansion into the elements already on screen.
 
     Nodes are replaced (a stub gains its real label once fetched), edges are
-    kept on first sight.
+    kept on first sight. `expanded` is the one field that survives replacement:
+    expanding B re-emits its neighbor A as an unexpanded stub, and dropping A's
+    flag would offer a second, edge-free expansion of a node already opened.
     """
     by_id = {element["data"]["id"]: element for element in existing}
 
     for element in new_nodes:
-        by_id[element["data"]["id"]] = element
+        node_id = element["data"]["id"]
+        previous = by_id.get(node_id)
+        if previous and previous["data"].get("expanded"):
+            element = {**element, "data": {**element["data"], "expanded": True}}
+        by_id[node_id] = element
     for element in new_edges:
         by_id.setdefault(element["data"]["id"], element)
 

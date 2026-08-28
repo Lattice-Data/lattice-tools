@@ -10,8 +10,9 @@ from graph_db2.cyto_elements import (
     explode,
     fetch_labels,
     group_id,
-    is_expanded,
+    is_fully_fetched,
     merge_elements,
+    neighbors_drawn,
     promote_members,
 )
 from graph_db2.models import LatticeNode
@@ -182,11 +183,59 @@ def test_seed_is_marked_expanded_and_neighbors_are_not() -> None:
     assert by_id[raw_matrix_file(0)]["expanded"] is False
 
 
-def test_is_expanded_tracks_full_fetches() -> None:
+def test_is_fully_fetched_tracks_full_fetches() -> None:
     gatherer = fake_gatherer()
-    assert not is_expanded(MFS)
+    assert not is_fully_fetched(MFS)
     expand(MFS, gatherer, draw_budget=BIG_BUDGET)
-    assert is_expanded(MFS)
+    assert is_fully_fetched(MFS)
+
+
+# --------------------------------------------------------------------------
+# reloading the seed
+# --------------------------------------------------------------------------
+
+
+def test_reload_after_a_walk_leaves_every_node_expandable() -> None:
+    """The regression: `expanded` used to read the process-wide fetch cache, so
+    after a Load emptied the canvas every node clicked on the first pass still
+    claimed to be expanded and the explorer refused to redraw its edges."""
+    gatherer = fake_gatherer()
+
+    elements: list[dict] = []
+    for path in (MFS, raw_matrix_file(0), sequence_file(0)):
+        nodes, edges = expand(path, gatherer, draw_budget=BIG_BUDGET)
+        elements = merge_elements(elements, nodes, edges)
+
+    # what pressing Load does: same seed, canvas thrown away
+    nodes, edges = expand(MFS, gatherer, draw_budget=BIG_BUDGET)
+    reloaded = merge_elements([], nodes, edges)
+
+    assert neighbors_drawn(reloaded, MFS)
+    assert not neighbors_drawn(reloaded, raw_matrix_file(0))
+
+    # and the second-pass expansion still brings its edges with it
+    nodes, edges = expand(raw_matrix_file(0), gatherer, draw_budget=BIG_BUDGET)
+    reloaded = merge_elements(reloaded, nodes, edges)
+    assert edges, "re-expanded node produced no edges"
+    assert dangling_edges(reloaded) == []
+    assert neighbors_drawn(reloaded, raw_matrix_file(0))
+
+
+def test_expanded_flag_survives_being_re_emitted_as_a_neighbor() -> None:
+    """Expanding a neighbor re-sends the already-expanded node as a stub; if the
+    merge dropped its flag the node would offer a second, edge-free expansion."""
+    gatherer = fake_gatherer()
+    nodes, edges = expand(MFS, gatherer, draw_budget=BIG_BUDGET)
+    elements = merge_elements([], nodes, edges)
+
+    nodes, edges = expand(raw_matrix_file(0), gatherer, draw_budget=BIG_BUDGET)
+    elements = merge_elements(elements, nodes, edges)
+
+    assert neighbors_drawn(elements, MFS)
+
+
+def test_neighbors_drawn_is_false_for_a_node_not_on_the_canvas() -> None:
+    assert not neighbors_drawn([], MFS)
 
 
 def test_re_expanding_does_not_refetch_the_node(

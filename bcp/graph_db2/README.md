@@ -111,6 +111,9 @@ deployments. Anything malformed is rejected up front with
 
 - **Click a node** to resolve its neighbors and fold them into the graph. A
   dashed ring means "not expanded yet"; a solid ring means already resolved.
+  This is a property of the current canvas, not of the fetch cache, so pressing
+  **Load** again makes every node clickable from scratch — cheaply, since the
+  profiles are still cached.
 - **Node colours** come from the `NodeColor` enum in `models.py`, keyed by the
   abstract class (so `Tissue`, `CellLine`, and `Organoid` all read as
   `Biosample`). Unmapped types fall back to grey.
