@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from graph_db2.cyto_elements import (
+    already_drawn,
     drop_node,
+    drop_nodes,
     edge_element,
     fan_summary,
     group_element,
@@ -158,7 +160,35 @@ def test_drop_node_missing_id_is_a_noop() -> None:
 
 
 # --------------------------------------------------------------------------
-# not_yet_drawn
+# drop_nodes
+# --------------------------------------------------------------------------
+
+
+def test_drop_nodes_removes_every_named_node_and_its_edges() -> None:
+    elements = merge_elements(
+        [], [_node(A), _node(B), _node(C)], [edge_element(A, B), edge_element(A, C)]
+    )
+    remaining = drop_nodes(elements, [B, C])
+    assert {element["data"]["id"] for element in remaining} == {A}
+
+
+def test_drop_nodes_with_nothing_to_drop_returns_the_same_list() -> None:
+    elements = merge_elements([], [_node(A), _node(B)], [edge_element(A, B)])
+    assert drop_nodes(elements, []) == elements
+
+
+def test_drop_nodes_does_not_cascade_to_orphans() -> None:
+    """Unticking one member of a group must not silently delete a subtree the
+    user expanded from it - the orphan stays, visibly disconnected."""
+    elements = merge_elements(
+        [], [_node(A), _node(B), _node(C)], [edge_element(A, B), edge_element(B, C)]
+    )
+    remaining = drop_nodes(elements, [B])
+    assert {element["data"]["id"] for element in remaining} == {A, C}
+
+
+# --------------------------------------------------------------------------
+# not_yet_drawn / already_drawn
 # --------------------------------------------------------------------------
 
 
@@ -174,6 +204,25 @@ def test_not_yet_drawn_empty_when_all_present() -> None:
 
 def test_not_yet_drawn_on_empty_canvas_keeps_everything() -> None:
     assert not_yet_drawn([], [A, B]) == [A, B]
+
+
+def test_already_drawn_keeps_only_present_paths_in_order() -> None:
+    elements = merge_elements([], [_node(C), _node(A)], [])
+    assert already_drawn(elements, [A, B, C]) == [A, C]
+
+
+def test_already_drawn_and_not_yet_drawn_partition_the_paths() -> None:
+    """The group picker's tick state is one half and its to-fetch list the
+    other, so a member must land in exactly one of them."""
+    elements = merge_elements([], [_node(B)], [])
+    paths = [A, B, C]
+    assert sorted(already_drawn(elements, paths) + not_yet_drawn(elements, paths)) == (
+        sorted(paths)
+    )
+
+
+def test_already_drawn_on_empty_canvas_is_empty() -> None:
+    assert already_drawn([], [A, B]) == []
 
 
 # --------------------------------------------------------------------------
