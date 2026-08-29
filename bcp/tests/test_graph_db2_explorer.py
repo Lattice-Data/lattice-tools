@@ -170,6 +170,37 @@ def test_detail_panel_for_a_group_offers_a_picker() -> None:
     assert "Fan out all 30" in rendered
 
 
+def _picker(children: list):
+    """The member-pick dropdown out of a group detail panel."""
+    return next(
+        child for child in children if getattr(child, "id", None) == "member-pick"
+    )
+
+
+def test_group_picker_ticks_nothing_when_no_member_is_drawn() -> None:
+    members = [raw_matrix_file(index) for index in range(30)]
+    data = group_element(MFS, "RawMatrixFile", members, TEST_MODE)["data"]
+    assert _picker(detail_panel(data, TEST_MODE)).value == []
+
+
+def test_group_picker_ticks_exactly_the_drawn_members() -> None:
+    """The tick state is the canvas, so the panel takes it as an argument rather
+    than keeping its own record of what was clicked."""
+    members = [raw_matrix_file(index) for index in range(30)]
+    data = group_element(MFS, "RawMatrixFile", members, TEST_MODE)["data"]
+    drawn = [members[2], members[11]]
+    picker = _picker(detail_panel(data, TEST_MODE, drawn))
+    assert picker.value == drawn
+    # every member stays selectable, drawn or not
+    assert len(picker.options) == 30
+
+
+def test_group_picker_explains_that_unticking_removes() -> None:
+    members = [raw_matrix_file(index) for index in range(30)]
+    data = group_element(MFS, "RawMatrixFile", members, TEST_MODE)["data"]
+    assert "untick" in str(detail_panel(data, TEST_MODE))
+
+
 def test_detail_panel_for_a_node_lists_properties() -> None:
     LatticeNode(TISSUE).object_json = {
         "@id": TISSUE,

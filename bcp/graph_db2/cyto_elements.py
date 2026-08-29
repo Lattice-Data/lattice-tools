@@ -332,6 +332,17 @@ def not_yet_drawn(elements: list[dict], paths: Collection[str]) -> list[str]:
     return [path for path in paths if path not in present]
 
 
+def already_drawn(elements: list[dict], paths: Collection[str]) -> list[str]:
+    """
+    The subset of `paths` currently on the canvas, in the given order.
+
+    Backs the group picker's tick state: the dropdown shows the canvas rather
+    than a separate record of what was clicked, so the two cannot drift.
+    """
+    present = {element["data"]["id"] for element in elements}
+    return [path for path in paths if path in present]
+
+
 def merge_elements(
     existing: list[dict], new_nodes: list[dict], new_edges: list[dict]
 ) -> list[dict]:
@@ -357,15 +368,31 @@ def merge_elements(
     return list(by_id.values())
 
 
-def drop_node(elements: list[dict], node_id: str) -> list[dict]:
-    """Remove a node and any edge touching it"""
+def drop_nodes(elements: list[dict], node_ids: Collection[str]) -> list[dict]:
+    """
+    Remove nodes and any edge touching one of them.
+
+    Only the named nodes go. Anything that was reachable only through them is
+    left in place as an isolated node rather than cascaded away - unticking one
+    member of a group should not silently delete a subtree the user expanded
+    from it.
+    """
+    doomed = set(node_ids)
+    if not doomed:
+        return elements
     return [
         element
         for element in elements
-        if element["data"]["id"] != node_id
-        and node_id
-        not in (element["data"].get("source"), element["data"].get("target"))
+        if element["data"]["id"] not in doomed
+        and doomed.isdisjoint(
+            (element["data"].get("source"), element["data"].get("target"))
+        )
     ]
+
+
+def drop_node(elements: list[dict], node_id: str) -> list[dict]:
+    """Remove a node and any edge touching it"""
+    return drop_nodes(elements, [node_id])
 
 
 def properties_of(uuid_path: str) -> dict:

@@ -125,6 +125,18 @@ deployments. Anything malformed is rejected up front with
 
   This is not cosmetic: a 512-wide fan lays out roughly 23,000px tall and is
   unreadable at any zoom, and drawing it costs 512 label fetches.
+
+  **The ticks are the canvas.** A member that is drawn shows as ticked, and
+  unticking it takes it back off — so the same picker prunes a fan as well as
+  builds one, including after "Fan out all N", which comes back with every box
+  ticked. The picker applies the *difference* between its selection and the
+  canvas rather than the selection itself, so only newly ticked members cost a
+  fetch and re-firing with an unchanged selection does nothing.
+
+  Removal takes the member and its edges, and nothing else. Anything you
+  expanded *from* that member stays put as an isolated node rather than being
+  cascaded away — losing a subtree to an untick would be far worse than seeing
+  one float.
 - **Layout** is picked from the graph's shape on load — `concentric` when one
   node touches ≥80% of the others (a star), `dagre` otherwise (lineage
   chains). Change it from the dropdown at any time; expansions never override
@@ -227,6 +239,10 @@ can be driven from a notebook or a test without starting a server.
   colliding paths will cross-contaminate.
 - **Re-expanding a node whose group you already fanned out** re-creates the
   placeholder.
+- **Unticking a member removes it even if another expansion drew it too.** The
+  picker's ticks mean "on the canvas", and a node is on the canvas once
+  regardless of how many paths led to it. Unticking it also removes the edges
+  those other expansions contributed; re-expanding the neighbor puts them back.
 - **Full URLs are not accepted** as a seed — only `object_type/uuid` paths, not
   `https://api.data.lattice-data.org/matrix_file_sets/<uuid>/`.
 - The dev server is Flask's. Fine for a local tool; put it behind a real WSGI

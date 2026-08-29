@@ -1,4 +1,5 @@
 from collections import Counter
+from collections.abc import Collection
 
 import dash_cytoscape as cyto
 import requests
@@ -7,18 +8,20 @@ from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 from .cyto_elements import (
     DRAW_BUDGET,
     FAN_THRESHOLD,
+    already_drawn,
     css_color,
     drop_node,
+    drop_nodes,
     expand,
     explode,
     fan_summary,
     fetch_labels,
+    label_for,
     make_gatherer,
     member_options,
     merge_elements,
     neighbors_drawn,
     normalize_path,
-    not_yet_drawn,
     object_url,
     promote_members,
     properties_of,
@@ -137,6 +140,12 @@ def status_text(message: str, ok: bool = True) -> html.Span:
     )
 
 
+def element_counts(elements: list[dict]) -> str:
+    """'12 nodes, 11 edges' for the status line"""
+    nodes = sum(1 for element in elements if "source" not in element["data"])
+    return f"{nodes} nodes, {len(elements) - nodes} edges"
+
+
 def suggest_layout(elements: list[dict]) -> str:
     """
     Pick a layout to match the graph's shape.
@@ -194,7 +203,14 @@ def format_value(value) -> str:
     return text if len(text) <= 140 else text[:137] + "..."
 
 
-def detail_panel(node_data: dict | None, mode: str) -> list:
+def detail_panel(
+    node_data: dict | None, mode: str, drawn: Collection[str] = ()
+) -> list:
+    """
+    Side panel for the tapped node. `drawn` is the subset of a group's members
+    currently on the canvas, and becomes the picker's tick state - the dropdown
+    reflects the canvas rather than a separate memory of what was clicked.
+    """
     if not node_data:
         return [html.P("Click a node to expand it and see its properties.")]
 
@@ -204,13 +220,15 @@ def detail_panel(node_data: dict | None, mode: str) -> list:
             html.H4(node_data["label"], style={"margin": "0 0 4px"}),
             html.P(
                 f"{len(members)} {node_data['node_type']} references, collapsed "
-                "because the whole fan is over the draw budget. Search and tick "
-                "as many as you want - clearing one leaves it on the canvas.",
+                "because the whole fan is over the draw budget. Ticked members "
+                "are the ones on the canvas - search and tick to draw, untick "
+                "to take one off again.",
                 style={"marginTop": 0},
             ),
             dcc.Dropdown(
                 id="member-pick",
                 options=member_options(members, mode),
+                value=list(drawn),
                 placeholder=f"search {len(members)} {node_data['node_type']}...",
                 multi=True,
                 optionHeight=44,
@@ -482,12 +500,9 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         action = f"{target} - {fan_summary(nodes)}"
 
         merged = merge_elements(elements, nodes, edges)
-        node_count = sum(1 for element in merged if "source" not in element["data"])
         return (
             merged,
-            status_text(
-                f"{action} - {node_count} nodes, {len(merged) - node_count} edges"
-            ),
+            status_text(f"{action} - {element_counts(merged)}"),
             # a new seed replaces the graph, so re-pick the layout for its shape;
             # an expansion builds on what the user is already looking at
             suggest_layout(merged) if loading else no_update,
@@ -533,59 +548,105 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
     def choose_layout(choice):
         return LAYOUTS[choice]
 
+    # Rebuilding the panel is how the fan-out button re-ticks the picker. The
+    # alternative - making member-pick.value both an input and an output of this
+    # callback - is a self-cycle, and allow_duplicate on details.children needs
+    # nothing this app is not already relying on.
     @app.callback(
         Output("graph", "elements", allow_duplicate=True),
         Output("status", "children", allow_duplicate=True),
+        Output("details", "children", allow_duplicate=True),
         Input("member-pick", "value"),
         Input("fan-out", "n_clicks"),
         State("graph", "tapNodeData"),
         State("graph", "elements"),
         prevent_initial_call=True,
     )
-    def draw_group_members(picked, _clicks, tapped, elements):
+    def draw_group_members(picked, clicks, tapped, elements):
         if not tapped or not tapped.get("is_group"):
-            return no_update, no_update
+            return no_update, no_update, no_update
 
         elements = elements or []
-        if ctx.triggered_id == "fan-out":
+        members = tapped["members"]
+
+        # `and clicks`: rebuilding the panel hands back a fresh button with
+        # n_clicks=0, and this must not read that as another click. Falling
+        # through to the difference below is safe either way - after a fan-out
+        # there is nothing left to apply.
+        if ctx.triggered_id == "fan-out" and clicks:
             nodes, edges = explode(tapped, gatherer, mode=mode)
             # the placeholder is gone once its members are all on the canvas
-            elements = drop_node(elements, tapped["id"])
-            action = f"fanned out {len(nodes)} {tapped['node_type']}"
-        else:
-            # the dropdown reports its whole selection on every change, so only
-            # the members not already on the canvas are worth fetching
-            fresh = not_yet_drawn(elements, picked or [])
-            if not fresh:
-                return no_update, no_update
-            nodes, edges = promote_members(fresh, tapped["parent_path"], gatherer, mode)
-            action = (
-                f"added {nodes[0]['data']['label']}"
-                if len(fresh) == 1
-                else f"added {len(fresh)} {tapped['node_type']}"
+            merged = merge_elements(drop_node(elements, tapped["id"]), nodes, edges)
+            return (
+                merged,
+                status_text(
+                    f"fanned out {len(nodes)} {tapped['node_type']} - "
+                    f"{element_counts(merged)}"
+                ),
+                # every member is drawn now, so every box comes back ticked -
+                # and the picker stays, so the fan can be pruned back down
+                detail_panel(tapped, mode, already_drawn(merged, members)),
             )
 
-        merged = merge_elements(elements, nodes, edges)
-        node_count = sum(1 for element in merged if "source" not in element["data"])
+        # The dropdown reports its whole selection on every change, so the
+        # difference against the canvas is the work: ticks not drawn yet get
+        # fetched, members drawn but no longer ticked come off. Applying a
+        # difference rather than the selection itself makes this idempotent -
+        # re-firing with an unchanged selection is a no-op.
+        picked = set(picked or [])
+        drawn = set(already_drawn(elements, members))
+        additions = [path for path in members if path in picked and path not in drawn]
+        removals = [path for path in members if path in drawn and path not in picked]
+        if not additions and not removals:
+            return no_update, no_update, no_update
+
+        nodes, edges = (
+            promote_members(additions, tapped["parent_path"], gatherer, mode)
+            if additions
+            else ([], [])
+        )
+        merged = merge_elements(drop_nodes(elements, removals), nodes, edges)
+
+        parts = []
+        if additions:
+            parts.append(
+                f"added {nodes[0]['data']['label']}"
+                if len(additions) == 1
+                else f"added {len(additions)} {tapped['node_type']}"
+            )
+        if removals:
+            parts.append(
+                f"removed {label_for(LatticeNode(removals[0]))}"
+                if len(removals) == 1
+                else f"removed {len(removals)} {tapped['node_type']}"
+            )
+        # the picker already shows the selection the user just made, so leaving
+        # the panel alone avoids stealing focus mid-edit
         return (
             merged,
-            status_text(
-                f"{action} - {node_count} nodes, {len(merged) - node_count} edges"
-            ),
+            status_text(f"{', '.join(parts)} - {element_counts(merged)}"),
+            no_update,
         )
 
     # prevent_initial_call keeps the startup notice; without it this fires once
-    # with tapNodeData=None and overwrites any load error with the generic hint
+    # with tapNodeData=None and overwrites any load error with the generic hint.
+    # elements is State rather than Input because drawing a member changes the
+    # canvas: on Input, every tick would rebuild the panel underneath the user.
     @app.callback(
         Output("details", "children"),
         Input("graph", "tapNodeData"),
+        State("graph", "elements"),
         prevent_initial_call=True,
     )
-    def show_details(tapped):
-        if tapped and tapped.get("is_group"):
-            # one batched report so the picker is searchable by alias rather
-            # than by uuid prefix
-            fetch_labels(tapped["members"], gatherer)
-        return detail_panel(tapped, mode)
+    def show_details(tapped, elements):
+        if not tapped or not tapped.get("is_group"):
+            return detail_panel(tapped, mode)
+
+        # one batched report so the picker is searchable by alias rather than by
+        # uuid prefix
+        fetch_labels(tapped["members"], gatherer)
+        return detail_panel(
+            tapped, mode, already_drawn(elements or [], tapped["members"])
+        )
 
     return app

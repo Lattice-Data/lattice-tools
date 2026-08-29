@@ -6,6 +6,8 @@ import pytest
 import requests
 
 from graph_db2.cyto_elements import (
+    already_drawn,
+    drop_nodes,
     expand,
     explode,
     fetch_labels,
@@ -311,6 +313,104 @@ def test_promote_members_empty_selection_is_a_noop() -> None:
     nodes, edges = promote_members([], MFS, gatherer)
     assert (nodes, edges) == ([], [])
     assert gatherer.calls == []
+
+
+# --------------------------------------------------------------------------
+# the group picker's tick state
+# --------------------------------------------------------------------------
+
+
+def _element_ids(elements: list[dict]) -> set[str]:
+    return {element["data"]["id"] for element in elements}
+
+
+def test_picker_starts_with_nothing_ticked() -> None:
+    """A freshly collapsed group has none of its members on the canvas."""
+    gatherer = fake_gatherer()
+    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
+    collapsed = merge_elements([], nodes, edges)
+    assert already_drawn(collapsed, groups_in(nodes)[0]["members"]) == []
+
+
+def test_ticking_members_shows_them_as_drawn() -> None:
+    gatherer = fake_gatherer()
+    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
+    elements = merge_elements([], nodes, edges)
+    group = groups_in(nodes)[0]
+    members = group["members"]
+
+    picked = [members[3], members[7]]
+    drawn_nodes, drawn_edges = promote_members(picked, group["parent_path"], gatherer)
+    elements = merge_elements(elements, drawn_nodes, drawn_edges)
+
+    assert already_drawn(elements, members) == picked
+
+
+def test_unticking_every_member_restores_the_collapsed_graph() -> None:
+    """The picker applies the difference between its selection and the canvas,
+    so tick-then-untick has to land back exactly where it started."""
+    gatherer = fake_gatherer()
+    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
+    collapsed = merge_elements([], nodes, edges)
+    group = groups_in(nodes)[0]
+    members = group["members"]
+
+    picked = [members[3], members[7]]
+    drawn_nodes, drawn_edges = promote_members(picked, group["parent_path"], gatherer)
+    elements = merge_elements(collapsed, drawn_nodes, drawn_edges)
+    assert _element_ids(elements) > _element_ids(collapsed)
+
+    # unticking both: the difference to apply is every drawn member
+    elements = drop_nodes(elements, already_drawn(elements, members))
+    assert _element_ids(elements) == _element_ids(collapsed)
+    assert dangling_edges(elements) == []
+
+
+def test_unticking_one_of_two_leaves_the_other_drawn() -> None:
+    gatherer = fake_gatherer()
+    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
+    elements = merge_elements([], nodes, edges)
+    group = groups_in(nodes)[0]
+    members = group["members"]
+
+    kept, dropped = members[3], members[7]
+    drawn_nodes, drawn_edges = promote_members(
+        [kept, dropped], group["parent_path"], gatherer
+    )
+    elements = merge_elements(elements, drawn_nodes, drawn_edges)
+
+    elements = drop_nodes(elements, [dropped])
+    assert already_drawn(elements, members) == [kept]
+    assert dangling_edges(elements) == []
+
+
+def test_group_placeholder_survives_unticking_its_members() -> None:
+    """The placeholder is not one of its own members, so pruning the fan back to
+    nothing must leave it clickable rather than delete it."""
+    gatherer = fake_gatherer()
+    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
+    elements = merge_elements([], nodes, edges)
+    group = groups_in(nodes)[0]
+
+    drawn_nodes, drawn_edges = promote_members(
+        [group["members"][0]], group["parent_path"], gatherer
+    )
+    elements = merge_elements(elements, drawn_nodes, drawn_edges)
+    elements = drop_nodes(elements, [group["members"][0]])
+
+    assert group["id"] in _element_ids(elements)
+
+
+def test_fanned_out_group_reports_every_member_drawn() -> None:
+    """Fan out all N ticks every box, so the picker can prune the fan back."""
+    gatherer = fake_gatherer()
+    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
+    elements = merge_elements([], nodes, edges)
+    group = groups_in(nodes)[0]
+
+    member_nodes, member_edges = explode(group, gatherer)
+    elements = merge_elements(elements, member_nodes, member_edges)
+    assert already_drawn(elements, group["members"]) == group["members"]
 
 
 def test_fetch_labels_skips_already_cached() -> None:
