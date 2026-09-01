@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,11 +29,12 @@ from file_extract.scale_h5ad import (
     is_scale_mtx_key,
     leftover_cram_uris,
     leftover_cram_warning,
+    empty_raw_subdir_warning,
     is_cram_in_raw_search,
     list_raw_crams,
     parse_scale_cram_name,
     parse_samples_csv,
-    raw_cram_search_prefix,
+    raw_cram_search_prefixes,
     resolve_raw_subdir,
     sample_from_filename,
     tsv_filename,
@@ -225,6 +227,13 @@ def test_validate_raw_subdirs_allows_names_and_s3_uris() -> None:
         validate_raw_subdirs(["proj/raw/426971"])
 
 
+def test_validate_raw_subdirs_rejects_a_bucket_with_no_directory() -> None:
+    """A bucket alone would be searched whole and match foreign crams."""
+    for value in ["s3://novogene-delivery", "s3://novogene-delivery/"]:
+        with pytest.raises(ScaleExtractError, match="name a directory"):
+            validate_raw_subdirs([value])
+
+
 def test_parse_scale_cram_name() -> None:
     gex = parse_scale_cram_name("426971-RNA3-098C_GEX_QSR-7_10A.cram")
     assert gex == ScaleCram(qsr="7", well="10A", scaleplex=False)
@@ -267,14 +276,61 @@ def test_resolve_raw_subdir_uses_processed_sibling() -> None:
     ) == ("czi-novogene", "lab/NVUS-04/RNA3_098/")
 
 
-def test_raw_cram_search_prefix_walks_numeric_dirs_under_raw() -> None:
-    assert raw_cram_search_prefix("lab/NVUS-04/RNA3_098/") == (
-        "lab/NVUS-04/RNA3_098/raw/"
+def test_raw_cram_search_prefixes_tries_raw_child_then_prefix() -> None:
+    """The raw/ child is probed first; the prefix itself is the fallback."""
+    assert raw_cram_search_prefixes("lab/NVUS-04/RNA3_098/") == (
+        "lab/NVUS-04/RNA3_098/raw/",
+        "lab/NVUS-04/RNA3_098/",
     )
-    assert raw_cram_search_prefix("lab/NVUS-04/RNA3_098/raw") == (
-        "lab/NVUS-04/RNA3_098/raw/"
+    assert raw_cram_search_prefixes(RAW) == (f"{RAW}raw/", RAW)
+
+
+def test_raw_cram_search_prefixes_does_not_probe_raw_twice() -> None:
+    """A prefix already at the raw/ level needs no raw/raw/ probe."""
+    assert raw_cram_search_prefixes("lab/NVUS-04/RNA3_098/raw") == (
+        "lab/NVUS-04/RNA3_098/raw/",
     )
-    assert raw_cram_search_prefix(RAW) == RAW
+    assert raw_cram_search_prefixes("raw/") == ("raw/",)
+
+
+def test_raw_cram_search_prefixes_tests_the_segment_not_the_suffix() -> None:
+    """A name merely ending in "raw" is not itself the raw/ level."""
+    assert raw_cram_search_prefixes("proj/ORD01/raw/ORD01_raw/") == (
+        "proj/ORD01/raw/ORD01_raw/raw/",
+        "proj/ORD01/raw/ORD01_raw/",
+    )
+
+
+def test_raw_cram_search_prefixes_never_yields_a_leading_slash() -> None:
+    """An s3:// bucket root resolves to "", which is not a "/" prefix."""
+    assert raw_cram_search_prefixes("/proj/ORD01/") == (
+        "proj/ORD01/raw/",
+        "proj/ORD01/",
+    )
+
+
+def test_raw_cram_search_prefixes_refuses_a_bucket_root() -> None:
+    """Even raw/ at a bucket root spans deliveries, so there is no candidate."""
+    for prefix in ["", "/"]:
+        with pytest.raises(ScaleExtractError, match="not a bucket root"):
+            raw_cram_search_prefixes(prefix)
+
+
+def test_raw_cram_search_prefixes_covers_both_non_numeric_layouts() -> None:
+    """No segment name separates these two shapes, so both must be tried.
+
+    A bare name resolves under raw/, and an s3:// group directory can
+    itself sit under a top-level raw/. Each keeps its own layout.
+    """
+    bare = resolve_raw_subdir("czi-cro", RUNDATE, "RNA3_098")[1]
+    assert bare == "proj/ORD01/raw/RNA3_098/"
+    assert bare in raw_cram_search_prefixes(bare)
+
+    group = resolve_raw_subdir(
+        "czi-cro", RUNDATE, "s3://novogene-delivery/raw/ORD01/RNA3_098"
+    )[1]
+    assert group == "raw/ORD01/RNA3_098/"
+    assert f"{group}raw/" in raw_cram_search_prefixes(group)
 
 
 def test_is_cram_in_raw_search_requires_numeric_folder() -> None:
@@ -284,6 +340,21 @@ def test_is_cram_in_raw_search_requires_numeric_folder() -> None:
     assert not is_cram_in_raw_search(f"{group_raw}notes/file.cram", group_raw)
     assert is_cram_in_raw_search(CRAM_SAMP01_GEX, RAW)
     assert not is_cram_in_raw_search(CRAM_UNMATCHED, RAW)
+
+
+def test_empty_raw_subdir_warning_names_the_entry_and_every_prefix() -> None:
+    """Literal text, because the docs promise the entry and all prefixes."""
+    assert empty_raw_subdir_warning("999999", ("s3://b/p/raw/", "s3://b/p/")) == (
+        "--raw-subdirs '999999' matched no crams under "
+        "s3://b/p/raw/ or s3://b/p/; "
+        "*.cram must sit in a numeric run folder -- one of those prefixes "
+        "itself, or a folder directly under one"
+    )
+    assert empty_raw_subdir_warning("RNA3_098", ("s3://b/g/raw/",)) == (
+        "--raw-subdirs 'RNA3_098' matched no crams under s3://b/g/raw/; "
+        "*.cram must sit in a numeric run folder -- one of those prefixes "
+        "itself, or a folder directly under one"
+    )
 
 
 def test_list_raw_crams_finds_numeric_children_of_group_uri() -> None:
@@ -297,7 +368,104 @@ def test_list_raw_crams_finds_numeric_children_of_group_uri() -> None:
         RUNDATE,
         ["s3://czi-novogene/lab/NVUS-04/RNA3_098"],
     )
-    assert found == [("czi-novogene", nested)]
+    assert found.crams == [("czi-novogene", nested)]
+    assert found.empty_subdirs == []
+    # The raw/ candidate hit, so the fallback prefix must not be walked.
+    assert client.paginate_calls == 1
+
+
+def test_list_raw_crams_walks_the_fallback_only_after_a_miss(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The fallback costs a second listing, so it is only reached on a miss.
+
+    The debug line must name the prefix that actually supplied the crams,
+    which here is the fallback rather than the raw/ child that missed.
+    """
+    nested = "proj/ORD01/raw/RNA3_098/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    client = MockS3Client(keys=[nested])
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="file_extract.scale_h5ad"):
+        found = list_raw_crams(client, BUCKET, RUNDATE, ["RNA3_098"])
+    assert found.crams == [(BUCKET, nested)]
+    assert client.paginate_calls == 2
+    assert f"1 crams under s3://{BUCKET}/proj/ORD01/raw/RNA3_098/" in caplog.text
+    assert "RNA3_098/raw/" not in caplog.text
+
+
+def test_list_raw_crams_logs_nothing_when_a_subdir_is_empty(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No prefix supplied crams, so there is no winner to name."""
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG, logger="file_extract.scale_h5ad"):
+        found = list_raw_crams(MockS3Client(keys=[]), BUCKET, RUNDATE, ["999999"])
+    assert found.crams == []
+    assert "crams under" not in caplog.text
+
+
+def test_list_raw_crams_finds_numeric_children_of_bare_name() -> None:
+    """A bare non-numeric name resolves to raw/{name}/{numeric}/."""
+    nested = "proj/ORD01/raw/RNA3_098/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    found = list_raw_crams(MockS3Client(keys=[nested]), BUCKET, RUNDATE, ["RNA3_098"])
+    assert found.crams == [(BUCKET, nested)]
+    assert found.empty_subdirs == []
+
+
+def test_list_raw_crams_finds_crams_under_a_raw_suffixed_name() -> None:
+    """A subdir named e.g. ORD01_raw still gets its raw/ child searched."""
+    nested = "proj/ORD01/raw/ORD01_raw/raw/426971/426971-R_GEX_QSR-1_1A.cram"
+    found = list_raw_crams(MockS3Client(keys=[nested]), BUCKET, RUNDATE, ["ORD01_raw"])
+    assert found.crams == [(BUCKET, nested)]
+    assert found.empty_subdirs == []
+
+
+def test_list_raw_crams_finds_numeric_children_under_top_level_raw() -> None:
+    """A group dir that itself sits under raw/ still gets its raw/ level."""
+    group = "raw/ORD01/RNA3_098/"
+    nested = f"{group}raw/426971/426971-RNA3-098C_GEX_QSR-1_1A.cram"
+    found = list_raw_crams(
+        MockS3Client(keys=[nested]),
+        BUCKET,
+        RUNDATE,
+        ["s3://novogene-delivery/raw/ORD01/RNA3_098"],
+    )
+    assert found.crams == [("novogene-delivery", nested)]
+    assert found.empty_subdirs == []
+
+
+def test_list_raw_crams_overlapping_subdirs_are_not_reported_empty() -> None:
+    """A subdir whose crams an earlier entry claimed still counts as matched.
+
+    Both values resolve to the same prefix, so the second finds only
+    duplicates. The match counter therefore has to run before the dedup
+    check -- counting after it would call the second entry empty and, under
+    --strict, fail the run.
+    """
+    client = MockS3Client(keys=[CRAM_SAMP01_GEX])
+    found = list_raw_crams(
+        client,
+        BUCKET,
+        RUNDATE,
+        ["426971", f"s3://{BUCKET}/proj/ORD01/raw/426971"],
+    )
+    assert found.crams == [(BUCKET, CRAM_SAMP01_GEX)]
+    assert found.empty_subdirs == []
+
+
+def test_list_raw_crams_reports_subdirs_that_matched_nothing() -> None:
+    client = MockS3Client(keys=[CRAM_SAMP01_GEX])
+    found = list_raw_crams(client, BUCKET, RUNDATE, ["426971", "999999"])
+    assert found.crams == [(BUCKET, CRAM_SAMP01_GEX)]
+    assert found.empty_subdirs == [
+        (
+            "999999",
+            (
+                f"s3://{BUCKET}/proj/ORD01/raw/999999/raw/",
+                f"s3://{BUCKET}/proj/ORD01/raw/999999/",
+            ),
+        )
+    ]
 
 
 def test_well_to_sample_map_expands_barcodes() -> None:
@@ -610,6 +778,45 @@ def test_extract_scale_h5ad_derived_from_group_uri_numeric_raw(
     assert json.loads(rows[0]["derived_from"]) == [
         derived_from_label("example-lab", nested)
     ]
+
+
+def test_extract_scale_h5ad_warns_when_raw_subdir_matched_nothing(
+    tmp_path: Path,
+) -> None:
+    """An empty derived_from is reported, not written out silently."""
+    client = MockS3Client(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR],
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        crc_by_key={SAMP01_QSR: "crc-qsr1"},
+    )
+    out = tmp_path / "no_crams.tsv"
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["RNA3_098"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
+    assert summary.empty_raw_subdirs == ["RNA3_098"]
+    warning = next(w for w in summary.warnings if w.startswith("--raw-subdirs"))
+    # Equality, not substrings: the fallback uri is a substring of the raw/
+    # one, so "uri in warning" is satisfied by the raw/ uri alone and pins
+    # neither the subdir name nor that both prefixes are named.
+    assert warning == empty_raw_subdir_warning(
+        "RNA3_098",
+        (
+            f"s3://{BUCKET}/proj/ORD01/raw/RNA3_098/raw/",
+            f"s3://{BUCKET}/proj/ORD01/raw/RNA3_098/",
+        ),
+    )
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    assert json.loads(rows[0]["derived_from"]) == []
 
 
 def test_format_feature_counts() -> None:

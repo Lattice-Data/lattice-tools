@@ -176,11 +176,11 @@ python -m file_extract scale_h5ad \
 | `--lab` | **Required.** `example-lab` or `/labs/example-lab/` (the lab name prefixes `samples`) |
 | `--metadata-gid` | **Required.** Google Sheet UUID (spreadsheet id in the URL). Reads tab `sample template` |
 | `--metadata-experiment` | **Required.** Keep only `sample template` rows whose `experiment_name` equals this value |
-| `--raw-subdirs` | **Required.** Comma-separated group directories (or `s3://` URIs) that contain `raw/{numeric}/*.cram`. A numeric name such as `426971` is still treated as the `raw/` sibling of the rundate |
+| `--raw-subdirs` | **Required.** Comma-separated directories holding the deliverable CRAMs — either a group directory whose `raw/{numeric}/` folders hold them, or the numeric run folder itself. A bare numeric name such as `426971` is the `raw/` sibling of the rundate; an `s3://` URI must name a directory, not a bucket alone. See **derived_from search** below |
 | `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
 | `--workers` | Thread count (default: min(16, n_files)) |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
-| `--strict` | Exit 1 if any per-file CRC or observation-count fetch fails |
+| `--strict` | Exit 1 if any per-file CRC or observation-count fetch fails, or if a `--raw-subdirs` entry matched no CRAMs |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
 
@@ -188,7 +188,18 @@ python -m file_extract scale_h5ad \
 
 **TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of `{lab}:{cram_filename}` values from `--raw-subdirs`)
 
-**derived_from:** Each `--raw-subdirs` value is listed as `…/raw/{numeric}/*.cram`. An `s3://` URI of the group directory (or of `raw/` itself) is walked one level down into numeric folders; CRAMs are not expected at the listed prefix. A numeric name such as `426971` is still `…/processed/run_date/` → `…/raw/{subdir}/`. Each deliverable `*.cram` (not `unmatched`) is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. The TSV value is `{lab}:{cram_filename}` using `--lab`. A CRAM that does not attach to an output row is printed as a warning.
+**derived_from search:** Each `--raw-subdirs` value resolves to a prefix, and then:
+
+- **Where it looks:** the prefix's `raw/` child first, then the prefix itself. The first one that lists any CRAM wins, so the layout is observed rather than guessed from segment names. Only a prefix whose final segment is exactly `raw` counts as already being at that level; it is listed once, with no `raw/raw/` probe.
+- **What counts:** a deliverable `*.cram` (not `unmatched`) sitting in — or anywhere under — a numeric run folder, which is either the searched prefix itself or a folder directly beneath it.
+- **Layouts this covers:** a group directory holding `raw/{numeric}/`; a numeric run folder holding `*.cram` directly; a group directory that itself sits under a top-level `raw/`, or one merely *named* like `ORD01_raw`. A numeric name such as `426971` maps `…/processed/run_date/` → `…/raw/426971/`.
+- **Rejected:** an `s3://` value naming a bucket with no directory. A whole-bucket search could match CRAMs from an unrelated delivery.
+
+Run with `-v` to log which prefix supplied the CRAMs — useful when a delivery's layout is not the one you expected.
+
+**derived_from matching:** Each CRAM found is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. The TSV value is `{lab}:{cram_filename}` using `--lab`.
+
+**derived_from guardrails:** A CRAM that does not attach to an output row is printed as a warning. So is a `--raw-subdirs` entry that matched no CRAMs at all, naming every prefix that was tried — the quickest way to spot a typo or a layout the resolved prefix does not describe, since otherwise `derived_from` would just come out empty. `--strict` turns that second warning into exit 1.
 
 **Optional introspection dependencies** (needed to read `observation_count` and `feature_counts`):
 

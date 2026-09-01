@@ -26,11 +26,17 @@ def validate_raw_subdirs(values: Sequence[str]) -> list[str]:
             raise ScaleExtractError("--raw-subdirs must not contain empty values")
         if item.startswith("s3://"):
             try:
-                parse_s3_uri(item + "/")
+                location = parse_s3_uri(item + "/")
             except ValueError as exc:
                 raise ScaleExtractError(
                     f"Invalid --raw-subdirs {item!r}: {exc}"
                 ) from exc
+            if not location.prefix:
+                raise ScaleExtractError(
+                    f"Invalid --raw-subdirs {item!r}: name a directory in the "
+                    "bucket; a bucket alone would be searched whole and could "
+                    "match crams from an unrelated delivery"
+                )
             cleaned.append(item)
             continue
         if any(char in item for char in _FORBIDDEN):
