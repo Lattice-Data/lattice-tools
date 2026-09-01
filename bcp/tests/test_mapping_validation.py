@@ -19,6 +19,8 @@ from mapping_validation import (
     get_assays,
     get_order_pattern,
     load_sif_group_assays,
+    load_sif_libraries,
+    load_sif_library_groups,
     load_sif_scale_group_assays,
     parse_mapping_file,
     validate_10x_multiome_processed_outs,
@@ -954,6 +956,311 @@ def test_validate_library_assay_consistency_detects_groupid_mismatch() -> None:
     m = res["groupid_mismatches"][0]
     assert m["library"] == "LIB1"
     assert m["s3_groupid"] == "LIB2_LIB2F"
+
+
+def _multiome_row(local_lib: str, s3_groupid: str, line: int = 1) -> MappingRow:
+    """A 10x raw mapping row whose local folder is named after the SIF library."""
+    return MappingRow(
+        s3_path=(
+            f"s3://czi-novogene/proj/NVUS0000000000-16/{s3_groupid}/raw/"
+            f"436665-CH01_GEX-Z0073-ACGT_S1_L001_R1_001.fastq.gz"
+        ),
+        local_path=(
+            f"/data/436665-20260827_1204/436665-{local_lib}-Z0073-ACGT/"
+            f"436665-{local_lib}-Z0073-ACGT_S1_L001_R1_001.fastq.gz"
+        ),
+        line_num=line,
+    )
+
+
+def test_validate_library_assay_consistency_multiome_lib_extends_groupid() -> None:
+    """Library names that extend the GroupID with an assay suffix are not mismatches.
+
+    Regression test: ``CH01GEX`` is *longer* than its GroupID ``CH01``, the
+    reverse of the ``LIB1``/``LIB1_LIB1F`` layout the substring check assumed.
+    """
+    lib_assays = {"CH01GEX": "gex", "CH01ATAC": "atac"}
+    lib_groups = {"CH01GEX": {"CH01"}, "CH01ATAC": {"CH01"}}
+    rows = [_multiome_row("CH01GEX", "CH01")]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert res["checked"] == 1
+    assert res["groupid_mismatches"] == []
+
+
+def test_validate_library_assay_consistency_sif_groups_detect_wrong_group() -> None:
+    """A library filed under another group's GroupID is still flagged."""
+    lib_assays = {"CH01GEX": "gex", "CH02GEX": "gex"}
+    lib_groups = {"CH01GEX": {"CH01"}, "CH02GEX": {"CH02"}}
+    rows = [_multiome_row("CH01GEX", "CH02")]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert len(res["groupid_mismatches"]) == 1
+    m = res["groupid_mismatches"][0]
+    assert m["library"] == "CH01GEX"
+    assert m["sif_groupids"] == ["CH01"]
+    assert m["s3_groupid"] == "CH02"
+
+
+def test_validate_library_assay_consistency_sif_groups_stricter_than_substring() -> (
+    None
+):
+    """Exact SIF comparison catches a misfiling the substring check let through."""
+    lib_assays = {"LIB1": "gex"}
+    lib_groups = {"LIB1": {"LIB1_LIB1F"}}
+    rows = [
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-28/LIB1_LIB9F/raw/100-LIB1_LIB9F_GEX-Z0001-ACGT_R1.fastq.gz",
+            local_path="/data/100-20260101_0000/100-LIB1-Z0001-ACGT/100-LIB1-Z0001-ACGT_R1.fastq.gz",
+            line_num=1,
+        ),
+    ]
+    # "LIB1" is a substring of "LIB1_LIB9F", so the old check passed this.
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert len(res["groupid_mismatches"]) == 1
+    assert res["groupid_mismatches"][0]["sif_groupids"] == ["LIB1_LIB1F"]
+
+
+def test_validate_library_assay_consistency_skips_local_paths_without_lib_name() -> (
+    None
+):
+    """Vendors need not build local paths from SIF library names.
+
+    Such rows are skipped and counted, never reported as GroupID mismatches.
+    """
+    lib_assays = {"CH01GEX": "gex"}
+    lib_groups = {"CH01GEX": {"CH01"}}
+    rows = [
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-16/CH01/raw/436665-CH01_GEX-Z0073-ACGT_S1_L001_R1_001.fastq.gz",
+            local_path="/vendor/run7/sample_00042/reads_R1.fastq.gz",
+            line_num=1,
+        ),
+    ]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert res["checked"] == 0
+    assert res["skipped"] == 1
+    assert res["groupid_mismatches"] == []
+
+
+def test_validate_library_assay_consistency_accepts_any_matching_library_group() -> (
+    None
+):
+    """A path matching two libraries passes if S3 matches either one's group.
+
+    ``-CH01GEX-`` is a substring of ``-CH01GEX-CH02GEX-``, so both library
+    names match this local path.  The file really belongs to ``CH02``; failing
+    it because the other candidate lives in ``CH01`` would be wrong.
+    """
+    lib_assays = {"CH01GEX": "gex", "CH01GEX-CH02GEX": "gex"}
+    lib_groups = {"CH01GEX": {"CH01"}, "CH01GEX-CH02GEX": {"CH02"}}
+    rows = [_multiome_row("CH01GEX-CH02GEX", "CH02")]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert res["checked"] == 1
+    assert res["groupid_mismatches"] == []
+
+
+def test_validate_library_assay_consistency_multi_match_still_fails_unrelated() -> None:
+    """When S3 matches none of the candidate groups the row is still a mismatch."""
+    lib_assays = {"CH01GEX": "gex", "CH01GEX-CH02GEX": "gex"}
+    lib_groups = {"CH01GEX": {"CH01"}, "CH01GEX-CH02GEX": {"CH02"}}
+    rows = [_multiome_row("CH01GEX-CH02GEX", "ZZ99")]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert len(res["groupid_mismatches"]) == 1
+    assert res["groupid_mismatches"][0]["sif_groupids"] == ["CH01", "CH02"]
+
+
+def test_validate_library_assay_consistency_library_in_two_groups() -> None:
+    """A library the SIF lists under two GroupIDs matches either of them."""
+    lib_assays = {"SHARED": "gex"}
+    lib_groups = {"SHARED": {"GRP_A", "GRP_B"}}
+    rows = [_multiome_row("SHARED", "GRP_B")]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert res["groupid_mismatches"] == []
+
+
+def test_validate_library_assay_consistency_assay_uses_longest_match() -> None:
+    """The assay check keeps using the longest matching library name.
+
+    Regression test: preferring a shorter library just because the SIF knows
+    its GroupID would look up the wrong library's expected assay.
+    """
+    lib_assays = {"CH01": "gex", "CH01-ATAC": "atac"}
+    # Only the shorter library has a GroupID in the SIF.
+    lib_groups = {"CH01": {"CH01"}}
+    rows = [
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-16/CH01/raw/436665-CH01_ATAC-Z0001-ACGT_S1_L001_R1_001.fastq.gz",
+            local_path="/data/436665-CH01-ATAC-Z0001-ACGT/436665-CH01-ATAC-Z0001-ACGT_S1_L001_R1_001.fastq.gz",
+            line_num=1,
+        ),
+    ]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert res["assay_mismatches"] == []
+
+
+def test_validate_library_assay_consistency_falls_back_without_sif_groups() -> None:
+    """Without SIF group info, containment in either direction is accepted."""
+    lib_assays = {"CH01GEX": "gex"}
+    rows = [_multiome_row("CH01GEX", "CH01")]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene")
+    assert res["checked"] == 1
+    assert res["groupid_mismatches"] == []
+
+
+def test_validate_library_assay_consistency_fallback_still_fails_unrelated() -> None:
+    """The no-SIF-group fallback still fails a library with no overlap at all."""
+    lib_assays = {"CH01GEX": "gex"}
+    rows = [_multiome_row("CH01GEX", "ZZ99")]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene")
+    assert len(res["groupid_mismatches"]) == 1
+    assert res["groupid_mismatches"][0]["sif_groupids"] == []
+
+
+# ---------------------------------------------------------------------------
+# load_sif_library_groups
+# ---------------------------------------------------------------------------
+
+
+def test_load_sif_library_groups_multiome(tmp_path: Path) -> None:
+    """Multiome SIF: two libraries both belong to one GroupID."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(
+        "Library name,Group Identifier,Assay Type\n"
+        "CH01GEX,CH01,GEX\n"
+        "CH01ATAC,CH01,ATAC\n",
+        encoding="utf-8",
+    )
+    assert load_sif_library_groups(sif, provider="novogene") == {
+        "CH01GEX": {"CH01"},
+        "CH01ATAC": {"CH01"},
+    }
+
+
+def test_load_sif_library_groups_paired_libraries(tmp_path: Path) -> None:
+    """Paired 10x SIF: GroupID is a concatenation of its member libraries."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(
+        "Library name,Group Identifier,Assay Type\n"
+        "LIB1,LIB1_LIB1F,GEX\n"
+        "LIB1F,LIB1_LIB1F,CRI\n",
+        encoding="utf-8",
+    )
+    assert load_sif_library_groups(sif, provider="novogene") == {
+        "LIB1": {"LIB1_LIB1F"},
+        "LIB1F": {"LIB1_LIB1F"},
+    }
+
+
+def test_load_sif_library_groups_normalizes_space_plus(tmp_path: Path) -> None:
+    """'A + AF' in the SIF maps to the 'A_AF' S3 directory name."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(
+        "Library name,Group Identifier,Assay Type\nA,A + AF,GEX\nAF,A + AF,CRI\n",
+        encoding="utf-8",
+    )
+    assert load_sif_library_groups(sif, provider="novogene") == {
+        "A": {"A_AF"},
+        "AF": {"A_AF"},
+    }
+
+
+def test_load_sif_library_groups_without_group_column(tmp_path: Path) -> None:
+    """A SIF with no Group Identifier column yields an empty mapping."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text("Library name,Assay Type\nLIB1,GEX\n", encoding="utf-8")
+    assert load_sif_library_groups(sif, provider="novogene") == {}
+
+
+def test_load_sif_library_groups_excel(tmp_path: Path) -> None:
+    """The Excel path resolves both columns on the same sheet."""
+    pd = pytest.importorskip("pandas")
+    sif = tmp_path / "sif.xlsx"
+    pd.DataFrame(
+        {
+            "Library name": ["CH01GEX", "CH01ATAC"],
+            "Group Identifier": ["CH01", "CH01"],
+            "Assay Type": ["GEX", "ATAC"],
+        }
+    ).to_excel(sif, index=False)
+    assert load_sif_library_groups(sif, provider="novogene") == {
+        "CH01GEX": {"CH01"},
+        "CH01ATAC": {"CH01"},
+    }
+
+
+def test_load_sif_library_groups_does_not_invent_groups_for_blanks(
+    tmp_path: Path,
+) -> None:
+    """A blank Group Identifier means unknown, not 'same as the row above'.
+
+    Inheriting the previous row's group would let an ungrouped library be
+    reported as belonging to a group it has nothing to do with.
+    """
+    pd = pytest.importorskip("pandas")
+    sif = tmp_path / "sif.xlsx"
+    pd.DataFrame(
+        {
+            "Library name": ["CH01GEX", "SOLO9"],
+            "Group Identifier": ["CH01", None],
+            "Assay Type": ["GEX", "ATAC"],
+        }
+    ).to_excel(sif, index=False)
+    assert load_sif_library_groups(sif, provider="novogene") == {"CH01GEX": {"CH01"}}
+
+
+def test_load_sif_library_groups_excel_and_csv_agree(tmp_path: Path) -> None:
+    """The same SIF content yields the same groups as .xlsx and as .csv."""
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame(
+        {
+            "Library name": ["CH01GEX", "SOLO9"],
+            "Group Identifier": ["CH01", None],
+            "Assay Type": ["GEX", "ATAC"],
+        }
+    )
+    xlsx = tmp_path / "sif.xlsx"
+    frame.to_excel(xlsx, index=False)
+    csv_path = tmp_path / "sif.csv"
+    frame.to_csv(csv_path, index=False)
+    assert load_sif_library_groups(
+        xlsx, provider="novogene"
+    ) == load_sif_library_groups(csv_path, provider="novogene")
+
+
+def test_load_sif_library_groups_numeric_group_ids(tmp_path: Path) -> None:
+    """Whole-number Group Identifiers do not pick up a pandas '.0' suffix."""
+    pd = pytest.importorskip("pandas")
+    sif = tmp_path / "sif.xlsx"
+    pd.DataFrame(
+        {
+            "Library name": ["A1", "B1"],
+            # The blank makes pandas read the column as float64.
+            "Group Identifier": [1234, None],
+            "Assay Type": ["GEX", "ATAC"],
+        }
+    ).to_excel(sif, index=False)
+    assert load_sif_library_groups(sif, provider="novogene") == {"A1": {"1234"}}
+
+
+def test_load_sif_libraries_reads_both_maps_from_one_sheet(tmp_path: Path) -> None:
+    """A stale tab must not supply groups for the sheet the assays came from."""
+    pd = pytest.importorskip("pandas")
+    sif = tmp_path / "sif.xlsx"
+    with pd.ExcelWriter(sif) as writer:
+        # Old tab: Library name + Group Identifier, but no assay column.
+        pd.DataFrame(
+            {"Library name": ["CH01GEX"], "Group Identifier": ["OLDGRP"]}
+        ).to_excel(writer, sheet_name="Groups", index=False)
+        pd.DataFrame(
+            {
+                "Library name": ["CH01GEX"],
+                "Group Identifier": ["CH01"],
+                "Assay Type": ["GEX"],
+            }
+        ).to_excel(writer, sheet_name="Libraries", index=False)
+
+    assays, groups = load_sif_libraries(sif, provider="novogene")
+    assert assays == {"CH01GEX": "gex"}
+    assert groups == {"CH01GEX": {"CH01"}}
 
 
 def test_normalize_sif_groupid_rewrites_space_plus() -> None:

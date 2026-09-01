@@ -207,11 +207,14 @@ Checks run:
 
   - **Library‑assay consistency (`validate_library_assay_consistency`)**
     - Runs only when the SIF can supply both **Library name** and an assay/application column (Excel or CSV); otherwise this step is skipped with no summary line.
-    - Loads `Library name → assay type` from SIF.
-    - Infers library names from local paths.
+    - Loads `Library name → assay type` and `Library name → GroupID(s)` in one pass over a single sheet (`load_sif_libraries`), so the two mappings can never describe different parts of a workbook.
+    - Looks for SIF library names inside the local paths. Vendors are **not** required to build local paths out of library names — rows where no library name is found are counted as `skipped` and are never reported as mismatches.
     - Validates:
-      - Library name appears in the S3 GroupID.
+      - The S3 GroupID is one of the GroupIDs the SIF files the matching library under. If the SIF supplies no GroupID for it, the check falls back to requiring that the library name and S3 GroupID contain one another in either direction.
       - S3 assay for that GroupID matches the assay expected in the SIF.
+    - A blank Group Identifier cell means *unknown*, never “same as the row above”; such a library simply has no SIF GroupID and takes the fallback path.
+    - Where a local path matches more than one library name, or a library appears in the SIF more than once, the S3 GroupID may match **any** of the candidate GroupIDs — only a GroupID matching none of them is a mismatch.
+    - Note that the relationship between a library name and its GroupID differs per convention, which is why it is read from the SIF rather than inferred: paired 10x concatenates member libraries into the GroupID (`LIB1`, `LIB1F` → `LIB1_LIB1F`), multiome extends the GroupID with an assay suffix (`CH01GEX`, `CH01ATAC` → `CH01`), and Psomagen 10x uses the same string for both.
 
   - **Per‑path SIF coverage (`find_unmatched_sif_paths_10x`)**
     - Ensures that S3 paths map to SIF GroupIDs when possible.

@@ -455,21 +455,82 @@ def load_sif_scale_groupids(
     return set(load_sif_group_assays(sif_path, provider=provider).keys())
 
 
-def load_sif_library_assays(
+def _coerce_cell_to_str(value: object) -> str:
+    """Stringify a spreadsheet cell without pandas' float artefacts.
+
+    A column holding whole numbers alongside any blank cell is read as
+    ``float64``, so a Group Identifier of ``1234`` would otherwise come back as
+    ``"1234.0"`` and never match the ``1234`` S3 directory.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    s = str(value).strip()
+    return "" if s.lower() == "nan" else s
+
+
+def _library_records_from_dataframe(
+    df: pd.DataFrame, provider: str | None
+) -> tuple[dict[str, str], dict[str, set[str]]] | None:
+    """Extract library → assay and library → GroupIDs from one SIF sheet.
+
+    Returns ``None`` when the sheet does not carry the Library name and assay
+    columns, so callers can move on to the next header row / sheet.  The group
+    mapping is empty when the sheet has no Group Identifier column.
+    """
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    lib_col = _find_col(cols, "library name")
+    assay_col = _resolve_assay_column(df.columns, provider)
+    if lib_col is None or assay_col is None:
+        return None
+    group_col = _resolve_group_column(df.columns, provider)
+
+    assay_ff = df[assay_col].ffill()
+    assays: dict[str, str] = {}
+    groups: dict[str, set[str]] = {}
+    for pos in range(len(df)):
+        row_data = df.iloc[pos]
+        lib = _coerce_cell_to_str(row_data.get(lib_col))
+        if not lib:
+            continue
+        assay = _normalize_sif_assay_token(
+            _coerce_cell_to_str(assay_ff.iloc[pos]), provider
+        )
+        if assay:
+            assays[lib] = assay
+        if group_col is not None:
+            # Deliberately not forward-filled: a blank Group Identifier means
+            # "unknown", and inventing one would let an ungrouped library be
+            # reported as belonging to the group above it.
+            gid = _coerce_cell_to_str(row_data.get(group_col))
+            if gid and not _is_psomagen_sif_example_groupid(gid, provider):
+                groups.setdefault(lib, set()).add(_normalize_sif_groupid(gid))
+
+    if not assays:
+        return None
+    return assays, groups
+
+
+def load_sif_libraries(
     sif_path: str | Path, provider: str | None = None
-) -> dict[str, str]:
-    """Load a Library-Name → assay-type mapping from a SIF file.
+) -> tuple[dict[str, str], dict[str, set[str]]]:
+    """Load ``(library → assay, library → GroupIDs)`` from a SIF file.
 
-    Returns a dict mapping each individual library name to its assay type
-    (lower-cased).  For 10x data the SIF typically has one row per
-    library, so ``FTF1732A`` → ``gex`` and ``FTF1732AF`` → ``cri``.
+    Both mappings are read from the *same* sheet and header row, so they can
+    never end up describing different parts of a workbook (a stale tab, or an
+    example block above the real header).
 
-    ``provider`` selects Psomagen-style assay column headers when needed.
+    Assay types are lower-cased SOP tokens.  Group Identifiers are normalised
+    with :func:`_normalize_sif_groupid` so they can be compared directly
+    against S3 GroupID directory names.  A library maps to a *set* of groups
+    because nothing guarantees a library name appears only once in a SIF.
+
+    ``provider`` selects Psomagen-style assay/group column headers when needed.
     """
     import csv
 
     p = Path(sif_path)
-    result: dict[str, str] = {}
 
     if p.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
         names = _excel_sheet_names(p)
@@ -481,39 +542,51 @@ def load_sif_library_assays(
                     df = _read_excel_sif_sheet(p, sheet, hr)
                     if df is None or df.empty:
                         continue
-                    cols = {str(c).strip().lower(): c for c in df.columns}
-                    lib_col = _find_col(cols, "library name")
-                    assay_col = _resolve_assay_column(df.columns, provider)
-                    if lib_col is None or assay_col is None:
-                        continue
-                    assay_ff = df[assay_col].ffill()
-                    sheet_rows: dict[str, str] = {}
-                    for pos in range(len(df)):
-                        row_data = df.iloc[pos]
-                        lib = str(row_data.get(lib_col, "")).strip()
-                        assay_raw = str(assay_ff.iloc[pos]).strip()
-                        assay = _normalize_sif_assay_token(assay_raw, provider)
-                        if lib and lib != "nan" and assay:
-                            sheet_rows[lib] = assay
-                    if sheet_rows:
-                        return sheet_rows
+                    records = _library_records_from_dataframe(df, provider)
+                    if records is not None:
+                        return records
 
+    assays: dict[str, str] = {}
+    groups: dict[str, set[str]] = {}
     with p.open("r", encoding="utf-8", errors="ignore") as fh:
         reader = csv.DictReader(fh)
         if reader.fieldnames:
             field_map = {name.lower(): name for name in reader.fieldnames}
             lib_col_name = _find_col(field_map, "library name")
             assay_col_name = _resolve_assay_column(reader.fieldnames, provider)
+            group_col_name = _resolve_group_column(reader.fieldnames, provider)
             if lib_col_name is not None and assay_col_name is not None:
                 for row in reader:
                     lib = (row.get(lib_col_name) or "").strip()
+                    if not lib:
+                        continue
                     assay = _normalize_sif_assay_token(
                         (row.get(assay_col_name) or "").strip(), provider
                     )
-                    if lib and assay:
-                        result[lib] = assay
+                    if assay:
+                        assays[lib] = assay
+                    if group_col_name is not None:
+                        gid = (row.get(group_col_name) or "").strip()
+                        if gid and not _is_psomagen_sif_example_groupid(gid, provider):
+                            groups.setdefault(lib, set()).add(
+                                _normalize_sif_groupid(gid)
+                            )
 
-    return result
+    return assays, groups
+
+
+def load_sif_library_assays(
+    sif_path: str | Path, provider: str | None = None
+) -> dict[str, str]:
+    """Load a Library-Name → assay-type mapping from a SIF file.
+
+    Returns a dict mapping each individual library name to its assay type
+    (lower-cased).  For 10x data the SIF typically has one row per
+    library, so ``FTF1732A`` → ``gex`` and ``FTF1732AF`` → ``cri``.
+
+    ``provider`` selects Psomagen-style assay column headers when needed.
+    """
+    return load_sif_libraries(sif_path, provider)[0]
 
 
 def load_sif_library_names(sif_path: str | Path) -> set[str]:
@@ -565,11 +638,34 @@ def load_sif_library_names(sif_path: str | Path) -> set[str]:
     return result
 
 
+def load_sif_library_groups(
+    sif_path: str | Path, provider: str | None = None
+) -> dict[str, set[str]]:
+    """Load a Library-Name → Group-Identifier(s) mapping from a SIF file.
+
+    The SIF states this relationship explicitly: each library row carries the
+    Group Identifier it belongs to.  Reading it avoids having to *infer* the
+    relationship from the text of the names, which differs per convention:
+
+    * paired 10x -- Group Identifier is a concatenation of its member library
+      names (``LIB1`` and ``LIB1F`` both live under ``LIB1_LIB1F``);
+    * multiome 10x -- library names extend the Group Identifier with an assay
+      suffix (``CH01GEX`` and ``CH01ATAC`` both live under ``CH01``);
+    * Psomagen 10x -- library name and Group Identifier are identical.
+
+    Returns an empty dict when the SIF has no Group Identifier column.  See
+    :func:`load_sif_libraries` for the details of how the sheet is chosen.
+    """
+    return load_sif_libraries(sif_path, provider)[1]
+
+
 __all__ = [
     "_normalize_sif_groupid",
     "load_sif_group_assays",
     "load_sif_scale_group_assays",
     "load_sif_scale_groupids",
+    "load_sif_libraries",
     "load_sif_library_assays",
+    "load_sif_library_groups",
     "load_sif_library_names",
 ]

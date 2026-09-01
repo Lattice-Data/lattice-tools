@@ -15,7 +15,7 @@ from .parsing import parse_mapping_file
 from .sif_io import (
     _normalize_sif_groupid,
     load_sif_group_assays,
-    load_sif_library_assays,
+    load_sif_libraries,
 )
 from .uniqueness import validate_uniqueness
 from .validators import (
@@ -578,10 +578,10 @@ def _validate_10x_sif(
     exit_code |= _report_sif_comparison(cmp, fail_reasons)
 
     # Library-level cross-checks (assay + GroupID consistency)
-    lib_assays = load_sif_library_assays(sif_path, provider=provider)
+    lib_assays, lib_groups = load_sif_libraries(sif_path, provider=provider)
     if lib_assays:
         exit_code |= _report_library_consistency(
-            mappings, lib_assays, provider, fail_reasons
+            mappings, lib_assays, provider, fail_reasons, lib_groups=lib_groups
         )
 
     # Per-path SIF coverage
@@ -598,10 +598,13 @@ def _report_library_consistency(
     lib_assays: dict[str, str],
     provider: str,
     fail_reasons: List[str],
+    lib_groups: dict[str, set[str]] | None = None,
 ) -> int:
     """Run and report library-assay consistency checks."""
     exit_code = 0
-    lib_res = validate_library_assay_consistency(mappings, lib_assays, provider)
+    lib_res = validate_library_assay_consistency(
+        mappings, lib_assays, provider, lib_groups
+    )
     n_assay = len(lib_res["assay_mismatches"])
     n_gid = len(lib_res["groupid_mismatches"])
     print(
@@ -614,17 +617,23 @@ def _report_library_consistency(
         )
     )
     if n_gid:
-        print("  GroupID mismatches (library in local path not in S3 GroupID):")
+        print("  GroupID mismatches (library's GroupID does not match S3 GroupID):")
         for item in lib_res["groupid_mismatches"][:10]:
+            sif_gids = item["sif_groupids"]
+            expected = (
+                f"belongs to SIF GroupID {' or '.join(repr(g) for g in sif_gids)}"
+                if sif_gids
+                else "has no SIF GroupID and does not overlap"
+            )
             print(
-                f"    line {item['line']}: local has '{item['library']}' "
-                f"but S3 GroupID is '{item['s3_groupid']}'"
+                f"    line {item['line']}: local library '{item['library']}' "
+                f"{expected} but S3 GroupID is '{item['s3_groupid']}'"
             )
         if n_gid > 10:
             print(f"    ... and {n_gid - 10} more")
         exit_code = 1
         fail_reasons.append(
-            f"{n_gid} GroupID mismatches (local library name not found in S3 GroupID)"
+            f"{n_gid} GroupID mismatches (library GroupID does not match S3 GroupID)"
         )
     if n_assay:
         print("  Assay mismatches (library in local path vs assay in S3):")

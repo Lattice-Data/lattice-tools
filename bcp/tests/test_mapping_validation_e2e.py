@@ -96,6 +96,18 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "mapping_validation"
             "10x",
             0,
         ),
+        # Multiome order whose local folders are named after the SIF Library
+        # names (CH01GEX/CH01ATAC) while S3 uses the SOP stem (CH01_GEX) under
+        # GroupID CH01.  The library name is *longer* than the GroupID here,
+        # which is the reverse of the LIB1/LIB1_LIB1F layout.
+        (
+            "novogene_10x_raw_multiome_local_lib_names.csv",
+            "novogene_10x_multiome_sif.csv",
+            "novogene",
+            "raw",
+            "10x",
+            0,
+        ),
         # Error paths
         ("duplicates.csv", None, "novogene", "raw", "10x", 1),
         (

@@ -24,7 +24,9 @@ from .parsing import MappingRow, parse_mapping_file
 from .sif_io import (
     _normalize_sif_groupid,
     load_sif_group_assays,
+    load_sif_libraries,
     load_sif_library_assays,
+    load_sif_library_groups,
     load_sif_library_names,
     load_sif_scale_group_assays,
     load_sif_scale_groupids,
@@ -167,7 +169,9 @@ __all__ = [
     "load_sif_group_assays",
     "load_sif_scale_group_assays",
     "load_sif_scale_groupids",
+    "load_sif_libraries",
     "load_sif_library_assays",
+    "load_sif_library_groups",
     "load_sif_library_names",
     # CLI
     "main",

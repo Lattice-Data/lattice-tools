@@ -1966,8 +1966,23 @@ def validate_library_assay_consistency(
     mappings: Iterable[MappingRow],
     lib_assays: dict[str, str],
     provider: str,
+    lib_groups: dict[str, set[str]] | None = None,
 ) -> dict:
-    """Cross-check library names in local paths against S3 paths."""
+    """Cross-check library names in local paths against S3 paths.
+
+    ``lib_groups`` maps a library name to the set of Group Identifiers the SIF
+    files it under (see
+    :func:`~mapping_validation.sif_io.load_sif_library_groups`).  When it is
+    known, the S3 GroupID must be one of them.  Without it the check falls back
+    to requiring that the library name and the S3 GroupID contain one another
+    in either direction, which is all the naming conventions in use have in
+    common.
+
+    Note that vendors are *not* required to build local paths out of the SIF
+    library names.  A row whose local path contains no recognisable library
+    name is counted in ``skipped`` and never reported as a mismatch -- this
+    check only cross-examines rows where the link can actually be established.
+    """
     provider = _validate_provider(provider)
     order_pattern = get_order_pattern(provider)
     valid_assays = get_assays("10x", provider)
@@ -1979,6 +1994,7 @@ def validate_library_assay_consistency(
         rf"\d+-.+?_(?P<assay>{assay_re})-Z\d{{4}}-[ACGT]+"
     )
 
+    lib_groups = lib_groups or {}
     libs_by_length = sorted(lib_assays.keys(), key=len, reverse=True)
     lib_patterns = {lib: f"-{lib}-" for lib in libs_by_length}
 
@@ -1997,24 +2013,40 @@ def validate_library_assay_consistency(
         s3_assay = m.group("assay").lower()
         s3_groupid = m.group("groupid")
 
-        found_lib: str | None = None
-        for lib in libs_by_length:
-            if lib_patterns[lib] in row.local_path:
-                found_lib = lib
-                break
+        # Opportunistic: local paths are vendor-controlled and need not be
+        # built from SIF library names at all.  Longest-first so that e.g.
+        # LIB1F wins over LIB1.
+        matches = [lib for lib in libs_by_length if lib_patterns[lib] in row.local_path]
 
-        if found_lib is None:
+        if not matches:
             skipped += 1
             continue
 
+        found_lib = matches[0]
         checked += 1
 
-        if found_lib not in s3_groupid:
+        # Every group any matching library could belong to.  Taking the union
+        # keeps a path that matches several library names (or a library the
+        # SIF lists twice) from failing when one reading of it is correct.
+        sif_groups: set[str] = set()
+        for lib in matches:
+            sif_groups |= lib_groups.get(lib, set())
+
+        if sif_groups:
+            groupid_ok = s3_groupid in sif_groups
+        else:
+            # No SIF group information for this library: fall back to
+            # containment in either direction, which is the most any of the
+            # naming conventions guarantees.
+            groupid_ok = found_lib in s3_groupid or s3_groupid in found_lib
+
+        if not groupid_ok:
             groupid_mismatches.append(
                 {
                     "line": row.line_num,
                     "library": found_lib,
                     "s3_groupid": s3_groupid,
+                    "sif_groupids": sorted(sif_groups),
                     "local_path": row.local_path,
                     "s3_path": row.s3_path,
                 }
