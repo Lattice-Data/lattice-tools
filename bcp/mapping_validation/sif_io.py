@@ -25,11 +25,31 @@ warnings.filterwarnings(
 def _normalize_sif_groupid(gid: str) -> str:
     """Normalise a SIF Group Identifier to match the S3 directory convention.
 
-    SIF files for 10x use ``A + AF`` style (space-plus-space) while S3
-    paths join the same parts with underscores: ``A_AF``.  Scale SIFs
-    already use plain identifiers, so this is a no-op for them.
+    SIF files for 10x join the parts of a paired GroupID with a plus sign while
+    S3 paths join them with an underscore, so ``A + AF``, ``A+AF`` and
+    ``A  +  AF`` all have to collapse to ``A_AF``.  Scale SIFs already use plain
+    identifiers, so this is a no-op for them.
+
+    Case is deliberately left alone: S3 GroupID directories are case-sensitive
+    and mixed-case in practice (``f_skfD``), so folding it here would accept
+    directories that do not exist.
     """
-    return gid.replace(" + ", "_")
+    return re.sub(r"\s*\+\s*", "_", gid.strip())
+
+
+def _coerce_cell_to_str(value: object) -> str:
+    """Stringify a spreadsheet cell without pandas' float artefacts.
+
+    A column holding whole numbers alongside any blank cell is read as
+    ``float64``, so a Group Identifier of ``1234`` would otherwise come back as
+    ``"1234.0"`` and never match the ``1234`` S3 directory.
+    """
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    s = str(value).strip()
+    return "" if s.lower() == "nan" else s
 
 
 def _find_col(cols_lower: Dict[str, str], keyword: str) -> str | None:
@@ -309,8 +329,8 @@ def _parse_group_assays_from_dataframe(
     )
     for pos in range(len(df)):
         row_data = df.iloc[pos]
-        gid = str(row_data.get(group_col, "")).strip()
-        if not gid or gid == "nan":
+        gid = _coerce_cell_to_str(row_data.get(group_col))
+        if not gid:
             continue
         if _is_psomagen_sif_example_groupid(gid, provider):
             continue
@@ -453,21 +473,6 @@ def load_sif_scale_groupids(
     returns just the set of GroupIDs.
     """
     return set(load_sif_group_assays(sif_path, provider=provider).keys())
-
-
-def _coerce_cell_to_str(value: object) -> str:
-    """Stringify a spreadsheet cell without pandas' float artefacts.
-
-    A column holding whole numbers alongside any blank cell is read as
-    ``float64``, so a Group Identifier of ``1234`` would otherwise come back as
-    ``"1234.0"`` and never match the ``1234`` S3 directory.
-    """
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    s = str(value).strip()
-    return "" if s.lower() == "nan" else s
 
 
 def _library_records_from_dataframe(

@@ -2025,19 +2025,21 @@ def validate_library_assay_consistency(
         found_lib = matches[0]
         checked += 1
 
-        # Every group any matching library could belong to.  Taking the union
-        # keeps a path that matches several library names (or a library the
-        # SIF lists twice) from failing when one reading of it is correct.
-        sif_groups: set[str] = set()
-        for lib in matches:
-            sif_groups |= lib_groups.get(lib, set())
+        # Only ``found_lib``'s own groups: borrowing a group from a shorter,
+        # less specific match would judge this path against a library it does
+        # not belong to.  The value is a set because nothing stops a SIF from
+        # listing the same library under more than one GroupID.
+        sif_groups = lib_groups.get(found_lib, set())
 
         if sif_groups:
             groupid_ok = s3_groupid in sif_groups
         else:
             # No SIF group information for this library: fall back to
             # containment in either direction, which is the most any of the
-            # naming conventions guarantees.
+            # naming conventions guarantees.  This is looser than the exact
+            # comparison above, and looser than the historical one-directional
+            # check, because with no authoritative group there is nothing to be
+            # strict against.
             groupid_ok = found_lib in s3_groupid or s3_groupid in found_lib
 
         if not groupid_ok:

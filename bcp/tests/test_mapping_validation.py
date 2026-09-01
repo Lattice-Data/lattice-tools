@@ -1041,14 +1041,13 @@ def test_validate_library_assay_consistency_skips_local_paths_without_lib_name()
     assert res["groupid_mismatches"] == []
 
 
-def test_validate_library_assay_consistency_accepts_any_matching_library_group() -> (
-    None
-):
-    """A path matching two libraries passes if S3 matches either one's group.
+def test_validate_library_assay_consistency_uses_the_most_specific_library() -> None:
+    """A path matching two libraries is judged by the longer, more specific one.
 
     ``-CH01GEX-`` is a substring of ``-CH01GEX-CH02GEX-``, so both library
-    names match this local path.  The file really belongs to ``CH02``; failing
-    it because the other candidate lives in ``CH01`` would be wrong.
+    names match this local path.  The file belongs to ``CH01GEX-CH02GEX`` in
+    ``CH02``; failing it because the other candidate lives in ``CH01`` would be
+    wrong.
     """
     lib_assays = {"CH01GEX": "gex", "CH01GEX-CH02GEX": "gex"}
     lib_groups = {"CH01GEX": {"CH01"}, "CH01GEX-CH02GEX": {"CH02"}}
@@ -1059,13 +1058,39 @@ def test_validate_library_assay_consistency_accepts_any_matching_library_group()
 
 
 def test_validate_library_assay_consistency_multi_match_still_fails_unrelated() -> None:
-    """When S3 matches none of the candidate groups the row is still a mismatch."""
+    """The reported GroupID belongs to the matched library, not to a neighbour."""
     lib_assays = {"CH01GEX": "gex", "CH01GEX-CH02GEX": "gex"}
     lib_groups = {"CH01GEX": {"CH01"}, "CH01GEX-CH02GEX": {"CH02"}}
     rows = [_multiome_row("CH01GEX-CH02GEX", "ZZ99")]
     res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
     assert len(res["groupid_mismatches"]) == 1
-    assert res["groupid_mismatches"][0]["sif_groupids"] == ["CH01", "CH02"]
+    m = res["groupid_mismatches"][0]
+    assert m["library"] == "CH01GEX-CH02GEX"
+    # Only CH01GEX-CH02GEX's own group -- not CH01, which belongs to the
+    # shorter library that also happens to match this path.
+    assert m["sif_groupids"] == ["CH02"]
+
+
+def test_validate_library_assay_consistency_no_group_does_not_borrow_one() -> None:
+    """A library with no SIF group takes the fallback, not a neighbour's group.
+
+    ``-CH01-`` also matches this path, but attributing ``CH01``'s group to
+    ``CH01-ATAC`` would judge the row against a library it is not part of.
+    """
+    lib_assays = {"CH01": "gex", "CH01-ATAC": "atac"}
+    lib_groups = {"CH01": {"CH01"}}
+    rows = [
+        MappingRow(
+            s3_path="s3://czi-novogene/proj/NVUS0000000000-16/CH02/raw/436665-CH01_ATAC-Z0001-ACGT_S1_L001_R1_001.fastq.gz",
+            local_path="/data/436665-CH01-ATAC-Z0001-ACGT/436665-CH01-ATAC-Z0001-ACGT_S1_L001_R1_001.fastq.gz",
+            line_num=1,
+        ),
+    ]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert len(res["groupid_mismatches"]) == 1
+    m = res["groupid_mismatches"][0]
+    assert m["library"] == "CH01-ATAC"
+    assert m["sif_groupids"] == []
 
 
 def test_validate_library_assay_consistency_library_in_two_groups() -> None:
@@ -1268,6 +1293,46 @@ def test_normalize_sif_groupid_rewrites_space_plus() -> None:
     assert _normalize_sif_groupid("A + AF") == "A_AF"
     # Plain IDs without ' + ' should be unchanged
     assert _normalize_sif_groupid("R112A") == "R112A"
+
+
+def test_normalize_sif_groupid_rewrites_plus_without_spaces() -> None:
+    """Any spacing around the '+' collapses to the S3 underscore form.
+
+    Exact GroupID comparison rests on this, so a SIF spelling that failed to
+    normalise would be a hard mismatch on every row of the group.
+    """
+    assert _normalize_sif_groupid("A+AF") == "A_AF"
+    assert _normalize_sif_groupid("A  +  AF") == "A_AF"
+    assert _normalize_sif_groupid("A+ AF") == "A_AF"
+    assert _normalize_sif_groupid("  A + AF  ") == "A_AF"
+    # Case is left alone: S3 GroupID directories are case-sensitive.
+    assert _normalize_sif_groupid("f_skfD") == "f_skfD"
+
+
+def test_group_assays_and_library_groups_read_numeric_ids_the_same(
+    tmp_path: Path,
+) -> None:
+    """Both readers of the Group Identifier column must agree on its value.
+
+    They are compared against the same S3 directory names, so if one renders a
+    whole-number GroupID as ``1234`` and the other as ``1234.0``, a single run
+    can call the group missing from the SIF and accept it in the library check.
+    """
+    pd = pytest.importorskip("pandas")
+    sif = tmp_path / "sif.xlsx"
+    pd.DataFrame(
+        {
+            "Library name": ["A1", "B1"],
+            # The blank makes pandas read the column as float64.
+            "Group Identifier": [1234, None],
+            "Assay Type": ["GEX", "ATAC"],
+        }
+    ).to_excel(sif, index=False)
+
+    group_assays = load_sif_group_assays(sif, provider="novogene")
+    _, lib_groups = load_sif_libraries(sif, provider="novogene")
+    assert set(group_assays) == {"1234"}
+    assert lib_groups == {"A1": {"1234"}}
 
 
 def test_validate_s3_10x_raw_counts_metadata_files() -> None:

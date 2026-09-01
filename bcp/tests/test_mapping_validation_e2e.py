@@ -108,6 +108,16 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "mapping_validation"
             "10x",
             0,
         ),
+        # Same idea for the paired layout: local folders named LIB1/LIB1F while
+        # S3 files both under GroupID LIB1_LIB1F.
+        (
+            "novogene_10x_raw_local_lib_names.csv",
+            "novogene_10x_sif.csv",
+            "novogene",
+            "raw",
+            "10x",
+            0,
+        ),
         # Error paths
         ("duplicates.csv", None, "novogene", "raw", "10x", 1),
         (
@@ -269,6 +279,72 @@ def test_mapping_validation_e2e(
         assert "VERDICT: PASS" in captured.out
     else:
         assert "VERDICT: FAIL" in captured.out
+
+
+@pytest.mark.parametrize(
+    "mapping_name,sif_name,expected_checked",
+    [
+        # Multiome: SIF library name extends the GroupID (CH01GEX -> CH01).
+        (
+            "novogene_10x_raw_multiome_local_lib_names.csv",
+            "novogene_10x_multiome_sif.csv",
+            34,
+        ),
+        # Paired: GroupID concatenates its members (LIB1, LIB1F -> LIB1_LIB1F).
+        ("novogene_10x_raw_local_lib_names.csv", "novogene_10x_sif.csv", 30),
+    ],
+)
+def test_mapping_validation_e2e_library_consistency_actually_runs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mapping_name: str,
+    sif_name: str,
+    expected_checked: int,
+) -> None:
+    """Library consistency must inspect every row, not silently check nothing.
+
+    A plain exit-code assertion cannot tell "all rows agree" from "no rows were
+    looked at": every other 10x fixture reports ``checked 0 paths`` because its
+    local paths embed the SOP stem rather than the bare library name.  Pinning
+    the count keeps a regression back to a silent no-op visible.
+    """
+    mapping_path = tmp_path / mapping_name
+    mapping_path.write_text(
+        (FIXTURES_DIR / "mappings" / mapping_name).read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    sif_path = tmp_path / "sif.xlsx"
+    pd.read_csv(FIXTURES_DIR / "sif" / sif_name).to_excel(sif_path, index=False)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mapping_validation",
+            "--mapping",
+            str(mapping_path),
+            "--sif",
+            str(sif_path),
+            "--provider",
+            "novogene",
+            "--data",
+            "raw",
+            "--assay",
+            "10x",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    assert (
+        f"Library consistency: checked {expected_checked} paths, "
+        "0 assay mismatches, 0 GroupID mismatches" in out
+    )
+    assert "VERDICT: PASS" in out
 
 
 def test_mapping_validation_e2e_10x_processed_multiome_pass(

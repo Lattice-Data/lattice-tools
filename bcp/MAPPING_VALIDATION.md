@@ -212,8 +212,9 @@ Checks run:
     - Validates:
       - The S3 GroupID is one of the GroupIDs the SIF files the matching library under. If the SIF supplies no GroupID for it, the check falls back to requiring that the library name and S3 GroupID contain one another in either direction.
       - S3 assay for that GroupID matches the assay expected in the SIF.
+    - Where a local path matches more than one library name the **longest** match wins, and only that library's own GroupIDs are compared — a shorter, less specific match never lends its group to a longer one. A library the SIF lists more than once may match any of its GroupIDs.
     - A blank Group Identifier cell means *unknown*, never “same as the row above”; such a library simply has no SIF GroupID and takes the fallback path.
-    - Where a local path matches more than one library name, or a library appears in the SIF more than once, the S3 GroupID may match **any** of the candidate GroupIDs — only a GroupID matching none of them is a mismatch.
+    - Note the fallback is looser than the historical check, which required the library name to appear **inside** the S3 GroupID. That direction is wrong for multiome layouts, and with no authoritative GroupID there is nothing to be strict against, so containment is accepted either way round. Rows that do reach the SIF-backed comparison are held to a *stricter* standard than before: `LIB1` filed under `LIB1_LIB9F` satisfied the old substring test and is now a mismatch.
     - Note that the relationship between a library name and its GroupID differs per convention, which is why it is read from the SIF rather than inferred: paired 10x concatenates member libraries into the GroupID (`LIB1`, `LIB1F` → `LIB1_LIB1F`), multiome extends the GroupID with an assay suffix (`CH01GEX`, `CH01ATAC` → `CH01`), and Psomagen 10x uses the same string for both.
 
   - **Per‑path SIF coverage (`find_unmatched_sif_paths_10x`)**
