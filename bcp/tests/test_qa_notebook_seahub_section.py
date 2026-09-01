@@ -143,7 +143,7 @@ class TestSectionRuns:
         output, _ns, _tmp = run
 
         assert (
-            "PER-WELL STATUS: COMPLIANT=1, RENAMEABLE=3, DATA_GAP=1, UNKNOWN=1"
+            "PER-WELL STATUS: COMPLIANT=2, RENAMEABLE=2, DATA_GAP=1, UNKNOWN=1"
             in output
         )
 
@@ -212,18 +212,26 @@ class TestSectionRuns:
 
         assert typed["detail"].str.contains("untrimmed vendor delivery").any()
 
-    def test_the_folder_rule_is_reported_per_sublibrary(self, run):
+    def test_an_elided_folder_prefix_reports_nothing(self, run):
+        """Four of the fixture's five folders elide it, all of them clean.
+
+        This was the folder-scope dedup test, asserting one row per sublibrary
+        directory. The spelling is accepted now, so the correct count is zero --
+        and no rule may reappear naming one of those folders.
+        """
         _output, _ns, tmp_path = run
         frame = pd.read_csv(tmp_path / "REF3_raw_sop_violations.csv")
-        folder = frame[frame["type"] == "sublibrary_folder_truncated"]
 
-        # Four truncated folders in the fixture, whatever the well count beneath.
-        assert len(folder) == 4
-        assert set(folder["expected_folder"]) == {
-            "REF3_P04_1",
-            "REF3_P05_1",
-            "REF3_P06_1",
-            "REF3_P07_1",
+        assert "expected_folder" not in frame.columns
+        # The set of types, not a substring of `detail`: searching for "'P04_1'"
+        # passed only because every other rule quotes the *full stem*, which
+        # contains P04_1 without the quotes -- so a change in quoting style would
+        # have silently turned this into a test of nothing.
+        assert set(frame["type"]) == {
+            "duplicated_wafer_token",
+            "invalid_sublibrary_type",
+            "missing_trim_infix",
+            "non_sequencing_artifact",
         }
 
 

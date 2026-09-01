@@ -13,12 +13,25 @@ the segment before ``raw`` is the ExperimentID alone (``REF3``) and carries no
 sublibrary at all.  It only looks like a sublibrary in older fixtures that use
 ``{ExperimentID}_{sublibrary}``.
 
-Instead the folder decision comes from :func:`qa_seahub_sop.seahub_group_parts`
-applied to the *current* folder and the *current* filename: when the filename
-says ``{ExperimentID}_{folder}``, the folder is the truncated side and the
-filename already carries the authoritative name.  That covers every REF3 defect
-without consulting the vendor at all.  The vendor index is needed for exactly one
-thing the trimmed upload cannot supply: a missing sublibrary *type* token.
+Instead it comes from :func:`qa_seahub_sop.seahub_group_parts` applied to the
+*current* folder and the *current* filename, which reconciles the two without
+consulting the vendor at all.  The vendor index is needed for exactly one thing
+the trimmed upload cannot supply: a missing sublibrary *type* token -- plus, as a
+last resort, a filename the folder cannot explain either way.
+
+Two names, not one
+------------------
+The sublibrary name that goes in the *filename* and the folder segment that goes
+in the *path* are tracked separately, because they are allowed to differ: the
+folder may elide the redundant ``{ExperimentID}_`` prefix the filename carries
+(``P03/…-CHEM16_P03_A1_…``), and both spellings are SOP-clean.  So the proposal
+keeps the folder exactly as delivered and rebuilds the filename around the name
+the filename itself gives.  Collapsing the two into one variable, as this did, is
+what made an accepted upload propose a move of every object into
+``{ExperimentID}_{folder}/`` -- or, had the folder been preferred instead,
+rewrite every filename.  In the ordinary elided case the two *differ* -- folder
+``P04_1`` beside sublibrary ``REF3_P04_1``.  They converge only when the vendor
+has to arbitrate a ``sublibrary_mismatch``, where its name becomes both.
 
 Safety properties
 -----------------
@@ -169,7 +182,8 @@ def expected_trimmed_key(
     """Compose the SOP location for one trimmed object.
 
     ``source`` is the matching vendor :class:`~qa_seahub_source.SourceEntry`, or
-    None. It is consulted only for a missing sublibrary type token.
+    None. It is consulted for a missing sublibrary type token, and to arbitrate a
+    filename neither folder spelling explains.
     """
     current = f"s3://{bucket}/{s3_key}"
     basename = s3_key.split("/")[-1]
@@ -226,12 +240,13 @@ def expected_trimmed_key(
             artifact=trim_suffix,
         )
 
-    folder, well, state = seahub_group_parts(
+    sublibrary, well, matched = seahub_group_parts(
         group, path_info["sublibrary"], path_info["experiment_id"]
     )
-    if state == "truncated":
-        defects.append("sublibrary_folder_truncated")
-    elif state == "mismatch":
+    # Kept as delivered: both spellings of the folder are clean, so a proposal
+    # that moved the object between them would be a move for no reason.
+    folder = path_info["sublibrary"]
+    if not matched:
         # The trimmed side is self-contradictory; the vendor stem is the only
         # remaining authority for the sublibrary name.
         vendor_group = getattr(source, "group", "") if source is not None else ""
@@ -243,9 +258,16 @@ def expected_trimmed_key(
                 ug=ug,
                 artifact=trim_suffix,
             )
-        folder, well = _vendor_sublibrary_and_well(
+        sublibrary, well = _vendor_sublibrary_and_well(
             _vendor_group_sans_wafer(vendor_group, getattr(source, "wafer", ""))
         )
+        # Both names come from the vendor, which spells the sublibrary in full.
+        # On an upload that elides the prefix everywhere else, that leaves one
+        # folder in the other spelling. Not resolved here on purpose: which
+        # spelling prevails is a fact about the whole listing, and this function
+        # sees one object. Harmless -- both spellings are SOP-clean, and the
+        # alternative is threading a listing-wide tally through every caller.
+        folder = sublibrary
         defects.append("sublibrary_mismatch")
 
     if well and not SEAHUB_WELL_RE.match(well):
@@ -254,7 +276,7 @@ def expected_trimmed_key(
             unresolved=("bad_well",),
             wafer=wafer,
             ug=ug,
-            sublibrary=folder,
+            sublibrary=sublibrary,
             artifact=trim_suffix,
         )
 
@@ -268,7 +290,7 @@ def expected_trimmed_key(
                 unresolved=("invalid_sublibrary_type",),
                 wafer=wafer,
                 ug=ug,
-                sublibrary=folder,
+                sublibrary=sublibrary,
                 well=well,
                 artifact=trim_suffix,
             )
@@ -281,13 +303,14 @@ def expected_trimmed_key(
             unresolved=("conflicting_sublibrary_type",),
             wafer=wafer,
             ug=ug,
-            sublibrary=folder,
+            sublibrary=sublibrary,
             well=well,
             artifact=trim_suffix,
         )
 
     well_part = f"_{well}" if well else ""
-    expected_stem = f"{wafer}-{folder}{well_part}_{assay}-{ug}-{barcode}"
+    # `sublibrary` in the name, `folder` in the path: see "Two names, not one".
+    expected_stem = f"{wafer}-{sublibrary}{well_part}_{assay}-{ug}-{barcode}"
     project = s3_key.split("/")[0]
     expected_key = (
         f"{project}/{path_info['experiment_id']}/raw/"
@@ -313,7 +336,7 @@ def expected_trimmed_key(
             unresolved=tuple(f"proposal_not_sop:{v.type}" for v in residual),
             wafer=wafer,
             ug=ug,
-            sublibrary=folder,
+            sublibrary=sublibrary,
             well=well,
             artifact=trim_suffix,
         )
@@ -325,7 +348,7 @@ def expected_trimmed_key(
         name_source=name_source,
         wafer=wafer,
         ug=ug,
-        sublibrary=folder,
+        sublibrary=sublibrary,
         well=well,
         artifact=trim_suffix,
     )
@@ -641,11 +664,12 @@ def roll_up_wells(
                 # both, which is the same authority the mismatch repair uses.
                 #
                 # This is the vendor's SOP name for the sublibrary, which is not
-                # always the folder the upload used -- a truncated folder is the
-                # commonest real defect, so an uploaded row can say "P07_1" where
-                # this one says "REF3_P07_1" for the same sublibrary. Documented
-                # in SEAHUB_QA.md and pinned by
-                # test_a_gap_row_names_the_sublibrary_the_vendor_used.
+                # always the folder the upload used -- every real upload elides
+                # the ExperimentID prefix, which is an accepted spelling, so an
+                # uploaded row says "P07_1" where this one says "REF3_P07_1" for
+                # the same sublibrary. That difference is now permanent rather
+                # than something a rename resolves. Documented in SEAHUB_QA.md and
+                # pinned by test_a_gap_row_names_the_sublibrary_the_vendor_used.
                 group = source.group
                 sublibrary, well_id = _vendor_sublibrary_and_well(
                     _vendor_group_sans_wafer(group, source.wafer)

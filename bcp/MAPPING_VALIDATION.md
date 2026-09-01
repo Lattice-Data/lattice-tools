@@ -4,7 +4,7 @@ This document explains how to run the `mapping_validation` checks from `bcp` and
 
 The validator is implemented in `mapping_validation.cli.main` and is exercised end‑to‑end in `test_mapping_validation_e2e.py` and `test_mapping_validation_cli.py`.
 
-**Scope note (important):** this guide covers the `mapping_validation` CLI only. The CLI now includes a dedicated `--assay 10x_cram` raw mode for CRAM bundle/SOP checks. Deeper metadata-content QA checks (for example read-count thresholds from `*.fastq.gz-metadata.json` / `*.cram-metadata.json`) still live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`. Collaborator lab SeaHub trimmed raw uploads on `czi-trapnell` / `czi-hamazaki` (`*-seahub-bcp` paths, `*.trim.*` artifacts) are validated separately via `qa.ipynb` with `raw_assay='seahub_sci'`, not the Novogene-oriented `validate_s3_seahub_raw` checks below. That notebook path now also enforces the full SeaHub SOP path/filename structure (`qa_seahub_sop.py`) and reconciles a trimmed upload against the untrimmed vendor delivery it came from (`qa_seahub_source.py` + `qa_seahub_recon.py`, which locate those deliveries by searching the vendor projects named in the notebook's `untrimmed_search_roots` parameter for the wafers the upload carries). It also proposes corrected SOP keys and a per-well verdict (`qa_seahub_rename.py`). Those checks are notebook-only by design: they need the whole listing plus per-well trimmer counts and metadata sidecars, which the per-path CLI validators do not gather.
+**Scope note (important):** this guide covers the `mapping_validation` CLI only. The CLI now includes a dedicated `--assay 10x_cram` raw mode for CRAM bundle/SOP checks. Deeper metadata-content QA checks (for example read-count thresholds from `*.fastq.gz-metadata.json` / `*.cram-metadata.json`) still live in `qa_checks.py`, `qa_gather.py`, and `qa_mods.py`. Collaborator lab SeaHub trimmed raw uploads on `czi-{lab}` (`*-seahub-bcp` paths, `*.trim.*` artifacts) are validated separately via `qa.ipynb` with `raw_assay='seahub_sci'`, not the Novogene-oriented `validate_s3_seahub_raw` checks below. That notebook path now also enforces the full SeaHub SOP path/filename structure (`qa_seahub_sop.py`) and reconciles a trimmed upload against the untrimmed vendor delivery it came from (`qa_seahub_source.py` + `qa_seahub_recon.py`, which locate those deliveries by searching the vendor projects named in the notebook's `untrimmed_search_roots` parameter for the wafers the upload carries). It also proposes corrected SOP keys and a per-well verdict (`qa_seahub_rename.py`). Those checks are notebook-only by design: they need the whole listing plus per-well trimmer counts and metadata sidecars, which the per-path CLI validators do not gather.
 
 ---
 
@@ -26,8 +26,8 @@ The validator is implemented in `mapping_validation.cli.main` and is exercised e
     - header/meta rows starting with `@` (e.g. `@NVUS...mapping_processed.csv`)
     - header rows like `Local Path,S3 Path` / `S3 Path,Local Path`
   - **Separators supported**:
-    - comma: `s3://...,/ORPROJ1/...`
-    - tab: `s3://...\t/ORPROJ1/...`
+    - comma: `s3://...,/LOCALPROJ/...`
+    - tab: `s3://...\t/LOCALPROJ/...`
     - or `s3://...   /absolute/local/path` (space‑separated)
   - Empty lines and lines that cannot be split into two non‑empty fields are ignored.
 
@@ -320,8 +320,8 @@ Example (Psomagen Illumina delivery):
 
 ```bash
 python -m mapping_validation \
-  --mapping AN00028448_mapping_raw.csv \
-  --sif AN00028448_Sample_Manifest.xlsx \
+  --mapping AN00000001_mapping_raw.csv \
+  --sif AN00000001_Sample_Manifest.xlsx \
   --provider psomagen \
   --data raw \
   --assay 10x_illumina

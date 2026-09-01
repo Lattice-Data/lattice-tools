@@ -1063,8 +1063,12 @@ class TestNormalizeSearchRoots:
             normalize_search_roots(root)
 
     def test_a_prefix_merely_containing_the_word_raw_is_fine(self):
-        """Segment-wise, not substring: a project may legitimately be named this."""
-        root = "s3://czi-novogene/rawlings-seahub-bcp"
+        """Segment-wise, not substring: a project may legitimately be named this.
+
+        The name only has to *start with* "raw" to exercise that; it is
+        deliberately not surname-shaped, since this is a public repo.
+        """
+        root = "s3://czi-novogene/rawdata-seahub-bcp"
         assert normalize_search_roots(root) == [f"{root}/"]
 
 

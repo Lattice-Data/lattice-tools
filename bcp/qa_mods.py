@@ -315,9 +315,9 @@ def resolve_qa_run_context(
 
     * **s3** mode: require either ``s3://czi-*/proj/order`` or ``provider`` + ``proj`` + ``order``.
       Output files use ``run_label`` if set, else ``order``.
-      For SeaHub lab uploads (``seahub_sci``), use ``provider`` = ``trapnell`` or
-      ``hamazaki``, ``proj`` = ``{lab}-seahub-bcp``, ``order`` = ExperimentID
-      (e.g. ``REF3``), or ``s3_path`` = ``s3://czi-trapnell/trapnell-seahub-bcp/REF3``.
+      For SeaHub lab uploads (``seahub_sci``), use ``provider`` = the lab name,
+      ``proj`` = ``{lab}-seahub-bcp``, ``order`` = ExperimentID (e.g. ``REF3``),
+      or ``s3_path`` = ``s3://czi-{lab}/{lab}-seahub-bcp/REF3``.
     * **manifest** mode: require ``manifest_path`` and non-empty ``run_label`` for output names.
       ``bucket`` is inferred from ``s3://czi-*`` URIs in the manifest column (single bucket).
       For ``seahub_sci``, ``order`` (the ExperimentID) is taken from the argument if given,

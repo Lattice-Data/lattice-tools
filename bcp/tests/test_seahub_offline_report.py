@@ -23,8 +23,9 @@ from tests.seahub_offline_report import (
 BUCKET = "czi-labalpha"
 PROJ = "labalpha-seahub-bcp"
 RAW = f"{PROJ}/REF3/raw"
-# The SOP folder carries the ExperimentID prefix; "P05_1" alone is the truncated
-# form, which test_a_defect_shows_up uses deliberately.
+# The SOP folder carries the ExperimentID prefix. "P05_1" alone -- the same name
+# with the redundant prefix elided -- is equally clean, which
+# test_an_elided_folder_prefix_is_clean_end_to_end pins.
 WELLS = (
     (
         "REF3_P05_1",
@@ -106,11 +107,26 @@ class TestReport:
         assert result["well_verdicts"]["COMPLIANT"] == len(WELLS)
 
     def test_a_defect_shows_up(self, tmp_path):
-        """A truncated sublibrary folder, the commonest real defect."""
+        """A folder neither spelling of the filename's sublibrary explains."""
+        keys = [k.replace("/raw/REF3_P05_1/", "/raw/P09/") for k in _keys()]
+        result = report(_listing(tmp_path, keys=keys), scratch=tmp_path)
+
+        assert "sublibrary_mismatch" in result["sop_rules"]
+
+    def test_an_elided_folder_prefix_is_clean_end_to_end(self, tmp_path):
+        """The shape every real trimmed upload uses, through the whole stack.
+
+        Not just the SOP table: the well roll-up must call these COMPLIANT and
+        the rename mapping must propose nothing, which is what demanding the full
+        form got wrong -- on one real upload, 864 wells RENAMEABLE and 5184
+        objects to move.
+        """
         keys = [k.replace("/raw/REF3_P05_1/", "/raw/P05_1/") for k in _keys()]
         result = report(_listing(tmp_path, keys=keys), scratch=tmp_path)
 
-        assert "sublibrary_folder_truncated" in result["sop_rules"]
+        assert result["sop_rows"] == 0
+        assert result["well_verdicts"]["COMPLIANT"] == len(WELLS)
+        assert result["rename_counts"] == {}
 
     def test_the_two_modes_agree(self, tmp_path):
         listing = _listing(tmp_path)

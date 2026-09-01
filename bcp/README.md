@@ -762,7 +762,7 @@ This avoids false-positive group errors when providers use different separators 
 
 ### SeaHub lab raw QA (`raw_assay='seahub_sci'`)
 
-Collaborator lab trimmed uploads (`czi-trapnell` / `czi-hamazaki`, `*-seahub-bcp`) are QA'd in
+Collaborator lab trimmed uploads (`czi-{lab}`, `{lab}-seahub-bcp`) are QA'd in
 `bcp/qa.ipynb` with `raw_assay='seahub_sci'`; processed validation is off for this mode. The SOP, the
 checks, the output files and how to re-derive a report without S3 access are documented in
 **[SEAHUB_QA.md](SEAHUB_QA.md)**.

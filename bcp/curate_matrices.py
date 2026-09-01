@@ -28,7 +28,7 @@ The current assumption is that this is run on 10x Flex data, and will need to
 update anticipated directory structure if it is another 10x assay.
 
 Example:
-    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project marson-mapping-grns-perturb-seq --group CD4i_R1L01 --csvofguidescan guidescan_out.csv
+    python curate_matrices.py --bucket czi-psomagen --sheet your_sheet_id --project labalpha-mapping-grns-perturb-seq --group CD4i_R1L01 --csvofguidescan guidescan_out.csv
 
 For more details:
     python %(prog)s --help
