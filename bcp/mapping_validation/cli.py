@@ -616,6 +616,13 @@ def _report_library_consistency(
             else ""
         )
     )
+    if not lib_groups and lib_res["checked"]:
+        # Without SIF GroupIDs this check is much weaker than it looks, and the
+        # summary line above cannot be told apart from a fully SIF-backed run.
+        print(
+            "  NOTE: the SIF supplied no Library-name → GroupID mapping; "
+            "GroupIDs were compared by name containment only."
+        )
     if n_gid:
         print("  GroupID mismatches (library's GroupID does not match S3 GroupID):")
         for item in lib_res["groupid_mismatches"][:10]:

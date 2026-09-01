@@ -30,11 +30,15 @@ def _normalize_sif_groupid(gid: str) -> str:
     ``A  +  AF`` all have to collapse to ``A_AF``.  Scale SIFs already use plain
     identifiers, so this is a no-op for them.
 
+    Only a plus *between* two parts is rewritten.  A trailing one is left alone
+    so that marker-sorted population names stay intact: ``CD4+`` must not turn
+    into ``CD4_`` and then fail to match its S3 directory.
+
     Case is deliberately left alone: S3 GroupID directories are case-sensitive
     and mixed-case in practice (``f_skfD``), so folding it here would accept
     directories that do not exist.
     """
-    return re.sub(r"\s*\+\s*", "_", gid.strip())
+    return re.sub(r"(?<=[^\s+])\s*\+\s*(?=[^\s+])", "_", gid.strip())
 
 
 def _coerce_cell_to_str(value: object) -> str:
@@ -510,7 +514,7 @@ def _library_records_from_dataframe(
             # reported as belonging to the group above it.
             gid = _coerce_cell_to_str(row_data.get(group_col))
             if gid and not _is_psomagen_sif_example_groupid(gid, provider):
-                groups.setdefault(lib, set()).add(_normalize_sif_groupid(gid))
+                groups.setdefault(lib, set()).update({gid, _normalize_sif_groupid(gid)})
 
     if not assays:
         return None
@@ -540,15 +544,23 @@ def load_sif_libraries(
     if p.suffix.lower() in {".xlsx", ".xlsm", ".xls"}:
         names = _excel_sheet_names(p)
         if names:
-            for sheet in names:
-                for hr in _header_row_candidates_for_sheet(
-                    p, sheet, None, require_group=False
-                ):
-                    df = _read_excel_sif_sheet(p, sheet, hr)
-                    if df is None or df.empty:
-                        continue
-                    records = _library_records_from_dataframe(df, provider)
-                    if records is not None:
+            # Two passes: prefer a sheet that yields GroupIDs as well as
+            # assays, and only settle for an assay-only sheet if no sheet in
+            # the workbook carries both.  Otherwise a stray assay-bearing tab
+            # earlier in the workbook would silently cost us the group data.
+            for require_group in (True, False):
+                for sheet in names:
+                    for hr in _header_row_candidates_for_sheet(
+                        p, sheet, provider, require_group=require_group
+                    ):
+                        df = _read_excel_sif_sheet(p, sheet, hr)
+                        if df is None or df.empty:
+                            continue
+                        records = _library_records_from_dataframe(df, provider)
+                        if records is None:
+                            continue
+                        if require_group and not records[1]:
+                            continue
                         return records
 
     assays: dict[str, str] = {}
@@ -573,8 +585,8 @@ def load_sif_libraries(
                     if group_col_name is not None:
                         gid = (row.get(group_col_name) or "").strip()
                         if gid and not _is_psomagen_sif_example_groupid(gid, provider):
-                            groups.setdefault(lib, set()).add(
-                                _normalize_sif_groupid(gid)
+                            groups.setdefault(lib, set()).update(
+                                {gid, _normalize_sif_groupid(gid)}
                             )
 
     return assays, groups
@@ -623,8 +635,8 @@ def load_sif_library_names(sif_path: str | Path) -> set[str]:
                         continue
                     names: set[str] = set()
                     for _, row_data in df.iterrows():
-                        lib = str(row_data.get(lib_col, "")).strip()
-                        if lib and lib != "nan":
+                        lib = _coerce_cell_to_str(row_data.get(lib_col))
+                        if lib:
                             names.add(lib)
                     if names:
                         return names

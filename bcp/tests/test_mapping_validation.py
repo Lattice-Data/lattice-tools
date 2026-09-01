@@ -21,6 +21,7 @@ from mapping_validation import (
     load_sif_group_assays,
     load_sif_libraries,
     load_sif_library_groups,
+    load_sif_library_names,
     load_sif_scale_group_assays,
     parse_mapping_file,
     validate_10x_multiome_processed_outs,
@@ -1176,16 +1177,19 @@ def test_load_sif_library_groups_paired_libraries(tmp_path: Path) -> None:
 
 
 def test_load_sif_library_groups_normalizes_space_plus(tmp_path: Path) -> None:
-    """'A + AF' in the SIF maps to the 'A_AF' S3 directory name."""
+    """'A + AF' in the SIF maps to the 'A_AF' S3 directory name.
+
+    The raw spelling is kept alongside it; see
+    ``test_load_sif_library_groups_keeps_raw_and_normalized_spelling``.
+    """
     sif = tmp_path / "sif.csv"
     sif.write_text(
         "Library name,Group Identifier,Assay Type\nA,A + AF,GEX\nAF,A + AF,CRI\n",
         encoding="utf-8",
     )
-    assert load_sif_library_groups(sif, provider="novogene") == {
-        "A": {"A_AF"},
-        "AF": {"A_AF"},
-    }
+    groups = load_sif_library_groups(sif, provider="novogene")
+    assert "A_AF" in groups["A"]
+    assert "A_AF" in groups["AF"]
 
 
 def test_load_sif_library_groups_without_group_column(tmp_path: Path) -> None:
@@ -1307,6 +1311,69 @@ def test_normalize_sif_groupid_rewrites_plus_without_spaces() -> None:
     assert _normalize_sif_groupid("  A + AF  ") == "A_AF"
     # Case is left alone: S3 GroupID directories are case-sensitive.
     assert _normalize_sif_groupid("f_skfD") == "f_skfD"
+
+
+def test_normalize_sif_groupid_keeps_trailing_plus() -> None:
+    """Marker-sorted population names must survive intact.
+
+    Only a plus separating two parts is a pair separator; rewriting a trailing
+    one would turn ``CD4+`` into ``CD4_`` and never match its S3 directory.
+    """
+    assert _normalize_sif_groupid("CD4+") == "CD4+"
+    assert _normalize_sif_groupid("EpCAM+") == "EpCAM+"
+    assert _normalize_sif_groupid("CD4+ ") == "CD4+"
+
+
+def test_load_sif_library_groups_keeps_raw_and_normalized_spelling(
+    tmp_path: Path,
+) -> None:
+    """Both spellings are kept so a wrong '+' rewrite cannot fail a whole group."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(
+        "Library name,Group Identifier,Assay Type\nA,A + AF,GEX\nCD4,CD4+CD8,GEX\n",
+        encoding="utf-8",
+    )
+    groups = load_sif_library_groups(sif, provider="novogene")
+    assert groups["A"] == {"A + AF", "A_AF"}
+    # If the rewrite guessed wrong here, the raw form still matches S3.
+    assert groups["CD4"] == {"CD4+CD8", "CD4_CD8"}
+
+
+def test_load_sif_libraries_prefers_a_sheet_with_group_ids(tmp_path: Path) -> None:
+    """An earlier assay-only tab must not cost us the GroupID mapping."""
+    pd = pytest.importorskip("pandas")
+    sif = tmp_path / "sif.xlsx"
+    with pd.ExcelWriter(sif) as writer:
+        # Comes first, has Library name + Assay Type but no Group Identifier.
+        pd.DataFrame({"Library name": ["CH01GEX"], "Assay Type": ["GEX"]}).to_excel(
+            writer, sheet_name="Summary", index=False
+        )
+        pd.DataFrame(
+            {
+                "Library name": ["CH01GEX"],
+                "Group Identifier": ["CH01"],
+                "Assay Type": ["GEX"],
+            }
+        ).to_excel(writer, sheet_name="Sample information", index=False)
+
+    assays, groups = load_sif_libraries(sif, provider="novogene")
+    assert assays == {"CH01GEX": "gex"}
+    assert groups == {"CH01GEX": {"CH01"}}
+
+
+def test_load_sif_library_names_coerces_numeric_names(tmp_path: Path) -> None:
+    """Whole-number library names must not gain a '.0'.
+
+    These are diffed straight against S3 GroupID directory names in
+    ``validate_sif_completeness_10x_processed``.
+    """
+    pd = pytest.importorskip("pandas")
+    sif = tmp_path / "sif.xlsx"
+    pd.DataFrame(
+        # The blank makes pandas read the column as float64.
+        {"Library name": [1234, None], "Assay Type": ["GEX", "GEX"]}
+    ).to_excel(sif, index=False)
+    assert load_sif_library_names(sif) == {"1234"}
 
 
 def test_group_assays_and_library_groups_read_numeric_ids_the_same(
