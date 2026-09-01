@@ -6,6 +6,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable, List, Tuple
 
+from qa_constants import is_valid_cellranger_run_dir_name
+
 from .constants import (
     ASSAYS_BY_FAMILY,
     CANONICAL_ASSAY,
@@ -2046,7 +2048,6 @@ def validate_library_assay_consistency(
 # ---------------------------------------------------------------------------
 
 _VALID_10X_PIPELINES: set[str] = {"cellranger"}
-_RUN_DATE_RE: re.Pattern[str] = re.compile(r"^Run_\d{4}-\d{2}-\d{2}$")
 
 
 def _build_10x_processed_s3_regex(provider: str, order_pattern: str) -> re.Pattern[str]:
@@ -2075,7 +2076,7 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
     Expected S3 layout::
 
         s3://czi-{provider}/{project}/{order}/{GroupID}/processed/
-            cellranger/{Run_YYYY-MM-DD}/outs/{file_path}
+            cellranger/{Run_YYYY-MM-DD|Run_YYYY_MM_DD}/outs/{file_path}
     """
     provider = _validate_provider(provider)
     order_pattern = get_order_pattern(provider)
@@ -2126,7 +2127,7 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
             )
 
         run_date = gd["run_date"]
-        if not _RUN_DATE_RE.match(run_date):
+        if not is_valid_cellranger_run_dir_name(run_date):
             warnings.append(
                 {
                     "type": "run_date_format",
@@ -2134,7 +2135,8 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
                     "s3_path": s3,
                     "detail": (
                         f"run date '{run_date}' does not match expected "
-                        "format Run_YYYY-MM-DD"
+                        "format Run_YYYY-MM-DD, Run_YYYY_MM_DD, "
+                        "or Run_YYYY-MM-DD_tag"
                     ),
                 }
             )

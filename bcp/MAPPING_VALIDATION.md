@@ -447,10 +447,10 @@ Checks run:
 
 - **S3 SOP validation (`validate_s3_10x_processed`)**
   - Expected layout:
-    - `s3://czi-{provider}/{project}/{order}/{GroupID}/processed/{pipeline}/{Run_YYYY-MM-DD}/outs/{file_path}`
+    - `s3://czi-{provider}/{project}/{order}/{GroupID}/processed/{pipeline}/{Run_YYYY-MM-DD|Run_YYYY_MM_DD}/outs/{file_path}`
   - Validates:
     - Pipeline name (currently `cellranger` only).
-    - Run‑date format (`Run_YYYY-MM-DD`).
+    - Run‑date format (`Run_YYYY-MM-DD`, `Run_YYYY_MM_DD`, or `Run_YYYY-MM-DD_tag`).
     - Project naming conventions.
   - Summarizes:
     - Unique GroupIDs.
