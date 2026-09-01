@@ -118,7 +118,8 @@ class TestReport:
 
         Not just the SOP table: the well roll-up must call these COMPLIANT and
         the rename mapping must propose nothing, which is what demanding the full
-        form got wrong -- on GENE7, 864 wells RENAMEABLE and 5184 objects to move.
+        form got wrong -- on one real upload, 864 wells RENAMEABLE and 5184
+        objects to move.
         """
         keys = [k.replace("/raw/REF3_P05_1/", "/raw/P05_1/") for k in _keys()]
         result = report(_listing(tmp_path, keys=keys), scratch=tmp_path)

@@ -246,9 +246,11 @@ class TestGroupPartsCandidateOrder:
     It used to decide a verdict -- try the folder as-is first, or a correct
     folder reported as truncated. Then, once both spellings were accepted, it
     still decided which prefix got stripped, and in one shape it decided wrongly:
-    a compliant object reported bad_well because the shorter candidate was tried
-    first. The matcher now picks by the leftover rather than by position, so the
-    order genuinely does not matter -- which is what these tests pin.
+    the shorter candidate went first, so the report blamed ``bad_well`` on a
+    trailing token that was never a well. No verdict rode on that -- the shape is
+    never clean either way, which the last test here pins -- but the matcher now
+    picks by the leftover rather than by position, so the order genuinely does not
+    matter, and that is what these tests hold it to.
     """
 
     @staticmethod
@@ -287,11 +289,13 @@ class TestGroupPartsCandidateOrder:
         """The one shape where both candidates can explain the group.
 
         Folder ``P10`` under ExperimentID ``P10_2`` makes the full form
-        ``P10_2_P10``, which itself starts with ``P10_``. This object is
-        compliant: sublibrary ``P10_2_P10``, well ``A1``. Picking the first
-        prefix match instead returned trailing ``2_P10_A1`` and reported
-        ``bad_well`` on it, so the order was deciding correctness rather than
-        breaking a tie. No real upload has this shape.
+        ``P10_2_P10``, which itself starts with ``P10_``. The correct reading is
+        sublibrary ``P10_2_P10``, well ``A1``; picking the first prefix match
+        instead returned trailing ``2_P10_A1`` and reported ``bad_well`` on it.
+        The object is not clean under either reading -- ``repeated_token`` fires
+        both ways, as the next test asserts -- so what the order decided was
+        whether the report describes the trailing token accurately, not the
+        verdict. No real upload has this shape.
         """
         expected = ("P10_2_P10", "A1", True)
 
@@ -518,8 +522,9 @@ class TestFilenameRules:
         """The accepted spelling every real trimmed upload uses.
 
         The ExperimentID is already an ancestor segment, so the prefix carries
-        nothing the path does not. Demanding the full form reported every GENE7
-        sublibrary as broken and proposed a move for all 5184 of its objects.
+        nothing the path does not. Demanding the full form reported every
+        sublibrary of one real upload as broken and proposed a move for all 5184
+        of its objects.
         """
         assert validate_seahub_key("czi-labalpha", GOOD_ELIDED_PREFIX) == []
 

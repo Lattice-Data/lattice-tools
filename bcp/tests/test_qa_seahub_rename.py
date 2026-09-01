@@ -178,7 +178,8 @@ class TestExpectedTrimmedKey:
         """Idempotent: the whole object is already compliant.
 
         Composing the folder and the filename name into one variable is what made
-        this propose a move into ``REF3_P05_1/`` -- on GENE7, all 5184 objects.
+        this propose a move into ``REF3_P05_1/`` -- on one real upload, all 5184
+        objects.
         """
         proposal = expected_trimmed_key(BUCKET, f"{WELL_B}.trim.cram")
 
