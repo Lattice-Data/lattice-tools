@@ -3,6 +3,7 @@ Constants for QA pipeline: chemistries, assays, expected cellranger and raw file
 """
 
 import re
+from datetime import datetime
 
 chemistries = {
     "Single Cell 5' R2-only v3": "5p",
@@ -511,3 +512,34 @@ SCALE_WORKFLOW_REQUIRED_PARAMS = {
 }
 
 SCALE_SAMPLES_FORBIDDEN_COLUMNS = frozenset({"scalePlexBarcodes"})
+
+# Run folder under processed/cellranger/: ISO date or legacy underscores, optional tag suffix.
+_RUN_DIR_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("%Y-%m-%d", re.compile(r"^(\d{4}-\d{2}-\d{2})(?:_.*)?$")),
+    ("%Y_%m_%d", re.compile(r"^(\d{4}_\d{2}_\d{2})(?:_.*)?$")),
+)
+
+
+def is_valid_cellranger_run_dir_name(name: str) -> bool:
+    """
+    True if ``name`` looks like a Cell Ranger run directory under ``processed/cellranger/``.
+
+    Accepts:
+
+    - ``Run_2025-01-10``
+    - ``Run_2026-02-28_biohub`` (date + optional ``_tag`` suffix)
+    - ``Run_2025_12_31`` (underscore-separated date, as used by some providers)
+    """
+    if not name.startswith("Run_") or "/" in name:
+        return False
+    rest = name[4:]
+    for fmt, pat in _RUN_DIR_PATTERNS:
+        m = pat.match(rest)
+        if not m:
+            continue
+        try:
+            datetime.strptime(m.group(1), fmt)
+        except ValueError:
+            return False
+        return True
+    return False

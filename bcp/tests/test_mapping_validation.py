@@ -1615,6 +1615,48 @@ def test_validate_s3_10x_processed_bad_run_date_format() -> None:
     assert any(w["type"] == "run_date_format" for w in res["warnings"])
 
 
+def test_validate_s3_10x_processed_underscore_run_date_accepted() -> None:
+    """Underscore-separated run dates (Psomagen style) should not warn."""
+    s3 = (
+        "s3://czi-psomagen/project-perturb-alpha/"
+        "AN00000001/L1A/processed/cellranger/Run_2026_08_19/outs/config.csv"
+    )
+    rows = [
+        MappingRow(s3_path=s3, local_path="/local/config.csv", line_num=1),
+    ]
+    res = validate_s3_10x_processed("psomagen", rows)
+    assert res["matched"] == 1
+    assert not any(w["type"] == "run_date_format" for w in res["warnings"])
+
+
+def test_validate_s3_10x_processed_run_date_with_tag_accepted() -> None:
+    """Run dates with optional _tag suffix should not warn."""
+    s3 = (
+        "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
+        "e10_rep1_t13/processed/cellranger/Run_2001-02-28_biohub/outs/file.h5"
+    )
+    rows = [
+        MappingRow(s3_path=s3, local_path="/local/file.h5", line_num=1),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert not any(w["type"] == "run_date_format" for w in res["warnings"])
+
+
+def test_validate_s3_10x_processed_invalid_calendar_run_date_warns() -> None:
+    """Impossible calendar dates should produce a run_date_format warning."""
+    bad_s3 = (
+        "s3://czi-novogene/project-embryo-alpha/NVUS0000000000-19/"
+        "e10_rep1_t13/processed/cellranger/Run_2000-13-01/outs/file.h5"
+    )
+    rows = [
+        MappingRow(s3_path=bad_s3, local_path="/local/file.h5", line_num=1),
+    ]
+    res = validate_s3_10x_processed("novogene", rows)
+    assert res["matched"] == 1
+    assert any(w["type"] == "run_date_format" for w in res["warnings"])
+
+
 def test_validate_s3_10x_processed_project_naming_warning() -> None:
     """Non-lowercase project names should produce a warning."""
     bad_s3 = (
