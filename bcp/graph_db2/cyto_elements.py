@@ -18,13 +18,14 @@ from discovery order would draw arrows that don't mean lineage.
 
 from collections import defaultdict
 from collections.abc import Collection
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import requests
 from .connection import get_connection
 from .constants import DEFAULT_MODE, FETCH_NEW
 from .models import (
     LatticeNode,
+    GraphDB2Error,
     NodeColor,
     batch_request_chunk_and_fetch,
     group_batch_request,
@@ -73,18 +74,104 @@ def fetch_full(node: LatticeNode) -> dict:
 
 def normalize_path(path: str) -> str:
     """
-    Canonicalize an object path to the '/object_type/uuid/' form.
+    Canonicalize a seed string to a URL path with leading and trailing slashes.
 
-    '/tissues/<uuid>/', 'tissues/<uuid>' and 'tissues/<uuid>/' all name the same
-    object. LatticeNode normalizes internally, so mixing a raw input string with
-    a LatticeNode.uuid_path silently produces edges whose endpoints match no
-    node id - and cytoscape drops the whole graph rather than one bad edge.
+    Three spellings address an object on a DB2 instance, and this accepts all of
+    them without deciding which it was handed:
+        /{object_type}/{uuid}/
+        /{alias}/
+        /{uuid}/
+    Only the server can say which one it is, so the two checks here are the ones
+    that need no request: something has to survive the slash stripping, and a
+    full URL is not a path on the instance.
     """
     cleaned = path.strip().strip("/")
-    parts = cleaned.split("/")
-    if len(parts) != 2 or not all(parts):
-        raise ValueError(f"Expected 'object_type/uuid', got {path!r}")
+    if not cleaned:
+        raise GraphDB2Error(f"Expected an object path, alias or uuid, got {path!r}")
+    if cleaned.lower().startswith(("http://", "https://")):
+        raise GraphDB2Error(f"Expected a path on the instance, not a URL: {path!r}")
+    # '//' means an empty segment, which no spelling has - and left alone it
+    # turns a seed into a request for a different path than the user typed
+    if "//" in cleaned:
+        raise GraphDB2Error(f"Expected no empty path segments, got {path!r}")
     return f"/{cleaned}/"
+
+
+def canonical_id(json_object: dict) -> str | None:
+    """
+    The '@id' of a JSON response, if it names a single object.
+
+    A collection ('/matrix_file_sets/') and the portal root both answer 200
+    without naming one, and LatticeNode cannot parse either - it splits an '@id'
+    into exactly two segments.
+    """
+    type_and_uuid = json_object.get("@id")
+    if not isinstance(type_and_uuid, str):
+        return None
+    segments = [segment for segment in type_and_uuid.split("/") if segment]
+    return type_and_uuid if len(segments) == 2 else None
+
+
+def normalize_to_type_and_uuid(path: str, mode: str = DEFAULT_MODE) -> str:
+    """
+    Resolve any accepted seed spelling to the canonical '/{object_type}/{uuid}/'.
+
+    An alias and a bare uuid each address an object but neither is usable as a
+    node id, and only the server can say which object they name. So the path is
+    requested once: the profile it answers with lands in the LatticeNode cache,
+    and its '@id' is the canonical form everything downstream keys off.
+
+    A path already in the cache is already an '@id' - every key in that dict came
+    from one - so it resolves to itself without a request. That is what keeps
+    tapping an already-fetched node from costing an extra round trip.
+    """
+    if path in LatticeNode._cache:
+        return path
+
+    # outside the try: a missing credential exits, and naming the server in the
+    # failure message needs the connection to have been built
+    connection = get_connection(mode)
+    # an alias is free-form text, and an unencoded '#' or '?' in one silently
+    # truncates the request path rather than reaching the object
+    url = urljoin(connection.server, quote(path, safe="/:@"))
+    try:
+        response = requests.get(
+            url,
+            auth=connection.auth,
+            headers=connection.headers,
+            timeout=60,
+        )
+        response.raise_for_status()
+        json_object = response.json()
+    except requests.RequestException as exc:
+        # covers the 404 for an unknown alias, the 403 for an object this key
+        # cannot see, a dead server, and a 200 that is not JSON
+        raise GraphDB2Error(
+            f"Could not resolve seed {path!r} on {connection.server}: {exc}"
+        ) from exc
+
+    type_and_uuid = canonical_id(json_object)
+    if type_and_uuid is None:
+        raise GraphDB2Error(
+            f"Seed {path!r} resolved to {json_object.get('@id')!r} on "
+            f"{connection.server}, which is not a single object - expected "
+            "'/{object_type}/{uuid}/'"
+        )
+
+    LatticeNode._cache[type_and_uuid] = json_object
+    return type_and_uuid
+
+
+def resolve_seed(seed: str, mode: str = DEFAULT_MODE) -> str:
+    """
+    Whatever the user typed, as a node id.
+
+    The two steps are never useful apart, and calling them separately is how a
+    caller ends up resolving a db2_demo seed against db2_prod: the mode has to
+    be threaded through the second one, and there is nothing in the first to
+    suggest it.
+    """
+    return normalize_to_type_and_uuid(normalize_path(seed), mode)
 
 
 def object_url(uuid_path: str, mode: str = DEFAULT_MODE) -> str:
@@ -236,8 +323,9 @@ def expand(
     out, since a neighbor's type is readable from its path alone.
     """
     # everything downstream keys off node ids, so work from the canonical form
-    # rather than whatever the caller typed
-    uuid_path = normalize_path(uuid_path)
+    # rather than whatever the caller typed. Free for a node already in the
+    # cache, which is every node the user can tap.
+    uuid_path = resolve_seed(uuid_path, mode)
     node = LatticeNode(uuid_path)
     if node.uuid_path not in _fully_fetched:
         node.object_json = fetch_full(node)  # setter writes through to _cache

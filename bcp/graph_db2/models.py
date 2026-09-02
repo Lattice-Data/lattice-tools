@@ -14,6 +14,10 @@ from db2_flattener.gather.gatherer import DB2Gatherer
 from db2_flattener.schema.generate import SchemaIDs
 
 
+class GraphDB2Error(ValueError):
+    """Raised when graph_db2 encounters an error"""
+
+
 class NodeColor(Enum):
     Donor = "#cfe2f3ff"
     Biosample = "#d9d2e9ff"

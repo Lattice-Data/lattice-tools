@@ -21,10 +21,10 @@ from .cyto_elements import (
     member_options,
     merge_elements,
     neighbors_drawn,
-    normalize_path,
     object_url,
     promote_members,
     properties_of,
+    resolve_seed,
 )
 from .models import LatticeNode, NodeColor
 
@@ -285,12 +285,14 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
 
     elements: list[dict] = []
     if not seed:
-        status = status_text(f"On {mode}. Paste an object path and press Load.")
-        notice = [html.P(f"Connected to {mode}. Load an object path to start.")]
+        status = status_text(f"On {mode}. Paste a path, alias or uuid and press Load.")
+        notice = [html.P(f"Connected to {mode}. Load a path, alias or uuid to start.")]
     else:
         try:
-            # so the input box shows the canonical form of whatever was typed
-            seed = normalize_path(seed)
+            # so the input box shows the canonical form of whatever was typed -
+            # an alias or a bare uuid is what a curator has to hand, and neither
+            # is what the graph is keyed by
+            seed = resolve_seed(seed, mode)
             seed_nodes, seed_edges = expand(seed, gatherer, mode=mode)
             elements = merge_elements([], seed_nodes, seed_edges)
             status = status_text(f"{seed} - {fan_summary(seed_nodes)}")
@@ -459,11 +461,13 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             if not seed_value:
                 return (
                     no_update,
-                    status_text("Enter an object path to load.", ok=False),
+                    status_text("Enter a path, alias or uuid to load.", ok=False),
                     no_update,
                 )
             try:
-                target = normalize_path(seed_value)
+                # resolved here rather than left to expand() so the status line
+                # can name the object an alias or uuid turned out to be
+                target = resolve_seed(seed_value, mode)
             except ValueError as error:
                 return no_update, status_text(str(error), ok=False), no_update
             elements = []
