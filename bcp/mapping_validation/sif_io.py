@@ -32,13 +32,19 @@ def _normalize_sif_groupid(gid: str) -> str:
 
     Only a plus *between* two parts is rewritten.  A trailing one is left alone
     so that marker-sorted population names stay intact: ``CD4+`` must not turn
-    into ``CD4_`` and then fail to match its S3 directory.
+    into ``CD4_`` and then fail to match its S3 directory.  The left-hand part
+    may itself end in a plus, so ``CD4+ + AF`` still collapses to ``CD4+_AF``.
+
+    A plus with no whitespace on either side is genuinely ambiguous -- ``A+AF``
+    is a pair separator but ``CD4+CD8`` is one name -- and no rule can tell them
+    apart.  This treats it as a separator, which is why
+    :func:`load_sif_libraries` keeps the raw spelling alongside this one.
 
     Case is deliberately left alone: S3 GroupID directories are case-sensitive
     and mixed-case in practice (``f_skfD``), so folding it here would accept
     directories that do not exist.
     """
-    return re.sub(r"(?<=[^\s+])\s*\+\s*(?=[^\s+])", "_", gid.strip())
+    return re.sub(r"(?<=\S)\s*\+\s*(?=[^\s+])", "_", gid.strip())
 
 
 def _coerce_cell_to_str(value: object) -> str:
@@ -530,10 +536,12 @@ def load_sif_libraries(
     never end up describing different parts of a workbook (a stale tab, or an
     example block above the real header).
 
-    Assay types are lower-cased SOP tokens.  Group Identifiers are normalised
-    with :func:`_normalize_sif_groupid` so they can be compared directly
-    against S3 GroupID directory names.  A library maps to a *set* of groups
-    because nothing guarantees a library name appears only once in a SIF.
+    Assay types are lower-cased SOP tokens.  Group Identifiers are kept in
+    *both* their raw SIF spelling and their :func:`_normalize_sif_groupid`
+    form, so either can match an S3 GroupID directory name -- the ``+``
+    rewrite has an ambiguous case it cannot decide, and keeping both spellings
+    means it does not have to.  That is also why a library maps to a *set*
+    even when it appears in the SIF exactly once.
 
     ``provider`` selects Psomagen-style assay/group column headers when needed.
     """

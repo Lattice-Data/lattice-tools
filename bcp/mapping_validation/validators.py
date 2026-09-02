@@ -1978,6 +1978,10 @@ def validate_library_assay_consistency(
     in either direction, which is all the naming conventions in use have in
     common.
 
+    ``sif_backed`` counts how many of the ``checked`` rows were compared against
+    a real SIF GroupID rather than the containment fallback, so a partially
+    populated group map cannot masquerade as a fully SIF-backed run.
+
     Note that vendors are *not* required to build local paths out of the SIF
     library names.  A row whose local path contains no recognisable library
     name is counted in ``skipped`` and never reported as a mismatch -- this
@@ -2001,6 +2005,7 @@ def validate_library_assay_consistency(
     assay_mismatches: List[dict] = []
     groupid_mismatches: List[dict] = []
     checked = 0
+    sif_backed = 0
     skipped = 0
 
     for row in mappings:
@@ -2032,6 +2037,7 @@ def validate_library_assay_consistency(
         sif_groups = lib_groups.get(found_lib, set())
 
         if sif_groups:
+            sif_backed += 1
             groupid_ok = s3_groupid in sif_groups
         else:
             # No SIF group information for this library: fall back to
@@ -2071,6 +2077,7 @@ def validate_library_assay_consistency(
 
     return {
         "checked": checked,
+        "sif_backed": sif_backed,
         "assay_mismatches": assay_mismatches,
         "groupid_mismatches": groupid_mismatches,
         "skipped": skipped,

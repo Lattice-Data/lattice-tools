@@ -443,7 +443,7 @@ def test_mapping_validation_e2e_notes_missing_sif_groupids(
 
     out = capsys.readouterr().out
     assert "Library consistency: checked 34 paths" in out
-    assert "the SIF supplied no Library-name → GroupID mapping" in out
+    assert "NOTE: 34 of 34 paths had no SIF GroupID" in out
 
 
 def test_mapping_validation_e2e_10x_processed_multiome_pass(

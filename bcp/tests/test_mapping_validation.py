@@ -1072,6 +1072,21 @@ def test_validate_library_assay_consistency_multi_match_still_fails_unrelated() 
     assert m["sif_groupids"] == ["CH02"]
 
 
+def test_validate_library_assay_consistency_reports_sif_backed_coverage() -> None:
+    """``sif_backed`` separates real SIF comparisons from fallback ones.
+
+    A group map covering only some libraries would otherwise produce a summary
+    line indistinguishable from a fully SIF-backed run.
+    """
+    lib_assays = {"CH01GEX": "gex", "SOLO9": "gex"}
+    lib_groups = {"CH01GEX": {"CH01"}}
+    rows = [_multiome_row("CH01GEX", "CH01", 1), _multiome_row("SOLO9", "SOLO9", 2)]
+    res = validate_library_assay_consistency(rows, lib_assays, "novogene", lib_groups)
+    assert res["checked"] == 2
+    assert res["sif_backed"] == 1
+    assert res["groupid_mismatches"] == []
+
+
 def test_validate_library_assay_consistency_no_group_does_not_borrow_one() -> None:
     """A library with no SIF group takes the fallback, not a neighbour's group.
 
@@ -1236,8 +1251,12 @@ def test_load_sif_library_groups_does_not_invent_groups_for_blanks(
     assert load_sif_library_groups(sif, provider="novogene") == {"CH01GEX": {"CH01"}}
 
 
-def test_load_sif_library_groups_excel_and_csv_agree(tmp_path: Path) -> None:
-    """The same SIF content yields the same groups as .xlsx and as .csv."""
+def test_load_sif_libraries_excel_and_csv_agree(tmp_path: Path) -> None:
+    """The same SIF content yields the same assays *and* groups either way.
+
+    Compares the whole ``load_sif_libraries`` tuple rather than just the group
+    map, so an assay-side divergence between the two readers cannot hide.
+    """
     pd = pytest.importorskip("pandas")
     frame = pd.DataFrame(
         {
@@ -1250,9 +1269,9 @@ def test_load_sif_library_groups_excel_and_csv_agree(tmp_path: Path) -> None:
     frame.to_excel(xlsx, index=False)
     csv_path = tmp_path / "sif.csv"
     frame.to_csv(csv_path, index=False)
-    assert load_sif_library_groups(
-        xlsx, provider="novogene"
-    ) == load_sif_library_groups(csv_path, provider="novogene")
+    assert load_sif_libraries(xlsx, provider="novogene") == load_sif_libraries(
+        csv_path, provider="novogene"
+    )
 
 
 def test_load_sif_library_groups_numeric_group_ids(tmp_path: Path) -> None:
@@ -1311,6 +1330,17 @@ def test_normalize_sif_groupid_rewrites_plus_without_spaces() -> None:
     assert _normalize_sif_groupid("  A + AF  ") == "A_AF"
     # Case is left alone: S3 GroupID directories are case-sensitive.
     assert _normalize_sif_groupid("f_skfD") == "f_skfD"
+
+
+def test_normalize_sif_groupid_left_member_ending_in_plus() -> None:
+    """The canonical ' + ' separator still applies when the left part ends in '+'.
+
+    Regression: a lookbehind that excluded '+' stopped recognising the
+    documented separator in ``CD4+ + AF``, leaving it verbatim so it could
+    never match the ``CD4+_AF`` S3 directory.
+    """
+    assert _normalize_sif_groupid("CD4+ + AF") == "CD4+_AF"
+    assert _normalize_sif_groupid("EpCAM+ + AF") == "EpCAM+_AF"
 
 
 def test_normalize_sif_groupid_keeps_trailing_plus() -> None:

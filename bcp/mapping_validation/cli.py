@@ -616,12 +616,14 @@ def _report_library_consistency(
             else ""
         )
     )
-    if not lib_groups and lib_res["checked"]:
-        # Without SIF GroupIDs this check is much weaker than it looks, and the
-        # summary line above cannot be told apart from a fully SIF-backed run.
+    unbacked = lib_res["checked"] - lib_res["sif_backed"]
+    if unbacked:
+        # Report coverage, not just the all-or-nothing case: a SIF that supplies
+        # GroupIDs for only some libraries produces a summary line otherwise
+        # indistinguishable from a fully SIF-backed run.
         print(
-            "  NOTE: the SIF supplied no Library-name → GroupID mapping; "
-            "GroupIDs were compared by name containment only."
+            f"  NOTE: {unbacked} of {lib_res['checked']} paths had no SIF GroupID "
+            "for their library; those were compared by name containment only."
         )
     if n_gid:
         print("  GroupID mismatches (library's GroupID does not match S3 GroupID):")
