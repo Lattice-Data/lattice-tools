@@ -1,0 +1,43 @@
+DEFAULT_MODE = "db2_prod"
+DEFAULT_PORT = 8050
+FETCH_NEW = False
+
+EXCLUDED_SCHEMAS = {
+    "access_keys",
+    "controlled_terms",
+    "documents",
+    "images",
+    "labs",
+    "sources",
+    "pages",
+    "terms",
+    "users",
+}
+
+ABSTRACT_MAPPING = {
+    "AccessKey": "AccessKey",
+    "ControlledTerm": "ControlledTerm",
+    "Document": "Document",
+    "ExperimentalCondition": "ExperimentalCondition",
+    "GeneticModification": "GeneticModification",
+    "Image": "Image",
+    "Lab": "Lab",
+    "Page": "Page",
+    "Source": "Source",
+    "Treatment": "Treatment",
+    "User": "User",
+    "PrimaryCellCulture": "Biosample",
+    "Organoid": "Biosample",
+    "CellLine": "Biosample",
+    "Tissue": "Biosample",
+    "NonHumanDonor": "Donor",
+    "HumanDonor": "Donor",
+    "ProcessedMatrixFile": "File",
+    "RawMatrixFile": "File",
+    "TabularFile": "File",
+    "SequenceFile": "File",
+    "MatrixFileSet": "FileSet",
+    "SequenceFileSet": "FileSet",
+    "PlateBasedLibrary": "Library",
+    "DropletBasedLibrary": "Library",
+}
