@@ -87,25 +87,40 @@ Then open <http://localhost:8050>.
 
 | Flag | Description |
 |------|-------------|
-| `--seed` | Object path to start from. Defaults to a sample on `db2_prod`; on any other mode, defaults to an empty canvas. |
+| `--seed` | Object to start from, as a path, an alias or a bare uuid. Defaults to a sample on `db2_prod`; on any other mode, defaults to an empty canvas. |
 | `--mode` | DB2 instance (default `db2_prod`). Must start with `db2_`. |
 | `--fetch-new` | Fetch profile schemas from the instance instead of reading `constants.yaml`. |
 | `--port` | Default `8050`. |
 | `--debug` | Dash debug mode with hot reload. |
 
-`--seed` accepts any of these spellings, and normalizes to the canonical form:
+`--seed` takes any of the three things a DB2 instance will resolve, with or
+without surrounding slashes and whitespace:
 
 ```
-/object_type/uuid/
-object_type/uuid
-object_type/uuid/
-/object_type/uuid
+/object_type/uuid/          matrix_file_sets/<uuid>
+/alias/                     test-lab:my_matrixfileset
+/uuid/                      <uuid>
 ```
+
+An alias is usually what a curator has to hand, and a bare uuid is what a
+report or a Jira ticket carries — but neither can be a node id, because the
+graph is keyed by `@id`. So the seed is requested once, the profile that comes
+back is cached, and its `@id` becomes the canonical form; the seed box and the
+status line both show that rather than what was typed.
+
+Because only the server can tell an alias from a uuid, almost nothing is
+rejected on shape — a bare word could be an alias. The exceptions are an empty
+seed, a full URL (`https://api.data.lattice-data.org/...`), and an empty path
+segment (`matrix_file_sets//<uuid>`), each of which would otherwise become a
+request for something the user never typed. Everything else that fails — an
+unknown alias, an object the key cannot see, a collection endpoint like
+`matrix_file_sets` that answers `200` without naming one object — comes back as
+a single `GraphDB2Error` naming the seed and the server it was tried on.
 
 A seed only means something on the server it came from, so `--mode` **without**
 `--seed` deliberately starts empty rather than carrying a path across
-deployments. Anything malformed is rejected up front with
-`Expected 'object_type/uuid', got '...'`.
+deployments — and resolution always goes to the `--mode` server, never the
+default one.
 
 ### Using it
 
@@ -243,7 +258,12 @@ can be driven from a notebook or a test without starting a server.
   picker's ticks mean "on the canvas", and a node is on the canvas once
   regardless of how many paths led to it. Unticking it also removes the edges
   those other expansions contributed; re-expanding the neighbor puts them back.
-- **Full URLs are not accepted** as a seed — only `object_type/uuid` paths, not
+- **Full URLs are not accepted** as a seed — a path, alias or uuid, not
   `https://api.data.lattice-data.org/matrix_file_sets/<uuid>/`.
+- **A seed costs one extra request the first time.** Resolving it is a GET, and
+  the full profile fetch is another. Only a path already in the cache — which
+  is every node on the canvas — resolves for free, so clicking around does not
+  pay for it. An alias is not a cache key, so re-Loading the same alias
+  re-resolves it.
 - The dev server is Flask's. Fine for a local tool; put it behind a real WSGI
   server if it ever gets shared.

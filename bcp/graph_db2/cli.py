@@ -1,9 +1,13 @@
 """
 Dash + Cytoscape explorer for the DB2 reference graph.
 
-Seeded from a single object path, the graph grows only where the user clicks:
-each tap resolves that node's neighbors and folds them in. Nothing is
-precomputed, so the seed can sit anywhere in the database.
+Seeded from a single object, the graph grows only where the user clicks: each
+tap resolves that node's neighbors and folds them in. Nothing is precomputed,
+so the seed can sit anywhere in the database.
+
+The seed can be an object path, an alias or a bare uuid; whichever it is, it is
+resolved against the instance and the graph is keyed by the canonical
+/object_type/uuid/ that comes back.
 
 Run from the bcp directory in an environment with
     db2_flattener installed
@@ -11,6 +15,7 @@ Run from the bcp directory in an environment with
 
     python -m graph_db2
     python -m graph_db2 --mode db2_demo --seed /matrix_file_sets/<uuid>/
+    python -m graph_db2 --mode db2_demo --seed some-lab:my_matrixfileset
 
 A seed only has meaning on the server it came from, so --mode without --seed
 starts on an empty canvas rather than guessing a path from another deployment.
@@ -31,8 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--seed",
-        help=f"object path to start from; defaults to a sample on {DEFAULT_MODE} "
-        "and to an empty canvas elsewhere",
+        help="object path, alias or uuid to start from; defaults to a sample on "
+        f"{DEFAULT_MODE} and to an empty canvas elsewhere",
     )
     parser.add_argument(
         "--mode",

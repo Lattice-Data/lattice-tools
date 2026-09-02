@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 import requests
 
+from graph_db2 import cyto_elements
 from graph_db2.cyto_elements import (
     already_drawn,
     drop_nodes,
@@ -17,7 +18,7 @@ from graph_db2.cyto_elements import (
     neighbors_drawn,
     promote_members,
 )
-from graph_db2.models import LatticeNode
+from graph_db2.models import GraphDB2Error, LatticeNode
 
 from tests.graph_db2_helpers import (  # noqa: F401  (fixtures + autouse reset)
     MFS,
@@ -27,9 +28,11 @@ from tests.graph_db2_helpers import (  # noqa: F401  (fixtures + autouse reset)
     fake_gatherer,
     clean_graph_state,
     dangling_edges,
+    db2_env,
     edges_of,
     node_ids,
     patched_fetch,
+    patched_requests,
     raw_matrix_file,
     sequence_file,
 )
@@ -144,17 +147,39 @@ def test_group_parent_path_is_canonical() -> None:
     assert groups_in(nodes)[0]["parent_path"] == MFS
 
 
-def test_malformed_seed_raises_before_any_request() -> None:
+def test_empty_seed_raises_before_any_request() -> None:
+    """A bare type name is now a question for the server - it could be an alias -
+    but an empty seed cannot name anything, and left alone it becomes a request
+    for the server root."""
     gatherer = fake_gatherer()
-    with pytest.raises(ValueError, match="Expected 'object_type/uuid'"):
-        expand("matrix_file_sets", gatherer)
+    with pytest.raises(ValueError, match="Expected an object path"):
+        expand("   ", gatherer)
     assert gatherer.calls == []
 
 
-def test_missing_object_raises_http_error() -> None:
+def test_missing_object_raises_before_fetching() -> None:
+    """Resolution now happens before the full fetch, so a seed that names
+    nothing fails there. The 404 is chained onto a GraphDB2Error that names the
+    seed, because 'HTTPError' on its own does not say which path was wrong."""
     gatherer = fake_gatherer()
-    with pytest.raises(requests.HTTPError):
+    with pytest.raises(GraphDB2Error, match="does-not-exist") as raised:
         expand("/matrix_file_sets/does-not-exist/", gatherer)
+    assert isinstance(raised.value.__cause__, requests.HTTPError)
+
+
+def test_object_that_resolves_but_cannot_be_fetched_raises_http_error() -> None:
+    """fetch_full() is still the layer that reports a profile the caller's key
+    cannot read, so its HTTPError has to keep escaping expand()."""
+    gatherer = fake_gatherer()
+    LatticeNode(MFS).object_json = {"@id": MFS}  # resolves from the cache
+
+    def forbidden(node: LatticeNode) -> dict:
+        raise requests.HTTPError(f"403 Client Error for url: {node.uuid_path}")
+
+    with pytest.raises(requests.HTTPError, match="403"):
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(cyto_elements, "fetch_full", forbidden)
+            expand(MFS, gatherer)
 
 
 # --------------------------------------------------------------------------
