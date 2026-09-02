@@ -29,6 +29,7 @@ from file_extract.scale_h5ad import (
     is_scale_mtx_key,
     leftover_cram_uris,
     leftover_cram_warning,
+    empty_derived_from_warning,
     empty_raw_subdir_warning,
     is_cram_in_raw_search,
     list_raw_crams,
@@ -51,6 +52,7 @@ SHEET_CSV = FIXTURES / "scale_sample_template.csv"
 
 SAMP01_MERGED = f"{RUNDATE}samples/SAMP-01_anndata.h5ad"
 SAMP01_QSR = f"{RUNDATE}samples/SAMP-01.QSR-1_anndata.h5ad"
+SAMP01_QSR2 = f"{RUNDATE}samples/SAMP-01.QSR-2_anndata.h5ad"
 SAMP02_QSR = f"{RUNDATE}samples/SAMP-02.QSR-1_anndata.h5ad"
 CTRL_QSR = f"{RUNDATE}samples/CTRL-01.QSR-1_anndata.h5ad"
 ALLCELLS = f"{RUNDATE}samples/SAMP-01.merged.allCells.csv"
@@ -342,6 +344,14 @@ def test_is_cram_in_raw_search_requires_numeric_folder() -> None:
     assert not is_cram_in_raw_search(CRAM_UNMATCHED, RAW)
 
 
+def test_empty_derived_from_warning_names_the_file() -> None:
+    """Literal text, because the docs promise the filename and --raw-subdirs."""
+    assert empty_derived_from_warning("SAMP-01.QSR-2_anndata.h5ad") == (
+        "derived_from is empty for 'SAMP-01.QSR-2_anndata.h5ad'; "
+        "are any S3 raw cram directories missing from --raw-subdirs?"
+    )
+
+
 def test_empty_raw_subdir_warning_names_the_entry_and_every_prefix() -> None:
     """Literal text, because the docs promise the entry and all prefixes."""
     assert empty_raw_subdir_warning("999999", ("s3://b/p/raw/", "s3://b/p/")) == (
@@ -552,7 +562,12 @@ def _parse_fixture_samples() -> list[tuple[str, str]]:
 
 
 def _h5ad_dims(bucket: str, key: str) -> tuple[int, int]:
-    counts = {SAMP01_QSR: (11, 18129), SAMP02_QSR: (22, 900), CTRL_QSR: (3, 4)}
+    counts = {
+        SAMP01_QSR: (11, 18129),
+        SAMP01_QSR2: (15, 18129),
+        SAMP02_QSR: (22, 900),
+        CTRL_QSR: (3, 4),
+    }
     if key not in counts:
         raise RuntimeError(f"unexpected h5ad key {key}")
     return counts[key]
@@ -817,6 +832,42 @@ def test_extract_scale_h5ad_warns_when_raw_subdir_matched_nothing(
     )
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
     assert json.loads(rows[0]["derived_from"]) == []
+    assert empty_derived_from_warning("SAMP-01.QSR-1_anndata.h5ad") in summary.warnings
+
+
+def test_extract_scale_h5ad_warns_when_one_derived_from_is_empty(
+    tmp_path: Path,
+) -> None:
+    """A QSR-2 row with no matching CRAM is named; filled QSR-1 rows are not."""
+    client = MockS3Client(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR, SAMP01_QSR2, CRAM_SAMP01_GEX],
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        crc_by_key={SAMP01_QSR: "crc-qsr1", SAMP01_QSR2: "crc-qsr2"},
+    )
+    out = tmp_path / "partial_derived.tsv"
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=_h5ad_dims):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["426971"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
+    empty_warnings = [
+        w for w in summary.warnings if w.startswith("derived_from is empty")
+    ]
+    assert empty_warnings == [empty_derived_from_warning("SAMP-01.QSR-2_anndata.h5ad")]
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    by_name = {row["filename"]: row for row in rows}
+    assert json.loads(by_name["SAMP-01.QSR-1_anndata.h5ad"]["derived_from"]) == [
+        derived_from_label("example-lab", CRAM_SAMP01_GEX)
+    ]
+    assert json.loads(by_name["SAMP-01.QSR-2_anndata.h5ad"]["derived_from"]) == []
 
 
 def test_format_feature_counts() -> None:

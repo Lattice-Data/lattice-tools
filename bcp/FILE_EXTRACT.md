@@ -199,7 +199,7 @@ Run with `-v` to log which prefix supplied the CRAMs — useful when a delivery'
 
 **derived_from matching:** Each CRAM found is parsed for `QSR-#`, the well after `QSR-#_` or `QSR-#-` (1–12 + A–H), and whether the name contains `SCALEPLEX`. The well is looked up in rundate `samples.csv` `barcodes`; that sample plus QSR# select `{sample}.QSR-#_anndata.h5ad` or `{sample}.QSR-#-SCALEPLEX.filtered.matrix/matrix.mtx.gz`. The TSV value is `{lab}:{cram_filename}` using `--lab`.
 
-**derived_from guardrails:** A CRAM that does not attach to an output row is printed as a warning. So is a `--raw-subdirs` entry that matched no CRAMs at all, naming every prefix that was tried — the quickest way to spot a typo or a layout the resolved prefix does not describe, since otherwise `derived_from` would just come out empty. `--strict` turns that second warning into exit 1.
+**derived_from guardrails:** A CRAM that does not attach to an output row is printed as a warning. So is a `--raw-subdirs` entry that matched no CRAMs at all, naming every prefix that was tried — the quickest way to spot a typo or a layout the resolved prefix does not describe, since otherwise `derived_from` would just come out empty. `--strict` turns that second warning into exit 1. An output row whose `derived_from` is `[]` is also warned by filename and asks whether any S3 raw CRAM directories are missing from `--raw-subdirs`.
 
 **Optional introspection dependencies** (needed to read `observation_count` and `feature_counts`):
 

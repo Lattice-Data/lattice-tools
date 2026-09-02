@@ -318,6 +318,13 @@ def leftover_cram_warning(uri: str) -> str:
     return f"cram {uri} was not added to derived_from"
 
 
+def empty_derived_from_warning(filename: str) -> str:
+    return (
+        f"derived_from is empty for {filename!r}; "
+        "are any S3 raw cram directories missing from --raw-subdirs?"
+    )
+
+
 def empty_raw_subdir_warning(subdir: str, uris: Sequence[str]) -> str:
     """One ``--raw-subdirs`` entry found nothing to fill ``derived_from``.
 
@@ -523,6 +530,9 @@ def extract_scale_h5ad(
     target_names = {tsv_filename(obj.key, prefix) for obj in targets}
     for uri in leftover_cram_uris(crams, derived_map, target_names, lab_name):
         summary.warnings.append(leftover_cram_warning(uri))
+    for filename in sorted(target_names):
+        if not derived_map.get(filename):
+            summary.warnings.append(empty_derived_from_warning(filename))
 
     summary.total = len(targets)
     if not targets:
