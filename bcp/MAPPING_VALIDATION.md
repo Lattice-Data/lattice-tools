@@ -207,11 +207,16 @@ Checks run:
 
   - **Library‑assay consistency (`validate_library_assay_consistency`)**
     - Runs only when the SIF can supply both **Library name** and an assay/application column (Excel or CSV); otherwise this step is skipped with no summary line.
-    - Loads `Library name → assay type` from SIF.
-    - Infers library names from local paths.
+    - Loads `Library name → assay type` and `Library name → GroupID(s)` in one pass over a single sheet (`load_sif_libraries`), so the two mappings can never describe different parts of a workbook.
+    - Looks for SIF library names inside the local paths. Vendors are **not** required to build local paths out of library names — rows where no library name is found are counted as `skipped` and are never reported as mismatches.
     - Validates:
-      - Library name appears in the S3 GroupID.
+      - The S3 GroupID is one of the GroupIDs the SIF files the matching library under. If the SIF supplies no GroupID for it, the check falls back to requiring that the library name and S3 GroupID contain one another in either direction.
       - S3 assay for that GroupID matches the assay expected in the SIF.
+    - Where a local path matches more than one library name the **longest** match wins, and only that library's own GroupIDs are compared — a shorter, less specific match never lends its group to a longer one. A library the SIF lists more than once may match any of its GroupIDs.
+    - A blank Group Identifier cell means *unknown*, never “same as the row above”; such a library simply has no SIF GroupID and takes the fallback path. The summary reports how many checked paths fell back (`NOTE: N of M paths had no SIF GroupID …`), so a partly-populated group map cannot pass for a fully SIF-backed run.
+    - Group Identifiers are stored in both their raw SIF spelling and their `_normalize_sif_groupid` form. A `+` with whitespace on either side is a pair separator (`A + AF` → `A_AF`), a trailing one is part of the name (`CD4+`), and one with no whitespace at all (`A+AF` vs `CD4+CD8`) is genuinely undecidable — keeping both spellings means the comparison does not have to decide.
+    - Note the fallback is looser than the historical check, which required the library name to appear **inside** the S3 GroupID. That direction is wrong for multiome layouts, and with no authoritative GroupID there is nothing to be strict against, so containment is accepted either way round. Rows that do reach the SIF-backed comparison are held to a *stricter* standard than before: `LIB1` filed under `LIB1_LIB9F` satisfied the old substring test and is now a mismatch.
+    - Note that the relationship between a library name and its GroupID differs per convention, which is why it is read from the SIF rather than inferred: paired 10x concatenates member libraries into the GroupID (`LIB1`, `LIB1F` → `LIB1_LIB1F`), multiome extends the GroupID with an assay suffix (`CH01GEX`, `CH01ATAC` → `CH01`), and Psomagen 10x uses the same string for both.
 
   - **Per‑path SIF coverage (`find_unmatched_sif_paths_10x`)**
     - Ensures that S3 paths map to SIF GroupIDs when possible.
