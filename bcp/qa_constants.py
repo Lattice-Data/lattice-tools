@@ -168,6 +168,56 @@ cellranger_expected = {
     },
 }
 
+# 10.1.0 ships the same outs/per_sample layout as 10.0.0, so alias the entry
+# instead of copying it -- a copy would let the two drift apart silently.
+cellranger_expected["cellranger-10.1.0"] = cellranger_expected["cellranger-10.0.0"]
+
+# Versions that write the flattened outs layout (matrices at the top of outs/,
+# feature_reference.csv beside them, no multi/count/ subtree). Everything else
+# is treated as the older nested layout.
+CELLRANGER_FLAT_LAYOUT = frozenset(
+    (
+        "cellranger-10.0.0",
+        "cellranger-10.1.0",
+    )
+)
+
+# Versions QA accepts, oldest first (the order the error message lists them in).
+# 10.x is always run as `multi`; 9.0.1 may be count or multi.
+CELLRANGER_SUPPORTED_VERSIONS = ("cellranger-9.0.1",) + tuple(
+    sorted(CELLRANGER_FLAT_LAYOUT)
+)
+CELLRANGER_SUPPORTED = frozenset(CELLRANGER_SUPPORTED_VERSIONS)
+
+# One 10.0.0 build was run in the cloud with a git-describe suffix; it differed
+# only in bundled online documentation, so normalize it to the plain version.
+CELLRANGER_VERSION_ALIASES = {
+    "cellranger-10.0.0-5-g8638ac84de": "cellranger-10.0.0",
+}
+
+# metrics_summary.csv read metrics, grouped by Fastq ID. Total sequenced reads
+# are split across two rows: the reads Cell Ranger kept plus the short reads it
+# skipped. 10.1.0 renamed the first row from "Number of reads" to "Number of
+# reads analyzed"; see parse_met_summ.
+METRICS_SUMMARY_READS_TOTAL = "Number of reads"
+METRICS_SUMMARY_READS_ANALYZED = "Number of reads analyzed"
+METRICS_SUMMARY_READS_SKIPPED = "Number of short reads skipped"
+METRICS_SUMMARY_READ_METRICS = frozenset(
+    (
+        METRICS_SUMMARY_READS_TOTAL,
+        METRICS_SUMMARY_READS_ANALYZED,
+        METRICS_SUMMARY_READS_SKIPPED,
+    )
+)
+
+# Library Type in metrics_summary.csv -> report key consumed by
+# validate_processed_group, which pairs "<assay>_reads" against the raw counts
+# keyed by the assay in the FASTQ filename.
+METRICS_SUMMARY_LIBRARY_TYPES = {
+    "Gene Expression": "GEX_reads",
+    "CRISPR Guide Capture": "CRI_reads",
+}
+
 raw_expected = {
     "sci_jumbo": [
         ".cram",

@@ -12,6 +12,9 @@ import re
 from typing import Any
 
 from qa_constants import (
+    CELLRANGER_FLAT_LAYOUT,
+    CELLRANGER_SUPPORTED_VERSIONS,
+    CELLRANGER_VERSION_ALIASES,
     SCALE_AGGREGATE_FILE_RE,
     SCALE_AGGREGATE_FILE_RELAXED_RE,
     SCALE_RT_FILE_RE,
@@ -798,15 +801,18 @@ def validate_processed_group(
     software = report.get("software", "")
 
     # There is a specific cellranger version (10.0.0-5-g8638ac84de) that was run in the cloud that had no impact other than online documentation
-    if software == "cellranger-10.0.0-5-g8638ac84de":
-        software = "cellranger-10.0.0"
+    software = CELLRANGER_VERSION_ALIASES.get(software, software)
     if software == "cellranger-9.0.1":
         sub = report.get("sub", "")
-    elif software == "cellranger-10.0.0":
+    elif software in CELLRANGER_FLAT_LAYOUT:
         sub = "multi"
     else:
+        expected_versions = ", ".join(
+            v.replace("cellranger-", "") for v in CELLRANGER_SUPPORTED_VERSIONS
+        )
         errors.append(
-            f"CR ERROR: {group_name} version is {software} but should be 9.0.1 or 10.0.0"
+            f"CR ERROR: {group_name} version is {software} but should be "
+            f"{expected_versions}"
         )
         sub = ""
 
@@ -857,18 +863,20 @@ def validate_processed_group(
         expected = []
         per_samp_expected = []
 
+    flat_layout = software in CELLRANGER_FLAT_LAYOUT
+
     if "CRISPR" in extra or "Antibody" in extra:
-        if software != "cellranger-10.0.0":
+        if not flat_layout:
             expected.append("multi/count/feature_reference.csv")
             per_samp_expected.append("count/feature_reference.csv")
         else:
             expected.append("feature_reference.csv")
-        if "CRISPR" in extra and software != "cellranger-10.0.0":
+        if "CRISPR" in extra and not flat_layout:
             per_samp_expected.append("count/crispr_analysis.tar.gz")
         if "Antibody" in extra:
             per_samp_expected.append("count/antibody_analysis.tar.gz")
 
-    if sub == "multi" and report.get("multiplex") and software != "cellranger-10.0.0":
+    if sub == "multi" and report.get("multiplex") and not flat_layout:
         expected.append("multi/multiplexing_analysis.tar.gz")
 
     actual = [
