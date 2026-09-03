@@ -6,6 +6,7 @@ and 10x Genomics CellRanger pipelines.
 
 import os
 
+import pandas as pd
 import pytest
 
 from qa_mods import (
@@ -843,6 +844,104 @@ class TestParseMetSumm:
         path = os.path.join(QA_FIXTURES_DIR, "metrics_summary.csv")
         report = parse_met_summ(path)
         assert report["CRI_reads"] == 3_157_567_476
+
+
+class TestParseMetSumm101:
+    """
+    Cell Ranger 10.1.0 renamed the Fastq ID read row from "Number of reads" to
+    "Number of reads analyzed", which excludes short reads skipped. The QA count
+    has to be analyzed + skipped so it matches read_count in metadata.json.
+
+    Fixture: metrics_summary_10_1_0.csv — real 10.1.0 Flex GEX output, one
+    Fastq ID (8,923,681,719 analyzed + 621,822,504 skipped = 9,545,504,223).
+    """
+
+    ANALYZED = 8_923_681_719
+    SKIPPED = 621_822_504
+    TOTAL = ANALYZED + SKIPPED
+
+    @staticmethod
+    def _write(tmp_path, rows):
+        path = tmp_path / "metrics_summary.csv"
+        header = "Category,Library Type,Grouped By,Group Name,Metric Name,Metric Value"
+        path.write_text("\n".join([header, *rows]) + "\n")
+        return str(path)
+
+    def test_gex_reads_is_analyzed_plus_skipped(self):
+        path = os.path.join(QA_FIXTURES_DIR, "metrics_summary_10_1_0.csv")
+        report = parse_met_summ(path)
+        assert report["GEX_reads"] == self.TOTAL
+
+    def test_no_cri_reads_for_gex_only_run(self):
+        path = os.path.join(QA_FIXTURES_DIR, "metrics_summary_10_1_0.csv")
+        report = parse_met_summ(path)
+        assert "CRI_reads" not in report
+
+    def test_library_level_number_of_reads_row_is_not_counted(self):
+        """
+        10.1.0 still emits "Number of reads", but grouped by Physical library ID
+        and excluding skipped reads. Counting it would inflate the total, so the
+        Fastq ID restriction is what keeps it out.
+        """
+        path = os.path.join(QA_FIXTURES_DIR, "metrics_summary_10_1_0.csv")
+        df = pd.read_csv(path)
+        trap = df[
+            (df["Metric Name"] == "Number of reads")
+            & (df["Grouped By"] == "Physical library ID")
+        ]
+        assert not trap.empty, "fixture no longer exercises the library-level row"
+        assert int(trap["Metric Value"].iloc[0]) == self.ANALYZED
+        assert parse_met_summ(path)["GEX_reads"] == self.TOTAL
+
+    def test_crispr_uses_the_same_renamed_metrics(self, tmp_path):
+        path = self._write(
+            tmp_path,
+            [
+                "Library,Gene Expression,Fastq ID,G-1,Number of reads analyzed,100",
+                "Library,Gene Expression,Fastq ID,G-1,Number of short reads skipped,7",
+                "Library,CRISPR Guide Capture,Fastq ID,C-1,Number of reads analyzed,50",
+                "Library,CRISPR Guide Capture,Fastq ID,C-1,Number of short reads skipped,3",
+            ],
+        )
+        assert parse_met_summ(path) == {"GEX_reads": 107, "CRI_reads": 53}
+
+    def test_analyzed_wins_when_both_names_are_present(self, tmp_path):
+        """A file carrying both names must not count the analyzed reads twice."""
+        path = self._write(
+            tmp_path,
+            [
+                "Library,Gene Expression,Fastq ID,G-1,Number of reads,100",
+                "Library,Gene Expression,Fastq ID,G-1,Number of reads analyzed,100",
+                "Library,Gene Expression,Fastq ID,G-1,Number of short reads skipped,7",
+            ],
+        )
+        assert parse_met_summ(path) == {"GEX_reads": 107}
+
+    def test_all_numeric_metric_value_column_still_parses(self, tmp_path):
+        """
+        No string rows means pandas types Metric Value as float64, where .str
+        accessors yield NaN. The parser must not depend on the column being text.
+        """
+        path = self._write(
+            tmp_path,
+            [
+                "Library,Gene Expression,Fastq ID,G-1,Number of reads analyzed,100",
+                "Library,Gene Expression,Fastq ID,G-1,Number of short reads skipped,7",
+            ],
+        )
+        assert parse_met_summ(path)["GEX_reads"] == 107
+
+    def test_reads_are_summed_across_fastq_ids(self, tmp_path):
+        path = self._write(
+            tmp_path,
+            [
+                "Library,Gene Expression,Fastq ID,G-1,Number of reads analyzed,100",
+                "Library,Gene Expression,Fastq ID,G-1,Number of short reads skipped,7",
+                "Library,Gene Expression,Fastq ID,G-2,Number of reads analyzed,200",
+                "Library,Gene Expression,Fastq ID,G-2,Number of short reads skipped,9",
+            ],
+        )
+        assert parse_met_summ(path)["GEX_reads"] == 316
 
 
 class TestParseWebSumm:
