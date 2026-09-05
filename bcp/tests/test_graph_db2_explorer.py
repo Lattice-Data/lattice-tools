@@ -18,10 +18,12 @@ from graph_db2.cyto_elements import (
 from graph_db2.explorer import (
     BASE_STYLESHEET,
     DEFAULT_LAYOUT,
+    KEEP_VIEW,
     LAYOUTS,
     SAMPLE_SEED,
     detail_panel,
     format_value,
+    layout_for,
     legend,
     status_text,
     suggest_layout,
@@ -31,10 +33,14 @@ from graph_db2.models import LatticeNode, NodeColor
 from tests.graph_db2_helpers import (  # noqa: F401  (fixtures + autouse reset)
     MFS,
     TISSUE,
+    built_app,
     clean_graph_state,
     TEST_MODE,
     TEST_SERVER,
     db2_env,
+    patched_fetch,
+    patched_requests,
+    pick_layout,
     raw_matrix_file,
 )
 
@@ -101,6 +107,106 @@ def test_every_layout_fits_on_run() -> None:
     for name, options in LAYOUTS.items():
         assert options.get("fit") is True, name
         assert options.get("animate") is False, name
+
+
+# --------------------------------------------------------------------------
+# layout_for - the hold-view switch
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", list(LAYOUTS))
+def test_layout_for_fits_by_default(name: str) -> None:
+    """Unticked has to mean exactly the old behaviour."""
+    assert layout_for(name) == LAYOUTS[name]
+    assert layout_for(name, keep_view=False)["fit"] is True
+
+
+@pytest.mark.parametrize("name", list(LAYOUTS))
+def test_layout_for_holding_the_view_turns_fit_off(name: str) -> None:
+    """`fit` is the whole mechanism: every element change re-renders the
+    component, react-cytoscapejs sees a new layout object and re-runs it, and a
+    run with fit on ends in cy.fit() - the zoom-out that loses your place."""
+    assert layout_for(name, keep_view=True)["fit"] is False
+
+
+@pytest.mark.parametrize("name", list(LAYOUTS))
+def test_layout_for_changes_nothing_but_fit(name: str) -> None:
+    """The layout the user picked still has to be the layout that runs -
+    holding the view is not a different arrangement."""
+    held = layout_for(name, keep_view=True)
+    assert {key: value for key, value in held.items() if key != "fit"} == {
+        key: value for key, value in LAYOUTS[name].items() if key != "fit"
+    }
+
+
+def test_layout_for_does_not_mutate_the_preset() -> None:
+    """LAYOUTS is module state shared by every session on the process."""
+    layout_for(DEFAULT_LAYOUT, keep_view=True)
+    assert LAYOUTS[DEFAULT_LAYOUT]["fit"] is True
+
+
+# --------------------------------------------------------------------------
+# the hold-view control, wired up
+# --------------------------------------------------------------------------
+
+
+def toolbar_control(app, control_id: str):
+    for component in app.layout.children[0].children:
+        if getattr(component, "id", None) == control_id:
+            return component
+        # the checklist sits inside a Div that carries its tooltip
+        child = getattr(component, "children", None)
+        if getattr(child, "id", None) == control_id:
+            return child
+    raise AssertionError(f"no {control_id} in the toolbar")
+
+
+def test_hold_view_box_starts_unticked() -> None:
+    """Holding the view changes how the canvas behaves, so it has to be opt in:
+    an untouched toolbar is the behaviour that shipped before."""
+    assert toolbar_control(built_app(MFS), "keep-view").value == []
+
+
+def test_hold_view_box_offers_exactly_the_keep_value() -> None:
+    options = toolbar_control(built_app(MFS), "keep-view").options
+    assert [option["value"] for option in options] == [KEEP_VIEW]
+
+
+def test_hold_view_box_is_explained() -> None:
+    """A checkbox labelled 'hold view' says nothing about what it holds."""
+    rendered = str(built_app(MFS).layout.children[0])
+    assert "zoom" in rendered.lower() and "untick" in rendered.lower()
+
+
+def test_starting_layout_fits() -> None:
+    app = built_app(MFS)
+    assert app.layout.children[1].children[0].children.layout["fit"] is True
+
+
+def test_ticking_the_box_turns_fit_off() -> None:
+    assert pick_layout(built_app(MFS), DEFAULT_LAYOUT, [KEEP_VIEW])["fit"] is False
+
+
+def test_unticking_the_box_turns_fit_back_on() -> None:
+    """Unticking is the 'show me the whole graph again' gesture - the callback
+    re-emits the layout, which re-runs it and fits."""
+    assert pick_layout(built_app(MFS), DEFAULT_LAYOUT, [])["fit"] is True
+
+
+@pytest.mark.parametrize("name", list(LAYOUTS))
+def test_picking_a_layout_while_holding_the_view_keeps_that_layout(name: str) -> None:
+    layout = pick_layout(built_app(MFS), name, [KEEP_VIEW])
+    assert layout["name"] == LAYOUTS[name]["name"]
+    assert layout["fit"] is False
+
+
+def test_layout_has_a_single_writer() -> None:
+    """graph.layout is written by one callback on purpose. A second writer -
+    say grow_graph fitting on Load - would race it, and which fit won would
+    depend on callback ordering."""
+    app = built_app(MFS)
+    writers = [key for key in app.callback_map if "graph.layout" in key]
+    assert writers == ["graph.layout"]
 
 
 # --------------------------------------------------------------------------

@@ -90,6 +90,7 @@ Then open <http://localhost:8050>.
 | `--seed` | Object to start from, as a path, an alias or a bare uuid. Defaults to a sample on `db2_prod`; on any other mode, defaults to an empty canvas. |
 | `--mode` | DB2 instance (default `db2_prod`). Must start with `db2_`. |
 | `--fetch-new` | Fetch profile schemas from the instance instead of reading `constants.yaml`. |
+| `Hold View` | Toolbar checkbox (not a flag). Stops the canvas refitting on every draw — see [Using it](#using-it). |
 | `--port` | Default `8050`. |
 | `--debug` | Dash debug mode with hot reload. |
 
@@ -129,6 +130,21 @@ default one.
   This is a property of the current canvas, not of the fetch cache, so pressing
   **Load** again makes every node clickable from scratch — cheaply, since the
   profiles are still cached.
+- **`Hold View`** stops the canvas re-centering and zooming to fit every time
+  nodes are drawn. Off by default. On a large graph the refit is what loses your
+  place: you zoom into one corner, click a node, and the canvas snaps back out
+  to show everything. Tick the box and the viewport stays exactly where you put
+  it; untick it to fit the whole graph again.
+
+  Turning it on does not strand you. dash-cytoscape fits the viewport itself
+  when new elements land *entirely* off screen, so loading a seed somewhere else
+  on the canvas still snaps to it.
+
+  What it does **not** do is stop the graph moving under you. Every element
+  change re-runs the layout, and dagre re-flows the whole arrangement when
+  nodes are added — so neighbours shift even though the viewport does not. The
+  box holds your window, not the positions inside it.
+
 - **Node colours** come from the `NodeColor` enum in `models.py`, keyed by the
   abstract class (so `Tissue`, `CellLine`, and `Organoid` all read as
   `Biosample`). Unmapped types fall back to grey.

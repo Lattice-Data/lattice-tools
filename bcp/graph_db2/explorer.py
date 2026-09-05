@@ -53,6 +53,8 @@ LAYOUTS = {
 DEFAULT_LAYOUT = "dagre (left to right)"
 # only valid on DEFAULT_MODE's server; see main()
 SAMPLE_SEED = "/matrix_file_sets/f1ef71ee-98d8-4145-84a7-24b68bcc769e/"
+# dcc.Checklist value for the hold-view box; [] is unticked
+KEEP_VIEW = "keep"
 
 BASE_STYLESHEET = [
     {
@@ -167,6 +169,23 @@ def suggest_layout(elements: list[dict]) -> str:
 
     hub = max(degree.values(), default=0)
     return "concentric" if hub >= 0.8 * (len(nodes) - 1) else DEFAULT_LAYOUT
+
+
+def layout_for(name: str, keep_view: bool = False) -> dict:
+    """
+    A layout dict with auto-fit turned off while the user is holding their view.
+
+    `fit` is the whole mechanism. Every element or stylesheet change re-renders
+    the Cytoscape component, and react-cytoscapejs compares the layout prop by
+    identity - Dash rebuilds it from JSON every time, so it always looks new and
+    the layout always re-runs. With fit on, that re-run ends in cy.fit(), which
+    is the zoom-out that loses your place on a large graph.
+
+    Turning it off does not strand you: dash-cytoscape still calls cy.fit()
+    itself when new elements land *entirely* outside the viewport, so loading a
+    seed somewhere else on the canvas still snaps to it.
+    """
+    return {**LAYOUTS[name], "fit": not keep_view}
 
 
 def legend() -> html.Div:
@@ -360,6 +379,21 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                         clearable=False,
                         style={"width": "220px"},
                     ),
+                    # dcc.Checklist takes no title, so the tooltip lives on a
+                    # wrapper rather than the input itself
+                    html.Div(
+                        dcc.Checklist(
+                            id="keep-view",
+                            options=[{"label": " Hold View", "value": KEEP_VIEW}],
+                            value=[],
+                            style={"whiteSpace": "nowrap", "color": "#555"},
+                        ),
+                        title=(
+                            "Stop the canvas re-centering and zooming to fit "
+                            "every time nodes are drawn. Untick to fit the "
+                            "whole graph again."
+                        ),
+                    ),
                     html.Span(
                         status, id="status", style={"color": "#555", "fontSize": "12px"}
                     ),
@@ -384,7 +418,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                         cyto.Cytoscape(
                             id="graph",
                             elements=elements,
-                            layout=LAYOUTS[initial_layout],
+                            layout=layout_for(initial_layout),
                             stylesheet=BASE_STYLESHEET,
                             style={"width": "100%", "height": "100%"},
                             boxSelectionEnabled=True,
@@ -548,9 +582,16 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             for name in hidden
         ]
 
-    @app.callback(Output("graph", "layout"), Input("layout-choice", "value"))
-    def choose_layout(choice):
-        return LAYOUTS[choice]
+    # The only writer of graph.layout, so there is nothing to race with. Both
+    # inputs re-emit the dict: picking a layout re-runs it, and unticking the
+    # box is how the user asks for a fit back to the whole graph.
+    @app.callback(
+        Output("graph", "layout"),
+        Input("layout-choice", "value"),
+        Input("keep-view", "value"),
+    )
+    def choose_layout(choice, keep_view):
+        return layout_for(choice, KEEP_VIEW in (keep_view or []))
 
     # Rebuilding the panel is how the fan-out button re-ticks the picker. The
     # alternative - making member-pick.value both an input and an output of this

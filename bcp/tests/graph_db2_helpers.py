@@ -371,33 +371,65 @@ def built_app(seed: str, mode: str = TEST_MODE):
         return explorer.build_app(seed, mode, False)
 
 
-def press_load(app, seed_value: str, fan: int = 500, elements: list | None = None):
+def fire_callback(app, key: str, *args, outputs: list[dict] | dict, triggered: str):
     """
-    Drive the Load button, as the browser would.
+    Invoke one of build_app()'s callbacks, as the browser would.
 
     Dash callbacks are closures inside build_app(), reachable only through
-    callback_map. The wrapper builds its own dash.ctx from the callback_context
-    kwarg, so `triggered_inputs` is how a test says which Input fired.
+    app.callback_map. The registered function is the wrapper, which builds its
+    own dash.ctx from the callback_context kwarg and validates against
+    outputs_list - so those are how a test says which Input fired and what the
+    callback is allowed to write.
     """
     from dash._utils import AttributeDict
 
-    callback = app.callback_map[GROW_GRAPH]["callback"]
-    response = callback(
-        1,
-        None,
-        seed_value,
-        fan,
-        elements if elements is not None else [],
-        outputs_list=GROW_GRAPH_OUTPUTS,
+    response = app.callback_map[key]["callback"](
+        *args,
+        outputs_list=outputs,
         callback_context=AttributeDict(
             {
-                "triggered_inputs": [{"prop_id": "load.n_clicks", "value": 1}],
+                "triggered_inputs": [{"prop_id": triggered, "value": 1}],
                 # the wrapper writes into this on the way out
                 "updated_props": {},
             }
         ),
     )
     return json.loads(response)["response"]
+
+
+def press_load(app, seed_value: str, fan: int = 500, elements: list | None = None):
+    """Drive the Load button with `seed_value` in the box."""
+    return fire_callback(
+        app,
+        GROW_GRAPH,
+        1,
+        None,
+        seed_value,
+        fan,
+        elements if elements is not None else [],
+        outputs=GROW_GRAPH_OUTPUTS,
+        triggered="load.n_clicks",
+    )
+
+
+def pick_layout(app, choice: str, keep_view: list[str] | None = None) -> dict:
+    """
+    Drive the layout callback and return the layout dict it hands cytoscape.
+
+    `keep_view` is the hold-view checklist's value: [] unticked, ["keep"]
+    ticked.
+    """
+    # a bare dict, not a list: a list marks the output as a wildcard
+    # multi-output and Dash then demands a sequence back
+    response = fire_callback(
+        app,
+        "graph.layout",
+        choice,
+        keep_view if keep_view is not None else [],
+        outputs={"id": "graph", "property": "layout"},
+        triggered="keep-view.value",
+    )
+    return response["graph"]["layout"]
 
 
 def status_of(response: dict) -> str:
