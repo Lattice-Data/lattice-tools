@@ -70,7 +70,7 @@ class MockS3Client:
             raise RuntimeError("No ChecksumCRC64NVME in object attributes")
         return {"Checksum": {"ChecksumCRC64NVME": self._crc_by_key[Key]}}
 
-    def get_object(self, Bucket: str = "", Key: str = "") -> dict:
+    def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
         if Key not in self._object_bodies:
             from botocore.exceptions import ClientError
 
@@ -81,4 +81,11 @@ class MockS3Client:
         body = self._object_bodies[Key]
         if isinstance(body, str):
             body = body.encode("utf-8")
+        range_header = kwargs.get("Range")
+        if isinstance(range_header, str) and range_header.startswith("bytes="):
+            spec = range_header[len("bytes=") :]
+            start_s, _, end_s = spec.partition("-")
+            start = int(start_s or 0)
+            end = int(end_s) + 1 if end_s else len(body)
+            body = body[start:end]
         return {"Body": io.BytesIO(body)}
