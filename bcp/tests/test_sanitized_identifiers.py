@@ -153,6 +153,11 @@ ALLOWED_SLOT_TOKENS = frozenset(
         # values drive vendor-specific parsing, so these cannot be placeholders.
         "novogene",
         "psomagen",
+        # The vendor role rather than any one vendor: `czi-cro` is a real bucket
+        # holding CRO deliveries, and "the CRO" is how the tree refers to
+        # whichever vendor sequenced a delivery. A stand-in would misname the
+        # bucket, so this is as fixed as the two vendor names above.
+        "cro",
         # Synthetic labs.
         "lab",
         "labalpha",
