@@ -187,7 +187,6 @@ CELLRANGER_FLAT_LAYOUT = frozenset(
 CELLRANGER_SUPPORTED_VERSIONS = ("cellranger-9.0.1",) + tuple(
     sorted(CELLRANGER_FLAT_LAYOUT)
 )
-CELLRANGER_SUPPORTED = frozenset(CELLRANGER_SUPPORTED_VERSIONS)
 
 # One 10.0.0 build was run in the cloud with a git-describe suffix; it differed
 # only in bundled online documentation, so normalize it to the plain version.
