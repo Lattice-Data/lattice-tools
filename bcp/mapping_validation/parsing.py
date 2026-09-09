@@ -48,8 +48,8 @@ def _split_mapping_line(line: str) -> Tuple[str, str] | None:
     provider or heuristics).
 
     Supports the common formats in existing mapping files:
-    - Comma-separated:  s3://...,/ORPROJ1/...
-    - Tab-separated:    s3://...\t/ORPROJ1/...
+    - Comma-separated:  s3://...,/LOCALPROJ/...
+    - Tab-separated:    s3://...\t/LOCALPROJ/...
     - Fallback: first “s3://...” token and the rest treated as local path.
     """
     stripped = line.strip()
@@ -72,7 +72,7 @@ def _split_mapping_line(line: str) -> Tuple[str, str] | None:
     # Generic “s3:// ... <whitespace> /path” pattern
     if stripped.startswith("s3://"):
         # Find the first space that precedes an absolute local path
-        # e.g. "s3://...   /ORPROJ1/..." or "s3://... /mnt/..."
+        # e.g. "s3://...   /LOCALPROJ/..." or "s3://... /mnt/..."
         for idx in range(len(stripped)):
             if (
                 stripped[idx] == " "

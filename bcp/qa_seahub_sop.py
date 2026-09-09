@@ -6,12 +6,14 @@ Validates the full S3 location and filename structure against the SOP::
     s3://czi-{lab}/{lastname}-{projectname}/{ExperimentID}/raw/{sublibrary}/{wafer}/
         {wafer}-{sublibrary}[_{well}]_{sublibrary type}-{UG}-{barcode}.trim.*
 
-Known-good examples (both must produce zero violations)::
+Known-good examples (all three must produce zero violations)::
 
-    czi-hamazaki  hamazaki-seahub-bcp/CHEM3-R100/raw/R100E/441389/
+    czi-labbeta   labbeta-seahub-bcp/CHEM3-R100/raw/R100E/441389/
         441389-R100E_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram
-    czi-trapnell  trapnell-seahub-bcp/REF3/raw/REF3_P05_2/436830/
+    czi-labalpha  labalpha-seahub-bcp/REF3/raw/REF3_P05_2/436830/
         436830-REF3_P05_2_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram
+    czi-labalpha  labalpha-seahub-bcp/CHEM16/raw/P03/432640/
+        432640-CHEM16_P03_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram
 
 Design notes
 ------------
@@ -21,17 +23,19 @@ Design notes
   a single ``unparseable_stem``.
 * There is deliberately no "ExperimentID must not appear in the filename" rule.
   The ExperimentID legitimately appears inside sublibrary names such as
-  ``REF3_P05_2``, and is absent entirely from the hamazaki example, so
-  sublibrary agreement is the only rule governing that token.  That asymmetry is
-  also why :func:`seahub_group_parts` tries the folder as-is *before* trying
-  ``{ExperimentID}_{folder}``.
-* A folder/filename disagreement is attributed to the **folder**, and only the
-  folder, when the filename token is exactly ``{ExperimentID}_{folder}``.  The
-  untrimmed vendor delivery is the source of truth for the sublibrary name, and
-  it carries the full form -- so a correctly-named file under a plate-only
-  folder is a folder defect (``sublibrary_folder_truncated``), not a filename
-  one.  ``sublibrary_mismatch`` is reserved for names the folder cannot explain
-  either way.
+  ``REF3_P05_2``, and is absent entirely from the second example, so
+  sublibrary agreement is the only rule governing that token.
+* The sublibrary folder may be spelled either ``{sublibrary}`` or with the
+  redundant ``{ExperimentID}_`` elided, and neither is a defect: the third
+  example above is the elided form.  The ExperimentID is already an ancestor
+  path segment, so the prefix carries nothing the path does not, and every real
+  trimmed upload measured elides it on every sublibrary; not one mixes the two
+  spellings.  Nothing downstream depends on which is used: the filename is the
+  authoritative sublibrary name, and the cross-bucket identity is
+  ``(wafer, UG)``.  Demanding the full form reported every sublibrary of one
+  real 5184-object upload as broken and proposed a move for all of them, on an
+  upload that is fine.  ``sublibrary_mismatch`` is reserved for a
+  filename neither spelling explains.
 * A repeated leading wafer token is normalized away *before* any token rule
   runs, and the rules then see only the normalized stem.  On the raw stem the
   type-less pattern swallows the second wafer into the group
@@ -41,12 +45,11 @@ Design notes
   wafer -- comparing filename tokens against folder segments would flag the
   valid ``REF3_P05_2_A10`` under ExperimentID folder ``REF3`` as a duplicate.
 * ``expected_name`` repairs only the defect its own rule describes, computed on
-  the normalized stem; ``expected_folder`` is set only by the folder rule.
-  Composing them into a single corrected key is :mod:`qa_seahub_rename`'s job,
-  because that needs the vendor index to resolve a missing sublibrary type.
+  the normalized stem.  Composing several into a single corrected key is
+  :mod:`qa_seahub_rename`'s job, because that needs the vendor index to resolve
+  a missing sublibrary type.
 * ``scope`` controls how far a fact reaches, and therefore how it dedupes:
-  ``object`` stays per object, ``stem`` collapses per well, ``folder``
-  collapses per sublibrary directory across every wafer and well beneath it,
+  ``object`` stays per object, ``stem`` collapses per well,
   ``suffix`` collapses per distinct unrecognised extension, and ``upload``
   collapses to one row for the whole listing, since the bucket and project are
   the same fact however many wells sit under them.  The authoritative list is
@@ -110,23 +113,23 @@ class SopViolation:
     stem; ``missing_trim_infix`` is emitted before it and works on the basename
     as delivered.
 
-    ``expected_folder`` is the corrected ``{sublibrary}`` path segment, set only
-    by ``sublibrary_folder_truncated``.
-
     ``scope`` says how widely the fact applies and drives dedup when reporting:
     ``object`` for a rule about one S3 object, ``stem`` for one about a well,
-    ``folder`` for one about a whole sublibrary directory, ``suffix`` for one
-    about a distinct unrecognised extension, and ``upload`` for one about the
-    bucket or project, which is the same fact however many wells sit under it.
-    A folder, suffix or upload defect reported per object would bury every
-    other finding beneath it.
+    ``suffix`` for one about a distinct unrecognised extension, and ``upload``
+    for one about the bucket or project, which is the same fact however many
+    wells sit under it.  A suffix or upload defect reported per object would bury
+    every other finding beneath it.
+
+    There is no ``expected_folder``, and no ``folder`` scope.  Both existed for
+    ``sublibrary_folder_truncated`` alone, and nothing else ever set or read
+    them; once the elided-prefix folder became an accepted spelling they had no
+    producer left.
     """
 
     type: str
     s3_path: str
     detail: str
     expected_name: str = ""
-    expected_folder: str = ""
     scope: str = "stem"
 
     def as_dict(self) -> dict[str, str]:
@@ -223,35 +226,107 @@ def is_non_sequencing_artifact(basename: str) -> bool:
     return False
 
 
+def _folder_candidates(sublibrary: str, experiment_id: str) -> list[str]:
+    """Folder spellings that can explain a filename's sublibrary token, in order.
+
+    Split out so the order-sensitivity test can reverse *this* list rather than
+    re-deriving it: a hand-written mirror stops testing the ordering property the
+    moment a third candidate appears here, and does so silently.
+    """
+    candidates = [sublibrary]
+    if experiment_id:
+        candidates.append(f"{experiment_id}_{sublibrary}")
+    return candidates
+
+
+def _match_folder_candidates(
+    group: str, candidates: list[str], fallback: str
+) -> tuple[str, str, bool]:
+    """The candidate that best explains ``group``, plus the token left over.
+
+    "Best" is the one whose leftover is nothing or a well, because that is what
+    the SOP name actually is; only if no candidate manages that does the first
+    bare prefix match win.  Taking the first prefix match unconditionally, as
+    this did, let the *order* of the candidate list pick the reading: folder
+    ``P10`` under ExperimentID ``P10_2`` holding ``…-P10_2_P10_A1_…`` decomposes
+    as sublibrary ``P10_2_P10`` and well ``A1``, but stripping the shorter
+    ``P10_`` first handed back ``2_P10_A1`` and reported ``bad_well`` on it.
+
+    No verdict rides on this.  That shape needs the folder token to be a leading
+    token of its own ExperimentID, which forces the full form to repeat the token
+    -- ``_split_tokens("P10_2_P10_A1")`` gives ``["P10", "2", "P10", "A1"]`` --
+    so ``_check_repeated_tokens`` fires whichever prefix is stripped, the object
+    is never clean, and the well was ``UNKNOWN`` before and after.  What changes
+    is only that the report no longer misdescribes the trailing token.  Kept
+    because the well-preferring reading is the correct one and costs nothing;
+    no real upload has the shape at all.
+
+    The fallback is what keeps ``bad_well`` alive for a genuinely bad token: on
+    ``REF3_P05_2_Z99`` no candidate yields a well, so the first match is returned
+    with ``Z99`` left over and the rule fires as before.
+
+    Takes the candidate list rather than building it, so the ordering test can
+    feed the same matcher a reversed list and compare.
+    """
+    first_match: tuple[str, str, bool] | None = None
+    for candidate in candidates:
+        if group == candidate:
+            return candidate, "", True
+        prefix = f"{candidate}_"
+        if not group.startswith(prefix):
+            continue
+        trailing = group[len(prefix) :]
+        if SEAHUB_WELL_RE.match(trailing):
+            return candidate, trailing, True
+        if first_match is None:
+            first_match = (candidate, trailing, True)
+    return first_match if first_match is not None else (fallback, "", False)
+
+
 def seahub_group_parts(
     group: str, sublibrary: str, experiment_id: str
-) -> tuple[str, str, str]:
+) -> tuple[str, str, bool]:
     """Reconcile a filename's sublibrary token against its folder.
 
-    Returns ``(implied_folder, trailing_token, state)`` with ``state`` one of:
+    Returns ``(sublibrary, trailing_token, matched)``, where ``sublibrary`` is
+    the name *the filename* gives -- the authoritative one -- and ``matched`` is
+    False only when the folder cannot explain the filename at all.
 
-    * ``ok`` — the folder already matches the filename
-    * ``truncated`` — the filename says ``{ExperimentID}_{folder}``, so the
-      *folder* is missing its ExperimentID prefix
-    * ``mismatch`` — the two cannot be reconciled either way
+    Two folder spellings are accepted, and neither is a defect: the full
+    ``{ExperimentID}_{sublibrary}`` (``REF3_P05_2/…REF3_P05_2_A10…``) and the
+    same name with the redundant ``{ExperimentID}_`` elided
+    (``P03/…CHEM16_P03_A1…``).  The ExperimentID is already an ancestor path
+    segment, so the prefix carries nothing the path does not, and every real
+    trimmed upload measured elides it on every sublibrary.  A filename carrying
+    no ExperimentID at all (``R100E/…R100E…``) matches the first form directly.
 
-    Candidate order is load-bearing: the compliant folder is tried first, so a
-    name whose folder is already correct never reports as truncated.  That is
-    what separates ``REF3_P05_2/…REF3_P05_2_A10…`` (ok) and ``R100E/…R100E…``
-    (ok, no ExperimentID in the name at all) from ``P05_1/…REF3_P05_1_A10…``
-    (truncated).
+    The acceptance runs in one direction only, and deliberately: both candidates
+    are built *from the folder*, so an elided folder under a full filename is
+    clean while the reverse -- folder ``REF3_P05_2`` holding ``…-P05_2_A10_…`` --
+    is ``sublibrary_mismatch``.  Eliding is lossless where the context supplies
+    the prefix and lossy where it does not: the folder sits beneath the
+    ExperimentID segment, whereas a filename travels alone -- copied, attached,
+    named inside its own ``.cram-metadata.json`` -- and is the only place either
+    side of the cross-bucket comparison records the sublibrary at all, since the
+    vendor path carries none.  Measured across 54,633 real objects: 47,443 elide
+    on the folder, 5,300 agree exactly, and the reverse shape does not occur.
+
+    Candidate order does not affect the result, because
+    :func:`_match_folder_candidates` picks by the *leftover* rather than by
+    position: the candidate whose remainder is nothing or a well wins wherever it
+    sits in the list.  That matters only in one shape -- a folder name that is a
+    leading token-prefix of its own ExperimentID, so that both candidates can
+    explain the group (folder ``P10`` under ExperimentID ``P10_2`` makes the full
+    form ``P10_2_P10``, which itself starts with ``P10_``).  Order used to pick
+    the reading there, and picked the wrong one; the object is not clean either
+    way, since a folder token repeated inside the full form trips
+    ``repeated_token``, so this buys an accurate ``bad_well`` rather than a
+    changed verdict.  No real upload has that shape; the independence is pinned
+    by ``test_candidate_order_does_not_affect_the_result``.
     """
-    candidates = [(sublibrary, "ok")]
-    if experiment_id:
-        candidates.append((f"{experiment_id}_{sublibrary}", "truncated"))
-
-    for candidate, state in candidates:
-        if group == candidate:
-            return candidate, "", state
-        prefix = f"{candidate}_"
-        if group.startswith(prefix):
-            return candidate, group[len(prefix) :], state
-    return sublibrary, "", "mismatch"
+    return _match_folder_candidates(
+        group, _folder_candidates(sublibrary, experiment_id), sublibrary
+    )
 
 
 def _check_group_token(
@@ -261,12 +336,12 @@ def _check_group_token(
     s3_path: str,
     trailing_claimed: bool = False,
 ) -> list[SopViolation]:
-    """Attribute a folder/filename disagreement to whichever side is wrong.
+    """Report a folder the filename's sublibrary token cannot be squared with.
 
-    The vendor delivery is the source of truth for the sublibrary name, so when
-    the filename carries the full ``{ExperimentID}_{sublibrary}`` and the folder
-    carries only part of it, the folder is at fault.  ``sublibrary_mismatch``
-    then means what it says: the two genuinely disagree.
+    Only the genuine disagreement is a defect.  A folder that elides the
+    redundant ``{ExperimentID}_`` prefix is one of two accepted spellings --
+    see :func:`seahub_group_parts` -- so ``sublibrary_mismatch`` means what it
+    says: neither spelling explains the filename.
 
     ``trailing_claimed`` says the caller has already reported the trailing token
     under another rule.  The relaxed-stem branch does exactly that: a trailing
@@ -276,52 +351,42 @@ def _check_group_token(
     well.  An upload that misspells its type token on every well doubled its SOP
     table that way, against a module built on one row per distinct fact.
     """
-    implied_folder, trailing, state = seahub_group_parts(
+    name_sublibrary, trailing, matched = seahub_group_parts(
         group, sublibrary, experiment_id
     )
-    violations: list[SopViolation] = []
 
-    if state == "mismatch":
+    if not matched:
+        # Listed off the same helper the match ran on, so the message cannot name
+        # a different set of spellings than the one actually tried -- and reads
+        # grammatically when there is only one (an empty ExperimentID, which
+        # ``proj//raw/...`` really produces).
+        accepted = _folder_candidates(sublibrary, experiment_id)
+        shown = " nor ".join(repr(c) for c in accepted)
+        lead = "is neither" if len(accepted) > 1 else "is not"
         return [
             SopViolation(
                 type="sublibrary_mismatch",
                 s3_path=s3_path,
                 detail=(
-                    f"filename sublibrary {group!r} is neither folder sublibrary "
-                    f"{sublibrary!r} nor {sublibrary!r}_<well>; rename either the "
-                    "folder or the files so they agree"
+                    f"filename sublibrary {group!r} {lead} {shown}, with or "
+                    "without a trailing _<well>; rename either the folder or the "
+                    "files so they agree"
                 ),
             )
         ]
 
-    # Orthogonal to the folder question, so it can co-occur with truncation.
     if trailing and not trailing_claimed and not SEAHUB_WELL_RE.match(trailing):
-        violations.append(
+        return [
             SopViolation(
                 type="bad_well",
                 s3_path=s3_path,
                 detail=(
-                    f"token {trailing!r} after sublibrary {implied_folder!r} is "
+                    f"token {trailing!r} after sublibrary {name_sublibrary!r} is "
                     "not a well of the form [A-H]<1-2 digits>"
                 ),
             )
-        )
-
-    if state == "truncated":
-        violations.append(
-            SopViolation(
-                type="sublibrary_folder_truncated",
-                s3_path=s3_path,
-                detail=(
-                    f"folder sublibrary {sublibrary!r} is missing its "
-                    f"ExperimentID prefix; the filename says {implied_folder!r}, "
-                    f"so rename the folder to {implied_folder!r}"
-                ),
-                expected_folder=implied_folder,
-                scope="folder",
-            )
-        )
-    return violations
+        ]
+    return []
 
 
 def _check_path(bucket: str, s3_key: str) -> tuple[list[SopViolation], dict | None]:
@@ -491,7 +556,7 @@ def validate_seahub_key(
         # no sublibrary type" describes the wrong defect -- and appending the
         # vendor type to it would propose a name with the unrecognised token
         # still buried in the sublibrary.
-        _implied, trailing, _state = seahub_group_parts(
+        _sublibrary, trailing, _matched = seahub_group_parts(
             match.group("group"), path_info["sublibrary"], path_info["experiment_id"]
         )
         unrecognized = bool(trailing) and not SEAHUB_WELL_RE.match(trailing)
@@ -636,7 +701,7 @@ def group_seahub_keys(
         )
         well_id = ""
         if match is not None:
-            _folder, trailing, _state = seahub_group_parts(
+            _sublibrary, trailing, _matched = seahub_group_parts(
                 match.group("group"),
                 path_info.get("sublibrary", ""),
                 path_info.get("experiment_id", ""),
@@ -668,20 +733,19 @@ def validate_seahub_group(
     ``.trim.cram`` plus a bare ``_fail.csv`` has a real defect that validating
     only the alphabetically-first artifact silently drops.
 
-    Dedup is by ``(type, stem, family, expected_folder)``.  Deduping on
-    ``expected_name`` instead would not collapse anything -- three of the rules
-    carry a suffix-dependent name -- turning a six-artifact well into nineteen
-    rows.
+    Dedup is by ``(type, stem, family)``.  Deduping on ``expected_name`` instead
+    would not collapse anything -- three of the rules carry a suffix-dependent
+    name -- turning a six-artifact well into nineteen rows.
     """
     violations: list[SopViolation] = []
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for s3_key in group.keys:
         parsed = seahub_stem_and_family(s3_key.split("/")[-1])
         stem, family = (parsed[0], parsed[2]) if parsed is not None else ("", "")
         for violation in validate_seahub_key(
             group.bucket, s3_key, assay_by_identity=assay_by_identity
         ):
-            fingerprint = (violation.type, stem, family, violation.expected_folder)
+            fingerprint = (violation.type, stem, family)
             if fingerprint in seen:
                 continue
             seen.add(fingerprint)
@@ -698,14 +762,10 @@ def validate_seahub_stems(
     """Validate a listing, reporting one row per distinct fact.
 
     The scopes collapse differently: ``object`` rules stay per object, ``stem``
-    rules collapse to one row per well, ``folder`` rules collapse to one row per
-    sublibrary directory -- deliberately ignoring the wafer, since a truncated
-    folder name is one fact about a sublibrary however many wafers and wells sit
-    beneath it -- ``suffix`` rules collapse to one row per distinct unrecognised
-    extension, and ``upload`` rules collapse to one row for the whole listing.
-    Without that, REF3's seven truncated folders would report as several hundred
-    rows, and a single wrong bucket would report once per well, either of which
-    buries everything else.
+    rules collapse to one row per well, ``suffix`` rules collapse to one row per
+    distinct unrecognised extension, and ``upload`` rules collapse to one row for
+    the whole listing.  Without that a single wrong bucket would report once per
+    well, which on a 288-well upload buries every other finding.
     """
     groups, unparsed = group_seahub_keys(bucket, s3_keys)
 
@@ -731,23 +791,12 @@ def validate_seahub_stems(
             if _upload_fact_is_new(violation):
                 violations.append(violation)
 
-    seen_folder_facts: set[tuple[str, str, str]] = set()
     for group in groups:
         for violation in validate_seahub_group(
             group, assay_by_identity=assay_by_identity
         ):
-            if not _upload_fact_is_new(violation):
-                continue
-            if violation.scope == "folder":
-                fingerprint = (
-                    violation.type,
-                    f"{group.raw_dir.rsplit('/', 1)[0]}",
-                    violation.expected_folder,
-                )
-                if fingerprint in seen_folder_facts:
-                    continue
-                seen_folder_facts.add(fingerprint)
-            violations.append(violation)
+            if _upload_fact_is_new(violation):
+                violations.append(violation)
     return _collapse_unknown_suffixes(violations, s3_keys)
 
 

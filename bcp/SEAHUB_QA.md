@@ -4,7 +4,7 @@ Part of BCP tooling. Unlike the other tools documented here there is no CLI: the
 `qa_seahub_sop.py`, `qa_seahub_source.py`, `qa_seahub_recon.py` and `qa_seahub_rename.py`, and are
 driven from `bcp/qa.ipynb`.
 
-Collaborator lab trimmed uploads (`czi-trapnell` / `czi-hamazaki`, `*-seahub-bcp`) are QA'd in
+Collaborator lab trimmed uploads (`czi-{lab}`, `{lab}-seahub-bcp`) are QA'd in
 `bcp/qa.ipynb` with `raw_assay='seahub_sci'`; processed validation is off for this mode. The SOP is:
 
 ```
@@ -30,7 +30,7 @@ deep, never too shallow, and a `raw/` holding only loose objects was reported as
 listing prefix. Folder enumeration — the `processed/` check, the sublibrary list and the wafer list —
 uses single `list_objects` calls, which return at most 1000 entries and say so only in `IsTruncated`;
 that flag is now checked and reported, so a cap nobody would think to test for cannot pass silently.
-Unreachable with anything observed (REF3 has 7 sublibraries, GENE7 has 9), and since objects are
+Unreachable with anything observed (the largest has 9 sublibraries), and since objects are
 paginated a truncated listing costs `discovered_wafers` entries or the `processed/` notice, never a
 raw file. In **manifest** mode it comes from the `order` argument if one is given, and is
 otherwise read off the manifest keys, which already contain it as a folder; a manifest mixing two
@@ -51,9 +51,9 @@ table says what is wrong, the per-well status says how many wells are affected a
 rather than a rename.
 
 - **Per-well fetches share one thread pool.** A SeaHub upload carries one trim failure CSV *and* one
-  `.cram-metadata.json` per well, so 336 of each on REF3 and 864 on GENE7. Both go through a
+  `.cram-metadata.json` per well, so 336 of each on upload A and 864 on upload B. Both go through a
   16-worker pool; fetching the failure CSVs inside the walk instead made them one sequential
-  round-trip per well (measured on REF3 at 20 ms per object: 10.6 s against 1.2 s). Only the download
+  round-trip per well (measured on upload A at 20 ms per object: 10.6 s against 1.2 s). Only the download
   and the parse are concurrent — the parsed blocks are applied single-threaded in listing order,
   which is what keeps this lock-free and makes the output identical to the serial version rather
   than merely equivalent, since the three structures they feed are appended to. Neither worker
@@ -73,10 +73,9 @@ rather than a rename.
   A CRAM whose `.cram-metadata.json` sidecar is absent is reported too, since read-count QA cannot
   run without it — as one warning naming the count and two examples, broken down by delivered
   spelling, not one per well. CZI generates these sidecars for the upload as a whole, so absence is
-  an upload-wide fact; the per-well form printed 336 lines on REF3 and 864 on GENE7.
-- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at five
-  scopes: `object` (per object), `stem` (per well), `folder` (per sublibrary directory, so one
-  truncated folder is one row rather than one per well), `suffix` (per distinct unrecognised
+  an upload-wide fact; the per-well form printed 336 lines on upload A and 864 on upload B.
+- **SOP validation** (`qa_seahub_sop.py`) reports each broken rule once per distinct fact, at four
+  scopes: `object` (per object), `stem` (per well), `suffix` (per distinct unrecognised
   extension) and `upload` (per distinct bucket/project fact, so a wrong bucket is one row rather
   than one per well — on a 288-well upload that is what keeps every other finding visible).
   `lab_project_mismatch` matches the project against the lab as an exact prefix, not on the first
@@ -90,18 +89,36 @@ rather than a rename.
   otherwise be empty and read as clean. A bare suffix is only accepted when the stem before it
   parses — `.csv` is generic enough that `<well>.trimmer_stats.csv` otherwise becomes its own well,
   which turned one real 480-well upload into 960. Rules cover wrong bucket or project, wrong
-  path depth, missing `.trim` infix, a doubled leading wafer token (`duplicated_wafer_token`), a
-  truncated sublibrary folder (`sublibrary_folder_truncated`), bulk-download leftovers
-  (`non_sequencing_artifact`), sublibrary or wafer disagreement, a bad well token, and a missing
-  sublibrary type. `repeated_token` looks only inside the sublibrary/well portion of a matched stem:
+  path depth, missing `.trim` infix, a doubled leading wafer token (`duplicated_wafer_token`),
+  bulk-download leftovers (`non_sequencing_artifact`), sublibrary or wafer disagreement, a bad well
+  token, and a missing sublibrary type. `repeated_token` looks only inside the sublibrary/well portion of a matched stem:
   bagging the whole name put the type token beside the sublibrary name, so a sublibrary legitimately
   called `REF3_GEX_P01` under type `GEX_hash_oligo` reported a repeat on an otherwise clean name —
-  and through the rename gate that flipped a whole sublibrary to `UNKNOWN`. `expected_name` carries the corrected basename repairing that rule alone, and
-  `expected_folder` the corrected path segment. A folder/filename disagreement is blamed on the
-  **folder** when the filename says `{ExperimentID}_{folder}`, because the vendor delivery is the
-  source of truth for the sublibrary name. When a vendor delivery has been located, a missing
-  sublibrary type is filled from it. Written to `{order}_raw_sop_violations.csv`; violations are
-  non-fatal.
+  and through the rename gate that flipped a whole sublibrary to `UNKNOWN`. `expected_name` carries the corrected basename repairing that rule alone.
+  When a vendor delivery has been located, a missing sublibrary type is filled from it. Written to
+  `{order}_raw_sop_violations.csv`; violations are non-fatal.
+- **The sublibrary folder may be spelled two ways, and both are clean.** Either in full
+  (`REF3/raw/REF3_P05_2/`) or with the redundant `{ExperimentID}_` prefix elided
+  (`CHEM16/raw/P03/` for the sublibrary the filenames call `CHEM16_P03`). The ExperimentID is
+  already an ancestor segment, so the prefix carries nothing the path does not; the filename holds
+  the authoritative name; and wells match across buckets on `(wafer, UG)`, so no check depends on
+  which spelling was used. Every real trimmed upload measured elides it on *every* sublibrary —
+  `P04_1`…`P07_1`, `P02`…`P10`, `P03`…`P07` — and not one mixes the two.
+  Demanding the full form was `sublibrary_folder_truncated`, which made those folders the whole of
+  one upload's entire finding set: 9 SOP rows, 864 wells `RENAMEABLE` and a proposed move for all
+  5184 objects of an upload that is fine. The rule is gone, along with the `folder` scope and the
+  `expected_folder` column it alone populated. `sublibrary_mismatch` still fires for a filename
+  neither spelling explains, and the rename mapping now tracks the folder segment and the
+  filename's sublibrary name separately — collapsing them is what proposed the move.
+  **The acceptance runs one way only.** Both spellings are derived *from the folder*, so an
+  elided folder under a full filename is clean while the reverse — `REF3_P05_2/` holding
+  `…-P05_2_A10_…` — is still `sublibrary_mismatch`. Eliding is lossless where the context
+  supplies the prefix and lossy where it does not: the folder sits beneath the ExperimentID
+  segment, whereas a filename travels alone — copied, attached, named inside its own
+  `.cram-metadata.json` — and is the only place either side of the cross-bucket comparison
+  records the sublibrary at all, since the vendor path carries none. Measured across 54,633
+  real objects: 47,443 elide on the folder, 5,300 agree exactly, and the reverse shape does
+  not occur.
 - **Cross-bucket trimming completeness** compares the upload against the untrimmed vendor deliveries
   found by searching the roots in the notebook's `untrimmed_search_roots` parameter — a *list* of
   projects or buckets to look in, not of orders to trust, since one experiment spans several
@@ -155,9 +172,10 @@ collected in s3 mode only, and a key absent from the mapping reads as unknown ra
   its `sublibrary` and `well` off the vendor stem — every other row derives those from the uploaded
   objects, and this is the row that has none, so they would otherwise be blank on the one verdict an
   operator most needs to locate. Note the two sources can disagree about the same sublibrary: an
-  uploaded row carries the folder the upload actually used, which for the commonest real defect is
-  truncated (`P07_1`), while a gap row carries the vendor's SOP name for it (`REF3_P07_1`). Filter
-  the CSV on wafer and UG rather than on one spelling of the sublibrary. Whether a well is renameable is decided by `RenameProposal.renameable` — the same
+  uploaded row carries the folder the upload actually used, which in every real upload elides the
+  ExperimentID prefix (`P07_1`), while a gap row carries the vendor's SOP name for it
+  (`REF3_P07_1`). Both spellings are clean, so that difference is permanent rather than something a
+  rename resolves — filter the CSV on wafer and UG rather than on one spelling of the sublibrary. Whether a well is renameable is decided by `RenameProposal.renameable` — the same
   predicate that decides whether an object gets a destination in the rename CSV — so the two headline
   CSVs cannot contradict each other. Testing the defect *names* against `SEAHUB_RENAMEABLE_SOP_TYPES`
   instead is how they once did: a `sublibrary_mismatch` the vendor delivery had already repaired
@@ -240,9 +258,9 @@ It existed for a real reason: a listed prefix was order-level, one order holds
 several experiments, and without the filter the other experiments' wells were
 indexed too — each then having no counterpart in the upload and reporting as
 `not_trimmed` plus an `UNKNOWN` well. The `_`-prefix arm was equally deliberate,
-measured against a `GENE7_reupload` delivered alongside `REF3` in one order, and
-against the older `{ExperimentID}_{sublibrary}` shape (`REF5_P01`) that a bare
-equality test would have orphaned entirely.
+measured against an `{ExperimentID}_reupload` delivered alongside another
+experiment in one order, and against the older `{ExperimentID}_{sublibrary}`
+shape (`REF5_P01`) that a bare equality test would have orphaned entirely.
 
 It was still the wrong key, in three ways:
 
@@ -293,9 +311,16 @@ The three uploads this mode was built against, as of this branch:
 
 | listing | objects | SOP rows | rules | wells |
 | --- | --- | --- | --- | --- |
-| REF3 | 2037 | 892 | 288 each of `duplicated_wafer_token`, `invalid_sublibrary_type`, `missing_trim_infix`; 21 `non_sequencing_artifact`; 7 `sublibrary_folder_truncated` | 336 — 48 `RENAMEABLE`, 288 `UNKNOWN`; all 336 `RENAMEABLE` with both vendor orders |
-| GENE7 | 5185 | 10 | 9 `sublibrary_folder_truncated`, 1 `bad_path_depth` | 864, all `RENAMEABLE` |
-| CHEM16 | 1450 | 14 | 10 `non_sequencing_artifact`, 3 `unexpected_suffix`, 1 `no_recognized_artifacts` | 480, all `DATA_GAP` — every artifact misspelled, so no well is *nameable* |
+| A | 2037 | 885 | 288 each of `duplicated_wafer_token`, `invalid_sublibrary_type`, `missing_trim_infix`; 21 `non_sequencing_artifact` | 336 — 48 `COMPLIANT`, 288 `UNKNOWN`; 48 `COMPLIANT` and 288 `RENAMEABLE` with both vendor orders |
+| B | 5185 | 1 | 1 `bad_path_depth` | 864, all `COMPLIANT` |
+| C | 1450 | 14 | 10 `non_sequencing_artifact`, 3 `unexpected_suffix`, 1 `no_recognized_artifacts` | 480, all `DATA_GAP` — no artifact name carries the `.trim` infix, so no well is *nameable* |
+
+Accepting the elided folder prefix is what moved those numbers: A shed 7 SOP rows and its 48
+folder-only wells went `RENAMEABLE` to `COMPLIANT` (2016 moveable objects to 1728 with both vendor
+orders), and B went from 9 rows and 864 `RENAMEABLE` wells to 1 row and none, dropping all 5184 of
+its proposed moves. C did not move at all: none of its artifact names carry the `.trim` infix, so
+no name ever reached the folder question. Every other field in the snapshot — including all of the vendor
+reconciliation — is unchanged.
 
 All three report identically from an S3 listing and from a manifest of the same keys. The one field
 that cannot match is `discovered_wafers`: wafers are found by walking folders, which only s3 mode

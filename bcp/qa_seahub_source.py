@@ -12,7 +12,7 @@ buckets with different layouts -- note the ExperimentID folder sits *before*
                  {wafer}/{stem}.cram
 
 Measured against the real REF3 delivery (2597 objects under order
-``NVUS2024101701-11``): six wafers, each carrying exactly 48 CRAMs with 48
+``NVUS0000000000-11``): six wafers, each carrying exactly 48 CRAMs with 48
 distinct UGs, one sublibrary per wafer, every well typed ``GEX_hash_oligo``.
 
 Identity key
@@ -28,7 +28,7 @@ Several sources
 ---------------
 One experiment spans several vendor orders, and one order can hold several
 experiments, so the untrimmed side is a *list* of prefixes.  REF3 makes this
-concrete: order ``NVUS2024101701-11`` contains six of its seven sublibraries, and
+concrete: order ``NVUS0000000000-11`` contains six of its seven sublibraries, and
 ``REF3_P05_1`` -- the only correctly-named one in the trimmed upload -- is not
 there at all.  Listing that order alone would report all of its wells as
 orphans, so :class:`SourceCoverage` exists to make incomplete input obvious
@@ -411,7 +411,7 @@ def _order_label_from_prefix(prefix: str) -> str:
     """Best-effort order label for a prefix that produced no objects.
 
     Scans right to left for a segment shaped like a vendor order. Deliberately
-    not ``segments[-1]``: for ``.../NVUS2024101701-11/REF3`` the last segment is
+    not ``segments[-1]``: for ``.../NVUS0000000000-11/REF3`` the last segment is
     the ExperimentID, and mislabelling coverage rows is worse than not labelling.
     """
     for segment in reversed([s for s in prefix.split("/") if s]):

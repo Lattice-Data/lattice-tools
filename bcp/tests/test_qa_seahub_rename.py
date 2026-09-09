@@ -35,7 +35,11 @@ from qa_seahub_rename import (
     rollup_summary,
 )
 from qa_seahub_sop import validate_seahub_key, validate_seahub_stems
-from qa_seahub_source import SourceEntry, index_untrimmed_sources
+from qa_seahub_source import (
+    SourceEntry,
+    index_trimmed_upload,
+    index_untrimmed_sources,
+)
 
 from tests.qa_seahub_helpers import (
     BUCKET,
@@ -149,30 +153,40 @@ class TestKnownGoodIsIdempotent:
 
 
 class TestExpectedTrimmedKey:
-    def test_all_four_defects_compose_into_one_key(self):
+    def test_all_three_defects_compose_into_one_key(self):
+        """And the folder is left exactly as delivered.
+
+        The elided ``{ExperimentID}_`` prefix is an accepted spelling, so the
+        object stays in ``P04_1/`` while the three filename defects are repaired.
+        """
         proposal = expected_trimmed_key(BUCKET, f"{WELL_A}.cram", VENDOR_A)
 
         assert proposal.expected_s3_uri == (
-            f"s3://{BUCKET}/{RAW}/REF3_P04_1/437120/"
+            f"s3://{BUCKET}/{RAW}/P04_1/437120/"
             "437120-REF3_P04_1_A1_GEX_hash_oligo-Z0001-CAGCTCGAATGCGAT.trim.cram"
         )
         assert proposal.defects == (
             "duplicated_wafer_token",
             "invalid_sublibrary_type",
             "missing_trim_infix",
-            "sublibrary_folder_truncated",
         )
         assert proposal.name_source == "vendor"
+        # The authoritative name, which is the filename's -- not the folder's.
+        assert proposal.sublibrary == "REF3_P04_1"
 
-    def test_a_truncated_folder_changes_only_the_folder(self):
+    def test_an_elided_folder_prefix_proposes_no_move_at_all(self):
+        """Idempotent: the whole object is already compliant.
+
+        Composing the folder and the filename name into one variable is what made
+        this propose a move into ``REF3_P05_1/`` -- on one real upload, all 5184
+        objects.
+        """
         proposal = expected_trimmed_key(BUCKET, f"{WELL_B}.trim.cram")
 
-        assert proposal.defects == ("sublibrary_folder_truncated",)
-        assert proposal.expected_s3_uri.endswith(
-            "/REF3_P05_1/436830/"
-            "436830-REF3_P05_1_A10_GEX_hash_oligo-Z0169-CTCGCAATAGATGAT.trim.cram"
-        )
-        assert proposal.name_source == "inferred"
+        assert proposal.defects == ()
+        assert proposal.compliant
+        assert not proposal.renameable
+        assert proposal.expected_s3_uri == f"s3://{BUCKET}/{WELL_B}.trim.cram"
 
     @pytest.mark.parametrize("bare,trim", sorted(SEAHUB_BARE_TO_TRIM_SUFFIX.items()))
     def test_every_bare_suffix_maps_to_its_trim_form(self, bare, trim):
@@ -330,6 +344,44 @@ class TestBuildRenameMapping:
         assert forward == reverse
 
 
+class TestBothFolderSpellingsForOneSublibrary:
+    """Deleting the folder rule rests on this still being caught.
+
+    Accepting both spellings means an upload *can* put one well under
+    ``REF3_P05_1/`` and ``P05_1/`` at once, and neither path is a defect any
+    more, so no SOP rule fires and the rename mapping proposes nothing -- every
+    object is already where it belongs. The duplicate is still reported, by the
+    two checks that key on identity rather than on the folder. Pinned because it
+    is the safety argument for removing ``sublibrary_folder_truncated``, and
+    nothing else asserted it.
+    """
+
+    STEM = "430479-REF3_P05_1_A1_GEX_hash_oligo-Z0097-CAGTCAGTTGCAGAT"
+    FOLDERS = ("REF3_P05_1", "P05_1")
+
+    def _keys(self) -> list[str]:
+        return [
+            f"{RAW}/{folder}/430479/{self.STEM}{suffix}"
+            for folder in self.FOLDERS
+            for suffix in TRIM_SUFFIXES
+        ]
+
+    def test_no_sop_rule_fires_on_either_spelling(self):
+        assert validate_seahub_stems(BUCKET, self._keys()) == []
+
+    def test_the_duplicate_is_reported_by_the_trimmed_index(self):
+        findings: list[dict] = []
+        index_trimmed_upload(self._keys(), findings=findings)
+
+        assert [f["category"] for f in findings] == ["duplicate_trimmed_well"]
+
+    def test_the_well_is_unknown_rather_than_silently_accepted(self):
+        rollup = roll_up_wells(BUCKET, self._keys())
+
+        assert [r["verdict"] for r in rollup.rows] == ["UNKNOWN"]
+        assert "2 different names" in rollup.rows[0]["detail"]
+
+
 class TestRollUpWells:
     def test_columns_and_ordering(self):
         """The well-status CSV is the headline output, so its columns are a
@@ -345,8 +397,8 @@ class TestRollUpWells:
         rollup = roll_up_wells(BUCKET, ref3_trimmed_keys(), _vendor_index())
 
         assert rollup_summary(rollup.rows) == {
-            "COMPLIANT": 1,
-            "RENAMEABLE": 3,
+            "COMPLIANT": 2,
+            "RENAMEABLE": 2,
             "DATA_GAP": 1,
             "UNKNOWN": 1,
         }
@@ -475,11 +527,12 @@ class TestRollUpWells:
     def test_a_gap_row_names_the_sublibrary_the_vendor_used(self):
         """The two sources of `sublibrary` can disagree, and that is deliberate.
 
-        An uploaded row carries the folder the upload actually used, which for
-        the commonest real defect is truncated; a gap row has no folder, so it
-        carries the vendor's SOP name for the same sublibrary. Filtering the CSV
-        on one spelling therefore misses the other -- pinned here so the
-        divergence stays a documented property rather than a surprise.
+        An uploaded row carries the folder the upload actually used, which in
+        every real upload elides the ExperimentID prefix; a gap row has no folder,
+        so it carries the vendor's SOP name for the same sublibrary. Both
+        spellings are clean, so the divergence is permanent rather than something
+        a rename resolves -- filtering the CSV on one spelling therefore misses
+        the other, pinned here so that stays a documented property.
         """
         gap = SourceEntry(
             wafer="438515",
