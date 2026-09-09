@@ -19,6 +19,7 @@ from structure_check.client import (
     MATCH,
     NAME_UNRESOLVED,
     NOT_CHECKED,
+    NOT_COMPARABLE,
     OUTPUT_FIELDS_APPENDED,
     REVIEW_CHECK,
     REVIEW_INVESTIGATE,
@@ -29,10 +30,22 @@ from structure_check.client import (
     STEREO_DIFFERS,
     check_row,
     compare_structures,
+    comparison_verdict_from_inchi,
     empty_result,
     name_candidates,
     review_level,
     skeleton,
+)
+from structure_check.inchi import (
+    DIFFERENT_COMPOUND,
+    FORM_DIFFERS,
+    INCHI_VERDICTS,
+    ISOTOPE_DIFFERS,
+    LAYERS_IDENTICAL,
+    LAYERS_NOT_COMPARABLE,
+    STEREO_DIFFERS as INCHI_STEREO_DIFFERS,
+    STEREO_UNDEFINED_ON_ONE_SIDE,
+    classify_pair,
 )
 from structure_check.io import (
     MAX_CONSECUTIVE_OUTAGE_ROWS,
@@ -68,6 +81,39 @@ UCN01 = "PBCZSGKMGDDXIJ-KRUBCLEUSA-N"
 UCN01_OTHER_EPIMER = "PBCZSGKMGDDXIJ-HQCWYSJUSA-N"  # same skeleton, different stereo
 ALEXIDINE = "BRJJFBHTDVWTCJ-UHFFFAOYSA-N"
 
+# The same compounds as InChI strings, so the request-free refinement route is
+# exercised against real chemistry rather than against a shape. Doxorubicin and its
+# hydrochloride are the pair the route exists for: the counterion is part of the
+# InChIKey's connectivity block, so their keys differ in the skeleton, while the
+# formula layer says salt outright.
+ETHANOL_INCHI = "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3"
+DOXORUBICIN_INCHI = (
+    "InChI=1S/C27H29NO11/c1-10-22(31)13(28)6-17(38-10)39-15-8-27(36,16(30)9-29)"
+    "7-12-19(15)26(35)21-20(24(12)33)23(32)11-4-3-5-14(37-2)18(11)25(21)34/"
+    "h3-5,10,13,15,17,22,29,31,33,35-36H,6-9,28H2,1-2H3/t10-,13-,15-,17-,22+,27-/"
+    "m0/s1"
+)
+DOXORUBICIN_HCL_INCHI = (
+    "InChI=1S/C27H29NO11.ClH/c1-10-22(31)13(28)6-17(38-10)39-15-8-27(36,16(30)"
+    "9-29)7-12-19(15)26(35)21-20(24(12)33)23(32)11-4-3-5-14(37-2)18(11)25(21)34;/"
+    "h3-5,10,13,15,17,22,29,31,33,35-36H,6-9,28H2,1-2H3;1H/"
+    "t10-,13-,15-,17-,22+,27-;/m0./s1"
+)
+# Hydroxyzine (CID 3658) against hydroxyzine pamoate (CID 25096). Pamoate is 29
+# heavy atoms, hydroxyzine 26, so principal_component() ranks the counterion on
+# the salt side and the drug on the free-base side -- the pair the layer route
+# must not answer as a different compound.
+HYDROXYZINE_INCHI = (
+    "InChI=1S/C21H27ClN2O2/c22-20-8-6-19(7-9-20)21(18-4-2-1-3-5-18)24-12-10-23"
+    "(11-13-24)14-16-26-17-15-25/h1-9,21,25H,10-17H2"
+)
+HYDROXYZINE_PAMOATE_INCHI = (
+    "InChI=1S/C23H16O6.C21H27ClN2O2/c24-20-16(14-7-3-1-5-12(14)9-18(20)22(26)27)"
+    "11-17-15-8-4-2-6-13(15)10-19(21(17)25)23(28)29;22-20-8-6-19(7-9-20)21(18-4-"
+    "2-1-3-5-18)24-12-10-23(11-13-24)14-16-26-17-15-25/h1-10,24-25H,11H2,(H,26,"
+    "27)(H,28,29);1-9,21,25H,10-17H2"
+)
+
 
 # --------------------------------------------------------------------------
 # InChIKey comparison
@@ -102,6 +148,71 @@ def test_compare_matches_against_any_candidate() -> None:
 
 def test_compare_prefers_exact_match_over_stereo_sibling() -> None:
     assert compare_structures(UCN01, [UCN01_OTHER_EPIMER, UCN01]) == MATCH
+
+
+# --------------------------------------------------------------------------
+# InChI-layer projection onto the coarse vocabulary
+# --------------------------------------------------------------------------
+
+# Each pair was run against classify_pair and comparison_verdict_from_inchi.
+# The two STEREO_DIFFERS projections that are not stereo_differs in the layers
+# are the conservative-direction judgement calls the module comment describes.
+_ETHANOL_FORMULA_ONLY = "InChI=1S/C2H6O"
+PROJECTION_CASES = (
+    (LAYERS_IDENTICAL, ETHANOL_INCHI, ETHANOL_INCHI, MATCH),
+    (FORM_DIFFERS, ETHANOL_INCHI + "/q+1", ETHANOL_INCHI + "/q+2", SALT_DIFFERS),
+    (
+        INCHI_STEREO_DIFFERS,
+        ETHANOL_INCHI + "/t2-",
+        ETHANOL_INCHI + "/t2+",
+        STEREO_DIFFERS,
+    ),
+    # Conservative: the coarse vocabulary has no "agree, one side vaguer".
+    (
+        STEREO_UNDEFINED_ON_ONE_SIDE,
+        ETHANOL_INCHI + "/t2-",
+        ETHANOL_INCHI,
+        STEREO_DIFFERS,
+    ),
+    # Conservative: an isotope sits in the InChIKey's second block, so the
+    # key-based path already calls this STEREO_DIFFERS; matching that keeps the
+    # two paths from disagreeing about the same pair.
+    (
+        ISOTOPE_DIFFERS,
+        ETHANOL_INCHI + "/i1+1",
+        ETHANOL_INCHI + "/i2+1",
+        STEREO_DIFFERS,
+    ),
+    (
+        DIFFERENT_COMPOUND,
+        _ETHANOL_FORMULA_ONLY + "/c1-2-3/h3H,2H2,1H3",
+        _ETHANOL_FORMULA_ONLY + "/c1-3-2/h3H,2H2,1H3",
+        SKELETON_DIFFERS,
+    ),
+    (LAYERS_NOT_COMPARABLE, ETHANOL_INCHI + "/f1", ETHANOL_INCHI, NOT_COMPARABLE),
+)
+
+
+def test_every_inchi_verdict_is_covered_by_this_table() -> None:
+    """The import-time check in client.py catches a missing key, not a wrong one.
+
+    A verdict added to inchi.INCHI_VERDICTS and mapped by eye would pass that check
+    and be pinned by nothing, so the table above has to be exhaustive by assertion
+    rather than by intention.
+    """
+    assert {v for v, _, _, _ in PROJECTION_CASES} == set(INCHI_VERDICTS)
+
+
+@pytest.mark.parametrize(
+    "inchi_verdict, left, right, coarse_verdict",
+    PROJECTION_CASES,
+    ids=[case[0] for case in PROJECTION_CASES],
+)
+def test_comparison_verdict_from_inchi_projects_every_layer_verdict(
+    inchi_verdict: str, left: str, right: str, coarse_verdict: str
+) -> None:
+    assert classify_pair(left, right) == inchi_verdict
+    assert comparison_verdict_from_inchi(left, right) == coarse_verdict
 
 
 # --------------------------------------------------------------------------
@@ -159,6 +270,32 @@ def test_name_candidates_of_blank_is_empty() -> None:
     assert name_candidates("   ") == ([], [])
 
 
+def test_a_name_that_cannot_be_encoded_yields_no_candidates() -> None:
+    """`urllib.parse.quote` raises UnicodeEncodeError on a lone surrogate.
+
+    `sys.argv` decodes an undecodable byte to one under surrogateescape, so
+    `--name $'aspirin\\xff'` used to come out of single-row mode as a traceback
+    through check_row, which promises never to raise, and past an interface whose
+    documented contract is an exit code.
+    """
+    assert name_candidates("aspirin\udcff") == ([], [])
+
+
+@patch("structure_check.client.structures_for_name")
+@patch("structure_check.client.cas_structure", return_value=(ETHANOL, "Ethanol", ""))
+def test_check_row_does_not_raise_on_an_unencodable_name(
+    _mock_cas: MagicMock, mock_resolve: MagicMock
+) -> None:
+    """The never-raises contract, at the boundary that used to break it.
+
+    Patched below `name_structure` so the real `name_candidates` runs: it is what
+    refuses the cell, and no request is made for a string that cannot be encoded.
+    """
+    result = check_row(cas="64-17-5", name="aspirin\udcff")
+    assert result["name_cas_verdict"] == NAME_UNRESOLVED
+    mock_resolve.assert_not_called()
+
+
 # --------------------------------------------------------------------------
 # review level
 # --------------------------------------------------------------------------
@@ -199,6 +336,10 @@ def test_empty_result_starts_unverified() -> None:
     result = empty_result()
     assert result["review"] == REVIEW_UNVERIFIED
     assert set(result) == set(OUTPUT_FIELDS_APPENDED) | set(STATUS_FIELDS)
+    assert "cas_class" in OUTPUT_FIELDS_APPENDED
+    assert "cas_repairs" in OUTPUT_FIELDS_APPENDED
+    assert result["cas_class"] == ""
+    assert result["cas_repairs"] == ""
     # Nothing was asked, so nothing failed.
     assert all(result[f] == IDENTIFIER_NOT_CHECKED for f in STATUS_FIELDS)
     assert result["unasked"] == ""
@@ -210,6 +351,8 @@ def test_empty_result_starts_unverified() -> None:
 
 DOXORUBICIN_FREE_BASE = "AOJJSUZBOXZQNB-TZSSRYMLSA-N"
 DOXORUBICIN_HCL = "MWWSFMDVAYGXBV-RUELKSSGSA-N"
+HYDROXYZINE = "ZQDWXGKKHFNSQK-UHFFFAOYSA-N"
+HYDROXYZINE_PAMOATE = "ASDOKGIIKXGMNB-UHFFFAOYSA-N"
 
 
 @patch("structure_check.client.parent_inchikey")
@@ -234,6 +377,180 @@ def test_refine_keeps_a_genuine_difference(mock_parent: MagicMock) -> None:
     assert refine_skeleton_difference(ETHANOL, [ALEXIDINE]) == SKELETON_DIFFERS
 
 
+@patch("structure_check.client.parent_inchikey")
+def test_refine_reads_a_salt_off_the_formula_layer_without_a_request(
+    mock_parent: MagicMock,
+) -> None:
+    """The route inchi.py was written for: same answer, no requests.
+
+    And a better answer on exactly these compounds -- PubChem's desalted parent is
+    documented as unreliable for multi-component salts, which is what a hydrochloride
+    is. Three requests per structure saved on every row that reaches refinement.
+
+    The free route now answers only this way: a salt finding is exact, a layer
+    reading of "different compound" is not and falls through to the parent route.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    assert (
+        refine_skeleton_difference(
+            DOXORUBICIN_HCL,
+            [DOXORUBICIN_FREE_BASE],
+            reference_inchi=DOXORUBICIN_HCL_INCHI,
+            candidate_inchis=(DOXORUBICIN_INCHI,),
+        )
+        == SALT_DIFFERS
+    )
+    mock_parent.assert_not_called()
+
+
+@patch("structure_check.client.parent_inchikey")
+def test_a_layer_verdict_of_different_compound_still_asks_pubchem_for_parents(
+    mock_parent: MagicMock,
+) -> None:
+    """Ethanol vs doxorubicin is a real different compound; the layers say so.
+
+    Answering that off the layers used to skip the parent route. The parent
+    mock returns a distinct parent per key, so the row stays skeleton_differs --
+    the same pattern as test_refine_keeps_a_genuine_difference.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    mock_parent.side_effect = lambda key: {
+        ETHANOL: ETHANOL,
+        DOXORUBICIN_FREE_BASE: DOXORUBICIN_FREE_BASE,
+    }[key]
+    assert (
+        refine_skeleton_difference(
+            ETHANOL,
+            [DOXORUBICIN_FREE_BASE],
+            reference_inchi=ETHANOL_INCHI,
+            candidate_inchis=(DOXORUBICIN_INCHI,),
+        )
+        == SKELETON_DIFFERS
+    )
+    assert mock_parent.called
+
+
+@patch("structure_check.client.parent_inchikey")
+def test_a_pamoate_salt_is_not_answered_off_the_layers(
+    mock_parent: MagicMock,
+) -> None:
+    """Hydroxyzine pamoate vs hydroxyzine: 26 heavy atoms against pamoate's 29.
+
+    principal_component() ranks the counterion on the salt side and the drug on
+    the free-base side, so classify_pair returns different_compound. Answering
+    skeleton_differs from that reopened the largest false-positive class this
+    refinement exists to close. With a shared mocked parent the row is a salt.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    mock_parent.return_value = HYDROXYZINE
+    assert (
+        refine_skeleton_difference(
+            HYDROXYZINE_PAMOATE,
+            [HYDROXYZINE],
+            reference_inchi=HYDROXYZINE_PAMOATE_INCHI,
+            candidate_inchis=(HYDROXYZINE_INCHI,),
+        )
+        == SALT_DIFFERS
+    )
+    assert mock_parent.called
+
+
+# The two ways a candidate can be unreadable. Both must behave identically, and
+# the empty string is the one that matters in practice: PubChem's name endpoint
+# omits the InChI field on some records, so structures_for_name() carries "" for
+# them. Gating the free route on all(candidate_inchis) treated the common case as
+# fatal and the exotic one as skippable.
+@pytest.mark.parametrize(
+    "unreadable", ["", ETHANOL_INCHI + "/f1"], ids=["missing", "non_standard"]
+)
+@patch("structure_check.client.parent_inchikey")
+def test_one_unreadable_candidate_does_not_discard_a_salt_finding(
+    mock_parent: MagicMock, unreadable: str
+) -> None:
+    """A sibling this comparison cannot read must not mask a definite salt answer.
+
+    An empty string and a `/f` layer are both refused by classify_pair, so either
+    candidate is not_comparable; the other is doxorubicin HCl against its free base.
+    compare_structures' contract is that a candidate can only ever mask a finding,
+    never invent one -- the same direction, inverted, forbids discarding a salt
+    because a sibling was unreadable.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    assert (
+        refine_skeleton_difference(
+            DOXORUBICIN_HCL,
+            [DOXORUBICIN_FREE_BASE, ETHANOL],
+            reference_inchi=DOXORUBICIN_HCL_INCHI,
+            candidate_inchis=(DOXORUBICIN_INCHI, unreadable),
+        )
+        == SALT_DIFFERS
+    )
+    mock_parent.assert_not_called()
+
+
+@patch("structure_check.client.parent_inchikey")
+def test_refine_falls_back_to_parents_when_no_candidate_has_a_string(
+    mock_parent: MagicMock,
+) -> None:
+    """No readable candidate at all is the one case that declines to answer.
+
+    ChEBI records no structure for class terms and R-group entries, and PubChem
+    omits the field on some records, so this is the ordinary case rather than the
+    exotic one. One unreadable candidate among several is skipped; when every
+    candidate is unreadable there is nothing to skip to, and the parent route
+    decides.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    mock_parent.return_value = DOXORUBICIN_FREE_BASE
+    assert (
+        refine_skeleton_difference(
+            DOXORUBICIN_HCL,
+            [DOXORUBICIN_FREE_BASE],
+            reference_inchi=DOXORUBICIN_HCL_INCHI,
+            candidate_inchis=("",),
+        )
+        == SALT_DIFFERS
+    )
+    assert mock_parent.called
+
+
+@patch("structure_check.client.parent_inchikey", return_value="")
+def test_refine_reports_the_two_comparisons_disagreeing(
+    _mock_parent: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Keys differing in connectivity while the layers compare identical.
+
+    No real pair can be both, so one of the two inputs is wrong -- and two
+    independently written comparisons disagreeing about the same structures is how
+    the stereo bug in this package was found. The request route decides, and the
+    disagreement is logged rather than resolved silently.
+
+    Reached here by calling the function directly, which is the only way: every
+    verdict that takes this branch is reached past `classify_pair`'s ionisation tier,
+    so formula, /c, /h, /q and /p are equal -- and those four fix an InChIKey's
+    skeleton block -- so `compare_structures` would have returned MATCH or
+    STEREO_DIFFERS rather than the SKELETON_DIFFERS that gets refinement called at
+    all. What the branch defends against is an upstream record whose InChIKey and
+    InChI disagree with each other, so this test is the only thing that exercises it.
+    """
+    from structure_check.client import refine_skeleton_difference
+
+    with caplog.at_level(logging.WARNING, logger="structure_check.client"):
+        verdict = refine_skeleton_difference(
+            ETHANOL,
+            [ALEXIDINE],
+            reference_inchi=ETHANOL_INCHI,
+            candidate_inchis=(ETHANOL_INCHI,),
+        )
+    assert verdict == SKELETON_DIFFERS
+    assert "disagree" in caplog.text
+
+
 @patch("structure_check.client.parent_inchikey", return_value="")
 def test_refine_leaves_the_row_flagged_when_parents_are_unavailable(
     _mock_parent: MagicMock,
@@ -253,18 +570,44 @@ def test_refine_leaves_the_row_flagged_when_parents_are_unavailable(
 # --------------------------------------------------------------------------
 
 
-def _patch_lookups(cas_key=ETHANOL, cas_name="Ethanol", chebi=(ETHANOL, ""), name=None):
-    """Patch the three resolvers structure_check composes."""
+def _patch_lookups(
+    cas_key=ETHANOL,
+    cas_name="Ethanol",
+    chebi=(ETHANOL, ""),
+    name=None,
+    cas_inchi="",
+    chebi_inchi="",
+    name_inchis=None,
+):
+    """Patch the three resolvers structure_check composes.
+
+    Each resolver returns an InChI string alongside its key. Callers state the keys
+    and, where the case is about them, the strings; the rest default to "", which the
+    refinement reads as "no string for this side" and which therefore keeps those
+    cases on the InChIKey path they were written for. `name` is given as
+    `(query, [keys], total)` and zipped with `name_inchis` here.
+    """
     if name is None:
         name = ("Ethanol", [ETHANOL], 1)
+    query, name_keys, total = name
+    inchis = name_inchis if name_inchis is not None else [""] * len(name_keys)
     return (
-        patch("structure_check.client.cas_structure", return_value=(cas_key, cas_name)),
-        patch("structure_check.client.chebi_structure", return_value=chebi),
-        patch("structure_check.client.name_structure", return_value=name),
+        patch(
+            "structure_check.client.cas_structure",
+            return_value=(cas_key, cas_name, cas_inchi),
+        ),
+        patch(
+            "structure_check.client.chebi_structure",
+            return_value=(*chebi, chebi_inchi) if len(chebi) == 2 else chebi,
+        ),
+        patch(
+            "structure_check.client.name_structure",
+            return_value=(query, list(zip(name_keys, inchis)), total),
+        ),
         # No network in unit tests: a skeleton difference stays one.
         patch(
             "structure_check.client.refine_skeleton_difference",
-            side_effect=lambda ref, cands: SKELETON_DIFFERS,
+            side_effect=lambda ref, cands, **kwargs: SKELETON_DIFFERS,
         ),
     )
 
@@ -289,6 +632,36 @@ def test_check_row_isolates_a_wrong_name_from_a_right_id() -> None:
     assert result["id_cas_verdict"] == MATCH
     assert result["name_cas_verdict"] == SKELETON_DIFFERS
     assert result["review"] == REVIEW_INVESTIGATE
+
+
+def test_check_row_reads_a_salt_from_the_inchi_without_asking_pubchem() -> None:
+    """End to end: the strings the resolvers already fetched settle the refinement.
+
+    parent_inchikey is the three-request chain this replaces, so asserting it was
+    never called is asserting the row cost nothing extra.
+    """
+    cas_p, chebi_p, name_p, _refine_p = _patch_lookups(
+        cas_key=DOXORUBICIN_HCL,
+        cas_inchi=DOXORUBICIN_HCL_INCHI,
+        chebi=(DOXORUBICIN_FREE_BASE, ""),
+        chebi_inchi=DOXORUBICIN_INCHI,
+        name=("Doxorubicin hydrochloride", [DOXORUBICIN_HCL], 1),
+    )
+    with (
+        cas_p,
+        chebi_p,
+        name_p,
+        patch("structure_check.client.parent_inchikey") as mock_parent,
+    ):
+        result = check_row(
+            cas="25316-40-9",
+            chebi_id="CHEBI:64816",
+            name="Doxorubicin hydrochloride",
+        )
+    assert result["id_cas_verdict"] == SALT_DIFFERS
+    assert result["name_cas_verdict"] == MATCH
+    assert result["review"] == REVIEW_CHECK
+    mock_parent.assert_not_called()
 
 
 def test_check_row_flags_a_chebi_id_holding_another_molecule() -> None:
@@ -327,6 +700,89 @@ def test_check_row_unresolved_cas_blocks_both_comparisons() -> None:
     assert result["id_cas_verdict"] == CAS_UNRESOLVED
     assert result["name_cas_verdict"] == CAS_UNRESOLVED
     assert result["review"] == REVIEW_UNVERIFIED
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_a_cell_that_is_not_a_registry_number_says_so_in_its_own_column(
+    mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
+) -> None:
+    """cas_unresolved used to mean "PubChem said no"; this cell was never asked.
+
+    cas_class is what distinguishes "not a registry number" from "PubChem has no
+    such CAS". The request is the thing we must not make: this endpoint is
+    PubChem's name endpoint, which resolves anything.
+    """
+    result = check_row(cas="not a cas", chebi_id="CHEBI:16236", name="Ethanol")
+    assert result["cas_class"] == "invalid_format"
+    assert result["cas_repairs"] == ""
+    assert result["id_cas_verdict"] == CAS_UNRESOLVED
+    assert mock_get.call_count == 0
+
+
+def test_a_repaired_cas_is_recorded_next_to_the_verdict_it_produced() -> None:
+    """A silent repair is indistinguishable from PubChem answering the cell's value.
+
+    `0362-07-02` is 2-methoxyestradiol after a padded check digit and a leading
+    zero are stripped. Produced by normalize_cas, not the rotation branch.
+    """
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(cas_key="", cas_name="")
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas="0362-07-02", chebi_id="CHEBI:16236", name="x")
+    assert result["cas_repairs"] == "zero_padded_check_digit+leading_zero"
+    assert result["cas_class"] == "valid"
+    # The repairs column says the value looked up was not the cell's; without this
+    # one it does not say what it was.
+    assert result["cas_queried"] == "362-07-2"
+    assert result["id_cas_verdict"] == CAS_UNRESOLVED
+
+
+@pytest.mark.parametrize(
+    ("cas", "expected"),
+    [
+        ("64-17-5", "64-17-5"),
+        ("0362-07-02", "362-07-2"),
+        # A failing check digit is still sent -- PubChem indexes vendor synonyms
+        # verbatim -- so it is still what was queried.
+        # Off by one in the check digit; the real number is 779353-01-4.
+        ("779353-01-3", "779353-01-3"),
+        # Never sent, so nothing was queried.
+        ("what?", ""),
+        ("", ""),
+    ],
+    ids=["clean", "repaired", "bad_checksum", "not_a_cas", "blank"],
+)
+def test_cas_queried_is_what_was_sent_and_empty_when_nothing_was(
+    cas: str, expected: str
+) -> None:
+    """The column is what was asked, not what was considered.
+
+    Mirrors chebi_lookup's identically named column, including that a failing check
+    digit is still sent: refusing to ask would be a claim about PubChem's index
+    rather than about the number.
+    """
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups(cas_key="", cas_name="")
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(cas=cas, chebi_id="CHEBI:16236", name="x")
+    assert result["cas_queried"] == expected
+
+
+def test_a_skipped_cas_side_queried_nothing_and_says_so() -> None:
+    """The breaker's path, where `chebi_lookup`'s version of this column cannot go.
+
+    `skip` means the request was never made, so a value in `cas_queried` would be a
+    claim that something was sent. The class and the repairs stay populated: those
+    are facts about the cell, which a skipped request does not change.
+    """
+    cas_p, chebi_p, name_p, refine_p = _patch_lookups()
+    with cas_p, chebi_p, name_p, refine_p:
+        result = check_row(
+            cas="0362-07-02", chebi_id="CHEBI:16236", name="x", skip=("cas",)
+        )
+    assert result["cas_queried"] == ""
+    assert result["cas_class"] == "valid"
+    assert result["cas_repairs"] == "zero_padded_check_digit+leading_zero"
 
 
 def test_check_row_blank_cas_is_not_checked_rather_than_unresolved() -> None:
@@ -373,37 +829,72 @@ def test_check_row_records_the_query_it_actually_used() -> None:
 # --------------------------------------------------------------------------
 
 
-def _pubchem_name_response(keys: list[str]) -> MagicMock:
+def _pubchem_name_response(
+    keys: list[str], inchis: list[str] | None = None
+) -> MagicMock:
+    """A name→property response. Entries carry an InChI only when one is given.
+
+    Omitting the field is the realistic shape for a payload that has none, and it is
+    what keeps the cases that pass keys alone exercising the InChIKey path.
+    """
     resp = MagicMock()
     resp.status_code = 200
-    resp.json.return_value = {
-        "PropertyTable": {"Properties": [{"InChIKey": k} for k in keys]}
-    }
+    entries = [
+        {"InChIKey": key, **({"InChI": inchi} if inchi else {})}
+        for key, inchi in zip(keys, inchis or [""] * len(keys))
+    ]
+    resp.json.return_value = {"PropertyTable": {"Properties": entries}}
     return resp
 
 
 @patch("structure_check.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_inchikeys_for_name_collects_every_key(
+def test_structures_for_name_collects_every_key(
     mock_get: MagicMock, _sleep: MagicMock
 ) -> None:
-    from structure_check.client import inchikeys_for_name
+    from structure_check.client import structures_for_name
 
     mock_get.return_value = _pubchem_name_response([ETHANOL, ALEXIDINE, ETHANOL])
-    # Deduplicated, order preserved.
-    assert inchikeys_for_name("ethanol") == [ETHANOL, ALEXIDINE]
+    # Deduplicated on the key, order preserved.
+    assert structures_for_name("ethanol") == [(ETHANOL, ""), (ALEXIDINE, "")]
 
 
 @patch("structure_check.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_inchikeys_for_name_url_encodes_awkward_names(
+def test_structures_for_name_carries_the_inchi_from_the_same_response(
+    mock_get: MagicMock, _sleep: MagicMock
+) -> None:
+    """One request returns both, so the string that makes refinement free is free.
+
+    A non-string InChI keeps the key and carries "": it would otherwise reach
+    classify_pair()'s .strip() and raise out through check_row.
+    """
+    from structure_check.client import structures_for_name
+
+    mock_get.return_value = _pubchem_name_response(
+        [ETHANOL, ALEXIDINE], [ETHANOL_INCHI, ""]
+    )
+    assert structures_for_name("ethanol") == [(ETHANOL, ETHANOL_INCHI), (ALEXIDINE, "")]
+    assert "InChIKey,InChI" in mock_get.call_args[0][0]
+
+    numeric = MagicMock(status_code=200)
+    numeric.json.return_value = {
+        "PropertyTable": {"Properties": [{"InChIKey": ETHANOL, "InChI": 17}]}
+    }
+    mock_get.return_value = numeric
+    assert structures_for_name("ethanol") == [(ETHANOL, "")]
+
+
+@patch("structure_check.client.time.sleep")
+@patch("chebi_lookup.client.requests.get")
+def test_structures_for_name_url_encodes_awkward_names(
     mock_get: MagicMock, _sleep: MagicMock
 ) -> None:
     """Chemical names carry slashes, parens, and commas."""
-    from structure_check.client import inchikeys_for_name
+    from structure_check.client import structures_for_name
 
     mock_get.return_value = _pubchem_name_response([ETHANOL])
-    inchikeys_for_name("4-(4-((4'-Chloro(1,1'-biphenyl)-2-yl)methyl)/x)")
+    structures_for_name("4-(4-((4'-Chloro(1,1'-biphenyl)-2-yl)methyl)/x)")
     url = mock_get.call_args[0][0]
     assert "/" not in url.split("/compound/name/")[1].split("/property")[0]
     assert "(" not in url.split("/compound/name/")[1].split("/property")[0]
@@ -418,9 +909,9 @@ def test_name_structure_stops_at_the_first_whole_string_hit(
     from structure_check.client import name_structure
 
     mock_get.return_value = _pubchem_name_response([ETHANOL])
-    query, keys, total = name_structure("PIK-75_HCl")
+    query, structures, total = name_structure("PIK-75_HCl")
     assert query == "PIK-75_HCl"
-    assert keys == [ETHANOL]
+    assert structures == [(ETHANOL, "")]
     assert total == 1
     assert mock_get.call_count == 1
 
@@ -446,9 +937,9 @@ def test_name_structure_falls_back_to_a_token_union(
         return responses.get(name, empty)
 
     mock_get.side_effect = route
-    query, keys, _total = name_structure("ABT_263_Navitoclax")
+    query, structures, _total = name_structure("ABT_263_Navitoclax")
     assert query == "tokens: Navitoclax"
-    assert keys == [ALEXIDINE]
+    assert structures == [(ALEXIDINE, "")]
 
 
 @patch("structure_check.client.time.sleep")
@@ -469,7 +960,7 @@ def test_chebi_structure_reads_the_default_structure(mock_fetch: MagicMock) -> N
     from structure_check.client import chebi_structure
 
     mock_fetch.return_value = {"default_structure": {"standard_inchi_key": ETHANOL}}
-    assert chebi_structure("CHEBI:16236") == (ETHANOL, "")
+    assert chebi_structure("CHEBI:16236") == (ETHANOL, "", "")
 
 
 @patch("structure_check.client.fetch_compound")
@@ -477,7 +968,40 @@ def test_chebi_structure_without_a_structure_block(mock_fetch: MagicMock) -> Non
     from structure_check.client import chebi_structure
 
     mock_fetch.return_value = {"default_structure": None}
-    assert chebi_structure("CHEBI:33697") == ("", CHEBI_NO_STRUCTURE)
+    assert chebi_structure("CHEBI:33697") == ("", CHEBI_NO_STRUCTURE, "")
+
+
+@patch("structure_check.client.fetch_compound")
+def test_a_non_string_inchi_does_not_cost_the_inchikey(mock_fetch: MagicMock) -> None:
+    """One unreadable field is not the same as ChEBI holding no structure.
+
+    The guard exists because a non-string InChI reaches classify_pair's `.strip()`,
+    but dropping the *key* alongside it threw away the whole comparison and reported
+    `chebi_no_structure`, whose documented meaning is that ChEBI has the entry and
+    it legitimately carries no structure -- a false claim about ChEBI's record. The
+    key is kept and the InChI reads as "no string for this side", which is what
+    structures_for_name() already does with the same shape.
+    """
+    from structure_check.client import chebi_structure
+
+    mock_fetch.return_value = {
+        "default_structure": {
+            "standard_inchi_key": ETHANOL,
+            "standard_inchi": ["InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3"],
+        }
+    }
+    assert chebi_structure("CHEBI:16236") == (ETHANOL, "", "")
+
+
+@patch("structure_check.client.fetch_compound")
+def test_a_non_string_inchikey_is_still_no_structure(mock_fetch: MagicMock) -> None:
+    """The other half: without a key there is no comparison to make."""
+    from structure_check.client import chebi_structure
+
+    mock_fetch.return_value = {
+        "default_structure": {"standard_inchi_key": 12345, "standard_inchi": ""}
+    }
+    assert chebi_structure("CHEBI:16236") == ("", CHEBI_NO_STRUCTURE, "")
 
 
 @patch("structure_check.client.fetch_compound")
@@ -485,7 +1009,7 @@ def test_chebi_structure_missing_record(mock_fetch: MagicMock) -> None:
     from structure_check.client import chebi_structure
 
     mock_fetch.return_value = None
-    assert chebi_structure("CHEBI:99999999") == ("", CHEBI_UNRESOLVED)
+    assert chebi_structure("CHEBI:99999999") == ("", CHEBI_UNRESOLVED, "")
 
 
 @patch("structure_check.client.fetch_compound")
@@ -495,14 +1019,14 @@ def test_chebi_structure_unreachable_is_not_a_finding(mock_fetch: MagicMock) -> 
 
     mock_fetch.side_effect = ChebiUnavailableError("down")
     # Distinct from "no such record": only a universal outage implies degradation.
-    assert chebi_structure("CHEBI:16236") == ("", CHEBI_UNREACHABLE)
+    assert chebi_structure("CHEBI:16236") == ("", CHEBI_UNREACHABLE, "")
 
 
 def test_chebi_structure_rejects_junk_without_fetching() -> None:
     from structure_check.client import chebi_structure
 
     with patch("structure_check.client.fetch_compound") as mock_fetch:
-        assert chebi_structure("not-an-id") == ("", CHEBI_UNRESOLVED)
+        assert chebi_structure("not-an-id") == ("", CHEBI_UNRESOLVED, "")
         mock_fetch.assert_not_called()
 
 
@@ -667,7 +1191,7 @@ def _json_response(payload: dict) -> MagicMock:
 def test_cas_structure_uses_two_requests_not_four(
     mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
 ) -> None:
-    """lookup_cas costs four; only InChIKey and Title are ever used."""
+    """lookup_cas costs four; only InChIKey, Title and InChI are ever used."""
     from structure_check.client import cas_structure
 
     mock_get.side_effect = [
@@ -675,13 +1199,21 @@ def test_cas_structure_uses_two_requests_not_four(
         _json_response(
             {
                 "PropertyTable": {
-                    "Properties": [{"InChIKey": ETHANOL, "Title": "Ethanol"}]
+                    "Properties": [
+                        {
+                            "InChIKey": ETHANOL,
+                            "Title": "Ethanol",
+                            "InChI": ETHANOL_INCHI,
+                        }
+                    ]
                 }
             }
         ),
     ]
-    assert cas_structure("64-17-5") == (ETHANOL, "Ethanol")
+    assert cas_structure("64-17-5") == (ETHANOL, "Ethanol", ETHANOL_INCHI)
     assert mock_get.call_count == 2
+    # The InChI rides along in the property request that already fetches the key.
+    assert "InChIKey,Title,InChI" in mock_get.call_args[0][0]
 
 
 @patch("structure_check.client.time.sleep")
@@ -695,14 +1227,15 @@ def test_cas_structure_unresolved_cas(
     missing = MagicMock()
     missing.status_code = 404
     mock_get.return_value = missing
-    assert cas_structure("00-00-0") == ("", "")
+    # A number validation lets through, so the 404 is what decides it.
+    assert cas_structure("50-00-0") == ("", "", "")
 
 
 def test_cas_structure_blank_costs_nothing() -> None:
     from structure_check.client import cas_structure
 
     with patch("chebi_lookup.client.requests.get") as mock_get:
-        assert cas_structure("   ") == ("", "")
+        assert cas_structure("   ") == ("", "", "")
         mock_get.assert_not_called()
 
 
@@ -1104,22 +1637,29 @@ def test_truncated_skeleton_difference_skips_refinement() -> None:
 @patch("structure_check.client.time.sleep")
 @patch("chebi_lookup.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_cas_structure_quotes_the_sheet_cell(
+def test_cas_structure_never_puts_a_sheet_cell_in_a_request_path(
     mock_get: MagicMock, _s1: MagicMock, _s2: MagicMock
 ) -> None:
-    """A stray '/' or '?' in a CAS cell must not rewrite the request path."""
+    """A stray '/' or '?' in a CAS cell cannot rewrite the request path.
+
+    Two guards now, in this order: CAS validation refuses anything that is not
+    digits-and-hyphens, so a traversal payload costs no request at all, and the
+    quoting in cas_to_cid_status is what holds if that ever loosens. The stronger
+    property is the one worth pinning -- the value never reaches the network.
+    """
     from structure_check.client import cas_structure
 
     missing = MagicMock()
     missing.status_code = 404
     mock_get.return_value = missing
 
-    cas_structure("64-17-5/../../evil?x=1")
+    assert cas_structure("64-17-5/../../evil?x=1") == ("", "", "")
+    assert mock_get.call_count == 0
 
-    path = mock_get.call_args_list[0][0][0].split("/compound/name/")[1]
-    segment = path.split("/cids")[0]
-    assert "/" not in segment
-    assert "?" not in segment
+    # A validated value does reach it, and reaches it intact.
+    cas_structure("64-17-5")
+    segment = mock_get.call_args_list[0][0][0].split("/compound/name/")[1]
+    assert segment.split("/cids")[0] == "64-17-5"
 
 
 # --------------------------------------------------------------------------
@@ -1454,6 +1994,28 @@ def test_check_file_counts_distinct_values_not_rows_for_a_column(
 
     assert summary.chebi.missing_values == 1
     assert summary.suspect_columns == ()
+
+
+def test_a_cas_column_of_names_reports_no_distinct_lookups(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The misdirected --cas-column run, which is what the count is for.
+
+    cas_registry refuses a cell no repair turns into a registry number, so not one
+    of these rows costs a request. Counting the cell rather than the row's own
+    account reported "6 distinct lookups" for a run that made zero — and this is
+    precisely the run where the number needs to look wrong. check_row is real here,
+    not mocked, because the refusal happens inside it.
+    """
+    src = tmp_path / "in.csv"
+    _write_csv(
+        src,
+        ["CAS", "ChEBI ID"],
+        [[n, "CHEBI:16236"] for n in ("Alexidine", "PIK-75", "Scriptaid", "UCN-01")],
+    )
+    with caplog.at_level(logging.INFO, logger="structure_check.io"):
+        check_file(src, tmp_path / "out.csv", cas_column="CAS", chebi_column="ChEBI ID")
+    assert "4 rows (0 distinct lookups)" in caplog.text
 
 
 @patch("structure_check.io.check_row")
@@ -1804,8 +2366,12 @@ def test_an_unreachable_cas_leaves_both_questions_unasked(
     )
 
     mock_cas.side_effect = PubChemUnavailableError("down")
-    mock_chebi.return_value = (ETHANOL, "")
-    mock_name.return_value = ("Ethanol", [ETHANOL], 1)
+    # Current shapes, though the early return means neither is reached: a 3-tuple
+    # from chebi_structure and (key, inchi) pairs from name_structure. Left stale
+    # they would have failed this test for the wrong reason the first time that
+    # early return moved.
+    mock_chebi.return_value = (ETHANOL, "", ETHANOL_INCHI)
+    mock_name.return_value = ("Ethanol", [(ETHANOL, ETHANOL_INCHI)], 1)
 
     result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol")
 
@@ -2008,23 +2574,29 @@ def test_an_empty_cid_list_is_still_a_real_answer(
     empty.json.return_value = {"IdentifierList": {"CID": []}}
     mock_get.return_value = empty
 
-    assert cas_to_cid_status("00-00-0") == (None, OUTCOME_NOT_FOUND)
+    # Not "00-00-0": a first segment of zeros is refused before the request, so the
+    # answer would be NOT_FOUND without this payload ever being read.
+    assert cas_to_cid_status("50-00-0") == (None, OUTCOME_NOT_FOUND)
+    assert mock_get.call_count == 1
 
 
 @patch("chebi_lookup.client.time.sleep")
 @patch("chebi_lookup.client.requests.get")
-def test_cas_to_cid_status_quotes_the_sheet_cell_for_every_caller(
+def test_cas_to_cid_status_guards_the_sheet_cell_for_every_caller(
     mock_get: MagicMock, _sleep: MagicMock
 ) -> None:
-    """Quoted inside, so lookup_cas is covered by the same guard as this module."""
-    from chebi_lookup.client import cas_to_cid_status
+    """Guarded inside, so lookup_cas is covered by the same rule as this module.
+
+    Validation refuses the payload before the URL is built, and quoting stays as the
+    second line: `urllib.parse.quote` is still applied to what does get through, but
+    a validated CAS is `[0-9-]+` and has nothing to encode. Both call paths -- this
+    module's cas_structure and chebi_lookup.lookup_cas -- come through here.
+    """
+    from chebi_lookup.client import OUTCOME_NOT_FOUND, cas_to_cid_status
 
     mock_get.return_value = MagicMock(status_code=404)
-    cas_to_cid_status("64-17-5/../../evil?x=1")
-
-    segment = mock_get.call_args[0][0].split("/compound/name/")[1].split("/cids")[0]
-    assert "/" not in segment
-    assert "?" not in segment
+    assert cas_to_cid_status("64-17-5/../../evil?x=1") == (None, OUTCOME_NOT_FOUND)
+    assert mock_get.call_count == 0
 
 
 @patch("chebi_lookup.client.time.sleep")
@@ -2081,17 +2653,19 @@ def test_unasked_names_whichever_side_went_unanswered(
     """`unasked` is a documented output column; all three of its values are real."""
     from structure_check.client import CHEBI_UNREACHABLE, PubChemUnavailableError
 
-    chebi = ("", CHEBI_UNREACHABLE) if chebi_down else (ETHANOL, "")
+    chebi = ("", CHEBI_UNREACHABLE, "") if chebi_down else (ETHANOL, "", "")
     name_p = patch("structure_check.client.name_structure")
     with (
-        patch("structure_check.client.cas_structure", return_value=(ETHANOL, "Eth")),
+        patch(
+            "structure_check.client.cas_structure", return_value=(ETHANOL, "Eth", "")
+        ),
         patch("structure_check.client.chebi_structure", return_value=chebi),
         name_p as mock_name,
     ):
         if name_down:
             mock_name.side_effect = PubChemUnavailableError("down")
         else:
-            mock_name.return_value = ("Ethanol", [ETHANOL], 1)
+            mock_name.return_value = ("Ethanol", [(ETHANOL, "")], 1)
         result = check_row(cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol")
 
     assert result["unasked"] == expected
@@ -2136,8 +2710,8 @@ def test_skipping_the_chebi_side_leaves_the_name_check_running(
 ) -> None:
     from structure_check.client import CHEBI_UNREACHABLE, IDENTIFIER_UNREACHABLE
 
-    mock_cas.return_value = (ETHANOL, "Ethanol")
-    mock_name.return_value = ("Ethanol", [ETHANOL], 1)
+    mock_cas.return_value = (ETHANOL, "Ethanol", "")
+    mock_name.return_value = ("Ethanol", [(ETHANOL, "")], 1)
 
     result = check_row(
         cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol", skip={"chebi"}
@@ -2159,8 +2733,8 @@ def test_skipping_the_name_side_leaves_the_id_check_running(
 ) -> None:
     from structure_check.client import IDENTIFIER_UNREACHABLE, NAME_UNREACHABLE
 
-    mock_cas.return_value = (ETHANOL, "Ethanol")
-    mock_chebi.return_value = (ETHANOL, "")
+    mock_cas.return_value = (ETHANOL, "Ethanol", "")
+    mock_chebi.return_value = (ETHANOL, "", "")
 
     result = check_row(
         cas="64-17-5", chebi_id="CHEBI:16236", name="Ethanol", skip={"name"}

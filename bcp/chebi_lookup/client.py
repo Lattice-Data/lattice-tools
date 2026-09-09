@@ -9,6 +9,8 @@ from typing import Any
 
 import requests
 
+from cas_registry import CAS_INVALID_FORMAT, CAS_MISSING, classify_cas
+
 # PubChem rate limits: 5 req/s, 400 req/min.
 # 3 calls per compound at 0.25s each ≈ 1.3 req/s — well under the limit.
 REQUEST_DELAY = 0.25
@@ -23,8 +25,13 @@ PROPERTIES = ",".join(
         "IUPACName",
         "MolecularFormula",
         "MolecularWeight",
-        "IsomericSMILES",
-        "CanonicalSMILES",
+        # PubChem renamed these: IsomericSMILES -> SMILES (stereo-bearing) and
+        # CanonicalSMILES -> ConnectivitySMILES (connectivity only). The old names
+        # are still ACCEPTED in the request URL, but the response comes back keyed
+        # by the new ones, so asking with the old names and reading with them
+        # returned "" on every lookup without any error, non-200 or log line.
+        "SMILES",
+        "ConnectivitySMILES",
         "InChI",
         "InChIKey",
         "XLogP",
@@ -50,6 +57,14 @@ OUTPUT_FIELDS_APPENDED = [
     "xlogp",
     "tpsa",
     "synonyms",
+    # What was actually asked, and what was wrong with what the cell held.
+    # cas_registry repairs mechanical corruption before the request, and a
+    # repair applied without being reported is the one thing that module refuses to
+    # do: a curator has to be able to see that the value looked up is not the value
+    # in the spreadsheet. cas_queried is empty when no request was made.
+    "cas_queried",
+    "cas_class",
+    "cas_repairs",
 ]
 
 
@@ -178,6 +193,24 @@ def get_with_retry_status(
     return None, OUTCOME_UNREACHABLE
 
 
+def _cas_for_lookup(raw: str) -> tuple[str, str, str]:
+    """
+    `(value to send, class, repairs)` for a spreadsheet's CAS cell.
+
+    The value is `""` when the cell is not worth a request -- blank, or nothing a
+    mechanical repair can turn into a registry number. Returned that way rather than
+    as a class the caller has to interpret, so "do not ask" is one truth test and the
+    `cas_queried` column is literally what was asked.
+
+    CAS validation lives in `cas_registry`, a top-level module that belongs to
+    neither package, so both can import it at module scope without a cycle.
+    """
+    queried, cas_class, repairs = classify_cas(raw)
+    if cas_class in (CAS_MISSING, CAS_INVALID_FORMAT):
+        return "", cas_class, repairs
+    return queried, cas_class, repairs
+
+
 def get_with_retry(url: str, params: dict | None = None) -> requests.Response | None:
     """GET with exponential backoff on 429/503. Returns None on 404 or exhausted retries."""
     resp, _outcome = get_with_retry_status(url, params)
@@ -197,9 +230,33 @@ def cas_to_cid_status(cas: str) -> tuple[int | None, str]:
     The CAS is quoted here rather than by the caller, since it reaches the URL
     path and these values come from untrusted sheets: a stray "/" or "?" would
     rewrite or truncate the request.
+
+    **The value is validated and mechanically repaired before it is sent**, by
+    cas_registry, and this is the one place both call paths pass through --
+    chebi_lookup.lookup_cas() and structure_check.client.cas_structure(). It matters here
+    more than anywhere else because the endpoint is PubChem's **name** endpoint: it
+    resolves anything, so an unchecked cell holding a compound name resolves *as a
+    name*, and a row's CAS side then agrees with its name side because both asked
+    the same question. A cell no repair can turn into a registry number reports
+    NOT_FOUND without a request -- not UNREACHABLE, since nothing was unreachable.
+
+    A well-formed number whose check digit disagrees is still sent. It is not a
+    registry number, but PubChem indexes vendor synonyms verbatim, so what it
+    answers is evidence about the row; refusing to ask would be a claim about
+    PubChem's index rather than about the number. None of the 11 such numbers in the
+    second batch resolved, so this costs requests and loses nothing.
     """
+    queried, cas_class, repairs = _cas_for_lookup(cas)
+    if not queried:
+        log.warning(
+            "Not a CAS Registry Number, not asking PubChem: %r (%s)", cas, cas_class
+        )
+        return None, OUTCOME_NOT_FOUND
+    if repairs:
+        log.warning("CAS %r repaired to %r before lookup (%s)", cas, queried, repairs)
+
     resp, outcome = get_with_retry_status(
-        f"{BASE}/compound/name/{urllib.parse.quote(str(cas), safe='')}/cids/JSON",
+        f"{BASE}/compound/name/{urllib.parse.quote(queried, safe='')}/cids/JSON",
         malformed_is_answer=True,
     )
     time.sleep(REQUEST_DELAY)
@@ -256,14 +313,19 @@ def cid_to_properties(cid: int) -> dict[str, Any]:
             result["iupac_name"] = props.get("IUPACName", "")
             result["molecular_formula"] = props.get("MolecularFormula", "")
             result["molecular_weight"] = props.get("MolecularWeight", "")
-            result["isomeric_smiles"] = props.get("IsomericSMILES", "")
-            result["canonical_smiles"] = props.get("CanonicalSMILES", "")
+            result["isomeric_smiles"] = props.get("SMILES", "")
+            result["canonical_smiles"] = props.get("ConnectivitySMILES", "")
             result["inchi"] = props.get("InChI", "")
             result["inchikey"] = props.get("InChIKey", "")
             result["xlogp"] = props.get("XLogP", "")
             result["tpsa"] = props.get("TPSA", "")
-        except (ValueError, KeyError, IndexError):
-            pass
+        except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+            # A 200 whose body is not this endpoint's JSON is an outage wearing a
+            # success code, exactly as cas_to_cid_status documents. This function
+            # returns no outcome, so the least it can do is refuse to be silent:
+            # swallowing it bare would leave the row indistinguishable from
+            # "PubChem has no properties for this CID".
+            log.warning("Unusable property payload for CID %s: %s", cid, exc)
 
     resp2 = get_with_retry(f"{BASE}/compound/cid/{cid}/xrefs/RegistryID/JSON")
     time.sleep(REQUEST_DELAY)
@@ -279,8 +341,11 @@ def cid_to_properties(cid: int) -> dict[str, Any]:
                 if rid.upper().startswith("CHEBI:"):
                     result["chebi_id"] = rid
                     break
-        except (ValueError, KeyError, IndexError):
-            pass
+        except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+            # Same reasoning: without this line an unusable xref body reads as
+            # "this compound has no ChEBI cross-reference", which is a finding
+            # about chemistry rather than about the network.
+            log.warning("Unusable registry-ID payload for CID %s: %s", cid, exc)
 
     return result
 
@@ -298,21 +363,37 @@ def cid_to_synonyms(cid: int) -> str:
             .get("Information", [{}])[0]
             .get("Synonym", [])
         )
-        return " | ".join(syns[:MAX_SYNONYMS])
-    except (ValueError, KeyError, IndexError):
+        # str() each synonym: PubChem has shipped numeric-looking synonyms as bare
+        # numbers, and join() raises TypeError on the first one it meets. Widen the
+        # except tuple too -- a valid-JSON body of the wrong shape (a proxy or
+        # maintenance page) raises AttributeError here, not ValueError.
+        return " | ".join(str(s) for s in syns[:MAX_SYNONYMS])
+    except (ValueError, KeyError, AttributeError, TypeError, IndexError) as exc:
+        log.warning("Unusable synonym payload for CID %s: %s", cid, exc)
         return ""
 
 
 def lookup_cas(cas: str) -> dict[str, Any]:
-    """Resolve one CAS to PubChem properties, ChEBI xref, and synonyms."""
-    cas = cas.strip()
-    if not cas:
-        return empty_result()
+    """
+    Resolve one CAS to PubChem properties, ChEBI xref, and synonyms.
 
-    cid = cas_to_cid(cas)
+    Every row carries `cas_class` and `cas_repairs` whatever the outcome, so an
+    empty result says which of "the cell was blank", "no repair made this a registry
+    number" and "PubChem does not index it" happened. `cas_queried` is the value
+    actually sent, empty when nothing was.
+    """
+    cas = (cas or "").strip()
+    queried, cas_class, repairs = _cas_for_lookup(cas)
+    report = {"cas_queried": queried, "cas_class": cas_class, "cas_repairs": repairs}
+    if not queried:
+        # cas_to_cid_status refuses these too. Returning here keeps the refusal out of
+        # the log twice and puts the reason in the row rather than only in the log.
+        return {**empty_result(), **report}
+
+    cid = cas_to_cid(queried)
     if cid is None:
-        return empty_result()
+        return {**empty_result(), **report}
 
     result = cid_to_properties(cid)
     result["synonyms"] = cid_to_synonyms(cid)
-    return result
+    return {**result, **report}

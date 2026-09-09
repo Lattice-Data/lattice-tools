@@ -1,0 +1,747 @@
+"""Unit tests for structure_check.inchi layer comparison (no network)."""
+
+from __future__ import annotations
+
+import pytest
+
+from structure_check.inchi import (
+    COMPARED_LAYERS,
+    DIFFERENT_COMPOUND,
+    ISOTOPE_DIFFERS,
+    FORM_DIFFERS,
+    INCHI_VERDICTS,
+    LAYERS_IDENTICAL,
+    LAYERS_NOT_COMPARABLE,
+    STEREO_DIFFERS,
+    STEREO_LAYERS,
+    STEREO_UNDEFINED_ON_ONE_SIDE,
+    classify_pair,
+    defined_side,
+    defined_stereo,
+    inchi_layers,
+    is_multi_component,
+    principal_component,
+)
+
+# Real structures from the curation run that exposed the bug this module fixes.
+# Every pair below was verified as one compound by the previous implementation.
+
+# CCMI / AVL-3288. /b present on both sides with opposite values: a genuine E/Z
+# pair, which the old comparison could not see because it never read /b.
+CCMI_Z = (
+    "InChI=1S/C19H15Cl2N3O2/c1-12-10-18(26-24-12)17(11-22-15-6-2-13(20)3-7-15)"
+    "19(25)23-16-8-4-14(21)5-9-16/h2-11,22H,1H3,(H,23,25)/b17-11-"
+)
+CCMI_E = CCMI_Z.replace("/b17-11-", "/b17-11+")
+
+# Dihydrosphingosine. Identical /t, opposite /m -- the definition of an enantiomer
+# pair. The old comparison reached its final `else` and called this a PubChem
+# cataloguing duplicate.
+DL_ERYTHRO_DIHYDROSPHINGOSINE = (
+    "InChI=1S/C18H39NO2/c1-2-3-4-5-6-7-8-9-10-11-12-13-14-15-18(21)17(19)16-20/"
+    "h17-18,20-21H,2-16,19H2,1H3/t17-,18+/m1/s1"
+)
+SPHINGANINE = DL_ERYTHRO_DIHYDROSPHINGOSINE.replace("/m1/", "/m0/")
+
+# Formoterol fumarate against (S,S)-formoterol fumarate: the same /m flip inside a
+# multi-component salt, so it exercises the formula split at the same time. The
+# identifier this was given was arformoterol's -- a single enantiomer's entry
+# assigned to a racemate.
+FORMOTEROL_FUMARATE = (
+    "InChI=1S/2C19H24N2O4.C4H4O4/c2*1-13(9-14-3-6-16(25-2)7-4-14)20-11-19(24)"
+    "15-5-8-18(23)17(10-15)21-12-22;5-3(6)1-2-4(7)8/h2*3-8,10,12-13,19-20,23-24H,"
+    "9,11H2,1-2H3,(H,21,22);1-2H,(H,5,6)(H,7,8)/b;;2-1+/t2*13-,19+;/m11./s1"
+)
+SS_FORMOTEROL_FUMARATE = FORMOTEROL_FUMARATE.replace("/m11./", "/m00./")
+
+# SU 4312. The name side specifies /b, the CAS side specifies no stereo at all:
+# PubChem holding two records for one substance, which is agreement.
+SU4312_UNDEFINED = (
+    "InChI=1S/C17H16N2O/c1-19(2)13-9-7-12(8-10-13)11-15-14-5-3-4-6-16(14)18-"
+    "17(15)20/h3-11H,1-2H3,(H,18,20)"
+)
+SU4312_Z = SU4312_UNDEFINED + "/b15-11-"
+
+# Doxorubicin free base against its hydrochloride: identical principal component,
+# different formula layer.
+DOXORUBICIN = (
+    "InChI=1S/C27H29NO11/c1-10-22(31)13(28)6-17(38-10)39-15-8-27(36,16(30)9-29)"
+    "7-12-19(15)26(35)21-20(24(12)33)23(32)11-4-3-5-14(37-2)18(11)25(21)34/"
+    "h3-5,10,13,15,17,22,29,31,33,35-36H,6-9,28H2,1-2H3/t10-,13-,15-,17-,22+,27-/"
+    "m0/s1"
+)
+DOXORUBICIN_HCL = (
+    "InChI=1S/C27H29NO11.ClH/c1-10-22(31)13(28)6-17(38-10)39-15-8-27(36,16(30)"
+    "9-29)7-12-19(15)26(35)21-20(24(12)33)23(32)11-4-3-5-14(37-2)18(11)25(21)34;/"
+    "h3-5,10,13,15,17,22,29,31,33,35-36H,6-9,28H2,1-2H3;1H/"
+    "t10-,13-,15-,17-,22+,27-;/m0./s1"
+)
+
+ETHANOL = "InChI=1S/C2H6O/c1-2-3/h3H,2H2,1H3"
+
+# ABT-702 as its mono- and di-hydrochloride: the same base, differing only in how
+# many equivalents of HCl. Real PubChem records, and exactly the salt distinction
+# the strict policy turns on.
+ABT702_HCL = (
+    "InChI=1S/C22H19BrN6O.ClH/c23-16-3-1-2-14(10-16)17-11-18(28-22-20(17)21(24)"
+    "26-13-27-22)15-4-5-19(25-12-15)29-6-8-30-9-7-29;/h1-5,10-13H,6-9H2,"
+    "(H2,24,26,27,28);1H"
+)
+ABT702_2HCL = (
+    "InChI=1S/C22H19BrN6O.2ClH/c23-16-3-1-2-14(10-16)17-11-18(28-22-20(17)21(24)"
+    "26-13-27-22)15-4-5-19(25-12-15)29-6-8-30-9-7-29;;/h1-5,10-13H,6-9H2,"
+    "(H2,24,26,27,28);2*1H"
+)
+
+# Apomorphine hydrochloride hemihydrate against its monohydrate. Real PubChem
+# records, and the only fixture here whose *principal* component carries a
+# stoichiometric multiplier on one side and not the other -- 2C17H17NO2 against
+# C17H17NO2. The ABT-702 pair does not pin that, because there the multiplier
+# sits on the counterion. Half a water per apomorphine is the hemihydrate;
+# one water per apomorphine is the monohydrate.
+APOMORPHINE_HCL_HEMIHYDRATE = (
+    "InChI=1S/2C17H17NO2.2ClH.H2O/c2*1-18-8-7-10-3-2-4-12-15(10)13(18)9-11-5-6-"
+    "14(19)17(20)16(11)12;;;/h2*2-6,13,19-20H,7-9H2,1H3;2*1H;1H2/t2*13-;;;/m11.../s1"
+)
+APOMORPHINE_HCL_MONOHYDRATE = (
+    "InChI=1S/C17H17NO2.ClH.H2O/c1-18-8-7-10-3-2-4-12-15(10)13(18)9-11-5-6-14(19)"
+    "17(20)16(11)12;;/h2-6,13,19-20H,7-9H2,1H3;1H;1H2/t13-;;/m1../s1"
+)
+
+# Pyrvinium pamoate: the drug cation and the pamoate counterion have formulas of
+# equal character length, so ranking components by string length picks the
+# counterion. This is the same wrong answer PubChem's desalting gives.
+PYRVINIUM_PAMOATE_FORMULA = "2C26H28N3.C23H16O6"
+
+
+# --------------------------------------------------------------------------
+# Layer parsing
+# --------------------------------------------------------------------------
+
+
+def test_inchi_layers_splits_formula_from_layers() -> None:
+    layers, formula = inchi_layers(ETHANOL)
+    assert formula == "C2H6O"
+    assert layers["c"] == "1-2-3"
+    assert layers["h"] == "3H,2H2,1H3"
+
+
+@pytest.mark.parametrize("raw", ["", "not an inchi", "InChI=1S", "InChI=1S/"])
+def test_inchi_layers_returns_empty_rather_than_raising(raw: str) -> None:
+    """Callers are on paths that promise not to raise; unparseable must be inert.
+
+    Both halves are asserted separately: an `or` here would pass while one of them
+    silently returned junk.
+    """
+    layers, formula = inchi_layers(raw)
+    assert layers == {}
+    assert formula == ""
+
+
+def test_defined_stereo_counts_all_four_layers() -> None:
+    assert defined_stereo(inchi_layers(SU4312_UNDEFINED)[0]) == 0
+    assert defined_stereo(inchi_layers(SU4312_Z)[0]) == 1
+    assert defined_stereo(inchi_layers(SPHINGANINE)[0]) == 3
+    # Spelled 4, not len(STEREO_LAYERS): comparing against the constant under test
+    # would keep passing if a layer were dropped from it.
+    assert defined_stereo(inchi_layers(FORMOTEROL_FUMARATE)[0]) == 4
+    assert len(STEREO_LAYERS) == 4
+
+
+# --------------------------------------------------------------------------
+# Principal component
+# --------------------------------------------------------------------------
+
+
+def test_principal_component_strips_counterion() -> None:
+    assert principal_component("C27H29NO11.ClH") == "C27H29NO11"
+
+
+def test_principal_component_picks_the_drug_not_the_pamoate() -> None:
+    """Ranking by atom count, not formula-string length.
+
+    Pyrvinium is C26H28N3 and pamoate is C23H16O6: both eight characters once the
+    stoichiometric multiplier is dropped, so a string tiebreak returns the
+    counterion. Atom counts are 57 against 45.
+    """
+    assert principal_component(PYRVINIUM_PAMOATE_FORMULA) == "2C26H28N3"
+
+
+def test_principal_component_of_single_component_is_itself() -> None:
+    assert principal_component("C2H6O") == "C2H6O"
+    assert principal_component("") == ""
+
+
+def test_is_multi_component_detects_salts() -> None:
+    assert is_multi_component(DOXORUBICIN_HCL) is True
+    assert is_multi_component(DOXORUBICIN) is False
+
+
+@pytest.mark.parametrize(
+    "raw", ["", "   ", "C2H6O", "not an inchi", "a/b", "InChI=1S/??/c1", "InChI=1S"]
+)
+def test_an_unreadable_structure_has_no_component_count(raw: str) -> None:
+    """`None`, not `False`: exactly the inputs `classify_pair()` refuses.
+
+    Each of these has no parseable formula layer, and `False` would report that as
+    "one component" -- indistinguishable from a genuine free base. The answer
+    decides whether a compound absent from ChEBI needs a new entry or a salt on an
+    existing parent, so the wrong direction here is a wrong submission.
+    """
+    assert is_multi_component(raw) is None
+    assert classify_pair(raw, DOXORUBICIN) == LAYERS_NOT_COMPARABLE
+
+
+# --------------------------------------------------------------------------
+# The comparison, on the structures that shipped wrong
+# --------------------------------------------------------------------------
+
+
+def test_opposite_double_bond_geometry_is_a_stereoisomer_difference() -> None:
+    """CCMI: /b on both sides with different values, so two different molecules.
+
+    Verified as one compound before /b was read at all.
+    """
+    assert classify_pair(CCMI_Z, CCMI_E) == STEREO_DIFFERS
+
+
+def test_identical_t_with_opposite_m_is_a_stereoisomer_difference() -> None:
+    """Dihydrosphingosine: /t equal, /m opposite -- an enantiomer pair.
+
+    This fell through to the wrong branch and was reported as a cataloguing
+    duplicate, which promoted one enantiomer's ChEBI entry onto the other.
+    """
+    assert classify_pair(DL_ERYTHRO_DIHYDROSPHINGOSINE, SPHINGANINE) == STEREO_DIFFERS
+
+
+def test_m_flip_inside_a_multi_component_salt_is_still_a_stereo_difference() -> None:
+    """Formoterol fumarate: the salt must not mask the /m11 against /m00 flip."""
+    assert classify_pair(FORMOTEROL_FUMARATE, SS_FORMOTEROL_FUMARATE) == STEREO_DIFFERS
+
+
+def test_layer_absent_on_one_side_is_a_pubchem_duplicate_not_a_difference() -> None:
+    """SU 4312: one record says (Z), the other says nothing. Same substance."""
+    verdict = classify_pair(SU4312_UNDEFINED, SU4312_Z)
+    assert verdict == STEREO_UNDEFINED_ON_ONE_SIDE
+
+
+def test_defined_side_prefers_the_more_specific_structure() -> None:
+    """The anchor must be the side that specifies the stereochemistry.
+
+    Anchoring on the vaguer side matches a stereo-unspecified database entry to a
+    compound whose geometry is specified, which is the substitution the strict
+    policy exists to reject.
+    """
+    assert defined_side(SU4312_UNDEFINED, SU4312_Z) == SU4312_Z
+    assert defined_side(SU4312_Z, SU4312_UNDEFINED) == SU4312_Z
+
+
+def test_salt_and_free_base_differ_by_form_not_by_compound() -> None:
+    assert classify_pair(DOXORUBICIN, DOXORUBICIN_HCL) == FORM_DIFFERS
+
+
+def test_different_stoichiometry_of_one_base_is_a_form_difference() -> None:
+    """ABT-702 mono-HCl against di-HCl: two forms of one compound.
+
+    Here the multiplier sits on the *counterion*, so this pins the formula-layer
+    comparison but NOT the multiplier stripping -- see the apomorphine test below.
+    """
+    assert classify_pair(ABT702_HCL, ABT702_2HCL) == FORM_DIFFERS
+
+
+def test_a_multiplier_on_the_principal_component_is_ignored() -> None:
+    """Apomorphine hydrochloride against its hemihydrate: 2C17H17NO2 vs C17H17NO2.
+
+    The stoichiometric multiplier has to be stripped before the principal
+    components are compared, or one apomorphine and two compare as *different
+    molecules* and a hydrate question is reported as a wrong-compound question.
+
+    This is the only fixture that pins that stripping. Deleting both
+    `_LEADING_COUNT.sub()` calls from `classify_pair` left every other test in this
+    module passing.
+    """
+    assert (
+        classify_pair(APOMORPHINE_HCL_HEMIHYDRATE, APOMORPHINE_HCL_MONOHYDRATE)
+        == FORM_DIFFERS
+    )
+
+
+# --------------------------------------------------------------------------
+# The formula tier's limit, and the fix that looks right and is not
+# --------------------------------------------------------------------------
+#
+# Both pairs below are decided at the formula tier -- FORM_DIFFERS returns before
+# CONSTITUTION_LAYERS is read -- so only the formula layers carry meaning here and
+# the /c and /h values are placeholders. The formulas are the real ones. Written
+# this way rather than with two real records because the second pamoate salt would
+# have to be a hand-renumbered InChI, and a fixture nobody can check is worse than
+# one that says what it is testing.
+def _formula_tier(formula: str, c: str = "1-2;3-4") -> str:
+    """An InChI that parses and reaches the formula tier.
+
+    `c` only matters for the pairs that are meant to reach the constitution tier --
+    where the formulas are equal, so FORM_DIFFERS does not short-circuit first.
+    """
+    return f"InChI=1S/{formula}/c{c}/h1H;2H"
+
+
+def test_two_salts_of_the_same_counterion() -> None:
+    """Two different drugs, reported as a salt-form difference. A known limit.
+
+    Hydroxyzine pamoate against pyrantel pamoate. Pamoate is 29 heavy atoms against
+    hydroxyzine's 26 and pyrantel's 14, so principal_component() returns the
+    counterion for both and the formula tier sees one shared principal with
+    differing formulas -- which is what a salt is. The row still surfaces, as
+    `salt_differs` -> `check` rather than `investigate`, so nothing is waved
+    through; but it is a genuine wrong-compound row demoted out of the worst
+    bucket, and the pair is pinned here so the limit cannot be mistaken for an
+    oversight. classify_pair's docstring says why no formula-only rule fixes it.
+    """
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.C23H16O6"),
+            _formula_tier("C11H14N2S.C23H16O6"),
+        )
+        == FORM_DIFFERS
+    )
+
+
+def test_two_isomers_with_different_counterions() -> None:
+    """Constitutional isomers reported as a salt difference. The second known limit.
+
+    The principal components match on **formula** while the molecules differ in
+    `/c`, and the formula tier returns FORM_DIFFERS before `/c` is read. Only the
+    counterion difference hides it: with the same counterion on both sides the pair
+    reaches the constitution tier and comes back DIFFERENT_COMPOUND, which the
+    second assertion pins so this test cannot pass for the wrong reason.
+
+    This is the case the per-component `/c` sublayers could decide; classify_pair's
+    docstring says why that alignment is not a drop-in.
+    """
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.ClH", c="1-2-3;"),
+            _formula_tier("C21H27ClN2O2.BrH", c="1-3-2;"),
+        )
+        == FORM_DIFFERS
+    )
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.ClH", c="1-2-3;"),
+            _formula_tier("C21H27ClN2O2.ClH", c="1-3-2;"),
+        )
+        == DIFFERENT_COMPOUND
+    )
+
+
+@pytest.mark.parametrize(
+    "counterion", ["BrH", "CH4O3S", "C7H8O3S"], ids=["bromide", "mesylate", "tosylate"]
+)
+def test_one_drug_with_two_different_counterions_is_still_a_form_difference(
+    counterion: str,
+) -> None:
+    """The guard on the fix that test_two_salts_of_the_same_counterion invites.
+
+    Requiring the component sets to be in a subset relation would catch the pamoate
+    pair -- and would report a hydrochloride against a hydrobromide, a mesylate or a
+    tosylate of the *same* drug as DIFFERENT_COMPOUND, because `{drug, ClH}` and
+    `{drug, BrH}` are neither a subset of the other. That is the false positive this
+    module exists to remove, and it is far more common in a real sheet than two
+    unrelated salts of one counterion. Any future gate on the formula tier has to
+    keep these passing.
+    """
+    assert (
+        classify_pair(
+            _formula_tier("C21H27ClN2O2.ClH"),
+            _formula_tier(f"C21H27ClN2O2.{counterion}"),
+        )
+        == FORM_DIFFERS
+    )
+
+
+def test_unrelated_compounds_differ_by_compound() -> None:
+    assert classify_pair(ETHANOL, DOXORUBICIN) == DIFFERENT_COMPOUND
+
+
+def test_a_structure_is_identical_to_itself() -> None:
+    for inchi in (ETHANOL, CCMI_Z, FORMOTEROL_FUMARATE, DOXORUBICIN_HCL):
+        assert classify_pair(inchi, inchi) == LAYERS_IDENTICAL
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("", ""),
+        (ETHANOL, ""),
+        ("", ETHANOL),
+        (ETHANOL, "not an inchi"),
+        (ETHANOL, "a/b"),
+        ("InChI=1S//c1-2-3", "InChI=1S//c1-2-3"),
+    ],
+)
+def test_missing_structure_is_not_comparable_never_identical(a: str, b: str) -> None:
+    """Silence from a database must never render as agreement between structures.
+
+    The predecessor returned "identical" for two empty strings and escaped the
+    consequences only because its one caller guarded the call site.
+    """
+    assert classify_pair(a, b) == LAYERS_NOT_COMPARABLE
+
+
+def test_comparison_is_symmetric_under_argument_order() -> None:
+    pairs = [
+        (CCMI_Z, CCMI_E),
+        (DL_ERYTHRO_DIHYDROSPHINGOSINE, SPHINGANINE),
+        (SU4312_UNDEFINED, SU4312_Z),
+        (DOXORUBICIN, DOXORUBICIN_HCL),
+        (ETHANOL, DOXORUBICIN),
+        (ETHANOL, ""),
+    ]
+    for a, b in pairs:
+        assert classify_pair(a, b) == classify_pair(b, a)
+
+
+# --------------------------------------------------------------------------
+# Same formula, different molecule: what the stereo-only comparison could not see
+# --------------------------------------------------------------------------
+
+# Constitutional isomers. Each pair shares a formula layer and differs only in /c
+# or /h, which the first version of this module never read -- so all of these
+# compared LAYERS_IDENTICAL, the verdict meaning "the same compound".
+DIMETHYL_ETHER = "InChI=1S/C2H6O/c1-3-2/h1-2H3"
+N_BUTANE = "InChI=1S/C4H10/c1-3-4-2/h3-4H2,1-2H3"
+ISOBUTANE = "InChI=1S/C4H10/c1-4(2)3/h4H,1-3H3"
+CATECHOL = "InChI=1S/C6H6O2/c7-5-3-1-2-4-6(5)8/h1-4,7-8H"
+HYDROQUINONE = "InChI=1S/C6H6O2/c7-5-1-2-6(8)4-3-5/h1-4,7-8H"
+
+ACETIC_ACID = "InChI=1S/C2H4O2/c1-2(3)4/h1H3,(H,3,4)"
+ACETATE = ACETIC_ACID + "/p-1"
+ETHANOL_D6 = ETHANOL + "/i1D3,2D2,3D"
+
+# Diatrizoate meglumine: a hydrogen-rich counterion against an iodinated parent.
+# Meglumine wins on total atoms 30 to 29; diatrizoate wins on heavy atoms 20 to 13.
+DIATRIZOATE_MEGLUMINE_FORMULA = "C11H9I3N2O4.C7H17NO5"
+
+
+@pytest.mark.parametrize(
+    ("a", "b", "label"),
+    [
+        (ETHANOL, DIMETHYL_ETHER, "ethanol / dimethyl ether"),
+        (N_BUTANE, ISOBUTANE, "n-butane / isobutane"),
+        (CATECHOL, HYDROQUINONE, "catechol / hydroquinone"),
+    ],
+)
+def test_constitutional_isomers_are_different_compounds(
+    a: str, b: str, label: str
+) -> None:
+    """One formula, two molecules -- separated only by /c and /h.
+
+    Comparing the formula and the stereo layers while never reading the
+    connectivity meant every one of these pairs reported as the same compound. This
+    is the module's worst possible failure direction, and it mattered most in its
+    intended slot: the InChIKey path only asks for a finer comparison once it has
+    already established that connectivity differs.
+    """
+    assert classify_pair(a, b) == DIFFERENT_COMPOUND, label
+
+
+def test_a_truncated_inchi_does_not_compare_equal_to_the_intact_string() -> None:
+    """A spreadsheet cell limit clips the tail of an InChI.
+
+    The clipped string keeps its formula and loses layers, so a comparison that
+    reads only the formula and the stereo layers called it the same compound.
+    Refusing is the safe direction.
+    """
+    intact = "InChI=1S/C6H12O6/c1-2-3(7)4(8)5(9)6(10)11/h2-6,8-11H,7H2"
+    clipped = "InChI=1S/C6H12O6/c1-2-3(7)4(8)5(9)6(10)11/h2-6"
+    assert classify_pair(intact, clipped) == DIFFERENT_COMPOUND
+
+
+def test_an_isotopologue_is_not_the_unlabelled_compound() -> None:
+    """/i leaves the formula layer alone, so it slipped past a formula gate.
+
+    Ethanol-d6 has its own InChIKey, its own CAS number and its own ChEBI entry.
+    It is neither a salt form nor a stereoisomer of ethanol.
+    """
+    assert classify_pair(ETHANOL, ETHANOL_D6) == ISOTOPE_DIFFERS
+
+
+def test_a_conjugate_base_is_a_different_form_not_the_same_structure() -> None:
+    """/p also leaves the formula layer as the neutral parent's.
+
+    ChEBI holds acetic acid and acetate as separate entries, so matching one to
+    the other is the same class of error as matching a salt to its free base.
+    """
+    assert classify_pair(ACETIC_ACID, ACETATE) == FORM_DIFFERS
+    assert classify_pair(ACETIC_ACID, ACETIC_ACID + "/q+1") == FORM_DIFFERS
+
+
+def test_every_declared_verdict_is_reachable() -> None:
+    """Exhaustiveness, not membership.
+
+    Asserting each result is *in* INCHI_VERDICTS is nearly a tautology -- the
+    function only ever returns those constants. What is worth pinning is the other
+    direction: every verdict the module declares is produced by some real pair, so a
+    constant cannot be declared and then never returned, and a consumer's mapping
+    cannot silently go stale.
+    """
+    observed = {
+        classify_pair(a, b)
+        for a, b in [
+            (ETHANOL, ETHANOL),
+            (DOXORUBICIN, DOXORUBICIN_HCL),
+            (CCMI_Z, CCMI_E),
+            (SU4312_UNDEFINED, SU4312_Z),
+            (ETHANOL, ETHANOL_D6),
+            (ETHANOL, DIMETHYL_ETHER),
+            (ETHANOL, ""),
+        ]
+    }
+    assert observed == set(INCHI_VERDICTS)
+
+
+def test_the_isotopic_block_is_one_value_and_does_not_leak_into_the_real_layers() -> (
+    None
+):
+    """InChI re-emits /h /t /m /s after /i to give the *isotopic* ones.
+
+    They share the single-letter namespace with the ordinary layers, so the two have
+    to be kept apart, and both directions of merging them were live bugs. Here the
+    ordinary /m must survive as "0" rather than being replaced by the isotopic "1",
+    which is how a deuterium label used to manufacture a stereo difference; and the
+    whole isotopic block has to be retained rather than dropped, which is what
+    test_heavy_water_is_not_tritiated_water covers.
+    """
+    labelled = "InChI=1S/C3H8O/c1-2-3/h3H,2H2,1H3/t3-/m0/s1/i1D3/t3-/m1/s1"
+    layers, _ = inchi_layers(labelled)
+    assert layers["m"] == "0"
+    assert layers["t"] == "3-"
+    assert layers["i"] == "1D3/t3-/m1/s1"
+
+
+def test_surrounding_whitespace_does_not_make_a_structure_differ_from_itself() -> None:
+    """`inchi_layers` strips, and nothing pinned that it does.
+
+    A trailing newline from a text file or a CSV cell lands in the final layer's
+    value otherwise, so a structure compares unequal to itself and the row is
+    reported as a stereo or constitution difference that is entirely our own doing.
+    Removing the `.strip()` left the whole suite green.
+    """
+    assert classify_pair(ETHANOL, ETHANOL + "\n") == LAYERS_IDENTICAL
+    assert classify_pair(ETHANOL, f"  {ETHANOL}\r\n") == LAYERS_IDENTICAL
+
+
+def test_an_empty_layer_is_skipped_rather_than_indexed() -> None:
+    """A doubled slash yields an empty part, and `part[0]` on it raises IndexError.
+
+    Out through classify_pair, which documents that unparseable input reads as
+    unknown rather than raising, and out through check_row, which promises never to
+    raise at all. Removing the guard left the whole suite green, so the shape is
+    pinned here directly: the layers either side of the empty one still parse.
+    """
+    doubled = "InChI=1S/C2H6O//c1-2-3/h3H,2H2,1H3"
+    assert inchi_layers(doubled) == ({"c": "1-2-3", "h": "3H,2H2,1H3"}, "C2H6O")
+    assert classify_pair(doubled, ETHANOL) == LAYERS_IDENTICAL
+
+
+def test_an_absurd_stoichiometric_count_is_refused_rather_than_raising() -> None:
+    """`int()` refuses a run past 4300 digits, and this module refuses to raise.
+
+    The formula gate's digit runs were unbounded, so a formula carrying a
+    4400-digit count passed it and then raised ValueError out of `_atom_counts`,
+    through classify_pair -- which documents that unparseable input reads as
+    *unknown* -- and out through check_row, which promises never to raise at all.
+    Six digits is four orders of magnitude past any real stoichiometry.
+    """
+    absurd = "InChI=1S/C" + "9" * 4400 + "/c1-2"
+    assert classify_pair(absurd, ETHANOL) == LAYERS_NOT_COMPARABLE
+    assert classify_pair(absurd, absurd) == LAYERS_NOT_COMPARABLE
+    # Bounded in _ELEMENT too, so the public helper is safe called directly.
+    principal_component("C" + "9" * 4400)
+
+
+def test_heavy_water_is_not_tritiated_water() -> None:
+    """The isotopic block carried the only difference, and it was being dropped.
+
+    `/i/hD2` against `/i/hT2`: both structures also carry an ordinary `/h1H2`, so an
+    earlier-wins rule on a shared namespace discarded `hD2` and `hT2` and the two
+    compared LAYERS_IDENTICAL -- projected to `match`, the one direction this module
+    exists to make impossible. Deuterium oxide and tritium oxide are separate ChEBI
+    entries with separate CAS numbers.
+    """
+    heavy = "InChI=1S/H2O/h1H2/i/hD2"
+    tritiated = "InChI=1S/H2O/h1H2/i/hT2"
+    assert classify_pair(heavy, tritiated) == ISOTOPE_DIFFERS
+    assert classify_pair(heavy, heavy) == LAYERS_IDENTICAL
+
+
+def test_an_isotopic_stereo_layer_is_not_read_as_the_ordinary_one() -> None:
+    """The same merge, in the other direction.
+
+    A structure whose only `/t` is the isotopic one had that value adopted as its
+    ordinary stereochemistry, which manufactures a stereo difference against a
+    structure that genuinely specifies `/t`. Now the isotopic `/t` stays inside the
+    isotopic block and the pair differs by isotope, which is what it is.
+    """
+    isotopic_t_only = "InChI=1S/C6H12O6/c1-2/h1H/i1D3/t3-/m1/s1"
+    ordinary_t = "InChI=1S/C6H12O6/c1-2/h1H/t3-/m1/s1"
+    assert inchi_layers(isotopic_t_only)[0].get("t") is None
+    assert classify_pair(isotopic_t_only, ordinary_t) == ISOTOPE_DIFFERS
+
+
+def test_principal_component_ranks_heavy_atoms_before_hydrogens() -> None:
+    """Diatrizoate meglumine: the counterion has more atoms but fewer heavy ones.
+
+    Ranking on total atoms alone let hydrogen outvote iodine, so the meglumine
+    counterion was returned as the parent and the salt compared as a different
+    compound from its own free acid.
+    """
+    assert principal_component(DIATRIZOATE_MEGLUMINE_FORMULA) == "C11H9I3N2O4"
+    # and the pyrvinium tie still breaks the right way on total atoms
+    assert principal_component(PYRVINIUM_PAMOATE_FORMULA) == "2C26H28N3"
+
+
+@pytest.mark.parametrize(
+    ("a", "b"), [("a/b", "x/b"), ("InChI=1S/??/c1", "InChI=1S/??/c1")]
+)
+def test_a_string_that_merely_contains_a_slash_is_not_comparable(
+    a: str, b: str
+) -> None:
+    """The gate matches a formula pattern rather than checking for non-emptiness."""
+    assert classify_pair(a, b) == LAYERS_NOT_COMPARABLE
+
+
+# --------------------------------------------------------------------------
+# Layers this comparison does not know how to read
+# --------------------------------------------------------------------------
+
+# Non-standard InChI. Standard InChI is `InChI=1S`; the non-standard flavour is
+# `InChI=1` and can carry two layers that do not exist in the standard one -- `/f`,
+# the fixed-H layer, which names a specific tautomer, and `/r`, the reconnected
+# layer, which restores the metal bonds standard InChI breaks. Both change which
+# molecule the string denotes, and neither is in COMPARED_LAYERS.
+NONSTANDARD_ACETIC_ACID = "InChI=1/C2H4O2/c1-2(3)4/h1H3,(H,3,4)"
+NONSTANDARD_ACETIC_ACID_FIXED_H = NONSTANDARD_ACETIC_ACID + "/f/h3H"
+
+
+def test_a_non_standard_inchi_gets_no_verdict() -> None:
+    """The tiers read a fixed layer list, complete for standard InChI only.
+
+    Nothing in the parser rejects `InChI=1`, so before this gate a non-standard
+    string was compared on the layers that happened to be recognised and the rest
+    treated as absent on both sides -- a confident answer from an admittedly partial
+    reading, which is the defect this module exists to remove.
+    """
+    assert classify_pair(NONSTANDARD_ACETIC_ACID, ACETIC_ACID) == LAYERS_NOT_COMPARABLE
+    assert (
+        classify_pair(NONSTANDARD_ACETIC_ACID, NONSTANDARD_ACETIC_ACID)
+        == LAYERS_NOT_COMPARABLE
+    )
+    assert (
+        classify_pair(NONSTANDARD_ACETIC_ACID_FIXED_H, NONSTANDARD_ACETIC_ACID)
+        == LAYERS_NOT_COMPARABLE
+    )
+
+
+@pytest.mark.parametrize("layer", ["/f/h3H", "/rC2H6O", "/x1"])
+def test_an_unrecognised_layer_gets_no_verdict(layer: str) -> None:
+    """Refused on the layer itself, not only on the version string.
+
+    Version and residue are checked separately so that a layer this module has
+    never heard of is refused even when it arrives on a string claiming to be
+    standard -- which is what makes COMPARED_LAYERS enforced rather than merely
+    declared.
+    """
+    assert classify_pair(ETHANOL + layer, ETHANOL) == LAYERS_NOT_COMPARABLE
+    assert classify_pair(ETHANOL, ETHANOL + layer) == LAYERS_NOT_COMPARABLE
+
+
+@pytest.mark.parametrize("layer", ["/f/h3H", "/rC2H6O", "/x1"])
+def test_an_unrecognised_layer_after_the_isotopic_block_is_refused_too(
+    layer: str,
+) -> None:
+    """Position must not decide whether an unknown layer is seen.
+
+    `inchi_layers` keeps everything from `/i` onwards under one key, which is what
+    stops the isotopic and ordinary namespaces merging -- and it also put an unknown
+    layer arriving *after* `/i` out of the COMPARED_LAYERS residue check's reach.
+    `…/i1D3,2D2,3D/x1` was absorbed into the isotope value and handed a confident
+    `isotope_differs`, while the identical `/x1` before `/i` was refused. Same
+    layers, same refusal, either side of the block.
+    """
+    assert classify_pair(ETHANOL_D6 + layer, ETHANOL_D6) == LAYERS_NOT_COMPARABLE
+    assert classify_pair(ETHANOL_D6, ETHANOL_D6 + layer) == LAYERS_NOT_COMPARABLE
+
+
+@pytest.mark.parametrize(
+    "inchi",
+    [
+        "InChI=1S/H2O/h1H2/i/hD2",
+        "InChI=1S/C2H4O2/c1-2(3)4/h1H3,(H,3,4)/i1D3/hD",
+        "InChI=1S/C3H8O/c1-2-3/h3H,2H2,1H3/t3-/m0/s1/i1D3/t3-/m1/s1",
+        ETHANOL_D6,
+    ],
+    ids=["exchangeable_h", "spec_then_h", "isotopic_stereo", "numbered_spec"],
+)
+def test_the_sublayers_a_real_isotopic_block_carries_are_accepted(inchi: str) -> None:
+    """The other half: enforcing the block must not refuse real records.
+
+    All four are shapes standard InChI actually emits -- an exchangeable-hydrogen
+    block with no substitution spec, a spec followed by `/h`, a spec followed by
+    re-emitted `/t /m /s`, and a numbered spec alone.
+    """
+    assert classify_pair(inchi, inchi) == LAYERS_IDENTICAL
+
+
+# Every layer this module declares, the value pair that makes it differ, and the
+# verdict the tier reading it must reach. Written as literals rather than rebuilt
+# from CONSTITUTION_LAYERS + IONISATION_LAYERS + ... : a test that reassembles
+# COMPARED_LAYERS from the same expression inchi.py uses to define it cannot fail
+# when a tier grows a layer, which is the drift it is supposed to catch.
+LAYER_READ_BY_A_TIER = {
+    "c": (("1-2-3", "1-3-2"), DIFFERENT_COMPOUND),
+    "h": (("3H,2H2,1H3", "2H,3H2,1H3"), DIFFERENT_COMPOUND),
+    "q": (("+1", "+2"), FORM_DIFFERS),
+    "p": (("-1", "-2"), FORM_DIFFERS),
+    "i": (("1+1", "2+1"), ISOTOPE_DIFFERS),
+    "b": (("1-2+", "1-2-"), STEREO_DIFFERS),
+    "t": (("2-", "2+"), STEREO_DIFFERS),
+    "m": (("0", "1"), STEREO_DIFFERS),
+    "s": (("1", "2"), STEREO_DIFFERS),
+}
+_BARE_ETHANOL_FORMULA = "InChI=1S/C2H6O"
+
+
+def _inchi_for_layer(layer: str, value: str) -> str:
+    # /c and /h are already present in ETHANOL and inchi_layers uses setdefault,
+    # so those two rows are built on the bare formula rather than appended.
+    base = _BARE_ETHANOL_FORMULA if layer in {"c", "h"} else ETHANOL
+    return f"{base}/{layer}{value}"
+
+
+def test_every_declared_layer_is_read_by_a_tier() -> None:
+    """A declared layer no tier reads, or a tier layer never declared, fails here."""
+    assert COMPARED_LAYERS == set(LAYER_READ_BY_A_TIER)
+
+
+@pytest.mark.parametrize("layer", sorted(LAYER_READ_BY_A_TIER))
+def test_a_declared_layer_is_actually_read(layer: str) -> None:
+    """The differing pair produces the stated verdict -- the layer is read."""
+    (left, right), verdict = LAYER_READ_BY_A_TIER[layer]
+    assert (
+        classify_pair(
+            _inchi_for_layer(layer, left),
+            _inchi_for_layer(layer, right),
+        )
+        == verdict
+    )
+
+
+@pytest.mark.parametrize("layer", sorted(LAYER_READ_BY_A_TIER))
+def test_a_declared_layer_is_accepted_when_both_sides_agree(layer: str) -> None:
+    """The same value on both sides is layers_identical -- the layer is accepted,
+    not refused.
+    """
+    (value, _), _verdict = LAYER_READ_BY_A_TIER[layer]
+    same = _inchi_for_layer(layer, value)
+    assert classify_pair(same, same) == LAYERS_IDENTICAL

@@ -11,6 +11,8 @@ from collections.abc import Collection
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
+from cas_registry import CAS_INVALID_FORMAT, CAS_MISSING
+
 from .client import (
     COMPARISON_VERDICTS,
     IDENTIFIER_MISSING,
@@ -776,9 +778,21 @@ def check_file(
                 # everything else short-circuits behind it. That number is what
                 # an operator uses to sanity-check runtime.
                 requested = {s for s, v in (("chebi", chebi_id), ("name", name)) if v}
-                if cas and requested and "cas" not in skipped:
-                    attempted_keys.add(key)
                 result = check_row(cas=cas, chebi_id=chebi_id, name=name, skip=skipped)
+                # Counted after the row, from its own account of what happened, and
+                # `cas_class` is the part the cell cannot tell us: cas_registry
+                # refuses a value no repair turns into a registry number and no
+                # request is made for it. Counting the cell alone reported a
+                # misdirected --cas-column run's full row count as "distinct
+                # lookups" while making zero requests — the one run where the
+                # number most needs to look wrong.
+                if (
+                    cas
+                    and requested
+                    and "cas" not in skipped
+                    and result["cas_class"] not in (CAS_MISSING, CAS_INVALID_FORMAT)
+                ):
+                    attempted_keys.add(key)
                 # Outages are not cached: a transient failure on one triple must
                 # not be replayed as a settled answer for every row that repeats
                 # it — the same rule parent_inchikey applies to its own cache.

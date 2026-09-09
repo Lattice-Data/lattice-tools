@@ -6,6 +6,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable, List, Tuple
 
+from qa_constants import is_valid_cellranger_run_dir_name
+
 from .constants import (
     ASSAYS_BY_FAMILY,
     CANONICAL_ASSAY,
@@ -1964,8 +1966,27 @@ def validate_library_assay_consistency(
     mappings: Iterable[MappingRow],
     lib_assays: dict[str, str],
     provider: str,
+    lib_groups: dict[str, set[str]] | None = None,
 ) -> dict:
-    """Cross-check library names in local paths against S3 paths."""
+    """Cross-check library names in local paths against S3 paths.
+
+    ``lib_groups`` maps a library name to the set of Group Identifiers the SIF
+    files it under (see
+    :func:`~mapping_validation.sif_io.load_sif_library_groups`).  When it is
+    known, the S3 GroupID must be one of them.  Without it the check falls back
+    to requiring that the library name and the S3 GroupID contain one another
+    in either direction, which is all the naming conventions in use have in
+    common.
+
+    ``sif_backed`` counts how many of the ``checked`` rows were compared against
+    a real SIF GroupID rather than the containment fallback, so a partially
+    populated group map cannot masquerade as a fully SIF-backed run.
+
+    Note that vendors are *not* required to build local paths out of the SIF
+    library names.  A row whose local path contains no recognisable library
+    name is counted in ``skipped`` and never reported as a mismatch -- this
+    check only cross-examines rows where the link can actually be established.
+    """
     provider = _validate_provider(provider)
     order_pattern = get_order_pattern(provider)
     valid_assays = get_assays("10x", provider)
@@ -1977,12 +1998,14 @@ def validate_library_assay_consistency(
         rf"\d+-.+?_(?P<assay>{assay_re})-Z\d{{4}}-[ACGT]+"
     )
 
+    lib_groups = lib_groups or {}
     libs_by_length = sorted(lib_assays.keys(), key=len, reverse=True)
     lib_patterns = {lib: f"-{lib}-" for lib in libs_by_length}
 
     assay_mismatches: List[dict] = []
     groupid_mismatches: List[dict] = []
     checked = 0
+    sif_backed = 0
     skipped = 0
 
     for row in mappings:
@@ -1995,24 +2018,43 @@ def validate_library_assay_consistency(
         s3_assay = m.group("assay").lower()
         s3_groupid = m.group("groupid")
 
-        found_lib: str | None = None
-        for lib in libs_by_length:
-            if lib_patterns[lib] in row.local_path:
-                found_lib = lib
-                break
+        # Opportunistic: local paths are vendor-controlled and need not be
+        # built from SIF library names at all.  Longest-first so that e.g.
+        # LIB1F wins over LIB1.
+        matches = [lib for lib in libs_by_length if lib_patterns[lib] in row.local_path]
 
-        if found_lib is None:
+        if not matches:
             skipped += 1
             continue
 
+        found_lib = matches[0]
         checked += 1
 
-        if found_lib not in s3_groupid:
+        # Only ``found_lib``'s own groups: borrowing a group from a shorter,
+        # less specific match would judge this path against a library it does
+        # not belong to.  The value is a set because nothing stops a SIF from
+        # listing the same library under more than one GroupID.
+        sif_groups = lib_groups.get(found_lib, set())
+
+        if sif_groups:
+            sif_backed += 1
+            groupid_ok = s3_groupid in sif_groups
+        else:
+            # No SIF group information for this library: fall back to
+            # containment in either direction, which is the most any of the
+            # naming conventions guarantees.  This is looser than the exact
+            # comparison above, and looser than the historical one-directional
+            # check, because with no authoritative group there is nothing to be
+            # strict against.
+            groupid_ok = found_lib in s3_groupid or s3_groupid in found_lib
+
+        if not groupid_ok:
             groupid_mismatches.append(
                 {
                     "line": row.line_num,
                     "library": found_lib,
                     "s3_groupid": s3_groupid,
+                    "sif_groupids": sorted(sif_groups),
                     "local_path": row.local_path,
                     "s3_path": row.s3_path,
                 }
@@ -2035,6 +2077,7 @@ def validate_library_assay_consistency(
 
     return {
         "checked": checked,
+        "sif_backed": sif_backed,
         "assay_mismatches": assay_mismatches,
         "groupid_mismatches": groupid_mismatches,
         "skipped": skipped,
@@ -2046,7 +2089,6 @@ def validate_library_assay_consistency(
 # ---------------------------------------------------------------------------
 
 _VALID_10X_PIPELINES: set[str] = {"cellranger"}
-_RUN_DATE_RE: re.Pattern[str] = re.compile(r"^Run_\d{4}-\d{2}-\d{2}$")
 
 
 def _build_10x_processed_s3_regex(provider: str, order_pattern: str) -> re.Pattern[str]:
@@ -2075,7 +2117,7 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
     Expected S3 layout::
 
         s3://czi-{provider}/{project}/{order}/{GroupID}/processed/
-            cellranger/{Run_YYYY-MM-DD}/outs/{file_path}
+            cellranger/{Run_YYYY-MM-DD|Run_YYYY_MM_DD}/outs/{file_path}
     """
     provider = _validate_provider(provider)
     order_pattern = get_order_pattern(provider)
@@ -2126,7 +2168,7 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
             )
 
         run_date = gd["run_date"]
-        if not _RUN_DATE_RE.match(run_date):
+        if not is_valid_cellranger_run_dir_name(run_date):
             warnings.append(
                 {
                     "type": "run_date_format",
@@ -2134,7 +2176,8 @@ def validate_s3_10x_processed(provider: str, mappings: Iterable[MappingRow]) -> 
                     "s3_path": s3,
                     "detail": (
                         f"run date '{run_date}' does not match expected "
-                        "format Run_YYYY-MM-DD"
+                        "format Run_YYYY-MM-DD, Run_YYYY_MM_DD, "
+                        "or Run_YYYY-MM-DD_tag"
                     ),
                 }
             )
