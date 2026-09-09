@@ -1,0 +1,327 @@
+Category,Library Type,Grouped By,Group Name,Metric Name,Metric Value
+Cells,Gene Expression,,,Cells,4237
+Cells,Gene Expression,,,Confidently mapped reads in cells,0.9588449996214494
+Cells,Gene Expression,,,Estimated UMIs from genomic DNA,0.0014980033007120563
+Cells,Gene Expression,,,Estimated UMIs from genomic DNA per unspliced probe,1
+Cells,Gene Expression,,,Median UMI counts per cell,3878
+Cells,Gene Expression,,,Median genes per cell,2332
+Cells,Gene Expression,,,Number of reads in cells,88187527
+Cells,Gene Expression,,,Reads confidently mapped to filtered probe set,0.9378654081092443
+Cells,Gene Expression,,,Reads confidently mapped to probe set,0.9433134007715172
+Cells,Gene Expression,,,Reads half-mapped to probe set,0.00006395462251708227
+Cells,Gene Expression,,,Reads mapped to probe set,0.9438594757283532
+Cells,Gene Expression,,,Reads split-mapped to probe set,0.0004821203343189338
+Cells,Gene Expression,,,Total genes detected,14742
+Library,Gene Expression,,,Estimated UMIs from genomic DNA,0.00014303111512676503
+Library,Gene Expression,,,Estimated UMIs from genomic DNA per unspliced probe,6
+Library,Gene Expression,Fastq ID,CUIMC010006-1,Number of reads analyzed,8923681719
+Library,Gene Expression,Fastq ID,CUIMC010006-1,Number of short reads skipped,621822504
+Library,Gene Expression,Fastq ID,CUIMC010006-1,Q30 GEM barcodes,0.8575607659027373
+Library,Gene Expression,Fastq ID,CUIMC010006-1,Q30 RNA read,0.845558080774398
+Library,Gene Expression,Fastq ID,CUIMC010006-1,Q30 UMI,0.813143136470959
+Library,Gene Expression,Fastq ID,CUIMC010006-1,Q30 barcodes,0.864676119485676
+Library,Gene Expression,Fastq ID,CUIMC010006-1,Q30 probe barcodes,0.8760593121306612
+Library,Gene Expression,Physical library ID,GEX_1,Cells,402615
+Library,Gene Expression,Physical library ID,GEX_1,Confidently mapped reads in cells,0.9403296724231184
+Library,Gene Expression,Physical library ID,GEX_1,Fraction of initial cell barcodes passing high occupancy GEM filtering,1
+Library,Gene Expression,Physical library ID,GEX_1,Mean reads per cell,22164
+Library,Gene Expression,Physical library ID,GEX_1,Number of reads,8923681719
+Library,Gene Expression,Physical library ID,GEX_1,Number of reads in the library,8923681719
+Library,Gene Expression,Physical library ID,GEX_1,Reads confidently mapped to filtered probe set,0.9271571501013998
+Library,Gene Expression,Physical library ID,GEX_1,Reads confidently mapped to probe set,0.9327397791740986
+Library,Gene Expression,Physical library ID,GEX_1,Reads half-mapped to probe set,0.00010323003766916398
+Library,Gene Expression,Physical library ID,GEX_1,Reads mapped to probe set,0.9334702210707568
+Library,Gene Expression,Physical library ID,GEX_1,Reads split-mapped to probe set,0.0006272118589889837
+Library,Gene Expression,Physical library ID,GEX_1,Sequencing saturation,0.7006692552899241
+Library,Gene Expression,Physical library ID,GEX_1,Valid GEM barcodes,0.9204395633600028
+Library,Gene Expression,Physical library ID,GEX_1,Valid UMI Sequences,0.8687331423412458
+Library,Gene Expression,Physical library ID,GEX_1,Valid barcodes,0.8835814497072383
+Library,Gene Expression,Physical library ID,GEX_1,Valid probe barcodes,0.9566859608879782
+Library,Gene Expression,Probe barcode ID,C-A01,Cells per probe barcode,4237
+Library,Gene Expression,Probe barcode ID,C-A01,Sample ID,CUIMC-010-006-A1
+Library,Gene Expression,Probe barcode ID,C-A01,UMIs per probe barcode,25726879
+Library,Gene Expression,Probe barcode ID,C-A02,Cells per probe barcode,4323
+Library,Gene Expression,Probe barcode ID,C-A02,Sample ID,CUIMC-010-006-A2
+Library,Gene Expression,Probe barcode ID,C-A02,UMIs per probe barcode,25310137
+Library,Gene Expression,Probe barcode ID,C-A03,Cells per probe barcode,4363
+Library,Gene Expression,Probe barcode ID,C-A03,Sample ID,CUIMC-010-006-A3
+Library,Gene Expression,Probe barcode ID,C-A03,UMIs per probe barcode,26931745
+Library,Gene Expression,Probe barcode ID,C-A04,Cells per probe barcode,2005
+Library,Gene Expression,Probe barcode ID,C-A04,Sample ID,CUIMC-010-006-A4
+Library,Gene Expression,Probe barcode ID,C-A04,UMIs per probe barcode,11774863
+Library,Gene Expression,Probe barcode ID,C-A05,Cells per probe barcode,3392
+Library,Gene Expression,Probe barcode ID,C-A05,Sample ID,CUIMC-010-006-A5
+Library,Gene Expression,Probe barcode ID,C-A05,UMIs per probe barcode,19025806
+Library,Gene Expression,Probe barcode ID,C-A06,Cells per probe barcode,3477
+Library,Gene Expression,Probe barcode ID,C-A06,Sample ID,CUIMC-010-006-A6
+Library,Gene Expression,Probe barcode ID,C-A06,UMIs per probe barcode,20456016
+Library,Gene Expression,Probe barcode ID,C-A07,Cells per probe barcode,4271
+Library,Gene Expression,Probe barcode ID,C-A07,Sample ID,CUIMC-010-006-A7
+Library,Gene Expression,Probe barcode ID,C-A07,UMIs per probe barcode,20887476
+Library,Gene Expression,Probe barcode ID,C-A08,Cells per probe barcode,3764
+Library,Gene Expression,Probe barcode ID,C-A08,Sample ID,CUIMC-010-006-A8
+Library,Gene Expression,Probe barcode ID,C-A08,UMIs per probe barcode,15601044
+Library,Gene Expression,Probe barcode ID,C-A09,Cells per probe barcode,4108
+Library,Gene Expression,Probe barcode ID,C-A09,Sample ID,CUIMC-010-006-A9
+Library,Gene Expression,Probe barcode ID,C-A09,UMIs per probe barcode,18521770
+Library,Gene Expression,Probe barcode ID,C-A10,Cells per probe barcode,4250
+Library,Gene Expression,Probe barcode ID,C-A10,Sample ID,CUIMC-010-006-A10
+Library,Gene Expression,Probe barcode ID,C-A10,UMIs per probe barcode,13882262
+Library,Gene Expression,Probe barcode ID,C-A11,Cells per probe barcode,4253
+Library,Gene Expression,Probe barcode ID,C-A11,Sample ID,CUIMC-010-006-A11
+Library,Gene Expression,Probe barcode ID,C-A11,UMIs per probe barcode,18191605
+Library,Gene Expression,Probe barcode ID,C-A12,Cells per probe barcode,3839
+Library,Gene Expression,Probe barcode ID,C-A12,Sample ID,CUIMC-010-006-A12
+Library,Gene Expression,Probe barcode ID,C-A12,UMIs per probe barcode,16452131
+Library,Gene Expression,Probe barcode ID,C-B01,Cells per probe barcode,3917
+Library,Gene Expression,Probe barcode ID,C-B01,Sample ID,CUIMC-010-006-B1
+Library,Gene Expression,Probe barcode ID,C-B01,UMIs per probe barcode,22541561
+Library,Gene Expression,Probe barcode ID,C-B02,Cells per probe barcode,4225
+Library,Gene Expression,Probe barcode ID,C-B02,Sample ID,CUIMC-010-006-B2
+Library,Gene Expression,Probe barcode ID,C-B02,UMIs per probe barcode,20748936
+Library,Gene Expression,Probe barcode ID,C-B03,Cells per probe barcode,4161
+Library,Gene Expression,Probe barcode ID,C-B03,Sample ID,CUIMC-010-006-B3
+Library,Gene Expression,Probe barcode ID,C-B03,UMIs per probe barcode,19688859
+Library,Gene Expression,Probe barcode ID,C-B04,Cells per probe barcode,4025
+Library,Gene Expression,Probe barcode ID,C-B04,Sample ID,CUIMC-010-006-B4
+Library,Gene Expression,Probe barcode ID,C-B04,UMIs per probe barcode,18665346
+Library,Gene Expression,Probe barcode ID,C-B05,Cells per probe barcode,4212
+Library,Gene Expression,Probe barcode ID,C-B05,Sample ID,CUIMC-010-006-B5
+Library,Gene Expression,Probe barcode ID,C-B05,UMIs per probe barcode,21836166
+Library,Gene Expression,Probe barcode ID,C-B06,Cells per probe barcode,4149
+Library,Gene Expression,Probe barcode ID,C-B06,Sample ID,CUIMC-010-006-B6
+Library,Gene Expression,Probe barcode ID,C-B06,UMIs per probe barcode,19947142
+Library,Gene Expression,Probe barcode ID,C-B07,Cells per probe barcode,4368
+Library,Gene Expression,Probe barcode ID,C-B07,Sample ID,CUIMC-010-006-B7
+Library,Gene Expression,Probe barcode ID,C-B07,UMIs per probe barcode,17998726
+Library,Gene Expression,Probe barcode ID,C-B08,Cells per probe barcode,4135
+Library,Gene Expression,Probe barcode ID,C-B08,Sample ID,CUIMC-010-006-B8
+Library,Gene Expression,Probe barcode ID,C-B08,UMIs per probe barcode,19759561
+Library,Gene Expression,Probe barcode ID,C-B09,Cells per probe barcode,3962
+Library,Gene Expression,Probe barcode ID,C-B09,Sample ID,CUIMC-010-006-B9
+Library,Gene Expression,Probe barcode ID,C-B09,UMIs per probe barcode,16222469
+Library,Gene Expression,Probe barcode ID,C-B10,Cells per probe barcode,4347
+Library,Gene Expression,Probe barcode ID,C-B10,Sample ID,CUIMC-010-006-B10
+Library,Gene Expression,Probe barcode ID,C-B10,UMIs per probe barcode,18709640
+Library,Gene Expression,Probe barcode ID,C-B11,Cells per probe barcode,4050
+Library,Gene Expression,Probe barcode ID,C-B11,Sample ID,CUIMC-010-006-B11
+Library,Gene Expression,Probe barcode ID,C-B11,UMIs per probe barcode,15810470
+Library,Gene Expression,Probe barcode ID,C-B12,Cells per probe barcode,4037
+Library,Gene Expression,Probe barcode ID,C-B12,Sample ID,CUIMC-010-006-B12
+Library,Gene Expression,Probe barcode ID,C-B12,UMIs per probe barcode,16108663
+Library,Gene Expression,Probe barcode ID,C-C01,Cells per probe barcode,4352
+Library,Gene Expression,Probe barcode ID,C-C01,Sample ID,CUIMC-010-006-C1
+Library,Gene Expression,Probe barcode ID,C-C01,UMIs per probe barcode,22003348
+Library,Gene Expression,Probe barcode ID,C-C02,Cells per probe barcode,4365
+Library,Gene Expression,Probe barcode ID,C-C02,Sample ID,CUIMC-010-006-C2
+Library,Gene Expression,Probe barcode ID,C-C02,UMIs per probe barcode,23434769
+Library,Gene Expression,Probe barcode ID,C-C03,Cells per probe barcode,4185
+Library,Gene Expression,Probe barcode ID,C-C03,Sample ID,CUIMC-010-006-C3
+Library,Gene Expression,Probe barcode ID,C-C03,UMIs per probe barcode,22572220
+Library,Gene Expression,Probe barcode ID,C-C04,Cells per probe barcode,4213
+Library,Gene Expression,Probe barcode ID,C-C04,Sample ID,CUIMC-010-006-C4
+Library,Gene Expression,Probe barcode ID,C-C04,UMIs per probe barcode,23780911
+Library,Gene Expression,Probe barcode ID,C-C05,Cells per probe barcode,4213
+Library,Gene Expression,Probe barcode ID,C-C05,Sample ID,CUIMC-010-006-C5
+Library,Gene Expression,Probe barcode ID,C-C05,UMIs per probe barcode,20900143
+Library,Gene Expression,Probe barcode ID,C-C06,Cells per probe barcode,4004
+Library,Gene Expression,Probe barcode ID,C-C06,Sample ID,CUIMC-010-006-C6
+Library,Gene Expression,Probe barcode ID,C-C06,UMIs per probe barcode,17556506
+Library,Gene Expression,Probe barcode ID,C-C07,Cells per probe barcode,4396
+Library,Gene Expression,Probe barcode ID,C-C07,Sample ID,CUIMC-010-006-C7
+Library,Gene Expression,Probe barcode ID,C-C07,UMIs per probe barcode,21172834
+Library,Gene Expression,Probe barcode ID,C-C08,Cells per probe barcode,4062
+Library,Gene Expression,Probe barcode ID,C-C08,Sample ID,CUIMC-010-006-C8
+Library,Gene Expression,Probe barcode ID,C-C08,UMIs per probe barcode,16701517
+Library,Gene Expression,Probe barcode ID,C-C09,Cells per probe barcode,4391
+Library,Gene Expression,Probe barcode ID,C-C09,Sample ID,CUIMC-010-006-C9
+Library,Gene Expression,Probe barcode ID,C-C09,UMIs per probe barcode,20796864
+Library,Gene Expression,Probe barcode ID,C-C10,Cells per probe barcode,4327
+Library,Gene Expression,Probe barcode ID,C-C10,Sample ID,CUIMC-010-006-C10
+Library,Gene Expression,Probe barcode ID,C-C10,UMIs per probe barcode,21898475
+Library,Gene Expression,Probe barcode ID,C-C11,Cells per probe barcode,4245
+Library,Gene Expression,Probe barcode ID,C-C11,Sample ID,CUIMC-010-006-C11
+Library,Gene Expression,Probe barcode ID,C-C11,UMIs per probe barcode,18506927
+Library,Gene Expression,Probe barcode ID,C-C12,Cells per probe barcode,4300
+Library,Gene Expression,Probe barcode ID,C-C12,Sample ID,CUIMC-010-006-C12
+Library,Gene Expression,Probe barcode ID,C-C12,UMIs per probe barcode,20048952
+Library,Gene Expression,Probe barcode ID,C-D01,Cells per probe barcode,4443
+Library,Gene Expression,Probe barcode ID,C-D01,Sample ID,CUIMC-010-006-D1
+Library,Gene Expression,Probe barcode ID,C-D01,UMIs per probe barcode,24397750
+Library,Gene Expression,Probe barcode ID,C-D02,Cells per probe barcode,4402
+Library,Gene Expression,Probe barcode ID,C-D02,Sample ID,CUIMC-010-006-D2
+Library,Gene Expression,Probe barcode ID,C-D02,UMIs per probe barcode,24736488
+Library,Gene Expression,Probe barcode ID,C-D03,Cells per probe barcode,4461
+Library,Gene Expression,Probe barcode ID,C-D03,Sample ID,CUIMC-010-006-D3
+Library,Gene Expression,Probe barcode ID,C-D03,UMIs per probe barcode,25357099
+Library,Gene Expression,Probe barcode ID,C-D04,Cells per probe barcode,4077
+Library,Gene Expression,Probe barcode ID,C-D04,Sample ID,CUIMC-010-006-D4
+Library,Gene Expression,Probe barcode ID,C-D04,UMIs per probe barcode,20819691
+Library,Gene Expression,Probe barcode ID,C-D05,Cells per probe barcode,4261
+Library,Gene Expression,Probe barcode ID,C-D05,Sample ID,CUIMC-010-006-D5
+Library,Gene Expression,Probe barcode ID,C-D05,UMIs per probe barcode,21503707
+Library,Gene Expression,Probe barcode ID,C-D06,Cells per probe barcode,4280
+Library,Gene Expression,Probe barcode ID,C-D06,Sample ID,CUIMC-010-006-D6
+Library,Gene Expression,Probe barcode ID,C-D06,UMIs per probe barcode,17907365
+Library,Gene Expression,Probe barcode ID,C-D07,Cells per probe barcode,4480
+Library,Gene Expression,Probe barcode ID,C-D07,Sample ID,CUIMC-010-006-D7
+Library,Gene Expression,Probe barcode ID,C-D07,UMIs per probe barcode,19883169
+Library,Gene Expression,Probe barcode ID,C-D08,Cells per probe barcode,3779
+Library,Gene Expression,Probe barcode ID,C-D08,Sample ID,CUIMC-010-006-D8
+Library,Gene Expression,Probe barcode ID,C-D08,UMIs per probe barcode,16684017
+Library,Gene Expression,Probe barcode ID,C-D09,Cells per probe barcode,4437
+Library,Gene Expression,Probe barcode ID,C-D09,Sample ID,CUIMC-010-006-D9
+Library,Gene Expression,Probe barcode ID,C-D09,UMIs per probe barcode,21690580
+Library,Gene Expression,Probe barcode ID,C-D10,Cells per probe barcode,4522
+Library,Gene Expression,Probe barcode ID,C-D10,Sample ID,CUIMC-010-006-D10
+Library,Gene Expression,Probe barcode ID,C-D10,UMIs per probe barcode,21825912
+Library,Gene Expression,Probe barcode ID,C-D11,Cells per probe barcode,4358
+Library,Gene Expression,Probe barcode ID,C-D11,Sample ID,CUIMC-010-006-D11
+Library,Gene Expression,Probe barcode ID,C-D11,UMIs per probe barcode,21995021
+Library,Gene Expression,Probe barcode ID,C-D12,Cells per probe barcode,4255
+Library,Gene Expression,Probe barcode ID,C-D12,Sample ID,CUIMC-010-006-D12
+Library,Gene Expression,Probe barcode ID,C-D12,UMIs per probe barcode,19003453
+Library,Gene Expression,Probe barcode ID,C-E01,Cells per probe barcode,4793
+Library,Gene Expression,Probe barcode ID,C-E01,Sample ID,CUIMC-010-006-E1
+Library,Gene Expression,Probe barcode ID,C-E01,UMIs per probe barcode,24860930
+Library,Gene Expression,Probe barcode ID,C-E02,Cells per probe barcode,4412
+Library,Gene Expression,Probe barcode ID,C-E02,Sample ID,CUIMC-010-006-E2
+Library,Gene Expression,Probe barcode ID,C-E02,UMIs per probe barcode,25903743
+Library,Gene Expression,Probe barcode ID,C-E03,Cells per probe barcode,4576
+Library,Gene Expression,Probe barcode ID,C-E03,Sample ID,CUIMC-010-006-E3
+Library,Gene Expression,Probe barcode ID,C-E03,UMIs per probe barcode,27405576
+Library,Gene Expression,Probe barcode ID,C-E04,Cells per probe barcode,4310
+Library,Gene Expression,Probe barcode ID,C-E04,Sample ID,CUIMC-010-006-E4
+Library,Gene Expression,Probe barcode ID,C-E04,UMIs per probe barcode,23106036
+Library,Gene Expression,Probe barcode ID,C-E05,Cells per probe barcode,4249
+Library,Gene Expression,Probe barcode ID,C-E05,Sample ID,CUIMC-010-006-E5
+Library,Gene Expression,Probe barcode ID,C-E05,UMIs per probe barcode,23673623
+Library,Gene Expression,Probe barcode ID,C-E06,Cells per probe barcode,4196
+Library,Gene Expression,Probe barcode ID,C-E06,Sample ID,CUIMC-010-006-E6
+Library,Gene Expression,Probe barcode ID,C-E06,UMIs per probe barcode,17361192
+Library,Gene Expression,Probe barcode ID,C-E07,Cells per probe barcode,4587
+Library,Gene Expression,Probe barcode ID,C-E07,Sample ID,CUIMC-010-006-E7
+Library,Gene Expression,Probe barcode ID,C-E07,UMIs per probe barcode,23184095
+Library,Gene Expression,Probe barcode ID,C-E08,Cells per probe barcode,4241
+Library,Gene Expression,Probe barcode ID,C-E08,Sample ID,CUIMC-010-006-E8
+Library,Gene Expression,Probe barcode ID,C-E08,UMIs per probe barcode,19189962
+Library,Gene Expression,Probe barcode ID,C-E09,Cells per probe barcode,4344
+Library,Gene Expression,Probe barcode ID,C-E09,Sample ID,CUIMC-010-006-E9
+Library,Gene Expression,Probe barcode ID,C-E09,UMIs per probe barcode,17704004
+Library,Gene Expression,Probe barcode ID,C-E10,Cells per probe barcode,4483
+Library,Gene Expression,Probe barcode ID,C-E10,Sample ID,CUIMC-010-006-E10
+Library,Gene Expression,Probe barcode ID,C-E10,UMIs per probe barcode,21175289
+Library,Gene Expression,Probe barcode ID,C-E11,Cells per probe barcode,4540
+Library,Gene Expression,Probe barcode ID,C-E11,Sample ID,CUIMC-010-006-E11
+Library,Gene Expression,Probe barcode ID,C-E11,UMIs per probe barcode,24106933
+Library,Gene Expression,Probe barcode ID,C-E12,Cells per probe barcode,4246
+Library,Gene Expression,Probe barcode ID,C-E12,Sample ID,CUIMC-010-006-E12
+Library,Gene Expression,Probe barcode ID,C-E12,UMIs per probe barcode,18108729
+Library,Gene Expression,Probe barcode ID,C-F01,Cells per probe barcode,4174
+Library,Gene Expression,Probe barcode ID,C-F01,Sample ID,CUIMC-010-006-F1
+Library,Gene Expression,Probe barcode ID,C-F01,UMIs per probe barcode,21409376
+Library,Gene Expression,Probe barcode ID,C-F02,Cells per probe barcode,4383
+Library,Gene Expression,Probe barcode ID,C-F02,Sample ID,CUIMC-010-006-F2
+Library,Gene Expression,Probe barcode ID,C-F02,UMIs per probe barcode,20584709
+Library,Gene Expression,Probe barcode ID,C-F03,Cells per probe barcode,4239
+Library,Gene Expression,Probe barcode ID,C-F03,Sample ID,CUIMC-010-006-F3
+Library,Gene Expression,Probe barcode ID,C-F03,UMIs per probe barcode,21462796
+Library,Gene Expression,Probe barcode ID,C-F04,Cells per probe barcode,4345
+Library,Gene Expression,Probe barcode ID,C-F04,Sample ID,CUIMC-010-006-F4
+Library,Gene Expression,Probe barcode ID,C-F04,UMIs per probe barcode,22259770
+Library,Gene Expression,Probe barcode ID,C-F05,Cells per probe barcode,3696
+Library,Gene Expression,Probe barcode ID,C-F05,Sample ID,CUIMC-010-006-F5
+Library,Gene Expression,Probe barcode ID,C-F05,UMIs per probe barcode,14786830
+Library,Gene Expression,Probe barcode ID,C-F06,Cells per probe barcode,4644
+Library,Gene Expression,Probe barcode ID,C-F06,Sample ID,CUIMC-010-006-F6
+Library,Gene Expression,Probe barcode ID,C-F06,UMIs per probe barcode,24205984
+Library,Gene Expression,Probe barcode ID,C-F07,Cells per probe barcode,4506
+Library,Gene Expression,Probe barcode ID,C-F07,Sample ID,CUIMC-010-006-F7
+Library,Gene Expression,Probe barcode ID,C-F07,UMIs per probe barcode,23415367
+Library,Gene Expression,Probe barcode ID,C-F08,Cells per probe barcode,4015
+Library,Gene Expression,Probe barcode ID,C-F08,Sample ID,CUIMC-010-006-F8
+Library,Gene Expression,Probe barcode ID,C-F08,UMIs per probe barcode,17333371
+Library,Gene Expression,Probe barcode ID,C-F09,Cells per probe barcode,4387
+Library,Gene Expression,Probe barcode ID,C-F09,Sample ID,CUIMC-010-006-F9
+Library,Gene Expression,Probe barcode ID,C-F09,UMIs per probe barcode,22316937
+Library,Gene Expression,Probe barcode ID,C-F10,Cells per probe barcode,4494
+Library,Gene Expression,Probe barcode ID,C-F10,Sample ID,CUIMC-010-006-F10
+Library,Gene Expression,Probe barcode ID,C-F10,UMIs per probe barcode,20832793
+Library,Gene Expression,Probe barcode ID,C-F11,Cells per probe barcode,4297
+Library,Gene Expression,Probe barcode ID,C-F11,Sample ID,CUIMC-010-006-F11
+Library,Gene Expression,Probe barcode ID,C-F11,UMIs per probe barcode,20191396
+Library,Gene Expression,Probe barcode ID,C-F12,Cells per probe barcode,3981
+Library,Gene Expression,Probe barcode ID,C-F12,Sample ID,CUIMC-010-006-F12
+Library,Gene Expression,Probe barcode ID,C-F12,UMIs per probe barcode,15076930
+Library,Gene Expression,Probe barcode ID,C-G01,Cells per probe barcode,3723
+Library,Gene Expression,Probe barcode ID,C-G01,Sample ID,CUIMC-010-006-G1
+Library,Gene Expression,Probe barcode ID,C-G01,UMIs per probe barcode,18190237
+Library,Gene Expression,Probe barcode ID,C-G02,Cells per probe barcode,4271
+Library,Gene Expression,Probe barcode ID,C-G02,Sample ID,CUIMC-010-006-G2
+Library,Gene Expression,Probe barcode ID,C-G02,UMIs per probe barcode,21430365
+Library,Gene Expression,Probe barcode ID,C-G03,Cells per probe barcode,4582
+Library,Gene Expression,Probe barcode ID,C-G03,Sample ID,CUIMC-010-006-G3
+Library,Gene Expression,Probe barcode ID,C-G03,UMIs per probe barcode,26140148
+Library,Gene Expression,Probe barcode ID,C-G04,Cells per probe barcode,3690
+Library,Gene Expression,Probe barcode ID,C-G04,Sample ID,CUIMC-010-006-G4
+Library,Gene Expression,Probe barcode ID,C-G04,UMIs per probe barcode,18878200
+Library,Gene Expression,Probe barcode ID,C-G05,Cells per probe barcode,4103
+Library,Gene Expression,Probe barcode ID,C-G05,Sample ID,CUIMC-010-006-G5
+Library,Gene Expression,Probe barcode ID,C-G05,UMIs per probe barcode,17594051
+Library,Gene Expression,Probe barcode ID,C-G06,Cells per probe barcode,4449
+Library,Gene Expression,Probe barcode ID,C-G06,Sample ID,CUIMC-010-006-G6
+Library,Gene Expression,Probe barcode ID,C-G06,UMIs per probe barcode,21328011
+Library,Gene Expression,Probe barcode ID,C-G07,Cells per probe barcode,4307
+Library,Gene Expression,Probe barcode ID,C-G07,Sample ID,CUIMC-010-006-G7
+Library,Gene Expression,Probe barcode ID,C-G07,UMIs per probe barcode,19591736
+Library,Gene Expression,Probe barcode ID,C-G08,Cells per probe barcode,3841
+Library,Gene Expression,Probe barcode ID,C-G08,Sample ID,CUIMC-010-006-G8
+Library,Gene Expression,Probe barcode ID,C-G08,UMIs per probe barcode,15778555
+Library,Gene Expression,Probe barcode ID,C-G09,Cells per probe barcode,4124
+Library,Gene Expression,Probe barcode ID,C-G09,Sample ID,CUIMC-010-006-G9
+Library,Gene Expression,Probe barcode ID,C-G09,UMIs per probe barcode,18776010
+Library,Gene Expression,Probe barcode ID,C-G10,Cells per probe barcode,4314
+Library,Gene Expression,Probe barcode ID,C-G10,Sample ID,CUIMC-010-006-G10
+Library,Gene Expression,Probe barcode ID,C-G10,UMIs per probe barcode,19480722
+Library,Gene Expression,Probe barcode ID,C-G11,Cells per probe barcode,4498
+Library,Gene Expression,Probe barcode ID,C-G11,Sample ID,CUIMC-010-006-G11
+Library,Gene Expression,Probe barcode ID,C-G11,UMIs per probe barcode,19266763
+Library,Gene Expression,Probe barcode ID,C-G12,Cells per probe barcode,4260
+Library,Gene Expression,Probe barcode ID,C-G12,Sample ID,CUIMC-010-006-G12
+Library,Gene Expression,Probe barcode ID,C-G12,UMIs per probe barcode,18805804
+Library,Gene Expression,Probe barcode ID,C-H01,Cells per probe barcode,3884
+Library,Gene Expression,Probe barcode ID,C-H01,Sample ID,CUIMC-010-006-H1
+Library,Gene Expression,Probe barcode ID,C-H01,UMIs per probe barcode,18992450
+Library,Gene Expression,Probe barcode ID,C-H02,Cells per probe barcode,4108
+Library,Gene Expression,Probe barcode ID,C-H02,Sample ID,CUIMC-010-006-H2
+Library,Gene Expression,Probe barcode ID,C-H02,UMIs per probe barcode,19828873
+Library,Gene Expression,Probe barcode ID,C-H03,Cells per probe barcode,4019
+Library,Gene Expression,Probe barcode ID,C-H03,Sample ID,CUIMC-010-006-H3
+Library,Gene Expression,Probe barcode ID,C-H03,UMIs per probe barcode,20598652
+Library,Gene Expression,Probe barcode ID,C-H04,Cells per probe barcode,4348
+Library,Gene Expression,Probe barcode ID,C-H04,Sample ID,CUIMC-010-006-H4
+Library,Gene Expression,Probe barcode ID,C-H04,UMIs per probe barcode,24538495
+Library,Gene Expression,Probe barcode ID,C-H05,Cells per probe barcode,4194
+Library,Gene Expression,Probe barcode ID,C-H05,Sample ID,CUIMC-010-006-H5
+Library,Gene Expression,Probe barcode ID,C-H05,UMIs per probe barcode,23099971
+Library,Gene Expression,Probe barcode ID,C-H06,Cells per probe barcode,4614
+Library,Gene Expression,Probe barcode ID,C-H06,Sample ID,CUIMC-010-006-H6
+Library,Gene Expression,Probe barcode ID,C-H06,UMIs per probe barcode,22571511
+Library,Gene Expression,Probe barcode ID,C-H07,Cells per probe barcode,4421
+Library,Gene Expression,Probe barcode ID,C-H07,Sample ID,CUIMC-010-006-H7
+Library,Gene Expression,Probe barcode ID,C-H07,UMIs per probe barcode,20610844
+Library,Gene Expression,Probe barcode ID,C-H08,Cells per probe barcode,4085
+Library,Gene Expression,Probe barcode ID,C-H08,Sample ID,CUIMC-010-006-H8
+Library,Gene Expression,Probe barcode ID,C-H08,UMIs per probe barcode,21083751
+Library,Gene Expression,Probe barcode ID,C-H09,Cells per probe barcode,4081
+Library,Gene Expression,Probe barcode ID,C-H09,Sample ID,CUIMC-010-006-H9
+Library,Gene Expression,Probe barcode ID,C-H09,UMIs per probe barcode,20522798
+Library,Gene Expression,Probe barcode ID,C-H10,Cells per probe barcode,4285
+Library,Gene Expression,Probe barcode ID,C-H10,Sample ID,CUIMC-010-006-H10
+Library,Gene Expression,Probe barcode ID,C-H10,UMIs per probe barcode,20246860
+Library,Gene Expression,Probe barcode ID,C-H11,Cells per probe barcode,4405
+Library,Gene Expression,Probe barcode ID,C-H11,Sample ID,CUIMC-010-006-H11
+Library,Gene Expression,Probe barcode ID,C-H11,UMIs per probe barcode,22556582
+Library,Gene Expression,Probe barcode ID,C-H12,Cells per probe barcode,3193
+Library,Gene Expression,Probe barcode ID,C-H12,Sample ID,CUIMC-010-006-H12
+Library,Gene Expression,Probe barcode ID,C-H12,UMIs per probe barcode,12964324

@@ -17,6 +17,11 @@ from bs4 import BeautifulSoup
 
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
+    METRICS_SUMMARY_LIBRARY_TYPES,
+    METRICS_SUMMARY_READ_METRICS,
+    METRICS_SUMMARY_READS_ANALYZED,
+    METRICS_SUMMARY_READS_SKIPPED,
+    METRICS_SUMMARY_READS_TOTAL,
     SEAHUB_BARE_SUFFIXES,
     SEAHUB_STEM_NO_TYPE_RE,
     SEAHUB_STEM_RE,
@@ -393,25 +398,58 @@ def resolve_qa_run_context(
 
 
 def parse_met_summ(f):
+    """
+    Pull total sequenced reads per library type out of a metrics_summary.csv.
+
+    The count must be everything the sequencer delivered, since it is compared
+    against ``read_count`` in the raw metadata.json sidecars. Cell Ranger
+    reports that in two pieces, and which name carries the first piece depends
+    on the version:
+
+    - <= 10.0.0: ``Number of reads``
+    - 10.1.0:    ``Number of reads analyzed`` (``Number of reads`` still exists,
+      but only grouped by Physical library ID, and it excludes skipped reads)
+
+    Either way ``Number of short reads skipped`` is a separate row that has to
+    be added back. Selecting on metric name rather than on the pipeline version
+    keeps this working for both layouts without the caller having to parse
+    web_summary.html first.
+    """
     df = pd.read_csv(f)
     if len(df) == 1:
-        report = {"GEX_reads": int(df["Number of Reads"].iloc[0].replace(",", ""))}
+        report = {"GEX_reads": int(str(df["Number of Reads"].iloc[0]).replace(",", ""))}
 
         return report
 
     lib_reads = df[
-        (df["Metric Name"].isin(["Number of reads", "Number of short reads skipped"]))
+        (df["Metric Name"].isin(METRICS_SUMMARY_READ_METRICS))
         & (df["Grouped By"] == "Fastq ID")
     ]
-    # Keep numeric values in a separate series to avoid assigning int into string column
-    metric_value_int = lib_reads["Metric Value"].str.replace(",", "").astype(int)
+    # Metric Value holds strings for some rows and numbers for others; a file
+    # whose every value happens to be numeric parses as float64, where .str
+    # would yield NaN. Normalize to str before stripping thousands separators.
+    metric_value_int = (
+        lib_reads["Metric Value"].astype(str).str.replace(",", "").astype("int64")
+    )
 
-    gex_mask = lib_reads["Library Type"] == "Gene Expression"
-    report = {"GEX_reads": int(metric_value_int[gex_mask].sum())}
+    report = {}
+    for library_type, key in METRICS_SUMMARY_LIBRARY_TYPES.items():
+        type_mask = lib_reads["Library Type"] == library_type
+        if not type_mask.any():
+            continue
+        names = lib_reads["Metric Name"][type_mask]
+        # Prefer the 10.1.0 name when a file carries both, so the analyzed reads
+        # are not counted twice.
+        total_name = (
+            METRICS_SUMMARY_READS_ANALYZED
+            if (names == METRICS_SUMMARY_READS_ANALYZED).any()
+            else METRICS_SUMMARY_READS_TOTAL
+        )
+        keep = type_mask & names.isin([total_name, METRICS_SUMMARY_READS_SKIPPED])
+        report[key] = int(metric_value_int[keep].sum())
 
-    if "CRISPR Guide Capture" in lib_reads["Library Type"].unique():
-        cri_mask = lib_reads["Library Type"] == "CRISPR Guide Capture"
-        report["CRI_reads"] = int(metric_value_int[cri_mask].sum())
+    # GEX_reads is expected downstream even when no Gene Expression rows exist.
+    report.setdefault("GEX_reads", 0)
 
     return report
 

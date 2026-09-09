@@ -1012,7 +1012,9 @@ class TestValidateProcessedGroup:
         }
         proc_files = ["proj/g/processed/cellranger/run/outs/config.csv"]
         result = validate_processed_group("G1", proc_files, report, {})
-        assert any("CR ERROR" in e and "9.0.1 or 10.0.0" in e for e in result["errors"])
+        assert any(
+            "CR ERROR" in e and "9.0.1, 10.0.0, 10.1.0" in e for e in result["errors"]
+        )
 
     def test_min_crispr_umi_error(self):
         """min-crispr-umi != 3 produces error."""
@@ -1184,7 +1186,88 @@ class TestValidateProcessedGroup:
         }
         proc_files = [_OUTS_BASE + "config.csv"]
         result = validate_processed_group("G1", proc_files, report, {})
-        assert not any("9.0.1 or 10.0.0" in e for e in result["errors"])
+        assert not any("CR ERROR" in e and "version is" in e for e in result["errors"])
+
+    def test_cr10_1_0_accepted_as_multi(self):
+        """10.1.0 is a supported version and is validated as a multi run."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(
+            cellranger_expected["cellranger-10.1.0"]["nonflex"]["outs"]
+        )
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "5p",
+            "extra": [],
+            "software": "cellranger-10.1.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert not any("CR ERROR" in e and "version is" in e for e in result["errors"])
+        assert result["proc_missing"] == []
+        assert result["process_extra"] == []
+
+    def test_cr10_1_0_nonflex_crispr_adds_flat_feature_reference(self):
+        """10.1.0 uses the flat layout, like 10.0.0 and unlike 9.0.1."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(
+            cellranger_expected["cellranger-10.1.0"]["nonflex"]["outs"]
+        )
+        expected_outs.append("feature_reference.csv")
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "5p",
+            "extra": ["CRISPR"],
+            "software": "cellranger-10.1.0",
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+
+    def test_cr10_1_0_multiplex_does_not_expect_multiplexing_analysis(self):
+        """The 9.0.1-only multi/multiplexing_analysis.tar.gz is not expected."""
+        from qa_constants import cellranger_expected
+
+        expected_outs = list(
+            cellranger_expected["cellranger-10.1.0"]["nonflex"]["outs"]
+        )
+        proc_files = _outs_paths(expected_outs)
+        report = {
+            "chem": "5p",
+            "extra": [],
+            "software": "cellranger-10.1.0",
+            "multiplex": True,
+            "gex_alerts": [],
+        }
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert result["proc_missing"] == []
+
+    def test_cr10_1_0_read_count_reconciliation(self):
+        """The analyzed+skipped proc total is compared against the raw counts."""
+        report = {
+            "chem": "flex",
+            "extra": [],
+            "software": "cellranger-10.1.0",
+            "gex_alerts": [],
+            "GEX_reads": 9_545_504_223,
+        }
+        proc_files = [_OUTS_BASE + "config.csv"]
+        matching = validate_processed_group(
+            "G1", proc_files, report, {"G1": {"GEX": 9_545_504_223}}
+        )
+        assert not any("READ COUNT ERROR" in e for e in matching["errors"])
+
+        # Only the analyzed reads on the proc side: the skipped reads show up as
+        # the diff, which is the failure this check exists to catch.
+        report["GEX_reads"] = 8_923_681_719
+        mismatching = validate_processed_group(
+            "G1", proc_files, report, {"G1": {"GEX": 9_545_504_223}}
+        )
+        assert any(
+            "READ COUNT ERROR" in e and "-621822504 diff" in e
+            for e in mismatching["errors"]
+        )
 
     def test_cr10_nonflex_crispr_adds_flat_feature_reference(self):
         """CR 10.0.0 nonflex CRISPR expects flat feature_reference.csv."""
