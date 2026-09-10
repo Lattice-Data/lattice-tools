@@ -8,7 +8,6 @@ import ast
 from dataclasses import replace
 from functools import cache
 import json
-import os
 import pathlib
 import re
 import subprocess
@@ -44,6 +43,7 @@ from qa_seahub_source import (
     index_untrimmed_sources,
 )
 
+from tests.git_helpers import git_free_env, tracked_files
 from tests.qa_seahub_helpers import (
     BUCKET,
     JUNK_NAMES,
@@ -1077,107 +1077,29 @@ def _module_level_constants(tree: ast.Module) -> set[str]:
     return {n for n in names if not n.startswith("_") and not n.islower()}
 
 
-def _git_free_env() -> dict[str, str]:
-    """The environment without git's own variables.
+def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """The ``*.py`` half of the tracked listing under ``bcp``.
 
-    Git exports ``GIT_DIR``, ``GIT_INDEX_FILE`` and friends to its hooks, as
-    paths relative to the repo root. A subprocess that inherits them and then
-    runs anywhere else -- ``-C`` some other directory, or a throwaway repo built
-    by a test -- resolves them against the wrong place, where they name nothing.
-    Git reads a missing index as an empty one and answers with no files and
-    status 0, so the failure arrives as a guard that checked nothing rather than
-    as an error.
-
-    The ``pre-commit`` hook that runs this suite before every commit is that
-    environment, and it caught both halves of this file's git usage in turn:
-    the listing below, and the miniature repo the tests build.
-
-    Every ``GIT_*``, not the eight or so that name a location. The wider cut
-    also drops ``GIT_CONFIG_COUNT`` and friends, which some container images
-    use to inject ``safe.directory`` -- but losing those makes git exit 128 and
-    fail the guard out loud, while missing one location variable makes it read
-    the wrong index in silence. Between the two, take the one that shouts.
-    """
-    return {
-        name: value for name, value in os.environ.items() if not name.startswith("GIT_")
-    }
-
-
-@cache
-def _tracked_files(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
-    """Every tracked file under ``bcp`` that still exists on disk.
-
-    ``git ls-files`` rather than ``rglob``, for the reason
-    ``test_sanitized_identifiers`` uses it and one more specific to these
-    guards. A virtualenv made inside ``bcp`` -- ``venv/`` and ``.venv`` are
-    ignored at the repo root, so git never sees one -- puts a few thousand
-    third-party modules under ``rglob("*.py")``. That is slow, and the slowness
-    is the harmless half: both collectors below get *subtracted* from the set of
-    declared names, so every identifier site-packages contributes can only
-    shrink what is reported as dead. An unread constant whose name collides with
-    anything in any installed dependency reads as live, and the guard passes
-    having checked nothing.
+    :func:`tracked_files` argues the index over the working tree in general;
+    what these guards get from it in particular is immunity to a virtualenv made
+    inside ``bcp``. ``venv/`` and ``.venv`` are ignored at the repo root, so git
+    never sees one, while ``rglob("*.py")`` finds a few thousand third-party
+    modules in it. That is slow, and the slowness is the harmless half: both
+    collectors below get *subtracted* from the set of declared names, so every
+    identifier site-packages contributes can only shrink what is reported as
+    dead. An unread constant whose name collides with anything in any installed
+    dependency reads as live, and the guard passes having checked nothing.
 
     Tracked-only also settles the smaller question of a scratch module in the
     working tree: a name is live if something we ship refers to it, and an
     uncommitted file ships nothing.
 
-    Run from ``bcp.parent`` with a ``bcp`` pathspec, and with git's own
-    variables stripped from the environment -- see :func:`_git_free_env`, which
-    is what makes the choice of directory safe rather than lucky. An empty
-    listing fails here rather than being read as a clean tree, because that is
-    the shape every one of those failures takes: no files, status 0. A git
-    failure fails the test too -- a guard that passes without having checked
-    anything is worse than one that errors.
-
-    Nothing here needs ``bcp.parent`` to be the top level. ``ls-files``
-    resolves a pathspec against the directory it runs in and prints what it
-    finds relative to the same place, so ``repo_root / name`` holds from
-    anywhere inside the checkout. That was load-bearing before the environment
-    scrub, when the point of running at the root was to make a root-relative
-    ``GIT_INDEX_FILE`` resolve; it is now belt over braces.
-
-    Dropping an index entry whose file is gone (a staged deletion, a sparse
-    checkout) shrinks the reference set, so it errs toward reporting a name as
-    dead -- a failing build on live code, which someone reads.
+    An entry whose file is gone (a staged deletion, a sparse checkout) is
+    dropped by the listing, which here shrinks the reference set -- so it errs
+    toward reporting a name as dead, a failing build on live code, which someone
+    reads.
     """
-    repo_root = bcp.parent
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-files", "-z", "--", bcp.name],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=_git_free_env(),
-        )
-    except FileNotFoundError:  # pragma: no cover - git absent
-        pytest.fail("no git binary, so tracked files cannot be listed")
-    if result.returncode != 0:
-        pytest.fail(
-            f"git ls-files exited {result.returncode} in {repo_root}, so these "
-            f"guards cannot see what is tracked: {result.stderr.strip()}"
-        )
-
-    names = sorted(name for name in result.stdout.split("\0") if name)
-    if not names:
-        pytest.fail(
-            f"git listed nothing tracked under {bcp}, so these guards would "
-            "pass without having read anything"
-        )
-    paths = tuple(
-        path for path in (repo_root / name for name in names) if path.is_file()
-    )
-    if not paths:
-        pytest.fail(
-            f"git listed {len(names)} tracked files under {bcp} and none of them "
-            "are on disk -- a sparse checkout, or every one staged for deletion"
-        )
-    return paths
-
-
-def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
-    """The ``*.py`` half of :func:`_tracked_files`."""
-    return tuple(path for path in _tracked_files(bcp) if path.suffix == ".py")
+    return tuple(path for path in tracked_files(bcp) if path.suffix == ".py")
 
 
 def _tracked_seahub_modules(bcp: pathlib.Path) -> list[pathlib.Path]:
@@ -1206,7 +1128,7 @@ def _tracked_notebook(bcp: pathlib.Path) -> pathlib.Path | None:
     return next(
         (
             path
-            for path in _tracked_files(bcp)
+            for path in tracked_files(bcp)
             if path.parent == bcp and path.name == "qa.ipynb"
         ),
         None,
@@ -1326,11 +1248,13 @@ def _notebook_identifiers(
     return frozenset(names)
 
 
-#: Everything memoized above, so a test that needs a cold read can say so
-#: without keeping its own copy of the list. Add a ``@cache`` here, add it to
-#: this tuple.
+#: Everything these guards read through that is memoized, so a test needing a
+#: cold read can say so without keeping its own copy of the list. The listing is
+#: cached where it is defined and cleared from here anyway, since a stale entry
+#: means the same thing on either side of the import. Add a ``@cache`` that
+#: anything below reaches, add it to this tuple.
 _MEMOIZED = (
-    _tracked_files,
+    tracked_files,
     _module_tree,
     _module_identifiers,
     _notebook_identifiers,
@@ -1375,10 +1299,14 @@ class TestWhatTheGuardsAreAllowedToRead:
     """Pins the listing itself, which no other test in this file can notice.
 
     The virtualenv that made ``git ls-files`` necessary is by definition absent
-    from CI, so a revert to ``rglob`` -- or a dropped ``-- bcp`` pathspec -- goes
-    green everywhere while the three guards below quietly stop guarding. The
-    same standard those guards are held to applies to their plumbing: passing
-    proves nothing unless failing is also demonstrated.
+    from CI, so a revert to ``rglob`` -- or a listing that stops being scoped to
+    ``bcp`` -- goes green everywhere while the three guards below quietly stop
+    guarding. The same standard those guards are held to applies to their
+    plumbing: passing proves nothing unless failing is also demonstrated.
+
+    These pin :func:`tracked_files`, which ``test_sanitized_identifiers`` also
+    calls; they live here because the fixtures they need are the miniature repo
+    below and the collectors above.
     """
 
     @pytest.fixture(autouse=True)
@@ -1407,7 +1335,7 @@ class TestWhatTheGuardsAreAllowedToRead:
         """Make ``tmp_path`` a repo and stage exactly ``staged``.
 
         ``--git-dir`` and ``--work-tree`` are passed explicitly, and not only
-        because :func:`_git_free_env` could stop being called. Under the
+        because :func:`git_free_env` could stop being called. Under the
         ``pre-commit`` hook, an init inheriting ``GIT_DIR`` reinitializes *this*
         repository rather than the temporary one, and an init with no work tree
         in scope writes ``core.bare = true`` -- which leaves every checkout
@@ -1415,7 +1343,7 @@ class TestWhatTheGuardsAreAllowedToRead:
         environment, so they are what keeps a unit test from reaching outside
         ``tmp_path``. The assertion is the tripwire if that ever stops holding.
         """
-        env = _git_free_env()
+        env = git_free_env()
         git = ["git", "--git-dir", str(tmp_path / ".git"), "--work-tree", str(tmp_path)]
         subprocess.run([*git, "init", "-q"], check=True, env=env, cwd=tmp_path)
         assert (tmp_path / ".git").is_dir(), (
@@ -1450,12 +1378,16 @@ class TestWhatTheGuardsAreAllowedToRead:
     def test_only_tracked_files_under_bcp_are_listed(self, tmp_path):
         """The venv, the scratch modules and the file outside ``bcp`` all miss.
 
-        ``outside.py`` is staged, so it is the one that tests the pathspec
-        rather than the index: without ``-- bcp`` it would be listed and its
-        identifiers would count.
+        ``outside.py`` is staged, so it is the one that tests the scoping rather
+        than the index: ``ls-files`` lists what it finds under the directory it
+        runs in, so a listing taken from the repo root would hold it and its
+        identifiers would count. Dropping the ``-C`` misses in the other
+        direction and fails here too: the listing would then come from wherever
+        pytest was started -- ``bcp`` of the real checkout, under the hook --
+        rather than from this miniature one.
         """
         bcp = self._miniature_repo(tmp_path)
-        assert [path.name for path in _tracked_files(bcp)] == ["qa_seahub_shipped.py"]
+        assert [path.name for path in tracked_files(bcp)] == ["qa_seahub_shipped.py"]
 
     def test_a_virtualenv_in_the_tree_vouches_for_nothing(self, tmp_path):
         """The whole point: a name is live only if shipped code refers to it."""
@@ -1507,23 +1439,64 @@ class TestWhatTheGuardsAreAllowedToRead:
         assert "PRODUCTION_NAME" in production
         assert "TEST_ONLY_NAME" not in production
 
+    @pytest.mark.parametrize(
+        "inherited", ["a stale index", "a relative pair", "this repository"]
+    )
     def test_the_listing_survives_the_environment_a_hook_runs_in(
-        self, tmp_path, monkeypatch
+        self, tmp_path, monkeypatch, inherited
     ):
-        """A relative ``GIT_INDEX_FILE``, which is what a hook hands down.
+        """Both shapes a ``pre-commit`` hook hands down, over a throwaway repo.
 
-        Resolved from the directory git is run in it names nothing, and a
-        missing index reads as an empty one: no files, status 0. Deleting the
-        ``env=`` argument that prevents this passes every other test here, since
-        CI never sets ``GIT_*``.
+        A plain checkout exports a relative ``GIT_INDEX_FILE`` and no
+        ``GIT_DIR``; a linked worktree exports both, absolute, naming
+        ``.git/worktrees/<name>``. This suite is run from both.
+
+        A stale index alone is the quiet one, and the reason the scrub is not
+        merely tidy: a relative ``GIT_INDEX_FILE`` resolves against whatever top
+        level git discovers, so from here it names nothing, and git reads a
+        missing index as an empty one -- no files, status 0. Add a relative
+        ``GIT_DIR`` and git exits 128 before it gets that far, which is the
+        cheap half and masks the quiet one, so the two are separate legs rather
+        than one call setting both.
+
+        The third is the half that bit, and is why this pin needs a repository
+        other than the one under test: inherited, an absolute ``GIT_DIR`` makes
+        git skip discovery, so ``-C`` this ``bcp`` selects nothing and the answer
+        describes *this* checkout instead -- status 0, names relative to its
+        root, which join onto ``tmp_path`` and land on files that are not there.
+        Deleting the ``env=`` argument that prevents all three passes every other
+        test here, since CI sets no ``GIT_*`` at all.
+
+        The environment is patched *after* the repo is built, and has to be:
+        :meth:`_stage` documents what an ``init`` that inherits ``GIT_DIR``
+        does to the repository the variable names.
         """
         bcp = self._miniature_repo(tmp_path)
+        if inherited == "a stale index":
+            monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
+        elif inherited == "a relative pair":
+            monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
+            monkeypatch.setenv("GIT_DIR", "no-such-git-dir")
+        else:
+            git_dir = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(pathlib.Path(__file__).parent),
+                    "rev-parse",
+                    "--absolute-git-dir",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=git_free_env(),
+            ).stdout.strip()
+            monkeypatch.setenv("GIT_DIR", git_dir)
+            monkeypatch.setenv("GIT_INDEX_FILE", f"{git_dir}/index")
         # explicit, not just the autouse fixture: this assertion is only a
         # test of the scrub while the listing is unmemoized at this line
-        _tracked_files.cache_clear()
-        monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
-        monkeypatch.setenv("GIT_DIR", "no-such-git-dir")
-        assert [path.name for path in _tracked_files(bcp)] == ["qa_seahub_shipped.py"]
+        tracked_files.cache_clear()
+        assert [path.name for path in tracked_files(bcp)] == ["qa_seahub_shipped.py"]
 
     def test_a_listing_with_nothing_in_it_fails_rather_than_reads_clean(self, tmp_path):
         """The tripwire itself: no tracked file under ``bcp`` is never right."""
@@ -1532,21 +1505,21 @@ class TestWhatTheGuardsAreAllowedToRead:
         self._stage(tmp_path, ["outside.py"])
 
         with pytest.raises(pytest.fail.Exception, match="listed nothing tracked"):
-            _tracked_files(tmp_path / "bcp")
+            tracked_files(tmp_path / "bcp")
 
     def test_a_directory_git_knows_nothing_about_fails(self, tmp_path):
         """The non-zero exit, which nothing had read the text of."""
         (tmp_path / "bcp").mkdir()
 
         with pytest.raises(pytest.fail.Exception, match="cannot see what is tracked"):
-            _tracked_files(tmp_path / "bcp")
+            tracked_files(tmp_path / "bcp")
 
     def test_tracked_files_that_are_all_missing_say_so(self, tmp_path):
         """Distinct from an empty listing, and wants a different response.
 
         A sparse checkout, or every file staged for deletion: git lists them
-        and none is on disk. Reporting that as "nothing tracked" would send
-        the reader looking for a broken pathspec.
+        and none is on disk. Reporting that as "nothing tracked" would send the
+        reader looking for a listing scoped to the wrong place.
         """
         bcp = tmp_path / "bcp"
         bcp.mkdir()
@@ -1555,7 +1528,7 @@ class TestWhatTheGuardsAreAllowedToRead:
         (bcp / "gone.py").unlink()
 
         with pytest.raises(pytest.fail.Exception, match="none of them are on disk"):
-            _tracked_files(bcp)
+            tracked_files(bcp)
 
     def test_a_notebook_cell_that_will_not_parse_still_counts(self, tmp_path):
         """The word scan, the one collector branch with nothing on it.
@@ -1604,7 +1577,7 @@ class TestWhatTheGuardsAreAllowedToRead:
         )
         # the notebook appears after the repo is built, so the listing has to
         # be unmemoized here for its absence to mean anything
-        _tracked_files.cache_clear()
+        tracked_files.cache_clear()
         assert _tracked_notebook(bcp) is None
         assert "NOTEBOOK_NAME" not in _identifiers_referenced_outside(
             bcp, exclude="nothing.py"

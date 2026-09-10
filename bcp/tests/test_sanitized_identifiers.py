@@ -31,7 +31,9 @@ name is real, and adding to the allowlist requires only knowing yours is not.
 Scope is every *tracked* text file: what gets pushed is what is exposed. Tracked
 only, deliberately -- a working tree routinely holds real S3 listings, QA outputs
 and scratch CSVs, and those must not fail somebody's unrelated commit. ``git
-add`` is where this takes effect.
+add`` is where this takes effect. The listing is
+:func:`tests.git_helpers.tracked_files`, shared with the tree-wide guards in
+``test_qa_seahub_rename``.
 
 Sanitized stand-ins, so a replacement stays recognisable as an example:
 ``labalpha`` / ``labbeta`` for labs, ``example-lab`` for a lab namespace,
@@ -46,9 +48,10 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 import re
-import subprocess
 
 import pytest
+
+from tests.git_helpers import tracked_files
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -232,33 +235,41 @@ ALLOWED_SLOT_TOKENS = frozenset(
 )
 
 
-def _tracked_text_files() -> list[Path]:
+def _tracked_text_files() -> tuple[Path, ...]:
     """Every tracked file this guard can read, minus itself.
 
-    ``git ls-files`` rather than ``rglob``: an untracked real listing in the
-    working tree is not published and must not fail a commit that never touches
-    it. A git failure fails the test rather than skipping it -- a guard that
-    passes without having checked anything is worse than one that errors.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "ls-files", "-z"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except FileNotFoundError:  # pragma: no cover - git absent
-        pytest.fail("no git binary, so tracked files cannot be listed")
-    if result.returncode != 0:
-        pytest.fail(
-            f"git ls-files exited {result.returncode} in {REPO_ROOT}, so this "
-            f"guard cannot see what is tracked: {result.stderr.strip()}"
-        )
+    From the whole repo, not ``bcp``: exposure is a property of what gets
+    pushed, and nothing outside ``bcp`` is exempt from it. Why the index rather
+    than the working tree is the module docstring above; why a git failure and
+    an empty listing both fail rather than pass or skip is
+    :func:`tracked_files`, which also holds the scrub of git's own variables
+    that this call site did without.
 
-    paths = sorted(
-        REPO_ROOT / name
-        for name in result.stdout.split("\0")
-        if name and Path(name).suffix.lower() in SCANNED_SUFFIXES and name != SELF
+    It survived that omission, and not by being robust: it lists from the top
+    level, and at the top level the listing git prints when an inherited
+    ``GIT_DIR`` makes it ignore the directory it was given is the same listing
+    that was asked for. The guards in ``test_qa_seahub_rename`` ask about
+    ``bcp``, so they got names relative to the root, joined them onto ``bcp``,
+    and found nothing there.
+
+    The suffixes are this guard's alone -- the point is text a person wrote, and
+    it has no business grepping the barcode-whitelist fixtures -- and so is the
+    emptiness check below. :func:`tracked_files` can see that git listed
+    something; it cannot see whether anything survived a filter it knows nothing
+    about, so a ``SCANNED_SUFFIXES`` matching nothing would otherwise read as a
+    clean tree. Excluding itself is argued in the module docstring.
+
+    A tracked file that is not on disk is dropped by the listing rather than
+    read, which here errs the unsafe way: a sparse checkout hides a published
+    file from the scan. Left that way deliberately -- the alternative fails this
+    file for anyone working in one -- because the run that has to be right is
+    CI's and the ``pre-commit`` hook's, where the checkout is whole.
+    """
+    paths = tuple(
+        path
+        for path in tracked_files(REPO_ROOT)
+        if path.suffix.lower() in SCANNED_SUFFIXES
+        and path.relative_to(REPO_ROOT).as_posix() != SELF
     )
     assert paths, f"git listed no tracked text files under {REPO_ROOT}"
     return paths
@@ -270,10 +281,15 @@ def _readable_files() -> Iterator[tuple[Path, str]]:
     A list held ~77 MB of file text per test. Reading is not the cost here --
     every tracked file reads in 0.05s from cache -- so there is nothing to gain
     by keeping it.
+
+    Every path is read, with no existence check of its own: the listing
+    dropped what was not on disk when it was taken, which is once per session
+    since it is memoized. So a file deleted mid-run raises here rather than
+    being skipped quietly, which is the direction a guard wants -- the tree it
+    reports on is the one it was handed.
     """
     for path in _tracked_text_files():
-        if path.is_file():
-            yield path, path.read_text(encoding="utf-8", errors="replace")
+        yield path, path.read_text(encoding="utf-8", errors="replace")
 
 
 def known_identifiers(text: str) -> list[str]:
@@ -359,3 +375,39 @@ def test_the_patterns_actually_fire(text: str, flagged: bool) -> None:
     hits = known_identifiers(text) + [t for _slot, t in unrecognised_slot_tokens(text)]
 
     assert bool(hits) is flagged, f"{text!r} -> {hits}"
+
+
+@pytest.mark.parametrize("inherited", ["a stale index", "a relative pair"])
+def test_this_file_gets_its_listing_through_the_scrub(monkeypatch, inherited) -> None:
+    """A ``git ls-files`` re-inlined here would pass every other test in this
+    file.
+
+    That is how this guard read the index until the listing moved out: its own
+    ``subprocess.run``, with no ``env=``. The scrub is pinned where it is
+    defined, which pins nothing about whether this file still goes through it,
+    and an empty listing is indistinguishable from a clean tree to every other
+    assertion here.
+
+    Both shapes, because the loud one masks the quiet one: a stale index reads
+    as empty at status 0, while a relative ``GIT_DIR`` alongside it exits 128
+    before any index is opened. One leg each, so the pin cannot come to rest on
+    the cheap half.
+
+    What no probe here can demonstrate is the wrong-repository read itself. An
+    inherited ``GIT_DIR`` costs this call site nothing, for the reason
+    :func:`_tracked_text_files` gives, and being wrong about a second repository
+    takes one to be wrong about -- so ``test_qa_seahub_rename``, which builds a
+    throwaway repo, owns that shape.
+    """
+    tracked_files.cache_clear()
+    scrubbed = _tracked_text_files()
+
+    tracked_files.cache_clear()
+    monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
+    if inherited == "a relative pair":
+        monkeypatch.setenv("GIT_DIR", "no-such-git-dir")
+    try:
+        assert _tracked_text_files() == scrubbed
+    finally:
+        # a listing read under the patched environment must not outlive it
+        tracked_files.cache_clear()
