@@ -1122,7 +1122,7 @@ def _tracked_files(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
     working tree: a name is live if something we ship refers to it, and an
     uncommitted file ships nothing.
 
-    Run from the repo root with a ``bcp`` pathspec, and with git's own
+    Run from ``bcp.parent`` with a ``bcp`` pathspec, and with git's own
     variables stripped from the environment -- see :func:`_git_free_env`, which
     is what makes the choice of directory safe rather than lucky. An empty
     listing fails here rather than being read as a clean tree, because that is
@@ -1130,8 +1130,12 @@ def _tracked_files(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
     failure fails the test too -- a guard that passes without having checked
     anything is worse than one that errors.
 
-    ``bcp.parent`` is the repo root only because ``bcp/`` sits directly under
-    it. Should the layout ever change, the empty listing is what says so.
+    Nothing here needs ``bcp.parent`` to be the top level. ``ls-files``
+    resolves a pathspec against the directory it runs in and prints what it
+    finds relative to the same place, so ``repo_root / name`` holds from
+    anywhere inside the checkout. That was load-bearing before the environment
+    scrub, when the point of running at the root was to make a root-relative
+    ``GIT_INDEX_FILE`` resolve; it is now belt over braces.
 
     Dropping an index entry whose file is gone (a staged deletion, a sparse
     checkout) shrinks the reference set, so it errs toward reporting a name as
@@ -1199,10 +1203,30 @@ def _tracked_notebook(bcp: pathlib.Path) -> pathlib.Path | None:
     still reached by name, and a rule with one exception is a rule nobody can
     apply from memory.
     """
-    for path in _tracked_files(bcp):
-        if path.parent == bcp and path.name == "qa.ipynb":
+    return next(
+        (
+            path
+            for path in _tracked_files(bcp)
+            if path.parent == bcp and path.name == "qa.ipynb"
+        ),
+        None,
+    )
+
+
+def _tracked_module(bcp: pathlib.Path, name: str) -> pathlib.Path:
+    """One named module, through the listing rather than by path.
+
+    The same rule as :func:`_tracked_notebook`, applied to the last input that
+    was still reached by name. ``qa_constants.py`` is a subject, and subjects
+    were the half of the guards that disagreed with the references about what
+    counts as shipped -- an exception there is the specific mistake
+    :func:`_tracked_seahub_modules` exists to correct. Failing loudly when it
+    is missing also beats the traceback a renamed file used to produce.
+    """
+    for path in _tracked_python_modules(bcp):
+        if path.parent == bcp and path.name == name:
             return path
-    return None
+    pytest.fail(f"{name} is not tracked under {bcp}, so this guard has no subject")
 
 
 def _ast_identifiers(source: str, *, asnames: bool) -> set[str] | None:
@@ -1249,15 +1273,21 @@ def _module_tree(path: pathlib.Path) -> ast.Module:
     parsed nine times per run -- and it was the three slowest tests in ``bcp``
     at that. Everything that needs a module goes through here, including the
     guards' own subjects, so the file is read once and one message covers every
-    way a module can fail to be readable.
+    way a module can fail to be readable -- unparseable, undecodable, or gone.
+    The last of those is not hypothetical while any subject is named rather
+    than listed.
 
-    A tracked module that will not parse fails here instead of contributing
+    A tracked module that cannot be read fails here instead of contributing
     nothing. The permissive direction is not available to a guard: a module
     silently dropped from the union is a module whose references stop counting.
+
+    The returned tree is shared, not copied. Every caller only walks it, and a
+    walk cannot disturb it -- but anything here that starts rewriting an AST
+    needs its own copy.
     """
     try:
         return ast.parse(path.read_text())
-    except SyntaxError as error:
+    except (SyntaxError, OSError, UnicodeDecodeError) as error:
         pytest.fail(
             f"tracked module {path} does not parse, so it cannot be scanned: {error}"
         )
@@ -1294,6 +1324,17 @@ def _notebook_identifiers(
         else:
             names.update(cell_names)
     return frozenset(names)
+
+
+#: Everything memoized above, so a test that needs a cold read can say so
+#: without keeping its own copy of the list. Add a ``@cache`` here, add it to
+#: this tuple.
+_MEMOIZED = (
+    _tracked_files,
+    _module_tree,
+    _module_identifiers,
+    _notebook_identifiers,
+)
 
 
 def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]:
@@ -1350,21 +1391,15 @@ class TestWhatTheGuardsAreAllowedToRead:
         notebook test needs the same entry cold to see a file written after the
         repo was built. Both are one edit to :meth:`_miniature_repo` away from
         passing off the cache with the fix mutated out.
+
+        Off :data:`_MEMOIZED` rather than a list written out here, so that a
+        cache added later cannot quietly escape the fixture and reintroduce
+        that coupling as a test that passes.
         """
-        for memoized in (
-            _tracked_files,
-            _module_tree,
-            _module_identifiers,
-            _notebook_identifiers,
-        ):
+        for memoized in _MEMOIZED:
             memoized.cache_clear()
         yield
-        for memoized in (
-            _tracked_files,
-            _module_tree,
-            _module_identifiers,
-            _notebook_identifiers,
-        ):
+        for memoized in _MEMOIZED:
             memoized.cache_clear()
 
     @staticmethod
@@ -1499,6 +1534,55 @@ class TestWhatTheGuardsAreAllowedToRead:
         with pytest.raises(pytest.fail.Exception, match="listed nothing tracked"):
             _tracked_files(tmp_path / "bcp")
 
+    def test_a_directory_git_knows_nothing_about_fails(self, tmp_path):
+        """The non-zero exit, which nothing had read the text of."""
+        (tmp_path / "bcp").mkdir()
+
+        with pytest.raises(pytest.fail.Exception, match="cannot see what is tracked"):
+            _tracked_files(tmp_path / "bcp")
+
+    def test_tracked_files_that_are_all_missing_say_so(self, tmp_path):
+        """Distinct from an empty listing, and wants a different response.
+
+        A sparse checkout, or every file staged for deletion: git lists them
+        and none is on disk. Reporting that as "nothing tracked" would send
+        the reader looking for a broken pathspec.
+        """
+        bcp = tmp_path / "bcp"
+        bcp.mkdir()
+        (bcp / "gone.py").write_text("GONE_NAME = 1\n")
+        self._stage(tmp_path, ["bcp/gone.py"])
+        (bcp / "gone.py").unlink()
+
+        with pytest.raises(pytest.fail.Exception, match="none of them are on disk"):
+            _tracked_files(bcp)
+
+    def test_a_notebook_cell_that_will_not_parse_still_counts(self, tmp_path):
+        """The word scan, the one collector branch with nothing on it.
+
+        A cell holding a magic does not parse, and dropping it would retire
+        every name the notebook mentions there. Over-counting is the safe
+        direction: the cost is a failing build on correct code, which someone
+        reads.
+        """
+        bcp = tmp_path / "bcp"
+        bcp.mkdir()
+        (bcp / "qa_seahub_shipped.py").write_text("SHIPPED_NAME = 1\n")
+        (bcp / "qa.ipynb").write_text(
+            json.dumps(
+                {
+                    "cells": [
+                        {"cell_type": "code", "source": ["%matplotlib inline\n"]},
+                        {"cell_type": "code", "source": ["MAGIC_CELL_NAME\n"]},
+                    ]
+                }
+            )
+        )
+        self._stage(tmp_path, ["bcp/qa_seahub_shipped.py", "bcp/qa.ipynb"])
+
+        referenced = _identifiers_referenced_outside(bcp, exclude="nothing.py")
+        assert {"matplotlib", "inline", "MAGIC_CELL_NAME"} <= referenced
+
     def test_a_tracked_module_that_will_not_parse_fails_rather_than_drops_out(
         self, tmp_path
     ):
@@ -1566,7 +1650,7 @@ class TestRuleVocabulary:
         used: that is how the dead one looked alive.
         """
         bcp = pathlib.Path(qa_seahub_rename.__file__).parent
-        constants = bcp / "qa_constants.py"
+        constants = _tracked_module(bcp, "qa_constants.py")
         declared = {
             name
             for name in _module_level_constants(_module_tree(constants))
