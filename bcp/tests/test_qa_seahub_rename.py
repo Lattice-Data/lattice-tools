@@ -1091,8 +1091,16 @@ def _git_free_env() -> dict[str, str]:
     The ``pre-commit`` hook that runs this suite before every commit is that
     environment, and it caught both halves of this file's git usage in turn:
     the listing below, and the miniature repo the tests build.
+
+    Every ``GIT_*``, not the eight or so that name a location. The wider cut
+    also drops ``GIT_CONFIG_COUNT`` and friends, which some container images
+    use to inject ``safe.directory`` -- but losing those makes git exit 128 and
+    fail the guard out loud, while missing one location variable makes it read
+    the wrong index in silence. Between the two, take the one that shouts.
     """
-    return {name: value for name, value in os.environ.items() if name[:4] != "GIT_"}
+    return {
+        name: value for name, value in os.environ.items() if not name.startswith("GIT_")
+    }
 
 
 @cache
@@ -1151,10 +1159,11 @@ def _tracked_files(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
     paths = tuple(
         path for path in (repo_root / name for name in names) if path.is_file()
     )
-    assert paths, (
-        f"git listed nothing tracked under {bcp}, so these guards would "
-        "pass without having read anything"
-    )
+    if not paths:
+        pytest.fail(
+            f"git listed nothing tracked under {bcp}, so these guards would "
+            "pass without having read anything"
+        )
     return paths
 
 
@@ -1192,7 +1201,7 @@ def _tracked_notebook(bcp: pathlib.Path) -> pathlib.Path | None:
     return None
 
 
-def _ast_identifiers(source: str, asnames: bool) -> set[str] | None:
+def _ast_identifiers(source: str, *, asnames: bool) -> set[str] | None:
     """Every name an AST mentions, or ``None`` if the source will not parse.
 
     By AST, so a name that appears only in a comment or a docstring does not
@@ -1223,7 +1232,7 @@ def _ast_identifiers(source: str, asnames: bool) -> set[str] | None:
 
 
 @cache
-def _module_identifiers(path: pathlib.Path, asnames: bool) -> frozenset[str]:
+def _module_identifiers(path: pathlib.Path, *, asnames: bool) -> frozenset[str]:
     """``_ast_identifiers`` for one file, read and parsed once per session.
 
     Two of the three guards below call a collector from inside a loop over the
@@ -1235,7 +1244,7 @@ def _module_identifiers(path: pathlib.Path, asnames: bool) -> frozenset[str]:
     nothing. The permissive direction is not available to a guard: a module
     silently dropped from the union is a module whose references stop counting.
     """
-    names = _ast_identifiers(path.read_text(), asnames)
+    names = _ast_identifiers(path.read_text(), asnames=asnames)
     if names is None:
         pytest.fail(f"tracked module {path} does not parse, so it cannot be scanned")
     return frozenset(names)
@@ -1243,7 +1252,7 @@ def _module_identifiers(path: pathlib.Path, asnames: bool) -> frozenset[str]:
 
 @cache
 def _notebook_identifiers(
-    notebook: pathlib.Path | None, asnames: bool
+    notebook: pathlib.Path | None, *, asnames: bool
 ) -> frozenset[str]:
     """The same, over the code cells of ``qa.ipynb``.
 
@@ -1260,7 +1269,7 @@ def _notebook_identifiers(
         if cell.get("cell_type") != "code":
             continue
         source = "".join(cell.get("source", []))
-        cell_names = _ast_identifiers(source, asnames)
+        cell_names = _ast_identifiers(source, asnames=asnames)
         if cell_names is None:
             names.update(re.findall(r"\b\w+\b", source))
         else:
@@ -1313,51 +1322,48 @@ class TestWhatTheGuardsAreAllowedToRead:
     """
 
     @staticmethod
-    def _miniature_repo(tmp_path: pathlib.Path) -> pathlib.Path:
-        """A repo laid out like this one, with the cases that matter.
-
-        Only ``shipped.py`` and ``outside.py`` are staged. The rest are the ways
-        a file reaches the working tree without being shipped: inside an ignored
-        virtualenv, and simply not added yet.
+    def _stage(tmp_path: pathlib.Path, staged: list[str]) -> None:
+        """Make ``tmp_path`` a repo and stage exactly ``staged``.
 
         ``--git-dir`` and ``--work-tree`` are passed explicitly, and not only
         because :func:`_git_free_env` could stop being called. Under the
-        ``pre-commit`` hook, ``git init`` inheriting ``GIT_DIR`` reinitializes
-        *this* repository rather than the temporary one, and an init with no
-        work tree in scope writes ``core.bare = true`` -- which leaves every
-        checkout sharing that config unable to run ``git status``. Flags beat
-        the environment, so they are what keeps a unit test from reaching
-        outside ``tmp_path``. The assertion below is the tripwire if that ever
-        stops holding.
+        ``pre-commit`` hook, an init inheriting ``GIT_DIR`` reinitializes *this*
+        repository rather than the temporary one, and an init with no work tree
+        in scope writes ``core.bare = true`` -- which leaves every checkout
+        sharing that config unable to run ``git status``. Flags beat the
+        environment, so they are what keeps a unit test from reaching outside
+        ``tmp_path``. The assertion is the tripwire if that ever stops holding.
+        """
+        env = _git_free_env()
+        git = ["git", "--git-dir", str(tmp_path / ".git"), "--work-tree", str(tmp_path)]
+        subprocess.run([*git, "init", "-q"], check=True, env=env, cwd=tmp_path)
+        assert (tmp_path / ".git").is_dir(), (
+            "the repo did not land in tmp_path, so it went somewhere real"
+        )
+        subprocess.run([*git, "add", *staged], check=True, env=env, cwd=tmp_path)
+
+    @classmethod
+    def _miniature_repo(cls, tmp_path: pathlib.Path) -> pathlib.Path:
+        """A repo laid out like this one, with the cases that matter.
+
+        Two files are staged, one of them a ``qa_seahub_*`` so the guards have a
+        subject. The rest are the ways a file reaches the working tree without
+        being shipped: inside a virtualenv, and simply not added yet. Both miss
+        the listing for the same reason -- untracked -- and the ``.gitignore``
+        is there to make the venv faithful to the real layout rather than to do
+        the work.
         """
         bcp = tmp_path / "bcp"
         vendored = bcp / "venv" / "lib" / "site-packages"
         vendored.mkdir(parents=True)
         (tmp_path / ".gitignore").write_text("venv/\n")
-        (bcp / "shipped.py").write_text("SHIPPED_NAME = 1\n")
+        (bcp / "qa_seahub_shipped.py").write_text("SHIPPED_NAME = 1\n")
         (vendored / "dependency.py").write_text("VENDORED_NAME = 2\n")
         (bcp / "scratch.py").write_text("SCRATCH_NAME = 3\n")
         (bcp / "qa_seahub_wip.py").write_text("def unstaged_helper():\n    pass\n")
         (tmp_path / "outside.py").write_text("OUTSIDE_NAME = 4\n")
 
-        env = _git_free_env()
-        git = [
-            "git",
-            "--git-dir",
-            str(tmp_path / ".git"),
-            "--work-tree",
-            str(tmp_path),
-        ]
-        subprocess.run([*git, "init", "-q"], check=True, env=env, cwd=tmp_path)
-        assert (tmp_path / ".git").is_dir(), (
-            "git init did not land in tmp_path, so it went somewhere real"
-        )
-        subprocess.run(
-            [*git, "add", "bcp/shipped.py", "outside.py"],
-            check=True,
-            env=env,
-            cwd=tmp_path,
-        )
+        cls._stage(tmp_path, ["bcp/qa_seahub_shipped.py", "outside.py"])
         return bcp
 
     def test_only_tracked_files_under_bcp_are_listed(self, tmp_path):
@@ -1368,9 +1374,9 @@ class TestWhatTheGuardsAreAllowedToRead:
         identifiers would count.
         """
         bcp = self._miniature_repo(tmp_path)
-        assert [path.name for path in _tracked_files(bcp)] == ["shipped.py"]
+        assert [path.name for path in _tracked_files(bcp)] == ["qa_seahub_shipped.py"]
 
-    def test_an_ignored_virtualenv_vouches_for_nothing(self, tmp_path):
+    def test_a_virtualenv_in_the_tree_vouches_for_nothing(self, tmp_path):
         """The whole point: a name is live only if shipped code refers to it."""
         bcp = self._miniature_repo(tmp_path)
         referenced = _identifiers_referenced_outside(bcp, exclude="nothing.py")
@@ -1382,10 +1388,49 @@ class TestWhatTheGuardsAreAllowedToRead:
 
         An unstaged ``qa_seahub_wip.py`` read as a subject, against references
         that cannot include its unstaged caller, is a failing build on code
-        nobody has committed.
+        nobody has committed. Both directions, because a subject list that were
+        always empty would satisfy the negative one on its own.
         """
         bcp = self._miniature_repo(tmp_path)
-        assert _tracked_seahub_modules(bcp) == []
+        assert [path.name for path in _tracked_seahub_modules(bcp)] == [
+            "qa_seahub_shipped.py"
+        ]
+
+    def test_the_listing_survives_the_environment_a_hook_runs_in(
+        self, tmp_path, monkeypatch
+    ):
+        """A relative ``GIT_INDEX_FILE``, which is what a hook hands down.
+
+        Resolved from the directory git is run in it names nothing, and a
+        missing index reads as an empty one: no files, status 0. Deleting the
+        ``env=`` argument that prevents this passes every other test here, since
+        CI never sets ``GIT_*``.
+        """
+        bcp = self._miniature_repo(tmp_path)
+        monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
+        monkeypatch.setenv("GIT_DIR", "no-such-git-dir")
+        assert [path.name for path in _tracked_files(bcp)] == ["qa_seahub_shipped.py"]
+
+    def test_a_listing_with_nothing_in_it_fails_rather_than_reads_clean(self, tmp_path):
+        """The tripwire itself: no tracked file under ``bcp`` is never right."""
+        (tmp_path / "bcp").mkdir()
+        (tmp_path / "outside.py").write_text("OUTSIDE_NAME = 1\n")
+        self._stage(tmp_path, ["outside.py"])
+
+        with pytest.raises(pytest.fail.Exception, match="listed nothing tracked"):
+            _tracked_files(tmp_path / "bcp")
+
+    def test_a_tracked_module_that_will_not_parse_fails_rather_than_drops_out(
+        self, tmp_path
+    ):
+        """Silently skipping it would retire every reference it holds."""
+        bcp = tmp_path / "bcp"
+        bcp.mkdir()
+        (bcp / "broken.py").write_text("def oops(:\n")
+        self._stage(tmp_path, ["bcp/broken.py"])
+
+        with pytest.raises(pytest.fail.Exception, match="does not parse"):
+            _identifiers_referenced_outside(bcp, exclude="nothing.py")
 
     def test_an_untracked_notebook_vouches_for_nothing(self, tmp_path):
         bcp = self._miniature_repo(tmp_path)
