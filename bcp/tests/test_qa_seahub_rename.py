@@ -8,6 +8,7 @@ import ast
 from dataclasses import replace
 from functools import cache
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -1076,9 +1077,27 @@ def _module_level_constants(tree: ast.Module) -> set[str]:
     return {n for n in names if not n.startswith("_") and not n.islower()}
 
 
+def _git_free_env() -> dict[str, str]:
+    """The environment without git's own variables.
+
+    Git exports ``GIT_DIR``, ``GIT_INDEX_FILE`` and friends to its hooks, as
+    paths relative to the repo root. A subprocess that inherits them and then
+    runs anywhere else -- ``-C`` some other directory, or a throwaway repo built
+    by a test -- resolves them against the wrong place, where they name nothing.
+    Git reads a missing index as an empty one and answers with no files and
+    status 0, so the failure arrives as a guard that checked nothing rather than
+    as an error.
+
+    The ``pre-commit`` hook that runs this suite before every commit is that
+    environment, and it caught both halves of this file's git usage in turn:
+    the listing below, and the miniature repo the tests build.
+    """
+    return {name: value for name, value in os.environ.items() if name[:4] != "GIT_"}
+
+
 @cache
-def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
-    """Every tracked ``*.py`` file under ``bcp``.
+def _tracked_files(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """Every tracked file under ``bcp`` that still exists on disk.
 
     ``git ls-files`` rather than ``rglob``, for the reason
     ``test_sanitized_identifiers`` uses it and one more specific to these
@@ -1095,16 +1114,20 @@ def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
     working tree: a name is live if something we ship refers to it, and an
     uncommitted file ships nothing.
 
-    ``-C`` the repo root with a ``bcp`` pathspec, not ``-C bcp``: git exports
-    ``GIT_INDEX_FILE`` to its hooks as a path relative to the repo root, and
-    ``-C`` resolves it from wherever it lands. Pointed at ``bcp`` the variable
-    names nothing, git reads that as an empty index and answers with no files
-    and status 0 -- which is why an empty listing fails here rather than being
-    taken for a clean tree. The ``pre-commit`` hook that runs this suite before
-    every commit is exactly that environment, and it is where this was caught.
-    A git failure fails the test rather than skipping it, for the same reason:
-    a guard that passes without having checked anything is worse than one that
-    errors.
+    Run from the repo root with a ``bcp`` pathspec, and with git's own
+    variables stripped from the environment -- see :func:`_git_free_env`, which
+    is what makes the choice of directory safe rather than lucky. An empty
+    listing fails here rather than being read as a clean tree, because that is
+    the shape every one of those failures takes: no files, status 0. A git
+    failure fails the test too -- a guard that passes without having checked
+    anything is worse than one that errors.
+
+    ``bcp.parent`` is the repo root only because ``bcp/`` sits directly under
+    it. Should the layout ever change, the empty listing is what says so.
+
+    Dropping an index entry whose file is gone (a staged deletion, a sparse
+    checkout) shrinks the reference set, so it errs toward reporting a name as
+    dead -- a failing build on live code, which someone reads.
     """
     repo_root = bcp.parent
     relative = bcp.relative_to(repo_root).as_posix()
@@ -1114,24 +1137,59 @@ def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
             capture_output=True,
             text=True,
             check=False,
+            env=_git_free_env(),
         )
     except FileNotFoundError:  # pragma: no cover - git absent
-        pytest.fail("no git binary, so tracked modules cannot be listed")
+        pytest.fail("no git binary, so tracked files cannot be listed")
     if result.returncode != 0:
         pytest.fail(
             f"git ls-files exited {result.returncode} in {repo_root}, so these "
             f"guards cannot see what is tracked: {result.stderr.strip()}"
         )
 
-    names = sorted(name for name in result.stdout.split("\0") if name.endswith(".py"))
+    names = sorted(name for name in result.stdout.split("\0") if name)
     paths = tuple(
         path for path in (repo_root / name for name in names) if path.is_file()
     )
     assert paths, (
-        f"git listed no tracked modules under {bcp}, so these guards would "
+        f"git listed nothing tracked under {bcp}, so these guards would "
         "pass without having read anything"
     )
     return paths
+
+
+def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """The ``*.py`` half of :func:`_tracked_files`."""
+    return tuple(path for path in _tracked_files(bcp) if path.suffix == ".py")
+
+
+def _tracked_seahub_modules(bcp: pathlib.Path) -> list[pathlib.Path]:
+    """The ``qa_seahub_*`` modules, from the listing the references come from.
+
+    Both halves of a guard have to agree about what counts as shipped. Globbing
+    the working tree for subjects while reading the index for references reports
+    an unstaged ``qa_seahub_wip.py`` against a reference set that cannot contain
+    its unstaged caller -- a failing build on code nobody has committed, which
+    is the case tracked-only exists to settle.
+    """
+    return [
+        path
+        for path in _tracked_python_modules(bcp)
+        if path.parent == bcp and path.name.startswith("qa_seahub_")
+    ]
+
+
+def _tracked_notebook(bcp: pathlib.Path) -> pathlib.Path | None:
+    """``qa.ipynb`` if it is tracked, so an untracked copy vouches for nothing.
+
+    Theoretical today -- the notebook is tracked -- but it was the one input
+    still reached by name, and a rule with one exception is a rule nobody can
+    apply from memory.
+    """
+    for path in _tracked_files(bcp):
+        if path.parent == bcp and path.name == "qa.ipynb":
+            return path
+    return None
 
 
 def _ast_identifiers(source: str, asnames: bool) -> set[str] | None:
@@ -1184,7 +1242,9 @@ def _module_identifiers(path: pathlib.Path, asnames: bool) -> frozenset[str]:
 
 
 @cache
-def _notebook_identifiers(notebook: pathlib.Path, asnames: bool) -> frozenset[str]:
+def _notebook_identifiers(
+    notebook: pathlib.Path | None, asnames: bool
+) -> frozenset[str]:
     """The same, over the code cells of ``qa.ipynb``.
 
     The notebook is the primary consumer of these modules, so a constant used
@@ -1192,7 +1252,7 @@ def _notebook_identifiers(notebook: pathlib.Path, asnames: bool) -> frozenset[st
     back to a word scan, which over-counts -- the safe direction, since the cost
     of a false positive here is a failing build on correct code.
     """
-    if not notebook.exists():
+    if notebook is None:
         return frozenset()
 
     names: set[str] = set()
@@ -1218,8 +1278,8 @@ def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]
     names: set[str] = set()
     for path in _tracked_python_modules(bcp):
         if path.name != exclude:
-            names |= _module_identifiers(path, True)
-    return names | _notebook_identifiers(bcp / "qa.ipynb", True)
+            names |= _module_identifiers(path, asnames=True)
+    return names | _notebook_identifiers(_tracked_notebook(bcp), asnames=True)
 
 
 def _identifiers_referenced_by_production(bcp: pathlib.Path, exclude: str) -> set[str]:
@@ -1238,8 +1298,125 @@ def _identifiers_referenced_by_production(bcp: pathlib.Path, exclude: str) -> se
     for path in _tracked_python_modules(bcp):
         if path.name == exclude or "tests" in path.relative_to(bcp).parts:
             continue
-        names |= _module_identifiers(path, False)
-    return names | _notebook_identifiers(bcp / "qa.ipynb", False)
+        names |= _module_identifiers(path, asnames=False)
+    return names | _notebook_identifiers(_tracked_notebook(bcp), asnames=False)
+
+
+class TestWhatTheGuardsAreAllowedToRead:
+    """Pins the listing itself, which no other test in this file can notice.
+
+    The virtualenv that made ``git ls-files`` necessary is by definition absent
+    from CI, so a revert to ``rglob`` -- or a dropped ``-- bcp`` pathspec -- goes
+    green everywhere while the three guards below quietly stop guarding. The
+    same standard those guards are held to applies to their plumbing: passing
+    proves nothing unless failing is also demonstrated.
+    """
+
+    @staticmethod
+    def _miniature_repo(tmp_path: pathlib.Path) -> pathlib.Path:
+        """A repo laid out like this one, with the cases that matter.
+
+        Only ``shipped.py`` and ``outside.py`` are staged. The rest are the ways
+        a file reaches the working tree without being shipped: inside an ignored
+        virtualenv, and simply not added yet.
+
+        ``--git-dir`` and ``--work-tree`` are passed explicitly, and not only
+        because :func:`_git_free_env` could stop being called. Under the
+        ``pre-commit`` hook, ``git init`` inheriting ``GIT_DIR`` reinitializes
+        *this* repository rather than the temporary one, and an init with no
+        work tree in scope writes ``core.bare = true`` -- which leaves every
+        checkout sharing that config unable to run ``git status``. Flags beat
+        the environment, so they are what keeps a unit test from reaching
+        outside ``tmp_path``. The assertion below is the tripwire if that ever
+        stops holding.
+        """
+        bcp = tmp_path / "bcp"
+        vendored = bcp / "venv" / "lib" / "site-packages"
+        vendored.mkdir(parents=True)
+        (tmp_path / ".gitignore").write_text("venv/\n")
+        (bcp / "shipped.py").write_text("SHIPPED_NAME = 1\n")
+        (vendored / "dependency.py").write_text("VENDORED_NAME = 2\n")
+        (bcp / "scratch.py").write_text("SCRATCH_NAME = 3\n")
+        (bcp / "qa_seahub_wip.py").write_text("def unstaged_helper():\n    pass\n")
+        (tmp_path / "outside.py").write_text("OUTSIDE_NAME = 4\n")
+
+        env = _git_free_env()
+        git = [
+            "git",
+            "--git-dir",
+            str(tmp_path / ".git"),
+            "--work-tree",
+            str(tmp_path),
+        ]
+        subprocess.run([*git, "init", "-q"], check=True, env=env, cwd=tmp_path)
+        assert (tmp_path / ".git").is_dir(), (
+            "git init did not land in tmp_path, so it went somewhere real"
+        )
+        subprocess.run(
+            [*git, "add", "bcp/shipped.py", "outside.py"],
+            check=True,
+            env=env,
+            cwd=tmp_path,
+        )
+        return bcp
+
+    def test_only_tracked_files_under_bcp_are_listed(self, tmp_path):
+        """The venv, the scratch modules and the file outside ``bcp`` all miss.
+
+        ``outside.py`` is staged, so it is the one that tests the pathspec
+        rather than the index: without ``-- bcp`` it would be listed and its
+        identifiers would count.
+        """
+        bcp = self._miniature_repo(tmp_path)
+        assert [path.name for path in _tracked_files(bcp)] == ["shipped.py"]
+
+    def test_an_ignored_virtualenv_vouches_for_nothing(self, tmp_path):
+        """The whole point: a name is live only if shipped code refers to it."""
+        bcp = self._miniature_repo(tmp_path)
+        referenced = _identifiers_referenced_outside(bcp, exclude="nothing.py")
+        assert "SHIPPED_NAME" in referenced
+        assert {"VENDORED_NAME", "SCRATCH_NAME", "OUTSIDE_NAME"} & referenced == set()
+
+    def test_the_subject_modules_come_from_the_same_listing(self, tmp_path):
+        """Both halves of a guard have to agree about what counts as shipped.
+
+        An unstaged ``qa_seahub_wip.py`` read as a subject, against references
+        that cannot include its unstaged caller, is a failing build on code
+        nobody has committed.
+        """
+        bcp = self._miniature_repo(tmp_path)
+        assert _tracked_seahub_modules(bcp) == []
+
+    def test_an_untracked_notebook_vouches_for_nothing(self, tmp_path):
+        bcp = self._miniature_repo(tmp_path)
+        (bcp / "qa.ipynb").write_text(
+            json.dumps(
+                {"cells": [{"cell_type": "code", "source": ["NOTEBOOK_NAME = 5\n"]}]}
+            )
+        )
+        assert _tracked_notebook(bcp) is None
+        assert "NOTEBOOK_NAME" not in _identifiers_referenced_outside(
+            bcp, exclude="nothing.py"
+        )
+
+    def test_source_that_will_not_parse_is_reported_rather_than_empty(self):
+        """``None``, not an empty set: a silent miss is a reference that stops
+        counting, and the caller decides which of those it can afford.
+        """
+        assert _ast_identifiers("def oops(:\n", asnames=True) is None
+        assert _ast_identifiers("x = 1\n", asnames=True) == {"x"}
+
+    def test_an_import_alias_counts_only_where_it_should(self):
+        """The one asymmetry between the two collectors, kept deliberately.
+
+        Widening what production is deemed to reference is what makes a dead
+        function look reachable, so the alias counts for the constant guard and
+        not for the dead-function one.
+        """
+        source = "import json as blob\n"
+        assert "blob" in _ast_identifiers(source, asnames=True)
+        assert "blob" not in _ast_identifiers(source, asnames=False)
+        assert "json" in _ast_identifiers(source, asnames=False)
 
 
 class TestRuleVocabulary:
@@ -1288,7 +1465,7 @@ class TestRuleVocabulary:
         unrelated code would make the guard something to switch off.
         """
         bcp = pathlib.Path(qa_seahub_rename.__file__).parent
-        modules = sorted(bcp.glob("qa_seahub_*.py"))
+        modules = _tracked_seahub_modules(bcp)
         assert modules, "no qa_seahub_* modules found"
 
         unread: list[str] = []
@@ -1325,7 +1502,7 @@ class TestRuleVocabulary:
         file. Leading-underscore names are private and exempt.
         """
         bcp = pathlib.Path(qa_seahub_rename.__file__).parent
-        modules = sorted(bcp.glob("qa_seahub_*.py"))
+        modules = _tracked_seahub_modules(bcp)
         assert modules, "no qa_seahub_* modules found"
 
         unread: list[str] = []
