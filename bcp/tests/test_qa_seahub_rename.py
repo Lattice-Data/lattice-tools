@@ -1138,10 +1138,9 @@ def _tracked_files(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
     dead -- a failing build on live code, which someone reads.
     """
     repo_root = bcp.parent
-    relative = bcp.relative_to(repo_root).as_posix()
     try:
         result = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-files", "-z", "--", relative],
+            ["git", "-C", str(repo_root), "ls-files", "-z", "--", bcp.name],
             capture_output=True,
             text=True,
             check=False,
@@ -1156,13 +1155,18 @@ def _tracked_files(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
         )
 
     names = sorted(name for name in result.stdout.split("\0") if name)
+    if not names:
+        pytest.fail(
+            f"git listed nothing tracked under {bcp}, so these guards would "
+            "pass without having read anything"
+        )
     paths = tuple(
         path for path in (repo_root / name for name in names) if path.is_file()
     )
     if not paths:
         pytest.fail(
-            f"git listed nothing tracked under {bcp}, so these guards would "
-            "pass without having read anything"
+            f"git listed {len(names)} tracked files under {bcp} and none of them "
+            "are on disk -- a sparse checkout, or every one staged for deletion"
         )
     return paths
 
@@ -1218,6 +1222,11 @@ def _ast_identifiers(source: str, *, asnames: bool) -> set[str] | None:
         tree = ast.parse(source)
     except SyntaxError:
         return None
+    return _tree_identifiers(tree, asnames=asnames)
+
+
+def _tree_identifiers(tree: ast.Module, *, asnames: bool) -> set[str]:
+    """The walk itself, for callers that already hold a parsed module."""
     names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Name):
@@ -1232,22 +1241,32 @@ def _ast_identifiers(source: str, *, asnames: bool) -> set[str] | None:
 
 
 @cache
-def _module_identifiers(path: pathlib.Path, *, asnames: bool) -> frozenset[str]:
-    """``_ast_identifiers`` for one file, read and parsed once per session.
+def _module_tree(path: pathlib.Path) -> ast.Module:
+    """One file, read and parsed once per session.
 
     Two of the three guards below call a collector from inside a loop over the
     four ``qa_seahub_*`` modules, so uncached the tracked tree is read and
     parsed nine times per run -- and it was the three slowest tests in ``bcp``
-    at that.
+    at that. Everything that needs a module goes through here, including the
+    guards' own subjects, so the file is read once and one message covers every
+    way a module can fail to be readable.
 
     A tracked module that will not parse fails here instead of contributing
     nothing. The permissive direction is not available to a guard: a module
     silently dropped from the union is a module whose references stop counting.
     """
-    names = _ast_identifiers(path.read_text(), asnames=asnames)
-    if names is None:
-        pytest.fail(f"tracked module {path} does not parse, so it cannot be scanned")
-    return frozenset(names)
+    try:
+        return ast.parse(path.read_text())
+    except SyntaxError as error:
+        pytest.fail(
+            f"tracked module {path} does not parse, so it cannot be scanned: {error}"
+        )
+
+
+@cache
+def _module_identifiers(path: pathlib.Path, *, asnames: bool) -> frozenset[str]:
+    """:func:`_ast_identifiers` over one tracked module."""
+    return frozenset(_tree_identifiers(_module_tree(path), asnames=asnames))
 
 
 @cache
@@ -1320,6 +1339,33 @@ class TestWhatTheGuardsAreAllowedToRead:
     same standard those guards are held to applies to their plumbing: passing
     proves nothing unless failing is also demonstrated.
     """
+
+    @pytest.fixture(autouse=True)
+    def _cold_caches(self):
+        """Every test here starts with nothing memoized, and leaves none behind.
+
+        Otherwise these pins quietly depend on call order inside their own
+        bodies. The environment test only sees a missing ``env=`` because
+        nothing warmed the listing before it patched ``GIT_INDEX_FILE``, and the
+        notebook test needs the same entry cold to see a file written after the
+        repo was built. Both are one edit to :meth:`_miniature_repo` away from
+        passing off the cache with the fix mutated out.
+        """
+        for memoized in (
+            _tracked_files,
+            _module_tree,
+            _module_identifiers,
+            _notebook_identifiers,
+        ):
+            memoized.cache_clear()
+        yield
+        for memoized in (
+            _tracked_files,
+            _module_tree,
+            _module_identifiers,
+            _notebook_identifiers,
+        ):
+            memoized.cache_clear()
 
     @staticmethod
     def _stage(tmp_path: pathlib.Path, staged: list[str]) -> None:
@@ -1396,6 +1442,36 @@ class TestWhatTheGuardsAreAllowedToRead:
             "qa_seahub_shipped.py"
         ]
 
+    def test_a_test_only_name_reaches_one_collector_and_not_the_other(self, tmp_path):
+        """The ``tests/`` split, and the scoping of the word ``tests``.
+
+        ``TEST_ONLY_NAME`` is what separates the two collectors: it keeps a
+        constant alive and leaves a public function dead. Nothing else here
+        exercises :func:`_identifiers_referenced_by_production` at all.
+
+        This also pins ``path.relative_to(bcp).parts`` over ``path.parts``,
+        which is why the repo goes *under* a directory called ``tests`` rather
+        than straight into ``tmp_path``: that is the whole difference between
+        the two, and a fixture in ``tmp_path`` would pass either way. With the
+        plain ``path.parts``, every file in such a checkout matches, the
+        production set empties, and every public ``qa_seahub_*`` function is
+        reported dead at once. ``~/tests/lattice-tools`` is enough to trigger
+        it, and CI never checks out anywhere like that, so the failure is
+        reserved for whoever's laptop does.
+        """
+        root = tmp_path / "tests" / "checkout"
+        bcp = root / "bcp"
+        (bcp / "tests").mkdir(parents=True)
+        (bcp / "qa_seahub_shipped.py").write_text("PRODUCTION_NAME = 1\n")
+        (bcp / "tests" / "test_helper.py").write_text("TEST_ONLY_NAME = 2\n")
+        self._stage(root, ["bcp/qa_seahub_shipped.py", "bcp/tests/test_helper.py"])
+
+        outside = _identifiers_referenced_outside(bcp, exclude="nothing.py")
+        production = _identifiers_referenced_by_production(bcp, exclude="nothing.py")
+        assert {"PRODUCTION_NAME", "TEST_ONLY_NAME"} <= outside
+        assert "PRODUCTION_NAME" in production
+        assert "TEST_ONLY_NAME" not in production
+
     def test_the_listing_survives_the_environment_a_hook_runs_in(
         self, tmp_path, monkeypatch
     ):
@@ -1407,6 +1483,9 @@ class TestWhatTheGuardsAreAllowedToRead:
         CI never sets ``GIT_*``.
         """
         bcp = self._miniature_repo(tmp_path)
+        # explicit, not just the autouse fixture: this assertion is only a
+        # test of the scrub while the listing is unmemoized at this line
+        _tracked_files.cache_clear()
         monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
         monkeypatch.setenv("GIT_DIR", "no-such-git-dir")
         assert [path.name for path in _tracked_files(bcp)] == ["qa_seahub_shipped.py"]
@@ -1439,6 +1518,9 @@ class TestWhatTheGuardsAreAllowedToRead:
                 {"cells": [{"cell_type": "code", "source": ["NOTEBOOK_NAME = 5\n"]}]}
             )
         )
+        # the notebook appears after the repo is built, so the listing has to
+        # be unmemoized here for its absence to mean anything
+        _tracked_files.cache_clear()
         assert _tracked_notebook(bcp) is None
         assert "NOTEBOOK_NAME" not in _identifiers_referenced_outside(
             bcp, exclude="nothing.py"
@@ -1487,7 +1569,7 @@ class TestRuleVocabulary:
         constants = bcp / "qa_constants.py"
         declared = {
             name
-            for name in _module_level_constants(ast.parse(constants.read_text()))
+            for name in _module_level_constants(_module_tree(constants))
             if name.startswith("SEAHUB_")
         }
         assert declared, "no SEAHUB_* constants found"
@@ -1515,7 +1597,7 @@ class TestRuleVocabulary:
 
         unread: list[str] = []
         for module in modules:
-            tree = ast.parse(module.read_text())
+            tree = _module_tree(module)
             public = {
                 node.name
                 for node in tree.body
@@ -1552,7 +1634,7 @@ class TestRuleVocabulary:
 
         unread: list[str] = []
         for module in modules:
-            tree = ast.parse(module.read_text())
+            tree = _module_tree(module)
             declared = _module_level_constants(tree)
             loaded = {
                 node.id
