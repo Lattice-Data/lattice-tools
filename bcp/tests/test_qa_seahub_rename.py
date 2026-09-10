@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import ast
 from dataclasses import replace
+from functools import cache
 import json
 import pathlib
 import re
+import subprocess
 
 import pytest
 
@@ -1074,51 +1076,150 @@ def _module_level_constants(tree: ast.Module) -> set[str]:
     return {n for n in names if not n.startswith("_") and not n.islower()}
 
 
-def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]:
-    """Every identifier used by code under ``bcp``, ignoring one file.
+@cache
+def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """Every tracked ``*.py`` file under ``bcp``.
+
+    ``git ls-files`` rather than ``rglob``, for the reason
+    ``test_sanitized_identifiers`` uses it and one more specific to these
+    guards. A virtualenv made inside ``bcp`` -- ``venv/`` and ``.venv`` are
+    ignored at the repo root, so git never sees one -- puts a few thousand
+    third-party modules under ``rglob("*.py")``. That is slow, and the slowness
+    is the harmless half: both collectors below get *subtracted* from the set of
+    declared names, so every identifier site-packages contributes can only
+    shrink what is reported as dead. An unread constant whose name collides with
+    anything in any installed dependency reads as live, and the guard passes
+    having checked nothing.
+
+    Tracked-only also settles the smaller question of a scratch module in the
+    working tree: a name is live if something we ship refers to it, and an
+    uncommitted file ships nothing.
+
+    ``-C`` the repo root with a ``bcp`` pathspec, not ``-C bcp``: git exports
+    ``GIT_INDEX_FILE`` to its hooks as a path relative to the repo root, and
+    ``-C`` resolves it from wherever it lands. Pointed at ``bcp`` the variable
+    names nothing, git reads that as an empty index and answers with no files
+    and status 0 -- which is why an empty listing fails here rather than being
+    taken for a clean tree. The ``pre-commit`` hook that runs this suite before
+    every commit is exactly that environment, and it is where this was caught.
+    A git failure fails the test rather than skipping it, for the same reason:
+    a guard that passes without having checked anything is worse than one that
+    errors.
+    """
+    repo_root = bcp.parent
+    relative = bcp.relative_to(repo_root).as_posix()
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-z", "--", relative],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:  # pragma: no cover - git absent
+        pytest.fail("no git binary, so tracked modules cannot be listed")
+    if result.returncode != 0:
+        pytest.fail(
+            f"git ls-files exited {result.returncode} in {repo_root}, so these "
+            f"guards cannot see what is tracked: {result.stderr.strip()}"
+        )
+
+    names = sorted(name for name in result.stdout.split("\0") if name.endswith(".py"))
+    paths = tuple(
+        path for path in (repo_root / name for name in names) if path.is_file()
+    )
+    assert paths, (
+        f"git listed no tracked modules under {bcp}, so these guards would "
+        "pass without having read anything"
+    )
+    return paths
+
+
+def _ast_identifiers(source: str, asnames: bool) -> set[str] | None:
+    """Every name an AST mentions, or ``None`` if the source will not parse.
 
     By AST, so a name that appears only in a comment or a docstring does not
     count as used -- including the docstrings of the guards below, which name
     the very constants they exist to catch and so exempted them permanently when
     this was a text search.
 
-    ``qa.ipynb`` is scanned too: the notebook is the primary consumer of these
-    modules, so a constant used only there is live. A cell that will not parse
-    (a magic, a fragment) falls back to a word scan, which over-counts -- the
-    safe direction, since the cost of a false positive here is a failing build
-    on correct code.
+    ``asnames`` because the two collectors differ: an import alias counts as a
+    reference for the constant guard and not for the dead-function one. Kept
+    apart rather than unified, since widening what production is deemed to
+    reference is exactly what makes a dead function look reachable.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.add(node.name.split(".")[-1])
+            if asnames and node.asname:
+                names.add(node.asname)
+    return names
+
+
+@cache
+def _module_identifiers(path: pathlib.Path, asnames: bool) -> frozenset[str]:
+    """``_ast_identifiers`` for one file, read and parsed once per session.
+
+    Two of the three guards below call a collector from inside a loop over the
+    four ``qa_seahub_*`` modules, so uncached the tracked tree is read and
+    parsed nine times per run -- and it was the three slowest tests in ``bcp``
+    at that.
+
+    A tracked module that will not parse fails here instead of contributing
+    nothing. The permissive direction is not available to a guard: a module
+    silently dropped from the union is a module whose references stop counting.
+    """
+    names = _ast_identifiers(path.read_text(), asnames)
+    if names is None:
+        pytest.fail(f"tracked module {path} does not parse, so it cannot be scanned")
+    return frozenset(names)
+
+
+@cache
+def _notebook_identifiers(notebook: pathlib.Path, asnames: bool) -> frozenset[str]:
+    """The same, over the code cells of ``qa.ipynb``.
+
+    The notebook is the primary consumer of these modules, so a constant used
+    only there is live. A cell that will not parse (a magic, a fragment) falls
+    back to a word scan, which over-counts -- the safe direction, since the cost
+    of a false positive here is a failing build on correct code.
+    """
+    if not notebook.exists():
+        return frozenset()
+
+    names: set[str] = set()
+    for cell in json.loads(notebook.read_text()).get("cells", []):
+        if cell.get("cell_type") != "code":
+            continue
+        source = "".join(cell.get("source", []))
+        cell_names = _ast_identifiers(source, asnames)
+        if cell_names is None:
+            names.update(re.findall(r"\b\w+\b", source))
+        else:
+            names.update(cell_names)
+    return frozenset(names)
+
+
+def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]:
+    """Every identifier tracked code under ``bcp`` uses, ignoring one file.
+
+    Tests count as a reader here, and so does ``qa.ipynb``: a constant whose
+    only consumer is the notebook or the test that pins it is still live. The
+    guard that disagrees is the next one down.
     """
     names: set[str] = set()
-
-    def collect(source: str) -> bool:
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            return False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name):
-                names.add(node.id)
-            elif isinstance(node, ast.Attribute):
-                names.add(node.attr)
-            elif isinstance(node, ast.alias):
-                names.add(node.name.split(".")[-1])
-                if node.asname:
-                    names.add(node.asname)
-        return True
-
-    for path in bcp.rglob("*.py"):
+    for path in _tracked_python_modules(bcp):
         if path.name != exclude:
-            collect(path.read_text())
-
-    notebook = bcp / "qa.ipynb"
-    if notebook.exists():
-        for cell in json.loads(notebook.read_text()).get("cells", []):
-            if cell.get("cell_type") != "code":
-                continue
-            source = "".join(cell.get("source", []))
-            if not collect(source):
-                names.update(re.findall(r"\b\w+\b", source))
-    return names
+            names |= _module_identifiers(path, True)
+    return names | _notebook_identifiers(bcp / "qa.ipynb", True)
 
 
 def _identifiers_referenced_by_production(bcp: pathlib.Path, exclude: str) -> set[str]:
@@ -1128,37 +1229,17 @@ def _identifiers_referenced_by_production(bcp: pathlib.Path, exclude: str) -> se
     tested. Constants are different -- ``WELL_COLUMNS`` is a CSV contract whose
     only legitimate reader is the test that pins it -- which is why the two
     guards below apply different rules rather than one.
+
+    ``tests`` is looked for below ``bcp`` rather than anywhere in the path, so a
+    checkout living under a directory of that name does not empty the set and
+    report every public function at once.
     """
     names: set[str] = set()
-    for path in bcp.rglob("*.py"):
-        if path.name == exclude or "tests" in path.parts:
+    for path in _tracked_python_modules(bcp):
+        if path.name == exclude or "tests" in path.relative_to(bcp).parts:
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.Name):
-                names.add(node.id)
-            elif isinstance(node, ast.Attribute):
-                names.add(node.attr)
-            elif isinstance(node, ast.alias):
-                names.add(node.name.split(".")[-1])
-    notebook = bcp / "qa.ipynb"
-    if notebook.exists():
-        for cell in json.loads(notebook.read_text()).get("cells", []):
-            if cell.get("cell_type") != "code":
-                continue
-            source = "".join(cell.get("source", []))
-            try:
-                tree = ast.parse(source)
-            except SyntaxError:
-                names.update(re.findall(r"\b\w+\b", source))
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Name):
-                    names.add(node.id)
-                elif isinstance(node, ast.Attribute):
-                    names.add(node.attr)
-                elif isinstance(node, ast.alias):
-                    names.add(node.name.split(".")[-1])
-    return names
+        names |= _module_identifiers(path, False)
+    return names | _notebook_identifiers(bcp / "qa.ipynb", False)
 
 
 class TestRuleVocabulary:
