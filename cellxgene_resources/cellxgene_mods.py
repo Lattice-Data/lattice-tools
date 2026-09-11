@@ -20,6 +20,39 @@ import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
 
 
+EXPECTED_BARCODES = {
+    'EFO:0009901':                    '3pv1',
+    "10x 3' v1":                      '3pv1',
+    'EFO:0009899':                    '3pv2_5pv1_5pv2',
+    "10x 3' v2":                      '3pv2_5pv1_5pv2',
+    'EFO:0009922':                    '3pv3',
+    "10x 3' v3":                      '3pv3',
+    'EFO:0022604':                    '3pv4',
+    "10x 3' v4":                      '3pv4',
+    'EFO:0011025':                    '3pv2_5pv1_5pv2',
+    "10x 5' v1":                      '3pv2_5pv1_5pv2',
+    'EFO:0009900':                    '3pv2_5pv1_5pv2',
+    "10x 5' v2":                      '3pv2_5pv1_5pv2',
+    'EFO:0030004':                    '3pv2_5pv1_5pv2',
+    "10x 5' transcription profiling": '3pv2_5pv1_5pv2',
+    'EFO:0022605':                    '5pv3',
+    "10x 5' v3":                      '5pv3',
+    'EFO:0030059':                    'multiome',
+    "10x multiome":                   'multiome',
+    'EFO:0920134':                    'multiome',
+    "10x GEM-X Epi Multiome":         'multiome',
+    'EFO:0920135':                    'multiome',
+    "10x Next-GEM Multiome":          'multiome',
+    'EFO:0920086':                    'flex_v1',
+    "10x gene expression flex v1":    'flex_v1',
+    'EFO:0920088':                    'flex_v1',
+    "10x GEM-X Flex v1":              'flex_v1',
+    'EFO:0920087':                    'flex_v1',
+    "10x Next GEM Flex v1":           'flex_v1',
+    'EFO:0920089':                    'flex_v2',
+    "10x Flex Apex":                  'flex_v2'
+}
+
 OBS_ONTOLOGY_LABELS_REQUIRED = [
     'assay', 'cell_type', 'development_stage', 'disease',
     'self_reported_ethnicity', 'sex', 'tissue'
@@ -363,15 +396,25 @@ def map_filter_gene_ids(adata):
     return adata
 
 
-def extract_barcodes(index, label='index'):
+def extract_barcodes(index):
     pattern = re.compile(r'[ACTG]{12,}')
     barcodes = []
+    affixes = []
+
     for i in index:
         m = pattern.search(str(i))
-        barcodes.append(m.group()[:16] if m else None)
+        if m:
+            barcode = m.group()[:16]
+            barcodes.append(barcode)
+            affixes.append(i.replace(barcode,''))
+        else:
+            barcodes.append(None)
+            affixes.append(None)
+
     if not any(barcodes):
-        report(f'{label}: No barcodes found', 'WARNING')
-    return barcodes
+        report('No barcodes found in obs.index', 'WARNING')
+
+    return barcodes, affixes
 
 
 def evaluate_10x_barcodes(obs, visium=False):
@@ -390,8 +433,10 @@ def evaluate_10x_barcodes(obs, visium=False):
     global no_barcode_v
     no_barcode_v = 'no barcode'
 
-    obs = obs.copy()
-    obs['barcode'] = extract_barcodes(obs.index, label='obs index')
+    obs[['barcode', 'affix']] = pd.DataFrame(
+        zip(*extract_barcodes(obs.index)),
+        index=obs.index
+    )
     if len(set(ref_df.index.to_list()).intersection(set(obs['barcode'].to_list()))) == 0:
         report('Did not find any barcodes in obs index, cannot evaluate barcodes', 'WARNING')
         return
@@ -402,6 +447,34 @@ def evaluate_10x_barcodes(obs, visium=False):
     )
 
     return obs
+
+
+def validate_barcode_assignments(df_summary, field):
+    """
+    Check for unexpected barcode assignments based on assay type.
+    Prints warnings when barcodes don't match expected patterns.
+    """
+    # Columns to ignore during validation
+    ignore_cols = ['multiple', no_barcode_v]
+
+    has_unexpected = False
+
+    for i,row in df_summary.iterrows():
+        if i not in EXPECTED_BARCODES:
+            continue
+
+        expected_barcode = EXPECTED_BARCODES[i]
+        ignore_cols.append(expected_barcode)
+
+        # Check all barcode columns
+        for col in df_summary.columns:
+            count = row[col]
+            if count > 0 and col not in ignore_cols:
+                report(f'{col} barcodes marked as {i}','ERROR')
+                has_unexpected = True
+
+    if has_unexpected:
+        print()
 
 
 def parse_barcode_df(df, field):
@@ -417,6 +490,9 @@ def parse_barcode_df(df, field):
     for h in list(barcode_headers) + [no_barcode_v]:
         if h not in df.columns:
             df[h] = 0
+
+    validate_barcode_assignments(df, field)
+
     df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple',no_barcode_v] and not c.endswith('nt')]
             + [c for c in df if df[c].sum() > 0 and c.endswith('nt')]
             + [c for c in df if df[c].sum() == 0 and c not in ['multiple',no_barcode_v]]
