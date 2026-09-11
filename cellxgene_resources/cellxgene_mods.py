@@ -257,77 +257,244 @@ def calculate_adata_memory(adata_path: str, print_datasets: bool = False, sizes:
 
 
 def determine_sparsity(x):
-    if isinstance(x, sparse.coo_matrix) or isinstance(x, sparse.csr_matrix) or isinstance(x, sparse.csc_matrix):
-        sparsity = 1 - x.count_nonzero() / float(np.cumprod(x.shape)[-1])
+    """Calculate sparsity of a matrix."""
+    if isinstance(x, (sparse.coo_matrix, sparse.csr_matrix, sparse.csc_matrix)):
+        sparsity = 1 - x.count_nonzero() / float(np.prod(x.shape))
     elif isinstance(x, np.ndarray):
-        sparsity = 1 - np.count_nonzero(x) / float(np.cumprod(x.shape)[-1])
+        sparsity = 1 - np.count_nonzero(x) / float(np.prod(x.shape))
     else:
-        report(f'matrix is of type {type(x)}, sparsity calculation has not been implemented')
+        report(f'matrix is of type {type(x)}, sparsity calculation has not been implemented', 'WARNING')
+        return None
 
     return round(sparsity, 3)
 
 
-def evaluate_sparsity(adata):
-    max_sparsity = 0.5
-
+def evaluate_sparsity(adata, max_sparsity=0.5):
+    """Check sparsity and recommend sparse format conversion if needed."""
     valid = True
+
+    # Check X
     sparsity = determine_sparsity(adata.X)
     report(f'X sparsity: {sparsity}')
-    if sparsity > max_sparsity and type(adata.X) != sparse.csr_matrix:
+    if sparsity and sparsity > max_sparsity and not isinstance(adata.X, sparse.csr_matrix):
         report('X should be converted to csr sparse', 'ERROR')
+        report('adata.X = sparse.csr_matrix(adata.X)')
         valid = False
-    
+
+    # Check raw.X
     if adata.raw:
         sparsity = determine_sparsity(adata.raw.X)
         report(f'raw.X sparsity: {sparsity}')
-        if sparsity > max_sparsity and type(adata.raw.X) != sparse.csr_matrix:
+        if sparsity and sparsity > max_sparsity and not isinstance(adata.raw.X, sparse.csr_matrix):
             report('raw.X should be converted to csr sparse', 'ERROR')
+            report('raw_adata = ad.AnnData(sparse.csr_matrix(adata.raw.X), var=adata.raw.var, obs=adata.obs)')
+            report('adata.raw = raw_adata')
+            report('del raw_adata')
             valid = False
-    
-    for l in adata.layers:
-        sparsity = determine_sparsity(adata.layers[l])
-        report(f'layers[{l}] sparsity: {sparsity}')
-        if sparsity > max_sparsity and type(adata.layers[l]) != sparse.csr_matrix:
-            report(f'layers[{l}] should be converted to csr sparse', 'ERROR')
+
+    # Check layers
+    for layer_name in adata.layers:
+        sparsity = determine_sparsity(adata.layers[layer_name])
+        report(f'layers[{layer_name}] sparsity: {sparsity}')
+        if sparsity and sparsity > max_sparsity and not isinstance(adata.layers[layer_name], sparse.csr_matrix):
+            report(f'layers[{layer_name}] should be converted to csr sparse', 'ERROR')
+            report(f'adata.layers[{layer_name}] = sparse.csr_matrix(adata.layers[{layer_name}])')
             valid = False
 
     if valid:
-        report('all matrices have passed checks', 'GOOD')
+        report('all matrices have passed sparsity checks', 'GOOD')
+
+
+def get_raw_matrix_info(adata):
+    """
+    Get raw count matrix and its location.
+    Returns (matrix, location_string, is_csr_sparse)
+    """
+    if adata.raw:
+        matrix = adata.raw.X
+        location = '.raw.X'
+    else:
+        matrix = adata.X
+        location = '.X'
+
+    is_csr = isinstance(matrix, sparse.csr_matrix)
+
+    return matrix, location, is_csr
+
+
+def evaluate_raw_matrix(matrix, loc):
+    """Validate raw count matrix properties."""
+    report(f'raw counts determined to be in {loc}')
+
+    # Check if all values are integers
+    # For sparse matrices, only check the data array
+    data = matrix.data if hasattr(matrix, 'data') else matrix
+    all_integers = np.allclose(data, np.round(data))
+
+    if all_integers:
+        report('raw counts are all integers', 'GOOD')
+    else:
+        report('raw counts contain non-integer values', 'ERROR')
+
+    # Check dtype
+    if matrix.dtype != np.float32:
+        report(f'raw count dtype should be float32, not {matrix.dtype}', 'ERROR')
+    else:
+        report('raw count dtype is float32', 'GOOD')
+
+    return all_integers and matrix.dtype == np.float32
+
+
+def get_matrix_range(matrix):
+    """Get min and max values from a matrix."""
+    return matrix.min(), matrix.max()
 
 
 def evaluate_data(adata):
+    evaluate_sparsity(adata)
+    print()
+    evaluate_data_range(adata)
+
+
+def check_matrix_duplicates(matrix_pairs):
+    """
+    Check if matrices are truly identical.
+    Uses fast checks, then goes straight to full comparison.
+
+    Args:
+        matrix_pairs: List of (name, matrix) tuples
+
+    Returns:
+        List of groups that are true duplicates, or empty list
+    """
+    if len(matrix_pairs) < 2:
+        return []
+
+    # Level 1: Check shapes (instant)
+    shapes = [(name, mx.shape) for name, mx in matrix_pairs]
+    if len(set(s for _, s in shapes)) > 1:
+        return []  # Different shapes, can't be duplicates
+
+    # Level 2: Check sum (very fast)
+    sums = [(name, mx.sum()) for name, mx in matrix_pairs]
+    sum_groups = {}
+    for name, s in sums:
+        sum_groups.setdefault(s, []).append(name)
+
+    duplicate_groups = []
+
+    for sum_val, names in sum_groups.items():
+        if len(names) < 2:
+            continue  # Only one matrix with this sum
+
+        # Get matrices with matching sums
+        matching = [(name, mx) for name, mx in matrix_pairs if name in names]
+
+        # Level 3: Check mean (fast)
+        means = [(name, mx.mean()) for name, mx in matching]
+        if len(set(m for _, m in means)) > 1:
+            continue  # Different means, not duplicates
+
+        # Level 4: Full comparison - they passed the quick checks
+        if len(matching) == 2:
+            name1, mx1 = matching[0]
+            name2, mx2 = matching[1]
+
+            if matrices_equal(mx1, mx2):
+                duplicate_groups.append([name1, name2])
+        else:
+            # For 3+ matrices, compare pairwise
+            verified_group = [matching[0][0]]  # Start with first matrix
+            base_mx = matching[0][1]
+
+            for name, mx in matching[1:]:
+                if matrices_equal(base_mx, mx):
+                    verified_group.append(name)
+
+            if len(verified_group) > 1:
+                duplicate_groups.append(verified_group)
+
+    return duplicate_groups
+
+
+def matrices_equal(mx1, mx2):
+    """
+    Check if two matrices are exactly equal.
+    Handles both sparse and dense matrices.
+    """
+    # Check if both are sparse or both are dense
+    mx1_sparse = isinstance(mx1, sparse.spmatrix)
+    mx2_sparse = isinstance(mx2, sparse.spmatrix)
+
+    if mx1_sparse != mx2_sparse:
+        return False
+
+    if mx1_sparse:
+        # For sparse matrices, compare in CSR format
+        mx1_csr = mx1.tocsr() if not isinstance(mx1, sparse.csr_matrix) else mx1
+        mx2_csr = mx2.tocsr() if not isinstance(mx2, sparse.csr_matrix) else mx2
+
+        # Compare data, indices, and indptr arrays
+        return (np.array_equal(mx1_csr.data, mx2_csr.data) and
+                np.array_equal(mx1_csr.indices, mx2_csr.indices) and
+                np.array_equal(mx1_csr.indptr, mx2_csr.indptr))
+    else:
+        # For dense matrices
+        return np.array_equal(mx1, mx2)
+
+
+def evaluate_data_range(adata):
+    """Check data ranges and detect potential duplicate layers."""
     min_maxs = {}
+
+    # Determine where raw counts are
     if adata.raw:
-        raw_min = adata.raw.X.min()
-        raw_max = adata.raw.X.max()
-        report(f'raw min = {raw_min}')
-        report(f'raw max = {raw_max}')
-        min_maxs['raw'] = f'{raw_min}-{raw_max}'
-        all_integers = np.all(np.round(adata.raw.X.data) == adata.raw.X.data)
+        raw_min, raw_max = get_matrix_range(adata.raw.X)
+        report(f'raw.X min = {raw_min}, max = {raw_max}')
+        min_maxs['raw.X'] = (raw_min, raw_max)
+        raw_matrix = adata.raw.X
+        raw_loc = '.raw.X'
     else:
-        all_integers = np.all(np.round(adata.X.data) == adata.X.data)
+        raw_matrix = adata.X
+        raw_loc = '.X'
 
-    if all_integers:
-        report('raw is all integers', 'GOOD')
-    else:
-        report('raw contains non-integer values', 'ERROR')
+    # Check X
+    x_min, x_max = get_matrix_range(adata.X)
+    report(f'X min = {x_min}, max = {x_max}')
+    min_maxs['X'] = (x_min, x_max)
 
-    X_min = adata.X.min()
-    X_max = adata.X.max()
-    report(f'X min = {X_min}')
-    report(f'X max = {X_max}')
-    min_maxs['X'] = f'{X_min}-{X_max}'
+    # Check layers
+    for layer_name in adata.layers:
+        layer_min, layer_max = get_matrix_range(adata.layers[layer_name])
+        report(f'layers[{layer_name}] min = {layer_min}, max = {layer_max}')
+        min_maxs[f'layers[{layer_name}]'] = (layer_min, layer_max)
 
-    for l in adata.layers:
-        min = adata.layers[l].min()
-        max = adata.layers[l].max()
-        report(f'layers[{l}] min = {min}')
-        report(f'layers[{l}] max = {max}')
-        min_maxs[l] = f'{min}-{max}'
+    # Detect potential duplicates based on min/max
+    range_groups = {}
+    for name, range_val in min_maxs.items():
+        range_groups.setdefault(range_val, []).append(name)
 
-    poss_dups = [k for k,v in min_maxs.items() if list(min_maxs.values()).count(v) > 1]
-    if poss_dups:
-        report(f'possible redundant layers: {poss_dups}','WARNING')
+    potential_duplicates = [names for names in range_groups.values() if len(names) > 1]
+    if potential_duplicates:
+        for dup_group in potential_duplicates:
+            report(f'possible redundant layers based on min/max: {dup_group}. Checking...', 'WARNING')
+
+            # Get the matrices for this group
+            group_matrices = [(name, matrices[name]) for name in dup_group]
+
+            # Check if they're truly identical
+            true_duplicates = check_matrix_duplicates(group_matrices)
+
+            if true_duplicates:
+                report(f'CONFIRMED duplicates: {true_duplicates}', 'ERROR')
+                report('Remove duplication to reduce object and file size', 'ERROR')
+            else:
+                report('Different matrices (same min/max is coincidental)', 'WARNING')
+
+    print()
+
+    # Validate raw matrix
+    evaluate_raw_matrix(raw_matrix, raw_loc)
 
 
 def evaluate_uns_colors(adata):
@@ -603,72 +770,103 @@ def evaluate_obs(obs):
         report(f'long fields: {long_fields}')
 
 
-def evaluate_dup_counts(adata):
-    """
-    Hash sparse csr matrix using np.ndarrays that represent sparse matrix data.
-    First pass will hash all rows via slicing the data array and append to copy of obs df
-    Second pass will hash only duplicate rows in obs copy via the indices array.
-    This will keep only true duplicated matrix rows and not rows with an indicental same
-    ordering of their data arrays
-    """
-    if 'in_tissue' in adata.obs.columns:
-        obs_to_keep = adata.obs[adata.obs['in_tissue'] != 0].index
-        adata = adata[obs_to_keep, : ]
-
-    matrix = adata.raw.X if adata.raw else adata.X
-
+def ensure_canonical_csr(matrix, adata_obj, location_desc):
+    """Ensure matrix is in canonical CSR format."""
     if not isinstance(matrix, sparse.csr_matrix):
-        print("Matrix not in sparse csr format, please convert before hashing")
-        return
-
-    nnz = matrix.nnz
+        report(
+            f'{location_desc} not in sparse CSR format, conversion required, rerun evaluate_data() for guidance',
+            'ERROR'
+        )
+        return None
 
     if not matrix.has_canonical_format:
-        print("Csr matrix not in canonical format, converting now...")
-        if adata.raw:
-            adata.raw.X.sort_indices()
-            adata.raw.X.sum_duplicates()
-        else:
-            adata.X.sort_indices()
-            adata.X.sum_duplicates()
+        report(f"{location_desc} not in canonical format, converting now...")
+        original_nnz = matrix.nnz
+        matrix.sort_indices()
+        matrix.sum_duplicates()
+        #ATTN - what causes this to flag? add conversion code?
+        if original_nnz != matrix.nnz:
+            report(f"{original_nnz - matrix.nnz} duplicates found during canonical conversion")
 
-    assert matrix.has_canonical_format, "Matrix still in non-canonical format"
-
-    if nnz != matrix.nnz:
-        print(f"{nnz - matrix.nnz} duplicates found during canonical conversion")
+    assert matrix.has_canonical_format, f"{location_desc} still in non-canonical format"
+    return matrix
 
 
+def hash_sparse_rows(matrix, obs_df):
+    """
+    Hash rows of a sparse CSR matrix to detect duplicates.
+
+    Returns DataFrame with only duplicated rows and their hash values.
+    """
     data_array = matrix.data
     index_array = matrix.indices
     indptr_array = matrix.indptr
 
-    start, end = 0, matrix.shape[0]
-    hashes = []
-    while start < end:
-        val = hash(data_array[indptr_array[start]:indptr_array[start + 1]].tobytes())
-        hashes.append(val)
-        start += 1
+    # First pass: hash data arrays for all rows
+    data_hashes = []
+    for i in range(matrix.shape[0]):
+        row_data = data_array[indptr_array[i]:indptr_array[i + 1]]
+        data_hashes.append(hash(row_data.tobytes()))
 
-    def index_hash(index):
-        obs_loc = adata.obs.index.get_loc(index)
-        val = hash(index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]].tobytes())
+    # Create working dataframe with data hashes
+    hash_df = obs_df.copy()
+    hash_df['data_array_hash'] = data_hashes
 
-        return val
-    
-    hash_df = adata.obs.copy()
-    hash_df['data_array_hash'] = hashes
-    hash_df = hash_df[hash_df.duplicated(subset='data_array_hash',keep=False) == True]
+    # Keep only rows with duplicate data hashes
+    hash_df = hash_df[hash_df.duplicated(subset='data_array_hash', keep=False)]
+
+    if hash_df.empty:
+        return hash_df
+
     hash_df.sort_values('data_array_hash', inplace=True)
 
-    hash_df['index_array_hash'] = [index_hash(row) for row in hash_df.index.to_list()]
-    hash_df = hash_df[hash_df.duplicated(subset=['data_array_hash', 'index_array_hash'], keep=False) == True]
+    # Second pass: hash index arrays for potential duplicates
+    def hash_row_indices(obs_index):
+        obs_loc = obs_df.index.get_loc(obs_index)
+        row_indices = index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]]
+        return hash(row_indices.tobytes())
 
-    if not hash_df.empty:
-        report('duplicated raw counts', 'ERROR')
-        return hash_df
-    report('no duplicated raw counts', 'GOOD')
+    hash_df['index_array_hash'] = hash_df.index.map(hash_row_indices)
 
-    
+    # Keep only true duplicates (both data and indices match)
+    hash_df = hash_df[
+        hash_df.duplicated(subset=['data_array_hash', 'index_array_hash'], keep=False)
+    ]
+
+    return hash_df
+
+
+def evaluate_dup_counts(adata):
+    """
+    Detect duplicate raw count rows in the dataset.
+
+    Returns DataFrame of duplicated rows if found, None otherwise.
+    """
+    # Filter to in-tissue observations for spatial data
+    working_adata = adata
+    if 'in_tissue' in adata.obs.columns:
+        obs_to_keep = adata.obs['in_tissue'] != 0
+        working_adata = adata[obs_to_keep, :]
+        report(f'Filtered to {obs_to_keep.sum()} in-tissue observations')
+
+    # Get the raw count matrix
+    matrix, loc_desc, is_csr = get_raw_matrix_info(working_adata)
+
+    # Ensure matrix is in canonical CSR format
+    matrix = ensure_canonical_csr(matrix, working_adata, loc_desc)
+    if matrix is None:
+        return None
+
+    # Hash rows to find duplicates
+    dup_df = hash_sparse_rows(matrix, working_adata.obs)
+    if not dup_df.empty:
+        report(f'Found {len(dup_df)} rows with duplicated raw counts', 'ERROR')
+        return dup_df
+
+    report('No duplicated raw counts', 'GOOD')
+    return None
+
+
 def symbols_to_ids(symbols, var):
     """
     Given a list of gene symbols, look in genes_approved.csv.gz to see if we can map to an Ensembl ID that is found
