@@ -3,6 +3,7 @@ import dask.array as da
 import h5py
 import json
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 import numpy as np
 import os
 import pandas as pd
@@ -786,13 +787,65 @@ def viz_spatial_per_field(sdata, library_id, res, field):
 
 
 def plot_vis(adata, cellpop_field=None):
-    spatial_keys = [k for k in adata.uns['spatial'].keys() if k != 'is_single']
-    if len(spatial_keys) != 1:
-        report(f'Found {len(spatial_keys)} keys in uns.spatial: {spatial_keys}', 'ERROR')
-        return None
     library_id = [k for k in adata.uns['spatial'].keys() if k != 'is_single'][0]
     sdata = anndata_to_spatialdata_visium(adata, library_id, cellpop_field)
     visualize_spatial(sdata, library_id, cellpop_field)
+
+
+def evaluate_spatial(adata, cellpop_field):
+    if 'spatial' not in adata.uns:
+        report("required uns['spatial'] is absent", 'ERROR')
+        return
+    if 'is_single' not in adata.uns['spatial']:
+        report("required uns['spatial']['is_single'] is absent", 'ERROR')
+        return
+    if adata.uns['spatial']['is_single'] == True:
+        if len(adata.uns['spatial']) > 2:
+            report(f"Extra keys found in uns['spatial'] - {adata.uns['spatial'].keys()}", 'ERROR')
+            return
+        plot_vis(adata, cellpop_field)
+    elif len(adata.uns['spatial'].keys()) > 1:
+        report(f"Extra keys found in uns['spatial'] - {adata.uns['spatial'].keys()}", 'ERROR')
+
+
+def side_by_side_dotplot(adata, gene_list, groupby):
+    panels = [(False, ".X")] + ([(True, ".raw.X")] if adata.raw else [])
+    n = len(panels)
+
+    n_groups = adata.obs[groupby].nunique()
+    top_in, gap_in, legend_in, bottom_in = 0.4, 1.3, 1.3, 0.15
+    main_in = max(2.0, n_groups * 0.28)
+    fig_h = top_in + main_in + gap_in + legend_in + bottom_in
+    fig = plt.figure(figsize=(len(gene_list) * 0.3 * n, fig_h))
+    outer = fig.add_gridspec(1, n, wspace=0)
+
+    main_y0, main_h = (bottom_in + legend_in + gap_in) / fig_h, main_in / fig_h
+    legend_y0, legend_h = bottom_in / fig_h, legend_in / fig_h
+
+    for i, (use_raw, title) in enumerate(panels):
+        col = outer[0, i].get_position(fig)
+        main_gs = fig.add_gridspec(1, 1, left=col.x0, right=col.x1, bottom=main_y0, top=main_y0 + main_h)
+        main_ax = fig.add_subplot(main_gs[0, 0])
+        legend_ax = fig.add_axes([col.x0, legend_y0, col.width, legend_h])
+
+        dp = sc.pl.dotplot(adata, gene_list, groupby=groupby, use_raw=use_raw,
+                            ax=main_ax, show=False, return_fig=True, title=title)
+        dp.legend(show=False)
+        dp.make_figure()
+        mainplot_ax = dp.get_axes()["mainplot_ax"]
+        mainplot_ax.set_position(main_ax.get_position())
+        if i > 0:
+            mainplot_ax.tick_params(axis="y", left=False, labelleft=False)
+
+        legend_ax.axis("off")
+        lp = legend_ax.get_position()
+        size_ax = fig.add_axes([lp.x0, lp.y0, lp.width * 0.35, lp.height * 0.7])
+        cbar_ax = fig.add_axes([lp.x0 + lp.width * 0.55, lp.y0 + lp.height * 0.15, lp.width * 0.4, lp.height * 0.28])
+        dp._plot_size_legend(size_ax)
+        norm = Normalize(vmin=dp.dot_color_df.values.min(), vmax=dp.dot_color_df.values.max())
+        dp._plot_colorbar(cbar_ax, norm)
+
+    plt.show()
 
 
 def validate(file):
