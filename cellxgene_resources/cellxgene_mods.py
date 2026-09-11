@@ -707,7 +707,7 @@ def evaluate_obsm(adata, labels=None):
 def evaluate_uns_schema(uns, labels=False):
     for f in UNS_CURATOR_REQUIRED:
         if f in uns:
-            print(f'{f}: ', uns[f])
+            report(f'{f}: {uns[f]}')
         else:
             report(f'{f} is required', 'ERROR')
     if not labels:
@@ -768,7 +768,7 @@ def evaluate_obs(obs):
         counts = '_'.join([str(c) for c in vc_dict.values()])
         count_len = len(vc_dict.keys())
         values = [str(i) for i in vc_dict.keys()]
-    
+
         if o.startswith(' ') or o.endswith(' ') or '  ' in o:
             report(f'leading/trailing whitespace: {o}\n')
 
@@ -783,7 +783,7 @@ def evaluate_obs(obs):
             #check for long categories as they will not be enabled for coloring
             if count_len > 200 and o != 'observation_joinid':
                 long_fields.append(o)
-    
+
             #report value_counts to later look for redundancy
             metadata = {
                 'values': values,
@@ -992,7 +992,7 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
         (spot_radius_hires, coords_hires, 'hires'),
         (spot_radius_fullres, coords_fullres, 'fullres'),
     ]
-    
+
     for spot_radius, coords, name in radii_and_coords:
         circles = [Point(x, y).buffer(spot_radius) for x, y in coords]
         shapes_df = gpd.GeoDataFrame({
@@ -1572,7 +1572,7 @@ def evaluate_donors_sex(adata):
             use_raw=False,
             categories_order=flattened_ratio_order,
             return_fig=True
-          )
+        )
 
         if not donor_sex_df.empty:
             compare_donor_sex(donor_sex_df)
@@ -1580,7 +1580,7 @@ def evaluate_donors_sex(adata):
         return dp
 
 
-def evaluate_var_df(adata):
+def evaluate_var(adata):
     """
     Use single-cell-curation classes and fuctions and report warning/error for organism specific minimum number of gene features. Also, this function
     will look that var contains features from only a single organism.
@@ -1592,39 +1592,25 @@ def evaluate_var_df(adata):
     more genes filtered.
     """
     accepted_biotypes = [
-        'protein_coding',
-        'protein_coding_LoF',
-        'lncRNA',
-        'IG_C_gene',
-        'IG_D_gene',
-        'IG_J_gene',
-        'IG_LV_gene',
-        'IG_V_gene',
-        'IG_V_pseudogene',
-        'IG_J_pseudogene',
-        'IG_C_pseudogene',
-        'TR_C_gene',
-        'TR_D_gene',
-        'TR_J_gene',
-        'TR_V_gene',
-        'TR_V_pseudogene',
-        'TR_J_pseudogene'
+        'protein_coding','protein_coding_LoF','lncRNA',
+        'IG_C_gene','IG_D_gene','IG_J_gene','IG_LV_gene','IG_V_gene',
+        'IG_V_pseudogene','IG_J_pseudogene','IG_C_pseudogene',
+        'TR_C_gene','TR_D_gene','TR_J_gene','TR_V_gene',
+        'TR_V_pseudogene','TR_J_pseudogene'
     ]
 
     organisms_with_descendants = [
-        'NCBITaxon:9541',
-        'NCBITaxon:9544',
-        'NCBITaxon:10090',
-        'NCBITaxon:9986',
-        'NCBITaxon:9598',
-        'NCBITaxon:10116',
-        'NCBITaxon:9823'
+        'NCBITaxon:9541','NCBITaxon:9544','NCBITaxon:10090','NCBITaxon:9986',
+        'NCBITaxon:9598','NCBITaxon:10116','NCBITaxon:9823'
     ]
 
     # Check that this is single organism both in metadata and var index, exit function if multiple organisms or contains invalid var features
     var_organism_objs = list({gencode.get_organism_from_feature_id(id) for id in adata.var.index.to_list()})
     if None in var_organism_objs:
-        report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
+        report(
+            'Some features in var.index are not valid gene IDs. index may be gene symbols or contain deprecated IDs',
+            'ERROR'
+        )
         return
     valid = True
     uns_organism = adata.uns['organism_ontology_term_id']
@@ -1634,7 +1620,7 @@ def evaluate_var_df(adata):
         report('There are covid genes present in var')
         var_organisms.remove('NCBITaxon:2697049')
     if 'NCBITaxon:2697049' == uns_organism:
-        report('"Covid is not a supported uns.organism"', 'ERROR')
+        report('Covid is not a supported uns.organism', 'ERROR')
         valid = False
     if len(var_organisms) > 1:
         report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
@@ -1684,17 +1670,31 @@ def evaluate_var_df(adata):
     fraction = gene_count / target_count
     percent = fraction * 100
     if fraction < err_cut:
-        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}% ({err_cut} threshold)', 'ERROR')
+        report(
+            f'{gene_count} genes present, compared against {target_count} {count_type} genes:'\
+            f'{percent:.1f}% ({err_cut} threshold)\n'\
+            'Data may not be eligible for submission without a less filtered gene set',
+            'ERROR'
+        )
     elif fraction < warn_cut:
-        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}% ({warn_cut} threshold)','WARNING')
+        report(
+            f'{gene_count} genes present, compared against {target_count} {count_type} genes:'\
+            f'{percent:.1f}% ({warn_cut} threshold)\n'\
+            'A less filtered gene set should be requested',
+            'WARNING'
+        )
     else:
-        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}%', 'GOOD')
+        report(
+            f'{gene_count} genes present, compared against {target_count} {count_type} genes:'\
+            f'{percent:.1f}%',
+            'GOOD'
+        )
 
     # Check the number of filtered genes
     if 'feature_is_filtered' in adata.var.columns:
         if True in adata.var.feature_is_filtered.unique():
             num_filtered_genes = len(adata.var[adata.var.feature_is_filtered == True])
             frac_filtered = num_filtered_genes / gene_count * 100
-            print(f'{num_filtered_genes} ({frac_filtered:.1f}%) genes are filtered')
+            report(f'{num_filtered_genes} ({frac_filtered:.1f}%) genes are filtered from .X')
     else:
         report('feature_is_filtered not found in var', 'ERROR')
