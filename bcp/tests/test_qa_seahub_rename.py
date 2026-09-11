@@ -6,9 +6,11 @@ from __future__ import annotations
 
 import ast
 from dataclasses import replace
+from functools import cache
 import json
 import pathlib
 import re
+import subprocess
 
 import pytest
 
@@ -41,6 +43,7 @@ from qa_seahub_source import (
     index_untrimmed_sources,
 )
 
+from tests.git_helpers import git_free_env, tracked_files
 from tests.qa_seahub_helpers import (
     BUCKET,
     JUNK_NAMES,
@@ -1074,51 +1077,202 @@ def _module_level_constants(tree: ast.Module) -> set[str]:
     return {n for n in names if not n.startswith("_") and not n.islower()}
 
 
-def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]:
-    """Every identifier used by code under ``bcp``, ignoring one file.
+def _tracked_python_modules(bcp: pathlib.Path) -> tuple[pathlib.Path, ...]:
+    """The ``*.py`` half of the tracked listing under ``bcp``.
+
+    :func:`tracked_files` argues the index over the working tree in general;
+    what these guards get from it in particular is immunity to a virtualenv made
+    inside ``bcp``. ``venv/`` and ``.venv`` are ignored at the repo root, so git
+    never sees one, while ``rglob("*.py")`` finds a few thousand third-party
+    modules in it. That is slow, and the slowness is the harmless half: both
+    collectors below get *subtracted* from the set of declared names, so every
+    identifier site-packages contributes can only shrink what is reported as
+    dead. An unread constant whose name collides with anything in any installed
+    dependency reads as live, and the guard passes having checked nothing.
+
+    Tracked-only also settles the smaller question of a scratch module in the
+    working tree: a name is live if something we ship refers to it, and an
+    uncommitted file ships nothing.
+
+    An entry whose file is gone (a staged deletion, a sparse checkout) is
+    dropped by the listing, which here shrinks the reference set -- so it errs
+    toward reporting a name as dead, a failing build on live code, which someone
+    reads.
+    """
+    return tuple(path for path in tracked_files(bcp) if path.suffix == ".py")
+
+
+def _tracked_seahub_modules(bcp: pathlib.Path) -> list[pathlib.Path]:
+    """The ``qa_seahub_*`` modules, from the listing the references come from.
+
+    Both halves of a guard have to agree about what counts as shipped. Globbing
+    the working tree for subjects while reading the index for references reports
+    an unstaged ``qa_seahub_wip.py`` against a reference set that cannot contain
+    its unstaged caller -- a failing build on code nobody has committed, which
+    is the case tracked-only exists to settle.
+    """
+    return [
+        path
+        for path in _tracked_python_modules(bcp)
+        if path.parent == bcp and path.name.startswith("qa_seahub_")
+    ]
+
+
+def _tracked_notebook(bcp: pathlib.Path) -> pathlib.Path | None:
+    """``qa.ipynb`` if it is tracked, so an untracked copy vouches for nothing.
+
+    Theoretical today -- the notebook is tracked -- but it was the one input
+    still reached by name, and a rule with one exception is a rule nobody can
+    apply from memory.
+    """
+    return next(
+        (
+            path
+            for path in tracked_files(bcp)
+            if path.parent == bcp and path.name == "qa.ipynb"
+        ),
+        None,
+    )
+
+
+def _tracked_module(bcp: pathlib.Path, name: str) -> pathlib.Path:
+    """One named module, through the listing rather than by path.
+
+    The same rule as :func:`_tracked_notebook`, applied to the last input that
+    was still reached by name. ``qa_constants.py`` is a subject, and subjects
+    were the half of the guards that disagreed with the references about what
+    counts as shipped -- an exception there is the specific mistake
+    :func:`_tracked_seahub_modules` exists to correct. Failing loudly when it
+    is missing also beats the traceback a renamed file used to produce.
+    """
+    for path in _tracked_python_modules(bcp):
+        if path.parent == bcp and path.name == name:
+            return path
+    pytest.fail(f"{name} is not tracked under {bcp}, so this guard has no subject")
+
+
+def _ast_identifiers(source: str, *, asnames: bool) -> set[str] | None:
+    """Every name an AST mentions, or ``None`` if the source will not parse.
 
     By AST, so a name that appears only in a comment or a docstring does not
     count as used -- including the docstrings of the guards below, which name
     the very constants they exist to catch and so exempted them permanently when
     this was a text search.
 
-    ``qa.ipynb`` is scanned too: the notebook is the primary consumer of these
-    modules, so a constant used only there is live. A cell that will not parse
-    (a magic, a fragment) falls back to a word scan, which over-counts -- the
-    safe direction, since the cost of a false positive here is a failing build
-    on correct code.
+    ``asnames`` because the two collectors differ: an import alias counts as a
+    reference for the constant guard and not for the dead-function one. Kept
+    apart rather than unified, since widening what production is deemed to
+    reference is exactly what makes a dead function look reachable.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return None
+    return _tree_identifiers(tree, asnames=asnames)
+
+
+def _tree_identifiers(tree: ast.Module, *, asnames: bool) -> set[str]:
+    """The walk itself, for callers that already hold a parsed module."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            names.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            names.add(node.attr)
+        elif isinstance(node, ast.alias):
+            names.add(node.name.split(".")[-1])
+            if asnames and node.asname:
+                names.add(node.asname)
+    return names
+
+
+@cache
+def _module_tree(path: pathlib.Path) -> ast.Module:
+    """One file, read and parsed once per session.
+
+    Two of the three guards below call a collector from inside a loop over the
+    four ``qa_seahub_*`` modules, so uncached the tracked tree is read and
+    parsed nine times per run -- and it was the three slowest tests in ``bcp``
+    at that. Everything that needs a module goes through here, including the
+    guards' own subjects, so the file is read once and one message covers every
+    way a module can fail to be readable -- unparseable, undecodable, or gone.
+    The last of those is not hypothetical while any subject is named rather
+    than listed.
+
+    A tracked module that cannot be read fails here instead of contributing
+    nothing. The permissive direction is not available to a guard: a module
+    silently dropped from the union is a module whose references stop counting.
+
+    The returned tree is shared, not copied. Every caller only walks it, and a
+    walk cannot disturb it -- but anything here that starts rewriting an AST
+    needs its own copy.
+    """
+    try:
+        return ast.parse(path.read_text())
+    except (SyntaxError, OSError, UnicodeDecodeError) as error:
+        pytest.fail(
+            f"tracked module {path} does not parse, so it cannot be scanned: {error}"
+        )
+
+
+@cache
+def _module_identifiers(path: pathlib.Path, *, asnames: bool) -> frozenset[str]:
+    """:func:`_ast_identifiers` over one tracked module."""
+    return frozenset(_tree_identifiers(_module_tree(path), asnames=asnames))
+
+
+@cache
+def _notebook_identifiers(
+    notebook: pathlib.Path | None, *, asnames: bool
+) -> frozenset[str]:
+    """The same, over the code cells of ``qa.ipynb``.
+
+    The notebook is the primary consumer of these modules, so a constant used
+    only there is live. A cell that will not parse (a magic, a fragment) falls
+    back to a word scan, which over-counts -- the safe direction, since the cost
+    of a false positive here is a failing build on correct code.
+    """
+    if notebook is None:
+        return frozenset()
+
+    names: set[str] = set()
+    for cell in json.loads(notebook.read_text()).get("cells", []):
+        if cell.get("cell_type") != "code":
+            continue
+        source = "".join(cell.get("source", []))
+        cell_names = _ast_identifiers(source, asnames=asnames)
+        if cell_names is None:
+            names.update(re.findall(r"\b\w+\b", source))
+        else:
+            names.update(cell_names)
+    return frozenset(names)
+
+
+#: Everything these guards read through that is memoized, so a test needing a
+#: cold read can say so without keeping its own copy of the list. The listing is
+#: cached where it is defined and cleared from here anyway, since a stale entry
+#: means the same thing on either side of the import. Add a ``@cache`` that
+#: anything below reaches, add it to this tuple.
+_MEMOIZED = (
+    tracked_files,
+    _module_tree,
+    _module_identifiers,
+    _notebook_identifiers,
+)
+
+
+def _identifiers_referenced_outside(bcp: pathlib.Path, exclude: str) -> set[str]:
+    """Every identifier tracked code under ``bcp`` uses, ignoring one file.
+
+    Tests count as a reader here, and so does ``qa.ipynb``: a constant whose
+    only consumer is the notebook or the test that pins it is still live. The
+    guard that disagrees is the next one down.
     """
     names: set[str] = set()
-
-    def collect(source: str) -> bool:
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            return False
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name):
-                names.add(node.id)
-            elif isinstance(node, ast.Attribute):
-                names.add(node.attr)
-            elif isinstance(node, ast.alias):
-                names.add(node.name.split(".")[-1])
-                if node.asname:
-                    names.add(node.asname)
-        return True
-
-    for path in bcp.rglob("*.py"):
+    for path in _tracked_python_modules(bcp):
         if path.name != exclude:
-            collect(path.read_text())
-
-    notebook = bcp / "qa.ipynb"
-    if notebook.exists():
-        for cell in json.loads(notebook.read_text()).get("cells", []):
-            if cell.get("cell_type") != "code":
-                continue
-            source = "".join(cell.get("source", []))
-            if not collect(source):
-                names.update(re.findall(r"\b\w+\b", source))
-    return names
+            names |= _module_identifiers(path, asnames=True)
+    return names | _notebook_identifiers(_tracked_notebook(bcp), asnames=True)
 
 
 def _identifiers_referenced_by_production(bcp: pathlib.Path, exclude: str) -> set[str]:
@@ -1128,37 +1282,325 @@ def _identifiers_referenced_by_production(bcp: pathlib.Path, exclude: str) -> se
     tested. Constants are different -- ``WELL_COLUMNS`` is a CSV contract whose
     only legitimate reader is the test that pins it -- which is why the two
     guards below apply different rules rather than one.
+
+    ``tests`` is looked for below ``bcp`` rather than anywhere in the path, so a
+    checkout living under a directory of that name does not empty the set and
+    report every public function at once.
     """
     names: set[str] = set()
-    for path in bcp.rglob("*.py"):
-        if path.name == exclude or "tests" in path.parts:
+    for path in _tracked_python_modules(bcp):
+        if path.name == exclude or "tests" in path.relative_to(bcp).parts:
             continue
-        for node in ast.walk(ast.parse(path.read_text())):
-            if isinstance(node, ast.Name):
-                names.add(node.id)
-            elif isinstance(node, ast.Attribute):
-                names.add(node.attr)
-            elif isinstance(node, ast.alias):
-                names.add(node.name.split(".")[-1])
-    notebook = bcp / "qa.ipynb"
-    if notebook.exists():
-        for cell in json.loads(notebook.read_text()).get("cells", []):
-            if cell.get("cell_type") != "code":
-                continue
-            source = "".join(cell.get("source", []))
-            try:
-                tree = ast.parse(source)
-            except SyntaxError:
-                names.update(re.findall(r"\b\w+\b", source))
-                continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Name):
-                    names.add(node.id)
-                elif isinstance(node, ast.Attribute):
-                    names.add(node.attr)
-                elif isinstance(node, ast.alias):
-                    names.add(node.name.split(".")[-1])
-    return names
+        names |= _module_identifiers(path, asnames=False)
+    return names | _notebook_identifiers(_tracked_notebook(bcp), asnames=False)
+
+
+class TestWhatTheGuardsAreAllowedToRead:
+    """Pins the listing itself, which no other test in this file can notice.
+
+    The virtualenv that made ``git ls-files`` necessary is by definition absent
+    from CI, so a revert to ``rglob`` -- or a listing that stops being scoped to
+    ``bcp`` -- goes green everywhere while the three guards below quietly stop
+    guarding. The same standard those guards are held to applies to their
+    plumbing: passing proves nothing unless failing is also demonstrated.
+
+    These pin :func:`tracked_files`, which ``test_sanitized_identifiers`` also
+    calls; they live here because the fixtures they need are the miniature repo
+    below and the collectors above.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _cold_caches(self):
+        """Every test here starts with nothing memoized, and leaves none behind.
+
+        Otherwise these pins quietly depend on call order inside their own
+        bodies. The environment test only sees a missing ``env=`` because
+        nothing warmed the listing before it patched ``GIT_INDEX_FILE``, and the
+        notebook test needs the same entry cold to see a file written after the
+        repo was built. Both are one edit to :meth:`_miniature_repo` away from
+        passing off the cache with the fix mutated out.
+
+        Off :data:`_MEMOIZED` rather than a list written out here, so that a
+        cache added later cannot quietly escape the fixture and reintroduce
+        that coupling as a test that passes.
+        """
+        for memoized in _MEMOIZED:
+            memoized.cache_clear()
+        yield
+        for memoized in _MEMOIZED:
+            memoized.cache_clear()
+
+    @staticmethod
+    def _stage(tmp_path: pathlib.Path, staged: list[str]) -> None:
+        """Make ``tmp_path`` a repo and stage exactly ``staged``.
+
+        ``--git-dir`` and ``--work-tree`` are passed explicitly, and not only
+        because :func:`git_free_env` could stop being called. Under the
+        ``pre-commit`` hook, an init inheriting ``GIT_DIR`` reinitializes *this*
+        repository rather than the temporary one, and an init with no work tree
+        in scope writes ``core.bare = true`` -- which leaves every checkout
+        sharing that config unable to run ``git status``. Flags beat the
+        environment, so they are what keeps a unit test from reaching outside
+        ``tmp_path``. The assertion is the tripwire if that ever stops holding.
+        """
+        env = git_free_env()
+        git = ["git", "--git-dir", str(tmp_path / ".git"), "--work-tree", str(tmp_path)]
+        subprocess.run([*git, "init", "-q"], check=True, env=env, cwd=tmp_path)
+        assert (tmp_path / ".git").is_dir(), (
+            "the repo did not land in tmp_path, so it went somewhere real"
+        )
+        subprocess.run([*git, "add", *staged], check=True, env=env, cwd=tmp_path)
+
+    @classmethod
+    def _miniature_repo(cls, tmp_path: pathlib.Path) -> pathlib.Path:
+        """A repo laid out like this one, with the cases that matter.
+
+        Two files are staged, one of them a ``qa_seahub_*`` so the guards have a
+        subject. The rest are the ways a file reaches the working tree without
+        being shipped: inside a virtualenv, and simply not added yet. Both miss
+        the listing for the same reason -- untracked -- and the ``.gitignore``
+        is there to make the venv faithful to the real layout rather than to do
+        the work.
+        """
+        bcp = tmp_path / "bcp"
+        vendored = bcp / "venv" / "lib" / "site-packages"
+        vendored.mkdir(parents=True)
+        (tmp_path / ".gitignore").write_text("venv/\n")
+        (bcp / "qa_seahub_shipped.py").write_text("SHIPPED_NAME = 1\n")
+        (vendored / "dependency.py").write_text("VENDORED_NAME = 2\n")
+        (bcp / "scratch.py").write_text("SCRATCH_NAME = 3\n")
+        (bcp / "qa_seahub_wip.py").write_text("def unstaged_helper():\n    pass\n")
+        (tmp_path / "outside.py").write_text("OUTSIDE_NAME = 4\n")
+
+        cls._stage(tmp_path, ["bcp/qa_seahub_shipped.py", "outside.py"])
+        return bcp
+
+    def test_only_tracked_files_under_bcp_are_listed(self, tmp_path):
+        """The venv, the scratch modules and the file outside ``bcp`` all miss.
+
+        ``outside.py`` is staged, so it is the one that tests the scoping rather
+        than the index: ``ls-files`` lists what it finds under the directory it
+        runs in, so a listing taken from the repo root would hold it and its
+        identifiers would count. Dropping the ``-C`` misses in the other
+        direction and fails here too: the listing would then come from wherever
+        pytest was started -- ``bcp`` of the real checkout, under the hook --
+        rather than from this miniature one.
+        """
+        bcp = self._miniature_repo(tmp_path)
+        assert [path.name for path in tracked_files(bcp)] == ["qa_seahub_shipped.py"]
+
+    def test_a_virtualenv_in_the_tree_vouches_for_nothing(self, tmp_path):
+        """The whole point: a name is live only if shipped code refers to it."""
+        bcp = self._miniature_repo(tmp_path)
+        referenced = _identifiers_referenced_outside(bcp, exclude="nothing.py")
+        assert "SHIPPED_NAME" in referenced
+        assert {"VENDORED_NAME", "SCRATCH_NAME", "OUTSIDE_NAME"} & referenced == set()
+
+    def test_the_subject_modules_come_from_the_same_listing(self, tmp_path):
+        """Both halves of a guard have to agree about what counts as shipped.
+
+        An unstaged ``qa_seahub_wip.py`` read as a subject, against references
+        that cannot include its unstaged caller, is a failing build on code
+        nobody has committed. Both directions, because a subject list that were
+        always empty would satisfy the negative one on its own.
+        """
+        bcp = self._miniature_repo(tmp_path)
+        assert [path.name for path in _tracked_seahub_modules(bcp)] == [
+            "qa_seahub_shipped.py"
+        ]
+
+    def test_a_test_only_name_reaches_one_collector_and_not_the_other(self, tmp_path):
+        """The ``tests/`` split, and the scoping of the word ``tests``.
+
+        ``TEST_ONLY_NAME`` is what separates the two collectors: it keeps a
+        constant alive and leaves a public function dead. Nothing else here
+        exercises :func:`_identifiers_referenced_by_production` at all.
+
+        This also pins ``path.relative_to(bcp).parts`` over ``path.parts``,
+        which is why the repo goes *under* a directory called ``tests`` rather
+        than straight into ``tmp_path``: that is the whole difference between
+        the two, and a fixture in ``tmp_path`` would pass either way. With the
+        plain ``path.parts``, every file in such a checkout matches, the
+        production set empties, and every public ``qa_seahub_*`` function is
+        reported dead at once. ``~/tests/lattice-tools`` is enough to trigger
+        it, and CI never checks out anywhere like that, so the failure is
+        reserved for whoever's laptop does.
+        """
+        root = tmp_path / "tests" / "checkout"
+        bcp = root / "bcp"
+        (bcp / "tests").mkdir(parents=True)
+        (bcp / "qa_seahub_shipped.py").write_text("PRODUCTION_NAME = 1\n")
+        (bcp / "tests" / "test_helper.py").write_text("TEST_ONLY_NAME = 2\n")
+        self._stage(root, ["bcp/qa_seahub_shipped.py", "bcp/tests/test_helper.py"])
+
+        outside = _identifiers_referenced_outside(bcp, exclude="nothing.py")
+        production = _identifiers_referenced_by_production(bcp, exclude="nothing.py")
+        assert {"PRODUCTION_NAME", "TEST_ONLY_NAME"} <= outside
+        assert "PRODUCTION_NAME" in production
+        assert "TEST_ONLY_NAME" not in production
+
+    @pytest.mark.parametrize(
+        "inherited", ["a stale index", "a relative pair", "this repository"]
+    )
+    def test_the_listing_survives_the_environment_a_hook_runs_in(
+        self, tmp_path, monkeypatch, inherited
+    ):
+        """Both shapes a ``pre-commit`` hook hands down, over a throwaway repo.
+
+        A plain checkout exports a relative ``GIT_INDEX_FILE`` and no
+        ``GIT_DIR``; a linked worktree exports both, absolute, naming
+        ``.git/worktrees/<name>``. This suite is run from both.
+
+        A stale index alone is the quiet one, and the reason the scrub is not
+        merely tidy: a relative ``GIT_INDEX_FILE`` resolves against whatever top
+        level git discovers, so from here it names nothing, and git reads a
+        missing index as an empty one -- no files, status 0. Add a relative
+        ``GIT_DIR`` and git exits 128 before it gets that far, which is the
+        cheap half and masks the quiet one, so the two are separate legs rather
+        than one call setting both.
+
+        The third is the half that bit, and is why this pin needs a repository
+        other than the one under test: inherited, an absolute ``GIT_DIR`` makes
+        git skip discovery, so ``-C`` this ``bcp`` selects nothing and the answer
+        describes *this* checkout instead -- status 0, names relative to its
+        root, which join onto ``tmp_path`` and land on files that are not there.
+        Deleting the ``env=`` argument that prevents all three passes every other
+        test here, since CI sets no ``GIT_*`` at all.
+
+        The environment is patched *after* the repo is built, and has to be:
+        :meth:`_stage` documents what an ``init`` that inherits ``GIT_DIR``
+        does to the repository the variable names.
+        """
+        bcp = self._miniature_repo(tmp_path)
+        if inherited == "a stale index":
+            monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
+        elif inherited == "a relative pair":
+            monkeypatch.setenv("GIT_INDEX_FILE", "no-such-index")
+            monkeypatch.setenv("GIT_DIR", "no-such-git-dir")
+        else:
+            git_dir = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(pathlib.Path(__file__).parent),
+                    "rev-parse",
+                    "--absolute-git-dir",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=git_free_env(),
+            ).stdout.strip()
+            monkeypatch.setenv("GIT_DIR", git_dir)
+            monkeypatch.setenv("GIT_INDEX_FILE", f"{git_dir}/index")
+        # explicit, not just the autouse fixture: this assertion is only a
+        # test of the scrub while the listing is unmemoized at this line
+        tracked_files.cache_clear()
+        assert [path.name for path in tracked_files(bcp)] == ["qa_seahub_shipped.py"]
+
+    def test_a_listing_with_nothing_in_it_fails_rather_than_reads_clean(self, tmp_path):
+        """The tripwire itself: no tracked file under ``bcp`` is never right."""
+        (tmp_path / "bcp").mkdir()
+        (tmp_path / "outside.py").write_text("OUTSIDE_NAME = 1\n")
+        self._stage(tmp_path, ["outside.py"])
+
+        with pytest.raises(pytest.fail.Exception, match="listed nothing tracked"):
+            tracked_files(tmp_path / "bcp")
+
+    def test_a_directory_git_knows_nothing_about_fails(self, tmp_path):
+        """The non-zero exit, which nothing had read the text of."""
+        (tmp_path / "bcp").mkdir()
+
+        with pytest.raises(pytest.fail.Exception, match="cannot see what is tracked"):
+            tracked_files(tmp_path / "bcp")
+
+    def test_tracked_files_that_are_all_missing_say_so(self, tmp_path):
+        """Distinct from an empty listing, and wants a different response.
+
+        A sparse checkout, or every file staged for deletion: git lists them
+        and none is on disk. Reporting that as "nothing tracked" would send the
+        reader looking for a listing scoped to the wrong place.
+        """
+        bcp = tmp_path / "bcp"
+        bcp.mkdir()
+        (bcp / "gone.py").write_text("GONE_NAME = 1\n")
+        self._stage(tmp_path, ["bcp/gone.py"])
+        (bcp / "gone.py").unlink()
+
+        with pytest.raises(pytest.fail.Exception, match="none of them are on disk"):
+            tracked_files(bcp)
+
+    def test_a_notebook_cell_that_will_not_parse_still_counts(self, tmp_path):
+        """The word scan, the one collector branch with nothing on it.
+
+        A cell holding a magic does not parse, and dropping it would retire
+        every name the notebook mentions there. Over-counting is the safe
+        direction: the cost is a failing build on correct code, which someone
+        reads.
+        """
+        bcp = tmp_path / "bcp"
+        bcp.mkdir()
+        (bcp / "qa_seahub_shipped.py").write_text("SHIPPED_NAME = 1\n")
+        (bcp / "qa.ipynb").write_text(
+            json.dumps(
+                {
+                    "cells": [
+                        {"cell_type": "code", "source": ["%matplotlib inline\n"]},
+                        {"cell_type": "code", "source": ["MAGIC_CELL_NAME\n"]},
+                    ]
+                }
+            )
+        )
+        self._stage(tmp_path, ["bcp/qa_seahub_shipped.py", "bcp/qa.ipynb"])
+
+        referenced = _identifiers_referenced_outside(bcp, exclude="nothing.py")
+        assert {"matplotlib", "inline", "MAGIC_CELL_NAME"} <= referenced
+
+    def test_a_tracked_module_that_will_not_parse_fails_rather_than_drops_out(
+        self, tmp_path
+    ):
+        """Silently skipping it would retire every reference it holds."""
+        bcp = tmp_path / "bcp"
+        bcp.mkdir()
+        (bcp / "broken.py").write_text("def oops(:\n")
+        self._stage(tmp_path, ["bcp/broken.py"])
+
+        with pytest.raises(pytest.fail.Exception, match="does not parse"):
+            _identifiers_referenced_outside(bcp, exclude="nothing.py")
+
+    def test_an_untracked_notebook_vouches_for_nothing(self, tmp_path):
+        bcp = self._miniature_repo(tmp_path)
+        (bcp / "qa.ipynb").write_text(
+            json.dumps(
+                {"cells": [{"cell_type": "code", "source": ["NOTEBOOK_NAME = 5\n"]}]}
+            )
+        )
+        # the notebook appears after the repo is built, so the listing has to
+        # be unmemoized here for its absence to mean anything
+        tracked_files.cache_clear()
+        assert _tracked_notebook(bcp) is None
+        assert "NOTEBOOK_NAME" not in _identifiers_referenced_outside(
+            bcp, exclude="nothing.py"
+        )
+
+    def test_source_that_will_not_parse_is_reported_rather_than_empty(self):
+        """``None``, not an empty set: a silent miss is a reference that stops
+        counting, and the caller decides which of those it can afford.
+        """
+        assert _ast_identifiers("def oops(:\n", asnames=True) is None
+        assert _ast_identifiers("x = 1\n", asnames=True) == {"x"}
+
+    def test_an_import_alias_counts_only_where_it_should(self):
+        """The one asymmetry between the two collectors, kept deliberately.
+
+        Widening what production is deemed to reference is what makes a dead
+        function look reachable, so the alias counts for the constant guard and
+        not for the dead-function one.
+        """
+        source = "import json as blob\n"
+        assert "blob" in _ast_identifiers(source, asnames=True)
+        assert "blob" not in _ast_identifiers(source, asnames=False)
+        assert "json" in _ast_identifiers(source, asnames=False)
 
 
 class TestRuleVocabulary:
@@ -1181,10 +1623,10 @@ class TestRuleVocabulary:
         used: that is how the dead one looked alive.
         """
         bcp = pathlib.Path(qa_seahub_rename.__file__).parent
-        constants = bcp / "qa_constants.py"
+        constants = _tracked_module(bcp, "qa_constants.py")
         declared = {
             name
-            for name in _module_level_constants(ast.parse(constants.read_text()))
+            for name in _module_level_constants(_module_tree(constants))
             if name.startswith("SEAHUB_")
         }
         assert declared, "no SEAHUB_* constants found"
@@ -1207,12 +1649,12 @@ class TestRuleVocabulary:
         unrelated code would make the guard something to switch off.
         """
         bcp = pathlib.Path(qa_seahub_rename.__file__).parent
-        modules = sorted(bcp.glob("qa_seahub_*.py"))
+        modules = _tracked_seahub_modules(bcp)
         assert modules, "no qa_seahub_* modules found"
 
         unread: list[str] = []
         for module in modules:
-            tree = ast.parse(module.read_text())
+            tree = _module_tree(module)
             public = {
                 node.name
                 for node in tree.body
@@ -1244,12 +1686,12 @@ class TestRuleVocabulary:
         file. Leading-underscore names are private and exempt.
         """
         bcp = pathlib.Path(qa_seahub_rename.__file__).parent
-        modules = sorted(bcp.glob("qa_seahub_*.py"))
+        modules = _tracked_seahub_modules(bcp)
         assert modules, "no qa_seahub_* modules found"
 
         unread: list[str] = []
         for module in modules:
-            tree = ast.parse(module.read_text())
+            tree = _module_tree(module)
             declared = _module_level_constants(tree)
             loaded = {
                 node.id
