@@ -164,6 +164,8 @@ ALLOWED_SLOT_TOKENS = frozenset(
         # Synthetic labs.
         "lab",
         "labalpha",
+        "test-lab",
+        "some-lab",
         "labbeta",
         "synthetic",
         "other",
