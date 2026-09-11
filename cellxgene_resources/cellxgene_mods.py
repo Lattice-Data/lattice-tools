@@ -758,6 +758,10 @@ def evaluate_obs_schema(obs, labels=False):
         if num_unknown > 20:
             report(f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.', 'WARNING')
 
+    for o in obs.columns:
+        if o not in OBS_FULL_STANDARDS and ' '.join(o.split()).lower() in OBS_FULL_STANDARDS:
+            report(f'"close enough" schema conflict: suggest renaming obs.{o}\n', 'ERROR')
+
 
 def evaluate_obs(obs):
     long_fields = []
@@ -771,9 +775,6 @@ def evaluate_obs(obs):
 
         if o.startswith(' ') or o.endswith(' ') or '  ' in o:
             report(f'leading/trailing whitespace: {o}\n')
-
-        if o not in OBS_FULL_STANDARDS and ' '.join(o.split()).lower() in OBS_FULL_STANDARDS:
-            report(f'schema conflict: {o}\n')
 
         numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16',
                       'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
