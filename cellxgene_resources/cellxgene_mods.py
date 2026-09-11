@@ -922,28 +922,33 @@ def symbols_to_ids(symbols, var):
 
     approved = pd.read_csv(ref_dir + 'genes_approved.csv.gz',dtype='str')
     approved['symbol_only'] = approved['symb'].str.split('_', expand=True)[0]
-    
+
     ensg_list = []
     for s in symbols:
-        found = False
+        found_approved = False
+        found_var = False
         if s in approved['symbol_only'].tolist():
+            found_approved = True
             ensg_ids = approved.loc[approved['symbol_only'] == s, 'feature_id']
             for ensg_id in ensg_ids:
                 if ensg_id in var.index:
                     ensg_list.append(ensg_id)
                     report(f'{ensg_id} -- {s}')
-                    found = True
-        if not found:
+                    found_var = True
+        if not found_var:
             s_lower = s[0] + s[1:].lower()
             if s_lower in approved['symbol_only'].tolist():
-                ensg_ids_lower = approved.loc[approved['symbol_only'] == s_lower, 'feature_id']
-                for ensg_id_lower in ensg_ids_lower:
+                found_approved = True
+                ensg_ids = approved.loc[approved['symbol_only'] == s_lower, 'feature_id']
+                for ensg_id in ensg_ids:
                     if ensg_id_lower in var.index:
-                        ensg_list.append(ensg_id_lower)
-                        report(f'{ensg_id_lower} -- {s_lower}')
-                        found = True
-        if not found:
-            report(f'{s} not found in genes_approved or adata.var')
+                        ensg_list.append(ensg_id)
+                        report(f'{ensg_id} -- {s_lower}')
+                        found_var = True
+        if not found_approved:
+            report(f'{s} not found in genes_approved.csv.gz, check for typos', 'WARNING')
+        if not found_var:
+            report(f'{s}/{ensg_id} not found in var', 'WARNING')
 
     return ensg_list
 
