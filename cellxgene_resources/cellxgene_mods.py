@@ -669,6 +669,41 @@ def parse_barcode_df(df, field):
     return df
 
 
+def evaluate_obsm(adata, labels=None):
+    keys = adata.obsm_keys()
+
+    cellpop_field = 'cell_type' if labels else 'cell_type_ontology_term_id'
+    colors_key = f'{cellpop_field}_colors'
+    had_colors = colors_key in adata.uns
+
+    plot = False
+    sc.set_figure_params(dpi=100)
+    for e in keys:
+        if e.startswith('X_'):
+            sc.pl.embedding(adata, basis=e, color=cellpop_field, legend_loc='on data')
+            plot = True
+        elif e == 'spatial':
+            if np.isnan(adata.obsm['spatial']).any():
+                report("obsm['spatial'] contains nans", 'ERROR')
+            sc.pl.embedding(adata, basis=e, color=cellpop_field, legend_loc='on data')
+            plot = True
+        else:
+            report(f'{e} will not be plotted')
+
+    if not had_colors and colors_key in adata.uns:
+        del adata.uns[colors_key]
+
+    if not plot:
+        report('No visualizable embeddings in obsm', 'ERROR')
+
+    de = adata.uns.get('default_embedding')
+    if de:
+        if de not in adata.obsm_keys():
+            report(f'uns.default_embedding:{de} not in [{",".join(adata.obsm.keys())}]', 'ERROR')
+        else:
+            report(f'uns.default_embedding:{de} is in [{",".join(adata.obsm.keys())}]', 'GOOD')
+
+
 def evaluate_uns_schema(uns, labels=False):
     for f in UNS_CURATOR_REQUIRED:
         if f in uns:
