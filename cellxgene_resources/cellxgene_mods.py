@@ -167,11 +167,14 @@ def report(mess, level=None):
     colors = {
         'GOOD': '\033[32m', #green
         'WARNING': '\033[33m', #yellow
-        'ERROR': '\033[31m' #red
+        'ERROR': '\033[31m', #red
+        'code': '\033[30;48;5;252m' #grey background
     }
     if level:
         c = colors[level]
-        print(f'\033[1m{c}{level}: {mess}\033[0m')
+        if level not in ['code']:
+            mess = f'{level}: {mess}'
+        print(f'\033[1m{c}{mess}\033[0m')
     else:
         print(mess)
 
@@ -275,21 +278,22 @@ def evaluate_sparsity(adata, max_sparsity=0.5):
 
     # Check X
     sparsity = determine_sparsity(adata.X)
-    report(f'X sparsity: {sparsity}')
+    report(f'.X sparsity: {sparsity}')
     if sparsity and sparsity > max_sparsity and not isinstance(adata.X, sparse.csr_matrix):
         report('X should be converted to csr sparse', 'ERROR')
-        report('adata.X = sparse.csr_matrix(adata.X)')
+        report('adata.X = sparse.csr_matrix(adata.X)', 'code')
         valid = False
 
     # Check raw.X
     if adata.raw:
         sparsity = determine_sparsity(adata.raw.X)
-        report(f'raw.X sparsity: {sparsity}')
+        report(f'.raw.X sparsity: {sparsity}')
         if sparsity and sparsity > max_sparsity and not isinstance(adata.raw.X, sparse.csr_matrix):
             report('raw.X should be converted to csr sparse', 'ERROR')
-            report('raw_adata = ad.AnnData(sparse.csr_matrix(adata.raw.X), var=adata.raw.var, obs=adata.obs)')
-            report('adata.raw = raw_adata')
-            report('del raw_adata')
+            report(
+                'adata.raw = ad.AnnData(sparse.csr_matrix(adata.raw.X), var=adata.raw.var, obs=adata.obs)',
+                'code'
+            )
             valid = False
 
     # Check layers
@@ -298,7 +302,7 @@ def evaluate_sparsity(adata, max_sparsity=0.5):
         report(f'layers[{layer_name}] sparsity: {sparsity}')
         if sparsity and sparsity > max_sparsity and not isinstance(adata.layers[layer_name], sparse.csr_matrix):
             report(f'layers[{layer_name}] should be converted to csr sparse', 'ERROR')
-            report(f'adata.layers[{layer_name}] = sparse.csr_matrix(adata.layers[{layer_name}])')
+            report(f'adata.layers[{layer_name}] = sparse.csr_matrix(adata.layers[{layer_name}])', 'code')
             valid = False
 
     if valid:
@@ -443,6 +447,19 @@ def matrices_equal(mx1, mx2):
         return np.array_equal(mx1, mx2)
 
 
+def _get_matrix_by_name(adata, name):
+    """Helper to retrieve matrix by string name."""
+    if name == '.X':
+        return adata.X
+    elif name == '.raw.X':
+        return adata.raw.X
+    elif name.startswith('layers['):
+        layer_name = name[7:-1]
+        return adata.layers[layer_name]
+    else:
+        raise ValueError(f"Unknown matrix name: {name}")
+
+
 def evaluate_data_range(adata):
     """Check data ranges and detect potential duplicate layers."""
     min_maxs = {}
@@ -450,8 +467,9 @@ def evaluate_data_range(adata):
     # Determine where raw counts are
     if adata.raw:
         raw_min, raw_max = get_matrix_range(adata.raw.X)
-        report(f'raw.X min = {raw_min}, max = {raw_max}')
-        min_maxs['raw.X'] = (raw_min, raw_max)
+        report(f'.raw.X min = {raw_min}')
+        report(f'.raw.X max = {raw_max}')
+        min_maxs['.raw.X'] = (raw_min, raw_max)
         raw_matrix = adata.raw.X
         raw_loc = '.raw.X'
     else:
@@ -460,13 +478,15 @@ def evaluate_data_range(adata):
 
     # Check X
     x_min, x_max = get_matrix_range(adata.X)
-    report(f'X min = {x_min}, max = {x_max}')
-    min_maxs['X'] = (x_min, x_max)
+    report(f'.X min = {x_min}')
+    report(f'.X max = {x_max}')
+    min_maxs['.X'] = (x_min, x_max)
 
     # Check layers
     for layer_name in adata.layers:
         layer_min, layer_max = get_matrix_range(adata.layers[layer_name])
-        report(f'layers[{layer_name}] min = {layer_min}, max = {layer_max}')
+        report(f'layers[{layer_name}] min = {layer_min}')
+        report(f'layers[{layer_name}] max = {layer_max}')
         min_maxs[f'layers[{layer_name}]'] = (layer_min, layer_max)
 
     # Detect potential duplicates based on min/max
@@ -480,14 +500,16 @@ def evaluate_data_range(adata):
             report(f'possible redundant layers based on min/max: {dup_group}. Checking...', 'WARNING')
 
             # Get the matrices for this group
-            group_matrices = [(name, matrices[name]) for name in dup_group]
+            group_matrices = [(name, _get_matrix_by_name(adata,name)) for name in dup_group]
 
             # Check if they're truly identical
             true_duplicates = check_matrix_duplicates(group_matrices)
 
             if true_duplicates:
-                report(f'CONFIRMED duplicates: {true_duplicates}', 'ERROR')
-                report('Remove duplication to reduce object and file size', 'ERROR')
+                report(
+                    f'CONFIRMED duplicates: {true_duplicates}\nRemove duplication to reduce object and file size',
+                    'ERROR'
+                )
             else:
                 report('Different matrices (same min/max is coincidental)', 'WARNING')
 
