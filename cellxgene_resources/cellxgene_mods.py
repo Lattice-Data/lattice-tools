@@ -53,6 +53,10 @@ EXPECTED_BARCODES = {
     "10x Flex Apex":                  'flex_v2'
 }
 
+FLEX_ASSAYS = [
+    'EFO:0022606','EFO:0920089','EFO:0920086','EFO:0920088','EFO:0920087'
+]
+
 OBS_ONTOLOGY_LABELS_REQUIRED = [
     'assay', 'cell_type', 'development_stage', 'disease',
     'self_reported_ethnicity', 'sex', 'tissue'
@@ -507,7 +511,7 @@ def evaluate_data_range(adata):
 
             if true_duplicates:
                 report(
-                    f'CONFIRMED duplicates: {true_duplicates}\nRemove duplication to reduce object and file size',
+                    f'Confirmed duplicates: {true_duplicates}\nRemove duplication to reduce object and file size',
                     'ERROR'
                 )
             else:
@@ -773,15 +777,19 @@ def evaluate_obs_schema(obs, labels=False):
     if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
         if 'in_tissue' in obs.columns:
             num_unknown = obs.loc[(obs['in_tissue']==1) & (obs['cell_type_ontology_term_id']=='unknown')].shape[0]
-            perc_unknown = 100*(num_unknown/obs.loc[obs['in_tissue']==1].shape[0])
+            perc_unknown = round(100*(num_unknown/obs.loc[obs['in_tissue']==1].shape[0]), 1)
         else:
             num_unknown = obs[obs['cell_type_ontology_term_id']=='unknown'].shape[0]
-            perc_unknown = 100*(num_unknown/obs.shape[0])
+            perc_unknown = round(100*(num_unknown/obs.shape[0]), 1)
         if num_unknown > 20:
-            report(f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.', 'WARNING')
+            report(
+                f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.\n'
+                'Some unknowns are acceptable but confirm there is neither an appropriate CL term nor a term to request',
+                'WARNING'
+            )
 
     for o in obs.columns:
-        if o not in OBS_FULL_STANDARDS and ' '.join(o.split()).lower() in OBS_FULL_STANDARDS:
+        if o not in OBS_FULL_STANDARDS and '_'.join(o.split()).lower() in OBS_FULL_STANDARDS:
             report(f'"close enough" schema conflict: suggest renaming obs.{o}\n', 'ERROR')
 
 
@@ -842,7 +850,6 @@ def ensure_canonical_csr(matrix, adata_obj, location_desc):
         original_nnz = matrix.nnz
         matrix.sort_indices()
         matrix.sum_duplicates()
-        #ATTN - what causes this to flag? add conversion code?
         if original_nnz != matrix.nnz:
             report(f"{original_nnz - matrix.nnz} duplicates found during canonical conversion")
 
@@ -969,7 +976,7 @@ def symbols_to_ids(symbols, var):
                         found_var = True
         if not found_approved:
             report(f'{s} not found in genes_approved.csv.gz, check for typos', 'WARNING')
-        if not found_var:
+        elif not found_var:
             report(f'{s}/{ensg_id} not found in var', 'WARNING')
 
     return ensg_list
@@ -1414,7 +1421,6 @@ def compare_donor_sex(df):
     if inconsistencies.empty:
         report('donor sex metadata is consistent', 'GOOD')
     else:
-        #ATTN - do we want to keep this report?
         curated_unknowns = inconsistencies[inconsistencies['author_annotated_sex'] == 'unknown']
         if not curated_unknowns.empty:
             report('donor sex metadata can be filled in', 'WARNING')
@@ -1486,7 +1492,7 @@ def evaluate_donors_sex(adata):
         mask = donor_sex_df['assay_ontology_term_id'].isin(smart_assay_list)
         donor_sex_df.loc[mask, 'smart_seq'] = True
         donor_sex_df.drop(columns=['sex_ontology_term_id','assay_ontology_term_id'], inplace=True)
-        donor_sex_df.sort_values('male_to_female', inplace=True)
+        donor_sex_df = donor_sex_df.drop_duplicates().sort_values('male_to_female')
         obs_to_keep = []
         ratio_order = []
         smart_seq_donors_rename = {}
@@ -1494,8 +1500,7 @@ def evaluate_donors_sex(adata):
         if 'smart_seq' in donor_sex_df.columns:
             donor_sex_df['smart_seq'] = (
                 donor_sex_df['smart_seq']
-                .fillna(False)
-                .infer_objects(copy=False)
+                .where(donor_sex_df['smart_seq'].notna(), False)
                 .astype('bool')
             )
 
@@ -1605,7 +1610,8 @@ def evaluate_donors_sex(adata):
         if not donor_sex_df.empty:
             compare_donor_sex(donor_sex_df)
 
-        return dp
+        if dp:
+            dp.show()
 
 
 def evaluate_var(adata):
@@ -1639,6 +1645,8 @@ def evaluate_var(adata):
             'Some features in var.index are not valid gene IDs. index may be gene symbols or contain deprecated IDs',
             'ERROR'
         )
+        report('To remove deprecated IDs, run...')
+        report('adata = map_filter_gene_ids(adata)', 'code')
         return
     valid = True
     uns_organism = adata.uns['organism_ontology_term_id']
@@ -1658,12 +1666,12 @@ def evaluate_var(adata):
             if utils.is_ontological_descendant_of(ONTOLOGY_PARSER,uns_organism,var_organisms[0]):
                 report(f'Single organism found: {var_organisms}', 'GOOD')
             else:
-                report(f'Uns metadata contains non-descendant of var index organism: {var_organisms[0]}, {uns_organism}', 'ERROR')
+                report(f'uns metadata contains non-descendant of var index organism: {var_organisms[0]}, {uns_organism}', 'ERROR')
                 return
         elif uns_organism == var_organisms[0]:
             report(f'Single organism found: {var_organisms}', 'GOOD')
         else:
-            report(f'Different organisms found between var index and uns metadata: {var_organisms[0]}, {uns_organism}', 'ERROR')
+            report(f'Different organisms found between var index ({var_organisms[0]}) and uns metadata ({uns_organism})', 'ERROR')
             return
     else:
         return
@@ -1672,7 +1680,7 @@ def evaluate_var(adata):
     # unpaired ATAC have no gene count criteria
     if adata.obs['assay_ontology_term_id'].unique()[0] in ['EFO:0010891','EFO:0030007','EFO:0008925','EFO:0008904','EFO:0022045']:
         return
-    elif 'EFO:0022606' in adata.obs['assay_ontology_term_id'].unique():
+    elif [a for a in adata.obs['assay_ontology_term_id'].unique() if a in FLEX_ASSAYS]:
         count_type = 'Flex'
         warn_cut = 0.9
         err_cut = 0.7
@@ -1687,13 +1695,17 @@ def evaluate_var(adata):
             report(f'{gene_count} genes present, expecting at most {flex_v2_count} for Flex V2', 'ERROR')
             return
     else:
-        # Check the number of genes threshold base on biotype per specific organism
-        org_obj = [i for i in gencode.SupportedOrganisms if i.value==var_organisms[0]][0]
-        gene_checker = gencode.GeneChecker(org_obj)
-        target_count = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
-        count_type = '10x biotype'
         warn_cut = 0.6
         err_cut = 0.4
+        if adata.uns['organism_ontology_term_id'] in ['NCBITaxon:10090', 'NCBITaxon:9606']:
+            target_count = 35_000
+            count_type = '10x biotype (CellRanger reference version)'
+        else:
+            # Check the number of genes threshold base on biotype per specific organism
+            org_obj = [i for i in gencode.SupportedOrganisms if i.value==var_organisms[0]][0]
+            gene_checker = gencode.GeneChecker(org_obj)
+            target_count = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
+            count_type = '10x biotype'
 
     fraction = gene_count / target_count
     percent = fraction * 100
