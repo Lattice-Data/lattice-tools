@@ -341,14 +341,16 @@ def evaluate_raw_matrix(matrix, loc):
 
     if all_integers:
         report('raw counts are all integers', 'GOOD')
+        if matrix.dtype != np.float32:
+            report(f'raw count dtype should be float32, not {matrix.dtype}', 'ERROR')
+            report(
+                "adata.raw = ad.AnnData(sparse.csr_matrix(adata.raw.X.astype('float32')), var=adata.raw.var, obs=adata.obs)",
+                'code'
+            )
+        else:
+            report('raw count dtype is float32', 'GOOD')
     else:
         report('raw counts contain non-integer values', 'ERROR')
-
-    # Check dtype
-    if matrix.dtype != np.float32:
-        report(f'raw count dtype should be float32, not {matrix.dtype}', 'ERROR')
-    else:
-        report('raw count dtype is float32', 'GOOD')
 
     return all_integers and matrix.dtype == np.float32
 
