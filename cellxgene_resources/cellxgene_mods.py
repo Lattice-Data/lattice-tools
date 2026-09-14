@@ -712,7 +712,7 @@ def evaluate_obsm(adata, labels=None):
             plot = True
         elif e == 'spatial':
             if np.isnan(adata.obsm['spatial']).any():
-                report("obsm['spatial'] contains nans", 'ERROR')
+                report("obsm[spatial] contains nans", 'ERROR')
             sc.pl.embedding(adata, basis=e, color=cellpop_field, legend_loc='on data')
             plot = True
         else:
@@ -1003,6 +1003,9 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
     without issue.
     '''
     try:
+        import warnings
+        warnings.filterwarnings('ignore', category=FutureWarning, module='dask.dataframe')
+
         import geopandas as gpd
         import spatialdata as sd
         import spatialdata_plot
@@ -1128,7 +1131,6 @@ def viz_spatial_per_field(sdata, library_id, res, field):
     axes[1].set_title(f'{res} image + {field}', fontsize=12)
     axes[1].axis('off')
 
-    plt.tight_layout()
     plt.show()
 
 
@@ -1140,18 +1142,29 @@ def plot_vis(adata, cellpop_field=None):
 
 def evaluate_spatial(adata, cellpop_field):
     if 'spatial' not in adata.uns:
-        report("required uns['spatial'] is absent", 'ERROR')
+        report('required uns[spatial] is absent', 'ERROR')
         return
     if 'is_single' not in adata.uns['spatial']:
-        report("required uns['spatial']['is_single'] is absent", 'ERROR')
+        report('required uns[spatial][is_single] is absent', 'ERROR')
         return
     if adata.uns['spatial']['is_single'] == True:
-        if len(adata.uns['spatial']) > 2:
-            report(f"Extra keys found in uns['spatial'] - {adata.uns['spatial'].keys()}", 'ERROR')
+        if len(adata.uns['spatial']) != 2:
+            report(
+                'uns[spatial] keys should be is_single + exactly 1 library_id\n'
+                f"keys: {', '.join(adata.uns['spatial'].keys())}",
+                'ERROR'
+            )
+            return
+        if 'spatial' not in adata.obsm:
+            report('required obsm[spatial] is absent', 'ERROR')
             return
         plot_vis(adata, cellpop_field)
     elif len(adata.uns['spatial'].keys()) > 1:
-        report(f"Extra keys found in uns['spatial'] - {adata.uns['spatial'].keys()}", 'ERROR')
+        report(
+            'uns[spatial] keys should be only is_single'
+            f"keys: {', '.join(adata.uns['spatial'].keys())}",
+            'ERROR'
+        )
 
 
 def side_by_side_dotplot(adata, gene_list, groupby):
