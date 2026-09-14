@@ -984,16 +984,6 @@ def symbols_to_ids(symbols, var):
     return ensg_list
 
 
-def pick_embed(keys):
-    for k in keys:
-        if 'umap' in k.lower():
-            return k
-        elif 'umap' in k.lower():
-            return k
-
-    return keys[0]
-
-
 def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
     '''
     Convert Visium AnnData object to SpatialData object with proper coordinate transformations.
