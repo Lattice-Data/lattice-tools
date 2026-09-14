@@ -1428,7 +1428,12 @@ def compare_donor_sex(df):
     else:
         curated_unknowns = inconsistencies[inconsistencies['author_annotated_sex'] == 'unknown']
         if not curated_unknowns.empty:
-            report('donor sex metadata can be filled in', 'WARNING')
+            report(
+                'donors with annoted sex:unknown have sex indicated by expression\n'
+                'if the contributor is a study author (not reuse), provide the plots and\n'
+                'ask if they would like to update the donor sex annotated based on this analysis',
+                'WARNING'
+            )
             display(curated_unknowns)
 
         expression_unknowns = inconsistencies[inconsistencies['scRNAseq_sex'] == 'unknown']
@@ -1447,7 +1452,9 @@ def compare_donor_sex(df):
         ]
         if not true_inconsistencies.empty:
             report(
-                'donor sex metadata inconsistencies\nThe reported sex should be double-checked for these donors',
+                'donor sex metadata inconsistencies\n'
+                'the reported sex should be double-checked for these donors in the associated publication\n'
+                'if the contributor is a study author (not reuse), ask them to double-check their records',
                 'ERROR'
             )
             display(true_inconsistencies)
