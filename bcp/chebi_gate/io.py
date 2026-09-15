@@ -277,7 +277,7 @@ def summary(gate_run: GateRun, outputs: Outputs | None = None) -> str:
 
     if gate_run.unmatched_decisions:
         lines.append("")
-        lines.append("  decisions matching no record in this input:")
+        lines.append("  decisions that changed nothing in this run:")
         for message in gate_run.unmatched_decisions:
             lines.append(f"    {message}")
 

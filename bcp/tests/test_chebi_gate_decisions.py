@@ -22,6 +22,7 @@ SHIPPED = Path(decisions.DECISIONS_DIR)
 GOOD_WAIVER = {
     "cas": "64-17-5",
     "check_id": "CON-04",
+    "severity": "medium",
     "reason": "Reviewed against the registry entry; the drawing is correct as it stands.",
     "evidence": "cas_registry.csv row for 64-17-5",
     "decided_by": "A Curator",
@@ -92,7 +93,7 @@ def test_the_shipped_decisions_are_keyed_on_cas_not_on_name():
     from its own open question under a name-keyed scheme.
     """
     loaded = decisions.load()
-    for cas, _check in loaded.waivers:
+    for cas, _check, _severity in loaded.waivers:
         assert cas[0].isdigit()
     assert "75614-93-6" in loaded.quarantine
 
@@ -100,20 +101,51 @@ def test_the_shipped_decisions_are_keyed_on_cas_not_on_name():
 # --------------------------------------------------------------- happy paths
 
 
-def test_a_waiver_is_found_by_cas_and_check(tmp_path):
+def test_a_waiver_is_found_by_cas_check_and_severity(tmp_path):
     loaded = decisions.load(write(tmp_path, waivers=[GOOD_WAIVER]))
-    waiver = loaded.waiver_for("64-17-5", "CON-04")
+    waiver = loaded.waiver_for("64-17-5", "CON-04", "medium")
     assert waiver is not None
     assert waiver.decided_on == date(2026, 9, 15)
-    assert loaded.waiver_for("64-17-5", "CON-02") is None
-    assert loaded.waiver_for("557-66-4", "CON-04") is None
+    assert loaded.waiver_for("64-17-5", "CON-02", "medium") is None
+    assert loaded.waiver_for("557-66-4", "CON-04", "medium") is None
+
+
+def test_a_waiver_does_not_cover_the_same_check_at_another_severity(tmp_path):
+    """CON-04 emits medium for an unspecified centre and high for a contradiction.
+
+    Keyed on (cas, check_id) alone, a decision recorded about the first silently
+    absorbed the second -- a different defect, waived by a reason that does not
+    describe it, and no longer holding the record.
+    """
+    loaded = decisions.load(write(tmp_path, waivers=[GOOD_WAIVER]))
+    assert loaded.waiver_for("64-17-5", "CON-04", "medium") is not None
+    assert loaded.waiver_for("64-17-5", "CON-04", "high") is None
 
 
 def test_one_record_may_carry_waivers_for_several_checks(tmp_path):
     second = {**GOOD_WAIVER, "check_id": "EXT-01"}
     loaded = decisions.load(write(tmp_path, waivers=[GOOD_WAIVER, second]))
-    assert loaded.waiver_for("64-17-5", "CON-04") is not None
-    assert loaded.waiver_for("64-17-5", "EXT-01") is not None
+    assert loaded.waiver_for("64-17-5", "CON-04", "medium") is not None
+    assert loaded.waiver_for("64-17-5", "EXT-01", "medium") is not None
+
+
+def test_a_waiver_naming_a_severity_the_check_cannot_emit_fails_the_run(tmp_path):
+    """What the registered-check-id test could not catch.
+
+    REL-01 only ever emits info, so a waiver for REL-01/high is a considered
+    judgement about a finding that cannot exist. It used to load cleanly.
+    """
+    rejects(
+        tmp_path,
+        "never emits",
+        waivers=[{**GOOD_WAIVER, "check_id": "REL-01", "severity": "high"}],
+    )
+
+
+def test_the_same_check_may_be_waived_at_two_severities(tmp_path):
+    rows = [GOOD_WAIVER, {**GOOD_WAIVER, "severity": "high"}]
+    loaded = decisions.load(write(tmp_path, waivers=rows))
+    assert loaded.counts["waivers"] == 2
 
 
 def test_a_quarantine_row_may_name_several_checks(tmp_path):

@@ -49,9 +49,6 @@ GATE_FIELDS = (
 
 STATUS_HELD = "HELD"
 
-# Severities that hold a record back, before --allow-medium is considered.
-HOLDING = (HIGH, MEDIUM)
-
 
 class GateError(Exception):
     """Raised when the gate cannot produce a trustworthy verdict."""
@@ -200,8 +197,10 @@ def run(
 
     unmatched: list[str] = []
     if decisions is not None:
-        _apply_decisions(results, decisions)
-        unmatched = decisions.unmatched({c.cas_key for c in contexts if c.cas_key})
+        applied = _apply_decisions(results, decisions)
+        unmatched = decisions.unmatched(
+            {c.cas_key for c in contexts if c.cas_key}, applied
+        )
         for message in unmatched:
             log.warning("%s", message)
 
@@ -246,16 +245,40 @@ def run(
     return gate_run
 
 
-def _apply_decisions(results: list[RecordResult], decisions: Decisions) -> None:
-    """Downgrade waived findings, and hold records with an open question."""
+def _apply_decisions(
+    results: list[RecordResult], decisions: Decisions
+) -> set[tuple[str, str, str]]:
+    """Downgrade waived findings, hold records with an open question.
+
+    Returns the waiver keys that actually downgraded something, so the caller can
+    report the ones that did not. Two reasons that used to be silent:
+
+    The severity filter. Only findings that would have held the record were waived
+    -- high and medium -- so a waiver written against a ``low`` or ``info`` finding
+    did nothing at all and nothing said so, and five checks emit ``low`` as their
+    only severity. A
+    waiver is a recorded judgement about a finding; whether that finding would
+    have held the record is a separate question, and not one the waiver asked.
+
+    And a waiver that applies to nothing looks exactly like one that applies. The
+    key includes the severity now, so a decision about a medium CON-04 no longer
+    absorbs a high one; the cost of that narrowing is that a waiver can miss, and
+    a miss has to be reported rather than inferred.
+    """
+    applied: set[tuple[str, str, str]] = set()
     for result in results:
         # The normalised key, so a decision keeps applying while a malformed CAS
         # spelling is being fixed. INT-04 reports the spelling independently.
         cas = result.context.cas_key
         waived: list[Finding] = []
         for finding in result.findings:
-            waiver = decisions.waiver_for(cas, finding.check) if cas else None
-            if waiver is not None and finding.severity in HOLDING:
+            waiver = (
+                decisions.waiver_for(cas, finding.check, finding.severity)
+                if cas
+                else None
+            )
+            if waiver is not None:
+                applied.add((cas, finding.check, finding.severity))
                 waived.append(checks_mod.waive(finding, waiver.reason, waiver.evidence))
             else:
                 waived.append(finding)
@@ -271,6 +294,7 @@ def _apply_decisions(results: list[RecordResult], decisions: Decisions) -> None:
                     evidence=", ".join(question.check_ids),
                 )
             )
+    return applied
 
 
 def _build_manifest(

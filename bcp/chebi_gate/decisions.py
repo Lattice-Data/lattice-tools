@@ -6,9 +6,9 @@ has to clear on a re-run without anyone editing code. So the decisions live in t
 CSVs that a human edits and a reviewer reads:
 
 ``waivers.csv``
-    ``cas, check_id, reason, evidence, decided_by, decided_on`` -- a written
-    decision that a finding is correct as it stands. It downgrades the finding to
-    info; it never hides it.
+    ``cas, check_id, severity, reason, evidence, decided_by, decided_on`` -- a
+    written decision that a finding is correct as it stands. It downgrades the
+    finding to info; it never hides it.
 
 ``quarantine.csv``
     ``cas, check_id, reason, opened_on, blocked_on, resolved_on`` -- an open
@@ -29,11 +29,22 @@ those four renames -- ``(S)-(+)-a-Methylhistamine dihydrobromide`` to
 ``...alpha-methylhistamine...`` -- was itself a quarantined record, so the rename
 silently detached a record from its own open question.
 
+**A waiver names the severity it was written against.** Without it the key is
+``(cas, check_id)``, which waives every future finding of that check on that
+record -- including one raised for an entirely different reason. CON-04 emits both
+``medium`` for an unspecified centre and ``high`` for a name and a structure that
+contradict each other, and a waiver for the first silently absorbed the second.
+Severity is a stable pin, unlike the finding's prose, and a change of severity is
+the signal that the check is now saying something else.
+
 **A decision that matches nothing is reported, not ignored.** CAS is a better key
 than NAME but not a permanent one: for one of the seven held records the defect
 *is* the CAS number, so correcting it moves the key. A waiver or quarantine row
 matching no record in the input is therefore a loud finding, which is what stops a
-stale decision from silently ceasing to apply.
+stale decision from silently ceasing to apply. So is a waiver whose record *is*
+present but which waived nothing: 8 of the 15 shipped rows name a check the
+record in question cannot emit under the default configuration, and a waiver that
+applies to nothing reads exactly like one that applies.
 """
 
 from __future__ import annotations
@@ -53,7 +64,15 @@ DECISIONS_DIR = Path(__file__).parent / "decisions"
 WAIVERS_FILE = "waivers.csv"
 QUARANTINE_FILE = "quarantine.csv"
 
-WAIVER_COLUMNS = ("cas", "check_id", "reason", "evidence", "decided_by", "decided_on")
+WAIVER_COLUMNS = (
+    "cas",
+    "check_id",
+    "severity",
+    "reason",
+    "evidence",
+    "decided_by",
+    "decided_on",
+)
 QUARANTINE_COLUMNS = (
     "cas",
     "check_id",
@@ -77,6 +96,7 @@ class Waiver:
 
     cas: str
     check_id: str
+    severity: str
     reason: str
     evidence: str
     decided_by: str
@@ -105,12 +125,18 @@ class Quarantine:
 class Decisions:
     """Every decision recorded for a batch, indexed for lookup by CAS."""
 
-    waivers: dict[tuple[str, str], Waiver]
+    waivers: dict[tuple[str, str, str], Waiver]
     quarantine: dict[str, tuple[Quarantine, ...]]
     paths: tuple[Path, ...] = ()
 
-    def waiver_for(self, cas: str, check_id: str) -> Waiver | None:
-        return self.waivers.get((cas, check_id))
+    def waiver_for(self, cas: str, check_id: str, severity: str) -> Waiver | None:
+        """The waiver for exactly this finding, or None.
+
+        Keyed on the severity too, so a decision recorded about a medium finding
+        does not absorb a high one that the same check raises later for a
+        different reason.
+        """
+        return self.waivers.get((cas, check_id, severity))
 
     def open_questions(self, cas: str) -> tuple[Quarantine, ...]:
         """Unresolved quarantine rows for a CAS number."""
@@ -119,16 +145,36 @@ class Decisions:
     def resolved_questions(self, cas: str) -> tuple[Quarantine, ...]:
         return tuple(q for q in self.quarantine.get(cas, ()) if not q.is_open)
 
-    def unmatched(self, present: set[str]) -> list[str]:
-        """Decisions whose CAS appears in no record of the input.
+    def unmatched(
+        self,
+        present: set[str],
+        applied: set[tuple[str, str, str]] | None = None,
+    ) -> list[str]:
+        """Decisions that did nothing, and why.
 
-        A stale decision is worse than a missing one: it reads as still applying.
-        The caller reports these; it must not drop them.
+        Two ways a decision can be inert, and both read exactly like one that
+        works. Its CAS may appear in no record -- a stale decision is worse than a
+        missing one, because correcting a malformed CAS moves the key. Or its
+        record may be right there and the finding it waives never raised, which
+        ``_check_ids`` cannot catch: that check is registered, it simply cannot
+        fire on this record, or fires at another severity. 8 of the 15 shipped
+        waivers are in the second state under the default configuration.
+
+        ``applied`` is the set of waiver keys that actually downgraded a finding.
+        Pass None to report only the first kind, which is what a caller that did
+        not apply the waivers can honestly say.
         """
         out = []
-        for cas, check_id in sorted(self.waivers):
+        for key in sorted(self.waivers):
+            cas, check_id, severity = key
             if cas not in present:
                 out.append(f"waiver {cas} {check_id} matches no record")
+            elif applied is not None and key not in applied:
+                out.append(
+                    f"waiver {cas} {check_id}/{severity} matched a record but "
+                    "waived no finding: the check did not fire on it, or fired "
+                    "at another severity"
+                )
         for cas in sorted(self.quarantine):
             if cas not in present:
                 rows = self.quarantine[cas]
@@ -213,6 +259,24 @@ def _check_ids(path: Path, row_no: int, raw: str) -> tuple[str, ...]:
     return ids
 
 
+def _severity(path: Path, row_no: int, check_id: str, raw: str) -> str:
+    """The severity a waiver was written against, asserted to be one the check emits.
+
+    This is what ``_check_ids`` could not do. A registered check id says the
+    decision names something real; it does not say the decision can ever apply.
+    ``REL-01`` only ever emits ``info``, so a waiver for ``REL-01/high`` is a
+    considered judgement about a finding that cannot exist, and it used to load
+    cleanly.
+    """
+    allowed = CHECKS[check_id].severities
+    if raw not in allowed:
+        raise DecisionsError(
+            f"{path.name} row {row_no}: {check_id} never emits {raw!r}; "
+            f"it emits {list(allowed)}"
+        )
+    return raw
+
+
 def _cas(path: Path, row_no: int, raw: str) -> str:
     """Validate the join key, which is useless if it is not a real CAS number."""
     from cas_registry import CAS_VALID, classify_cas
@@ -237,6 +301,9 @@ def _load_waivers(path: Path) -> dict[tuple[str, str], Waiver]:
                 f"{path.name} row {row_no}: a waiver covers exactly one check, "
                 f"got {list(ids)}; write one row per check"
             )
+        severity = _severity(
+            path, row_no, ids[0], _require(path, row_no, row, "severity")
+        )
         reason = _require(path, row_no, row, "reason")
         if len(reason) < MIN_REASON_LENGTH:
             raise DecisionsError(
@@ -252,15 +319,16 @@ def _load_waivers(path: Path) -> dict[tuple[str, str], Waiver]:
             path, row_no, "decided_on", _require(path, row_no, row, "decided_on")
         )
 
-        key = (cas, ids[0])
+        key = (cas, ids[0], severity)
         if key in out:
             raise DecisionsError(
                 f"{path.name} row {row_no}: duplicate waiver for {cas} {ids[0]} "
-                f"(first seen at row {out[key].source_row})"
+                f"{severity} (first seen at row {out[key].source_row})"
             )
         out[key] = Waiver(
             cas=cas,
             check_id=ids[0],
+            severity=severity,
             reason=reason,
             evidence=evidence,
             decided_by=decided_by,

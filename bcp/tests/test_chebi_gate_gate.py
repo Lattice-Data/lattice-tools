@@ -270,6 +270,7 @@ def test_rerun_workflow_a_waiver_clears_a_record_by_a_data_edit_alone(tmp_path):
             {
                 "cas": CLEAN_CAS,
                 "check_id": "SYN-01",
+                "severity": "medium",
                 "reason": "The catalogue identifier is a deliberate cross-reference here.",
                 "evidence": "reviewed against the vendor page",
                 "decided_by": "A Curator",
@@ -363,6 +364,87 @@ def test_open_questions_are_written_with_the_compound_name(tmp_path):
     assert "Lab answer" in rows[0]["detail"]
 
 
+def test_a_waiver_on_a_low_finding_applies_instead_of_doing_nothing(tmp_path):
+    """Only high and medium were waived, so a low waiver was a silent no-op.
+
+    Five checks emit `low` as their only severity, and a waiver is a recorded
+    judgement about a finding -- whether that finding would have held the record
+    is a separate question, and not the one the waiver asked.
+    """
+    path = tmp_path / "machine_name.sdf"
+    path.write_bytes(sdf_bytes(salt_record(iupac="ethanamine;hydrochloride")))
+    directory = write_decisions(
+        tmp_path,
+        waivers=[
+            {
+                "cas": CLEAN_CAS,
+                "check_id": "IUP-01",
+                "severity": "low",
+                "reason": "The machine name is what the depositor supplied; kept.",
+                "evidence": "reviewed against the submission sheet",
+                "decided_by": "A Curator",
+                "decided_on": "2026-09-15",
+            }
+        ],
+    )
+    run = client.run(path, decisions=decisions.load(directory), allow_medium=True)
+    waived = [f for f in run.all_findings if f.check == "IUP-01" and f.waiver]
+    assert waived, [f.check for f in run.all_findings]
+    assert "WAIVED" in waived[0].detail
+
+
+def test_a_waiver_that_matched_a_record_but_no_finding_is_reported(
+    tmp_path, clean_input
+):
+    """The state `_check_ids` cannot catch: the check is real, it just never fires.
+
+    A waiver that applies to nothing reads exactly like one that applies, and
+    "matches no record" did not cover it -- the record is right there.
+    """
+    directory = write_decisions(
+        tmp_path,
+        waivers=[
+            {
+                "cas": CLEAN_CAS,
+                "check_id": "CON-05",
+                "severity": "high",
+                "reason": "A decision about a finding this record does not raise.",
+                "evidence": "somewhere",
+                "decided_by": "A Curator",
+                "decided_on": "2026-09-15",
+            }
+        ],
+    )
+    run = client.run(
+        clean_input, decisions=decisions.load(directory), allow_medium=True
+    )
+    assert any(
+        "waived no finding" in message and CLEAN_CAS in message
+        for message in run.unmatched_decisions
+    ), run.unmatched_decisions
+
+
+def test_a_waiver_that_did_its_job_is_not_reported_as_inert(tmp_path):
+    path = tmp_path / "clean.sdf"
+    path.write_bytes(sdf_bytes(salt_record(synonym="CHEMBL25", iupac="x")))
+    directory = write_decisions(
+        tmp_path,
+        waivers=[
+            {
+                "cas": CLEAN_CAS,
+                "check_id": "SYN-01",
+                "severity": "medium",
+                "reason": "The catalogue identifier is a deliberate cross-reference.",
+                "evidence": "reviewed against the vendor page",
+                "decided_by": "A Curator",
+                "decided_on": "2026-09-15",
+            }
+        ],
+    )
+    run = client.run(path, decisions=decisions.load(directory), allow_medium=True)
+    assert not [m for m in run.unmatched_decisions if "SYN-01" in m]
+
+
 def test_a_decision_matching_no_record_is_reported_on_the_run(tmp_path, clean_input):
     directory = write_decisions(
         tmp_path,
@@ -370,6 +452,7 @@ def test_a_decision_matching_no_record_is_reported_on_the_run(tmp_path, clean_in
             {
                 "cas": "50-00-0",
                 "check_id": "SYN-01",
+                "severity": "medium",
                 "reason": "A decision about a record that is not in this batch at all.",
                 "evidence": "somewhere",
                 "decided_by": "A Curator",
@@ -399,6 +482,7 @@ def test_a_decision_still_applies_when_the_cas_spelling_needs_repair(tmp_path):
             {
                 "cas": CLEAN_CAS,
                 "check_id": "SYN-01",
+                "severity": "medium",
                 "reason": "The catalogue identifier is a deliberate cross-reference here.",
                 "evidence": "reviewed against the vendor page",
                 "decided_by": "A Curator",
@@ -583,6 +667,7 @@ def test_the_run_id_changes_when_the_decisions_change(tmp_path, clean_input):
             {
                 "cas": CLEAN_CAS,
                 "check_id": "SYN-01",
+                "severity": "medium",
                 "reason": "A decision recorded so the run identifier has to change.",
                 "evidence": "somewhere",
                 "decided_by": "A Curator",

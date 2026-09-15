@@ -142,13 +142,22 @@ CAS number:
 
 | file | columns |
 |---|---|
-| `waivers.csv` | `cas, check_id, reason, evidence, decided_by, decided_on` |
+| `waivers.csv` | `cas, check_id, severity, reason, evidence, decided_by, decided_on` |
 | `quarantine.csv` | `cas, check_id, reason, opened_on, blocked_on, resolved_on` |
 
 A **waiver** is a written decision that a finding is correct as the record stands.
 It downgrades the finding to info; it never hides it, so the record still reports
 it with the reason attached. A waiver with no evidence fails the run — an
 assertion with nothing behind it is a suppression, not a judgement.
+
+A waiver names the severity it was written against, and covers only that. CON-04
+emits `medium` for a centre left unspecified and `high` for a name and a structure
+that contradict each other, and keyed on `(cas, check_id)` alone a decision about
+the first silently absorbed the second. Severity is a stable pin, unlike the
+finding's prose, and a change of severity is the signal that the check is now
+saying something else. The cost of the narrowing is that a waiver can miss, so a
+waiver that matched a record and waived nothing is reported alongside one whose
+CAS matched no record at all.
 
 A **quarantine** row is an open question. While `resolved_on` is empty the record
 is held whatever the checks say, because "which salt does the lab hold?" is not
@@ -157,8 +166,8 @@ held record always has a route out.
 
 The run fails, loudly, on: a missing decider or date, a non-ISO date, a resolution
 predating its question, a reason too short to be a recorded judgement, a
-quarantine row with no unblock condition, a duplicate, unexpected columns, and a
-`check_id` the registry does not have. That last one matters most: a decision
+quarantine row with no unblock condition, a duplicate, unexpected columns, a
+`check_id` the registry does not have, and a severity that check never emits. That last one matters most: a decision
 naming a renamed check looks like a considered judgement and applies to nothing.
 
 **Why CAS and not NAME.** The prototype keyed on NAME. Renaming four records broke
@@ -397,8 +406,14 @@ A second round found more, and these are fixed here too:
   independent source. `--cas-registry` and `--chebi-index` already failed loudly;
   these two were the exception, and now are not.
 
-Findings not yet addressed are listed in the branch discussion rather than fixed
-silently.
+- A waiver only applied to a finding that would have held the record, so one
+  written against a `low` or `info` finding did nothing and nothing said so —
+  five checks emit `low` as their only severity. Waivers now apply at any
+  severity, are keyed on it so they cannot absorb a different finding from the
+  same check, and one that waived nothing is reported.
+
+All twelve findings from the second review round are fixed. Anything found later
+goes in the branch discussion rather than being fixed silently.
 
 ## What is not built
 
