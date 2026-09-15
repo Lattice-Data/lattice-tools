@@ -659,3 +659,22 @@ def test_rel01_reports_shared_parent_skeletons_per_record():
 
 def test_rel01_never_holds_a_record_back():
     assert checks.CHECKS["REL-01"].severities == (INFO,)
+
+
+@pytest.mark.parametrize(
+    "synonym,fires",
+    [
+        ("ethylamine hydrochloride hydrate", True),
+        ("compound monohydrate", True),
+        ("carbohydrate derivative", False),
+        ("sodium dehydrate", False),
+    ],
+)
+def test_syn04_matches_the_solvate_word_not_a_substring(synonym, fires):
+    """SYN-04 had the same bare-substring bug CON-03 did, and kept it longer.
+
+    It fired on a synonym reading "carbohydrate derivative" or "sodium dehydrate",
+    reporting a hydrate synonym on an anhydrous entry where there was none.
+    """
+    found = run(salt_record(synonym=f"ethylamine hcl;{synonym}", iupac="x"))
+    assert (("SYN-04", MEDIUM) in ids(found)) is fires

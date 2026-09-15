@@ -165,6 +165,8 @@ SALT_FRAGMENT_RE = re.compile(r"C4H[24]O4|C2H2O4|H2O4S|C7H8O3S|CH4O3S|C4H6O6|C10
 # "hydrate" has the same problem in "dehydrate" and "carbohydrate".
 _SOLVATE_PREFIX = r"(?:hemi|mono|di|tri|tetra|penta|hexa|hepta|octa|sesqui)?"
 HYDRATE_WORD = re.compile(rf"(?<![a-z]){_SOLVATE_PREFIX}hydrate\b")
+# Shared with SYN-04, which had the same bare-substring bug: it fired on a
+# synonym reading "carbohydrate derivative" or "sodium dehydrate".
 ETHANOLATE_WORD = re.compile(rf"(?<![a-z]){_SOLVATE_PREFIX}ethanolate\b")
 
 # A solvate can also arrive as a standalone component of a PubChem machine name,
@@ -775,7 +777,7 @@ def syn04_contradictions(ctx: RecordContext) -> Iterator[Finding]:
         yield ctx.finding(
             "SYN-04", MEDIUM, "racemic/rel synonyms on an enantiopure entry"
         )
-    if not ctx.structure.water and any("hydrate" in i.lower() for i in items):
+    if not ctx.structure.water and any(HYDRATE_WORD.search(i.lower()) for i in items):
         yield ctx.finding("SYN-04", MEDIUM, "hydrate synonyms on an anhydrous entry")
 
 

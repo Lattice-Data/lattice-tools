@@ -227,3 +227,52 @@ def test_every_parseable_fixture_yields_a_formula_and_a_key(mol):
     assert s.formula
     assert s.parent_formula
     assert s.inchikey
+
+
+# ------------------------------------------------------- never raising on input
+
+
+def test_a_zero_atom_record_is_reported_not_fatal():
+    """It used to reach max() over an empty fragment list and raise ValueError.
+
+    One malformed record aborted the whole run instead of being held and
+    described, which for a batch of 290 is the difference between one problem and
+    no output at all.
+    """
+    block = (
+        "empty record\n     RDKit          2D\n\n"
+        "  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n"
+    )
+    text = record_text(block, {"NAME": "empty record", "CAS_NO": "64-17-5"})
+    record = sdf.parse_bytes(sdf_bytes(text)).records[0]
+
+    result = structure.analyse(record)
+    assert result.parse is False
+    assert result.formula is None
+    assert result.n_frag == 0
+
+
+def test_a_non_ascii_title_line_is_reported_not_fatal(caplog):
+    """RDKit's own encode raised on the lone surrogate the byte-faithful parser keeps.
+
+    The gate has to be able to describe a non-ASCII record, since refusing one is
+    exactly what INT-06 is for.
+    """
+    raw = sdf_bytes(
+        record_text(molblock("amine_hcl"), {"NAME": "x", "CAS_NO": "557-66-4"})
+    ).replace(b"ethylamine hydrochloride", b"\xe9thylamine hydrochlorid", 1)
+    record = sdf.parse_bytes(raw).records[0]
+
+    result = structure.analyse(record)
+    assert result.parse is False
+    assert "could not be read" in caplog.text
+
+
+def test_analyse_still_reads_the_chiral_flag_from_an_unreadable_record():
+    block = (
+        "empty record\n     RDKit          2D\n\n"
+        "  0  0  0  0  1  0  0  0  0  0999 V2000\nM  END\n"
+    )
+    text = record_text(block, {"NAME": "empty record"})
+    record = sdf.parse_bytes(sdf_bytes(text)).records[0]
+    assert structure.analyse(record).chiral_flag == 1

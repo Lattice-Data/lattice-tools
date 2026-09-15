@@ -240,11 +240,18 @@ Asserted inside the gate at run time, not only in tests:
 `tests/fixtures/chebi_gate/findings_baseline.json` records what the gate produces
 over the batch already deposited with ChEBI, with the SHA256 of each input so a
 run is known to be judging the same bytes. The original two-file validator
-produced 821 findings; the gate reproduces 814 of them, and the 7-row gap is two
-deliberate choices, both recorded in that file with their reasons: the record
-count moved from a finding to the run summary (−2), and shared parent skeletons
-are attributed per record rather than once per group (+5). Any other divergence is
-a bug.
+produced 821 findings; the gate reproduces 809 of them, and every divergence is
+recorded in that file with its reason:
+
+| check | v1 | gate | why |
+|---|---:|---:|---|
+| `INT-01/info` | 2 | 0 | the record count is a fact about the run, so it moved to the summary and the manifest |
+| `REL-01/info` | 5 | 10 | shared parent skeletons are attributed per record, so holding one record carries the information |
+| `SYN-04/medium` | 5 | 3 | matching the solvate word rather than the substring `hydrate` dropped two false positives — `Haloperidol chlorohydrate` and `l-Propranolol Chlorhydrate` are older names for the hydrochloride, not hydrates |
+
+Any divergence not in that table is a bug. The table is generated, and the test
+asserts the set of diverging keys equals the set recorded — so a new divergence
+fails the run rather than quietly widening the gap.
 
 The inputs are gitignored, so those tests skip with a reason when the run
 directory is absent. Every check itself is covered by fixture-based tests that

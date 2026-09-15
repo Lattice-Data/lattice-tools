@@ -102,15 +102,32 @@ class Structure:
 
 
 def analyse(record: SdfRecord) -> Structure:
-    """Derive every structural fact the checks need from one record's molfile."""
-    mol = Chem.MolFromMolBlock(record.mol_block, removeHs=False)
-    if mol is None:
+    """Derive every structural fact the checks need from one record's molfile.
+
+    Never raises. A record RDKit cannot read comes back with ``parse=False`` so
+    INT-07 reports it against that record, which is the whole point: two inputs
+    used to abort the entire run instead. A counts line promising zero atoms
+    reached ``max()`` over an empty fragment list and raised ValueError, and a
+    non-ASCII byte in the title line -- carried as a lone surrogate by the
+    byte-faithful parser -- made RDKit's own UTF-8 encode raise. Both are records
+    the gate should hold and describe, not die on.
+    """
+    try:
+        mol = Chem.MolFromMolBlock(record.mol_block, removeHs=False)
+    except (ValueError, UnicodeError) as exc:
+        log.warning(
+            "record %d (%s) could not be read: %s", record.index, record.name, exc
+        )
+        mol = None
+    if mol is None or not mol.GetNumAtoms():
         log.debug("record %d (%s) does not parse", record.index, record.name)
         return Structure(parse=False, chiral_flag=_chiral_flag(record.counts_line))
 
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
 
     frags = Chem.GetMolFrags(mol, asMols=True)
+    if not frags:  # pragma: no cover - guarded by the atom count above
+        return Structure(parse=False, chiral_flag=_chiral_flag(record.counts_line))
     # Ties go to the first fragment, matching the prototype. Which fragment counts
     # as the parent decides the base InChIKey and therefore every parent-skeleton
     # relationship, so the tie-break has to be stable rather than merely defined.

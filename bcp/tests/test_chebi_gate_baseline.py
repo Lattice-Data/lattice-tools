@@ -123,9 +123,16 @@ def test_the_v1_divergence_is_only_the_two_deliberate_choices(run_dir, baseline)
 def test_the_baseline_records_why_each_divergence_is_intended(baseline):
     """Runs without the inputs: a gap with no stated reason is just an unfixed bug."""
     divergences = baseline["v1_baseline"]["deliberate_divergences"]
-    assert len(divergences) == 2
+    # Not a hard-coded count. Handoff case 18 is about exactly this: a figure
+    # written into prose goes stale, and an assertion carrying a magic number
+    # fails for the right reason once and then gets "fixed" by bumping it. What
+    # matters is that every divergence names a real check and states a reason.
+    assert divergences
     for entry in divergences:
         assert entry["key"] in baseline["v1_baseline"]["counts_by_check_severity"]
+        assert entry["baseline"] != entry["gate"], (
+            f"{entry['key']} is listed as a divergence but the counts agree"
+        )
         assert len(entry["why"]) > 40
 
 

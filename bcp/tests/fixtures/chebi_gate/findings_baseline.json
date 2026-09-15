@@ -35,10 +35,10 @@
     "SYN-01/medium": 251,
     "SYN-02/medium": 165,
     "SYN-03/low": 160,
-    "SYN-04/medium": 5,
+    "SYN-04/medium": 3,
     "SYN-05/low": 2
   },
-  "total_findings": 824,
+  "total_findings": 822,
   "per_file": {
     "chebi_bulk_group_A_salts.sdf": {
       "CON-01/high": 2,
@@ -55,7 +55,7 @@
       "SYN-01/medium": 171,
       "SYN-02/medium": 165,
       "SYN-03/low": 96,
-      "SYN-04/medium": 4,
+      "SYN-04/medium": 2,
       "SYN-05/low": 2
     },
     "chebi_bulk_group_B_novel.sdf": {
@@ -96,7 +96,7 @@
       "SYN-04/medium": 5,
       "SYN-05/low": 2
     },
-    "rows_reproduced_identically": 814,
+    "rows_reproduced_identically": 809,
     "deliberate_divergences": [
       {
         "key": "INT-01/info",
@@ -109,6 +109,12 @@
         "baseline": 5,
         "gate": 10,
         "why": "Shared parent skeletons are attributed to every record in the group rather than once per group, so holding or reporting a single record carries the information with it."
+      },
+      {
+        "key": "SYN-04/medium",
+        "baseline": 5,
+        "gate": 3,
+        "why": "SYN-04 matched the solvate word instead of the bare substring 'hydrate', which removed two false positives from the batch: Haloperidol hydrochloride carries the synonym 'Haloperidol chlorohydrate' and (S)-(-)-Propranolol hydrochloride carries 'l-Propranolol Chlorhydrate'. Both are older names for the hydrochloride, not hydrates, and both were reported as a hydrate synonym on an anhydrous entry. The two genuine hits still fire: 'BNTX maleate salt hydrate' and '2-chloro-N6-Cyclopentyladenosine (hydrate)'. CON-03 was fixed the same way earlier; this is the second half of one bug."
       }
     ]
   }
