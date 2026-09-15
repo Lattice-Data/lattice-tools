@@ -23,6 +23,15 @@ any capital-plus-optional-lowercase run, so a vendor code that has lost its spac
 meaningless formula. Symbols are checked against the periodic table, so garbage is
 reported as unparseable rather than compared.
 
+**Deuterium and tritium are hydrogen here.** CAS writes a deuterated compound as
+``C7H5D3``; neither symbol is in the periodic table, so the whole formula used to
+come back unparseable and the record lost the one independent stoichiometry check
+it had. RDKit's ``CalcMolFormula`` writes ``CH4O`` for CD3OH -- measured -- so the
+drawn side can never say ``D`` and treating it as its own element would make every
+deuterated row DISAGREE with no edit that could clear it. They are counted as
+hydrogen and the verdict says so, because a molecular formula cannot express
+isotope labelling and an agreement here must not read as confirming the label.
+
 The hydrogen-only case is deliberately not a defect. A registry that lists the
 neutral acid against a drawing that shows the ion differs by exactly one hydrogen
 per counterion; 10 of 290 records on the reference batch were this, and calling
@@ -57,11 +66,32 @@ _MARKUP = re.compile(r"</?su[bp]>")
 # "C6H5O7-3". Only one, and only at the end.
 _TRAILING_CHARGE = re.compile(r"[+-]\d*$")
 
-# A component's optional leading multiplier, whole or fractional.
-_MULTIPLIER = re.compile(r"^(\d+/\d+|\d+)?(.*)$")
+# A component's optional leading multiplier: whole, fractional or decimal.
+# ``\d+\.\d+`` has to precede ``\d+`` or the alternation stops at the integer part.
+_MULTIPLIER = re.compile(r"^(\d+/\d+|\d+\.\d+|\d+)?(.*)$")
 
 # An element symbol and its optional count.
 _ELEMENT = re.compile(r"([A-Z][a-z]?)(\d*)")
+
+# Hydrogen isotopes, which CAS writes as elements: C7H5D3, C2D6O, and T for
+# tritium. The periodic table has neither, so :data:`ELEMENTS` rejected the token
+# and the whole formula came back unparseable -- the record then lost its only
+# independent stoichiometry check over a formula that is perfectly well formed.
+#
+# They are folded into hydrogen, and the decision turns on a measurement: RDKit's
+# ``CalcMolFormula`` writes ``CH4O`` for CD3OH, isotope labels and all. The drawn
+# side can therefore never say ``D``, so counting D as its own element would make
+# every deuterated registry row DISAGREE with no edit to the record that could
+# ever clear it. EXT-04 compares composition; isotope labelling is outside what
+# either formula string can express. :data:`ISOTOPE_NOTE` says so in the finding,
+# so an agreement here is not read as confirming the label.
+_HYDROGEN_ISOTOPES = {"D": "H", "T": "H"}
+
+ISOTOPE_NOTE = (
+    "; the registry formula names hydrogen isotopes, which were counted as "
+    "hydrogen -- a molecular formula cannot express isotope labelling, so this "
+    "comparison does not check it"
+)
 
 # The registry declining to fix a component ratio. Three spellings, all seen:
 # a letter multiplier in a dotted formula ("C19H23N.xC4H4O4"), and two ways of
@@ -123,6 +153,39 @@ def is_indefinite(*texts: str) -> bool:
     return bool(INDEFINITE.search(joined)) or RATIO_UNKNOWN_MARKER in joined
 
 
+def has_hydrogen_isotope(text: str) -> bool:
+    """Whether a formula names deuterium or tritium as a bare element symbol.
+
+    ``Dy`` and ``Te`` are elements in their own right, so the test is the tokenised
+    symbol rather than the letter.
+    """
+    stripped = _TRAILING_CHARGE.sub("", strip_markup(text))
+    return any(symbol in _HYDROGEN_ISOTOPES for symbol, _ in _ELEMENT.findall(stripped))
+
+
+def _split_components(cleaned: str) -> list[str]:
+    """Split a dotted formula into components without cutting a decimal multiplier.
+
+    ``.`` separates components *and* is the decimal point of a multiplier, and a
+    plain ``split(".")`` cannot tell them apart. ``C19H23N.1.5C4H4O4`` became
+    ``["C19H23N", "1", "5C4H4O4"]``: the ``1`` parsed as a multiplier with no body
+    and was skipped, and the fraction's tail became a multiplier of five, so a
+    sesquifumarate parsed as ``C39H43NO20`` -- silently, and confidently.
+
+    A digit run that is a whole component, immediately followed by a component
+    that starts with a digit, is the two halves of one decimal. That test is what
+    keeps ``C4H10O2.2H2O`` apart: ``C4H10O2`` is not a digit run, so the dot before
+    its dihydrate is a separator, which is what it looks like to a reader too.
+    """
+    parts: list[str] = []
+    for part in cleaned.split("."):
+        if parts and parts[-1].isdigit() and part[:1].isdigit():
+            parts[-1] = f"{parts[-1]}.{part}"
+        else:
+            parts.append(part)
+    return parts
+
+
 def parse(text: str) -> Counter | None:
     """A formula as element counts, honouring dotted components and multipliers.
 
@@ -137,22 +200,31 @@ def parse(text: str) -> Counter | None:
         return None
 
     total: Counter = Counter()
-    for part in cleaned.split("."):
+    for part in _split_components(cleaned):
         if not part:
             continue
         match = _MULTIPLIER.match(part)
         if match is None:  # pragma: no cover - the pattern always matches
             return None
-        multiplier = Fraction(match.group(1)) if match.group(1) else Fraction(1)
+        try:
+            multiplier = Fraction(match.group(1)) if match.group(1) else Fraction(1)
+        except (ValueError, ZeroDivisionError):
+            # A zero-denominator multiplier is malformed, not infinite. Fraction
+            # raises ZeroDivisionError, which used to leave parse, compare, ext04
+            # and run_external_checks and abort the whole run on one bad cell in a
+            # hand-parsed table.
+            log.debug("formula %r has an unusable multiplier %r", text, match.group(1))
+            return None
         body = match.group(2)
         if not body:
             continue
         consumed = 0
         for symbol, count in _ELEMENT.findall(body):
-            if symbol not in ELEMENTS:
+            element = _HYDROGEN_ISOTOPES.get(symbol, symbol)
+            if element not in ELEMENTS:
                 log.debug("formula %r has non-element token %r", text, symbol)
                 return None
-            total[symbol] += multiplier * (int(count) if count else 1)
+            total[element] += multiplier * (int(count) if count else 1)
             consumed += len(symbol) + len(count)
         if consumed != len(body):
             # Characters the element pattern could not account for, e.g. a stray
@@ -218,6 +290,9 @@ def compare(
     left = reduce_ratio(parse(registry_formula))
     right = reduce_ratio(parse(drawn_formula or ""))
     clean = strip_markup(registry_formula)
+    # Appended to every verdict that compared two parsed formulae, so an agreement
+    # on a deuterated registry row is never read as confirming the label.
+    isotopes = ISOTOPE_NOTE if has_hydrogen_isotope(registry_formula) else ""
     if not left or not right:
         which = "registry" if not left else "drawn"
         return Comparison(
@@ -231,7 +306,7 @@ def compare(
         return Comparison(
             status=AGREE,
             note=f"registry formula {clean} agrees with the drawn structure "
-            "(same ratio)",
+            f"(same ratio){isotopes}",
             registry_formula=clean,
             drawn_formula=drawn_formula or "",
         )
@@ -246,7 +321,8 @@ def compare(
         return Comparison(
             status=CONVENTION,
             note=f"registry formula {clean} differs from drawn {drawn_formula} by "
-            f"{diff['H']:+d} H only (neutral-acid versus ionic drawing convention)",
+            f"{diff['H']:+d} H only (neutral-acid versus ionic drawing "
+            f"convention){isotopes}",
             registry_formula=clean,
             drawn_formula=drawn_formula or "",
             diff=diff,
@@ -255,7 +331,8 @@ def compare(
     detail = ", ".join(f"{symbol}{value:+d}" for symbol, value in sorted(diff.items()))
     return Comparison(
         status=DISAGREE,
-        note=f"registry formula {clean} disagrees with drawn {drawn_formula}: {detail}",
+        note=f"registry formula {clean} disagrees with drawn {drawn_formula}: "
+        f"{detail}{isotopes}",
         registry_formula=clean,
         drawn_formula=drawn_formula or "",
         diff=diff,

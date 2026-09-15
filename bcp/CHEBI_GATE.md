@@ -346,6 +346,16 @@ A second round found more, and these are fixed here too:
   count. `is_salt` keeps its broader meaning, because "is this a multi-component
   record" is the right question for a stoichiometry check and for a has-part link.
 
+- `formula.parse` split a decimal multiplier on its own decimal point, so
+  `C19H23N.1.5C4H4O4` read as `C39H43NO20` -- silently, and confidently enough to
+  be compared. A zero-denominator multiplier raised `ZeroDivisionError` out of
+  `parse`, `compare`, EXT-04 and the whole external pass, so one malformed cell in
+  a hand-parsed table left every other record unjudged. And `D` and `T` are not
+  periodic-table symbols, so a deuterated CAS formula was unparseable: they now
+  count as hydrogen, because RDKit's `CalcMolFormula` writes `CH4O` for CD3OH and
+  the drawn side can never say `D`. The verdict says the labelling was not
+  checked, so an agreement does not read as confirming it.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
 

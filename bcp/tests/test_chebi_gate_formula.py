@@ -54,6 +54,71 @@ def test_a_fractional_multiplier_stays_exact_until_reduction():
     assert parsed["O"] == Fraction(7)
 
 
+def test_a_decimal_multiplier_means_the_same_as_the_fraction_it_spells():
+    """`split(".")` cut the decimal point and made the tail its own multiplier.
+
+    "C19H23N.1.5C4H4O4" split to ["C19H23N", "1", "5C4H4O4"]: the "1" was a
+    multiplier with no body and was skipped, and the "5" multiplied the fumarate,
+    so a sesquifumarate parsed as C39H43NO20 -- silently, and confidently enough
+    to be compared against a correct drawing and called a disagreement.
+    """
+    assert formula.parse("C19H23N.1.5C4H4O4") == formula.parse("C19H23N.3/2C4H4O4")
+    assert formula.reduce_ratio(formula.parse("C19H23N.1.5C4H4O4")) == {
+        "C": 25,
+        "H": 29,
+        "N": 1,
+        "O": 6,
+    }
+
+
+def test_a_dot_before_a_hydrate_multiplier_is_still_a_separator():
+    """The half of the fix that can be got wrong: C4H10O2.2H2O is not a decimal."""
+    assert formula.reduce_ratio(formula.parse("C4H10O2.2H2O")) == {
+        "C": 2,
+        "H": 7,
+        "O": 2,
+    }
+
+
+def test_a_zero_denominator_multiplier_is_unparseable_not_an_exception():
+    """Fraction raises ZeroDivisionError, which left parse and aborted the run.
+
+    One malformed cell in a hand-parsed table took down compare, ext04 and
+    run_external_checks with it, so every other record went unjudged too.
+    """
+    assert formula.parse("C19H23N.1/0C4H4O4") is None
+    assert formula.compare("C19H23N.1/0C4H4O4", "C23H27NO4").status == (
+        formula.UNPARSEABLE
+    )
+
+
+def test_deuterium_and_tritium_are_counted_as_hydrogen():
+    """Decided, not defaulted: RDKit's CalcMolFormula writes CH4O for CD3OH.
+
+    The drawn side can never say D, so counting it as its own element would make
+    every deuterated registry row DISAGREE with no edit that could clear it. The
+    alternative -- leaving it unparseable -- loses a stoichiometry check over a
+    formula that is perfectly well formed.
+    """
+    assert formula.parse("C2D6O") == formula.parse("C2H6O")
+    assert formula.parse("C6H5T") == formula.parse("C6H6")
+
+
+def test_an_element_whose_symbol_starts_with_d_or_t_is_still_that_element():
+    assert formula.parse("Dy2O3") == {"Dy": Fraction(2), "O": Fraction(3)}
+    assert formula.parse("TeO2") == {"Te": Fraction(1), "O": Fraction(2)}
+
+
+def test_an_isotope_agreement_says_it_did_not_check_the_labelling():
+    """Otherwise "formula agrees" reads as confirming a label nobody compared."""
+    verdict = formula.compare("C2D6O", "C2H6O")
+    assert verdict.status == formula.AGREE
+    assert "does not check it" in verdict.note
+
+    plain = formula.compare("C2H6O", "C2H6O")
+    assert "does not check it" not in plain.note
+
+
 def test_one_trailing_charge_is_dropped():
     """RDKit writes the net charge onto a whole-molecule formula."""
     assert formula.parse("C5H11NO5P-") == formula.parse("C5H11NO5P")
