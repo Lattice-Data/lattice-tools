@@ -368,6 +368,13 @@ A second round found more, and these are fixed here too:
   reach the run_id while the docstring said none could. Paths and build times stay
   in the manifest and are excluded from the identifier.
 
+- The environment block recorded `git rev-parse HEAD` and nothing about the work
+  tree, so an uncommitted edit to a check -- the normal state of a working session
+  -- left the manifest naming a commit whose code produces different findings from
+  the ones recorded beside it. It now records whether the tracked files differ
+  from that commit and a hash of the diff. Untracked files are excluded, or a
+  gitignored run directory would make every manifest dirty.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
 

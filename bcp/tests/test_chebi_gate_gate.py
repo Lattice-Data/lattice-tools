@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import csv
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -716,6 +718,74 @@ def test_git_commit_never_raises_outside_a_work_tree(tmp_path):
         manifest_mod.git_commit(tmp_path) in ("unknown",)
         or len(manifest_mod.git_commit(tmp_path)) == 40
     )
+
+
+def _repo(tmp_path: Path) -> Path:
+    """A one-commit git work tree, for the manifest's environment block."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "code.py").write_text("SEVERITY = 'high'\n")
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "T",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "T",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+    }
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "one"]):
+        subprocess.run(["git", *args], cwd=repo, env=env, check=True)
+    return repo
+
+
+def test_the_manifest_says_whether_the_work_tree_matched_the_commit(tmp_path):
+    """A commit alone does not say what ran.
+
+    An uncommitted edit to a check is the normal state of a working session, and
+    it left the manifest naming a commit whose code produces different findings
+    from the ones recorded beside it, with nothing to mark the discrepancy.
+    """
+    repo = _repo(tmp_path)
+    clean = manifest_mod.git_worktree_state(repo)
+    assert clean["git_dirty"] is False
+    assert clean["git_diff_sha256"] == ""
+
+    (repo / "code.py").write_text("SEVERITY = 'low'\n")
+    dirty = manifest_mod.git_worktree_state(repo)
+    assert dirty["git_dirty"] is True
+    assert len(dirty["git_diff_sha256"]) == 64
+
+
+def test_the_same_uncommitted_edit_hashes_the_same_and_a_different_one_does_not(
+    tmp_path,
+):
+    repo = _repo(tmp_path)
+    (repo / "code.py").write_text("SEVERITY = 'low'\n")
+    first = manifest_mod.git_worktree_state(repo)["git_diff_sha256"]
+    (repo / "code.py").write_text("SEVERITY = 'low'\n")
+    assert manifest_mod.git_worktree_state(repo)["git_diff_sha256"] == first
+    (repo / "code.py").write_text("SEVERITY = 'info'\n")
+    assert manifest_mod.git_worktree_state(repo)["git_diff_sha256"] != first
+
+
+def test_an_untracked_file_does_not_make_the_work_tree_dirty(tmp_path):
+    """Otherwise a gitignored run directory makes every manifest dirty."""
+    repo = _repo(tmp_path)
+    (repo / "chebi_run_2026_09a").mkdir()
+    (repo / "chebi_run_2026_09a" / "batch.sdf").write_text("x\n")
+    assert manifest_mod.git_worktree_state(repo)["git_dirty"] is False
+
+
+def test_the_work_tree_state_is_unknown_rather_than_clean_outside_a_repo(tmp_path):
+    """None and False have to read differently: one is a fact, one is a silence."""
+    state = manifest_mod.git_worktree_state(tmp_path)
+    assert state["git_dirty"] is None
+    assert state["git_diff_sha256"] == "unknown"
+
+
+def test_the_environment_block_carries_the_work_tree_state(tmp_path, clean_input):
+    run = client.run(clean_input, allow_medium=True, repo=_repo(tmp_path))
+    assert run.manifest.environment["git_dirty"] is False
+    assert len(run.manifest.environment["git_commit"]) == 40
 
 
 # ------------------------------------------------------------- findings table

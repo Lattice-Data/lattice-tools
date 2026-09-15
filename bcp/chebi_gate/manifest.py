@@ -84,15 +84,15 @@ def directory_digest(directory: str | Path, pattern: str = "*") -> dict:
     }
 
 
-def git_commit(repo: str | Path | None = None) -> str:
-    """The commit the gate ran from, or "unknown" outside a work tree.
+def _git(repo: str | Path | None, *args: str) -> str | None:
+    """One git command's stdout, or None when git could not answer.
 
     Never raises: a run from an exported tarball is legitimate and must still
     produce a manifest, just one that says the commit is unknown.
     """
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+            ["git", *args],
             cwd=str(repo) if repo else None,
             capture_output=True,
             text=True,
@@ -100,8 +100,47 @@ def git_commit(repo: str | Path | None = None) -> str:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        return "unknown"
-    return result.stdout.strip() or "unknown"
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def git_commit(repo: str | Path | None = None) -> str:
+    """The commit the gate ran from, or "unknown" outside a work tree."""
+    out = _git(repo, "rev-parse", "HEAD")
+    return (out or "").strip() or "unknown"
+
+
+def git_worktree_state(repo: str | Path | None = None) -> dict:
+    """Whether the tracked files differ from the commit, and how.
+
+    The commit alone does not say what ran. An uncommitted edit to a check --
+    which is the normal state of a working session -- left the manifest naming a
+    commit whose code produced different findings from the ones recorded beside
+    it, with nothing to indicate the discrepancy. The manifest exists to explain a
+    verdict months later; a verdict attributed to the wrong code is worse than one
+    attributed to none.
+
+    Untracked files are excluded deliberately: a run directory or an editor
+    scratch file sitting in the tree does not change what the gate does, and
+    counting them would make every manifest dirty and the flag worth nothing.
+
+    ``dirty`` is None when git could not answer, which is a different thing from
+    a clean tree and has to read differently.
+    """
+    status = _git(repo, "status", "--porcelain", "--untracked-files=no")
+    if status is None:
+        return {"git_dirty": None, "git_diff_sha256": "unknown"}
+    if not status.strip():
+        return {"git_dirty": False, "git_diff_sha256": ""}
+    diff = _git(repo, "diff", "HEAD") or ""
+    return {
+        "git_dirty": True,
+        # So two runs from the same uncommitted edit are recognisably the same
+        # code, and two different edits are not.
+        "git_diff_sha256": hashlib.sha256(diff.encode("utf-8")).hexdigest(),
+    }
 
 
 @dataclass
@@ -172,6 +211,7 @@ class Manifest:
             "tool": TOOL,
             "tool_version": TOOL_VERSION,
             "git_commit": git_commit(repo),
+            **git_worktree_state(repo),
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "rdkit": rdBase.rdkitVersion,
