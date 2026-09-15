@@ -339,6 +339,13 @@ A second round found more, and these are fixed here too:
   counterions instead would have been wrong: 3-Methyl-GABA napadisylate draws a
   counterion larger than its base, so the sulfonate there is the parent fragment.
 
+- INT-03 demanded a RELATIONSHIP class from any record with more than one
+  fragment, so a parent plus water was held at `high` while the class table
+  contains no hydrate or solvate code -- a held record with no value that would
+  release it. The requirement now reads the counterions rather than the fragment
+  count. `is_salt` keeps its broader meaning, because "is this a multi-component
+  record" is the right question for a stoichiometry check and for a has-part link.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
 

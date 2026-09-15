@@ -285,12 +285,34 @@ class RecordContext:
         judged on what it is: more than one fragment, or an asserted class. The
         explicit roles exist to reproduce the original two-file behaviour, where one
         file was known to hold salts and the other known not to.
+
+        Deliberately broader than :attr:`has_counterion`: this answers "is this a
+        multi-component record", which is the right question for a stoichiometry
+        check or a has-part link, and a hydrate is one of those. It is the wrong
+        question for "must this record name a class", which is what
+        :attr:`has_counterion` is for.
         """
         if self.role == ROLE_SALT:
             return True
         if self.role == ROLE_NEUTRAL:
             return False
         return self.structure.n_frag > 1 or bool(self.relationship)
+
+    @property
+    def has_counterion(self) -> bool:
+        """Whether a fragment beyond the parent is something other than solvate.
+
+        Solvent of crystallisation is not a counterion, and the class table has no
+        code for a hydrate or an ethanolate -- every entry in it names an ion. So a
+        record that is a parent plus water has no class it *could* assert, and
+        demanding one held it back at ``high`` with no value that would release it.
+        A held record is supposed to have a route out.
+
+        Reading the fragments rather than ``is_salt`` also keeps this honest under
+        ``--role salt``: the role says which checks apply to the file, not that
+        every record in it grew a counterion.
+        """
+        return any(x not in classes.SOLVATES for x in self.structure.counter)
 
     @property
     def cas_key(self) -> str:
@@ -369,7 +391,7 @@ def int03_required_fields(ctx: RecordContext) -> Iterator[Finding]:
     for tag in ("SYNONYM", "IUPAC_NAME"):
         if tag not in data:
             yield ctx.finding("INT-03", MEDIUM, f"{tag} absent")
-    if ctx.is_salt and not ctx.relationship:
+    if ctx.has_counterion and not ctx.relationship:
         yield ctx.finding(
             "INT-03", HIGH, "salt record with no RELATIONSHIP class asserted"
         )

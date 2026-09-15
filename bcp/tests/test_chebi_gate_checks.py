@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from chebi_gate import checks, sdf, structure
+from chebi_gate import checks, classes, sdf, structure
 from chebi_gate.checks import HIGH, INFO, LOW, MEDIUM
 from tests.chebi_gate_helpers import (
     ISA_FUMARATE,
@@ -266,6 +266,43 @@ def test_int09_accepts_an_ionically_drawn_but_neutral_salt():
 
 
 # ---------------------------------------------------------- class and its proof
+
+
+def test_int03_does_not_demand_a_class_from_a_record_that_is_only_solvated():
+    """A parent plus water is not a salt, and there is no class it could assert.
+
+    `is_salt` read "more than one fragment", so a pure hydrate was required to name
+    a RELATIONSHIP class -- at `high`, which always holds the record -- while the
+    class table contains no hydrate or solvate code. There was no value that would
+    have released it.
+    """
+    record = salt_record(
+        name="decylamine hydrate",
+        mol="amine_hydrate",
+        iupac="decan-1-amine;hydrate",
+        relationship=None,
+    )
+    assert ("INT-03", HIGH) not in ids(run(record))
+    assert not [name for name in classes.ALL_CLASSES.values() if "hydrate" in name]
+
+
+def test_int03_still_demands_a_class_from_a_hydrated_salt():
+    """The solvate exclusion must not let a real counterion through unclassed."""
+    found = run(
+        salt_record(
+            name="decane-1,10-diamine dihydrochloride dihydrate",
+            mol="diamine_2hcl_2h2o",
+            iupac="x",
+            relationship=None,
+        )
+    )
+    assert ("INT-03", HIGH) in ids(found)
+    assert "no RELATIONSHIP class asserted" in detail(found, "INT-03")
+
+
+def test_int03_still_demands_a_class_from_an_unsolvated_salt():
+    record = salt_record(mol="amine_hcl", iupac="x", relationship=None)
+    assert ("INT-03", HIGH) in ids(run(record))
 
 
 def test_con01_accepts_a_hydrochloride_drawn_as_one():
