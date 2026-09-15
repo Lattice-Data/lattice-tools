@@ -290,6 +290,26 @@ class RecordContext:
             return False
         return self.structure.n_frag > 1 or bool(self.relationship)
 
+    @property
+    def cas_key(self) -> str:
+        """The CAS number normalised, for joining to decisions and reference data.
+
+        Separate from :attr:`cas`, which is the raw string as the file spells it,
+        because two orthogonal things were being conflated. INT-04 must complain
+        about the *string* -- ``0557-66-4`` is not a CAS Registry Number and ChEBI
+        would store it verbatim. A waiver or a quarantine row is about the
+        *compound*, and must keep applying while that spelling is being fixed.
+        Joining on the raw string meant a record could not match its own decision,
+        and the run then reported "matches no record" while the record was sitting
+        right there.
+        """
+        if not self.cas:
+            return ""
+        from cas_registry import CAS_VALID, classify_cas
+
+        normalised, verdict, _ = classify_cas(self.cas)
+        return normalised if verdict == CAS_VALID else self.cas
+
     def finding(self, check: str, severity: str, detail: str, **kw) -> Finding:
         return Finding(
             check=check,

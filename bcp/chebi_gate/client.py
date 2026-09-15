@@ -197,7 +197,7 @@ def run(
     unmatched: list[str] = []
     if decisions is not None:
         _apply_decisions(results, decisions)
-        unmatched = decisions.unmatched({c.cas for c in contexts if c.cas})
+        unmatched = decisions.unmatched({c.cas_key for c in contexts if c.cas_key})
         for message in unmatched:
             log.warning("%s", message)
 
@@ -245,7 +245,9 @@ def run(
 def _apply_decisions(results: list[RecordResult], decisions: Decisions) -> None:
     """Downgrade waived findings, and hold records with an open question."""
     for result in results:
-        cas = result.context.cas
+        # The normalised key, so a decision keeps applying while a malformed CAS
+        # spelling is being fixed. INT-04 reports the spelling independently.
+        cas = result.context.cas_key
         waived: list[Finding] = []
         for finding in result.findings:
             waiver = decisions.waiver_for(cas, finding.check) if cas else None
@@ -285,7 +287,9 @@ def _build_manifest(
         "%Y-%m-%dT%H:%M:%SZ"
     )
 
-    cas_values = {r.cas for r in parsed.records if r.cas}
+    cas_values = {
+        r.cas for r in parsed.records if r.cas
+    }  # raw, as the file spells them
     reference: dict = {
         "sources_available": list(evidence.available),
         "independent_sources": list(evidence.independent_sources),

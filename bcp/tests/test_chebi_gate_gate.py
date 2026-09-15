@@ -383,6 +383,57 @@ def test_a_decision_matching_no_record_is_reported_on_the_run(tmp_path, clean_in
     assert run.manifest.results["unmatched_decisions"] == run.unmatched_decisions
 
 
+def test_a_decision_still_applies_when_the_cas_spelling_needs_repair(tmp_path):
+    """The decision is about the compound; INT-04 is about the string.
+
+    Joining decisions on the raw CAS_NO meant a record spelled ``0557-66-4``
+    could not match its own waiver, and the run then reported "matches no record"
+    while the record sat right there in the file. INT-04 still holds it for the
+    spelling, which is the separate and correct complaint.
+    """
+    directory = write_decisions(
+        tmp_path,
+        waivers=[
+            {
+                "cas": CLEAN_CAS,
+                "check_id": "SYN-01",
+                "reason": "The catalogue identifier is a deliberate cross-reference here.",
+                "evidence": "reviewed against the vendor page",
+                "decided_by": "A Curator",
+                "decided_on": "2026-09-15",
+            }
+        ],
+    )
+    for spelling in ("557-66-4", "0557-66-4", "557-66-4 00:00:00"):
+        path = tmp_path / "spelled.sdf"
+        path.write_bytes(
+            sdf_bytes(
+                salt_record(
+                    cas=spelling, synonym="ethylamine hcl;CHEMBL1234", iupac="x"
+                )
+            )
+        )
+        run = client.run(path, decisions=decisions.load(directory))
+
+        waived = [f for f in run.all_findings if f.check == "SYN-01"]
+        assert len(waived) == 1, spelling
+        assert waived[0].waiver, f"the waiver must apply to {spelling}"
+        assert not run.unmatched_decisions, spelling
+
+        malformed = [f for f in run.all_findings if f.check == "INT-04"]
+        if spelling != "557-66-4":
+            assert malformed, f"INT-04 must still report {spelling}"
+            assert run.held
+
+
+def test_the_findings_table_reports_the_cas_as_the_file_spells_it(tmp_path):
+    """Joining normalises; reporting must not, or the fix instruction is wrong."""
+    path = tmp_path / "spelled.sdf"
+    path.write_bytes(sdf_bytes(salt_record(cas="0557-66-4", iupac="x")))
+    run = client.run(path, allow_medium=True)
+    assert all(f.cas == "0557-66-4" for f in run.all_findings if f.cas)
+
+
 # --------------------------------------------------------------- independence
 
 
