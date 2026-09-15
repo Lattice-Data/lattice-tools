@@ -1,0 +1,338 @@
+"""Registry formula against drawn stoichiometry, and the CAS table it comes from.
+
+EXT-04 is the only stoichiometry check whose evidence does not come from the step
+that generated the SDFs, so it is the only one that can see a missing counterion.
+Most of these tests are a defect that produced a clean report: a status of "agree"
+where nothing had been confirmed is the exact failure mode to guard.
+"""
+
+from __future__ import annotations
+
+import csv
+from fractions import Fraction
+from pathlib import Path
+
+import pytest
+
+from chebi_gate import casreg, formula
+
+REGISTRY_ROW = {name: "" for name in casreg.REGISTRY_COLUMNS}
+
+
+def registry(tmp_path: Path, *rows: dict) -> Path:
+    path = tmp_path / "cas_registry.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(casreg.REGISTRY_COLUMNS))
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({**REGISTRY_ROW, **row})
+    return path
+
+
+# ----------------------------------------------------------------- parsing
+
+
+def test_a_simple_formula_parses_to_element_counts():
+    assert formula.parse("C2H6O") == {"C": 2, "H": 6, "O": 1}
+
+
+def test_an_element_with_no_count_means_one():
+    assert formula.parse("HCl") == {"H": 1, "Cl": 1}
+
+
+def test_a_dotted_formula_sums_its_components():
+    assert formula.parse("C2H7N.2HCl") == {"C": 2, "H": 9, "N": 1, "Cl": 2}
+
+
+def test_html_markup_from_a_scifinder_export_is_stripped():
+    assert formula.parse("C<sub>2</sub>H<sub>6</sub>O") == {"C": 2, "H": 6, "O": 1}
+
+
+def test_a_fractional_multiplier_stays_exact_until_reduction():
+    parsed = formula.parse("C12H18N2O.3/2C4H4O4")
+    assert parsed["C"] == Fraction(18)
+    assert parsed["O"] == Fraction(7)
+
+
+def test_one_trailing_charge_is_dropped():
+    """RDKit writes the net charge onto a whole-molecule formula."""
+    assert formula.parse("C5H11NO5P-") == formula.parse("C5H11NO5P")
+    assert formula.parse("C6H5O7-3") == formula.parse("C6H5O7")
+
+
+def test_an_empty_formula_is_none():
+    assert formula.parse("") is None
+    assert formula.parse(None) is None
+
+
+@pytest.mark.parametrize("text", ["WAG994", "Xx12", "C2H6Q"])
+def test_a_token_that_is_not_an_element_makes_the_formula_unparseable(text):
+    """Handoff case 3: a vendor code that lost its space parses as a formula.
+
+    "WAG 994" de-spaces to "WAG994", and the element pattern [A-Z][a-z]? happily
+    reads W, A, G994 -- a confident, meaningless formula that then overwrote the
+    real one. Symbols are checked against the periodic table instead.
+    """
+    assert formula.parse(text) is None
+
+
+def test_leftover_characters_make_the_formula_unparseable():
+    """Partly read is worse than not read: it compares as though it were complete."""
+    assert formula.parse("C2H6O(ish)") is None
+
+
+# ---------------------------------------------------------------- reduction
+
+
+def test_reduction_gives_the_smallest_whole_number_ratio():
+    assert formula.reduce_ratio(formula.parse("C36H48N4O14")) == {
+        "C": 18,
+        "H": 24,
+        "N": 2,
+        "O": 7,
+    }
+
+
+def test_a_sesquifumarate_written_one_to_one_point_five_equals_one_drawn_two_to_three():
+    """Handoff case 6, the whole reason formulae are compared as ratios."""
+    registered = formula.reduce_ratio(formula.parse("C12H18N2O.3/2C4H4O4"))
+    drawn = formula.reduce_ratio(formula.parse("C36H48N4O14"))
+    assert registered == drawn
+
+
+def test_reduction_of_nothing_is_none():
+    assert formula.reduce_ratio(None) is None
+    assert formula.reduce_ratio(formula.parse("")) is None
+
+
+# --------------------------------------------------------- the five statuses
+
+
+def test_identical_formulae_agree():
+    result = formula.compare("C2H8ClN", "C2H8ClN")
+    assert result.status == formula.AGREE
+    assert result.confirms is True
+    assert result.checked is True
+
+
+def test_a_reduced_ratio_match_agrees():
+    result = formula.compare("C12H18N2O.3/2C4H4O4", "C36H48N4O14")
+    assert result.status == formula.AGREE
+
+
+def test_a_hydrogen_only_difference_is_a_drawing_convention():
+    """Handoff case 7: a neutral acid registered against an ionic drawing.
+
+    10 of 290 records on the reference batch. Reporting these as defects would
+    bury the three real disagreements.
+    """
+    result = formula.compare("C2H8ClN", "C2H7ClN")
+    assert result.status == formula.CONVENTION
+    assert result.diff == {"H": 1}
+    assert result.confirms is True
+    assert "neutral-acid versus ionic" in result.note
+
+
+def test_a_difference_in_anything_but_hydrogen_disagrees():
+    result = formula.compare("C6H15N3S.2ClH", "C6H16ClN3S")
+    assert result.status == formula.DISAGREE
+    assert result.confirms is False
+    assert "Cl+1" in result.note
+
+
+def test_the_difference_sign_says_which_side_has_more():
+    result = formula.compare("C6H15N3S.2ClH", "C6H16ClN3S")
+    assert result.diff["Cl"] == 1, "positive means the registry has more"
+
+
+def test_a_missing_registry_row_is_reported_as_unchecked_not_as_agreement():
+    """Handoff section 1: a record with no row must say it could not be checked."""
+    result = formula.compare(None, "C2H8ClN")
+    assert result.status == formula.NO_RECORD
+    assert result.checked is False
+    assert result.confirms is False
+    assert "unchecked" in result.note
+
+
+def test_an_unparseable_formula_is_reported_as_unparseable():
+    result = formula.compare("WAG994", "C2H8ClN")
+    assert result.status == formula.UNPARSEABLE
+    assert result.checked is False
+    assert "registry formula could not be parsed" in result.note
+
+
+# ------------------------------------------------- the indefinite multiplier
+
+
+@pytest.mark.parametrize(
+    "registry_formula,registry_name",
+    [
+        ("C19H23N.xC4H4O4", "some amine, maleate (1:?)"),
+        ("C20H23N.xC4H4O4", "spiro compound, maleate"),
+        ("C4H6N2O2S.xH2O4S", "propenoic acid, sulfate (9 CI)"),
+        ("C12H18N2O", "something, maleate (1:?)"),
+        ("C12H18N2O", "something, maleate (?:1)"),
+    ],
+)
+def test_an_indefinite_multiplier_is_never_read_as_one(registry_formula, registry_name):
+    """Handoff case 1, the comparator half. Three records reported "formula agrees".
+
+    The registry writes ``.xC4H4O4`` and ``(1:?)`` when it declines to fix the
+    component ratio. Reading the ``x`` as 1 turned three unconfirmed records into
+    confirmations.
+    """
+    result = formula.compare(
+        registry_formula, "C19H23N.C4H4O4", registry_name=registry_name
+    )
+    assert result.status == formula.RATIO_UNKNOWN
+    assert result.confirms is False
+    assert result.checked is False
+
+
+def test_the_indefinite_gate_runs_before_parsing():
+    """By the time a multiplier is parsed, the fact that it was indefinite is gone."""
+    indefinite = "C19H23N.xC4H4O4"
+    assert formula.parse(indefinite) is None
+    result = formula.compare(indefinite, "C19H23N.C4H4O4")
+    assert result.status == formula.RATIO_UNKNOWN, (
+        "must be ratio-unknown, not unparseable: the registry said something "
+        "specific, which is that it does not know"
+    )
+
+
+def test_the_registrys_own_ratio_marker_is_honoured():
+    result = formula.compare(
+        "C4H6N2O2S.H2O4S", "C4H8N2O6S2", registry_ratio="unknown-to-CAS"
+    )
+    assert result.status == formula.RATIO_UNKNOWN
+
+
+def test_a_definite_ratio_is_compared_normally():
+    result = formula.compare(
+        "C19H23N.C4H4O4", "C23H27NO4", registry_name="some amine, maleate (1:1)"
+    )
+    assert result.status == formula.AGREE
+
+
+@pytest.mark.parametrize(
+    "text,indefinite",
+    [
+        ("C19H23N.xC4H4O4", True),
+        ("C19H23N.nC4H4O4", True),
+        ("maleate (1:?)", True),
+        ("maleate (?:1)", True),
+        ("C19H23N.C4H4O4", False),
+        ("C19H23N.2C4H4O4", False),
+        ("Xenon compound", False),
+    ],
+)
+def test_indefinite_detection(text, indefinite):
+    assert formula.is_indefinite(text) is indefinite
+
+
+# ------------------------------------------------------------- the CAS table
+
+
+def test_the_registry_loads_and_indexes_by_cas(tmp_path):
+    path = registry(
+        tmp_path,
+        {"cas": "64-17-5", "molecular_formula": "C2H6O", "source_pdf": "a.pdf"},
+        {"cas": "557-66-4", "molecular_formula": "C2H8ClN", "source_pdf": "b.pdf"},
+    )
+    table = casreg.load(path)
+    assert len(table) == 2
+    assert table.get("64-17-5").molecular_formula == "C2H6O"
+    assert table.get(" 64-17-5 ").molecular_formula == "C2H6O"
+    assert table.get("1-1-1") is None
+    assert table.source_pdfs == ("a.pdf", "b.pdf")
+    assert len(table.sha256) == 64
+
+
+def test_coverage_says_how_much_of_a_batch_the_table_can_speak_to(tmp_path):
+    """Clearance on a record with no row is "internally consistent", not "confirmed"."""
+    table = casreg.load(
+        registry(tmp_path, {"cas": "64-17-5", "molecular_formula": "C2H6O"})
+    )
+    assert table.coverage({"64-17-5", "557-66-4"}) == {
+        "records": 2,
+        "with_registry_row": 1,
+        "without_registry_row": 1,
+        "registry_rows": 1,
+    }
+
+
+def test_stoichiometry_never_comes_from_the_structure_string(tmp_path):
+    """Handoff case 4, reproduced from the real table.
+
+    Both ratio-unknown records in the batch have a formula saying the ratio is
+    indefinite and an InChI carrying a definite 1:1. The formula is authoritative
+    about composition; the structure string is not. Reading the ratio off the
+    InChI would turn "the registry does not know" into "confirmed 1:1".
+    """
+    path = registry(
+        tmp_path,
+        {
+            "cas": "207455-21-8",
+            "molecular_formula": "C20H23N.xC4H4O4",
+            "name_ratio": "unknown-to-CAS",
+            "inchi": "InChI=1S/C20H23N.C4H4O4/c1-2-6-17...",
+        },
+    )
+    row = casreg.load(path).get("207455-21-8")
+
+    assert "x" in row.molecular_formula
+    assert "C20H23N.C4H4O4" in row.structure_strings["inchi"]
+
+    from_formula = formula.compare(
+        row.molecular_formula,
+        "C24H27NO4",
+        registry_name=row.registry_name,
+        registry_ratio=row.name_ratio,
+    )
+    assert from_formula.status == formula.RATIO_UNKNOWN
+
+    from_structure = formula.compare("C20H23N.C4H4O4", "C24H27NO4")
+    assert from_structure.status == formula.AGREE, (
+        "this is the wrong answer the structure string would have given"
+    )
+
+
+def test_structure_columns_are_named_as_structure_columns():
+    """Using one for stoichiometry should be a visible decision, not a reach into raw."""
+    assert set(casreg.STRUCTURE_COLUMNS).isdisjoint(casreg.STOICHIOMETRY_COLUMNS)
+    assert "molecular_formula" in casreg.STOICHIOMETRY_COLUMNS
+    assert "inchi" in casreg.STRUCTURE_COLUMNS
+
+
+def test_a_missing_table_says_where_it_comes_from(tmp_path):
+    with pytest.raises(casreg.RegistryError, match="never fetches"):
+        casreg.load(tmp_path / "nope.csv")
+
+
+def test_a_missing_column_fails_the_load(tmp_path):
+    path = tmp_path / "cas_registry.csv"
+    path.write_text("cas,molecular_formula\n64-17-5,C2H6O\n")
+    with pytest.raises(casreg.RegistryError, match="missing columns"):
+        casreg.load(path)
+
+
+def test_a_duplicate_cas_fails_the_load(tmp_path):
+    path = registry(
+        tmp_path,
+        {"cas": "64-17-5", "molecular_formula": "C2H6O"},
+        {"cas": "64-17-5", "molecular_formula": "C2H6O2"},
+    )
+    with pytest.raises(casreg.RegistryError, match="duplicate cas"):
+        casreg.load(path)
+
+
+def test_an_empty_cas_fails_the_load(tmp_path):
+    with pytest.raises(casreg.RegistryError, match="empty cas"):
+        casreg.load(registry(tmp_path, {"cas": "", "molecular_formula": "C2H6O"}))
+
+
+def test_the_empty_registry_is_usable_as_a_no_op():
+    """So a run with no CAS evidence takes the same code path, reporting unchecked."""
+    assert len(casreg.EMPTY) == 0
+    assert casreg.EMPTY.get("64-17-5") is None
+    assert casreg.EMPTY.coverage({"64-17-5"})["without_registry_row"] == 1
