@@ -389,6 +389,14 @@ A second round found more, and these are fixed here too:
   SDF pairs in place, so a held record stamped with its own run identifier sat
   beside a manifest describing a different run.
 
+- A mistyped `--pubchem-cache` or `--cas-common-chemistry` was accepted in
+  silence. Both were wrapped in `Path()` and handed to `Evidence`, which tests
+  `is_dir()` and reads a false as "not configured", so the run lost a whole source
+  and reported the reduced coverage as the truth -- exit 0, and a summary saying
+  clearance means internally consistent on a run where the caller had asked for an
+  independent source. `--cas-registry` and `--chebi-index` already failed loudly;
+  these two were the exception, and now are not.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
 

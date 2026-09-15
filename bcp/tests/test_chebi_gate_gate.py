@@ -909,6 +909,72 @@ def test_the_cli_exits_two_on_malformed_decisions(tmp_path, clean_input, capsys)
     assert "error:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("option", ["--pubchem-cache", "--cas-common-chemistry"])
+def test_the_cli_exits_two_on_a_cache_path_that_is_not_there(
+    tmp_path, clean_input, capsys, option
+):
+    """A typo lost a whole source and the run reported the loss as the truth.
+
+    Both caches were wrapped in Path() and handed to Evidence, which tests
+    is_dir() and reads a false as "not configured". So the gate ran without the
+    source, cleared what it could and exited 0 -- printing "with no independent
+    source, clearance means internally consistent, not confirmed" on a run where
+    the caller had asked for one.
+    """
+    code = main(
+        [
+            str(clean_input),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--no-decisions",
+            "--allow-medium",
+            option,
+            str(tmp_path / "typo"),
+        ]
+    )
+    assert code == EXIT_USAGE
+    error = capsys.readouterr().err
+    assert option in error
+    assert "does not exist" in error
+
+
+def test_the_cli_says_when_a_cache_path_is_a_file_rather_than_a_directory(
+    tmp_path, clean_input, capsys
+):
+    path = tmp_path / "pubchem.json"
+    path.write_text("{}")
+    code = main(
+        [
+            str(clean_input),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--no-decisions",
+            "--allow-medium",
+            "--pubchem-cache",
+            str(path),
+        ]
+    )
+    assert code == EXIT_USAGE
+    assert "is not a directory" in capsys.readouterr().err
+
+
+def test_the_cli_accepts_a_cache_directory_that_is_there(tmp_path, clean_input):
+    cache = tmp_path / "pubchem"
+    cache.mkdir()
+    code = main(
+        [
+            str(clean_input),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--no-decisions",
+            "--allow-medium",
+            "--pubchem-cache",
+            str(cache),
+        ]
+    )
+    assert code in (EXIT_OK, EXIT_HELD)
+
+
 def test_the_cli_rejects_an_unknown_role(clean_input):
     with pytest.raises(SystemExit):
         main([str(clean_input), "--role", "nonsense"])

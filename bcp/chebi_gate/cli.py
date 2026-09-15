@@ -117,6 +117,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _cache_dir(value: str | None, option: str) -> Path | None:
+    """A cache directory the caller named, or a usage error saying it is not there.
+
+    Both JSON caches used to be wrapped in ``Path()`` and handed straight to
+    ``Evidence``, which tests ``is_dir()`` and quietly treats a false as "no such
+    source configured". A mistyped path therefore ran the whole gate with the
+    source missing and reported the reduced coverage as the truth: records cleared,
+    exit 0, and a summary reading "with no independent source, clearance means
+    internally consistent, not confirmed" -- on a run where the caller had asked
+    for one. --cas-registry and --chebi-index already fail loudly on a bad path,
+    through casreg.load and load_index. These two were the exception.
+    """
+    if not value:
+        return None
+    path = Path(value)
+    if path.is_dir():
+        return path
+    problem = "is not a directory" if path.exists() else "does not exist"
+    raise client.GateError(f"{option} {path} {problem}")
+
+
 def _evidence(args: argparse.Namespace) -> external.Evidence:
     registry = casreg.EMPTY
     if args.cas_registry:
@@ -135,9 +156,9 @@ def _evidence(args: argparse.Namespace) -> external.Evidence:
     return external.Evidence(
         registry=registry,
         chebi=index,
-        pubchem_dir=Path(args.pubchem_cache) if args.pubchem_cache else None,
-        common_chemistry_dir=(
-            Path(args.cas_common_chemistry) if args.cas_common_chemistry else None
+        pubchem_dir=_cache_dir(args.pubchem_cache, "--pubchem-cache"),
+        common_chemistry_dir=_cache_dir(
+            args.cas_common_chemistry, "--cas-common-chemistry"
         ),
     )
 
