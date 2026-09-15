@@ -14,6 +14,7 @@ rather than silent acceptance of a code nobody has checked.
 
 from __future__ import annotations
 
+from .formula import parse as parse_formula
 from .structure import Structure
 
 # Classes the two-file validator was written against.
@@ -69,6 +70,33 @@ _METHANESULFONATE = ("CH4O3S", "CH3O3S-")
 _OXALATE_PREFIXES = ("C2H2O4", "C2HO4", "C2O4")
 _TARTRATE_PREFIXES = ("C4H6O6", "C4H5O6", "C4H4O6")
 
+# ISA64382 is the parent class of the sulfonate counterions -- tosylate, mesylate,
+# besylate, napsylate, napadisylate -- and cannot be a closed formula list the way
+# the others are. The rule it replaces tested the substrings "S" and "O3" against
+# every fragment including the parent, which is two separate mistakes. A drug
+# parent can carry a sulfur and three oxygens of its own with no counterion in
+# sight: six records of the reference batch have exactly that shape, and FR 122047
+# hydrochloride -- whose only counterion is HCl -- reports the sulfonate class as
+# supported if its RELATIONSHIP is mistyped as ISA64382 instead of ISA36807. And
+# "S" is a substring of Si, Se, Sn and Sb, so the test was never about sulfur.
+#
+# Testing the counterions alone is not the fix either, and 3-Methyl-GABA
+# napadisylate is why: the naphthalenedisulfonate is half again the size of the
+# base, so it *is* the parent fragment by heavy-atom count and `counter` holds two
+# copies of the base. What identifies a sulfonate counterion is its composition --
+# carbon, hydrogen, oxygen and sulfur only, with three oxygens per sulfur -- and
+# that reads the same whichever fragment happens to be largest.
+_SULFONATE_ELEMENTS = frozenset({"C", "H", "O", "S"})
+
+
+def _is_sulfonate(formula: str) -> bool:
+    """Whether one fragment formula is a sulfonic acid or sulfonate anion."""
+    counts = parse_formula(formula)
+    if not counts or set(counts) - _SULFONATE_ELEMENTS:
+        return False
+    sulfur = counts.get("S", 0)
+    return bool(sulfur) and counts.get("O", 0) == 3 * sulfur
+
 
 def class_name(code: str) -> str | None:
     """The class a ``RELATIONSHIP`` code names, or None if this gate does not know it."""
@@ -122,7 +150,10 @@ def class_supported(name: str, structure: Structure) -> bool:
     if name == "methanesulfonate":
         return any(x in _METHANESULFONATE for x in frags)
     if name == "sulfonate":
-        return any(("S" in x and "O3" in x) or ("S2" in x and "O6" in x) for x in frags)
+        # `counter` being non-empty is the "there is a counterion at all" test; the
+        # sulfonate itself is looked for across every fragment, because it may be
+        # the largest one.
+        return bool(counter) and any(_is_sulfonate(x) for x in frags)
     return False
 
 

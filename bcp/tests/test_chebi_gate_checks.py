@@ -15,6 +15,7 @@ from tests.chebi_gate_helpers import (
     ISA_FUMARATE,
     ISA_HYDROCHLORIDE,
     ISA_MALEATE,
+    ISA_SULFONATE,
     molblock,
     neutral_record,
     record_text,
@@ -311,6 +312,65 @@ def test_con01_separates_maleate_from_fumarate_by_geometry():
         iupac="x",
     )
     assert ("CON-01", HIGH) in ids(run(swapped))
+
+
+def test_con01_rejects_the_sulfonate_class_when_only_the_parent_carries_s_and_o3():
+    """The counterion here is HCl. The parent's own sulfonamide is not a sulfonate.
+
+    The rule tested the substrings "S" and "O3" against every fragment, parent
+    included, so any drug with a sulfur and three oxygens satisfied ISA64382 with
+    no sulfonate drawn at all -- six records of the reference batch have that
+    shape, and ISA64382 is one keystroke from the ISA36807 they actually carry.
+    """
+    found = run(
+        salt_record(
+            name="N-(2-methoxyphenyl)benzenesulfonamide hydrochloride",
+            mol="sulfonamide_hcl",
+            relationship=ISA_SULFONATE,
+            iupac="x",
+        )
+    )
+    assert ("CON-01", HIGH) in ids(found)
+    assert "class sulfonate not supported" in detail(found, "CON-01")
+
+
+def test_con01_accepts_a_tosylate_as_a_sulfonate():
+    record = salt_record(
+        name="decylamine tosylate",
+        mol="amine_tosylate",
+        relationship=ISA_SULFONATE,
+        iupac="x",
+    )
+    assert ("CON-01", HIGH) not in ids(run(record))
+
+
+def test_con01_accepts_a_sulfonate_that_is_larger_than_its_own_base():
+    """Why the fix cannot simply be "look at the counterions".
+
+    3-Methyl-GABA napadisylate draws two small bases against one
+    naphthalenedisulfonate, so the counterion is the fragment with the most heavy
+    atoms and `Structure.counter` holds two copies of the base instead.
+    """
+    record = salt_record(
+        name="3-methyl-GABA napadisylate",
+        mol="gaba_napadisylate",
+        relationship=ISA_SULFONATE,
+        iupac="x",
+    )
+    assert ("CON-01", HIGH) not in ids(run(record))
+
+
+def test_con01_reports_the_sulfonate_class_on_a_record_with_no_counterion():
+    """One fragment is no counterion, whatever that fragment is made of."""
+    found = run(
+        neutral_record(
+            name="4-methylbenzenesulfonic acid",
+            mol="tosylic_acid",
+            relationship=ISA_SULFONATE,
+            iupac="x",
+        )
+    )
+    assert ("CON-01", HIGH) in ids(found)
 
 
 def test_con01_reports_a_quaternary_cation_asserted_as_a_hydrohalide():

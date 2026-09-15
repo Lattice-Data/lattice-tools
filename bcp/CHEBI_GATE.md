@@ -330,6 +330,15 @@ A second round found more, and these are fixed here too:
   fragment that is neither counterion nor solvate, summed, which is order-free and
   keeps the 2:1 of a hemifumarate and of a small base against a large counterion.
 
+- The sulfonate class (ISA64382) tested the substrings `S` and `O3` against every
+  fragment, parent included, so a drug carrying a sulfur and three oxygens of its
+  own satisfied it with no sulfonate counterion drawn. Six records of the
+  reference batch have that shape, and ISA64382 is one keystroke from the ISA36807
+  they actually carry. It now asks whether a fragment is *composed* like a
+  sulfonic acid -- C, H, O and S only, three oxygens per sulfur. Testing the
+  counterions instead would have been wrong: 3-Methyl-GABA napadisylate draws a
+  counterion larger than its base, so the sulfonate there is the parent fragment.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
 
