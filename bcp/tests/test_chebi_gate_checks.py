@@ -364,6 +364,61 @@ def test_con02_accepts_a_di_prefix_with_two_counterions():
     assert ("CON-02", HIGH) not in ids(run(record))
 
 
+DIHYDRATE_NAME = "decane-1,10-diamine dihydrochloride dihydrate"
+
+
+def _dihydrate_record(mol: str) -> str:
+    return salt_record(
+        name=DIHYDRATE_NAME,
+        mol=mol,
+        cas="6055-52-3",
+        synonym="decamethylenediamine dihydrochloride dihydrate",
+        iupac="x",
+        relationship=ISA_HYDROCHLORIDE,
+    )
+
+
+def test_con02_reads_the_same_ratio_whichever_order_the_fragments_are_drawn_in():
+    """The two fixtures are the same substance; only the molfile atom order differs.
+
+    `base_counts[0]` took the first entry of a dict keyed in RDKit fragment order,
+    so the denominator was a fact about the drawing. Drawn amine-first this record
+    passed and drawn water-first it reported 'di implies 2, structure has 1' -- a
+    high finding, which holds the record back, on a correct dihydrochloride.
+    """
+    parent_first = ids(run(_dihydrate_record("diamine_2hcl_2h2o")))
+    water_first = ids(run(_dihydrate_record("diamine_2hcl_2h2o_water_first")))
+
+    assert parent_first == water_first
+    assert ("CON-02", HIGH) not in water_first
+
+
+def test_con02_leaves_solvate_out_of_the_counterion_ratio():
+    """Whether a hydrate is present is CON-03's question, not a change of ratio."""
+    anhydrous = ids(
+        run(salt_record(name="ethylamine dihydrochloride", mol="amine_2hcl", iupac="x"))
+    )
+    hydrated = ids(run(_dihydrate_record("diamine_2hcl_2h2o")))
+
+    assert ("CON-02", HIGH) not in anhydrous
+    assert ("CON-02", HIGH) not in hydrated
+
+
+def test_con02_still_reports_a_wrong_ratio_on_a_solvated_record():
+    """The solvate exclusion must not turn the check off for hydrates."""
+    found = run(
+        salt_record(
+            name="decane-1,10-diamine trihydrochloride dihydrate",
+            mol="diamine_2hcl_2h2o",
+            cas="6055-52-3",
+            iupac="x",
+            relationship=ISA_HYDROCHLORIDE,
+        )
+    )
+    assert ("CON-02", HIGH) in ids(found)
+    assert 'name prefix "tri" implies 3 counterion(s)' in detail(found, "CON-02")
+
+
 def test_con08_compares_the_systematic_name_against_the_structure():
     found = run(salt_record(mol="amine_hcl", iupac="ethanamine;dihydrochloride"))
     assert ("CON-08", HIGH) in ids(found)

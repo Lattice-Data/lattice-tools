@@ -320,10 +320,18 @@ confirms would catch a regression:
   ordering already decided every tie it could have. Two mechanisms that agree
   cannot be told apart by a test, so it is one mechanism now.
 
+A second round found more, and these are fixed here too:
+
+- CON-02 divided by the first entry of a dict keyed in RDKit fragment order, so
+  which fragment counted as the base was a fact about the drawing: the same
+  dihydrochloride dihydrate passes drawn amine-first and reports "di implies 2,
+  structure has 1" drawn water-first. Solvate was in the denominator for the same
+  reason -- water is not a counterion, so it read as base. The base is now every
+  fragment that is neither counterion nor solvate, summed, which is order-free and
+  keeps the 2:1 of a hemifumarate and of a small base against a large counterion.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
-silently; the ones that matter most are CON-02's reliance on fragment ordering for
-its base count, and the manifest pinning the PubChem cache by file count rather
-than by content.
+silently.
 
 ## What is not built
 

@@ -529,15 +529,34 @@ def con02_stoichiometry_word(ctx: RecordContext) -> Iterator[Finding]:
 
     prefix = match.group(1)
     frags = ctx.structure.frags
+    # The denominator is every fragment that is neither a counterion nor solvent of
+    # crystallisation, counted. Two things made the old `base_counts[0]` wrong, and
+    # both changed the answer rather than merely the wording. `frags` is keyed in
+    # RDKit fragment order, so "the base" was whichever such fragment was drawn
+    # first: decane-1,10-diamine dihydrochloride dihydrate divides by 1 or by 2
+    # depending only on whether its waters precede its amine in the molfile, and
+    # the water-first drawing reports "di implies 2, structure has 1" on a record
+    # whose stoichiometry is exactly right. Water and ethanol were in the
+    # denominator at all for the same reason -- they are not counterions, so they
+    # read as base. Whether a solvate is present is CON-03's question, and it has
+    # no business changing a counterion ratio.
+    #
+    # Summing rather than taking the parent's count is deliberate: the parent is
+    # the fragment with the most heavy atoms, and 3-Methyl-GABA napadisylate is a
+    # small base against a naphthalenedisulfonate half again its size, so the
+    # "parent" there is the counterion. Summing keeps the 2:1 that makes its
+    # ratio 0.5, and keeps a doubled base -- a hemifumarate is drawn 2:1 -- for the
+    # same reason.
     salt_n = sum(
         v for k, v in frags.items() if k in SALT_FRAGMENTS or SALT_FRAGMENT_RE.match(k)
     )
-    base_counts = [
+    base_n = sum(
         v
         for k, v in frags.items()
-        if k not in SALT_FRAGMENTS and not SALT_FRAGMENT_RE.match(k)
-    ]
-    base_n = base_counts[0] if base_counts else 1
+        if k not in SALT_FRAGMENTS
+        and not SALT_FRAGMENT_RE.match(k)
+        and k not in classes.SOLVATES
+    )
     ratio = salt_n / base_n if base_n else None
 
     want = PREFIX_COUNT[prefix]
