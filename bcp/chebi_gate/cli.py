@@ -13,11 +13,6 @@ from . import io as gate_io
 log = logging.getLogger(__name__)
 
 
-def external_mod_error(message: str) -> Exception:
-    """A usage error about evidence, reported like the other input errors."""
-    return client.GateError(message)
-
-
 EXIT_OK = 0
 EXIT_HELD = 1
 EXIT_USAGE = 2
@@ -120,6 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
 def _cache_dir(value: str | None, option: str) -> Path | None:
     """A cache directory the caller named, or a usage error saying it is not there.
 
+    One mechanism, not two: this and a separate loop in ``_evidence`` were written
+    against the same defect from different directions, and two guards that agree
+    cannot be told apart by a test. This one is kept because it says *which* way
+    the path is wrong, which is the difference between a typo and a file passed
+    where a directory belongs.
+
     Both JSON caches used to be wrapped in ``Path()`` and handed straight to
     ``Evidence``, which tests ``is_dir()`` and quietly treats a false as "no such
     source configured". A mistyped path therefore ran the whole gate with the
@@ -145,14 +146,6 @@ def _evidence(args: argparse.Namespace) -> external.Evidence:
     index = chebi_release.EMPTY
     if args.chebi_index:
         index = chebi_release.load_index(args.chebi_index)
-    # A typo'd cache path used to be accepted silently: the run lost a source and
-    # then reported reduced coverage as though that were the truth about the data.
-    for label, value in (
-        ("--pubchem-cache", args.pubchem_cache),
-        ("--cas-common-chemistry", args.cas_common_chemistry),
-    ):
-        if value and not Path(value).is_dir():
-            raise external_mod_error(f"{label} is not a directory: {value}")
     return external.Evidence(
         registry=registry,
         chebi=index,
