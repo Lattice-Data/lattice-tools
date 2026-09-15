@@ -242,8 +242,12 @@ def _register(
         CHECKS[check_id] = Check(
             id=check_id, title=title, independent=independent, severities=severities
         )
-        target = _RECORD_CHECKS if scope == "record" else _FILE_CHECKS
-        target.append((check_id, func))
+        if scope == "record":
+            _RECORD_CHECKS.append((check_id, func))
+        elif scope == "file":
+            _FILE_CHECKS.append((check_id, func))
+        elif scope != "declared":
+            raise ValueError(f"unknown check scope {scope!r}")
         return func
 
     return decorate
@@ -476,16 +480,16 @@ def con01_class_supported(ctx: RecordContext) -> Iterator[Finding]:
     "Butenedioate double-bond geometry is specified, so maleate and fumarate differ",
     independent=True,
     severities=(HIGH,),
+    scope="declared",
 )
-def con05_placeholder(ctx: RecordContext) -> Iterator[Finding]:
-    """Declared for the registry; emitted by :func:`con01_class_supported`.
+def con05_declared() -> None:
+    """Emitted by :func:`con01_class_supported`, declared here so it has metadata.
 
-    Kept as a registered check with no body of its own because CON-05 is the same
-    comparison as CON-01 with a different remedy, and duplicating the class lookup
-    in two functions is how the two drift apart.
+    CON-05 is the same comparison as CON-01 with a different remedy -- the geometry
+    is missing rather than contradicted, so the fix is to specify the bond, not to
+    change the asserted class. Doing the class lookup twice in two functions is
+    how the two drift apart, so one function emits both IDs.
     """
-    return
-    yield  # pragma: no cover - makes this a generator
 
 
 @_register(
@@ -908,6 +912,104 @@ def rel01_shared_parents(fctx: FileContext) -> Iterator[Finding]:
             )
 
 
+@_register(
+    "EXT-01",
+    "CAS Registry Number resolves to the structure that was drawn",
+    independent=False,
+    severities=(HIGH, MEDIUM),
+    scope="declared",
+)
+def ext01_declared() -> None:
+    """Emitted by the external-check layer once a reference cache is available.
+
+    Declared ``independent=False`` on purpose: the submission SDFs were generated
+    from PubChem, so a PubChem-resolved finding is a source confirming itself and
+    must not be counted as independent evidence. The layer sets
+    ``independent=True`` on the findings it resolves through the CAS registry
+    export, which is a human-supplied artifact of a different origin. Defaulting
+    the other way would silently inflate the independent count.
+    """
+
+
+@_register(
+    "EXT-02",
+    "Structure is not already present in ChEBI",
+    independent=True,
+    severities=(HIGH, MEDIUM, LOW),
+    scope="declared",
+)
+def ext02_declared() -> None:
+    """High for an exact match to a live entry, which is a duplicate submission.
+
+    Medium for a skeleton match, which stays in the submission but has to name its
+    relative. Low for an exact match to an entry that is merged into another:
+    handoff case 9, a merged entry must not trigger removal. Liveness comes from
+    ``parent_id`` in compounds.tsv, not from status.tsv -- the whole of status.tsv
+    is 35 bytes holding CHECKED, OK and SUBMITTED, and there is no "deleted" value
+    in it to test for.
+    """
+
+
+@_register(
+    "EXT-03",
+    "Parent compound already in ChEBI, so a has-part link is available",
+    independent=True,
+    severities=(INFO,),
+    scope="declared",
+)
+def ext03_declared() -> None:
+    """Never holds a record; it tells a curator which link to add.
+
+    Only an exact parent-key match counts. Accepting skeleton matches here took
+    this from 165 candidates to 206 and changed what it meant.
+    """
+
+
+@_register(
+    "EXT-04",
+    "CAS registry formula agrees with the stoichiometry drawn",
+    independent=True,
+    severities=(HIGH, MEDIUM, LOW, INFO),
+    scope="declared",
+)
+def ext04_declared() -> None:
+    """The only stoichiometry evidence whose origin is not the SDF generation step.
+
+    Four severities, one per status the comparison can reach:
+
+    high
+        ``DISAGREE`` -- the registry and the drawing differ in something other
+        than hydrogen count. 3 of 290 on the reference batch.
+    medium
+        ``ratio-unknown-to-CAS`` -- the registry itself declines to fix the
+        component ratio, so a name asserting one cannot be confirmed. 3 of 290.
+    low
+        ``no-registry-record`` -- there is no registry row for this CAS, so the
+        record cannot be checked on this axis and the report must say so rather
+        than imply it passed.
+    info
+        ``convention`` -- differs by hydrogen only, which is a neutral acid
+        registered against an ionically drawn salt. 10 of 290, not a defect.
+    """
+
+
+@_register(
+    "QUAR-01",
+    "Record has an open question recorded against it in the decisions data",
+    independent=True,
+    severities=(HIGH,),
+    scope="declared",
+)
+def quar01_declared() -> None:
+    """Emitted by the decisions layer, not by inspecting the record.
+
+    An open question is a reason to hold a record that no amount of looking at the
+    record will reveal -- "which salt does the lab actually hold?" is answered by
+    the lab, not by the file. Recording it as a finding is what makes it visible
+    in the report and what makes resolving it a data edit rather than a code edit.
+    """
+
+
 # ------------------------------------------------------------------------ runner
 
 
@@ -943,6 +1045,10 @@ def _validate(finding: Finding, emitting_check: str) -> Finding:
             f"{emitting_check} emitted a finding for unregistered check "
             f"{finding.check!r}"
         )
+    if finding.waiver is not None and finding.severity == INFO:
+        # A waiver downgrades to info after validation; re-validating a waived
+        # finding must not reject it for a severity its check never declares.
+        return finding
     if finding.severity not in check.severities:
         raise ValueError(
             f"{finding.check} emitted severity {finding.severity!r}, "
