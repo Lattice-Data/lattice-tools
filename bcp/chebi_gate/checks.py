@@ -936,7 +936,7 @@ def rel01_shared_parents(fctx: FileContext) -> Iterator[Finding]:
     "EXT-01",
     "CAS Registry Number resolves to the structure that was drawn",
     independent=False,
-    severities=(HIGH, MEDIUM),
+    severities=(HIGH, MEDIUM, LOW),
     scope="declared",
 )
 def ext01_declared() -> None:

@@ -163,11 +163,15 @@ def run(
     if not parsed.records:
         raise GateError(f"no records found in {input_path}")
 
-    unterminated = [r.index for r in parsed.records if not r.terminated]
-    if unterminated:
-        log.warning(
-            "record %s is not terminated by $$$$; the input may be truncated",
-            unterminated,
+    if parsed.malformed:
+        # Refused, not worked around. If a record boundary is in doubt then so is
+        # every finding attributed to a record, and re-emitting invents bytes: a
+        # truncated input used to clear silently, with a cleared file five bytes
+        # longer than its input because the gate supplied the missing terminator.
+        raise GateError(
+            f"{input_path} is not a well-formed SDF: "
+            + "; ".join(parsed.malformed)
+            + ". Fix the file before gating it."
         )
 
     contexts = [

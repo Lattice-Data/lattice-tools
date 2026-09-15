@@ -52,6 +52,14 @@ _HALIDES = {
     "hydrochloride": ("Cl", "HCl", "Cl-"),
     "hydrobromide": ("Br", "HBr", "Br-"),
 }
+
+# Solvent of crystallisation. Ignored when testing which counterions a class
+# requires, because a hydrated hydrochloride is still a hydrochloride: the
+# original rule demanded that *every* counterion be a halide, so any hydrate or
+# ethanolate of a hydrohalide could never satisfy CON-01 and was reported as a
+# class the structure does not support. Efonidipine hydrochloride monoethanolate
+# is exactly that shape.
+SOLVATES = ("H2O", "C2H6O")
 _IODIDE = ("I", "HI", "I-")
 _ORGANIC_BROMIDE = ("Br", "HBr", "Br-")
 _SODIUM = ("Na", "Na+")
@@ -82,9 +90,10 @@ def class_supported(name: str, structure: Structure) -> bool:
         # hydrogen. A quaternary or pyridinium cation has none, and is a different
         # class however well the formula adds up.
         allowed = _HALIDES[name]
+        salt_ions = [x for x in counter if x not in SOLVATES]
         return (
-            bool(counter)
-            and all(x in allowed for x in counter)
+            bool(salt_ions)
+            and all(x in allowed for x in salt_ions)
             and structure.cation_n_noh == 0
         )
     if name == "iodide":

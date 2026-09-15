@@ -92,6 +92,9 @@ class Candidate:
     url: str = ""
     available: bool = True
     detail: str = ""
+    # Whether a non-match from this source is evidence of a defect, or merely a
+    # source that cannot be compared. See :func:`classify`.
+    can_refute: bool = True
 
     @property
     def label(self) -> str:
@@ -106,6 +109,9 @@ class Verdict:
     candidate: Candidate | None
     independent: bool
     note: str = ""
+    # Whether any independent source positively confirmed the drawn structure.
+    # False with an exact status means the only confirmation is circular.
+    corroborated: bool = False
 
 
 @dataclass(frozen=True)
@@ -175,6 +181,7 @@ def registry_candidate(evidence: Evidence, cas: str) -> Candidate | None:
     return Candidate(
         source=REGISTRY_SOURCE,
         independent=True,
+        can_refute=False,
         inchikey=_clean_key(row.inchikey),
         formula=row.molecular_formula or None,
         name=row.registry_name,
@@ -202,6 +209,7 @@ def common_chemistry_candidate(evidence: Evidence, cas: str) -> Candidate | None
         return Candidate(
             source=COMMON_CHEMISTRY_SOURCE,
             independent=True,
+            can_refute=False,
             inchikey=_clean_key(detail.get("inchiKey")),
             formula=formula_mod.strip_markup(detail.get("molecularFormula") or "")
             or None,
@@ -305,51 +313,103 @@ def classify(candidate: Candidate, ctx: RecordContext) -> str:
         return SKELETON
     if parent and candidate.inchikey[:14] == parent[:14]:
         return PARENT_ONLY
+    if not candidate.can_refute:
+        # A CAS source's structure string is unreliable for salts, so its
+        # disagreement is not evidence of a defect. Measured across the 290-record
+        # batch: treating the SciFinder export's InChIKey as authoritative turns 25
+        # sound records into high findings. Every one is a drawing convention or a
+        # legacy key format, not a defect -- 7-NINA sodium salt is registered as
+        # the neutral acid plus Na against an ionic drawing, AY 9944 carries a
+        # pre-standard "InChI=1/" key with the same skeleton block, cyanopindolol
+        # hemifumarate is registered as "1/2C4H4O4" against a doubled drawing.
+        # Stoichiometry is where a CAS source *is* authoritative, and EXT-04 reads
+        # it from molecular_formula; that check caught all three real
+        # disagreements in the batch.
+        return UNRESOLVED
     return MISMATCH
+
+
+def gather_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
+    """Every outside claim about a CAS number, independent sources first.
+
+    The order is load-bearing, not cosmetic. :func:`resolve_cas` picks the
+    best-ranked candidate and keeps the earliest of equal ranks, so this ordering
+    is what stops a circular confirmation from displacing an independent one of
+    the same strength. Appending PubChem before the CAS sources would silently
+    invert the preference the whole module is built on.
+    """
+    candidates: list[Candidate] = []
+    registry = registry_candidate(evidence, cas)
+    if registry is not None:
+        candidates.append(registry)
+    common = common_chemistry_candidate(evidence, cas)
+    if common is not None:
+        candidates.append(common)
+    # Circular last: the SDFs were generated from PubChem.
+    candidates.extend(pubchem_candidates(evidence, cas))
+    return candidates
 
 
 def resolve_cas(evidence: Evidence, ctx: RecordContext) -> Verdict:
     """The best-supported answer to "does this CAS number denote what was drawn?".
 
-    Independent sources are preferred on a tie, so a PubChem agreement never
-    displaces an independent verdict of equal rank.
+    The most informative verdict wins, with independence breaking a tie at equal
+    rank, so an independent confirmation is never displaced by a circular one of
+    the same strength. Two rules keep that honest:
+
+    A CAS source cannot *refute*. Its structure strings are unreliable for salts,
+    so :func:`classify` never lets one produce a mismatch -- see the measurement
+    there. It can still confirm, and it cannot drag a verdict down either: a
+    registry key matching only the skeleton must not override another source's
+    exact match, or 22 sound records in the batch drop from exact to skeleton.
+
+    When the winning confirmation comes from PubChem while an independent source
+    was configured and could not corroborate it, the verdict is still exact but
+    the run says so: the SDFs were generated from PubChem, so that is a source
+    confirming itself, and :func:`ext01` records it at low severity rather than
+    letting it read as verification.
     """
-    candidates: list[Candidate] = []
-    registry = registry_candidate(evidence, ctx.cas)
-    if registry is not None:
-        candidates.append(registry)
-    common = common_chemistry_candidate(evidence, ctx.cas)
-    if common is not None:
-        candidates.append(common)
-    candidates.extend(pubchem_candidates(evidence, ctx.cas))
+    candidates = gather_candidates(evidence, ctx.cas)
 
     if not candidates:
         return Verdict(
             status=UNRESOLVED,
             candidate=None,
-            independent=False,
+            independent=bool(evidence.independent_sources),
             note="no cached source holds this CAS number, so it was not checked",
+            corroborated=False,
         )
 
-    scored = [
-        (RANK[classify(c, ctx)], not c.independent, i) for i, c in enumerate(candidates)
-    ]
-    best_rank, _, best_index = min(scored)
-    winner = candidates[best_index]
+    # Rank alone, because gather_candidates already orders independent sources
+    # first and min() keeps the earliest of equal keys. An `not c.independent`
+    # tiebreak used to sit here too; mutation testing showed it was dead -- the
+    # ordering decides every tie it could have decided. One mechanism, pinned by
+    # test_candidates_are_ordered_independent_first, beats two that agree.
+    scored = [(RANK[classify(c, ctx)], i) for i, c in enumerate(candidates)]
+    _, index = min(scored)
+    winner = candidates[index]
     status = classify(winner, ctx)
 
+    corroborated = any(
+        c.independent and classify(c, ctx) in (EXACT, SKELETON, PARENT_ONLY)
+        for c in candidates
+    )
     others = [
         f"{c.label} gives {c.inchikey}"
         for i, c in enumerate(candidates)
-        if i != best_index and c.inchikey and c.inchikey != winner.inchikey
+        if i != index and c.inchikey and c.inchikey != winner.inchikey
     ]
     note = f"{winner.label} says {winner.inchikey or 'nothing'}"
     if others:
         note += "; " + "; ".join(others[:3])
-    if best_rank == RANK[UNAVAILABLE]:
+    if status == UNAVAILABLE:
         note += "; re-fetch before treating this as a negative"
     return Verdict(
-        status=status, candidate=winner, independent=winner.independent, note=note
+        status=status,
+        candidate=winner,
+        independent=winner.independent,
+        note=note,
+        corroborated=corroborated,
     )
 
 
@@ -363,6 +423,18 @@ def ext01(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
         return
     verdict = resolve_cas(evidence, ctx)
     if verdict.status == EXACT:
+        if not verdict.corroborated and evidence.independent_sources:
+            # Exact, but only PubChem says so, and PubChem is where this SDF came
+            # from. Low severity: it holds nothing, and it stops "284 of 290
+            # confirmed" from being read as independent verification.
+            yield ctx.finding(
+                "EXT-01",
+                LOW,
+                f"CAS {ctx.cas} matches the drawn structure, but only in the source "
+                f"the file was generated from. {verdict.note}",
+                evidence=verdict.candidate.url if verdict.candidate else "",
+                independent=False,
+            )
         return
 
     severity, message = {

@@ -233,3 +233,140 @@ def test_write_annotated_writes_one_record_per_entry(tmp_path, two_record_sdf):
     written = sdf.parse_file(out)
     assert len(written.records) == 2
     assert all(r.data["GATE_STATUS"] == "HELD" for r in written.records)
+
+
+# ------------------------------------------- multi-line values and line endings
+
+
+MULTILINE_GATE = {
+    "GATE_STATUS": "HELD",
+    "GATE_REASONS": "CON-02 [high] HOLDS the name says di\n\nEXT-04 [high] registry disagrees",
+}
+
+
+def test_annotating_is_idempotent_when_a_value_contains_a_blank_line(two_record_sdf):
+    """Regression. A finding's text is prose and prose has paragraph breaks.
+
+    Removal used a second regex that stopped at the first blank line, while the
+    reader treats a blank line as a field terminator only when "> <" follows. So
+    the value was half-removed and its orphaned tail grafted onto the preceding
+    real field: feeding the held file back in turned RELATIONSHIP into
+    "ISA36807\n\nEXT-04 [high] registry disagrees", which the next run then
+    reported as an unknown relationship. The gate corrupted a record and faulted
+    it for being corrupt.
+    """
+    record = sdf.parse_bytes(two_record_sdf).records[0]
+    once = record.with_fields(MULTILINE_GATE)
+
+    reparsed = sdf.parse_bytes(once + sdf.RECORD_TERMINATOR).records[0]
+    twice = reparsed.with_fields(MULTILINE_GATE)
+
+    assert twice == once
+    assert reparsed.data["RELATIONSHIP"] == record.data["RELATIONSHIP"]
+    assert reparsed.data["GATE_REASONS"] == MULTILINE_GATE["GATE_REASONS"]
+
+
+def test_append_then_strip_is_an_identity_for_a_multi_line_value(two_record_sdf):
+    for record in sdf.parse_bytes(two_record_sdf).records:
+        annotated = record.with_fields(MULTILINE_GATE)
+        assert sdf.strip_fields(annotated, MULTILINE_GATE) == record.raw
+
+
+def test_a_field_removed_from_the_middle_leaves_no_gap(two_record_sdf):
+    record = sdf.parse_bytes(two_record_sdf).records[0]
+    without = record.without_fields(["IUPAC_NAME"])
+    reparsed = sdf.parse_bytes(without + sdf.RECORD_TERMINATOR).records[0]
+
+    assert "IUPAC_NAME" not in reparsed.data
+    assert reparsed.data["SYNONYM"] == record.data["SYNONYM"]
+    assert reparsed.data["CAS_NO"] == record.data["CAS_NO"]
+    assert b"\n\n\n" not in without
+
+
+def test_a_non_ascii_value_can_still_be_annotated():
+    """The record the held file most needs to carry must not crash the write.
+
+    with_fields encoded with strict UTF-8 while the rest of the module uses
+    ascii+surrogateescape, so a detail echoing a non-ASCII byte raised
+    UnicodeEncodeError -- on exactly the record the module exists to hand back.
+    """
+    raw = sdf_bytes(salt_record(iupac="x")).replace(b"ISA36807", b"\xe9SA36807")
+    record = sdf.parse_bytes(raw).records[0]
+
+    annotated = record.with_fields(
+        {"GATE_STATUS": "HELD", "GATE_REASONS": f"class {record.data['RELATIONSHIP']}"}
+    )
+    assert b"\xe9SA36807" in annotated
+    reparsed = sdf.parse_bytes(annotated + sdf.RECORD_TERMINATOR).records[0]
+    assert reparsed.data["GATE_STATUS"] == "HELD"
+
+
+def test_crlf_terminators_still_separate_records():
+    """Regression, and the reason the old CRLF test was vacuous.
+
+    With a bare-LF terminator, a CRLF file parsed as ONE unterminated record, so
+    every per-record check ran against a concatenation of the whole file -- and the
+    round-trip assertion still passed, because re-emitting one giant record
+    reproduces the input exactly.
+    """
+    raw = sdf_bytes(salt_record(iupac="x"), neutral_record(cas="64-17-5", iupac="y"))
+    crlf = raw.replace(b"\n", b"\r\n")
+    parsed = sdf.parse_bytes(crlf)
+
+    assert len(parsed.records) == 2
+    assert [r.terminator for r in parsed.records] == [b"$$$$\r\n"] * 2
+    assert all(r.terminated for r in parsed.records)
+    assert parsed.dumps() == crlf
+    assert parsed.malformed == ()
+
+
+def test_the_exact_terminator_bytes_are_preserved_per_record():
+    mixed = sdf_bytes(salt_record(iupac="x")).replace(
+        b"$$$$\n", b"$$$$\r\n"
+    ) + sdf_bytes(neutral_record(cas="64-17-5", iupac="y"))
+    parsed = sdf.parse_bytes(mixed)
+    assert [r.terminator for r in parsed.records] == [b"$$$$\r\n", b"$$$$\n"]
+    assert parsed.dumps() == mixed
+
+
+# --------------------------------------------------------- malformed detection
+
+
+@pytest.mark.parametrize(
+    "label,build",
+    [
+        (
+            "no final terminator",
+            lambda: sdf_bytes(salt_record(iupac="x"), terminate_last=False),
+        ),
+        ("dollars with no newline", lambda: sdf_bytes(salt_record(iupac="x"))[:-1]),
+        (
+            "content after the last terminator",
+            lambda: sdf_bytes(salt_record(iupac="x")) + b"leftover\n",
+        ),
+    ],
+)
+def test_a_malformed_file_says_so_and_still_round_trips(label, build):
+    """A truncated input used to clear silently, and its cleared file was five
+    bytes longer than the input because the gate supplied the missing terminator.
+    """
+    data = build()
+    parsed = sdf.parse_bytes(data)
+    assert parsed.malformed, label
+    assert parsed.dumps() == data, label
+
+
+def test_a_well_formed_file_reports_nothing_malformed(two_record_sdf):
+    assert sdf.parse_bytes(two_record_sdf).malformed == ()
+
+
+def test_write_records_always_terminates_even_an_unterminated_record(tmp_path):
+    """So the output is a valid SDF. Callers refuse malformed input separately."""
+    data = sdf_bytes(salt_record(iupac="x"), terminate_last=False)
+    records = sdf.parse_bytes(data).records
+    out = tmp_path / "o.sdf"
+    sdf.write_records(records, out)
+
+    written = out.read_bytes()
+    assert written.endswith(sdf.RECORD_TERMINATOR)
+    assert written.count(b"$$$$") == 1, "no doubled terminator"

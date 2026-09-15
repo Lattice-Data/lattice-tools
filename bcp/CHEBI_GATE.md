@@ -70,7 +70,28 @@ adds them together:
 Sources are consulted worst-last. The parsed SciFinder export is independent and
 had a row for all 290 records of the reference batch; CAS Common Chemistry is
 independent but thin, resolving 82 of 291; the PubChem cache is circular and is
-used only when nothing else can speak. Configure what you have:
+consulted last. That ordering is the mechanism, not a comment: the best-ranked
+candidate wins and ties go to the earliest, so putting PubChem first would invert
+the preference the module is built on.
+
+**A CAS source can confirm but never refute.** Its structure strings are
+unreliable for salts, so a disagreement between the registry's InChIKey and the
+drawn structure is not evidence of a defect. Measured: treating the SciFinder
+InChIKey as authoritative turns 25 sound records into high findings, and every one
+is a drawing convention or a legacy key format — 7-NINA sodium salt is registered
+as the neutral acid plus Na against an ionic drawing, AY 9944 carries a
+pre-standard `InChI=1/` key with the same skeleton block, cyanopindolol
+hemifumarate is registered as `1/2C4H4O4` against a doubled drawing. Stoichiometry
+is where a CAS source *is* authoritative, and EXT-04 reads it from
+`molecular_formula`; that check caught all three real disagreements in the batch.
+
+**A confirmation that only PubChem makes is reported.** When an independent source
+is configured and could not corroborate an exact match, EXT-01 records that at low
+severity. It holds nothing, and it stops "284 of 290 confirmed" from reading as
+verification: on the reference batch 259 of 290 are corroborated by a source of a
+different origin and 31 rest entirely on PubChem.
+
+Configure what you have:
 
 ```bash
 python -m chebi_gate batch.sdf \
@@ -107,7 +128,7 @@ distils it into a 22 MB index:
 python -m chebi_gate unused --distil path/to/release path/to/index
 ```
 
-Distilling the same release twice produces byte-identical index files.
+Distilling the same release twice produces byte-identical index TSVs. `index_manifest.json` beside them is not byte-identical: it records the release path and the time it was built, which is the point of it.
 
 **None of it is committed.** `bcp/.gitignore` excludes the per-run directories for
 the reasons documented there; the reference tables and the SciFinder PDFs stay out
@@ -199,7 +220,16 @@ Asserted inside the gate at run time, not only in tests:
 2. **A cleared record is byte-identical to its input**, with no annotation fields.
    The gate refuses to clear a record that already carries `GATE_*`, so re-running
    it on its own output cannot launder an annotation.
-3. **Two runs over the same inputs write identical bytes.** The run identifier is
+3. **A malformed input is refused, not worked around.** A file whose last record
+   is unterminated, or that carries content after the last `$$$$`, stops the run
+   with exit 2. If a record boundary is in doubt then so is every finding
+   attributed to a record, and re-emitting invents bytes: a truncated input used
+   to clear silently, with a cleared file five bytes longer than its input because
+   the gate supplied the missing terminator. Both `$$$$\n` and `$$$$\r\n`
+   terminate a record — with a bare-LF terminator a CRLF file parsed as one giant
+   record, every per-record check ran against the whole file, and the round-trip
+   test still passed.
+4. **Two runs over the same inputs write identical bytes.** The run identifier is
    derived from the inputs, the reference hashes and the decisions hashes — not
    from the clock. The prototype wrote a timestamp into every annotated record, so
    no two runs could agree and this could not even be tested. The wall-clock time
@@ -249,6 +279,43 @@ record as `chunk.rstrip("\n") + "\n"`, and every record in both submission files
 ends with a blank line. Measured: 0 of 13 cleared records came back
 byte-identical, each one byte short. Nothing reported it, because the only
 assertion made about the cleared file was that it held no `GATE_*` field.
+
+## Found by adversarial review
+
+The package was reviewed adversarially before the branch was pushed, with each
+reviewer told to break one layer and to construct a concrete failing case rather
+than file a concern. Nine defects it found are fixed here, each with a test that a
+mutation check confirms would catch a regression:
+
+- Annotation was not idempotent when a finding's text contained a blank line.
+  Field removal used a second regex that stopped at the first blank line while the
+  reader treats a blank line as a terminator only when `> <` follows, so the value
+  was half-removed and its tail grafted onto the preceding real field. Feeding the
+  held file back in — the workflow this exists for — turned `RELATIONSHIP` into
+  `ISA36807\n\n…`, which the next run reported as an unknown relationship. Fields
+  are now removed by the byte span the reader recorded.
+- `with_fields` and both CSV writers encoded strictly, so a non-ASCII byte raised
+  `UnicodeEncodeError` — on `findings.csv` part-way through, leaving a truncated
+  file that still looked like valid CSV, no manifest, and an exit status
+  indistinguishable from "records were held".
+- A circular PubChem match silently erased an independent disagreement, because
+  the sort key put rank ahead of independence. A first attempt to fix it by
+  preferring independent sources absolutely was *wrong* and measurement caught
+  that too: it invented 25 false high findings and dropped 22 records from exact
+  to skeleton. The correct rule is the narrower one above — a CAS source
+  corroborates, never refutes, and never downgrades another source's match.
+- The class rule demanded that *every* counterion be a halide, so a hydrate or
+  ethanolate of a hydrohalide could never satisfy CON-01.
+- `external.py` had no test file at all: EXT-02 and EXT-04 could be deleted
+  outright and the suite stayed green.
+- The independence tie-break in the sort key was dead code — the candidate
+  ordering already decided every tie it could have. Two mechanisms that agree
+  cannot be told apart by a test, so it is one mechanism now.
+
+Findings not yet addressed are listed in the branch discussion rather than fixed
+silently; the ones that matter most are CON-02's reliance on fragment ordering for
+its base count, and the manifest pinning the PubChem cache by file count rather
+than by content.
 
 ## What is not built
 

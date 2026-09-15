@@ -718,3 +718,56 @@ def test_the_shipped_registry_and_index_defaults_are_absent_not_guessed():
     assert len(casreg.EMPTY) == 0
     assert len(chebi_release.EMPTY) == 0
     assert external.Evidence().available == ()
+
+
+# --------------------------------------------------- malformed and non-ASCII input
+
+
+@pytest.mark.parametrize(
+    "label,build",
+    [
+        ("truncated", lambda r: sdf_bytes(r, terminate_last=False)),
+        ("dollars with no newline", lambda r: sdf_bytes(r)[:-1]),
+        ("trailing content", lambda r: sdf_bytes(r) + b"leftover\n"),
+    ],
+)
+def test_the_gate_refuses_a_malformed_file_rather_than_working_around_it(
+    tmp_path, label, build
+):
+    """If a record boundary is in doubt, so is every finding attributed to a record.
+
+    This used to clear silently: exit 0, a header-only findings table, a manifest
+    claiming 2 records and no mention of truncation, and a cleared file five bytes
+    longer than its input.
+    """
+    path = tmp_path / "malformed.sdf"
+    path.write_bytes(build(salt_record(iupac="ethanamine hydrochloride")))
+    with pytest.raises(client.GateError, match="not a well-formed SDF"):
+        client.run(path, allow_medium=True)
+
+
+def test_the_cli_exits_two_on_a_malformed_file(tmp_path, capsys):
+    path = tmp_path / "malformed.sdf"
+    path.write_bytes(sdf_bytes(salt_record(iupac="x"), terminate_last=False))
+    code = main([str(path), "--out-dir", str(tmp_path / "out"), "--no-decisions"])
+    assert code == EXIT_USAGE
+    assert "not a well-formed SDF" in capsys.readouterr().err
+
+
+def test_a_non_ascii_byte_does_not_truncate_the_findings_table(tmp_path):
+    """The CSV writers opened with strict UTF-8, so a detail echoing a non-ASCII
+    byte raised part-way through writerows: a truncated findings.csv that still
+    looked like valid CSV, no run manifest at all, and an exit status of 1 that is
+    indistinguishable from "records were held".
+    """
+    raw = sdf_bytes(salt_record(iupac="x"), neutral_record(cas=OTHER_CAS, iupac="y"))
+    path = tmp_path / "nonascii.sdf"
+    path.write_bytes(raw.replace(b"ISA36807", b"\xe9SA36807"))
+
+    run = client.run(path, allow_medium=True)
+    outputs = gate_io.write(run, tmp_path / "out", stem="nonascii")
+
+    assert outputs.manifest.exists(), "the manifest must still be written"
+    rows = list(csv.DictReader(outputs.findings.open(encoding="utf-8")))
+    assert len(rows) == len(run.all_findings)
+    assert outputs.held.read_bytes(), "the non-ASCII record is held, not lost"

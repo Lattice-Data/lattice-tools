@@ -11,16 +11,29 @@ not cosmetic. It decoded the whole file with ``errors="replace"`` before splitti
 then re-emitted records as ``chunk.rstrip("\\n") + "\\n"``. Every record in both
 submission files ends with a blank line, so ``rstrip`` removed it: measured on
 chebi_bulk_group_B_novel.sdf, 0 of the 13 cleared records came back
-byte-identical, each one byte short. Nothing reported this, because the only
-check on the cleared file was that it contained no ``GATE_*`` field.
+byte-identical, each one byte short. Nothing reported this, because the only check
+on the cleared file was that it contained no ``GATE_*`` field.
 
-Two consequences of working in bytes, both deliberate:
+**One notion of where a field ends.** Fields are removed by the byte span the
+reader recorded for them, never by a second regex. Two notions is how this broke
+once already: the removal pattern was non-greedy up to the first blank line, while
+the reader treats a blank line as a field terminator only when ``> <`` follows it.
+A ``GATE_REASONS`` value containing an ordinary paragraph break was therefore
+half-removed and its orphaned tail grafted onto the preceding real field. Feeding
+the held file back in -- the workflow this module exists to support -- turned
+``RELATIONSHIP`` into ``ISA36807\\n\\nline two after a blank``, which the next run
+reported as an unknown relationship. The gate corrupted a record and then faulted
+it for being corrupt.
 
-- non-ASCII input survives a round trip instead of being replaced by U+FFFD, so
-  the gate can *refuse* a non-ASCII file (INT-06) without having corrupted it
-- the trailing bytes after the final ``$$$$`` are kept verbatim in
-  :attr:`SdfFile.trailer`, so :meth:`SdfFile.dumps` reproduces the input exactly
-  even when the file is malformed
+**Both line endings terminate a record.** A CRLF file whose terminator is
+``$$$$\\r\\n`` used to parse as one unterminated record, so every per-record check
+ran against a concatenation of the whole file -- and a round-trip test still
+passed, because re-emitting one giant record reproduces the input exactly. The
+exact terminator bytes are kept per record so re-emission stays faithful.
+
+Non-ASCII input survives a round trip instead of being replaced by U+FFFD, so the
+gate can *refuse* a non-ASCII file (INT-06) without having corrupted the one
+record it most needs to hand back for repair.
 """
 
 from __future__ import annotations
@@ -34,6 +47,9 @@ log = logging.getLogger(__name__)
 
 RECORD_TERMINATOR = b"$$$$\n"
 
+# A record terminator with either line ending.
+_TERMINATOR = re.compile(rb"\$\$\$\$\r?\n")
+
 # The molfile ends at this marker; everything after it is the data-field block.
 MOL_END = "\nM  END\n"
 
@@ -44,14 +60,15 @@ MOL_END = "\nM  END\n"
 # which tags exist and what their values are, so every finding about a tag or a
 # value is downstream of it; a "tidier" regex silently rewrites the findings table
 # and the baseline stops reproducing. In particular the value is non-greedy and
-# the terminator is a lookahead, so a value containing a blank line is truncated
-# at that blank line rather than swallowing the next field.
+# the terminator is a lookahead, so a value containing a blank line runs on until
+# a blank line followed by "> <".
 _DATA_FIELD = re.compile(r"> <([^>]+)>\n(.*?)(?=\n\n> <|\n*\Z)", re.S)
 
-# A data field block to remove, by tag name. Matches the "> <TAG>\nvalue" run and
-# the blank line that separates it from whatever follows, so removing a field from
-# the middle of a record does not leave a double blank line behind.
-_FIELD_BLOCK = r"> <{tag}>\n.*?(?:\n\n|\n*\Z)"
+# Text is decoded from bytes with ascii+surrogateescape, which maps each byte to
+# exactly one character. That one-to-one mapping is what lets a span measured in
+# the decoded text index the original bytes.
+_CODEC = "ascii"
+_ERRORS = "surrogateescape"
 
 
 class SdfError(Exception):
@@ -59,13 +76,22 @@ class SdfError(Exception):
 
 
 @dataclass(frozen=True)
+class DataField:
+    """One data field and where it sits in the record's bytes."""
+
+    tag: str
+    value: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
 class SdfRecord:
     """One SDF record, with its original bytes and a decoded view for analysis.
 
     ``raw`` is the exact bytes between record terminators, including the trailing
-    blank line, and excluding the ``$$$$\\n`` terminator itself. Re-emitting
-    ``raw + RECORD_TERMINATOR`` reproduces the input for any record that was
-    terminated in the input.
+    blank line, and excluding the terminator itself. ``terminator`` holds the exact
+    terminator bytes that followed it, or empty when the record was unterminated.
     """
 
     raw: bytes
@@ -74,8 +100,16 @@ class SdfRecord:
     title: str
     counts_line: str
     data: dict[str, str]
-    tag_order: list[str] = field(default_factory=list)
-    terminated: bool = True
+    fields: tuple[DataField, ...] = ()
+    terminator: bytes = RECORD_TERMINATOR
+
+    @property
+    def tag_order(self) -> list[str]:
+        return [f.tag for f in self.fields]
+
+    @property
+    def terminated(self) -> bool:
+        return bool(self.terminator)
 
     @property
     def mol_block(self) -> str:
@@ -97,24 +131,45 @@ class SdfRecord:
     def cas(self) -> str:
         """The CAS_NO field, stripped. Empty string when absent.
 
-        This is the gate's join key -- to waivers, to quarantine, to the CAS
-        registry table and to the PubChem cache. NAME is display text and changes
-        when a record is renamed; CAS does not.
+        The gate's join key to waivers, quarantine, the CAS registry table and the
+        PubChem cache. NAME is display text and changes when a record is renamed.
         """
         return self.data.get("CAS_NO", "").strip()
+
+    def without_fields(self, tags) -> bytes:
+        """This record's bytes with the named data fields removed.
+
+        Removal is by recorded span, so it agrees exactly with what the reader
+        parsed however many blank lines a value contains. The result always ends
+        with one blank line, the shape every record in the submission files has.
+        """
+        wanted = {str(t) for t in tags}
+        spans = [(f.start, f.end) for f in self.fields if f.tag in wanted]
+        if not spans:
+            return self.raw
+        keep = bytearray()
+        cursor = 0
+        for start, end in sorted(spans):
+            keep += self.raw[cursor:start]
+            cursor = max(cursor, end)
+        keep += self.raw[cursor:]
+        return bytes(keep).rstrip(b"\n") + b"\n\n"
 
     def with_fields(self, fields: dict[str, str]) -> bytes:
         """This record's bytes with ``fields`` appended, replacing any already there.
 
-        Used for the held-back file, which is an SDF rather than a report so that a
-        fixed record can be fed straight back into the gate. Appending is
-        idempotent: re-running the gate on its own output replaces the annotations
-        instead of stacking a second copy.
+        Used for the held file, which is an SDF rather than a report so a fixed
+        record can be fed straight back into the gate. Appending is idempotent:
+        re-running the gate on its own output replaces the annotations instead of
+        stacking a second copy.
         """
-        body = strip_fields(self.raw, fields)
+        body = self.without_fields(fields)
         for tag, value in fields.items():
-            block = f"> <{tag}>\n{value}\n\n".encode()
-            body += block
+            # surrogateescape, not the default strict UTF-8: a value echoed from a
+            # non-ASCII record carries lone surrogates, and encoding them strictly
+            # raised UnicodeEncodeError on exactly the record this file exists to
+            # hand back.
+            body += f"> <{tag}>\n{value}\n\n".encode(_CODEC, errors=_ERRORS)
         return body
 
 
@@ -126,59 +181,70 @@ class SdfFile:
     raw: bytes
     trailer: bytes = b""
     path: Path | None = None
+    skipped_chunks: tuple[bytes, ...] = field(default_factory=tuple)
 
     def dumps(self) -> bytes:
         """Reproduce the input bytes exactly."""
-        out = b"".join(
-            r.raw + (RECORD_TERMINATOR if r.terminated else b"") for r in self.records
-        )
-        return out + self.trailer
+        out = b"".join(r.raw + r.terminator for r in self.records)
+        return out + b"".join(self.skipped_chunks) + self.trailer
 
+    @property
+    def malformed(self) -> tuple[str, ...]:
+        """Why this file is not a well-formed SDF, if it is not.
 
-def strip_fields(raw: bytes, tags: object) -> bytes:
-    """Remove the named data fields from a record's bytes.
-
-    ``tags`` is any iterable of tag names; a mapping is accepted so a caller can
-    pass the same dict it is about to append.
-
-    The result always ends with exactly one blank line, which is the shape every
-    record in the submission files has. Enforcing it here rather than at each call
-    site is what keeps :meth:`SdfRecord.with_fields` idempotent.
-    """
-    text = raw.decode("ascii", errors="surrogateescape")
-    for tag in tags:
-        text = re.sub(
-            _FIELD_BLOCK.format(tag=re.escape(str(tag))), "", text, flags=re.S
-        )
-    return text.rstrip("\n").encode("ascii", errors="surrogateescape") + b"\n\n"
+        A caller must refuse to judge records from a malformed file rather than
+        work around it: if a record boundary is in doubt, so is every finding
+        attributed to a record, and re-emitting invents bytes. A truncated input
+        used to clear silently, with a cleared file five bytes longer than its
+        input because the missing terminator was supplied for it.
+        """
+        problems = []
+        unterminated = [r.index for r in self.records if not r.terminated]
+        if unterminated:
+            problems.append(
+                f"record {unterminated[0]} is not terminated by $$$$; the file is "
+                "truncated or was hand-edited"
+            )
+        if self.trailer.strip():
+            problems.append(
+                f"{len(self.trailer)} bytes follow the last terminator: "
+                f"{self.trailer[:40]!r}"
+            )
+        return tuple(problems)
 
 
 def parse_bytes(data: bytes, *, path: Path | None = None) -> SdfFile:
     """Parse SDF bytes into records, keeping each record's bytes verbatim."""
     records: list[SdfRecord] = []
-    chunks = data.split(RECORD_TERMINATOR)
+    skipped: list[bytes] = []
+    cursor = 0
+    for match in _TERMINATOR.finditer(data):
+        chunk = data[cursor : match.start()]
+        terminator = data[match.start() : match.end()]
+        cursor = match.end()
+        if not chunk.strip():
+            log.warning("skipping empty record at byte %d", match.start())
+            skipped.append(chunk + terminator)
+            continue
+        records.append(_build(chunk, len(records) + 1, terminator))
 
-    # split() on a terminated file leaves one empty tail chunk; on an unterminated
-    # file the tail holds a real record. Distinguishing the two is what lets the
-    # gate refuse a truncated file instead of quietly inventing a terminator.
-    tail = chunks.pop()
+    tail = data[cursor:]
     trailer = b""
     if tail.strip():
-        records_tail: bytes | None = tail
+        # A record with no terminator. Kept as a record so it can be reported,
+        # rather than dropped, which would make cleared+held disagree with the
+        # input count.
+        records.append(_build(tail, len(records) + 1, b""))
     else:
-        records_tail = None
         trailer = tail
 
-    for position, chunk in enumerate(chunks, start=1):
-        if not chunk.strip():
-            log.warning("skipping empty record at position %d", position)
-            continue
-        records.append(_build(chunk, len(records) + 1, terminated=True))
-
-    if records_tail is not None:
-        records.append(_build(records_tail, len(records) + 1, terminated=False))
-
-    return SdfFile(records=records, raw=data, trailer=trailer, path=path)
+    return SdfFile(
+        records=records,
+        raw=data,
+        trailer=trailer,
+        path=path,
+        skipped_chunks=tuple(skipped),
+    )
 
 
 def parse_file(path: str | Path) -> SdfFile:
@@ -187,28 +253,34 @@ def parse_file(path: str | Path) -> SdfFile:
     return parse_bytes(path.read_bytes(), path=path)
 
 
-def _build(chunk: bytes, index: int, *, terminated: bool) -> SdfRecord:
+def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
     """Decode one record chunk into an :class:`SdfRecord`.
 
     Decoding uses ``surrogateescape`` rather than ``replace`` so that a non-ASCII
     byte survives into ``text`` as a lone surrogate and can be encoded back to the
     original byte. ``replace`` is lossy, and a lossy decode in the parser means the
-    gate can never re-emit a non-ASCII record unchanged -- which is precisely the
-    record it most needs to hand back for repair.
+    gate can never re-emit a non-ASCII record unchanged.
     """
-    text = chunk.decode("ascii", errors="surrogateescape")
-    _, sep, rest = text.partition(MOL_END)
+    text = chunk.decode(_CODEC, errors=_ERRORS)
+    head, sep, rest = text.partition(MOL_END)
 
     data: dict[str, str] = {}
-    tag_order: list[str] = []
+    fields: list[DataField] = []
     if sep:
+        offset = len(head) + len(sep)
         for match in _DATA_FIELD.finditer(rest):
             tag, value = match.group(1), match.group(2)
             if tag in data:
                 log.warning("record %d repeats tag %r; keeping the first", index, tag)
                 continue
             data[tag] = value
-            tag_order.append(tag)
+            # Span covers the tag line, the value and the blank line that follows,
+            # so removing a field leaves neither a gap nor a doubled blank line.
+            start = offset + match.start()
+            end = offset + match.end()
+            while end < len(text) and text[end] == "\n":
+                end += 1
+            fields.append(DataField(tag=tag, value=value, start=start, end=end))
 
     lines = text.split("\n")
     return SdfRecord(
@@ -218,19 +290,32 @@ def _build(chunk: bytes, index: int, *, terminated: bool) -> SdfRecord:
         title=lines[0] if lines else "",
         counts_line=lines[3] if len(lines) > 3 else "",
         data=data,
-        tag_order=tag_order,
-        terminated=terminated,
+        fields=tuple(fields),
+        terminator=terminator,
     )
+
+
+def strip_fields(raw: bytes, tags) -> bytes:
+    """Remove the named data fields from a record's bytes.
+
+    Parses the record so removal uses the same field boundaries the reader does.
+    Prefer :meth:`SdfRecord.without_fields` when a record is already to hand.
+    """
+    parsed = parse_bytes(raw + RECORD_TERMINATOR)
+    if not parsed.records:
+        return raw
+    return parsed.records[0].without_fields(tags)
 
 
 def write_records(records: list[SdfRecord], path: str | Path) -> int:
     """Write records to an SDF, each as its original bytes. Returns the count.
 
-    The file is always created, even with no records, so a downstream step can rely
-    on it existing rather than branching on whether the gate found anything.
+    Every record is terminated, including one that arrived unterminated -- an SDF
+    requires it. Callers must refuse a malformed input rather than rely on this to
+    repair one: see :attr:`SdfFile.malformed`.
     """
     path = Path(path)
-    payload = b"".join(r.raw + RECORD_TERMINATOR for r in records)
+    payload = b"".join(r.raw + (r.terminator or RECORD_TERMINATOR) for r in records)
     path.write_bytes(payload)
     return len(records)
 
@@ -241,7 +326,8 @@ def write_annotated(
     """Write records with per-record fields appended. Returns the count."""
     path = Path(path)
     payload = b"".join(
-        record.with_fields(fields) + RECORD_TERMINATOR for record, fields in annotated
+        record.with_fields(fields) + (record.terminator or RECORD_TERMINATOR)
+        for record, fields in annotated
     )
     path.write_bytes(payload)
     return len(annotated)

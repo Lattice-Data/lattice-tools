@@ -157,7 +157,14 @@ def _write_findings(gate_run: GateRun, path: Path) -> Path:
             r["detail"],
         )
     )
-    with path.open("w", newline="", encoding="utf-8") as handle:
+    # backslashreplace, not strict: a finding's detail can echo a non-ASCII byte
+    # from the record it is about, carried as a lone surrogate. Encoding strictly
+    # raised UnicodeEncodeError part-way through writerows, leaving a truncated
+    # findings.csv that still looked like valid CSV, no run manifest at all, and
+    # an exit status of 1 that is indistinguishable from "records were held".
+    with path.open(
+        "w", newline="", encoding="utf-8", errors="backslashreplace"
+    ) as handle:
         writer = csv.DictWriter(handle, fieldnames=list(FINDINGS_COLUMNS))
         writer.writeheader()
         writer.writerows(rows)
@@ -187,7 +194,9 @@ def _write_open_questions(gate_run: GateRun, path: Path) -> Path:
             }
         )
     rows.sort(key=lambda r: r["cas"])
-    with path.open("w", newline="", encoding="utf-8") as handle:
+    with path.open(
+        "w", newline="", encoding="utf-8", errors="backslashreplace"
+    ) as handle:
         writer = csv.DictWriter(handle, fieldnames=list(OPEN_QUESTIONS_COLUMNS))
         writer.writeheader()
         writer.writerows(rows)
