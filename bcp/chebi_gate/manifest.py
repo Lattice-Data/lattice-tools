@@ -29,6 +29,25 @@ TOOL_VERSION = "1.0"
 
 MANIFEST_FILENAME = "run_manifest.json"
 
+# Keys whose value names a filesystem location or a moment, not a thing. They are
+# recorded in the manifest and excluded from the run identifier: "path" for every
+# input, table and cache, "release_dir" and "generated" from the ChEBI index
+# manifest, which is embedded whole.
+RUN_ID_IGNORED_KEYS = frozenset({"path", "release_dir", "generated"})
+
+
+def run_id_identity(value):
+    """``value`` with every :data:`RUN_ID_IGNORED_KEYS` key removed, recursively."""
+    if isinstance(value, dict):
+        return {
+            key: run_id_identity(item)
+            for key, item in value.items()
+            if key not in RUN_ID_IGNORED_KEYS
+        }
+    if isinstance(value, list):
+        return [run_id_identity(item) for item in value]
+    return value
+
 
 def sha256_file(path: str | Path) -> str:
     digest = hashlib.sha256()
@@ -36,6 +55,33 @@ def sha256_file(path: str | Path) -> str:
         for block in iter(lambda: handle.read(1 << 20), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def directory_digest(directory: str | Path, pattern: str = "*") -> dict:
+    """Pin a cache directory by what is in it, not by how many files it has.
+
+    The PubChem and CAS Common Chemistry caches were recorded as a path and a
+    ``*.json`` count, so re-fetching a cache in place -- the ordinary thing to do
+    when a record's entry is wrong -- left the manifest and the run identifier
+    byte for byte unchanged. Two runs over completely different evidence claimed
+    to be the same run.
+
+    The digest is over sorted ``name\0sha256\0`` pairs, so it does not depend on
+    directory order and does notice a file being renamed rather than edited.
+    """
+    directory = Path(directory)
+    files = sorted(p for p in directory.glob(pattern) if p.is_file())
+    rolling = hashlib.sha256()
+    for path in files:
+        rolling.update(path.name.encode("utf-8"))
+        rolling.update(b"\0")
+        rolling.update(sha256_file(path).encode("ascii"))
+        rolling.update(b"\0")
+    return {
+        "path": str(directory),
+        "records": len(files),
+        "sha256": rolling.hexdigest(),
+    }
 
 
 def git_commit(repo: str | Path | None = None) -> str:
@@ -89,6 +135,19 @@ class Manifest:
         Derived from the inputs, the reference hashes, the decisions hashes and the
         tool version -- deliberately not from the time, so two runs over the same
         material produce the same identifier and therefore the same output bytes.
+
+        "The same material" has to mean the same *content*. The payload used to be
+        the reference and decisions blocks verbatim, and those carry the absolute
+        path of every table, cache and decisions file, so the same evidence checked
+        out at a different place gave a different identifier -- the manifest could
+        not be replayed on another machine, which is most of what it is for. Worse,
+        the ChEBI index manifest is embedded whole and carries ``generated``, the
+        wall-clock string from when the index was distilled. A clock value reached
+        the run identifier despite the docstring above saying it could not.
+
+        :data:`RUN_ID_IGNORED_KEYS` is the list of keys that say where something is
+        or when it was built rather than what it is. They stay in the manifest,
+        which is the right place for them.
         """
         payload = json.dumps(
             {
@@ -97,9 +156,9 @@ class Manifest:
                 "inputs": [
                     {"name": i["name"], "sha256": i["sha256"]} for i in self.inputs
                 ],
-                "reference": self.reference,
-                "decisions": self.decisions,
-                "checks": self.checks,
+                "reference": run_id_identity(self.reference),
+                "decisions": run_id_identity(self.decisions),
+                "checks": run_id_identity(self.checks),
             },
             sort_keys=True,
         )

@@ -317,8 +317,7 @@ def _build_manifest(
         ("cas_common_chemistry_cache", evidence.common_chemistry_dir),
     ):
         if directory and Path(directory).is_dir():
-            files = sorted(Path(directory).glob("*.json"))
-            reference[name] = {"path": str(directory), "records": len(files)}
+            reference[name] = manifest_mod.directory_digest(directory, "*.json")
         else:
             reference[name] = None
     run_manifest.reference = reference

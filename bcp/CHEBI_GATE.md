@@ -356,6 +356,18 @@ A second round found more, and these are fixed here too:
   the drawn side can never say `D`. The verdict says the labelling was not
   checked, so an agreement does not read as confirming it.
 
+- The PubChem and CAS Common Chemistry caches were pinned by a `*.json` file
+  count, so re-fetching a cache in place left the manifest and the run identifier
+  byte for byte unchanged over completely different evidence. They are pinned by a
+  digest over sorted name/hash pairs now.
+- The run identifier was computed from the reference and decisions blocks
+  verbatim, and those carry the absolute path of every table, cache and decisions
+  file -- so the same inputs on another machine gave a different run_id, and a
+  manifest that claims to be replayable was not. The embedded ChEBI index manifest
+  also carries `generated`, its own wall-clock build time, so a clock value did
+  reach the run_id while the docstring said none could. Paths and build times stay
+  in the manifest and are excluded from the identifier.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
 

@@ -594,6 +594,123 @@ def test_the_run_id_changes_when_the_decisions_change(tmp_path, clean_input):
     assert plain.manifest.run_id != changed.manifest.run_id
 
 
+def _mkdir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _cache(directory, payload):
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "557-66-4.json").write_text(json.dumps(payload))
+    return directory
+
+
+def test_the_manifest_pins_a_cache_by_its_contents_not_its_file_count(
+    tmp_path, clean_input
+):
+    """Re-fetching a cache in place left the manifest byte for byte unchanged.
+
+    The entry was a path and a `*.json` count, so two runs over completely
+    different evidence claimed to be the same run -- including the same run_id,
+    which is what the held records are stamped with.
+    """
+    cache = _cache(tmp_path / "pubchem", {"cid": 1})
+    first = client.run(
+        clean_input, evidence=external.Evidence(pubchem_dir=cache), allow_medium=True
+    )
+    _cache(cache, {"cid": 99999})
+    second = client.run(
+        clean_input, evidence=external.Evidence(pubchem_dir=cache), allow_medium=True
+    )
+
+    assert first.manifest.reference["pubchem_cache"]["records"] == 1
+    assert (
+        first.manifest.reference["pubchem_cache"]["sha256"]
+        != second.manifest.reference["pubchem_cache"]["sha256"]
+    )
+    assert first.manifest.run_id != second.manifest.run_id
+
+
+def test_the_same_cache_contents_pin_the_same_way(tmp_path, clean_input):
+    here = _cache(tmp_path / "a" / "pubchem", {"cid": 1})
+    there = _cache(tmp_path / "b" / "pubchem", {"cid": 1})
+    runs = [
+        client.run(
+            clean_input, evidence=external.Evidence(pubchem_dir=d), allow_medium=True
+        )
+        for d in (here, there)
+    ]
+    assert (
+        runs[0].manifest.reference["pubchem_cache"]["sha256"]
+        == runs[1].manifest.reference["pubchem_cache"]["sha256"]
+    )
+
+
+def test_the_run_id_does_not_change_when_the_evidence_moves(tmp_path, clean_input):
+    """The manifest claims a run is replayable; an absolute path is not portable."""
+    here = _cache(tmp_path / "a" / "pubchem", {"cid": 1})
+    there = _cache(tmp_path / "b" / "pubchem", {"cid": 1})
+    first = client.run(
+        clean_input, evidence=external.Evidence(pubchem_dir=here), allow_medium=True
+    )
+    second = client.run(
+        clean_input, evidence=external.Evidence(pubchem_dir=there), allow_medium=True
+    )
+
+    assert first.manifest.run_id == second.manifest.run_id
+    assert (
+        first.manifest.reference["pubchem_cache"]["path"]
+        != second.manifest.reference["pubchem_cache"]["path"]
+    )
+
+
+def test_the_run_id_does_not_change_when_the_decisions_data_moves(
+    tmp_path, clean_input
+):
+    runs = [
+        client.run(
+            clean_input,
+            decisions=decisions.load(empty_decisions(_mkdir(tmp_path / where))),
+            allow_medium=True,
+        )
+        for where in ("first", "second")
+    ]
+    assert runs[0].manifest.run_id == runs[1].manifest.run_id
+    assert (
+        runs[0].manifest.decisions["files"][0]["path"]
+        != runs[1].manifest.decisions["files"][0]["path"]
+    )
+
+
+def test_the_chebi_index_build_time_does_not_reach_the_run_id():
+    """The docstring said no clock value reaches it; one did, embedded whole.
+
+    `reference["chebi_release"]` is the index manifest verbatim, and that carries
+    `generated` -- the wall-clock string from when the index was distilled.
+    """
+    ids = []
+    for when in ("2026-08-01T00:00:00Z", "2026-09-15T12:00:00Z"):
+        one = manifest_mod.Manifest()
+        one.reference = {
+            "chebi_release": {
+                "generated": when,
+                "release_dir": f"/somewhere/{when}",
+                "index": {"cas": {"sha256": "abc"}},
+            }
+        }
+        ids.append(one.compute_run_id())
+    assert ids[0] == ids[1]
+
+
+def test_the_run_id_still_changes_when_the_evidence_content_changes():
+    ids = []
+    for digest in ("abc", "def"):
+        one = manifest_mod.Manifest()
+        one.reference = {"chebi_release": {"index": {"cas": {"sha256": digest}}}}
+        ids.append(one.compute_run_id())
+    assert ids[0] != ids[1]
+
+
 def test_git_commit_never_raises_outside_a_work_tree(tmp_path):
     assert (
         manifest_mod.git_commit(tmp_path) in ("unknown",)
