@@ -329,12 +329,67 @@ def test_loading_a_missing_index_says_how_to_build_one(tmp_path):
         chebi_release.load_index(tmp_path / "nowhere")
 
 
+def _restate(index_dir: Path) -> None:
+    """Rewrite the recorded stats to match the files, as a forger would have to."""
+    manifest_path = index_dir / chebi_release.INDEX_MANIFEST
+    manifest = json.loads(manifest_path.read_text())
+    manifest["index"] = {
+        name: chebi_release._file_stats(index_dir / filename)
+        for name, filename in chebi_release.INDEX_FILES.items()
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+
 def test_a_tampered_index_header_fails_the_load(release, tmp_path):
+    """The column check, reached by restating the hash so it is not caught first."""
     chebi_release.distil(release, tmp_path / "index", generated="x")
     path = tmp_path / "index" / chebi_release.INDEX_FILES["cas"]
     path.write_text("cas\twrong_column\n64-17-5\t16236\n")
+    _restate(tmp_path / "index")
     with pytest.raises(chebi_release.ReleaseError, match="columns are"):
         chebi_release.load_index(tmp_path / "index")
+
+
+def test_an_index_edited_after_distillation_is_refused(release, tmp_path):
+    """The hash in the run manifest was the one recorded at distil time.
+
+    So an index edited afterwards reported its original hash, and the run manifest
+    -- whose whole purpose is pinning what was judged against what -- pinned a file
+    that no longer existed. Every EXT-02 and EXT-03 verdict drawn from it was
+    attributed to evidence that was not consulted.
+    """
+    index_dir = tmp_path / "index"
+    chebi_release.distil(release, index_dir, generated="x")
+    path = index_dir / chebi_release.INDEX_FILES["cas"]
+    path.write_text(path.read_text() + "999999\t1-1-1\n")
+
+    with pytest.raises(chebi_release.ReleaseError, match="does not match"):
+        chebi_release.load_index(index_dir)
+
+
+def test_an_untouched_index_loads_and_keeps_its_recorded_hashes(release, tmp_path):
+    index_dir = tmp_path / "index"
+    chebi_release.distil(release, index_dir, generated="x")
+    loaded = chebi_release.load_index(index_dir)
+    for name, filename in chebi_release.INDEX_FILES.items():
+        stats = chebi_release._file_stats(index_dir / filename)
+        assert loaded.manifest["index"][name]["sha256"] == stats["sha256"]
+
+
+def test_an_index_with_no_recorded_stats_is_measured_rather_than_refused(
+    release, tmp_path
+):
+    """Nothing was claimed about it, so there is nothing to contradict."""
+    index_dir = tmp_path / "index"
+    chebi_release.distil(release, index_dir, generated="x")
+    manifest_path = index_dir / chebi_release.INDEX_MANIFEST
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["index"]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    loaded = chebi_release.load_index(index_dir)
+    assert set(loaded.manifest["index"]) == set(chebi_release.INDEX_FILES)
+    assert len(loaded.manifest["index"]["cas"]["sha256"]) == 64
 
 
 def test_a_release_missing_a_table_on_disk_fails_the_distillation(release, tmp_path):

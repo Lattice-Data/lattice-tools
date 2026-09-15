@@ -375,6 +375,13 @@ A second round found more, and these are fixed here too:
   from that commit and a hash of the diff. Untracked files are excluded, or a
   gitignored run directory would make every manifest dirty.
 
+- `load_index` reported the SHA256 recorded when the index was distilled, not the
+  hash of the index it had just read, so an index edited afterwards pinned itself
+  by its original hash in the run manifest. It is hashed on load and a mismatch
+  refuses the run, the same rule the gate applies to a malformed SDF: if the
+  evidence is not the evidence the manifest names, every EXT-02 and EXT-03 verdict
+  drawn from it is attributed to something that was never consulted.
+
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
 

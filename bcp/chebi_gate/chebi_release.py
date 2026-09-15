@@ -436,6 +436,7 @@ def load_index(index_dir: str | Path) -> Index:
             f"release downloaded from {FLAT_FILES_URL}"
         )
     manifest = json.loads(manifest_path.read_text())
+    _verify_index(index_dir, manifest)
 
     by_inchikey: dict[str, list[str]] = defaultdict(list)
     by_skeleton: dict[str, list[str]] = defaultdict(list)
@@ -471,6 +472,45 @@ def load_index(index_dir: str | Path) -> Index:
         stars=stars,
         manifest=manifest,
     )
+
+
+def _verify_index(index_dir: Path, manifest: dict) -> None:
+    """Hash the index files being read, and refuse one that is not what it claims.
+
+    ``manifest["index"]`` is written by :func:`distil` and was reported to the run
+    manifest verbatim, so the hash in a run manifest was the hash of whatever was
+    distilled -- not of the bytes the run actually queried. An index edited after
+    distillation reported its original hash, and the run manifest, whose entire
+    purpose is pinning what was judged against what, pinned a file that no longer
+    existed.
+
+    Refusing rather than re-reporting follows the gate's own rule for a malformed
+    input: if the evidence is not the evidence the manifest names, every EXT-02 and
+    EXT-03 verdict drawn from it is attributed to something that was not consulted.
+    An index with no recorded stats -- one distilled before this existed -- is
+    measured and filled in rather than refused, because nothing was claimed about
+    it to contradict.
+    """
+    recorded = manifest.get("index")
+    if not isinstance(recorded, dict):
+        recorded = {}
+        manifest["index"] = recorded
+    for name, filename in INDEX_FILES.items():
+        path = index_dir / filename
+        if not path.exists():
+            raise ReleaseError(f"index file missing: {path}")
+        measured = _file_stats(path)
+        claimed = recorded.get(name)
+        if not claimed:
+            recorded[name] = measured
+            continue
+        if claimed.get("sha256") != measured["sha256"]:
+            raise ReleaseError(
+                f"{path} does not match {INDEX_MANIFEST}: it records sha256 "
+                f"{claimed.get('sha256')} and {measured['bytes']} bytes, the file "
+                f"is {measured['sha256']} and {path.stat().st_size} bytes. "
+                "Re-distil the release rather than editing an index in place."
+            )
 
 
 def _rows(path: Path, columns: tuple[str, ...]):
