@@ -1,8 +1,10 @@
 import anndata as ad
 import dask.array as da
 import h5py
+import hashlib
 import json
 import matplotlib.pyplot as plt
+import multiprocessing as mp
 import numpy as np
 import os
 import pandas as pd
@@ -10,6 +12,8 @@ import re
 import scanpy as sc
 import subprocess
 import sys
+import warnings
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from scipy import sparse
@@ -526,7 +530,157 @@ def evaluate_obs(obs):
         report(f'long fields: {long_fields}')
 
 
-def evaluate_dup_counts(adata):
+_G = {}  # module-level so fork() children inherit it copy-on-write
+
+
+def canonicalize_csr(X, copy: bool = True, warn: bool = True):
+    """Put a CSR matrix into canonical form for raw-buffer hashing.
+
+    Returns (matrix, changed) where `changed` reports whether anything needed
+    fixing. With copy=True the input is never mutated -- but note the copy is
+    only taken when a fix is actually required, so large already-clean
+    matrices cost nothing.
+    """
+    needs_dedupe = not X.has_canonical_format
+    needs_sort = not X.has_sorted_indices
+    # cheap vectorized scan; explicit zeros are the failure mode that silently
+    # breaks duplicate detection, so it is worth always checking for them
+    needs_zeros = bool((X.data == 0).any())
+    changed = needs_dedupe or needs_sort or needs_zeros
+
+    if not changed:
+        return X, False
+
+    if copy:
+        X = X.copy()
+    elif warn:
+        warnings.warn(
+            "canonicalizing CSR in place (explicit zeros removed / indices "
+            "sorted); .nnz and buffer identity will change. Pass copy=True "
+            "to leave the input untouched.",
+            stacklevel=3,
+        )
+
+    if needs_dedupe:
+        X.sum_duplicates()
+    if needs_sort:
+        X.sort_indices()
+    if needs_zeros:
+        X.eliminate_zeros()
+    return X, True
+
+
+def _chunk(span):
+    """Hash rows [lo, hi) and return their digests in row order."""
+    lo, hi = span
+    meta = _G["meta"]
+    canonical = _G["canonical"]
+    out = []
+
+    if _G["kind"] == "dense":
+        A = _G["A"]
+        if canonical:
+            for i in range(lo, hi):
+                row = A[i]
+                nz = np.flatnonzero(row)          # != 0, so -0.0 drops, NaN stays
+                h = hashlib.sha256(meta)
+                h.update(f"|{len(nz)}".encode())
+                h.update(np.ascontiguousarray(nz, dtype=np.int64))
+                h.update(np.ascontiguousarray(row[nz], dtype=np.float32))
+                out.append(h.hexdigest())
+        else:
+            for i in range(lo, hi):
+                h = hashlib.sha256(meta)
+                h.update(A[i])                    # zero-copy; row is contiguous
+                out.append(h.hexdigest())
+        return out
+
+    ptr = _G["indptr"]
+    if canonical:
+        data, idx = _G["data_arr"], _G["indices_arr"]
+        for i in range(lo, hi):
+            s, e = ptr[i], ptr[i + 1]
+            ix, vs = idx[s:e], data[s:e]
+            keep = vs != 0                        # no mutation of the input needed
+            ix = np.ascontiguousarray(ix[keep], dtype=np.int64)
+            vs = np.ascontiguousarray(vs[keep], dtype=np.float32)
+            order = np.argsort(ix, kind="stable")
+            h = hashlib.sha256(meta)
+            h.update(f"|{len(ix)}".encode())
+            h.update(np.ascontiguousarray(ix[order]))
+            h.update(np.ascontiguousarray(vs[order]))
+            out.append(h.hexdigest())
+    else:
+        d, ix, dw, iw = _G["data"], _G["indices"], *_G["itemsizes"]
+        for i in range(lo, hi):
+            s, e = ptr[i], ptr[i + 1]
+            h = hashlib.sha256(meta)
+            h.update(ix[s * iw:e * iw])
+            h.update(d[s * dw:e * dw])
+            out.append(h.hexdigest())
+    return out
+
+
+def row_hashes(X, n_workers=8, batch=5000, backend="auto", canonical=False, copy=True):
+    """One sha256 hex digest per row of X (dense ndarray or scipy sparse).
+
+    backend: "process" (fork; best for CSR / skinny rows), "thread" (best for
+        fat dense rows, capped at 2 workers), "serial", or "auto".
+    canonical: see module docstring.
+    copy: when canonicalization is required, work on a copy rather than
+        mutating X in place. Only pays the copy when a fix is needed.
+    """
+    n_rows = X.shape[0]
+    _G.clear()
+    _G["canonical"] = canonical
+
+    if sparse.issparse(X):
+        X = X.tocsr()
+        if not canonical:
+            # raw-buffer mode compares storage, so storage must be canonical
+            X, _ = canonicalize_csr(X, copy=copy)
+        _G["indptr"] = X.indptr.tolist()
+        if canonical:
+            _G["meta"] = f"canon|{X.shape[1]}".encode()
+            _G["data_arr"] = X.data
+            _G["indices_arr"] = X.indices
+        else:
+            _G["meta"] = (f"csr|{X.data.dtype.str}|{X.indices.dtype.str}"
+                          f"|{X.shape[1]}").encode()
+            _G["itemsizes"] = (X.data.itemsize, X.indices.itemsize)
+            _G["data"] = memoryview(X.data).cast("B")
+            _G["indices"] = memoryview(X.indices).cast("B")
+        _G["kind"] = "csr"
+        bytes_per_row = X.data.nbytes / max(n_rows, 1)
+    else:
+        A = np.ascontiguousarray(X)               # strided rows would be rejected
+        _G["kind"] = "dense"
+        _G["A"] = A
+        _G["meta"] = (f"canon|{A.shape[1]}".encode() if canonical
+                      else f"dense|{A.dtype.str}|{A.shape[1]}".encode())
+        bytes_per_row = A.shape[1] * A.itemsize
+
+    if backend == "auto":
+        backend = "thread" if bytes_per_row >= 16_384 else "process"
+        if n_rows < 20_000 or canonical:
+            # canonical mode is numpy-allocation heavy per row; fork still wins
+            backend = "serial" if n_rows < 20_000 else "process"
+
+    spans = [(i, min(i + batch, n_rows)) for i in range(0, n_rows, batch)]
+
+    if backend == "serial":
+        chunks = [_chunk(s) for s in spans]
+    elif backend == "thread":
+        with ThreadPoolExecutor(min(n_workers, 2)) as ex:
+            chunks = list(ex.map(_chunk, spans))  # map preserves input order
+    else:
+        with ProcessPoolExecutor(n_workers, mp_context=mp.get_context("fork")) as ex:
+            chunks = list(ex.map(_chunk, spans))
+
+    return [h for c in chunks for h in c]         # out[i] == hash of row i
+
+
+def evaluate_dup_counts(adata, **kw):
     """
     Hash sparse csr matrix using np.ndarrays that represent sparse matrix data.
     First pass will hash all rows via slicing the data array and append to copy of obs df
@@ -540,51 +694,12 @@ def evaluate_dup_counts(adata):
 
     matrix = adata.raw.X if adata.raw else adata.X
 
-    if not isinstance(matrix, sparse.csr_matrix):
-        print("Matrix not in sparse csr format, please convert before hashing")
-        return
-
-    nnz = matrix.nnz
-
-    if not matrix.has_canonical_format:
-        print("Csr matrix not in canonical format, converting now...")
-        if adata.raw:
-            adata.raw.X.sort_indices()
-            adata.raw.X.sum_duplicates()
-        else:
-            adata.X.sort_indices()
-            adata.X.sum_duplicates()
-
-    assert matrix.has_canonical_format, "Matrix still in non-canonical format"
-
-    if nnz != matrix.nnz:
-        print(f"{nnz - matrix.nnz} duplicates found during canonical conversion")
-
-
-    data_array = matrix.data
-    index_array = matrix.indices
-    indptr_array = matrix.indptr
-
-    start, end = 0, matrix.shape[0]
-    hashes = []
-    while start < end:
-        val = hash(data_array[indptr_array[start]:indptr_array[start + 1]].tobytes())
-        hashes.append(val)
-        start += 1
-
-    def index_hash(index):
-        obs_loc = adata.obs.index.get_loc(index)
-        val = hash(index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]].tobytes())
-
-        return val
+    hashes = row_hashes(matrix, **kw)
     
     hash_df = adata.obs.copy()
-    hash_df['data_array_hash'] = hashes
-    hash_df = hash_df[hash_df.duplicated(subset='data_array_hash',keep=False) == True]
-    hash_df.sort_values('data_array_hash', inplace=True)
-
-    hash_df['index_array_hash'] = [index_hash(row) for row in hash_df.index.to_list()]
-    hash_df = hash_df[hash_df.duplicated(subset=['data_array_hash', 'index_array_hash'], keep=False) == True]
+    hash_df['row_hash'] = hashes
+    hash_df = hash_df[hash_df.duplicated(subset='row_hash',keep=False) == True]
+    hash_df.sort_values('row_hash', inplace=True)
 
     if not hash_df.empty:
         report('duplicated raw counts', 'ERROR')
