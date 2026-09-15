@@ -132,5 +132,8 @@ class Manifest:
 
     def write(self, path: str | Path) -> Path:
         path = Path(path)
-        path.write_text(json.dumps(self.to_dict(), indent=2, sort_keys=False) + "\n")
+        path.write_text(
+            json.dumps(self.to_dict(), indent=2, sort_keys=False) + "\n",
+            encoding="utf-8",
+        )
         return path

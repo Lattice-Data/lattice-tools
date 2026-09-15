@@ -331,12 +331,21 @@ def test_every_owning_chebi_id_is_named(tmp_path, ctx, drawn_key):
     assert "CHEBI:99999" in finding.detail
 
 
-def test_a_skeleton_match_is_a_relative_not_a_duplicate(tmp_path, ctx, drawn_key):
+def test_a_skeleton_match_is_a_relative_and_never_holds_the_record(
+    tmp_path, ctx, drawn_key
+):
+    """It is explicitly not a duplicate, so it informs a curator and holds nothing.
+
+    This was medium until the severities were checked against what the batch
+    does: 38 of the 283 records already deposited would have been held by it under
+    the default policy, every one for having a relative rather than a defect.
+    """
     relative = drawn_key[:14] + "-QQQQQQQQQQ-N"
     index = chebi_index(tmp_path, ("16236", relative, "a relative"))
     (finding,) = list(external.ext02(external.Evidence(chebi=index), ctx))
-    assert finding.severity == MEDIUM
+    assert finding.severity == LOW
     assert "not a duplicate" in finding.detail
+    assert MEDIUM not in checks.CHECKS["EXT-02"].severities
 
 
 def test_no_chebi_match_is_silent(tmp_path, ctx):

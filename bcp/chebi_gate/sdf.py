@@ -140,13 +140,22 @@ class SdfRecord:
         """This record's bytes with the named data fields removed.
 
         Removal is by recorded span, so it agrees exactly with what the reader
-        parsed however many blank lines a value contains. The result always ends
-        with one blank line, the shape every record in the submission files has.
+        parsed however many blank lines a value contains.
+
+        The result always ends with exactly one blank line, whether or not any
+        field was actually removed. That normalisation is not cosmetic: a data
+        field is separated from the next by a blank line, so appending to a record
+        that ends with a single newline runs the new field straight onto the
+        previous value. An earlier version returned ``self.raw`` untouched when no
+        requested tag was present -- which is the case on every record's *first*
+        annotation -- and the first appended field was then swallowed. Measured on
+        a record ending ``> <RELATIONSHIP>\nISA36807\n``: RELATIONSHIP came back as
+        ``"ISA36807\n> <GATE_STATUS>\nHELD"`` and GATE_STATUS vanished as a field.
+        All seven records of the prototype's own held file are shaped that way,
+        because it wrote records as ``rstrip("\n") + "\n"``.
         """
         wanted = {str(t) for t in tags}
         spans = [(f.start, f.end) for f in self.fields if f.tag in wanted]
-        if not spans:
-            return self.raw
         keep = bytearray()
         cursor = 0
         for start, end in sorted(spans):

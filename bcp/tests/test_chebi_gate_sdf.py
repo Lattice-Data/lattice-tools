@@ -370,3 +370,39 @@ def test_write_records_always_terminates_even_an_unterminated_record(tmp_path):
     written = out.read_bytes()
     assert written.endswith(sdf.RECORD_TERMINATOR)
     assert written.count(b"$$$$") == 1, "no doubled terminator"
+
+
+def test_a_record_with_no_trailing_blank_line_can_still_be_annotated():
+    """Regression, and it was live on the prototype's own held file.
+
+    A data field is separated from the next by a blank line, so appending to a
+    record that ends with a single newline runs the new field onto the previous
+    value. without_fields returned raw untouched when no requested tag was
+    present -- the case on every record's *first* annotation -- so the first
+    appended field was swallowed: RELATIONSHIP came back as
+    "ISA36807\n> <GATE_STATUS>\nHELD" and GATE_STATUS vanished as a field.
+
+    All seven records of the prototype's HOLD_questionable.sdf are shaped this
+    way, because it wrote records as rstrip("\n") + "\n". Only the *first*
+    appended field is affected, which is why reading GATE_CHECKS_FAILED looked
+    fine.
+    """
+    single = salt_record(iupac="x").rstrip("\n") + "\n"
+    record = sdf.parse_bytes((single + "$$$$\n").encode()).records[0]
+    assert not record.raw.endswith(b"\n\n"), "fixture must lack the blank line"
+
+    annotated = record.with_fields(GATE_FIELDS)
+    reparsed = sdf.parse_bytes(annotated + sdf.RECORD_TERMINATOR).records[0]
+
+    assert reparsed.data["RELATIONSHIP"] == "ISA36807"
+    for tag, value in GATE_FIELDS.items():
+        assert reparsed.data[tag] == value, tag
+    assert reparsed.with_fields(GATE_FIELDS) == annotated, "still idempotent"
+
+
+def test_without_fields_normalises_even_when_it_removes_nothing():
+    """The normalisation is the mechanism; asserting it directly pins it."""
+    single = salt_record(iupac="x").rstrip("\n") + "\n"
+    record = sdf.parse_bytes((single + "$$$$\n").encode()).records[0]
+    assert record.without_fields(["GATE_STATUS"]).endswith(b"\n\n")
+    assert record.without_fields([]).endswith(b"\n\n")

@@ -84,13 +84,13 @@ def test_a_check_emitting_an_undeclared_severity_is_a_hard_error():
     """Otherwise a record is held or cleared for a reason nobody can look up."""
     bad = checks.Finding(check="CON-09", severity=HIGH, detail="x")
     with pytest.raises(ValueError, match="declared"):
-        checks._validate(bad, "CON-09")
+        checks.validate_finding(bad, "CON-09")
 
 
 def test_a_finding_for_an_unregistered_check_is_a_hard_error():
     bad = checks.Finding(check="NOPE-99", severity=HIGH, detail="x")
     with pytest.raises(ValueError, match="unregistered"):
-        checks._validate(bad, "CON-09")
+        checks.validate_finding(bad, "CON-09")
 
 
 def test_worst_severity_orders_high_above_info():

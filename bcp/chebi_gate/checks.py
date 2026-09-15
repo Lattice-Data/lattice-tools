@@ -957,18 +957,27 @@ def ext01_declared() -> None:
     "EXT-02",
     "Structure is not already present in ChEBI",
     independent=True,
-    severities=(HIGH, MEDIUM, LOW),
+    severities=(HIGH, LOW),
     scope="declared",
 )
 def ext02_declared() -> None:
-    """High for an exact match to a live entry, which is a duplicate submission.
+    """High for an exact match to an existing entry: that is a duplicate submission.
 
-    Medium for a skeleton match, which stays in the submission but has to name its
-    relative. Low for an exact match to an entry that is merged into another:
-    handoff case 9, a merged entry must not trigger removal. Liveness comes from
-    ``parent_id`` in compounds.tsv, not from status.tsv -- the whole of status.tsv
-    is 35 bytes holding CHECKED, OK and SUBMITTED, and there is no "deleted" value
-    in it to test for.
+    Low for a skeleton match. It is explicitly *not* a duplicate -- a different
+    stereoisomer or salt form of something ChEBI holds -- so it must not hold a
+    submission; it tells a curator which relationship to state. It was medium
+    until the severities were checked against what the batch does: 38 of the 283
+    records already deposited would have been held by it under the default
+    policy, every one for having a relative rather than a defect.
+
+    There is no merged-entry severity, because there is no merged-entry case.
+    Handoff case 9 says a merged entry must not trigger removal and that liveness
+    comes from ``parent_id`` in compounds.tsv; that mechanism does not exist --
+    ``parent_id`` is non-empty in 0 of 218,533 rows, and the real merge pointer is
+    secondary_ids.tsv. The question is moot for structure matching either way: all
+    189,896 structure-bearing compound ids are primary and none is a secondary, so
+    a structure match can never land on a merged entry. See
+    :mod:`chebi_gate.chebi_release`.
     """
 
 
@@ -1040,7 +1049,7 @@ def run_record_checks(ctx: RecordContext) -> list[Finding]:
     out: list[Finding] = []
     for check_id, func in _RECORD_CHECKS:
         for finding in func(ctx):
-            out.append(_validate(finding, check_id))
+            out.append(validate_finding(finding, check_id))
     return out
 
 
@@ -1049,11 +1058,11 @@ def run_file_checks(fctx: FileContext) -> list[Finding]:
     out: list[Finding] = []
     for check_id, func in _FILE_CHECKS:
         for finding in func(fctx):
-            out.append(_validate(finding, check_id))
+            out.append(validate_finding(finding, check_id))
     return out
 
 
-def _validate(finding: Finding, emitting_check: str) -> Finding:
+def validate_finding(finding: Finding, emitting_check: str) -> Finding:
     """Assert a finding matches what its check declared it could emit.
 
     A check that emits a severity it never declared is a bug in the check, and one

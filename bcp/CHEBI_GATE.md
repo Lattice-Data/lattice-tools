@@ -193,11 +193,12 @@ prototype appended it to every record's findings, so one stray byte held back al
 `python -c "from chebi_gate import CHECKS; [print(c.id, c.title) for c in CHECKS.values()]"`
 lists them with their plain-English titles. Grouped:
 
-- **INT-01..09** — record integrity: the submission template's fields, CAS check
+- **INT-02..09** — record integrity: the submission template's fields, CAS check
   digit arithmetic, the molfile parsing as V2000, a drawing present, net charge
   zero, no duplicate name, CAS or structure within the file, ASCII with Unix line
   endings.
-- **CON-01..10** — the lab's name and asserted class against the drawn structure.
+- **CON-01..05, CON-07..10** — the lab's name and asserted class against the
+  drawn structure.
   Every genuine defect in the reference batch was found here.
 - **SYN-01..06**, **IUP-01** — synonym and systematic-name hygiene. The synonym
   delimiter is `;` with **no** space: 194 of 195 original salt records use exactly
@@ -291,8 +292,8 @@ assertion made about the cleared file was that it held no `GATE_*` field.
 
 The package was reviewed adversarially before the branch was pushed, with each
 reviewer told to break one layer and to construct a concrete failing case rather
-than file a concern. Nine defects it found are fixed here, each with a test that a
-mutation check confirms would catch a regression:
+than file a concern. The defects it found are fixed here, each with a test that a mutation check
+confirms would catch a regression:
 
 - Annotation was not idempotent when a finding's text contained a blank line.
   Field removal used a second regex that stopped at the first blank line while the

@@ -281,7 +281,9 @@ def distil(
             "compounds": len(labels),
         },
     }
-    (index_dir / INDEX_MANIFEST).write_text(json.dumps(manifest, indent=2) + "\n")
+    (index_dir / INDEX_MANIFEST).write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
     log.info(
         "distilled %d structures, %d CAS, %d secondary ids into %s",
         len(structures),

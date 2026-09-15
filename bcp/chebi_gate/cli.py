@@ -12,6 +12,12 @@ from . import io as gate_io
 
 log = logging.getLogger(__name__)
 
+
+def external_mod_error(message: str) -> Exception:
+    """A usage error about evidence, reported like the other input errors."""
+    return client.GateError(message)
+
+
 EXIT_OK = 0
 EXIT_HELD = 1
 EXIT_USAGE = 2
@@ -29,7 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
             "usage or input error. Suitable for a build pipeline."
         ),
     )
-    parser.add_argument("sdf", help="the SDF you intend to submit")
+    parser.add_argument(
+        "sdf", nargs="?", help="the SDF you intend to submit (omit with --distil)"
+    )
     parser.add_argument(
         "--out-dir",
         default=None,
@@ -101,8 +109,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "instead of running the gate, distil a downloaded ChEBI flat-file "
-            f"release into a queryable index. Releases live at "
-            f"{chebi_release.FLAT_FILES_URL}"
+            f"release into a queryable index, without gating anything. Releases "
+            f"live at {chebi_release.FLAT_FILES_URL}"
         ),
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
@@ -116,6 +124,14 @@ def _evidence(args: argparse.Namespace) -> external.Evidence:
     index = chebi_release.EMPTY
     if args.chebi_index:
         index = chebi_release.load_index(args.chebi_index)
+    # A typo'd cache path used to be accepted silently: the run lost a source and
+    # then reported reduced coverage as though that were the truth about the data.
+    for label, value in (
+        ("--pubchem-cache", args.pubchem_cache),
+        ("--cas-common-chemistry", args.cas_common_chemistry),
+    ):
+        if value and not Path(value).is_dir():
+            raise external_mod_error(f"{label} is not a directory: {value}")
     return external.Evidence(
         registry=registry,
         chebi=index,
@@ -139,6 +155,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"indexed {len(index)} structures into {index_dir}")
         return EXIT_OK
 
+    if not args.sdf:
+        print("no SDF given; pass one, or use --distil", file=sys.stderr)
+        return EXIT_USAGE
     sdf_path = Path(args.sdf)
     if not sdf_path.exists():
         print(f"no such file: {sdf_path}", file=sys.stderr)

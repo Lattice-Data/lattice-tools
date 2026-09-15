@@ -20,14 +20,18 @@ from pathlib import Path
 from . import sdf as sdf_mod
 from .checks import CHECKS, SEVERITY_RANK
 from .client import STATUS_HELD, GateRun
-from .manifest import MANIFEST_FILENAME
 
 log = logging.getLogger(__name__)
 
+# Every output is stemmed on the input's name, including the audit artifacts.
+# They had fixed names while the SDFs were stemmed, so gating a second SDF into
+# the same directory silently overwrote the first run's findings table and
+# manifest -- and the reference batch is exactly two SDFs in one directory.
 CLEARED_SUFFIX = "_cleared.sdf"
 HELD_SUFFIX = "_held.sdf"
-FINDINGS_FILENAME = "findings.csv"
-OPEN_QUESTIONS_FILENAME = "open_questions.csv"
+FINDINGS_SUFFIX = "_findings.csv"
+OPEN_QUESTIONS_SUFFIX = "_open_questions.csv"
+MANIFEST_SUFFIX = "_run_manifest.json"
 
 FINDINGS_COLUMNS = (
     "record",
@@ -68,9 +72,11 @@ def write(gate_run: GateRun, out_dir: str | Path, *, stem: str) -> Outputs:
         [(r.record, _annotation(gate_run, r)) for r in gate_run.held], held_path
     )
 
-    findings_path = _write_findings(gate_run, out_dir / FINDINGS_FILENAME)
-    questions_path = _write_open_questions(gate_run, out_dir / OPEN_QUESTIONS_FILENAME)
-    manifest_path = gate_run.manifest.write(out_dir / MANIFEST_FILENAME)
+    findings_path = _write_findings(gate_run, out_dir / f"{stem}{FINDINGS_SUFFIX}")
+    questions_path = _write_open_questions(
+        gate_run, out_dir / f"{stem}{OPEN_QUESTIONS_SUFFIX}"
+    )
+    manifest_path = gate_run.manifest.write(out_dir / f"{stem}{MANIFEST_SUFFIX}")
 
     return Outputs(
         cleared=cleared_path,

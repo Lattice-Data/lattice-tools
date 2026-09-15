@@ -45,7 +45,15 @@ from .casreg import EMPTY as EMPTY_REGISTRY
 from .casreg import Registry
 from .chebi_release import EMPTY as EMPTY_INDEX
 from .chebi_release import Index
-from .checks import HIGH, INFO, LOW, MEDIUM, Finding, RecordContext
+from .checks import (
+    HIGH,
+    INFO,
+    LOW,
+    MEDIUM,
+    Finding,
+    RecordContext,
+    validate_finding,
+)
 
 log = logging.getLogger(__name__)
 
@@ -369,7 +377,11 @@ def resolve_cas(evidence: Evidence, ctx: RecordContext) -> Verdict:
     confirming itself, and :func:`ext01` records it at low severity rather than
     letting it read as verification.
     """
-    candidates = gather_candidates(evidence, ctx.cas)
+    # The normalised key, for the same reason decisions use it: a record spelling
+    # its CAS "0557-66-4" should still find its registry row and its cache entry,
+    # and be told about the spelling once by INT-04 rather than three times by
+    # three checks that could not look it up.
+    candidates = gather_candidates(evidence, ctx.cas_key)
 
     if not candidates:
         return Verdict(
@@ -482,7 +494,7 @@ def ext02(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
         extra = f" (and {len(relatives) - 3} more)" if len(relatives) > 3 else ""
         yield ctx.finding(
             "EXT-02",
-            MEDIUM,
+            LOW,
             f"shares its skeleton with {named}{extra}; not a duplicate, but the "
             "relationship should be stated",
             evidence=f"https://www.ebi.ac.uk/chebi/searchId.do?chebiId={relatives[0]}",
@@ -515,7 +527,7 @@ def ext04(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
     """EXT-04: does the registry formula agree with the stoichiometry drawn?"""
     if not ctx.structure.parse:
         return
-    row = evidence.registry.get(ctx.cas)
+    row = evidence.registry.get(ctx.cas_key)
     if row is None and not len(evidence.registry):
         # No registry at all: EXT-04 did not run, which the summary reports as
         # reduced coverage rather than as a per-record finding on all 290.
@@ -550,10 +562,8 @@ EXTERNAL_CHECKS = (ext01, ext02, ext03, ext04)
 
 def run_external_checks(evidence: Evidence, ctx: RecordContext) -> list[Finding]:
     """Every external finding for one record."""
-    from .checks import _validate
-
     out: list[Finding] = []
     for check in EXTERNAL_CHECKS:
         for finding in check(evidence, ctx):
-            out.append(_validate(finding, check.__name__))
+            out.append(validate_finding(finding, check.__name__))
     return out

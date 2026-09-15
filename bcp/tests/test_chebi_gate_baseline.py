@@ -3,8 +3,11 @@
 283 of the 290 records in ``chebi_run_2026_08b`` were deposited with ChEBI, so this
 is not a pre-send check -- it is the fixed point that stops a later change to the
 checks from quietly altering what the gate says. The handoff's terms: the original
-two-file validator produced 821 findings, the gate reproduces 814 of them, and the
-7-row gap is two deliberate choices. Any other divergence is a bug.
+two-file validator produced 821 findings and any divergence from them has to be a
+recorded, reasoned choice rather than a drift. The current figures live in
+``findings_baseline.json`` and are asserted from it -- deliberately not repeated
+here, because a number written into prose goes stale and this docstring already
+did, claiming 814 and "two deliberate choices" after a third was added.
 
 The inputs cannot be committed: bcp/.gitignore excludes ``chebi_run_*/`` because a
 run directory is regenerable network cache and data derived from one spreadsheet.
@@ -98,8 +101,8 @@ def test_findings_match_the_recorded_baseline(run_dir, baseline):
     assert sum(counts.values()) == baseline["total_findings"]
 
 
-def test_the_v1_divergence_is_only_the_two_deliberate_choices(run_dir, baseline):
-    """The 7-row gap the handoff describes, asserted rather than asserted-about."""
+def test_the_v1_divergence_is_only_the_recorded_choices(run_dir, baseline):
+    """Every divergence from v1 is one the fixture records, with its reason."""
     counts = _findings(run_dir, baseline)
     v1 = baseline["v1_baseline"]
     original = collections.Counter(v1["counts_by_check_severity"])

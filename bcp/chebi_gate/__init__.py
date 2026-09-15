@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .checks import CHECKS, Check, Finding, RecordContext
+from .checks import CHECKS, Check, Finding, RecordContext, validate_finding
 from .cli import main
 from .client import GateError, GateRun, run
 from .decisions import Decisions, DecisionsError
@@ -27,5 +27,6 @@ __all__ = [
     "parse_bytes",
     "parse_file",
     "run",
+    "validate_finding",
     "write_records",
 ]
