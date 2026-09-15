@@ -788,6 +788,48 @@ def test_the_environment_block_carries_the_work_tree_state(tmp_path, clean_input
     assert len(run.manifest.environment["git_commit"]) == 40
 
 
+def test_two_inputs_gated_into_one_directory_keep_both_sets_of_tables(
+    tmp_path, clean_input, mixed_input
+):
+    """The SDFs were stem-prefixed and the tables were not.
+
+    So the second run replaced the first run's findings, open questions and
+    manifest, silently, while leaving both SDF pairs in place -- a held record
+    stamped with its own GATE_RUN sitting beside a manifest for a different run.
+    The thing that explains the verdict was the thing that got overwritten.
+    """
+    out = tmp_path / "out"
+    first = gate_io.write(
+        client.run(clean_input, allow_medium=True), out, stem=clean_input.stem
+    )
+    before = first.findings.read_bytes()
+    second = gate_io.write(
+        client.run(mixed_input, allow_medium=True), out, stem=mixed_input.stem
+    )
+
+    assert first.findings != second.findings
+    assert first.manifest != second.manifest
+    assert first.open_questions != second.open_questions
+    assert first.findings.read_bytes() == before
+    for path in (first.findings, first.manifest, second.findings, second.manifest):
+        assert path.exists()
+
+
+def test_every_output_carries_the_input_stem(tmp_path, clean_input):
+    outputs = gate_io.write(
+        client.run(clean_input, allow_medium=True), tmp_path / "out", stem="batch7"
+    )
+    written = sorted(p.name for p in (tmp_path / "out").iterdir())
+    assert written == [
+        "batch7_cleared.sdf",
+        "batch7_findings.csv",
+        "batch7_held.sdf",
+        "batch7_open_questions.csv",
+        "batch7_run_manifest.json",
+    ]
+    assert outputs.manifest.name == "batch7_run_manifest.json"
+
+
 # ------------------------------------------------------------- findings table
 
 

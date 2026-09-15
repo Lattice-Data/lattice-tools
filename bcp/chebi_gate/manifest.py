@@ -27,8 +27,6 @@ from pathlib import Path
 TOOL = "chebi_gate"
 TOOL_VERSION = "1.0"
 
-MANIFEST_FILENAME = "run_manifest.json"
-
 # Keys whose value names a filesystem location or a moment, not a thing. They are
 # recorded in the manifest and excluded from the run identifier: "path" for every
 # input, table and cache, "release_dir" and "generated" from the ChEBI index

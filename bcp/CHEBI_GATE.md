@@ -10,11 +10,11 @@ python -m chebi_gate mysubmission.sdf --out-dir out/
 ```
 
 ```
-out/mysubmission_cleared.sdf   submittable, byte-identical to the input records
-out/mysubmission_held.sdf      not submittable, annotated with GATE_* fields
-out/findings.csv               every finding, including the ones that hold nothing
-out/open_questions.csv         held records with an open question, named
-out/run_manifest.json          what was judged, against what, by which checks
+out/mysubmission_cleared.sdf        submittable, byte-identical to the input records
+out/mysubmission_held.sdf           not submittable, annotated with GATE_* fields
+out/mysubmission_findings.csv       every finding, including the ones that hold nothing
+out/mysubmission_open_questions.csv held records with an open question, named
+out/mysubmission_run_manifest.json  what was judged, against what, by which checks
 ```
 
 Exit status is 0 if every record cleared, 1 if any was held, 2 on a usage or input
@@ -42,7 +42,7 @@ held-back decisions live in prose instead of data, so they live in data:
 2. edit decisions/quarantine.csv   set resolved_on, record the answer
 3. apply the fix              a data-field edit, or a structural edit
 4. re-run the gate            the record clears, or says what is still wrong
-5. read run_manifest.json     which reference release it was judged against
+5. read the run manifest      which reference release it was judged against
 ```
 
 Nobody edits code to release a record. That is the whole design.
@@ -171,7 +171,8 @@ input is therefore reported, not ignored. A stale decision is worse than a missi
 one because it still reads as applying.
 
 Because the data is keyed on CAS and nobody remembers which compound
-`23256-33-9` is, the gate writes `open_questions.csv` with the name attached.
+`23256-33-9` is, the gate writes `<stem>_open_questions.csv` with the name
+attached.
 Display text belongs in generated artifacts; input data keeps the key.
 
 ## Severity
@@ -381,6 +382,12 @@ A second round found more, and these are fixed here too:
   refuses the run, the same rule the gate applies to a malformed SDF: if the
   evidence is not the evidence the manifest names, every EXT-02 and EXT-03 verdict
   drawn from it is attributed to something that was never consulted.
+
+- Every output now carries the input's stem. The two SDFs did and the three
+  tables did not, so gating a second file into the same `--out-dir` replaced the
+  first run's findings, open questions and manifest without a word -- leaving both
+  SDF pairs in place, so a held record stamped with its own run identifier sat
+  beside a manifest describing a different run.
 
 Findings not yet addressed are listed in the branch discussion rather than fixed
 silently.
