@@ -424,6 +424,20 @@ The PR review then found more, and these are fixed too:
 - The oxalate and tartrate rules matched a formula *prefix*, so `C4H6O6S` counted
   as a tartrate. They compare whole formulae with the charge suffix stripped.
 
+- `findings.csv` wrote `holds: yes` for every whole-file finding unconditionally.
+  INT-06 reports CRLF line endings at `low`, which holds nothing, so a CRLF-only
+  file cleared every record while the table said the finding held one. The column
+  is derived from the gate's own rule now, so it cannot drift from the verdict.
+- SYN-04's hydrate clause read `structure.water` with no `parse` guard, and
+  `Structure`'s defaults mean *unknown*, not *absent* — so a record RDKit could not
+  read was called anhydrous on no evidence. Only the structural half is gated; the
+  racemic clause compares two names and needs no structure.
+- `dumps()` says it reproduces the input bytes exactly and did not: skipped blank
+  chunks were concatenated after every record, so one between two records came
+  back at the end of the file. They carry the index of the record they followed.
+  The only test of this put the chunk last, where the reordering is invisible, and
+  the 290-record round-trip anchor leans on `dumps()`.
+
 Anything found later goes in the branch discussion rather than being fixed
 silently.
 

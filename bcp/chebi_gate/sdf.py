@@ -190,12 +190,24 @@ class SdfFile:
     raw: bytes
     trailer: bytes = b""
     path: Path | None = None
-    skipped_chunks: tuple[bytes, ...] = field(default_factory=tuple)
+    # (index of the record this chunk followed, bytes). Position matters: the
+    # chunks used to be a flat tuple concatenated after every record, so a blank
+    # chunk between two records came back at the end of the file and `dumps()` was
+    # not byte-exact despite saying it was. The only test of it put the blank chunk
+    # last, where the reordering is invisible, and the 290-record round-trip anchor
+    # leans on `dumps()`.
+    skipped_chunks: tuple[tuple[int, bytes], ...] = field(default_factory=tuple)
 
     def dumps(self) -> bytes:
         """Reproduce the input bytes exactly."""
-        out = b"".join(r.raw + r.terminator for r in self.records)
-        return out + b"".join(self.skipped_chunks) + self.trailer
+        after: dict[int, list[bytes]] = {}
+        for index, chunk in self.skipped_chunks:
+            after.setdefault(index, []).append(chunk)
+        out = b"".join(after.get(0, ()))
+        for record in self.records:
+            out += record.raw + record.terminator
+            out += b"".join(after.get(record.index, ()))
+        return out + self.trailer
 
     @property
     def malformed(self) -> tuple[str, ...]:
@@ -233,7 +245,9 @@ def parse_bytes(data: bytes, *, path: Path | None = None) -> SdfFile:
         cursor = match.end()
         if not chunk.strip():
             log.warning("skipping empty record at byte %d", match.start())
-            skipped.append(chunk + terminator)
+            # Tagged with the record it follows, so dumps() can put it back where
+            # it was rather than at the end of the file. 0 means "before the first".
+            skipped.append((len(records), chunk + terminator))
             continue
         records.append(_build(chunk, len(records) + 1, terminator))
 

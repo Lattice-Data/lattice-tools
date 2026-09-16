@@ -116,6 +116,13 @@ def _annotation(gate_run: GateRun, result) -> dict[str, str]:
     }
 
 
+def _clears(gate_run: GateRun, finding) -> bool:
+    """Whether this finding lets a record through, by the gate's own rule."""
+    from .client import _severity_clears
+
+    return _severity_clears(finding, allow_medium=gate_run.allow_medium)
+
+
 def _write_findings(gate_run: GateRun, path: Path) -> Path:
     """Every finding, including the ones that never hold a record.
 
@@ -149,7 +156,13 @@ def _write_findings(gate_run: GateRun, path: Path) -> Path:
                 "check": finding.check,
                 "severity": finding.severity,
                 "independent": "yes" if finding.is_independent else "no",
-                "holds": "yes",
+                # Asked, not assumed. A whole-file finding holds every record when
+                # it holds at all, and the constant "yes" read as though it always
+                # does: INT-06 reports CRLF line endings at low, which holds
+                # nothing, so a CRLF-only file cleared every record while the
+                # findings table said the finding held one. Derived the same way
+                # the gate decides, so the column cannot drift from the verdict.
+                "holds": "no" if _clears(gate_run, finding) else "yes",
                 "waived": "",
                 "detail": finding.detail,
                 "evidence": finding.evidence,

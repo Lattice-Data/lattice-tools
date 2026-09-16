@@ -818,7 +818,17 @@ def syn04_contradictions(ctx: RecordContext) -> Iterator[Finding]:
         yield ctx.finding(
             "SYN-04", MEDIUM, "racemic/rel synonyms on an enantiopure entry"
         )
-    if not ctx.structure.water and any(HYDRATE_WORD.search(i.lower()) for i in items):
+    # `parse` gates the structural half, and only that half: the racemic clause
+    # above compares two names and is answerable without a structure. Structure's
+    # own docstring says its defaults mean "unknown", not "absent", so reading
+    # `water` on a record RDKit could not read calls it anhydrous on no evidence --
+    # the record is held by INT-07 either way, but its report then carries a claim
+    # the gate never established, and that report is what a chemist works from.
+    if (
+        ctx.structure.parse
+        and not ctx.structure.water
+        and any(HYDRATE_WORD.search(i.lower()) for i in items)
+    ):
         yield ctx.finding("SYN-04", MEDIUM, "hydrate synonyms on an anhydrous entry")
 
 

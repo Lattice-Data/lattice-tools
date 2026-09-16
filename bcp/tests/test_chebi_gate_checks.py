@@ -647,6 +647,51 @@ def test_con02_still_reports_a_wrong_ratio_on_a_solvated_record():
     assert 'name prefix "tri" implies 3 counterion(s)' in detail(found, "CON-02")
 
 
+def test_syn04_does_not_call_an_unreadable_record_anhydrous():
+    """Structure's defaults mean "unknown", not "absent".
+
+    A record RDKit cannot read has `water == 0` because nothing was measured, so
+    a `monohydrate` synonym drew a medium saying the entry is anhydrous. It is
+    held by INT-07 regardless, but its report carried a claim the gate never
+    established -- and the report is what a chemist works from.
+    """
+    found = run(
+        salt_record(
+            name="bad record",
+            mol="unparseable",
+            synonym="something monohydrate",
+            iupac="x",
+        )
+    )
+    assert ("INT-07", HIGH) in ids(found)
+    assert not [f for f in found if f.check == "SYN-04" and "hydrate" in f.detail]
+
+
+def test_syn04_still_reports_a_hydrate_synonym_on_a_readable_anhydrous_record():
+    found = run(
+        salt_record(
+            name="ethylamine hydrochloride",
+            mol="amine_hcl",
+            synonym="ethanamine hydrochloride monohydrate",
+            iupac="x",
+        )
+    )
+    assert "hydrate synonyms on an anhydrous entry" in detail(found, "SYN-04")
+
+
+def test_syn04_still_compares_two_names_when_the_structure_is_unreadable():
+    """The racemic clause needs no structure, so `parse` must not gate it too."""
+    found = run(
+        salt_record(
+            name="(R)-something hydrochloride",
+            mol="unparseable",
+            synonym="(+/-)-something hydrochloride",
+            iupac="x",
+        )
+    )
+    assert "racemic/rel synonyms on an enantiopure entry" in detail(found, "SYN-04")
+
+
 def test_con08_compares_the_systematic_name_against_the_structure():
     found = run(salt_record(mol="amine_hcl", iupac="ethanamine;dihydrochloride"))
     assert ("CON-08", HIGH) in ids(found)

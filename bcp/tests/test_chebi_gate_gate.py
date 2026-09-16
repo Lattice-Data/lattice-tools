@@ -915,6 +915,35 @@ def test_every_output_carries_the_input_stem(tmp_path, clean_input):
     assert outputs.manifest.name == "batch7_run_manifest.json"
 
 
+def test_a_file_finding_that_holds_nothing_is_not_written_as_holding(tmp_path):
+    """The column was the constant "yes" for every whole-file finding.
+
+    INT-06 reports CRLF line endings at low, which holds nothing, so the table
+    said a finding held a record when the gate had cleared it.
+    """
+    path = tmp_path / "crlf.sdf"
+    path.write_bytes(sdf_bytes(salt_record(iupac="x")).replace(b"\n", b"\r\n"))
+    run = client.run(path, allow_medium=True)
+    outputs = gate_io.write(run, tmp_path / "out", stem="crlf")
+
+    rows = {r["check"]: r for r in csv.DictReader(outputs.findings.open())}
+    assert rows["INT-06"]["severity"] == checks.LOW
+    assert rows["INT-06"]["holds"] == "no"
+
+
+def test_a_file_finding_that_does_hold_is_still_written_as_holding(tmp_path):
+    """The narrowing must not turn the column off for a real whole-file block."""
+    path = tmp_path / "nonascii.sdf"
+    record = salt_record(name="cafe hydrochloride", iupac="x")
+    path.write_bytes(record.replace("cafe", "caf\u00e9").encode("utf-8") + b"$$$$\n")
+    run = client.run(path, allow_medium=True)
+    outputs = gate_io.write(run, tmp_path / "out", stem="nonascii")
+
+    rows = [r for r in csv.DictReader(outputs.findings.open()) if r["record"] == "0"]
+    assert rows, "expected a whole-file finding"
+    assert all(r["holds"] == "yes" for r in rows if r["severity"] in ("high", "medium"))
+
+
 # ------------------------------------------------------------- findings table
 
 

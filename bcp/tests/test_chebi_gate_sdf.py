@@ -106,6 +106,48 @@ def test_blank_chunk_between_terminators_is_skipped(caplog):
     assert "empty record" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "where",
+    ["before the first record", "between two records", "after the last record"],
+)
+def test_a_blank_chunk_round_trips_where_it_was_written(where):
+    """`dumps()` says it reproduces the input bytes exactly, and did not.
+
+    Skipped chunks were a flat tuple concatenated after every record, so a blank
+    chunk between two records came back at the end of the file. The one test of
+    this put the chunk last, where the reordering cannot be seen -- and the
+    290-record round-trip anchor leans on `dumps()`.
+    """
+    first = salt_record().encode()
+    second = salt_record(name="second", cas="64-17-5").encode()
+    blank = sdf.RECORD_TERMINATOR
+    body = {
+        "before the first record": blank + first + blank + second + blank,
+        "between two records": first + blank + blank + second + blank,
+        "after the last record": first + blank + second + blank + blank,
+    }[where]
+
+    parsed = sdf.parse_bytes(body)
+    assert len(parsed.records) == 2
+    assert parsed.dumps() == body
+
+
+def test_two_blank_chunks_in_a_row_keep_their_place():
+    first = salt_record().encode()
+    blank = sdf.RECORD_TERMINATOR
+    body = (
+        first
+        + blank
+        + blank
+        + blank
+        + salt_record(name="s", cas="64-17-5").encode()
+        + blank
+    )
+    parsed = sdf.parse_bytes(body)
+    assert len(parsed.records) == 2
+    assert parsed.dumps() == body
+
+
 # --------------------------------------------------------------- byte fidelity
 
 
