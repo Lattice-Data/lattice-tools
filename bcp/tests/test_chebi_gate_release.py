@@ -350,6 +350,26 @@ def test_a_tampered_index_header_fails_the_load(release, tmp_path):
         chebi_release.load_index(tmp_path / "index")
 
 
+def test_a_repeated_structure_row_is_indexed_once(release, tmp_path):
+    """Nothing guarantees one structure row per compound across releases.
+
+    A repeated (compound_id, inchikey) pair made Index.exact return the same id
+    twice, so EXT-02 named it twice in a single finding.
+    """
+    # A second structure row for compound 16236, same key. The molfile column of
+    # the existing rows carries embedded newlines, so the duplicate is written as a
+    # whole row rather than by copying a line.
+    structures = release / "structures.tsv"
+    duplicate = (
+        '6\t16236\t1\t""\tCCO\tInChI=1S/C2H6O\tLFQSCWFLJHTTHZ-UHFFFAOYSA-N\t2D\tY\n'
+    )
+    structures.write_text(structures.read_text() + duplicate)
+
+    index = chebi_release.distil(release, tmp_path / "index", generated="x")
+    for ids in index.by_inchikey.values():
+        assert len(ids) == len(set(ids)), ids
+
+
 def test_an_index_edited_after_distillation_is_refused(release, tmp_path):
     """The hash in the run manifest was the one recorded at distil time.
 

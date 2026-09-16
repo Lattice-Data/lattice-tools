@@ -447,6 +447,20 @@ The PR review then found more, and these are fixed too:
   ratio as a fumarate. Matched whole now, with the trailing charge spelled out;
   none of the reference batch's 292 distinct fragment formulae changes verdict.
 
+- A waiver naming `QUAR-01` passed every validation and could never fire, because
+  the quarantine findings are appended after the waivers are applied. It is
+  refused at load: an open question is closed by its resolution date, not by
+  waiving the symptom.
+- The distilled structure index deduplicates `(compound_id, inchikey)`. Nothing in
+  the flat-file format guarantees one structure row per compound, and a repeated
+  pair made a match name the same ChEBI id twice in one finding.
+
+Two of the review's questions are for a chemist rather than for the code, and are
+left open in the PR: whether an unparseable *registry* formula should be `medium`
+("could not be checked") rather than the `high` it shares with a real
+disagreement, and where the reference run directory should be archived so the
+numbers above can be reproduced from outside this checkout.
+
 Anything found later goes in the branch discussion rather than being fixed
 silently.
 

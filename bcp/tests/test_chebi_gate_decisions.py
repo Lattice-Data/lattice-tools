@@ -129,6 +129,22 @@ def test_one_record_may_carry_waivers_for_several_checks(tmp_path):
     assert loaded.waiver_for("64-17-5", "EXT-01", "medium") is not None
 
 
+def test_a_waiver_cannot_be_written_against_the_quarantine_finding(tmp_path):
+    """QUAR-01 passes every other validation and can never fire.
+
+    `_apply_decisions` appends the quarantine findings after the waiver loop, so a
+    waiver naming QUAR-01 is a no-op that reads as a considered decision. An open
+    question is closed by its resolution date, not by waiving the symptom.
+    """
+    rejects(
+        tmp_path,
+        "cannot be waived",
+        waivers=[
+            {**GOOD_WAIVER, "check_id": decisions.QUARANTINE_CHECK, "severity": "high"}
+        ],
+    )
+
+
 def test_a_waiver_naming_a_severity_the_check_cannot_emit_fails_the_run(tmp_path):
     """What the registered-check-id test could not catch.
 

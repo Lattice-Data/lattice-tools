@@ -248,7 +248,13 @@ def distil(
     _write(
         index_dir / INDEX_FILES["inchikey"],
         INCHIKEY_COLUMNS,
-        sorted(structures),
+        # Deduplicated, not merely sorted. Nothing guarantees one structure row per
+        # compound across releases -- `_read_structures` indexes every row with a
+        # key and ignores `default_structure` -- and a repeated (id, key) pair makes
+        # Index.exact return the same id twice, so EXT-02 names it twice in one
+        # finding. Release 255 happens to have none; that is a measurement, not a
+        # property of the format.
+        sorted(set(structures)),
     )
     _write(
         index_dir / INDEX_FILES["compound"],

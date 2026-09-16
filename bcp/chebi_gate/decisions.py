@@ -82,6 +82,12 @@ QUARANTINE_COLUMNS = (
     "resolved_on",
 )
 
+# The finding a quarantine row raises. It is emitted after the waivers are
+# applied, so a waiver naming it could never fire -- and unlike an unregistered
+# check id, it passes every validation and reads as a considered decision. An open
+# question is closed by its resolution date, not by waiving its symptom.
+QUARANTINE_CHECK = "QUAR-01"
+
 # Minimum length for a reason to count as written down rather than gestured at.
 MIN_REASON_LENGTH = 20
 
@@ -300,6 +306,12 @@ def _load_waivers(path: Path) -> dict[tuple[str, str], Waiver]:
             raise DecisionsError(
                 f"{path.name} row {row_no}: a waiver covers exactly one check, "
                 f"got {list(ids)}; write one row per check"
+            )
+        if ids[0] == QUARANTINE_CHECK:
+            raise DecisionsError(
+                f"{path.name} row {row_no}: {QUARANTINE_CHECK} cannot be waived; "
+                "an open question is closed by setting resolved_on in "
+                f"{QUARANTINE_FILE}, not by waiving the finding it raises"
             )
         severity = _severity(
             path, row_no, ids[0], _require(path, row_no, row, "severity")
