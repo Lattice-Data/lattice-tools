@@ -605,6 +605,32 @@ def test_the_hydrohalide_guard_still_sees_a_cation_smaller_than_its_counterion()
     assert ("CON-01", HIGH) in ids(found)
 
 
+def test_int07_says_when_a_parsed_record_yields_no_inchikey():
+    """`parse` True with no InChIKey silently disabled every identity check.
+
+    `_inchikey` swallows an RDKit InChI failure and logs it at debug, and
+    `Index.exact(None)` returns nothing, so EXT-02 -- the "already in ChEBI, this
+    is a duplicate submission" check -- returned silently and the record cleared
+    having been checked against nothing.
+    """
+    from dataclasses import replace as dataclass_replace
+
+    parsed = sdf.parse_bytes(sdf_bytes(salt_record(iupac="x")))
+    ctx = checks.RecordContext(
+        record=parsed.records[0],
+        structure=dataclass_replace(
+            structure.analyse(parsed.records[0]), inchikey=None
+        ),
+    )
+    findings = [f for f in checks.run_record_checks(ctx) if f.check == "INT-07"]
+    assert findings and findings[0].severity == MEDIUM
+    assert "no InChIKey" in findings[0].detail
+
+
+def test_int07_stays_quiet_when_the_structure_yields_a_key():
+    assert not [f for f in run(salt_record(iupac="x")) if f.check == "INT-07"]
+
+
 def test_int02_does_not_say_the_title_differs_from_a_name_that_is_absent():
     """INT-03 already reports the missing NAME; saying it twice adds nothing."""
     record = salt_record(iupac="x").replace(

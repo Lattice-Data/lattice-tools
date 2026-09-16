@@ -210,8 +210,10 @@ Display text belongs in generated artifacts; input data keeps the key.
 | `low` | never holds; reported |
 | `info` | context only |
 
-A whole-file problem — non-ASCII bytes, CRLF line endings — holds every record,
-because the file as a whole is not submittable, but it is counted once. The
+A whole-file problem holds every record when it holds at all, because the file as
+a whole is not submittable — but it is counted once. Non-ASCII bytes are `high`
+and do hold; CRLF line endings are `low` and do not, since the gate reads either
+ending correctly and a depositor can convert the file without touching a record. The
 prototype appended it to every record's findings, so one stray byte held back all
 290 and the report showed 290 problems where there was one.
 
@@ -232,9 +234,14 @@ lists them with their plain-English titles. Grouped:
   that, and `"; "` trips the whitespace check.
 - **REL-01** — records sharing a parent skeleton, as relationship candidates.
   Never holds anything.
-- **EXT-01..04** — the outside world: does the CAS number denote what was drawn,
+- **EXT-01..05** — the outside world: does the CAS number denote what was drawn,
   is the structure already in ChEBI, is the parent already there, does the
-  registry formula agree with the drawn stoichiometry.
+  registry formula agree with the drawn stoichiometry — and, separately, could
+  the CAS number be checked against any configured source at all. EXT-05 is
+  split out from EXT-01 because a waiver is keyed on severity, and severity is a
+  stable pin only when one severity means one thing: EXT-01 packed a skeleton
+  match and a cached HTTP failure into the same `medium`, so a waiver written for
+  the first silenced the second.
 
 `--role` decides whether salt-only checks apply. `auto` judges each record on
 what it is (more than one fragment, or an asserted class); `salt` and `neutral`
@@ -572,6 +579,20 @@ external pass; INT-02 no longer reports a title differing from a NAME that is
 absent; EXT-04 says nothing about a record with no CAS number instead of
 reporting no registry row for it; and the `cas_registry` imports are at module
 level, as the sibling packages have them.
+
+An eighth pass found two more ways a record could clear on evidence the gate
+never established:
+
+- EXT-01's four `medium` outcomes could not be told apart by a waiver, which is
+  keyed on `(cas, check_id, severity)`. All four shipped EXT-01 waivers are
+  written for the skeleton case, and would equally have absorbed
+  `could not be checked: a cached response was a failure` — the status whose own
+  note says *re-fetch before treating this as a negative*. The two outcomes that
+  mean no comparison happened are EXT-05 now.
+- `Structure.parse` can be True while `inchikey` is None, and every identity
+  check then looks the record up by a key of None and finds nothing: EXT-02, the
+  duplicate-submission check, returned silently and the record cleared. INT-07
+  reports it.
 
 A seventh pass found the two that mattered most, and both are fixed:
 

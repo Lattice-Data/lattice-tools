@@ -284,8 +284,8 @@ def pubchem_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
     if blob is None:
         return []
 
-    cids_status = blob.get("cids_status")
-    property_status = blob.get("property_status")
+    cids_status = _as_status(blob.get("cids_status"))
+    property_status = _as_status(blob.get("property_status"))
     total_cids = len(blob.get("cids") or [])
 
     # A cached failure is not a negative. Reading these fields is the whole fix:
@@ -341,6 +341,21 @@ def pubchem_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
         # that is already there.
         return [Candidate(source=PUBCHEM_SOURCE, independent=False, available=True)]
     return out
+
+
+def _as_status(value) -> int | None:
+    """An HTTP status as an int, whatever the cache writer persisted it as.
+
+    Compared against 200 below, so a cache that stored "200" as a string marked
+    every entry unavailable. The writer is outside this package; its output is
+    input.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _properties(value) -> dict:
@@ -511,28 +526,43 @@ def ext01(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
             )
         return
 
-    severity, message = {
-        MISMATCH: (HIGH, "resolves to a different skeleton"),
+    # EXT-05 for the two outcomes that mean no comparison happened, EXT-01 for the
+    # ones that compared something. See ext05_declared: a waiver keyed on severity
+    # could not tell "matches only the skeleton" from "the cache returned a 500",
+    # and the shipped waivers are all written for the first.
+    check, severity, message = {
+        MISMATCH: ("EXT-01", HIGH, "resolves to a different skeleton"),
         SKELETON: (
+            "EXT-01",
             MEDIUM,
             "matches only the skeleton; stereochemistry or protonation differs",
         ),
-        PARENT_ONLY: (MEDIUM, "resolves to the free base or another salt form"),
-        UNAVAILABLE: (MEDIUM, "could not be checked: a cached response was a failure"),
-        UNRESOLVED: (MEDIUM, "resolves in no cached source"),
+        PARENT_ONLY: (
+            "EXT-01",
+            MEDIUM,
+            "resolves to the free base or another salt form",
+        ),
+        UNAVAILABLE: (
+            "EXT-05",
+            MEDIUM,
+            "could not be checked: a cached response was a failure",
+        ),
+        UNRESOLVED: ("EXT-05", MEDIUM, "resolves in no cached source"),
         UNADJUDICATED: (
+            "EXT-01",
             LOW,
             "is registered to another structure by a source whose structure "
             "strings cannot refute a drawing, so this is reported and not held",
         ),
         NOT_COMPARABLE: (
+            "EXT-01",
             LOW,
             "could not be compared: the drawn structure yielded no InChIKey",
         ),
     }[verdict.status]
 
     yield ctx.finding(
-        "EXT-01",
+        check,
         severity,
         f"CAS {ctx.cas} {message}. {verdict.note}",
         evidence=verdict.candidate.url if verdict.candidate else "",

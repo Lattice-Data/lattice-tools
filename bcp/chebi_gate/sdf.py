@@ -385,10 +385,15 @@ def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
 
 
 def strip_fields(raw: bytes, tags) -> bytes:
-    """Remove the named data fields from a record's bytes.
+    """Remove the named data fields from a record's bytes, and normalise its end.
 
     Parses the record so removal uses the same field boundaries the reader does.
     Prefer :meth:`SdfRecord.without_fields` when a record is already to hand.
+
+    The record comes back ending in exactly one blank line whether or not any
+    field was removed -- :meth:`SdfRecord.without_fields` explains why that is
+    load-bearing rather than cosmetic -- so this is not a pure deletion and the
+    identity case is an identity only for a record already shaped that way.
     """
     parsed = parse_bytes(raw + RECORD_TERMINATOR)
     if not parsed.records:

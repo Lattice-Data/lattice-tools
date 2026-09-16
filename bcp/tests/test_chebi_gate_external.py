@@ -655,3 +655,49 @@ def test_ext04_says_nothing_when_the_record_has_no_cas_number(tmp_path, ctx):
     evidence = external.Evidence(registry=registry(tmp_path))
     assert list(external.ext04(evidence, nameless)) == []
     assert dataclasses.is_dataclass(nameless)
+
+
+def test_a_cached_failure_is_ext05_not_ext01(tmp_path, ctx):
+    """A waiver keyed on (cas, check_id, severity) could not tell them apart.
+
+    EXT-01 packed a skeleton match, a parent-only match, a cached failure and an
+    unresolved CAS all into `medium`, and the four shipped EXT-01 waivers are
+    written for the first. Re-fetch one of those records into a cached 500 and the
+    waiver would have downgraded "could not be checked" -- the status whose own
+    note says re-fetch before treating this as a negative -- and the record would
+    clear having been checked against nothing.
+    """
+    directory = pubchem(tmp_path, "failed", cids_status=500, property_status=500)
+    evidence = external.Evidence(pubchem_dir=directory)
+    (finding,) = list(ext01(evidence, ctx))
+    assert finding.check == "EXT-05"
+    assert finding.severity == MEDIUM
+
+
+def test_an_unresolved_cas_is_ext05_too(tmp_path, ctx):
+    directory = pubchem(tmp_path, "empty", properties={}, alt_cids={})
+    evidence = external.Evidence(pubchem_dir=directory)
+    (finding,) = list(ext01(evidence, ctx))
+    assert finding.check == "EXT-05"
+
+
+def test_a_partial_match_stays_on_ext01(tmp_path, ctx, drawn_key):
+    """The outcomes that did compare something keep the check a waiver names."""
+    directory = pubchem(
+        tmp_path, "skel", properties={"InChIKey": drawn_key[:14] + "-XXXXXXXXXX-N"}
+    )
+    (finding,) = list(ext01(external.Evidence(pubchem_dir=directory), ctx))
+    assert finding.check == "EXT-01"
+    assert finding.severity == MEDIUM
+
+
+def test_a_status_persisted_as_a_string_is_still_a_status(tmp_path, ctx, drawn_key):
+    """A cache that stored "200" marked every entry unavailable."""
+    directory = pubchem(
+        tmp_path,
+        "stringy",
+        cids_status="200",
+        property_status="200",
+        properties={"InChIKey": drawn_key},
+    )
+    assert list(ext01(external.Evidence(pubchem_dir=directory), ctx)) == []

@@ -473,7 +473,7 @@ def int04_cas_number(ctx: RecordContext) -> Iterator[Finding]:
     "INT-07",
     "Molfile parses and is a V2000 connection table",
     independent=True,
-    severities=(HIGH,),
+    severities=(HIGH, MEDIUM),
 )
 def int07_molfile(ctx: RecordContext) -> Iterator[Finding]:
     if not ctx.structure.parse:
@@ -481,6 +481,20 @@ def int07_molfile(ctx: RecordContext) -> Iterator[Finding]:
         return
     if "V2000" not in ctx.record.counts_line:
         yield ctx.finding("INT-07", HIGH, "counts line lacks V2000")
+    if not ctx.structure.inchikey:
+        # `parse` True with no InChIKey is a real state: `_inchikey` swallows an
+        # RDKit InChI failure and logs it at debug. Every structure-identity check
+        # then looks the record up by a key of None and finds nothing -- EXT-02,
+        # the "already in ChEBI, this is a duplicate submission" check, returns
+        # silently, and so does EXT-03. Without this the record clears having been
+        # checked against nothing, which is the outcome this package's structure
+        # module argues at length must never be silent.
+        yield ctx.finding(
+            "INT-07",
+            MEDIUM,
+            "molfile parses but yields no InChIKey, so every check that "
+            "identifies the structure (EXT-01, EXT-02, EXT-03) was skipped",
+        )
 
 
 @_register(
@@ -1041,6 +1055,33 @@ def ext01_declared() -> None:
     ``independent=True`` on the findings it resolves through the CAS registry
     export, which is a human-supplied artifact of a different origin. Defaulting
     the other way would silently inflate the independent count.
+    """
+
+
+@_register(
+    "EXT-05",
+    "CAS Registry Number could be checked against a configured source at all",
+    independent=False,
+    severities=(MEDIUM,),
+    scope="declared",
+)
+def ext05_declared() -> None:
+    """Split out of EXT-01, because a waiver has to be able to tell them apart.
+
+    EXT-01 packed four outcomes into `medium`: a skeleton match, a parent-only
+    match, a cached failure and a CAS no source holds. A waiver is keyed on
+    ``(cas, check_id, severity)``, so a waiver written for the first absorbed all
+    four -- and the four shipped EXT-01 waivers all read "matches the submitted
+    skeleton but differs in stereochemistry or protonation". Re-fetch one of those
+    records into a cached 500 and the waiver would downgrade
+    ``could not be checked: a cached response was a failure`` -- the status whose
+    own note says *re-fetch before treating this as a negative* -- and the record
+    would clear having been checked against nothing.
+
+    Severity is a stable pin only when one severity means one thing, which is the
+    reasoning that put severity in the waiver key in the first place. So the two
+    outcomes that mean "no comparison happened" are their own check, and a waiver
+    for one cannot silence the other.
     """
 
 

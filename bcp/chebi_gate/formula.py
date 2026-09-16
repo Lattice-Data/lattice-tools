@@ -211,7 +211,12 @@ def parse(text: str) -> Counter | None:
         if not part:
             continue
         match = _MULTIPLIER.match(part)
-        if match is None:  # pragma: no cover - the pattern always matches
+        if match is None:
+            # Reachable: `(.*)$` is not DOTALL, so a cell containing a newline --
+            # plausible in a table assembled by hand from PDF exports -- does not
+            # match. Unparseable is the right answer; the old comment claiming the
+            # pattern always matches was not.
+            log.debug("formula %r has a component the pattern cannot read", text)
             return None
         try:
             multiplier = Fraction(match.group(1)) if match.group(1) else Fraction(1)
@@ -332,10 +337,20 @@ def compare(
     # on a deuterated registry row is never read as confirming the label.
     isotopes = ISOTOPE_NOTE if has_hydrogen_isotope(registry_formula) else ""
     if not left or not right:
-        which = "registry" if not left else "drawn"
+        # Both sides can fail together, and then neither is more to blame than the
+        # other; "registry" is the conservative attribution, because a registry
+        # fault reports at medium and a drawn fault at high. RDKit always yields a
+        # formula today, so this is a guard rather than an observed case.
+        which = (
+            "both" if not left and not right else "registry" if not left else "drawn"
+        )
         return Comparison(
             status=UNPARSEABLE,
-            note=f"the {which} formula could not be parsed",
+            note=(
+                "neither formula could be parsed"
+                if which == "both"
+                else f"the {which} formula could not be parsed"
+            ),
             registry_formula=clean,
             drawn_formula=drawn_formula or "",
             unparseable_side=which,
