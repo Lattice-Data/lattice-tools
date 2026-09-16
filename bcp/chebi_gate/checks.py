@@ -41,6 +41,14 @@ from collections import defaultdict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 
+from cas_registry import (
+    CAS_INVALID_CHECKSUM,
+    CAS_INVALID_FORMAT,
+    CAS_MISSING,
+    CAS_VALID,
+    classify_cas,
+)
+
 from . import classes
 from .sdf import SdfRecord
 from .structure import Structure
@@ -341,8 +349,6 @@ class RecordContext:
         """
         if not self.cas:
             return ""
-        from cas_registry import CAS_VALID, classify_cas
-
         normalised, verdict, _ = classify_cas(self.cas)
         return normalised if verdict == CAS_VALID else self.cas
 
@@ -377,7 +383,10 @@ class FileContext:
 )
 def int02_template_shape(ctx: RecordContext) -> Iterator[Finding]:
     record = ctx.record
-    if record.title != record.data.get("NAME", ""):
+    # Only when there is a NAME to differ from. Without the guard a record with no
+    # NAME collects this medium on top of INT-03's high, saying the title differs
+    # from a field that is not there -- the duplication INT-04 already avoids.
+    if record.data.get("NAME", "").strip() and record.title != record.data["NAME"]:
         # Handoff case 15: a rename has to update the molfile title line too, or
         # the record that was just fixed fails this check.
         yield ctx.finding("INT-02", MEDIUM, "mol title differs from NAME")
@@ -441,13 +450,6 @@ def int04_cas_number(ctx: RecordContext) -> Iterator[Finding]:
     file is what ChEBI would store. So a non-empty repair code is a high finding
     naming the repair, which is also the fix instruction.
     """
-    from cas_registry import (
-        CAS_INVALID_CHECKSUM,
-        CAS_INVALID_FORMAT,
-        CAS_MISSING,
-        classify_cas,
-    )
-
     raw = ctx.record.data.get("CAS_NO", "")
     normalised, verdict, repair = classify_cas(raw)
     if verdict == CAS_MISSING:

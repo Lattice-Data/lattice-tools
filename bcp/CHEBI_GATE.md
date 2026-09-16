@@ -530,6 +530,33 @@ A fifth pass found four more, and they are fixed:
   could see it — a record with two `NAME` fields cleared, and a cleared record is
   byte-identical, so both went to ChEBI. INT-02 reports it.
 
+A sixth pass found two more of the same shape, and both are fixed:
+
+- `cation_n_noh` was counted over the largest fragment, which this module
+  elsewhere establishes is often the counterion. Tetramethylammonium tosylate is
+  5 heavy atoms against 11, so the scan ran over the anion and returned 0: a
+  record correctly asserting ISA35273 was held at `high` with no edit that would
+  release it, and the hydrohalide guard stopped catching a quaternary cation
+  whenever its counterion outweighed it. Against a mesylate — 5 heavy atoms
+  against 5 — the `max()` tie made the verdict depend on molfile order, which is
+  the defect CON-02's base count was rewritten to remove.
+- `reduce_ratio` divided out the gcd unconditionally, so EXT-04 compared element
+  *proportions*: a registry `C6H12O6` against a drawn `C2H4O2` both reduce to
+  `{C:1, H:2, O:1}` and came back "agrees ... (same ratio)". Nothing else catches
+  that — a CAS source cannot refute, and the only source that can is PubChem,
+  which is circular — so the one independent stoichiometry check was silent on a
+  molecule three times the size it should be. A formula is reduced only when it
+  declares components, which is the case the reduction was written for.
+
+Smaller: the record terminator is anchored to a line start, so `$$$$` ending a
+synonym no longer splits a record; `analyse` guards every RDKit call rather than
+only the first, which is what "never raises" has to mean; a cache file whose top
+level is not an object is skipped rather than raising part-way through the
+external pass; INT-02 no longer reports a title differing from a NAME that is
+absent; EXT-04 says nothing about a record with no CAS number instead of
+reporting no registry row for it; and the `cas_registry` imports are at module
+level, as the sibling packages have them.
+
 One question is still open, and belongs to whoever owns the deposit rather than
 to the code: whether a redacted subset of the reference batch should be committed
 so the anchor runs in CI, or the run directory archived somewhere a future

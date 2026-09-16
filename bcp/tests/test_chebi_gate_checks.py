@@ -576,6 +576,45 @@ def test_int02_stays_quiet_when_every_tag_appears_once():
     assert ("INT-02", MEDIUM) not in ids(run(salt_record(iupac="x")))
 
 
+def test_con01_sees_a_quaternary_cation_smaller_than_its_counterion():
+    """`cation_n_noh` was counted over the largest fragment, often the counterion.
+
+    Tetramethylammonium is 5 heavy atoms against tosylate's 11, so the scan ran
+    over the anion and returned 0: a record correctly asserting ISA35273 was held
+    at high with no edit that would release it.
+    """
+    record = salt_record(
+        name="tetramethylammonium tosylate",
+        mol="quat_ammonium_tosylate",
+        relationship="ISA35273",
+        iupac="x",
+    )
+    assert ("CON-01", HIGH) not in ids(run(record))
+
+
+def test_the_hydrohalide_guard_still_sees_a_cation_smaller_than_its_counterion():
+    """The mirror case: the guard stopped catching a quaternary cation."""
+    found = run(
+        salt_record(
+            name="tetramethylammonium tosylate",
+            mol="quat_ammonium_tosylate",
+            relationship=ISA_HYDROCHLORIDE,
+            iupac="x",
+        )
+    )
+    assert ("CON-01", HIGH) in ids(found)
+
+
+def test_int02_does_not_say_the_title_differs_from_a_name_that_is_absent():
+    """INT-03 already reports the missing NAME; saying it twice adds nothing."""
+    record = salt_record(iupac="x").replace(
+        "> <NAME>\nethylamine hydrochloride\n\n", "", 1
+    )
+    found = run(record)
+    assert ("INT-03", HIGH) in ids(found)
+    assert not [f for f in found if f.check == "INT-02" and "title" in f.detail]
+
+
 def test_con01_reports_a_quaternary_cation_asserted_as_a_hydrohalide():
     found = run(
         salt_record(

@@ -529,3 +529,17 @@ def test_an_lf_record_is_unchanged_by_the_line_ending_handling():
     annotated = record.with_fields({"GATE_STATUS": "HELD"})
     reparsed = sdf.parse_bytes(annotated + record.terminator).records[0]
     assert reparsed.without_fields(["GATE_STATUS"]) == record.raw
+
+
+def test_a_dollar_run_at_the_end_of_a_value_does_not_split_the_record():
+    """The terminator was unanchored, so "$$$$" ending any line split a record.
+
+    A synonym is the obvious way in, and a value echoed back into a re-fed held
+    file is the one that matters -- this module's re-run workflow.
+    """
+    raw = sdf_bytes(salt_record(synonym="weird name $$$$"))
+    parsed = sdf.parse_bytes(raw)
+
+    assert len(parsed.records) == 1
+    assert parsed.records[0].data["SYNONYM"] == "weird name $$$$"
+    assert parsed.dumps() == raw

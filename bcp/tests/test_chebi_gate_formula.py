@@ -198,6 +198,29 @@ def test_a_hydrogen_only_difference_is_a_drawing_convention():
     assert "neutral-acid versus ionic" in result.note
 
 
+def test_a_formula_with_no_components_is_compared_as_it_stands():
+    """Dividing out the gcd compared proportions, not composition.
+
+    C6H12O6 and C2H4O2 both reduce to {C:1, H:2, O:1}, so glucose against acetic
+    acid came back "agrees ... (same ratio)". Nothing else would catch it: a CAS
+    source cannot refute, and the only source that can is PubChem, which is
+    circular -- so the one independent stoichiometry check went quiet on a
+    molecule three times the size it should be.
+    """
+    assert formula.compare("C6H12O6", "C2H4O2").status == formula.DISAGREE
+    assert formula.compare("C4H4O4", "C2H2O2").status == formula.DISAGREE
+    assert formula.compare("C2H6O", "C2H6O").status == formula.AGREE
+
+
+def test_a_formula_that_declares_components_still_reduces():
+    """The sesquifumarate case the reduction exists for."""
+    verdict = formula.compare("C12H18N2O.3/2C4H4O4", "C36H48N4O14")
+    assert verdict.status == formula.AGREE
+    assert formula.declares_components("C12H18N2O.3/2C4H4O4")
+    assert formula.declares_components("2C4H4O4")
+    assert not formula.declares_components("C6H12O6")
+
+
 def test_a_difference_in_anything_but_hydrogen_disagrees():
     result = formula.compare("C6H15N3S.2ClH", "C6H16ClN3S")
     assert result.status == formula.DISAGREE

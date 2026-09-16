@@ -56,6 +56,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from cas_registry import CAS_VALID, classify_cas
+
 from .checks import CHECKS
 
 log = logging.getLogger(__name__)
@@ -285,8 +287,6 @@ def _severity(path: Path, row_no: int, check_id: str, raw: str) -> str:
 
 def _cas(path: Path, row_no: int, raw: str) -> str:
     """Validate the join key, which is useless if it is not a real CAS number."""
-    from cas_registry import CAS_VALID, classify_cas
-
     normalised, verdict, repair = classify_cas(raw)
     if verdict != CAS_VALID or repair:
         raise DecisionsError(

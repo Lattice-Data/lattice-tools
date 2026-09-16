@@ -182,11 +182,26 @@ class Evidence:
 
 
 def _load_json(path: Path) -> dict | None:
+    """One cache file as a mapping, or None. Never raises on its contents.
+
+    The shape is checked, not assumed. A well-formed JSON file whose top level is
+    an array parsed cleanly and then reached `blob.get(...)`, so a cache written
+    from a different shape aborted the external pass part-way through -- and with
+    it every later record's EXT-01 through EXT-04, not just this one's. The cache
+    writer lives outside this package, which is exactly why its output is treated
+    as input.
+    """
     try:
-        return json.loads(path.read_text())
+        loaded = json.loads(path.read_text())
     except (OSError, ValueError) as exc:
         log.warning("unreadable cache file %s: %s", path, exc)
         return None
+    if not isinstance(loaded, dict):
+        log.warning(
+            "cache file %s holds a %s, not an object", path, type(loaded).__name__
+        )
+        return None
+    return loaded
 
 
 def _clean_key(raw: str | None) -> str | None:
@@ -290,7 +305,8 @@ def pubchem_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
     entries: list[tuple[object, dict]] = []
     if blob.get("properties"):
         entries.append((blob.get("cid"), _properties(blob["properties"])))
-    for cid, props in (blob.get("alt_cids") or {}).items():
+    alt = blob.get("alt_cids")
+    for cid, props in (alt if isinstance(alt, dict) else {}).items():
         if props:
             entries.append((cid, _properties(props)))
 
@@ -581,6 +597,11 @@ def ext03(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
 def ext04(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
     """EXT-04: does the registry formula agree with the stoichiometry drawn?"""
     if not ctx.structure.parse:
+        return
+    if not ctx.cas:
+        # No number was looked up, so "no CAS registry row for this number" would
+        # be describing a lookup that never happened. INT-03 reports the absent
+        # field; ext01 already guards the same way.
         return
     row = evidence.registry.get(ctx.cas_key)
     if row is None and not len(evidence.registry):

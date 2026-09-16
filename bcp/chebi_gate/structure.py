@@ -114,6 +114,20 @@ def analyse(record: SdfRecord) -> Structure:
         log.debug("record %d (%s) does not parse", record.index, record.name)
         return Structure(parse=False, chiral_flag=_chiral_flag(record.counts_line))
 
+    try:
+        return _analyse(mol, record)
+    except Exception as exc:  # RDKit raises bare Exception from several of these
+        # "Never raises" has to cover every RDKit call, not only the first.
+        # AssignStereochemistry, GetMolFrags, CalcMolFormula and
+        # FindPotentialStereo are all outside the parse guard, and a record the
+        # gate should hold and describe must not take the run down with it.
+        log.warning(
+            "record %d (%s) could not be analysed: %s", record.index, record.name, exc
+        )
+        return Structure(parse=False, chiral_flag=_chiral_flag(record.counts_line))
+
+
+def _analyse(mol: Chem.Mol, record: SdfRecord) -> Structure:
     Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
 
     frags = Chem.GetMolFrags(mol, asMols=True)
@@ -145,7 +159,7 @@ def analyse(record: SdfRecord) -> Structure:
         ),
         net_charge=Chem.GetFormalCharge(mol),
         zero_coords=_zero_coords(mol),
-        cation_n_noh=_cation_n_noh(biggest),
+        cation_n_noh=_cation_n_noh(frags),
         geoms=_double_bond_geometries(frags),
         **_stereo_counts(mol),
         chiral_flag=_chiral_flag(record.counts_line),
@@ -186,7 +200,7 @@ def _zero_coords(mol: Chem.Mol) -> bool:
     )
 
 
-def _cation_n_noh(biggest: Chem.Mol) -> int:
+def _cation_n_noh(frags) -> int:
     """Count quaternary-style cationic nitrogens: charged, no H, not an N-oxide.
 
     A hydrohalide donates its proton to a basic nitrogen, so the cation keeps an H.
@@ -194,6 +208,16 @@ def _cation_n_noh(biggest: Chem.Mol) -> int:
     record asserting the hydrochloride class while drawing one of these is
     misclassified however well its formula adds up. Excluding N-oxides keeps that
     from firing on a neutral functional group that merely looks charged.
+
+    Counted over every fragment, not over the largest. The largest fragment is
+    often the counterion -- tetramethylammonium tosylate is 5 heavy atoms against
+    11 -- so reading the cation's charge off ``biggest`` scanned the anion and
+    returned 0: a record correctly asserting ISA35273 was held at high with no
+    edit that would release it, and the hydrohalide guard below stopped catching a
+    quaternary cation whenever its counterion outweighed it. With a mesylate
+    against a tetramethylammonium, both 5 heavy atoms, the ``max()`` tie went to
+    whichever was drawn first, so the verdict depended on molfile order -- the
+    defect CON-02's base count was rewritten to eliminate.
 
     ``includeNeighbors=True`` is not optional. Bare ``GetTotalNumHs()`` counts only
     implicit and property hydrogens, so a nitrogen whose hydrogens are drawn as
@@ -206,7 +230,8 @@ def _cation_n_noh(biggest: Chem.Mol) -> int:
     """
     return sum(
         1
-        for atom in biggest.GetAtoms()
+        for frag in frags
+        for atom in frag.GetAtoms()
         if atom.GetSymbol() == "N"
         and atom.GetFormalCharge() == 1
         and atom.GetTotalNumHs(includeNeighbors=True) == 0

@@ -47,8 +47,11 @@ log = logging.getLogger(__name__)
 
 RECORD_TERMINATOR = b"$$$$\n"
 
-# A record terminator with either line ending.
-_TERMINATOR = re.compile(rb"\$\$\$\$\r?\n")
+# A record terminator: "$$$$" alone on a line, with either line ending. Anchored,
+# because unanchored it matched "$$$$" at the end of *any* line -- a synonym, or a
+# value echoed back into a re-fed held file -- and split one record into two. Most
+# of this module is about a record boundary being exactly one thing.
+_TERMINATOR = re.compile(rb"(?m)^\$\$\$\$\r?\n")
 
 # The molfile ends at this marker; everything after it is the data-field block.
 #

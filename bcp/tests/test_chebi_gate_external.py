@@ -619,3 +619,39 @@ def test_a_properties_list_is_read_like_a_properties_mapping(tmp_path):
     evidence = external.Evidence(pubchem_dir=directory)
     (candidate,) = external.pubchem_candidates(evidence, CAS)
     assert candidate.inchikey == WRONG_KEY
+
+
+def test_a_cache_file_that_is_not_an_object_is_skipped_not_fatal(tmp_path):
+    """A well-formed JSON array parsed cleanly and then reached blob.get(...).
+
+    The cache writer is outside this package, so its output is input: an
+    AttributeError here aborts the external pass for every later record too.
+    """
+    directory = tmp_path / "cache"
+    directory.mkdir()
+    (directory / f"{CAS}.json").write_text(json.dumps([{"cid": 1}]))
+    evidence = external.Evidence(pubchem_dir=directory)
+    assert external.pubchem_candidates(evidence, CAS) == []
+
+
+def test_alt_cids_persisted_as_a_list_does_not_abort_the_run(tmp_path):
+    directory = pubchem(tmp_path, "alt_list", alt_cids=[{"InChIKey": WRONG_KEY}])
+    evidence = external.Evidence(pubchem_dir=directory)
+    keys = [c.inchikey for c in external.pubchem_candidates(evidence, CAS)]
+    assert keys == [WRONG_KEY]
+
+
+def test_ext04_says_nothing_when_the_record_has_no_cas_number(tmp_path, ctx):
+    """ "no CAS registry row for this number" described a lookup that never happened."""
+    import dataclasses
+
+    from chebi_gate import sdf as sdf_mod
+
+    blank = sdf_mod.parse_bytes(
+        sdf_bytes(salt_record(cas="", iupac="x").replace("> <CAS_NO>\n\n\n", ""))
+    ).records[0]
+    nameless = checks.RecordContext(record=blank, structure=ctx.structure)
+    assert nameless.cas == ""
+    evidence = external.Evidence(registry=registry(tmp_path))
+    assert list(external.ext04(evidence, nameless)) == []
+    assert dataclasses.is_dataclass(nameless)

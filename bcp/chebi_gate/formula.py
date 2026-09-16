@@ -6,9 +6,13 @@ that can see a missing counterion or a missing solvate.
 
 Three things make it more than string equality, and each is a bug that happened:
 
-**Ratios reduce.** A sesquifumarate registered as ``C12H18N2O.3/2C4H4O4`` and drawn
-as two base units with three fumarates are the same substance. Formulae are
-compared as reduced whole-number element ratios, so 1:1.5 equals 2:3.
+**Ratios reduce, but only when a ratio was stated.** A sesquifumarate registered as
+``C12H18N2O.3/2C4H4O4`` and drawn as two base units with three fumarates are the
+same substance, so a formula that declares components is compared as a reduced
+whole-number element ratio and 1:1.5 equals 2:3. A formula that declares none is
+compared as it stands: reducing those turned ``C6H12O6`` against ``C2H4O2`` into
+an agreement, which is the one independent stoichiometry check going quiet about
+a molecule three times the size it should be.
 
 **An indefinite multiplier is not 1.** The registry writes
 ``C19H23N.xC4H4O4`` with ``(1:?)`` in the name when it declines to fix the
@@ -237,12 +241,35 @@ def parse(text: str) -> Counter | None:
     return total or None
 
 
-def reduce_ratio(counts: Counter | None) -> dict[str, int] | None:
-    """Element counts as the smallest whole-number ratio, or None.
+def declares_components(text: str) -> bool:
+    """Whether a formula states a component ratio rather than one whole molecule.
 
-    This is what makes a sesquifumarate written 1:1.5 compare equal to one drawn
-    2:3. Absolute size is deliberately discarded: the registry states a
-    composition, not how many units someone chose to draw.
+    A dot separates components; a leading multiplier states how many of the next
+    one there are. Only then is the absolute size of the formula something the
+    writer did not intend to fix -- see :func:`reduce_ratio`.
+    """
+    cleaned = _TRAILING_CHARGE.sub("", strip_markup(text or ""))
+    if "." in cleaned:
+        return True
+    return bool(_MULTIPLIER.match(cleaned) and _MULTIPLIER.match(cleaned).group(1))
+
+
+def reduce_ratio(
+    counts: Counter | None, *, reduce: bool = True
+) -> dict[str, int] | None:
+    """Element counts as whole numbers, reduced to the smallest ratio when asked.
+
+    Reducing is what makes a sesquifumarate written 1:1.5 compare equal to one
+    drawn 2:3, and there absolute size is genuinely not being stated: the registry
+    gives a composition, not how many units someone chose to draw.
+
+    It is wrong everywhere else, and ``reduce=False`` is how the caller says so.
+    Dividing out the gcd unconditionally compared *proportions*: a registry
+    ``C6H12O6`` against a drawn ``C2H4O2`` both reduce to ``{C:1, H:2, O:1}`` and
+    came back AGREE, with the note saying the registry formula agrees with the
+    drawn structure. Nothing else would have caught it -- a CAS source cannot
+    refute, and the only source that can is PubChem, which is circular -- so the
+    one independent stoichiometry check was silent on a molecule the wrong size.
     """
     if not counts:
         return None
@@ -252,6 +279,8 @@ def reduce_ratio(counts: Counter | None) -> dict[str, int] | None:
             denominator * value.denominator // gcd(denominator, value.denominator)
         )
     integers = {symbol: int(value * denominator) for symbol, value in counts.items()}
+    if not reduce:
+        return integers
     divisor = 0
     for value in integers.values():
         divisor = gcd(divisor, value)
@@ -290,8 +319,14 @@ def compare(
             drawn_formula=drawn_formula or "",
         )
 
-    left = reduce_ratio(parse(registry_formula))
-    right = reduce_ratio(parse(drawn_formula or ""))
+    # Reduce only when a formula actually declares components. RDKit never writes
+    # a dotted formula, so in practice this asks whether the *registry* stated a
+    # ratio -- which is the only case where its absolute size was not being fixed.
+    as_ratio = declares_components(registry_formula) or declares_components(
+        drawn_formula or ""
+    )
+    left = reduce_ratio(parse(registry_formula), reduce=as_ratio)
+    right = reduce_ratio(parse(drawn_formula or ""), reduce=as_ratio)
     clean = strip_markup(registry_formula)
     # Appended to every verdict that compared two parsed formulae, so an agreement
     # on a deuterated registry row is never read as confirming the label.

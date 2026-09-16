@@ -34,6 +34,8 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from cas_registry import CAS_VALID, classify_cas
+
 log = logging.getLogger(__name__)
 
 # The columns parse_scifinder_pdf.py writes. Asserted in full, because a table
@@ -114,8 +116,6 @@ def normalise_cas(raw: str) -> str:
     the evidence is what the whole module is short of. Same reasoning as
     :attr:`RecordContext.cas_key`, and deliberately the same rule.
     """
-    from cas_registry import CAS_VALID, classify_cas
-
     value = (raw or "").strip()
     if not value:
         return ""
