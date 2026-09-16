@@ -44,6 +44,7 @@ children inherit buffers instead of pickling them. Do not call row_hashes()
 concurrently from multiple threads.
 """
 
+import anndata as ad
 import hashlib
 import multiprocessing as mp
 import os
@@ -450,13 +451,13 @@ def find_duplicate_rows(X, **kw):
     return _group(row_hashes(X, **kw))
 
 
-def evaluate_dup_counts(adata, **kw):
+def evaluate_dup_counts(adata: ad.AnnData, **kw):
     """
-    Hash sparse csr matrix using np.ndarrays that represent sparse matrix data.
-    First pass will hash all rows via slicing the data array and append to copy of obs df
-    Second pass will hash only duplicate rows in obs copy via the indices array.
-    This will keep only true duplicated matrix rows and not rows with an indicental same
-    ordering of their data arrays
+    Entry point for row hashing
+    Returns dataframe with duplicates or None
+
+    Filters in_tissue==0 cells from spatial datasets (can result in false positive
+    duplicate results)
     """
     if 'in_tissue' in adata.obs.columns:
         obs_to_keep = adata.obs[adata.obs['in_tissue'] != 0].index
