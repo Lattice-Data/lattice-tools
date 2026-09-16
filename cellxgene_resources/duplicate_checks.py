@@ -66,7 +66,7 @@ _SHM_DIR = "/dev/shm"
 # --------------------------------------------------------------------------
 
 
-def canonicalize_csr(X, copy=True, warn=True):
+def canonicalize_csr(X, copy=False, warn=True):
     """Put a CSR matrix into canonical form for raw-buffer hashing.
 
     Returns (matrix, changed). With copy=True the input is never mutated, and
@@ -285,6 +285,10 @@ def _resolve(start_method, sharing):
     return start_method, sharing
 
 
+def _get_workers():
+    """Might as well use max number of workers"""
+
+
 class RowHasher:
     """Persistent worker pool for repeated per-row hashing of one matrix.
 
@@ -306,17 +310,17 @@ class RowHasher:
     def __init__(
         self,
         X,
-        n_workers=8,
+        n_workers=None,
         batch=5000,
         canonical=False,
-        copy=True,
+        copy=False,
         start_method="auto",
         sharing="auto",
     ):
         self.n_rows = X.shape[0]
         self.batch = batch
         self.canonical = canonical
-        self.n_workers = n_workers
+        self.n_workers = n_workers if n_workers else _get_workers()
         self.start_method, self.sharing = _resolve(start_method, sharing)
         self.kind, self.meta, self._arrays, self.bytes_per_row = _prepare(
             X, canonical, copy
@@ -378,11 +382,11 @@ class RowHasher:
 
 def row_hashes(
     X,
-    n_workers=8,
+    n_workers=None,
     batch=5000,
     backend="auto",
     canonical=False,
-    copy=True,
+    copy=False,
     start_method="auto",
     sharing="auto",
 ):
@@ -400,6 +404,7 @@ def row_hashes(
     """
     n_rows = X.shape[0]
     kind, meta, arrays, bytes_per_row = _prepare(X, canonical, copy)
+    n_workers = n_workers if n_workers else _get_workers()
 
     if backend == "auto":
         backend = "thread" if bytes_per_row >= 16_384 else "process"
@@ -416,7 +421,7 @@ def row_hashes(
         if backend == "serial":
             chunks = [_chunk(s) for s in spans]
         else:
-            with ThreadPoolExecutor(min(n_workers, 2)) as ex:
+            with ThreadPoolExecutor(n_workers) as ex:
                 chunks = list(ex.map(_chunk, spans))  # map preserves order
         return [h for c in chunks for h in c]
 
