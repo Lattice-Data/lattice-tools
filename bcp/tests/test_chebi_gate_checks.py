@@ -423,6 +423,47 @@ def test_con01_reports_a_quaternary_cation_asserted_as_a_hydrohalide():
     assert "not a hydrohalide" in detail(found, "CON-01")
 
 
+def test_con01_accepts_a_hydrated_quaternary_bromide_as_an_organic_bromide():
+    """The solvate exemption belongs to every rule that demands *all* counterions
+    match, not only the hydrohalides.
+
+    It first existed inside the hydrohalide branch alone, so ``iodide`` and
+    ``organic-bromide`` still tested the raw counterion list: a quaternary bromide
+    monohydrate gave ``['Br-', 'H2O']``, failed ``all()``, and was held at HIGH.
+    Quaternary bromides are commonly hydrates, and ISA48369 exists precisely
+    because records were reclassified into it -- so this held a sound record, and
+    ``unsupported_reason`` could not even name why: ``cation_n_noh`` is consulted
+    only for the hydrohalide classes.
+    """
+    found = run(
+        salt_record(
+            name="tetramethylammonium bromide hydrate",
+            mol="quat_ammonium_br_hydrate",
+            relationship="ISA48369",
+            iupac="x",
+        )
+    )
+    assert ("CON-01", HIGH) not in ids(found)
+
+
+def test_con01_still_reports_an_organic_bromide_carrying_a_foreign_counterion():
+    """The exemption must skip solvates only, never another salt-forming ion.
+
+    Without this, widening the halide rules to ignore solvent would be
+    indistinguishable from widening them to ignore everything.
+    """
+    found = run(
+        salt_record(
+            name="tetramethylammonium bromide chloride",
+            mol="quat_ammonium_br_cl",
+            relationship="ISA48369",
+            iupac="x",
+        )
+    )
+    assert ("CON-01", HIGH) in ids(found)
+    assert "class organic-bromide not supported" in detail(found, "CON-01")
+
+
 def test_con05_is_used_when_the_geometry_is_merely_undefined():
     """Missing evidence and contradicted evidence are different repairs.
 

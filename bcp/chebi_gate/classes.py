@@ -112,22 +112,29 @@ def class_supported(name: str, structure: Structure) -> bool:
     """
     counter = structure.counter
     frags = structure.frags
+    # Every rule below that demands *all* counterions match tests this rather than
+    # `counter`, so that solvent of crystallisation cannot make the class fail. It
+    # is computed once, for all of them: the exemption first existed only inside
+    # the hydrohalide branch, and the two halide rules that kept testing `counter`
+    # held a hydrated iodide and a hydrated quaternary bromide on a reason no
+    # chemist could act on. The `any` rules further down need no equivalent -- an
+    # extra solvate fragment cannot falsify "one of these is present".
+    salt_ions = [x for x in counter if x not in SOLVATES]
 
     if name in _HALIDES:
         # A hydrohalide protonates a basic nitrogen, so the cation keeps its
         # hydrogen. A quaternary or pyridinium cation has none, and is a different
         # class however well the formula adds up.
         allowed = _HALIDES[name]
-        salt_ions = [x for x in counter if x not in SOLVATES]
         return (
             bool(salt_ions)
             and all(x in allowed for x in salt_ions)
             and structure.cation_n_noh == 0
         )
     if name == "iodide":
-        return bool(counter) and all(x in _IODIDE for x in counter)
+        return bool(salt_ions) and all(x in _IODIDE for x in salt_ions)
     if name == "organic-bromide":
-        return bool(counter) and all(x in _ORGANIC_BROMIDE for x in counter)
+        return bool(salt_ions) and all(x in _ORGANIC_BROMIDE for x in salt_ions)
     if name == "quaternary-ammonium":
         return structure.cation_n_noh > 0
     if name == "maleate":
