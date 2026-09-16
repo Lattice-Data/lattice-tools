@@ -397,14 +397,17 @@ def resolve_cas(evidence: Evidence, ctx: RecordContext) -> Verdict:
     # tiebreak used to sit here too; mutation testing showed it was dead -- the
     # ordering decides every tie it could have decided. One mechanism, pinned by
     # test_candidates_are_ordered_independent_first, beats two that agree.
-    scored = [(RANK[classify(c, ctx)], i) for i, c in enumerate(candidates)]
-    _, index = min(scored)
+    # Classified once per candidate. It ran three times -- for the ranking, for the
+    # winner's status and again for corroboration -- and a classification that is
+    # recomputed is a classification that can disagree with itself.
+    statuses = [classify(c, ctx) for c in candidates]
+    _, index = min((RANK[status], i) for i, status in enumerate(statuses))
     winner = candidates[index]
-    status = classify(winner, ctx)
+    status = statuses[index]
 
     corroborated = any(
-        c.independent and classify(c, ctx) in (EXACT, SKELETON, PARENT_ONLY)
-        for c in candidates
+        c.independent and s in (EXACT, SKELETON, PARENT_ONLY)
+        for c, s in zip(candidates, statuses)
     )
     others = [
         f"{c.label} gives {c.inchikey}"

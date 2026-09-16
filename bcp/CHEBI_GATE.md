@@ -438,6 +438,15 @@ The PR review then found more, and these are fixed too:
   The only test of this put the chunk last, where the reordering is invisible, and
   the 290-record round-trip anchor leans on `dumps()`.
 
+- The CAS registry table was indexed on whatever spelling its CSV used, while
+  every lookup passes the normalised key — so a row written `0557-66-4` could
+  never be found and the gate reported "no registry row" for a record whose row
+  was sitting in the table. It is indexed on the join key now, the same rule the
+  decisions data already used; the row keeps the spelling for reporting.
+- `SALT_FRAGMENT_RE.match` is a prefix test, so `C4H2O4S` counted toward CON-02's
+  ratio as a fumarate. Matched whole now, with the trailing charge spelled out;
+  none of the reference batch's 292 distinct fragment formulae changes verdict.
+
 Anything found later goes in the branch discussion rather than being fixed
 silently.
 

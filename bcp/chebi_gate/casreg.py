@@ -97,6 +97,31 @@ class RegistryRow:
         return {name: self.raw.get(name, "") for name in STRUCTURE_COLUMNS}
 
 
+def normalise_cas(raw: str) -> str:
+    """The join key for a CAS number: normalised when it is recoverable, else raw.
+
+    The table was indexed on whatever the CSV spelled while every lookup passes
+    ``RecordContext.cas_key``, which is normalised -- so a row written
+    ``0557-66-4`` could never be found, and EXT-01 and EXT-04 reported "no
+    registry row" for a record whose row was sitting in the table. The registry is
+    assembled by hand from PDF exports, so a leading zero or a stray space is the
+    expected kind of defect, not an exotic one.
+
+    Normalising on both sides rather than rejecting the row: decisions.py refuses
+    a repairable CAS because a decision that cannot match anything is worse than
+    no decision, but a registry row that cannot match is evidence thrown away, and
+    the evidence is what the whole module is short of. Same reasoning as
+    :attr:`RecordContext.cas_key`, and deliberately the same rule.
+    """
+    from cas_registry import CAS_VALID, classify_cas
+
+    value = (raw or "").strip()
+    if not value:
+        return ""
+    normalised, verdict, _ = classify_cas(value)
+    return normalised if verdict == CAS_VALID else value
+
+
 @dataclass(frozen=True)
 class Registry:
     """A loaded CAS registry export, indexed by CAS number."""
@@ -107,7 +132,7 @@ class Registry:
     source_pdfs: tuple[str, ...] = ()
 
     def get(self, cas: str) -> RegistryRow | None:
-        return self.rows.get(cas.strip()) if cas else None
+        return self.rows.get(normalise_cas(cas)) if cas else None
 
     def coverage(self, cas_values: set[str]) -> dict[str, int]:
         """How much of a batch this table can speak to.
@@ -115,7 +140,7 @@ class Registry:
         Reported in the run summary rather than inferred: clearance on a record
         with no registry row means "internally consistent", not "confirmed".
         """
-        present = {c for c in cas_values if c in self.rows}
+        present = {c for c in cas_values if normalise_cas(c) in self.rows}
         return {
             "records": len(cas_values),
             "with_registry_row": len(present),
@@ -152,7 +177,11 @@ def load(path: str | Path) -> Registry:
             cas = (raw.get("cas") or "").strip()
             if not cas:
                 raise RegistryError(f"{path.name} row {line_no}: empty cas")
-            if cas in rows:
+            # Indexed on the join key, not on the spelling. `cas` below keeps the
+            # spelling, because that is what the table actually says and a report
+            # quoting it should quote it verbatim.
+            key = normalise_cas(cas)
+            if key in rows:
                 raise RegistryError(
                     f"{path.name} row {line_no}: duplicate cas {cas}; a registry "
                     "table must have one row per substance"
@@ -160,7 +189,7 @@ def load(path: str | Path) -> Registry:
             source_pdf = (raw.get("source_pdf") or "").strip()
             if source_pdf:
                 pdfs.add(source_pdf)
-            rows[cas] = RegistryRow(
+            rows[key] = RegistryRow(
                 cas=cas,
                 molecular_formula=(raw.get("molecular_formula") or "").strip(),
                 registry_name=(raw.get("registry_name") or "").strip(),

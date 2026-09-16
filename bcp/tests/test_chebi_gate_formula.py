@@ -313,6 +313,24 @@ def test_the_registry_loads_and_indexes_by_cas(tmp_path):
     assert len(table.sha256) == 64
 
 
+def test_a_row_whose_cas_spelling_needs_repair_is_still_found(tmp_path):
+    """Every lookup passes the normalised `ctx.cas_key`; the table used the spelling.
+
+    So a row written `0557-66-4` could never be found, and EXT-01 and EXT-04
+    reported "no registry row" for a record whose row was in the table. The
+    registry is assembled by hand from PDF exports, so a leading zero is the
+    expected kind of defect.
+    """
+    loaded = casreg.load(
+        registry(tmp_path, {"cas": "0557-66-4", "molecular_formula": "C2H7N.ClH"})
+    )
+    row = loaded.get("557-66-4")
+    assert row is not None
+    assert row.cas == "0557-66-4", "the row keeps the spelling the table used"
+    assert loaded.get("0557-66-4") is not None
+    assert loaded.coverage({"557-66-4"})["with_registry_row"] == 1
+
+
 def test_coverage_says_how_much_of_a_batch_the_table_can_speak_to(tmp_path):
     """Clearance on a record with no row is "internally consistent", not "confirmed"."""
     table = casreg.load(

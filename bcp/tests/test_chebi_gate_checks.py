@@ -692,6 +692,45 @@ def test_syn04_still_compares_two_names_when_the_structure_is_unreadable():
     assert "racemic/rel synonyms on an enantiopure entry" in detail(found, "SYN-04")
 
 
+def _con02(frags: dict[str, int], name: str) -> list[checks.Finding]:
+    """CON-02 against a stated fragment composition, with no molfile in the way."""
+    from chebi_gate.structure import Structure
+
+    parsed = sdf.parse_bytes(sdf_bytes(salt_record(name, iupac="x")))
+    ctx = checks.RecordContext(
+        record=parsed.records[0],
+        structure=Structure(parse=True, frags=frags, parent_formula="C20H24N2"),
+        role=checks.ROLE_SALT,
+    )
+    return list(checks.con02_stoichiometry_word(ctx))
+
+
+def test_con02_does_not_count_a_fragment_that_merely_begins_like_a_counterion():
+    """`SALT_FRAGMENT_RE.match` is a prefix test, so C4H2O4S read as a fumarate.
+
+    Asserted through the check rather than against the pattern, so that reverting
+    the call site to `.match` fails too, not only editing the regex.
+    """
+    spurious = _con02({"C20H24N2": 1, "C4H2O4S": 2}, "foo dihydrochloride")
+    assert spurious, "two C4H2O4S fragments are not two counterions"
+    # "structure has 0 (" and not "structure has 0": a prefix test left in the
+    # numerator alone gives 2/3, and "structure has 0.666667" contains the
+    # shorter string.
+    assert "structure has 0 (" in spurious[0].detail, spurious[0].detail
+
+    # And in the denominator: a look-alike that is the base must be counted as
+    # base. Excluded from both sides, base_n is 0 and the check silently declines
+    # to judge a record whose ratio is plainly wrong.
+    as_base = _con02({"C4H2O4S": 2, "HCl": 2}, "foo dihydrochloride")
+    assert as_base, "C4H2O4S is the base here, so the ratio is 2 HCl to 2 base"
+    assert "structure has 1 (" in as_base[0].detail, as_base[0].detail
+
+    assert not _con02({"C20H24N2": 1, "C4H4O4": 2}, "foo dihydrochloride")
+    assert not _con02({"C20H24N2": 1, "C4H2O4-2": 2}, "foo dihydrochloride"), (
+        "the trailing charge is still a counterion"
+    )
+
+
 def test_con08_compares_the_systematic_name_against_the_structure():
     found = run(salt_record(mol="amine_hcl", iupac="ethanamine;dihydrochloride"))
     assert ("CON-08", HIGH) in ids(found)
