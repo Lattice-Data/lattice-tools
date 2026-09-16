@@ -13,7 +13,7 @@ canonical=False (default, fast)
     Digests are storage-specific: f32 vs f64, or CSR vs dense, will differ.
 
 canonical=True (slower, portable)
-    Hashes (nonzero indices as int64, values as float64) per row. Digests
+    Hashes (nonzero indices as int64, values as float32) per row. Digests
     match across CSR/CSC/dense and ignore explicit stored zeros and index
     order. Use when comparing matrices from different sources.
 
@@ -287,6 +287,7 @@ def _resolve(start_method, sharing):
 
 def _get_workers():
     """Might as well use max number of workers"""
+    return os.cpu_count()
 
 
 class RowHasher:
