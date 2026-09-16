@@ -76,7 +76,6 @@ _METHANESULFONATE = ("CH4O3S", "CH3O3S-")
 # the prefix test was really there to allow for.
 _OXALATE = ("C2H2O4", "C2HO4", "C2O4")
 _TARTRATE = ("C4H6O6", "C4H5O6", "C4H4O6")
-_CHARGE_SUFFIX = re.compile(r"[+-]\d*$")
 
 # ISA64382 is the parent class of the sulfonate counterions -- tosylate, mesylate,
 # besylate, napsylate, napadisylate -- and cannot be a closed formula list the way
@@ -106,9 +105,74 @@ def _is_sulfonate(formula: str) -> bool:
     return bool(sulfur) and counts.get("O", 0) == 3 * sulfur
 
 
-def _neutralised(formula: str) -> str:
-    """A fragment formula with RDKit's trailing charge removed: "C4H5O6-" -> "C4H5O6"."""
+# Charge suffix as RDKit spells a fragment: "Cl-", "Na+", "O4S-2".
+_CHARGE_SUFFIX = re.compile(r"[+-]\d*$")
+
+
+def _uncharged(formula: str) -> str:
+    """A fragment formula without its charge suffix: ``"O4S-2"`` -> ``"O4S"``."""
     return _CHARGE_SUFFIX.sub("", formula)
+
+
+# Butenedioate has no class table of its own: maleate and fumarate share a formula
+# and are told apart by geometry, not composition. The stoichiometry counter still
+# has to know it is a counterion, so it is listed here -- acid and both anions.
+_BUTENEDIOATE = ("C4H4O4", "C4H3O4", "C4H2O4")
+
+# Every formula the gate counts as a counterion, charge-stripped, assembled from
+# the per-class tables above instead of restated beside them.
+#
+# CON-02 used to keep its own list and it held almost no anionic spellings, so an
+# ionically drawn salt had its counterion counted as *base*: "X mono tosylate"
+# drawn as a cation plus C7H7O3S- gave salt_n 0 and base_n 2, and CON-02 reported
+# "implies 1 counterion(s) per base, structure has 0" at high on a record whose
+# stoichiometry was exactly right. Hydrogen maleate, oxalate, tartrate and mesylate
+# had the same shape, and the halide and alkali-metal rules were unaffected only
+# because "Cl-" and "Na+" happened to be in both lists.
+#
+# Reachable but *latent* on the 290-record batch, and that is worth recording so
+# nobody re-derives it as urgent: every ionic drawing in there is a halide or an
+# alkali metal (Na+ 7, I- 5, Br- 2, K+ 2, all in both lists already) or a charged
+# parent, which is correctly not a counterion. Reclassifying every fragment of all
+# 290 records moves zero of them, so the baseline anchor is unchanged by this fix
+# -- it is a latent false `high` on a drawing convention this batch happens not to
+# use, not a finding that was firing.
+#
+# Having a second table *was* the defect, so this is deliberately the only one: a
+# counterion added for a class rule is one the counter recognises for free.
+COUNTERIONS = frozenset(
+    _uncharged(x)
+    for x in (
+        *(ion for ions in _HALIDES.values() for ion in ions),
+        *_IODIDE,
+        *_ORGANIC_BROMIDE,
+        *_SODIUM,
+        *_POTASSIUM,
+        *_SULFATE,
+        *_METHANESULFONATE,
+        *_OXALATE,
+        *_TARTRATE,
+        *_BUTENEDIOATE,
+    )
+)
+
+
+def is_counterion(formula: str) -> bool:
+    """Whether a fragment formula is a counterion rather than base or solvent.
+
+    Indifferent to how the charge is spelled, because the same salt is drawn
+    neutral by some depositors and ionic by others and the stoichiometry is
+    identical either way. The sulfonates are recognised by composition rather than
+    by list, exactly as :func:`class_supported` does it, so the whole family --
+    tosylate, mesylate, besylate, napsylate, napadisylate -- is covered in both
+    spellings without enumerating them.
+
+    Solvates are not counterions and are not counted here; a caller that needs to
+    exclude them from a base count checks :data:`SOLVATES` as well, because "is
+    this solvent" and "is this a counterion" are two questions and CON-03 owns the
+    first one.
+    """
+    return _uncharged(formula) in COUNTERIONS or _is_sulfonate(formula)
 
 
 def class_name(code: str) -> str | None:
@@ -158,9 +222,9 @@ def class_supported(name: str, structure: Structure) -> bool:
     if name == "fumarate":
         return bool(structure.geoms) and all(g == "E" for g in structure.geoms)
     if name == "oxalate":
-        return any(_neutralised(x) in _OXALATE for x in frags)
+        return any(_uncharged(x) in _OXALATE for x in frags)
     if name == "tartrate":
-        return any(_neutralised(x) in _TARTRATE for x in frags)
+        return any(_uncharged(x) in _TARTRATE for x in frags)
     if name == "sodium":
         return any(x in _SODIUM for x in counter)
     if name == "potassium":

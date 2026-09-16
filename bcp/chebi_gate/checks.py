@@ -152,17 +152,6 @@ PREFIX_COUNT = {
 # asserts nothing about the ratio.
 AMBIGUOUS_RATIO_SALTS = ("napadisylate", "sulfate", "sulphate", "oxalate", "tartrate")
 
-# Counterion formulae counted as the salt component for stoichiometry.
-SALT_FRAGMENTS = ("HCl", "Cl-", "HBr", "Br-", "I-", "HI", "Na+", "K+")
-# Matched whole, with RDKit's optional trailing charge. It was `.match`, which is
-# a prefix test, so any fragment merely *beginning* like a counterion counted
-# toward CON-02's ratio: C4H2O4S, C2H2O4N2 and even C4H4O44 all passed. The charge
-# suffix is the only thing the prefix was really there to allow for, so it is
-# spelled out. Checked against the reference batch: of its 292 distinct fragment
-# formulae, none changes verdict.
-SALT_FRAGMENT_RE = re.compile(
-    r"(?:C4H[24]O4|C2H2O4|H2O4S|C7H8O3S|CH4O3S|C4H6O6|C10H8O6S2)(?:[+-]\d*)?"
-)
 
 # A named solvate, with its optional multiplier prefix. Matched as a word rather
 # than as a substring: "ethanol" appears inside ordinary compound names --
@@ -577,17 +566,15 @@ def con02_stoichiometry_word(ctx: RecordContext) -> Iterator[Finding]:
     # "parent" there is the counterion. Summing keeps the 2:1 that makes its
     # ratio 0.5, and keeps a doubled base -- a hemifumarate is drawn 2:1 -- for the
     # same reason.
-    salt_n = sum(
-        v
-        for k, v in frags.items()
-        if k in SALT_FRAGMENTS or SALT_FRAGMENT_RE.fullmatch(k)
-    )
+    # `classes.is_counterion` is the single table. CON-02 used to keep a second
+    # one, which listed the neutral acid of every organic counterion and almost
+    # none of the anions, so an ionically drawn salt counted its counterion as base
+    # and this check reported a wrong ratio on a correct record.
+    salt_n = sum(v for k, v in frags.items() if classes.is_counterion(k))
     base_n = sum(
         v
         for k, v in frags.items()
-        if k not in SALT_FRAGMENTS
-        and not SALT_FRAGMENT_RE.fullmatch(k)
-        and k not in classes.SOLVATES
+        if not classes.is_counterion(k) and k not in classes.SOLVATES
     )
     ratio = salt_n / base_n if base_n else None
 

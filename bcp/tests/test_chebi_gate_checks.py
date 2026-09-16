@@ -592,6 +592,73 @@ def test_con02_accepts_a_di_prefix_with_two_counterions():
     assert ("CON-02", HIGH) not in ids(run(record))
 
 
+def test_con02_counts_an_ionically_drawn_counterion_as_the_salt():
+    """A counterion drawn as its anion is still a counterion, not more base.
+
+    CON-02 kept its own counterion table, which listed the neutral acid of every
+    organic counterion and almost none of the anions. So a tosylate drawn
+    ionically -- cation plus ``C7H7O3S-``, net charge 0, which INT-09 is happy
+    with -- had its counterion counted as *base*: ``salt_n`` 0 against ``base_n``
+    2, ratio 0.0 against a wanted 1, and a high finding reading "implies 1
+    counterion(s) per base, structure has 0" on a record whose stoichiometry is
+    exactly right. Hydrogen maleate, oxalate, tartrate and mesylate all had it.
+
+    Latent on the reference batch -- every ionic drawing there is a halide, an
+    alkali metal or a charged parent -- so no baseline number moves, and the only
+    thing standing between this and a wrongly held deposit was the drawing
+    convention the depositor happened to choose.
+    """
+    found = run(
+        salt_record(
+            name="decylamine mono tosylate",
+            mol="amine_tosylate_ionic",
+            relationship=ISA_SULFONATE,
+            iupac="x",
+        )
+    )
+    assert ("CON-02", HIGH) not in ids(found)
+
+
+def test_con02_still_reports_a_wrong_ratio_on_an_ionic_drawing():
+    """Recognising the anion must not stop the check counting.
+
+    The same fixture with a "di" prefix has to fail: one counterion against a
+    prefix asserting two. Without this, counting anionic counterions would be
+    indistinguishable from not counting at all.
+    """
+    found = run(
+        salt_record(
+            name="decylamine ditosylate",
+            mol="amine_tosylate_ionic",
+            relationship=ISA_SULFONATE,
+            iupac="x",
+        )
+    )
+    assert ("CON-02", HIGH) in ids(found)
+    assert 'name prefix "di" implies 2 counterion(s)' in detail(found, "CON-02")
+
+
+def test_con02_counts_an_ionic_halide_whose_charge_is_spelled_out():
+    """The charge suffix is stripped before the lookup, and that is load-bearing.
+
+    COUNTERIONS holds charge-stripped spellings, so ``"Cl-"`` is found as ``"Cl"``.
+    Drop the stripping and an ionically drawn chloride counts as base -- ratio 0
+    against a wanted 1 -- and unlike a tosylate there is no composition test to
+    rescue it, because a halide is not a sulfonate. This is the spelling most
+    likely to actually arrive: the reference batch draws Na+, I-, Br- and K+ this
+    way, and those escaped the old table only because it happened to list "Cl-",
+    "Br-", "I-" and "Na+" verbatim -- the very coincidence this replaces.
+    """
+    found = run(
+        salt_record(
+            name="tetramethylammonium monochloride",
+            mol="ionic_amine_chloride",
+            iupac="x",
+        )
+    )
+    assert ("CON-02", HIGH) not in ids(found)
+
+
 DIHYDRATE_NAME = "decane-1,10-diamine dihydrochloride dihydrate"
 
 
@@ -706,15 +773,18 @@ def _con02(frags: dict[str, int], name: str) -> list[checks.Finding]:
 
 
 def test_con02_does_not_count_a_fragment_that_merely_begins_like_a_counterion():
-    """`SALT_FRAGMENT_RE.match` is a prefix test, so C4H2O4S read as a fumarate.
+    """A near-miss formula is base, on both sides of the ratio.
 
-    Asserted through the check rather than against the pattern, so that reverting
-    the call site to `.match` fails too, not only editing the regex.
+    CON-02 used to carry its own counterion pattern, matched as a *prefix*, so
+    C4H2O4S read as a fumarate. That table is gone -- `classes.is_counterion` is
+    the single one now -- but the property it got wrong is the same property the
+    shared table has to keep, so this asserts through the check rather than
+    against whatever the table is spelled as today.
     """
     spurious = _con02({"C20H24N2": 1, "C4H2O4S": 2}, "foo dihydrochloride")
     assert spurious, "two C4H2O4S fragments are not two counterions"
-    # "structure has 0 (" and not "structure has 0": a prefix test left in the
-    # numerator alone gives 2/3, and "structure has 0.666667" contains the
+    # "structure has 0 (" and not "structure has 0": counting the look-alike in
+    # the numerator alone gives 2/3, and "structure has 0.666667" contains the
     # shorter string.
     assert "structure has 0 (" in spurious[0].detail, spurious[0].detail
 
