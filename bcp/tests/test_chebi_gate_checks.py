@@ -410,6 +410,96 @@ def test_con01_reports_the_sulfonate_class_on_a_record_with_no_counterion():
     assert ("CON-01", HIGH) in ids(found)
 
 
+# One row per entry in ALL_CLASSES: a fixture whose drawn counterion supports the
+# class, and one that does not. Ten of the fourteen rules had no test of any kind,
+# and each of them emits a HIGH that holds a record.
+CLASS_FIXTURES = {
+    "hydrochloride": ("amine_hcl", "amine_hi"),
+    "hydrobromide": ("amine_hbr", "amine_hcl"),
+    "iodide": ("amine_hi", "amine_hcl"),
+    "maleate": ("decylamine_maleate", "decylamine_fumarate"),
+    "fumarate": ("decylamine_fumarate", "decylamine_maleate"),
+    "oxalate": ("amine_oxalate", "amine_hcl"),
+    "tartrate": ("amine_tartrate", "amine_oxalate"),
+    "sulfate": ("amine_sulfate", "amine_mesylate"),
+    "methanesulfonate": ("amine_mesylate", "amine_sulfate"),
+    "sulfonate": ("amine_tosylate", "sulfonamide_hcl"),
+    "sodium": ("carboxylate_na", "carboxylate_k"),
+    "potassium": ("carboxylate_k", "carboxylate_na"),
+    "organic-bromide": ("quat_ammonium_br", "quat_ammonium_br_cl"),
+    "quaternary-ammonium": ("quat_ammonium_br", "amine_hcl"),
+}
+
+
+def _structure(mol: str):
+    parsed = sdf.parse_bytes(sdf_bytes(salt_record("x", mol=mol, iupac="y")))
+    return structure.analyse(parsed.records[0])
+
+
+def test_every_relationship_code_the_gate_knows_has_a_fixture():
+    """A class added without a test is a HIGH nobody has exercised."""
+    assert set(CLASS_FIXTURES) == set(classes.ALL_CLASSES.values())
+
+
+@pytest.mark.parametrize("name", sorted(CLASS_FIXTURES))
+def test_each_class_rule_accepts_its_own_counterion_and_rejects_another(name):
+    supporting, contradicting = CLASS_FIXTURES[name]
+    assert classes.class_supported(name, _structure(supporting)), name
+    assert not classes.class_supported(name, _structure(contradicting)), name
+
+
+# Every class whose rule requires *all* its counterions to be a given ion, with a
+# fixture of that salt carrying a water of crystallisation.
+SOLVATED_FIXTURES = {
+    "hydrochloride": "diamine_2hcl_2h2o",
+    "hydrobromide": "amine_hbr_hydrate",
+    "iodide": "amine_hi_hydrate",
+    "organic-bromide": "quat_ammonium_br_hydrate",
+}
+
+
+@pytest.mark.parametrize("name", sorted(SOLVATED_FIXTURES))
+def test_a_solvate_does_not_stop_a_class_being_supported(name):
+    """The fix that reached the hydrohalides and not the other two rules.
+
+    `all(x in allowed for x in counter)` is False the moment a water of
+    crystallisation is drawn, so a correctly drawn hydrate was held at HIGH -- and
+    ISA48369 exists for quaternary bromides, which are commonly hydrates. The
+    message did not even name a reason: `unsupported_reason` explains only the
+    hydrohalide branch, so it read "counterions ['Br-', 'H2O'], geometry []".
+    """
+    drawn = _structure(SOLVATED_FIXTURES[name])
+    assert "H2O" in drawn.counter, name
+    assert classes.class_supported(name, drawn), name
+
+
+def test_con01_accepts_a_quaternary_ammonium_under_its_own_class():
+    """classes.py devotes a paragraph to ISA48369 not getting the hydrohalide test.
+
+    Nothing pinned it: the stricter rule "would look like the safer choice and
+    would reject every correctly reclassified record".
+    """
+    record = salt_record(
+        name="tetramethylammonium bromide",
+        mol="quat_ammonium_br",
+        iupac="x",
+        relationship="ISA35273",
+    )
+    assert ("CON-01", HIGH) not in ids(run(record))
+
+
+def test_a_fragment_that_merely_begins_like_a_tartrate_is_not_one():
+    """`startswith` is not formula equality: C4H6O6 is a prefix of C4H6O6S."""
+    from chebi_gate.structure import Structure
+
+    assert not classes.class_supported(
+        "tartrate", Structure(parse=True, frags={"C4H6O6S": 1}, counter=["C4H6O6S"])
+    )
+    assert classes.class_supported(
+        "tartrate", Structure(parse=True, frags={"C4H5O6-": 1}, counter=["C4H5O6-"])
+    )
+
+
 def test_con01_reports_a_quaternary_cation_asserted_as_a_hydrohalide():
     found = run(
         salt_record(

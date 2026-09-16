@@ -14,6 +14,8 @@ rather than silent acceptance of a code nobody has checked.
 
 from __future__ import annotations
 
+import re
+
 from .formula import parse as parse_formula
 from .structure import Structure
 
@@ -67,8 +69,14 @@ _SODIUM = ("Na", "Na+")
 _POTASSIUM = ("K", "K+")
 _SULFATE = ("H2O4S", "HO4S-", "O4S-2")
 _METHANESULFONATE = ("CH4O3S", "CH3O3S-")
-_OXALATE_PREFIXES = ("C2H2O4", "C2HO4", "C2O4")
-_TARTRATE_PREFIXES = ("C4H6O6", "C4H5O6", "C4H4O6")
+# Protonation states of one counterion, as whole formulae with an optional charge
+# suffix. They were prefix tests, and a prefix is not a formula: "C4H6O6" is a
+# prefix of "C4H6O6S", so a fragment that merely begins like a tartrate counted as
+# one. The charge suffix is matched explicitly instead, which is the only thing
+# the prefix test was really there to allow for.
+_OXALATE = ("C2H2O4", "C2HO4", "C2O4")
+_TARTRATE = ("C4H6O6", "C4H5O6", "C4H4O6")
+_CHARGE_SUFFIX = re.compile(r"[+-]\d*$")
 
 # ISA64382 is the parent class of the sulfonate counterions -- tosylate, mesylate,
 # besylate, napsylate, napadisylate -- and cannot be a closed formula list the way
@@ -96,6 +104,11 @@ def _is_sulfonate(formula: str) -> bool:
         return False
     sulfur = counts.get("S", 0)
     return bool(sulfur) and counts.get("O", 0) == 3 * sulfur
+
+
+def _neutralised(formula: str) -> str:
+    """A fragment formula with RDKit's trailing charge removed: "C4H5O6-" -> "C4H5O6"."""
+    return _CHARGE_SUFFIX.sub("", formula)
 
 
 def class_name(code: str) -> str | None:
@@ -145,9 +158,9 @@ def class_supported(name: str, structure: Structure) -> bool:
     if name == "fumarate":
         return bool(structure.geoms) and all(g == "E" for g in structure.geoms)
     if name == "oxalate":
-        return any(x.startswith(_OXALATE_PREFIXES) for x in frags)
+        return any(_neutralised(x) in _OXALATE for x in frags)
     if name == "tartrate":
-        return any(x.startswith(_TARTRATE_PREFIXES) for x in frags)
+        return any(_neutralised(x) in _TARTRATE for x in frags)
     if name == "sodium":
         return any(x in _SODIUM for x in counter)
     if name == "potassium":

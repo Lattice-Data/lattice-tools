@@ -412,8 +412,20 @@ A second round found more, and these are fixed here too:
   severity, are keyed on it so they cannot absorb a different finding from the
   same check, and one that waived nothing is reported.
 
-All twelve findings from the second review round are fixed. Anything found later
-goes in the branch discussion rather than being fixed silently.
+The PR review then found more, and these are fixed too:
+
+- Ten of the fourteen `RELATIONSHIP` codes had no test of any kind, and each of
+  their rules emits a `high` that holds a record. That gap is why the solvate
+  exemption could be fixed for the hydrohalides and left broken for `iodide` and
+  `organic-bromide` — see the commit above this one. Every class now has a
+  supporting and a contradicting fixture, and a test asserts the table's keys
+  equal `ALL_CLASSES`, so a class added without a test fails rather than shipping
+  unexercised.
+- The oxalate and tartrate rules matched a formula *prefix*, so `C4H6O6S` counted
+  as a tartrate. They compare whole formulae with the charge suffix stripped.
+
+Anything found later goes in the branch discussion rather than being fixed
+silently.
 
 ## What is not built
 
