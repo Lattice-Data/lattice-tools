@@ -51,7 +51,31 @@ RECORD_TERMINATOR = b"$$$$\n"
 _TERMINATOR = re.compile(rb"\$\$\$\$\r?\n")
 
 # The molfile ends at this marker; everything after it is the data-field block.
-MOL_END = "\nM  END\n"
+#
+# Matched with either line ending, because a CRLF file ends its molfile
+# "\r\nM  END\r\n" and a bare-LF marker found none of it: `partition` returned an
+# empty separator, the data-field loop never ran, and every record of a CRLF file
+# parsed with no fields at all. INT-06 reports CRLF at `low`, which holds nothing,
+# so such a file was instead held by INT-02 and INT-03 findings naming defects it
+# did not have -- a missing NAME on a record whose NAME was right there. This is
+# the record-terminator bug one layer up, and it hid for the same reason: the old
+# test asserted boundaries and round-trip bytes, never a parsed field value.
+_MOL_END = re.compile(r"\r?\nM  END\r?\n")
+
+
+def _partition_mol_end(text: str) -> tuple[str, str, str]:
+    """``str.partition`` over :data:`_MOL_END`, so both callers split identically.
+
+    Returning the matched text as the separator keeps the span arithmetic in
+    :func:`_build` correct: ascii+surrogateescape maps one byte to one character,
+    so ``len(head) + len(sep)`` still indexes the original bytes whether the marker
+    arrived with a carriage return or without one.
+    """
+    match = _MOL_END.search(text)
+    if match is None:
+        return text, "", ""
+    return text[: match.start()], match.group(0), text[match.end() :]
+
 
 # One data field: "> <TAG>", the value on following lines, terminated by a blank
 # line that precedes the next "> <" or by end of record.
@@ -62,7 +86,7 @@ MOL_END = "\nM  END\n"
 # and the baseline stops reproducing. In particular the value is non-greedy and
 # the terminator is a lookahead, so a value containing a blank line runs on until
 # a blank line followed by "> <".
-_DATA_FIELD = re.compile(r"> <([^>]+)>\n(.*?)(?=\n\n> <|\n*\Z)", re.S)
+_DATA_FIELD = re.compile(r"> <([^>]+)>\r?\n(.*?)(?=\r?\n\r?\n> <|(?:\r?\n)*\Z)", re.S)
 
 # Text is decoded from bytes with ascii+surrogateescape, which maps each byte to
 # exactly one character. That one-to-one mapping is what lets a span measured in
@@ -114,7 +138,7 @@ class SdfRecord:
     @property
     def mol_block(self) -> str:
         """The molfile, up to and including ``M  END``."""
-        head, sep, _ = self.text.partition(MOL_END)
+        head, sep, _ = _partition_mol_end(self.text)
         return head + sep if sep else self.text
 
     @property
@@ -285,7 +309,7 @@ def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
     gate can never re-emit a non-ASCII record unchanged.
     """
     text = chunk.decode(_CODEC, errors=_ERRORS)
-    head, sep, rest = text.partition(MOL_END)
+    head, sep, rest = _partition_mol_end(text)
 
     data: dict[str, str] = {}
     fields: list[DataField] = []

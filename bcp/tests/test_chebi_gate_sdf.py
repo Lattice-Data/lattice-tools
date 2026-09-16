@@ -362,6 +362,41 @@ def test_crlf_terminators_still_separate_records():
     assert parsed.malformed == ()
 
 
+def test_crlf_records_parse_their_data_fields():
+    """The half the terminator regression left behind, and it hid the same way.
+
+    Splitting records on either line ending was not enough: the molfile-end marker
+    was the plain string "\\nM  END\\n", which a CRLF file spells
+    "\\r\\nM  END\\r\\n", so the separator came back empty and the data-field loop
+    never ran. Every record parsed with ``data == {}``, and the checks then held a
+    sound file for defects it did not have -- INT-03 "NAME missing or empty" on a
+    record whose NAME was present, INT-02 a title mismatch against a NAME read as
+    absent. INT-06 reports CRLF itself at ``low``, which holds nothing, so there
+    was no finding naming the real problem and no route out of it.
+
+    Asserting a *field value* is the point. The test above asserts boundaries and
+    round-trip bytes, and both were already correct while every field was missing.
+    """
+    lf = sdf_bytes(salt_record(iupac="x"), neutral_record(cas="64-17-5", iupac="y"))
+    crlf = lf.replace(b"\n", b"\r\n")
+
+    from_lf = [r.data for r in sdf.parse_bytes(lf).records]
+    from_crlf = [r.data for r in sdf.parse_bytes(crlf).records]
+
+    assert from_crlf == from_lf
+    assert from_crlf[0]["NAME"] == "ethylamine hydrochloride"
+    assert from_crlf[0]["CAS_NO"] == "557-66-4"
+    assert from_crlf[0]["RELATIONSHIP"] == "ISA36807"
+    # No stray carriage return survives into a value, or every CAS and every
+    # RELATIONSHIP code would miss its join key by one character.
+    assert not any("\r" in v for d in from_crlf for v in d.values())
+    # The tag order the annotator writes against, and the spans it removes by, both
+    # have to survive too.
+    assert [r.tag_order for r in sdf.parse_bytes(crlf).records] == [
+        r.tag_order for r in sdf.parse_bytes(lf).records
+    ]
+
+
 def test_the_exact_terminator_bytes_are_preserved_per_record():
     mixed = sdf_bytes(salt_record(iupac="x")).replace(
         b"$$$$\n", b"$$$$\r\n"
