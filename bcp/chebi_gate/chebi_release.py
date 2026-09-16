@@ -433,7 +433,16 @@ def _file_stats(path: Path) -> dict:
 
 
 def load_index(index_dir: str | Path) -> Index:
-    """Load a distilled index."""
+    """Load a distilled index.
+
+    ``by_cas``, ``stars`` and ``secondary_to_primary`` are built and hashed but no
+    check consults them yet. They are kept deliberately: the CAS index is what a
+    future EXT check needs to ask "is this CAS already in ChEBI" without a
+    structure, and `secondary_ids.tsv` is the table whose absence made the
+    prototype's merged-entry reasoning wrong. Distilling them now means the
+    question is answerable against an index already in hand rather than after a
+    re-download.
+    """
     index_dir = Path(index_dir)
     manifest_path = index_dir / INDEX_MANIFEST
     if not manifest_path.exists():

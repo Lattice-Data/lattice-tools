@@ -276,7 +276,13 @@ class SdfFile:
                 f"record {unterminated[0]} is not terminated by $$$$; the file is "
                 "truncated or was hand-edited"
             )
-        if self.trailer.strip():
+        if self.trailer.strip():  # pragma: no cover - see below
+            # Unreachable from `parse_bytes`, which turns a non-blank tail into an
+            # unterminated record, so `trailer` only ever holds whitespace and the
+            # branch above catches that case instead. Kept because `SdfFile` is
+            # constructible directly and the invariant it states is the real one:
+            # nothing may follow the last terminator. The doc used to describe it
+            # as a live second path; it is a backstop.
             problems.append(
                 f"{len(self.trailer)} bytes follow the last terminator: "
                 f"{self.trailer[:40]!r}"

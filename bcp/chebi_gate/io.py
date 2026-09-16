@@ -116,13 +116,17 @@ def _annotation(gate_run: GateRun, result) -> dict[str, str]:
     # so the two cannot drift apart again.
     holds = {id(f) for f in result.blocking}
     holds |= {id(f) for f in gate_run.file_findings if not _clears(gate_run, f)}
-    reasons = "\n".join(
+    # The record's own ending, like every other field `with_fields` writes. These
+    # two were the one place commit 42ae814 missed, so a CRLF held file came out
+    # with CRLF everywhere except inside these values.
+    nl = result.record.newline
+    reasons = nl.join(
         f"{f.check} [{f.severity}]"
         f"{' HOLDS' if id(f) in holds else ''}"
         f"{' independent' if f.is_independent else ' circular'} {f.detail}"
         for f in findings
     )
-    evidence = "\n".join(sorted({f.evidence for f in findings if f.evidence}))
+    evidence = nl.join(sorted({f.evidence for f in findings if f.evidence}))
     held_by = sorted({f.check for f in findings if id(f) in holds})
     return {
         "GATE_STATUS": STATUS_HELD,

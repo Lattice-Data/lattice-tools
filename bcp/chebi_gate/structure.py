@@ -190,7 +190,11 @@ def _base_inchikey(biggest: Chem.Mol) -> str | None:
 
 
 def _zero_coords(mol: Chem.Mol) -> bool:
-    """Whether every atom sits at the origin, i.e. the record carries no drawing."""
+    """Whether every atom sits at the 2D origin, i.e. the record carries no drawing.
+
+    x and y only. A molfile depiction is two-dimensional, so a z of zero says
+    nothing either way and testing it would call a legitimate 3D record undrawn.
+    """
     if not mol.GetNumConformers():
         return False
     conf = mol.GetConformer()

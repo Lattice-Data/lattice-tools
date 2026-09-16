@@ -127,15 +127,45 @@ def test_a_cleared_record_is_byte_identical_to_its_input(tmp_path, mixed_input):
     assert b"GATE_" not in outputs.cleared.read_bytes()
 
 
-def test_the_gate_refuses_to_clear_a_record_that_is_already_annotated(tmp_path):
-    """Re-running on the gate's own held file must not launder an annotation."""
-    record = sdf.parse_bytes(sdf_bytes(salt_record(iupac="x"))).records[0]
-    annotated = record.with_fields({"GATE_STATUS": "HELD"}) + sdf.RECORD_TERMINATOR
+def test_a_previous_runs_annotation_is_stripped_rather_than_laundered(tmp_path):
+    """The invariant is that a cleared record carries no annotation, not that the
+    gate refuses to read its own output.
+
+    Refusing was how it was enforced, and it made the documented five-step recipe
+    impossible: the held file is an SDF precisely so a fixed record goes straight
+    back in. Under the default policy INT-02 held every record of it on
+    "unexpected tags"; with --allow-medium the record cleared and tripped this
+    invariant, which aborts the whole run with no outputs written.
+    """
+    original = sdf.parse_bytes(sdf_bytes(salt_record(iupac="x"))).records[0]
+    annotated = original.with_fields({"GATE_STATUS": "HELD"}) + sdf.RECORD_TERMINATOR
     path = tmp_path / "already.sdf"
     path.write_bytes(annotated)
 
-    with pytest.raises(client.GateError, match="GATE_STATUS"):
-        client.run(path, allow_medium=True)
+    run = client.run(path, allow_medium=True)
+
+    assert len(run.cleared) == 1
+    cleared = run.cleared[0].record
+    assert not [t for t in client.GATE_FIELDS if t in cleared.data]
+    assert cleared.raw == original.raw, "stripped back to what it was before gating"
+
+
+def test_the_held_file_can_be_fed_straight_back_in(tmp_path):
+    """The workflow the module exists for, end to end and under the default policy."""
+    path = tmp_path / "batch.sdf"
+    path.write_bytes(
+        sdf_bytes(salt_record(iupac="x"), salt_record(name="bad", cas="1", iupac="x"))
+    )
+    first = client.run(path)
+    outputs = gate_io.write(first, tmp_path / "out", stem="batch")
+    assert first.held
+
+    again = client.run(outputs.held)
+    assert [r.record.name for r in again.results] == [r.record.name for r in first.held]
+    # Judged on their own content, not on the annotation they arrived with.
+    assert not [f for r in again.results for f in r.findings if f.check == "INT-02"], (
+        "the GATE_* fields must not read as unexpected tags"
+    )
 
 
 def test_every_output_file_is_written_even_when_empty(tmp_path, clean_input):
@@ -930,6 +960,27 @@ def test_a_crlf_file_clears_every_record(tmp_path):
     assert not run.held, [(f.check, f.detail) for r in run.held for f in r.blocking]
     assert len(run.cleared) == 1
     assert [f.check for f in run.file_findings] == ["INT-06"]
+
+
+def test_a_crlf_held_file_uses_crlf_inside_the_annotation_values_too(tmp_path):
+    """GATE_REASONS and GATE_EVIDENCE joined with a literal newline.
+
+    `with_fields` frames every field with the record's ending, so a CRLF held file
+    came out CRLF everywhere except inside these two values. It still re-parses,
+    since the field terminator is a blank line followed by "> <", so this is a
+    consistency defect rather than a corruption -- and it is the one place
+    "carry the record's line ending everywhere" was missed.
+    """
+    path = tmp_path / "crlf.sdf"
+    record = salt_record(name="bad record", cas="not-a-cas", iupac="x")
+    path.write_bytes(sdf_bytes(record).replace(b"\n", b"\r\n"))
+    run = client.run(path)
+    assert run.held
+
+    outputs = gate_io.write(run, tmp_path / "out", stem="crlf")
+    held = outputs.held.read_bytes()
+    assert b"\r\n" in held
+    assert b"\n" not in held.replace(b"\r\n", b""), "a bare LF survived somewhere"
 
 
 def test_a_holding_file_finding_is_marked_as_holding_in_the_annotation(tmp_path):

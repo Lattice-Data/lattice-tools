@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -171,9 +171,38 @@ def run(
             + ". Fix the file before gating it."
         )
 
+    # A held record carries GATE_* fields, and the whole point of writing the held
+    # file as an SDF is that a fixed record goes straight back in. It could not:
+    # none of the GATE_* tags is in EXPECTED_TAGS, so INT-02 reported "unexpected
+    # tags" at medium and held every record of the held file -- measured, 193 of
+    # 193 -- and with --allow-medium the record cleared instead and tripped the
+    # byte-identity invariant, which aborts the whole run with no outputs written
+    # at all. The documented five-step recipe could not complete under either
+    # policy.
+    #
+    # Stripping them on load is the resolution that keeps invariant 2 rather than
+    # weakening it: the annotations are removed, not tolerated, so a cleared record
+    # still carries none and an annotation still cannot be laundered through a
+    # re-run. What changes is the baseline for "byte-identical" -- it is the input
+    # with any previous run's annotation taken off, which is what the record was
+    # before the gate touched it.
+    annotated = [r for r in parsed.records if any(t in r.data for t in GATE_FIELDS)]
+    if annotated:
+        log.info(
+            "%d of %d records arrived carrying a previous run's GATE_* annotation; "
+            "stripping it before judging them",
+            len(annotated),
+            len(parsed.records),
+        )
+    records = (
+        [_strip_annotation(r) for r in parsed.records]
+        if annotated
+        else (parsed.records)
+    )
+
     contexts = [
         RecordContext(record=record, structure=structure_mod.analyse(record), role=role)
-        for record in parsed.records
+        for record in records
     ]
 
     results = [RecordResult(context=ctx) for ctx in contexts]
@@ -243,6 +272,25 @@ def run(
     }
     _assert_invariants(gate_run, parsed)
     return gate_run
+
+
+def _strip_annotation(record: sdf_mod.SdfRecord) -> sdf_mod.SdfRecord:
+    """One record with any GATE_* field removed, re-parsed from the stripped bytes.
+
+    Re-parsed rather than edited in place so every span, tag order and value comes
+    from the same reader the rest of the gate uses -- the alternative is a second
+    notion of where a field ends, which is the defect the byte-span removal was
+    introduced to fix.
+    """
+    if not any(tag in record.data for tag in GATE_FIELDS):
+        return record
+    stripped = record.without_fields(GATE_FIELDS)
+    reparsed = sdf_mod.parse_bytes(stripped + sdf_mod.RECORD_TERMINATOR)
+    if not reparsed.records:  # pragma: no cover - a record cannot strip to nothing
+        return record
+    return replace(
+        reparsed.records[0], index=record.index, terminator=record.terminator
+    )
 
 
 def _apply_decisions(

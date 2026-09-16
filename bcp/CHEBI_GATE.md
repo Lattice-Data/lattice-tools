@@ -20,6 +20,15 @@ out/mysubmission_run_manifest.json  what was judged, against what, by which chec
 Exit status is 0 if every record cleared, 1 if any was held, 2 on a usage or input
 error, so it drops into a pipeline unchanged.
 
+**The default holds on `medium`, and that is strict.** Synonym hygiene alone —
+SYN-01 and SYN-02 — is `medium` and fires on 251 and 165 of the 290 records of
+the reference batch, so the bare command above holds 275 of 290 on a batch that
+was in fact deposited. `--allow-medium` is what makes the run report 280 cleared
+and 10 held. Neither number is the interesting one on its own: the point is that
+the default answers "what is not perfectly clean" and `--allow-medium` answers
+"what would I not send", and a caller has to choose which question they are
+asking. The figures below come from `--allow-medium` with the shipped decisions.
+
 This sits downstream of the per-run ChEBI identification work described in
 [CHEBI_IDENTIFICATION.md](CHEBI_IDENTIFICATION.md), whose `phase12` step builds the
 bulk SDFs. It reuses this repo's existing pieces rather than duplicating them:
@@ -46,6 +55,14 @@ held-back decisions live in prose instead of data, so they live in data:
 ```
 
 Nobody edits code to release a record. That is the whole design.
+
+Step 4 takes the held file itself: a record arriving with a previous run's
+`GATE_*` fields has them stripped before it is judged, so the annotation cannot
+be laundered into a cleared record and cannot be read as an unexpected tag
+either. Both of those used to happen — under the default policy INT-02 held every
+record of the held file on "unexpected tags", and with `--allow-medium` the
+record cleared and tripped the byte-identity invariant, which aborts the run and
+writes nothing at all. The recipe above could not complete under either policy.
 
 ## Independent versus circular evidence
 
@@ -272,9 +289,8 @@ without the run directory, which is every CI machine. Copy
 tests always run and carry the logic; what CI does not have is the 290-record
 scale and the v1 comparison.
 
-The inputs are gitignored, so those tests skip with a reason when the run
-directory is absent. Every check itself is covered by fixture-based tests that
-always run.
+Every check itself is covered by fixture-based tests that always run; what the
+anchor adds is scale and the v1 comparison.
 
 ## Three things the handoff got wrong
 
@@ -556,6 +572,27 @@ external pass; INT-02 no longer reports a title differing from a NAME that is
 absent; EXT-04 says nothing about a record with no CAS number instead of
 reporting no registry row for it; and the `cas_registry` imports are at module
 level, as the sibling packages have them.
+
+A seventh pass found the two that mattered most, and both are fixed:
+
+- The re-run workflow did not work. See the note under the five-step recipe: a
+  held record fed back in was held again by INT-02 on the annotation the gate
+  itself had written, or cleared and aborted the whole run. `GATE_*` is stripped
+  on load now, which keeps invariant 2 rather than weakening it — the annotation
+  is removed, not tolerated.
+- The headline numbers were unreachable from the documented command, and wrong.
+  The quick start now says what the default policy does; `--allow-medium` with
+  the shipped decisions gives 280 cleared and 10 held, not the 283 and 7 that had
+  been quoted. The 10 are the 7 quarantine rows plus three records held by
+  unwaived `high` findings: two quaternary bromides asserting `ISA48367`, which is
+  the reclassification `ISA48369` exists for, and one ambiguous name (CON-10).
+
+Two questions the reviewer raised are for a chemist rather than the code, and are
+open: whether SYN-01 and SYN-02 should hold at `medium` at all, given they alone
+hold 251 and 165 of 290 records that were in fact deposited; and whether
+`CATALOGUE_ID`'s trailing pattern should be narrowed, since it is capable of
+matching a hyphenated research designation such as `WAY-100635` as well as the
+vendor codes it is aimed at.
 
 One question is still open, and belongs to whoever owns the deposit rather than
 to the code: whether a redacted subset of the reference batch should be committed
