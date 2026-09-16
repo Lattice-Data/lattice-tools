@@ -534,3 +534,27 @@ def test_a_solvated_hydrohalide_still_satisfies_its_class():
 def test_formula_comparison_is_reused_not_reimplemented():
     """EXT-04 must read the same comparator the formula tests pin."""
     assert external.formula_mod is formula
+
+
+def test_ext04_does_not_hold_a_record_for_an_unreadable_registry_formula(tmp_path, ctx):
+    """Both sides of UNPARSEABLE were HIGH, so a bad table cell held a good record.
+
+    formula.py's own example is a vendor code that lost its space in a SciFinder
+    export -- a defect in evidence assembled by hand from PDFs, not in the record.
+    `Comparison.checked` already classes UNPARSEABLE with the statuses that
+    checked nothing; the severity agrees with that now.
+    """
+    evidence = external.Evidence(
+        registry=registry(tmp_path, molecular_formula="WAG994")
+    )
+    (finding,) = list(external.ext04(evidence, ctx))
+    assert finding.severity == MEDIUM
+    assert "could not be parsed" in finding.detail
+
+
+def test_ext04_still_holds_a_record_whose_own_formula_is_unreadable():
+    """The other side of the split: that one is the record's defect."""
+    verdict = formula.compare("C2H6O", "WAG994")
+    assert verdict.status == formula.UNPARSEABLE
+    assert verdict.unparseable_side == "drawn"
+    assert formula.compare("WAG994", "C2H6O").unparseable_side == "registry"

@@ -44,15 +44,6 @@ log = logging.getLogger(__name__)
 # is more useful than an unattributed warning, so the raw stream is silenced.
 RDLogger.DisableLog("rdApp.*")
 
-# Counterion formulae treated as the salt component when counting stoichiometry.
-# RDKit writes these as CalcMolFormula strings, so they carry charges the way RDKit
-# spells them ("Cl-", not "[Cl-]").
-HALIDE_COUNTERIONS = {
-    "hydrochloride": ("Cl", "HCl", "Cl-"),
-    "hydrobromide": ("Br", "HBr", "Br-"),
-    "iodide": ("I", "HI", "I-"),
-}
-
 WATER_FORMULA = "H2O"
 ETHANOL_FORMULA = "C2H6O"
 
@@ -155,7 +146,7 @@ def analyse(record: SdfRecord) -> Structure:
         net_charge=Chem.GetFormalCharge(mol),
         zero_coords=_zero_coords(mol),
         cation_n_noh=_cation_n_noh(biggest),
-        geoms=_double_bond_geometries(others),
+        geoms=_double_bond_geometries(frags),
         **_stereo_counts(mol),
         chiral_flag=_chiral_flag(record.counts_line),
     )
@@ -226,16 +217,26 @@ def _cation_n_noh(biggest: Chem.Mol) -> int:
     )
 
 
-def _double_bond_geometries(others: list[Chem.Mol]) -> list[str]:
-    """E/Z of the C=C in each butenedioate counterion, or "undefined".
+def _double_bond_geometries(frags) -> list[str]:
+    """E/Z of the C=C in each butenedioate fragment, or "undefined".
 
     Maleate and fumarate are the same formula and differ only here, so this is the
     only evidence that separates the two classes. "undefined" is reported rather
     than guessed: a maleate drawn with an unspecified double bond is a defect that
     a chemist has to resolve, not a maleate.
+
+    Every fragment, not every fragment *except the largest*. Maleic acid has eight
+    heavy atoms, so a base smaller than that -- GABA has seven -- makes the
+    counterion the parent, and the geometry that tells maleate from fumarate was
+    then never looked at: `geoms` came back empty and CON-01 reported "class
+    maleate not supported" at high on a correctly drawn record. This is the same
+    shape as the sulfonate rule, which scans every fragment for the same reason,
+    and the formula filter below is what keeps it honest -- only a fragment whose
+    whole formula is butenedioate-shaped is inspected, so a parent's own C=C is
+    not mistaken for a counterion's.
     """
     geoms: list[str] = []
-    for frag in others:
+    for frag in frags:
         if not re.fullmatch(
             r"C4H[234]O4[+-]?\d?", rdMolDescriptors.CalcMolFormula(frag)
         ):

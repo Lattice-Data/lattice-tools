@@ -95,10 +95,6 @@ _CODEC = "ascii"
 _ERRORS = "surrogateescape"
 
 
-class SdfError(Exception):
-    """Raised when an SDF cannot be parsed or a re-emission would not be faithful."""
-
-
 @dataclass(frozen=True)
 class DataField:
     """One data field and where it sits in the record's bytes."""

@@ -218,9 +218,21 @@ def class_supported(name: str, structure: Structure) -> bool:
         # Maleate and fumarate are the same formula. Geometry is the only evidence,
         # and "undefined" is not treated as either: a maleate drawn with an
         # unspecified double bond is a defect for a chemist, not a maleate.
-        return bool(structure.geoms) and all(g == "Z" for g in structure.geoms)
+        #
+        # `counter` is the "there is a counterion at all" test, as it is for the
+        # sulfonate rule: the geometry is read from every fragment, so a lone
+        # maleic acid record would otherwise satisfy the class on its own C=C.
+        return (
+            bool(counter)
+            and bool(structure.geoms)
+            and all(g == "Z" for g in structure.geoms)
+        )
     if name == "fumarate":
-        return bool(structure.geoms) and all(g == "E" for g in structure.geoms)
+        return (
+            bool(counter)
+            and bool(structure.geoms)
+            and all(g == "E" for g in structure.geoms)
+        )
     if name == "oxalate":
         return any(_uncharged(x) in _OXALATE for x in frags)
     if name == "tartrate":

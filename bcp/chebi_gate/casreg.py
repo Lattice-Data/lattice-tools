@@ -28,6 +28,7 @@ The consequences are designed for rather than papered over:
 from __future__ import annotations
 
 import csv
+import io
 import hashlib
 import logging
 from dataclasses import dataclass
@@ -163,8 +164,11 @@ def load(path: str | Path) -> Registry:
             f"CAS registry table not found: {path}. It is produced by parsing the "
             "SciFinder PDF exports; the gate never fetches CAS data."
         )
+    # Read once. The hash and the rows came from two separate reads of the same
+    # path, so a table rewritten between them would be hashed as one file and
+    # parsed as another -- and the manifest pins the run by that hash.
     data = path.read_bytes()
-    with path.open(newline="", encoding="utf-8") as handle:
+    with io.StringIO(data.decode("utf-8")) as handle:
         reader = csv.DictReader(handle)
         header = tuple(reader.fieldnames or ())
         missing = [c for c in REGISTRY_COLUMNS if c not in header]

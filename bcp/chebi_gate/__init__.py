@@ -5,7 +5,7 @@ from .cli import main
 from .client import GateError, GateRun, run
 from .decisions import Decisions, DecisionsError
 from .external import Evidence
-from .sdf import SdfError, SdfFile, SdfRecord, parse_bytes, parse_file, write_records
+from .sdf import SdfFile, SdfRecord, parse_bytes, parse_file, write_records
 from .structure import Structure, analyse
 
 __all__ = [
@@ -18,7 +18,6 @@ __all__ = [
     "GateError",
     "GateRun",
     "RecordContext",
-    "SdfError",
     "SdfFile",
     "SdfRecord",
     "Structure",

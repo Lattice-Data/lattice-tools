@@ -30,6 +30,7 @@ from chebi_gate import io as gate_io
 from chebi_gate import manifest as manifest_mod
 from chebi_gate import sdf
 from chebi_gate.cli import EXIT_HELD, EXIT_OK, EXIT_USAGE, main
+from tests import test_chebi_gate_release as release_fixtures
 from tests.chebi_gate_helpers import (
     ISA_MALEATE,
     neutral_record,
@@ -1087,6 +1088,60 @@ def test_the_cli_accepts_a_cache_directory_that_is_there(tmp_path, clean_input):
         ]
     )
     assert code in (EXIT_OK, EXIT_HELD)
+
+
+def test_the_cli_exits_two_on_a_bad_release_directory(tmp_path, capsys):
+    """--distil ran outside the error handler, so a typo was a traceback.
+
+    The documented contract, which the parser's own epilog repeats, is "2 on a
+    usage or input error".
+    """
+    code = main(["--distil", str(tmp_path / "nope"), str(tmp_path / "index")])
+    assert code == EXIT_USAGE
+    assert "error:" in capsys.readouterr().err
+
+
+def test_the_cli_exits_two_when_the_output_directory_cannot_be_written(
+    tmp_path, clean_input, capsys
+):
+    """gate_io.write ran after the handler, so an unwritable --out-dir did too."""
+    blocker = tmp_path / "blocked"
+    blocker.write_text("a file where a directory would go")
+    code = main(
+        [
+            str(clean_input),
+            "--out-dir",
+            str(blocker / "out"),
+            "--no-decisions",
+            "--allow-medium",
+        ]
+    )
+    assert code == EXIT_USAGE
+    assert "error:" in capsys.readouterr().err
+
+
+def test_distilling_from_the_cli_records_when_the_index_was_built(tmp_path):
+    """Only tests ever passed `generated`, so every real manifest recorded "".
+
+    CHEBI_GATE.md describes that field as the reason index_manifest.json is not
+    byte-identical between builds, which was not true of any index the CLI made.
+    """
+    release = tmp_path / "release"
+    release.mkdir()
+    for name, body in (
+        ("structures.tsv", release_fixtures.STRUCTURES),
+        ("compounds.tsv", release_fixtures.COMPOUNDS),
+        ("database_accession.tsv", release_fixtures.ACCESSIONS),
+        ("secondary_ids.tsv", release_fixtures.SECONDARY),
+        ("status.tsv", release_fixtures.STATUS),
+    ):
+        (release / name).write_text(body)
+    index_dir = tmp_path / "index"
+
+    assert main(["--distil", str(release), str(index_dir)]) == EXIT_OK
+    manifest = json.loads((index_dir / chebi_release.INDEX_MANIFEST).read_text())
+    assert manifest["generated"].endswith("Z")
+    assert manifest["generated"][:4].isdigit()
 
 
 def test_the_cli_rejects_an_unknown_role(clean_input):

@@ -264,6 +264,14 @@ Any divergence not in that table is a bug. The table is generated, and the test
 asserts the set of diverging keys equals the set recorded — so a new divergence
 fails the run rather than quietly widening the gap.
 
+**This anchor is a local gate, not a CI one.** The inputs are gitignored, so four
+of its seven tests — including both that compare against v1 — skip on any machine
+without the run directory, which is every CI machine. Copy
+`chebi_bulk_group_A_salts.sdf` and `chebi_bulk_group_B_novel.sdf` into
+`bcp/chebi_run_2026_08b/` to arm it before changing a check. The per-check fixture
+tests always run and carry the logic; what CI does not have is the 290-record
+scale and the v1 comparison.
+
 The inputs are gitignored, so those tests skip with a reason when the run
 directory is absent. Every check itself is covered by fixture-based tests that
 always run.
@@ -455,11 +463,34 @@ The PR review then found more, and these are fixed too:
   the flat-file format guarantees one structure row per compound, and a repeated
   pair made a match name the same ChEBI id twice in one finding.
 
-Two of the review's questions are for a chemist rather than for the code, and are
-left open in the PR: whether an unparseable *registry* formula should be `medium`
-("could not be checked") rather than the `high` it shares with a real
-disagreement, and where the reference run directory should be archived so the
-numbers above can be reproduced from outside this checkout.
+A second and third review pass found more, and those are fixed too:
+
+- A CRLF file parsed no data fields at all. `MOL_END` and the data-field pattern
+  were LF-only, so every record came back empty and was held by INT-02 and INT-03
+  findings naming defects it did not have — on a file whose only real problem is
+  its line endings, which INT-06 rates `low` and which holds nothing.
+- CON-02 kept its own counterion table, which listed the neutral acid of every
+  organic counterion and almost no anions, so an ionically drawn salt counted its
+  counterion as base and got a false `high`. There is one table now,
+  `classes.is_counterion`, that the class rules and the counter both read.
+- Butenedioate geometry was read from every fragment *except* the largest, so a
+  base smaller than maleic acid's eight heavy atoms — GABA has seven — left
+  nothing to look at and CON-01 called a correct maleate unsupported.
+- `--distil` ran before the error handler and the output writing after it, so a
+  mistyped release directory or an unwritable `--out-dir` produced a traceback
+  instead of the documented exit 2.
+- Nothing but the tests ever passed `generated` to `distil`, so every real
+  `index_manifest.json` recorded `""` for it. The CLI passes the wall clock now;
+  it cannot reach a run identifier, being in `RUN_ID_IGNORED_KEYS`.
+- An unparseable formula was `high` whichever side could not be read. A registry
+  formula that will not parse is a defect in a table assembled by hand from PDF
+  exports, so holding the record punishes it for the state of the evidence; that
+  case is `medium` now, and an unparseable *drawn* formula stays `high`.
+
+One question is still open, and belongs to whoever owns the deposit rather than
+to the code: whether a redacted subset of the reference batch should be committed
+so the anchor runs in CI, or the run directory archived somewhere a future
+maintainer can reach it.
 
 Anything found later goes in the branch discussion rather than being fixed
 silently.

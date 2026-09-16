@@ -297,8 +297,8 @@ def _cas(path: Path, row_no: int, raw: str) -> str:
     return normalised
 
 
-def _load_waivers(path: Path) -> dict[tuple[str, str], Waiver]:
-    out: dict[tuple[str, str], Waiver] = {}
+def _load_waivers(path: Path) -> dict[tuple[str, str, str], Waiver]:
+    out: dict[tuple[str, str, str], Waiver] = {}
     for row_no, row in _rows(path, WAIVER_COLUMNS):
         cas = _cas(path, row_no, _require(path, row_no, row, "cas"))
         ids = _check_ids(path, row_no, _require(path, row_no, row, "check_id"))

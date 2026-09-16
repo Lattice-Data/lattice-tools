@@ -544,11 +544,20 @@ def ext04(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
     )
     severity = {
         formula_mod.DISAGREE: HIGH,
-        formula_mod.UNPARSEABLE: HIGH,
         formula_mod.RATIO_UNKNOWN: MEDIUM,
         formula_mod.NO_RECORD: LOW,
         formula_mod.CONVENTION: INFO,
     }.get(comparison.status)
+    if comparison.status == formula_mod.UNPARSEABLE:
+        # Attributed to whichever side could not be read. Both used to be HIGH,
+        # which held a record at the gate's most severe level for a defect in the
+        # *evidence* -- the opposite of the rule this module applies everywhere
+        # else, that "we could not look" is a fact about the run and not about the
+        # record. formula.py's own example is a vendor code that lost its space in
+        # a hand-parsed SciFinder export. `Comparison.checked` already classes
+        # UNPARSEABLE with the statuses that did not check anything; this makes the
+        # severity agree with that.
+        severity = HIGH if comparison.unparseable_side == "drawn" else MEDIUM
     if severity is None:
         return
 

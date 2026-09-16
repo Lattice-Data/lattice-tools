@@ -513,8 +513,8 @@ def _verify_index(index_dir: Path, manifest: dict) -> None:
         if claimed.get("sha256") != measured["sha256"]:
             raise ReleaseError(
                 f"{path} does not match {INDEX_MANIFEST}: it records sha256 "
-                f"{claimed.get('sha256')} and {measured['bytes']} bytes, the file "
-                f"is {measured['sha256']} and {path.stat().st_size} bytes. "
+                f"{claimed.get('sha256')} and {claimed.get('bytes')} bytes, the "
+                f"file is {measured['sha256']} and {measured['bytes']} bytes. "
                 "Re-distil the release rather than editing an index in place."
             )
 

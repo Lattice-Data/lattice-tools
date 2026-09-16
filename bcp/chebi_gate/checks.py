@@ -740,7 +740,7 @@ def con10_name_formatting(ctx: RecordContext) -> Iterator[Finding]:
         yield ctx.finding("CON-10", LOW, "comma-style salt suffix in NAME")
     if NAME_SHORT_ALPHA.search(name):
         yield ctx.finding("CON-10", LOW, '"a-" used where "alpha-" intended')
-    if re.fullmatch(r"PMPA.*", name):
+    if name.startswith("PMPA"):
         yield ctx.finding(
             "CON-10", HIGH, "PMPA is ambiguous (also tenofovir); use 2-PMPA"
         )
@@ -929,7 +929,10 @@ def int05_duplicates(fctx: FileContext) -> Iterator[Finding]:
     a name-keyed message goes stale the moment one of the pair is renamed.
     """
     keys: tuple[tuple[str, Callable[[RecordContext], str | None]], ...] = (
-        ("CAS", lambda c: c.cas or None),
+        # cas_key, not cas: every other join in the package uses the
+        # normalised key, so grouping on the spelling let "0557-66-4" and
+        # "557-66-4" name the same substance twice without being a pair.
+        ("CAS", lambda c: c.cas_key or None),
         ("NAME", lambda c: c.name.lower() or None),
         ("InChIKey", lambda c: c.structure.inchikey),
     )
@@ -1054,14 +1057,21 @@ def ext03_declared() -> None:
 def ext04_declared() -> None:
     """The only stoichiometry evidence whose origin is not the SDF generation step.
 
-    Four severities, one per status the comparison can reach:
+    Four severities, over five outcomes -- ``unparseable`` splits, because which
+    side could not be read decides whose defect it is:
 
     high
         ``DISAGREE`` -- the registry and the drawing differ in something other
-        than hydrogen count. 3 of 290 on the reference batch.
+        than hydrogen count. 3 of 290 on the reference batch. Also
+        ``unparseable`` when it is the *drawn* formula that cannot be read, which
+        is a defect in the record.
     medium
         ``ratio-unknown-to-CAS`` -- the registry itself declines to fix the
         component ratio, so a name asserting one cannot be confirmed. 3 of 290.
+        Also ``unparseable`` when it is the *registry* formula, which is a defect
+        in a table assembled by hand from PDF exports: the record cannot be
+        checked on this axis, and holding it at high would punish the record for
+        the state of the evidence.
     low
         ``no-registry-record`` -- there is no registry row for this CAS, so the
         record cannot be checked on this axis and the report must say so rather

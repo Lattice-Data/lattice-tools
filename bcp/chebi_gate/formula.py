@@ -108,9 +108,6 @@ RATIO_UNKNOWN = "ratio-unknown-to-CAS"
 NO_RECORD = "no-registry-record"
 UNPARSEABLE = "unparseable"
 
-# Report order: worst first, so a summary reads top-down.
-STATUS_ORDER = (DISAGREE, UNPARSEABLE, RATIO_UNKNOWN, NO_RECORD, CONVENTION, AGREE)
-
 
 @dataclass(frozen=True)
 class Comparison:
@@ -121,6 +118,12 @@ class Comparison:
     registry_formula: str = ""
     drawn_formula: str = ""
     diff: dict[str, int] = field(default_factory=dict)
+    # Which side failed to parse, when the status is UNPARSEABLE: "registry" or
+    # "drawn". They are not the same kind of problem and must not carry the same
+    # severity -- an unreadable registry formula is a defect in a table assembled
+    # by hand from PDF exports, and holding the record for it punishes the record
+    # for the evidence. An unreadable drawn formula is a defect in the record.
+    unparseable_side: str = ""
 
     @property
     def confirms(self) -> bool:
@@ -300,6 +303,7 @@ def compare(
             note=f"the {which} formula could not be parsed",
             registry_formula=clean,
             drawn_formula=drawn_formula or "",
+            unparseable_side=which,
         )
 
     if left == right:

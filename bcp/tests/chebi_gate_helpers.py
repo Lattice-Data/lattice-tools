@@ -11,15 +11,14 @@ tests depend on: ``M  END`` is followed directly by ``> <NAME>`` with no blank l
 between them, each data field is ``> <TAG>`` then its value then a blank line, so a
 record ends with two newlines before its ``$$$$``.
 
-One fixture deserves a note, because it encodes a limitation rather than a
-convenience. ``decylamine_maleate`` uses a ten-carbon amine, not the ethylamine
-that would read more naturally, because the gate calls the fragment with the most
-heavy atoms the parent and everything else a counterion. Maleic acid has eight
-heavy atoms, so with a small base the acid becomes the "parent", the base becomes
-the "counterion", and the maleate/fumarate geometry check finds nothing to look
-at. Real submission records are drugs, always larger than their counterions, so
-the assumption holds there -- but a fixture has to respect it to exercise the
-check at all.
+``decylamine_maleate`` uses a ten-carbon amine rather than the ethylamine that
+would read more naturally, and the reason is worth keeping even though it is no
+longer a constraint. Maleic acid has eight heavy atoms, so with a smaller base the
+acid is the fragment with the most heavy atoms -- the "parent" -- and the geometry
+check used to inspect only the others, finding nothing to look at. That is fixed:
+geometry is read from every fragment, and ``gaba_maleate`` is the fixture that
+pins it. The larger amine stays because it is what the real submission records
+look like, not because the check needs it.
 """
 
 from __future__ import annotations

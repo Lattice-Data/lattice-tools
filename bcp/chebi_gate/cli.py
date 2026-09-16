@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import casreg, chebi_release, checks, client, decisions, external
@@ -156,55 +157,85 @@ def _evidence(args: argparse.Namespace) -> external.Evidence:
     )
 
 
+# Every failure the gate reports as a usage or input error rather than a crash.
+# OSError is in the list because the documented contract is about outcomes, not
+# about which layer raised: an unwritable --out-dir and a mistyped --cas-registry
+# are the same thing to whoever typed the command.
+INPUT_ERRORS = (
+    client.GateError,
+    decisions.DecisionsError,
+    casreg.RegistryError,
+    chebi_release.ReleaseError,
+    OSError,
+)
+
+
+def _distil(args: argparse.Namespace) -> int:
+    release_dir, index_dir = args.distil
+    index = chebi_release.distil(
+        release_dir,
+        index_dir,
+        # The wall clock, once, so index_manifest.json records when it was built.
+        # Nothing passed this but the tests, so every real manifest recorded
+        # `"generated": ""` while the docs described that field as the reason the
+        # manifest is not byte-identical between builds. It cannot affect a run
+        # identifier: `generated` is in manifest.RUN_ID_IGNORED_KEYS.
+        generated=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    )
+    print(f"indexed {len(index)} structures into {index_dir}")
+    return EXIT_OK
+
+
+def _gate(args: argparse.Namespace, sdf_path: Path) -> int:
+    evidence = _evidence(args)
+    loaded = (
+        None
+        if args.no_decisions
+        else decisions.load(args.decisions or decisions.DECISIONS_DIR)
+    )
+    gate_run = client.run(
+        sdf_path,
+        evidence=evidence,
+        decisions=loaded,
+        role=args.role,
+        allow_medium=args.allow_medium,
+        repo=Path(__file__).resolve().parent.parent,
+    )
+    out_dir = Path(args.out_dir) if args.out_dir else sdf_path.parent
+    outputs = gate_io.write(gate_run, out_dir, stem=sdf_path.stem)
+    print(gate_io.summary(gate_run, outputs))
+    return EXIT_HELD if gate_run.held else EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Run the gate, or distil a release. Never lets an input error reach a traceback.
+
+    Both branches sit inside the handler. They did not: --distil ran before it, so
+    a mistyped release directory came out as a ReleaseError traceback, and
+    gate_io.write ran after it, so an unwritable --out-dir did the same -- both
+    against a documented contract of "2 on a usage or input error" that the
+    parser's own epilog repeats.
+    """
     args = build_parser().parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s %(message)s",
     )
 
-    if args.distil:
-        release_dir, index_dir = args.distil
-        index = chebi_release.distil(release_dir, index_dir)
-        print(f"indexed {len(index)} structures into {index_dir}")
-        return EXIT_OK
-
-    if not args.sdf:
-        print("no SDF given; pass one, or use --distil", file=sys.stderr)
-        return EXIT_USAGE
-    sdf_path = Path(args.sdf)
-    if not sdf_path.exists():
-        print(f"no such file: {sdf_path}", file=sys.stderr)
-        return EXIT_USAGE
-
     try:
-        evidence = _evidence(args)
-        loaded = (
-            None
-            if args.no_decisions
-            else decisions.load(args.decisions or decisions.DECISIONS_DIR)
-        )
-        gate_run = client.run(
-            sdf_path,
-            evidence=evidence,
-            decisions=loaded,
-            role=args.role,
-            allow_medium=args.allow_medium,
-            repo=Path(__file__).resolve().parent.parent,
-        )
-    except (
-        client.GateError,
-        decisions.DecisionsError,
-        casreg.RegistryError,
-        chebi_release.ReleaseError,
-    ) as exc:
+        if args.distil:
+            return _distil(args)
+        if not args.sdf:
+            print("no SDF given; pass one, or use --distil", file=sys.stderr)
+            return EXIT_USAGE
+        sdf_path = Path(args.sdf)
+        if not sdf_path.exists():
+            print(f"no such file: {sdf_path}", file=sys.stderr)
+            return EXIT_USAGE
+        return _gate(args, sdf_path)
+    except INPUT_ERRORS as exc:
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE
-
-    out_dir = Path(args.out_dir) if args.out_dir else sdf_path.parent
-    outputs = gate_io.write(gate_run, out_dir, stem=sdf_path.stem)
-    print(gate_io.summary(gate_run, outputs))
-    return EXIT_HELD if gate_run.held else EXIT_OK
 
 
 if __name__ == "__main__":

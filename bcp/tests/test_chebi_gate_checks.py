@@ -351,6 +351,37 @@ def test_con01_separates_maleate_from_fumarate_by_geometry():
     assert ("CON-01", HIGH) in ids(run(swapped))
 
 
+def test_con01_reads_butenedioate_geometry_when_the_counterion_is_the_parent():
+    """Maleic acid is 8 heavy atoms, so a smaller base makes it the parent.
+
+    The geometry was read from every fragment *except* the largest, so GABA
+    maleate -- 7 heavy atoms against 8 -- had no geometry to look at, `geoms` came
+    back empty and CON-01 reported "class maleate not supported" at high on a
+    correctly drawn record. Same shape as the sulfonate rule, which scans every
+    fragment for the same reason.
+    """
+    record = salt_record(
+        name="GABA maleate", mol="gaba_maleate", relationship=ISA_MALEATE, iupac="x"
+    )
+    assert ("CON-01", HIGH) not in ids(run(record))
+
+
+def test_con01_still_separates_the_two_geometries_when_the_base_is_smaller():
+    """Scanning every fragment must not make the check stop discriminating."""
+    record = salt_record(
+        name="GABA fumarate", mol="gaba_maleate", relationship=ISA_FUMARATE, iupac="x"
+    )
+    assert ("CON-01", HIGH) in ids(run(record))
+
+
+def test_con01_does_not_let_a_lone_butenedioate_satisfy_its_own_class():
+    """Reading geometry from every fragment includes the record's own, if alone."""
+    record = neutral_record(
+        name="maleic acid", mol="maleic_acid", relationship=ISA_MALEATE, iupac="x"
+    )
+    assert ("CON-01", HIGH) in ids(run(record))
+
+
 def test_con01_rejects_the_sulfonate_class_when_only_the_parent_carries_s_and_o3():
     """The counterion here is HCl. The parent's own sulfonamide is not a sulfonate.
 
@@ -570,6 +601,24 @@ def test_con05_is_used_when_the_geometry_is_merely_undefined():
     found = ids(run(record))
     assert ("CON-05", HIGH) in found
     assert ("CON-01", HIGH) not in found
+
+
+def test_int05_sees_two_spellings_of_one_cas_as_a_duplicate():
+    """Every other join uses the normalised key; this one used the raw string."""
+    found = run(
+        salt_record(name="one", cas="557-66-4", iupac="x"),
+        salt_record(name="two", cas="0557-66-4", iupac="x"),
+    )
+    duplicates = [f for f in found if f.check == "INT-05" and "CAS" in f.detail]
+    assert duplicates, ids(found)
+
+
+def test_int05_does_not_call_two_different_cas_numbers_duplicates():
+    found = run(
+        salt_record(name="one", cas="557-66-4", iupac="x"),
+        salt_record(name="two", cas="64-17-5", mol="ethanol", iupac="x"),
+    )
+    assert not [f for f in found if f.check == "INT-05" and "CAS" in f.detail]
 
 
 # -------------------------------------------------------------- stoichiometry
