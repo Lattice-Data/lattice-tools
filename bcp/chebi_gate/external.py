@@ -63,6 +63,17 @@ PARENT_ONLY = "parent-only"
 MISMATCH = "mismatch"
 UNAVAILABLE = "unavailable"
 UNRESOLVED = "unresolved"
+# A source holds this CAS number and gave a key that disagrees, but it is a source
+# whose structure strings cannot refute a drawing. Distinct from UNRESOLVED, which
+# means no source holds the number at all: reusing UNRESOLVED made EXT-01 say
+# "resolves in no cached source. CAS registry export says <key>" -- a sentence that
+# contradicts itself, at `medium`, which holds. With no PubChem cache configured
+# that was the *winning* verdict, so a registry-only run would have held the 25
+# records of the reference batch whose registry key disagrees for benign reasons.
+UNADJUDICATED = "cas-source-cannot-adjudicate"
+# We could not produce a key to compare against, so nothing about the CAS number
+# was established. Blaming the candidate for that is what MISMATCH used to do.
+NOT_COMPARABLE = "not-comparable"
 
 # Lower is a more informative answer. `unavailable` deliberately outranks
 # `unresolved`: if one source could not be reached and another returned nothing,
@@ -72,8 +83,12 @@ RANK = {
     SKELETON: 1,
     PARENT_ONLY: 2,
     MISMATCH: 3,
-    UNAVAILABLE: 4,
-    UNRESOLVED: 5,
+    # "we could not look" outranks "a source looked and we cannot use the answer",
+    # which outranks "nothing holds this number", by the same reasoning as above.
+    NOT_COMPARABLE: 4,
+    UNAVAILABLE: 5,
+    UNADJUDICATED: 6,
+    UNRESOLVED: 7,
 }
 
 # The PubChem property key for an isomeric SMILES. PubChem renamed
@@ -335,6 +350,14 @@ def classify(candidate: Candidate, ctx: RecordContext) -> str:
 
     drawn = ctx.structure.inchikey
     parent = ctx.structure.base_inchikey
+    if not drawn and not parent:
+        # Our side has no key to compare. `Structure.parse` can be True while
+        # `inchikey` is None, because an RDKit InChI failure is swallowed and
+        # logged -- and with both keys None every comparison below is False, so a
+        # refutable candidate fell through to MISMATCH and EXT-01 reported "CAS
+        # resolves to a different skeleton" at high. That attributes to the CAS
+        # number a failure that happened here.
+        return NOT_COMPARABLE
     if drawn and candidate.inchikey == drawn:
         return EXACT
     if drawn and candidate.inchikey[:14] == drawn[:14]:
@@ -353,7 +376,7 @@ def classify(candidate: Candidate, ctx: RecordContext) -> str:
         # Stoichiometry is where a CAS source *is* authoritative, and EXT-04 reads
         # it from molecular_formula; that check caught all three real
         # disagreements in the batch.
-        return UNRESOLVED
+        return UNADJUDICATED
     return MISMATCH
 
 
@@ -481,6 +504,15 @@ def ext01(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
         PARENT_ONLY: (MEDIUM, "resolves to the free base or another salt form"),
         UNAVAILABLE: (MEDIUM, "could not be checked: a cached response was a failure"),
         UNRESOLVED: (MEDIUM, "resolves in no cached source"),
+        UNADJUDICATED: (
+            LOW,
+            "is registered to another structure by a source whose structure "
+            "strings cannot refute a drawing, so this is reported and not held",
+        ),
+        NOT_COMPARABLE: (
+            LOW,
+            "could not be compared: the drawn structure yielded no InChIKey",
+        ),
     }[verdict.status]
 
     yield ctx.finding(

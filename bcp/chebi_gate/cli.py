@@ -224,6 +224,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.distil:
+            if args.sdf:
+                # Silently gating nothing is the one outcome a pipeline cannot
+                # notice: --distil returns 0, which is also "every record cleared".
+                print(
+                    f"--distil does not gate; drop {args.sdf} or drop --distil",
+                    file=sys.stderr,
+                )
+                return EXIT_USAGE
             return _distil(args)
         if not args.sdf:
             print("no SDF given; pass one, or use --distil", file=sys.stderr)

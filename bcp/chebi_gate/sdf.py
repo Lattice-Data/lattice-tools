@@ -136,6 +136,13 @@ class SdfRecord:
     counts_line: str
     data: dict[str, str]
     fields: tuple[DataField, ...] = ()
+    # Tags the record states more than once. Only the first is kept in `data` and
+    # in `fields`, so without this a duplicate was invisible to every check: a
+    # record with two NAME fields did not appear in `tag_order`, INT-02's
+    # unexpected-tag test could not see it, the record cleared, and the cleared
+    # file is byte-identical -- so both NAME fields went to ChEBI. A warning on
+    # stderr is not a verdict.
+    duplicate_tags: tuple[str, ...] = ()
     terminator: bytes = RECORD_TERMINATOR
     # The record's own line ending, so a span, a re-emitted field and a split all
     # agree with the bytes rather than assuming LF.
@@ -330,12 +337,15 @@ def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
 
     data: dict[str, str] = {}
     fields: list[DataField] = []
+    duplicates: list[str] = []
     if sep:
         offset = len(head) + len(sep)
         for match in _DATA_FIELD.finditer(rest):
             tag, value = match.group(1), match.group(2)
             if tag in data:
                 log.warning("record %d repeats tag %r; keeping the first", index, tag)
+                if tag not in duplicates:
+                    duplicates.append(tag)
                 continue
             data[tag] = value
             # Span covers the tag line, the value and the blank line that follows,
@@ -359,6 +369,7 @@ def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
         counts_line=lines[3] if len(lines) > 3 else "",
         data=data,
         fields=tuple(fields),
+        duplicate_tags=tuple(duplicates),
         terminator=terminator,
         newline=newline,
     )

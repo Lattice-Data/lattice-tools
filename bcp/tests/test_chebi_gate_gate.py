@@ -954,6 +954,37 @@ def test_a_holding_file_finding_is_marked_as_holding_in_the_annotation(tmp_path)
     assert "INT-06" in failed
 
 
+def test_the_holds_column_asks_which_finding_not_which_value(tmp_path, clean_input):
+    """`finding in result.blocking` is dataclass equality, not identity.
+
+    Two findings equal in every field both read as holding when only one of them
+    is in the list. Contrived to construct, and the column the report exists to be
+    read on is not the place to be approximately right.
+    """
+    run = client.run(clean_input, allow_medium=True)
+    result = run.results[0]
+    blocking = checks.Finding(
+        check="CON-04",
+        severity=checks.HIGH,
+        detail="stereo",
+        cas=result.context.cas,
+        name=result.context.name,
+        record_index=result.record.index,
+    )
+    twin = checks.Finding(**{**blocking.__dict__})
+    assert blocking == twin and blocking is not twin
+    result.findings = [blocking, twin]
+    result.blocking = [blocking]
+
+    outputs = gate_io.write(run, tmp_path / "out", stem="twins")
+    holds = [
+        row["holds"]
+        for row in csv.DictReader(outputs.findings.open())
+        if row["check"] == "CON-04"
+    ]
+    assert sorted(holds) == ["no", "yes"], holds
+
+
 def test_a_file_finding_that_holds_nothing_is_not_written_as_holding(tmp_path):
     """The column was the constant "yes" for every whole-file finding.
 
@@ -1209,10 +1240,25 @@ def test_the_cli_can_distil_a_release(tmp_path, capsys):
     (release / "database_accession.tsv").write_text(
         "compound_id\taccession_number\ttype\n16236\t64-17-5\tCAS\n"
     )
-    code = main(["unused.sdf", "--distil", str(release), str(tmp_path / "index")])
+    code = main(["--distil", str(release), str(tmp_path / "index")])
     assert code == EXIT_OK
     assert "indexed 1 structures" in capsys.readouterr().out
     assert chebi_release.load_index(tmp_path / "index").cas("64-17-5") == "CHEBI:16236"
+
+
+def test_the_cli_refuses_to_distil_and_ignore_an_sdf_at_the_same_time(
+    tmp_path, clean_input, capsys
+):
+    """--distil gated nothing and returned 0, which also means "every record cleared".
+
+    Silently doing neither of the two things asked for is the one outcome a
+    pipeline cannot notice.
+    """
+    code = main(
+        [str(clean_input), "--distil", str(tmp_path / "rel"), str(tmp_path / "idx")]
+    )
+    assert code == EXIT_USAGE
+    assert "does not gate" in capsys.readouterr().err
 
 
 def test_the_shipped_registry_and_index_defaults_are_absent_not_guessed():

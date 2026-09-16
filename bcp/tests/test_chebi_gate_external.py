@@ -189,8 +189,47 @@ def test_a_cas_source_can_confirm_but_never_refute(tmp_path, ctx):
     """
     evidence = external.Evidence(registry=registry(tmp_path, inchikey=WRONG_KEY))
     verdict = external.resolve_cas(evidence, ctx)
-    assert verdict.status == external.UNRESOLVED
+    assert verdict.status == external.UNADJUDICATED
     assert not [f for f in ext01(evidence, ctx) if f.severity == HIGH]
+
+
+def test_a_registry_only_disagreement_is_reported_without_holding_the_record(
+    tmp_path, ctx
+):
+    """The refutation the "never refutes" rule was still letting through.
+
+    With no PubChem cache the registry's own verdict wins, and reusing UNRESOLVED
+    for it produced `medium` -- which holds -- with the text "resolves in no cached
+    source. CAS registry export says <key>", a sentence that contradicts itself.
+    A registry-only run would have held the 25 sound records the docstring above
+    counts.
+    """
+    evidence = external.Evidence(registry=registry(tmp_path, inchikey=WRONG_KEY))
+    (finding,) = list(ext01(evidence, ctx))
+    assert finding.severity == LOW
+    assert "cannot refute" in finding.detail
+    assert "no cached source" not in finding.detail
+    assert external.RANK[external.UNADJUDICATED] < external.RANK[external.UNRESOLVED]
+
+
+def test_a_disagreement_we_cannot_compare_is_not_blamed_on_the_cas_number(ctx):
+    """`Structure.parse` can be True while `inchikey` is None.
+
+    Both keys None made every comparison False, so a refutable candidate fell
+    through to MISMATCH and EXT-01 said "resolves to a different skeleton" at high
+    -- attributing to the CAS number a failure that happened on our side.
+    """
+    from dataclasses import replace as dataclass_replace
+
+    blind = checks.RecordContext(
+        record=ctx.record,
+        structure=dataclass_replace(ctx.structure, inchikey=None, base_inchikey=None),
+    )
+    candidate = external.Candidate(
+        source="pubchem", independent=False, inchikey=WRONG_KEY, can_refute=True
+    )
+    assert external.classify(candidate, blind) == external.NOT_COMPARABLE
+    assert external.classify(candidate, ctx) == external.MISMATCH
 
 
 def test_a_cas_source_never_downgrades_another_sources_exact_match(

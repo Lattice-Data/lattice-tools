@@ -531,6 +531,51 @@ def test_a_fragment_that_merely_begins_like_a_tartrate_is_not_one():
     )
 
 
+@pytest.mark.parametrize(
+    ("name", "formula"),
+    [
+        ("oxalate", "C2H2O4"),
+        ("tartrate", "C4H6O6"),
+        ("sulfate", "H2O4S"),
+        ("methanesulfonate", "CH4O3S"),
+        ("maleate", "C4H4O4"),
+        ("sulfonate", "C7H8O3S"),
+    ],
+)
+def test_a_lone_counterion_does_not_satisfy_its_own_class(name, formula):
+    """Four of these scanned every fragment with no "is there a counterion" test.
+
+    So a single-fragment oxalic acid record asserting ISA64148 was "supported",
+    and nothing else caught it: `is_salt` is True because a RELATIONSHIP is set,
+    `has_counterion` is False so INT-03 asks for nothing, and CON-07 only fires on
+    a non-salt that carries a class. The record cleared.
+    """
+    from chebi_gate.structure import Structure
+
+    lone = Structure(parse=True, frags={formula: 1}, counter=[], parent_formula=formula)
+    assert not classes.class_supported(name, lone), name
+
+
+def test_int02_reports_a_repeated_data_tag():
+    """The parser keeps the first and drops the rest, so nothing could see it.
+
+    A duplicate never enters `fields`, so it is absent from `tag_order` and the
+    unexpected-tag test cannot find it either. The record cleared -- and a cleared
+    record is byte-identical, so both NAME fields went to ChEBI. A warning on
+    stderr is not a verdict.
+    """
+    record = salt_record(iupac="x").replace(
+        "> <SYNONYM>", "> <NAME>\nA SECOND NAME\n\n> <SYNONYM>", 1
+    )
+    found = run(record)
+    assert ("INT-02", MEDIUM) in ids(found)
+    assert "repeated tags ['NAME']" in detail(found, "INT-02")
+
+
+def test_int02_stays_quiet_when_every_tag_appears_once():
+    assert ("INT-02", MEDIUM) not in ids(run(salt_record(iupac="x")))
+
+
 def test_con01_reports_a_quaternary_cation_asserted_as_a_hydrohalide():
     found = run(
         salt_record(

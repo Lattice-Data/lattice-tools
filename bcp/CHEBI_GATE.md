@@ -125,7 +125,7 @@ gate reads a monthly flat-file release from
 distils it into a 22 MB index:
 
 ```bash
-python -m chebi_gate unused --distil path/to/release path/to/index
+python -m chebi_gate --distil path/to/release path/to/index
 ```
 
 Distilling the same release twice produces byte-identical index TSVs. `index_manifest.json` beside them is not byte-identical: it records the release path and the time it was built, which is the point of it.
@@ -507,6 +507,28 @@ A fourth pass found the other half of the CRLF bug, and it is fixed too:
   recognises a sulfonate by composition, and a drug parent can have that shape —
   leaving no base, a `None` ratio and a check that returned in silence. The parent
   is the base when nothing else is.
+
+A fifth pass found four more, and they are fixed:
+
+- "A CAS source corroborates, never refutes" did not hold when the registry was
+  the *only* source. A disagreeing registry key returned `unresolved`, which with
+  no PubChem cache was the winning verdict, so EXT-01 said "resolves in no cached
+  source. CAS registry export says `<key>`" — a sentence contradicting itself, at
+  `medium`, which holds. A registry-only run would have held the 25 records whose
+  registry key disagrees for the benign reasons measured above. That case has its
+  own status now and reports at `low`.
+- `classify` returned `mismatch` when it was *our* InChIKey that was missing —
+  `Structure.parse` can be True while `inchikey` is None — so EXT-01 blamed the
+  CAS number at `high` for a failure on this side.
+- `oxalate`, `tartrate`, `sulfate` and `methanesulfonate` scanned every fragment
+  with no "is there a counterion" test, so a lone oxalic acid record asserting
+  ISA64148 was supported and cleared. Nothing else caught it: `is_salt` is true
+  because a class is asserted, `has_counterion` is false so INT-03 asks nothing,
+  and CON-07 only fires on a non-salt carrying a class.
+- A repeated data tag was a log line and nothing more. The parser keeps the first
+  occurrence, so the duplicate never reached `fields` or `tag_order` and no check
+  could see it — a record with two `NAME` fields cleared, and a cleared record is
+  byte-identical, so both went to ChEBI. INT-02 reports it.
 
 One question is still open, and belongs to whoever owns the deposit rather than
 to the code: whether a redacted subset of the reference batch should be committed

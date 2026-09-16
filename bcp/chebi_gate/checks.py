@@ -384,6 +384,16 @@ def int02_template_shape(ctx: RecordContext) -> Iterator[Finding]:
     extra = [t for t in record.tag_order if t not in EXPECTED_TAGS]
     if extra:
         yield ctx.finding("INT-02", MEDIUM, f"unexpected tags {extra}")
+    if record.duplicate_tags:
+        # The parser keeps the first occurrence and drops the rest from `fields`,
+        # so a duplicate is invisible to `tag_order` and the record cleared --
+        # and the cleared file is byte-identical, so both copies reach ChEBI.
+        yield ctx.finding(
+            "INT-02",
+            MEDIUM,
+            f"repeated tags {list(record.duplicate_tags)}; only the first of each "
+            "was read, and the rest are still in the file",
+        )
     for tag, value in record.data.items():
         if "\n" in value.strip():
             yield ctx.finding("INT-02", MEDIUM, f"{tag} spans several lines")
@@ -934,7 +944,7 @@ def int06_file_encoding(fctx: FileContext) -> Iterator[Finding]:
     one file-level problem by the record count and held back all 290 records for a
     single stray byte.
     """
-    if any(b > 127 for b in fctx.raw):
+    if not fctx.raw.isascii():
         yield Finding(
             check="INT-06", severity=HIGH, detail="file contains non-ASCII bytes"
         )

@@ -152,7 +152,12 @@ def _write_findings(gate_run: GateRun, path: Path) -> Path:
                     "check": finding.check,
                     "severity": finding.severity,
                     "independent": "yes" if finding.is_independent else "no",
-                    "holds": "yes" if finding in result.blocking else "no",
+                    # `is`, not `in`: Finding is a dataclass, so `in` compares by
+                    # value and two findings identical in every field both read as
+                    # holding when only one of them is.
+                    "holds": "yes"
+                    if any(finding is b for b in result.blocking)
+                    else "no",
                     "waived": finding.waiver or "",
                     "detail": finding.detail,
                     "evidence": finding.evidence,
