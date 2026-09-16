@@ -63,6 +63,21 @@ _TERMINATOR = re.compile(rb"\$\$\$\$\r?\n")
 _MOL_END = re.compile(r"\r?\nM  END\r?\n")
 
 
+def newline_of(text: str) -> str:
+    """The record's line ending, read from its first line break.
+
+    Matching the molfile marker with ``\r?\n`` is only half of reading a CRLF
+    record. Everything derived by splitting has to use the same ending, or the two
+    halves disagree about the very same line: ``text.split("\n")`` left the title
+    as ``"ethylamine\r"`` while the data-field pattern stopped before the carriage
+    return, so ``title != data["NAME"]`` and INT-02 reported "mol title differs
+    from NAME" on every record of a file whose only defect is its line endings --
+    the exact shape this module's docstring says was fixed one layer down.
+    """
+    index = text.find("\n")
+    return "\r\n" if index > 0 and text[index - 1] == "\r" else "\n"
+
+
 def _partition_mol_end(text: str) -> tuple[str, str, str]:
     """``str.partition`` over :data:`_MOL_END`, so both callers split identically.
 
@@ -122,6 +137,9 @@ class SdfRecord:
     data: dict[str, str]
     fields: tuple[DataField, ...] = ()
     terminator: bytes = RECORD_TERMINATOR
+    # The record's own line ending, so a span, a re-emitted field and a split all
+    # agree with the bytes rather than assuming LF.
+    newline: str = "\n"
 
     @property
     def tag_order(self) -> list[str]:
@@ -182,7 +200,8 @@ class SdfRecord:
             keep += self.raw[cursor:start]
             cursor = max(cursor, end)
         keep += self.raw[cursor:]
-        return bytes(keep).rstrip(b"\n") + b"\n\n"
+        eol = self.newline.encode("ascii")
+        return bytes(keep).rstrip(eol) + eol + eol
 
     def with_fields(self, fields: dict[str, str]) -> bytes:
         """This record's bytes with ``fields`` appended, replacing any already there.
@@ -198,7 +217,8 @@ class SdfRecord:
             # non-ASCII record carries lone surrogates, and encoding them strictly
             # raised UnicodeEncodeError on exactly the record this file exists to
             # hand back.
-            body += f"> <{tag}>\n{value}\n\n".encode(_CODEC, errors=_ERRORS)
+            nl = self.newline
+            body += f"> <{tag}>{nl}{value}{nl}{nl}".encode(_CODEC, errors=_ERRORS)
         return body
 
 
@@ -257,7 +277,7 @@ class SdfFile:
 def parse_bytes(data: bytes, *, path: Path | None = None) -> SdfFile:
     """Parse SDF bytes into records, keeping each record's bytes verbatim."""
     records: list[SdfRecord] = []
-    skipped: list[bytes] = []
+    skipped: list[tuple[int, bytes]] = []
     cursor = 0
     for match in _TERMINATOR.finditer(data):
         chunk = data[cursor : match.start()]
@@ -305,6 +325,7 @@ def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
     gate can never re-emit a non-ASCII record unchanged.
     """
     text = chunk.decode(_CODEC, errors=_ERRORS)
+    newline = newline_of(text)
     head, sep, rest = _partition_mol_end(text)
 
     data: dict[str, str] = {}
@@ -321,11 +342,15 @@ def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
             # so removing a field leaves neither a gap nor a doubled blank line.
             start = offset + match.start()
             end = offset + match.end()
-            while end < len(text) and text[end] == "\n":
-                end += 1
+            # The record's own ending, not "\n": stopping at the "\r" of a CRLF
+            # blank line left the blank line outside the span, so removing a field
+            # left its separator behind and the re-emitted record parsed the
+            # *previous* value with a trailing "\r\n" glued to it.
+            while text.startswith(newline, end):
+                end += len(newline)
             fields.append(DataField(tag=tag, value=value, start=start, end=end))
 
-    lines = text.split("\n")
+    lines = text.split(newline)
     return SdfRecord(
         raw=chunk,
         index=index,
@@ -335,6 +360,7 @@ def _build(chunk: bytes, index: int, terminator: bytes) -> SdfRecord:
         data=data,
         fields=tuple(fields),
         terminator=terminator,
+        newline=newline,
     )
 
 

@@ -916,6 +916,44 @@ def test_every_output_carries_the_input_stem(tmp_path, clean_input):
     assert outputs.manifest.name == "batch7_run_manifest.json"
 
 
+def test_a_crlf_file_clears_every_record(tmp_path):
+    """What CHEBI_GATE.md claims, asserted rather than assumed.
+
+    INT-06 rates CRLF `low` so it holds nothing -- but every record was held
+    anyway, on INT-02 "mol title differs from NAME", a defect none of them had.
+    `allow_medium=True` in the older CLI test is why this stayed invisible.
+    """
+    path = tmp_path / "crlf.sdf"
+    path.write_bytes(sdf_bytes(salt_record(iupac="x")).replace(b"\n", b"\r\n"))
+    run = client.run(path)
+
+    assert not run.held, [(f.check, f.detail) for r in run.held for f in r.blocking]
+    assert len(run.cleared) == 1
+    assert [f.check for f in run.file_findings] == ["INT-06"]
+
+
+def test_a_holding_file_finding_is_marked_as_holding_in_the_annotation(tmp_path):
+    """`result.blocking` holds only the record's own findings.
+
+    So a high INT-06 -- a non-ASCII byte, which holds every record through
+    `file_blocks` -- was rendered without HOLDS and dropped out of
+    GATE_CHECKS_FAILED whenever the record also had a blocking finding of its own.
+    The annotated SDF is the artifact a chemist reads; it was the last output
+    still guessing.
+    """
+    path = tmp_path / "nonascii.sdf"
+    record = salt_record(name="cafe hydrochloride", iupac="x")
+    path.write_bytes(record.replace("cafe", "caf\u00e9").encode("utf-8") + b"$$$$\n")
+    run = client.run(path, allow_medium=True)
+    outputs = gate_io.write(run, tmp_path / "out", stem="nonascii")
+
+    held = outputs.held.read_text(errors="replace")
+    reasons = held.split("> <GATE_REASONS>")[1]
+    assert "INT-06 [high] HOLDS" in reasons
+    failed = held.split("> <GATE_CHECKS_FAILED>")[1].splitlines()[1]
+    assert "INT-06" in failed
+
+
 def test_a_file_finding_that_holds_nothing_is_not_written_as_holding(tmp_path):
     """The column was the constant "yes" for every whole-file finding.
 

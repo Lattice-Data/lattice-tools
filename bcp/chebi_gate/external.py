@@ -274,10 +274,10 @@ def pubchem_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
 
     entries: list[tuple[object, dict]] = []
     if blob.get("properties"):
-        entries.append((blob.get("cid"), blob["properties"]))
+        entries.append((blob.get("cid"), _properties(blob["properties"])))
     for cid, props in (blob.get("alt_cids") or {}).items():
         if props:
-            entries.append((cid, props))
+            entries.append((cid, _properties(props)))
 
     out: list[Candidate] = []
     for cid, props in entries:
@@ -301,9 +301,29 @@ def pubchem_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
         )
         if not smiles:
             log.debug("PubChem CID %s has no SMILES under any known key", cid)
-    if not out and not entries:
+    if not out:
+        # `not entries` was the condition, so a blob that *did* hold entries but
+        # none with an InChIKey returned nothing at all -- and `resolve_cas` then
+        # said "no cached source holds this CAS number" about a number the cache
+        # answered for. The verdict was right and the sentence was not, which is
+        # the kind of note a chemist reads and then goes looking for a cache entry
+        # that is already there.
         return [Candidate(source=PUBCHEM_SOURCE, independent=False, available=True)]
     return out
+
+
+def _properties(value) -> dict:
+    """One property mapping, whichever shape the cache persisted.
+
+    PubChem's own ``PropertyTable.Properties`` is a *list* of records, and the
+    cache writer lives outside this package, so a cache written straight from the
+    API response would make ``props.get(...)`` raise AttributeError part-way
+    through a run. Reading the first entry of a list costs nothing and the failure
+    it avoids is one that aborts the external pass for every later record too.
+    """
+    if isinstance(value, list):
+        return value[0] if value and isinstance(value[0], dict) else {}
+    return value if isinstance(value, dict) else {}
 
 
 def classify(candidate: Candidate, ctx: RecordContext) -> str:

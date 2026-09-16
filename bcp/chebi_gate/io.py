@@ -87,6 +87,13 @@ def write(gate_run: GateRun, out_dir: str | Path, *, stem: str) -> Outputs:
     )
 
 
+def _clears(gate_run: GateRun, finding) -> bool:
+    """Whether this finding lets a record through, by the gate's own rule."""
+    from .client import _severity_clears
+
+    return _severity_clears(finding, allow_medium=gate_run.allow_medium)
+
+
 def _annotation(gate_run: GateRun, result) -> dict[str, str]:
     """The GATE_* fields for one held record.
 
@@ -98,14 +105,25 @@ def _annotation(gate_run: GateRun, result) -> dict[str, str]:
         result.findings + gate_run.file_findings,
         key=lambda f: (SEVERITY_RANK[f.severity], f.check),
     )
+    # A whole-file finding holds this record too when it holds at all, and
+    # `result.blocking` cannot know: it is built from the record's own findings,
+    # while a file-level block reaches the record through `file_blocks`. So a high
+    # INT-06 -- a non-ASCII byte, which holds every record in the file -- was
+    # rendered without HOLDS and dropped out of GATE_CHECKS_FAILED entirely
+    # whenever the record also had a blocking finding of its own. The annotated
+    # SDF is the artifact a chemist actually reads, and it was the one output still
+    # guessing; the findings table was fixed earlier and this uses the same helper
+    # so the two cannot drift apart again.
+    holds = {id(f) for f in result.blocking}
+    holds |= {id(f) for f in gate_run.file_findings if not _clears(gate_run, f)}
     reasons = "\n".join(
         f"{f.check} [{f.severity}]"
-        f"{' HOLDS' if f in result.blocking else ''}"
+        f"{' HOLDS' if id(f) in holds else ''}"
         f"{' independent' if f.is_independent else ' circular'} {f.detail}"
         for f in findings
     )
     evidence = "\n".join(sorted({f.evidence for f in findings if f.evidence}))
-    held_by = sorted({f.check for f in result.blocking})
+    held_by = sorted({f.check for f in findings if id(f) in holds})
     return {
         "GATE_STATUS": STATUS_HELD,
         "GATE_CHECKS_FAILED": "; ".join(held_by) or "file-level",
@@ -114,13 +132,6 @@ def _annotation(gate_run: GateRun, result) -> dict[str, str]:
         "GATE_RUN": f"{gate_run.manifest.run_id} role={gate_run.manifest.checks['role']}"
         f" medium={'holds' if not gate_run.allow_medium else 'allowed'}",
     }
-
-
-def _clears(gate_run: GateRun, finding) -> bool:
-    """Whether this finding lets a record through, by the gate's own rule."""
-    from .client import _severity_clears
-
-    return _severity_clears(finding, allow_medium=gate_run.allow_medium)
 
 
 def _write_findings(gate_run: GateRun, path: Path) -> Path:

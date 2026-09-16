@@ -558,3 +558,25 @@ def test_ext04_still_holds_a_record_whose_own_formula_is_unreadable():
     assert verdict.status == formula.UNPARSEABLE
     assert verdict.unparseable_side == "drawn"
     assert formula.compare("WAG994", "C2H6O").unparseable_side == "registry"
+
+
+def test_a_cached_entry_with_no_inchikey_is_not_reported_as_no_cache_at_all(tmp_path):
+    """The blob answers for this CAS; it just carries no key.
+
+    The guard was `not entries`, so a blob with entries but no InChIKey returned
+    nothing and the verdict read "no cached source holds this CAS number" about a
+    number the cache had an entry for.
+    """
+    directory = pubchem(tmp_path, "no_key", properties={"MolecularFormula": "C2H7N"})
+    evidence = external.Evidence(pubchem_dir=directory)
+    candidates = external.pubchem_candidates(evidence, CAS)
+    assert candidates and candidates[0].available
+    assert candidates[0].inchikey is None
+
+
+def test_a_properties_list_is_read_like_a_properties_mapping(tmp_path):
+    """PubChem's own PropertyTable.Properties is a list; the writer is elsewhere."""
+    directory = pubchem(tmp_path, "as_list", properties=[{"InChIKey": WRONG_KEY}])
+    evidence = external.Evidence(pubchem_dir=directory)
+    (candidate,) = external.pubchem_candidates(evidence, CAS)
+    assert candidate.inchikey == WRONG_KEY

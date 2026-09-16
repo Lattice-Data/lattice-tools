@@ -487,6 +487,27 @@ A second and third review pass found more, and those are fixed too:
   exports, so holding the record punishes it for the state of the evidence; that
   case is `medium` now, and an unparseable *drawn* formula stays `high`.
 
+A fourth pass found the other half of the CRLF bug, and it is fixed too:
+
+- Matching the molfile marker with `\r?\n` reads the fields but not the rest.
+  `text.split("\n")` left the title carrying a carriage return while the field
+  pattern stopped before it, so `title != NAME` and INT-02 reported "mol title
+  differs from NAME" on every record — a CRLF file was still held, just by a
+  different finding naming a defect it did not have. The record's own line ending
+  is now carried through every derivation: the title, the counts line, the field
+  spans, and the fields `with_fields` writes back. Without the span fix a removed
+  field left its blank line behind and the re-emitted record glued the separator
+  onto the previous value, which is the re-run workflow corrupting the file it
+  exists to hand back.
+- A whole-file finding that holds every record was never marked `HOLDS` in
+  `GATE_REASONS`, and dropped out of `GATE_CHECKS_FAILED` whenever the record also
+  had a blocking finding of its own. The annotated SDF is what a chemist reads,
+  and it was the last output still assuming rather than asking.
+- CON-02 could classify every fragment as a counterion — `is_counterion`
+  recognises a sulfonate by composition, and a drug parent can have that shape —
+  leaving no base, a `None` ratio and a check that returned in silence. The parent
+  is the base when nothing else is.
+
 One question is still open, and belongs to whoever owns the deposit rather than
 to the code: whether a redacted subset of the reference batch should be committed
 so the anchor runs in CI, or the run directory archived somewhere a future

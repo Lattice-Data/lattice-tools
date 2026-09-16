@@ -483,3 +483,49 @@ def test_without_fields_normalises_even_when_it_removes_nothing():
     record = sdf.parse_bytes((single + "$$$$\n").encode()).records[0]
     assert record.without_fields(["GATE_STATUS"]).endswith(b"\n\n")
     assert record.without_fields([]).endswith(b"\n\n")
+
+
+def test_a_crlf_record_gives_a_title_that_matches_its_name():
+    """Matching the molfile marker with \r?\n is only half of reading CRLF.
+
+    `text.split("\n")` left the title as "ethylamine hydrochloride\r" while the
+    data-field pattern stopped before the carriage return, so INT-02 reported
+    "mol title differs from NAME" on every record of a file whose only defect is
+    its line endings -- and INT-06 rates those `low`, which holds nothing.
+    """
+    raw = sdf_bytes(salt_record()).replace(b"\n", b"\r\n")
+    record = sdf.parse_bytes(raw).records[0]
+
+    assert record.newline == "\r\n"
+    assert "\r" not in record.title
+    assert record.title == record.data["NAME"]
+    assert "\r" not in record.counts_line
+
+
+def test_a_crlf_record_survives_the_annotate_and_strip_round_trip():
+    """The re-run workflow, on CRLF. The span loop stopped at the "\r".
+
+    So a removed field left its blank line behind, the re-emitted record glued the
+    separator onto the previous value, and CAS_NO came back as "557-66-4\r\n" --
+    the gate corrupting a record and then faulting it for being corrupt.
+    """
+    raw = sdf_bytes(salt_record()).replace(b"\n", b"\r\n")
+    record = sdf.parse_bytes(raw).records[0]
+
+    annotated = record.with_fields({"GATE_STATUS": "HELD"})
+    reparsed = sdf.parse_bytes(annotated + record.terminator).records[0]
+    assert reparsed.data["CAS_NO"] == "557-66-4"
+    assert reparsed.data["GATE_STATUS"] == "HELD"
+    assert b"\r\n" in annotated and b"\n\n" not in annotated.replace(b"\r\n", b"")
+
+    stripped = reparsed.without_fields(["GATE_STATUS"])
+    assert stripped == record.raw
+
+
+def test_an_lf_record_is_unchanged_by_the_line_ending_handling():
+    raw = sdf_bytes(salt_record())
+    record = sdf.parse_bytes(raw).records[0]
+    assert record.newline == "\n"
+    annotated = record.with_fields({"GATE_STATUS": "HELD"})
+    reparsed = sdf.parse_bytes(annotated + record.terminator).records[0]
+    assert reparsed.without_fields(["GATE_STATUS"]) == record.raw

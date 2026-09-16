@@ -850,6 +850,34 @@ def test_con02_does_not_count_a_fragment_that_merely_begins_like_a_counterion():
     )
 
 
+def test_con02_finds_a_base_when_every_fragment_reads_as_a_counterion():
+    """`is_counterion` recognises a sulfonate by composition, so a parent can match.
+
+    C, H, O and S with three oxygens per sulfur is a shape a drug parent can have.
+    With no fragment left as base, base_n was 0, `ratio` was None and the check
+    returned in silence on a record it was looking straight at -- the worst
+    available failure. None of the reference batch's 290 records has that shape;
+    this is the latent case.
+    """
+    assert not _con02_parent({"C8H8O3S": 1, "HCl": 1}, "x hydrochloride")
+
+    wrong = _con02_parent({"C8H8O3S": 1, "HCl": 2}, "x hydrochloride")
+    assert wrong, "two HCl against one base is not a monohydrochloride"
+    assert "structure has 2" in wrong[0].detail
+
+
+def _con02_parent(frags: dict[str, int], name: str) -> list[checks.Finding]:
+    from chebi_gate.structure import Structure
+
+    parsed = sdf.parse_bytes(sdf_bytes(salt_record(name, iupac="x")))
+    ctx = checks.RecordContext(
+        record=parsed.records[0],
+        structure=Structure(parse=True, frags=frags, parent_formula=next(iter(frags))),
+        role=checks.ROLE_SALT,
+    )
+    return list(checks.con02_stoichiometry_word(ctx))
+
+
 def test_con08_compares_the_systematic_name_against_the_structure():
     found = run(salt_record(mol="amine_hcl", iupac="ethanamine;dihydrochloride"))
     assert ("CON-08", HIGH) in ids(found)

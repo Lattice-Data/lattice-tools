@@ -39,7 +39,7 @@ import logging
 import re
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from . import classes
 from .sdf import SdfRecord
@@ -259,6 +259,21 @@ class RecordContext:
     record: SdfRecord
     structure: Structure
     role: str = ROLE_AUTO
+
+    # Derived in __post_init__, declared here so they exist for `repr`, `replace`
+    # and a type checker. They were set as bare attributes, which works at run time
+    # and makes the most-used object in the package opaque to every tool that reads
+    # the class rather than the constructor.
+    name: str = field(init=False, default="")
+    cas: str = field(init=False, default="")
+    relationship: str = field(init=False, default="")
+    synonym: str | None = field(init=False, default=None)
+    iupac: str = field(init=False, default="")
+    name_lower: str = field(init=False, default="")
+    iupac_lower: str = field(init=False, default="")
+    specific: bool = field(init=False, default=False)
+    racemic: bool = field(init=False, default=False)
+    is_salt: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         data = self.record.data
@@ -576,6 +591,19 @@ def con02_stoichiometry_word(ctx: RecordContext) -> Iterator[Finding]:
         for k, v in frags.items()
         if not classes.is_counterion(k) and k not in classes.SOLVATES
     )
+    if not base_n:
+        # Every fragment classified as a counterion, so the parent is the base:
+        # a record is not made only of counterions. Reachable because
+        # `is_counterion` recognises a sulfonate by composition -- carbon,
+        # hydrogen, oxygen and sulfur with three O per S -- and a drug parent can
+        # have that shape. None does in the reference batch (measured: 0 of 290),
+        # but the failure mode if one did was the worst available: base_n 0 made
+        # `ratio` None and the check returned in silence, on a record it was
+        # looking straight at. Taking the parent out of the numerator keeps the
+        # ratio meaningful rather than merely non-None.
+        parent = ctx.structure.parent_formula
+        base_n = frags.get(parent, 0) if parent else 0
+        salt_n = max(salt_n - base_n, 0)
     ratio = salt_n / base_n if base_n else None
 
     want = PREFIX_COUNT[prefix]
