@@ -3,6 +3,7 @@ import dask.array as da
 import h5py
 import json
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
 import numpy as np
 import os
 import pandas as pd
@@ -18,6 +19,43 @@ import cellxgene_schema.gencode as gencode
 import cellxgene_schema.utils as utils
 import cellxgene_schema.schema as schema
 
+
+EXPECTED_BARCODES = {
+    'EFO:0009901':                    '3pv1',
+    "10x 3' v1":                      '3pv1',
+    'EFO:0009899':                    '3pv2_5pv1_5pv2',
+    "10x 3' v2":                      '3pv2_5pv1_5pv2',
+    'EFO:0009922':                    '3pv3',
+    "10x 3' v3":                      '3pv3',
+    'EFO:0022604':                    '3pv4',
+    "10x 3' v4":                      '3pv4',
+    'EFO:0011025':                    '3pv2_5pv1_5pv2',
+    "10x 5' v1":                      '3pv2_5pv1_5pv2',
+    'EFO:0009900':                    '3pv2_5pv1_5pv2',
+    "10x 5' v2":                      '3pv2_5pv1_5pv2',
+    'EFO:0030004':                    '3pv2_5pv1_5pv2',
+    "10x 5' transcription profiling": '3pv2_5pv1_5pv2',
+    'EFO:0022605':                    '5pv3',
+    "10x 5' v3":                      '5pv3',
+    'EFO:0030059':                    'multiome',
+    "10x multiome":                   'multiome',
+    'EFO:0920134':                    'multiome',
+    "10x GEM-X Epi Multiome":         'multiome',
+    'EFO:0920135':                    'multiome',
+    "10x Next-GEM Multiome":          'multiome',
+    'EFO:0920086':                    'flex_v1',
+    "10x gene expression flex v1":    'flex_v1',
+    'EFO:0920088':                    'flex_v1',
+    "10x GEM-X Flex v1":              'flex_v1',
+    'EFO:0920087':                    'flex_v1',
+    "10x Next GEM Flex v1":           'flex_v1',
+    'EFO:0920089':                    'flex_v2',
+    "10x Flex Apex":                  'flex_v2'
+}
+
+FLEX_ASSAYS = [
+    'EFO:0022606','EFO:0920089','EFO:0920086','EFO:0920088','EFO:0920087'
+]
 
 OBS_ONTOLOGY_LABELS_REQUIRED = [
     'assay', 'cell_type', 'development_stage', 'disease',
@@ -133,11 +171,14 @@ def report(mess, level=None):
     colors = {
         'GOOD': '\033[32m', #green
         'WARNING': '\033[33m', #yellow
-        'ERROR': '\033[31m' #red
+        'ERROR': '\033[31m', #red
+        'code': '\033[30;48;5;252m' #grey background
     }
     if level:
         c = colors[level]
-        print(f'\033[1m{c}{level}: {mess}\033[0m')
+        if level not in ['code']:
+            mess = f'{level}: {mess}'
+        print(f'\033[1m{c}{mess}\033[0m')
     else:
         print(mess)
 
@@ -223,77 +264,265 @@ def calculate_adata_memory(adata_path: str, print_datasets: bool = False, sizes:
 
 
 def determine_sparsity(x):
-    if isinstance(x, sparse.coo_matrix) or isinstance(x, sparse.csr_matrix) or isinstance(x, sparse.csc_matrix):
-        sparsity = 1 - x.count_nonzero() / float(np.cumprod(x.shape)[-1])
+    """Calculate sparsity of a matrix."""
+    if isinstance(x, (sparse.coo_matrix, sparse.csr_matrix, sparse.csc_matrix)):
+        sparsity = 1 - x.count_nonzero() / float(np.prod(x.shape))
     elif isinstance(x, np.ndarray):
-        sparsity = 1 - np.count_nonzero(x) / float(np.cumprod(x.shape)[-1])
+        sparsity = 1 - np.count_nonzero(x) / float(np.prod(x.shape))
     else:
-        report(f'matrix is of type {type(x)}, sparsity calculation has not been implemented')
+        report(f'matrix is of type {type(x)}, sparsity calculation has not been implemented', 'WARNING')
+        return None
 
     return round(sparsity, 3)
 
 
-def evaluate_sparsity(adata):
-    max_sparsity = 0.5
-
+def evaluate_sparsity(adata, max_sparsity=0.5):
+    """Check sparsity and recommend sparse format conversion if needed."""
     valid = True
+
+    # Check X
     sparsity = determine_sparsity(adata.X)
-    report(f'X sparsity: {sparsity}')
-    if sparsity > max_sparsity and type(adata.X) != sparse.csr_matrix:
+    report(f'.X sparsity: {sparsity}')
+    if sparsity and sparsity > max_sparsity and not isinstance(adata.X, sparse.csr_matrix):
         report('X should be converted to csr sparse', 'ERROR')
+        report('adata.X = sparse.csr_matrix(adata.X)', 'code')
         valid = False
-    
+
+    # Check raw.X
     if adata.raw:
         sparsity = determine_sparsity(adata.raw.X)
-        report(f'raw.X sparsity: {sparsity}')
-        if sparsity > max_sparsity and type(adata.raw.X) != sparse.csr_matrix:
+        report(f'.raw.X sparsity: {sparsity}')
+        if sparsity and sparsity > max_sparsity and not isinstance(adata.raw.X, sparse.csr_matrix):
             report('raw.X should be converted to csr sparse', 'ERROR')
+            report(
+                'adata.raw = ad.AnnData(sparse.csr_matrix(adata.raw.X), var=adata.raw.var, obs=adata.obs)',
+                'code'
+            )
             valid = False
-    
-    for l in adata.layers:
-        sparsity = determine_sparsity(adata.layers[l])
-        report(f'layers[{l}] sparsity: {sparsity}')
-        if sparsity > max_sparsity and type(adata.layers[l]) != sparse.csr_matrix:
-            report(f'layers[{l}] should be converted to csr sparse', 'ERROR')
+
+    # Check layers
+    for layer_name in adata.layers:
+        sparsity = determine_sparsity(adata.layers[layer_name])
+        report(f'layers[{layer_name}] sparsity: {sparsity}')
+        if sparsity and sparsity > max_sparsity and not isinstance(adata.layers[layer_name], sparse.csr_matrix):
+            report(f'layers[{layer_name}] should be converted to csr sparse', 'ERROR')
+            report(f'adata.layers[{layer_name}] = sparse.csr_matrix(adata.layers[{layer_name}])', 'code')
             valid = False
 
     if valid:
-        report('all matrices have passed checks', 'GOOD')
+        report('all matrices have passed sparsity checks', 'GOOD')
+
+
+def get_raw_matrix_info(adata):
+    """
+    Get raw count matrix and its location.
+    Returns (matrix, location_string, is_csr_sparse)
+    """
+    if adata.raw:
+        matrix = adata.raw.X
+        location = '.raw.X'
+    else:
+        matrix = adata.X
+        location = '.X'
+
+    is_csr = isinstance(matrix, sparse.csr_matrix)
+
+    return matrix, location, is_csr
+
+
+def evaluate_raw_matrix(matrix, loc):
+    """Validate raw count matrix properties."""
+    report(f'raw counts determined to be in {loc}')
+
+    # Check if all values are integers
+    # For sparse matrices, only check the data array
+    data = matrix.data if hasattr(matrix, 'data') else matrix
+    all_integers = np.allclose(data, np.round(data))
+
+    if all_integers:
+        report('raw counts are all integers', 'GOOD')
+        if matrix.dtype != np.float32:
+            report(f'raw count dtype should be float32, not {matrix.dtype}', 'ERROR')
+            report(
+                "adata.raw = ad.AnnData(sparse.csr_matrix(adata.raw.X.astype('float32')), var=adata.raw.var, obs=adata.obs)",
+                'code'
+            )
+        else:
+            report('raw count dtype is float32', 'GOOD')
+    else:
+        report('raw counts contain non-integer values', 'ERROR')
+
+    return all_integers and matrix.dtype == np.float32
+
+
+def get_matrix_range(matrix):
+    """Get min and max values from a matrix."""
+    return matrix.min(), matrix.max()
 
 
 def evaluate_data(adata):
+    evaluate_sparsity(adata)
+    print()
+    evaluate_data_range(adata)
+
+
+def check_matrix_duplicates(matrix_pairs):
+    """
+    Check if matrices are truly identical.
+    Uses fast checks, then goes straight to full comparison.
+
+    Args:
+        matrix_pairs: List of (name, matrix) tuples
+
+    Returns:
+        List of groups that are true duplicates, or empty list
+    """
+    if len(matrix_pairs) < 2:
+        return []
+
+    # Level 1: Check shapes (instant)
+    shapes = [(name, mx.shape) for name, mx in matrix_pairs]
+    if len(set(s for _, s in shapes)) > 1:
+        return []  # Different shapes, can't be duplicates
+
+    # Level 2: Check sum (very fast)
+    sums = [(name, mx.sum()) for name, mx in matrix_pairs]
+    sum_groups = {}
+    for name, s in sums:
+        sum_groups.setdefault(s, []).append(name)
+
+    duplicate_groups = []
+
+    for sum_val, names in sum_groups.items():
+        if len(names) < 2:
+            continue  # Only one matrix with this sum
+
+        # Get matrices with matching sums
+        matching = [(name, mx) for name, mx in matrix_pairs if name in names]
+
+        # Level 3: Check mean (fast)
+        means = [(name, mx.mean()) for name, mx in matching]
+        if len(set(m for _, m in means)) > 1:
+            continue  # Different means, not duplicates
+
+        # Level 4: Full comparison - they passed the quick checks
+        if len(matching) == 2:
+            name1, mx1 = matching[0]
+            name2, mx2 = matching[1]
+
+            if matrices_equal(mx1, mx2):
+                duplicate_groups.append([name1, name2])
+        else:
+            # For 3+ matrices, compare pairwise
+            verified_group = [matching[0][0]]  # Start with first matrix
+            base_mx = matching[0][1]
+
+            for name, mx in matching[1:]:
+                if matrices_equal(base_mx, mx):
+                    verified_group.append(name)
+
+            if len(verified_group) > 1:
+                duplicate_groups.append(verified_group)
+
+    return duplicate_groups
+
+
+def matrices_equal(mx1, mx2):
+    """
+    Check if two matrices are exactly equal.
+    Handles both sparse and dense matrices.
+    """
+    # Check if both are sparse or both are dense
+    mx1_sparse = isinstance(mx1, sparse.spmatrix)
+    mx2_sparse = isinstance(mx2, sparse.spmatrix)
+
+    if mx1_sparse != mx2_sparse:
+        return False
+
+    if mx1_sparse:
+        # For sparse matrices, compare in CSR format
+        mx1_csr = mx1.tocsr() if not isinstance(mx1, sparse.csr_matrix) else mx1
+        mx2_csr = mx2.tocsr() if not isinstance(mx2, sparse.csr_matrix) else mx2
+
+        # Compare data, indices, and indptr arrays
+        return (np.array_equal(mx1_csr.data, mx2_csr.data) and
+                np.array_equal(mx1_csr.indices, mx2_csr.indices) and
+                np.array_equal(mx1_csr.indptr, mx2_csr.indptr))
+    else:
+        # For dense matrices
+        return np.array_equal(mx1, mx2)
+
+
+def _get_matrix_by_name(adata, name):
+    """Helper to retrieve matrix by string name."""
+    if name == '.X':
+        return adata.X
+    elif name == '.raw.X':
+        return adata.raw.X
+    elif name.startswith('layers['):
+        layer_name = name[7:-1]
+        return adata.layers[layer_name]
+    else:
+        raise ValueError(f"Unknown matrix name: {name}")
+
+
+def evaluate_data_range(adata):
+    """Check data ranges and detect potential duplicate layers."""
     min_maxs = {}
+
+    # Determine where raw counts are
     if adata.raw:
-        raw_min = adata.raw.X.min()
-        raw_max = adata.raw.X.max()
-        report(f'raw min = {raw_min}')
-        report(f'raw max = {raw_max}')
-        min_maxs['raw'] = f'{raw_min}-{raw_max}'
-        all_integers = np.all(np.round(adata.raw.X.data) == adata.raw.X.data)
+        raw_min, raw_max = get_matrix_range(adata.raw.X)
+        report(f'.raw.X min = {raw_min}')
+        report(f'.raw.X max = {raw_max}')
+        min_maxs['.raw.X'] = (raw_min, raw_max)
+        raw_matrix = adata.raw.X
+        raw_loc = '.raw.X'
     else:
-        all_integers = np.all(np.round(adata.X.data) == adata.X.data)
+        raw_matrix = adata.X
+        raw_loc = '.X'
 
-    if all_integers:
-        report('raw is all integers', 'GOOD')
-    else:
-        report('raw contains non-integer values', 'ERROR')
+    # Check X
+    x_min, x_max = get_matrix_range(adata.X)
+    report(f'.X min = {x_min}')
+    report(f'.X max = {x_max}')
+    min_maxs['.X'] = (x_min, x_max)
 
-    X_min = adata.X.min()
-    X_max = adata.X.max()
-    report(f'X min = {X_min}')
-    report(f'X max = {X_max}')
-    min_maxs['X'] = f'{X_min}-{X_max}'
+    # Check layers
+    for layer_name in adata.layers:
+        layer_min, layer_max = get_matrix_range(adata.layers[layer_name])
+        report(f'layers[{layer_name}] min = {layer_min}')
+        report(f'layers[{layer_name}] max = {layer_max}')
+        min_maxs[f'layers[{layer_name}]'] = (layer_min, layer_max)
 
-    for l in adata.layers:
-        min = adata.layers[l].min()
-        max = adata.layers[l].max()
-        report(f'layers[{l}] min = {min}')
-        report(f'layers[{l}] max = {max}')
-        min_maxs[l] = f'{min}-{max}'
+    # Detect potential duplicates based on min/max
+    range_groups = {}
+    for name, range_val in min_maxs.items():
+        range_groups.setdefault(range_val, []).append(name)
 
-    poss_dups = [k for k,v in min_maxs.items() if list(min_maxs.values()).count(v) > 1]
-    if poss_dups:
-        report(f'possible redundant layers: {poss_dups}','WARNING')
+    potential_duplicates = [names for names in range_groups.values() if len(names) > 1]
+    if potential_duplicates:
+        for dup_group in potential_duplicates:
+            report(f'possible redundant layers based on min/max: {dup_group}. Checking...', 'WARNING')
+
+            # Get the matrices for this group
+            group_matrices = [(name, _get_matrix_by_name(adata,name)) for name in dup_group]
+
+            # Check if they're truly identical
+            true_duplicates = check_matrix_duplicates(group_matrices)
+
+            if true_duplicates:
+                report(
+                    f'Confirmed duplicates: {true_duplicates}\nRemove duplication to reduce object and file size',
+                    'ERROR'
+                )
+            else:
+                report('Different matrices (same min/max is coincidental)', 'WARNING')
+
+    print()
+
+    # Validate raw matrix
+    evaluate_raw_matrix(raw_matrix, raw_loc)
 
 
 def evaluate_uns_colors(adata):
@@ -362,15 +591,25 @@ def map_filter_gene_ids(adata):
     return adata
 
 
-def extract_barcodes(index, label='index'):
+def extract_barcodes(index):
     pattern = re.compile(r'[ACTG]{12,}')
     barcodes = []
+    affixes = []
+
     for i in index:
         m = pattern.search(str(i))
-        barcodes.append(m.group()[:16] if m else None)
+        if m:
+            barcode = m.group()[:16]
+            barcodes.append(barcode)
+            affixes.append(i.replace(barcode,''))
+        else:
+            barcodes.append(None)
+            affixes.append(None)
+
     if not any(barcodes):
-        report(f'{label}: No barcodes found', 'WARNING')
-    return barcodes
+        report('No barcodes found in obs.index', 'WARNING')
+
+    return barcodes, affixes
 
 
 def evaluate_10x_barcodes(obs, visium=False):
@@ -389,8 +628,10 @@ def evaluate_10x_barcodes(obs, visium=False):
     global no_barcode_v
     no_barcode_v = 'no barcode'
 
-    obs = obs.copy()
-    obs['barcode'] = extract_barcodes(obs.index, label='obs index')
+    obs[['barcode', 'affix']] = pd.DataFrame(
+        zip(*extract_barcodes(obs.index)),
+        index=obs.index
+    )
     if len(set(ref_df.index.to_list()).intersection(set(obs['barcode'].to_list()))) == 0:
         report('Did not find any barcodes in obs index, cannot evaluate barcodes', 'WARNING')
         return
@@ -401,6 +642,34 @@ def evaluate_10x_barcodes(obs, visium=False):
     )
 
     return obs
+
+
+def validate_barcode_assignments(df_summary, field):
+    """
+    Check for unexpected barcode assignments based on assay type.
+    Prints warnings when barcodes don't match expected patterns.
+    """
+    # Columns to ignore during validation
+    ignore_cols = ['multiple', no_barcode_v]
+
+    has_unexpected = False
+
+    for i,row in df_summary.iterrows():
+        if i not in EXPECTED_BARCODES:
+            continue
+
+        expected_barcode = EXPECTED_BARCODES[i]
+        ignore_cols.append(expected_barcode)
+
+        # Check all barcode columns
+        for col in df_summary.columns:
+            count = row[col]
+            if count > 0 and col not in ignore_cols:
+                report(f'{col} barcodes marked as {i}','ERROR')
+                has_unexpected = True
+
+    if has_unexpected:
+        print()
 
 
 def parse_barcode_df(df, field):
@@ -416,6 +685,9 @@ def parse_barcode_df(df, field):
     for h in list(barcode_headers) + [no_barcode_v]:
         if h not in df.columns:
             df[h] = 0
+
+    validate_barcode_assignments(df, field)
+
     df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple',no_barcode_v] and not c.endswith('nt')]
             + [c for c in df if df[c].sum() > 0 and c.endswith('nt')]
             + [c for c in df if df[c].sum() == 0 and c not in ['multiple',no_barcode_v]]
@@ -425,10 +697,45 @@ def parse_barcode_df(df, field):
     return df
 
 
+def evaluate_obsm(adata, labels=None):
+    keys = adata.obsm_keys()
+
+    cellpop_field = 'cell_type' if labels else 'cell_type_ontology_term_id'
+    colors_key = f'{cellpop_field}_colors'
+    had_colors = colors_key in adata.uns
+
+    plot = False
+    sc.set_figure_params(dpi=100)
+    for e in keys:
+        if e.startswith('X_'):
+            sc.pl.embedding(adata, basis=e, color=cellpop_field, legend_loc='on data')
+            plot = True
+        elif e == 'spatial':
+            if np.isnan(adata.obsm['spatial']).any():
+                report("obsm[spatial] contains nans", 'ERROR')
+            sc.pl.embedding(adata, basis=e, color=cellpop_field, legend_loc='on data')
+            plot = True
+        else:
+            report(f'{e} will not be plotted')
+
+    if not had_colors and colors_key in adata.uns:
+        del adata.uns[colors_key]
+
+    if not plot:
+        report('No visualizable embeddings in obsm', 'ERROR')
+
+    de = adata.uns.get('default_embedding')
+    if de:
+        if de not in adata.obsm_keys():
+            report(f'uns.default_embedding:{de} not in [{",".join(adata.obsm.keys())}]', 'ERROR')
+        else:
+            report(f'uns.default_embedding:{de} is in [{",".join(adata.obsm.keys())}]', 'GOOD')
+
+
 def evaluate_uns_schema(uns, labels=False):
     for f in UNS_CURATOR_REQUIRED:
         if f in uns:
-            print(f'{f}: ', uns[f])
+            report(f'{f}: {uns[f]}')
         else:
             report(f'{f} is required', 'ERROR')
     if not labels:
@@ -472,12 +779,20 @@ def evaluate_obs_schema(obs, labels=False):
     if 'cell_type_ontology_term_id' in obs.columns and 'unknown' in obs['cell_type_ontology_term_id'].unique():
         if 'in_tissue' in obs.columns:
             num_unknown = obs.loc[(obs['in_tissue']==1) & (obs['cell_type_ontology_term_id']=='unknown')].shape[0]
-            perc_unknown = 100*(num_unknown/obs.loc[obs['in_tissue']==1].shape[0])
+            perc_unknown = round(100*(num_unknown/obs.loc[obs['in_tissue']==1].shape[0]), 1)
         else:
             num_unknown = obs[obs['cell_type_ontology_term_id']=='unknown'].shape[0]
-            perc_unknown = 100*(num_unknown/obs.shape[0])
+            perc_unknown = round(100*(num_unknown/obs.shape[0]), 1)
         if num_unknown > 20:
-            report(f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.', 'WARNING')
+            report(
+                f'{num_unknown} ({perc_unknown}%) cells are cell_type:unknown.\n'
+                'Some unknowns are acceptable but confirm there is neither an appropriate CL term nor a term to request',
+                'WARNING'
+            )
+
+    for o in obs.columns:
+        if o not in OBS_FULL_STANDARDS and '_'.join(o.split()).lower() in OBS_FULL_STANDARDS:
+            report(f'"close enough" schema conflict: suggest renaming obs.{o}\n', 'ERROR')
 
 
 def evaluate_obs(obs):
@@ -489,12 +804,9 @@ def evaluate_obs(obs):
         counts = '_'.join([str(c) for c in vc_dict.values()])
         count_len = len(vc_dict.keys())
         values = [str(i) for i in vc_dict.keys()]
-    
+
         if o.startswith(' ') or o.endswith(' ') or '  ' in o:
             report(f'leading/trailing whitespace: {o}\n')
-
-        if o not in OBS_FULL_STANDARDS and ' '.join(o.split()).lower() in OBS_FULL_STANDARDS:
-            report(f'schema conflict: {o}\n')
 
         numb_types = ['int_', 'int8', 'int16', 'int32', 'int64', 'uint8', 'uint16',
                       'uint32', 'uint64','float_', 'float16', 'float32', 'float64']
@@ -504,7 +816,7 @@ def evaluate_obs(obs):
             #check for long categories as they will not be enabled for coloring
             if count_len > 200 and o != 'observation_joinid':
                 long_fields.append(o)
-    
+
             #report value_counts to later look for redundancy
             metadata = {
                 'values': values,
@@ -526,72 +838,102 @@ def evaluate_obs(obs):
         report(f'long fields: {long_fields}')
 
 
-def evaluate_dup_counts(adata):
-    """
-    Hash sparse csr matrix using np.ndarrays that represent sparse matrix data.
-    First pass will hash all rows via slicing the data array and append to copy of obs df
-    Second pass will hash only duplicate rows in obs copy via the indices array.
-    This will keep only true duplicated matrix rows and not rows with an indicental same
-    ordering of their data arrays
-    """
-    if 'in_tissue' in adata.obs.columns:
-        obs_to_keep = adata.obs[adata.obs['in_tissue'] != 0].index
-        adata = adata[obs_to_keep, : ]
-
-    matrix = adata.raw.X if adata.raw else adata.X
-
+def ensure_canonical_csr(matrix, adata_obj, location_desc):
+    """Ensure matrix is in canonical CSR format."""
     if not isinstance(matrix, sparse.csr_matrix):
-        print("Matrix not in sparse csr format, please convert before hashing")
-        return
-
-    nnz = matrix.nnz
+        report(
+            f'{location_desc} not in sparse CSR format, conversion required, rerun evaluate_data() for guidance',
+            'ERROR'
+        )
+        return None
 
     if not matrix.has_canonical_format:
-        print("Csr matrix not in canonical format, converting now...")
-        if adata.raw:
-            adata.raw.X.sort_indices()
-            adata.raw.X.sum_duplicates()
-        else:
-            adata.X.sort_indices()
-            adata.X.sum_duplicates()
+        report(f"{location_desc} not in canonical format, converting now...")
+        original_nnz = matrix.nnz
+        matrix.sort_indices()
+        matrix.sum_duplicates()
+        if original_nnz != matrix.nnz:
+            report(f"{original_nnz - matrix.nnz} duplicates found during canonical conversion")
 
-    assert matrix.has_canonical_format, "Matrix still in non-canonical format"
-
-    if nnz != matrix.nnz:
-        print(f"{nnz - matrix.nnz} duplicates found during canonical conversion")
+    assert matrix.has_canonical_format, f"{location_desc} still in non-canonical format"
+    return matrix
 
 
+def hash_sparse_rows(matrix, obs_df):
+    """
+    Hash rows of a sparse CSR matrix to detect duplicates.
+
+    Returns DataFrame with only duplicated rows and their hash values.
+    """
     data_array = matrix.data
     index_array = matrix.indices
     indptr_array = matrix.indptr
 
-    start, end = 0, matrix.shape[0]
-    hashes = []
-    while start < end:
-        val = hash(data_array[indptr_array[start]:indptr_array[start + 1]].tobytes())
-        hashes.append(val)
-        start += 1
+    # First pass: hash data arrays for all rows
+    data_hashes = []
+    for i in range(matrix.shape[0]):
+        row_data = data_array[indptr_array[i]:indptr_array[i + 1]]
+        data_hashes.append(hash(row_data.tobytes()))
 
-    def index_hash(index):
-        obs_loc = adata.obs.index.get_loc(index)
-        val = hash(index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]].tobytes())
+    # Create working dataframe with data hashes
+    hash_df = obs_df.copy()
+    hash_df['data_array_hash'] = data_hashes
 
-        return val
-    
-    hash_df = adata.obs.copy()
-    hash_df['data_array_hash'] = hashes
-    hash_df = hash_df[hash_df.duplicated(subset='data_array_hash',keep=False) == True]
+    # Keep only rows with duplicate data hashes
+    hash_df = hash_df[hash_df.duplicated(subset='data_array_hash', keep=False)]
+
+    if hash_df.empty:
+        return hash_df
+
     hash_df.sort_values('data_array_hash', inplace=True)
 
-    hash_df['index_array_hash'] = [index_hash(row) for row in hash_df.index.to_list()]
-    hash_df = hash_df[hash_df.duplicated(subset=['data_array_hash', 'index_array_hash'], keep=False) == True]
+    # Second pass: hash index arrays for potential duplicates
+    def hash_row_indices(obs_index):
+        obs_loc = obs_df.index.get_loc(obs_index)
+        row_indices = index_array[indptr_array[obs_loc]:indptr_array[obs_loc + 1]]
+        return hash(row_indices.tobytes())
 
-    if not hash_df.empty:
-        report('duplicated raw counts', 'ERROR')
-        return hash_df
-    report('no duplicated raw counts', 'GOOD')
+    hash_df['index_array_hash'] = hash_df.index.map(hash_row_indices)
 
-    
+    # Keep only true duplicates (both data and indices match)
+    hash_df = hash_df[
+        hash_df.duplicated(subset=['data_array_hash', 'index_array_hash'], keep=False)
+    ]
+
+    return hash_df
+
+
+def evaluate_dup_counts(adata):
+    """
+    Detect duplicate raw count rows in the dataset.
+
+    Returns DataFrame of duplicated rows if found, None otherwise.
+    """
+    # Filter to in-tissue observations for spatial data
+    working_adata = adata
+    if 'in_tissue' in adata.obs.columns:
+        obs_to_keep = adata.obs['in_tissue'] != 0
+        working_adata = adata[obs_to_keep, :]
+        report(f'Filtered to {obs_to_keep.sum()} in-tissue observations')
+
+    # Get the raw count matrix
+    matrix, loc_desc, is_csr = get_raw_matrix_info(working_adata)
+
+    # Ensure matrix is in canonical CSR format
+    matrix = ensure_canonical_csr(matrix, working_adata, loc_desc)
+    if matrix is None:
+        return None
+
+    # Hash rows to find duplicates
+    dup_df = hash_sparse_rows(matrix, working_adata.obs)
+    if not dup_df.empty:
+        report(f'Found {len(dup_df)} rows with duplicated raw counts', 'ERROR')
+        return dup_df
+
+    report('No duplicated raw counts', 'GOOD')
+    return None
+
+
 def symbols_to_ids(symbols, var):
     """
     Given a list of gene symbols, look in genes_approved.csv.gz to see if we can map to an Ensembl ID that is found
@@ -611,40 +953,35 @@ def symbols_to_ids(symbols, var):
 
     approved = pd.read_csv(ref_dir + 'genes_approved.csv.gz',dtype='str')
     approved['symbol_only'] = approved['symb'].str.split('_', expand=True)[0]
-    
+
     ensg_list = []
     for s in symbols:
-        found = False
+        found_approved = False
+        found_var = False
         if s in approved['symbol_only'].tolist():
+            found_approved = True
             ensg_ids = approved.loc[approved['symbol_only'] == s, 'feature_id']
             for ensg_id in ensg_ids:
                 if ensg_id in var.index:
                     ensg_list.append(ensg_id)
                     report(f'{ensg_id} -- {s}')
-                    found = True
-        if not found:
+                    found_var = True
+        if not found_var:
             s_lower = s[0] + s[1:].lower()
             if s_lower in approved['symbol_only'].tolist():
-                ensg_ids_lower = approved.loc[approved['symbol_only'] == s_lower, 'feature_id']
-                for ensg_id_lower in ensg_ids_lower:
+                found_approved = True
+                ensg_ids = approved.loc[approved['symbol_only'] == s_lower, 'feature_id']
+                for ensg_id in ensg_ids:
                     if ensg_id_lower in var.index:
-                        ensg_list.append(ensg_id_lower)
-                        report(f'{ensg_id_lower} -- {s_lower}')
-                        found = True
-        if not found:
-            report(f'{s} not found in genes_approved or adata.var')
+                        ensg_list.append(ensg_id)
+                        report(f'{ensg_id} -- {s_lower}')
+                        found_var = True
+        if not found_approved:
+            report(f'{s} not found in genes_approved.csv.gz, check for typos', 'WARNING')
+        elif not found_var:
+            report(f'{s}/{ensg_id} not found in var', 'WARNING')
 
     return ensg_list
-
-
-def pick_embed(keys):
-    for k in keys:
-        if 'umap' in k.lower():
-            return k
-        elif 'umap' in k.lower():
-            return k
-
-    return keys[0]
 
 
 def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
@@ -656,6 +993,9 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
     without issue.
     '''
     try:
+        import warnings
+        warnings.filterwarnings('ignore', category=FutureWarning, module='dask.dataframe')
+
         import geopandas as gpd
         import spatialdata as sd
         import spatialdata_plot
@@ -682,7 +1022,7 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
         (spot_radius_hires, coords_hires, 'hires'),
         (spot_radius_fullres, coords_fullres, 'fullres'),
     ]
-    
+
     for spot_radius, coords, name in radii_and_coords:
         circles = [Point(x, y).buffer(spot_radius) for x, y in coords]
         shapes_df = gpd.GeoDataFrame({
@@ -781,18 +1121,80 @@ def viz_spatial_per_field(sdata, library_id, res, field):
     axes[1].set_title(f'{res} image + {field}', fontsize=12)
     axes[1].axis('off')
 
-    plt.tight_layout()
     plt.show()
 
 
 def plot_vis(adata, cellpop_field=None):
-    spatial_keys = [k for k in adata.uns['spatial'].keys() if k != 'is_single']
-    if len(spatial_keys) != 1:
-        report(f'Found {len(spatial_keys)} keys in uns.spatial: {spatial_keys}', 'ERROR')
-        return None
     library_id = [k for k in adata.uns['spatial'].keys() if k != 'is_single'][0]
     sdata = anndata_to_spatialdata_visium(adata, library_id, cellpop_field)
     visualize_spatial(sdata, library_id, cellpop_field)
+
+
+def evaluate_spatial(adata, cellpop_field):
+    if 'spatial' not in adata.uns:
+        report('required uns[spatial] is absent', 'ERROR')
+        return
+    if 'is_single' not in adata.uns['spatial']:
+        report('required uns[spatial][is_single] is absent', 'ERROR')
+        return
+    if adata.uns['spatial']['is_single'] == True:
+        if len(adata.uns['spatial']) != 2:
+            report(
+                'uns[spatial] keys should be is_single + exactly 1 library_id\n'
+                f"keys: {', '.join(adata.uns['spatial'].keys())}",
+                'ERROR'
+            )
+            return
+        if 'spatial' not in adata.obsm:
+            report('required obsm[spatial] is absent', 'ERROR')
+            return
+        plot_vis(adata, cellpop_field)
+    elif len(adata.uns['spatial'].keys()) > 1:
+        report(
+            'uns[spatial] keys should be only is_single'
+            f"keys: {', '.join(adata.uns['spatial'].keys())}",
+            'ERROR'
+        )
+
+
+def side_by_side_dotplot(adata, gene_list, groupby):
+    panels = [(False, ".X")] + ([(True, ".raw.X")] if adata.raw else [])
+    n = len(panels)
+
+    n_groups = adata.obs[groupby].nunique()
+    top_in, gap_in, legend_in, bottom_in = 0.4, 1.3, 1.3, 0.15
+    main_in = max(2.0, n_groups * 0.28)
+    fig_h = top_in + main_in + gap_in + legend_in + bottom_in
+    fig = plt.figure(figsize=(len(gene_list) * 0.3 * n, fig_h))
+    outer = fig.add_gridspec(1, n, wspace=0)
+
+    main_y0, main_h = (bottom_in + legend_in + gap_in) / fig_h, main_in / fig_h
+    legend_y0, legend_h = bottom_in / fig_h, legend_in / fig_h
+
+    for i, (use_raw, title) in enumerate(panels):
+        col = outer[0, i].get_position(fig)
+        main_gs = fig.add_gridspec(1, 1, left=col.x0, right=col.x1, bottom=main_y0, top=main_y0 + main_h)
+        main_ax = fig.add_subplot(main_gs[0, 0])
+        legend_ax = fig.add_axes([col.x0, legend_y0, col.width, legend_h])
+
+        dp = sc.pl.dotplot(adata, gene_list, groupby=groupby, use_raw=use_raw,
+                            ax=main_ax, show=False, return_fig=True, title=title)
+        dp.legend(show=False)
+        dp.make_figure()
+        mainplot_ax = dp.get_axes()["mainplot_ax"]
+        mainplot_ax.set_position(main_ax.get_position())
+        if i > 0:
+            mainplot_ax.tick_params(axis="y", left=False, labelleft=False)
+
+        legend_ax.axis("off")
+        lp = legend_ax.get_position()
+        size_ax = fig.add_axes([lp.x0, lp.y0, lp.width * 0.35, lp.height * 0.7])
+        cbar_ax = fig.add_axes([lp.x0 + lp.width * 0.55, lp.y0 + lp.height * 0.15, lp.width * 0.4, lp.height * 0.28])
+        dp._plot_size_legend(size_ax)
+        norm = Normalize(vmin=dp.dot_color_df.values.min(), vmax=dp.dot_color_df.values.max())
+        dp._plot_colorbar(cbar_ax, norm)
+
+    plt.show()
 
 
 def validate(file):
@@ -1008,7 +1410,7 @@ def calculate_sex(fm_dict):
         male_female_df['total_sum'] = male_female_df[['female_sum','male_sum']].sum(numeric_only=True, axis=1)
         donors_to_remove = male_female_df[male_female_df.total_sum < 100].donor_id.unique()  # Remove donors that have less than 100 total counts
         if len(donors_to_remove) > 0:
-            print('Donors with < 100 total counts dropped: ', *(donors_to_remove), sep='\n')
+            print('Donors with < 100 total counts dropped:', ','.join(donors_to_remove))
             male_female_df.drop(male_female_df[male_female_df.total_sum < 100].index, inplace=True)
         #Calculate ratio and assign sex
         male_female_df['male_to_female'] = male_female_df['male_sum']/male_female_df['female_sum']
@@ -1019,20 +1421,62 @@ def calculate_sex(fm_dict):
     except Exception as e:
         print(e)
 
+def compare_donor_sex(df):
+    inconsistencies = df[df['scRNAseq_sex'] != df['author_annotated_sex']].sort_values('donor_id')
+    if inconsistencies.empty:
+        report('donor sex metadata is consistent', 'GOOD')
+    else:
+        curated_unknowns = inconsistencies[inconsistencies['author_annotated_sex'] == 'unknown']
+        if not curated_unknowns.empty:
+            report(
+                'donors with annoted sex:unknown have sex indicated by expression\n'
+                'if the contributor is a study author (not reuse), provide the plots and\n'
+                'ask if they would like to update the donor sex annotated based on this analysis',
+                'WARNING'
+            )
+            display(curated_unknowns)
+
+        expression_unknowns = inconsistencies[inconsistencies['scRNAseq_sex'] == 'unknown']
+        if not expression_unknowns.empty:
+            report(f'{len(expression_unknowns)} donors with undetermined sex by expression')
+            display(expression_unknowns)
+
+        true_inconsistencies = inconsistencies[
+            (
+                (inconsistencies['author_annotated_sex'] == 'male') &
+                (inconsistencies['scRNAseq_sex'] == 'female')
+            ) | (
+                (inconsistencies['author_annotated_sex'] == 'female') &
+                (inconsistencies['scRNAseq_sex'] == 'male')
+            )
+        ]
+        if not true_inconsistencies.empty:
+            report(
+                'donor sex metadata inconsistencies\n'
+                'the reported sex should be double-checked for these donors in the associated publication\n'
+                'if the contributor is a study author (not reuse), ask them to double-check their records',
+                'ERROR'
+            )
+            display(true_inconsistencies)
+
 
 def evaluate_donors_sex(adata):
     if 'NCBITaxon:9606' != adata.uns['organism_ontology_term_id']:
-        print('Cannot calculate sex for non-human data.')
-        return None,None
+        report('Cannot calculate sex for non-human data.')
+        return None
     else:
         genes_file = 'ref_files/sex_analysis_genes.json'
         genes = json.load(open(genes_file))
         female_ids = genes['female'].keys()
         male_ids = genes['male'].keys()
         metadata_list = ['donor_id', 'sex_ontology_term_id','assay_ontology_term_id']
-        smart_assay_list = ['EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022','EFO:0700016','EFO:0022488','EFO:0008442']
+        smart_assay_list = [
+            'EFO:0010184','EFO:0008931','EFO:0008930','EFO:0010022',
+            'EFO:0700016','EFO:0022488','EFO:0008442'
+        ]
         adata.obs['donor_id'] = adata.obs['donor_id'].astype(str)
-        adata.obs.loc[adata.obs['assay_ontology_term_id'].isin(smart_assay_list) == True, 'donor_id'] += '-smartseq'
+        mask = adata.obs['assay_ontology_term_id'].isin(smart_assay_list)
+        adata.obs.loc[mask, 'donor_id'] += '-smartseq'
 
         if adata.raw:
             adata = ad.AnnData(sparse.csr_matrix(adata.raw.X), var=adata.raw.var, obs=adata.obs)
@@ -1042,69 +1486,111 @@ def evaluate_donors_sex(adata):
 
         genes_found = check_percent(female_adata,male_adata,female_ids,male_ids)
         if genes_found[0] == 0 or genes_found[1] == 0:
-            return None,None
+            return None
         fm_counts_dict = generate_fm_dict(female_ids,female_adata,male_ids,male_adata,adata)
         donor_sex_df,removed_donors = calculate_sex(fm_counts_dict)
         donor_sex_df = donor_sex_df[['donor_id','male_to_female','scRNAseq_sex']]
-        donor_sex_df = donor_sex_df.merge(adata.obs[metadata_list].drop_duplicates(), on='donor_id', how='left')
+        donor_sex_df = donor_sex_df.merge(
+            adata.obs[metadata_list].drop_duplicates(),
+            on='donor_id',
+            how='left'
+        )
         sex_map = {
             'PATO:0000383':'female',
             'PATO:0000384':'male',
             'unknown':'unknown'
         }
         donor_sex_df['author_annotated_sex'] = donor_sex_df['sex_ontology_term_id'].map(sex_map)
-        donor_sex_df.loc[donor_sex_df['assay_ontology_term_id'].isin(smart_assay_list) == True, 'smart_seq'] = True
+        mask = donor_sex_df['assay_ontology_term_id'].isin(smart_assay_list)
+        donor_sex_df.loc[mask, 'smart_seq'] = True
         donor_sex_df.drop(columns=['sex_ontology_term_id','assay_ontology_term_id'], inplace=True)
-        donor_sex_df.sort_values('male_to_female', inplace=True)
+        donor_sex_df = donor_sex_df.drop_duplicates().sort_values('male_to_female')
         obs_to_keep = []
         ratio_order = []
         smart_seq_donors_rename = {}
 
         if 'smart_seq' in donor_sex_df.columns:
-            donor_sex_df['smart_seq'] = donor_sex_df['smart_seq'].fillna(False).astype('bool')
+            donor_sex_df['smart_seq'] = (
+                donor_sex_df['smart_seq']
+                .where(donor_sex_df['smart_seq'].notna(), False)
+                .astype('bool')
+            )
 
         if donor_sex_df['smart_seq'].all() or not any(donor_sex_df['smart_seq']):
             adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]
             donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0]
-            obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin((donor_sex_df[donor_sex_df['donor_id'].isin(removed_donors)!=True]['donor_id']))].index)
-            ratio_order.append((donor_sex_df['donor_id'] + ' ' + donor_sex_df['author_annotated_sex'].astype('string')).to_list())
+            valid_donors = donor_sex_df[~donor_sex_df['donor_id'].isin(removed_donors)]['donor_id']
+            obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(valid_donors)].index)
+            ratio_order.append(
+                (donor_sex_df['donor_id'] + ' ' +
+                 donor_sex_df['author_annotated_sex'].astype('string')).to_list()
+            )
 
         else:
             for d in pd.Series(donor_sex_df['donor_id'].str.split('-smartseq').str[0]).unique():
-                if d in removed_donors:
-                    print(f"Donor {d} was removed from analysis, cannot include in plot.")
-                else:
+                if d not in removed_donors:
                     try:
-                        smart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d + '-smartseq') & (donor_sex_df['smart_seq'] == True)]['scRNAseq_sex'].unique()
-                        nonsmart_seq_sex = donor_sex_df.loc[(donor_sex_df['donor_id'] == d) & (donor_sex_df['smart_seq'] == False)]['scRNAseq_sex'].unique()
+                        smart_seq_sex = donor_sex_df.loc[
+                            (donor_sex_df['donor_id'] == d + '-smartseq') &
+                            (donor_sex_df['smart_seq'] == True)
+                        ]['scRNAseq_sex'].unique()
+                        nonsmart_seq_sex = donor_sex_df.loc[
+                            (donor_sex_df['donor_id'] == d) &
+                            (donor_sex_df['smart_seq'] == False)
+                        ]['scRNAseq_sex'].unique()
 
                         if len(smart_seq_sex) > 0 and len(nonsmart_seq_sex) > 0:
                             if smart_seq_sex != nonsmart_seq_sex:
-                                print(f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) do not match - both will be included in plot.')
-                                d_df = donor_sex_df[(donor_sex_df['donor_id'] == d) | (donor_sex_df['donor_id'] == d + '-smartseq')]
+                                report(
+                                    f'Smart-seq and non-Smart-seq scRNAseq_sex for donor ({d}) '
+                                    'do not match - both will be included in plot.',
+                                    'WARNING'
+                                )
+                                d_df = donor_sex_df[
+                                    (donor_sex_df['donor_id'] == d) |
+                                    (donor_sex_df['donor_id'] == d + '-smartseq')
+                                ]
                                 obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
-                                ratio_order.append((d_df['donor_id']  + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+                                ratio_order.append(
+                                    (d_df['donor_id'] + ' ' +
+                                     d_df['author_annotated_sex'].astype('string')).to_list()
+                                )
 
                             if smart_seq_sex == nonsmart_seq_sex:
-                                print(f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) match, dropping Smart-seq from plot.')
+                                report(
+                                    f'Smart-seq and non-smart-seq scRNAseq_sex for donor ({d}) '
+                                    'match, dropping Smart-seq from plot.'
+                                )
                                 d_df = donor_sex_df[donor_sex_df['donor_id'] == d]
                                 obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
-                                ratio_order.append((d_df['donor_id']  + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+                                ratio_order.append(
+                                    (d_df['donor_id'].str.split('-smartseq').str[0] + ' ' +
+                                     d_df['author_annotated_sex'].astype('string')).to_list()
+                                )
 
                         elif len(smart_seq_sex) > 0 and len(nonsmart_seq_sex) == 0:
                             d_df = donor_sex_df[donor_sex_df['donor_id'] == d + '-smartseq']
                             smart_seq_donors_rename[f'{d}-smartseq'] = d
                             obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
-                            ratio_order.append((d_df['donor_id'].str.split('-smartseq').str[0] + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+                            ratio_order.append(
+                                (d_df['donor_id'].str.split('-smartseq').str[0] + ' ' +
+                                 d_df['author_annotated_sex'].astype('string')).to_list()
+                            )
 
 
                         elif len(smart_seq_sex) == 0 and len(nonsmart_seq_sex) > 0:
                             d_df = donor_sex_df[donor_sex_df['donor_id'] == d]
                             obs_to_keep.append(adata.obs[adata.obs['donor_id'].isin(d_df['donor_id'])].index)
-                            ratio_order.append((d_df['donor_id'] + ' ' + d_df['author_annotated_sex'].astype('string')).to_list())
+                            ratio_order.append(
+                                (d_df['donor_id'] + ' ' +
+                                d_df['author_annotated_sex'].astype('string')).to_list()
+                            )
 
                     except Exception as e:
-                        print(f"Error: smart-seq and non-smart-seq sex for donor {d} were not calculated. Details: {e}")
+                        report(
+                            f'Error: smart-seq and non-smart-seq sex for donor {d} were not calculated. Details: {e}',
+                            'WARNING'
+                        )
                         obs_to_keep, ratio_order = None, None  # Set to None to indicate failure
 
         flattened_obs_to_keep = [obs for sublist in obs_to_keep for obs in sublist]
@@ -1114,20 +1600,33 @@ def evaluate_donors_sex(adata):
         adata.obs['donor_id'] = adata.obs['donor_id'].str.split('-smartseq').str[0]
         donor_sex_df['donor_id'] = donor_sex_df['donor_id'].str.split('-smartseq').str[0]
         adata_sub.obs['donor_id'] = adata_sub.obs['donor_id'].cat.rename_categories(smart_seq_donors_rename)
-        adata_sub.obs['donor_sex'] = adata_sub.obs.apply(lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}", axis=1).astype('category')
+        adata_sub.obs['donor_sex'] = (
+            adata_sub.obs.apply(
+                lambda x: f"{x['donor_id']} {sex_map[x['sex_ontology_term_id']]}",
+                axis=1
+            ).astype('category')
+        )
         adata_sub.var.rename(index=genes['female'], inplace=True)
         adata_sub.var.rename(index=genes['male'], inplace=True)
         f_symbs = [g for g in genes['female'].values() if g in adata_sub.var.index]
         m_symbs = [g for g in genes['male'].values() if g in adata_sub.var.index]
         dp = sc.pl.dotplot(
-              adata_sub, {'female': f_symbs, 'male': m_symbs}, 'donor_sex',
-              use_raw=False, categories_order=flattened_ratio_order, return_fig=True
-          )
+            adata_sub,
+            {'female': f_symbs, 'male': m_symbs},
+            'donor_sex',
+            use_raw=False,
+            categories_order=flattened_ratio_order,
+            return_fig=True
+        )
 
-        return donor_sex_df, dp
+        if not donor_sex_df.empty:
+            compare_donor_sex(donor_sex_df)
+
+        if dp:
+            dp.show()
 
 
-def evaluate_var_df(adata):
+def evaluate_var(adata):
     """
     Use single-cell-curation classes and fuctions and report warning/error for organism specific minimum number of gene features. Also, this function
     will look that var contains features from only a single organism.
@@ -1139,39 +1638,27 @@ def evaluate_var_df(adata):
     more genes filtered.
     """
     accepted_biotypes = [
-        'protein_coding',
-        'protein_coding_LoF',
-        'lncRNA',
-        'IG_C_gene',
-        'IG_D_gene',
-        'IG_J_gene',
-        'IG_LV_gene',
-        'IG_V_gene',
-        'IG_V_pseudogene',
-        'IG_J_pseudogene',
-        'IG_C_pseudogene',
-        'TR_C_gene',
-        'TR_D_gene',
-        'TR_J_gene',
-        'TR_V_gene',
-        'TR_V_pseudogene',
-        'TR_J_pseudogene'
+        'protein_coding','protein_coding_LoF','lncRNA',
+        'IG_C_gene','IG_D_gene','IG_J_gene','IG_LV_gene','IG_V_gene',
+        'IG_V_pseudogene','IG_J_pseudogene','IG_C_pseudogene',
+        'TR_C_gene','TR_D_gene','TR_J_gene','TR_V_gene',
+        'TR_V_pseudogene','TR_J_pseudogene'
     ]
 
     organisms_with_descendants = [
-        'NCBITaxon:9541',
-        'NCBITaxon:9544',
-        'NCBITaxon:10090',
-        'NCBITaxon:9986',
-        'NCBITaxon:9598',
-        'NCBITaxon:10116',
-        'NCBITaxon:9823'
+        'NCBITaxon:9541','NCBITaxon:9544','NCBITaxon:10090','NCBITaxon:9986',
+        'NCBITaxon:9598','NCBITaxon:10116','NCBITaxon:9823'
     ]
 
     # Check that this is single organism both in metadata and var index, exit function if multiple organisms or contains invalid var features
     var_organism_objs = list({gencode.get_organism_from_feature_id(id) for id in adata.var.index.to_list()})
     if None in var_organism_objs:
-        report('Features in var.index are gene symbols and/or contain deprecated Ensembl IDs', 'ERROR')
+        report(
+            'Some features in var.index are not valid gene IDs. index may be gene symbols or contain deprecated IDs',
+            'ERROR'
+        )
+        report('To remove deprecated IDs, run...')
+        report('adata = map_filter_gene_ids(adata)', 'code')
         return
     valid = True
     uns_organism = adata.uns['organism_ontology_term_id']
@@ -1181,7 +1668,7 @@ def evaluate_var_df(adata):
         report('There are covid genes present in var')
         var_organisms.remove('NCBITaxon:2697049')
     if 'NCBITaxon:2697049' == uns_organism:
-        report('"Covid is not a supported uns.organism"', 'ERROR')
+        report('Covid is not a supported uns.organism', 'ERROR')
         valid = False
     if len(var_organisms) > 1:
         report(f'Multiple organisms found in var index: {var_organisms}', 'ERROR')
@@ -1191,12 +1678,12 @@ def evaluate_var_df(adata):
             if utils.is_ontological_descendant_of(ONTOLOGY_PARSER,uns_organism,var_organisms[0]):
                 report(f'Single organism found: {var_organisms}', 'GOOD')
             else:
-                report(f'Uns metadata contains non-descendant of var index organism: {var_organisms[0]}, {uns_organism}', 'ERROR')
+                report(f'uns metadata contains non-descendant of var index organism: {var_organisms[0]}, {uns_organism}', 'ERROR')
                 return
         elif uns_organism == var_organisms[0]:
             report(f'Single organism found: {var_organisms}', 'GOOD')
         else:
-            report(f'Different organisms found between var index and uns metadata: {var_organisms[0]}, {uns_organism}', 'ERROR')
+            report(f'Different organisms found between var index ({var_organisms[0]}) and uns metadata ({uns_organism})', 'ERROR')
             return
     else:
         return
@@ -1205,7 +1692,7 @@ def evaluate_var_df(adata):
     # unpaired ATAC have no gene count criteria
     if adata.obs['assay_ontology_term_id'].unique()[0] in ['EFO:0010891','EFO:0030007','EFO:0008925','EFO:0008904','EFO:0022045']:
         return
-    elif 'EFO:0022606' in adata.obs['assay_ontology_term_id'].unique():
+    elif [a for a in adata.obs['assay_ontology_term_id'].unique() if a in FLEX_ASSAYS]:
         count_type = 'Flex'
         warn_cut = 0.9
         err_cut = 0.7
@@ -1220,28 +1707,46 @@ def evaluate_var_df(adata):
             report(f'{gene_count} genes present, expecting at most {flex_v2_count} for Flex V2', 'ERROR')
             return
     else:
-        # Check the number of genes threshold base on biotype per specific organism
-        org_obj = [i for i in gencode.SupportedOrganisms if i.value==var_organisms[0]][0]
-        gene_checker = gencode.GeneChecker(org_obj)
-        target_count = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
-        count_type = '10x biotype'
         warn_cut = 0.6
         err_cut = 0.4
+        if adata.uns['organism_ontology_term_id'] in ['NCBITaxon:10090', 'NCBITaxon:9606']:
+            target_count = 35_000
+            count_type = '10x biotype (CellRanger reference version)'
+        else:
+            # Check the number of genes threshold base on biotype per specific organism
+            org_obj = [i for i in gencode.SupportedOrganisms if i.value==var_organisms[0]][0]
+            gene_checker = gencode.GeneChecker(org_obj)
+            target_count = len([i for i in gene_checker.gene_dict.keys() if gene_checker.gene_dict[i][2] in accepted_biotypes])
+            count_type = '10x biotype'
 
     fraction = gene_count / target_count
     percent = fraction * 100
     if fraction < err_cut:
-        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}% ({err_cut} threshold)', 'ERROR')
+        report(
+            f'{gene_count} genes present, compared against {target_count} {count_type} genes:'\
+            f'{percent:.1f}% ({err_cut} threshold)\n'\
+            'Data may not be eligible for submission without a less filtered gene set',
+            'ERROR'
+        )
     elif fraction < warn_cut:
-        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}% ({warn_cut} threshold)','WARNING')
+        report(
+            f'{gene_count} genes present, compared against {target_count} {count_type} genes:'\
+            f'{percent:.1f}% ({warn_cut} threshold)\n'\
+            'A less filtered gene set should be requested',
+            'WARNING'
+        )
     else:
-        report(f'{gene_count} genes present, compared against {target_count} {count_type} genes: {percent:.1f}%', 'GOOD')
+        report(
+            f'{gene_count} genes present, compared against {target_count} {count_type} genes:'\
+            f'{percent:.1f}%',
+            'GOOD'
+        )
 
     # Check the number of filtered genes
     if 'feature_is_filtered' in adata.var.columns:
         if True in adata.var.feature_is_filtered.unique():
             num_filtered_genes = len(adata.var[adata.var.feature_is_filtered == True])
             frac_filtered = num_filtered_genes / gene_count * 100
-            print(f'{num_filtered_genes} ({frac_filtered:.1f}%) genes are filtered')
+            report(f'{num_filtered_genes} ({frac_filtered:.1f}%) genes are filtered from .X')
     else:
         report('feature_is_filtered not found in var', 'ERROR')
