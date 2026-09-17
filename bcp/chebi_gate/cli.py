@@ -167,6 +167,12 @@ INPUT_ERRORS = (
     casreg.RegistryError,
     chebi_release.ReleaseError,
     OSError,
+    # JSONDecodeError and UnicodeDecodeError both subclass it, which is how a
+    # corrupt index_manifest.json and a registry CSV saved as cp1252 -- Excel's
+    # default on Windows, and that table is assembled by hand -- escaped as a
+    # traceback with exit 1. Exit 1 is the status that means "records were held",
+    # which is the one confusion a pipeline must not have.
+    ValueError,
 )
 
 

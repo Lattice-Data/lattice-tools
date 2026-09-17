@@ -256,24 +256,29 @@ def parse(text: str) -> Counter | None:
     return total or None
 
 
-def declares_components(text: str) -> bool:
-    """Whether a formula states a component ratio rather than one whole molecule.
+def has_fractional_component(text: str) -> bool:
+    """Whether any component multiplier is not a whole number.
 
-    A dot separates components; a leading multiplier says how many of the next one
-    there are. Only then did the writer leave the absolute size open -- a
-    sesquifumarate registered 1:1.5 cannot be drawn as written, so the depositor
-    picks 2:3 and the registry never said which. A formula naming one molecule
-    said its size, and a drawing twice that size is a different substance.
-
-    Deleted in the pass that introduced :func:`whole_multiple` and needed back
-    immediately: scaling without this test let ``C2H6O`` agree with ``C4H12O2``,
-    which is the same defect as the reduction it replaced, in the other direction.
+    This, and not "declares components", is what licenses a drawing to be k units
+    of the registry's composition. A sesquifumarate registered ``3/2C4H4O4`` or a
+    hemifumarate registered ``1/2C4H4O4`` cannot be drawn as written -- nobody
+    draws half a counterion -- so the depositor picks 2:3 or 2:1 and the registry
+    never fixed the unit count. A registry stating *whole* components has already
+    fixed the absolute size: ``C8H20N.Br`` against a drawing of two units is the
+    C6H12O6-versus-C2H4O2 defect again, in the direction the scaling rule opened.
     """
     cleaned = _TRAILING_CHARGE.sub("", strip_markup(text or ""))
-    if "." in cleaned:
-        return True
-    match = _MULTIPLIER.match(cleaned)
-    return bool(match and match.group(1))
+    for part in _split_components(cleaned):
+        match = _MULTIPLIER.match(part)
+        raw = match.group(1) if match else None
+        if not raw:
+            continue
+        try:
+            if Fraction(raw).denominator != 1:
+                return True
+        except (ValueError, ZeroDivisionError):
+            continue
+    return False
 
 
 def whole_counts(counts: Counter | None) -> dict[str, int] | None:
@@ -389,13 +394,15 @@ def compare(
         )
 
     multiple = whole_multiple(left, right)
-    # k > 1 is only available to a registry formula that declared components. A
-    # formula naming one molecule stated its size, so a drawing of N copies is a
-    # different substance -- ethanol against its dimer, not a scaling convention.
+    # k > 1 is only available to a registry formula carrying a *fractional*
+    # component multiplier, which is the only case where the registry left the
+    # unit count open. A formula naming one molecule, or whole components, stated
+    # its size -- so a drawing of N copies is a different substance, whether that
+    # is ethanol against its dimer or a 1:1 salt against a doubled drawing.
     if (
         multiple is not None
         and multiple > 1
-        and not declares_components(registry_formula)
+        and not has_fractional_component(registry_formula)
     ):
         multiple = None
     if multiple is not None:

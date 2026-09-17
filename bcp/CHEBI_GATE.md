@@ -584,6 +584,18 @@ absent; EXT-04 says nothing about a record with no CAS number instead of
 reporting no registry row for it; and the `cas_registry` imports are at module
 level, as the sibling packages have them.
 
+A thirteenth pass narrowed the scaling rule once more and fixed two exit codes:
+
+- `k > 1` was gated on a formula *declaring components*, which every dotted salt
+  formula does — so a registry `C8H20N.Br` agreed with a drawing of two units.
+  The asymmetry exists because nobody draws half a counterion, so it belongs to a
+  *fractional* multiplier only; a registry stating whole components already fixed
+  the size.
+- `INPUT_ERRORS` omitted `ValueError`, so a corrupt `index_manifest.json` and a
+  registry or decisions CSV saved as cp1252 — Excel's default on Windows, and
+  that table is assembled by hand — escaped as a traceback with exit 1, the
+  status that means "records were held".
+
 A twelfth pass found the scaling rule the tenth introduced was open in the other
 direction:
 

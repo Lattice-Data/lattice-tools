@@ -1370,3 +1370,29 @@ def test_a_non_ascii_byte_does_not_truncate_the_findings_table(tmp_path):
     rows = list(csv.DictReader(outputs.findings.open(encoding="utf-8")))
     assert len(rows) == len(run.all_findings)
     assert outputs.held.read_bytes(), "the non-ASCII record is held, not lost"
+
+
+def test_the_cli_exits_two_on_a_registry_csv_in_the_wrong_encoding(
+    tmp_path, clean_input, capsys
+):
+    """Excel's default on Windows, and that table is assembled by hand.
+
+    UnicodeDecodeError and JSONDecodeError both subclass ValueError, which was not
+    in INPUT_ERRORS -- so they escaped as a traceback with exit 1, the status that
+    means "records were held".
+    """
+    path = tmp_path / "cas_registry.csv"
+    header = ",".join(casreg.REGISTRY_COLUMNS)
+    path.write_bytes((header + "\n64-17-5,caf\u00e9").encode("cp1252"))
+    code = main(
+        [
+            str(clean_input),
+            "--out-dir",
+            str(tmp_path / "o"),
+            "--no-decisions",
+            "--cas-registry",
+            str(path),
+        ]
+    )
+    assert code == EXIT_USAGE
+    assert "error:" in capsys.readouterr().err

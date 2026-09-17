@@ -480,3 +480,21 @@ def test_a_drawing_of_n_copies_agrees_only_when_the_registry_stated_a_ratio():
     assert formula.compare("C12H18N2O.3/2C4H4O4", "C36H48N4O14").status == (
         formula.AGREE
     )
+
+
+def test_only_a_fractional_component_lets_a_drawing_scale():
+    """ "Declares components" was too broad: every dotted formula qualified.
+
+    The asymmetry exists because nobody draws half a counterion. A registry
+    stating *whole* components has already fixed the absolute size, so a doubled
+    1:1 salt is the C6H12O6-versus-C2H4O2 defect in the direction the scaling
+    rule opened.
+    """
+    assert formula.has_fractional_component("C12H18N2O.3/2C4H4O4")
+    assert formula.has_fractional_component("C19H23N.1.5C4H4O4")
+    assert not formula.has_fractional_component("C8H20N.Br")
+    assert not formula.has_fractional_component("C4H10O2.2H2O")
+
+    assert formula.compare("C8H20N.Br", "C16H40Br2N2").status == formula.DISAGREE
+    assert formula.compare("C8H20N.Br", "C8H20BrN").status == formula.AGREE
+    assert formula.compare("C19H23N.1/2C4H4O4", "C42H50N2O4").status == formula.AGREE
