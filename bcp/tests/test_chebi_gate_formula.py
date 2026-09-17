@@ -465,3 +465,18 @@ def test_the_empty_registry_is_usable_as_a_no_op():
     assert len(casreg.EMPTY) == 0
     assert casreg.EMPTY.get("64-17-5") is None
     assert casreg.EMPTY.coverage({"64-17-5"})["without_registry_row"] == 1
+
+
+def test_a_drawing_of_n_copies_agrees_only_when_the_registry_stated_a_ratio():
+    """Scaling without that test is the same defect in the other direction.
+
+    `whole_multiple` accepted any whole k, so a registry naming one molecule
+    agreed with a drawing of N of them: ethanol against its dimer came back
+    "agrees ... (drawn as 2 units)" with `confirms` True. A formula naming one
+    molecule stated its size; only a formula declaring components left it open.
+    """
+    assert formula.compare("C2H6O", "C4H12O2").status == formula.DISAGREE
+    assert formula.compare("C2H6O", "C2H6O").status == formula.AGREE
+    assert formula.compare("C12H18N2O.3/2C4H4O4", "C36H48N4O14").status == (
+        formula.AGREE
+    )

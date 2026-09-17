@@ -114,6 +114,13 @@ class Candidate:
     name: str = ""
     url: str = ""
     available: bool = True
+    # Whether the source has this CAS number at all. A cached 404 or a "notfound"
+    # is an answer -- the source was reachable and said it does not hold it -- so
+    # `available` is True while this is False. Without the distinction the
+    # EXT-05 message said "is held by a source that gave no structure to compare"
+    # about a source that had just said the opposite, which is the self-
+    # contradicting sentence UNADJUDICATED was split out to eliminate.
+    holds: bool = True
     detail: str = ""
     # Whether a non-match from this source is evidence of a defect, or merely a
     # source that cannot be compared. See :func:`classify`.
@@ -280,7 +287,10 @@ def common_chemistry_candidate(evidence: Evidence, cas: str) -> Candidate | None
         )
     if status == "notfound" or http_status == 404:
         return Candidate(
-            source=COMMON_CHEMISTRY_SOURCE, independent=True, available=True
+            source=COMMON_CHEMISTRY_SOURCE,
+            independent=True,
+            available=True,
+            holds=False,
         )
     # Anything else is a failure that was cached, not an answer.
     return Candidate(
@@ -361,7 +371,15 @@ def pubchem_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
         # answered for. The verdict was right and the sentence was not, which is
         # the kind of note a chemist reads and then goes looking for a cache entry
         # that is already there.
-        return [Candidate(source=PUBCHEM_SOURCE, independent=False, available=True)]
+        return [
+            Candidate(
+                source=PUBCHEM_SOURCE,
+                independent=False,
+                available=True,
+                # A cached 404 with no entries means PubChem answered "not mine".
+                holds=bool(entries),
+            )
+        ]
     return out
 
 
@@ -587,7 +605,7 @@ def ext01(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
             # empty inchikey cell is the ordinary way in, and the note beside it
             # names the source that answered.
             "is held by a source that gave no structure to compare"
-            if verdict.candidate is not None
+            if verdict.candidate is not None and verdict.candidate.holds
             else "resolves in no cached source",
         ),
         UNADJUDICATED: (

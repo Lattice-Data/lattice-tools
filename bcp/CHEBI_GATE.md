@@ -291,8 +291,8 @@ Any divergence not in that table is a bug. The table is generated, and the test
 asserts the set of diverging keys equals the set recorded — so a new divergence
 fails the run rather than quietly widening the gap.
 
-**This anchor is a local gate, not a CI one.** The inputs are gitignored, so five
-of its seven tests skip on any machine without the run directory, which is every
+**This anchor is a local gate, not a CI one.** The inputs are gitignored, so six
+of its nine tests skip on any machine without the run directory, which is every
 CI machine. Of the two that mention v1, only the divergence comparison skips; the
 one asserting every divergence states a reason runs everywhere. Copy
 `chebi_bulk_group_A_salts.sdf` and `chebi_bulk_group_B_novel.sdf` into
@@ -583,6 +583,24 @@ external pass; INT-02 no longer reports a title differing from a NAME that is
 absent; EXT-04 says nothing about a record with no CAS number instead of
 reporting no registry row for it; and the `cas_registry` imports are at module
 level, as the sibling packages have them.
+
+A twelfth pass found the scaling rule the tenth introduced was open in the other
+direction:
+
+- `whole_multiple` accepted any whole `k`, with no test that the registry had
+  declared components — so a registry naming one molecule agreed with a drawing
+  of N copies of it. Ethanol against its dimer came back "agrees (drawn as 2
+  units)". Scaling is available only to a formula that declared a ratio, which is
+  the case it was written for.
+- A cached 404 or a `notfound` produces a candidate, and the EXT-05 note keyed on
+  "a candidate exists" rather than on what it said — so a source that had just
+  answered "I do not hold this number" was reported as holding it. `Candidate`
+  carries `holds` now.
+- CAS Common Chemistry, one of only two independent sources and an input to
+  `corroborated`, had no test of any kind: every test pointed it at a directory
+  that does not exist. A wrong key spelling would have made it contribute nothing
+  with the suite green — the "announced itself and could not fire" failure EXT-04
+  already had once. All three branches are covered.
 
 An eleventh pass found one more, in the number the module is built around:
 

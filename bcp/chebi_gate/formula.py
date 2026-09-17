@@ -256,6 +256,26 @@ def parse(text: str) -> Counter | None:
     return total or None
 
 
+def declares_components(text: str) -> bool:
+    """Whether a formula states a component ratio rather than one whole molecule.
+
+    A dot separates components; a leading multiplier says how many of the next one
+    there are. Only then did the writer leave the absolute size open -- a
+    sesquifumarate registered 1:1.5 cannot be drawn as written, so the depositor
+    picks 2:3 and the registry never said which. A formula naming one molecule
+    said its size, and a drawing twice that size is a different substance.
+
+    Deleted in the pass that introduced :func:`whole_multiple` and needed back
+    immediately: scaling without this test let ``C2H6O`` agree with ``C4H12O2``,
+    which is the same defect as the reduction it replaced, in the other direction.
+    """
+    cleaned = _TRAILING_CHARGE.sub("", strip_markup(text or ""))
+    if "." in cleaned:
+        return True
+    match = _MULTIPLIER.match(cleaned)
+    return bool(match and match.group(1))
+
+
 def whole_counts(counts: Counter | None) -> dict[str, int] | None:
     """Element counts as whole numbers: denominators cleared, nothing divided out.
 
@@ -369,6 +389,15 @@ def compare(
         )
 
     multiple = whole_multiple(left, right)
+    # k > 1 is only available to a registry formula that declared components. A
+    # formula naming one molecule stated its size, so a drawing of N copies is a
+    # different substance -- ethanol against its dimer, not a scaling convention.
+    if (
+        multiple is not None
+        and multiple > 1
+        and not declares_components(registry_formula)
+    ):
+        multiple = None
     if multiple is not None:
         return Comparison(
             status=AGREE,

@@ -799,3 +799,79 @@ def test_a_chebi_index_does_not_make_a_pubchem_match_look_uncorroborated(
     (finding,) = list(ext01(with_cas, ctx))
     assert finding.severity == LOW
     assert "not corroborated" in finding.detail or "only" in finding.detail
+
+
+def common_chemistry(tmp_path: Path, name: str, **body) -> Path:
+    """A CAS Common Chemistry cache directory holding one entry for CAS."""
+    directory = tmp_path / name
+    directory.mkdir()
+    payload = {"http_status": 200, "status": "ok", "detail": {}}
+    payload.update(body)
+    (directory / f"{CAS}.json").write_text(json.dumps(payload))
+    return directory
+
+
+def test_common_chemistry_reads_an_ok_entry(tmp_path, ctx, drawn_key):
+    """The source had no test of any kind, and it is one of only two independent ones.
+
+    It feeds `Verdict.corroborated`, the number this module argues must never be
+    inflated -- so a wrong key spelling in `detail` would make it contribute
+    nothing with the suite still green, which is the "announced itself and could
+    not fire" failure EXT-04 already had once.
+    """
+    directory = common_chemistry(
+        tmp_path,
+        "ok",
+        detail={
+            "inchiKey": f"InChIKey={drawn_key}",
+            "molecularFormula": "C<sub>2</sub>H<sub>8</sub>ClN",
+            "name": "ethylamine hydrochloride",
+        },
+    )
+    evidence = external.Evidence(common_chemistry_dir=directory)
+    candidate = external.common_chemistry_candidate(evidence, CAS)
+
+    assert candidate is not None
+    assert candidate.independent is True
+    assert candidate.can_refute is False, "a CAS source corroborates, never refutes"
+    assert candidate.inchikey == drawn_key, "the 'InChIKey=' prefix is stripped"
+    assert candidate.formula == "C2H8ClN", "the export's sub markup is stripped"
+
+    verdict = external.resolve_cas(evidence, ctx)
+    assert verdict.status == external.EXACT
+    assert verdict.corroborated is True
+
+
+def test_common_chemistry_reports_a_negative_as_an_answer(tmp_path, ctx):
+    """notfound means the source was reached and does not hold the number."""
+    for body in ({"status": "notfound"}, {"http_status": 404, "status": "error"}):
+        directory = common_chemistry(tmp_path, f"neg{body.get('status')}", **body)
+        candidate = external.common_chemistry_candidate(
+            external.Evidence(common_chemistry_dir=directory), CAS
+        )
+        assert candidate is not None and candidate.available is True
+        assert candidate.holds is False
+        assert candidate.inchikey is None
+
+
+def test_common_chemistry_reports_a_cached_failure_as_unavailable(tmp_path):
+    directory = common_chemistry(tmp_path, "boom", http_status=500, status="error")
+    candidate = external.common_chemistry_candidate(
+        external.Evidence(common_chemistry_dir=directory), CAS
+    )
+    assert candidate is not None and candidate.available is False
+    assert "500" in candidate.detail
+
+
+def test_a_source_that_says_it_has_no_such_number_is_not_said_to_hold_it(tmp_path, ctx):
+    """The EXT-05 note asserted the opposite of the evidence behind it.
+
+    A cached 404 produces a candidate, and the message keyed on "a candidate
+    exists" rather than on what the candidate said.
+    """
+    directory = common_chemistry(tmp_path, "absent", status="notfound")
+    evidence = external.Evidence(common_chemistry_dir=directory)
+    (finding,) = list(ext01(evidence, ctx))
+    assert finding.check == "EXT-05"
+    assert "resolves in no cached source" in finding.detail
+    assert "is held by a source" not in finding.detail
