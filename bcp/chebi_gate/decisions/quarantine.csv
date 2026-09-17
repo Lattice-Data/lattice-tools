@@ -1,0 +1,8 @@
+cas,check_id,reason,opened_on,blocked_on,resolved_on
+111011-76-8,CON-03 EXT-04,Needs an ethanol fragment added: the name says monoethanolate and none is drawn.,2026-09-15,"Structural edit. CAS registry formula C34H38N3O7P.C2H6O.ClH, MW 714.19.",
+207461-99-2,CON-05 INT-03,"The C=C of the acid fragment carries MDL stereo flag 3, 'either', so the maleate class has no geometry to rest on.",2026-09-15,Structural edit: set the bond to Z and redraw the acid fragment's coordinates.,
+23256-33-9,CON-02 EXT-04,Needs a second HCl fragment added: the name says dihydrochloride and one is drawn.,2026-09-15,Structural edit. CAS registry formula C6H15N3S.2ClH is the evidence.,
+2624336-92-9,CON-02,Which salt does the lab hold? The CAS is stated as hydrochloride (1:1) by both the registry and PubChem and matches the drawn structure; only the name says 'di'.,2026-09-15,Lab answer confirming the salt form actually held.,
+75614-93-6,EXT-04,"CAS 75614-93-6 is the free base, C6H11N3, but the record is the dihydrobromide. The enantiomer partner correctly uses a salt number.",2026-09-15,One SciFinder lookup for the (S)-dihydrobromide's own CAS number.,
+76298-90-3,EXT-01,The formula agrees with the registry but the connectivity differs from PubChem CID 10102413.,2026-09-15,Chemist's ruling on which connectivity is correct.,
+79055-68-8,INT-09,"Drawn as the monoanion, net charge -1, so it is either missing a counterion or named as though neutral.",2026-09-15,"Neutralise, then re-check against ChEBI: neutralising may make it match an entry that already exists.",

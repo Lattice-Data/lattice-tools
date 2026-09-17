@@ -1,0 +1,121 @@
+{
+  "description": "Findings the ported gate produces over the batch already deposited with ChEBI, used as a regression anchor. The inputs are not in git (bcp/.gitignore excludes chebi_run_*/), so the test that reads this file skips when they are absent and asserts against it when they are present.",
+  "generated_from": "bcp/chebi_run_2026_08b",
+  "roles": {
+    "chebi_bulk_group_A_salts.sdf": "salt",
+    "chebi_bulk_group_B_novel.sdf": "neutral"
+  },
+  "inputs": {
+    "chebi_bulk_group_A_salts.sdf": {
+      "sha256": "fb4d904a78327e216d4eaa3b28a6dd26460692cd00a1f4132286f4659f2095a1",
+      "bytes": 572239,
+      "records": 195
+    },
+    "chebi_bulk_group_B_novel.sdf": {
+      "sha256": "3310708f49844b6d1ebf71d9aedf9b46ac62657f5421ace2819dd169034eecb5",
+      "bytes": 241049,
+      "records": 95
+    }
+  },
+  "counts_by_check_severity": {
+    "CON-01/high": 2,
+    "CON-02/high": 2,
+    "CON-03/high": 1,
+    "CON-04/high": 2,
+    "CON-04/medium": 8,
+    "CON-05/high": 1,
+    "CON-09/low": 24,
+    "CON-10/high": 1,
+    "CON-10/low": 3,
+    "CON-10/medium": 2,
+    "INT-03/medium": 2,
+    "INT-09/high": 1,
+    "IUP-01/low": 182,
+    "REL-01/info": 10,
+    "SYN-01/medium": 251,
+    "SYN-02/medium": 165,
+    "SYN-03/low": 160,
+    "SYN-04/medium": 3,
+    "SYN-05/low": 2
+  },
+  "total_findings": 822,
+  "per_file": {
+    "chebi_bulk_group_A_salts.sdf": {
+      "CON-01/high": 2,
+      "CON-02/high": 2,
+      "CON-03/high": 1,
+      "CON-04/high": 1,
+      "CON-04/medium": 6,
+      "CON-05/high": 1,
+      "CON-09/low": 13,
+      "CON-10/low": 3,
+      "INT-03/medium": 2,
+      "IUP-01/low": 182,
+      "REL-01/info": 2,
+      "SYN-01/medium": 171,
+      "SYN-02/medium": 165,
+      "SYN-03/low": 96,
+      "SYN-04/medium": 2,
+      "SYN-05/low": 2
+    },
+    "chebi_bulk_group_B_novel.sdf": {
+      "CON-04/high": 1,
+      "CON-04/medium": 2,
+      "CON-09/low": 11,
+      "CON-10/high": 1,
+      "CON-10/medium": 2,
+      "INT-09/high": 1,
+      "REL-01/info": 8,
+      "SYN-01/medium": 80,
+      "SYN-03/low": 64,
+      "SYN-04/medium": 1
+    }
+  },
+  "v1_baseline": {
+    "source": "findings_v1_baseline.csv, the original two-file validator",
+    "total": 821,
+    "counts_by_check_severity": {
+      "CON-01/high": 2,
+      "CON-02/high": 2,
+      "CON-03/high": 1,
+      "CON-04/high": 2,
+      "CON-04/medium": 8,
+      "CON-05/high": 1,
+      "CON-09/low": 24,
+      "CON-10/high": 1,
+      "CON-10/low": 3,
+      "CON-10/medium": 2,
+      "INT-01/info": 2,
+      "INT-03/medium": 2,
+      "INT-09/high": 1,
+      "IUP-01/low": 182,
+      "REL-01/info": 5,
+      "SYN-01/medium": 251,
+      "SYN-02/medium": 165,
+      "SYN-03/low": 160,
+      "SYN-04/medium": 5,
+      "SYN-05/low": 2
+    },
+    "rows_reproduced_identically": 809,
+    "deliberate_divergences": [
+      {
+        "key": "INT-01/info",
+        "baseline": 2,
+        "gate": 0,
+        "why": "The record count is a fact about the run, not a finding about a record. It is reported in the run summary and the manifest instead."
+      },
+      {
+        "key": "REL-01/info",
+        "baseline": 5,
+        "gate": 10,
+        "why": "Shared parent skeletons are attributed to every record in the group rather than once per group, so holding or reporting a single record carries the information with it."
+      },
+      {
+        "key": "SYN-04/medium",
+        "baseline": 5,
+        "gate": 3,
+        "why": "SYN-04 matched the solvate word instead of the bare substring 'hydrate', which removed two false positives from the batch: Haloperidol hydrochloride carries the synonym 'Haloperidol chlorohydrate' and (S)-(-)-Propranolol hydrochloride carries 'l-Propranolol Chlorhydrate'. Both are older names for the hydrochloride, not hydrates, and both were reported as a hydrate synonym on an anhydrous entry. The two genuine hits still fire: 'BNTX maleate salt hydrate' and '2-chloro-N6-Cyclopentyladenosine (hydrate)'. CON-03 was fixed the same way earlier; this is the second half of one bug."
+      }
+    ]
+  }
+}
