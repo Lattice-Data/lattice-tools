@@ -94,6 +94,41 @@ def test_every_record_round_trips_byte_identically(run_dir, baseline):
         assert rejoined == data, name
 
 
+def test_findings_match_the_recorded_baseline_file_by_file(run_dir, baseline):
+    """The per-file block was recorded and asserted by nothing.
+
+    `_findings` aggregates both files into one Counter, so a drift that cancels
+    between them -- a finding moving from the salts file to the novel one -- was
+    invisible in the one fixture whose whole job is to be the fixed point. That is
+    the "a number nobody asserts goes stale" failure this module's docstring warns
+    about, in the file that warns about it.
+    """
+    for name, role in baseline["roles"].items():
+        parsed = sdf.parse_file(run_dir / name)
+        ctxs = [
+            checks.RecordContext(record=r, structure=structure.analyse(r), role=role)
+            for r in parsed.records
+        ]
+        counts: collections.Counter = collections.Counter()
+        for ctx in ctxs:
+            for finding in checks.run_record_checks(ctx):
+                counts[f"{finding.check}/{finding.severity}"] += 1
+        for finding in checks.run_file_checks(
+            checks.FileContext(contexts=ctxs, raw=parsed.raw)
+        ):
+            counts[f"{finding.check}/{finding.severity}"] += 1
+        assert dict(counts) == baseline["per_file"][name], name
+
+
+def test_the_per_file_counts_sum_to_the_whole(baseline):
+    """Runs without the inputs: the fixture must at least be internally consistent."""
+    total: collections.Counter = collections.Counter()
+    for counts in baseline["per_file"].values():
+        total.update(counts)
+    assert dict(total) == baseline["counts_by_check_severity"]
+    assert sum(total.values()) == baseline["total_findings"]
+
+
 def test_findings_match_the_recorded_baseline(run_dir, baseline):
     counts = _findings(run_dir, baseline)
     expected = collections.Counter(baseline["counts_by_check_severity"])

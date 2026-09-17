@@ -291,9 +291,10 @@ Any divergence not in that table is a bug. The table is generated, and the test
 asserts the set of diverging keys equals the set recorded — so a new divergence
 fails the run rather than quietly widening the gap.
 
-**This anchor is a local gate, not a CI one.** The inputs are gitignored, so four
-of its seven tests — including both that compare against v1 — skip on any machine
-without the run directory, which is every CI machine. Copy
+**This anchor is a local gate, not a CI one.** The inputs are gitignored, so five
+of its seven tests skip on any machine without the run directory, which is every
+CI machine. Of the two that mention v1, only the divergence comparison skips; the
+one asserting every divergence states a reason runs everywhere. Copy
 `chebi_bulk_group_A_salts.sdf` and `chebi_bulk_group_B_novel.sdf` into
 `bcp/chebi_run_2026_08b/` to arm it before changing a check. The per-check fixture
 tests always run and carry the logic; what CI does not have is the 290-record
