@@ -160,9 +160,33 @@ class Evidence:
             out.append("ChEBI release")
         return tuple(out)
 
+    # The ChEBI index is an independent source, but it cannot resolve a CAS
+    # number -- which is why `resolves_cas` leaves it out. It belongs in the
+    # summary's list of sources and not in the two places that ask "could an
+    # independent source have spoken about this CAS number".
+    CAS_RESOLVING_SOURCES = (REGISTRY_SOURCE, COMMON_CHEMISTRY_SOURCE, PUBCHEM_SOURCE)
+
     @property
     def independent_sources(self) -> tuple[str, ...]:
+        """Independent sources of any kind, for the run summary."""
         return tuple(s for s in self.available if s != PUBCHEM_SOURCE)
+
+    @property
+    def independent_cas_sources(self) -> tuple[str, ...]:
+        """Independent sources that can answer about a CAS number.
+
+        `independent_sources` included the ChEBI release, which cannot. Two
+        callers read it as this, and both got louder and wronger with a ChEBI
+        index configured and no CAS source: every exact PubChem match collected a
+        low EXT-01 saying an independent source had failed to corroborate it, and
+        every record with no cache file collected an EXT-05 counted as
+        *independent* in the summary -- inflating the one number this module
+        argues at length must never be inflated. Dropping --chebi-index made both
+        disappear, which is the wrong way round.
+        """
+        return tuple(
+            s for s in self.independent_sources if s in self.CAS_RESOLVING_SOURCES
+        )
 
     @property
     def resolves_cas(self) -> bool:
@@ -469,7 +493,7 @@ def resolve_cas(evidence: Evidence, ctx: RecordContext) -> Verdict:
         return Verdict(
             status=UNRESOLVED,
             candidate=None,
-            independent=bool(evidence.independent_sources),
+            independent=bool(evidence.independent_cas_sources),
             note="no cached source holds this CAS number, so it was not checked",
             corroborated=False,
         )
@@ -520,7 +544,7 @@ def ext01(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
         return
     verdict = resolve_cas(evidence, ctx)
     if verdict.status == EXACT:
-        if not verdict.corroborated and evidence.independent_sources:
+        if not verdict.corroborated and evidence.independent_cas_sources:
             # Exact, but only PubChem says so, and PubChem is where this SDF came
             # from. Low severity: it holds nothing, and it stops "284 of 290
             # confirmed" from being read as independent verification.

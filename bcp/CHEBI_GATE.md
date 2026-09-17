@@ -583,6 +583,17 @@ absent; EXT-04 says nothing about a record with no CAS number instead of
 reporting no registry row for it; and the `cas_registry` imports are at module
 level, as the sibling packages have them.
 
+An eleventh pass found one more, in the number the module is built around:
+
+- `independent_sources` included the ChEBI release, which is an independent
+  source but cannot resolve a CAS number — which is why `resolves_cas` leaves it
+  out. Two callers read it as "could an independent source have spoken about this
+  CAS", so `--pubchem-cache` plus `--chebi-index` with no CAS source gave every
+  uncached record an EXT-05 counted as *independent*, and every exact PubChem
+  match a low EXT-01 saying an independent source had failed to corroborate it.
+  Dropping `--chebi-index` made both disappear, which is the wrong way round.
+  `independent_cas_sources` is the subset those two callers want.
+
 A tenth pass found three more, two of them residues of earlier fixes:
 
 - `_properties` collapsed a cached `Properties` *list* to its first entry, which

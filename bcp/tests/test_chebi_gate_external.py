@@ -749,3 +749,53 @@ def test_a_registry_row_with_no_formula_is_not_reported_as_no_row(tmp_path, ctx)
     (finding,) = list(external.ext04(blank, ctx))
     assert "has no molecular_formula cell" in finding.detail
     assert "no CAS registry row" not in finding.detail
+
+
+def test_a_chebi_index_is_not_an_independent_source_about_a_cas_number(tmp_path, ctx):
+    """It is an independent source, and it cannot resolve a CAS number at all.
+
+    `independent_sources` included it, and two callers read that as "an
+    independent source could have spoken about this CAS". With a ChEBI index and
+    no CAS source, every record with no cache file collected an EXT-05 counted as
+    independent in the summary -- inflating the one number this module argues must
+    never be inflated -- and dropping --chebi-index made it disappear.
+    """
+    index = chebi_index(tmp_path, ("16236", ctx.structure.inchikey, "ethanamine"))
+    evidence = external.Evidence(chebi=index)
+
+    assert "ChEBI release" in evidence.independent_sources
+    assert evidence.independent_cas_sources == ()
+
+    verdict = external.resolve_cas(evidence, ctx)
+    assert verdict.independent is False
+
+
+def test_a_cas_source_is_an_independent_cas_source(tmp_path, ctx):
+    evidence = external.Evidence(registry=registry(tmp_path))
+    assert evidence.independent_cas_sources == (external.REGISTRY_SOURCE,)
+
+
+def test_a_pubchem_only_run_has_no_independent_cas_source(tmp_path):
+    evidence = external.Evidence(pubchem_dir=pubchem(tmp_path, "only"))
+    assert evidence.independent_cas_sources == ()
+
+
+def test_a_chebi_index_does_not_make_a_pubchem_match_look_uncorroborated(
+    tmp_path, ctx, drawn_key
+):
+    """The second caller of the same property.
+
+    EXT-01's low "no independent source corroborated this" fired whenever an
+    independent source was configured, and a ChEBI index counted -- so an exact
+    PubChem match collected it, and dropping --chebi-index made it go away.
+    """
+    directory = pubchem(tmp_path, "exact", properties={"InChIKey": drawn_key})
+    index = chebi_index(tmp_path, ("16236", ctx.structure.inchikey, "ethanamine"))
+
+    with_index = external.Evidence(pubchem_dir=directory, chebi=index)
+    assert list(ext01(with_index, ctx)) == []
+
+    with_cas = external.Evidence(pubchem_dir=directory, registry=registry(tmp_path))
+    (finding,) = list(ext01(with_cas, ctx))
+    assert finding.severity == LOW
+    assert "not corroborated" in finding.detail or "only" in finding.detail
