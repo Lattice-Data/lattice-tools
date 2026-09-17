@@ -138,8 +138,12 @@ class Comparison:
     def checked(self) -> bool:
         """Whether a comparison happened at all.
 
-        False means the record cannot be judged on this axis, which the report has
-        to say rather than leave to look like a pass.
+        False means the record cannot be judged on this axis. EXT-04 says so per
+        record through its severity -- `no-registry-record` is low and
+        `ratio-unknown-to-CAS` is medium, neither of which is silence -- so this
+        property is the same fact in a form a caller can branch on. Nothing in the
+        gate branches on it today; it is here for a summary that reports coverage
+        on this axis the way `Registry.coverage` already does for the table.
         """
         return self.status not in (NO_RECORD, RATIO_UNKNOWN, UNPARSEABLE)
 

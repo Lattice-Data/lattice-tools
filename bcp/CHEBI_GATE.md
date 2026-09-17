@@ -580,6 +580,21 @@ absent; EXT-04 says nothing about a record with no CAS number instead of
 reporting no registry row for it; and the `cas_registry` imports are at module
 level, as the sibling packages have them.
 
+A ninth pass found that the guard the eighth added was itself too weak:
+
+- The "is there a counterion at all" test on seven class rules asked `counter`,
+  which includes solvent of crystallisation. Adding one water reopened the hole it
+  had just closed: tartaric acid monohydrate asserting ISA50562 passed the guard
+  on the water and matched the class on the acid itself. It asks `salt_ions` now,
+  the list that already means "counterions that are not solvent" and was sitting
+  three lines above, used only by the halide branches.
+- CON-02 ran on any record whose *name* carried a stoichiometry prefix, salt or
+  not, so "ethylene dibromide" — one covalent fragment — was reported at `high`
+  as a dibromide with no counterions. By name alone that is indistinguishable
+  from a dibromide salt missing its counterions, so the check now wants either a
+  salt or a drawing with more than one fragment. Under `--role salt` nothing
+  changes, which is how a salt file is gated.
+
 An eighth pass found two more ways a record could clear on evidence the gate
 never established:
 

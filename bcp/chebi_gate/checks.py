@@ -584,7 +584,20 @@ def con02_stoichiometry_word(ctx: RecordContext) -> Iterator[Finding]:
     if not ctx.structure.parse:
         return
     match = SALT_WORD.search(ctx.name_lower)
-    if not match or not (ctx.is_salt or match.group(1)):
+    if not match:
+        return
+    if not ctx.is_salt and ctx.structure.n_frag < 2:
+        # A stoichiometry prefix in the name used to be enough on its own, which
+        # made CON-02 run on covalent compounds: "ethylene dibromide" is one
+        # fragment C2H4Br2, so salt_n is 0 against a wanted 2 and the check
+        # reported "di implies 2 counterion(s) per base, structure has 0" at high
+        # on a correct record whose only route out was a waiver. By name alone a
+        # covalent dibromide and a dibromide salt missing its counterions are
+        # indistinguishable, so the gate does not guess at high: it wants either a
+        # record that is a salt or a drawing with something to count.
+        #
+        # Under --role salt nothing is lost, because `is_salt` is then always
+        # True -- which is how the reference batch's salt file is gated.
         return
 
     prefix = match.group(1)

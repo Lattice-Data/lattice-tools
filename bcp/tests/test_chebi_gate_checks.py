@@ -531,17 +531,56 @@ def test_a_fragment_that_merely_begins_like_a_tartrate_is_not_one():
     )
 
 
-@pytest.mark.parametrize(
-    ("name", "formula"),
-    [
-        ("oxalate", "C2H2O4"),
-        ("tartrate", "C4H6O6"),
-        ("sulfate", "H2O4S"),
-        ("methanesulfonate", "CH4O3S"),
-        ("maleate", "C4H4O4"),
-        ("sulfonate", "C7H8O3S"),
-    ],
-)
+LONE_COUNTERIONS = [
+    ("oxalate", "C2H2O4"),
+    ("tartrate", "C4H6O6"),
+    ("sulfate", "H2O4S"),
+    ("methanesulfonate", "CH4O3S"),
+    ("maleate", "C4H4O4"),
+    ("sulfonate", "C7H8O3S"),
+]
+
+
+@pytest.mark.parametrize(("name", "formula"), LONE_COUNTERIONS)
+def test_a_lone_counterion_with_a_solvate_still_does_not_satisfy_its_class(
+    name, formula
+):
+    """The guard asked `counter`, which includes solvent of crystallisation.
+
+    So adding one water reopened the hole the test below closes: tartaric acid
+    monohydrate asserting ISA50562 passed the guard on the water and matched the
+    class on the acid, and nothing else caught it -- `has_counterion` is False so
+    INT-03 asks nothing, `is_salt` is True because a class is asserted so CON-07
+    is silent, and the name carries no salt word so CON-02 never runs.
+    """
+    from chebi_gate.structure import Structure
+
+    hydrate = Structure(
+        parse=True,
+        frags={formula: 1, "H2O": 1},
+        counter=["H2O"],
+        parent_formula=formula,
+        geoms=["Z"] if name == "maleate" else [],
+    )
+    assert not classes.class_supported(name, hydrate), name
+
+
+@pytest.mark.parametrize(("name", "formula"), LONE_COUNTERIONS)
+def test_a_real_salt_carrying_a_solvate_is_still_supported(name, formula):
+    """The narrowing must not undo the solvate exemption it sits next to."""
+    from chebi_gate.structure import Structure
+
+    salt = Structure(
+        parse=True,
+        frags={"C20H24N2": 1, formula: 1, "H2O": 1},
+        counter=[formula, "H2O"],
+        parent_formula="C20H24N2",
+        geoms=["Z"] if name == "maleate" else [],
+    )
+    assert classes.class_supported(name, salt), name
+
+
+@pytest.mark.parametrize(("name", "formula"), LONE_COUNTERIONS)
 def test_a_lone_counterion_does_not_satisfy_its_own_class(name, formula):
     """Four of these scanned every fragment with no "is there a counterion" test.
 
@@ -986,6 +1025,33 @@ def _con02_parent(frags: dict[str, int], name: str) -> list[checks.Finding]:
         role=checks.ROLE_SALT,
     )
     return list(checks.con02_stoichiometry_word(ctx))
+
+
+def test_con02_does_not_fire_on_a_covalent_compound_named_like_a_salt():
+    """A stoichiometry prefix alone used to be enough to run the check.
+
+    "ethylene dibromide" is one covalent fragment C2H4Br2, so salt_n was 0 against
+    a wanted 2 and CON-02 reported "di implies 2 counterion(s) per base, structure
+    has 0" at high on a correct record whose only route out was a waiver. By name
+    alone a covalent dibromide and a dibromide salt missing its counterions look
+    the same, so the gate does not guess at high.
+    """
+    record = neutral_record(
+        name="ethylene dibromide",
+        mol="ethylene_dibromide",
+        cas="106-93-4",
+        iupac="1,2-dibromoethane",
+    )
+    assert ("CON-02", HIGH) not in ids(run(record))
+
+
+def test_con02_still_fires_on_a_salt_file_with_no_counterion_drawn():
+    """Nothing is lost under --role salt, which is how a salt file is gated."""
+    found = run(
+        salt_record(name="ethylamine dihydrochloride", mol="ethanol", iupac="x"),
+        role=checks.ROLE_SALT,
+    )
+    assert ("CON-02", HIGH) in ids(found)
 
 
 def test_con08_compares_the_systematic_name_against_the_structure():

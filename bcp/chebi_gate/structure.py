@@ -293,9 +293,12 @@ def _stereo_counts(mol: Chem.Mol) -> dict[str, int]:
     in a correctly drawn record, so including them would make almost every record
     look stereochemically incomplete.
     """
+    # Compared against the enum members, not against `str(...)` of them. The repr
+    # is not part of RDKit's API and these tests silently stop matching if it ever
+    # changes -- the CON-04 tests would catch that by failing, without saying why.
     elements = []
     for element in Chem.FindPotentialStereo(mol):
-        if str(element.type).endswith("Bond_Double"):
+        if element.type == Chem.StereoType.Bond_Double:
             bond = mol.GetBondWithIdx(element.centeredOn)
             if not (
                 bond.GetBeginAtom().GetSymbol() == "C"
@@ -309,14 +312,14 @@ def _stereo_counts(mol: Chem.Mol) -> dict[str, int]:
         "stereo_unspec": sum(
             1
             for e in elements
-            if str(e.specified).endswith("Unspecified")
-            or str(e.specified).endswith("Unknown")
+            if e.specified
+            in (Chem.StereoSpecified.Unspecified, Chem.StereoSpecified.Unknown)
         ),
         "tetra_specified": sum(
             1
             for e in elements
-            if str(e.type).endswith("Atom_Tetrahedral")
-            and str(e.specified).endswith("Specified")
+            if e.type == Chem.StereoType.Atom_Tetrahedral
+            and e.specified == Chem.StereoSpecified.Specified
         ),
     }
 

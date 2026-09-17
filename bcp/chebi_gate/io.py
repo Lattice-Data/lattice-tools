@@ -89,9 +89,9 @@ def write(gate_run: GateRun, out_dir: str | Path, *, stem: str) -> Outputs:
 
 def _clears(gate_run: GateRun, finding) -> bool:
     """Whether this finding lets a record through, by the gate's own rule."""
-    from .client import _severity_clears
+    from .client import severity_clears
 
-    return _severity_clears(finding, allow_medium=gate_run.allow_medium)
+    return severity_clears(finding, allow_medium=gate_run.allow_medium)
 
 
 def _annotation(gate_run: GateRun, result) -> dict[str, str]:

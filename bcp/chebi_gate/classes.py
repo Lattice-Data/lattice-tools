@@ -223,39 +223,39 @@ def class_supported(name: str, structure: Structure) -> bool:
         # sulfonate rule: the geometry is read from every fragment, so a lone
         # maleic acid record would otherwise satisfy the class on its own C=C.
         return (
-            bool(counter)
+            bool(salt_ions)
             and bool(structure.geoms)
             and all(g == "Z" for g in structure.geoms)
         )
     if name == "fumarate":
         return (
-            bool(counter)
+            bool(salt_ions)
             and bool(structure.geoms)
             and all(g == "E" for g in structure.geoms)
         )
-    # `bool(counter)` on all four, for the reason maleate, fumarate and sulfonate
+    # `bool(salt_ions)` on all four, for the reason maleate, fumarate and sulfonate
     # already carry it: these scan every fragment, so a single-fragment record --
     # oxalic acid on its own, asserting ISA64148 -- satisfied its own class. And
     # nothing else caught it: `is_salt` is True because a RELATIONSHIP is set,
     # `has_counterion` is False so INT-03 asks for nothing, and CON-07 only fires
     # on a *non*-salt carrying a class. The record cleared.
     if name == "oxalate":
-        return bool(counter) and any(_uncharged(x) in _OXALATE for x in frags)
+        return bool(salt_ions) and any(_uncharged(x) in _OXALATE for x in frags)
     if name == "tartrate":
-        return bool(counter) and any(_uncharged(x) in _TARTRATE for x in frags)
+        return bool(salt_ions) and any(_uncharged(x) in _TARTRATE for x in frags)
     if name == "sodium":
         return any(x in _SODIUM for x in counter)
     if name == "potassium":
         return any(x in _POTASSIUM for x in counter)
     if name == "sulfate":
-        return bool(counter) and any(x in _SULFATE for x in frags)
+        return bool(salt_ions) and any(x in _SULFATE for x in frags)
     if name == "methanesulfonate":
-        return bool(counter) and any(x in _METHANESULFONATE for x in frags)
+        return bool(salt_ions) and any(x in _METHANESULFONATE for x in frags)
     if name == "sulfonate":
         # `counter` being non-empty is the "there is a counterion at all" test; the
         # sulfonate itself is looked for across every fragment, because it may be
         # the largest one.
-        return bool(counter) and any(_is_sulfonate(x) for x in frags)
+        return bool(salt_ions) and any(_is_sulfonate(x) for x in frags)
     return False
 
 

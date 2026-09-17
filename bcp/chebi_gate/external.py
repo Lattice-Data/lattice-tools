@@ -615,11 +615,17 @@ def ext03(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
     if not parents:
         return
     cid = parents[0]
+    # Every candidate, up to three, as EXT-02 already does: `Index.exact` returns a
+    # tuple because 1,453 keys in the release are held by more than one entry, and
+    # naming only the first tells a curator to make one has-part link when there
+    # may be a choice to make.
+    named = ", ".join(f"{c} {index.label(c)}".rstrip() for c in parents[:3])
+    extra = f" (and {len(parents) - 3} more)" if len(parents) > 3 else ""
     yield ctx.finding(
         "EXT-03",
         INFO,
-        f"parent compound is already in ChEBI as {cid} {index.label(cid)}".rstrip()
-        + "; candidate has-part link",
+        f"parent compound is already in ChEBI as {named}{extra}"
+        "; candidate has-part link",
         evidence=f"https://www.ebi.ac.uk/chebi/searchId.do?chebiId={cid}",
     )
 

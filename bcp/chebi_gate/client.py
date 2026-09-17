@@ -122,7 +122,7 @@ class GateRun:
         holding = [
             f
             for f in self.all_findings
-            if not _severity_clears(f, allow_medium=self.allow_medium)
+            if not severity_clears(f, allow_medium=self.allow_medium)
         ]
         return {
             "independent": sum(1 for f in self.all_findings if f.is_independent),
@@ -132,7 +132,7 @@ class GateRun:
         }
 
 
-def _severity_clears(finding: Finding, *, allow_medium: bool) -> bool:
+def severity_clears(finding: Finding, *, allow_medium: bool) -> bool:
     if finding.severity in (LOW, INFO):
         return True
     if finding.severity == MEDIUM and allow_medium:
@@ -236,13 +236,13 @@ def run(
     # A whole-file problem holds every record, because the file as a whole is not
     # submittable -- but it is counted once, not once per record.
     file_blocks = any(
-        not _severity_clears(f, allow_medium=allow_medium) for f in whole_file
+        not severity_clears(f, allow_medium=allow_medium) for f in whole_file
     )
     for result in results:
         blocking = [
             f
             for f in result.findings
-            if not _severity_clears(f, allow_medium=allow_medium)
+            if not severity_clears(f, allow_medium=allow_medium)
         ]
         result.blocking = blocking
         result.cleared = not blocking and not file_blocks

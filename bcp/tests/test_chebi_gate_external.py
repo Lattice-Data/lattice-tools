@@ -404,6 +404,21 @@ def test_a_parent_in_chebi_is_an_info_has_part_candidate(tmp_path, ctx):
     assert "candidate has-part link" in finding.detail
 
 
+def test_ext03_names_every_parent_candidate_not_only_the_first(tmp_path, ctx):
+    """`Index.exact` returns a tuple because 1,453 release keys hold more than one.
+
+    EXT-02 lists up to three with "(and N more)" and EXT-03 named `parents[0]`,
+    which tells a curator to make one has-part link where there is a choice.
+    """
+    parent = ctx.structure.base_inchikey
+    index = chebi_index(
+        tmp_path, ("16236", parent, "ethanamine"), ("99999", parent, "a duplicate")
+    )
+    (finding,) = list(external.ext03(external.Evidence(chebi=index), ctx))
+    assert "CHEBI:16236" in finding.detail
+    assert "CHEBI:99999" in finding.detail
+
+
 def test_ext03_only_accepts_an_exact_parent_match(tmp_path, ctx):
     """Accepting skeleton matches took this from 165 candidates to 206."""
     parent = ctx.structure.base_inchikey
