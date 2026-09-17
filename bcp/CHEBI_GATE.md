@@ -253,8 +253,11 @@ Asserted inside the gate at run time, not only in tests:
 
 1. **Cleared plus held equals the input count**, always.
 2. **A cleared record is byte-identical to its input**, with no annotation fields.
-   The gate refuses to clear a record that already carries `GATE_*`, so re-running
-   it on its own output cannot launder an annotation.
+   A record arriving with a previous run's `GATE_*` has them stripped before it is
+   judged, so re-running the gate on its own output cannot launder an annotation
+   and the cleared bytes are the record as it was before the gate first saw it.
+   The gate used to *refuse* such a record instead, which made the re-run workflow
+   above impossible.
 3. **A malformed input is refused, not worked around.** A file whose last record
    is unterminated, or that carries content after the last `$$$$`, stops the run
    with exit 2. If a record boundary is in doubt then so is every finding
@@ -579,6 +582,25 @@ external pass; INT-02 no longer reports a title differing from a NAME that is
 absent; EXT-04 says nothing about a record with no CAS number instead of
 reporting no registry row for it; and the `cas_registry` imports are at module
 level, as the sibling packages have them.
+
+A tenth pass found three more, two of them residues of earlier fixes:
+
+- `_properties` collapsed a cached `Properties` *list* to its first entry, which
+  is how the ninth pass stopped it raising on a list — and that silently
+  reinstated "judge on the first CID", the defect this module was built to
+  prevent. Every record in the list becomes a candidate now, keyed on its own CID.
+- INT-02 compared the molfile title against the *unstripped* NAME, so a value
+  followed by two blank lines — reachable from a data-field edit in the re-run
+  workflow — kept a trailing newline and the record was held for a title that
+  matches. SYN-05 had the same cause.
+- A registry row whose `molecular_formula` cell is blank was indistinguishable
+  from no row at all, so EXT-04 said "no CAS registry row for this number" about
+  a row sitting in the table. It has its own status.
+- The comparison rule was still partly proportional: reducing only when the
+  registry declared components left every dotted salt formula reducing, so a
+  registry `C4H8N2.2HCl` agreed with a drawing half its size. A drawing may be
+  *k whole units* of the registry's composition and never a fraction of one,
+  which is the asymmetry the sesquifumarate needs and the only one it needs.
 
 A ninth pass found that the guard the eighth added was itself too weak:
 

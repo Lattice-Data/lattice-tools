@@ -716,3 +716,36 @@ def test_a_status_persisted_as_a_string_is_still_a_status(tmp_path, ctx, drawn_k
         properties={"InChIKey": drawn_key},
     )
     assert list(ext01(external.Evidence(pubchem_dir=directory), ctx)) == []
+
+
+def test_every_record_in_a_properties_list_becomes_a_candidate(tmp_path):
+    """Collapsing the list to its first entry reinstated "judge on the first CID".
+
+    That is the defect this module was built to prevent -- 22 of the reference
+    batch's 290 resolve to more than one CID and one to eighteen -- and the
+    finding would still have read "CID x of 18 returned" with seventeen never
+    classified. The single-element test above passed throughout.
+    """
+    second = "BBBBBBBBBBBBBB-CCCCCCCCCC-N"
+    directory = pubchem(
+        tmp_path,
+        "many",
+        properties=[{"CID": 1, "InChIKey": WRONG_KEY}, {"CID": 2, "InChIKey": second}],
+    )
+    candidates = external.pubchem_candidates(
+        external.Evidence(pubchem_dir=directory), CAS
+    )
+    assert [c.inchikey for c in candidates] == [WRONG_KEY, second]
+    assert "CID 2" in candidates[1].detail, "keyed on its own CID, not the blob's"
+
+
+def test_a_registry_row_with_no_formula_is_not_reported_as_no_row(tmp_path, ctx):
+    """The table is assembled by hand, so a blank cell is expected, not exotic.
+
+    Both fell into NO_RECORD, so the note sent a reader looking for a row that was
+    sitting in the table.
+    """
+    blank = external.Evidence(registry=registry(tmp_path, molecular_formula=""))
+    (finding,) = list(external.ext04(blank, ctx))
+    assert "has no molecular_formula cell" in finding.detail
+    assert "no CAS registry row" not in finding.detail

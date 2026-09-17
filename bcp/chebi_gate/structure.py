@@ -59,6 +59,9 @@ class Structure:
     """
 
     parse: bool = False
+    # The molfile parsed and something after that raised. INT-07 must not then say
+    # "mol block does not parse", which is a different and false statement.
+    analysis_failed: bool = False
     formula: str | None = None
     parent_formula: str | None = None
     inchikey: str | None = None
@@ -124,7 +127,11 @@ def analyse(record: SdfRecord) -> Structure:
         log.warning(
             "record %d (%s) could not be analysed: %s", record.index, record.name, exc
         )
-        return Structure(parse=False, chiral_flag=_chiral_flag(record.counts_line))
+        return Structure(
+            parse=False,
+            analysis_failed=True,
+            chiral_flag=_chiral_flag(record.counts_line),
+        )
 
 
 def _analyse(mol: Chem.Mol, record: SdfRecord) -> Structure:

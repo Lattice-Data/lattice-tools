@@ -644,6 +644,65 @@ def test_the_hydrohalide_guard_still_sees_a_cation_smaller_than_its_counterion()
     assert ("CON-01", HIGH) in ids(found)
 
 
+def test_a_value_followed_by_two_blank_lines_is_not_a_title_mismatch():
+    """`_DATA_FIELD`'s terminator is a blank line *followed by* "> <".
+
+    So a value with an extra blank line after it keeps a trailing newline: NAME
+    parses as "ethylamine hydrochloride\n" against a matching title, and the
+    record was held at medium for a difference that is the parser's framing.
+    Reachable from step 3 of the re-run workflow, a data-field edit on a held
+    file. SYN-05 reported "whitespace oddities" from the same cause.
+    """
+    # An extra blank line after NAME, and another after SYNONYM: the first leaves
+    # NAME with a trailing newline, the second leaves SYNONYM with one.
+    record = (
+        salt_record(iupac="x")
+        .replace(
+            "ethylamine hydrochloride\n\n> <SYNONYM>",
+            "ethylamine hydrochloride\n\n\n> <SYNONYM>",
+            1,
+        )
+        .replace(
+            "ethanamine hydrochloride\n\n> <IUPAC_NAME>",
+            "ethanamine hydrochloride\n\n\n> <IUPAC_NAME>",
+            1,
+        )
+    )
+    parsed = sdf.parse_bytes(sdf_bytes(record)).records[0]
+    assert parsed.data["NAME"].endswith("\n"), "the framing this test is about"
+    assert parsed.data["SYNONYM"].endswith("\n")
+
+    found = run(record)
+    assert not [f for f in found if f.check == "INT-02" and "title" in f.detail]
+    assert ("SYN-05", LOW) not in ids(found)
+
+
+def test_a_title_that_really_differs_is_still_reported():
+    found = run(salt_record(title="a different title", iupac="x"))
+    assert "mol title differs from NAME" in detail(found, "INT-02")
+
+
+def test_int07_distinguishes_an_analysis_failure_from_a_parse_failure():
+    """The blanket except returns parse=False, and the message said the wrong thing.
+
+    Holding the record is right; "mol block does not parse" about a molfile that
+    parsed and whose analysis raised is not.
+    """
+    from chebi_gate.structure import Structure
+
+    parsed = sdf.parse_bytes(sdf_bytes(salt_record(iupac="x")))
+    ctx = checks.RecordContext(
+        record=parsed.records[0], structure=Structure(parse=False, analysis_failed=True)
+    )
+    (finding,) = [f for f in checks.run_record_checks(ctx) if f.check == "INT-07"]
+    assert "analysis failed after the mol block parsed" in finding.detail
+
+    plain = checks.RecordContext(
+        record=parsed.records[0], structure=Structure(parse=False)
+    )
+    assert "does not parse" in detail(list(checks.run_record_checks(plain)), "INT-07")
+
+
 def test_int07_says_when_a_parsed_record_yields_no_inchikey():
     """`parse` True with no InChIKey silently disabled every identity check.
 

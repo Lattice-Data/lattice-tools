@@ -17,6 +17,7 @@ from __future__ import annotations
 import re
 
 from .formula import parse as parse_formula
+from . import structure as structure_mod
 from .structure import Structure
 
 # Classes the two-file validator was written against.
@@ -62,9 +63,11 @@ _HALIDES = {
 # ethanolate of a hydrohalide could never satisfy CON-01 and was reported as a
 # class the structure does not support. Efonidipine hydrochloride monoethanolate
 # is exactly that shape.
-SOLVATES = ("H2O", "C2H6O")
+SOLVATES = (structure_mod.WATER_FORMULA, structure_mod.ETHANOL_FORMULA)
 _IODIDE = ("I", "HI", "I-")
-_ORGANIC_BROMIDE = ("Br", "HBr", "Br-")
+# The same ion list as the hydrobromide class; the classes differ in what they
+# require of the *cation*, not in which counterion counts.
+_ORGANIC_BROMIDE = _HALIDES["hydrobromide"]
 _SODIUM = ("Na", "Na+")
 _POTASSIUM = ("K", "K+")
 _SULFATE = ("H2O4S", "HO4S-", "O4S-2")
@@ -263,4 +266,10 @@ def unsupported_reason(name: str, structure: Structure) -> str:
     """Plain-English evidence for why a class is not supported, for the finding text."""
     if name in ("hydrochloride", "hydrobromide") and structure.cation_n_noh:
         return "quaternary/pyridinium cation, not a hydrohalide"
-    return f"counterions {structure.counter}, geometry {structure.geoms}"
+    # `counter` is every fragment except the largest, which on the shape this
+    # module goes out of its way to handle -- a counterion bigger than its base --
+    # is the *base*. Saying "counterions ['C5H11NO2', 'C5H11NO2']" to a chemist is
+    # worse than saying nothing, so the fragments are named as what they are.
+    return (
+        f"fragments besides the largest {structure.counter}, geometry {structure.geoms}"
+    )

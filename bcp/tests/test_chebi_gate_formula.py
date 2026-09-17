@@ -63,7 +63,7 @@ def test_a_decimal_multiplier_means_the_same_as_the_fraction_it_spells():
     to be compared against a correct drawing and called a disagreement.
     """
     assert formula.parse("C19H23N.1.5C4H4O4") == formula.parse("C19H23N.3/2C4H4O4")
-    assert formula.reduce_ratio(formula.parse("C19H23N.1.5C4H4O4")) == {
+    assert formula.whole_counts(formula.parse("C19H23N.1.5C4H4O4")) == {
         "C": 25,
         "H": 29,
         "N": 1,
@@ -73,10 +73,10 @@ def test_a_decimal_multiplier_means_the_same_as_the_fraction_it_spells():
 
 def test_a_dot_before_a_hydrate_multiplier_is_still_a_separator():
     """The half of the fix that can be got wrong: C4H10O2.2H2O is not a decimal."""
-    assert formula.reduce_ratio(formula.parse("C4H10O2.2H2O")) == {
-        "C": 2,
-        "H": 7,
-        "O": 2,
+    assert formula.whole_counts(formula.parse("C4H10O2.2H2O")) == {
+        "C": 4,
+        "H": 14,
+        "O": 4,
     }
 
 
@@ -149,8 +149,9 @@ def test_leftover_characters_make_the_formula_unparseable():
 # ---------------------------------------------------------------- reduction
 
 
-def test_reduction_gives_the_smallest_whole_number_ratio():
-    assert formula.reduce_ratio(formula.parse("C36H48N4O14")) == {
+def test_whole_counts_clears_a_fractional_multiplier():
+    """All it does now. Dividing out the gcd as well compared proportions."""
+    assert formula.whole_counts(formula.parse("C12H18N2O.3/2C4H4O4")) == {
         "C": 18,
         "H": 24,
         "N": 2,
@@ -158,16 +159,30 @@ def test_reduction_gives_the_smallest_whole_number_ratio():
     }
 
 
-def test_a_sesquifumarate_written_one_to_one_point_five_equals_one_drawn_two_to_three():
-    """Handoff case 6, the whole reason formulae are compared as ratios."""
-    registered = formula.reduce_ratio(formula.parse("C12H18N2O.3/2C4H4O4"))
-    drawn = formula.reduce_ratio(formula.parse("C36H48N4O14"))
-    assert registered == drawn
+def test_a_sesquifumarate_registered_one_to_one_point_five_may_be_drawn_two_to_three():
+    """Nobody draws half a fumarate, so the drawing scales up and the registry does not.
+
+    That asymmetry is the whole of it: `whole_multiple` accepts a drawing that is
+    k whole units of the registry's composition and rejects a fraction of one.
+    Comparing reduced ratios accepted both, which is how C6H12O6 agreed with
+    C2H4O2 and how a registry C4H8N2.2HCl agreed with a drawing half its size.
+    """
+    registered = formula.whole_counts(formula.parse("C12H18N2O.3/2C4H4O4"))
+    drawn = formula.whole_counts(formula.parse("C36H48N4O14"))
+    assert formula.whole_multiple(registered, drawn) == 2
+    assert formula.whole_multiple(drawn, registered) is None, "not the other way"
 
 
-def test_reduction_of_nothing_is_none():
-    assert formula.reduce_ratio(None) is None
-    assert formula.reduce_ratio(formula.parse("")) is None
+def test_whole_multiple_is_one_for_an_exact_match_and_none_for_a_fraction():
+    glucose = formula.whole_counts(formula.parse("C6H12O6"))
+    acetic = formula.whole_counts(formula.parse("C2H4O2"))
+    assert formula.whole_multiple(glucose, glucose) == 1
+    assert formula.whole_multiple(glucose, acetic) is None
+
+
+def test_whole_counts_of_nothing_is_none():
+    assert formula.whole_counts(None) is None
+    assert formula.whole_counts(formula.parse("")) is None
 
 
 # --------------------------------------------------------- the five statuses
@@ -212,13 +227,21 @@ def test_a_formula_with_no_components_is_compared_as_it_stands():
     assert formula.compare("C2H6O", "C2H6O").status == formula.AGREE
 
 
-def test_a_formula_that_declares_components_still_reduces():
-    """The sesquifumarate case the reduction exists for."""
+def test_a_drawing_that_is_a_fraction_of_the_registry_disagrees():
+    """The residual the "reduce only when components are declared" rule left.
+
+    Every dotted salt formula declares components, so that branch went on
+    comparing proportions: a registry C4H8N2.2HCl reduces to C2H5ClN and a drawing
+    half the size agreed with it.
+    """
+    assert formula.compare("C4H8N2.2HCl", "C2H5ClN").status == formula.DISAGREE
+    assert formula.compare("C4H8N2.2HCl", "C4H10Cl2N2").status == formula.AGREE
+
+
+def test_an_agreement_on_a_doubled_drawing_says_it_was_doubled():
     verdict = formula.compare("C12H18N2O.3/2C4H4O4", "C36H48N4O14")
     assert verdict.status == formula.AGREE
-    assert formula.declares_components("C12H18N2O.3/2C4H4O4")
-    assert formula.declares_components("2C4H4O4")
-    assert not formula.declares_components("C6H12O6")
+    assert "drawn as 2 units" in verdict.note
 
 
 def test_a_difference_in_anything_but_hydrogen_disagrees():

@@ -466,7 +466,7 @@ def load_index(index_dir: str | Path) -> Index:
     for row in _rows(index_dir / INDEX_FILES["compound"], COMPOUND_COLUMNS):
         if row["ascii_name"]:
             labels[row["chebi_id"]] = row["ascii_name"]
-        if row["stars"].isdigit():
+        if (row["stars"] or "").isdigit():
             stars[row["chebi_id"]] = int(row["stars"])
 
     by_cas = {

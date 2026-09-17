@@ -386,7 +386,14 @@ def int02_template_shape(ctx: RecordContext) -> Iterator[Finding]:
     # Only when there is a NAME to differ from. Without the guard a record with no
     # NAME collects this medium on top of INT-03's high, saying the title differs
     # from a field that is not there -- the duplication INT-04 already avoids.
-    if record.data.get("NAME", "").strip() and record.title != record.data["NAME"]:
+    # Both sides stripped. `_DATA_FIELD`'s terminator is a *blank line followed by*
+    # "> <", so a value followed by two blank lines keeps a trailing newline: NAME
+    # parses as "ethylamine\n" against a title of "ethylamine" and the record
+    # collects "mol title differs from NAME" at medium, which holds. Reachable from
+    # step 3 of the re-run workflow -- a data-field edit leaving one extra blank
+    # line -- and the same shape as the CRLF title bug. `record.name` is the
+    # stripped accessor every other consumer already goes through.
+    if record.data.get("NAME", "").strip() and record.title.strip() != record.name:
         # Handoff case 15: a rename has to update the molfile title line too, or
         # the record that was just fixed fails this check.
         yield ctx.finding("INT-02", MEDIUM, "mol title differs from NAME")
@@ -477,7 +484,13 @@ def int04_cas_number(ctx: RecordContext) -> Iterator[Finding]:
 )
 def int07_molfile(ctx: RecordContext) -> Iterator[Finding]:
     if not ctx.structure.parse:
-        yield ctx.finding("INT-07", HIGH, "mol block does not parse")
+        yield ctx.finding(
+            "INT-07",
+            HIGH,
+            "structure analysis failed after the mol block parsed"
+            if ctx.structure.analysis_failed
+            else "mol block does not parse",
+        )
         return
     if "V2000" not in ctx.record.counts_line:
         yield ctx.finding("INT-07", HIGH, "counts line lacks V2000")
@@ -905,7 +918,11 @@ def syn04_contradictions(ctx: RecordContext) -> Iterator[Finding]:
 def syn05_whitespace(ctx: RecordContext) -> Iterator[Finding]:
     if ctx.synonym is None:
         return
-    parts = ctx.synonym.split(SYNONYM_DELIMITER)
+    # The field value's own trailing newline is not a synonym's whitespace: a value
+    # followed by two blank lines keeps one, and SYN-05 then reported "whitespace
+    # oddities" about the parser's framing rather than about the data. `_synonyms`
+    # already strips the whole value for every other synonym check.
+    parts = ctx.synonym.strip().split(SYNONYM_DELIMITER)
     if any(p != p.strip() or "  " in p for p in parts):
         yield ctx.finding("SYN-05", LOW, "whitespace oddities")
 

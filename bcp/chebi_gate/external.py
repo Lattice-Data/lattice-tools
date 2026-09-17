@@ -303,12 +303,10 @@ def pubchem_candidates(evidence: Evidence, cas: str) -> list[Candidate]:
         ]
 
     entries: list[tuple[object, dict]] = []
-    if blob.get("properties"):
-        entries.append((blob.get("cid"), _properties(blob["properties"])))
+    entries.extend(_entries(blob.get("cid"), blob.get("properties")))
     alt = blob.get("alt_cids")
     for cid, props in (alt if isinstance(alt, dict) else {}).items():
-        if props:
-            entries.append((cid, _properties(props)))
+        entries.extend(_entries(cid, props))
 
     out: list[Candidate] = []
     for cid, props in entries:
@@ -358,18 +356,28 @@ def _as_status(value) -> int | None:
         return None
 
 
-def _properties(value) -> dict:
-    """One property mapping, whichever shape the cache persisted.
+def _entries(cid, value) -> list[tuple[object, dict]]:
+    """Every property record under one cache key, whichever shape it was stored in.
 
-    PubChem's own ``PropertyTable.Properties`` is a *list* of records, and the
-    cache writer lives outside this package, so a cache written straight from the
-    API response would make ``props.get(...)`` raise AttributeError part-way
-    through a run. Reading the first entry of a list costs nothing and the failure
-    it avoids is one that aborts the external pass for every later record too.
+    PubChem's own ``PropertyTable.Properties`` is a *list* of records, one per CID,
+    and the cache writer lives outside this package. Collapsing that list to its
+    first entry -- which is what an earlier fix here did, to stop ``props.get``
+    raising on a list -- silently reinstated the defect this module was built to
+    prevent: a CAS number resolving to several PubChem records must not be judged
+    on the first one. 22 of the reference batch's 290 resolve to more than one CID
+    and one to eighteen, and the finding would still have read "CID x of 18
+    returned" while seventeen were never classified.
+
+    Each record keys on its own ``CID`` when it carries one, so the finding names
+    the compound it actually describes rather than the blob's top-level cid.
     """
+    if isinstance(value, dict):
+        return [(cid, value)]
     if isinstance(value, list):
-        return value[0] if value and isinstance(value[0], dict) else {}
-    return value if isinstance(value, dict) else {}
+        return [
+            (item.get("CID", cid), item) for item in value if isinstance(item, dict)
+        ]
+    return []
 
 
 def classify(candidate: Candidate, ctx: RecordContext) -> str:
@@ -547,7 +555,17 @@ def ext01(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
             MEDIUM,
             "could not be checked: a cached response was a failure",
         ),
-        UNRESOLVED: ("EXT-05", MEDIUM, "resolves in no cached source"),
+        UNRESOLVED: (
+            "EXT-05",
+            MEDIUM,
+            # Conditional, because "no cached source holds this number" is false
+            # when one does and simply gave no structure -- a registry row with an
+            # empty inchikey cell is the ordinary way in, and the note beside it
+            # names the source that answered.
+            "is held by a source that gave no structure to compare"
+            if verdict.candidate is not None
+            else "resolves in no cached source",
+        ),
         UNADJUDICATED: (
             "EXT-01",
             LOW,
@@ -646,6 +664,8 @@ def ext04(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
         return
 
     comparison = formula_mod.compare(
+        # None means no row; "" means a row whose formula cell is blank. compare
+        # reports them differently, so the distinction has to survive to here.
         row.molecular_formula if row else None,
         ctx.structure.formula,
         registry_name=row.registry_name if row else "",
@@ -655,6 +675,7 @@ def ext04(evidence: Evidence, ctx: RecordContext) -> Iterator[Finding]:
         formula_mod.DISAGREE: HIGH,
         formula_mod.RATIO_UNKNOWN: MEDIUM,
         formula_mod.NO_RECORD: LOW,
+        formula_mod.NO_FORMULA: LOW,
         formula_mod.CONVENTION: INFO,
     }.get(comparison.status)
     if comparison.status == formula_mod.UNPARSEABLE:

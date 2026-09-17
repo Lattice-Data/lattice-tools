@@ -110,6 +110,12 @@ CONVENTION = "convention"
 DISAGREE = "DISAGREE"
 RATIO_UNKNOWN = "ratio-unknown-to-CAS"
 NO_RECORD = "no-registry-record"
+# The row exists and its molecular_formula cell is empty. Distinct from NO_RECORD,
+# which used to absorb it: the note then read "no CAS registry row for this
+# number" about a row sitting in the table, and the registry is assembled by hand
+# from PDF exports so a blank cell is the expected kind of defect. Same
+# contradictory-note failure as UNRESOLVED once absorbed UNADJUDICATED.
+NO_FORMULA = "registry-row-has-no-formula"
 UNPARSEABLE = "unparseable"
 
 
@@ -145,7 +151,7 @@ class Comparison:
         gate branches on it today; it is here for a summary that reports coverage
         on this axis the way `Registry.coverage` already does for the table.
         """
-        return self.status not in (NO_RECORD, RATIO_UNKNOWN, UNPARSEABLE)
+        return self.status not in (NO_RECORD, NO_FORMULA, RATIO_UNKNOWN, UNPARSEABLE)
 
 
 def strip_markup(text: str) -> str:
@@ -202,7 +208,7 @@ def parse(text: str) -> Counter | None:
 
     Returns None when there is nothing to parse or when a token is not an element
     symbol. Counts are :class:`~fractions.Fraction` so a ``3/2`` multiplier stays
-    exact until :func:`reduce_ratio` turns the whole thing into whole numbers.
+    exact until :func:`whole_counts` clears the denominators.
     """
     if not text:
         return None
@@ -250,35 +256,15 @@ def parse(text: str) -> Counter | None:
     return total or None
 
 
-def declares_components(text: str) -> bool:
-    """Whether a formula states a component ratio rather than one whole molecule.
+def whole_counts(counts: Counter | None) -> dict[str, int] | None:
+    """Element counts as whole numbers: denominators cleared, nothing divided out.
 
-    A dot separates components; a leading multiplier states how many of the next
-    one there are. Only then is the absolute size of the formula something the
-    writer did not intend to fix -- see :func:`reduce_ratio`.
-    """
-    cleaned = _TRAILING_CHARGE.sub("", strip_markup(text or ""))
-    if "." in cleaned:
-        return True
-    return bool(_MULTIPLIER.match(cleaned) and _MULTIPLIER.match(cleaned).group(1))
-
-
-def reduce_ratio(
-    counts: Counter | None, *, reduce: bool = True
-) -> dict[str, int] | None:
-    """Element counts as whole numbers, reduced to the smallest ratio when asked.
-
-    Reducing is what makes a sesquifumarate written 1:1.5 compare equal to one
-    drawn 2:3, and there absolute size is genuinely not being stated: the registry
-    gives a composition, not how many units someone chose to draw.
-
-    It is wrong everywhere else, and ``reduce=False`` is how the caller says so.
-    Dividing out the gcd unconditionally compared *proportions*: a registry
-    ``C6H12O6`` against a drawn ``C2H4O2`` both reduce to ``{C:1, H:2, O:1}`` and
-    came back AGREE, with the note saying the registry formula agrees with the
-    drawn structure. Nothing else would have caught it -- a CAS source cannot
-    refute, and the only source that can is PubChem, which is circular -- so the
-    one independent stoichiometry check was silent on a molecule the wrong size.
+    A ``3/2`` multiplier survives parsing as a Fraction, and clearing it is all
+    this does. It used to also divide out the gcd, which compared *proportions*:
+    a registry ``C6H12O6`` against a drawn ``C2H4O2`` both reduce to
+    ``{C:1, H:2, O:1}`` and came back AGREE. Scaling now lives in
+    :func:`whole_multiple`, where it is one-directional -- see there for why that
+    is the asymmetry the sesquifumarate actually needs.
     """
     if not counts:
         return None
@@ -287,15 +273,27 @@ def reduce_ratio(
         denominator = (
             denominator * value.denominator // gcd(denominator, value.denominator)
         )
-    integers = {symbol: int(value * denominator) for symbol, value in counts.items()}
-    if not reduce:
-        return integers
-    divisor = 0
-    for value in integers.values():
-        divisor = gcd(divisor, value)
-    if divisor > 1:
-        integers = {symbol: value // divisor for symbol, value in integers.items()}
-    return integers
+    return {symbol: int(value * denominator) for symbol, value in counts.items()}
+
+
+def whole_multiple(
+    registry: dict[str, int] | None, drawn: dict[str, int] | None
+) -> int | None:
+    """``k`` where the drawn counts are exactly ``k`` times the registry's, else None.
+
+    ``k == 1`` is plain agreement. ``k > 1`` is the sesquifumarate case the
+    reduction was written for: the registry states 1:1.5, nobody draws half a
+    fumarate, and the depositor draws 2:3 instead. A *fraction* of the registry's
+    composition is not the same substance, which is what comparing reduced ratios
+    could not tell apart.
+    """
+    if not registry or not drawn or set(registry) != set(drawn):
+        return None
+    ratios = {Fraction(drawn[s], registry[s]) for s in registry if registry[s]}
+    if len(ratios) != 1:
+        return None
+    k = ratios.pop()
+    return int(k) if k.denominator == 1 and k >= 1 else None
 
 
 def compare(
@@ -315,8 +313,13 @@ def compare(
     """
     if not registry_formula:
         return Comparison(
-            status=NO_RECORD,
-            note="no CAS registry row for this number, so stoichiometry is unchecked",
+            status=NO_RECORD if registry_formula is None else NO_FORMULA,
+            note=(
+                "no CAS registry row for this number, so stoichiometry is unchecked"
+                if registry_formula is None
+                else "the registry row for this number has no molecular_formula "
+                "cell, so stoichiometry is unchecked"
+            ),
             drawn_formula=drawn_formula or "",
         )
 
@@ -328,14 +331,19 @@ def compare(
             drawn_formula=drawn_formula or "",
         )
 
-    # Reduce only when a formula actually declares components. RDKit never writes
-    # a dotted formula, so in practice this asks whether the *registry* stated a
-    # ratio -- which is the only case where its absolute size was not being fixed.
-    as_ratio = declares_components(registry_formula) or declares_components(
-        drawn_formula or ""
-    )
-    left = reduce_ratio(parse(registry_formula), reduce=as_ratio)
-    right = reduce_ratio(parse(drawn_formula or ""), reduce=as_ratio)
+    # Whole counts on both sides, and the comparison is "is the drawing a whole
+    # multiple of the registry's composition".
+    #
+    # Reducing both sides to their smallest ratio compared *proportions*, so
+    # C6H12O6 agreed with C2H4O2. Reducing only when the registry declared
+    # components fixed that case and left the same defect inside the branch that
+    # still reduced: a registry C4H8N2.2HCl reduces to C2H5ClN, so a drawing half
+    # the size agreed. The asymmetry the sesquifumarate actually needs is
+    # narrower than "both sides scale" -- the registry states a composition and
+    # the depositor chooses how many units to draw, so the *drawn* side may be k
+    # times the registry's for a whole k, and never a fraction of it.
+    left = whole_counts(parse(registry_formula))
+    right = whole_counts(parse(drawn_formula or ""))
     clean = strip_markup(registry_formula)
     # Appended to every verdict that compared two parsed formulae, so an agreement
     # on a deuterated registry row is never read as confirming the label.
@@ -360,11 +368,12 @@ def compare(
             unparseable_side=which,
         )
 
-    if left == right:
+    multiple = whole_multiple(left, right)
+    if multiple is not None:
         return Comparison(
             status=AGREE,
-            note=f"registry formula {clean} agrees with the drawn structure "
-            f"(same ratio){isotopes}",
+            note=f"registry formula {clean} agrees with the drawn structure"
+            + (f" (drawn as {multiple} units){isotopes}" if multiple > 1 else isotopes),
             registry_formula=clean,
             drawn_formula=drawn_formula or "",
         )
