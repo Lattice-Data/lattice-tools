@@ -450,8 +450,8 @@ def matrices_equal(mx1, mx2):
 
     if mx1_sparse:
         # For sparse matrices, compare in CSR format
-        mx1_csr = mx1.tocsr() if not isinstance(mx1, (sparse.spmatrix, sparse.sparray)) else mx1
-        mx2_csr = mx2.tocsr() if not isinstance(mx2, (sparse.spmatrix, sparse.sparray)) else mx2
+        mx1_csr = mx1.tocsr() if mx1.format != 'csr' else mx1
+        mx2_csr = mx2.tocsr() if mx2.format != 'csr' else mx2
 
         # Compare data, indices, and indptr arrays
         return (np.array_equal(mx1_csr.data, mx2_csr.data) and
@@ -1713,6 +1713,7 @@ def evaluate_var(adata):
             target_count = 19059
         else:
             report('Update required to support Flex data for non-human/mouse', 'ERROR')
+            return
 
         if gene_count > flex_v2_count:
             report(f'{gene_count} genes present, expecting at most {flex_v2_count} for Flex V2', 'ERROR')
