@@ -266,7 +266,7 @@ def calculate_adata_memory(adata_path: str, print_datasets: bool = False, sizes:
 
 def determine_sparsity(x):
     """Calculate sparsity of a matrix."""
-    if isinstance(x, (sparse.coo_matrix, sparse.csr_matrix, sparse.csc_matrix)):
+    if sparse.issparse(x):
         sparsity = 1 - x.count_nonzero() / float(np.prod(x.shape))
     elif isinstance(x, np.ndarray):
         sparsity = 1 - np.count_nonzero(x) / float(np.prod(x.shape))
@@ -284,7 +284,7 @@ def evaluate_sparsity(adata, max_sparsity=0.5):
     # Check X
     sparsity = determine_sparsity(adata.X)
     report(f'.X sparsity: {sparsity}')
-    if sparsity and sparsity > max_sparsity and not isinstance(adata.X, sparse.csr_matrix):
+    if sparsity and sparsity > max_sparsity and not (sparse.issparse(adata.X) and adata.X.format == 'csr'):
         report('X should be converted to csr sparse', 'ERROR')
         report('adata.X = sparse.csr_matrix(adata.X)', 'code')
         valid = False
@@ -293,7 +293,7 @@ def evaluate_sparsity(adata, max_sparsity=0.5):
     if adata.raw:
         sparsity = determine_sparsity(adata.raw.X)
         report(f'.raw.X sparsity: {sparsity}')
-        if sparsity and sparsity > max_sparsity and not isinstance(adata.raw.X, sparse.csr_matrix):
+        if sparsity and sparsity > max_sparsity and not (sparse.issparse(adata.raw.X) and adata.raw.X.format == 'csr'):
             report('raw.X should be converted to csr sparse', 'ERROR')
             report(
                 'adata.raw = ad.AnnData(sparse.csr_matrix(adata.raw.X), var=adata.raw.var, obs=adata.obs)',
@@ -305,7 +305,7 @@ def evaluate_sparsity(adata, max_sparsity=0.5):
     for layer_name in adata.layers:
         sparsity = determine_sparsity(adata.layers[layer_name])
         report(f'layers[{layer_name}] sparsity: {sparsity}')
-        if sparsity and sparsity > max_sparsity and not isinstance(adata.layers[layer_name], sparse.csr_matrix):
+        if sparsity and sparsity > max_sparsity and not (sparse.issparse(adata.layers[layer_name]) and adata.layers[layer_name].format == 'csr'):
             report(f'layers[{layer_name}] should be converted to csr sparse', 'ERROR')
             report(f"adata.layers['{layer_name}'] = sparse.csr_matrix(adata.layers['{layer_name}'])", 'code')
             valid = False
@@ -335,7 +335,7 @@ def evaluate_raw_matrix(matrix, loc):
 
     # Check if all values are integers
     # For sparse matrices, only check the data array
-    data = matrix.data if hasattr(matrix, 'data') else matrix
+    data = matrix.data if sparse.issparse(matrix) else matrix
     all_integers = np.array_equal(data, np.round(data))
 
     if all_integers:
@@ -373,6 +373,7 @@ def check_matrix_duplicates(matrix_pairs):
     """
     Check if matrices are truly identical.
     Uses fast checks, then goes straight to full comparison.
+    Groups by shape first to handle cases where .raw.X has different dimensions.
 
     Args:
         matrix_pairs: List of (name, matrix) tuples
@@ -383,35 +384,37 @@ def check_matrix_duplicates(matrix_pairs):
     if len(matrix_pairs) < 2:
         return []
 
-    # Level 1: Check shapes (instant)
-    shapes = [(name, mx.shape) for name, mx in matrix_pairs]
-    if len(set(s for _, s in shapes)) > 1:
-        return []  # Different shapes, can't be duplicates
-
-    # Level 2: Check sum (very fast)
-    sums = [(name, mx.sum()) for name, mx in matrix_pairs]
-    sum_groups = {}
-    for name, s in sums:
-        sum_groups.setdefault(s, []).append(name)
+    # Level 1: Group by shape
+    shape_groups = {}
+    for name, mx in matrix_pairs:
+        shape_groups.setdefault(mx.shape, []).append((name, mx))
 
     duplicate_groups = []
 
-    for sum_val, names in sum_groups.items():
-        if len(names) < 2:
-            continue  # Only one matrix with this sum
+    # Process each shape group independently
+    for shape, group_pairs in shape_groups.items():
+        if len(group_pairs) < 2:
+            continue  # Need at least 2 matrices to compare
 
-        # Get matrices with matching sums
-        matching = [(name, mx) for name, mx in matrix_pairs if name in names]
+        # Level 2: Check sum (very fast)
+        sums = [(name, mx.sum()) for name, mx in group_pairs]
+        sum_groups = {}
+        for name, s in sums:
+            sum_groups.setdefault(s, []).append(name)
 
-        # Full comparison - they passed the quick checks
-        if len(matching) == 2:
-            name1, mx1 = matching[0]
-            name2, mx2 = matching[1]
+        for sum_val, names in sum_groups.items():
+            if len(names) < 2:
+                continue  # Only one matrix with this sum
 
-            if matrices_equal(mx1, mx2):
-                duplicate_groups.append([name1, name2])
-        else:
-            # For 3+ matrices, compare all pairs
+            # Get matrices with matching sums
+            matching = [(name, mx) for name, mx in group_pairs if name in names]
+
+            # Level 3: Check mean (fast)
+            means = [(name, mx.mean()) for name, mx in matching]
+            if len(set(m for _, m in means)) > 1:
+                continue  # Different means, not duplicates
+
+            # Level 4: Full pairwise comparison
             for i in range(len(matching)):
                 for j in range(i + 1, len(matching)):
                     name_i, mx_i = matching[i]
@@ -526,7 +529,14 @@ def evaluate_data_range(adata):
                     'ERROR'
                 )
             else:
-                report('Different matrices (same min/max is coincidental)', 'WARNING')
+                # Check if any were actually compared (same shape)
+                shapes = {name: mx.shape for name, mx in group_matrices}
+                if len(set(shapes.values())) == 1:
+                    # All same shape, so they were compared
+                    report('Different matrices (same min/max is coincidental)', 'WARNING')
+                else:
+                    # Different shapes, so only subset was compared
+                    report('Matrices have different shapes, partial comparison performed', 'WARNING')
 
     print()
 
@@ -845,7 +855,7 @@ def evaluate_obs(obs):
 
 def ensure_canonical_csr(matrix, location_desc):
     """Ensure matrix is in canonical CSR format."""
-    if not isinstance(matrix, sparse.csr_matrix):
+    if not (sparse.issparse(matrix) and matrix.format == 'csr'):
         report(
             f'{location_desc} not in sparse CSR format, conversion required, rerun evaluate_data() for guidance',
             'ERROR'
