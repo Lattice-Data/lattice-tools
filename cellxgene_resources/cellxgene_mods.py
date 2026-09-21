@@ -11,6 +11,7 @@ import re
 import scanpy as sc
 import subprocess
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from scipy import sparse
@@ -306,7 +307,7 @@ def evaluate_sparsity(adata, max_sparsity=0.5):
         report(f'layers[{layer_name}] sparsity: {sparsity}')
         if sparsity and sparsity > max_sparsity and not isinstance(adata.layers[layer_name], sparse.csr_matrix):
             report(f'layers[{layer_name}] should be converted to csr sparse', 'ERROR')
-            report(f'adata.layers[{layer_name}] = sparse.csr_matrix(adata.layers[{layer_name}])', 'code')
+            report(f"adata.layers['{layer_name}'] = sparse.csr_matrix(adata.layers['{layer_name}'])", 'code')
             valid = False
 
     if valid:
@@ -337,7 +338,7 @@ def evaluate_raw_matrix(matrix, loc):
     # Check if all values are integers
     # For sparse matrices, only check the data array
     data = matrix.data if hasattr(matrix, 'data') else matrix
-    all_integers = np.allclose(data, np.round(data))
+    all_integers = np.array_equal(data, np.round(data))
 
     if all_integers:
         report('raw counts are all integers', 'GOOD')
@@ -634,6 +635,7 @@ def evaluate_10x_barcodes(obs, visium=False):
     global no_barcode_v
     no_barcode_v = 'no barcode'
 
+    obs = obs.copy()
     obs[['barcode', 'affix']] = pd.DataFrame(
         zip(*extract_barcodes(obs.index)),
         index=obs.index
@@ -655,17 +657,12 @@ def validate_barcode_assignments(df_summary, field):
     Check for unexpected barcode assignments based on assay type.
     Prints warnings when barcodes don't match expected patterns.
     """
-    # Columns to ignore during validation
-    ignore_cols = ['multiple', no_barcode_v]
-
     has_unexpected = False
 
     for i,row in df_summary.iterrows():
         if i not in EXPECTED_BARCODES:
             continue
-
-        expected_barcode = EXPECTED_BARCODES[i]
-        ignore_cols.append(expected_barcode)
+        ignore_cols = {'multiple', no_barcode_v, EXPECTED_BARCODES[i]}
 
         # Check all barcode columns
         for col in df_summary.columns:
@@ -999,14 +996,13 @@ def anndata_to_spatialdata_visium(adata, library_id, cellpop_field):
     without issue.
     '''
     try:
-        import warnings
-        warnings.filterwarnings('ignore', category=FutureWarning, module='dask.dataframe')
-
-        import geopandas as gpd
-        import spatialdata as sd
-        import spatialdata_plot
-        from shapely.geometry import Point
-        from spatialdata.transformations import Identity
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=FutureWarning, module='dask.dataframe')
+            import geopandas as gpd
+            import spatialdata as sd
+            import spatialdata_plot
+            from shapely.geometry import Point
+            from spatialdata.transformations import Identity
     except ImportError as e:
         print(f"Cannot plot spatial data due to import error: {e}")
         print("Please create local conda env according to lattice-tools readme")
@@ -1710,6 +1706,8 @@ def evaluate_var(adata):
         elif var_organisms[0] == 'NCBITaxon:10090':
             flex_v2_count = 19070
             target_count = 19059
+        else:
+            report('Update required to support Flex data for non-human/mouse', 'ERROR')
 
         if gene_count > flex_v2_count:
             report(f'{gene_count} genes present, expecting at most {flex_v2_count} for Flex V2', 'ERROR')
