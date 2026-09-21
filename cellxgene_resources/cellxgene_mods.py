@@ -411,16 +411,27 @@ def check_matrix_duplicates(matrix_pairs):
             if matrices_equal(mx1, mx2):
                 duplicate_groups.append([name1, name2])
         else:
-            # For 3+ matrices, compare pairwise
-            verified_group = [matching[0][0]]  # Start with first matrix
-            base_mx = matching[0][1]
+            # For 3+ matrices, compare all pairs
+            for i in range(len(matching)):
+                for j in range(i + 1, len(matching)):
+                    name_i, mx_i = matching[i]
+                    name_j, mx_j = matching[j]
 
-            for name, mx in matching[1:]:
-                if matrices_equal(base_mx, mx):
-                    verified_group.append(name)
+                    if matrices_equal(mx_i, mx_j):
+                        # Find or create group containing these duplicates
+                        found_group = None
+                        for group in duplicate_groups:
+                            if name_i in group or name_j in group:
+                                found_group = group
+                                break
 
-            if len(verified_group) > 1:
-                duplicate_groups.append(verified_group)
+                        if found_group:
+                            if name_i not in found_group:
+                                found_group.append(name_i)
+                            if name_j not in found_group:
+                                found_group.append(name_j)
+                        else:
+                            duplicate_groups.append([name_i, name_j])
 
     return duplicate_groups
 
