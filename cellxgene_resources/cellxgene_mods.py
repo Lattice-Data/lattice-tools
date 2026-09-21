@@ -343,10 +343,16 @@ def evaluate_raw_matrix(matrix, loc):
         report('raw counts are all integers', 'GOOD')
         if matrix.dtype != np.float32:
             report(f'raw count dtype should be float32, not {matrix.dtype}', 'ERROR')
-            report(
-                "adata.raw = ad.AnnData(sparse.csr_matrix(adata.raw.X.astype('float32')), var=adata.raw.var, obs=adata.obs)",
-                'code'
-            )
+            if loc == '.raw.X':
+                report(
+                    "adata.raw = ad.AnnData(sparse.csr_matrix(adata.raw.X.astype('float32')), var=adata.raw.var, obs=adata.obs)",
+                    'code'
+                )
+            else:
+                report(
+                    "adata.X = sparse.csr_matrix(adata.X.astype('float32'))",
+                    'code'
+                )
         else:
             report('raw count dtype is float32', 'GOOD')
     else:
@@ -972,7 +978,7 @@ def symbols_to_ids(symbols, var):
                 found_approved = True
                 ensg_ids = approved.loc[approved['symbol_only'] == s_lower, 'feature_id']
                 for ensg_id in ensg_ids:
-                    if ensg_id_lower in var.index:
+                    if ensg_id in var.index:
                         ensg_list.append(ensg_id)
                         report(f'{ensg_id} -- {s_lower}')
                         found_var = True
@@ -1087,6 +1093,8 @@ def visualize_spatial(sdata, library_id, cellpop_field):
     viz_spatial_per_res(sdata, library_id, 'hires', cellpop_field)
     if f'{library_id}_fullres' in sdata.shapes:
         viz_spatial_per_res(sdata, library_id, 'fullres', cellpop_field)
+    else:
+        report('fullres image is absent - strongly reccomended', 'WARNING')
 
 
 def viz_spatial_per_res(sdata, library_id, res, cellpop_field):
