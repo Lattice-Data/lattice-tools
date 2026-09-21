@@ -326,9 +326,7 @@ def get_raw_matrix_info(adata):
         matrix = adata.X
         location = '.X'
 
-    is_csr = isinstance(matrix, sparse.csr_matrix)
-
-    return matrix, location, is_csr
+    return matrix, location
 
 
 def evaluate_raw_matrix(matrix, loc):
@@ -358,8 +356,6 @@ def evaluate_raw_matrix(matrix, loc):
             report('raw count dtype is float32', 'GOOD')
     else:
         report('raw counts contain non-integer values', 'ERROR')
-
-    return all_integers and matrix.dtype == np.float32
 
 
 def get_matrix_range(matrix):
@@ -407,12 +403,7 @@ def check_matrix_duplicates(matrix_pairs):
         # Get matrices with matching sums
         matching = [(name, mx) for name, mx in matrix_pairs if name in names]
 
-        # Level 3: Check mean (fast)
-        means = [(name, mx.mean()) for name, mx in matching]
-        if len(set(m for _, m in means)) > 1:
-            continue  # Different means, not duplicates
-
-        # Level 4: Full comparison - they passed the quick checks
+        # Full comparison - they passed the quick checks
         if len(matching) == 2:
             name1, mx1 = matching[0]
             name2, mx2 = matching[1]
@@ -652,7 +643,7 @@ def evaluate_10x_barcodes(obs, visium=False):
     return obs
 
 
-def validate_barcode_assignments(df_summary, field):
+def validate_barcode_assignments(df_summary):
     """
     Check for unexpected barcode assignments based on assay type.
     Prints warnings when barcodes don't match expected patterns.
@@ -689,7 +680,7 @@ def parse_barcode_df(df, field):
         if h not in df.columns:
             df[h] = 0
 
-    validate_barcode_assignments(df, field)
+    validate_barcode_assignments(df)
 
     df = df[[c for c in df if df[c].sum() > 0 and c not in ['multiple',no_barcode_v] and not c.endswith('nt')]
             + [c for c in df if df[c].sum() > 0 and c.endswith('nt')]
@@ -841,7 +832,7 @@ def evaluate_obs(obs):
         report(f'long fields: {long_fields}')
 
 
-def ensure_canonical_csr(matrix, adata_obj, location_desc):
+def ensure_canonical_csr(matrix, location_desc):
     """Ensure matrix is in canonical CSR format."""
     if not isinstance(matrix, sparse.csr_matrix):
         report(
@@ -920,10 +911,10 @@ def evaluate_dup_counts(adata):
         report(f'Filtered to {obs_to_keep.sum()} in-tissue observations')
 
     # Get the raw count matrix
-    matrix, loc_desc, is_csr = get_raw_matrix_info(working_adata)
+    matrix, loc_desc = get_raw_matrix_info(working_adata)
 
     # Ensure matrix is in canonical CSR format
-    matrix = ensure_canonical_csr(matrix, working_adata, loc_desc)
+    matrix = ensure_canonical_csr(matrix, loc_desc)
     if matrix is None:
         return None
 
@@ -982,7 +973,7 @@ def symbols_to_ids(symbols, var):
         if not found_approved:
             report(f'{s} not found in genes_approved.csv.gz, check for typos', 'WARNING')
         elif not found_var:
-            report(f'{s}/{ensg_id} not found in var', 'WARNING')
+            report(f"{s}/{','.join(ensg_ids)} not found in var", 'WARNING')
 
     return ensg_list
 
@@ -1090,7 +1081,7 @@ def visualize_spatial(sdata, library_id, cellpop_field):
     if f'{library_id}_fullres' in sdata.shapes:
         viz_spatial_per_res(sdata, library_id, 'fullres', cellpop_field)
     else:
-        report('fullres image is absent - strongly reccomended', 'WARNING')
+        report('fullres image is absent - strongly recommended', 'WARNING')
 
 
 def viz_spatial_per_res(sdata, library_id, res, cellpop_field):
@@ -1155,13 +1146,16 @@ def evaluate_spatial(adata, cellpop_field):
         plot_vis(adata, cellpop_field)
     elif len(adata.uns['spatial'].keys()) > 1:
         report(
-            'uns[spatial] keys should be only is_single'
+            'uns[spatial] keys should be only is_single\n'
             f"keys: {', '.join(adata.uns['spatial'].keys())}",
             'ERROR'
         )
 
 
 def side_by_side_dotplot(adata, gene_list, groupby):
+    if not gene_list:
+        report('No genes in list', 'ERROR')
+        return
     panels = [(False, ".X")] + ([(True, ".raw.X")] if adata.raw else [])
     n = len(panels)
 
@@ -1743,7 +1737,7 @@ def evaluate_var(adata):
         )
     else:
         report(
-            f'{gene_count} genes present, compared against {target_count} {count_type} genes:'\
+            f'{gene_count} genes present, compared against {target_count} {count_type} genes: '\
             f'{percent:.1f}%',
             'GOOD'
         )
