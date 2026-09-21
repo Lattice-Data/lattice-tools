@@ -431,16 +431,16 @@ def matrices_equal(mx1, mx2):
     Handles both sparse and dense matrices.
     """
     # Check if both are sparse or both are dense
-    mx1_sparse = isinstance(mx1, sparse.spmatrix)
-    mx2_sparse = isinstance(mx2, sparse.spmatrix)
+    mx1_sparse = isinstance(mx1, (sparse.spmatrix, sparse.sparray))
+    mx2_sparse = isinstance(mx2, (sparse.spmatrix, sparse.sparray))
 
     if mx1_sparse != mx2_sparse:
         return False
 
     if mx1_sparse:
         # For sparse matrices, compare in CSR format
-        mx1_csr = mx1.tocsr() if not isinstance(mx1, sparse.csr_matrix) else mx1
-        mx2_csr = mx2.tocsr() if not isinstance(mx2, sparse.csr_matrix) else mx2
+        mx1_csr = mx1.tocsr() if not isinstance(mx1, (sparse.spmatrix, sparse.sparray)) else mx1
+        mx2_csr = mx2.tocsr() if not isinstance(mx2, (sparse.spmatrix, sparse.sparray)) else mx2
 
         # Compare data, indices, and indptr arrays
         return (np.array_equal(mx1_csr.data, mx2_csr.data) and
