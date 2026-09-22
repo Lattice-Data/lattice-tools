@@ -10,6 +10,7 @@ from .cyto_elements import (
     DRAW_BUDGET,
     FAN_THRESHOLD,
     already_drawn,
+    column_positions,
     css_color,
     drop_node,
     drop_nodes,
@@ -48,11 +49,15 @@ LAYOUTS = {
         "rankSep": 90,
         **FIT,
     },
+    # a preset, so it arrives as a positions map rather than an arrangement
+    # cytoscape works out for itself; see column_positions()
+    "columns by type": {"name": "preset", **FIT},
     "breadthfirst": {"name": "breadthfirst", "spacingFactor": 1.1, **FIT},
     "cose-bilkent": {"name": "cose-bilkent", "nodeRepulsion": 9000, **FIT},
     "concentric": {"name": "concentric", "minNodeSpacing": 30, **FIT},
 }
 DEFAULT_LAYOUT = "dagre (left to right)"
+COLUMN_LAYOUT = "columns by type"
 # only valid on DEFAULT_MODE's server; see main()
 SAMPLE_SEED = "/matrix_file_sets/f1ef71ee-98d8-4145-84a7-24b68bcc769e/"
 # dcc.Checklist values for the two hold boxes; [] is unticked
@@ -174,10 +179,27 @@ def suggest_layout(elements: list[dict]) -> str:
     return "concentric" if hub >= 0.8 * (len(nodes) - 1) else DEFAULT_LAYOUT
 
 
-def layout_for(name: str, keep_view: bool = False, nonce: int | None = None) -> dict:
+def computed_here(name: str) -> bool:
     """
-    A layout dict for cytoscape: which arrangement, whether it auto-fits, and
-    optionally a nonce that forces it to be treated as new.
+    Whether this layout is worked out in Python rather than by cytoscape.
+
+    A `preset` is nothing but a positions map, so it has to be rebuilt from the
+    canvas every time the canvas changes - unlike dagre, which cytoscape can
+    re-run on whatever elements it finds.
+    """
+    return LAYOUTS[name]["name"] == "preset"
+
+
+def layout_for(
+    name: str,
+    keep_view: bool = False,
+    nonce: int | None = None,
+    elements: list[dict] | None = None,
+) -> dict:
+    """
+    A layout dict for cytoscape: which arrangement, whether it auto-fits,
+    optionally a nonce that forces it to be treated as new, and - for a layout
+    computed here - the positions it consists of.
 
     Two separate things run a layout, and the toolbar leans on both.
     dash-cytoscape re-runs it on every add or remove while `autoRefreshLayout`
@@ -194,7 +216,11 @@ def layout_for(name: str, keep_view: bool = False, nonce: int | None = None) -> 
     the dict differ. Cytoscape ignores options it does not recognize.
     """
     layout = {**LAYOUTS[name], "fit": not keep_view}
-    return layout if nonce is None else {**layout, "nonce": nonce}
+    if computed_here(name):
+        layout["positions"] = column_positions(elements or [])
+    if nonce is not None:
+        layout["nonce"] = nonce
+    return layout
 
 
 def legend() -> html.Div:
@@ -590,7 +616,11 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             )
         action = f"{target} - {fan_summary(nodes)}"
 
-        if held and not loading:
+        # unconditional, not just while the layout is held: cytoscape drops a
+        # positionless node at the origin, and even when a layout is about to
+        # move it there is a beat where the whole expansion sits in a pile in
+        # the corner. Nothing to anchor to on a Load, which starts empty.
+        if not loading:
             nodes = place_expansion(nodes, elements, tap_node, target)
 
         merged = merge_elements(elements, nodes, edges)
@@ -644,9 +674,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
 
     # Every layout run this app asks for on purpose. Each input re-emits the
     # dict, and emitting it is what runs it: picking a layout, unticking
-    # Hold View to fit the whole graph again, releasing Hold Layout, or a
-    # bump from Load. Still the only writer of graph.layout, so there is
-    # nothing to race with.
+    # Hold View to fit the whole graph again, releasing Hold Layout, a bump
+    # from Load, or - for a layout computed here - the canvas changing under
+    # it. Still the only writer of graph.layout, so there is nothing to race
+    # with.
     runs = count()
 
     @app.callback(
@@ -655,14 +686,25 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         Input("keep-view", "value"),
         Input("keep-layout", "value"),
         Input("relayout", "data"),
+        Input("graph", "elements"),
     )
-    def choose_layout(choice, keep_view, keep_layout, _bump):
+    def choose_layout(choice, keep_view, keep_layout, _bump, elements):
+        held = HOLD_LAYOUT in (keep_layout or [])
+        # exact sets, not ctx.triggered_id: Load changes the elements and bumps
+        # relayout in one go, and reading only the first of the two would drop
+        # the run it asked for
+        triggers = set(ctx.triggered_prop_ids.values())
+
         # ticking Hold Layout says "leave what is on screen alone", so it must
         # not be the one thing that re-arranges it. Releasing it re-runs the
         # layout, which is the gesture for tidying the graph back up.
-        if HOLD_LAYOUT in (keep_layout or []) and ctx.triggered_id == "keep-layout":
+        if held and triggers == {"keep-layout"}:
             return no_update
-        return layout_for(choice, KEEP_VIEW in (keep_view or []), next(runs))
+        # the canvas moving on its own only re-runs the layout that is built
+        # from the canvas, and only while the user is not holding it
+        if triggers == {"graph"} and (held or not computed_here(choice)):
+            return no_update
+        return layout_for(choice, KEEP_VIEW in (keep_view or []), next(runs), elements)
 
     # Separate from choose_layout so each prop keeps one writer. This is the
     # switch itself: off, dash-cytoscape stops re-running the layout on every
@@ -687,17 +729,15 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         Input("fan-out", "n_clicks"),
         State("graph", "tapNodeData"),
         State("graph", "elements"),
-        State("keep-layout", "value"),
         State("graph", "tapNode"),
         prevent_initial_call=True,
     )
-    def draw_group_members(picked, clicks, tapped, elements, keep_layout, tap_node):
+    def draw_group_members(picked, clicks, tapped, elements, tap_node):
         if not tapped or not tapped.get("is_group"):
             return no_update, no_update, no_update
 
         elements = elements or []
         members = tapped["members"]
-        held = HOLD_LAYOUT in (keep_layout or [])
 
         # `and clicks`: rebuilding the panel hands back a fresh button with
         # n_clicks=0, and this must not read that as another click. Falling
@@ -705,9 +745,8 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         # there is nothing left to apply.
         if ctx.triggered_id == "fan-out" and clicks:
             nodes, edges = explode(tapped, gatherer, mode=mode)
-            if held:
-                # around where the placeholder is standing, before it goes
-                nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
+            # around where the placeholder is standing, before it goes
+            nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
             # the placeholder is gone once its members are all on the canvas
             merged = merge_elements(drop_node(elements, tapped["id"]), nodes, edges)
             return (
@@ -738,7 +777,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             if additions
             else ([], [])
         )
-        if held and nodes:
+        if nodes:
             nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
         merged = merge_elements(drop_nodes(elements, removals), nodes, edges)
 

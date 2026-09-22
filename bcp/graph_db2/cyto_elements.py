@@ -41,11 +41,35 @@ DRAW_BUDGET = 25
 # once over budget, a type this size or smaller is still drawn rather than collapsed
 FAN_THRESHOLD = 25
 GROUP_SEPARATOR = "::group:"
-# Where a new node goes when the layout is being held and so cannot place it:
-# RING_RADIUS out from the node it was expanded from, NODE_PITCH of room each
-# along the ring. See seed_positions().
+# Where a new node goes before any layout has had a say: RING_RADIUS out from
+# the node it was expanded from, NODE_PITCH of room each along the ring. See
+# seed_positions().
 RING_RADIUS = 170
 NODE_PITCH = 70
+
+# "columns by type" geometry: the gap between columns, the room each node gets
+# down one, and how many ordering passes to make over them. See
+# column_positions().
+COLUMN_GAP = 240
+ROW_PITCH = 46
+ORDERING_SWEEPS = 2
+# Left to right, roughly the order an experiment happens in, so lineage reads
+# across the screen. Each entry is one column, named by the legend's buckets
+# rather than by api_name - Tissue, CellLine and Organoid share the Biosample
+# column the same way they share its colour. A type the legend does not map
+# lands in a trailing column of its own.
+COLUMN_TYPES = (
+    ("Donor",),
+    ("Biosample",),
+    ("GeneticModification", "Treatment", "ExperimentalCondition"),
+    ("Library",),
+    ("SequenceFile",),
+    ("SequenceFileSet",),
+    ("RawMatrixFile", "ProcessedMatrixFile", "TabularFile"),
+    ("MatrixFileSet",),
+)
+_COLUMN_OF = {name: index for index, names in enumerate(COLUMN_TYPES) for name in names}
+UNPLACED_COLUMN = len(COLUMN_TYPES)
 
 # Paths whose complete profile has been fetched. Batch reports only carry the
 # fields in OBJECT_CONFIG, so a node known only from a batch response can have
@@ -549,6 +573,118 @@ def seed_positions(
         position = {"x": anchor["x"] + offset[0], "y": anchor["y"] + offset[1]}
         placed.append({**element, "position": position})
     return placed
+
+
+def type_group(api_name: str) -> str | None:
+    """
+    The legend bucket a type falls in - Tissue and CellLine are both Biosample
+    - or None for one the legend does not map.
+
+    Goes through NodeColor rather than ABSTRACT_MAPPING directly, so a node's
+    column and its colour can never disagree about what it is.
+    """
+    if not api_name:
+        return None
+    try:
+        return NodeColor(api_name).name
+    except ValueError:
+        return None
+
+
+def column_of(api_name: str | None) -> int:
+    """Which column a node type belongs in, left to right"""
+    return _COLUMN_OF.get(type_group(api_name or ""), UNPLACED_COLUMN)
+
+
+def spread(node_ids: list[str]) -> dict[str, float]:
+    """One column's nodes as heights, ROW_PITCH apart and centred on zero"""
+    middle = (len(node_ids) - 1) / 2
+    return {
+        node_id: (index - middle) * ROW_PITCH for index, node_id in enumerate(node_ids)
+    }
+
+
+def barycentre(
+    node_id: str,
+    linked: dict[str, set[str]],
+    heights: dict[str, float],
+    column: set[str],
+) -> float:
+    """
+    The average height of a node's neighbors in the *other* columns, or its own
+    current height where it has none - an isolated node should stay put rather
+    than migrate to the top.
+    """
+    neighbors = [
+        heights[other]
+        for other in linked.get(node_id, ())
+        if other in heights and other not in column
+    ]
+    return sum(neighbors) / len(neighbors) if neighbors else heights[node_id]
+
+
+def column_positions(elements: list[dict]) -> dict[str, dict]:
+    """
+    A position for every node, in vertical columns by type: the positions map
+    behind the "columns by type" layout.
+
+    Cytoscape has no layout that groups by an arbitrary attribute - dagre ranks
+    by distance from a root, which puts a Tissue and a SequenceFile in the same
+    column whenever the path lengths happen to match - so this is a `preset`
+    computed here instead. x is the type's column, y the node's row in it.
+
+    The rows are not alphabetical: after an initial sort by label, a couple of
+    barycentre passes pull each node level with its neighbors in the columns
+    either side. Without them a column of 30 files faces a column of donors in
+    an unrelated order, and every edge in the graph crosses every other.
+
+    Columns are packed, so a graph with no Libraries in it has no empty gutter
+    where they would have gone.
+    """
+    nodes = [element for element in elements if "source" not in element["data"]]
+    if not nodes:
+        return {}
+
+    columns: dict[int, list[str]] = defaultdict(list)
+    for element in sorted(
+        nodes,
+        key=lambda element: (element["data"].get("label") or "", element["data"]["id"]),
+    ):
+        column = column_of(element["data"].get("node_type"))
+        columns[column].append(element["data"]["id"])
+
+    linked: dict[str, set[str]] = defaultdict(set)
+    for element in elements:
+        data = element["data"]
+        if "source" in data:
+            linked[data["source"]].add(data["target"])
+            linked[data["target"]].add(data["source"])
+
+    heights: dict[str, float] = {}
+    for node_ids in columns.values():
+        heights.update(spread(node_ids))
+
+    for sweep in range(ORDERING_SWEEPS):
+        # alternating direction, so the pass sees the columns it just moved
+        for column in sorted(columns, reverse=bool(sweep % 2)):
+            node_ids = columns[column]
+            here = set(node_ids)
+            node_ids.sort(
+                key=lambda node_id: (
+                    barycentre(node_id, linked, heights, here),
+                    # the height it already had, so the sort is stable and the
+                    # columns do not reshuffle between identical graphs
+                    heights[node_id],
+                )
+            )
+            heights.update(spread(node_ids))
+
+    packed = {column: index for index, column in enumerate(sorted(columns))}
+    return {
+        node_id: {"x": float(packed[column] * COLUMN_GAP), "y": heights[node_id]}
+        for column, node_ids in columns.items()
+        for node_id in node_ids
+    }
 
 
 def place_expansion(

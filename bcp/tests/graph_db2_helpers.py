@@ -382,7 +382,8 @@ def fire_callback(app, key: str, *args, outputs: list[dict] | dict, triggered: s
     app.callback_map. The registered function is the wrapper, which builds its
     own dash.ctx from the callback_context kwarg and validates against
     outputs_list - so those are how a test says which Input fired and what the
-    callback is allowed to write.
+    callback is allowed to write. `triggered` takes several prop ids, comma
+    separated, for the one action that changes two of them at once.
     """
     from dash._utils import AttributeDict
 
@@ -391,7 +392,10 @@ def fire_callback(app, key: str, *args, outputs: list[dict] | dict, triggered: s
         outputs_list=outputs,
         callback_context=AttributeDict(
             {
-                "triggered_inputs": [{"prop_id": triggered, "value": 1}],
+                "triggered_inputs": [
+                    {"prop_id": prop_id.strip(), "value": 1}
+                    for prop_id in triggered.split(",")
+                ],
                 # the wrapper writes into this on the way out
                 "updated_props": {},
             }
@@ -463,15 +467,18 @@ def pick_layout(
     keep_layout: list[str] | None = None,
     triggered: str = "keep-view.value",
     bump: int = 0,
+    elements: list | None = None,
 ) -> dict | None:
     """
     Drive the layout callback and return the layout dict it hands cytoscape,
     or None where it declined to emit one.
 
     `keep_view` and `keep_layout` are the two checklists' values: [] unticked,
-    ["keep"] / ["hold"] ticked. `triggered` is which of them the browser
-    changed, which is the difference between ticking Hold Layout (no re-run)
-    and everything else (re-run).
+    ["keep"] / ["hold"] ticked. `triggered` is what the browser changed, which
+    is the difference between ticking Hold Layout (no re-run), the canvas
+    moving on its own (a re-run only for a layout computed from it), and
+    everything else (a re-run). Pass several, comma separated, for the one
+    action that changes two props at once.
     """
     # a bare dict, not a list: a list marks the output as a wildcard
     # multi-output and Dash then demands a sequence back
@@ -482,6 +489,7 @@ def pick_layout(
         keep_view if keep_view is not None else [],
         keep_layout if keep_layout is not None else [],
         bump,
+        elements if elements is not None else [],
         outputs={"id": "graph", "property": "layout"},
         triggered=triggered,
     )

@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from math import hypot
 
+import pytest
+
 from graph_db2.cyto_elements import (
+    COLUMN_GAP,
     NODE_PITCH,
     RING_RADIUS,
+    ROW_PITCH,
+    UNPLACED_COLUMN,
     already_drawn,
     anchor_position,
+    column_of,
+    column_positions,
     drop_node,
     drop_nodes,
     edge_element,
@@ -265,6 +272,162 @@ def test_anchor_ignores_a_tap_on_a_different_node() -> None:
 
 def test_anchor_falls_back_to_the_origin() -> None:
     assert anchor_position([], None, A) == {"x": 0.0, "y": 0.0}
+
+
+# --------------------------------------------------------------------------
+# columns by type
+# --------------------------------------------------------------------------
+
+PIPELINE = [
+    "HumanDonor",
+    "Tissue",
+    "PlateBasedLibrary",
+    "SequenceFile",
+    "SequenceFileSet",
+    "RawMatrixFile",
+    "MatrixFileSet",
+]
+
+
+def _typed(node_id: str, node_type: str, label: str = "") -> dict:
+    """A node element with only the fields column_positions() reads."""
+    return {"data": {"id": node_id, "node_type": node_type, "label": label or node_id}}
+
+
+def test_columns_run_left_to_right_in_pipeline_order() -> None:
+    """Donors, then biosamples, then libraries, then sequence files, then
+    their sets, then matrix files, then matrix file sets."""
+    assert [column_of(name) for name in PIPELINE] == sorted(
+        column_of(name) for name in PIPELINE
+    )
+    assert len({column_of(name) for name in PIPELINE}) == len(PIPELINE)
+
+
+@pytest.mark.parametrize(
+    "one,other",
+    [
+        ("HumanDonor", "NonHumanDonor"),
+        ("Tissue", "CellLine"),
+        ("Tissue", "Organoid"),
+        ("PlateBasedLibrary", "DropletBasedLibrary"),
+    ],
+)
+def test_subtypes_share_their_legend_column(one: str, other: str) -> None:
+    """A column is a legend bucket, so a Tissue and a CellLine line up the
+    same way they share a colour - listing every subtype by hand would go
+    stale the first time a schema is added."""
+    assert column_of(one) == column_of(other)
+
+
+def test_an_unmapped_type_gets_its_own_column_on_the_end() -> None:
+    """Better a visible extra column than silently stacked on the donors."""
+    assert column_of("Lab") == UNPLACED_COLUMN
+    assert column_of(None) == UNPLACED_COLUMN
+
+
+def test_column_positions_places_every_node_and_no_edge() -> None:
+    elements = merge_elements(
+        [], [_typed(A, "Tissue"), _typed(B, "RawMatrixFile")], [edge_element(A, B)]
+    )
+    assert set(column_positions(elements)) == {A, B}
+
+
+def test_column_positions_on_an_empty_canvas() -> None:
+    assert column_positions([]) == {}
+
+
+def test_column_positions_puts_the_pipeline_in_order() -> None:
+    elements = [_typed(name, name) for name in PIPELINE]
+    positions = column_positions(elements)
+    assert [positions[name]["x"] for name in PIPELINE] == sorted(
+        positions[name]["x"] for name in PIPELINE
+    )
+
+
+def test_columns_are_packed() -> None:
+    """A graph with no libraries in it should have no empty gutter where they
+    would have gone - the two columns present sit next to each other."""
+    positions = column_positions([_typed(A, "HumanDonor"), _typed(B, "MatrixFileSet")])
+    assert abs(positions[B]["x"] - positions[A]["x"]) == COLUMN_GAP
+
+
+def test_a_column_is_spread_and_centred() -> None:
+    files = [
+        _typed(f"/raw_matrix_files/{index}/", "RawMatrixFile") for index in range(4)
+    ]
+    heights = sorted(position["y"] for position in column_positions(files).values())
+    assert [round(one - other) for one, other in zip(heights[1:], heights)] == (
+        [ROW_PITCH] * 3
+    )
+    assert round(sum(heights)) == 0
+
+
+def test_one_node_in_a_column_sits_on_the_centre_line() -> None:
+    assert column_positions([_typed(A, "Tissue")])[A]["y"] == 0
+
+
+def test_a_group_placeholder_sits_in_its_type_s_column() -> None:
+    """The placeholder stands in for its members, so it belongs where they
+    would have gone."""
+    members = [raw_matrix_file(index) for index in range(30)]
+    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
+    positions = column_positions([group, _typed(MFS, "MatrixFileSet")])
+    assert positions[group["data"]["id"]]["x"] < positions[MFS]["x"]
+
+
+def test_rows_do_not_cross_the_edges_to_the_next_column() -> None:
+    """What the barycentre passes are for. Sorted by label alone these two
+    edges cross; a column of 30 files against a column of donors in an
+    unrelated order crosses 30 times and is unreadable at any zoom."""
+    donors = [
+        _typed("/human_donors/1/", "HumanDonor", "a_donor"),
+        _typed("/human_donors/2/", "HumanDonor", "b_donor"),
+    ]
+    # labelled so that the alphabet puts them the wrong way round
+    tissues = [
+        _typed("/tissues/1/", "Tissue", "z_tissue"),
+        _typed("/tissues/2/", "Tissue", "a_tissue"),
+    ]
+    elements = merge_elements(
+        [],
+        donors + tissues,
+        [
+            edge_element("/human_donors/1/", "/tissues/1/"),
+            edge_element("/human_donors/2/", "/tissues/2/"),
+        ],
+    )
+    positions = column_positions(elements)
+
+    # whichever way round the pair ended up, each donor is level with its own
+    # tissue rather than the other one's
+    donor_order = (
+        positions["/human_donors/1/"]["y"] < positions["/human_donors/2/"]["y"]
+    )
+    tissue_order = positions["/tissues/1/"]["y"] < positions["/tissues/2/"]["y"]
+    assert donor_order == tissue_order
+
+
+def test_an_isolated_node_does_not_migrate_to_the_top() -> None:
+    """With no neighbors to line up with, a node keeps the row it had."""
+    tissues = [
+        _typed("/tissues/1/", "Tissue", "a_tissue"),
+        _typed("/tissues/2/", "Tissue", "b_tissue"),
+        _typed("/tissues/3/", "Tissue", "c_tissue"),
+    ]
+    positions = column_positions(tissues)
+    heights = [positions[element["data"]["id"]]["y"] for element in tissues]
+    assert heights == sorted(heights)
+
+
+def test_column_positions_is_deterministic() -> None:
+    """The same graph twice has to come out identical, or every callback that
+    re-emits the layout reshuffles the canvas for no reason."""
+    elements = merge_elements(
+        [],
+        [_typed(A, "Tissue"), _typed(B, "RawMatrixFile"), _typed(C, "SequenceFile")],
+        [edge_element(A, B), edge_element(B, C)],
+    )
+    assert column_positions(elements) == column_positions(list(reversed(elements)))
 
 
 def test_place_expansion_hangs_new_nodes_off_the_tapped_node() -> None:

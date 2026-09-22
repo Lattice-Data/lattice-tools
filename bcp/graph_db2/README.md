@@ -92,6 +92,7 @@ Then open <http://localhost:8050>.
 | `--fetch-new` | Fetch profile schemas from the instance instead of reading `constants.yaml`. |
 | `Hold View` | Toolbar checkbox (not a flag). Stops the canvas refitting on every draw — see [Using it](#using-it). |
 | `Hold Layout` | Toolbar checkbox (not a flag). Stops the layout re-running, so drawn nodes stay put — see [Using it](#using-it). |
+| `columns by type` | Layout dropdown entry (not a flag). Vertical columns in pipeline order — see [Using it](#using-it). |
 | `--port` | Default `8050`. |
 | `--debug` | Dash debug mode with hot reload. |
 
@@ -152,14 +153,18 @@ default one.
   by hand.
 
   New nodes have to go somewhere, and cytoscape drops a node with no position
-  at the origin, so a held expansion places them itself: a ring around the node
-  you clicked, spilling onto further rings for a wide fan. They are not laid
-  out — nothing stops one landing on top of something else — so a held session
-  eventually wants tidying.
+  at the origin, so every expansion places its own: a ring around the node you
+  clicked, spilling onto further rings for a wide fan. (This happens whether
+  or not the box is ticked — a running layout is free to overrule the ring,
+  but it does not run until 100ms after the nodes land, which is long enough
+  to watch them pile into the corner.) They are not laid out — nothing stops
+  one landing on top of something else — so a held session eventually wants
+  tidying.
 
   Three things still re-arrange the graph, all of them things you asked for:
   picking a layout from the dropdown, unticking the box, and pressing **Load**
-  (a new seed has no positions to hold, so it gets one layout run).
+  (a new seed has no positions to hold, so it gets one layout run). Holding
+  also outranks `columns by type`, which otherwise re-columns on every draw.
 
 - **Node colours** come from the `NodeColor` enum in `models.py`, keyed by the
   abstract class (so `Tissue`, `CellLine`, and `Organoid` all read as
@@ -188,6 +193,35 @@ default one.
   node touches ≥80% of the others (a star), `dagre` otherwise (lineage
   chains). Change it from the dropdown at any time; expansions never override
   your choice. Picking one always re-runs it, `Hold Layout` or not.
+- **`columns by type`** draws the graph as vertical columns in pipeline
+  order, left to right:
+
+  ```
+  Donor → Biosample → GeneticModification/Treatment/ExperimentalCondition →
+  Library → SequenceFile → SequenceFileSet →
+  RawMatrixFile/ProcessedMatrixFile/TabularFile → MatrixFileSet
+  ```
+
+  A column is a *legend bucket*, not an `api_name`, so `Tissue`, `CellLine`
+  and `Organoid` line up together the same way they share a colour, and a new
+  Biosample subtype needs no code change. Anything the legend does not map
+  gets a trailing column of its own rather than being hidden in someone
+  else's. Empty columns are packed out, so a graph with no libraries has no
+  gutter where they would have been.
+
+  Rows are not alphabetical: after an initial sort by label, two barycentre
+  passes pull each node level with its neighbours in the columns either side.
+  Without them a column of 30 files faces its donors in an unrelated order and
+  every edge crosses every other.
+
+  Unlike the others this one is computed in Python (`column_positions()`) and
+  handed to cytoscape as a `preset` — none of the bundled layouts can group by
+  an attribute, and dagre ranks by distance from a root, which puts a Tissue
+  and a SequenceFile in the same column whenever the path lengths happen to
+  match. Being a positions map, it has to be rebuilt whenever the canvas
+  changes, so it re-runs on every draw — which also means a node you drag
+  snaps back on the next one. Tick `Hold Layout` if you want your own
+  arrangement to stick.
 - **"Show types"** at the bottom of the panel toggles whole node types.
 - The status line reports real counts — `64 drawn`, `512 RawMatrixFile
   grouped` — and turns red on failure, since an empty canvas otherwise looks
@@ -286,11 +320,16 @@ can be driven from a notebook or a test without starting a server.
   colliding paths will cross-contaminate.
 - **Re-expanding a node whose group you already fanned out** re-creates the
   placeholder.
-- **`Hold Layout` places new nodes, it does not lay them out.** They ring the
+- **An expansion places new nodes, it does not lay them out.** They ring the
   node you expanded without consulting the rest of the canvas, so they can
-  land on top of something already drawn. A layout that arranged only the new
-  nodes would need the whole graph as fixed constraints, which none of the
-  bundled cytoscape layouts take.
+  land on top of something already drawn. Under `Hold Layout` that is where
+  they stay: a layout that arranged only the new nodes would need the whole
+  graph as fixed constraints, which none of the bundled cytoscape layouts
+  take.
+- **`columns by type` re-columns on every draw**, which costs a round trip
+  and a positions map for the whole graph each time, and undoes anything you
+  dragged. It is a `preset`, so there is nothing for cytoscape to re-run
+  incrementally. Tick `Hold Layout` to stop it.
 - **Unticking a member removes it even if another expansion drew it too.** The
   picker's ticks mean "on the canvas", and a node is on the canvas once
   regardless of how many paths led to it. Unticking it also removes the edges

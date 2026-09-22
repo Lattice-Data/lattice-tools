@@ -20,11 +20,13 @@ from graph_db2.cyto_elements import (
 )
 from graph_db2.explorer import (
     BASE_STYLESHEET,
+    COLUMN_LAYOUT,
     DEFAULT_LAYOUT,
     HOLD_LAYOUT,
     KEEP_VIEW,
     LAYOUTS,
     SAMPLE_SEED,
+    computed_here,
     detail_panel,
     format_value,
     layout_for,
@@ -44,6 +46,7 @@ from tests.graph_db2_helpers import (  # noqa: F401  (fixtures + autouse reset)
     TEST_SERVER,
     db2_env,
     fire_callback,
+    node_ids,
     patched_fetch,
     patched_requests,
     pick_layout,
@@ -121,10 +124,19 @@ def test_every_layout_fits_on_run() -> None:
 # --------------------------------------------------------------------------
 
 
+def arrangement(layout: dict) -> dict:
+    """A layout minus the parts that are not the arrangement itself."""
+    return {
+        key: value
+        for key, value in layout.items()
+        if key not in ("fit", "nonce", "positions")
+    }
+
+
 @pytest.mark.parametrize("name", list(LAYOUTS))
 def test_layout_for_fits_by_default(name: str) -> None:
     """Unticked has to mean exactly the old behaviour."""
-    assert layout_for(name) == LAYOUTS[name]
+    assert arrangement(layout_for(name)) == arrangement(LAYOUTS[name])
     assert layout_for(name, keep_view=False)["fit"] is True
 
 
@@ -141,9 +153,7 @@ def test_layout_for_changes_nothing_but_fit(name: str) -> None:
     """The layout the user picked still has to be the layout that runs -
     holding the view is not a different arrangement."""
     held = layout_for(name, keep_view=True)
-    assert {key: value for key, value in held.items() if key != "fit"} == {
-        key: value for key, value in LAYOUTS[name].items() if key != "fit"
-    }
+    assert arrangement(held) == arrangement(LAYOUTS[name])
 
 
 def test_layout_for_does_not_mutate_the_preset() -> None:
@@ -225,6 +235,94 @@ def test_layout_for_adds_nothing_but_the_nonce() -> None:
     assert {key: value for key, value in numbered.items() if key != "nonce"} == (
         layout_for(DEFAULT_LAYOUT)
     )
+
+
+# --------------------------------------------------------------------------
+# columns by type
+# --------------------------------------------------------------------------
+
+
+def test_the_column_layout_is_a_preset() -> None:
+    """Cytoscape has no layout that groups by an attribute, so this one is
+    computed here and handed over as positions."""
+    assert LAYOUTS[COLUMN_LAYOUT]["name"] == "preset"
+    assert computed_here(COLUMN_LAYOUT) is True
+
+
+@pytest.mark.parametrize("name", [n for n in LAYOUTS if n != COLUMN_LAYOUT])
+def test_every_other_layout_is_cytoscape_s_own(name: str) -> None:
+    assert computed_here(name) is False
+
+
+def test_the_column_layout_carries_positions() -> None:
+    elements = _star(4)
+    positions = layout_for(COLUMN_LAYOUT, elements=elements)["positions"]
+    assert set(positions) == node_ids(elements)
+
+
+def test_the_column_layout_without_a_canvas_is_empty_but_valid() -> None:
+    """The dropdown can be changed before anything is loaded."""
+    assert layout_for(COLUMN_LAYOUT)["positions"] == {}
+
+
+@pytest.mark.parametrize("name", [n for n in LAYOUTS if n != COLUMN_LAYOUT])
+def test_no_other_layout_carries_positions(name: str) -> None:
+    """dagre works the arrangement out for itself; sending positions with it
+    would be dead weight on every callback."""
+    assert "positions" not in layout_for(name, elements=_star(4))
+
+
+def test_the_canvas_changing_re_columns_the_graph() -> None:
+    """A preset is only ever the positions it was built from, so a node added
+    after it was built has no place in it."""
+    layout = pick_layout(
+        built_app(MFS),
+        COLUMN_LAYOUT,
+        [],
+        [],
+        triggered="graph.elements",
+        elements=_star(4),
+    )
+    assert layout["positions"]
+
+
+def test_the_canvas_changing_leaves_cytoscape_s_own_layouts_alone() -> None:
+    """dagre is re-run by dash-cytoscape on add and remove; re-emitting it
+    from here as well would run it twice for every click."""
+    assert (
+        pick_layout(built_app(MFS), DEFAULT_LAYOUT, [], [], triggered="graph.elements")
+        is None
+    )
+
+
+def test_the_canvas_changing_does_not_re_column_a_held_graph() -> None:
+    """Hold Layout outranks it: the whole point is that drawing a node moves
+    nothing."""
+    layout = pick_layout(
+        built_app(MFS),
+        COLUMN_LAYOUT,
+        [],
+        [HOLD_LAYOUT],
+        triggered="graph.elements",
+        elements=_star(4),
+    )
+    assert layout is None
+
+
+def test_load_re_columns_a_held_graph() -> None:
+    """Load changes the elements and bumps relayout in one action. Reading
+    only the first of the two triggers would drop the run it asked for, and a
+    freshly loaded graph would sit in a pile on the origin."""
+    layout = pick_layout(
+        built_app(MFS),
+        COLUMN_LAYOUT,
+        [],
+        [HOLD_LAYOUT],
+        triggered="graph.elements,relayout.data",
+        bump=1,
+        elements=_star(4),
+    )
+    assert layout["positions"]
 
 
 # --------------------------------------------------------------------------
@@ -417,13 +515,15 @@ def test_a_held_expansion_rings_its_new_nodes_round_the_tapped_node() -> None:
         assert round(offset) == RING_RADIUS
 
 
-def test_an_unheld_expansion_places_nothing() -> None:
-    """With the layout running there is nothing to place by hand, and a
-    position the server invented would only be overwritten."""
+def test_an_unheld_expansion_places_its_new_nodes_too() -> None:
+    """Not only while holding: cytoscape drops a positionless node at the
+    origin, and the layout that will move it does not run until 100ms after
+    the add - long enough to watch the whole expansion pile into the corner.
+    A running layout is free to overrule the ring."""
     app = built_app("", TEST_MODE)
     before = drawn_canvas(app)
     after = expand_first_file(app, before, [])
-    assert set(positions_in(after)) == set(positions_in(before))
+    assert set(positions_in(after)) > set(positions_in(before))
 
 
 def test_loading_a_seed_while_holding_the_layout_asks_for_one_run() -> None:
