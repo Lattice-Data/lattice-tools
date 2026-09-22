@@ -91,6 +91,7 @@ Then open <http://localhost:8050>.
 | `--mode` | DB2 instance (default `db2_prod`). Must start with `db2_`. |
 | `--fetch-new` | Fetch profile schemas from the instance instead of reading `constants.yaml`. |
 | `Hold View` | Toolbar checkbox (not a flag). Stops the canvas refitting on every draw — see [Using it](#using-it). |
+| `Hold Layout` | Toolbar checkbox (not a flag). Stops the layout re-running, so drawn nodes stay put — see [Using it](#using-it). |
 | `--port` | Default `8050`. |
 | `--debug` | Dash debug mode with hot reload. |
 
@@ -140,10 +141,25 @@ default one.
   when new elements land *entirely* off screen, so loading a seed somewhere else
   on the canvas still snaps to it.
 
-  What it does **not** do is stop the graph moving under you. Every element
-  change re-runs the layout, and dagre re-flows the whole arrangement when
-  nodes are added — so neighbours shift even though the viewport does not. The
-  box holds your window, not the positions inside it.
+  It holds your window, not the positions inside it — for those, tick
+  `Hold Layout` as well.
+- **`Hold Layout`** stops the graph moving under you. Off by default, and
+  independent of `Hold View`: that one holds the viewport, this one holds the
+  arrangement. Normally every add or remove re-runs the chosen layout, and
+  dagre re-flows the *whole* graph when one node arrives — so expanding a leaf
+  rearranges everything you were reading. Tick the box and nodes and edges
+  already drawn stay exactly where they are, including any you dragged there
+  by hand.
+
+  New nodes have to go somewhere, and cytoscape drops a node with no position
+  at the origin, so a held expansion places them itself: a ring around the node
+  you clicked, spilling onto further rings for a wide fan. They are not laid
+  out — nothing stops one landing on top of something else — so a held session
+  eventually wants tidying.
+
+  Three things still re-arrange the graph, all of them things you asked for:
+  picking a layout from the dropdown, unticking the box, and pressing **Load**
+  (a new seed has no positions to hold, so it gets one layout run).
 
 - **Node colours** come from the `NodeColor` enum in `models.py`, keyed by the
   abstract class (so `Tissue`, `CellLine`, and `Organoid` all read as
@@ -171,7 +187,7 @@ default one.
 - **Layout** is picked from the graph's shape on load — `concentric` when one
   node touches ≥80% of the others (a star), `dagre` otherwise (lineage
   chains). Change it from the dropdown at any time; expansions never override
-  your choice.
+  your choice. Picking one always re-runs it, `Hold Layout` or not.
 - **"Show types"** at the bottom of the panel toggles whole node types.
 - The status line reports real counts — `64 drawn`, `512 RawMatrixFile
   grouped` — and turns red on failure, since an empty canvas otherwise looks
@@ -270,6 +286,11 @@ can be driven from a notebook or a test without starting a server.
   colliding paths will cross-contaminate.
 - **Re-expanding a node whose group you already fanned out** re-creates the
   placeholder.
+- **`Hold Layout` places new nodes, it does not lay them out.** They ring the
+  node you expanded without consulting the rest of the canvas, so they can
+  land on top of something already drawn. A layout that arranged only the new
+  nodes would need the whole graph as fixed constraints, which none of the
+  bundled cytoscape layouts take.
 - **Unticking a member removes it even if another expansion drew it too.** The
   picker's ticks mean "on the canvas", and a node is on the canvas once
   regardless of how many paths led to it. Unticking it also removes the edges

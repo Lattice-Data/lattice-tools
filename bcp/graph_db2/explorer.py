@@ -1,5 +1,6 @@
 from collections import Counter
 from collections.abc import Collection
+from itertools import count
 
 import dash_cytoscape as cyto
 import requests
@@ -22,6 +23,7 @@ from .cyto_elements import (
     merge_elements,
     neighbors_drawn,
     object_url,
+    place_expansion,
     promote_members,
     properties_of,
     resolve_seed,
@@ -53,8 +55,9 @@ LAYOUTS = {
 DEFAULT_LAYOUT = "dagre (left to right)"
 # only valid on DEFAULT_MODE's server; see main()
 SAMPLE_SEED = "/matrix_file_sets/f1ef71ee-98d8-4145-84a7-24b68bcc769e/"
-# dcc.Checklist value for the hold-view box; [] is unticked
+# dcc.Checklist values for the two hold boxes; [] is unticked
 KEEP_VIEW = "keep"
+HOLD_LAYOUT = "hold"
 
 BASE_STYLESHEET = [
     {
@@ -171,21 +174,27 @@ def suggest_layout(elements: list[dict]) -> str:
     return "concentric" if hub >= 0.8 * (len(nodes) - 1) else DEFAULT_LAYOUT
 
 
-def layout_for(name: str, keep_view: bool = False) -> dict:
+def layout_for(name: str, keep_view: bool = False, nonce: int | None = None) -> dict:
     """
-    A layout dict with auto-fit turned off while the user is holding their view.
+    A layout dict for cytoscape: which arrangement, whether it auto-fits, and
+    optionally a nonce that forces it to be treated as new.
 
-    `fit` is the whole mechanism. Every element or stylesheet change re-renders
-    the Cytoscape component, and react-cytoscapejs compares the layout prop by
-    identity - Dash rebuilds it from JSON every time, so it always looks new and
-    the layout always re-runs. With fit on, that re-run ends in cy.fit(), which
-    is the zoom-out that loses your place on a large graph.
+    Two separate things run a layout, and the toolbar leans on both.
+    dash-cytoscape re-runs it on every add or remove while `autoRefreshLayout`
+    is on - that is the run Hold View defuses by turning `fit` off, since the
+    run itself is cheap but the cy.fit() at the end of it is the zoom-out that
+    loses your place on a large graph. Turning fit off does not strand you:
+    dash-cytoscape still fits when new elements land *entirely* outside the
+    viewport, so loading a seed elsewhere on the canvas still snaps to it.
 
-    Turning it off does not strand you: dash-cytoscape still calls cy.fit()
-    itself when new elements land *entirely* outside the viewport, so loading a
-    seed somewhere else on the canvas still snaps to it.
+    react-cytoscapejs also runs a layout whenever the layout *prop* changes,
+    comparing the dict key by key - so re-sending an identical one does
+    nothing, and a re-layout the user actually asked for (picking one from the
+    dropdown, releasing Hold Layout, loading a new seed) needs `nonce` to make
+    the dict differ. Cytoscape ignores options it does not recognize.
     """
-    return {**LAYOUTS[name], "fit": not keep_view}
+    layout = {**LAYOUTS[name], "fit": not keep_view}
+    return layout if nonce is None else {**layout, "nonce": nonce}
 
 
 def legend() -> html.Div:
@@ -394,6 +403,21 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                             "whole graph again."
                         ),
                     ),
+                    html.Div(
+                        dcc.Checklist(
+                            id="keep-layout",
+                            options=[{"label": " Hold Layout", "value": HOLD_LAYOUT}],
+                            value=[],
+                            style={"whiteSpace": "nowrap", "color": "#555"},
+                        ),
+                        title=(
+                            "Stop the layout re-running when nodes are drawn, "
+                            "so everything already on the canvas stays exactly "
+                            "where it is. New nodes land in a ring around "
+                            "whatever you expanded. Pick a layout, or untick "
+                            "this, to re-arrange the graph again."
+                        ),
+                    ),
                     html.Span(
                         status, id="status", style={"color": "#555", "fontSize": "12px"}
                     ),
@@ -422,6 +446,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                             stylesheet=BASE_STYLESHEET,
                             style={"width": "100%", "height": "100%"},
                             boxSelectionEnabled=True,
+                            # the switch Hold Layout throws: with it on,
+                            # dash-cytoscape re-runs the layout on every add
+                            # and remove. hold_layout() owns it from here.
+                            autoRefreshLayout=True,
                             # first layout runs before the flex child has its
                             # final width, so re-fit once the container settles
                             responsive=True,
@@ -456,6 +484,12 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                 # leaves, instead of forcing its content height onto the page
                 style={"display": "flex", "flex": "1 1 auto", "minHeight": 0},
             ),
+            # A bump here means "run the layout now". Written by grow_graph on
+            # Load and read by choose_layout, rather than grow_graph reaching
+            # for graph.layout itself: two writers of that prop would race, and
+            # going through a Store also orders the run after the elements it
+            # is meant to arrange.
+            dcc.Store(id="relayout", data=0),
         ],
         # Fixed to the viewport rather than sized with calc(100vh - toolbar):
         # that magic number ignored the body's default margin, so the panel
@@ -479,17 +513,27 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         Output("graph", "elements"),
         Output("status", "children"),
         Output("layout-choice", "value"),
+        Output("relayout", "data"),
         Input("load", "n_clicks"),
         Input("graph", "tapNodeData"),
         State("seed", "value"),
         State("fan", "value"),
         State("graph", "elements"),
+        State("keep-layout", "value"),
+        # tapNodeData is the Input because it is what changes; tapNode is the
+        # same tap with the node's live position on it, which is where a held
+        # expansion hangs its new nodes
+        State("graph", "tapNode"),
+        State("relayout", "data"),
         prevent_initial_call=True,
     )
-    def grow_graph(_clicks, tapped, seed_value, fan, elements):
+    def grow_graph(
+        _clicks, tapped, seed_value, fan, elements, keep_layout, tap_node, runs
+    ):
         budget = int(fan) if fan else 0
         elements = elements or []
         loading = ctx.triggered_id == "load"
+        held = HOLD_LAYOUT in (keep_layout or [])
 
         if loading:
             if not seed_value:
@@ -497,17 +541,23 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                     no_update,
                     status_text("Enter a path, alias or uuid to load.", ok=False),
                     no_update,
+                    no_update,
                 )
             try:
                 # resolved here rather than left to expand() so the status line
                 # can name the object an alias or uuid turned out to be
                 target = resolve_seed(seed_value, mode)
             except ValueError as error:
-                return no_update, status_text(str(error), ok=False), no_update
+                return (
+                    no_update,
+                    status_text(str(error), ok=False),
+                    no_update,
+                    no_update,
+                )
             elements = []
         else:
             if not tapped:
-                return no_update, no_update, no_update
+                return no_update, no_update, no_update, no_update
             target = tapped["id"]
             # a group tap only opens the side panel; fanning out hundreds of
             # nodes needs the explicit button there
@@ -515,6 +565,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                 return (
                     no_update,
                     status_text(f"{tapped['label']} - choose from the panel."),
+                    no_update,
                     no_update,
                 )
             # canvas state, not the fetch cache: a reload empties the canvas
@@ -525,6 +576,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                     no_update,
                     status_text(f"{tapped['label']} is already expanded."),
                     no_update,
+                    no_update,
                 )
 
         try:
@@ -534,8 +586,12 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                 no_update,
                 status_text(f"Could not load {target}: {error}", ok=False),
                 no_update,
+                no_update,
             )
         action = f"{target} - {fan_summary(nodes)}"
+
+        if held and not loading:
+            nodes = place_expansion(nodes, elements, tap_node, target)
 
         merged = merge_elements(elements, nodes, edges)
         return (
@@ -544,6 +600,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             # a new seed replaces the graph, so re-pick the layout for its shape;
             # an expansion builds on what the user is already looking at
             suggest_layout(merged) if loading else no_update,
+            # a fresh graph has no positions to hold, so a held layout still
+            # has to run once for it - otherwise every node of it is stacked
+            # on the origin
+            (runs or 0) + 1 if loading and held else no_update,
         )
 
     @app.callback(
@@ -582,16 +642,38 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             for name in hidden
         ]
 
-    # The only writer of graph.layout, so there is nothing to race with. Both
-    # inputs re-emit the dict: picking a layout re-runs it, and unticking the
-    # box is how the user asks for a fit back to the whole graph.
+    # Every layout run this app asks for on purpose. Each input re-emits the
+    # dict, and emitting it is what runs it: picking a layout, unticking
+    # Hold View to fit the whole graph again, releasing Hold Layout, or a
+    # bump from Load. Still the only writer of graph.layout, so there is
+    # nothing to race with.
+    runs = count()
+
     @app.callback(
         Output("graph", "layout"),
         Input("layout-choice", "value"),
         Input("keep-view", "value"),
+        Input("keep-layout", "value"),
+        Input("relayout", "data"),
     )
-    def choose_layout(choice, keep_view):
-        return layout_for(choice, KEEP_VIEW in (keep_view or []))
+    def choose_layout(choice, keep_view, keep_layout, _bump):
+        # ticking Hold Layout says "leave what is on screen alone", so it must
+        # not be the one thing that re-arranges it. Releasing it re-runs the
+        # layout, which is the gesture for tidying the graph back up.
+        if HOLD_LAYOUT in (keep_layout or []) and ctx.triggered_id == "keep-layout":
+            return no_update
+        return layout_for(choice, KEEP_VIEW in (keep_view or []), next(runs))
+
+    # Separate from choose_layout so each prop keeps one writer. This is the
+    # switch itself: off, dash-cytoscape stops re-running the layout on every
+    # add and remove, and nodes stay where they are until something above
+    # explicitly asks for a run.
+    @app.callback(
+        Output("graph", "autoRefreshLayout"),
+        Input("keep-layout", "value"),
+    )
+    def hold_layout(keep_layout):
+        return HOLD_LAYOUT not in (keep_layout or [])
 
     # Rebuilding the panel is how the fan-out button re-ticks the picker. The
     # alternative - making member-pick.value both an input and an output of this
@@ -605,14 +687,17 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         Input("fan-out", "n_clicks"),
         State("graph", "tapNodeData"),
         State("graph", "elements"),
+        State("keep-layout", "value"),
+        State("graph", "tapNode"),
         prevent_initial_call=True,
     )
-    def draw_group_members(picked, clicks, tapped, elements):
+    def draw_group_members(picked, clicks, tapped, elements, keep_layout, tap_node):
         if not tapped or not tapped.get("is_group"):
             return no_update, no_update, no_update
 
         elements = elements or []
         members = tapped["members"]
+        held = HOLD_LAYOUT in (keep_layout or [])
 
         # `and clicks`: rebuilding the panel hands back a fresh button with
         # n_clicks=0, and this must not read that as another click. Falling
@@ -620,6 +705,9 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         # there is nothing left to apply.
         if ctx.triggered_id == "fan-out" and clicks:
             nodes, edges = explode(tapped, gatherer, mode=mode)
+            if held:
+                # around where the placeholder is standing, before it goes
+                nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
             # the placeholder is gone once its members are all on the canvas
             merged = merge_elements(drop_node(elements, tapped["id"]), nodes, edges)
             return (
@@ -650,6 +738,8 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             if additions
             else ([], [])
         )
+        if held and nodes:
+            nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
         merged = merge_elements(drop_nodes(elements, removals), nodes, edges)
 
         parts = []

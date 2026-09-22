@@ -343,11 +343,14 @@ def db2_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # the callback that owns Load, keyed by its outputs
-GROW_GRAPH = "..graph.elements...status.children...layout-choice.value.."
+GROW_GRAPH = (
+    "..graph.elements...status.children...layout-choice.value...relayout.data.."
+)
 GROW_GRAPH_OUTPUTS = [
     {"id": "graph", "property": "elements"},
     {"id": "status", "property": "children"},
     {"id": "layout-choice", "property": "value"},
+    {"id": "relayout", "property": "data"},
 ]
 
 
@@ -397,7 +400,14 @@ def fire_callback(app, key: str, *args, outputs: list[dict] | dict, triggered: s
     return json.loads(response)["response"]
 
 
-def press_load(app, seed_value: str, fan: int = 500, elements: list | None = None):
+def press_load(
+    app,
+    seed_value: str,
+    fan: int = 500,
+    elements: list | None = None,
+    keep_layout: list[str] | None = None,
+    runs: int = 0,
+):
     """Drive the Load button with `seed_value` in the box."""
     return fire_callback(
         app,
@@ -407,17 +417,61 @@ def press_load(app, seed_value: str, fan: int = 500, elements: list | None = Non
         seed_value,
         fan,
         elements if elements is not None else [],
+        keep_layout or [],
+        None,
+        runs,
         outputs=GROW_GRAPH_OUTPUTS,
         triggered="load.n_clicks",
     )
 
 
-def pick_layout(app, choice: str, keep_view: list[str] | None = None) -> dict:
+def click_node(
+    app,
+    node_data: dict,
+    elements: list | None = None,
+    fan: int = 500,
+    keep_layout: list[str] | None = None,
+    tap_node: dict | None = None,
+    runs: int = 0,
+):
     """
-    Drive the layout callback and return the layout dict it hands cytoscape.
+    Tap a node on the canvas.
 
-    `keep_view` is the hold-view checklist's value: [] unticked, ["keep"]
-    ticked.
+    `node_data` is what tapNodeData carries (the node's `data`); `tap_node` is
+    the fuller tapNode payload, which is where the live position comes from.
+    """
+    return fire_callback(
+        app,
+        GROW_GRAPH,
+        0,
+        node_data,
+        "",
+        fan,
+        elements if elements is not None else [],
+        keep_layout or [],
+        tap_node,
+        runs,
+        outputs=GROW_GRAPH_OUTPUTS,
+        triggered="graph.tapNodeData",
+    )
+
+
+def pick_layout(
+    app,
+    choice: str,
+    keep_view: list[str] | None = None,
+    keep_layout: list[str] | None = None,
+    triggered: str = "keep-view.value",
+    bump: int = 0,
+) -> dict | None:
+    """
+    Drive the layout callback and return the layout dict it hands cytoscape,
+    or None where it declined to emit one.
+
+    `keep_view` and `keep_layout` are the two checklists' values: [] unticked,
+    ["keep"] / ["hold"] ticked. `triggered` is which of them the browser
+    changed, which is the difference between ticking Hold Layout (no re-run)
+    and everything else (re-run).
     """
     # a bare dict, not a list: a list marks the output as a wildcard
     # multi-output and Dash then demands a sequence back
@@ -426,10 +480,12 @@ def pick_layout(app, choice: str, keep_view: list[str] | None = None) -> dict:
         "graph.layout",
         choice,
         keep_view if keep_view is not None else [],
+        keep_layout if keep_layout is not None else [],
+        bump,
         outputs={"id": "graph", "property": "layout"},
-        triggered="keep-view.value",
+        triggered=triggered,
     )
-    return response["graph"]["layout"]
+    return response.get("graph", {}).get("layout")
 
 
 def status_of(response: dict) -> str:

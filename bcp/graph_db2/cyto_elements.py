@@ -18,6 +18,7 @@ from discovery order would draw arrows that don't mean lineage.
 
 from collections import defaultdict
 from collections.abc import Collection
+from math import cos, pi, sin
 from urllib.parse import quote, urljoin
 
 import requests
@@ -40,6 +41,11 @@ DRAW_BUDGET = 25
 # once over budget, a type this size or smaller is still drawn rather than collapsed
 FAN_THRESHOLD = 25
 GROUP_SEPARATOR = "::group:"
+# Where a new node goes when the layout is being held and so cannot place it:
+# RING_RADIUS out from the node it was expanded from, NODE_PITCH of room each
+# along the ring. See seed_positions().
+RING_RADIUS = 170
+NODE_PITCH = 70
 
 # Paths whose complete profile has been fetched. Batch reports only carry the
 # fields in OBJECT_CONFIG, so a node known only from a batch response can have
@@ -438,9 +444,12 @@ def merge_elements(
     Fold an expansion into the elements already on screen.
 
     Nodes are replaced (a stub gains its real label once fetched), edges are
-    kept on first sight. `expanded` is the one field that survives replacement:
-    expanding B re-emits its neighbor A as an unexpanded stub, and dropping A's
+    kept on first sight. Two things survive replacement. `expanded`, because
+    expanding B re-emits its neighbor A as an unexpanded stub and dropping A's
     flag would offer a second, edge-free expansion of a node already opened.
+    And `position`, because that is canvas state the browser owns and a node
+    rebuilt here has none - dropping it teleports an already-drawn node to the
+    origin the moment the layout is held and cannot put it back.
     """
     by_id = {element["data"]["id"]: element for element in existing}
 
@@ -449,11 +458,106 @@ def merge_elements(
         previous = by_id.get(node_id)
         if previous and previous["data"].get("expanded"):
             element = {**element, "data": {**element["data"], "expanded": True}}
+        if previous and "position" in previous and "position" not in element:
+            element = {**element, "position": previous["position"]}
         by_id[node_id] = element
     for element in new_edges:
         by_id.setdefault(element["data"]["id"], element)
 
     return list(by_id.values())
+
+
+def ring_offsets(count: int) -> list[tuple[float, float]]:
+    """
+    `count` offsets from a centre, on as many rings as it takes to leave
+    NODE_PITCH between neighbors sharing one.
+
+    A single ring does not scale: 60 nodes on it either overlap or sit so far
+    out that the node they belong to is off screen. Even-numbered rings are
+    turned half a step so a wide fan does not come out as spokes.
+    """
+    offsets: list[tuple[float, float]] = []
+    ring = 1
+    while len(offsets) < count:
+        radius = RING_RADIUS * ring
+        room = max(1, int(2 * pi * radius / NODE_PITCH))
+        placing = min(room, count - len(offsets))
+        step = 2 * pi / placing
+        turn = step / 2 if ring % 2 == 0 else 0.0
+        offsets += [
+            (radius * cos(index * step + turn), radius * sin(index * step + turn))
+            for index in range(placing)
+        ]
+        ring += 1
+    return offsets
+
+
+def position_of(elements: list[dict], node_id: str) -> dict | None:
+    """The canvas position recorded for a node, if it has one"""
+    for element in elements:
+        if element["data"]["id"] == node_id:
+            return element.get("position")
+    return None
+
+
+def anchor_position(elements: list[dict], tap_node: dict | None, node_id: str) -> dict:
+    """
+    Where to hang an expansion's new nodes.
+
+    tapNode carries the live position of the node the user just clicked;
+    `elements` only catches up when dash-cytoscape pushes the canvas back, which
+    it does on add, remove and drag but not after a layout run - so it can be
+    one arrangement stale. Both beat the origin, which is where cytoscape drops
+    a node that arrives without a position.
+    """
+    if tap_node and (tap_node.get("data") or {}).get("id") == node_id:
+        live = tap_node.get("position")
+        if live:
+            return live
+    return position_of(elements, node_id) or {"x": 0.0, "y": 0.0}
+
+
+def seed_positions(
+    new_nodes: list[dict], elements: list[dict], anchor: dict
+) -> list[dict]:
+    """
+    `new_nodes` with a position on each one not already on the canvas.
+
+    Only for a held layout, where nothing is going to place these. Cytoscape
+    drops a positionless node at the origin, so without this a whole expansion
+    lands in one pile in the corner rather than around what it came from.
+
+    Nodes already drawn come back untouched: merge_elements() carries their
+    existing position over, and moving them is the thing holding the layout is
+    meant to prevent.
+    """
+    drawn = {element["data"]["id"] for element in elements}
+    fresh = [element for element in new_nodes if element["data"]["id"] not in drawn]
+    offsets = dict(
+        zip(
+            (element["data"]["id"] for element in fresh),
+            ring_offsets(len(fresh)),
+        )
+    )
+
+    placed = []
+    for element in new_nodes:
+        offset = offsets.get(element["data"]["id"])
+        if offset is None:
+            placed.append(element)
+            continue
+        position = {"x": anchor["x"] + offset[0], "y": anchor["y"] + offset[1]}
+        placed.append({**element, "position": position})
+    return placed
+
+
+def place_expansion(
+    new_nodes: list[dict], elements: list[dict], tap_node: dict | None, anchor_id: str
+) -> list[dict]:
+    """seed_positions() around the node an expansion was clicked on"""
+    return seed_positions(
+        new_nodes, elements, anchor_position(elements, tap_node, anchor_id)
+    )
 
 
 def drop_nodes(elements: list[dict], node_ids: Collection[str]) -> list[dict]:

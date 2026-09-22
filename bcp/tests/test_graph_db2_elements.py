@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from math import hypot
+
 from graph_db2.cyto_elements import (
+    NODE_PITCH,
+    RING_RADIUS,
     already_drawn,
+    anchor_position,
     drop_node,
     drop_nodes,
     edge_element,
@@ -14,7 +19,11 @@ from graph_db2.cyto_elements import (
     merge_elements,
     node_element,
     not_yet_drawn,
+    place_expansion,
+    position_of,
     properties_of,
+    ring_offsets,
+    seed_positions,
 )
 from graph_db2.models import LatticeNode
 
@@ -129,6 +138,141 @@ def test_merge_dedupes_reciprocal_edges() -> None:
     discovered twice and must collapse to a single undirected edge."""
     merged = merge_elements([], [], [edge_element(A, B), edge_element(B, A)])
     assert len(merged) == 1
+
+
+def test_merge_keeps_the_position_of_a_replaced_node() -> None:
+    """Positions are canvas state the browser owns and a freshly built node has
+    none. Dropping it teleports an already-drawn node to the origin the moment
+    the layout is held and cannot put it back."""
+    placed = {**_node(A), "position": {"x": 40, "y": -12}}
+    merged = merge_elements([placed], [_node(A)], [])
+    assert merged[0]["position"] == {"x": 40, "y": -12}
+
+
+def test_merge_invents_no_position() -> None:
+    """A node nothing has placed has to stay unplaced, or the layout is handed
+    an arrangement it never produced."""
+    assert "position" not in merge_elements([], [_node(A)], [])[0]
+
+
+def test_merge_prefers_a_freshly_seeded_position() -> None:
+    """seed_positions() runs before the merge, so a position on the incoming
+    node is the deliberate one."""
+    placed = {**_node(A), "position": {"x": 40, "y": -12}}
+    seeded = {**_node(A), "position": {"x": 0, "y": 300}}
+    assert merge_elements([placed], [seeded], [])[0]["position"] == {"x": 0, "y": 300}
+
+
+def test_merge_still_keeps_expanded_alongside_a_position() -> None:
+    previous = {
+        "data": {**_node(A)["data"], "expanded": True},
+        "position": {"x": 1, "y": 2},
+    }
+    merged = merge_elements([previous], [_node(A)], [])
+    assert merged[0]["data"]["expanded"] is True
+    assert merged[0]["position"] == {"x": 1, "y": 2}
+
+
+# --------------------------------------------------------------------------
+# held-layout placement
+# --------------------------------------------------------------------------
+
+
+def test_ring_offsets_places_every_node() -> None:
+    assert len(ring_offsets(73)) == 73
+
+
+def test_ring_offsets_of_nothing_is_empty() -> None:
+    assert ring_offsets(0) == []
+
+
+def test_ring_offsets_keeps_a_small_fan_on_one_ring() -> None:
+    radii = {round(hypot(x, y)) for x, y in ring_offsets(6)}
+    assert radii == {RING_RADIUS}
+
+
+def test_ring_offsets_spills_a_wide_fan_onto_further_rings() -> None:
+    """A single ring either overlaps or sits so far out that the node the fan
+    belongs to is off screen."""
+    radii = sorted({round(hypot(x, y)) for x, y in ring_offsets(60)})
+    assert len(radii) > 1
+    assert radii == [RING_RADIUS * ring for ring in range(1, len(radii) + 1)]
+
+
+def test_ring_offsets_leaves_room_between_neighbors() -> None:
+    offsets = ring_offsets(12)
+    gaps = [
+        hypot(one[0] - other[0], one[1] - other[1])
+        for one, other in zip(offsets, offsets[1:])
+    ]
+    assert min(gaps) >= NODE_PITCH
+
+
+def test_seed_positions_places_new_nodes_around_the_anchor() -> None:
+    anchor = {"x": 100.0, "y": -50.0}
+    placed = seed_positions([_node(B), _node(C)], [_node(A)], anchor)
+    for element in placed:
+        offset = hypot(
+            element["position"]["x"] - anchor["x"],
+            element["position"]["y"] - anchor["y"],
+        )
+        assert round(offset) == RING_RADIUS
+
+
+def test_seed_positions_leaves_drawn_nodes_alone() -> None:
+    """Moving what is already on screen is exactly what holding the layout is
+    meant to prevent."""
+    drawn = {**_node(A), "position": {"x": 7, "y": 9}}
+    placed = seed_positions([_node(A), _node(B)], [drawn], {"x": 0.0, "y": 0.0})
+    assert "position" not in placed[0]
+    assert placed[1]["position"] != {"x": 7, "y": 9}
+
+
+def test_seed_positions_gives_every_new_node_a_distinct_spot() -> None:
+    """Cytoscape drops a positionless node at the origin, so a whole expansion
+    landing in one pile is the failure this replaces."""
+    nodes = [_node(path) for path in (A, B, C)]
+    spots = {
+        tuple(element["position"].values())
+        for element in seed_positions(nodes, [], {"x": 0.0, "y": 0.0})
+    }
+    assert len(spots) == 3
+
+
+def test_position_of_reads_a_placed_node() -> None:
+    placed = {**_node(A), "position": {"x": 3, "y": 4}}
+    assert position_of([placed], A) == {"x": 3, "y": 4}
+
+
+def test_position_of_an_unplaced_or_absent_node_is_none() -> None:
+    assert position_of([_node(A)], A) is None
+    assert position_of([], A) is None
+
+
+def test_anchor_prefers_the_live_tap_position() -> None:
+    """`elements` only catches up on add, remove and drag, so after a layout
+    run it is an arrangement behind; tapNode is what the user just clicked."""
+    stale = {**_node(A), "position": {"x": 0, "y": 0}}
+    tap_node = {"data": {"id": A}, "position": {"x": 250, "y": 80}}
+    assert anchor_position([stale], tap_node, A) == {"x": 250, "y": 80}
+
+
+def test_anchor_ignores_a_tap_on_a_different_node() -> None:
+    placed = {**_node(A), "position": {"x": 5, "y": 6}}
+    tap_node = {"data": {"id": B}, "position": {"x": 250, "y": 80}}
+    assert anchor_position([placed], tap_node, A) == {"x": 5, "y": 6}
+
+
+def test_anchor_falls_back_to_the_origin() -> None:
+    assert anchor_position([], None, A) == {"x": 0.0, "y": 0.0}
+
+
+def test_place_expansion_hangs_new_nodes_off_the_tapped_node() -> None:
+    tap_node = {"data": {"id": A}, "position": {"x": 300.0, "y": 0.0}}
+    placed = place_expansion([_node(A), _node(B)], [_node(A)], tap_node, A)
+    assert "position" not in placed[0]
+    offset = hypot(placed[1]["position"]["x"] - 300.0, placed[1]["position"]["y"])
+    assert round(offset) == RING_RADIUS
 
 
 # --------------------------------------------------------------------------
