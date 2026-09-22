@@ -1677,7 +1677,7 @@ def evaluate_var(adata):
             'ERROR'
         )
         report('To remove deprecated IDs, run...')
-        report('adata = map_filter_gene_ids(adata)', 'code')
+        report('adata = cxgm.map_filter_gene_ids(adata)', 'code')
         return
     valid = True
     uns_organism = adata.uns['organism_ontology_term_id']
