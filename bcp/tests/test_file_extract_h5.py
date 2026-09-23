@@ -64,7 +64,11 @@ def test_extract_library() -> None:
 
 
 def test_default_h5_output_name() -> None:
-    assert default_h5_output_name("a/b/per_sample_outs/") == "b_h5_info.tsv"
+    assert (
+        default_h5_output_name("a/b/per_sample_outs/") == "per_sample_outs_h5_info.tsv"
+    )
+    assert default_h5_output_name("proj/AN00000001") == "AN00000001_h5_info.tsv"
+    assert default_h5_output_name("") == "output_h5_info.tsv"
 
 
 def test_h5_columns_variants() -> None:

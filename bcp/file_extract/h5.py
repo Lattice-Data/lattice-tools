@@ -283,11 +283,8 @@ def h5_columns(
 
 
 def default_h5_output_name(prefix: str) -> str:
-    segments = prefix.rstrip("/").split("/")
-    run_or_dir = (
-        segments[-2] if len(segments) >= 2 else (segments[-1] if segments else "output")
-    )
-    return f"{run_or_dir}_h5_info.tsv"
+    order_name = prefix.rstrip("/").rsplit("/", 1)[-1] if prefix else "output"
+    return f"{order_name}_h5_info.tsv"
 
 
 def extract_h5(

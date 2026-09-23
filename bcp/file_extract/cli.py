@@ -526,7 +526,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         default=None,
-        help="Output TSV (default: <run-or-dir>_h5_info.tsv)",
+        help="Output TSV (default: <last-segment>_h5_info.tsv)",
     )
     h5.add_argument(
         "--target-filename",

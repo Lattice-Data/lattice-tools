@@ -145,7 +145,7 @@ python -m file_extract h5 s3://.../per_sample_outs --lab example-lab --genome --
 | Flag | Description |
 |------|-------------|
 | `--lab` | **Required.** `example-lab` or `/labs/example-lab/`. Prefixes FASTQ aliases in `derived_from` as `<lab>:<filename>` |
-| `-o`, `--output` | Output TSV (default: `<run-or-dir>_h5_info.tsv`) |
+| `-o`, `--output` | Output TSV (default: `<last-segment>_h5_info.tsv`) |
 | `--target-filename` | h5 basename to match (default: `sample_filtered_feature_bc_matrix.h5`) |
 | `--no-introspect` | Checksums and listing only |
 | `--genome` | Add `gene_counts_by_genome` JSON column |
