@@ -6,17 +6,22 @@ it into a static file. This module walks outward one node at a time instead:
 explorer.py asks for a node's neighbors only when a user clicks it, so the
 payload stays small no matter how large the reachable graph is.
 
-Only genuinely wide fans are grouped. A fan of DRAW_BUDGET or fewer is drawn in
-full, so a 64-file MatrixFileSet looks like its 64 files. Past that, any type
-with more than FAN_THRESHOLD members collapses into one placeholder the user can
-search or fan out - a 500-wide fan is both unreadable and 500 label fetches.
+Only genuinely wide fans are held back. A fan of DRAW_BUDGET or fewer is drawn
+in full, so a 64-file MatrixFileSet looks like its 64 files. Past that, any type
+with more than FAN_THRESHOLD members is left off the canvas - a 500-wide fan is
+both unreadable and 500 label fetches.
+
+Every type discovered so far gets one placeholder, unconnected, at the top of
+its column. It lists every node of that type the canvas knows of - drawn, or
+referenced by an expanded node - and its picker draws and clears them. See
+sync_placeholders().
 
 Edges are undirected. LatticeNode.get_ids() walks the JSON on both sides of a
 reference, so a Library and its FileSet each name the other; picking a direction
 from discovery order would draw arrows that don't mean lineage.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Collection
 from math import cos, pi, sin
 from urllib.parse import quote, urljoin
@@ -36,11 +41,12 @@ from .schema import create_configs
 from db2_flattener.gather.gatherer import DB2Gatherer
 
 UNMAPPED_COLOR = "#e8e8e8"
-# neighbors drawn individually before any grouping kicks in
+# neighbors drawn individually before any are held back
 DRAW_BUDGET = 25
-# once over budget, a type this size or smaller is still drawn rather than collapsed
+# once over budget, a type this size or smaller is still drawn rather than held back
 FAN_THRESHOLD = 25
-GROUP_SEPARATOR = "::group:"
+# no object path starts with a colon, so a placeholder id cannot collide
+PLACEHOLDER_PREFIX = "::type:"
 # Where a new node goes before any layout has had a say: RING_RADIUS out from
 # the node it was expanded from, NODE_PITCH of room each along the ring. See
 # seed_positions().
@@ -308,27 +314,27 @@ def edge_element(one_path: str, other_path: str) -> dict:
     return {"data": {"id": f"{source}--{target}", "source": source, "target": target}}
 
 
-def group_id(parent_path: str, api_name: str) -> str:
-    return f"{parent_path}{GROUP_SEPARATOR}{api_name}"
+def placeholder_id(api_name: str) -> str:
+    return f"{PLACEHOLDER_PREFIX}{api_name}"
 
 
 def group_label(api_name: str, undrawn: int) -> str:
     return f"{api_name} × {undrawn}"
 
 
-def group_element(
-    parent_path: str, api_name: str, members: list[str], mode: str
-) -> dict:
-    """Placeholder standing in for a fan too wide to draw"""
+def placeholder_element(api_name: str, members: list[str], undrawn: int) -> dict:
+    """
+    The one placeholder for a type. `members` is every node of it the canvas
+    knows of; the label counts the ones not drawn.
+    """
     return {
         "data": {
-            "id": group_id(parent_path, api_name),
-            "label": group_label(api_name, len(members)),
+            "id": placeholder_id(api_name),
+            "label": group_label(api_name, undrawn),
             "node_type": api_name,
             "color": color_for(LatticeNode(members[0])),
             "expanded": False,
             "is_group": True,
-            "parent_path": parent_path,
             "members": members,
         }
     }
@@ -357,19 +363,18 @@ def expand(
     Resolve one node's neighbors into cytoscape elements.
 
     A fan of draw_budget or fewer is drawn in full - a 64-file MatrixFileSet is
-    exactly what someone opening it wants to see. Only past that do the big
-    types collapse into placeholders, since a 512-wide fan lays out ~23,000px
-    tall and is unreadable at any zoom.
+    exactly what someone opening it wants to see. Only past that are the big
+    types held back, since a 512-wide fan lays out ~23,000px tall and is
+    unreadable at any zoom. Nothing stands in for them here: once this node is
+    expanded they are in its type's placeholder, which sync_placeholders()
+    builds from the whole canvas.
 
     Neighbors already `on_canvas` cost nothing to draw, so they never count
-    toward either limit and always get their edge - otherwise a node whose 48
-    libraries are all on screen would hang a "× 0" placeholder off itself
-    and link to none of them. A placeholder still lists its drawn members, so
-    the picker shows them ticked.
+    toward either limit and always get their edge.
 
     Costs one authenticated GET for the node itself plus one batched report per
-    type actually drawn. Grouped types cost nothing until the user fans them
-    out, since a neighbor's type is readable from its path alone.
+    type actually drawn. Held-back types cost nothing until the user draws one,
+    since a neighbor's type is readable from its path alone.
     """
     # everything downstream keys off node ids, so work from the canonical form
     # rather than whatever the caller typed. Free for a node already in the
@@ -387,12 +392,10 @@ def expand(
 
     on_canvas = set(on_canvas)
     drawn: list[str] = []
-    grouped: dict[str, list[str]] = {}
     if draw_budget and sum(1 for n in neighbors if n not in on_canvas) > draw_budget:
-        for api_name, paths in by_type.items():
+        for paths in by_type.values():
             waiting = [path for path in paths if path not in on_canvas]
             if len(waiting) > FAN_THRESHOLD:
-                grouped[api_name] = paths
                 drawn.extend(path for path in paths if path in on_canvas)
             else:
                 drawn.extend(paths)
@@ -406,38 +409,20 @@ def expand(
     for path in drawn:
         nodes.append(node_element(LatticeNode(path)))
         edges.append(edge_element(uuid_path, path))
-    for api_name, paths in sorted(grouped.items()):
-        nodes.append(group_element(uuid_path, api_name, paths, mode))
-        edges.append(edge_element(uuid_path, group_id(uuid_path, api_name)))
 
     return nodes, edges
 
 
-def promote_members(
-    paths: Collection[str],
-    parent_path: str,
-    gatherer: DB2Gatherer,
-    mode: str = DEFAULT_MODE,
-) -> tuple[list[dict], list[dict]]:
+def promote_members(paths: Collection[str], gatherer: DB2Gatherer) -> list[dict]:
     """
-    Lift chosen members of a group onto the canvas.
+    Nodes for members picked from a placeholder. Their edges come from
+    link_known_edges(), since a placeholder has no parent to hang them off.
 
     Takes the whole selection at once so a multi-pick costs one batched report
     per type rather than one per node.
     """
     fetch_labels(paths, gatherer)
-    nodes = [node_element(LatticeNode(path)) for path in paths]
-    edges = [edge_element(parent_path, path) for path in paths]
-    return nodes, edges
-
-
-def explode(
-    group_data: dict, gatherer: DB2Gatherer, mode: str = DEFAULT_MODE
-) -> tuple[list[dict], list[dict]]:
-    """Turn a group placeholder into every one of its member nodes"""
-    return promote_members(
-        group_data["members"], group_data["parent_path"], gatherer, mode
-    )
+    return [node_element(LatticeNode(path)) for path in paths]
 
 
 def member_options(members: list[str], mode: str = DEFAULT_MODE) -> list[dict]:
@@ -455,15 +440,35 @@ def member_options(members: list[str], mode: str = DEFAULT_MODE) -> list[dict]:
 
 def fan_summary(nodes: list[dict]) -> str:
     """
-    What an expansion actually produced, counting group members rather than
-    placeholders - "1 neighbor" for a collapsed fan of 64 reads as a failure.
+    What an expansion actually produced, counting what it held back too -
+    "1 drawn" for a fan of 65 reads as a failure. `nodes` is expand()'s, whose
+    first entry is the node that was expanded.
     """
-    drawn = sum(1 for node in nodes if not node["data"].get("is_group")) - 1
-    groups = [node["data"] for node in nodes if node["data"].get("is_group")]
+    centre = nodes[0]["data"]["id"]
+    shown = {node["data"]["id"] for node in nodes}
+    held_back = Counter(
+        LatticeNode(path).schema_ids.api_name
+        for path in known_neighbors(centre)
+        if path not in shown
+    )
 
-    parts = [f"{drawn} drawn"] if drawn else []
-    parts += [f"{len(data['members'])} {data['node_type']} grouped" for data in groups]
+    parts = [f"{len(nodes) - 1} drawn"] if len(nodes) > 1 else []
+    parts += [
+        f"{count} {api_name} in its placeholder"
+        for api_name, count in sorted(held_back.items())
+    ]
     return ", ".join(parts) or "no neighbors"
+
+
+def known_neighbors(uuid_path: str) -> set[str]:
+    """
+    A node's neighbors if its full profile is cached, else nothing. Never
+    fetches: a batch report's partial profile would give a short list, and a
+    miss would cost a request per node on every canvas change.
+    """
+    if uuid_path not in _fully_fetched or uuid_path not in LatticeNode._cache:
+        return set()
+    return LatticeNode(uuid_path).neighbors
 
 
 def not_yet_drawn(elements: list[dict], paths: Collection[str]) -> list[str]:
@@ -496,9 +501,6 @@ def merge_elements(
     And `position`, because that is canvas state the browser owns and a node
     rebuilt here has none - dropping it teleports an already-drawn node to the
     origin the moment the layout is held and cannot put it back.
-
-    Group labels are recounted on the way out, since this is the one place
-    every draw and removal passes through.
     """
     by_id = {element["data"]["id"]: element for element in existing}
 
@@ -513,28 +515,122 @@ def merge_elements(
     for element in new_edges:
         by_id.setdefault(element["data"]["id"], element)
 
-    return relabel_groups(list(by_id.values()))
+    return list(by_id.values())
 
 
-def relabel_groups(elements: list[dict]) -> list[dict]:
+def settle(elements: list[dict]) -> list[dict]:
     """
-    Count each placeholder down to the members not on the canvas yet.
-
-    Checked against the whole canvas rather than the group's own picks: two
-    CellLines can each hold a placeholder for the same 48 libraries, and a
-    library drawn from one of them is no longer waiting behind the other.
+    The canvas after a draw or removal: every known edge between drawn nodes
+    in place, and the placeholders rebuilt to match. Each callback that writes
+    the elements finishes with this.
     """
-    present = {element["data"]["id"] for element in elements}
-    relabelled = []
-    for element in elements:
-        data = element["data"]
-        if data.get("is_group"):
-            undrawn = sum(1 for path in data["members"] if path not in present)
-            label = group_label(data["node_type"], undrawn)
-            if label != data["label"]:
-                element = {**element, "data": {**data, "label": label}}
-        relabelled.append(element)
-    return relabelled
+    return sync_placeholders(link_known_edges(elements))
+
+
+def link_known_edges(elements: list[dict]) -> list[dict]:
+    """
+    An edge from every expanded node to each of its neighbors on the canvas.
+
+    An expansion only links the node that was clicked, and a member picked from
+    a placeholder has no parent at all. Without this, a library drawn from one
+    CellLine would stay unlinked from the three others that reference it.
+    """
+    present = {
+        element["data"]["id"]
+        for element in elements
+        if "source" not in element["data"] and not element["data"].get("is_group")
+    }
+    edges = [
+        edge_element(element["data"]["id"], neighbor)
+        for element in elements
+        if element["data"].get("expanded")
+        for neighbor in sorted(known_neighbors(element["data"]["id"]) & present)
+    ]
+    return merge_elements(elements, [], edges)
+
+
+def sync_placeholders(elements: list[dict]) -> list[dict]:
+    """
+    One placeholder per type the canvas knows of, rebuilt from scratch.
+
+    A type's members are its nodes on the canvas plus every one an expanded
+    node references, so the picker can clear a drawn node as well as draw a
+    held-back one, and a type with nothing held back still has one. Built from
+    the whole canvas rather than kept per click: when two CellLines reference
+    the same 48 libraries, one list covers both, and it cannot fall out of step
+    with what is on screen. A placeholder keeps the position it had.
+    """
+    kept = [element for element in elements if not element["data"].get("is_group")]
+    previous = {
+        element["data"]["id"]: element
+        for element in elements
+        if element["data"].get("is_group")
+    }
+    present = {
+        element["data"]["id"] for element in kept if "source" not in element["data"]
+    }
+    known = set(present)
+    for element in kept:
+        if element["data"].get("expanded"):
+            known |= known_neighbors(element["data"]["id"])
+
+    by_type: dict[str, list[str]] = defaultdict(list)
+    for path in sorted(known):
+        by_type[LatticeNode(path).schema_ids.api_name].append(path)
+
+    placeholders = []
+    for api_name, members in sorted(by_type.items()):
+        undrawn = sum(1 for path in members if path not in present)
+        element = placeholder_element(api_name, members, undrawn)
+        old = previous.get(element["data"]["id"])
+        if old and "position" in old:
+            element["position"] = old["position"]
+        placeholders.append(element)
+
+    return kept + place_placeholders(placeholders, kept)
+
+
+def place_placeholders(placeholders: list[dict], elements: list[dict]) -> list[dict]:
+    """
+    A position for each new placeholder, above the top of its column as it
+    stands.
+
+    Only matters while the layout is held: otherwise the column layout re-runs
+    and puts them there itself, and every other layout hides them. A type with
+    nothing drawn has no column yet, so it starts one to the right of the rest.
+    """
+    # placeholders that kept a position count too, so a new one stacks above
+    # them rather than on top of them
+    positioned = [
+        (element["data"].get("node_type"), element["position"])
+        for element in [*elements, *placeholders]
+        if "position" in element and "source" not in element["data"]
+    ]
+    if not positioned:
+        return placeholders
+
+    right = max(position["x"] for _, position in positioned) + COLUMN_GAP
+    top = min(position["y"] for _, position in positioned)
+    placed = []
+    for element in placeholders:
+        if "position" in element:
+            placed.append(element)
+            continue
+        column = column_of(element["data"]["node_type"])
+        peers = [
+            position
+            for node_type, position in positioned
+            if column_of(node_type) == column
+        ]
+        if peers:
+            highest = min(peers, key=lambda position: position["y"])
+            position = {"x": highest["x"], "y": highest["y"] - ROW_PITCH}
+        else:
+            position = {"x": right, "y": top - ROW_PITCH}
+            right += COLUMN_GAP
+        positioned.append((element["data"]["node_type"], position))
+        placed.append({**element, "position": position})
+    return placed
 
 
 def ring_offsets(count: int) -> list[tuple[float, float]]:
@@ -686,9 +782,23 @@ def column_positions(elements: list[dict]) -> dict[str, dict]:
 
     Columns are packed, so a graph with no Libraries in it has no empty gutter
     where they would have gone.
+
+    Placeholders take no part in the ordering - they have no edges to be pulled
+    level with - and stack above the top of their column instead, in type
+    order. A type with nothing drawn yet is a column of placeholder alone.
     """
-    nodes = [element for element in elements if "source" not in element["data"]]
-    if not nodes:
+    nodes = [
+        element
+        for element in elements
+        if "source" not in element["data"] and not element["data"].get("is_group")
+    ]
+    headers: dict[int, list[str]] = defaultdict(list)
+    for element in sorted(
+        (element for element in elements if element["data"].get("is_group")),
+        key=lambda element: element["data"]["node_type"],
+    ):
+        headers[column_of(element["data"]["node_type"])].append(element["data"]["id"])
+    if not nodes and not headers:
         return {}
 
     columns: dict[int, list[str]] = defaultdict(list)
@@ -725,10 +835,20 @@ def column_positions(elements: list[dict]) -> dict[str, dict]:
             )
             heights.update(spread(node_ids))
 
-    packed = {column: index for index, column in enumerate(sorted(columns))}
+    for column, header_ids in headers.items():
+        top = min(
+            (heights[node_id] for node_id in columns.get(column, ())), default=0.0
+        )
+        for rank, header_id in enumerate(header_ids):
+            heights[header_id] = top - (len(header_ids) - rank) * ROW_PITCH
+
+    everything = {**headers}
+    for column, node_ids in columns.items():
+        everything[column] = everything.get(column, []) + node_ids
+    packed = {column: index for index, column in enumerate(sorted(everything))}
     return {
         node_id: {"x": float(packed[column] * COLUMN_GAP), "y": heights[node_id]}
-        for column, node_ids in columns.items()
+        for column, node_ids in everything.items()
         for node_id in node_ids
     }
 

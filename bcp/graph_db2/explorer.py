@@ -12,10 +12,8 @@ from .cyto_elements import (
     already_drawn,
     column_positions,
     css_color,
-    drop_node,
     drop_nodes,
     expand,
-    explode,
     fan_summary,
     fetch_labels,
     label_for,
@@ -28,6 +26,7 @@ from .cyto_elements import (
     promote_members,
     properties_of,
     resolve_seed,
+    settle,
 )
 from .models import LatticeNode, NodeColor
 
@@ -150,10 +149,16 @@ def status_text(message: str, ok: bool = True) -> html.Span:
     )
 
 
+def is_node(element: dict) -> bool:
+    """A real node: not an edge, and not a type's placeholder"""
+    return "source" not in element["data"] and not element["data"].get("is_group")
+
+
 def element_counts(elements: list[dict]) -> str:
-    """'12 nodes, 11 edges' for the status line"""
-    nodes = sum(1 for element in elements if "source" not in element["data"])
-    return f"{nodes} nodes, {len(elements) - nodes} edges"
+    """'12 nodes, 11 edges' for the status line, placeholders not counted"""
+    nodes = sum(1 for element in elements if is_node(element))
+    edges = sum(1 for element in elements if "source" in element["data"])
+    return f"{nodes} nodes, {edges} edges"
 
 
 def suggest_layout(elements: list[dict]) -> str:
@@ -165,7 +170,7 @@ def suggest_layout(elements: list[dict]) -> str:
     the same fan in a readable ring. Only used for a freshly loaded seed; once
     the user has picked a layout, expansions leave it alone.
     """
-    nodes = [element for element in elements if "source" not in element["data"]]
+    nodes = [element for element in elements if is_node(element)]
     if len(nodes) < 12:
         return DEFAULT_LAYOUT
 
@@ -273,10 +278,10 @@ def detail_panel(
         return [
             html.H4(node_data["label"], style={"margin": "0 0 4px"}),
             html.P(
-                f"{len(members)} {node_data['node_type']} references, collapsed "
-                "because the whole fan is over the draw budget. Ticked members "
-                "are the ones on the canvas - search and tick to draw, untick "
-                "to take one off again.",
+                f"Every {node_data['node_type']} found so far: the ones on the "
+                "canvas, and the ones any expanded node references. Ticked "
+                "members are the ones on the canvas - search and tick to draw, "
+                "untick to take one off again.",
                 style={"marginTop": 0},
             ),
             dcc.Dropdown(
@@ -348,7 +353,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             # is what the graph is keyed by
             seed = resolve_seed(seed, mode)
             seed_nodes, seed_edges = expand(seed, gatherer, mode=mode)
-            elements = merge_elements([], seed_nodes, seed_edges)
+            elements = settle(merge_elements([], seed_nodes, seed_edges))
             status = status_text(f"{seed} - {fan_summary(seed_nodes)}")
             notice = detail_panel(None, mode)
         except (requests.HTTPError, ValueError, KeyError) as error:
@@ -403,7 +408,8 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                         title=(
                             "Fans this size or smaller are drawn in full. Past it, "
                             f"any type with more than {FAN_THRESHOLD} members "
-                            "collapses into a placeholder you can search."
+                            "is left off the canvas - pick them from that "
+                            "type's placeholder at the top of its column."
                         ),
                         style={"whiteSpace": "nowrap", "color": "#555"},
                     ),
@@ -629,7 +635,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         if not loading:
             nodes = place_expansion(nodes, elements, tap_node, target)
 
-        merged = merge_elements(elements, nodes, edges)
+        merged = settle(merge_elements(elements, nodes, edges))
         return (
             merged,
             status_text(f"{action} - {element_counts(merged)}"),
@@ -666,17 +672,23 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
     @app.callback(
         Output("graph", "stylesheet"),
         Input("type-filter", "value"),
+        Input("layout-choice", "value"),
         State("type-filter", "options"),
     )
-    def filter_by_type(selected, options):
+    def filter_by_type(selected, choice, options):
         hidden = [name for name in (options or []) if name not in (selected or [])]
-        return BASE_STYLESHEET + [
+        rules = [
             {
                 "selector": f'node[node_type = "{name}"]',
                 "style": {"display": "none"},
             }
             for name in hidden
         ]
+        # a placeholder sits at the top of its column, and only one layout has
+        # columns - anywhere else it would be a loose node in a random spot
+        if choice != COLUMN_LAYOUT:
+            rules.append({"selector": "node[?is_group]", "style": {"display": "none"}})
+        return BASE_STYLESHEET + rules
 
     # Every layout run this app asks for on purpose. Each input re-emits the
     # dict, and emitting it is what runs it: picking a layout, unticking
@@ -763,11 +775,13 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         # through to the difference below is safe either way - after a fan-out
         # there is nothing left to apply.
         if ctx.triggered_id == "fan-out" and clicks:
-            nodes, edges = explode(tapped, gatherer, mode=mode)
-            # around where the placeholder is standing, before it goes
+            drawn = set(already_drawn(elements, members))
+            waiting = [path for path in members if path not in drawn]
+            nodes = promote_members(waiting, gatherer)
+            # around where the placeholder is standing
             nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
-            # the placeholder is gone once its members are all on the canvas
-            merged = merge_elements(drop_node(elements, tapped["id"]), nodes, edges)
+            # the placeholder stays - it is the type's, not this fan's
+            merged = settle(merge_elements(elements, nodes, []))
             return (
                 merged,
                 status_text(
@@ -791,14 +805,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         if not additions and not removals:
             return no_update, no_update, no_update
 
-        nodes, edges = (
-            promote_members(additions, tapped["parent_path"], gatherer, mode)
-            if additions
-            else ([], [])
-        )
+        nodes = promote_members(additions, gatherer) if additions else []
         if nodes:
             nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
-        merged = merge_elements(drop_nodes(elements, removals), nodes, edges)
+        merged = settle(merge_elements(drop_nodes(elements, removals), nodes, []))
 
         parts = []
         if additions:

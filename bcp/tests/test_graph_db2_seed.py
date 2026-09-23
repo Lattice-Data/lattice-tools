@@ -19,8 +19,8 @@ import requests
 
 from graph_db2.cyto_elements import (
     expand,
-    group_id,
     merge_elements,
+    placeholder_id,
     normalize_to_type_and_uuid,
     resolve_seed,
 )
@@ -307,12 +307,16 @@ def test_startup_seed_box_shows_the_canonical_id(raw: str) -> None:
 
 @pytest.mark.parametrize("raw", [MFS_ALIAS, MFS_UUID])
 def test_startup_seed_draws_the_graph(raw: str) -> None:
-    """Startup uses the default draw budget, so the 30-file fan arrives as one
-    placeholder - but under the canonical id, which is what makes the group
-    tappable at all."""
+    """Startup uses the default draw budget, so the 30-file fan is held back in
+    its type's placeholder - and the seed is on the canvas under its canonical
+    id, which is what makes it tappable at all."""
     app = built_app(raw)
     elements = app.layout.children[1].children[0].children.elements
-    assert node_ids(elements) == {MFS, group_id(MFS, "RawMatrixFile")}
+    assert node_ids(elements) == {
+        MFS,
+        placeholder_id("MatrixFileSet"),
+        placeholder_id("RawMatrixFile"),
+    }
     assert dangling_edges(elements) == []
 
 
@@ -343,9 +347,11 @@ def test_an_unresolvable_startup_seed_does_not_raise() -> None:
 @pytest.mark.parametrize("raw", [MFS, MFS_ALIAS, MFS_UUID, MFS_AWKWARD_ALIAS])
 def test_load_accepts_every_spelling(raw: str) -> None:
     response = press_load(built_app("", TEST_MODE), raw)
-    assert node_ids(response["graph"]["elements"]) == {MFS} | {
-        raw_matrix_file(index) for index in range(RAW_MATRIX_FILE_COUNT)
-    }
+    assert node_ids(response["graph"]["elements"]) == {
+        MFS,
+        placeholder_id("MatrixFileSet"),
+        placeholder_id("RawMatrixFile"),
+    } | {raw_matrix_file(index) for index in range(RAW_MATRIX_FILE_COUNT)}
 
 
 @pytest.mark.parametrize("raw", [MFS_ALIAS, MFS_UUID])

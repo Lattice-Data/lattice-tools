@@ -11,12 +11,13 @@ from math import hypot
 import pytest
 
 from graph_db2.cyto_elements import (
+    PLACEHOLDER_PREFIX,
     RING_RADIUS,
     css_color,
     edge_element,
-    group_element,
     merge_elements,
     node_element,
+    placeholder_element,
 )
 from graph_db2.explorer import (
     BASE_STYLESHEET,
@@ -28,6 +29,7 @@ from graph_db2.explorer import (
     SAMPLE_SEED,
     computed_here,
     detail_panel,
+    element_counts,
     format_value,
     layout_for,
     legend,
@@ -536,7 +538,12 @@ def test_a_held_expansion_rings_its_new_nodes_round_the_tapped_node() -> None:
     before = drawn_canvas(app)
     after = expand_first_file(app, before, [HOLD_LAYOUT])
 
-    fresh = set(positions_in(after)) - set(positions_in(before))
+    # placeholders are not part of the expansion: they go on top of a column
+    fresh = {
+        node_id
+        for node_id in set(positions_in(after)) - set(positions_in(before))
+        if not node_id.startswith(PLACEHOLDER_PREFIX)
+    }
     assert fresh
     for node_id in fresh:
         position = positions_in(after)[node_id]
@@ -638,7 +645,7 @@ def test_detail_panel_without_selection_prompts() -> None:
 
 def test_detail_panel_for_a_group_offers_a_picker() -> None:
     members = [raw_matrix_file(index) for index in range(30)]
-    data = group_element(MFS, "RawMatrixFile", members, TEST_MODE)["data"]
+    data = placeholder_element("RawMatrixFile", members, len(members))["data"]
     rendered = str(detail_panel(data, TEST_MODE))
     assert "member-pick" in rendered
     assert "fan-out" in rendered
@@ -654,7 +661,7 @@ def _picker(children: list):
 
 def test_group_picker_ticks_nothing_when_no_member_is_drawn() -> None:
     members = [raw_matrix_file(index) for index in range(30)]
-    data = group_element(MFS, "RawMatrixFile", members, TEST_MODE)["data"]
+    data = placeholder_element("RawMatrixFile", members, len(members))["data"]
     assert _picker(detail_panel(data, TEST_MODE)).value == []
 
 
@@ -662,7 +669,7 @@ def test_group_picker_ticks_exactly_the_drawn_members() -> None:
     """The tick state is the canvas, so the panel takes it as an argument rather
     than keeping its own record of what was clicked."""
     members = [raw_matrix_file(index) for index in range(30)]
-    data = group_element(MFS, "RawMatrixFile", members, TEST_MODE)["data"]
+    data = placeholder_element("RawMatrixFile", members, len(members))["data"]
     drawn = [members[2], members[11]]
     picker = _picker(detail_panel(data, TEST_MODE, drawn))
     assert picker.value == drawn
@@ -672,7 +679,7 @@ def test_group_picker_ticks_exactly_the_drawn_members() -> None:
 
 def test_group_picker_explains_that_unticking_removes() -> None:
     members = [raw_matrix_file(index) for index in range(30)]
-    data = group_element(MFS, "RawMatrixFile", members, TEST_MODE)["data"]
+    data = placeholder_element("RawMatrixFile", members, len(members))["data"]
     assert "untick" in str(detail_panel(data, TEST_MODE))
 
 
@@ -726,6 +733,47 @@ def test_stylesheet_marks_unexpanded_nodes() -> None:
 def test_stylesheet_styles_group_placeholders() -> None:
     selectors = [rule["selector"] for rule in BASE_STYLESHEET]
     assert "node[?is_group]" in selectors
+
+
+def _stylesheet(choice: str, hidden_types: list[str] | None = None) -> list[dict]:
+    response = fire_callback(
+        built_app(MFS),
+        "graph.stylesheet",
+        [],
+        choice,
+        hidden_types or [],
+        outputs={"id": "graph", "property": "stylesheet"},
+        triggered="layout-choice.value",
+    )
+    return response["graph"]["stylesheet"]
+
+
+def _hides_placeholders(stylesheet: list[dict]) -> bool:
+    return {"selector": "node[?is_group]", "style": {"display": "none"}} in stylesheet
+
+
+def test_placeholders_show_in_the_column_layout() -> None:
+    assert not _hides_placeholders(_stylesheet(COLUMN_LAYOUT))
+
+
+@pytest.mark.parametrize("name", [n for n in LAYOUTS if n != COLUMN_LAYOUT])
+def test_placeholders_are_hidden_in_every_other_layout(name: str) -> None:
+    """Only one layout has a top of a column to put them at."""
+    assert _hides_placeholders(_stylesheet(name))
+
+
+def test_status_counts_leave_placeholders_out() -> None:
+    elements = [_node(MFS), placeholder_element("MatrixFileSet", [MFS], 0)]
+    assert element_counts(elements) == "1 nodes, 0 edges"
+
+
+def test_placeholders_do_not_sway_the_suggested_layout() -> None:
+    """Twelve types' worth of placeholders is not a twelve-node graph."""
+    placeholders = [
+        placeholder_element(f"Type{index}", [raw_matrix_file(index)], 1)
+        for index in range(12)
+    ]
+    assert suggest_layout(_star(12) + placeholders) == "concentric"
 
 
 def test_sample_seed_is_a_canonical_path() -> None:

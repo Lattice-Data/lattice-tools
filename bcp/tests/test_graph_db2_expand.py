@@ -9,14 +9,15 @@ from graph_db2 import cyto_elements
 from graph_db2.cyto_elements import (
     already_drawn,
     drop_nodes,
+    edge_element,
     expand,
-    explode,
     fetch_labels,
-    group_id,
     is_fully_fetched,
     merge_elements,
     neighbors_drawn,
+    placeholder_id,
     promote_members,
+    settle,
 )
 from graph_db2.models import GraphDB2Error, LatticeNode
 
@@ -41,8 +42,17 @@ BIG_BUDGET = 500
 SMALL_BUDGET = 10
 
 
-def groups_in(nodes: list[dict]) -> list[dict]:
-    return [node["data"] for node in nodes if node["data"].get("is_group")]
+def settled(nodes: list[dict], edges: list[dict]) -> list[dict]:
+    """An expansion as it lands on an empty canvas, placeholders and all"""
+    return settle(merge_elements([], nodes, edges))
+
+
+def placeholder(elements: list[dict], api_name: str) -> dict:
+    return next(
+        element["data"]
+        for element in elements
+        if element["data"]["id"] == placeholder_id(api_name)
+    )
 
 
 # --------------------------------------------------------------------------
@@ -53,24 +63,25 @@ def groups_in(nodes: list[dict]) -> list[dict]:
 def test_draws_whole_fan_under_budget() -> None:
     gatherer = fake_gatherer()
     nodes, edges = expand(MFS, gatherer, draw_budget=BIG_BUDGET)
-    assert groups_in(nodes) == []
     assert len(nodes) == RAW_MATRIX_FILE_COUNT + 1  # + the seed
     assert len(edges) == RAW_MATRIX_FILE_COUNT
 
 
-def test_groups_oversized_fan() -> None:
+def test_holds_back_an_oversized_fan() -> None:
+    """Nothing stands in for it in the expansion itself - it is waiting in its
+    type's placeholder once the canvas settles."""
     gatherer = fake_gatherer()
     nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    groups = groups_in(nodes)
-    assert [group["node_type"] for group in groups] == ["RawMatrixFile"]
-    assert len(groups[0]["members"]) == RAW_MATRIX_FILE_COUNT
-    assert len(nodes) == 2 and len(edges) == 1
+    assert [node["data"]["id"] for node in nodes] == [MFS]
+    assert edges == []
+    held = placeholder(settled(nodes, edges), "RawMatrixFile")
+    assert len(held["members"]) == RAW_MATRIX_FILE_COUNT
 
 
-def test_zero_budget_never_groups() -> None:
+def test_zero_budget_never_holds_back() -> None:
     gatherer = fake_gatherer()
     nodes, _ = expand(MFS, gatherer, draw_budget=0)
-    assert groups_in(nodes) == []
+    assert len(nodes) == RAW_MATRIX_FILE_COUNT + 1
 
 
 def test_grouping_skips_label_fetches() -> None:
@@ -87,64 +98,55 @@ def test_drawing_fetches_labels_in_one_call_per_type() -> None:
     assert [call[0] for call in gatherer.calls] == ["RawMatrixFile"]
 
 
-def test_group_placeholder_id_is_namespaced() -> None:
+def test_placeholder_label_counts_the_held_back_members() -> None:
     gatherer = fake_gatherer()
-    nodes, _ = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    assert groups_in(nodes)[0]["id"] == group_id(MFS, "RawMatrixFile")
+    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
+    held = placeholder(settled(nodes, edges), "RawMatrixFile")
+    assert held["label"] == f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT}"
 
 
-def test_group_label_reports_member_count() -> None:
-    gatherer = fake_gatherer()
-    nodes, _ = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    assert groups_in(nodes)[0]["label"] == f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT}"
-
-
-def test_a_fan_already_on_the_canvas_draws_edges_not_a_placeholder() -> None:
+def test_a_fan_already_on_the_canvas_gets_its_edges() -> None:
     """Reached again from a second parent, every member is already drawn: all
-    that is missing is the edges, and a "× 0" placeholder would link to none."""
+    that is missing is the edges."""
     everything = [raw_matrix_file(index) for index in range(RAW_MATRIX_FILE_COUNT)]
     nodes, edges = expand(
         MFS, fake_gatherer(), draw_budget=SMALL_BUDGET, on_canvas=everything
     )
-    assert groups_in(nodes) == []
     assert {edge["data"]["target"] for edge in edges} == set(everything)
+    assert placeholder(settled(nodes, edges), "RawMatrixFile")["label"] == (
+        "RawMatrixFile × 0"
+    )
 
 
-def test_a_partly_drawn_fan_links_the_drawn_members_and_groups_the_rest() -> None:
+def test_a_partly_drawn_fan_links_the_drawn_members_and_holds_the_rest() -> None:
     drawn = [raw_matrix_file(0), raw_matrix_file(1)]
     nodes, edges = expand(
         MFS, fake_gatherer(), draw_budget=SMALL_BUDGET, on_canvas=drawn
     )
-    group = groups_in(nodes)[0]
-    # still every member, so the picker shows the drawn two ticked
-    assert len(group["members"]) == RAW_MATRIX_FILE_COUNT
     assert set(drawn) <= {edge["data"]["target"] for edge in edges}
     # the drawn two come back among the nodes, so they are on this canvas too
-    elements = merge_elements([], nodes, edges)
-    placeholder = next(e for e in elements if e["data"]["id"] == group["id"])
-    assert placeholder["data"]["label"] == (
-        f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT - len(drawn)}"
-    )
+    held = placeholder(settled(nodes, edges), "RawMatrixFile")
+    # still every member, so the picker shows the drawn two ticked
+    assert len(held["members"]) == RAW_MATRIX_FILE_COUNT
+    assert held["label"] == f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT - len(drawn)}"
 
 
 def test_drawn_members_do_not_count_toward_the_budget() -> None:
     """What is left to draw fits the budget, so it is drawn rather than
-    collapsed behind a placeholder."""
+    held back."""
     drawn = [raw_matrix_file(index) for index in range(RAW_MATRIX_FILE_COUNT - 5)]
     nodes, edges = expand(
         MFS, fake_gatherer(), draw_budget=SMALL_BUDGET, on_canvas=drawn
     )
-    assert groups_in(nodes) == []
     assert len(edges) == RAW_MATRIX_FILE_COUNT
 
 
 def test_mixed_fan_groups_only_the_oversized_type() -> None:
     """A RawMatrixFile fans out to 2 SequenceFiles, 1 Tissue and 1 MatrixFileSet;
     at a budget of 3 the whole fan is over budget but only types above
-    FAN_THRESHOLD collapse, so with FAN_THRESHOLD=25 nothing groups."""
+    FAN_THRESHOLD are held back, so with FAN_THRESHOLD=25 nothing is."""
     gatherer = fake_gatherer()
     nodes, edges = expand(raw_matrix_file(0), gatherer, draw_budget=3)
-    assert groups_in(nodes) == []
     assert len(edges) == SEQUENCE_FILE_COUNT + 2
 
 
@@ -180,10 +182,10 @@ def test_seed_without_slashes_produces_no_dangling_edges() -> None:
     assert dangling_edges(merge_elements([], nodes, edges)) == []
 
 
-def test_group_parent_path_is_canonical() -> None:
+def test_placeholder_members_are_canonical() -> None:
     gatherer = fake_gatherer()
-    nodes, _ = expand(MFS.strip("/"), gatherer, draw_budget=SMALL_BUDGET)
-    assert groups_in(nodes)[0]["parent_path"] == MFS
+    nodes, edges = expand(MFS.strip("/"), gatherer, draw_budget=SMALL_BUDGET)
+    assert placeholder(settled(nodes, edges), "MatrixFileSet")["members"] == [MFS]
 
 
 def test_empty_seed_raises_before_any_request() -> None:
@@ -331,150 +333,120 @@ def test_unconfigured_type_still_yields_nodes_and_edges() -> None:
 
 
 # --------------------------------------------------------------------------
-# opening a group
+# drawing from a placeholder
 # --------------------------------------------------------------------------
-
-
-def test_explode_returns_every_member() -> None:
-    gatherer = fake_gatherer()
-    nodes, _ = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    member_nodes, member_edges = explode(groups_in(nodes)[0], gatherer)
-    assert len(member_nodes) == RAW_MATRIX_FILE_COUNT
-    assert len(member_edges) == RAW_MATRIX_FILE_COUNT
-
-
-def test_explode_edges_attach_to_the_parent() -> None:
-    gatherer = fake_gatherer()
-    nodes, _ = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    _, member_edges = explode(groups_in(nodes)[0], gatherer)
-    for edge in member_edges:
-        assert MFS in (edge["data"]["source"], edge["data"]["target"])
-
-
-def test_explode_resolves_labels() -> None:
-    gatherer = fake_gatherer()
-    nodes, _ = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    member_nodes, _ = explode(groups_in(nodes)[0], gatherer)
-    assert all("matrix_" in node["data"]["label"] for node in member_nodes)
 
 
 def test_promote_members_draws_only_the_chosen() -> None:
     gatherer = fake_gatherer()
     picked = [raw_matrix_file(3), raw_matrix_file(7)]
-    nodes, edges = promote_members(picked, MFS, gatherer)
+    nodes = promote_members(picked, gatherer)
     assert {node["data"]["id"] for node in nodes} == set(picked)
-    assert len(edges) == 2
+
+
+def test_promote_members_resolves_labels() -> None:
+    nodes = promote_members([raw_matrix_file(3)], fake_gatherer())
+    assert "matrix_" in nodes[0]["data"]["label"]
 
 
 def test_promote_members_batches_one_call_per_type() -> None:
     gatherer = fake_gatherer()
-    promote_members([raw_matrix_file(1), raw_matrix_file(2)], MFS, gatherer)
+    promote_members([raw_matrix_file(1), raw_matrix_file(2)], gatherer)
     assert len(gatherer.calls) == 1
 
 
 def test_promote_members_empty_selection_is_a_noop() -> None:
     gatherer = fake_gatherer()
-    nodes, edges = promote_members([], MFS, gatherer)
-    assert (nodes, edges) == ([], [])
+    assert promote_members([], gatherer) == []
     assert gatherer.calls == []
-
-
-# --------------------------------------------------------------------------
-# the group picker's tick state
-# --------------------------------------------------------------------------
 
 
 def _element_ids(elements: list[dict]) -> set[str]:
     return {element["data"]["id"] for element in elements}
 
 
-def test_picker_starts_with_nothing_ticked() -> None:
-    """A freshly collapsed group has none of its members on the canvas."""
+def _held_back() -> tuple[list[dict], dict]:
+    """MFS expanded under a small budget: every RawMatrixFile held back"""
     gatherer = fake_gatherer()
     nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    collapsed = merge_elements([], nodes, edges)
-    assert already_drawn(collapsed, groups_in(nodes)[0]["members"]) == []
+    elements = settled(nodes, edges)
+    return elements, placeholder(elements, "RawMatrixFile")
+
+
+def _pick(elements: list[dict], paths: list[str]) -> list[dict]:
+    """What the picker does with newly ticked members"""
+    return settle(merge_elements(elements, promote_members(paths, fake_gatherer()), []))
+
+
+def _untick(elements: list[dict], paths: list[str]) -> list[dict]:
+    return settle(drop_nodes(elements, paths))
+
+
+def test_picker_starts_with_nothing_ticked() -> None:
+    elements, held = _held_back()
+    assert already_drawn(elements, held["members"]) == []
 
 
 def test_ticking_members_shows_them_as_drawn() -> None:
-    gatherer = fake_gatherer()
-    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    elements = merge_elements([], nodes, edges)
-    group = groups_in(nodes)[0]
-    members = group["members"]
-
-    picked = [members[3], members[7]]
-    drawn_nodes, drawn_edges = promote_members(picked, group["parent_path"], gatherer)
-    elements = merge_elements(elements, drawn_nodes, drawn_edges)
-
-    assert already_drawn(elements, members) == picked
+    elements, held = _held_back()
+    picked = [held["members"][3], held["members"][7]]
+    elements = _pick(elements, picked)
+    assert already_drawn(elements, held["members"]) == picked
 
 
-def test_unticking_every_member_restores_the_collapsed_graph() -> None:
+def test_a_picked_member_is_linked_to_what_references_it() -> None:
+    """A placeholder has no parent to hang an edge off; the expanded node that
+    listed the member is where it belongs."""
+    elements, held = _held_back()
+    elements = _pick(elements, [held["members"][3]])
+    assert edges_of(elements) == [edge_element(MFS, held["members"][3])]
+
+
+def test_a_placeholder_has_no_edges() -> None:
+    elements, held = _held_back()
+    elements = _pick(elements, held["members"][:2])
+    touching = [
+        edge
+        for edge in edges_of(elements)
+        if held["id"] in (edge["data"]["source"], edge["data"]["target"])
+    ]
+    assert touching == []
+
+
+def test_unticking_every_member_restores_the_held_back_graph() -> None:
     """The picker applies the difference between its selection and the canvas,
     so tick-then-untick has to land back exactly where it started."""
-    gatherer = fake_gatherer()
-    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    collapsed = merge_elements([], nodes, edges)
-    group = groups_in(nodes)[0]
-    members = group["members"]
+    before, held = _held_back()
+    elements = _pick(before, [held["members"][3], held["members"][7]])
+    assert _element_ids(elements) > _element_ids(before)
 
-    picked = [members[3], members[7]]
-    drawn_nodes, drawn_edges = promote_members(picked, group["parent_path"], gatherer)
-    elements = merge_elements(collapsed, drawn_nodes, drawn_edges)
-    assert _element_ids(elements) > _element_ids(collapsed)
-
-    # unticking both: the difference to apply is every drawn member
-    elements = drop_nodes(elements, already_drawn(elements, members))
-    assert _element_ids(elements) == _element_ids(collapsed)
+    elements = _untick(elements, already_drawn(elements, held["members"]))
+    assert _element_ids(elements) == _element_ids(before)
     assert dangling_edges(elements) == []
 
 
 def test_unticking_one_of_two_leaves_the_other_drawn() -> None:
-    gatherer = fake_gatherer()
-    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    elements = merge_elements([], nodes, edges)
-    group = groups_in(nodes)[0]
-    members = group["members"]
-
-    kept, dropped = members[3], members[7]
-    drawn_nodes, drawn_edges = promote_members(
-        [kept, dropped], group["parent_path"], gatherer
-    )
-    elements = merge_elements(elements, drawn_nodes, drawn_edges)
-
-    elements = drop_nodes(elements, [dropped])
-    assert already_drawn(elements, members) == [kept]
+    elements, held = _held_back()
+    kept, dropped = held["members"][3], held["members"][7]
+    elements = _untick(_pick(elements, [kept, dropped]), [dropped])
+    assert already_drawn(elements, held["members"]) == [kept]
     assert dangling_edges(elements) == []
 
 
-def test_group_placeholder_survives_unticking_its_members() -> None:
+def test_placeholder_survives_unticking_its_members() -> None:
     """The placeholder is not one of its own members, so pruning the fan back to
     nothing must leave it clickable rather than delete it."""
-    gatherer = fake_gatherer()
-    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    elements = merge_elements([], nodes, edges)
-    group = groups_in(nodes)[0]
-
-    drawn_nodes, drawn_edges = promote_members(
-        [group["members"][0]], group["parent_path"], gatherer
-    )
-    elements = merge_elements(elements, drawn_nodes, drawn_edges)
-    elements = drop_nodes(elements, [group["members"][0]])
-
-    assert group["id"] in _element_ids(elements)
+    elements, held = _held_back()
+    elements = _untick(_pick(elements, [held["members"][0]]), [held["members"][0]])
+    assert held["id"] in _element_ids(elements)
 
 
-def test_fanned_out_group_reports_every_member_drawn() -> None:
-    """Fan out all N ticks every box, so the picker can prune the fan back."""
-    gatherer = fake_gatherer()
-    nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
-    elements = merge_elements([], nodes, edges)
-    group = groups_in(nodes)[0]
-
-    member_nodes, member_edges = explode(group, gatherer)
-    elements = merge_elements(elements, member_nodes, member_edges)
-    assert already_drawn(elements, group["members"]) == group["members"]
+def test_drawing_every_member_keeps_the_placeholder_at_zero() -> None:
+    """It is the type's, not the fan's: it stays so the picker can prune back."""
+    elements, held = _held_back()
+    elements = _pick(elements, held["members"])
+    assert already_drawn(elements, held["members"]) == held["members"]
+    assert placeholder(elements, "RawMatrixFile")["label"] == "RawMatrixFile × 0"
 
 
 def test_fetch_labels_skips_already_cached() -> None:

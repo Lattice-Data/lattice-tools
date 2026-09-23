@@ -20,18 +20,22 @@ from graph_db2.cyto_elements import (
     drop_nodes,
     edge_element,
     fan_summary,
-    group_element,
     label_for,
     member_options,
     merge_elements,
     node_element,
     not_yet_drawn,
     place_expansion,
+    place_placeholders,
+    placeholder_element,
+    placeholder_id,
     position_of,
     properties_of,
     ring_offsets,
     seed_positions,
+    settle,
 )
+from graph_db2 import cyto_elements
 from graph_db2.models import LatticeNode
 
 from tests.graph_db2_helpers import (  # noqa: F401  (fixtures + autouse reset)
@@ -84,7 +88,7 @@ def test_label_for_does_not_fetch_uncached_nodes() -> None:
 
 
 # --------------------------------------------------------------------------
-# node_element / group_element
+# node_element / placeholder_element
 # --------------------------------------------------------------------------
 
 
@@ -98,65 +102,157 @@ def test_node_element_shape() -> None:
     assert data["color"].startswith("#")
 
 
-def test_group_element_shape() -> None:
+def test_placeholder_element_shape() -> None:
     members = [raw_matrix_file(index) for index in range(4)]
-    data = group_element(MFS, "RawMatrixFile", members, "db2_test")["data"]
+    data = placeholder_element("RawMatrixFile", members, 3)["data"]
+    assert data["id"] == placeholder_id("RawMatrixFile")
     assert data["is_group"] is True
-    assert data["parent_path"] == MFS
     assert data["members"] == members
-    assert data["label"] == "RawMatrixFile × 4"
+    assert data["label"] == "RawMatrixFile × 3"
     assert data["expanded"] is False
 
 
-def _label_of(elements: list[dict], node_id: str) -> str:
-    return next(e["data"]["label"] for e in elements if e["data"]["id"] == node_id)
+# --------------------------------------------------------------------------
+# settle: placeholders and known edges
+# --------------------------------------------------------------------------
 
 
-def test_group_label_counts_down_as_members_are_drawn() -> None:
-    members = [raw_matrix_file(index) for index in range(4)]
-    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
-    elements = merge_elements([], [group], [])
-    elements = merge_elements(elements, [_node(members[0]), _node(members[2])], [])
-    assert _label_of(elements, group["data"]["id"]) == "RawMatrixFile × 2"
+def _fetched(path: str, neighbors: list[str]) -> None:
+    """Register a full profile for `path`, as expand() would leave it"""
+    LatticeNode(path).object_json = {"@id": path, "links": neighbors}
+    cyto_elements._fully_fetched.add(path)
 
 
-def test_group_label_counts_back_up_as_members_come_off() -> None:
-    members = [raw_matrix_file(index) for index in range(4)]
-    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
-    elements = merge_elements([], [group, _node(members[0]), _node(members[1])], [])
-    elements = merge_elements(drop_nodes(elements, [members[0]]), [], [])
-    assert _label_of(elements, group["data"]["id"]) == "RawMatrixFile × 3"
+def _expanded(path: str) -> dict:
+    return node_element(LatticeNode(path), expanded=True)
 
 
-def test_a_member_drawn_elsewhere_counts_against_every_group_holding_it() -> None:
-    """Two parents can each collapse the same fan; the canvas, not the group
-    it was picked from, is what says a member is drawn."""
-    members = [raw_matrix_file(index) for index in range(4)]
-    one = group_element(MFS, "RawMatrixFile", members, "db2_test")
-    other = group_element(TISSUE, "RawMatrixFile", members, "db2_test")
-    elements = merge_elements([], [one, other, _node(members[3])], [])
-    assert _label_of(elements, one["data"]["id"]) == "RawMatrixFile × 3"
-    assert _label_of(elements, other["data"]["id"]) == "RawMatrixFile × 3"
+def _placeholder(elements: list[dict], api_name: str) -> dict:
+    return next(
+        element
+        for element in elements
+        if element["data"]["id"] == placeholder_id(api_name)
+    )
 
 
-def test_re_emitting_a_group_keeps_its_count_down() -> None:
-    """Expanding its parent again rebuilds the placeholder at the full count."""
-    members = [raw_matrix_file(index) for index in range(4)]
-    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
-    elements = merge_elements([], [group, _node(members[0])], [])
-    elements = merge_elements(elements, [group], [])
-    assert _label_of(elements, group["data"]["id"]) == "RawMatrixFile × 3"
+def _members() -> list[str]:
+    return [raw_matrix_file(index) for index in range(4)]
 
 
-def test_recounting_a_group_keeps_its_position() -> None:
-    members = [raw_matrix_file(index) for index in range(4)]
-    group = {
-        **group_element(MFS, "RawMatrixFile", members, "db2_test"),
-        "position": {"x": 5, "y": 7},
+def test_every_type_on_the_canvas_gets_a_placeholder() -> None:
+    """Not just the ones with something held back - it is also where a drawn
+    node is found and cleared."""
+    elements = settle([_node(A), _node(B)])
+    assert _placeholder(elements, "Tissue")["data"]["label"] == "Tissue × 0"
+    assert _placeholder(elements, "RawMatrixFile")["data"]["members"] == [B]
+
+
+def test_an_expanded_node_s_references_are_members() -> None:
+    _fetched(MFS, _members())
+    held = _placeholder(settle([_expanded(MFS)]), "RawMatrixFile")["data"]
+    assert held["members"] == _members()
+    assert held["label"] == "RawMatrixFile × 4"
+
+
+def test_an_unexpanded_node_s_references_are_not() -> None:
+    """Its profile may be a batch report's partial one, so its neighbor list
+    cannot be trusted - and reading it must not cost a request."""
+    _fetched(MFS, _members())
+    elements = settle([_node(MFS)])
+    assert placeholder_id("RawMatrixFile") not in {e["data"]["id"] for e in elements}
+
+
+def test_placeholder_counts_down_as_members_are_drawn() -> None:
+    _fetched(MFS, _members())
+    elements = settle(
+        merge_elements([_expanded(MFS)], [_node(p) for p in _members()[:2]], [])
+    )
+    assert _placeholder(elements, "RawMatrixFile")["data"]["label"] == (
+        "RawMatrixFile × 2"
+    )
+
+
+def test_placeholder_counts_back_up_as_members_come_off() -> None:
+    _fetched(MFS, _members())
+    elements = settle(
+        merge_elements([_expanded(MFS)], [_node(p) for p in _members()[:2]], [])
+    )
+    elements = settle(drop_nodes(elements, [_members()[0]]))
+    assert _placeholder(elements, "RawMatrixFile")["data"]["label"] == (
+        "RawMatrixFile × 3"
+    )
+
+
+def test_two_parents_referencing_the_same_fan_share_one_placeholder() -> None:
+    _fetched(MFS, _members())
+    _fetched(TISSUE, _members())
+    elements = settle([_expanded(MFS), _expanded(TISSUE)])
+    placeholders = [e for e in elements if e["data"].get("is_group")]
+    assert (
+        len([p for p in placeholders if p["data"]["node_type"] == "RawMatrixFile"]) == 1
+    )
+    assert _placeholder(elements, "RawMatrixFile")["data"]["members"] == _members()
+
+
+def test_a_drawn_member_is_linked_to_every_expanded_node_that_references_it() -> None:
+    _fetched(MFS, _members())
+    _fetched(TISSUE, _members())
+    elements = settle([_expanded(MFS), _expanded(TISSUE), _node(_members()[0])])
+    assert {edge["data"]["id"] for edge in elements if "source" in edge["data"]} == {
+        edge_element(MFS, _members()[0])["data"]["id"],
+        edge_element(TISSUE, _members()[0])["data"]["id"],
     }
-    elements = merge_elements([group], [_node(members[0])], [])
-    placed = next(e for e in elements if e["data"]["id"] == group["data"]["id"])
-    assert placed["position"] == {"x": 5, "y": 7}
+
+
+def test_settling_twice_changes_nothing() -> None:
+    _fetched(MFS, _members())
+    once = settle(merge_elements([_expanded(MFS)], [_node(_members()[0])], []))
+    assert settle(once) == once
+
+
+def test_a_placeholder_keeps_its_position() -> None:
+    elements = settle([_node(B)])
+    moved = [
+        {**element, "position": {"x": 5, "y": 7}}
+        if element["data"].get("is_group")
+        else element
+        for element in elements
+    ]
+    assert _placeholder(settle(moved), "RawMatrixFile")["position"] == {"x": 5, "y": 7}
+
+
+def test_a_new_placeholder_goes_above_the_top_of_its_column() -> None:
+    """Only matters while the layout is held, when nothing else will place it."""
+    nodes = [
+        {**_node(B), "position": {"x": 300, "y": -40}},
+        {**_node(raw_matrix_file(1)), "position": {"x": 300, "y": 60}},
+    ]
+    held = placeholder_element("RawMatrixFile", [B], 0)
+    (placed,) = place_placeholders([held], nodes)
+    assert placed["position"] == {"x": 300, "y": -40 - ROW_PITCH}
+
+
+def test_placeholders_sharing_a_column_stack_rather_than_overlap() -> None:
+    nodes = [{**_node(A), "position": {"x": 0, "y": 0}}]
+    first = {
+        **placeholder_element("Tissue", [A], 0),
+        "position": {"x": 0, "y": -ROW_PITCH},
+    }
+    second = placeholder_element("CellLine", ["/cell_lines/x/"], 1)
+    placed = place_placeholders([first, second], nodes)
+    assert placed[1]["position"] == {"x": 0, "y": -2 * ROW_PITCH}
+
+
+def test_a_placeholder_with_no_column_yet_starts_one_on_the_right() -> None:
+    nodes = [{**_node(A), "position": {"x": 0, "y": 0}}]
+    held = placeholder_element("RawMatrixFile", [B], 1)
+    (placed,) = place_placeholders([held], nodes)
+    assert placed["position"]["x"] == COLUMN_GAP
+
+
+def test_nothing_to_place_against_leaves_placeholders_to_the_layout() -> None:
+    held = placeholder_element("RawMatrixFile", [B], 1)
+    assert place_placeholders([held], [_node(A)]) == [held]
 
 
 # --------------------------------------------------------------------------
@@ -417,13 +513,38 @@ def test_one_node_in_a_column_sits_on_the_centre_line() -> None:
     assert column_positions([_typed(A, "Tissue")])[A]["y"] == 0
 
 
-def test_a_group_placeholder_sits_in_its_type_s_column() -> None:
-    """The placeholder stands in for its members, so it belongs where they
-    would have gone."""
-    members = [raw_matrix_file(index) for index in range(30)]
-    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
-    positions = column_positions([group, _typed(MFS, "MatrixFileSet")])
-    assert positions[group["data"]["id"]]["x"] < positions[MFS]["x"]
+def test_a_placeholder_sits_at_the_top_of_its_type_s_column() -> None:
+    files = [_typed(raw_matrix_file(index), "RawMatrixFile") for index in range(3)]
+    held = placeholder_element("RawMatrixFile", [raw_matrix_file(0)], 0)
+    positions = column_positions([held, *files])
+    column = [positions[f["data"]["id"]] for f in files]
+    assert positions[held["data"]["id"]]["x"] == column[0]["x"]
+    assert positions[held["data"]["id"]]["y"] == min(p["y"] for p in column) - ROW_PITCH
+
+
+def test_placeholders_do_not_move_the_rows() -> None:
+    files = [_typed(raw_matrix_file(index), "RawMatrixFile") for index in range(3)]
+    held = placeholder_element("RawMatrixFile", [raw_matrix_file(0)], 0)
+    with_it = column_positions([held, *files])
+    without = column_positions(files)
+    assert {key: with_it[key] for key in without} == without
+
+
+def test_a_type_with_nothing_drawn_is_a_column_of_its_placeholder() -> None:
+    held = placeholder_element("RawMatrixFile", [raw_matrix_file(0)], 1)
+    positions = column_positions([held, _typed(MFS, "MatrixFileSet")])
+    assert positions[held["data"]["id"]]["x"] < positions[MFS]["x"]
+
+
+def test_placeholders_sharing_a_column_stack_in_type_order() -> None:
+    tissue = placeholder_element("Tissue", [A], 0)
+    cell_line = placeholder_element("CellLine", ["/cell_lines/x/"], 1)
+    positions = column_positions([tissue, cell_line, _typed(A, "Tissue")])
+    # CellLine sorts first, so it is the higher of the two
+    assert (
+        positions[cell_line["data"]["id"]]["y"] < positions[tissue["data"]["id"]]["y"]
+    )
+    assert positions[tissue["data"]["id"]]["y"] == positions[A]["y"] - ROW_PITCH
 
 
 def test_rows_do_not_cross_the_edges_to_the_next_column() -> None:
@@ -592,23 +713,17 @@ def test_fan_summary_counts_drawn_neighbors() -> None:
     assert fan_summary([_node(MFS), _node(A), _node(B)]) == "2 drawn"
 
 
-def test_fan_summary_counts_group_members_not_placeholders() -> None:
-    """'1 neighbor' for a collapsed fan of 64 reads as a failure - the whole
+def test_fan_summary_counts_what_was_held_back() -> None:
+    """'no neighbors' for a held-back fan of 64 reads as a failure - the whole
     reason this function exists."""
-    members = [raw_matrix_file(index) for index in range(64)]
-    nodes = [_node(MFS), group_element(MFS, "RawMatrixFile", members, "db2_test")]
-    assert fan_summary(nodes) == "64 RawMatrixFile grouped"
+    _fetched(MFS, [raw_matrix_file(index) for index in range(64)])
+    assert fan_summary([_node(MFS)]) == "64 RawMatrixFile in its placeholder"
 
 
 def test_fan_summary_reports_both_halves() -> None:
-    members = [sequence_file(index) for index in range(30)]
-    nodes = [
-        _node(MFS),
-        _node(A),
-        _node(B),
-        group_element(MFS, "SequenceFile", members, "db2_test"),
-    ]
-    assert fan_summary(nodes) == "2 drawn, 30 SequenceFile grouped"
+    _fetched(MFS, [A, B, *(sequence_file(index) for index in range(30))])
+    nodes = [_node(MFS), _node(A), _node(B)]
+    assert fan_summary(nodes) == "2 drawn, 30 SequenceFile in its placeholder"
 
 
 def test_fan_summary_for_a_leaf() -> None:

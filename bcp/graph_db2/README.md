@@ -169,19 +169,28 @@ default one.
 - **Node colours** come from the `NodeColor` enum in `models.py`, keyed by the
   abstract class (so `Tissue`, `CellLine`, and `Organoid` all read as
   `Biosample`). Unmapped types fall back to grey.
-- **Wide fans collapse.** A fan larger than the "draw up to N neighbors"
-  budget (default `DRAW_BUDGET = 25`) puts each oversized type behind one
-  placeholder like `RawMatrixFile × 512`. Clicking a placeholder opens a
-  searchable multi-select in the side panel — tick as many members as you want
-  and only those land on the canvas. "Fan out all N" draws the lot. The count
-  on the placeholder is what is still behind it: draw 2 of 48 libraries and it
-  reads `DropletBasedLibrary × 46`. A member drawn by any route counts, so two parents
-  collapsing the same fan count down together. Members already on the canvas
-  never count toward the budget and are always linked directly, so expanding a
-  node whose fan is already drawn just adds its edges, with no placeholder.
+- **Wide fans are held back.** A fan larger than the "draw up to N
+  neighbors" budget (default `DRAW_BUDGET = 25`) leaves each type with more
+  than `FAN_THRESHOLD` members off the canvas. Neighbors already drawn never
+  count toward either limit and always get their edge, so expanding a node
+  whose fan is already on screen just links it.
 
   This is not cosmetic: a 512-wide fan lays out roughly 23,000px tall and is
   unreadable at any zoom, and drawing it costs 512 label fetches.
+- **One placeholder per type**, like `DropletBasedLibrary × 46`, sits
+  unconnected at the top of that type's column in `columns by type`. It lists
+  every node of the type the canvas knows of: the ones drawn, and the ones any
+  expanded node references. The count is how many of those are not drawn.
+  Clicking it opens a searchable multi-select in the side panel; "Fan out all
+  N" draws every member. Every type on the canvas gets one, whether or not
+  anything is held back, so it is also where a drawn node is found and
+  cleared. A type with nothing drawn yet gets a column of its placeholder
+  alone.
+
+  Membership comes from the whole canvas, not from one click: when four
+  CellLines reference the same 48 libraries there is one `DropletBasedLibrary`
+  placeholder, and a library drawn from it is linked to every expanded node
+  that references it.
 
   **The ticks are the canvas.** A member that is drawn shows as ticked, and
   unticking it takes it back off — so the same picker prunes a fan as well as
@@ -228,14 +237,15 @@ default one.
   but a node you drag snaps back on the next draw. Tick `Hold Layout` if you
   want your own arrangement to stick.
 - **"Show types"** at the bottom of the panel toggles whole node types.
-- The status line reports real counts — `64 drawn`, `512 RawMatrixFile
-  grouped` — and turns red on failure, since an empty canvas otherwise looks
-  identical to a silent 404.
+- The status line reports real counts — `64 drawn`, `512 RawMatrixFile in its
+  placeholder` — and turns red on failure, since an empty canvas otherwise
+  looks identical to a silent 404. Placeholders are not counted as nodes.
 
 ### Cost per click
 
 One authenticated GET for the clicked object, plus one batched report per
-neighbor type actually drawn. Grouped types cost nothing until you open them,
+neighbor type actually drawn. Held-back types cost nothing until you open their
+placeholder,
 because an object's type is readable from its path without fetching it.
 
 Objects referenced by types in `EXCLUDED_SCHEMAS` (`labs`, `users`, `terms`,
@@ -298,7 +308,7 @@ between unrelated graphs.
 |------|------|
 | `cli.py` / `__main__.py` | Argument parsing and entry point for `python -m graph_db2`. |
 | `explorer.py` | Dash app: layout, stylesheet, callbacks, layout heuristic. |
-| `cyto_elements.py` | Graph logic with no Dash dependency — path normalization, one-hop expansion, grouping, element construction. |
+| `cyto_elements.py` | Graph logic with no Dash dependency — path normalization, one-hop expansion, placeholders, element construction. |
 | `models.py` | `LatticeNode` (lazy, API-backed, class-level cache), `NodeColor`, batch-request helpers. |
 | `graphing.py` | Whole-graph walk and pyvis element construction. |
 | `connection.py` | Cached `Connection` per mode. |
@@ -306,7 +316,7 @@ between unrelated graphs.
 | `constants.py` | Defaults, `EXCLUDED_SCHEMAS`, `ABSTRACT_MAPPING`. |
 | `graphing_playground.ipynb` | Scratch notebook for the pyvis path. |
 
-`cyto_elements.py` holds no Dash imports on purpose, so expansion and grouping
+`cyto_elements.py` holds no Dash imports on purpose, so expansion and placeholders
 can be driven from a notebook or a test without starting a server.
 
 ---
@@ -323,8 +333,12 @@ can be driven from a notebook or a test without starting a server.
   keyed by mode. One Dash worker, one mode per process. Adding an in-app mode
   switcher would need a mode dimension on both, or prod and demo objects with
   colliding paths will cross-contaminate.
-- **Re-expanding a node whose group you already fanned out** re-creates the
-  placeholder.
+- **Placeholders only show in `columns by type`.** Every other layout hides
+  them, since only this one has a top of a column to put them at. So in dagre
+  or concentric, a held-back fan cannot be reached until you switch back.
+- **A placeholder's panel is a snapshot.** Its member list is read when you
+  click it, so a node discovered while the panel is open shows up in the
+  picker after you click the placeholder again.
 - **An expansion places new nodes, it does not lay them out.** They ring the
   node you expanded without consulting the rest of the canvas, so they can
   land on top of something already drawn. Under `Hold Layout` that is where
@@ -338,7 +352,7 @@ can be driven from a notebook or a test without starting a server.
 - **Unticking a member removes it even if another expansion drew it too.** The
   picker's ticks mean "on the canvas", and a node is on the canvas once
   regardless of how many paths led to it. Unticking it also removes the edges
-  those other expansions contributed; re-expanding the neighbor puts them back.
+  those other expansions contributed; ticking it again puts them all back.
 - **Full URLs are not accepted** as a seed — a path, alias or uuid, not
   `https://api.data.lattice-data.org/matrix_file_sets/<uuid>/`.
 - **A seed costs one extra request the first time.** Resolving it is a GET, and
