@@ -197,9 +197,9 @@ default one.
   order, left to right:
 
   ```
-  Donor → Biosample → GeneticModification/Treatment/ExperimentalCondition →
-  Library → SequenceFile → SequenceFileSet →
-  RawMatrixFile/ProcessedMatrixFile/TabularFile → MatrixFileSet
+  Donor → GeneticModification/Treatment/ExperimentalCondition/TabularFile → 
+  Biosample → Library → SequenceFileSet → SequenceFile →
+  RawMatrixFile/ProcessedMatrixFile → MatrixFileSet
   ```
 
   A column is a *legend bucket*, not an `api_name`, so `Tissue`, `CellLine`
