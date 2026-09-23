@@ -61,11 +61,19 @@ ORDERING_SWEEPS = 2
 COLUMN_TYPES = (
     ("Donor",),
     ("Biosample",),
-    ("GeneticModification", "Treatment", "ExperimentalCondition"),
+    (
+        "GeneticModification",
+        "Treatment",
+        "ExperimentalCondition",
+        "TabularFile",
+    ),
     ("Library",),
     ("SequenceFileSet",),
     ("SequenceFile",),
-    ("RawMatrixFile", "ProcessedMatrixFile", "TabularFile"),
+    (
+        "RawMatrixFile",
+        "ProcessedMatrixFile",
+    ),
     ("MatrixFileSet",),
 )
 _COLUMN_OF = {name: index for index, names in enumerate(COLUMN_TYPES) for name in names}

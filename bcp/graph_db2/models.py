@@ -28,9 +28,9 @@ class NodeColor(Enum):
     RawMatrixFile = "#d9ead3ff"
     ProcessedMatrixFile = "#fce5cdff"
     TabularFile = "#cdf6fcff"
-    ExperimentalCondition = "#fcf2cdff"
-    GeneticModification = "#d1cdfcff"
-    Treatment = "#cde0fcff"
+    ExperimentalCondition = "#fcd2cdff"
+    GeneticModification = "#cdfcceff"
+    Treatment = "#f7cdfcff"
 
     @classmethod
     def _missing_(cls, name):
