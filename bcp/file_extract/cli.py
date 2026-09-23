@@ -265,8 +265,11 @@ def _run_h5(args: argparse.Namespace) -> int:
     if do_introspect:
         check_introspection_deps()
 
+    lab = LabIdentity.parse(args.lab)
+
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
+    print(f"Lab: {lab.name}")
     print(f"Target filename: {args.target_filename}")
     print(
         f"Introspect: {do_introspect} | genome: {args.genome} | metrics: {args.metrics}"
@@ -279,6 +282,7 @@ def _run_h5(args: argparse.Namespace) -> int:
         location.bucket,
         location.prefix,
         output,
+        lab=lab.name,
         target_filename=args.target_filename,
         do_introspect=do_introspect,
         do_genome=args.genome,
@@ -298,6 +302,7 @@ def _run_h5(args: argparse.Namespace) -> int:
         print(f" | introspect OK: {summary.enrichment_ok}", end="")
     print(f"\nOutput: {output}")
 
+    _print_warnings(summary.warnings)
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
         return 1
@@ -497,10 +502,26 @@ def build_parser() -> argparse.ArgumentParser:
     h5 = subparsers.add_parser(
         "h5",
         help="Extract Cell Ranger h5 matrix metadata.",
+        description=(
+            "List Cell Ranger h5 matrices and write a TSV.\n"
+            "sample is the directory immediately under per_sample_outs/.\n"
+            "derived_from is a JSON list of {lab}:{fastq_filename} aliases\n"
+            "for the selected FASTQs in the sibling raw/ of each h5's\n"
+            "processed/ parent. Every h5 under one library directory shares\n"
+            "that list."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
     )
     h5.add_argument("s3_uri", help="s3://bucket/.../outs/per_sample_outs")
+    h5.add_argument(
+        "--lab",
+        required=True,
+        help=(
+            "Lab name, or /labs/<lab>/ path. Prefixes FASTQ aliases in "
+            "derived_from as <lab>:<filename>"
+        ),
+    )
     h5.add_argument(
         "-o",
         "--output",

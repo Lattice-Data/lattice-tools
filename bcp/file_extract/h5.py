@@ -4,7 +4,7 @@ import csv
 import io
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Sequence
 
 from tqdm import tqdm
 
@@ -16,6 +16,7 @@ from .constants import (
     H5_INTROSPECT_COLUMNS,
     H5_METRICS_COLUMNS,
 )
+from .fastq import is_target_file
 from .h5_introspect import introspect_h5
 from .models import RunSummary
 from .retry import retry_with_backoff
@@ -25,16 +26,19 @@ from .s3_utils import (
     list_objects_with_size,
     s3_uri_for,
 )
+from .sheets import LabIdentity
 from .tsv_writer import TsvWriter
 
 
-def extract_sample_name(key: str, per_sample_outs_prefix: str) -> str:
-    """First path segment after the prefix (prefix-relative)."""
-    base = per_sample_outs_prefix.rstrip("/") + "/"
-    if not key.startswith(base):
+def extract_sample_name(key: str) -> str:
+    """Directory immediately under ``per_sample_outs/``, or empty."""
+    _head, marker, tail = key.partition("per_sample_outs/")
+    if not marker:
         return ""
-    remainder = key[len(base) :]
-    return remainder.split("/", 1)[0] if "/" in remainder else ""
+    sample, slash, _rest = tail.partition("/")
+    if not slash or not sample:
+        return ""
+    return sample
 
 
 def extract_library(key: str) -> str:
@@ -185,6 +189,78 @@ def process_one_h5(
     return result
 
 
+def raw_prefix_for_h5(key: str) -> str | None:
+    """Sibling ``raw/`` of the first ``processed/`` segment, or None.
+
+    ``proj/order/LIB/processed/.../matrix.h5`` maps to ``proj/order/LIB/raw/``.
+    The full parent path is the grouping key, so two folders that share a
+    basename stay separate.
+    """
+    parts = key.split("/")
+    try:
+        idx = parts.index("processed")
+    except ValueError:
+        return None
+    parent = "/".join(parts[:idx])
+    return f"{parent}/raw/" if parent else "raw/"
+
+
+def fastq_aliases_for_raw_prefix(
+    s3_client: Any,
+    bucket: str,
+    raw_prefix: str,
+    namespace: str,
+) -> list[str]:
+    """Sorted unique ``{lab}:{filename}`` aliases of selected FASTQs."""
+    objects = list_objects_with_size(
+        s3_client,
+        bucket,
+        raw_prefix,
+        predicate=lambda key: is_target_file(key, require_raw=True),
+    )
+    return sorted({f"{namespace}:{obj.key.rsplit('/', 1)[-1]}" for obj in objects})
+
+
+def missing_processed_warning(key: str) -> str:
+    return f"derived_from is empty for {key!r}; key has no processed/ segment"
+
+
+def empty_raw_fastq_warning(raw_prefix: str) -> str:
+    return (
+        f"derived_from is empty for h5 files paired with {raw_prefix!r}; "
+        "no selected FASTQs in that directory"
+    )
+
+
+def derived_from_cells(
+    s3_client: Any,
+    bucket: str,
+    keys: Sequence[str],
+    namespace: str,
+    summary: RunSummary,
+) -> dict[str, str]:
+    """JSON alias lists for each h5 key, listing each sibling raw/ once."""
+    aliases_by_raw: dict[str, list[str]] = {}
+    warned_raw: set[str] = set()
+    cells: dict[str, str] = {}
+    for key in keys:
+        raw_prefix = raw_prefix_for_h5(key)
+        if raw_prefix is None:
+            summary.warnings.append(missing_processed_warning(key))
+            cells[key] = json.dumps([])
+            continue
+        if raw_prefix not in aliases_by_raw:
+            aliases_by_raw[raw_prefix] = fastq_aliases_for_raw_prefix(
+                s3_client, bucket, raw_prefix, namespace
+            )
+        aliases = aliases_by_raw[raw_prefix]
+        if not aliases and raw_prefix not in warned_raw:
+            warned_raw.add(raw_prefix)
+            summary.warnings.append(empty_raw_fastq_warning(raw_prefix))
+        cells[key] = json.dumps(aliases)
+    return cells
+
+
 def h5_columns(
     *,
     do_introspect: bool,
@@ -220,6 +296,7 @@ def extract_h5(
     prefix: str,
     output_path: str,
     *,
+    lab: str,
     target_filename: str = DEFAULT_H5_TARGET_FILENAME,
     do_introspect: bool = True,
     do_genome: bool = False,
@@ -239,6 +316,14 @@ def extract_h5(
     if not targets:
         return summary
 
+    namespace = LabIdentity.parse(lab).name
+    derived = derived_from_cells(
+        s3_client,
+        bucket,
+        [obj.key for obj in targets],
+        namespace,
+        summary,
+    )
     columns = h5_columns(
         do_introspect=do_introspect,
         do_genome=do_genome,
@@ -272,10 +357,11 @@ def extract_h5(
             r = fut.result()
             row: list[object] = [
                 extract_library(key),
-                extract_sample_name(key, prefix),
+                extract_sample_name(key),
                 s3_uri_for(bucket, key),
                 size_by_key[key],
                 r["crc"] if r["crc"] is not None else "",
+                derived[key],
             ]
             if do_introspect:
                 row.extend(

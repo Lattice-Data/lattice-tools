@@ -183,11 +183,14 @@ def test_cli_h5_checksum_only(
             f"s3://{BUCKET}/{H5_PREFIX}",
             "-o",
             str(out),
+            "--lab",
+            "/labs/example-lab/",
             "--no-introspect",
             "--quiet",
         ]
     )
     assert code == 0
+    assert mock_extract.call_args.kwargs["lab"] == "example-lab"
 
 
 @patch("file_extract.cli.extract_fastq")
