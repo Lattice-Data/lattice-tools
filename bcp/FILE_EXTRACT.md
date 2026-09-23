@@ -150,7 +150,7 @@ python -m file_extract h5 s3://.../per_sample_outs --lab example-lab --genome --
 | `--no-introspect` | Checksums and listing only |
 | `--genome` | Add `gene_counts_by_genome` JSON column |
 | `--metrics` | Cross-check against sibling `metrics_summary.csv` |
-| `--workers` | Thread count (default: 16 with introspection, 64 without) |
+| `--workers` | Thread count (default: 8 with introspection, 64 without). The S3 connection pool is sized to this count |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
 | `--strict` | Exit 1 if any per-file enrichment fails |
 | `-v`, `--verbose` | Debug logging |

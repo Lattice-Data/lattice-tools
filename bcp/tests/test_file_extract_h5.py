@@ -15,6 +15,7 @@ from file_extract.h5 import (
     extract_library,
     extract_sample_name,
     h5_columns,
+    h5_worker_ceiling,
     map_feature_counts,
     missing_processed_warning,
     parse_metrics_cells_from_text,
@@ -69,6 +70,12 @@ def test_default_h5_output_name() -> None:
     )
     assert default_h5_output_name("proj/AN00000001") == "AN00000001_h5_info.tsv"
     assert default_h5_output_name("") == "output_h5_info.tsv"
+
+
+def test_h5_worker_ceiling() -> None:
+    assert h5_worker_ceiling(do_introspect=True) == 8
+    assert h5_worker_ceiling(do_introspect=False) == 64
+    assert h5_worker_ceiling(do_introspect=True, workers=3) == 3
 
 
 def test_h5_columns_variants() -> None:

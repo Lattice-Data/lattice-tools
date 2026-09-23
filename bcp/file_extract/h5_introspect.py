@@ -17,17 +17,24 @@ def check_introspection_deps() -> None:
 
 
 def introspect_h5(
-    bucket: str, key: str
+    bucket: str, key: str, *, pool_size: int
 ) -> tuple[int, dict[str, int], dict[str, int] | None]:
     """
     Open the matrix h5 over S3 and return (observation_count, feature_type_counts,
     genome_gene_counts). Reads only headers + the small features table.
+
+    ``pool_size`` is the shared s3fs connection pool. Every caller in one run
+    must pass the same value so s3fs reuses one filesystem.
     """
     import h5py
     import fsspec
 
     uri = f"s3://{bucket}/{key}"
-    with fsspec.open(uri, "rb") as fobj:
+    with fsspec.open(
+        uri,
+        "rb",
+        config_kwargs={"max_pool_connections": pool_size},
+    ) as fobj:
         with h5py.File(fobj, "r") as h5:
             if "matrix" not in h5:
                 raise RuntimeError(

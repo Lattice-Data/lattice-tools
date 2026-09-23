@@ -128,6 +128,17 @@ def map_feature_counts(
     return lattice_fc, unmapped
 
 
+def h5_worker_ceiling(*, do_introspect: bool, workers: int | None = None) -> int:
+    """Thread count, also the S3 connection-pool size those threads share.
+
+    Introspection opens each h5 with many range reads, so 8 stays inside one
+    pool without flooding S3. Checksum-only is one small request per file.
+    """
+    if workers is not None:
+        return workers
+    return 8 if do_introspect else 64
+
+
 def process_one_h5(
     s3_client: Any,
     bucket: str,
@@ -137,6 +148,7 @@ def process_one_h5(
     do_metrics: bool,
     do_genome: bool,
     retries: int,
+    pool_size: int,
 ) -> dict[str, object]:
     """Enrich a single h5 key with CRC, optional introspection and metrics."""
     result: dict[str, object] = {
@@ -160,7 +172,9 @@ def process_one_h5(
     result["crc_error"] = crc_err or ""
 
     if do_introspect:
-        intro, h5_err = retry_with_backoff(introspect_h5, bucket, key, retries=retries)
+        intro, h5_err = retry_with_backoff(
+            introspect_h5, bucket, key, pool_size=pool_size, retries=retries
+        )
         if h5_err:
             result["h5_error"] = h5_err
         else:
@@ -328,8 +342,8 @@ def extract_h5(
     )
     writer = TsvWriter(output_path, columns)
     size_by_key = {obj.key: obj.size_bytes for obj in targets}
-    default_workers = 16 if do_introspect else 64
-    max_workers = min(workers or default_workers, len(targets))
+    pool_size = h5_worker_ceiling(do_introspect=do_introspect, workers=workers)
+    max_workers = min(pool_size, len(targets))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -342,6 +356,7 @@ def extract_h5(
                 do_metrics=do_metrics,
                 do_genome=do_genome,
                 retries=retries,
+                pool_size=pool_size,
             ): obj.key
             for obj in targets
         }

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import boto3
+from botocore.config import Config
 
 from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
 from .cram import (
@@ -21,7 +22,7 @@ from .fastq import (
     extract_fastq,
     r1_r2_mismatch_warning,
 )
-from .h5 import default_h5_output_name, extract_h5
+from .h5 import default_h5_output_name, extract_h5, h5_worker_ceiling
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
 from .scale_flags import validate_raw_subdirs
@@ -276,7 +277,8 @@ def _run_h5(args: argparse.Namespace) -> int:
     )
     print("Listing matching h5 files ...")
 
-    s3_client = boto3.client("s3")
+    pool_size = h5_worker_ceiling(do_introspect=do_introspect, workers=args.workers)
+    s3_client = boto3.client("s3", config=Config(max_pool_connections=pool_size))
     summary = extract_h5(
         s3_client,
         location.bucket,
@@ -548,7 +550,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Cross-check cell count against sibling metrics_summary.csv",
     )
-    h5.add_argument("--workers", type=int, default=None, help="Thread count")
+    h5.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Thread count (default: 8 with introspection, 64 without)",
+    )
     h5.add_argument(
         "--retries",
         type=int,
