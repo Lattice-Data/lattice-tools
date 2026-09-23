@@ -108,6 +108,57 @@ def test_group_element_shape() -> None:
     assert data["expanded"] is False
 
 
+def _label_of(elements: list[dict], node_id: str) -> str:
+    return next(e["data"]["label"] for e in elements if e["data"]["id"] == node_id)
+
+
+def test_group_label_counts_down_as_members_are_drawn() -> None:
+    members = [raw_matrix_file(index) for index in range(4)]
+    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
+    elements = merge_elements([], [group], [])
+    elements = merge_elements(elements, [_node(members[0]), _node(members[2])], [])
+    assert _label_of(elements, group["data"]["id"]) == "RawMatrixFile × 2"
+
+
+def test_group_label_counts_back_up_as_members_come_off() -> None:
+    members = [raw_matrix_file(index) for index in range(4)]
+    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
+    elements = merge_elements([], [group, _node(members[0]), _node(members[1])], [])
+    elements = merge_elements(drop_nodes(elements, [members[0]]), [], [])
+    assert _label_of(elements, group["data"]["id"]) == "RawMatrixFile × 3"
+
+
+def test_a_member_drawn_elsewhere_counts_against_every_group_holding_it() -> None:
+    """Two parents can each collapse the same fan; the canvas, not the group
+    it was picked from, is what says a member is drawn."""
+    members = [raw_matrix_file(index) for index in range(4)]
+    one = group_element(MFS, "RawMatrixFile", members, "db2_test")
+    other = group_element(TISSUE, "RawMatrixFile", members, "db2_test")
+    elements = merge_elements([], [one, other, _node(members[3])], [])
+    assert _label_of(elements, one["data"]["id"]) == "RawMatrixFile × 3"
+    assert _label_of(elements, other["data"]["id"]) == "RawMatrixFile × 3"
+
+
+def test_re_emitting_a_group_keeps_its_count_down() -> None:
+    """Expanding its parent again rebuilds the placeholder at the full count."""
+    members = [raw_matrix_file(index) for index in range(4)]
+    group = group_element(MFS, "RawMatrixFile", members, "db2_test")
+    elements = merge_elements([], [group, _node(members[0])], [])
+    elements = merge_elements(elements, [group], [])
+    assert _label_of(elements, group["data"]["id"]) == "RawMatrixFile × 3"
+
+
+def test_recounting_a_group_keeps_its_position() -> None:
+    members = [raw_matrix_file(index) for index in range(4)]
+    group = {
+        **group_element(MFS, "RawMatrixFile", members, "db2_test"),
+        "position": {"x": 5, "y": 7},
+    }
+    elements = merge_elements([group], [_node(members[0])], [])
+    placed = next(e for e in elements if e["data"]["id"] == group["data"]["id"])
+    assert placed["position"] == {"x": 5, "y": 7}
+
+
 # --------------------------------------------------------------------------
 # merge_elements
 # --------------------------------------------------------------------------

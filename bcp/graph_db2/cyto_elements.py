@@ -312,6 +312,10 @@ def group_id(parent_path: str, api_name: str) -> str:
     return f"{parent_path}{GROUP_SEPARATOR}{api_name}"
 
 
+def group_label(api_name: str, undrawn: int) -> str:
+    return f"{api_name} × {undrawn}"
+
+
 def group_element(
     parent_path: str, api_name: str, members: list[str], mode: str
 ) -> dict:
@@ -319,7 +323,7 @@ def group_element(
     return {
         "data": {
             "id": group_id(parent_path, api_name),
-            "label": f"{api_name} × {len(members)}",
+            "label": group_label(api_name, len(members)),
             "node_type": api_name,
             "color": color_for(LatticeNode(members[0])),
             "expanded": False,
@@ -347,6 +351,7 @@ def expand(
     gatherer: DB2Gatherer,
     mode: str = DEFAULT_MODE,
     draw_budget: int = DRAW_BUDGET,
+    on_canvas: Collection[str] = (),
 ) -> tuple[list[dict], list[dict]]:
     """
     Resolve one node's neighbors into cytoscape elements.
@@ -355,6 +360,12 @@ def expand(
     exactly what someone opening it wants to see. Only past that do the big
     types collapse into placeholders, since a 512-wide fan lays out ~23,000px
     tall and is unreadable at any zoom.
+
+    Neighbors already `on_canvas` cost nothing to draw, so they never count
+    toward either limit and always get their edge - otherwise a node whose 48
+    libraries are all on screen would hang a "× 0" placeholder off itself
+    and link to none of them. A placeholder still lists its drawn members, so
+    the picker shows them ticked.
 
     Costs one authenticated GET for the node itself plus one batched report per
     type actually drawn. Grouped types cost nothing until the user fans them
@@ -374,12 +385,15 @@ def expand(
     for neighbor in neighbors:
         by_type[LatticeNode(neighbor).schema_ids.api_name].append(neighbor)
 
+    on_canvas = set(on_canvas)
     drawn: list[str] = []
     grouped: dict[str, list[str]] = {}
-    if draw_budget and len(neighbors) > draw_budget:
+    if draw_budget and sum(1 for n in neighbors if n not in on_canvas) > draw_budget:
         for api_name, paths in by_type.items():
-            if len(paths) > FAN_THRESHOLD:
+            waiting = [path for path in paths if path not in on_canvas]
+            if len(waiting) > FAN_THRESHOLD:
                 grouped[api_name] = paths
+                drawn.extend(path for path in paths if path in on_canvas)
             else:
                 drawn.extend(paths)
     else:
@@ -482,6 +496,9 @@ def merge_elements(
     And `position`, because that is canvas state the browser owns and a node
     rebuilt here has none - dropping it teleports an already-drawn node to the
     origin the moment the layout is held and cannot put it back.
+
+    Group labels are recounted on the way out, since this is the one place
+    every draw and removal passes through.
     """
     by_id = {element["data"]["id"]: element for element in existing}
 
@@ -496,7 +513,28 @@ def merge_elements(
     for element in new_edges:
         by_id.setdefault(element["data"]["id"], element)
 
-    return list(by_id.values())
+    return relabel_groups(list(by_id.values()))
+
+
+def relabel_groups(elements: list[dict]) -> list[dict]:
+    """
+    Count each placeholder down to the members not on the canvas yet.
+
+    Checked against the whole canvas rather than the group's own picks: two
+    CellLines can each hold a placeholder for the same 48 libraries, and a
+    library drawn from one of them is no longer waiting behind the other.
+    """
+    present = {element["data"]["id"] for element in elements}
+    relabelled = []
+    for element in elements:
+        data = element["data"]
+        if data.get("is_group"):
+            undrawn = sum(1 for path in data["members"] if path not in present)
+            label = group_label(data["node_type"], undrawn)
+            if label != data["label"]:
+                element = {**element, "data": {**data, "label": label}}
+        relabelled.append(element)
+    return relabelled
 
 
 def ring_offsets(count: int) -> list[tuple[float, float]]:

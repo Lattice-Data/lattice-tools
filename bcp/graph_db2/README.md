@@ -173,7 +173,12 @@ default one.
   budget (default `DRAW_BUDGET = 25`) puts each oversized type behind one
   placeholder like `RawMatrixFile × 512`. Clicking a placeholder opens a
   searchable multi-select in the side panel — tick as many members as you want
-  and only those land on the canvas. "Fan out all N" draws the lot.
+  and only those land on the canvas. "Fan out all N" draws the lot. The count
+  on the placeholder is what is still behind it: draw 2 of 48 libraries and it
+  reads `DropletBasedLibrary × 46`. A member drawn by any route counts, so two parents
+  collapsing the same fan count down together. Members already on the canvas
+  never count toward the budget and are always linked directly, so expanding a
+  node whose fan is already drawn just adds its edges, with no placeholder.
 
   This is not cosmetic: a 512-wide fan lays out roughly 23,000px tall and is
   unreadable at any zoom, and drawing it costs 512 label fetches.

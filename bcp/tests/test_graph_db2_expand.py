@@ -99,6 +99,45 @@ def test_group_label_reports_member_count() -> None:
     assert groups_in(nodes)[0]["label"] == f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT}"
 
 
+def test_a_fan_already_on_the_canvas_draws_edges_not_a_placeholder() -> None:
+    """Reached again from a second parent, every member is already drawn: all
+    that is missing is the edges, and a "× 0" placeholder would link to none."""
+    everything = [raw_matrix_file(index) for index in range(RAW_MATRIX_FILE_COUNT)]
+    nodes, edges = expand(
+        MFS, fake_gatherer(), draw_budget=SMALL_BUDGET, on_canvas=everything
+    )
+    assert groups_in(nodes) == []
+    assert {edge["data"]["target"] for edge in edges} == set(everything)
+
+
+def test_a_partly_drawn_fan_links_the_drawn_members_and_groups_the_rest() -> None:
+    drawn = [raw_matrix_file(0), raw_matrix_file(1)]
+    nodes, edges = expand(
+        MFS, fake_gatherer(), draw_budget=SMALL_BUDGET, on_canvas=drawn
+    )
+    group = groups_in(nodes)[0]
+    # still every member, so the picker shows the drawn two ticked
+    assert len(group["members"]) == RAW_MATRIX_FILE_COUNT
+    assert set(drawn) <= {edge["data"]["target"] for edge in edges}
+    # the drawn two come back among the nodes, so they are on this canvas too
+    elements = merge_elements([], nodes, edges)
+    placeholder = next(e for e in elements if e["data"]["id"] == group["id"])
+    assert placeholder["data"]["label"] == (
+        f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT - len(drawn)}"
+    )
+
+
+def test_drawn_members_do_not_count_toward_the_budget() -> None:
+    """What is left to draw fits the budget, so it is drawn rather than
+    collapsed behind a placeholder."""
+    drawn = [raw_matrix_file(index) for index in range(RAW_MATRIX_FILE_COUNT - 5)]
+    nodes, edges = expand(
+        MFS, fake_gatherer(), draw_budget=SMALL_BUDGET, on_canvas=drawn
+    )
+    assert groups_in(nodes) == []
+    assert len(edges) == RAW_MATRIX_FILE_COUNT
+
+
 def test_mixed_fan_groups_only_the_oversized_type() -> None:
     """A RawMatrixFile fans out to 2 SequenceFiles, 1 Tissue and 1 MatrixFileSet;
     at a budget of 3 the whole fan is over budget but only types above

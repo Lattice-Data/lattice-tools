@@ -606,7 +606,13 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                 )
 
         try:
-            nodes, edges = expand(target, gatherer, mode=mode, draw_budget=budget)
+            nodes, edges = expand(
+                target,
+                gatherer,
+                mode=mode,
+                draw_budget=budget,
+                on_canvas=[element["data"]["id"] for element in elements],
+            )
         except (requests.HTTPError, ValueError, KeyError) as error:
             return (
                 no_update,
