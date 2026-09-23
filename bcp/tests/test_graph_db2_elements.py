@@ -108,7 +108,7 @@ def test_placeholder_element_shape() -> None:
     assert data["id"] == placeholder_id("RawMatrixFile")
     assert data["is_group"] is True
     assert data["members"] == members
-    assert data["label"] == "RawMatrixFile × 3"
+    assert data["label"] == "RawMatrixFile\n3 out of 4"
     assert data["expanded"] is False
 
 
@@ -143,7 +143,7 @@ def test_every_type_on_the_canvas_gets_a_placeholder() -> None:
     """Not just the ones with something held back - it is also where a drawn
     node is found and cleared."""
     elements = settle([_node(A), _node(B)])
-    assert _placeholder(elements, "Tissue")["data"]["label"] == "Tissue × 0"
+    assert _placeholder(elements, "Tissue")["data"]["label"] == "Tissue\n1 out of 1"
     assert _placeholder(elements, "RawMatrixFile")["data"]["members"] == [B]
 
 
@@ -151,7 +151,7 @@ def test_an_expanded_node_s_references_are_members() -> None:
     _fetched(MFS, _members())
     held = _placeholder(settle([_expanded(MFS)]), "RawMatrixFile")["data"]
     assert held["members"] == _members()
-    assert held["label"] == "RawMatrixFile × 4"
+    assert held["label"] == "RawMatrixFile\n0 out of 4"
 
 
 def test_an_unexpanded_node_s_references_are_not() -> None:
@@ -162,24 +162,24 @@ def test_an_unexpanded_node_s_references_are_not() -> None:
     assert placeholder_id("RawMatrixFile") not in {e["data"]["id"] for e in elements}
 
 
-def test_placeholder_counts_down_as_members_are_drawn() -> None:
+def test_placeholder_counts_up_as_members_are_drawn() -> None:
     _fetched(MFS, _members())
     elements = settle(
         merge_elements([_expanded(MFS)], [_node(p) for p in _members()[:2]], [])
     )
     assert _placeholder(elements, "RawMatrixFile")["data"]["label"] == (
-        "RawMatrixFile × 2"
+        "RawMatrixFile\n2 out of 4"
     )
 
 
-def test_placeholder_counts_back_up_as_members_come_off() -> None:
+def test_placeholder_counts_down_as_members_come_off() -> None:
     _fetched(MFS, _members())
     elements = settle(
         merge_elements([_expanded(MFS)], [_node(p) for p in _members()[:2]], [])
     )
     elements = settle(drop_nodes(elements, [_members()[0]]))
     assert _placeholder(elements, "RawMatrixFile")["data"]["label"] == (
-        "RawMatrixFile × 3"
+        "RawMatrixFile\n1 out of 4"
     )
 
 

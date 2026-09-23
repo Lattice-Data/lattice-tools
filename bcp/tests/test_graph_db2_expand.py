@@ -98,11 +98,11 @@ def test_drawing_fetches_labels_in_one_call_per_type() -> None:
     assert [call[0] for call in gatherer.calls] == ["RawMatrixFile"]
 
 
-def test_placeholder_label_counts_the_held_back_members() -> None:
+def test_placeholder_label_counts_none_of_a_held_back_fan_drawn() -> None:
     gatherer = fake_gatherer()
     nodes, edges = expand(MFS, gatherer, draw_budget=SMALL_BUDGET)
     held = placeholder(settled(nodes, edges), "RawMatrixFile")
-    assert held["label"] == f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT}"
+    assert held["label"] == f"RawMatrixFile\n0 out of {RAW_MATRIX_FILE_COUNT}"
 
 
 def test_a_fan_already_on_the_canvas_gets_its_edges() -> None:
@@ -114,7 +114,7 @@ def test_a_fan_already_on_the_canvas_gets_its_edges() -> None:
     )
     assert {edge["data"]["target"] for edge in edges} == set(everything)
     assert placeholder(settled(nodes, edges), "RawMatrixFile")["label"] == (
-        "RawMatrixFile × 0"
+        f"RawMatrixFile\n{RAW_MATRIX_FILE_COUNT} out of {RAW_MATRIX_FILE_COUNT}"
     )
 
 
@@ -128,7 +128,9 @@ def test_a_partly_drawn_fan_links_the_drawn_members_and_holds_the_rest() -> None
     held = placeholder(settled(nodes, edges), "RawMatrixFile")
     # still every member, so the picker shows the drawn two ticked
     assert len(held["members"]) == RAW_MATRIX_FILE_COUNT
-    assert held["label"] == f"RawMatrixFile × {RAW_MATRIX_FILE_COUNT - len(drawn)}"
+    assert held["label"] == (
+        f"RawMatrixFile\n{len(drawn)} out of {RAW_MATRIX_FILE_COUNT}"
+    )
 
 
 def test_drawn_members_do_not_count_toward_the_budget() -> None:
@@ -441,12 +443,14 @@ def test_placeholder_survives_unticking_its_members() -> None:
     assert held["id"] in _element_ids(elements)
 
 
-def test_drawing_every_member_keeps_the_placeholder_at_zero() -> None:
+def test_drawing_every_member_keeps_the_placeholder() -> None:
     """It is the type's, not the fan's: it stays so the picker can prune back."""
     elements, held = _held_back()
     elements = _pick(elements, held["members"])
     assert already_drawn(elements, held["members"]) == held["members"]
-    assert placeholder(elements, "RawMatrixFile")["label"] == "RawMatrixFile × 0"
+    assert placeholder(elements, "RawMatrixFile")["label"] == (
+        f"RawMatrixFile\n{RAW_MATRIX_FILE_COUNT} out of {RAW_MATRIX_FILE_COUNT}"
+    )
 
 
 def test_fetch_labels_skips_already_cached() -> None:

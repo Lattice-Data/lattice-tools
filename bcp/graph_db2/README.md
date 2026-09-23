@@ -177,10 +177,11 @@ default one.
 
   This is not cosmetic: a 512-wide fan lays out roughly 23,000px tall and is
   unreadable at any zoom, and drawing it costs 512 label fetches.
-- **One placeholder per type**, like `DropletBasedLibrary × 46`, sits
+- **One placeholder per type**, like `DropletBasedLibrary 2 out of 48`, sits
   unconnected at the top of that type's column in `columns by type`. It lists
   every node of the type the canvas knows of: the ones drawn, and the ones any
-  expanded node references. The count is how many of those are not drawn.
+  expanded node references. The count is how many of those are drawn, out of
+  all of them.
   Clicking it opens a searchable multi-select in the side panel; "Fan out all
   N" draws every member. Every type on the canvas gets one, whether or not
   anything is held back, so it is also where a drawn node is found and

@@ -318,19 +318,20 @@ def placeholder_id(api_name: str) -> str:
     return f"{PLACEHOLDER_PREFIX}{api_name}"
 
 
-def group_label(api_name: str, undrawn: int) -> str:
-    return f"{api_name} × {undrawn}"
+def group_label(api_name: str, drawn: int, total: int) -> str:
+    # two lines, so a long type name's ellipsis cannot eat the count
+    return f"{api_name}\n{drawn} out of {total}"
 
 
-def placeholder_element(api_name: str, members: list[str], undrawn: int) -> dict:
+def placeholder_element(api_name: str, members: list[str], drawn: int) -> dict:
     """
     The one placeholder for a type. `members` is every node of it the canvas
-    knows of; the label counts the ones not drawn.
+    knows of; the label says how many of them are drawn.
     """
     return {
         "data": {
             "id": placeholder_id(api_name),
-            "label": group_label(api_name, undrawn),
+            "label": group_label(api_name, drawn, len(members)),
             "node_type": api_name,
             "color": color_for(LatticeNode(members[0])),
             "expanded": False,
@@ -580,8 +581,8 @@ def sync_placeholders(elements: list[dict]) -> list[dict]:
 
     placeholders = []
     for api_name, members in sorted(by_type.items()):
-        undrawn = sum(1 for path in members if path not in present)
-        element = placeholder_element(api_name, members, undrawn)
+        drawn = sum(1 for path in members if path in present)
+        element = placeholder_element(api_name, members, drawn)
         old = previous.get(element["data"]["id"])
         if old and "position" in old:
             element["position"] = old["position"]

@@ -92,12 +92,14 @@ BASE_STYLESHEET = [
         "style": {
             "shape": "round-rectangle",
             "width": 122,
-            "height": 24,
+            # two lines: the type, then "2 out of 48"
+            "height": 34,
             "border-width": 2,
             "border-color": "#888",
             "font-size": "10px",
             "text-valign": "center",
             "text-margin-y": 0,
+            "text-wrap": "wrap",
             "text-max-width": "116px",
         },
     },
