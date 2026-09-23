@@ -56,7 +56,7 @@ LAYOUTS = {
     "cose-bilkent": {"name": "cose-bilkent", "nodeRepulsion": 9000, **FIT},
     "concentric": {"name": "concentric", "minNodeSpacing": 30, **FIT},
 }
-DEFAULT_LAYOUT = "dagre (left to right)"
+DEFAULT_LAYOUT = "columns by type"
 COLUMN_LAYOUT = "columns by type"
 # only valid on DEFAULT_MODE's server; see main()
 SAMPLE_SEED = "/matrix_file_sets/f1ef71ee-98d8-4145-84a7-24b68bcc769e/"

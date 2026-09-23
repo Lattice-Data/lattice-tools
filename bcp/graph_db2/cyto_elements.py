@@ -63,8 +63,8 @@ COLUMN_TYPES = (
     ("Biosample",),
     ("GeneticModification", "Treatment", "ExperimentalCondition"),
     ("Library",),
-    ("SequenceFile",),
     ("SequenceFileSet",),
+    ("SequenceFile",),
     ("RawMatrixFile", "ProcessedMatrixFile", "TabularFile"),
     ("MatrixFileSet",),
 )

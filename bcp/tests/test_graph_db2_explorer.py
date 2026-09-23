@@ -286,13 +286,11 @@ def test_the_canvas_changing_re_columns_the_graph() -> None:
     assert layout["positions"]
 
 
-def test_the_canvas_changing_leaves_cytoscape_s_own_layouts_alone() -> None:
+@pytest.mark.parametrize("name", [n for n in LAYOUTS if n != COLUMN_LAYOUT])
+def test_the_canvas_changing_leaves_cytoscape_s_own_layouts_alone(name: str) -> None:
     """dagre is re-run by dash-cytoscape on add and remove; re-emitting it
     from here as well would run it twice for every click."""
-    assert (
-        pick_layout(built_app(MFS), DEFAULT_LAYOUT, [], [], triggered="graph.elements")
-        is None
-    )
+    assert pick_layout(built_app(MFS), name, [], [], triggered="graph.elements") is None
 
 
 def test_the_canvas_changing_does_not_re_column_a_held_graph() -> None:

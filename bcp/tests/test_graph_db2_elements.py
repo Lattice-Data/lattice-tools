@@ -282,8 +282,8 @@ PIPELINE = [
     "HumanDonor",
     "Tissue",
     "PlateBasedLibrary",
-    "SequenceFile",
     "SequenceFileSet",
+    "SequenceFile",
     "RawMatrixFile",
     "MatrixFileSet",
 ]
