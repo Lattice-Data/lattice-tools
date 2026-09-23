@@ -286,6 +286,37 @@ def test_the_canvas_changing_re_columns_the_graph() -> None:
     assert layout["positions"]
 
 
+def test_dragging_a_node_does_not_re_column_the_graph() -> None:
+    """A drag pushes the elements back too, with the same nodes on them; a
+    fresh preset would snap the dragged node straight back to its column."""
+    elements = _star(4)
+    layout = pick_layout(
+        built_app(MFS),
+        COLUMN_LAYOUT,
+        [],
+        [],
+        triggered="graph.elements",
+        elements=elements,
+        current=layout_for(COLUMN_LAYOUT, elements=elements),
+    )
+    assert layout is None
+
+
+def test_a_node_drawn_after_a_drag_still_re_columns_the_graph() -> None:
+    before = _star(3)
+    after = _star(4)
+    layout = pick_layout(
+        built_app(MFS),
+        COLUMN_LAYOUT,
+        [],
+        [],
+        triggered="graph.elements",
+        elements=after,
+        current=layout_for(COLUMN_LAYOUT, elements=before),
+    )
+    assert set(layout["positions"]) == node_ids(after)
+
+
 @pytest.mark.parametrize("name", [n for n in LAYOUTS if n != COLUMN_LAYOUT])
 def test_the_canvas_changing_leaves_cytoscape_s_own_layouts_alone(name: str) -> None:
     """dagre is re-run by dash-cytoscape on add and remove; re-emitting it

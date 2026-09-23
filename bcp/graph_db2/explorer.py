@@ -468,7 +468,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                         cyto.Cytoscape(
                             id="graph",
                             elements=elements,
-                            layout=layout_for(initial_layout),
+                            layout=layout_for(initial_layout, elements=elements),
                             stylesheet=BASE_STYLESHEET,
                             style={"width": "100%", "height": "100%"},
                             boxSelectionEnabled=True,
@@ -675,8 +675,8 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
     # Every layout run this app asks for on purpose. Each input re-emits the
     # dict, and emitting it is what runs it: picking a layout, unticking
     # Hold View to fit the whole graph again, releasing Hold Layout, a bump
-    # from Load, or - for a layout computed here - the canvas changing under
-    # it. Still the only writer of graph.layout, so there is nothing to race
+    # from Load, or - for a layout computed here - nodes being drawn or taken
+    # off the canvas under it. Still the only writer of graph.layout, so there is nothing to race
     # with.
     runs = count()
 
@@ -687,8 +687,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         Input("keep-layout", "value"),
         Input("relayout", "data"),
         Input("graph", "elements"),
+        # what was last sent, whose positions say which nodes it arranged
+        State("graph", "layout"),
     )
-    def choose_layout(choice, keep_view, keep_layout, _bump, elements):
+    def choose_layout(choice, keep_view, keep_layout, _bump, elements, current):
         held = HOLD_LAYOUT in (keep_layout or [])
         # exact sets, not ctx.triggered_id: Load changes the elements and bumps
         # relayout in one go, and reading only the first of the two would drop
@@ -703,6 +705,17 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         # the canvas moving on its own only re-runs the layout that is built
         # from the canvas, and only while the user is not holding it
         if triggers == {"graph"} and (held or not computed_here(choice)):
+            return no_update
+        # dash-cytoscape pushes elements back on a drag as well as on add and
+        # remove. Only a change in which nodes are drawn leaves the preset
+        # without a place for one; re-columning on a drag would snap the
+        # dragged node straight back.
+        drawn = {
+            element["data"]["id"]
+            for element in elements or []
+            if "source" not in element["data"]
+        }
+        if triggers == {"graph"} and drawn == set((current or {}).get("positions", {})):
             return no_update
         return layout_for(choice, KEEP_VIEW in (keep_view or []), next(runs), elements)
 

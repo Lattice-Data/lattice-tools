@@ -218,10 +218,10 @@ default one.
   handed to cytoscape as a `preset` — none of the bundled layouts can group by
   an attribute, and dagre ranks by distance from a root, which puts a Tissue
   and a SequenceFile in the same column whenever the path lengths happen to
-  match. Being a positions map, it has to be rebuilt whenever the canvas
-  changes, so it re-runs on every draw — which also means a node you drag
-  snaps back on the next one. Tick `Hold Layout` if you want your own
-  arrangement to stick.
+  match. Being a positions map, it has to be rebuilt whenever nodes are drawn
+  or removed, so it re-runs on every draw. Dragging alone does not trigger it,
+  but a node you drag snaps back on the next draw. Tick `Hold Layout` if you
+  want your own arrangement to stick.
 - **"Show types"** at the bottom of the panel toggles whole node types.
 - The status line reports real counts — `64 drawn`, `512 RawMatrixFile
   grouped` — and turns red on failure, since an empty canvas otherwise looks
@@ -328,8 +328,8 @@ can be driven from a notebook or a test without starting a server.
   take.
 - **`columns by type` re-columns on every draw**, which costs a round trip
   and a positions map for the whole graph each time, and undoes anything you
-  dragged. It is a `preset`, so there is nothing for cytoscape to re-run
-  incrementally. Tick `Hold Layout` to stop it.
+  dragged since the last draw. It is a `preset`, so there is nothing for
+  cytoscape to re-run incrementally. Tick `Hold Layout` to stop it.
 - **Unticking a member removes it even if another expansion drew it too.** The
   picker's ticks mean "on the canvas", and a node is on the canvas once
   regardless of how many paths led to it. Unticking it also removes the edges
