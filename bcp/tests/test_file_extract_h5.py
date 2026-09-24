@@ -263,18 +263,21 @@ def test_extract_h5_derived_from_is_shared_per_library(tmp_path: Path) -> None:
     h5_b = _h5_key(lib_b, "sampleC")
     h5_other = _h5_key(lib_a_other, "sampleD")
     bare = "proj/order/no_processed/sample_filtered_feature_bc_matrix.h5"
+    h5_root = _h5_key("", "sampleRoot").removeprefix("/")
     keys = [
         h5_a1,
         h5_a2,
         h5_b,
         h5_other,
         bare,
+        h5_root,
         f"{lib_a}/raw/nested/a_R2.fastq.gz",
         f"{lib_a}/raw/a_R1.fastq.gz",
         f"{lib_a}/raw/unmatched_R1.fastq.gz",
         f"{lib_a}/raw/foo_sample_R1.fastq.gz",
         f"{lib_b}/raw/b_R1.fastq.gz",
         f"{lib_a_other}/raw/other_R1.fastq.gz",
+        "raw/a.fastq.gz",
     ]
     client = MockS3Client(
         keys=keys,
@@ -284,14 +287,14 @@ def test_extract_h5_derived_from_is_shared_per_library(tmp_path: Path) -> None:
     summary = extract_h5(
         client,
         BUCKET,
-        "proj/",
+        "",
         str(out),
         lab="/labs/example-lab/",
         do_introspect=False,
         show_progress=False,
         workers=1,
     )
-    assert summary.total == 5
+    assert summary.total == 6
     with out.open(encoding="utf-8") as fh:
         rows = {row["s3_uri"]: row for row in csv.DictReader(fh, delimiter="\t")}
 
@@ -309,3 +312,6 @@ def test_extract_h5_derived_from_is_shared_per_library(tmp_path: Path) -> None:
     assert json.loads(rows[f"s3://{BUCKET}/{bare}"]["derived_from"]) == []
     assert rows[f"s3://{BUCKET}/{bare}"]["sample"] == ""
     assert missing_processed_warning(bare) in summary.warnings
+    assert json.loads(rows[f"s3://{BUCKET}/{h5_root}"]["derived_from"]) == []
+    assert missing_processed_warning(h5_root) in summary.warnings
+    assert empty_raw_fastq_warning("raw/") not in summary.warnings

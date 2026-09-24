@@ -208,7 +208,8 @@ def raw_prefix_for_h5(key: str) -> str | None:
 
     ``proj/order/LIB/processed/.../matrix.h5`` maps to ``proj/order/LIB/raw/``.
     The full parent path is the grouping key, so two folders that share a
-    basename stay separate.
+    basename stay separate. A key with no directory before ``processed``
+    returns None.
     """
     parts = key.split("/")
     try:
@@ -216,7 +217,9 @@ def raw_prefix_for_h5(key: str) -> str | None:
     except ValueError:
         return None
     parent = "/".join(parts[:idx])
-    return f"{parent}/raw/" if parent else "raw/"
+    if not parent:
+        return None
+    return f"{parent}/raw/"
 
 
 def fastq_aliases_for_raw_prefix(
