@@ -130,22 +130,27 @@ One set per (sample directory, read stem), so separate lanes become separate set
 
 ### H5 mode
 
-Point at a `per_sample_outs` prefix. By default matches `sample_filtered_feature_bc_matrix.h5`, fetches CRC64NVME, and introspects matrix shape (cell count, feature types).
+Point at an order or library prefix, such as `s3://example-bucket/proj/AN00000001`. By default matches `sample_filtered_feature_bc_matrix.h5`, fetches CRC64NVME, and introspects matrix shape (cell count, feature types). The output file is named from the last prefix segment, so that URI writes `AN00000001_h5_info.tsv`.
+
+`sample` is the directory immediately under `per_sample_outs/` in the object key, so it stays correct when the prefix is the order or library directory. `library` remains the folder immediately before `processed/`.
+
+`derived_from` is a JSON list of `{lab}:{fastq_filename}` aliases for the selected FASTQs in the sibling `raw/` of that `processed/` parent. Every h5 under one library directory shares that list. Selected FASTQs are `*.fastq.gz` files whose names do not contain `_sample` or `unmatched`. An h5 with no `processed/` segment, or a `raw/` with no selected FASTQs, writes `[]` and a warning.
 
 ```bash
-python -m file_extract h5 s3://example-bucket/.../outs/per_sample_outs
-python -m file_extract h5 s3://.../per_sample_outs --no-introspect
-python -m file_extract h5 s3://.../per_sample_outs --genome --metrics
+python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab
+python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab --no-introspect
+python -m file_extract h5 s3://example-bucket/proj/AN00000001/cohort1_batch1_1 --lab example-lab --genome --metrics
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-o`, `--output` | Output TSV (default: `<run-or-dir>_h5_info.tsv`) |
+| `--lab` | **Required.** `example-lab` or `/labs/example-lab/`. Prefixes FASTQ aliases in `derived_from` as `<lab>:<filename>` |
+| `-o`, `--output` | Output TSV (default: `<last-segment>_h5_info.tsv`) |
 | `--target-filename` | h5 basename to match (default: `sample_filtered_feature_bc_matrix.h5`) |
 | `--no-introspect` | Checksums and listing only |
 | `--genome` | Add `gene_counts_by_genome` JSON column |
 | `--metrics` | Cross-check against sibling `metrics_summary.csv` |
-| `--workers` | Thread count (default: 16 with introspection, 64 without) |
+| `--workers` | Positive thread count (default: 8 with introspection, 64 without). The S3 connection pool is sized to this count |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
 | `--strict` | Exit 1 if any per-file enrichment fails |
 | `-v`, `--verbose` | Debug logging |

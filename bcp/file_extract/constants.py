@@ -107,6 +107,7 @@ H5_BASE_COLUMNS = [
     "s3_uri",
     "size_bytes",
     "crc64nvme_base64",
+    "derived_from",
 ]
 
 SCALE_H5AD_COLUMNS = [

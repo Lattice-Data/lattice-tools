@@ -4,7 +4,7 @@ import csv
 import io
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+from typing import Any, Sequence
 
 from tqdm import tqdm
 
@@ -16,6 +16,7 @@ from .constants import (
     H5_INTROSPECT_COLUMNS,
     H5_METRICS_COLUMNS,
 )
+from .fastq import is_target_file
 from .h5_introspect import introspect_h5
 from .models import RunSummary
 from .retry import retry_with_backoff
@@ -25,16 +26,19 @@ from .s3_utils import (
     list_objects_with_size,
     s3_uri_for,
 )
+from .sheets import LabIdentity
 from .tsv_writer import TsvWriter
 
 
-def extract_sample_name(key: str, per_sample_outs_prefix: str) -> str:
-    """First path segment after the prefix (prefix-relative)."""
-    base = per_sample_outs_prefix.rstrip("/") + "/"
-    if not key.startswith(base):
+def extract_sample_name(key: str) -> str:
+    """Directory immediately under ``per_sample_outs/``, or empty."""
+    _head, marker, tail = key.partition("per_sample_outs/")
+    if not marker:
         return ""
-    remainder = key[len(base) :]
-    return remainder.split("/", 1)[0] if "/" in remainder else ""
+    sample, slash, _rest = tail.partition("/")
+    if not slash or not sample:
+        return ""
+    return sample
 
 
 def extract_library(key: str) -> str:
@@ -124,6 +128,19 @@ def map_feature_counts(
     return lattice_fc, unmapped
 
 
+def h5_worker_ceiling(*, do_introspect: bool, workers: int | None = None) -> int:
+    """Thread count, also the S3 connection-pool size those threads share.
+
+    Introspection opens each h5 with many range reads, so 8 stays inside one
+    pool without flooding S3. Checksum-only is one small request per file.
+    """
+    if workers is not None:
+        if workers < 1:
+            raise ValueError("workers must be a positive integer")
+        return workers
+    return 8 if do_introspect else 64
+
+
 def process_one_h5(
     s3_client: Any,
     bucket: str,
@@ -133,6 +150,7 @@ def process_one_h5(
     do_metrics: bool,
     do_genome: bool,
     retries: int,
+    pool_size: int,
 ) -> dict[str, object]:
     """Enrich a single h5 key with CRC, optional introspection and metrics."""
     result: dict[str, object] = {
@@ -156,7 +174,9 @@ def process_one_h5(
     result["crc_error"] = crc_err or ""
 
     if do_introspect:
-        intro, h5_err = retry_with_backoff(introspect_h5, bucket, key, retries=retries)
+        intro, h5_err = retry_with_backoff(
+            introspect_h5, bucket, key, pool_size=pool_size, retries=retries
+        )
         if h5_err:
             result["h5_error"] = h5_err
         else:
@@ -185,6 +205,81 @@ def process_one_h5(
     return result
 
 
+def raw_prefix_for_h5(key: str) -> str | None:
+    """Sibling ``raw/`` of the first ``processed/`` segment, or None.
+
+    ``proj/order/LIB/processed/.../matrix.h5`` maps to ``proj/order/LIB/raw/``.
+    The full parent path is the grouping key, so two folders that share a
+    basename stay separate. A key with no directory before ``processed``
+    returns None.
+    """
+    parts = key.split("/")
+    try:
+        idx = parts.index("processed")
+    except ValueError:
+        return None
+    parent = "/".join(parts[:idx])
+    if not parent:
+        return None
+    return f"{parent}/raw/"
+
+
+def fastq_aliases_for_raw_prefix(
+    s3_client: Any,
+    bucket: str,
+    raw_prefix: str,
+    namespace: str,
+) -> list[str]:
+    """Sorted unique ``{lab}:{filename}`` aliases of selected FASTQs."""
+    objects = list_objects_with_size(
+        s3_client,
+        bucket,
+        raw_prefix,
+        predicate=lambda key: is_target_file(key, require_raw=True),
+    )
+    return sorted({f"{namespace}:{obj.key.rsplit('/', 1)[-1]}" for obj in objects})
+
+
+def missing_processed_warning(key: str) -> str:
+    return f"derived_from is empty for {key!r}; key has no processed/ segment"
+
+
+def empty_raw_fastq_warning(raw_prefix: str) -> str:
+    return (
+        f"derived_from is empty for h5 files paired with {raw_prefix!r}; "
+        "no selected FASTQs in that directory"
+    )
+
+
+def derived_from_cells(
+    s3_client: Any,
+    bucket: str,
+    keys: Sequence[str],
+    namespace: str,
+    summary: RunSummary,
+) -> dict[str, str]:
+    """JSON alias lists for each h5 key, listing each sibling raw/ once."""
+    aliases_by_raw: dict[str, list[str]] = {}
+    warned_raw: set[str] = set()
+    cells: dict[str, str] = {}
+    for key in keys:
+        raw_prefix = raw_prefix_for_h5(key)
+        if raw_prefix is None:
+            summary.warnings.append(missing_processed_warning(key))
+            cells[key] = json.dumps([])
+            continue
+        if raw_prefix not in aliases_by_raw:
+            aliases_by_raw[raw_prefix] = fastq_aliases_for_raw_prefix(
+                s3_client, bucket, raw_prefix, namespace
+            )
+        aliases = aliases_by_raw[raw_prefix]
+        if not aliases and raw_prefix not in warned_raw:
+            warned_raw.add(raw_prefix)
+            summary.warnings.append(empty_raw_fastq_warning(raw_prefix))
+        cells[key] = json.dumps(aliases)
+    return cells
+
+
 def h5_columns(
     *,
     do_introspect: bool,
@@ -207,11 +302,8 @@ def h5_columns(
 
 
 def default_h5_output_name(prefix: str) -> str:
-    segments = prefix.rstrip("/").split("/")
-    run_or_dir = (
-        segments[-2] if len(segments) >= 2 else (segments[-1] if segments else "output")
-    )
-    return f"{run_or_dir}_h5_info.tsv"
+    order_name = prefix.rstrip("/").rsplit("/", 1)[-1] if prefix else "output"
+    return f"{order_name}_h5_info.tsv"
 
 
 def extract_h5(
@@ -220,6 +312,7 @@ def extract_h5(
     prefix: str,
     output_path: str,
     *,
+    lab: str,
     target_filename: str = DEFAULT_H5_TARGET_FILENAME,
     do_introspect: bool = True,
     do_genome: bool = False,
@@ -239,6 +332,14 @@ def extract_h5(
     if not targets:
         return summary
 
+    namespace = LabIdentity.parse(lab).name
+    derived = derived_from_cells(
+        s3_client,
+        bucket,
+        [obj.key for obj in targets],
+        namespace,
+        summary,
+    )
     columns = h5_columns(
         do_introspect=do_introspect,
         do_genome=do_genome,
@@ -246,8 +347,8 @@ def extract_h5(
     )
     writer = TsvWriter(output_path, columns)
     size_by_key = {obj.key: obj.size_bytes for obj in targets}
-    default_workers = 16 if do_introspect else 64
-    max_workers = min(workers or default_workers, len(targets))
+    pool_size = h5_worker_ceiling(do_introspect=do_introspect, workers=workers)
+    max_workers = min(pool_size, len(targets))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -260,6 +361,7 @@ def extract_h5(
                 do_metrics=do_metrics,
                 do_genome=do_genome,
                 retries=retries,
+                pool_size=pool_size,
             ): obj.key
             for obj in targets
         }
@@ -272,10 +374,11 @@ def extract_h5(
             r = fut.result()
             row: list[object] = [
                 extract_library(key),
-                extract_sample_name(key, prefix),
+                extract_sample_name(key),
                 s3_uri_for(bucket, key),
                 size_by_key[key],
                 r["crc"] if r["crc"] is not None else "",
+                derived[key],
             ]
             if do_introspect:
                 row.extend(

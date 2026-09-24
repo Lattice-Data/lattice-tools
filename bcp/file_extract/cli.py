@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import boto3
+from botocore.config import Config
 
 from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
 from .cram import (
@@ -21,7 +22,7 @@ from .fastq import (
     extract_fastq,
     r1_r2_mismatch_warning,
 )
-from .h5 import default_h5_output_name, extract_h5
+from .h5 import default_h5_output_name, extract_h5, h5_worker_ceiling
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
 from .scale_flags import validate_raw_subdirs
@@ -72,6 +73,21 @@ def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
         print(f"  WARNING: {warning}")
     if len(warnings) > limit:
         print(f"  ... and {len(warnings) - limit} more warning(s)")
+
+
+def _positive_int(value: str) -> int:
+    """argparse type for a thread count of at least 1."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"invalid value {value!r}: expected a positive integer"
+        ) from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(
+            f"invalid value {value!r}: expected a positive integer"
+        )
+    return parsed
 
 
 def _pilot_flag(value: str) -> bool:
@@ -265,20 +281,25 @@ def _run_h5(args: argparse.Namespace) -> int:
     if do_introspect:
         check_introspection_deps()
 
+    lab = LabIdentity.parse(args.lab)
+
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
+    print(f"Lab: {lab.name}")
     print(f"Target filename: {args.target_filename}")
     print(
         f"Introspect: {do_introspect} | genome: {args.genome} | metrics: {args.metrics}"
     )
     print("Listing matching h5 files ...")
 
-    s3_client = boto3.client("s3")
+    pool_size = h5_worker_ceiling(do_introspect=do_introspect, workers=args.workers)
+    s3_client = boto3.client("s3", config=Config(max_pool_connections=pool_size))
     summary = extract_h5(
         s3_client,
         location.bucket,
         location.prefix,
         output,
+        lab=lab.name,
         target_filename=args.target_filename,
         do_introspect=do_introspect,
         do_genome=args.genome,
@@ -298,6 +319,7 @@ def _run_h5(args: argparse.Namespace) -> int:
         print(f" | introspect OK: {summary.enrichment_ok}", end="")
     print(f"\nOutput: {output}")
 
+    _print_warnings(summary.warnings)
     _print_failures(summary.failures)
     if args.strict and summary.has_failures:
         return 1
@@ -497,15 +519,34 @@ def build_parser() -> argparse.ArgumentParser:
     h5 = subparsers.add_parser(
         "h5",
         help="Extract Cell Ranger h5 matrix metadata.",
+        description=(
+            "List Cell Ranger h5 matrices and write a TSV.\n"
+            "sample is the directory immediately under per_sample_outs/.\n"
+            "derived_from is a JSON list of {lab}:{fastq_filename} aliases\n"
+            "for the selected FASTQs in the sibling raw/ of each h5's\n"
+            "processed/ parent. Every h5 under one library directory shares\n"
+            "that list."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
     )
-    h5.add_argument("s3_uri", help="s3://bucket/.../outs/per_sample_outs")
+    h5.add_argument(
+        "s3_uri",
+        help="s3://bucket/proj/order or s3://bucket/proj/order/library",
+    )
+    h5.add_argument(
+        "--lab",
+        required=True,
+        help=(
+            "Lab name, or /labs/<lab>/ path. Prefixes FASTQ aliases in "
+            "derived_from as <lab>:<filename>"
+        ),
+    )
     h5.add_argument(
         "-o",
         "--output",
         default=None,
-        help="Output TSV (default: <run-or-dir>_h5_info.tsv)",
+        help="Output TSV (default: <last-segment>_h5_info.tsv)",
     )
     h5.add_argument(
         "--target-filename",
@@ -527,7 +568,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Cross-check cell count against sibling metrics_summary.csv",
     )
-    h5.add_argument("--workers", type=int, default=None, help="Thread count")
+    h5.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=None,
+        help="Positive thread count (default: 8 with introspection, 64 without)",
+    )
     h5.add_argument(
         "--retries",
         type=int,
