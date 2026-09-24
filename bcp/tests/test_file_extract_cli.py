@@ -81,6 +81,24 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "scaleplex" in out
 
 
+def test_cli_h5_rejects_nonpositive_workers(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "h5",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                "--lab",
+                "example-lab",
+                "--workers",
+                "0",
+            ]
+        )
+    assert exc_info.value.code == 2
+    assert "positive integer" in capsys.readouterr().err
+
+
 def test_cli_invalid_uri() -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["fastq", "not-a-uri"])

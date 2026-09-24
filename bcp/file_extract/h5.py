@@ -135,6 +135,8 @@ def h5_worker_ceiling(*, do_introspect: bool, workers: int | None = None) -> int
     pool without flooding S3. Checksum-only is one small request per file.
     """
     if workers is not None:
+        if workers < 1:
+            raise ValueError("workers must be a positive integer")
         return workers
     return 8 if do_introspect else 64
 

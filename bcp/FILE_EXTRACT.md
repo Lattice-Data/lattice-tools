@@ -150,7 +150,7 @@ python -m file_extract h5 s3://example-bucket/proj/AN00000001/cohort1_batch1_1 -
 | `--no-introspect` | Checksums and listing only |
 | `--genome` | Add `gene_counts_by_genome` JSON column |
 | `--metrics` | Cross-check against sibling `metrics_summary.csv` |
-| `--workers` | Thread count (default: 8 with introspection, 64 without). The S3 connection pool is sized to this count |
+| `--workers` | Positive thread count (default: 8 with introspection, 64 without). The S3 connection pool is sized to this count |
 | `--retries` | Max attempts per transient S3 error (default: 5) |
 | `--strict` | Exit 1 if any per-file enrichment fails |
 | `-v`, `--verbose` | Debug logging |

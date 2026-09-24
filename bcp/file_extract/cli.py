@@ -75,6 +75,21 @@ def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
         print(f"  ... and {len(warnings) - limit} more warning(s)")
 
 
+def _positive_int(value: str) -> int:
+    """argparse type for a thread count of at least 1."""
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"invalid value {value!r}: expected a positive integer"
+        ) from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError(
+            f"invalid value {value!r}: expected a positive integer"
+        )
+    return parsed
+
+
 def _pilot_flag(value: str) -> bool:
     lowered = value.strip().lower()
     if lowered == "true":
@@ -555,9 +570,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     h5.add_argument(
         "--workers",
-        type=int,
+        type=_positive_int,
         default=None,
-        help="Thread count (default: 8 with introspection, 64 without)",
+        help="Positive thread count (default: 8 with introspection, 64 without)",
     )
     h5.add_argument(
         "--retries",

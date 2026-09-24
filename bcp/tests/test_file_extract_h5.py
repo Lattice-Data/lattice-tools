@@ -77,6 +77,10 @@ def test_h5_worker_ceiling() -> None:
     assert h5_worker_ceiling(do_introspect=True) == 8
     assert h5_worker_ceiling(do_introspect=False) == 64
     assert h5_worker_ceiling(do_introspect=True, workers=3) == 3
+    with pytest.raises(ValueError, match="positive integer"):
+        h5_worker_ceiling(do_introspect=True, workers=0)
+    with pytest.raises(ValueError, match="positive integer"):
+        h5_worker_ceiling(do_introspect=False, workers=-1)
 
 
 def test_extract_h5_forwards_pool_size(tmp_path: Path) -> None:
