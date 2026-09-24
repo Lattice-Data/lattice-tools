@@ -130,16 +130,16 @@ One set per (sample directory, read stem), so separate lanes become separate set
 
 ### H5 mode
 
-Point at a `per_sample_outs` prefix. By default matches `sample_filtered_feature_bc_matrix.h5`, fetches CRC64NVME, and introspects matrix shape (cell count, feature types).
+Point at an order or library prefix, such as `s3://example-bucket/proj/AN00000001`. By default matches `sample_filtered_feature_bc_matrix.h5`, fetches CRC64NVME, and introspects matrix shape (cell count, feature types). The output file is named from the last prefix segment, so that URI writes `AN00000001_h5_info.tsv`.
 
-`sample` is the directory immediately under `per_sample_outs/` in the object key, so it stays correct when the prefix is the library directory rather than `per_sample_outs` itself. `library` remains the folder immediately before `processed/`.
+`sample` is the directory immediately under `per_sample_outs/` in the object key, so it stays correct when the prefix is the order or library directory. `library` remains the folder immediately before `processed/`.
 
 `derived_from` is a JSON list of `{lab}:{fastq_filename}` aliases for the selected FASTQs in the sibling `raw/` of that `processed/` parent. Every h5 under one library directory shares that list. Selected FASTQs are `*.fastq.gz` files whose names do not contain `_sample` or `unmatched`. An h5 with no `processed/` segment, or a `raw/` with no selected FASTQs, writes `[]` and a warning.
 
 ```bash
-python -m file_extract h5 s3://example-bucket/.../outs/per_sample_outs --lab example-lab
-python -m file_extract h5 s3://.../per_sample_outs --lab example-lab --no-introspect
-python -m file_extract h5 s3://.../per_sample_outs --lab example-lab --genome --metrics
+python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab
+python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab --no-introspect
+python -m file_extract h5 s3://example-bucket/proj/AN00000001/cohort1_batch1_1 --lab example-lab --genome --metrics
 ```
 
 | Flag | Description |

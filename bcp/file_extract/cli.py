@@ -515,7 +515,10 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
     )
-    h5.add_argument("s3_uri", help="s3://bucket/.../outs/per_sample_outs")
+    h5.add_argument(
+        "s3_uri",
+        help="s3://bucket/proj/order or s3://bucket/proj/order/library",
+    )
     h5.add_argument(
         "--lab",
         required=True,
