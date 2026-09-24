@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -76,6 +77,29 @@ def test_h5_worker_ceiling() -> None:
     assert h5_worker_ceiling(do_introspect=True) == 8
     assert h5_worker_ceiling(do_introspect=False) == 64
     assert h5_worker_ceiling(do_introspect=True, workers=3) == 3
+
+
+def test_extract_h5_forwards_pool_size(tmp_path: Path) -> None:
+    client = MockS3Client(
+        keys=[H5_KEY],
+        sizes={H5_KEY: 5000},
+        crc_by_key={H5_KEY: "crc-h5"},
+    )
+    out = tmp_path / "h5.tsv"
+    with patch(
+        "file_extract.h5.introspect_h5", return_value=(10, {}, None)
+    ) as mock_intro:
+        summary = extract_h5(
+            client,
+            BUCKET,
+            PREFIX,
+            str(out),
+            lab="example-lab",
+            do_introspect=True,
+            show_progress=False,
+        )
+    assert summary.total == 1
+    mock_intro.assert_called_once_with(BUCKET, H5_KEY, pool_size=8)
 
 
 def test_h5_columns_variants() -> None:

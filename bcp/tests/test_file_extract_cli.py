@@ -191,6 +191,42 @@ def test_cli_h5_checksum_only(
     )
     assert code == 0
     assert mock_extract.call_args.kwargs["lab"] == "example-lab"
+    _assert_s3_pool(mock_boto, 64)
+
+
+@patch("file_extract.cli.check_introspection_deps")
+@patch("file_extract.cli.extract_h5")
+@patch("file_extract.cli.boto3.client")
+def test_cli_h5_introspect_pool_size(
+    mock_boto: MagicMock,
+    mock_extract: MagicMock,
+    _mock_deps: MagicMock,
+    tmp_path: Path,
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1)
+    out = tmp_path / "h5.tsv"
+
+    code = main(
+        [
+            "h5",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(out),
+            "--lab",
+            "/labs/example-lab/",
+            "--quiet",
+        ]
+    )
+    assert code == 0
+    _assert_s3_pool(mock_boto, 8)
+
+
+def _assert_s3_pool(mock_boto: MagicMock, pool_size: int) -> None:
+    assert mock_boto.call_args.args == ("s3",)
+    assert mock_boto.call_args.kwargs["config"].max_pool_connections == pool_size
 
 
 @patch("file_extract.cli.extract_fastq")
