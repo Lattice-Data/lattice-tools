@@ -13,11 +13,11 @@ comment, so it renders as nothing and travels with the comment.
 Two subcommands, both invoked by the workflow:
 
     review_ledger.py extract <previous-comment-body> --out previous-findings.json
-        Recover the ledger from the last completed round's comment and print a
-        one-line JSON summary ({"found": bool, "round": int, "head_sha": str,
-        ...}) for the workflow to turn into step outputs. Exits 0 whether or not
-        a ledger is there: no ledger means the round starts from scratch, not
-        that it fails.
+        Recover the ledger from the last ledger-bearing review comment and
+        print a one-line JSON summary ({"found": bool, "round": int,
+        "head_sha": str, "comments_fetched_at": str, ...}) for the workflow to
+        turn into step outputs. Exits 0 whether or not a ledger is there: no
+        ledger means the round starts from scratch, not that it fails.
 
     review_ledger.py embed --review review.md --findings findings.json \\
         --previous previous-findings.json --round N --head-sha SHA \\
@@ -27,9 +27,11 @@ Two subcommands, both invoked by the workflow:
         footer. A missing or malformed findings.json degrades to re-embedding
         the previous ledger with a visible note, so a round that produced a
         readable review but a broken ledger still posts and loses no state.
+        Exits 3 when the review itself is empty, so the workflow can refuse
+        to post rather than fall back to a bare post.
 
 Everything the reviewer can get wrong about the ledger is handled here rather
-than trusted. The reviewer is a model with a diff to read and eighty turns to
+than trusted. The reviewer is a model with a diff to read and a turn budget to
 read it in, and "every previous finding appears exactly once with a valid
 status" is the kind of invariant to enforce in code, not to ask for nicely.
 """
@@ -48,12 +50,69 @@ SCHEMA = 1
 
 SEVERITIES = ("blocking", "should-fix", "nit", "question", "pre-existing")
 STATUSES = ("open", "resolved", "declined", "withdrawn")
+
+# Spellings a reviewer plausibly writes for the same thing. Keys are in the
+# form _word() produces: lower case, hyphens for spaces and underscores. The
+# review tags ([Q], [PRE-EXISTING]) are here so a model that copies the tag
+# into the ledger is not penalised for it.
+SEVERITY_SYNONYMS = {
+    "blocker": "blocking",
+    "shouldfix": "should-fix",
+    "nitpick": "nit",
+    "nits": "nit",
+    "q": "question",
+    "questions": "question",
+    "preexisting": "pre-existing",
+    "outside": "pre-existing",
+    "outside-this-pr": "pre-existing",
+}
+STATUS_SYNONYMS = {
+    "fixed": "resolved",
+    "done": "resolved",
+    "addressed": "resolved",
+    "answered": "resolved",
+    "wontfix": "declined",
+    "wont-fix": "declined",
+    "won't-fix": "declined",
+    "by-design": "declined",
+    "rejected": "declined",
+    "retracted": "withdrawn",
+    "dropped": "withdrawn",
+    "moot": "withdrawn",
+    "invalid": "withdrawn",
+    "still-open": "open",
+    "unresolved": "open",
+    "reopened": "open",
+    "new": "open",
+}
+
 ID_RE = re.compile(r"^F([1-9][0-9]*)$")
+# Anything the workflow will splice into a shell heredoc or a git command is
+# validated to a strict shape here, so a doctored comment cannot smuggle a
+# newline or an option into either.
+SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+TIMESTAMP_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z$")
+
+# GitHub rejects an issue comment over 65,536 characters. The ledger and the
+# footer must survive intact; the review text is what gives way.
+MAX_BODY_CHARS = 65_000
+TRUNCATION_NOTICE = "\n\n*(review text truncated to fit GitHub's comment size limit)*"
+
+# Placeholders that keep an entry, and so its ID, when the reviewer left out
+# a field. Dropping the entry would orphan the ID in the review text and make
+# it unusable next round, which is worse than a blank.
+MISSING_PATH = "."
+MISSING_TITLE = "(no title recorded)"
 
 DECLINE_HINT = (
-    "To decline a finding, reply on the PR with its ID, for example "
-    "`F3: by design, <reason>`. A declined finding is not raised again."
+    "To decline a finding, reply in the PR conversation with its ID, for "
+    "example `F3: by design, <reason>`. A declined finding is not raised again."
 )
+
+# Exit code for "nothing to post"; the workflow treats any other failure as
+# "post the review bare". Not 2, which is what Python itself exits with for a
+# usage error or a script it cannot open, and which must fall back, not refuse.
+EXIT_EMPTY_REVIEW = 3
 
 
 def warn(message: str) -> None:
@@ -69,8 +128,16 @@ def id_number(finding_id: str) -> int:
     return int(ID_RE.match(finding_id).group(1))
 
 
-def plural(count: int, noun: str) -> str:
-    return f"{count} {noun}" + ("" if count == 1 else "s")
+def plural(count: int, noun: str, plural_noun: str | None = None) -> str:
+    if count == 1:
+        return f"{count} {noun}"
+    return f"{count} {plural_noun or noun + 's'}"
+
+
+def read_text(path: str | Path) -> str:
+    # utf-8-sig, so a byte-order mark - which json.loads rejects - is not a
+    # reason to lose a round's ledger.
+    return Path(path).read_text(encoding="utf-8-sig")
 
 
 def escape_for_comment(blob: str) -> str:
@@ -91,17 +158,21 @@ def ledger_comment(ledger: dict) -> str:
 
 
 def find_ledger(body: str) -> tuple[dict | None, str]:
-    """The ledger embedded in a review comment, or (None, why not)."""
-    start = body.find(LEDGER_PREFIX)
-    if start < 0:
+    """The ledger on the second line of a review comment, or (None, why not).
+
+    Only the line after the marker counts. assemble() always puts it there,
+    and looking anywhere else would let a ledger quoted inside the review
+    text - which a review of this very script might contain - pass for the
+    real one whenever a comment has no ledger of its own.
+    """
+    lines = body.splitlines()
+    if len(lines) < 2 or not lines[1].strip().startswith(LEDGER_PREFIX):
         return None, "the previous review carries no ledger"
-    start += len(LEDGER_PREFIX)
-    # The JSON cannot contain the suffix: every `--` in it was escaped.
-    end = body.find(LEDGER_SUFFIX, start)
-    if end < 0:
+    line = lines[1].strip()
+    if not line.endswith(LEDGER_SUFFIX):
         return None, "the ledger comment is unterminated"
     try:
-        ledger = json.loads(body[start:end])
+        ledger = json.loads(line[len(LEDGER_PREFIX) : -len(LEDGER_SUFFIX)])
     except json.JSONDecodeError as exc:
         return None, f"the ledger is not valid JSON: {exc}"
     if not isinstance(ledger, dict) or not isinstance(ledger.get("findings"), list):
@@ -111,15 +182,18 @@ def find_ledger(body: str) -> tuple[dict | None, str]:
 
 # ---------------------------------------------------------------------------
 # Validation. One entry at a time, so one malformed finding costs that finding
-# and not the round's whole ledger.
+# and not the round's whole ledger; and a blank field costs a placeholder, not
+# the finding.
 # ---------------------------------------------------------------------------
 
 
 def _word(value) -> str:
-    """Normalise an enum-like field: case and underscores are not disagreements."""
+    """Normalise an enum-like field: case, spaces and underscores are not
+    disagreements, and `[Q]` is the tag for `question`."""
     if not isinstance(value, str):
         return ""
-    return value.strip().lower().replace("_", "-")
+    word = value.strip().lower().strip("[]").replace("_", "-")
+    return "-".join(word.split())
 
 
 def _line(value) -> int | None:
@@ -138,31 +212,34 @@ def _text(value) -> str | None:
     return None
 
 
-def clean_finding(raw, position: int) -> tuple[dict | None, str]:
-    """A finding in canonical shape, or (None, what was wrong with it)."""
+def clean_finding(raw, position: int) -> tuple[dict | None, list[str]]:
+    """A finding in canonical shape plus warnings, or (None, [why dropped])."""
     if not isinstance(raw, dict):
-        return None, f"entry {position} is not an object"
+        return None, [f"entry {position} is not an object"]
     finding_id = str(raw.get("id", "")).strip()
     if not ID_RE.match(finding_id):
-        return None, f"entry {position} has no valid id (got {raw.get('id')!r})"
+        return None, [f"entry {position} has no valid id (got {raw.get('id')!r})"]
     severity = _word(raw.get("severity"))
+    severity = SEVERITY_SYNONYMS.get(severity, severity)
     if severity not in SEVERITIES:
-        return (
-            None,
-            f"{finding_id}: severity {raw.get('severity')!r} is not one of {SEVERITIES}",
-        )
+        return None, [
+            f"{finding_id}: severity {raw.get('severity')!r} is not one of {SEVERITIES}"
+        ]
     status = _word(raw.get("status"))
+    status = STATUS_SYNONYMS.get(status, status)
     if status not in STATUSES:
-        return (
-            None,
-            f"{finding_id}: status {raw.get('status')!r} is not one of {STATUSES}",
-        )
+        return None, [
+            f"{finding_id}: status {raw.get('status')!r} is not one of {STATUSES}"
+        ]
+    warnings = []
     path = _text(raw.get("path"))
     if path is None:
-        return None, f"{finding_id}: path is missing"
+        path = MISSING_PATH
+        warnings.append(f"{finding_id}: no path recorded; using {MISSING_PATH!r}")
     title = _text(raw.get("title"))
     if title is None:
-        return None, f"{finding_id}: title is missing"
+        title = MISSING_TITLE
+        warnings.append(f"{finding_id}: no title recorded")
     first_round = raw.get("first_round")
     if (
         isinstance(first_round, bool)
@@ -179,18 +256,20 @@ def clean_finding(raw, position: int) -> tuple[dict | None, str]:
         "title": title,
         "note": _text(raw.get("note")),
         "first_round": first_round,
-    }, ""
+    }, warnings
 
 
-def clean_all(entries: list) -> tuple[list[dict], list[str]]:
-    findings, problems = [], []
+def clean_all(entries: list) -> tuple[list[dict], list[str], list[str]]:
+    """Return (findings, reasons entries were dropped, repair warnings)."""
+    findings, dropped, repaired = [], [], []
     for position, raw in enumerate(entries, start=1):
-        finding, problem = clean_finding(raw, position)
+        finding, messages = clean_finding(raw, position)
         if finding is None:
-            problems.append(problem)
+            dropped.extend(messages)
         else:
             findings.append(finding)
-    return findings, problems
+            repaired.extend(messages)
+    return findings, dropped, repaired
 
 
 def load_findings(path: str | None) -> list | None:
@@ -205,8 +284,8 @@ def load_findings(path: str | None) -> list | None:
     if not file.is_file():
         return None
     try:
-        data = json.loads(file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        data = json.loads(read_text(file))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         warn(f"{path} could not be read as JSON: {exc}")
         return None
     if isinstance(data, dict):
@@ -227,7 +306,7 @@ def load_findings(path: str | None) -> list | None:
 def merge(
     previous: list[dict], reported: list[dict], round_no: int
 ) -> tuple[list[dict], list[str], list[str]]:
-    """Return (findings, carried_forward_ids, problems)."""
+    """Return (findings, open ids carried without a verdict, problems)."""
     problems: list[str] = []
     merged = {f["id"]: f for f in previous}
     highest = max((id_number(f["id"]) for f in previous), default=0)
@@ -263,7 +342,12 @@ def merge(
         else:
             finding["first_round"] = round_no
             new.append(finding)
-    carried = [fid for fid in merged if fid not in seen]
+    # A settled finding the reviewer did not repeat is simply still settled.
+    # An open one it did not repeat has not been looked at, and that is worth
+    # saying out loud.
+    carried = [
+        fid for fid, f in merged.items() if fid not in seen and f["status"] == "open"
+    ]
     new.sort(key=lambda f: id_number(f["id"]))
     findings = list(merged.values()) + new
     for finding in findings:
@@ -277,6 +361,10 @@ def merge(
 # ---------------------------------------------------------------------------
 
 
+def is_open(finding: dict) -> bool:
+    return finding["status"] == "open" and finding["severity"] != "pre-existing"
+
+
 def footer_lines(
     round_no: int,
     head_sha: str,
@@ -284,13 +372,18 @@ def footer_lines(
     carried: list[str],
     notes: list[str],
 ) -> list[str]:
-    open_count = sum(1 for f in findings if f["status"] == "open")
-    settled = len(findings) - open_count
+    open_count = sum(1 for f in findings if is_open(f))
+    outside = sum(
+        1 for f in findings if f["severity"] == "pre-existing" and f["status"] == "open"
+    )
+    settled = len(findings) - open_count - outside
     summary = (
         f"Round {round_no}, reviewed at {head_sha[:7]}: "
-        f"{plural(open_count, 'finding')} open, {settled} settled."
+        f"{plural(open_count, 'finding')} open, {settled} settled"
     )
-    lines = [f"<sub>{summary} {DECLINE_HINT}</sub>"]
+    if outside:
+        summary += f", {plural(outside, 'pre-existing bug')} noted outside this PR"
+    lines = [f"<sub>{summary}. {DECLINE_HINT}</sub>"]
     if carried:
         lines.append(
             "<sub>Carried forward without a verdict this round: "
@@ -302,11 +395,16 @@ def footer_lines(
 
 def assemble(marker: str, ledger: dict, review: str, footer: list[str]) -> str:
     # The marker stays the first line: it is how the next run recognises this
-    # comment as a review to supersede. The ledger comes second so extract()
-    # finds it before any text that might mention the prefix.
-    lines = [marker, ledger_comment(ledger), "", review.rstrip("\n"), ""]
-    lines.extend(footer)
-    return "\n".join(lines) + "\n"
+    # comment as a review to supersede. The ledger is the second line, which
+    # is the only place find_ledger() looks.
+    head = [marker, ledger_comment(ledger), ""]
+    tail = [""] + footer
+    text = review.rstrip("\n")
+    budget = MAX_BODY_CHARS - len("\n".join(head)) - len("\n".join(tail)) - 2
+    if len(text) > budget:
+        text = text[: max(0, budget - len(TRUNCATION_NOTICE))].rstrip()
+        text += TRUNCATION_NOTICE
+    return "\n".join(head + [text] + tail) + "\n"
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +414,7 @@ def assemble(marker: str, ledger: dict, review: str, footer: list[str]) -> str:
 
 def cmd_extract(args: argparse.Namespace) -> int:
     body_file = Path(args.body)
-    body = body_file.read_text(encoding="utf-8") if body_file.is_file() else ""
+    body = read_text(body_file) if body_file.is_file() else ""
     if body.strip():
         ledger, reason = find_ledger(body)
     else:
@@ -327,19 +425,28 @@ def cmd_extract(args: argparse.Namespace) -> int:
         "reason": reason or None,
         "round": None,
         "head_sha": None,
+        "comments_fetched_at": None,
         "findings": 0,
         "open": 0,
     }
     if ledger is not None:
-        findings, problems = clean_all(ledger["findings"])
-        for problem in problems:
-            warn(f"previous ledger: {problem}")
+        findings, dropped, repaired = clean_all(ledger["findings"])
+        for message in dropped + repaired:
+            warn(f"previous ledger: {message}")
         round_no = ledger.get("round")
         head_sha = ledger.get("head_sha")
+        fetched_at = ledger.get("comments_fetched_at")
         cleaned = {
             "schema": SCHEMA,
-            "round": round_no if isinstance(round_no, int) else None,
-            "head_sha": head_sha if isinstance(head_sha, str) and head_sha else None,
+            "round": round_no if isinstance(round_no, int) and round_no > 0 else None,
+            "head_sha": head_sha
+            if isinstance(head_sha, str) and SHA_RE.match(head_sha)
+            else None,
+            "comments_fetched_at": (
+                fetched_at
+                if isinstance(fetched_at, str) and TIMESTAMP_RE.match(fetched_at)
+                else None
+            ),
             "findings": findings,
         }
         Path(args.out).write_text(
@@ -350,8 +457,9 @@ def cmd_extract(args: argparse.Namespace) -> int:
             reason=None,
             round=cleaned["round"],
             head_sha=cleaned["head_sha"],
+            comments_fetched_at=cleaned["comments_fetched_at"],
             findings=len(findings),
-            open=sum(1 for f in findings if f["status"] == "open"),
+            open=sum(1 for f in findings if is_open(f)),
         )
     print(json.dumps(summary))
     return 0
@@ -359,18 +467,18 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
 def cmd_embed(args: argparse.Namespace) -> int:
     review_file = Path(args.review)
-    review = review_file.read_text(encoding="utf-8") if review_file.is_file() else ""
+    review = read_text(review_file) if review_file.is_file() else ""
     if not review.strip():
         print(
             f"::error::{args.review} is missing or empty; nothing to post",
             file=sys.stderr,
         )
-        return 1
+        return EXIT_EMPTY_REVIEW
 
     previous_raw = load_findings(args.previous)
-    previous, problems = clean_all(previous_raw or [])
-    for problem in problems:
-        warn(f"previous ledger: {problem}")
+    previous, dropped, repaired = clean_all(previous_raw or [])
+    for message in dropped + repaired:
+        warn(f"previous ledger: {message}")
 
     notes: list[str] = []
     reported_raw = load_findings(args.findings)
@@ -384,19 +492,25 @@ def cmd_embed(args: argparse.Namespace) -> int:
         else:
             notes.append("The reviewer did not record a findings ledger this round.")
     else:
-        reported, problems = clean_all(reported_raw)
-        for problem in problems:
-            warn(f"findings.json: {problem}")
-        if problems:
-            count = len(problems)
+        reported, dropped, repaired = clean_all(reported_raw)
+        for message in dropped + repaired:
+            warn(f"findings.json: {message}")
+        if dropped:
             notes.append(
-                f"{count} malformed ledger {'entry was' if count == 1 else 'entries were'} "
+                f"{plural(len(dropped), 'malformed ledger entry was', 'malformed ledger entries were')} "
                 "dropped this round; see the job log."
             )
 
     findings, carried, problems = merge(previous, reported, args.round)
     for problem in problems:
         warn(f"findings.json: {problem}")
+    if problems:
+        # These IDs may still appear in the review text, so the reader has to
+        # be told they are not in the ledger.
+        notes.append(
+            f"{plural(len(problems), 'finding')} in this review could not be "
+            "recorded in the ledger (a reused or duplicated ID); see the job log."
+        )
     if carried and reported_raw is not None:
         warn(f"carried forward without a verdict: {', '.join(carried)}")
     # When the whole ledger was missing, the note above already says so; a
@@ -409,6 +523,13 @@ def cmd_embed(args: argparse.Namespace) -> int:
         "head_sha": args.head_sha,
         "findings": findings,
     }
+    if args.comments_fetched_at:
+        if TIMESTAMP_RE.match(args.comments_fetched_at):
+            ledger["comments_fetched_at"] = args.comments_fetched_at
+        else:
+            warn(
+                f"ignoring malformed --comments-fetched-at {args.comments_fetched_at!r}"
+            )
     body = assemble(
         args.marker,
         ledger,
@@ -416,11 +537,11 @@ def cmd_embed(args: argparse.Namespace) -> int:
         footer_lines(args.round, args.head_sha, findings, shown_carried, notes),
     )
     Path(args.out).write_text(body, encoding="utf-8")
-    open_count = sum(1 for f in findings if f["status"] == "open")
     print(
         f"round {args.round}: {len(findings)} findings in the ledger, "
-        f"{open_count} open, {len(carried)} carried forward, "
-        f"{len(findings) - len(previous)} new"
+        f"{sum(1 for f in findings if is_open(f))} open, "
+        f"{len(carried)} carried forward without a verdict, "
+        f"{len(findings) - len(previous)} new, {len(body)} characters"
     )
     return 0
 
@@ -443,6 +564,10 @@ def main(argv: list[str] | None = None) -> int:
     embed.add_argument("--previous", help="the previous round's ledger, if any")
     embed.add_argument("--round", type=int, required=True)
     embed.add_argument("--head-sha", required=True)
+    embed.add_argument(
+        "--comments-fetched-at",
+        help="when this round read the author's comments; the next round reads from here",
+    )
     embed.add_argument(
         "--marker", required=True, help="first line of every review comment"
     )
