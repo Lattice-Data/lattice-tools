@@ -91,6 +91,8 @@ Then open <http://localhost:8050>.
 | `--mode` | DB2 instance (default `db2_prod`). Must start with `db2_`. |
 | `--fetch-new` | Fetch profile schemas from the instance instead of reading `constants.yaml`. |
 | `Hold View` | Toolbar checkbox (not a flag). Stops the canvas refitting on every draw — see [Using it](#using-it). |
+| `Hold Layout` | Toolbar checkbox (not a flag). Stops the layout re-running, so drawn nodes stay put — see [Using it](#using-it). |
+| `columns by type` | Layout dropdown entry (not a flag). Vertical columns in pipeline order — see [Using it](#using-it). |
 | `--port` | Default `8050`. |
 | `--debug` | Dash debug mode with hot reload. |
 
@@ -140,22 +142,56 @@ default one.
   when new elements land *entirely* off screen, so loading a seed somewhere else
   on the canvas still snaps to it.
 
-  What it does **not** do is stop the graph moving under you. Every element
-  change re-runs the layout, and dagre re-flows the whole arrangement when
-  nodes are added — so neighbours shift even though the viewport does not. The
-  box holds your window, not the positions inside it.
+  It holds your window, not the positions inside it — for those, tick
+  `Hold Layout` as well.
+- **`Hold Layout`** stops the graph moving under you. Off by default, and
+  independent of `Hold View`: that one holds the viewport, this one holds the
+  arrangement. Normally every add or remove re-runs the chosen layout, and
+  dagre re-flows the *whole* graph when one node arrives — so expanding a leaf
+  rearranges everything you were reading. Tick the box and nodes and edges
+  already drawn stay exactly where they are, including any you dragged there
+  by hand.
+
+  New nodes have to go somewhere, and cytoscape drops a node with no position
+  at the origin, so every expansion places its own: a ring around the node you
+  clicked, spilling onto further rings for a wide fan. (This happens whether
+  or not the box is ticked — a running layout is free to overrule the ring,
+  but it does not run until 100ms after the nodes land, which is long enough
+  to watch them pile into the corner.) They are not laid out — nothing stops
+  one landing on top of something else — so a held session eventually wants
+  tidying.
+
+  Three things still re-arrange the graph, all of them things you asked for:
+  picking a layout from the dropdown, unticking the box, and pressing **Load**
+  (a new seed has no positions to hold, so it gets one layout run). Holding
+  also outranks `columns by type`, which otherwise re-columns on every draw.
 
 - **Node colours** come from the `NodeColor` enum in `models.py`, keyed by the
   abstract class (so `Tissue`, `CellLine`, and `Organoid` all read as
   `Biosample`). Unmapped types fall back to grey.
-- **Wide fans collapse.** A fan larger than the "draw up to N neighbors"
-  budget (default `DRAW_BUDGET = 25`) puts each oversized type behind one
-  placeholder like `RawMatrixFile × 512`. Clicking a placeholder opens a
-  searchable multi-select in the side panel — tick as many members as you want
-  and only those land on the canvas. "Fan out all N" draws the lot.
+- **Wide fans are held back.** A fan larger than the "draw up to N
+  neighbors" budget (default `DRAW_BUDGET = 25`) leaves each type with more
+  than `FAN_THRESHOLD` members off the canvas. Neighbors already drawn never
+  count toward either limit and always get their edge, so expanding a node
+  whose fan is already on screen just links it.
 
   This is not cosmetic: a 512-wide fan lays out roughly 23,000px tall and is
   unreadable at any zoom, and drawing it costs 512 label fetches.
+- **One placeholder per type**, like `DropletBasedLibrary 2 out of 48`, sits
+  unconnected at the top of that type's column in `columns by type`. It lists
+  every node of the type the canvas knows of: the ones drawn, and the ones any
+  expanded node references. The count is how many of those are drawn, out of
+  all of them.
+  Clicking it opens a searchable multi-select in the side panel; "Fan out all
+  N" draws every member. Every type on the canvas gets one, whether or not
+  anything is held back, so it is also where a drawn node is found and
+  cleared. A type with nothing drawn yet gets a column of its placeholder
+  alone.
+
+  Membership comes from the whole canvas, not from one click: when four
+  CellLines reference the same 48 libraries there is one `DropletBasedLibrary`
+  placeholder, and a library drawn from it is linked to every expanded node
+  that references it.
 
   **The ticks are the canvas.** A member that is drawn shows as ticked, and
   unticking it takes it back off — so the same picker prunes a fan as well as
@@ -171,16 +207,46 @@ default one.
 - **Layout** is picked from the graph's shape on load — `concentric` when one
   node touches ≥80% of the others (a star), `dagre` otherwise (lineage
   chains). Change it from the dropdown at any time; expansions never override
-  your choice.
+  your choice. Picking one always re-runs it, `Hold Layout` or not.
+- **`columns by type`** draws the graph as vertical columns in pipeline
+  order, left to right:
+
+  ```
+  Donor → GeneticModification/Treatment/ExperimentalCondition/TabularFile → 
+  Biosample → Library → SequenceFileSet → SequenceFile →
+  RawMatrixFile/ProcessedMatrixFile → MatrixFileSet
+  ```
+
+  A column is a *legend bucket*, not an `api_name`, so `Tissue`, `CellLine`
+  and `Organoid` line up together the same way they share a colour, and a new
+  Biosample subtype needs no code change. Anything the legend does not map
+  gets a trailing column of its own rather than being hidden in someone
+  else's. Empty columns are packed out, so a graph with no libraries has no
+  gutter where they would have been.
+
+  Rows are not alphabetical: after an initial sort by label, two barycentre
+  passes pull each node level with its neighbours in the columns either side.
+  Without them a column of 30 files faces its donors in an unrelated order and
+  every edge crosses every other.
+
+  Unlike the others this one is computed in Python (`column_positions()`) and
+  handed to cytoscape as a `preset` — none of the bundled layouts can group by
+  an attribute, and dagre ranks by distance from a root, which puts a Tissue
+  and a SequenceFile in the same column whenever the path lengths happen to
+  match. Being a positions map, it has to be rebuilt whenever nodes are drawn
+  or removed, so it re-runs on every draw. Dragging alone does not trigger it,
+  but a node you drag snaps back on the next draw. Tick `Hold Layout` if you
+  want your own arrangement to stick.
 - **"Show types"** at the bottom of the panel toggles whole node types.
-- The status line reports real counts — `64 drawn`, `512 RawMatrixFile
-  grouped` — and turns red on failure, since an empty canvas otherwise looks
-  identical to a silent 404.
+- The status line reports real counts — `64 drawn`, `512 RawMatrixFile in its
+  placeholder` — and turns red on failure, since an empty canvas otherwise
+  looks identical to a silent 404. Placeholders are not counted as nodes.
 
 ### Cost per click
 
 One authenticated GET for the clicked object, plus one batched report per
-neighbor type actually drawn. Grouped types cost nothing until you open them,
+neighbor type actually drawn. Held-back types cost nothing until you open their
+placeholder,
 because an object's type is readable from its path without fetching it.
 
 Objects referenced by types in `EXCLUDED_SCHEMAS` (`labs`, `users`, `terms`,
@@ -243,7 +309,7 @@ between unrelated graphs.
 |------|------|
 | `cli.py` / `__main__.py` | Argument parsing and entry point for `python -m graph_db2`. |
 | `explorer.py` | Dash app: layout, stylesheet, callbacks, layout heuristic. |
-| `cyto_elements.py` | Graph logic with no Dash dependency — path normalization, one-hop expansion, grouping, element construction. |
+| `cyto_elements.py` | Graph logic with no Dash dependency — path normalization, one-hop expansion, placeholders, element construction. |
 | `models.py` | `LatticeNode` (lazy, API-backed, class-level cache), `NodeColor`, batch-request helpers. |
 | `graphing.py` | Whole-graph walk and pyvis element construction. |
 | `connection.py` | Cached `Connection` per mode. |
@@ -251,7 +317,7 @@ between unrelated graphs.
 | `constants.py` | Defaults, `EXCLUDED_SCHEMAS`, `ABSTRACT_MAPPING`. |
 | `graphing_playground.ipynb` | Scratch notebook for the pyvis path. |
 
-`cyto_elements.py` holds no Dash imports on purpose, so expansion and grouping
+`cyto_elements.py` holds no Dash imports on purpose, so expansion and placeholders
 can be driven from a notebook or a test without starting a server.
 
 ---
@@ -268,12 +334,26 @@ can be driven from a notebook or a test without starting a server.
   keyed by mode. One Dash worker, one mode per process. Adding an in-app mode
   switcher would need a mode dimension on both, or prod and demo objects with
   colliding paths will cross-contaminate.
-- **Re-expanding a node whose group you already fanned out** re-creates the
-  placeholder.
+- **Placeholders only show in `columns by type`.** Every other layout hides
+  them, since only this one has a top of a column to put them at. So in dagre
+  or concentric, a held-back fan cannot be reached until you switch back.
+- **A placeholder's panel is a snapshot.** Its member list is read when you
+  click it, so a node discovered while the panel is open shows up in the
+  picker after you click the placeholder again.
+- **An expansion places new nodes, it does not lay them out.** They ring the
+  node you expanded without consulting the rest of the canvas, so they can
+  land on top of something already drawn. Under `Hold Layout` that is where
+  they stay: a layout that arranged only the new nodes would need the whole
+  graph as fixed constraints, which none of the bundled cytoscape layouts
+  take.
+- **`columns by type` re-columns on every draw**, which costs a round trip
+  and a positions map for the whole graph each time, and undoes anything you
+  dragged since the last draw. It is a `preset`, so there is nothing for
+  cytoscape to re-run incrementally. Tick `Hold Layout` to stop it.
 - **Unticking a member removes it even if another expansion drew it too.** The
   picker's ticks mean "on the canvas", and a node is on the canvas once
   regardless of how many paths led to it. Unticking it also removes the edges
-  those other expansions contributed; re-expanding the neighbor puts them back.
+  those other expansions contributed; ticking it again puts them all back.
 - **Full URLs are not accepted** as a seed — a path, alias or uuid, not
   `https://api.data.lattice-data.org/matrix_file_sets/<uuid>/`.
 - **A seed costs one extra request the first time.** Resolving it is a GET, and

@@ -1,5 +1,6 @@
 from collections import Counter
 from collections.abc import Collection
+from itertools import count
 
 import dash_cytoscape as cyto
 import requests
@@ -9,11 +10,10 @@ from .cyto_elements import (
     DRAW_BUDGET,
     FAN_THRESHOLD,
     already_drawn,
+    column_positions,
     css_color,
-    drop_node,
     drop_nodes,
     expand,
-    explode,
     fan_summary,
     fetch_labels,
     label_for,
@@ -22,9 +22,11 @@ from .cyto_elements import (
     merge_elements,
     neighbors_drawn,
     object_url,
+    place_expansion,
     promote_members,
     properties_of,
     resolve_seed,
+    settle,
 )
 from .models import LatticeNode, NodeColor
 
@@ -46,15 +48,20 @@ LAYOUTS = {
         "rankSep": 90,
         **FIT,
     },
+    # a preset, so it arrives as a positions map rather than an arrangement
+    # cytoscape works out for itself; see column_positions()
+    "columns by type": {"name": "preset", **FIT},
     "breadthfirst": {"name": "breadthfirst", "spacingFactor": 1.1, **FIT},
     "cose-bilkent": {"name": "cose-bilkent", "nodeRepulsion": 9000, **FIT},
     "concentric": {"name": "concentric", "minNodeSpacing": 30, **FIT},
 }
-DEFAULT_LAYOUT = "dagre (left to right)"
+DEFAULT_LAYOUT = "columns by type"
+COLUMN_LAYOUT = "columns by type"
 # only valid on DEFAULT_MODE's server; see main()
 SAMPLE_SEED = "/matrix_file_sets/f1ef71ee-98d8-4145-84a7-24b68bcc769e/"
-# dcc.Checklist value for the hold-view box; [] is unticked
+# dcc.Checklist values for the two hold boxes; [] is unticked
 KEEP_VIEW = "keep"
+HOLD_LAYOUT = "hold"
 
 BASE_STYLESHEET = [
     {
@@ -85,12 +92,14 @@ BASE_STYLESHEET = [
         "style": {
             "shape": "round-rectangle",
             "width": 122,
-            "height": 24,
+            # two lines: the type, then "2 out of 48"
+            "height": 34,
             "border-width": 2,
             "border-color": "#888",
             "font-size": "10px",
             "text-valign": "center",
             "text-margin-y": 0,
+            "text-wrap": "wrap",
             "text-max-width": "116px",
         },
     },
@@ -142,10 +151,16 @@ def status_text(message: str, ok: bool = True) -> html.Span:
     )
 
 
+def is_node(element: dict) -> bool:
+    """A real node: not an edge, and not a type's placeholder"""
+    return "source" not in element["data"] and not element["data"].get("is_group")
+
+
 def element_counts(elements: list[dict]) -> str:
-    """'12 nodes, 11 edges' for the status line"""
-    nodes = sum(1 for element in elements if "source" not in element["data"])
-    return f"{nodes} nodes, {len(elements) - nodes} edges"
+    """'12 nodes, 11 edges' for the status line, placeholders not counted"""
+    nodes = sum(1 for element in elements if is_node(element))
+    edges = sum(1 for element in elements if "source" in element["data"])
+    return f"{nodes} nodes, {edges} edges"
 
 
 def suggest_layout(elements: list[dict]) -> str:
@@ -157,7 +172,7 @@ def suggest_layout(elements: list[dict]) -> str:
     the same fan in a readable ring. Only used for a freshly loaded seed; once
     the user has picked a layout, expansions leave it alone.
     """
-    nodes = [element for element in elements if "source" not in element["data"]]
+    nodes = [element for element in elements if is_node(element)]
     if len(nodes) < 12:
         return DEFAULT_LAYOUT
 
@@ -171,21 +186,48 @@ def suggest_layout(elements: list[dict]) -> str:
     return "concentric" if hub >= 0.8 * (len(nodes) - 1) else DEFAULT_LAYOUT
 
 
-def layout_for(name: str, keep_view: bool = False) -> dict:
+def computed_here(name: str) -> bool:
     """
-    A layout dict with auto-fit turned off while the user is holding their view.
+    Whether this layout is worked out in Python rather than by cytoscape.
 
-    `fit` is the whole mechanism. Every element or stylesheet change re-renders
-    the Cytoscape component, and react-cytoscapejs compares the layout prop by
-    identity - Dash rebuilds it from JSON every time, so it always looks new and
-    the layout always re-runs. With fit on, that re-run ends in cy.fit(), which
-    is the zoom-out that loses your place on a large graph.
-
-    Turning it off does not strand you: dash-cytoscape still calls cy.fit()
-    itself when new elements land *entirely* outside the viewport, so loading a
-    seed somewhere else on the canvas still snaps to it.
+    A `preset` is nothing but a positions map, so it has to be rebuilt from the
+    canvas every time the canvas changes - unlike dagre, which cytoscape can
+    re-run on whatever elements it finds.
     """
-    return {**LAYOUTS[name], "fit": not keep_view}
+    return LAYOUTS[name]["name"] == "preset"
+
+
+def layout_for(
+    name: str,
+    keep_view: bool = False,
+    nonce: int | None = None,
+    elements: list[dict] | None = None,
+) -> dict:
+    """
+    A layout dict for cytoscape: which arrangement, whether it auto-fits,
+    optionally a nonce that forces it to be treated as new, and - for a layout
+    computed here - the positions it consists of.
+
+    Two separate things run a layout, and the toolbar leans on both.
+    dash-cytoscape re-runs it on every add or remove while `autoRefreshLayout`
+    is on - that is the run Hold View defuses by turning `fit` off, since the
+    run itself is cheap but the cy.fit() at the end of it is the zoom-out that
+    loses your place on a large graph. Turning fit off does not strand you:
+    dash-cytoscape still fits when new elements land *entirely* outside the
+    viewport, so loading a seed elsewhere on the canvas still snaps to it.
+
+    react-cytoscapejs also runs a layout whenever the layout *prop* changes,
+    comparing the dict key by key - so re-sending an identical one does
+    nothing, and a re-layout the user actually asked for (picking one from the
+    dropdown, releasing Hold Layout, loading a new seed) needs `nonce` to make
+    the dict differ. Cytoscape ignores options it does not recognize.
+    """
+    layout = {**LAYOUTS[name], "fit": not keep_view}
+    if computed_here(name):
+        layout["positions"] = column_positions(elements or [])
+    if nonce is not None:
+        layout["nonce"] = nonce
+    return layout
 
 
 def legend() -> html.Div:
@@ -238,10 +280,10 @@ def detail_panel(
         return [
             html.H4(node_data["label"], style={"margin": "0 0 4px"}),
             html.P(
-                f"{len(members)} {node_data['node_type']} references, collapsed "
-                "because the whole fan is over the draw budget. Ticked members "
-                "are the ones on the canvas - search and tick to draw, untick "
-                "to take one off again.",
+                f"Every {node_data['node_type']} found so far: the ones on the "
+                "canvas, and the ones any expanded node references. Ticked "
+                "members are the ones on the canvas - search and tick to draw, "
+                "untick to take one off again.",
                 style={"marginTop": 0},
             ),
             dcc.Dropdown(
@@ -313,7 +355,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
             # is what the graph is keyed by
             seed = resolve_seed(seed, mode)
             seed_nodes, seed_edges = expand(seed, gatherer, mode=mode)
-            elements = merge_elements([], seed_nodes, seed_edges)
+            elements = settle(merge_elements([], seed_nodes, seed_edges))
             status = status_text(f"{seed} - {fan_summary(seed_nodes)}")
             notice = detail_panel(None, mode)
         except (requests.HTTPError, ValueError, KeyError) as error:
@@ -368,7 +410,8 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                         title=(
                             "Fans this size or smaller are drawn in full. Past it, "
                             f"any type with more than {FAN_THRESHOLD} members "
-                            "collapses into a placeholder you can search."
+                            "is left off the canvas - pick them from that "
+                            "type's placeholder at the top of its column."
                         ),
                         style={"whiteSpace": "nowrap", "color": "#555"},
                     ),
@@ -392,6 +435,21 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                             "Stop the canvas re-centering and zooming to fit "
                             "every time nodes are drawn. Untick to fit the "
                             "whole graph again."
+                        ),
+                    ),
+                    html.Div(
+                        dcc.Checklist(
+                            id="keep-layout",
+                            options=[{"label": " Hold Layout", "value": HOLD_LAYOUT}],
+                            value=[],
+                            style={"whiteSpace": "nowrap", "color": "#555"},
+                        ),
+                        title=(
+                            "Stop the layout re-running when nodes are drawn, "
+                            "so everything already on the canvas stays exactly "
+                            "where it is. New nodes land in a ring around "
+                            "whatever you expanded. Pick a layout, or untick "
+                            "this, to re-arrange the graph again."
                         ),
                     ),
                     html.Span(
@@ -418,10 +476,14 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                         cyto.Cytoscape(
                             id="graph",
                             elements=elements,
-                            layout=layout_for(initial_layout),
+                            layout=layout_for(initial_layout, elements=elements),
                             stylesheet=BASE_STYLESHEET,
                             style={"width": "100%", "height": "100%"},
                             boxSelectionEnabled=True,
+                            # the switch Hold Layout throws: with it on,
+                            # dash-cytoscape re-runs the layout on every add
+                            # and remove. hold_layout() owns it from here.
+                            autoRefreshLayout=True,
                             # first layout runs before the flex child has its
                             # final width, so re-fit once the container settles
                             responsive=True,
@@ -456,6 +518,12 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                 # leaves, instead of forcing its content height onto the page
                 style={"display": "flex", "flex": "1 1 auto", "minHeight": 0},
             ),
+            # A bump here means "run the layout now". Written by grow_graph on
+            # Load and read by choose_layout, rather than grow_graph reaching
+            # for graph.layout itself: two writers of that prop would race, and
+            # going through a Store also orders the run after the elements it
+            # is meant to arrange.
+            dcc.Store(id="relayout", data=0),
         ],
         # Fixed to the viewport rather than sized with calc(100vh - toolbar):
         # that magic number ignored the body's default margin, so the panel
@@ -479,17 +547,27 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         Output("graph", "elements"),
         Output("status", "children"),
         Output("layout-choice", "value"),
+        Output("relayout", "data"),
         Input("load", "n_clicks"),
         Input("graph", "tapNodeData"),
         State("seed", "value"),
         State("fan", "value"),
         State("graph", "elements"),
+        State("keep-layout", "value"),
+        # tapNodeData is the Input because it is what changes; tapNode is the
+        # same tap with the node's live position on it, which is where a held
+        # expansion hangs its new nodes
+        State("graph", "tapNode"),
+        State("relayout", "data"),
         prevent_initial_call=True,
     )
-    def grow_graph(_clicks, tapped, seed_value, fan, elements):
+    def grow_graph(
+        _clicks, tapped, seed_value, fan, elements, keep_layout, tap_node, runs
+    ):
         budget = int(fan) if fan else 0
         elements = elements or []
         loading = ctx.triggered_id == "load"
+        held = HOLD_LAYOUT in (keep_layout or [])
 
         if loading:
             if not seed_value:
@@ -497,17 +575,23 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                     no_update,
                     status_text("Enter a path, alias or uuid to load.", ok=False),
                     no_update,
+                    no_update,
                 )
             try:
                 # resolved here rather than left to expand() so the status line
                 # can name the object an alias or uuid turned out to be
                 target = resolve_seed(seed_value, mode)
             except ValueError as error:
-                return no_update, status_text(str(error), ok=False), no_update
+                return (
+                    no_update,
+                    status_text(str(error), ok=False),
+                    no_update,
+                    no_update,
+                )
             elements = []
         else:
             if not tapped:
-                return no_update, no_update, no_update
+                return no_update, no_update, no_update, no_update
             target = tapped["id"]
             # a group tap only opens the side panel; fanning out hundreds of
             # nodes needs the explicit button there
@@ -515,6 +599,7 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                 return (
                     no_update,
                     status_text(f"{tapped['label']} - choose from the panel."),
+                    no_update,
                     no_update,
                 )
             # canvas state, not the fetch cache: a reload empties the canvas
@@ -525,25 +610,44 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
                     no_update,
                     status_text(f"{tapped['label']} is already expanded."),
                     no_update,
+                    no_update,
                 )
 
         try:
-            nodes, edges = expand(target, gatherer, mode=mode, draw_budget=budget)
+            nodes, edges = expand(
+                target,
+                gatherer,
+                mode=mode,
+                draw_budget=budget,
+                on_canvas=[element["data"]["id"] for element in elements],
+            )
         except (requests.HTTPError, ValueError, KeyError) as error:
             return (
                 no_update,
                 status_text(f"Could not load {target}: {error}", ok=False),
                 no_update,
+                no_update,
             )
         action = f"{target} - {fan_summary(nodes)}"
 
-        merged = merge_elements(elements, nodes, edges)
+        # unconditional, not just while the layout is held: cytoscape drops a
+        # positionless node at the origin, and even when a layout is about to
+        # move it there is a beat where the whole expansion sits in a pile in
+        # the corner. Nothing to anchor to on a Load, which starts empty.
+        if not loading:
+            nodes = place_expansion(nodes, elements, tap_node, target)
+
+        merged = settle(merge_elements(elements, nodes, edges))
         return (
             merged,
             status_text(f"{action} - {element_counts(merged)}"),
             # a new seed replaces the graph, so re-pick the layout for its shape;
             # an expansion builds on what the user is already looking at
             suggest_layout(merged) if loading else no_update,
+            # a fresh graph has no positions to hold, so a held layout still
+            # has to run once for it - otherwise every node of it is stacked
+            # on the origin
+            (runs or 0) + 1 if loading and held else no_update,
         )
 
     @app.callback(
@@ -570,28 +674,81 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
     @app.callback(
         Output("graph", "stylesheet"),
         Input("type-filter", "value"),
+        Input("layout-choice", "value"),
         State("type-filter", "options"),
     )
-    def filter_by_type(selected, options):
+    def filter_by_type(selected, choice, options):
         hidden = [name for name in (options or []) if name not in (selected or [])]
-        return BASE_STYLESHEET + [
+        rules = [
             {
                 "selector": f'node[node_type = "{name}"]',
                 "style": {"display": "none"},
             }
             for name in hidden
         ]
+        # a placeholder sits at the top of its column, and only one layout has
+        # columns - anywhere else it would be a loose node in a random spot
+        if choice != COLUMN_LAYOUT:
+            rules.append({"selector": "node[?is_group]", "style": {"display": "none"}})
+        return BASE_STYLESHEET + rules
 
-    # The only writer of graph.layout, so there is nothing to race with. Both
-    # inputs re-emit the dict: picking a layout re-runs it, and unticking the
-    # box is how the user asks for a fit back to the whole graph.
+    # Every layout run this app asks for on purpose. Each input re-emits the
+    # dict, and emitting it is what runs it: picking a layout, unticking
+    # Hold View to fit the whole graph again, releasing Hold Layout, a bump
+    # from Load, or - for a layout computed here - nodes being drawn or taken
+    # off the canvas under it. Still the only writer of graph.layout, so there is nothing to race
+    # with.
+    runs = count()
+
     @app.callback(
         Output("graph", "layout"),
         Input("layout-choice", "value"),
         Input("keep-view", "value"),
+        Input("keep-layout", "value"),
+        Input("relayout", "data"),
+        Input("graph", "elements"),
+        # what was last sent, whose positions say which nodes it arranged
+        State("graph", "layout"),
     )
-    def choose_layout(choice, keep_view):
-        return layout_for(choice, KEEP_VIEW in (keep_view or []))
+    def choose_layout(choice, keep_view, keep_layout, _bump, elements, current):
+        held = HOLD_LAYOUT in (keep_layout or [])
+        # exact sets, not ctx.triggered_id: Load changes the elements and bumps
+        # relayout in one go, and reading only the first of the two would drop
+        # the run it asked for
+        triggers = set(ctx.triggered_prop_ids.values())
+
+        # ticking Hold Layout says "leave what is on screen alone", so it must
+        # not be the one thing that re-arranges it. Releasing it re-runs the
+        # layout, which is the gesture for tidying the graph back up.
+        if held and triggers == {"keep-layout"}:
+            return no_update
+        # the canvas moving on its own only re-runs the layout that is built
+        # from the canvas, and only while the user is not holding it
+        if triggers == {"graph"} and (held or not computed_here(choice)):
+            return no_update
+        # dash-cytoscape pushes elements back on a drag as well as on add and
+        # remove. Only a change in which nodes are drawn leaves the preset
+        # without a place for one; re-columning on a drag would snap the
+        # dragged node straight back.
+        drawn = {
+            element["data"]["id"]
+            for element in elements or []
+            if "source" not in element["data"]
+        }
+        if triggers == {"graph"} and drawn == set((current or {}).get("positions", {})):
+            return no_update
+        return layout_for(choice, KEEP_VIEW in (keep_view or []), next(runs), elements)
+
+    # Separate from choose_layout so each prop keeps one writer. This is the
+    # switch itself: off, dash-cytoscape stops re-running the layout on every
+    # add and remove, and nodes stay where they are until something above
+    # explicitly asks for a run.
+    @app.callback(
+        Output("graph", "autoRefreshLayout"),
+        Input("keep-layout", "value"),
+    )
+    def hold_layout(keep_layout):
+        return HOLD_LAYOUT not in (keep_layout or [])
 
     # Rebuilding the panel is how the fan-out button re-ticks the picker. The
     # alternative - making member-pick.value both an input and an output of this
@@ -605,9 +762,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         Input("fan-out", "n_clicks"),
         State("graph", "tapNodeData"),
         State("graph", "elements"),
+        State("graph", "tapNode"),
         prevent_initial_call=True,
     )
-    def draw_group_members(picked, clicks, tapped, elements):
+    def draw_group_members(picked, clicks, tapped, elements, tap_node):
         if not tapped or not tapped.get("is_group"):
             return no_update, no_update, no_update
 
@@ -619,9 +777,13 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         # through to the difference below is safe either way - after a fan-out
         # there is nothing left to apply.
         if ctx.triggered_id == "fan-out" and clicks:
-            nodes, edges = explode(tapped, gatherer, mode=mode)
-            # the placeholder is gone once its members are all on the canvas
-            merged = merge_elements(drop_node(elements, tapped["id"]), nodes, edges)
+            drawn = set(already_drawn(elements, members))
+            waiting = [path for path in members if path not in drawn]
+            nodes = promote_members(waiting, gatherer)
+            # around where the placeholder is standing
+            nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
+            # the placeholder stays - it is the type's, not this fan's
+            merged = settle(merge_elements(elements, nodes, []))
             return (
                 merged,
                 status_text(
@@ -645,12 +807,10 @@ def build_app(seed: str, mode: str, fetch_new: bool) -> Dash:
         if not additions and not removals:
             return no_update, no_update, no_update
 
-        nodes, edges = (
-            promote_members(additions, tapped["parent_path"], gatherer, mode)
-            if additions
-            else ([], [])
-        )
-        merged = merge_elements(drop_nodes(elements, removals), nodes, edges)
+        nodes = promote_members(additions, gatherer) if additions else []
+        if nodes:
+            nodes = place_expansion(nodes, elements, tap_node, tapped["id"])
+        merged = settle(merge_elements(drop_nodes(elements, removals), nodes, []))
 
         parts = []
         if additions:

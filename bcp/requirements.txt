@@ -21,7 +21,7 @@ rdkit>=2024.3.1
 # Dependencies for graph_db2
 dash>=2.0.0
 dash-cytoscape>=1.0.0
-db2-flattener @ git+https://github.com/Lattice-Data/db2-flattener@a7e1b805
+db2-flattener @ git+https://github.com/Lattice-Data/db2-flattener@v0.1.0
 
 # Testing dependencies
 pytest>=6.0.0

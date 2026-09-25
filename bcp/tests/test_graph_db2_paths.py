@@ -5,14 +5,13 @@ from __future__ import annotations
 import pytest
 
 from graph_db2.cyto_elements import (
-    GROUP_SEPARATOR,
     UNMAPPED_COLOR,
     canonical_id,
     color_for,
     css_color,
     edge_element,
-    group_id,
     normalize_path,
+    placeholder_id,
 )
 from graph_db2.models import GraphDB2Error, LatticeNode, NodeColor
 
@@ -225,13 +224,11 @@ def test_edge_element_endpoints_are_the_given_paths() -> None:
     }
 
 
-def test_group_id_is_namespaced_under_its_parent() -> None:
-    parent = "/matrix_file_sets/x/"
-    assert (
-        group_id(parent, "RawMatrixFile") == f"{parent}{GROUP_SEPARATOR}RawMatrixFile"
-    )
+def test_placeholder_ids_differ_per_type() -> None:
+    assert placeholder_id("RawMatrixFile") != placeholder_id("SequenceFile")
 
 
-def test_group_ids_differ_per_parent_and_type() -> None:
-    assert group_id("/a/1/", "RawMatrixFile") != group_id("/a/2/", "RawMatrixFile")
-    assert group_id("/a/1/", "RawMatrixFile") != group_id("/a/1/", "SequenceFile")
+def test_a_placeholder_id_is_not_an_object_path() -> None:
+    """Every node id is an '@id', which starts with a slash, so one that does
+    not cannot collide with a real node."""
+    assert not placeholder_id("RawMatrixFile").startswith("/")
