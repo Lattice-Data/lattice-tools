@@ -1,6 +1,6 @@
 """Build and launch one streaming split pipeline per file, several in parallel.
 
-    s3io get SRC | pigz -dc | split -l LINES --filter='pigz -c | s3io put DST/STEM.$FILE.fastq.gz' - part
+    s3io get SRC | pigz -dc | split -l LINES --filter='s3io put DST/STEM.$FILE.fastq.gz --compress pigz -c' - part
 
 Python touches bytes only at the two endpoints; counting, decompression and
 compression are GNU split and pigz.
@@ -123,7 +123,12 @@ def pipeline_command(
     # $FILE is expanded by split's filter shell, not by ours: split sets it to the
     # output name, prefix included, so ``part`` + the numeric suffix
     put_url = f'"{dst}{fp.stem}.$FILE.fastq.gz"'
-    filt = f"{q(tools.pigz)} -c -p {threads} -{level} | {py} -m fastq_chunker.s3io put {put_url}"
+    # put runs pigz itself: split's filter shell has no pipefail, so a shell pipe
+    # there would turn a dead compressor into a truncated chunk with exit 0
+    filt = (
+        f"{py} -m fastq_chunker.s3io put {put_url} "
+        f"--compress {q(tools.pigz)} -c -p {threads} -{level}"
+    )
     split = (
         f"{q(tools.split)} -l {group.lines_per_chunk} --numeric-suffixes=1 "
         f"-a {group.suffix_width} --filter={q(filt)} - part"
@@ -240,6 +245,13 @@ def run_file(
     for name in sorted(extra):
         n, md5 = uploaded[name]
         results.append(ChunkResult(fp.file.filename, name, n, md5, "unplanned", wall))
+    if any(r.status != "ok" for r in results):
+        delete_chunks(fs, plan, fp)
+        return results
+    # a sidecar is written only once the whole file succeeded, so resume can
+    # trust "chunk plus sidecar" to mean a chunk from a completed pipeline
+    for r in results:
+        s3io.write_sidecar(fs, plan.dst + r.chunk, r.md5)
     return results
 
 

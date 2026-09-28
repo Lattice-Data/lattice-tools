@@ -197,6 +197,15 @@ def test_end_to_end(workspace, capsys):
     assert changed == {n for c in r1.chunks for n in (c.name, c.name + ".md5")}
     for c in r1.chunks:
         assert (dst_dir / c.name).stat().st_size < LIMIT
+
+    # a chunk without its sidecar is not trusted: that file is re-split
+    i1 = next(fp for fp in g.files if fp.file.slot == "index1")
+    (dst_dir / (i1.chunks[2].name + ".md5")).unlink()
+    assert main(run_args()) == 0
+    statuses = manifest_statuses()
+    assert {s for (f, _), s in statuses.items() if f == i1.file.filename} == {"ok"}
+    assert {s for (f, _), s in statuses.items() if f != i1.file.filename} == {"skipped"}
+    assert (dst_dir / (i1.chunks[2].name + ".md5")).exists()
     capsys.readouterr()
 
 
@@ -209,6 +218,11 @@ def test_verify_detects_a_corrupted_chunk(workspace, capsys):
     r1 = next(fp for fp in g.files if fp.file.slot == "read1")
     # swap in R1's chunk 3 under R2's chunk 2 name: valid gzip, wrong reads
     victim.write_bytes((workspace / "dst" / r1.chunks[2].name).read_bytes())
+    # and drop the last two records of I1's chunk 4: valid gzip, too few reads
+    i1 = next(fp for fp in g.files if fp.file.slot == "index1")
+    short = workspace / "dst" / i1.chunks[3].name
+    lines = gzip.decompress(short.read_bytes()).splitlines(keepends=True)
+    short.write_bytes(gzip.compress(b"".join(lines[:-8])))
     assert (
         main(["verify", "--plan", "plan.json", "--level", "full", "--out", "v.tsv"])
         == 1
@@ -219,31 +233,47 @@ def test_verify_detects_a_corrupted_chunk(workspace, capsys):
     assert ("part002", "mate_alignment") in failed
     assert ("part002", "first_id_aligned") in failed
     assert (r2.chunks[1].name, "header") not in failed
+    assert (i1.chunks[3].name, "read_count") in failed
+    assert (i1.chunks[3].name, "lines_mod_4") not in failed
+    assert ("part004", "last_id_aligned") in failed
     out = capsys.readouterr().out
     assert "FAIL:" in out
 
 
-def test_failure_leaves_no_partial_chunks(workspace, capsys):
+def test_failure_leaves_no_partial_chunks(workspace, capsys, monkeypatch):
+    # a pigz that works for its first three calls (decompress, chunk 1, chunk 2)
+    # and then dies, so two chunks are uploaded before the pipeline fails
+    counter = workspace / "pigz_calls"
+    monkeypatch.setenv("FAKE_PIGZ_COUNTER", str(counter))
     fake = workspace / "fake_pigz"
-    fake.write_text("#!/bin/sh\nexit 3\n")
+    fake.write_text(
+        "#!/bin/sh\n"
+        'n=$(cat "$FAKE_PIGZ_COUNTER" 2>/dev/null || echo 0)\n'
+        'n=$((n + 1)); echo "$n" > "$FAKE_PIGZ_COUNTER"\n'
+        'if [ "$n" -gt 3 ]; then exit 3; fi\n'
+        f'exec {TOOLS.pigz} "$@"\n'
+    )
     fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
-    rc = main(run_args("--pigz", str(fake), "--log-dir", "logs"))
+    rc = main(run_args("--workers", "1", "--pigz", str(fake), "--log-dir", "logs"))
     assert rc == 1
     assert set(manifest_statuses().values()) == {"failed"}
     dst_dir = workspace / "dst"
     assert not dst_dir.exists() or not any(dst_dir.iterdir())
     out = capsys.readouterr().out
     assert "rerun with: --only" in out
-    logs = list((workspace / "logs").glob("*.log"))
+    logs = {log.name: log.read_text() for log in (workspace / "logs").glob("*.log")}
     assert len(logs) == 4
-    assert all("exit " in log.read_text() for log in logs)
+    # the first file got two chunks out before its compressor died
+    uploaded = [log for log in logs.values() if log.count(".fastq.gz\t") == 2]
+    assert len(uploaded) == 1
+    assert "exited 3" in uploaded[0]
 
 
 def test_dry_run_prints_commands_without_touching_dst(workspace, capsys):
     assert main(run_args("--dry-run")) == 0
     out = capsys.readouterr().out
     assert out.count("set -o pipefail") == 4
-    assert "--filter=" in out and "$FILE" in out
+    assert "--filter=" in out and "$FILE" in out and "--compress" in out
     assert not (workspace / "dst").exists()
 
 
@@ -259,3 +289,61 @@ def test_preflight_rejects_stale_plan(workspace, capsys):
 def test_only_unknown_name_is_an_error(workspace, capsys):
     assert main(run_args("--only", "nope.fastq.gz")) == 2
     assert "not in plan" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("factor, status", [(2, "missing"), (0.5, "unplanned")])
+def test_wrong_read_count_is_detected_and_cleaned_up(
+    tmp_path, monkeypatch, capsys, factor, status
+):
+    """A portal read_count that is wrong makes split emit the wrong number of
+    chunks with exit 0; the run must notice and leave nothing behind."""
+    monkeypatch.chdir(tmp_path)
+    src = (tmp_path / "src").as_uri() + "/"
+    dst = (tmp_path / "dst").as_uri() + "/"
+    assert (
+        main(
+            [
+                "test-data",
+                "--reads",
+                str(READS),
+                "--out-prefix",
+                src,
+                "--meta-dir",
+                "meta",
+            ]
+        )
+        == 0
+    )
+    files = json.loads(Path("meta/files.json").read_text())
+    for f in files["@graph"]:
+        f["read_count"] = int(READS * factor)
+    Path("meta/files.json").write_text(json.dumps(files))
+    assert (
+        main(
+            [
+                "plan",
+                "--file-sets",
+                "meta/sets.json",
+                "--files",
+                "meta/files.json",
+                "--dst",
+                dst,
+                "--target-bytes",
+                str(TARGET),
+                "--limit-bytes",
+                str(LIMIT),
+                "--round-to",
+                "1",
+                "--out",
+                "plan.json",
+            ]
+        )
+        == 0
+    )
+    assert main(run_args()) == 1
+    statuses = manifest_statuses()
+    assert status in set(statuses.values())
+    assert "ok" in set(statuses.values())
+    dst_dir = tmp_path / "dst"
+    assert not any(dst_dir.iterdir())
+    assert "rerun with: --only" in capsys.readouterr().out

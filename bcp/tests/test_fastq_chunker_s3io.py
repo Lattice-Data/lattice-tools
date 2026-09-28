@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import os
@@ -32,7 +33,9 @@ def run_endpoint(args, stdin=None, env=None):
 def test_put_then_get_round_trip_local(tmp_path):
     data = os.urandom(3 * MIB + 17)
     url = (tmp_path / "out" / "x.bin").as_uri()
-    put = run_endpoint(["put", url], stdin=data, env={s3io.BLOCK_ENV: str(MIB)})
+    put = run_endpoint(
+        ["put", url, "--sidecar"], stdin=data, env={s3io.BLOCK_ENV: str(MIB)}
+    )
     name, n, md5hex = put.stdout.decode().strip().split("\t")
     assert (name, int(n), md5hex) == ("x.bin", len(data), hashlib.md5(data).hexdigest())
     assert (tmp_path / "out" / "x.bin").read_bytes() == data
@@ -43,11 +46,47 @@ def test_put_then_get_round_trip_local(tmp_path):
     assert got.stderr.decode().strip().splitlines()[-1] == f"md5\t{md5hex}"
 
 
-def test_put_without_sidecar(tmp_path):
+def test_put_writes_no_sidecar_by_default(tmp_path):
     url = (tmp_path / "y.bin").as_uri()
-    run_endpoint(["put", url, "--no-sidecar"], stdin=b"abc")
+    run_endpoint(["put", url], stdin=b"abc")
     assert (tmp_path / "y.bin").read_bytes() == b"abc"
     assert not (tmp_path / "y.bin.md5").exists()
+
+
+def test_put_with_compressor(tmp_path):
+    url = (tmp_path / "c.gz").as_uri()
+    out = run_endpoint(
+        ["put", url, "--compress", "gzip", "-c", "-1"], stdin=b"hello " * 1000
+    )
+    name, n, md5hex = out.stdout.decode().strip().split("\t")
+    data = (tmp_path / "c.gz").read_bytes()
+    assert gzip.decompress(data) == b"hello " * 1000
+    assert (int(n), md5hex) == (len(data), hashlib.md5(data).hexdigest())
+
+
+def test_failing_compressor_leaves_no_object(tmp_path):
+    url = (tmp_path / "bad.gz").as_uri()
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fastq_chunker.s3io",
+            "put",
+            url,
+            "--sidecar",
+            "--compress",
+            "sh",
+            "-c",
+            "head -c 100; exit 3",
+        ],
+        input=b"x" * 1000,
+        capture_output=True,
+        env={**os.environ, "PYTHONPATH": BCP_DIR},
+    )
+    assert proc.returncode != 0
+    assert "exited 3" in proc.stderr.decode()
+    assert not (tmp_path / "bad.gz").exists()
+    assert not (tmp_path / "bad.gz.md5").exists()
 
 
 def test_empty_input_makes_empty_object(tmp_path):
@@ -59,7 +98,7 @@ def test_empty_input_makes_empty_object(tmp_path):
 
 def test_in_process_helpers(tmp_path):
     url = (tmp_path / "z.bin").as_uri()
-    n, md5hex = s3io.put(url, src=io.BytesIO(b"hello"))
+    n, md5hex = s3io.put(url, src=io.BytesIO(b"hello"), sidecar=True)
     assert (n, md5hex) == (5, hashlib.md5(b"hello").hexdigest())
     fs = s3io.make_fs(url)
     assert s3io.read_sidecar(fs, url) == (md5hex, "z.bin")
@@ -110,7 +149,7 @@ def test_multipart_round_trip_via_s3(moto_endpoint):
     data = os.urandom(12 * MIB + 5)
     env = {**moto_endpoint, s3io.BLOCK_ENV: str(block)}
     url = "s3://dst/_test/big.bin"
-    put = run_endpoint(["put", url], stdin=data, env=env)
+    put = run_endpoint(["put", url, "--sidecar"], stdin=data, env=env)
     name, n, md5hex = put.stdout.decode().strip().split("\t")
     assert (name, int(n), md5hex) == (
         "big.bin",
@@ -125,3 +164,35 @@ def test_multipart_round_trip_via_s3(moto_endpoint):
     got = run_endpoint(["get", url, "--md5"], env=env)
     assert got.stdout == data
     assert got.stderr.decode().strip().splitlines()[-1] == f"md5\t{md5hex}"
+
+
+def test_failing_compressor_aborts_multipart_via_s3(moto_endpoint):
+    env = {**moto_endpoint, s3io.BLOCK_ENV: str(5 * MIB)}
+    url = "s3://dst/_test/aborted.bin"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "fastq_chunker.s3io",
+            "put",
+            url,
+            "--sidecar",
+            "--compress",
+            "sh",
+            "-c",
+            "head -c 6000000; exit 3",
+        ],
+        input=os.urandom(7 * MIB),
+        capture_output=True,
+        env={**os.environ, **env, "PYTHONPATH": BCP_DIR},
+    )
+    assert proc.returncode != 0
+    fs = s3io.make_fs(url)
+    fs.invalidate_cache()
+    assert not fs.exists(url)
+    assert not fs.exists(url + ".md5")
+    import boto3
+
+    client = boto3.client("s3", endpoint_url=env[s3io.ENDPOINT_ENV])
+    pending = client.list_multipart_uploads(Bucket="dst").get("Uploads", [])
+    assert pending == []

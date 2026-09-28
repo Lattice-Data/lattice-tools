@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import subprocess
 import sys
 
 import fsspec
@@ -62,14 +63,33 @@ def get(url: str, out=None, md5: bool = False) -> str:
     return digest.hexdigest()
 
 
-def put(url: str, src=None, sidecar: bool = True) -> tuple[int, str]:
-    """Stream ``src`` (default stdin) to ``url``; return (bytes, md5)."""
+def put(
+    url: str,
+    src=None,
+    sidecar: bool = False,
+    compress: list[str] | None = None,
+) -> tuple[int, str]:
+    """Stream ``src`` (default stdin) to ``url``; return (bytes, md5).
+
+    With ``compress``, that command is run with ``src`` on its stdin and its
+    stdout is what gets uploaded. Running the compressor here rather than in a
+    shell pipe means a compressor that dies mid-stream fails the upload instead
+    of leaving a truncated object behind with a success exit code.
+    """
     src = src or sys.stdin.buffer
     fs = make_fs(url)
     block = block_size()
     digest = hashlib.md5()
     n = 0
-    with fs.open(url, "wb", block_size=block) as f:
+    proc = None
+    if compress:
+        proc = subprocess.Popen(compress, stdin=src, stdout=subprocess.PIPE)
+        src = proc.stdout
+    # autocommit=False is fsspec's transaction API: close() uploads the last
+    # part but completes nothing, so commit() finishes the object and discard()
+    # aborts the multipart upload (or removes the temp file locally)
+    f = fs.open(url, "wb", block_size=block, autocommit=False)
+    try:
         while True:
             b = src.read(block)
             if not b:
@@ -77,6 +97,19 @@ def put(url: str, src=None, sidecar: bool = True) -> tuple[int, str]:
             digest.update(b)
             f.write(b)
             n += len(b)
+        if proc is not None:
+            proc.stdout.close()
+            rc = proc.wait()
+            if rc != 0:
+                raise RuntimeError(f"compressor {compress[0]} exited {rc}")
+    except BaseException:
+        try:
+            f.close()
+        finally:
+            f.discard()
+        raise
+    f.close()
+    f.commit()
     if sidecar:
         write_sidecar(fs, url, digest.hexdigest())
     return n, digest.hexdigest()
@@ -106,12 +139,17 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--md5", action="store_true", help="print the MD5 to stderr")
     p = sub.add_parser("put")
     p.add_argument("url")
-    p.add_argument("--no-sidecar", action="store_true")
+    p.add_argument("--sidecar", action="store_true", help="also write <url>.md5")
+    p.add_argument(
+        "--compress",
+        nargs=argparse.REMAINDER,
+        help="compressor command to run on stdin; must come last",
+    )
     args = parser.parse_args(argv)
     if args.command == "get":
         get(args.url, md5=args.md5)
     else:
-        n, md5hex = put(args.url, sidecar=not args.no_sidecar)
+        n, md5hex = put(args.url, sidecar=args.sidecar, compress=args.compress or None)
         # one line the orchestrator parses into the run manifest
         print(f"{basename(args.url)}\t{n}\t{md5hex}", flush=True)
     return 0

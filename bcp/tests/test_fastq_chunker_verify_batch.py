@@ -105,11 +105,13 @@ def test_pipeline_command_keeps_FILE_for_split():
     )
     assert "-l 1144000000 --numeric-suffixes=1 -a 3 --filter=" in cmd
     assert cmd.rstrip().endswith("- part")
-    # the filter is single-quoted so bash leaves $FILE for split's shell
+    # the filter is single-quoted so bash leaves $FILE for split's shell, and
+    # contains no pipe: the compressor runs inside put
     assert (
-        """--filter='/usr/bin/pigz -c -p 8 -6 | /py -m fastq_chunker.s3io put "s3://dst/run/L_R2_001.$FILE.fastq.gz"'"""
-        in cmd
+        """--filter='/py -m fastq_chunker.s3io put "s3://dst/run/L_R2_001.$FILE.fastq.gz" """
+        """--compress /usr/bin/pigz -c -p 8 -6'""" in cmd
     )
+    assert "|" not in cmd.split("--filter=")[1].split(" - part")[0]
 
 
 def two_group_plan(dst="s3://dst/run/"):

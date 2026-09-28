@@ -8,7 +8,7 @@ value, so chunk *k* of every mate holds the same reads.
 
 The data path per file is one shell pipeline:
 
-    s3io get SRC | pigz -dc | split -l LINES --filter='pigz -c | s3io put DST/STEM.$FILE.fastq.gz' - part
+    s3io get SRC | pigz -dc | split -l LINES --filter='s3io put DST/STEM.$FILE.fastq.gz --compress pigz -c' - part
 
 Python only sits at the two S3 endpoints (through `s3fs`); counting, decompression
 and compression are GNU `split` and `pigz`. That is what makes a 500 GB file take
@@ -49,12 +49,18 @@ set whose estimated largest chunk is not below the limit.
 `run` preflights (tools present, every source exists with the planned size,
 destination writable), skips files whose chunks are already complete, deletes
 leftovers before re-splitting a file, and runs `--workers` pipelines at once.
-Each chunk gets a `<chunk>.md5` sidecar written during upload. A failed file has
-its partial chunks removed and the run continues; the exit code is non-zero and
+`put` runs `pigz -c` itself and aborts the upload if the compressor fails, so a
+chunk object is never a truncated success. Each chunk's `<chunk>.md5` sidecar
+(MD5 computed during upload) is written only after every chunk of that file has
+landed, so on resume "chunk plus sidecar" means a chunk from a completed
+pipeline. A failed file has its partial chunks removed and the run continues; the exit code is non-zero and
 the `--only ...` command to rerun is printed. `--copy-singletons` server-side
 copies files that need no splitting into `--dst` as well (no sidecar, since
 nothing reads their bytes). Run under `tmux`, and export
-`AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive` for long jobs.
+`AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive` for long jobs. A pipeline that is
+killed outright (not one that fails) can leave an incomplete multipart upload
+behind, which S3 bills for and does not list; give the destination bucket a
+lifecycle rule that aborts incomplete multipart uploads after a day.
 
 `verify --level quick` checks every chunk exists below the limit, flags size
 drift beyond 15 percent of the estimate, checks the sidecar, decompresses the
