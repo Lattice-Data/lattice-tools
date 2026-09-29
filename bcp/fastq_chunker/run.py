@@ -16,6 +16,7 @@ from __future__ import annotations
 import concurrent.futures
 import csv
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -203,15 +204,19 @@ def chunk_listing(
     fs.invalidate_cache()
     if not fs.exists(dst.rstrip("/")):
         return {}
-    prefix = fp.stem + ".part"
+    # anchored, so a stem that is a prefix of another stem (S1 and S1.part2)
+    # cannot pick up the other file's chunks and delete them as leftovers
+    pattern = chunk_pattern(fp.stem)
     out = {}
     for info in fs.ls(dst.rstrip("/"), detail=True):
         name = s3io.basename(info["name"])
-        if name.startswith(prefix) and (
-            name.endswith(".fastq.gz") or name.endswith(".fastq.gz.md5")
-        ):
+        if pattern.match(name):
             out[name] = info.get("size") or 0
     return out
+
+
+def chunk_pattern(stem: str) -> re.Pattern[str]:
+    return re.compile(rf"^{re.escape(stem)}\.part\d+\.fastq\.gz(\.md5)?$")
 
 
 def chunks_complete(fs, plan: Plan, fp: FilePlan) -> bool:

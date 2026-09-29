@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -219,6 +220,16 @@ def make_plan(
             "chunk names would collide under one destination prefix; these files "
             f"share a stem:\n{detail}"
         )
+    # a stem of the form <other stem>.part<digits> names what looks like one of
+    # the other file's chunks, so its original or its own chunks would be taken
+    # for leftovers of the other file
+    for stem in owners:
+        m = re.fullmatch(r"(.+)\.part\d+", stem)
+        if m and m.group(1) in owners:
+            raise PlanError(
+                f"stem {stem!r} looks like a chunk of {m.group(1)!r}; rename one of "
+                f"{owners[stem][0]} and {owners[m.group(1)][0]}"
+            )
     created = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     return Plan(
         created=created,

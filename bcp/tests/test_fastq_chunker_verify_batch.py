@@ -22,6 +22,8 @@ from fastq_chunker.run import (
     MANIFEST_COLUMNS,
     RunError,
     Tools,
+    chunk_listing,
+    chunk_pattern,
     decompress_command,
     find_tools,
     parse_put_lines,
@@ -299,3 +301,30 @@ def test_run_plan_default_tools_honour_the_decompressor(monkeypatch, tmp_path):
     )
     assert rc == 0
     assert seen == {"decompressor": "rapidgzip"}
+
+
+def test_chunk_listing_is_anchored_to_the_exact_stem(tmp_path):
+    dst = tmp_path / "dst"
+    dst.mkdir()
+    for name in (
+        "S1.part001.fastq.gz",
+        "S1.part001.fastq.gz.md5",
+        "S1.part2.part001.fastq.gz",  # another file's chunk
+        "S1.part2.part001.fastq.gz.md5",
+        "S1.partX.fastq.gz",  # not a chunk
+        "S1.part001.fastq.gz.tmp",  # not a chunk
+        "xS1.part001.fastq.gz",  # different stem
+    ):
+        (dst / name).write_bytes(b"x")
+    g = plan_group(
+        [
+            FastqFile(
+                "G", "read1", "S1.fastq.gz", "s3://src/S1.fastq.gz", 480 * GB, 10**9
+            )
+        ]
+    )
+    fs = s3io.make_fs(dst.as_uri())
+    have = chunk_listing(fs, dst.as_uri() + "/", g.files[0])
+    assert sorted(have) == ["S1.part001.fastq.gz", "S1.part001.fastq.gz.md5"]
+    assert chunk_pattern("a.b").match("a.b.part007.fastq.gz")
+    assert not chunk_pattern("a.b").match("aXb.part007.fastq.gz")

@@ -432,3 +432,13 @@ def test_same_basename_in_two_sets_is_rejected():
     small = plan_group([fq("S1_L001_R1_001.fq.gz", 10 * GB, 10**8, group="C")])
     with pytest.raises(PlanError, match="share a stem"):
         make_plan([a, small], "s3://dst/", TARGET_BYTES, LIMIT_BYTES, 1)
+
+
+def test_stem_shaped_like_another_files_chunk_is_rejected():
+    a = plan_group([fq("S1.fastq.gz", 200 * GB, 10**9, group="A")])
+    b = plan_group([fq("S1.part2.fastq.gz", 10 * GB, 10**8, group="B")])
+    with pytest.raises(PlanError, match="looks like a chunk of 'S1'"):
+        make_plan([a, b], "s3://dst/", TARGET_BYTES, LIMIT_BYTES, 1)
+    # the other way round is fine: 'S1' is not shaped like a chunk of anything
+    c = plan_group([fq("S1.partial.fastq.gz", 10 * GB, 10**8, group="C")])
+    make_plan([a, c], "s3://dst/", TARGET_BYTES, LIMIT_BYTES, 1)
