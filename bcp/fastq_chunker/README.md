@@ -53,7 +53,8 @@ margin. Check the pilot's `size_drift` before relying on that for a new vendor.
 `run` preflights (tools present, every source exists with the planned size,
 destination writable), reads each source with `--read-concurrency` (default 8)
 range requests in flight, inflates with `pigz -dc` or, with
-`--decompressor rapidgzip`, in parallel, skips files whose chunks are already complete, deletes
+`--decompressor rapidgzip`, in parallel, and uploads each chunk as a multipart
+upload with `--upload-concurrency` (default 4) parts in flight, skips files whose chunks are already complete, deletes
 leftovers before re-splitting a file, and runs `--workers` pipelines at once.
 `put` runs `pigz -c` itself and aborts the upload if the compressor fails, so a
 chunk object is never a truncated success. Each chunk's `<chunk>.md5` sidecar
@@ -97,6 +98,12 @@ Measured in the JupyterHub pod (96 cores) on a 9.9 GB Psomagen R2 file:
   (`pip install rapidgzip`). `verify --level full` always inflates with `pigz`,
   so the check uses a different decoder than the run.
 - Compression at `-6` with 8 threads keeps pace with either decoder.
+- s3fs uploads each part inside `write()`, so the whole pipeline behind it
+  stalls while a part is in flight (62 MB/s per stream, measured): compute and
+  upload ran serially, and after the read fix R2 was still at 498 s. `put`
+  therefore uploads parts through boto3 with `--upload-concurrency` (default 4)
+  in flight, so compression continues while parts upload. Once that is in
+  place, compression is the limit; on a many-core pod raise `--pigz-threads`.
 
 ## Outputs
 

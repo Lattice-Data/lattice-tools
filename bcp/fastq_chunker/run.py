@@ -79,6 +79,7 @@ class RunOptions:
     manifest: Path = Path("run_manifest.tsv")
     decompressor: str = "pigz"
     read_concurrency: int = s3io.DEFAULT_CONCURRENCY
+    upload_concurrency: int = s3io.DEFAULT_UPLOAD_CONCURRENCY
 
     def threads(self) -> int:
         if self.pigz_threads:
@@ -162,6 +163,7 @@ def pipeline_command(
     level: int,
     decompressor: str = "pigz",
     read_concurrency: int = s3io.DEFAULT_CONCURRENCY,
+    upload_concurrency: int = s3io.DEFAULT_UPLOAD_CONCURRENCY,
 ) -> str:
     q = shlex.quote
     py = q(tools.python)
@@ -177,6 +179,7 @@ def pipeline_command(
     # there would turn a dead compressor into a truncated chunk with exit 0
     filt = (
         f"{py} -m fastq_chunker.s3io put {put_url} "
+        f"--upload-concurrency {upload_concurrency} "
         f"--compress {q(tools.pigz)} -c -p {threads} -{level}"
     )
     split = (
@@ -267,6 +270,7 @@ def run_file(
         opts.gzip_level,
         opts.decompressor,
         opts.read_concurrency,
+        opts.upload_concurrency,
     )
     opts.log_dir.mkdir(parents=True, exist_ok=True)
     log_path = opts.log_dir / f"{fp.stem}.log"
@@ -377,6 +381,7 @@ def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None)
                     opts.gzip_level,
                     opts.decompressor,
                     opts.read_concurrency,
+                    opts.upload_concurrency,
                 )
                 + "\n\n"
             )

@@ -286,3 +286,104 @@ def test_ranged_blocks_do_not_run_ahead_of_a_slow_consumer():
         assert fs.completed - (i + 1) <= concurrency, (
             f"{fs.completed} done after {i + 1} consumed"
         )
+
+
+class FakeS3Client:
+    """Records multipart calls; upload_part sleeps a random time so parts
+    complete out of order and in-flight counts are observable."""
+
+    def __init__(self, fail_part: int | None = None):
+        self.calls: list[str] = []
+        self.parts: list[tuple[int, bytes]] = []
+        self.completed_with = None
+        self.aborted = False
+        self.in_flight = 0
+        self.peak = 0
+        self.lock = threading.Lock()
+        self.fail_part = fail_part
+
+    def create_multipart_upload(self, Bucket, Key):
+        self.calls.append("create")
+        return {"UploadId": "u1"}
+
+    def upload_part(self, Bucket, Key, UploadId, PartNumber, Body):
+        assert UploadId == "u1"
+        with self.lock:
+            self.in_flight += 1
+            self.peak = max(self.peak, self.in_flight)
+        time.sleep(random.Random(PartNumber).random() / 50)
+        with self.lock:
+            self.in_flight -= 1
+            self.parts.append((PartNumber, bytes(Body)))
+        if PartNumber == self.fail_part:
+            raise RuntimeError("part failed")
+        return {"ETag": f"etag-{PartNumber}"}
+
+    def complete_multipart_upload(self, Bucket, Key, UploadId, MultipartUpload):
+        self.calls.append("complete")
+        self.completed_with = MultipartUpload["Parts"]
+
+    def abort_multipart_upload(self, Bucket, Key, UploadId):
+        self.calls.append("abort")
+        self.aborted = True
+
+    def put_object(self, Bucket, Key, Body):
+        self.calls.append(f"put_object:{len(Body)}")
+
+
+def test_multipart_writer_orders_parts_and_bounds_in_flight():
+    client = FakeS3Client()
+    w = s3io.S3MultipartWriter("s3://b/k", concurrency=3, client=client)
+    blocks = [os.urandom(10) for _ in range(9)]
+    for b in blocks:
+        w.write(b)
+        # memory bound: never more than `concurrency` parts held for upload
+        assert len(w.pending) < 3
+    w.commit()
+    assert client.calls[0] == "create" and client.calls[-1] == "complete"
+    assert [p["PartNumber"] for p in client.completed_with] == list(range(1, 10))
+    assert [p["ETag"] for p in client.completed_with] == [
+        f"etag-{i}" for i in range(1, 10)
+    ]
+    assert sorted(client.parts) == [(i + 1, b) for i, b in enumerate(blocks)]
+    assert 1 < client.peak <= 3
+    assert not client.aborted
+
+
+def test_multipart_writer_empty_object_uses_put_object():
+    client = FakeS3Client()
+    w = s3io.S3MultipartWriter("s3://b/k", concurrency=2, client=client)
+    w.commit()
+    assert client.calls == ["put_object:0"]
+
+
+def test_multipart_writer_discard_aborts():
+    client = FakeS3Client()
+    w = s3io.S3MultipartWriter("s3://b/k", concurrency=2, client=client)
+    w.write(b"x")
+    w.discard()
+    assert client.aborted and "complete" not in client.calls
+
+
+def test_multipart_writer_failed_part_surfaces_and_put_aborts(monkeypatch):
+    client = FakeS3Client(fail_part=2)
+    real = s3io.S3MultipartWriter
+    monkeypatch.setattr(s3io, "S3MultipartWriter", lambda url, c: real(url, c, client))
+
+    # bypass make_fs for a fake s3: only is_s3 and invalidate_cache are touched
+    class FakeFS:
+        protocol = ("s3", "s3a")
+
+        def invalidate_cache(self):
+            pass
+
+    monkeypatch.setattr(s3io, "make_fs", lambda url: FakeFS())
+    monkeypatch.setenv(s3io.BLOCK_ENV, "4")
+    with pytest.raises(RuntimeError, match="part failed"):
+        s3io.put("s3://b/k", src=io.BytesIO(b"0123456789abcdef"), upload_concurrency=2)
+    assert client.aborted and "complete" not in client.calls
+
+
+def test_split_s3_url():
+    assert s3io.split_s3_url("s3://bucket/a/b/c.gz") == ("bucket", "a/b/c.gz")
+    assert s3io.split_s3_url("s3://bucket/k") == ("bucket", "k")

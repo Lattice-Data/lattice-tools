@@ -15,7 +15,9 @@ import subprocess
 import sys
 from collections.abc import Iterator
 
+import boto3
 import fsspec
+from botocore.config import Config
 
 # 64 MiB multipart parts allow objects up to 640 GiB under S3's 10,000-part cap.
 # S3 rejects parts below 5 MiB, so the override exists for tests, not tuning.
@@ -25,6 +27,9 @@ ENDPOINT_ENV = "FASTQ_CHUNKER_S3_ENDPOINT"
 # Ranges in flight per get. One S3 connection streams at 10-30 MB/s; eight
 # concurrent 64 MiB range requests are what turns that into a few hundred.
 DEFAULT_CONCURRENCY = 8
+# Parts in flight per put. s3fs uploads each part inside write(), stalling the
+# whole pipeline behind it for the duration; measured at 62 MB/s per stream.
+DEFAULT_UPLOAD_CONCURRENCY = 4
 
 
 def block_size() -> int:
@@ -105,11 +110,120 @@ def get(
     return digest.hexdigest()
 
 
+def split_s3_url(url: str) -> tuple[str, str]:
+    rest = url.split("://", 1)[1]
+    bucket, _, key = rest.partition("/")
+    return bucket, key
+
+
+def make_s3_client(concurrency: int):
+    # credentials, region and endpoint come from the environment (IRSA on EKS)
+    return boto3.client(
+        "s3",
+        endpoint_url=os.environ.get(ENDPOINT_ENV) or None,
+        config=Config(
+            max_pool_connections=concurrency + 4,
+            retries={"max_attempts": 10, "mode": "adaptive"},
+        ),
+    )
+
+
+class S3MultipartWriter:
+    """Multipart upload with up to ``concurrency`` parts in flight.
+
+    ``write`` takes one part per call and returns as soon as the part is
+    handed to a thread, so the producer keeps running while parts upload.
+    Memory is bounded at about ``concurrency`` parts. ``commit`` completes the
+    upload with the parts in order; ``discard`` aborts it.
+    """
+
+    def __init__(self, url: str, concurrency: int, client=None):
+        self.bucket, self.key = split_s3_url(url)
+        self.client = client or make_s3_client(concurrency)
+        self.concurrency = concurrency
+        self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=concurrency)
+        self.pending: list[concurrent.futures.Future] = []
+        self.parts: list[dict] = []
+        self.upload_id: str | None = None
+        self.n_parts = 0
+
+    def _upload_part(self, number: int, data: bytes) -> dict:
+        r = self.client.upload_part(
+            Bucket=self.bucket,
+            Key=self.key,
+            UploadId=self.upload_id,
+            PartNumber=number,
+            Body=data,
+        )
+        return {"PartNumber": number, "ETag": r["ETag"]}
+
+    def _collect(self, fut: concurrent.futures.Future) -> None:
+        self.parts.append(fut.result())
+
+    def write(self, data: bytes) -> None:
+        if self.upload_id is None:
+            r = self.client.create_multipart_upload(Bucket=self.bucket, Key=self.key)
+            self.upload_id = r["UploadId"]
+        self.n_parts += 1
+        self.pending.append(self.pool.submit(self._upload_part, self.n_parts, data))
+        if len(self.pending) >= self.concurrency:
+            self._collect(self.pending.pop(0))
+
+    def commit(self) -> None:
+        try:
+            while self.pending:
+                self._collect(self.pending.pop(0))
+            if self.upload_id is None:
+                self.client.put_object(Bucket=self.bucket, Key=self.key, Body=b"")
+                return
+            self.parts.sort(key=lambda part: part["PartNumber"])
+            self.client.complete_multipart_upload(
+                Bucket=self.bucket,
+                Key=self.key,
+                UploadId=self.upload_id,
+                MultipartUpload={"Parts": self.parts},
+            )
+        finally:
+            self.pool.shutdown(wait=True)
+
+    def discard(self) -> None:
+        for fut in self.pending:
+            fut.cancel()
+        self.pool.shutdown(wait=True, cancel_futures=True)
+        if self.upload_id is not None:
+            self.client.abort_multipart_upload(
+                Bucket=self.bucket, Key=self.key, UploadId=self.upload_id
+            )
+
+
+class FsspecWriter:
+    """Sequential writer for every other backend, via fsspec's transaction API:
+    close() writes everything but publishes nothing, commit() publishes,
+    discard() removes the temporary file."""
+
+    def __init__(self, fs, url: str, block: int):
+        self.f = fs.open(url, "wb", block_size=block, autocommit=False)
+
+    def write(self, data: bytes) -> None:
+        self.f.write(data)
+
+    def commit(self) -> None:
+        self.f.close()
+        self.f.commit()
+
+    def discard(self) -> None:
+        try:
+            self.f.close()
+        finally:
+            self.f.discard()
+
+
 def put(
     url: str,
     src=None,
     sidecar: bool = False,
     compress: list[str] | None = None,
+    upload_concurrency: int = DEFAULT_UPLOAD_CONCURRENCY,
 ) -> tuple[int, str]:
     """Stream ``src`` (default stdin) to ``url``; return (bytes, md5).
 
@@ -127,17 +241,17 @@ def put(
     if compress:
         proc = subprocess.Popen(compress, stdin=src, stdout=subprocess.PIPE)
         src = proc.stdout
-    # autocommit=False is fsspec's transaction API: close() uploads the last
-    # part but completes nothing, so commit() finishes the object and discard()
-    # aborts the multipart upload (or removes the temp file locally)
-    f = fs.open(url, "wb", block_size=block, autocommit=False)
+    if is_s3(fs):
+        writer = S3MultipartWriter(url, upload_concurrency)
+    else:
+        writer = FsspecWriter(fs, url, block)
     try:
         while True:
             b = src.read(block)
             if not b:
                 break
             digest.update(b)
-            f.write(b)
+            writer.write(b)
             n += len(b)
         if proc is not None:
             proc.stdout.close()
@@ -145,13 +259,10 @@ def put(
             if rc != 0:
                 raise RuntimeError(f"compressor {compress[0]} exited {rc}")
     except BaseException:
-        try:
-            f.close()
-        finally:
-            f.discard()
+        writer.discard()
         raise
-    f.close()
-    f.commit()
+    writer.commit()
+    fs.invalidate_cache()
     if sidecar:
         write_sidecar(fs, url, digest.hexdigest())
     return n, digest.hexdigest()
@@ -189,6 +300,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("url")
     p.add_argument("--sidecar", action="store_true", help="also write <url>.md5")
     p.add_argument(
+        "--upload-concurrency",
+        type=int,
+        default=DEFAULT_UPLOAD_CONCURRENCY,
+        help="S3 multipart parts in flight",
+    )
+    p.add_argument(
         "--compress",
         nargs=argparse.REMAINDER,
         help="compressor command to run on stdin; must come last",
@@ -197,7 +314,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "get":
         get(args.url, md5=args.md5, concurrency=args.concurrency)
     else:
-        n, md5hex = put(args.url, sidecar=args.sidecar, compress=args.compress or None)
+        n, md5hex = put(
+            args.url,
+            sidecar=args.sidecar,
+            compress=args.compress or None,
+            upload_concurrency=args.upload_concurrency,
+        )
         # one line the orchestrator parses into the run manifest
         print(f"{basename(args.url)}\t{n}\t{md5hex}", flush=True)
     return 0

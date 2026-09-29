@@ -101,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=s3io.DEFAULT_CONCURRENCY,
         help="S3 range requests in flight per pipeline",
     )
+    r.add_argument(
+        "--upload-concurrency",
+        type=int,
+        default=s3io.DEFAULT_UPLOAD_CONCURRENCY,
+        help="S3 multipart parts in flight per chunk upload",
+    )
     r.set_defaults(func=cmd_run)
 
     v = sub.add_parser("verify", help="check the chunks under the plan's destination")
@@ -216,6 +222,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         manifest=args.manifest,
         decompressor=args.decompressor,
         read_concurrency=args.read_concurrency,
+        upload_concurrency=args.upload_concurrency,
     )
     tools = find_tools(args.pigz, args.split, args.decompressor, args.rapidgzip)
     return run_plan(plan, opts, tools=tools)

@@ -117,7 +117,7 @@ def test_pipeline_command_keeps_FILE_for_split():
     # contains no pipe: the compressor runs inside put
     assert (
         """--filter='/py -m fastq_chunker.s3io put "s3://dst/run/L_R2_001.$FILE.fastq.gz" """
-        """--compress /usr/bin/pigz -c -p 8 -6'""" in cmd
+        """--upload-concurrency 4 --compress /usr/bin/pigz -c -p 8 -6'""" in cmd
     )
     assert "|" not in cmd.split("--filter=")[1].split(" - part")[0]
 
