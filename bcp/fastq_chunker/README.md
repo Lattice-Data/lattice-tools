@@ -36,7 +36,9 @@ Data portal JSON, as exported from the Lattice portal:
 Each may be a single object, a JSON list, or a search result carrying `@graph`.
 A set only embeds the `@id` of its reads, so both must be supplied; a file that
 belongs to more than one set is an error, since the two sets would want it split
-at different reads-per-chunk values.
+at different reads-per-chunk values. Two files with the same basename (a sample
+name reused across runs, say) are also an error: every chunk lands under one
+destination prefix, so their chunk names would collide.
 
 ## Commands
 
@@ -45,7 +47,7 @@ Run from `bcp/`.
 ```
 python -m fastq_chunker plan --file-sets sets.json --files files.json \
     --dst s3://dst-bucket/run42_chunks/ --out plan.json [--target-gb 80] [--names-only]
-python -m fastq_chunker run --plan plan.json --workers 4 --pigz-threads 8 --log-dir logs/
+python -m fastq_chunker run --plan plan.json --workers 4 --decompressor rapidgzip --log-dir logs/
 python -m fastq_chunker verify --plan plan.json --level quick
 python -m fastq_chunker verify --plan plan.json --level full
 python -m fastq_chunker batch --plan plan.json --run-manifest run_manifest.tsv --out batches.tsv
@@ -61,32 +63,36 @@ the chunks compress like the original; on real vendor data (Psomagen, pilot of
 margin. Check the pilot's `size_drift` before relying on that for a new vendor.
 
 `run` preflights (tools present, every source exists with the planned size,
-destination writable), reads each source with `--read-concurrency` (default 8)
-range requests in flight, inflates with `pigz -dc` or, with
-`--decompressor rapidgzip`, in parallel, and uploads each chunk as a multipart
-upload with `--upload-concurrency` (default 4) parts in flight, skips files whose chunks are already complete, deletes
+destination writable), skips files whose chunks are already complete, deletes
 leftovers before re-splitting a file, and runs `--workers` pipelines at once.
-`put` runs `pigz -c` itself and aborts the upload if the compressor fails, so a
-chunk object is never a truncated success. Each chunk's `<chunk>.md5` sidecar
-(MD5 computed during upload) is written only after every chunk of that file has
-landed, so on resume "chunk plus sidecar" means a chunk from a completed
-pipeline. A failed file has its partial chunks removed and the run continues; the exit code is non-zero and
-the `--only ...` command to rerun is printed. `--copy-singletons` server-side
+Each pipeline reads its source with `--read-concurrency` (default 8) range
+requests in flight, inflates with `pigz -dc` or, with `--decompressor rapidgzip`,
+in parallel, and uploads each chunk as a multipart upload with
+`--upload-concurrency` (default 4) parts in flight. `put` runs `pigz -c` itself
+and aborts the upload if the compressor fails, so a chunk object is never a
+truncated success. Each chunk's `<chunk>.md5` sidecar (MD5 computed during
+upload) is written only after every chunk of that file has landed, so on resume
+"chunk plus sidecar" means a chunk from a completed pipeline. A failed file has
+its partial chunks removed and the run continues; the exit code is non-zero and
+the `--only ...` command to rerun is printed. If `split` produces a different
+number of chunks than the plan names, which is what a wrong portal `read_count`
+causes, the file is treated the same way. `--copy-singletons` server-side
 copies files that need no splitting into `--dst` as well (no sidecar, since
-nothing reads their bytes). Run under `tmux`, and export
+nothing reads their bytes). Run under `tmux` or `nohup`, and export
 `AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive` for long jobs. A pipeline that is
 killed outright (not one that fails) can leave an incomplete multipart upload
 behind, which S3 bills for and does not list; give the destination bucket a
 lifecycle rule that aborts incomplete multipart uploads after a day.
 
 `verify --level quick` checks every chunk exists below the limit, flags size
-drift (more than 15 percent over the estimate, or more than 30 percent under), checks the sidecar, decompresses the
-first record of each chunk for sanity, and confirms the first read ID of chunk
-*k* is identical across mates. `--level full` costs about as much as the run:
-it decompresses every chunk, checks `lines % 4 == 0`, that the read count equals
-the plan, that the MD5 matches the sidecar, and that first and last read IDs
-agree across mates and do not repeat across chunk boundaries. Any `FAIL` means
-re-running that file with `--force`.
+drift (more than 15 percent over the estimate, or more than 30 percent under),
+checks the sidecar, decompresses the first record of each chunk for sanity, and
+confirms the first read ID of chunk *k* is identical across mates. `--level
+full` costs about as much as the run: it decompresses every chunk, checks
+`lines % 4 == 0`, that the read count equals the plan, that the MD5 matches the
+sidecar (a missing sidecar is a `FAIL`, not a crash), and that first and last
+read IDs agree across mates and do not repeat across chunk boundaries. Any
+`FAIL` means re-running that file with `--force`. `verify` needs `pigz` only.
 
 `batch` is organisational only: it packs whole sets, in plan order, into
 submission batches under `--batch-limit-gb` (default 5000), using actual chunk

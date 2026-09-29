@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import s3io
 from .plan import ChunkSpec, FilePlan, GroupPlan, Plan
-from .run import Tools, child_env, chunk_listing
+from .run import child_env, chunk_listing
 
 HEADER_BYTES = 64 * 1024
 # Recompression at pigz -6 came out 15-22% smaller than the vendor stream on
@@ -281,12 +281,12 @@ class FullResult:
     md5: str
 
 
-def full_one(tools: Tools, url: str) -> FullResult:
+def full_one(pigz: str, url: str) -> FullResult:
     q = shlex.quote
-    py = q(tools.python)
+    py = q(sys.executable)
     cmd = (
         "set -o pipefail\n"
-        f"{py} -m fastq_chunker.s3io get --md5 {q(url)} | {q(tools.pigz)} -dc | "
+        f"{py} -m fastq_chunker.s3io get --md5 {q(url)} | {q(pigz)} -dc | "
         f"{py} -m fastq_chunker.verify count"
     )
     proc = subprocess.run(
@@ -303,7 +303,7 @@ def full_one(tools: Tools, url: str) -> FullResult:
 
 
 def full(
-    plan: Plan, fs, tools: Tools, workers: int = 4, id_regex: str | None = None
+    plan: Plan, fs, pigz: str, workers: int = 4, id_regex: str | None = None
 ) -> list[Check]:
     jobs: list[tuple[GroupPlan, FilePlan, ChunkSpec]] = [
         (g, fp, c)
@@ -315,8 +315,7 @@ def full(
     results: dict[tuple[str, str], FullResult | Exception] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {
-            pool.submit(full_one, tools, plan.dst + c.name): (fp, c)
-            for _, fp, c in jobs
+            pool.submit(full_one, pigz, plan.dst + c.name): (fp, c) for _, fp, c in jobs
         }
         for fut in concurrent.futures.as_completed(futs):
             fp, c = futs[fut]
@@ -368,8 +367,13 @@ def full(
                         f"{r.lines // 4} vs planned {c.reads}",
                     )
                 )
-                side, _ = s3io.read_sidecar(fs, plan.dst + c.name)
-                ok = side == r.md5
+                if fs.exists(s3io.sidecar_url(plan.dst + c.name)):
+                    side, _ = s3io.read_sidecar(fs, plan.dst + c.name)
+                    ok = side == r.md5
+                    detail = r.md5 if ok else f"{r.md5} vs sidecar {side}"
+                else:
+                    ok = False
+                    detail = f"{r.md5}; sidecar missing"
                 checks.append(
                     Check(
                         g.group,
@@ -377,7 +381,7 @@ def full(
                         c.name,
                         "md5",
                         "PASS" if ok else "FAIL",
-                        r.md5 if ok else f"{r.md5} vs sidecar {side}",
+                        detail,
                     )
                 )
                 try:

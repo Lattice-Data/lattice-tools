@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -125,8 +126,12 @@ def reads_per_chunk(total_reads: int, n_chunks: int, round_to: int) -> int:
     exact = math.ceil(total_reads / n_chunks)
     rounded = math.ceil(exact / round_to) * round_to
     n = rounded if (n_chunks - 1) * rounded < total_reads else exact
-    assert (n_chunks - 1) * n < total_reads <= n_chunks * n
-    assert math.ceil(total_reads / n) == n_chunks
+    fits = (n_chunks - 1) * n < total_reads <= n_chunks * n
+    if not fits or math.ceil(total_reads / n) != n_chunks:
+        raise PlanError(
+            f"{total_reads} reads cannot be spread over {n_chunks} chunks of {n}; "
+            "the file is too large for its read count"
+        )
     return n
 
 
@@ -201,6 +206,19 @@ def make_plan(
     limit_bytes: int,
     round_to: int,
 ) -> Plan:
+    owners: dict[str, list[str]] = defaultdict(list)
+    for g in groups:
+        for fp in g.files:
+            owners[fp.stem].append(fp.file.s3_uri)
+    shared = {stem: uris for stem, uris in owners.items() if len(uris) > 1}
+    if shared:
+        detail = "\n".join(
+            f"  {stem}: {', '.join(uris)}" for stem, uris in sorted(shared.items())
+        )
+        raise PlanError(
+            "chunk names would collide under one destination prefix; these files "
+            f"share a stem:\n{detail}"
+        )
     created = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     return Plan(
         created=created,

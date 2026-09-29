@@ -1,8 +1,10 @@
 """Streaming endpoints: ``get URL`` to stdout and ``put URL`` from stdin.
 
-Both take any fsspec URL. In production that is ``s3://`` through s3fs, which
-picks up IRSA credentials from the pod environment; tests use ``file://`` and a
-local moto server reached through :data:`ENDPOINT_ENV`.
+Both take any fsspec URL. For ``s3://``, ``get`` reads ranges through s3fs and
+``put`` uploads through a boto3 multipart upload; both pick up IRSA credentials
+from the pod environment. Tests use ``file://`` and a local moto server reached
+through :data:`ENDPOINT_ENV`. MD5 sidecars are written by the orchestrator, not
+here, once a whole file has succeeded.
 """
 
 from __future__ import annotations
@@ -194,6 +196,7 @@ class S3MultipartWriter:
             self.client.abort_multipart_upload(
                 Bucket=self.bucket, Key=self.key, UploadId=self.upload_id
             )
+            self.upload_id = None
 
 
 class FsspecWriter:
@@ -221,7 +224,6 @@ class FsspecWriter:
 def put(
     url: str,
     src=None,
-    sidecar: bool = False,
     compress: list[str] | None = None,
     upload_concurrency: int = DEFAULT_UPLOAD_CONCURRENCY,
 ) -> tuple[int, str]:
@@ -258,13 +260,11 @@ def put(
             rc = proc.wait()
             if rc != 0:
                 raise RuntimeError(f"compressor {compress[0]} exited {rc}")
+        writer.commit()
     except BaseException:
         writer.discard()
         raise
-    writer.commit()
     fs.invalidate_cache()
-    if sidecar:
-        write_sidecar(fs, url, digest.hexdigest())
     return n, digest.hexdigest()
 
 
@@ -298,7 +298,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     p = sub.add_parser("put")
     p.add_argument("url")
-    p.add_argument("--sidecar", action="store_true", help="also write <url>.md5")
     p.add_argument(
         "--upload-concurrency",
         type=int,
@@ -316,7 +315,6 @@ def main(argv: list[str] | None = None) -> int:
     else:
         n, md5hex = put(
             args.url,
-            sidecar=args.sidecar,
             compress=args.compress or None,
             upload_concurrency=args.upload_concurrency,
         )

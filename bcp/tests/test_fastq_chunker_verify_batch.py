@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import io
+import shlex
 
 import pytest
 
@@ -115,11 +116,21 @@ def test_pipeline_command_keeps_FILE_for_split():
     assert cmd.rstrip().endswith("- part")
     # the filter is single-quoted so bash leaves $FILE for split's shell, and
     # contains no pipe: the compressor runs inside put
-    assert (
-        """--filter='/py -m fastq_chunker.s3io put "s3://dst/run/L_R2_001.$FILE.fastq.gz" """
-        """--upload-concurrency 4 --compress /usr/bin/pigz -c -p 8 -6'""" in cmd
-    )
-    assert "|" not in cmd.split("--filter=")[1].split(" - part")[0]
+    filt = shlex.split(cmd.split("--filter=")[1].split(" - part")[0])[0]
+    assert filt.count("$FILE") == 1
+    words = shlex.split(filt.replace("$FILE", "part001"))
+    assert words[:4] == ["/py", "-m", "fastq_chunker.s3io", "put"]
+    assert words[4] == "s3://dst/run/L_R2_001.part001.fastq.gz"
+    assert words[5:] == [
+        "--upload-concurrency",
+        "4",
+        "--compress",
+        "/usr/bin/pigz",
+        "-c",
+        "-p",
+        "8",
+        "-6",
+    ]
 
 
 def two_group_plan(dst="s3://dst/run/"):
@@ -242,3 +253,49 @@ def test_find_tools_rejects_unknown_decompressor(monkeypatch):
     )
     with pytest.raises(RunError, match="pip install rapidgzip"):
         find_tools(decompressor="rapidgzip")
+
+
+def test_pipeline_quotes_hostile_stem_and_dst():
+    stem = 'we$ird `x` "q" name_R1_001'
+    files = [
+        FastqFile(
+            "S",
+            "read1",
+            stem + ".fastq.gz",
+            "s3://src/" + stem + ".fastq.gz",
+            480 * GB,
+            10**9,
+        )
+    ]
+    g = plan_group(files)
+    tools = Tools(pigz="/p", split="/s", python="/py")
+    cmd = pipeline_command(tools, g, g.files[0], "s3://d$t/run it/", 8, 6)
+    filt_quoted = cmd.split("--filter=")[1].split(" - part")[0]
+    # unwrap bash's quoting of the filter argument and check what split's shell will see
+    filt = shlex.split(filt_quoted)[0]
+    words = shlex.split(filt.replace("$FILE", "part001"))
+    assert words[4] == "s3://d$t/run it/" + stem + ".part001.fastq.gz"
+    assert filt.count("$FILE") == 1
+    assert (
+        shlex.split("echo " + cmd.split(" get ")[1].split(" | ")[0])[-1]
+        == "s3://src/" + stem + ".fastq.gz"
+    )
+
+
+def test_run_plan_default_tools_honour_the_decompressor(monkeypatch, tmp_path):
+    from fastq_chunker import run as run_mod
+    from fastq_chunker.run import RunOptions, run_plan
+
+    seen = {}
+
+    def fake_find_tools(pigz=None, split=None, decompressor="pigz", rapidgzip=None):
+        seen["decompressor"] = decompressor
+        return Tools(pigz="/p", split="/s", python="/py", rapidgzip="/rg")
+
+    monkeypatch.setattr(run_mod, "find_tools", fake_find_tools)
+    plan = two_group_plan()
+    rc = run_plan(
+        plan, RunOptions(decompressor="rapidgzip", dry_run=True), out=io.StringIO()
+    )
+    assert rc == 0
+    assert seen == {"decompressor": "rapidgzip"}

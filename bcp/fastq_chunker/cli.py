@@ -20,7 +20,14 @@ from .plan import (
     plan_group,
     write_plan,
 )
-from .run import DECOMPRESSORS, RunError, RunOptions, find_tools, run_plan
+from .run import (
+    DECOMPRESSORS,
+    RunError,
+    RunOptions,
+    find_pigz,
+    find_tools,
+    run_plan,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,15 +75,27 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_plan)
 
     r = sub.add_parser("run", help="split every planned file, several in parallel")
-    r.add_argument("--plan", required=True, type=Path)
+    r.add_argument("--plan", required=True, type=Path, help="plan.json from `plan`")
     r.add_argument("--workers", type=int, default=4, help="pipelines at once")
     r.add_argument(
         "--pigz-threads",
         type=int,
         help="compression threads per pipeline (default: cores/workers - 1)",
     )
-    r.add_argument("--gzip-level", type=int, default=6, choices=range(1, 10))
-    r.add_argument("--only", nargs="+", default=[], metavar="FILENAME")
+    r.add_argument(
+        "--gzip-level",
+        type=int,
+        default=6,
+        choices=range(1, 10),
+        help="pigz level for the chunks (5 is ~25%% faster, ~3%% larger)",
+    )
+    r.add_argument(
+        "--only",
+        nargs="+",
+        default=[],
+        metavar="FILENAME",
+        help="process only these plan filenames; the rest are left untouched",
+    )
     r.add_argument("--force", action="store_true", help="re-split complete files too")
     r.add_argument("--dry-run", action="store_true", help="print the bash per file")
     r.add_argument(
@@ -84,8 +103,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="server-side copy files that need no splitting into --dst as well",
     )
-    r.add_argument("--log-dir", type=Path, default=Path("logs"))
-    r.add_argument("--manifest", type=Path, default=Path("run_manifest.tsv"))
+    r.add_argument(
+        "--log-dir", type=Path, default=Path("logs"), help="one <stem>.log per file"
+    )
+    r.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("run_manifest.tsv"),
+        help="per-chunk bytes, MD5 and status; input to `batch`",
+    )
     r.add_argument("--pigz", help="path to pigz (default: from PATH)")
     r.add_argument("--split", help="path to GNU split (default: split, then gsplit)")
     r.add_argument(
@@ -110,16 +136,22 @@ def build_parser() -> argparse.ArgumentParser:
     r.set_defaults(func=cmd_run)
 
     v = sub.add_parser("verify", help="check the chunks under the plan's destination")
-    v.add_argument("--plan", required=True, type=Path)
-    v.add_argument("--level", choices=("quick", "full"), default="quick")
-    v.add_argument("--workers", type=int, default=4)
+    v.add_argument("--plan", required=True, type=Path, help="plan.json from `plan`")
+    v.add_argument(
+        "--level",
+        choices=("quick", "full"),
+        default="quick",
+        help="quick: listing, sidecars, first record; full: decompress everything",
+    )
+    v.add_argument(
+        "--workers", type=int, default=4, help="chunks checked at once (full)"
+    )
     v.add_argument("--out", type=Path, default=Path("verify_report.tsv"))
     v.add_argument(
         "--id-regex",
         help="regex with one capture group that extracts the shared read ID from a header",
     )
     v.add_argument("--pigz", help="path to pigz (full level only)")
-    v.add_argument("--split", help="path to GNU split (unused, accepted for symmetry)")
     v.set_defaults(func=cmd_verify)
 
     b = sub.add_parser(
@@ -233,8 +265,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
     fs = s3io.make_fs(plan.dst)
     checks = verify.quick(plan, fs, args.id_regex)
     if args.level == "full":
-        tools = find_tools(args.pigz, args.split)
-        checks.extend(verify.full(plan, fs, tools, args.workers, args.id_regex))
+        pigz = find_pigz(args.pigz)
+        checks.extend(verify.full(plan, fs, pigz, args.workers, args.id_regex))
     ok = verify.write_report(args.out, checks)
     fails = [c for c in checks if c.status == "FAIL"]
     warns = [c for c in checks if c.status == "WARN"]

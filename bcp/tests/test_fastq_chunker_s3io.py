@@ -36,12 +36,11 @@ def run_endpoint(args, stdin=None, env=None):
 def test_put_then_get_round_trip_local(tmp_path):
     data = os.urandom(3 * MIB + 17)
     url = (tmp_path / "out" / "x.bin").as_uri()
-    put = run_endpoint(
-        ["put", url, "--sidecar"], stdin=data, env={s3io.BLOCK_ENV: str(MIB)}
-    )
+    put = run_endpoint(["put", url], stdin=data, env={s3io.BLOCK_ENV: str(MIB)})
     name, n, md5hex = put.stdout.decode().strip().split("\t")
     assert (name, int(n), md5hex) == ("x.bin", len(data), hashlib.md5(data).hexdigest())
     assert (tmp_path / "out" / "x.bin").read_bytes() == data
+    s3io.write_sidecar(s3io.make_fs(url), url, md5hex)
     assert (tmp_path / "out" / "x.bin.md5").read_text() == f"{md5hex}  x.bin\n"
 
     got = run_endpoint(["get", url, "--md5"], env={s3io.BLOCK_ENV: str(MIB)})
@@ -49,11 +48,13 @@ def test_put_then_get_round_trip_local(tmp_path):
     assert got.stderr.decode().strip().splitlines()[-1] == f"md5\t{md5hex}"
 
 
-def test_put_writes_no_sidecar_by_default(tmp_path):
+def test_put_never_writes_a_sidecar(tmp_path):
     url = (tmp_path / "y.bin").as_uri()
     run_endpoint(["put", url], stdin=b"abc")
     assert (tmp_path / "y.bin").read_bytes() == b"abc"
     assert not (tmp_path / "y.bin.md5").exists()
+    with pytest.raises(subprocess.CalledProcessError):
+        run_endpoint(["put", url, "--sidecar"], stdin=b"abc")
 
 
 def test_put_with_compressor(tmp_path):
@@ -76,7 +77,6 @@ def test_failing_compressor_leaves_no_object(tmp_path):
             "fastq_chunker.s3io",
             "put",
             url,
-            "--sidecar",
             "--compress",
             "sh",
             "-c",
@@ -89,7 +89,6 @@ def test_failing_compressor_leaves_no_object(tmp_path):
     assert proc.returncode != 0
     assert "exited 3" in proc.stderr.decode()
     assert not (tmp_path / "bad.gz").exists()
-    assert not (tmp_path / "bad.gz.md5").exists()
 
 
 def test_empty_input_makes_empty_object(tmp_path):
@@ -101,9 +100,10 @@ def test_empty_input_makes_empty_object(tmp_path):
 
 def test_in_process_helpers(tmp_path):
     url = (tmp_path / "z.bin").as_uri()
-    n, md5hex = s3io.put(url, src=io.BytesIO(b"hello"), sidecar=True)
+    n, md5hex = s3io.put(url, src=io.BytesIO(b"hello"))
     assert (n, md5hex) == (5, hashlib.md5(b"hello").hexdigest())
     fs = s3io.make_fs(url)
+    s3io.write_sidecar(fs, url, md5hex)
     assert s3io.read_sidecar(fs, url) == (md5hex, "z.bin")
     sink = io.BytesIO()
     assert s3io.get(url, out=sink) == md5hex
@@ -152,7 +152,7 @@ def test_multipart_round_trip_via_s3(moto_endpoint):
     data = os.urandom(12 * MIB + 5)
     env = {**moto_endpoint, s3io.BLOCK_ENV: str(block)}
     url = "s3://dst/_test/big.bin"
-    put = run_endpoint(["put", url, "--sidecar"], stdin=data, env=env)
+    put = run_endpoint(["put", url], stdin=data, env=env)
     name, n, md5hex = put.stdout.decode().strip().split("\t")
     assert (name, int(n), md5hex) == (
         "big.bin",
@@ -163,6 +163,7 @@ def test_multipart_round_trip_via_s3(moto_endpoint):
     fs = s3io.make_fs(url)
     fs.invalidate_cache()
     assert fs.size(url) == len(data)
+    s3io.write_sidecar(fs, url, md5hex)
     assert s3io.read_sidecar(fs, url) == (md5hex, "big.bin")
     got = run_endpoint(["get", url, "--md5"], env=env)
     assert got.stdout == data
@@ -179,7 +180,6 @@ def test_failing_compressor_aborts_multipart_via_s3(moto_endpoint):
             "fastq_chunker.s3io",
             "put",
             url,
-            "--sidecar",
             "--compress",
             "sh",
             "-c",
@@ -193,7 +193,6 @@ def test_failing_compressor_aborts_multipart_via_s3(moto_endpoint):
     fs = s3io.make_fs(url)
     fs.invalidate_cache()
     assert not fs.exists(url)
-    assert not fs.exists(url + ".md5")
     import boto3
 
     client = boto3.client("s3", endpoint_url=env[s3io.ENDPOINT_ENV])
@@ -387,3 +386,30 @@ def test_multipart_writer_failed_part_surfaces_and_put_aborts(monkeypatch):
 def test_split_s3_url():
     assert s3io.split_s3_url("s3://bucket/a/b/c.gz") == ("bucket", "a/b/c.gz")
     assert s3io.split_s3_url("s3://bucket/k") == ("bucket", "k")
+
+
+@pytest.mark.parametrize("fail_part", [4, "complete"])
+def test_failure_during_commit_still_aborts(monkeypatch, fail_part):
+    # with 4 parts at concurrency 2, parts 3 and 4 are collected inside commit()
+    client = FakeS3Client(fail_part=4 if fail_part == 4 else None)
+    if fail_part == "complete":
+
+        def boom(**kwargs):
+            raise RuntimeError("complete failed")
+
+        client.complete_multipart_upload = boom
+    real = s3io.S3MultipartWriter
+    monkeypatch.setattr(s3io, "S3MultipartWriter", lambda url, c: real(url, c, client))
+
+    class FakeFS:
+        protocol = ("s3", "s3a")
+
+        def invalidate_cache(self):
+            pass
+
+    monkeypatch.setattr(s3io, "make_fs", lambda url: FakeFS())
+    monkeypatch.setenv(s3io.BLOCK_ENV, "4")
+    with pytest.raises(RuntimeError):
+        s3io.put("s3://b/k", src=io.BytesIO(b"0123456789abcdef"), upload_concurrency=2)
+    assert client.aborted
+    assert client.calls.count("abort") == 1

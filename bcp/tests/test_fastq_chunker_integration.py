@@ -99,7 +99,7 @@ def manifest_statuses(path="run_manifest.tsv"):
     return {(r[0], r[1]): r[4] for r in rows}
 
 
-def test_end_to_end(workspace, capsys):
+def test_end_to_end(workspace, capsys, monkeypatch):
     plan = load_plan(Path("plan.json"))
     (g,) = plan.groups
     assert g.action == "split" and g.n_chunks > 1
@@ -127,6 +127,15 @@ def test_end_to_end(workspace, capsys):
         n for fp in g.files for c in fp.chunks for n in (c.name, c.name + ".md5")
     )
 
+    # verify must not need GNU split; restored below because run does
+    from fastq_chunker import run as run_mod
+
+    real_find_split = run_mod.find_split
+
+    def no_split(explicit=None):
+        raise RunError("split should not be looked up by verify")
+
+    monkeypatch.setattr(run_mod, "find_split", no_split)
     assert (
         main(
             ["verify", "--plan", "plan.json", "--level", "quick", "--out", "quick.tsv"]
@@ -149,6 +158,7 @@ def test_end_to_end(workspace, capsys):
         )
         == 0
     )
+    monkeypatch.setattr(run_mod, "find_split", real_find_split)
     full = [line.split("\t") for line in Path("full.tsv").read_text().splitlines()]
     checks = {row[3] for row in full[1:-1]}
     assert {
@@ -386,3 +396,69 @@ def test_dry_run_with_rapidgzip_shows_parallel_inflate(workspace, capsys, tmp_pa
     out = capsys.readouterr().out
     assert f"| {fake} -d -c -P 2 |" in out
     assert "-dc" not in out
+
+
+def test_full_verify_reports_a_missing_sidecar_instead_of_crashing(workspace, capsys):
+    plan = load_plan(Path("plan.json"))
+    (g,) = plan.groups
+    assert main(run_args()) == 0
+    victim = g.files[0].chunks[1]
+    (workspace / "dst" / (victim.name + ".md5")).unlink()
+    assert (
+        main(["verify", "--plan", "plan.json", "--level", "full", "--out", "v.tsv"])
+        == 1
+    )
+    rows = [r.split("\t") for r in Path("v.tsv").read_text().splitlines()[1:]]
+    failed = {(r[2], r[3]): r[5] for r in rows if r[4] == "FAIL"}
+    assert (victim.name, "sidecar") in failed
+    assert "sidecar missing" in failed[(victim.name, "md5")]
+    assert rows[-1][4] == "FAIL"
+    capsys.readouterr()
+
+
+def test_hostile_filenames_survive_the_filter_shell(tmp_path, monkeypatch, capsys):
+    """dst and stem reach split's filter shell; characters that shell expands
+    must come out literally in the chunk names."""
+    from fastq_chunker import testdata
+
+    monkeypatch.chdir(tmp_path)
+    stem = 'we$ird `x` "q" S1_L001'
+    src = (tmp_path / "src").as_uri() + "/"
+    dst = "file://" + str(tmp_path / "d$t run") + "/"
+    testdata.generate(2000, src, Path("meta"), stem=stem)
+    assert (
+        main(
+            [
+                "plan",
+                "--file-sets",
+                "meta/sets.json",
+                "--files",
+                "meta/files.json",
+                "--dst",
+                dst,
+                "--target-bytes",
+                "20000",
+                "--limit-bytes",
+                "25000",
+                "--round-to",
+                "1",
+                "--out",
+                "plan.json",
+            ]
+        )
+        == 0
+    )
+    plan = load_plan(Path("plan.json"))
+    (g,) = plan.groups
+    assert g.n_chunks > 1
+    assert main(run_args()) == 0
+    assert set(manifest_statuses().values()) == {"ok"}
+    names = sorted(p.name for p in (tmp_path / "d$t run").iterdir())
+    assert names == sorted(
+        n for fp in g.files for c in fp.chunks for n in (c.name, c.name + ".md5")
+    )
+    assert (
+        main(["verify", "--plan", "plan.json", "--level", "full", "--out", "v.tsv"])
+        == 0
+    )
+    capsys.readouterr()

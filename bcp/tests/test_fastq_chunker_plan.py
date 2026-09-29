@@ -403,3 +403,32 @@ def test_cli_reports_plan_errors_on_stderr(tmp_path, capsys):
     assert rc == 2
     assert "not supplied" in capsys.readouterr().err
     assert not (tmp_path / "p.json").exists()
+
+
+def test_too_few_reads_for_the_chunk_count_is_a_plan_error():
+    # 5 reads over 4 chunks: 2 per chunk fills 3 chunks, never 4
+    with pytest.raises(PlanError, match="cannot be spread"):
+        reads_per_chunk(5, 4, 1)
+    with pytest.raises(PlanError):
+        plan_group([fq("x.fastq.gz", 300 * GB, 5)], round_to=1)
+
+
+def test_same_basename_in_two_sets_is_rejected():
+    a = plan_group([fq("S1_L001_R1_001.fastq.gz", 200 * GB, 10**9, group="A")])
+    b = plan_group([fq("S1_L001_R1_001.fastq.gz", 150 * GB, 10**9, group="B")])
+    b.files[0].file = FastqFile(
+        **{
+            **b.files[0].file.__dict__,
+            "s3_uri": "s3://src/runB/S1_L001_R1_001.fastq.gz",
+        }
+    )
+    with pytest.raises(PlanError, match="share a stem") as e:
+        make_plan([a, b], "s3://dst/", TARGET_BYTES, LIMIT_BYTES, 1)
+    assert (
+        "s3://src/S1_L001_R1_001.fastq.gz, s3://src/runB/S1_L001_R1_001.fastq.gz"
+        in str(e.value)
+    )
+    # a skipped singleton collides with a split file's stem just the same
+    small = plan_group([fq("S1_L001_R1_001.fq.gz", 10 * GB, 10**8, group="C")])
+    with pytest.raises(PlanError, match="share a stem"):
+        make_plan([a, small], "s3://dst/", TARGET_BYTES, LIMIT_BYTES, 1)

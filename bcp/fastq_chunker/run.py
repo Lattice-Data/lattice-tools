@@ -1,9 +1,14 @@
 """Build and launch one streaming split pipeline per file, several in parallel.
 
-    s3io get SRC | pigz -dc | split -l LINES --filter='s3io put DST/STEM.$FILE.fastq.gz --compress pigz -c' - part
+    s3io get --concurrency N SRC
+    | pigz -dc                       (or rapidgzip -d -c -P T)
+    | split -l LINES --numeric-suffixes=1 -a W
+        --filter='s3io put DST/STEM.$FILE.fastq.gz --upload-concurrency M --compress pigz -c -p T -L'
+        - part
 
-Python touches bytes only at the two endpoints; counting, decompression and
-compression are GNU split and pigz.
+Python touches bytes only at the two endpoints (ranged reads in, multipart
+upload out); record counting is GNU split, inflation pigz or rapidgzip,
+compression pigz. Sidecars are written here, after a file's pipeline exits 0.
 """
 
 from __future__ import annotations
@@ -174,7 +179,9 @@ def pipeline_command(
     inflate = decompress_command(tools, decompressor, threads)
     # $FILE is expanded by split's filter shell, not by ours: split sets it to the
     # output name, prefix included, so ``part`` + the numeric suffix
-    put_url = f'"{dst}{fp.stem}.$FILE.fastq.gz"'
+    # dst and stem are user and portal input: single-quote them so the filter
+    # shell expands nothing but $FILE, whatever characters they contain
+    put_url = q(f"{dst}{fp.stem}.") + '"$FILE"' + q(".fastq.gz")
     # put runs pigz itself: split's filter shell has no pipefail, so a shell pipe
     # there would turn a dead compressor into a truncated chunk with exit 0
     filt = (
@@ -368,7 +375,7 @@ def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None)
     # largest first, so the long pole starts before the small index reads
     files.sort(key=lambda gf: gf[1].file.size_bytes, reverse=True)
 
-    tools = tools or find_tools()
+    tools = tools or find_tools(decompressor=opts.decompressor)
     if opts.dry_run:
         for g, fp in files:
             out.write(
