@@ -6,13 +6,23 @@ second bucket. Nothing is written to local disk. Mates of a set (read1, read2,
 read3, index1, index2) are split independently with the same reads-per-chunk
 value, so chunk *k* of every mate holds the same reads.
 
-The data path per file is one shell pipeline:
+The data path per file is one shell pipeline (values abbreviated; `run
+--dry-run` prints the exact commands):
 
-    s3io get SRC | pigz -dc | split -l LINES --filter='s3io put DST/STEM.$FILE.fastq.gz --compress pigz -c' - part
+    s3io get --concurrency 8 SRC \
+    | pigz -dc                                  # or: rapidgzip -d -c -P T
+    | split -l LINES --numeric-suffixes=1 -a 3 \
+        --filter='s3io put "DST/STEM.$FILE.fastq.gz" --upload-concurrency 4 --compress pigz -c -p T -6' \
+        - part
 
-Python only sits at the two S3 endpoints (through `s3fs`); counting, decompression
-and compression are GNU `split` and `pigz`. That is what makes a 500 GB file take
-about an hour rather than a day.
+Python sits only at the two S3 endpoints: `get` fetches ranges of the source
+object with several requests in flight, and `put` runs the compressor and
+uploads its output as a multipart upload with several parts in flight. Record
+counting is GNU `split -l` (a chunk boundary is always a line boundary, and
+FASTQ records are four lines), inflation is `pigz` or `rapidgzip`, compression
+is `pigz`. No Python code touches the FASTQ bytes in between. Measured on a
+96-core pod, a 500 GB file takes roughly 2 to 3 hours; see Performance below
+for what was measured and how the first version's 11 hours were brought down.
 
 ## Input
 
