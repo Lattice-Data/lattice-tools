@@ -5,6 +5,9 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
+import random
+import threading
+import time
 import os
 import socket
 import subprocess
@@ -196,3 +199,90 @@ def test_failing_compressor_aborts_multipart_via_s3(moto_endpoint):
     client = boto3.client("s3", endpoint_url=env[s3io.ENDPOINT_ENV])
     pending = client.list_multipart_uploads(Bucket="dst").get("Uploads", [])
     assert pending == []
+
+
+class SlowRangeFS:
+    """A fake fs whose cat_file answers out of order, to prove get reassembles in order."""
+
+    protocol = ("s3", "s3a")
+
+    def __init__(self, data: bytes):
+        self.data = data
+        self.calls = 0
+        self.in_flight = 0
+        self.peak = 0
+        self.completed = 0
+        self.lock = threading.Lock()
+
+    def size(self, url):
+        return len(self.data)
+
+    def cat_file(self, url, start=None, end=None):
+        with self.lock:
+            self.calls += 1
+            self.in_flight += 1
+            self.peak = max(self.peak, self.in_flight)
+        time.sleep(random.Random(start).random() / 50)
+        with self.lock:
+            self.in_flight -= 1
+            self.completed += 1
+        return self.data[start:end]
+
+
+def test_ranged_blocks_reassemble_in_order_and_bound_concurrency():
+    data = os.urandom(1000 * 7 + 13)
+    fs = SlowRangeFS(data)
+    out = b"".join(s3io.ranged_blocks(fs, "s3://x/y", block=1000, concurrency=4))
+    assert out == data
+    assert fs.calls == 8
+    assert 1 < fs.peak <= 4
+
+
+def test_ranged_blocks_empty_object():
+    fs = SlowRangeFS(b"")
+    assert list(s3io.ranged_blocks(fs, "s3://x/y", block=10, concurrency=3)) == []
+
+
+def test_get_via_s3_uses_ranges(moto_endpoint):
+    block = 1 * MIB
+    data = os.urandom(11 * MIB + 3)
+    env = {**moto_endpoint, s3io.BLOCK_ENV: str(5 * MIB)}
+    url = "s3://dst/_test/ranged.bin"
+    run_endpoint(["put", url], stdin=data, env=env)
+    for concurrency in ("1", "4"):
+        got = run_endpoint(
+            ["get", url, "--md5", "--concurrency", concurrency],
+            env={**moto_endpoint, s3io.BLOCK_ENV: str(block)},
+        )
+        assert got.stdout == data
+        assert (
+            got.stderr.decode().strip().splitlines()[-1]
+            == f"md5\t{hashlib.md5(data).hexdigest()}"
+        )
+
+
+def test_get_takes_the_ranged_path_for_s3(monkeypatch):
+    data = os.urandom(2500)
+    fs = SlowRangeFS(data)  # has cat_file but no open(): a sequential read would fail
+    monkeypatch.setattr(s3io, "make_fs", lambda url: fs)
+    monkeypatch.setenv(s3io.BLOCK_ENV, "1000")
+    sink = io.BytesIO()
+    assert (
+        s3io.get("s3://x/y", out=sink, concurrency=3) == hashlib.md5(data).hexdigest()
+    )
+    assert sink.getvalue() == data
+    assert fs.calls == 3
+
+
+def test_ranged_blocks_do_not_run_ahead_of_a_slow_consumer():
+    # memory is bounded only if fetching stalls once `concurrency` blocks are
+    # complete but not yet consumed
+    fs = SlowRangeFS(os.urandom(1000 * 12))
+    concurrency = 3
+    for i, _ in enumerate(
+        s3io.ranged_blocks(fs, "s3://x/y", block=1000, concurrency=concurrency)
+    ):
+        time.sleep(0.05)
+        assert fs.completed - (i + 1) <= concurrency, (
+            f"{fs.completed} done after {i + 1} consumed"
+        )

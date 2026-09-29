@@ -33,11 +33,15 @@ class RunError(Exception):
     pass
 
 
+DECOMPRESSORS = ("pigz", "rapidgzip")
+
+
 @dataclass
 class Tools:
     pigz: str
     split: str
     python: str = sys.executable
+    rapidgzip: str | None = None
 
 
 @dataclass
@@ -73,6 +77,8 @@ class RunOptions:
     copy_singletons: bool = False
     log_dir: Path = Path("logs")
     manifest: Path = Path("run_manifest.tsv")
+    decompressor: str = "pigz"
+    read_concurrency: int = s3io.DEFAULT_CONCURRENCY
 
     def threads(self) -> int:
         if self.pigz_threads:
@@ -102,8 +108,41 @@ def find_pigz(explicit: str | None = None) -> str:
     return path
 
 
-def find_tools(pigz: str | None = None, split: str | None = None) -> Tools:
-    return Tools(pigz=find_pigz(pigz), split=find_split(split))
+def find_rapidgzip(explicit: str | None = None) -> str:
+    path = shutil.which(explicit or "rapidgzip")
+    if not path:
+        raise RunError(
+            "rapidgzip not found on PATH; `pip install rapidgzip` provides it"
+        )
+    return path
+
+
+def find_tools(
+    pigz: str | None = None,
+    split: str | None = None,
+    decompressor: str = "pigz",
+    rapidgzip: str | None = None,
+) -> Tools:
+    if decompressor not in DECOMPRESSORS:
+        raise RunError(
+            f"unknown decompressor {decompressor!r}; use {' or '.join(DECOMPRESSORS)}"
+        )
+    return Tools(
+        pigz=find_pigz(pigz),
+        split=find_split(split),
+        rapidgzip=find_rapidgzip(rapidgzip) if decompressor == "rapidgzip" else None,
+    )
+
+
+def decompress_command(tools: Tools, decompressor: str, threads: int) -> str:
+    q = shlex.quote
+    if decompressor == "rapidgzip":
+        if tools.rapidgzip is None:
+            raise RunError(
+                "rapidgzip requested but not located; call find_tools with it"
+            )
+        return f"{q(tools.rapidgzip)} -d -c -P {threads}"
+    return f"{q(tools.pigz)} -dc"
 
 
 def child_env() -> dict[str, str]:
@@ -115,11 +154,22 @@ def child_env() -> dict[str, str]:
 
 
 def pipeline_command(
-    tools: Tools, group: GroupPlan, fp: FilePlan, dst: str, threads: int, level: int
+    tools: Tools,
+    group: GroupPlan,
+    fp: FilePlan,
+    dst: str,
+    threads: int,
+    level: int,
+    decompressor: str = "pigz",
+    read_concurrency: int = s3io.DEFAULT_CONCURRENCY,
 ) -> str:
     q = shlex.quote
     py = q(tools.python)
-    get = f"{py} -m fastq_chunker.s3io get {q(fp.file.s3_uri)}"
+    get = (
+        f"{py} -m fastq_chunker.s3io get --concurrency {read_concurrency} "
+        f"{q(fp.file.s3_uri)}"
+    )
+    inflate = decompress_command(tools, decompressor, threads)
     # $FILE is expanded by split's filter shell, not by ours: split sets it to the
     # output name, prefix included, so ``part`` + the numeric suffix
     put_url = f'"{dst}{fp.stem}.$FILE.fastq.gz"'
@@ -133,7 +183,7 @@ def pipeline_command(
         f"{q(tools.split)} -l {group.lines_per_chunk} --numeric-suffixes=1 "
         f"-a {group.suffix_width} --filter={q(filt)} - part"
     )
-    return f"set -o pipefail\n{get} | {q(tools.pigz)} -dc | {split}"
+    return f"set -o pipefail\n{get} | {inflate} | {split}"
 
 
 def chunk_listing(
@@ -208,7 +258,16 @@ def parse_put_lines(stdout: str) -> list[tuple[str, int, str]]:
 def run_file(
     tools: Tools, plan: Plan, group: GroupPlan, fp: FilePlan, opts: RunOptions, fs
 ) -> list[ChunkResult]:
-    cmd = pipeline_command(tools, group, fp, plan.dst, opts.threads(), opts.gzip_level)
+    cmd = pipeline_command(
+        tools,
+        group,
+        fp,
+        plan.dst,
+        opts.threads(),
+        opts.gzip_level,
+        opts.decompressor,
+        opts.read_concurrency,
+    )
     opts.log_dir.mkdir(parents=True, exist_ok=True)
     log_path = opts.log_dir / f"{fp.stem}.log"
     t0 = time.monotonic()
@@ -310,7 +369,14 @@ def run_plan(plan: Plan, opts: RunOptions, tools: Tools | None = None, out=None)
         for g, fp in files:
             out.write(
                 pipeline_command(
-                    tools, g, fp, plan.dst, opts.threads(), opts.gzip_level
+                    tools,
+                    g,
+                    fp,
+                    plan.dst,
+                    opts.threads(),
+                    opts.gzip_level,
+                    opts.decompressor,
+                    opts.read_concurrency,
                 )
                 + "\n\n"
             )

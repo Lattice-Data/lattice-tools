@@ -20,7 +20,7 @@ from .plan import (
     plan_group,
     write_plan,
 )
-from .run import RunError, RunOptions, find_tools, run_plan
+from .run import DECOMPRESSORS, RunError, RunOptions, find_tools, run_plan
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -88,6 +88,19 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("--manifest", type=Path, default=Path("run_manifest.tsv"))
     r.add_argument("--pigz", help="path to pigz (default: from PATH)")
     r.add_argument("--split", help="path to GNU split (default: split, then gsplit)")
+    r.add_argument(
+        "--decompressor",
+        choices=DECOMPRESSORS,
+        default="pigz",
+        help="rapidgzip inflates in parallel; pigz -dc is single-threaded",
+    )
+    r.add_argument("--rapidgzip", help="path to rapidgzip (default: from PATH)")
+    r.add_argument(
+        "--read-concurrency",
+        type=int,
+        default=s3io.DEFAULT_CONCURRENCY,
+        help="S3 range requests in flight per pipeline",
+    )
     r.set_defaults(func=cmd_run)
 
     v = sub.add_parser("verify", help="check the chunks under the plan's destination")
@@ -201,8 +214,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         copy_singletons=args.copy_singletons,
         log_dir=args.log_dir,
         manifest=args.manifest,
+        decompressor=args.decompressor,
+        read_concurrency=args.read_concurrency,
     )
-    return run_plan(plan, opts, tools=find_tools(args.pigz, args.split))
+    tools = find_tools(args.pigz, args.split, args.decompressor, args.rapidgzip)
+    return run_plan(plan, opts, tools=tools)
 
 
 def cmd_verify(args: argparse.Namespace) -> int:

@@ -18,7 +18,11 @@ from .plan import ChunkSpec, FilePlan, GroupPlan, Plan
 from .run import Tools, child_env, chunk_listing
 
 HEADER_BYTES = 64 * 1024
-DRIFT = 0.15
+# Recompression at pigz -6 came out 15-22% smaller than the vendor stream on
+# real data, so undershoot is expected and only a large one is worth a look;
+# overshoot is what could threaten the limit.
+DRIFT_OVER = 0.15
+DRIFT_UNDER = 0.30
 REPORT_COLUMNS = ("group", "filename", "chunk", "check", "status", "detail")
 
 
@@ -90,6 +94,16 @@ def header_sanity(lines: list[str]) -> str | None:
         return f"line 3 does not start with +: {lines[2][:40]!r}"
     if len(lines[1]) != len(lines[3]):
         return "sequence and quality lengths differ"
+    return None
+
+
+def drift_detail(size: int, est_bytes: int) -> str | None:
+    """A WARN detail when a chunk's size is far from its estimate, else None."""
+    if not est_bytes:
+        return None
+    ratio = size / est_bytes - 1
+    if ratio > DRIFT_OVER or ratio < -DRIFT_UNDER:
+        return f"{size} is {ratio:+.0%} vs estimate {est_bytes}"
     return None
 
 
@@ -180,19 +194,10 @@ def _quick_file(plan, fs, g: GroupPlan, fp: FilePlan, ids, id_regex) -> list[Che
                     str(size),
                 )
             )
-        if (
-            c.est_bytes
-            and not (1 - DRIFT) * c.est_bytes <= size <= (1 + DRIFT) * c.est_bytes
-        ):
+        drift = drift_detail(size, c.est_bytes)
+        if drift:
             out.append(
-                Check(
-                    g.group,
-                    fp.file.filename,
-                    c.name,
-                    "size_drift",
-                    "WARN",
-                    f"{size} vs estimate {c.est_bytes}",
-                )
+                Check(g.group, fp.file.filename, c.name, "size_drift", "WARN", drift)
             )
         sidecar = c.name + ".md5"
         if sidecar not in have:

@@ -18,6 +18,8 @@ import pytest
 
 from fastq_chunker.cli import main
 from fastq_chunker.plan import load_plan
+import shutil
+
 from fastq_chunker.run import RunError, find_tools
 
 try:
@@ -347,3 +349,40 @@ def test_wrong_read_count_is_detected_and_cleaned_up(
     dst_dir = tmp_path / "dst"
     assert not any(dst_dir.iterdir())
     assert "rerun with: --only" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(shutil.which("rapidgzip") is None, reason="rapidgzip not installed")
+def test_end_to_end_with_rapidgzip(workspace, capsys):
+    plan = load_plan(Path("plan.json"))
+    (g,) = plan.groups
+    assert main(run_args("--decompressor", "rapidgzip", "--read-concurrency", "2")) == 0
+    assert set(manifest_statuses().values()) == {"ok"}
+    logs = [log.read_text() for log in Path("logs").glob("*.log")]
+    assert len(logs) == 4
+    assert all("-d -c -P 2 |" in log and "--concurrency 2 " in log for log in logs)
+    for fp in g.files:
+        original = gzip.decompress((workspace / "src" / fp.file.filename).read_bytes())
+        joined = b"".join((workspace / "dst" / c.name).read_bytes() for c in fp.chunks)
+        assert gzip.decompress(joined) == original
+    assert (
+        main(["verify", "--plan", "plan.json", "--level", "full", "--out", "v.tsv"])
+        == 0
+    )
+    capsys.readouterr()
+
+
+def test_dry_run_with_rapidgzip_shows_parallel_inflate(workspace, capsys, tmp_path):
+    fake = tmp_path / "rapidgzip"
+    fake.write_text("#!/bin/sh\nexit 0\n")
+    fake.chmod(0o755)
+    assert (
+        main(
+            run_args(
+                "--dry-run", "--decompressor", "rapidgzip", "--rapidgzip", str(fake)
+            )
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert f"| {fake} -d -c -P 2 |" in out
+    assert "-dc" not in out

@@ -17,7 +17,15 @@ from fastq_chunker.plan import (
     plan_group,
     write_plan,
 )
-from fastq_chunker.run import MANIFEST_COLUMNS, parse_put_lines, pipeline_command, Tools
+from fastq_chunker.run import (
+    MANIFEST_COLUMNS,
+    RunError,
+    Tools,
+    decompress_command,
+    find_tools,
+    parse_put_lines,
+    pipeline_command,
+)
 
 
 @pytest.mark.parametrize(
@@ -100,7 +108,7 @@ def test_pipeline_command_keeps_FILE_for_split():
     cmd = pipeline_command(tools, g, g.files[1], "s3://dst/run/", threads=8, level=6)
     assert cmd.startswith("set -o pipefail\n")
     assert (
-        "/py -m fastq_chunker.s3io get s3://src/L_R2_001.fastq.gz | /usr/bin/pigz -dc | "
+        "/py -m fastq_chunker.s3io get --concurrency 8 s3://src/L_R2_001.fastq.gz | /usr/bin/pigz -dc | "
         in cmd
     )
     assert "-l 1144000000 --numeric-suffixes=1 -a 3 --filter=" in cmd
@@ -179,3 +187,58 @@ def test_plan_json_survives_cli_round_trip(tmp_path):
     p = tmp_path / "plan.json"
     write_plan(two_group_plan(), p)
     assert load_plan(p).groups[1].action == "skip"
+
+
+@pytest.mark.parametrize(
+    "size, est, warns",
+    [
+        (100, 100, False),
+        (114, 100, False),
+        (116, 100, True),
+        (80, 100, False),
+        (71, 100, False),
+        (69, 100, True),
+        (50, 0, False),
+    ],
+)
+def test_drift_is_asymmetric(size, est, warns):
+    detail = verify.drift_detail(size, est)
+    assert bool(detail) is warns
+    if warns:
+        assert f"vs estimate {est}" in detail and "%" in detail
+
+
+def test_pipeline_command_with_rapidgzip_and_concurrency():
+    g = plan_group(lib())
+    tools = Tools(
+        pigz="/usr/bin/pigz", split="/usr/bin/split", python="/py", rapidgzip="/rg"
+    )
+    cmd = pipeline_command(tools, g, g.files[0], "s3://dst/", 8, 6, "rapidgzip", 12)
+    assert (
+        "s3io get --concurrency 12 s3://src/L_R1_001.fastq.gz | /rg -d -c -P 8 | "
+        in cmd
+    )
+    assert "-dc" not in cmd
+    default = pipeline_command(tools, g, g.files[0], "s3://dst/", 8, 6)
+    assert "--concurrency 8 " in default and "| /usr/bin/pigz -dc |" in default
+
+
+def test_decompress_command_requires_located_rapidgzip():
+    tools = Tools(pigz="/p", split="/s")
+    assert decompress_command(tools, "pigz", 4) == "/p -dc"
+    with pytest.raises(RunError, match="rapidgzip"):
+        decompress_command(tools, "rapidgzip", 4)
+
+
+def test_find_tools_rejects_unknown_decompressor(monkeypatch):
+    with pytest.raises(RunError, match="unknown decompressor"):
+        find_tools(decompressor="zstd")
+    monkeypatch.setattr(
+        "fastq_chunker.run.shutil.which",
+        lambda name: None if name == "rapidgzip" else f"/fake/{name}",
+    )
+    monkeypatch.setattr(
+        "fastq_chunker.run.find_split", lambda explicit=None: "/fake/split"
+    )
+    with pytest.raises(RunError, match="pip install rapidgzip"):
+        find_tools(decompressor="rapidgzip")

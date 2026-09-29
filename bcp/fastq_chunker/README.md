@@ -44,10 +44,16 @@ python -m fastq_chunker batch --plan plan.json --run-manifest run_manifest.tsv -
 `plan` touches no network. A file below the 100 GB limit is legal as-is and is
 never split; otherwise the set is cut into `ceil(largest / 80 GB)` chunks and
 reads per chunk is rounded up to a multiple of one million. The plan refuses any
-set whose estimated largest chunk is not below the limit.
+set whose estimated largest chunk is not below the limit. The estimate assumes
+the chunks compress like the original; on real vendor data (Psomagen, pilot of
+2026-09-28) `pigz -6` output was 15 to 22 percent smaller than that, so an
+80 GB target lands near 65 GB and `--target-gb 90` still leaves the full
+margin. Check the pilot's `size_drift` before relying on that for a new vendor.
 
 `run` preflights (tools present, every source exists with the planned size,
-destination writable), skips files whose chunks are already complete, deletes
+destination writable), reads each source with `--read-concurrency` (default 8)
+range requests in flight, inflates with `pigz -dc` or, with
+`--decompressor rapidgzip`, in parallel, skips files whose chunks are already complete, deletes
 leftovers before re-splitting a file, and runs `--workers` pipelines at once.
 `put` runs `pigz -c` itself and aborts the upload if the compressor fails, so a
 chunk object is never a truncated success. Each chunk's `<chunk>.md5` sidecar
@@ -63,7 +69,7 @@ behind, which S3 bills for and does not list; give the destination bucket a
 lifecycle rule that aborts incomplete multipart uploads after a day.
 
 `verify --level quick` checks every chunk exists below the limit, flags size
-drift beyond 15 percent of the estimate, checks the sidecar, decompresses the
+drift (more than 15 percent over the estimate, or more than 30 percent under), checks the sidecar, decompresses the
 first record of each chunk for sanity, and confirms the first read ID of chunk
 *k* is identical across mates. `--level full` costs about as much as the run:
 it decompresses every chunk, checks `lines % 4 == 0`, that the read count equals
@@ -74,6 +80,23 @@ re-running that file with `--force`.
 `batch` is organisational only: it packs whole sets, in plan order, into
 submission batches under `--batch-limit-gb` (default 5000), using actual chunk
 sizes from the run manifest when given.
+
+## Performance
+
+Measured in the JupyterHub pod (96 cores) on a 9.9 GB Psomagen R2 file:
+
+- s3fs streams `open("rb")` one range at a time on one connection: 32 MB/s
+  alone, under 10 MB/s with three other streams running. That capped the first
+  pilot at ~85 MB/s uncompressed per pipeline (13 minutes for a 20 GB set, so
+  roughly 11 hours for a 500 GB file). `get` therefore fetches 64 MiB ranges
+  with several in flight; peak memory per `get` is about `--read-concurrency`
+  blocks (512 MiB at the default).
+- Single-threaded `pigz -dc` inflates at ~340 MB/s uncompressed, which for
+  6-to-1 data is ~55 MB/s compressed; `rapidgzip -P 16` did 640 MB/s. Once
+  reading is fast, inflate is the next limit, hence `--decompressor rapidgzip`
+  (`pip install rapidgzip`). `verify --level full` always inflates with `pigz`,
+  so the check uses a different decoder than the run.
+- Compression at `-6` with 8 threads keeps pace with either decoder.
 
 ## Outputs
 
