@@ -84,26 +84,44 @@ sizes from the run manifest when given.
 
 ## Performance
 
-Measured in the JupyterHub pod (96 cores) on a 9.9 GB Psomagen R2 file:
+Measured in the JupyterHub pod (96 cores) on one real Psomagen set: 20 GB
+across R1/R2/I1/I2, 274 M reads, largest file (R2) 9.9 GB, four pipelines in
+parallel, 2026-09-28/29. Each row adds one change to the previous:
+
+| change | set wall | R2 | R2, compressed | 500 GB file |
+|---|---|---|---|---|
+| first pilot (s3fs streaming, `pigz -dc`, 8 threads) | 13 m 23 s | 791 s | 12.5 MB/s | ~11 h |
+| parallel ranged reads (`--read-concurrency 8`) | 8 m 43 s | 514 s | 19 MB/s | ~7 h |
+| `--decompressor rapidgzip` | 8 m 32 s | 498 s | 20 MB/s | ~7 h |
+| concurrent multipart uploads (`--upload-concurrency 4`) | 7 m 17 s | 427 s | 23 MB/s | ~6 h |
+| `--pigz-threads 16` | 3 m 49 s | 223 s | 44 MB/s | ~3 h |
+
+What each step removed:
 
 - s3fs streams `open("rb")` one range at a time on one connection: 32 MB/s
-  alone, under 10 MB/s with three other streams running. That capped the first
-  pilot at ~85 MB/s uncompressed per pipeline (13 minutes for a 20 GB set, so
-  roughly 11 hours for a 500 GB file). `get` therefore fetches 64 MiB ranges
+  alone, under 10 MB/s with three other streams. `get` fetches 64 MiB ranges
   with several in flight; peak memory per `get` is about `--read-concurrency`
   blocks (512 MiB at the default).
-- Single-threaded `pigz -dc` inflates at ~340 MB/s uncompressed, which for
-  6-to-1 data is ~55 MB/s compressed; `rapidgzip -P 16` did 640 MB/s. Once
-  reading is fast, inflate is the next limit, hence `--decompressor rapidgzip`
-  (`pip install rapidgzip`). `verify --level full` always inflates with `pigz`,
-  so the check uses a different decoder than the run.
-- Compression at `-6` with 8 threads keeps pace with either decoder.
-- s3fs uploads each part inside `write()`, so the whole pipeline behind it
-  stalls while a part is in flight (62 MB/s per stream, measured): compute and
-  upload ran serially, and after the read fix R2 was still at 498 s. `put`
-  therefore uploads parts through boto3 with `--upload-concurrency` (default 4)
-  in flight, so compression continues while parts upload. Once that is in
-  place, compression is the limit; on a many-core pod raise `--pigz-threads`.
+- Single-threaded `pigz -dc` inflates at ~340 MB/s uncompressed; `rapidgzip`
+  did 640 MB/s from disk and works from a pipe. It matters most for the small,
+  highly compressible index reads (236 s to 81 s). `verify --level full`
+  always inflates with `pigz`, so the check runs a different decoder than the
+  run.
+- s3fs uploads each part inside `write()`, stalling the whole pipeline behind
+  it for the duration (62 MB/s per stream, measured with a 2 GB probe), so
+  compute and upload ran serially. `put` uploads parts through boto3 with
+  `--upload-concurrency` in flight; compression continues while parts upload.
+- After those three, the pipeline is compression-bound: 150 bp reads with
+  quality strings compress at ~19 MB/s uncompressed per pigz thread at level 6,
+  and doubling the threads halved R2's time. `run`'s default is
+  `cores / workers - 1` threads (23 on that pod with 4 workers), so do not pass
+  `--pigz-threads` there unless you want fewer; expect roughly 2 to 2.5 hours
+  per 500 GB file, and a quadruple with two 500 GB mates in about the same wall
+  time since all four run at once. `--gzip-level 5` buys another ~25 percent
+  for ~3 percent larger chunks.
+
+Every run above produced byte-identical chunks (same sizes and MD5s as the
+first pilot), and quick and full verify passed on each.
 
 ## Outputs
 
