@@ -25,6 +25,9 @@ db2-flattener @ git+https://github.com/Lattice-Data/db2-flattener@v0.1.0
 
 # Testing dependencies
 pytest>=6.0.0
+# fastq_chunker's S3 tests run against a local moto server, so CI never needs
+# real credentials; the server extra pulls in flask.
+moto[server]>=5.0
 pytest-cov>=2.0.0
 tqdm>=4.60.0
 

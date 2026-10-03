@@ -1,0 +1,147 @@
+{
+  "@graph": [
+    {
+      "@id": "/sequence_files/aaaa0001-0000-0000-0000-000000000001/",
+      "@type": [
+        "SequenceFile",
+        "File",
+        "Item"
+      ],
+      "aliases": [
+        "labalpha:LIB01_S1_L001_I1_001.fastq.gz"
+      ],
+      "file_format": "fastq",
+      "file_size": 31000000000,
+      "lab": {
+        "@id": "/labs/labalpha/",
+        "title": "Lab Alpha"
+      },
+      "s3_uri": "s3://example-bucket/LOCALPROJ/AN00000001/raw/LIB01_S1_L001_I1_001.fastq.gz",
+      "status": "current",
+      "uuid": "aaaa0001-0000-0000-0000-000000000001",
+      "sequence_file_sets": [
+        "/sequence_file_sets/11111111-1111-1111-1111-111111111111/"
+      ],
+      "read_count": 2000000000
+    },
+    {
+      "@id": "/sequence_files/aaaa0002-0000-0000-0000-000000000002/",
+      "@type": [
+        "SequenceFile",
+        "File",
+        "Item"
+      ],
+      "aliases": [
+        "labalpha:LIB01_S1_L001_I2_001.fastq.gz"
+      ],
+      "file_format": "fastq",
+      "file_size": 29000000000,
+      "lab": {
+        "@id": "/labs/labalpha/",
+        "title": "Lab Alpha"
+      },
+      "s3_uri": "s3://example-bucket/LOCALPROJ/AN00000001/raw/LIB01_S1_L001_I2_001.fastq.gz",
+      "status": "current",
+      "uuid": "aaaa0002-0000-0000-0000-000000000002",
+      "sequence_file_sets": [
+        "/sequence_file_sets/11111111-1111-1111-1111-111111111111/"
+      ],
+      "read_count": 2000000000
+    },
+    {
+      "@id": "/sequence_files/aaaa0003-0000-0000-0000-000000000003/",
+      "@type": [
+        "SequenceFile",
+        "File",
+        "Item"
+      ],
+      "aliases": [
+        "labalpha:LIB01_S1_L001_R1_001.fastq.gz"
+      ],
+      "file_format": "fastq",
+      "file_size": 480000000000,
+      "lab": {
+        "@id": "/labs/labalpha/",
+        "title": "Lab Alpha"
+      },
+      "s3_uri": "s3://example-bucket/LOCALPROJ/AN00000001/raw/LIB01_S1_L001_R1_001.fastq.gz",
+      "status": "current",
+      "uuid": "aaaa0003-0000-0000-0000-000000000003",
+      "sequence_file_sets": [
+        "/sequence_file_sets/11111111-1111-1111-1111-111111111111/"
+      ],
+      "read_count": 2000000000
+    },
+    {
+      "@id": "/sequence_files/aaaa0004-0000-0000-0000-000000000004/",
+      "@type": [
+        "SequenceFile",
+        "File",
+        "Item"
+      ],
+      "aliases": [
+        "labalpha:LIB01_S1_L001_R2_001.fastq.gz"
+      ],
+      "file_format": "fastq",
+      "file_size": 510000000000,
+      "lab": {
+        "@id": "/labs/labalpha/",
+        "title": "Lab Alpha"
+      },
+      "s3_uri": "s3://example-bucket/LOCALPROJ/AN00000001/raw/LIB01_S1_L001_R2_001.fastq.gz",
+      "status": "current",
+      "uuid": "aaaa0004-0000-0000-0000-000000000004",
+      "sequence_file_sets": [
+        "/sequence_file_sets/11111111-1111-1111-1111-111111111111/"
+      ],
+      "read_count": 2000000000
+    },
+    {
+      "@id": "/sequence_files/bbbb0001-0000-0000-0000-000000000001/",
+      "@type": [
+        "SequenceFile",
+        "File",
+        "Item"
+      ],
+      "aliases": [
+        "labalpha:LIB02_R1.fastq.gz"
+      ],
+      "file_format": "fastq",
+      "file_size": 95000000000,
+      "lab": {
+        "@id": "/labs/labalpha/",
+        "title": "Lab Alpha"
+      },
+      "s3_uri": "s3://example-bucket/LOCALPROJ/AN00000001/raw/LIB02_R1.fastq.gz",
+      "status": "current",
+      "uuid": "bbbb0001-0000-0000-0000-000000000001",
+      "sequence_file_sets": [
+        "/sequence_file_sets/22222222-2222-2222-2222-222222222222/"
+      ],
+      "read_count": 400000000
+    },
+    {
+      "@id": "/sequence_files/cccc0001-0000-0000-0000-000000000001/",
+      "@type": [
+        "SequenceFile",
+        "File",
+        "Item"
+      ],
+      "aliases": [
+        "labalpha:LIB03.cram"
+      ],
+      "file_format": "cram",
+      "file_size": 12000000000,
+      "lab": {
+        "@id": "/labs/labalpha/",
+        "title": "Lab Alpha"
+      },
+      "s3_uri": "s3://example-bucket/LOCALPROJ/AN00000001/raw/LIB03.cram",
+      "status": "current",
+      "uuid": "cccc0001-0000-0000-0000-000000000001",
+      "sequence_file_sets": [
+        "/sequence_file_sets/33333333-3333-3333-3333-333333333333/"
+      ]
+    }
+  ]
+}
