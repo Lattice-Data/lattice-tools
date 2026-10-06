@@ -1,6 +1,7 @@
 import anndata as ad
 import dask.array as da
 import h5py
+import hashlib
 import json
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
@@ -8,6 +9,7 @@ import numpy as np
 import os
 import pandas as pd
 import re
+import requests
 import scanpy as sc
 import subprocess
 import sys
@@ -1235,6 +1237,14 @@ def validate(file):
                 report(line)
 
 
+def _is_label_list(value):
+    """True for API ontology-term lists like [{'label': ..., 'ontology_term_id': ...}]."""
+    return (
+        isinstance(value, list) and len(value) > 0
+        and all(isinstance(t, dict) and 'label' in t for t in value)
+    )
+
+
 def compare_revision(collection):
     change = False
     if collection.get('revising_in'):
@@ -1259,9 +1269,10 @@ def compare_revision(collection):
         'assay','cell_type','development_stage','disease',
         'self_reported_ethnicity','sex','tissue','organism'
     ]
+    diff_props, comp, new, removed = set(), {}, {}, {}
     for k,v in revision.items():
         if k not in collection.keys():
-            if k not in should_be_absent:
+            if k not in should_be_absent and k not in should_differ_collection:
                 print('not present: ' + k)
                 change = True
         elif collection.get(k) != v and k not in should_differ_collection:
@@ -1284,13 +1295,17 @@ def compare_revision(collection):
                         comp[ds_id] = {'title': v['title']}
                         for prop,rev_val in v.items():
                             if prop not in should_differ_dataset:
+                                # a property can exist only on the revision, e.g. the
+                                # perturbation fields a revision introduces
                                 pub_val = pub_datasets[ds_id].get(prop)
-                                if prop in ont_fields:
+                                if prop in ont_fields or _is_label_list(rev_val):
                                     rev_val = [t['label'] for t in rev_val]
-                                    pub_val = [t['label'] for t in pub_val]
+                                    if pub_val is not None:
+                                        pub_val = [t['label'] for t in pub_val]
                                 if isinstance(rev_val, list) and prop != 'assets':
                                     rev_val.sort()
-                                    pub_val.sort()
+                                    if isinstance(pub_val, list):
+                                        pub_val.sort()
                                 if pub_val != rev_val:
                                     if prop == 'mean_genes_per_cell' and round(rev_val, 5) == round(pub_val, 5):
                                         continue
@@ -1772,3 +1787,312 @@ def evaluate_var(adata):
             report(f'{num_filtered_genes} ({frac_filtered:.1f}%) genes are filtered from .X')
     else:
         report('feature_is_filtered not found in var', 'ERROR')
+
+
+# =============================================================================
+# Revisions: adding experimental_condition_ontology_term_id to published Datasets
+# A curator writes a revision spec (see revisions/README.md); the functions below
+# only check and apply it. Nothing here invents a term or picks an obs column.
+# =============================================================================
+
+EC_FIELD = 'experimental_condition_ontology_term_id'
+EC_DELIMITER = ' || '
+EC_NA = 'na'
+EC_TEMPERATURE = 'EFO:0001702'
+EC_DIET = 'EFO:0002755'
+EC_FASTING = 'EFO:0002756'
+EC_CHEMICAL_ROOT = 'CHEBI:24431'
+# schema 7.1.0, experimental_condition_ontology_term_id: these CHEBI terms MUST NOT be used
+EC_FORBIDDEN_CHEBI = {
+    'CHEBI:23367', 'CHEBI:24431', 'CHEBI:24835', 'CHEBI:24867', 'CHEBI:24870',
+    'CHEBI:25212', 'CHEBI:25367', 'CHEBI:25699', 'CHEBI:33238', 'CHEBI:33259',
+    'CHEBI:33497', 'CHEBI:33595', 'CHEBI:33674', 'CHEBI:33675', 'CHEBI:36342',
+    'CHEBI:36357', 'CHEBI:36358', 'CHEBI:36914', 'CHEBI:37577', 'CHEBI:50906',
+}
+# ...and these two together with every descendant (subatomic particle, role)
+EC_FORBIDDEN_CHEBI_SUBTREES = {'CHEBI:36342', 'CHEBI:50906'}
+UNIPROT_ACCESSION = re.compile(
+    r'^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$'
+)
+CXG_PUBLIC_API = 'https://api.cellxgene.cziscience.com/curation/v1'
+
+
+def check_experimental_condition_term(term):
+    """
+    Problems with one experimental condition term id under schema 7.1.0.
+    Returns a list of strings; empty means the term is usable.
+    """
+    problems = []
+    prefix = term.split(':', 1)[0]
+    if prefix in ('uniprot', 'anti-uniprot'):
+        if not UNIPROT_ACCESSION.match(term.split(':', 1)[1]):
+            problems.append('not a UniProt accession')
+        return problems
+    if prefix == 'CHEBI':
+        if not ONTOLOGY_PARSER.is_valid_term_id(term):
+            return ['not in the pinned ChEBI release']
+        if ONTOLOGY_PARSER.is_term_deprecated(term):
+            problems.append('deprecated')
+        ancestors = set(ONTOLOGY_PARSER.get_term_ancestors(term))
+        if EC_CHEMICAL_ROOT not in ancestors:
+            problems.append(f'not a descendant of {EC_CHEMICAL_ROOT} chemical entity')
+        if term in EC_FORBIDDEN_CHEBI:
+            problems.append('on the schema forbidden list')
+        for root in sorted(EC_FORBIDDEN_CHEBI_SUBTREES & ancestors):
+            problems.append(f'descendant of forbidden {root} {ONTOLOGY_PARSER.get_term_label(root)}')
+        return problems
+    if prefix == 'EFO':
+        if not ONTOLOGY_PARSER.is_valid_term_id(term):
+            return ['not in the pinned EFO release']
+        if ONTOLOGY_PARSER.is_term_deprecated(term):
+            problems.append('deprecated')
+        allowed = (
+            term in (EC_TEMPERATURE, EC_DIET, EC_FASTING)
+            or EC_DIET in ONTOLOGY_PARSER.get_term_ancestors(term)
+        )
+        if not allowed:
+            problems.append('EFO terms are limited to temperature, diet and its descendants, or fasting')
+        return problems
+    return ['prefix must be CHEBI:, EFO:, uniprot:, or anti-uniprot:']
+
+
+def check_experimental_condition_terms(terms):
+    """
+    Check every term, report each one, raise ValueError if any is unusable.
+    Returns {term: human-readable label} for the usable ones.
+    """
+    labels, bad = {}, {}
+    for term in dict.fromkeys(terms):
+        problems = check_experimental_condition_term(term)
+        if problems:
+            bad[term] = problems
+            report(f'{term}: ' + '; '.join(problems), 'ERROR')
+            continue
+        if term.split(':', 1)[0] in ('uniprot', 'anti-uniprot'):
+            labels[term] = term
+        else:
+            labels[term] = ONTOLOGY_PARSER.get_term_label(term)
+        report(f'{term}: {labels[term]}', 'GOOD')
+    if bad:
+        raise ValueError(f'unusable experimental condition terms: {sorted(bad)}')
+    return labels
+
+
+def format_experimental_condition(terms):
+    """One obs value: de-duplicated, ascending lexical order, ' || ' delimited."""
+    return EC_DELIMITER.join(sorted(set(terms)))
+
+
+def load_revision_spec(path):
+    """Read and sanity-check a revision spec JSON (format in revisions/README.md)."""
+    with open(path) as f:
+        spec = json.load(f)
+    for key in ('collection_id', 'datasets'):
+        if key not in spec:
+            raise ValueError(f'revision spec missing {key!r}')
+    if not spec['datasets']:
+        raise ValueError('revision spec lists no datasets')
+    for ds_id, ds in spec['datasets'].items():
+        for key in ('source_column', 'terms'):
+            if key not in ds:
+                raise ValueError(f'dataset {ds_id} missing {key!r}')
+        if not isinstance(ds['terms'], dict) or not ds['terms']:
+            raise ValueError(f'dataset {ds_id}: terms must map source values to lists of term ids')
+        for value, term_list in ds['terms'].items():
+            if not isinstance(term_list, list) or not term_list:
+                raise ValueError(f'dataset {ds_id}: value {value!r} must map to a non-empty list of term ids')
+    return spec
+
+
+def spec_terms(spec):
+    """Every term id mentioned anywhere in a revision spec."""
+    return sorted({t for ds in spec['datasets'].values() for ts in ds['terms'].values() for t in ts})
+
+
+def download_dataset_h5ad(collection_id, dataset_id, dest_dir, api_base=CXG_PUBLIC_API):
+    """
+    Download a published Dataset's H5AD through the public curation API (no key needed).
+    Skips the download when dest_dir already holds a file of the listed size.
+    Returns the local Path, named <dataset_id>.h5ad.
+    """
+    dest_dir = Path(dest_dir).expanduser()
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    r = requests.get(f'{api_base}/collections/{collection_id}/datasets/{dataset_id}', timeout=60)
+    r.raise_for_status()
+    assets = [a for a in r.json()['assets'] if a['filetype'] == 'H5AD']
+    if len(assets) != 1:
+        raise ValueError(f'expected one H5AD asset for {dataset_id}, found {len(assets)}')
+    url, size = assets[0]['url'], assets[0]['filesize']
+    dest = dest_dir / f'{dataset_id}.h5ad'
+    if dest.exists() and dest.stat().st_size == size:
+        report(f'already downloaded: {dest}', 'GOOD')
+        return dest
+    report(f'downloading {size / 1e6:.0f} MB to {dest}')
+    tmp = dest.with_suffix('.h5ad.part')
+    with requests.get(url, stream=True, timeout=60) as resp:
+        resp.raise_for_status()
+        with open(tmp, 'wb') as f:
+            for chunk in resp.iter_content(chunk_size=8 << 20):
+                f.write(chunk)
+    if tmp.stat().st_size != size:
+        raise IOError(f'downloaded {tmp.stat().st_size} bytes, listed size is {size}')
+    tmp.rename(dest)
+    return dest
+
+
+def revised_path(path):
+    """Where the revised copy of a downloaded h5ad is written."""
+    path = Path(path)
+    return path.with_name(path.stem + '_revised.h5ad')
+
+
+def add_experimental_condition(adata, source_column, terms, overwrite=False):
+    """
+    Add obs[EC_FIELD] from a curator-provided mapping {source value: [term ids]}.
+    Every observation whose source value is not in the mapping becomes 'na'.
+    Returns a crosstab of the source column against the new column.
+    """
+    obs = adata.obs
+    if source_column not in obs.columns:
+        raise KeyError(f'obs has no column {source_column!r}')
+    if EC_FIELD in obs.columns and not overwrite:
+        raise ValueError(f'obs already has {EC_FIELD}; pass overwrite=True to replace it')
+    source = obs[source_column].astype(str)
+    missing = sorted(set(terms) - set(source.unique()))
+    if missing:
+        raise ValueError(f'values not found in obs[{source_column!r}]: {missing}')
+    mapping = {value: format_experimental_condition(ts) for value, ts in terms.items()}
+    values = source.map(mapping).fillna(EC_NA)
+    if (values == EC_NA).all():
+        raise ValueError('every observation would be "na"; the schema forbids the field in that case')
+    obs[EC_FIELD] = pd.Categorical(values)
+    return pd.crosstab(obs[source_column], obs[EC_FIELD])
+
+
+def _digest(*arrays):
+    h = hashlib.sha256()
+    for a in arrays:
+        a = np.asarray(a)
+        if a.dtype.kind in 'OUS':
+            # object arrays would hash pointers, not content; fix the text as UTF-8 bytes
+            a = np.array([str(x).encode('utf-8') for x in a.ravel()], dtype='S')
+        a = np.ascontiguousarray(a)
+        h.update(str(a.dtype).encode())
+        h.update(str(a.shape).encode())
+        h.update(a.tobytes())
+    return h.hexdigest()
+
+
+def _digest_matrix(m):
+    if m is None:
+        return None
+    if isinstance(m, (sparse.spmatrix, sparse.sparray)):
+        m = m.tocsr()
+        return f'csr{m.shape}:' + _digest(m.data, m.indices, m.indptr)
+    return f'dense{np.shape(m)}:' + _digest(np.asarray(m))
+
+
+def _digest_column(s):
+    try:
+        return _digest(np.asarray(pd.util.hash_pandas_object(s, index=False)))
+    except TypeError:
+        return _digest(np.asarray(s.astype(str)))
+
+
+def _digest_frame(df):
+    out = {'__index__': _digest(np.asarray(df.index.astype(str)))}
+    for c in df.columns:
+        out[c] = _digest_column(df[c])
+    return out
+
+
+def _digest_uns(uns):
+    out = {}
+    for k, v in uns.items():
+        if isinstance(v, (sparse.spmatrix, sparse.sparray)):
+            out[k] = _digest_matrix(v)
+        elif isinstance(v, (np.ndarray, pd.DataFrame, pd.Series)):
+            out[k] = _digest(np.asarray(v).astype(str))
+        else:
+            out[k] = hashlib.sha256(repr(v).encode()).hexdigest()
+    return out
+
+
+def fingerprint_adata(adata):
+    """
+    Cheap digests of every component of an AnnData. Take one before editing and one
+    after, then hand both to assert_only_changes so nothing moves unnoticed.
+    """
+    fp = {
+        'shape': tuple(adata.shape),
+        'X': _digest_matrix(adata.X),
+        'layers': {k: _digest_matrix(v) for k, v in adata.layers.items()},
+        'obs': _digest_frame(adata.obs),
+        'var': _digest_frame(adata.var),
+        'obsm': {k: _digest(np.asarray(v)) for k, v in adata.obsm.items()},
+        'varm': {k: _digest(np.asarray(v)) for k, v in adata.varm.items()},
+        'obsp': {k: _digest_matrix(v) for k, v in adata.obsp.items()},
+        'uns': _digest_uns(adata.uns),
+        'raw': None,
+    }
+    if adata.raw is not None:
+        fp['raw'] = {'X': _digest_matrix(adata.raw.X), 'var': _digest_frame(adata.raw.var)}
+    return fp
+
+
+def _diff_dicts(before, after, where, problems, allowed_removed=(), allowed_added=(), allowed_changed=()):
+    for k in before:
+        if k not in after:
+            if k not in allowed_removed:
+                problems.append(f'{where}[{k!r}] removed')
+        elif before[k] != after[k] and k not in allowed_changed:
+            problems.append(f'{where}[{k!r}] changed')
+    for k in after:
+        if k not in before and k not in allowed_added:
+            problems.append(f'{where}[{k!r}] added')
+
+
+def assert_only_changes(before, after, added_obs=(), removed_obs=(), removed_var=(),
+                        removed_uns=(), changed_uns=(), ignore_uns=False):
+    """
+    Raise AssertionError unless the only differences between two fingerprints are the
+    obs columns in added_obs appearing, and entries named in removed_* disappearing
+    (removed_var covers var and raw.var). Everything else must be byte-identical.
+    """
+    problems = []
+    if before['shape'] != after['shape']:
+        problems.append(f"shape {before['shape']} -> {after['shape']}")
+    if before['X'] != after['X']:
+        problems.append('X changed')
+    for key in ('layers', 'obsm', 'varm', 'obsp'):
+        _diff_dicts(before[key], after[key], key, problems)
+    _diff_dicts(before['obs'], after['obs'], 'obs', problems,
+                allowed_removed=removed_obs, allowed_added=added_obs)
+    _diff_dicts(before['var'], after['var'], 'var', problems, allowed_removed=removed_var)
+    if not ignore_uns:
+        _diff_dicts(before['uns'], after['uns'], 'uns', problems,
+                    allowed_removed=removed_uns, allowed_changed=changed_uns)
+    if (before['raw'] is None) != (after['raw'] is None):
+        problems.append('raw added or removed')
+    elif before['raw'] is not None:
+        if before['raw']['X'] != after['raw']['X']:
+            problems.append('raw.X changed')
+        _diff_dicts(before['raw']['var'], after['raw']['var'], 'raw.var', problems,
+                    allowed_removed=removed_var)
+    missing = [c for c in added_obs if c not in after['obs']]
+    if missing:
+        problems.append(f'expected obs columns were not added: {missing}')
+    if problems:
+        raise AssertionError('unexpected changes:\n  ' + '\n  '.join(problems))
+    report('only the intended changes were made', 'GOOD')
+
+
+def build_upload_manifest(current_manifest, anndata_uri):
+    """
+    Manifest for CxG_API.upload_datafiles_from_manifest: the newly uploaded anndata,
+    plus the Dataset's existing fragment file when it has one.
+    """
+    manifest = {'anndata': anndata_uri}
+    if current_manifest.get('atac_fragment'):
+        manifest['atac_fragment'] = current_manifest['atac_fragment']
+    return manifest
