@@ -1237,6 +1237,14 @@ def validate(file):
                 report(line)
 
 
+def _is_label_list(value):
+    """True for API ontology-term lists like [{'label': ..., 'ontology_term_id': ...}]."""
+    return (
+        isinstance(value, list) and len(value) > 0
+        and all(isinstance(t, dict) and 'label' in t for t in value)
+    )
+
+
 def compare_revision(collection):
     change = False
     if collection.get('revising_in'):
@@ -1261,9 +1269,10 @@ def compare_revision(collection):
         'assay','cell_type','development_stage','disease',
         'self_reported_ethnicity','sex','tissue','organism'
     ]
+    diff_props, comp, new, removed = set(), {}, {}, {}
     for k,v in revision.items():
         if k not in collection.keys():
-            if k not in should_be_absent:
+            if k not in should_be_absent and k not in should_differ_collection:
                 print('not present: ' + k)
                 change = True
         elif collection.get(k) != v and k not in should_differ_collection:
@@ -1286,13 +1295,17 @@ def compare_revision(collection):
                         comp[ds_id] = {'title': v['title']}
                         for prop,rev_val in v.items():
                             if prop not in should_differ_dataset:
+                                # a property can exist only on the revision, e.g. the
+                                # perturbation fields a revision introduces
                                 pub_val = pub_datasets[ds_id].get(prop)
-                                if prop in ont_fields:
+                                if prop in ont_fields or _is_label_list(rev_val):
                                     rev_val = [t['label'] for t in rev_val]
-                                    pub_val = [t['label'] for t in pub_val]
+                                    if pub_val is not None:
+                                        pub_val = [t['label'] for t in pub_val]
                                 if isinstance(rev_val, list) and prop != 'assets':
                                     rev_val.sort()
-                                    pub_val.sort()
+                                    if isinstance(pub_val, list):
+                                        pub_val.sort()
                                 if pub_val != rev_val:
                                     if prop == 'mean_genes_per_cell' and round(rev_val, 5) == round(pub_val, 5):
                                         continue
