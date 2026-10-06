@@ -60,3 +60,5 @@ coverage.xml
 
 # Claude Code worktrees (accidentally committed as a gitlink once; see git history)
 .claude/worktrees/
+# Jupyter
+.ipynb_checkpoints/
