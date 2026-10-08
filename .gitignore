@@ -60,3 +60,11 @@ coverage.xml
 
 # Claude Code worktrees (accidentally committed as a gitlink once; see git history)
 .claude/worktrees/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Project-specific ignores
+cellxgene_resources/curation/
+scripts/outputs/
+scripts/matrix_files/
