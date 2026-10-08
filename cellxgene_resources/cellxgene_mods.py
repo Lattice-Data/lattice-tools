@@ -618,7 +618,7 @@ def extract_barcodes(index):
     for i in index:
         m = pattern.search(str(i))
         if m:
-            barcode = m.group()[:16]
+            barcode = m.group()
             barcodes.append(barcode)
             affixes.append(i.replace(barcode,''))
         else:
@@ -1289,8 +1289,10 @@ def compare_revision(collection):
                                     rev_val = [t['label'] for t in rev_val]
                                     pub_val = [t['label'] for t in pub_val]
                                 if isinstance(rev_val, list) and prop != 'assets':
-                                    rev_val.sort()
-                                    pub_val.sort()
+                                    if rev_val:
+                                        rev_val.sort()
+                                    if pub_val:
+                                        pub_val.sort()
                                 if pub_val != rev_val:
                                     if prop == 'mean_genes_per_cell' and round(rev_val, 5) == round(pub_val, 5):
                                         continue
