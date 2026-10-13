@@ -361,7 +361,7 @@ def insdc_meta(acc, arrex=False):
             for a in rXml.iter('ArchiveID'):
                 prj = [a.attrib['accession']]
         if not prj:
-            url5 = f'{esearch_base}?db=gds&term={acc}[Accn]&retmode=json&retmax=100'
+            url5 = f'{esearch_base}?db=gds&term={acc}[Accn]&retmode=json&retmax=100000'
             r5 = requests.get(url5).json()
             if r5['esearchresult']['idlist']:
                 ids = ','.join(r5['esearchresult']['idlist'])
@@ -378,7 +378,7 @@ def insdc_meta(acc, arrex=False):
         attributes = []
         idlist = set()
         for p in prj:
-            url3 = f'{esearch_base}?db=sra&term={p}&retmode=json&retmax=100'
+            url3 = f'{esearch_base}?db=sra&term={p}&retmode=json&retmax=100000'
             r3 = requests.get(url3).json()
             idlist.update(r3['esearchresult']['idlist'])
             time.sleep(1)
@@ -435,6 +435,7 @@ data_repo_bases = {
     'ncbi.nlm.nih.gov/bioproject': 'bioproj',
     'ega-archive.org': 'ega',
     'ebi.ac.uk/ena/browser/view': 'ena',
+    'ebi.ac.uk/arrayexpress': 'arrex',
     'ebi.ac.uk/biostudies/arrayexpress': 'arrex',
     'nemoarchive.org': 'nemo',
     'ngdc.cncb.ac.cn': 'ngdc',
@@ -447,7 +448,7 @@ data_repo_bases = {
 
 def parse_data_repo_url(url):
     for k,v in data_repo_bases.items():
-        if k in url:
+        if k in url.lower():
             return v
     return 'other'
 

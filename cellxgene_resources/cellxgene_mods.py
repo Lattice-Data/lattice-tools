@@ -618,7 +618,7 @@ def extract_barcodes(index):
     for i in index:
         m = pattern.search(str(i))
         if m:
-            barcode = m.group()[:16]
+            barcode = m.group()
             barcodes.append(barcode)
             affixes.append(i.replace(barcode,''))
         else:
@@ -652,9 +652,6 @@ def evaluate_10x_barcodes(obs, visium=False):
         zip(*extract_barcodes(obs.index)),
         index=obs.index
     )
-    if len(set(ref_df.index.to_list()).intersection(set(obs['barcode'].to_list()))) == 0:
-        report('Did not find any barcodes in obs index, cannot evaluate barcodes', 'WARNING')
-        return
     obs = obs.merge(ref_df[['summary']],on='barcode',how='left').set_index(obs.index)
     obs['summary'] = obs.apply(
         lambda x: no_barcode_v if pd.isna(x['barcode']) else (f"{len(x['barcode'])}nt" if pd.isna(x['summary']) else x['summary']),
@@ -1289,8 +1286,10 @@ def compare_revision(collection):
                                     rev_val = [t['label'] for t in rev_val]
                                     pub_val = [t['label'] for t in pub_val]
                                 if isinstance(rev_val, list) and prop != 'assets':
-                                    rev_val.sort()
-                                    pub_val.sort()
+                                    if rev_val:
+                                        rev_val.sort()
+                                    if pub_val:
+                                        pub_val.sort()
                                 if pub_val != rev_val:
                                     if prop == 'mean_genes_per_cell' and round(rev_val, 5) == round(pub_val, 5):
                                         continue
