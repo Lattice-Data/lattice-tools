@@ -9,6 +9,14 @@ from pathlib import Path
 _ACGT = frozenset("ACGT")
 DEFAULT_COLUMN = "guide_protospacer"
 
+# Role/target consistency: a control guide has no target gene, so its
+# guide_target_gene_id must be the literal "NA", and a non-control guide must
+# name a real target. The role is compared case-insensitively; "NA" is exact.
+ROLE_COLUMN = "guide_role"
+TARGET_COLUMN = "guide_target_gene_id"
+CONTROL_ROLE = "control"
+NA_TARGET = "NA"
+
 # Single source of truth for the accepted input formats: the parser reads the
 # delimiter from here and the CLI derives its --format choices from the keys.
 FILE_FORMATS: dict[str, str] = {"tsv": "\t", "csv": ","}
@@ -75,7 +83,9 @@ def protospacer_set(
         column: Header name of the protospacer column.
 
     Raises:
-        GuideSigError: If the format is unknown, or the file cannot yield a set.
+        GuideSigError: If the format is unknown, the file cannot yield a set,
+            a row's ``guide_role`` and ``guide_target_gene_id`` disagree, or
+            every protospacer ends with G or every one starts with C.
     """
     delimiter = _delimiter_for(file_format)
     label = file_format.upper()
@@ -97,6 +107,15 @@ def protospacer_set(
                     f"{file_path}: protospacer column {column!r} absent from "
                     f"header{_wrong_format_hint(header, file_format)}"
                 ) from exc
+
+            for required in (ROLE_COLUMN, TARGET_COLUMN):
+                if required not in header:
+                    raise GuideSigError(
+                        f"{file_path}: required column {required!r} absent "
+                        "from header"
+                    )
+            role_idx = header.index(ROLE_COLUMN)
+            target_idx = header.index(TARGET_COLUMN)
 
             sequences: set[str] = set()
             # Reported row numbers are physical file lines, derived from
@@ -144,6 +163,22 @@ def protospacer_set(
                         "in fields beyond the header"
                     )
 
+                role = row[role_idx].strip()
+                target = row[target_idx].strip()
+                is_control = role.lower() == CONTROL_ROLE
+                if is_control and target != NA_TARGET:
+                    raise GuideSigError(
+                        f"{file_path}: row {physical_row}: {ROLE_COLUMN} is "
+                        f"{role!r} but {TARGET_COLUMN} is {target!r} "
+                        f"(expected {NA_TARGET!r})"
+                    )
+                if not is_control and target == NA_TARGET:
+                    raise GuideSigError(
+                        f"{file_path}: row {physical_row}: {TARGET_COLUMN} is "
+                        f"{NA_TARGET!r} but {ROLE_COLUMN} is {role!r} "
+                        f"(expected {CONTROL_ROLE!r})"
+                    )
+
                 value = row[col_idx].strip().upper()
                 if not value:
                     continue
@@ -166,6 +201,21 @@ def protospacer_set(
 
     if not sequences:
         raise GuideSigError(f"{file_path}: zero usable sequences after filtering")
+
+    # Set-wide end checks: a single guide ending in G or starting with C is
+    # normal, but every guide doing so suggests a systematic artifact in how the
+    # sequences were exported. Each condition is checked on its own.
+    count = len(sequences)
+    if all(seq.endswith("G") for seq in sequences):
+        raise GuideSigError(
+            f"{file_path}: Probable trailing G issue, all {count} protospacers "
+            "end with 'G'"
+        )
+    if all(seq.startswith("C") for seq in sequences):
+        raise GuideSigError(
+            f"{file_path}: Probable leading C issue, all {count} protospacers "
+            "start with 'C'"
+        )
 
     return sequences
 
