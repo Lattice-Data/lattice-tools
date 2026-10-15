@@ -155,8 +155,7 @@ def _read_guide_file(
             for required in (ROLE_COLUMN, TARGET_COLUMN):
                 if required not in header:
                     raise GuideSigError(
-                        f"{file_path}: required column {required!r} absent "
-                        "from header"
+                        f"{file_path}: required column {required!r} absent from header"
                     )
             role_idx = header.index(ROLE_COLUMN)
             target_idx = header.index(TARGET_COLUMN)
@@ -165,8 +164,7 @@ def _read_guide_file(
             if id_column is not None:
                 if id_column not in header:
                     raise GuideSigError(
-                        f"{file_path}: required column {id_column!r} absent "
-                        "from header"
+                        f"{file_path}: required column {id_column!r} absent from header"
                     )
                 id_idx = header.index(id_column)
 
