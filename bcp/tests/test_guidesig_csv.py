@@ -14,6 +14,12 @@ import pytest
 from guidesig import GuideSigError, protospacer_set, signature
 from tests.guidesig_helpers import FIXTURES, write_delimited
 
+# The two role/target columns guidesig requires, and the cells a targeting
+# guide carries in them, so rows pass the role/target check unless a test is
+# about that check.
+ROLE_COLS = ["guide_role", "guide_target_gene_id"]
+TARGETING = ["Targeting a Gene", "ENSGFAKE0000001"]
+
 LAYOUT_A_DIGEST = "gsig1:set:n=60:0ae925412d48830d0e5bee973c24ea78"
 
 
@@ -31,9 +37,9 @@ def test_csv_fixture_matches_tsv_golden_digest() -> None:
 def test_same_sequences_in_csv_and_tsv_match(tmp_path: Path) -> None:
     """The signature depends on the protospacer set, not on the file format."""
     rows = [
-        ["property", "guide_id", "guide_protospacer"],
-        ["", "g1", "AAAA"],
-        ["", "g2", "CCCC"],
+        ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+        ["", "g1", "AAAA", *TARGETING],
+        ["", "g2", "CCCC", *TARGETING],
     ]
     as_csv = _write_csv(tmp_path / "lib.csv", rows)
     as_tsv = write_delimited(tmp_path / "lib.tsv", rows, file_format="tsv")
@@ -45,9 +51,9 @@ def test_quoted_comma_does_not_shift_protospacer_column(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "quoted.csv",
         [
-            ["property", "guide_id", "guide_protospacer", "gene"],
-            ["", "g1, replicate A", "AAAA", "GENE1"],
-            ["", "g2", "CCCC", "GENE2, alias"],
+            ["property", "guide_id", "guide_protospacer", "gene", *ROLE_COLS],
+            ["", "g1, replicate A", "AAAA", "GENE1", *TARGETING],
+            ["", "g2", "CCCC", "GENE2, alias", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="csv") == {"AAAA", "CCCC"}
@@ -56,12 +62,18 @@ def test_quoted_comma_does_not_shift_protospacer_column(tmp_path: Path) -> None:
 def test_quoted_protospacer_padding_and_cr_stripped(tmp_path: Path) -> None:
     clean = _write_csv(
         tmp_path / "clean.csv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     padded = tmp_path / "padded.csv"
     # Quote the field so the embedded CR is data, not a line terminator.
     padded.write_bytes(
-        b'\xef\xbb\xbfproperty,guide_protospacer\r\n,  AAAA  \r\n,"CCCC\r"\r\n'
+        b"\xef\xbb\xbfproperty,guide_protospacer,guide_role,guide_target_gene_id\r\n"
+        b",  AAAA  ,Targeting a Gene,ENSGFAKE0000001\r\n"
+        b',"CCCC\r",Targeting a Gene,ENSGFAKE0000001\r\n'
     )
     assert signature(clean, file_format="csv") == signature(padded, file_format="csv")
 
@@ -69,7 +81,7 @@ def test_quoted_protospacer_padding_and_cr_stripped(tmp_path: Path) -> None:
 def test_csv_without_bom_parses(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "nobom.csv",
-        [["property", "guide_protospacer"], ["", "AAAA"]],
+        [["property", "guide_protospacer", *ROLE_COLS], ["", "AAAA", *TARGETING]],
         bom=False,
     )
     assert not path.read_bytes().startswith(b"\xef\xbb\xbf")
@@ -80,10 +92,10 @@ def test_csv_comment_rows_filtered(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "comments.csv",
         [
-            ["property", "guide_protospacer"],
+            ["property", "guide_protospacer", *ROLE_COLS],
             ["#comment", "TTTTTTTTTTTTTTTTTTT"],
             ["# example", "GGGGGGGGGGGGGGGGGGG"],
-            ["", "AAAA"],
+            ["", "AAAA", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="csv") == {"AAAA"}
@@ -92,7 +104,9 @@ def test_csv_comment_rows_filtered(tmp_path: Path) -> None:
 def test_csv_blank_lines_skipped(tmp_path: Path) -> None:
     path = tmp_path / "blank_lines.csv"
     path.write_bytes(
-        b"\xef\xbb\xbfproperty,guide_protospacer\r\n,AAAA\r\n\r\n,CCCC\r\n\r\n"
+        b"\xef\xbb\xbfproperty,guide_protospacer,guide_role,guide_target_gene_id\r\n"
+        b",AAAA,Targeting a Gene,ENSGFAKE0000001\r\n\r\n"
+        b",CCCC,Targeting a Gene,ENSGFAKE0000001\r\n\r\n"
     )
     assert protospacer_set(path, file_format="csv") == {"AAAA", "CCCC"}
 
@@ -101,8 +115,8 @@ def test_csv_ragged_row_raises_with_row_number(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "ragged.csv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA"],
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "g1", "AAAA", *TARGETING],
             ["", "g2"],
         ],
     )
@@ -115,9 +129,9 @@ def test_csv_trailing_empty_field_beyond_header_accepted(tmp_path: Path) -> None
     path = _write_csv(
         tmp_path / "trailing_delimiter.csv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA", ""],
-            ["", "g2", "CCCC"],
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "g1", "AAAA", *TARGETING, ""],
+            ["", "g2", "CCCC", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="csv") == {"AAAA", "CCCC"}
@@ -127,9 +141,9 @@ def test_csv_data_beyond_header_raises_with_row_number(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "surplus_data.csv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA"],
-            ["", "g2", "CCCC", "NGG"],
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "g1", "AAAA", *TARGETING],
+            ["", "g2", "CCCC", *TARGETING, "NGG"],
         ],
     )
     with pytest.raises(GuideSigError, match="row 3"):
@@ -141,9 +155,9 @@ def test_csv_non_acgt_raises_with_row_number(tmp_path: Path, bad: str) -> None:
     path = _write_csv(
         tmp_path / "bad.csv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAA"],
-            ["", f"AAA{bad}"],
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", f"AAA{bad}", *TARGETING],
         ],
     )
     with pytest.raises(GuideSigError, match="row 3"):
@@ -155,9 +169,10 @@ def test_csv_multiline_quoted_cell_keeps_row_numbers_physical(tmp_path: Path) ->
     path = _write_csv(
         tmp_path / "multiline.csv",
         [
-            ["property", "guide_target_region", "guide_protospacer"],
-            ["", "chrFAKE:1000-1100\nsecond locus", "AAAA"],
-            ["", "chrFAKE:1200-1300", "AAAN"],  # non-ACGT, on physical line 4
+            ["property", "guide_target_region", "guide_protospacer", *ROLE_COLS],
+            ["", "chrFAKE:1000-1100\nsecond locus", "AAAA", *TARGETING],
+            # non-ACGT, on physical line 4
+            ["", "chrFAKE:1200-1300", "AAAN", *TARGETING],
         ],
     )
     assert path.read_bytes().count(b"\n") == 4
@@ -219,9 +234,9 @@ def test_csv_alternate_column_honored(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path / "two_columns.csv",
         [
-            ["property", "guide_rc_sequence", "guide_protospacer"],
-            ["", "TTTT", "AAAA"],
-            ["", "GGGG", "CCCC"],
+            ["property", "guide_rc_sequence", "guide_protospacer", *ROLE_COLS],
+            ["", "TTTT", "AAAA", *TARGETING],
+            ["", "GGGG", "CCCC", *TARGETING],
         ],
     )
     default = signature(path, file_format="csv")
