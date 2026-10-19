@@ -43,6 +43,7 @@ VALID_PROBES = [
     "Chromium Mouse Transcriptome Probe Set v1.1.1",
     "Chromium Human Transcriptome Probe Set v1.1.0",
     "Chromium Human Transcriptome Probe Set v2.0.0",
+    "Chromium Mouse Transcriptome Probe Set v2.0.0",
 ]
 MIN_METADATA_READ_COUNT = 1_000_000
 MIN_PCT_Q30_THRESHOLD = 65.0
@@ -1038,7 +1039,7 @@ def validate_processed_group(
             "v2.0.0", report["Probe Set Name"]
         ):
             errors.append(
-                f"WARNING: Invalid probe set for this assay version{group_name}: "
+                f"WARNING: Invalid probe set for this assay version {group_name}: "
                 f"{report['Probe Set Name']}"
             )
 
