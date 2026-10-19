@@ -10,6 +10,7 @@ from .core import (
     DEFAULT_COLUMN,
     FILE_FORMATS,
     GuideSigError,
+    header_warnings,
     protospacer_set,
     protospacers_and_guide_ids,
     signature,
@@ -124,15 +125,37 @@ def build_parser() -> argparse.ArgumentParser:
         type=_positive_int,
         help=f"Max attempts per transient S3 error (default: {DEFAULT_RETRIES})",
     )
+    parser.add_argument(
+        "--guidescan",
+        action="store_true",
+        help=(
+            "Also run guidescan_pipeline on the one FILE's targeting guides and "
+            "report the exact-match rate (warning below 90%%); runs after "
+            "--h5-uri; needs --species; not allowed with --compare"
+        ),
+    )
+    parser.add_argument(
+        "--species",
+        choices=["human", "mouse"],
+        help="Genome for --guidescan; cross-checked against the sheet's gene IDs",
+    )
     return parser
 
 
-def _run_h5_check(path: Path, args: argparse.Namespace) -> None:
-    """Signature one file, then check its guide_ids against the order's h5s.
+def _print_header_warnings(paths: list[Path], file_format: str) -> None:
+    """Print a warning per recommended column a file lacks; never fails."""
+    for path in paths:
+        for warning in header_warnings(path, file_format=file_format):
+            print(f"warning: {warning}", file=sys.stderr)
+
+
+def _run_single_file_checks(path: Path, args: argparse.Namespace) -> None:
+    """Signature one file after its --h5-uri and/or --guidescan checks.
 
     The sheet's own checks run first; if they fail there is no trustworthy
-    guide_id list, so S3 is never touched. The signature is printed only if
-    every h5 passes.
+    guide list, so S3 is never touched. A failed h5 check stops the run before
+    guidescan. The guidescan rate is reported but never fails the run; only its
+    species cross-check and setup errors do.
     """
     try:
         sequences, guide_ids = protospacers_and_guide_ids(
@@ -142,6 +165,41 @@ def _run_h5_check(path: Path, args: argparse.Namespace) -> None:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
 
+    if args.h5_uri is not None:
+        _run_h5_check(guide_ids, args)
+    if args.guidescan:
+        _run_guidescan_check(path, args)
+
+    print(f"{signature_of(sequences)}\t{path}")
+
+
+def _run_guidescan_check(path: Path, args: argparse.Namespace) -> None:
+    """Report the sheet's exact-match rate; exit 1 only if it cannot run."""
+    from . import guidescancheck
+
+    try:
+        guides, target_ids = guidescancheck.read_targeting_guides(
+            path, file_format=args.file_format, column=args.column
+        )
+        species_note = guidescancheck.check_species(target_ids, args.species)
+        if species_note:
+            print(f"note: {species_note}", file=sys.stderr)
+        index_prefix = None
+        if guides:
+            index_prefix = guidescancheck.ensure_references(
+                args.species, log=guidescancheck.stderr_log
+            )
+        report = guidescancheck.run_guidescan_check(guides, index_prefix)
+    except GuideSigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    for line in guidescancheck.format_report(report):
+        print(line, file=sys.stderr)
+
+
+def _run_h5_check(guide_ids: set[str], args: argparse.Namespace) -> None:
+    """Check the sheet's guide_ids against the order's h5s; exit 1 on failure."""
     try:
         from . import h5check
     except ImportError as exc:
@@ -176,8 +234,6 @@ def _run_h5_check(path: Path, args: argparse.Namespace) -> None:
         )
         raise SystemExit(1)
 
-    print(f"{signature_of(sequences)}\t{path}")
-
 
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
@@ -199,12 +255,26 @@ def main(argv: list[str] | None = None) -> None:
     ]
     if args.h5_uri is None and h5_only:
         parser.error(f"{', '.join(h5_only)} require --h5-uri")
-    if args.h5_uri is not None:
+    if args.guidescan and args.species is None:
+        parser.error("--guidescan requires --species")
+    if args.species is not None and not args.guidescan:
+        parser.error("--species requires --guidescan")
+    for flag, used in (
+        ("--h5-uri", args.h5_uri is not None),
+        ("--guidescan", args.guidescan),
+    ):
+        if not used:
+            continue
         if args.compare is not None:
-            parser.error("--h5-uri is not allowed with --compare")
+            parser.error(f"{flag} is not allowed with --compare")
         if len(args.files) != 1:
-            parser.error("--h5-uri checks exactly one FILE")
-        _run_h5_check(args.files[0], args)
+            parser.error(f"{flag} checks exactly one FILE")
+    _print_header_warnings(
+        list(args.compare) if args.compare is not None else args.files,
+        args.file_format,
+    )
+    if args.h5_uri is not None or args.guidescan:
+        _run_single_file_checks(args.files[0], args)
         return
 
     try:

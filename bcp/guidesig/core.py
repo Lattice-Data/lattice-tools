@@ -11,12 +11,18 @@ DEFAULT_COLUMN = "guide_protospacer"
 ID_COLUMN = "guide_id"
 
 # Role/target consistency: a control guide has no target gene, so its
-# guide_target_gene_id must be the literal "NA", and a non-control guide must
-# name a real target. The role is compared case-insensitively; "NA" is exact.
+# guide_target_gene_id must be the literal "NA". The reverse is not enforced:
+# a non-control guide may carry "NA" (e.g. "Targeting a Region" guides). The
+# role is compared case-insensitively; "NA" is exact.
 ROLE_COLUMN = "guide_role"
 TARGET_COLUMN = "guide_target_gene_id"
 CONTROL_ROLE = "control"
 NA_TARGET = "NA"
+# Held to the same control rule as guide_target_gene_id, but only when present.
+TARGET_NAME_COLUMN = "guide_target_gene_name"
+
+# Columns whose absence is warned about but never fails a run.
+RECOMMENDED_COLUMNS = (TARGET_NAME_COLUMN,)
 
 # Single source of truth for the accepted input formats: the parser reads the
 # delimiter from here and the CLI derives its --format choices from the keys.
@@ -69,6 +75,25 @@ def _wrong_format_hint(header: list[str], file_format: str) -> str:
     )
 
 
+def header_warnings(path: str | Path, *, file_format: str) -> list[str]:
+    """Return warnings for recommended columns absent from the header.
+
+    These never fail a run. A file that cannot be read yields no warnings here;
+    the signature read reports that failure itself.
+    """
+    file_path = Path(path)
+    try:
+        with file_path.open(encoding="utf-8-sig", newline="") as handle:
+            header = next(csv.reader(handle, delimiter=_delimiter_for(file_format)))
+    except (GuideSigError, OSError, UnicodeDecodeError, csv.Error, StopIteration):
+        return []
+    return [
+        f"{file_path}: column {name!r} absent from header"
+        for name in RECOMMENDED_COLUMNS
+        if name not in header
+    ]
+
+
 def protospacer_set(
     path: str | Path,
     *,
@@ -85,7 +110,8 @@ def protospacer_set(
 
     Raises:
         GuideSigError: If the format is unknown, the file cannot yield a set,
-            a row's ``guide_role`` and ``guide_target_gene_id`` disagree, or
+            a control row's ``guide_target_gene_id`` (or, when that column is
+            present, ``guide_target_gene_name``) is not ``NA``, or
             every protospacer ends with G or every one starts with C.
     """
     sequences, _ids = _read_guide_file(
@@ -159,6 +185,13 @@ def _read_guide_file(
                     )
             role_idx = header.index(ROLE_COLUMN)
             target_idx = header.index(TARGET_COLUMN)
+            # Optional column: checked only when present (its absence is a
+            # header warning, see header_warnings).
+            name_idx = (
+                header.index(TARGET_NAME_COLUMN)
+                if TARGET_NAME_COLUMN in header
+                else None
+            )
 
             id_idx: int | None = None
             if id_column is not None:
@@ -224,12 +257,14 @@ def _read_guide_file(
                         f"{role!r} but {TARGET_COLUMN} is {target!r} "
                         f"(expected {NA_TARGET!r})"
                     )
-                if not is_control and target == NA_TARGET:
-                    raise GuideSigError(
-                        f"{file_path}: row {physical_row}: {TARGET_COLUMN} is "
-                        f"{NA_TARGET!r} but {ROLE_COLUMN} is {role!r} "
-                        f"(expected {CONTROL_ROLE!r})"
-                    )
+                if is_control and name_idx is not None:
+                    target_name = row[name_idx].strip()
+                    if target_name != NA_TARGET:
+                        raise GuideSigError(
+                            f"{file_path}: row {physical_row}: {ROLE_COLUMN} is "
+                            f"{role!r} but {TARGET_NAME_COLUMN} is "
+                            f"{target_name!r} (expected {NA_TARGET!r})"
+                        )
 
                 if id_idx is not None:
                     guide_id = row[id_idx].strip()

@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from guidesig import GuideSigError, protospacer_set, signature
+from guidesig import GuideSigError, header_warnings, protospacer_set, signature
 from guidesig.cli import main
-from tests.guidesig_helpers import write_delimited
+from tests.guidesig_helpers import FIXTURES, write_delimited
 
 HEADER = [
     "property",
@@ -83,21 +83,18 @@ def test_control_requires_exact_na(tmp_path: Path, target: str) -> None:
         signature(path, file_format="tsv")
 
 
-def test_non_control_with_na_target_raises_with_row_number(tmp_path: Path) -> None:
+@pytest.mark.parametrize("role", [TARGETING, "Targeting a Region"])
+def test_non_control_with_na_target_accepted(tmp_path: Path, role: str) -> None:
+    """Only control rows are held to NA; other roles may carry NA too."""
     path = _write_tsv(
-        tmp_path / "targeting_na.tsv",
+        tmp_path / "non_control_na.tsv",
         [
             HEADER,
             ["", "g1", "AAAA", "control", "NA"],
-            ["", "g2", "CCCA", TARGETING, "NA"],
+            ["", "g2", "CCCA", role, "NA"],
         ],
     )
-    with pytest.raises(GuideSigError) as exc:
-        signature(path, file_format="tsv")
-    message = str(exc.value)
-    assert "row 3" in message
-    assert f"guide_target_gene_id is 'NA' but guide_role is '{TARGETING}'" in message
-    assert "(expected 'control')" in message
+    assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCA"}
 
 
 def test_role_case_and_padding_ignored(tmp_path: Path) -> None:
@@ -257,3 +254,97 @@ def test_cli_reports_end_check_and_prints_no_signature(tmp_path: Path, capsys) -
     assert captured.out == ""
     assert "error:" in captured.err
     assert "Probable trailing G issue" in captured.err
+
+
+# --- recommended columns (warning only) ----------------------------------------
+
+
+def test_header_warnings_name_missing_gene_name_column(tmp_path: Path) -> None:
+    path = _write_tsv(
+        tmp_path / "no_gene_name.tsv", [HEADER, ["", "g1", "AAAA", TARGETING, GENE]]
+    )
+    assert header_warnings(path, file_format="tsv") == [
+        f"{path}: column 'guide_target_gene_name' absent from header"
+    ]
+
+
+def test_header_warnings_empty_when_gene_name_present() -> None:
+    assert header_warnings(FIXTURES / "lib_one.tsv", file_format="tsv") == []
+
+
+def test_header_warnings_ignore_unreadable_file(tmp_path: Path) -> None:
+    """The signature read reports unreadable files; the warning pass stays quiet."""
+    assert header_warnings(tmp_path / "missing.tsv", file_format="tsv") == []
+
+
+def test_cli_missing_gene_name_warns_but_still_signs(tmp_path: Path, capsys) -> None:
+    path = _write_tsv(
+        tmp_path / "no_gene_name.tsv", [HEADER, ["", "g1", "AAAA", TARGETING, GENE]]
+    )
+    main(["--format", "tsv", str(path)])
+    captured = capsys.readouterr()
+    assert captured.out.startswith("gsig1:set:n=1:")
+    assert (
+        f"warning: {path}: column 'guide_target_gene_name' absent from header"
+        in captured.err
+    )
+
+
+def test_cli_no_warning_when_gene_name_present(capsys) -> None:
+    main(["--format", "tsv", str(FIXTURES / "lib_one.tsv")])
+    assert "warning:" not in capsys.readouterr().err
+
+
+# --- guide_target_gene_name on control rows ------------------------------------
+
+NAME_HEADER = [*HEADER, "guide_target_gene_name"]
+
+
+def test_control_with_gene_name_raises_with_row_number(tmp_path: Path) -> None:
+    path = _write_tsv(
+        tmp_path / "control_name.tsv",
+        [
+            NAME_HEADER,
+            ["", "g1", "AAAA", TARGETING, GENE, "GENE1"],
+            ["", "g2", "CCCA", "control", "NA", "Tfam"],
+        ],
+    )
+    with pytest.raises(GuideSigError) as exc:
+        signature(path, file_format="tsv")
+    assert str(exc.value) == (
+        f"{path}: row 3: guide_role is 'control' but guide_target_gene_name is "
+        "'Tfam' (expected 'NA')"
+    )
+
+
+@pytest.mark.parametrize("name", ["NA", " NA "])
+def test_control_with_na_gene_name_accepted(tmp_path: Path, name: str) -> None:
+    path = _write_tsv(
+        tmp_path / "control_name_na.tsv",
+        [
+            NAME_HEADER,
+            ["", "g1", "AAAA", TARGETING, GENE, "GENE1"],
+            ["", "g2", "CCCA", "Control", "NA", name],
+        ],
+    )
+    assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCA"}
+
+
+def test_gene_name_rule_skipped_without_column(tmp_path: Path) -> None:
+    path = _write_tsv(
+        tmp_path / "no_name_column.tsv",
+        [HEADER, ["", "g1", "AAAA", "control", "NA"]],
+    )
+    assert protospacer_set(path, file_format="tsv") == {"AAAA"}
+
+
+def test_gene_name_mismatch_in_comment_row_ignored(tmp_path: Path) -> None:
+    path = _write_tsv(
+        tmp_path / "comment_name.tsv",
+        [
+            NAME_HEADER,
+            ["#example", "g0", "TTTT", "control", "NA", "Tfam"],
+            ["", "g1", "AAAA", TARGETING, GENE, "GENE1"],
+        ],
+    )
+    assert protospacer_set(path, file_format="tsv") == {"AAAA"}

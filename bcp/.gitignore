@@ -43,6 +43,10 @@ venv.bak/
 # Local documentation / data files (mapping CSVs, SIFs, SOPs, etc.)
 docs/
 
+# guidesig --guidescan reference cache: genome-scale guidescan index files
+# downloaded from S3 on first use. Several GB each; never commit them.
+.guidescan_cache/
+
 # --- Per-run working directories for the ChEBI identification method ----------
 #
 # The method is documented in CHEBI_IDENTIFICATION.md and its reusable parts live
