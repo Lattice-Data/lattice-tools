@@ -56,6 +56,7 @@ class TestChemistriesAndConstants:
         from qa_checks import VALID_PROBES
 
         assert "Chromium Human Transcriptome Probe Set v2.0.0" in VALID_PROBES
+        assert "Chromium Mouse Transcriptome Probe Set v2.0.0" in VALID_PROBES
 
 
 class TestIsOrderLevelProcessedFolder:

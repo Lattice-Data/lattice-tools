@@ -1528,6 +1528,56 @@ class TestValidateProcessedGroup:
             "Invalid probe set for this assay version" in e for e in result["errors"]
         )
 
+    @staticmethod
+    def _probe_report(chem, probe_set):
+        return {
+            "chem": chem,
+            "extra": [],
+            "software": "cellranger-10.0.0",
+            "gex_alerts": [],
+            "Probe Set Name": probe_set,
+        }
+
+    def test_probe_set_gem_x_flex_v2_mouse_v2_valid(self):
+        """GEM-X Flex v2 accepts the mouse v2.0.0 probe set."""
+        report = self._probe_report(
+            "GEM-X Flex v2", "Chromium Mouse Transcriptome Probe Set v2.0.0"
+        )
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert not any("Invalid probe set" in e for e in result["errors"])
+
+    def test_probe_set_flex_gene_expression_mouse_v2_wrong_version(self):
+        """Flex Gene Expression rejects the mouse v2.0.0 probe set."""
+        report = self._probe_report(
+            "Flex Gene Expression", "Chromium Mouse Transcriptome Probe Set v2.0.0"
+        )
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert any(
+            "Invalid probe set for this assay version" in e for e in result["errors"]
+        )
+
+    def test_probe_set_gem_x_flex_v2_mouse_v1_1_wrong_version(self):
+        """GEM-X Flex v2 rejects the mouse v1.1.1 probe set."""
+        report = self._probe_report(
+            "GEM-X Flex v2", "Chromium Mouse Transcriptome Probe Set v1.1.1"
+        )
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert any(
+            "Invalid probe set for this assay version G1" in e for e in result["errors"]
+        )
+
+    def test_probe_set_unknown_rejected(self):
+        """Probe sets missing from VALID_PROBES are rejected outright."""
+        report = self._probe_report(
+            "GEM-X Flex v2", "Chromium Rat Transcriptome Probe Set v2.0.0"
+        )
+        proc_files = [_OUTS_BASE + "config.csv"]
+        result = validate_processed_group("G1", proc_files, report, {})
+        assert any("Invalid probe set for G1" in e for e in result["errors"])
+
 
 class TestBuildWaferFailureStats:
     """Tests for build_wafer_failure_stats."""
