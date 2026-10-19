@@ -35,6 +35,7 @@ from .core import (
 )
 
 PAM_COLUMN = "guide_PAM"
+SPCAS9_PAM = "NGG"
 WARN_BELOW_PERCENT = 90.0
 EXAMPLE_LIMIT = 10
 
@@ -117,8 +118,9 @@ def _data_rows(path: Path, file_format: str):
 def parse_pam(raw: str) -> str:
     """Turn a sheet PAM such as ``3' NGG`` into the bare ``NGG`` guidescan takes.
 
-    Only a 3' PAM of three bases is accepted: guidescan_pipeline.py places a
-    PAM at the 3' end and its minus-strand coordinates assume three bases.
+    Any length is accepted, as guidescan_pipeline.py reads the length from the
+    PAM itself. A 5' PAM is rejected: the pipeline never passes guidescan's
+    ``--start``, so it only searches for a PAM after the protospacer.
     """
     text = raw.strip().replace("’", "'")
     match = re.fullmatch(r"(?:(3|5)'\s*)?([ACGTNRYKMSWBDHV]+)", text, re.IGNORECASE)
@@ -127,8 +129,21 @@ def parse_pam(raw: str) -> str:
     side, pam = match.group(1), match.group(2).upper()
     if side == "5":
         raise ValueError(f"5' PAM {raw!r} is not supported by guidescan_pipeline.py")
-    if len(pam) != 3:
-        raise ValueError(f"PAM {raw!r} is not 3 bases")
+    return pam
+
+
+def pipeline_pam(pam: str) -> str:
+    """Map a parsed sheet PAM to the pattern guidescan is run with.
+
+    Sheets record either the pattern (``NGG``) or the actual bases at each
+    guide's site (``AGG``, ``TGG``, ...). Every SpCas9 site is an instance of
+    NGG, so any PAM fitting NGG becomes NGG; the protospacer must still match
+    exactly, and only the sheet's specific first PAM base goes unchecked. Any
+    other PAM is passed through unchanged; ``read_targeting_guides`` then
+    requires one pattern across the sheet, as guidescan_pipeline.py does.
+    """
+    if re.fullmatch(r"[ACGTN]GG", pam):
+        return SPCAS9_PAM
     return pam
 
 
@@ -138,7 +153,11 @@ def read_targeting_guides(
     """Return the sheet's targeting guides and all its guide_target_gene_id values.
 
     A targeting guide is any row whose role is not ``control`` and that has a
-    protospacer. Its PAM comes from ``guide_PAM``.
+    protospacer. Its PAM comes from ``guide_PAM``, mapped by ``pipeline_pam``.
+
+    Raises:
+        GuidescanCheckError: If the guides do not share one PAM pattern, which
+            guidescan_pipeline.py requires, among the other row failures.
     """
     file_path = Path(path)
     guides: dict[str, TargetingGuide] = {}
@@ -158,7 +177,7 @@ def read_targeting_guides(
                 f"{file_path}: required column {PAM_COLUMN!r} absent from header"
             )
         try:
-            pam = parse_pam(cells[PAM_COLUMN])
+            pam = pipeline_pam(parse_pam(cells[PAM_COLUMN]))
         except ValueError as exc:
             raise GuidescanCheckError(f"{where}: {exc}") from exc
         guide_id = cells.get(ID_COLUMN, "").strip()
@@ -171,6 +190,13 @@ def read_targeting_guides(
                 f"{where}: {ID_COLUMN} {guide_id!r} appears with two different "
                 "protospacers or PAMs"
             )
+    patterns = sorted({guide.pam for guide in guides.values()})
+    if len(patterns) > 1:
+        raise GuidescanCheckError(
+            f"{file_path}: targeting guides use more than one PAM pattern "
+            f"({', '.join(patterns)}); guidescan_pipeline.py needs one PAM for "
+            "all guides"
+        )
     return list(guides.values()), target_ids
 
 

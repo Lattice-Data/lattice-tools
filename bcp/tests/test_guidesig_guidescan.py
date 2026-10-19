@@ -23,6 +23,7 @@ from guidesig.guidescancheck import (
     ensure_references,
     format_report,
     parse_pam,
+    pipeline_pam,
     read_targeting_guides,
     run_guidescan_check,
 )
@@ -61,7 +62,6 @@ def test_parse_pam_accepts_3prime_ngg(raw: str) -> None:
     "raw, message",
     [
         ("5' TTTV", "5' PAM"),
-        ("3' NNGRRT", "not 3 bases"),
         ("", "unrecognized PAM"),
         ("3' N-G", "unrecognized PAM"),
     ],
@@ -69,6 +69,55 @@ def test_parse_pam_accepts_3prime_ngg(raw: str) -> None:
 def test_parse_pam_rejects(raw: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         parse_pam(raw)
+
+
+@pytest.mark.parametrize("pam", ["NGG", "AGG", "CGG", "GGG", "TGG"])
+def test_pipeline_pam_maps_ngg_family_to_ngg(pam: str) -> None:
+    assert pipeline_pam(pam) == "NGG"
+
+
+@pytest.mark.parametrize("pam", ["TAG", "NAG", "GGA", "NNG", "NNGRRT"])
+def test_pipeline_pam_passes_other_patterns_through(pam: str) -> None:
+    assert pipeline_pam(pam) == pam
+
+
+def test_parse_pam_accepts_any_length() -> None:
+    assert parse_pam("3' NNGRRT") == "NNGRRT"
+
+
+@pytest.mark.parametrize("pam", ["3' NAG", "TAG", "3' NNGRRT"])
+def test_sheet_with_one_other_pattern_runs_unchanged(tmp_path: Path, pam: str) -> None:
+    rows = [
+        ["", "g1", "AAAA", TARGETING, MOUSE_GENE, pam],
+        ["", "g2", "TTTA", TARGETING, MOUSE_GENE, pam],
+    ]
+    guides, _targets = read_targeting_guides(_sheet(tmp_path, rows), file_format="tsv")
+    assert {guide.pam for guide in guides} == {parse_pam(pam)}
+
+
+def test_sheet_with_actual_pam_bases_runs_as_ngg(tmp_path: Path) -> None:
+    """Per-guide bases and the pattern can be mixed; all are sent as NGG."""
+    rows = [
+        ["", "g1", "AAAA", TARGETING, MOUSE_GENE, "AGG"],
+        ["", "g2", "TTTA", TARGETING, MOUSE_GENE, "3' TGG"],
+        ["", "g3", "ATAT", TARGETING, MOUSE_GENE, "cgg"],
+        ["", "g4", "TATA", TARGETING, MOUSE_GENE, "3' NGG"],
+    ]
+    guides, _targets = read_targeting_guides(_sheet(tmp_path, rows), file_format="tsv")
+    assert {guide.pam for guide in guides} == {"NGG"}
+    seen: dict = {}
+    run_guidescan_check(guides, Path("idx"), runner=_stub_runner(set(), seen))
+    assert {row["pam"] for row in seen["rows"]} == {"NGG"}
+
+
+def test_sheet_mixing_pam_patterns_raises(tmp_path: Path) -> None:
+    rows = [
+        ["", "g1", "AAAA", TARGETING, MOUSE_GENE, "AGG"],
+        ["", "g2", "TTTA", TARGETING, MOUSE_GENE, "3' NAG"],
+    ]
+    with pytest.raises(GuidescanCheckError) as exc:
+        read_targeting_guides(_sheet(tmp_path, rows), file_format="tsv")
+    assert "targeting guides use more than one PAM pattern (NAG, NGG)" in str(exc.value)
 
 
 # --- reading targeting guides --------------------------------------------------
