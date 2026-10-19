@@ -69,12 +69,21 @@ def test_control_with_gene_target_raises_with_row_number(tmp_path: Path) -> None
     message = str(exc.value)
     assert "row 3" in message
     assert f"guide_role is 'control' but guide_target_gene_id is '{GENE}'" in message
-    assert "(expected 'NA')" in message
+    assert "(expected one of 'NA', 'na', 'N/A', 'n/a')" in message
 
 
-@pytest.mark.parametrize("target", ["", "na", "N/A"])
-def test_control_requires_exact_na(tmp_path: Path, target: str) -> None:
-    """Only the literal NA is accepted; look-alikes and empty cells fail."""
+@pytest.mark.parametrize("target", ["NA", "na", "N/A", "n/a", " n/a "])
+def test_control_accepts_na_spellings(tmp_path: Path, target: str) -> None:
+    path = _write_tsv(
+        tmp_path / "control_na_spelling.tsv",
+        [HEADER, ["", "g1", "AAAA", "control", target]],
+    )
+    assert protospacer_set(path, file_format="tsv") == {"AAAA"}
+
+
+@pytest.mark.parametrize("target", ["", "Na", "N/a", "none", "-"])
+def test_control_rejects_other_values(tmp_path: Path, target: str) -> None:
+    """Only the four NA spellings are accepted; others and empty cells fail."""
     path = _write_tsv(
         tmp_path / "control_not_na.tsv",
         [HEADER, ["", "g1", "AAAA", "control", target]],
@@ -313,11 +322,11 @@ def test_control_with_gene_name_raises_with_row_number(tmp_path: Path) -> None:
         signature(path, file_format="tsv")
     assert str(exc.value) == (
         f"{path}: row 3: guide_role is 'control' but guide_target_gene_name is "
-        "'Tfam' (expected 'NA')"
+        "'Tfam' (expected one of 'NA', 'na', 'N/A', 'n/a')"
     )
 
 
-@pytest.mark.parametrize("name", ["NA", " NA "])
+@pytest.mark.parametrize("name", ["NA", " NA ", "na", "N/A", "n/a"])
 def test_control_with_na_gene_name_accepted(tmp_path: Path, name: str) -> None:
     path = _write_tsv(
         tmp_path / "control_name_na.tsv",

@@ -11,13 +11,14 @@ DEFAULT_COLUMN = "guide_protospacer"
 ID_COLUMN = "guide_id"
 
 # Role/target consistency: a control guide has no target gene, so its
-# guide_target_gene_id must be the literal "NA". The reverse is not enforced:
-# a non-control guide may carry "NA" (e.g. "Targeting a Region" guides). The
-# role is compared case-insensitively; "NA" is exact.
+# guide_target_gene_id must be one of NA_VALUES. The reverse is not enforced:
+# a non-control guide may carry NA (e.g. "Targeting a Region" guides). The role
+# is compared case-insensitively; NA_VALUES are exact spellings.
 ROLE_COLUMN = "guide_role"
 TARGET_COLUMN = "guide_target_gene_id"
 CONTROL_ROLE = "control"
-NA_TARGET = "NA"
+NA_VALUES = ("NA", "na", "N/A", "n/a")
+_NA_EXPECTED = "one of " + ", ".join(repr(v) for v in NA_VALUES)
 # Held to the same control rule as guide_target_gene_id, but only when present.
 TARGET_NAME_COLUMN = "guide_target_gene_name"
 
@@ -251,19 +252,19 @@ def _read_guide_file(
                 role = row[role_idx].strip()
                 target = row[target_idx].strip()
                 is_control = role.lower() == CONTROL_ROLE
-                if is_control and target != NA_TARGET:
+                if is_control and target not in NA_VALUES:
                     raise GuideSigError(
                         f"{file_path}: row {physical_row}: {ROLE_COLUMN} is "
                         f"{role!r} but {TARGET_COLUMN} is {target!r} "
-                        f"(expected {NA_TARGET!r})"
+                        f"(expected {_NA_EXPECTED})"
                     )
                 if is_control and name_idx is not None:
                     target_name = row[name_idx].strip()
-                    if target_name != NA_TARGET:
+                    if target_name not in NA_VALUES:
                         raise GuideSigError(
                             f"{file_path}: row {physical_row}: {ROLE_COLUMN} is "
                             f"{role!r} but {TARGET_NAME_COLUMN} is "
-                            f"{target_name!r} (expected {NA_TARGET!r})"
+                            f"{target_name!r} (expected {_NA_EXPECTED})"
                         )
 
                 if id_idx is not None:
