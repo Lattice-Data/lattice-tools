@@ -44,7 +44,6 @@ class H5Layout:
 
     h5_keys: list[str]
     sample_dirs_without_h5: list[str]
-    library_dirs_without_h5: list[str]
 
 
 @dataclass
@@ -119,25 +118,20 @@ def find_h5_layout(keys: list[str], filename: str) -> H5Layout:
     """Find the target h5 keys, and the folders that should hold one but do not.
 
     A sample folder is any ``.../per_sample_outs/<sample>/`` seen in the
-    listing. A library folder is the path before a ``processed`` segment, as
-    in ``file_extract``. Either one with no ``filename`` beneath it is
-    reported, since such a folder would otherwise be silently skipped.
+    listing; one with no ``filename`` beneath it is reported, since it would
+    otherwise be silently skipped. Library folders are not checked on their
+    own: Cell Ranger outputs always carry ``per_sample_outs/``, so a library
+    folder check only repeated the sample folder's failure.
     """
     h5_keys = sorted(k for k in keys if k.rsplit("/", 1)[-1] == filename)
 
     sample_dirs: set[str] = set()
-    library_dirs: set[str] = set()
     for key in keys:
         head, marker, tail = key.partition("per_sample_outs/")
         if marker:
             sample, slash, _rest = tail.partition("/")
             if sample and slash:
                 sample_dirs.add(f"{head}per_sample_outs/{sample}/")
-        parts = key.split("/")
-        if "processed" in parts:
-            idx = parts.index("processed")
-            if idx > 0:
-                library_dirs.add("/".join(parts[:idx]) + "/")
 
     def without_h5(dirs: set[str]) -> list[str]:
         return sorted(d for d in dirs if not any(k.startswith(d) for k in h5_keys))
@@ -145,7 +139,6 @@ def find_h5_layout(keys: list[str], filename: str) -> H5Layout:
     return H5Layout(
         h5_keys=h5_keys,
         sample_dirs_without_h5=without_h5(sample_dirs),
-        library_dirs_without_h5=without_h5(library_dirs),
     )
 
 
@@ -222,7 +215,7 @@ def check_guide_ids_against_h5(
 
     Every h5 is checked before anything is reported, so one run shows every
     failing sample. ``samples``, when given, limits every part of the check
-    (h5 reads and missing-folder reports) to those exact names, matched against
+    (h5 reads and missing sample-folder reports) to those exact names, matched against
     the ``per_sample_outs/<sample>/`` folder (else the library folder); a
     listed name with no h5 is a failure. ``samples_label`` names the list in
     messages. ``s3_client`` and ``reader`` exist for tests; by default a boto3
@@ -265,10 +258,6 @@ def check_guide_ids_against_h5(
     layout = find_h5_layout(keys, filename)
     report = H5CheckReport(h5_total=len(layout.h5_keys))
 
-    for folder in layout.library_dirs_without_h5:
-        report.failures.append(
-            f"library folder {s3_uri_for(bucket, folder)} has no {filename}"
-        )
     for folder in layout.sample_dirs_without_h5:
         report.failures.append(
             f"sample folder {s3_uri_for(bucket, folder)} has no {filename}"
@@ -284,9 +273,7 @@ def check_guide_ids_against_h5(
         # no folder at all.
         covered = {
             folder.rstrip("/").rsplit("/", 1)[-1]
-            for folder in (
-                layout.sample_dirs_without_h5 + layout.library_dirs_without_h5
-            )
+            for folder in layout.sample_dirs_without_h5
         }
         for name in samples:
             if name not in found and name not in covered:

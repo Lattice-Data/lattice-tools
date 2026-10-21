@@ -701,8 +701,8 @@ with `--compare`; the sheet must have a `guide_id` column.
 - One S3 listing finds every `--h5-filename` (default
   `sample_filtered_feature_bc_matrix.h5`); only the features table of each h5 is read
 - **Failures:** a sheet `guide_id` missing from a sample's h5; an h5 that cannot be read
-  or has no CRISPR features; a `per_sample_outs/<sample>/` folder, or a library folder
-  (the folder before `processed/`), with no target h5; no target h5 at all
+  or has no CRISPR features; a `per_sample_outs/<sample>/` folder with no target h5; no
+  target h5 at all
 - **Notes:** guides present in an h5 but absent from the sheet
 - Every sample is checked before anything is reported, so one run lists every failing
   sample; the signature is printed only if all pass

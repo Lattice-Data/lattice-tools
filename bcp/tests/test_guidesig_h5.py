@@ -112,7 +112,8 @@ def test_guide_ids_from_h5_requires_feature_ids(tmp_path: Path) -> None:
 # --- finding h5 files and folders that lack one ------------------------------
 
 
-def test_find_h5_layout_flags_sample_and_library_folders_without_h5() -> None:
+def test_find_h5_layout_flags_sample_folders_without_h5() -> None:
+    """Only sample folders are checked; a library with no h5 is not reported."""
     keys = [
         KEY_S1,
         f"{OUTS}/S1/metrics_summary.csv",
@@ -124,7 +125,6 @@ def test_find_h5_layout_flags_sample_and_library_folders_without_h5() -> None:
     layout = find_h5_layout(keys, H5_NAME)
     assert layout.h5_keys == [KEY_S1]
     assert layout.sample_dirs_without_h5 == [f"{OUTS}/S2/"]
-    assert layout.library_dirs_without_h5 == ["proj/order/LIB2/"]
 
 
 def test_find_h5_layout_matches_basename_exactly() -> None:
@@ -552,4 +552,23 @@ def test_listed_sample_with_empty_folder_reported_once(tmp_path: Path) -> None:
     )
     assert report.failures == [
         f"sample folder s3://{BUCKET}/{OUTS_A}/tb7k_q5/ has no {H5_NAME}"
+    ]
+
+
+def test_missing_h5_in_same_named_library_reported_once(tmp_path: Path) -> None:
+    """Library and sample share a name; a missing h5 is one sample-folder line."""
+    files = {KEY_A: _write_h5(tmp_path / "a.h5", _guides("g1"))}
+    keys = [
+        *files,
+        f"{OUTS_B}/Wtb7k_q2/metrics_summary.csv",
+        "proj/order/Wtb7k_q2/raw/x_R1_001.fastq.gz",
+    ]
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        s3_client=MockS3Client(keys=keys),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"sample folder s3://{BUCKET}/{OUTS_B}/Wtb7k_q2/ has no {H5_NAME}"
     ]
