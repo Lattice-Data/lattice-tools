@@ -7,6 +7,7 @@ reads the input file guidesig wrote, and S3 by a fake client that serves bytes.
 from __future__ import annotations
 
 import csv
+import logging
 from pathlib import Path
 
 import pytest
@@ -442,3 +443,67 @@ def test_cli_guidescan_usage_errors(capsys, args: list[str], message: str) -> No
         main(["--format", "tsv", *args])
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+# --- pipeline log handling ------------------------------------------------------
+
+
+def test_pipeline_warning_is_reported_with_sheet_id(capsys) -> None:
+    guides = [TargetingGuide("ENSMUSG00000003923_1", "AAAA", "NGG")]
+
+    def runner(index_prefix: Path, guides_file: Path, output_dir: Path) -> dict:
+        logging.getLogger("guidescan_pipeline").warning(
+            "Error processing row for g000001: invalid literal"
+        )
+        return {"id": ["g000001"], "chromosome": ["NA"]}
+
+    report = run_guidescan_check(guides, Path("idx"), runner=runner)
+    assert report.pipeline_warnings == [
+        "Error processing row for ENSMUSG00000003923_1: invalid literal"
+    ]
+    assert (
+        "warning: guidescan pipeline: Error processing row for "
+        "ENSMUSG00000003923_1: invalid literal"
+    ) in format_report(report)
+    assert capsys.readouterr().err == ""  # captured, not printed directly
+
+
+def test_pipeline_error_log_is_not_printed(capsys) -> None:
+    """The pipeline's own ERROR line is dropped; guidesig reports the failure."""
+    guides = [TargetingGuide("g1", "AAAA", "NGG")]
+
+    def runner(index_prefix: Path, guides_file: Path, output_dir: Path) -> dict:
+        logging.getLogger("guidescan_pipeline").error("Pipeline failed: boom")
+        raise GuidescanCheckError("guidescan pipeline failed: boom")
+
+    with pytest.raises(GuidescanCheckError, match="boom"):
+        run_guidescan_check(guides, Path("idx"), runner=runner)
+    assert "Pipeline failed" not in capsys.readouterr().err
+
+
+def test_pipeline_logger_state_is_restored() -> None:
+    pipeline_logger = logging.getLogger("guidescan_pipeline")
+    before = (
+        pipeline_logger.level,
+        pipeline_logger.propagate,
+        list(pipeline_logger.handlers),
+    )
+
+    def runner(index_prefix: Path, guides_file: Path, output_dir: Path) -> dict:
+        raise GuidescanCheckError("fails mid-run")
+
+    with pytest.raises(GuidescanCheckError):
+        run_guidescan_check(
+            [TargetingGuide("g1", "AAAA", "NGG")], Path("idx"), runner=runner
+        )
+    run_guidescan_check(
+        [TargetingGuide("g1", "AAAA", "NGG")],
+        Path("idx"),
+        runner=_stub_runner(set(), {}),
+    )
+    after = (
+        pipeline_logger.level,
+        pipeline_logger.propagate,
+        list(pipeline_logger.handlers),
+    )
+    assert after == before

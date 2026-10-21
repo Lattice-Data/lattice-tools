@@ -19,7 +19,8 @@ import logging
 import re
 import sys
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,8 @@ REFERENCE_SUFFIXES = (
     ".reverse.dna",
 )
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".guidescan_cache"
+# Synthetic IDs guides are sent to guidescan under (see run_guidescan_check).
+_TOKEN_RE = re.compile(r"\bg\d{6}\b")
 
 # Ensembl gene ID prefixes, optionally versioned (ENSG00000141510.18). Anything
 # else, including placeholders such as ENSGFAKE..., says nothing about species.
@@ -82,6 +85,8 @@ class GuidescanReport:
     matched: int = 0
     unmatched: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    # WARNING lines the pipeline logged, with guide IDs mapped back to the sheet.
+    pipeline_warnings: list[str] = field(default_factory=list)
 
     @property
     def percent(self) -> float:
@@ -299,13 +304,6 @@ def _run_pipeline(index_prefix: Path, guides_file: Path, output_dir: Path) -> An
             "run from bcp/ with requirements.txt installed"
         ) from exc
 
-    # CRITICAL, not WARNING: the pipeline logs its own failures at ERROR, and
-    # guidesig reports every failure itself as one `error:` line, so letting
-    # ERROR through would print each failure twice (with no handler configured,
-    # Python's last-resort handler still prints ERROR to stderr).
-    pipeline_logger = logging.getLogger("guidescan_pipeline")
-    previous_level = pipeline_logger.level
-    pipeline_logger.setLevel(logging.CRITICAL)
     try:
         pipeline = GuidescanPipeline(
             genome_index=str(index_prefix),
@@ -315,8 +313,46 @@ def _run_pipeline(index_prefix: Path, guides_file: Path, output_dir: Path) -> An
         return pipeline.run()
     except Exception as exc:
         raise GuidescanCheckError(f"guidescan pipeline failed: {exc}") from exc
+
+
+class _WarningCollector(logging.Handler):
+    """Keep WARNING records; drop ERROR and above (guidesig reports those)."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.ERROR:
+            self.messages.append(record.getMessage())
+
+
+@contextmanager
+def _captured_pipeline_log() -> Iterator[list[str]]:
+    """Capture the pipeline logger's WARNING messages for the duration.
+
+    Nothing the pipeline logs is printed directly. ERROR records are dropped:
+    the pipeline logs its own failures at ERROR and then raises, and guidesig
+    reports that exception once as an `error:` line, so printing the record too
+    would show each failure twice. WARNING records are kept and re-reported by
+    guidesig, since one of them (a guidescan row that could not be parsed, so
+    the guide was counted as unmatched) is the only sign that the rate was
+    affected. Propagation is switched off so neither the root logger nor
+    Python's last-resort handler prints anything; level, handlers and
+    propagation are restored afterwards.
+    """
+    pipeline_logger = logging.getLogger("guidescan_pipeline")
+    collector = _WarningCollector()
+    previous = (pipeline_logger.level, pipeline_logger.propagate)
+    pipeline_logger.setLevel(logging.WARNING)
+    pipeline_logger.propagate = False
+    pipeline_logger.addHandler(collector)
+    try:
+        yield collector.messages
     finally:
-        pipeline_logger.setLevel(previous_level)
+        pipeline_logger.removeHandler(collector)
+        pipeline_logger.setLevel(previous[0])
+        pipeline_logger.propagate = previous[1]
 
 
 def run_guidescan_check(
@@ -349,7 +385,18 @@ def run_guidescan_check(
             )
             for token, guide in by_token.items():
                 writer.writerow([token, guide.protospacer, guide.pam, "", "", ""])
-        result = runner(index_prefix, guides_file, tmp_path / "out")
+        with _captured_pipeline_log() as pipeline_messages:
+            result = runner(index_prefix, guides_file, tmp_path / "out")
+
+    def sheet_ids(message: str) -> str:
+        return _TOKEN_RE.sub(
+            lambda m: (
+                by_token[m.group()].guide_id if m.group() in by_token else m.group()
+            ),
+            message,
+        )
+
+    report.pipeline_warnings = [sheet_ids(m) for m in pipeline_messages]
 
     matched_tokens = {
         str(token)
@@ -381,6 +428,8 @@ def format_report(report: GuidescanReport) -> list[str]:
     if report.unmatched:
         examples = ", ".join(report.unmatched[:EXAMPLE_LIMIT])
         lines.append(f"guidescan: no exact match: {examples}")
+    for warning in report.pipeline_warnings:
+        lines.append(f"warning: guidescan pipeline: {warning}")
     if report.below_threshold:
         lines.append(
             f"warning: guidescan exact-match rate {report.percent:.1f}% is below "
