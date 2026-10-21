@@ -11,10 +11,6 @@ import sys
 import logging
 from pathlib import Path
 
-# Configure logging - simple format without colors
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
 
@@ -440,6 +436,11 @@ class GuidescanPipeline:
 
 def main():
     """Main entry point for the CLI."""
+    # Configured here, not at import, so importing GuidescanPipeline (as
+    # guidesig does) leaves the caller's logging untouched.
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO
+    )
     parser = argparse.ArgumentParser(
         description="Process CRISPR guide sequences using guidescan",
         formatter_class=argparse.RawDescriptionHelpFormatter,

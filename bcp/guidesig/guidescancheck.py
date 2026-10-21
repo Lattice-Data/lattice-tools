@@ -301,8 +301,8 @@ def _run_pipeline(index_prefix: Path, guides_file: Path, output_dir: Path) -> An
 
     # CRITICAL, not WARNING: the pipeline logs its own failures at ERROR, and
     # guidesig reports every failure itself as one `error:` line, so letting
-    # ERROR through would print each failure twice. guidescan_pipeline still
-    # calls logging.basicConfig at import; that side effect is left as is.
+    # ERROR through would print each failure twice (with no handler configured,
+    # Python's last-resort handler still prints ERROR to stderr).
     pipeline_logger = logging.getLogger("guidescan_pipeline")
     previous_level = pipeline_logger.level
     pipeline_logger.setLevel(logging.CRITICAL)
