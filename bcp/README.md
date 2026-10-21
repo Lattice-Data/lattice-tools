@@ -705,8 +705,16 @@ with `--compare`; the sheet must have a `guide_id` column.
 - **Notes:** guides present in an h5 but absent from the sheet
 - Every sample is checked before anything is reported, so one run lists every failing
   sample; the signature is printed only if all pass
+- `--h5-samples-file PATH` limits the check to the samples named in PATH: one exact,
+  case-sensitive name per line, no header; blank lines and `#` lines are skipped and
+  repeats are ignored; a line holding a tab is an error. Names are matched against the
+  `per_sample_outs/<sample>/` folder (else the library folder), so `ES_m6_1` never matches
+  `NES_m6_1`. Unlisted samples are ignored entirely, including by the missing-folder
+  checks; a listed sample with no h5 is a failure; a note reports how many h5 files were
+  checked
 - `--workers N` (default 8) sets parallel h5 reads; `--retries N` (default 5) sets attempts
-  per transient S3 error. Both, and `--h5-filename`, require `--h5-uri`
+  per transient S3 error. These, `--h5-filename` and `--h5-samples-file` require
+  `--h5-uri`
 - S3 listing, retries and sample/library naming are reused from `file_extract`
 
 ### Guidescan exact-match rate (`--guidescan --species`)

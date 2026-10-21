@@ -116,6 +116,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"h5 basename to check (default: {H5_FILENAME_HELP_DEFAULT})",
     )
     parser.add_argument(
+        "--h5-samples-file",
+        type=Path,
+        metavar="PATH",
+        help=(
+            "Only check the samples named in PATH (one exact name per line, no "
+            "header); a listed sample with no h5 fails"
+        ),
+    )
+    parser.add_argument(
         "--workers",
         type=_positive_int,
         help="Threads for reading h5 files (default: 8)",
@@ -220,6 +229,9 @@ def _run_h5_check(guide_ids: set[str], args: argparse.Namespace) -> None:
     if args.retries is not None:
         options["retries"] = args.retries
     try:
+        if args.h5_samples_file is not None:
+            options["samples"] = h5check.read_sample_names(args.h5_samples_file)
+            options["samples_label"] = str(args.h5_samples_file)
         report = h5check.check_guide_ids_against_h5(guide_ids, args.h5_uri, **options)
     except GuideSigError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -251,6 +263,7 @@ def main(argv: list[str] | None = None) -> None:
         flag
         for flag, value in (
             ("--h5-filename", args.h5_filename),
+            ("--h5-samples-file", args.h5_samples_file),
             ("--workers", args.workers),
             ("--retries", args.retries),
         )

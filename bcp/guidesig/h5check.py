@@ -2,7 +2,8 @@
 
 Every ``guide_id`` in the sheet must appear among the ``CRISPR Guide Capture``
 feature IDs of each sample's h5 under an S3 order prefix. Guides present in an
-h5 but absent from the sheet are reported as notes, not failures.
+h5 but absent from the sheet are reported as notes, not failures. A sample
+list (``read_sample_names``) can limit the check to named samples.
 
 S3 listing, retry and sample/library naming are reused from ``file_extract`` so
 the two tools agree on which files an order holds and what they are called.
@@ -12,8 +13,10 @@ needs none of boto3, h5py, fsspec or s3fs.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 from file_extract.constants import DEFAULT_H5_TARGET_FILENAME
@@ -146,6 +149,43 @@ def find_h5_layout(keys: list[str], filename: str) -> H5Layout:
     )
 
 
+def read_sample_names(path: str | Path) -> list[str]:
+    """Read a sample list: one exact sample name per line, no header.
+
+    Surrounding whitespace is stripped; blank lines and lines starting with
+    ``#`` are skipped; repeated names are kept once, in first-seen order.
+
+    Raises:
+        H5CheckError: If the file cannot be read or is not UTF-8, a line holds
+            a tab (a multi-column file, not one name per line), or no names
+            remain.
+    """
+    file_path = Path(path)
+    try:
+        lines = file_path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise H5CheckError(f"{file_path}: cannot read sample list: {exc}") from exc
+    names: dict[str, None] = {}
+    for number, line in enumerate(lines, start=1):
+        name = line.strip()
+        if not name or name.startswith("#"):
+            continue
+        if "\t" in name:
+            raise H5CheckError(
+                f"{file_path}: line {number}: holds a tab; expected one sample "
+                "name per line"
+            )
+        names.setdefault(name)
+    if not names:
+        raise H5CheckError(f"{file_path}: no sample names found")
+    return list(names)
+
+
+def _scope_name(key: str) -> str:
+    """The name a sample list is matched against: sample, else library."""
+    return extract_sample_name(key) or extract_library(key)
+
+
 def _label(key: str) -> str:
     """Name an h5 by its sample, falling back to library, then the key."""
     sample = extract_sample_name(key)
@@ -173,14 +213,20 @@ def check_guide_ids_against_h5(
     filename: str = DEFAULT_H5_FILENAME,
     workers: int | None = None,
     retries: int = 5,
+    samples: Collection[str] | None = None,
+    samples_label: str = "the sample list",
     s3_client: Any = None,
     reader: H5Reader | None = None,
 ) -> H5CheckReport:
     """Check ``guide_ids`` against every ``filename`` under ``h5_uri``.
 
     Every h5 is checked before anything is reported, so one run shows every
-    failing sample. ``s3_client`` and ``reader`` exist for tests; by default a
-    boto3 client lists the prefix and each h5 is opened over S3.
+    failing sample. ``samples``, when given, limits every part of the check
+    (h5 reads and missing-folder reports) to those exact names, matched against
+    the ``per_sample_outs/<sample>/`` folder (else the library folder); a
+    listed name with no h5 is a failure. ``samples_label`` names the list in
+    messages. ``s3_client`` and ``reader`` exist for tests; by default a boto3
+    client lists the prefix and each h5 is opened over S3.
 
     Raises:
         H5CheckError: If the URI is invalid or the prefix cannot be listed.
@@ -211,7 +257,12 @@ def check_guide_ids_against_h5(
         raise H5CheckError(f"could not list {h5_uri}: {list_err}")
 
     bucket = location.bucket
-    layout = find_h5_layout([obj.key for obj in listed or []], filename)
+    keys = [obj.key for obj in listed or []]
+    all_h5 = sum(1 for k in keys if k.rsplit("/", 1)[-1] == filename)
+    if samples is not None:
+        wanted = set(samples)
+        keys = [k for k in keys if _scope_name(k) in wanted]
+    layout = find_h5_layout(keys, filename)
     report = H5CheckReport(h5_total=len(layout.h5_keys))
 
     for folder in layout.library_dirs_without_h5:
@@ -222,8 +273,21 @@ def check_guide_ids_against_h5(
         report.failures.append(
             f"sample folder {s3_uri_for(bucket, folder)} has no {filename}"
         )
+    if samples is not None:
+        report.notes.append(
+            f"checked {len(layout.h5_keys)} of {all_h5} {filename} file(s); "
+            f"samples from {samples_label}"
+        )
+        found = {_scope_name(k) for k in layout.h5_keys}
+        for name in samples:
+            if name not in found:
+                report.failures.append(
+                    f"sample {name!r} listed in {samples_label} has no {filename} "
+                    f"under {h5_uri}"
+                )
     if not layout.h5_keys:
-        report.failures.append(f"no {filename} found under {h5_uri}")
+        if samples is None:
+            report.failures.append(f"no {filename} found under {h5_uri}")
         return report
 
     def fetch(key: str) -> tuple[set[str] | None, str | None]:

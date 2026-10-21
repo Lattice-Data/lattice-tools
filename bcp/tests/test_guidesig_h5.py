@@ -20,6 +20,7 @@ from guidesig.h5check import (  # noqa: E402
     check_guide_ids_against_h5,
     find_h5_layout,
     guide_ids_from_h5,
+    read_sample_names,
 )
 from tests.file_extract_helpers import MockS3Client  # noqa: E402
 from tests.guidesig_helpers import write_delimited  # noqa: E402
@@ -352,7 +353,13 @@ def test_cli_h5_usage_errors(capsys, extra_args: list[str], message: str) -> Non
 
 
 @pytest.mark.parametrize(
-    "flag, value", [("--workers", "4"), ("--retries", "2"), ("--h5-filename", "x")]
+    "flag, value",
+    [
+        ("--workers", "4"),
+        ("--retries", "2"),
+        ("--h5-filename", "x"),
+        ("--h5-samples-file", "samples.tsv"),
+    ],
 )
 def test_cli_h5_flags_require_h5_uri(capsys, flag: str, value: str) -> None:
     with pytest.raises(SystemExit) as exc:
@@ -366,3 +373,166 @@ def test_cli_workers_must_be_positive(capsys) -> None:
         main(["--format", "tsv", "--h5-uri", URI, "--workers", "0", "a.tsv"])
     assert exc.value.code == 2
     assert "expected a positive integer" in capsys.readouterr().err
+
+
+# --- --h5-samples-file ----------------------------------------------------------
+
+ES_OUTS = "proj/order/ES_m6_1/processed/run1/outs/per_sample_outs"
+NES_OUTS = "proj/order/NES_m6_1/processed/run1/outs/per_sample_outs"
+KEY_ES = f"{ES_OUTS}/ES_m6_1/count/{H5_NAME}"
+KEY_NES = f"{NES_OUTS}/NES_m6_1/count/{H5_NAME}"
+
+
+def test_read_sample_names_skips_blanks_comments_and_duplicates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "samples.tsv"
+    path.write_text("# ES samples\nES_m6_1\n\n  ES_m8_1  \nES_m6_1\n")
+    assert read_sample_names(path) == ["ES_m6_1", "ES_m8_1"]
+
+
+@pytest.mark.parametrize(
+    "content, message",
+    [
+        ("ES_m6_1\nES_m8_1\tlibrary\n", "line 2: holds a tab"),
+        ("# only a comment\n\n", "no sample names found"),
+        ("", "no sample names found"),
+    ],
+)
+def test_read_sample_names_rejects(tmp_path: Path, content: str, message: str) -> None:
+    path = tmp_path / "samples.tsv"
+    path.write_text(content)
+    with pytest.raises(H5CheckError, match=message):
+        read_sample_names(path)
+
+
+def test_read_sample_names_unreadable(tmp_path: Path) -> None:
+    with pytest.raises(H5CheckError, match="cannot read sample list"):
+        read_sample_names(tmp_path / "missing.tsv")
+
+
+def test_sample_list_reads_only_listed_h5(tmp_path: Path) -> None:
+    """ES_m6_1 is an exact name: it must not pull in NES_m6_1."""
+    files = {
+        KEY_ES: _write_h5(tmp_path / "es.h5", _guides("g1")),
+        KEY_NES: _write_h5(tmp_path / "nes.h5", _guides("n1")),
+    }
+    read: list[str] = []
+    local = _local_reader(files)
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return local(bucket, key)
+
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["ES_m6_1"],
+        samples_label="samples.tsv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=reader,
+    )
+    assert report.ok
+    assert read == [KEY_ES]
+    assert report.notes == [
+        f"checked 1 of 2 {H5_NAME} file(s); samples from samples.tsv"
+    ]
+
+
+def test_listed_sample_without_h5_fails(tmp_path: Path) -> None:
+    files = {KEY_ES: _write_h5(tmp_path / "es.h5", _guides("g1"))}
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["ES_m6_1", "ES_m6_3"],
+        samples_label="samples.tsv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"sample 'ES_m6_3' listed in samples.tsv has no {H5_NAME} under {URI}"
+    ]
+    assert report.h5_total == 1
+
+
+def test_sample_list_matching_nothing_reports_each_name() -> None:
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["ES_m6_1"],
+        samples_label="samples.tsv",
+        s3_client=MockS3Client(keys=[KEY_NES]),
+        reader=lambda bucket, key: set(),
+    )
+    assert report.failures == [
+        f"sample 'ES_m6_1' listed in samples.tsv has no {H5_NAME} under {URI}"
+    ]
+    assert report.notes == [
+        f"checked 0 of 1 {H5_NAME} file(s); samples from samples.tsv"
+    ]
+
+
+def test_missing_folder_checks_respect_sample_list(tmp_path: Path) -> None:
+    """Only listed samples' folders are checked for a missing h5."""
+    files = {KEY_ES: _write_h5(tmp_path / "es.h5", _guides("g1"))}
+    keys = [
+        *files,
+        f"{NES_OUTS}/NES_m6_1/metrics_summary.csv",  # not listed, no h5
+        "proj/order/NES_m9_1/processed/run1/outs/web_summary.html",
+    ]
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["ES_m6_1"],
+        s3_client=MockS3Client(keys=keys),
+        reader=_local_reader(files),
+    )
+    assert report.ok
+
+
+def test_cli_h5_samples_file(tmp_path: Path, fake_s3, capsys) -> None:
+    files, _state = fake_s3
+    files[KEY_ES] = _write_h5(tmp_path / "es.h5", _guides("g1", "g2"))
+    files[KEY_NES] = _write_h5(tmp_path / "nes.h5", _guides("n1"))
+    sheet = _sheet(tmp_path, ["g1", "g2"])
+    samples = tmp_path / "samples.tsv"
+    samples.write_text("ES_m6_1\n")
+    main(
+        [
+            "--format",
+            "tsv",
+            "--h5-uri",
+            URI,
+            "--h5-samples-file",
+            str(samples),
+            str(sheet),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert captured.out.startswith("gsig1:set:n=2:")
+    assert f"note: checked 1 of 2 {H5_NAME} file(s); samples from {samples}" in (
+        captured.err
+    )
+    assert "error:" not in captured.err
+
+
+def test_cli_bad_samples_file_fails_before_s3(tmp_path: Path, fake_s3, capsys) -> None:
+    _files, state = fake_s3
+    sheet = _sheet(tmp_path, ["g1"])
+    samples = tmp_path / "samples.tsv"
+    samples.write_text("ES_m6_1\tES_m8_1\n")
+    with pytest.raises(SystemExit) as exc:
+        main(
+            [
+                "--format",
+                "tsv",
+                "--h5-uri",
+                URI,
+                "--h5-samples-file",
+                str(samples),
+                str(sheet),
+            ]
+        )
+    assert exc.value.code == 1
+    assert "line 1: holds a tab" in capsys.readouterr().err
+    assert state["client_made"] is False
