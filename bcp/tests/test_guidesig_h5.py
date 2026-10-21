@@ -377,24 +377,24 @@ def test_cli_workers_must_be_positive(capsys) -> None:
 
 # --- --h5-samples-file ----------------------------------------------------------
 
-ES_OUTS = "proj/order/ES_m6_1/processed/run1/outs/per_sample_outs"
-NES_OUTS = "proj/order/NES_m6_1/processed/run1/outs/per_sample_outs"
-KEY_ES = f"{ES_OUTS}/ES_m6_1/count/{H5_NAME}"
-KEY_NES = f"{NES_OUTS}/NES_m6_1/count/{H5_NAME}"
+OUTS_A = "proj/order/tb7k_q2/processed/run1/outs/per_sample_outs"
+OUTS_B = "proj/order/Wtb7k_q2/processed/run1/outs/per_sample_outs"
+KEY_A = f"{OUTS_A}/tb7k_q2/count/{H5_NAME}"
+KEY_B = f"{OUTS_B}/Wtb7k_q2/count/{H5_NAME}"
 
 
 def test_read_sample_names_skips_blanks_comments_and_duplicates(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "samples.tsv"
-    path.write_text("# ES samples\nES_m6_1\n\n  ES_m8_1  \nES_m6_1\n")
-    assert read_sample_names(path) == ["ES_m6_1", "ES_m8_1"]
+    path.write_text("# listed samples\ntb7k_q2\n\n  pm3x_v8  \ntb7k_q2\n")
+    assert read_sample_names(path) == ["tb7k_q2", "pm3x_v8"]
 
 
 @pytest.mark.parametrize(
     "content, message",
     [
-        ("ES_m6_1\nES_m8_1\tlibrary\n", "line 2: holds a tab"),
+        ("tb7k_q2\npm3x_v8\tlibrary\n", "line 2: holds a tab"),
         ("# only a comment\n\n", "no sample names found"),
         ("", "no sample names found"),
     ],
@@ -412,10 +412,10 @@ def test_read_sample_names_unreadable(tmp_path: Path) -> None:
 
 
 def test_sample_list_reads_only_listed_h5(tmp_path: Path) -> None:
-    """ES_m6_1 is an exact name: it must not pull in NES_m6_1."""
+    """tb7k_q2 is an exact name: it must not pull in Wtb7k_q2, which contains it."""
     files = {
-        KEY_ES: _write_h5(tmp_path / "es.h5", _guides("g1")),
-        KEY_NES: _write_h5(tmp_path / "nes.h5", _guides("n1")),
+        KEY_A: _write_h5(tmp_path / "a.h5", _guides("g1")),
+        KEY_B: _write_h5(tmp_path / "b.h5", _guides("n1")),
     }
     read: list[str] = []
     local = _local_reader(files)
@@ -427,30 +427,30 @@ def test_sample_list_reads_only_listed_h5(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
-        samples=["ES_m6_1"],
+        samples=["tb7k_q2"],
         samples_label="samples.tsv",
         s3_client=MockS3Client(keys=list(files)),
         reader=reader,
     )
     assert report.ok
-    assert read == [KEY_ES]
+    assert read == [KEY_A]
     assert report.notes == [
         f"checked 1 of 2 {H5_NAME} file(s); samples from samples.tsv"
     ]
 
 
 def test_listed_sample_without_h5_fails(tmp_path: Path) -> None:
-    files = {KEY_ES: _write_h5(tmp_path / "es.h5", _guides("g1"))}
+    files = {KEY_A: _write_h5(tmp_path / "a.h5", _guides("g1"))}
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
-        samples=["ES_m6_1", "ES_m6_3"],
+        samples=["tb7k_q2", "tb7k_q9"],
         samples_label="samples.tsv",
         s3_client=MockS3Client(keys=list(files)),
         reader=_local_reader(files),
     )
     assert report.failures == [
-        f"sample 'ES_m6_3' listed in samples.tsv has no {H5_NAME} under {URI}"
+        f"sample 'tb7k_q9' listed in samples.tsv has no {H5_NAME} under {URI}"
     ]
     assert report.h5_total == 1
 
@@ -459,13 +459,13 @@ def test_sample_list_matching_nothing_reports_each_name() -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
-        samples=["ES_m6_1"],
+        samples=["tb7k_q2"],
         samples_label="samples.tsv",
-        s3_client=MockS3Client(keys=[KEY_NES]),
+        s3_client=MockS3Client(keys=[KEY_B]),
         reader=lambda bucket, key: set(),
     )
     assert report.failures == [
-        f"sample 'ES_m6_1' listed in samples.tsv has no {H5_NAME} under {URI}"
+        f"sample 'tb7k_q2' listed in samples.tsv has no {H5_NAME} under {URI}"
     ]
     assert report.notes == [
         f"checked 0 of 1 {H5_NAME} file(s); samples from samples.tsv"
@@ -474,16 +474,16 @@ def test_sample_list_matching_nothing_reports_each_name() -> None:
 
 def test_missing_folder_checks_respect_sample_list(tmp_path: Path) -> None:
     """Only listed samples' folders are checked for a missing h5."""
-    files = {KEY_ES: _write_h5(tmp_path / "es.h5", _guides("g1"))}
+    files = {KEY_A: _write_h5(tmp_path / "a.h5", _guides("g1"))}
     keys = [
         *files,
-        f"{NES_OUTS}/NES_m6_1/metrics_summary.csv",  # not listed, no h5
-        "proj/order/NES_m9_1/processed/run1/outs/web_summary.html",
+        f"{OUTS_B}/Wtb7k_q2/metrics_summary.csv",  # not listed, no h5
+        "proj/order/rz9d_h4/processed/run1/outs/web_summary.html",
     ]
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
-        samples=["ES_m6_1"],
+        samples=["tb7k_q2"],
         s3_client=MockS3Client(keys=keys),
         reader=_local_reader(files),
     )
@@ -492,11 +492,11 @@ def test_missing_folder_checks_respect_sample_list(tmp_path: Path) -> None:
 
 def test_cli_h5_samples_file(tmp_path: Path, fake_s3, capsys) -> None:
     files, _state = fake_s3
-    files[KEY_ES] = _write_h5(tmp_path / "es.h5", _guides("g1", "g2"))
-    files[KEY_NES] = _write_h5(tmp_path / "nes.h5", _guides("n1"))
+    files[KEY_A] = _write_h5(tmp_path / "a.h5", _guides("g1", "g2"))
+    files[KEY_B] = _write_h5(tmp_path / "b.h5", _guides("n1"))
     sheet = _sheet(tmp_path, ["g1", "g2"])
     samples = tmp_path / "samples.tsv"
-    samples.write_text("ES_m6_1\n")
+    samples.write_text("tb7k_q2\n")
     main(
         [
             "--format",
@@ -520,7 +520,7 @@ def test_cli_bad_samples_file_fails_before_s3(tmp_path: Path, fake_s3, capsys) -
     _files, state = fake_s3
     sheet = _sheet(tmp_path, ["g1"])
     samples = tmp_path / "samples.tsv"
-    samples.write_text("ES_m6_1\tES_m8_1\n")
+    samples.write_text("tb7k_q2\tpm3x_v8\n")
     with pytest.raises(SystemExit) as exc:
         main(
             [
@@ -536,3 +536,20 @@ def test_cli_bad_samples_file_fails_before_s3(tmp_path: Path, fake_s3, capsys) -
     assert exc.value.code == 1
     assert "line 1: holds a tab" in capsys.readouterr().err
     assert state["client_made"] is False
+
+
+def test_listed_sample_with_empty_folder_reported_once(tmp_path: Path) -> None:
+    """A folder failure already names the sample; no second listed-sample line."""
+    files = {KEY_A: _write_h5(tmp_path / "a.h5", _guides("g1"))}
+    keys = [*files, f"{OUTS_A}/tb7k_q5/metrics_summary.csv"]
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["tb7k_q2", "tb7k_q5"],
+        samples_label="samples.tsv",
+        s3_client=MockS3Client(keys=keys),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"sample folder s3://{BUCKET}/{OUTS_A}/tb7k_q5/ has no {H5_NAME}"
+    ]

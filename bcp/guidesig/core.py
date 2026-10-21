@@ -22,6 +22,10 @@ _NA_EXPECTED = "one of " + ", ".join(repr(v) for v in NA_VALUES)
 # Held to the same control rule as guide_target_gene_id, but only when present.
 TARGET_NAME_COLUMN = "guide_target_gene_name"
 
+# The all-trailing-G / all-leading-C check needs this many unique protospacers:
+# in a smaller set every guide can share an end by chance.
+END_CHECK_MIN_PROTOSPACERS = 10
+
 # Columns whose absence is warned about but never fails a run.
 RECOMMENDED_COLUMNS = (TARGET_NAME_COLUMN,)
 
@@ -113,7 +117,8 @@ def protospacer_set(
         GuideSigError: If the format is unknown, the file cannot yield a set,
             a control row's ``guide_target_gene_id`` (or, when that column is
             present, ``guide_target_gene_name``) is not ``NA``, or
-            every protospacer ends with G or every one starts with C.
+            every protospacer ends with G or every one starts with C (checked
+            only for sets of at least 10 unique protospacers).
     """
     sequences, _ids = _read_guide_file(
         path, file_format=file_format, column=column, id_column=None
@@ -297,8 +302,11 @@ def _read_guide_file(
 
     # Set-wide end checks: a single guide ending in G or starting with C is
     # normal, but every guide doing so suggests a systematic artifact in how the
-    # sequences were exported. Each condition is checked on its own.
+    # sequences were exported. Each condition is checked on its own, and only
+    # for sets of at least END_CHECK_MIN_PROTOSPACERS unique protospacers.
     count = len(sequences)
+    if count < END_CHECK_MIN_PROTOSPACERS:
+        return sequences, ids
     if all(seq.endswith("G") for seq in sequences):
         raise GuideSigError(
             f"{file_path}: Probable trailing G issue, all {count} protospacers "

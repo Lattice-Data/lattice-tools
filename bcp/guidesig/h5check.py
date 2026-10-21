@@ -279,8 +279,17 @@ def check_guide_ids_against_h5(
             f"samples from {samples_label}"
         )
         found = {_scope_name(k) for k in layout.h5_keys}
+        # A folder failure above already names a sample whose folder exists
+        # but holds no h5, so the listed-sample message is kept for names with
+        # no folder at all.
+        covered = {
+            folder.rstrip("/").rsplit("/", 1)[-1]
+            for folder in (
+                layout.sample_dirs_without_h5 + layout.library_dirs_without_h5
+            )
+        }
         for name in samples:
-            if name not in found:
+            if name not in found and name not in covered:
                 report.failures.append(
                     f"sample {name!r} listed in {samples_label} has no {filename} "
                     f"under {h5_uri}"

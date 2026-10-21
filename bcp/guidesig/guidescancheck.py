@@ -299,9 +299,13 @@ def _run_pipeline(index_prefix: Path, guides_file: Path, output_dir: Path) -> An
             "run from bcp/ with requirements.txt installed"
         ) from exc
 
+    # CRITICAL, not WARNING: the pipeline logs its own failures at ERROR, and
+    # guidesig reports every failure itself as one `error:` line, so letting
+    # ERROR through would print each failure twice. guidescan_pipeline still
+    # calls logging.basicConfig at import; that side effect is left as is.
     pipeline_logger = logging.getLogger("guidescan_pipeline")
     previous_level = pipeline_logger.level
-    pipeline_logger.setLevel(logging.WARNING)
+    pipeline_logger.setLevel(logging.CRITICAL)
     try:
         pipeline = GuidescanPipeline(
             genome_index=str(index_prefix),

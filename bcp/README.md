@@ -676,7 +676,8 @@ containing commas are parsed correctly and do not shift the protospacer column. 
 - warns, without failing, when `guide_target_gene_name` is absent from the header
 - rejects a set in which **every** protospacer ends with `G` ("Probable trailing G
   issue") or **every** one starts with `C` ("Probable leading C issue"); the two are
-  checked separately, there is no minimum set size, and one guide doing so is normal
+  checked separately, only for sets of at least 10 unique protospacers (a smaller set can
+  share an end by chance), and one guide doing so is normal
 
 > **Migrating older sheets:** a sheet without `guide_role` or `guide_target_gene_id` now
 > fails with `required column 'guide_role' absent from header` (or `'guide_target_gene_id'`),
@@ -708,8 +709,8 @@ with `--compare`; the sheet must have a `guide_id` column.
 - `--h5-samples-file PATH` limits the check to the samples named in PATH: one exact,
   case-sensitive name per line, no header; blank lines and `#` lines are skipped and
   repeats are ignored; a line holding a tab is an error. Names are matched against the
-  `per_sample_outs/<sample>/` folder (else the library folder), so `ES_m6_1` never matches
-  `NES_m6_1`. Unlisted samples are ignored entirely, including by the missing-folder
+  `per_sample_outs/<sample>/` folder (else the library folder), so `tb7k_q2` never matches
+  `Wtb7k_q2`. Unlisted samples are ignored entirely, including by the missing-folder
   checks; a listed sample with no h5 is a failure; a note reports how many h5 files were
   checked
 - `--workers N` (default 8) sets parallel h5 reads; `--retries N` (default 5) sets attempts

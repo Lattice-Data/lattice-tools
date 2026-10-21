@@ -583,17 +583,15 @@ def test_load_sif_group_assays_psomagen_group_id_caret_header(tmp_path: Path) ->
     """Psomagen SIF uses 'Group ID^' (footnote); loader must find the column."""
     sif_path = tmp_path / "psomagen_sif.csv"
     sif_path.write_text(
-        "Library name,Group ID^,Assay Type\n"
-        "lib1,NES_m39_5Pv3_1,GEX\n"
-        "lib2,NES_m39_5Pv3_1,CRI\n",
+        "Library name,Group ID^,Assay Type\nlib1,xh4w_j7,GEX\nlib2,xh4w_j7,CRI\n",
         encoding="utf-8",
     )
     assert load_sif_group_assays(sif_path, provider="psomagen") == {
-        "NES_m39_5Pv3_1": {"gex", "cri"},
+        "xh4w_j7": {"gex", "cri"},
     }
     # Default keyword order still matches ``group id`` inside ``group id^``.
     assert load_sif_group_assays(sif_path) == {
-        "NES_m39_5Pv3_1": {"gex", "cri"},
+        "xh4w_j7": {"gex", "cri"},
     }
 
 
@@ -659,14 +657,14 @@ def test_load_sif_group_assays_excel_psomagen_data_on_second_sheet(
 
     data = wb.create_sheet("Libraries")
     data.append(["Library name", "Group ID^", "Assay Type"])
-    data.append(["L1", "NES_m39_5Pv3_1", "GEX"])
-    data.append(["L2", "NES_m39_5Pv3_1", "CRI"])
+    data.append(["L1", "xh4w_j7", "GEX"])
+    data.append(["L2", "xh4w_j7", "CRI"])
 
     path = tmp_path / "order.xlsx"
     wb.save(path)
 
     assert load_sif_group_assays(path, provider="psomagen") == {
-        "NES_m39_5Pv3_1": {"gex", "cri"},
+        "xh4w_j7": {"gex", "cri"},
     }
 
 
@@ -698,14 +696,14 @@ def test_load_sif_group_assays_excel_header_near_row_26(tmp_path: Path) -> None:
     for r in range(25):
         ws.append([f"instructions row {r + 1}"])
     ws.append(["Library name", "Group ID^", "Assay Type"])
-    ws.append(["L1", "NES_m39_5Pv3_1", "GEX"])
-    ws.append(["L2", "NES_m39_5Pv3_1", "CRI"])
+    ws.append(["L1", "xh4w_j7", "GEX"])
+    ws.append(["L2", "xh4w_j7", "CRI"])
 
     path = tmp_path / "row26_header.xlsx"
     wb.save(path)
 
     assert load_sif_group_assays(path, provider="psomagen") == {
-        "NES_m39_5Pv3_1": {"gex", "cri"},
+        "xh4w_j7": {"gex", "cri"},
     }
 
 
@@ -717,12 +715,12 @@ def test_load_sif_group_assays_psomagen_analysis_target_composite_header(
     sif_path.write_text(
         "Library name,Group ID^,Analysis Target / Feature Barcode / "
         "Supplemental libraries*\n"
-        "L1,NES_m39_5Pv3_1,Gene Expression\n"
-        "L2,NES_m39_5Pv3_1,CRISPR\n",
+        "L1,xh4w_j7,Gene Expression\n"
+        "L2,xh4w_j7,CRISPR\n",
         encoding="utf-8",
     )
     assert load_sif_group_assays(sif_path, provider="psomagen") == {
-        "NES_m39_5Pv3_1": {"gex", "cri"},
+        "xh4w_j7": {"gex", "cri"},
     }
 
 
@@ -735,14 +733,14 @@ def test_load_sif_group_assays_psomagen_application_column_excel(
     wb = Workbook()
     ws = wb.active
     ws.append(["Library name", "Group ID^", "Application"])
-    ws.append(["L1", "NES_m39_5Pv3_1", "Gene Expression"])
-    ws.append(["L2", "NES_m39_5Pv3_1", "CRISPR"])
+    ws.append(["L1", "xh4w_j7", "Gene Expression"])
+    ws.append(["L2", "xh4w_j7", "CRISPR"])
 
     path = tmp_path / "psomagen_application.xlsx"
     wb.save(path)
 
     assert load_sif_group_assays(path, provider="psomagen") == {
-        "NES_m39_5Pv3_1": {"gex", "cri"},
+        "xh4w_j7": {"gex", "cri"},
     }
 
 
@@ -762,11 +760,11 @@ def test_validate_sif_completeness_10x_processed_psomagen_sif_group_column(
     """10x processed SIF completeness must read Psomagen Group ID^ column."""
     sif_path = tmp_path / "sif.csv"
     sif_path.write_text(
-        "Library name,Group ID^,Assay Type\nx,NES_m39_5Pv3_1,GEX\n",
+        "Library name,Group ID^,Assay Type\nx,xh4w_j7,GEX\n",
         encoding="utf-8",
     )
     proc_s3 = (
-        "s3://czi-psomagen/lab-alpha/AN00000001/NES_m39_5Pv3_1/processed/"
+        "s3://czi-psomagen/lab-alpha/AN00000001/xh4w_j7/processed/"
         "cellranger/Run_2024-03-24/outs/metrics_summary.csv"
     )
     rows = [MappingRow(proc_s3, "/local/metrics_summary.csv", 1)]

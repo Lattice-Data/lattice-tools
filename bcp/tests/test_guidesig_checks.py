@@ -6,6 +6,7 @@ set-wide trailing G / leading C check.
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import pytest
@@ -149,113 +150,81 @@ def test_role_mismatch_checked_when_protospacer_empty(tmp_path: Path) -> None:
 # --- trailing G / leading C ---------------------------------------------------
 
 
+def _seqs(n: int, *, prefix: str = "", suffix: str = "") -> list[str]:
+    """``n`` distinct ACGT protospacers with a fixed start and end."""
+    cores = ["".join(bits) for bits in itertools.product("AT", repeat=5)]
+    return [f"{prefix}{core}{suffix}" for core in cores[:n]]
+
+
+def _end_sheet(tmp_path: Path, seqs: list[str], name: str = "ends.tsv") -> Path:
+    rows = [["", f"g{i}", seq, TARGETING, GENE] for i, seq in enumerate(seqs)]
+    return _write_tsv(tmp_path / name, [HEADER, *rows])
+
+
 def test_all_trailing_g_raises(tmp_path: Path) -> None:
-    path = _write_tsv(
-        tmp_path / "trailing_g.tsv",
-        [
-            HEADER,
-            ["", "g1", "AAAG", TARGETING, GENE],
-            ["", "g2", "TTTG", TARGETING, GENE],
-        ],
-    )
+    path = _end_sheet(tmp_path, _seqs(10, suffix="G"))
     with pytest.raises(GuideSigError) as exc:
         signature(path, file_format="tsv")
     assert str(exc.value) == (
-        f"{path}: Probable trailing G issue, all 2 protospacers end with 'G'"
+        f"{path}: Probable trailing G issue, all 10 protospacers end with 'G'"
     )
 
 
 def test_all_leading_c_raises(tmp_path: Path) -> None:
-    path = _write_tsv(
-        tmp_path / "leading_c.tsv",
-        [
-            HEADER,
-            ["", "g1", "CAAA", TARGETING, GENE],
-            ["", "g2", "CTTT", TARGETING, GENE],
-        ],
-    )
+    path = _end_sheet(tmp_path, _seqs(10, prefix="C"))
     with pytest.raises(GuideSigError) as exc:
         signature(path, file_format="tsv")
     assert str(exc.value) == (
-        f"{path}: Probable leading C issue, all 2 protospacers start with 'C'"
+        f"{path}: Probable leading C issue, all 10 protospacers start with 'C'"
     )
 
 
 def test_both_conditions_report_trailing_g_first(tmp_path: Path) -> None:
-    path = _write_tsv(
-        tmp_path / "both.tsv",
-        [
-            HEADER,
-            ["", "g1", "CAAG", TARGETING, GENE],
-            ["", "g2", "CTTG", TARGETING, GENE],
-        ],
-    )
+    path = _end_sheet(tmp_path, _seqs(10, prefix="C", suffix="G"))
     with pytest.raises(GuideSigError, match="Probable trailing G issue"):
         signature(path, file_format="tsv")
 
 
 def test_lowercase_g_and_c_count(tmp_path: Path) -> None:
     """Values are uppercased before the check, so lowercase ends still count."""
-    path = _write_tsv(
-        tmp_path / "lowercase.tsv",
-        [
-            HEADER,
-            ["", "g1", "aaag", TARGETING, GENE],
-            ["", "g2", "tttg", TARGETING, GENE],
-        ],
-    )
+    path = _end_sheet(tmp_path, [seq.lower() for seq in _seqs(10, suffix="G")])
     with pytest.raises(GuideSigError, match="Probable trailing G issue"):
         signature(path, file_format="tsv")
 
 
 def test_count_is_unique_protospacers(tmp_path: Path) -> None:
     """Duplicate rows collapse to the set, so the message counts unique values."""
-    path = _write_tsv(
-        tmp_path / "duplicates.tsv",
-        [
-            HEADER,
-            ["", "g1", "AAAG", TARGETING, GENE],
-            ["", "g1b", "AAAG", TARGETING, GENE],
-            ["", "g2", "TTTG", TARGETING, GENE],
-        ],
-    )
-    with pytest.raises(GuideSigError, match="all 2 protospacers end with 'G'"):
+    seqs = _seqs(10, suffix="G")
+    path = _end_sheet(tmp_path, [*seqs, seqs[0], seqs[1]])
+    with pytest.raises(GuideSigError, match="all 10 protospacers end with 'G'"):
         signature(path, file_format="tsv")
 
 
-def test_single_guide_ending_in_g_raises(tmp_path: Path) -> None:
-    """There is no minimum set size: one guide ending in G is all of them."""
-    path = _write_tsv(
-        tmp_path / "single.tsv",
-        [HEADER, ["", "g1", "AAAG", TARGETING, GENE]],
-    )
-    with pytest.raises(GuideSigError, match="all 1 protospacers end with 'G'"):
-        signature(path, file_format="tsv")
+def test_duplicates_do_not_reach_the_minimum(tmp_path: Path) -> None:
+    """Nine unique sequences in twelve rows is below the minimum: not checked."""
+    seqs = _seqs(9, suffix="G")
+    path = _end_sheet(tmp_path, [*seqs, *seqs[:3]])
+    assert protospacer_set(path, file_format="tsv") == set(seqs)
+
+
+@pytest.mark.parametrize("n", [1, 9])
+def test_end_check_skipped_below_minimum(tmp_path: Path, n: int) -> None:
+    """Fewer than 10 unique protospacers can all share an end by chance."""
+    trailing = _end_sheet(tmp_path, _seqs(n, suffix="G"), "trailing.tsv")
+    leading = _end_sheet(tmp_path, _seqs(n, prefix="C"), "leading.tsv")
+    assert len(protospacer_set(trailing, file_format="tsv")) == n
+    assert len(protospacer_set(leading, file_format="tsv")) == n
 
 
 def test_mixed_ends_accepted(tmp_path: Path) -> None:
     """Some guides ending in G and some starting with C is not a failure."""
-    path = _write_tsv(
-        tmp_path / "mixed.tsv",
-        [
-            HEADER,
-            ["", "g1", "AAAG", TARGETING, GENE],
-            ["", "g2", "CTTT", TARGETING, GENE],
-            ["", "g3", "CAAG", TARGETING, GENE],
-        ],
-    )
-    assert protospacer_set(path, file_format="tsv") == {"AAAG", "CTTT", "CAAG"}
+    seqs = [*_seqs(5, suffix="G"), *_seqs(5, prefix="C")]
+    path = _end_sheet(tmp_path, seqs)
+    assert protospacer_set(path, file_format="tsv") == set(seqs)
 
 
 def test_cli_reports_end_check_and_prints_no_signature(tmp_path: Path, capsys) -> None:
-    path = _write_tsv(
-        tmp_path / "trailing_g.tsv",
-        [
-            HEADER,
-            ["", "g1", "AAAG", TARGETING, GENE],
-            ["", "g2", "TTTG", TARGETING, GENE],
-        ],
-    )
+    path = _end_sheet(tmp_path, _seqs(10, suffix="G"))
     with pytest.raises(SystemExit) as exc:
         main(["--format", "tsv", str(path)])
     assert exc.value.code == 1
