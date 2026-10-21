@@ -154,10 +154,11 @@ def _run_single_file_checks(path: Path, args: argparse.Namespace) -> None:
 
     The sheet's own checks run first; if they fail there is no trustworthy
     guide list, so S3 is never touched. A failed h5 check stops the run before
-    guidescan. The guidescan rate is reported but never fails the run. Guidescan
-    species cross-check and setup errors do fail the run. Sheet-content errors from 
-    read_targeting_guides also fail the run: a missing guide_PAM, an unparseable or 5' PAM,
-    mixed PAM patterns, and a targeting guide with no guide_id or a duplicated one.
+    guidescan. The guidescan rate is reported but never fails the run. The
+    guidescan species cross-check and setup errors do fail the run, as do
+    sheet-content errors from read_targeting_guides: a missing guide_PAM, an
+    unparseable or 5' PAM, mixed PAM patterns, and a targeting guide with no
+    guide_id or one guide_id carrying two different protospacers.
     """
     try:
         sequences, guide_ids = protospacers_and_guide_ids(
