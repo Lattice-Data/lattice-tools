@@ -206,6 +206,11 @@ print(f"Unique guides processed: {results_df['id'].nunique()}")
 # Results are also saved to results/exact_matches_formatted.csv
 ```
 
+The pipeline does not configure logging when imported; only its command-line `main()`
+does. To see its INFO progress output when using it as a module (including with
+`verbose=True`), configure logging yourself first, e.g.
+`logging.basicConfig(level=logging.INFO)`.
+
 ## Testing
 
 The pipeline includes comprehensive tests covering:
@@ -738,7 +743,11 @@ runs after the h5 check when both are given; a failed h5 check stops the run fir
 - **Pipeline settings are used unchanged** (`-m 1`, `--max-off-targets 1`); guidesig only
   reads whether each guide has an exact match
 - **Report (stderr):** `guidescan: X of Y targeting guides (Z%) have an exact match`, up
-  to 10 unmatched IDs, and a `warning:` below 90%. The rate never fails the run
+  to 10 unmatched IDs, any `warning: guidescan pipeline: <message>` lines (WARNINGs the
+  pipeline logged, such as a guidescan row it could not parse and so counted as no match,
+  with guide IDs mapped back to the sheet's `guide_id`s), and a `warning:` below 90%.
+  None of these fail the run; the pipeline's own ERROR lines are not printed, since
+  guidesig reports a pipeline failure once as `error:`
 - **References** are downloaded on first use from
   `s3://submissions-lattice/BCP/references/guidescan_references/` into
   `bcp/.guidescan_cache/<species>/` (git-ignored; several GB per species), and
