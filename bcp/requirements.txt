@@ -12,6 +12,10 @@ beautifulsoup4>=4.9.0
 fsspec>=2023.1.0
 s3fs>=2023.1.0
 
+# Dependency for guidesig --h5-uri (and file_extract h5 introspection): reads
+# the features table of Cell Ranger h5 matrices.
+h5py>=3.0.0
+
 # Dependency for chebi_gate: structure keys for the ChEBI submission gate.
 # Not optional and not lazily imported. An InChIKey cannot be derived from a
 # molfile without it, and a gate that skipped its structure checks when RDKit was

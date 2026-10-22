@@ -12,15 +12,23 @@ from __future__ import annotations
 from .core import (
     DEFAULT_COLUMN,
     FILE_FORMATS,
+    ID_COLUMN,
     GuideSigError,
+    header_warnings,
     protospacer_set,
+    protospacers_and_guide_ids,
     signature,
+    signature_of,
 )
 
 __all__ = [
     "DEFAULT_COLUMN",
     "FILE_FORMATS",
+    "ID_COLUMN",
     "GuideSigError",
+    "header_warnings",
     "protospacer_set",
+    "protospacers_and_guide_ids",
     "signature",
+    "signature_of",
 ]

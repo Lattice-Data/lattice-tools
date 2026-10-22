@@ -8,6 +8,26 @@ from pathlib import Path
 
 _ACGT = frozenset("ACGT")
 DEFAULT_COLUMN = "guide_protospacer"
+ID_COLUMN = "guide_id"
+
+# Role/target consistency: a control guide has no target gene, so its
+# guide_target_gene_id must be one of NA_VALUES. The reverse is not enforced:
+# a non-control guide may carry NA (e.g. "Targeting a Region" guides). The role
+# is compared case-insensitively; NA_VALUES are exact spellings.
+ROLE_COLUMN = "guide_role"
+TARGET_COLUMN = "guide_target_gene_id"
+CONTROL_ROLE = "control"
+NA_VALUES = ("NA", "na", "N/A", "n/a")
+_NA_EXPECTED = "one of " + ", ".join(repr(v) for v in NA_VALUES)
+# Held to the same control rule as guide_target_gene_id, but only when present.
+TARGET_NAME_COLUMN = "guide_target_gene_name"
+
+# The all-trailing-G / all-leading-C check needs this many unique protospacers:
+# in a smaller set every guide can share an end by chance.
+END_CHECK_MIN_PROTOSPACERS = 10
+
+# Columns whose absence is warned about but never fails a run.
+RECOMMENDED_COLUMNS = (TARGET_NAME_COLUMN,)
 
 # Single source of truth for the accepted input formats: the parser reads the
 # delimiter from here and the CLI derives its --format choices from the keys.
@@ -60,6 +80,25 @@ def _wrong_format_hint(header: list[str], file_format: str) -> str:
     )
 
 
+def header_warnings(path: str | Path, *, file_format: str) -> list[str]:
+    """Return warnings for recommended columns absent from the header.
+
+    These never fail a run. A file that cannot be read yields no warnings here;
+    the signature read reports that failure itself.
+    """
+    file_path = Path(path)
+    try:
+        with file_path.open(encoding="utf-8-sig", newline="") as handle:
+            header = next(csv.reader(handle, delimiter=_delimiter_for(file_format)))
+    except (GuideSigError, OSError, UnicodeDecodeError, csv.Error, StopIteration):
+        return []
+    return [
+        f"{file_path}: column {name!r} absent from header"
+        for name in RECOMMENDED_COLUMNS
+        if name not in header
+    ]
+
+
 def protospacer_set(
     path: str | Path,
     *,
@@ -75,7 +114,54 @@ def protospacer_set(
         column: Header name of the protospacer column.
 
     Raises:
-        GuideSigError: If the format is unknown, or the file cannot yield a set.
+        GuideSigError: If the format is unknown, the file cannot yield a set,
+            a control row's ``guide_target_gene_id`` (or, when that column is
+            present, ``guide_target_gene_name``) is not ``NA``, or
+            every protospacer ends with G or every one starts with C (checked
+            only for sets of at least 10 unique protospacers).
+    """
+    sequences, _ids = _read_guide_file(
+        path, file_format=file_format, column=column, id_column=None
+    )
+    return sequences
+
+
+def protospacers_and_guide_ids(
+    path: str | Path,
+    *,
+    file_format: str,
+    column: str = DEFAULT_COLUMN,
+    id_column: str = ID_COLUMN,
+) -> tuple[set[str], set[str]]:
+    """Return the protospacer set and the guide_id set from one read of a file.
+
+    Every check ``protospacer_set`` applies runs here too. Guide IDs are taken
+    from the same rows the protospacers are (comment and blank rows skipped);
+    an empty ``guide_id`` cell is not collected.
+
+    Raises:
+        GuideSigError: For any ``protospacer_set`` failure, if ``id_column`` is
+            absent from the header, or if no row carries a guide ID.
+    """
+    sequences, ids = _read_guide_file(
+        path, file_format=file_format, column=column, id_column=id_column
+    )
+    if not ids:
+        raise GuideSigError(f"{Path(path)}: zero {id_column} values found")
+    return sequences, ids
+
+
+def _read_guide_file(
+    path: str | Path,
+    *,
+    file_format: str,
+    column: str,
+    id_column: str | None,
+) -> tuple[set[str], set[str]]:
+    """Read and check a guide file; return (protospacers, guide IDs).
+
+    Guide IDs are collected only when ``id_column`` is given, so a plain
+    signature run does not require that column.
     """
     delimiter = _delimiter_for(file_format)
     label = file_format.upper()
@@ -98,7 +184,31 @@ def protospacer_set(
                     f"header{_wrong_format_hint(header, file_format)}"
                 ) from exc
 
+            for required in (ROLE_COLUMN, TARGET_COLUMN):
+                if required not in header:
+                    raise GuideSigError(
+                        f"{file_path}: required column {required!r} absent from header"
+                    )
+            role_idx = header.index(ROLE_COLUMN)
+            target_idx = header.index(TARGET_COLUMN)
+            # Optional column: checked only when present (its absence is a
+            # header warning, see header_warnings).
+            name_idx = (
+                header.index(TARGET_NAME_COLUMN)
+                if TARGET_NAME_COLUMN in header
+                else None
+            )
+
+            id_idx: int | None = None
+            if id_column is not None:
+                if id_column not in header:
+                    raise GuideSigError(
+                        f"{file_path}: required column {id_column!r} absent from header"
+                    )
+                id_idx = header.index(id_column)
+
             sequences: set[str] = set()
+            ids: set[str] = set()
             # Reported row numbers are physical file lines, derived from
             # reader.line_num rather than a record counter: a quoted cell holding
             # an embedded newline spans several lines, and a record counter would
@@ -144,6 +254,29 @@ def protospacer_set(
                         "in fields beyond the header"
                     )
 
+                role = row[role_idx].strip()
+                target = row[target_idx].strip()
+                is_control = role.lower() == CONTROL_ROLE
+                if is_control and target not in NA_VALUES:
+                    raise GuideSigError(
+                        f"{file_path}: row {physical_row}: {ROLE_COLUMN} is "
+                        f"{role!r} but {TARGET_COLUMN} is {target!r} "
+                        f"(expected {_NA_EXPECTED})"
+                    )
+                if is_control and name_idx is not None:
+                    target_name = row[name_idx].strip()
+                    if target_name not in NA_VALUES:
+                        raise GuideSigError(
+                            f"{file_path}: row {physical_row}: {ROLE_COLUMN} is "
+                            f"{role!r} but {TARGET_NAME_COLUMN} is "
+                            f"{target_name!r} (expected {_NA_EXPECTED})"
+                        )
+
+                if id_idx is not None:
+                    guide_id = row[id_idx].strip()
+                    if guide_id:
+                        ids.add(guide_id)
+
                 value = row[col_idx].strip().upper()
                 if not value:
                     continue
@@ -167,7 +300,25 @@ def protospacer_set(
     if not sequences:
         raise GuideSigError(f"{file_path}: zero usable sequences after filtering")
 
-    return sequences
+    # Set-wide end checks: a single guide ending in G or starting with C is
+    # normal, but every guide doing so suggests a systematic artifact in how the
+    # sequences were exported. Each condition is checked on its own, and only
+    # for sets of at least END_CHECK_MIN_PROTOSPACERS unique protospacers.
+    count = len(sequences)
+    if count < END_CHECK_MIN_PROTOSPACERS:
+        return sequences, ids
+    if all(seq.endswith("G") for seq in sequences):
+        raise GuideSigError(
+            f"{file_path}: Probable trailing G issue, all {count} protospacers "
+            "end with 'G'"
+        )
+    if all(seq.startswith("C") for seq in sequences):
+        raise GuideSigError(
+            f"{file_path}: Probable leading C issue, all {count} protospacers "
+            "start with 'C'"
+        )
+
+    return sequences, ids
 
 
 def signature(
@@ -182,6 +333,11 @@ def signature(
     as TSV and as CSV produce an identical signature.
     """
     sequences = protospacer_set(path, file_format=file_format, column=column)
+    return signature_of(sequences)
+
+
+def signature_of(sequences: set[str]) -> str:
+    """Return the gsig1 set signature for an already-checked protospacer set."""
     sorted_sequences = sorted(sequences)
     payload = "\n".join(sorted_sequences)
     digest = sha256(payload.encode("utf-8")).hexdigest()[:32]

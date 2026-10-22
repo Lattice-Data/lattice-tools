@@ -206,6 +206,11 @@ print(f"Unique guides processed: {results_df['id'].nunique()}")
 # Results are also saved to results/exact_matches_formatted.csv
 ```
 
+The pipeline does not configure logging when imported; only its command-line `main()`
+does. To see its INFO progress output when using it as a module (including with
+`verbose=True`), configure logging yourself first, e.g.
+`logging.basicConfig(level=logging.INFO)`.
+
 ## Testing
 
 The pipeline includes comprehensive tests covering:
@@ -632,6 +637,10 @@ all non-protospacer columns) produce the same signature; otherwise they differ.
 - The input format does not affect the result: the same sequences stored as TSV and as CSV
   produce the same signature
 
+Non-protospacer columns never change the signature *value*, but some of them are now
+validated (see [Input validation](#input-validation)) and can reject a file before any
+signature is produced.
+
 ### Input format is mandatory
 
 `--format tsv` or `--format csv` is **required**, and the library equivalent
@@ -663,11 +672,87 @@ containing commas are parsed correctly and do not shift the protospacer column. 
   tolerated, because a trailing delimiter is a routine export artifact
 - rejects a missing signature column, non-ACGT protospacer values, invalid UTF-8, and
   files with no usable protospacers
+- requires `guide_role` and `guide_target_gene_id` in the header on **every** run,
+  including plain signature runs and `--compare`
+- on a `control` row (role compared case-insensitively), requires `guide_target_gene_id`
+  (and `guide_target_gene_name`, when that column is present) to be one of `NA`, `na`,
+  `N/A`, `n/a` (after stripping); other roles, including `Targeting a Region`, may carry
+  any value
+- warns, without failing, when `guide_target_gene_name` is absent from the header
+- rejects a set in which **every** protospacer ends with `G` ("Probable trailing G
+  issue") or **every** one starts with `C` ("Probable leading C issue"); the two are
+  checked separately, only for sets of at least 10 unique protospacers (a smaller set can
+  share an end by chance), and one guide doing so is normal
+
+> **Migrating older sheets:** a sheet without `guide_role` or `guide_target_gene_id` now
+> fails with `required column 'guide_role' absent from header` (or `'guide_target_gene_id'`),
+> even for a plain signature run. Add the columns before signaturing.
+
+Warnings and notes go to stderr; they never change the exit code or the signature on
+stdout.
 
 Row numbers in rejection messages are **physical file line numbers**, counted the way a
 text editor counts them. A quoted cell containing an embedded newline spans several lines,
 and such a record is reported at the line it starts on, so the number always points at
 what the user sees when they open the file.
+
+### h5 guide_id check (`--h5-uri`)
+
+`--h5-uri s3://bucket/proj/order` additionally checks that every `guide_id` in the sheet
+appears among the `CRISPR Guide Capture` feature IDs (`matrix/features/id`) of each
+sample's Cell Ranger h5 under that prefix. It takes exactly one FILE and is not allowed
+with `--compare`; the sheet must have a `guide_id` column.
+
+- One S3 listing finds every `--h5-filename` (default
+  `sample_filtered_feature_bc_matrix.h5`); only the features table of each h5 is read
+- **Failures:** a sheet `guide_id` missing from a sample's h5; an h5 that cannot be read
+  or has no CRISPR features; a `per_sample_outs/<sample>/` folder with no target h5; a
+  library folder (the folder before `processed/`) with no target h5 and no
+  `per_sample_outs/`, as a failed or half-uploaded run leaves; no target h5 at all
+- **Notes:** guides present in an h5 but absent from the sheet
+- Every sample is checked before anything is reported, so one run lists every failing
+  sample; the signature is printed only if all pass
+- `--h5-samples-file PATH` limits the check to the samples named in PATH: one exact,
+  case-sensitive name per line, no header; blank lines and `#` lines are skipped and
+  repeats are ignored; a line holding a tab is an error. Names are matched against the
+  `per_sample_outs/<sample>/` folder (else the library folder), so `tb7k_q2` never matches
+  `Wtb7k_q2`. Unlisted samples are ignored entirely, including by the missing-folder
+  checks; a listed sample with no h5 is a failure; a note reports how many h5 files were
+  checked
+- `--workers N` (default 8) sets parallel h5 reads; `--retries N` (default 5) sets attempts
+  per transient S3 error. These, `--h5-filename` and `--h5-samples-file` require
+  `--h5-uri`
+- S3 listing, retries and sample/library naming are reused from `file_extract`
+
+### Guidescan exact-match rate (`--guidescan --species`)
+
+`--guidescan --species {mouse,human}` runs `guidescan_pipeline.py`'s `GuidescanPipeline`
+on the sheet's targeting guides (every role except `control`) and reports how many have
+an exact genome match. It takes exactly one FILE, is not allowed with `--compare`, and
+runs after the h5 check when both are given; a failed h5 check stops the run first.
+
+- **Species cross-check (error):** the sheet's `guide_target_gene_id` values must not
+  contradict `--species` (`ENSMUSG<digits>` is mouse, `ENSG<digits>` human, optionally
+  versioned). A mix of both fails; with no recognizable IDs the cross-check is skipped with
+  a note
+- **PAM (`guide_PAM`, required):** the pipeline needs one 3' PAM for all guides. Values
+  fitting `NGG` (the pattern, or the actual bases at each site such as `AGG`/`TGG`) are
+  sent as `NGG`, so the 20-nt protospacer must match exactly but the sheet's first PAM base
+  is not checked. Any other single pattern is passed through unchanged; a mix of patterns,
+  or a 5' PAM, is an error
+- **Pipeline settings are used unchanged** (`-m 1`, `--max-off-targets 1`); guidesig only
+  reads whether each guide has an exact match
+- **Report (stderr):** `guidescan: X of Y targeting guides (Z%) have an exact match`, up
+  to 10 unmatched IDs, any `warning: guidescan pipeline: <message>` lines (WARNINGs the
+  pipeline logged, such as a guidescan row it could not parse and so counted as no match,
+  with guide IDs mapped back to the sheet's `guide_id`s), and a `warning:` below 90%.
+  None of these fail the run; the pipeline's own ERROR lines are not printed, since
+  guidesig reports a pipeline failure once as `error:`
+- **References** are downloaded on first use from
+  `s3://submissions-lattice/BCP/references/guidescan_references/` into
+  `bcp/.guidescan_cache/<species>/` (git-ignored; several GB per species), and
+  re-downloaded only when missing or a different size. Downloads land under a `.partial`
+  name and are renamed when complete
 
 ### What it deliberately does **not** guarantee
 
@@ -709,7 +794,16 @@ either version being mistaken for the other.
 
 ### Usage
 
-Stdlib only (`csv`, `hashlib`, `argparse`, `pathlib`). From the `bcp/` directory:
+Dependencies depend on the mode. Run from the `bcp/` directory:
+
+| Mode | Needs |
+|------|-------|
+| Plain signature runs and `--compare` | Stdlib only (`csv`, `hashlib`, `argparse`, `pathlib`) |
+| `--h5-uri` | `boto3`, `h5py`, `fsspec`, `s3fs`, the `file_extract` package, AWS read access to the order bucket |
+| `--guidescan` | `boto3`, `pandas`, the `guidescan` (guidescan2) binary on `PATH`, `guidescan_pipeline.py`, AWS read access to the reference bucket |
+
+The S3/h5 and guidescan modules are imported only when their flag is used, so a plain run
+needs none of these.
 
 ```bash
 # One signature line per file: <signature>\t<path>
@@ -723,23 +817,43 @@ python -m guidesig --format tsv --compare lib_a.tsv lib_b.tsv
 
 # Alternate column
 python -m guidesig --format tsv lib.tsv --column guide_rc_sequence
+
+# Check guide_ids against every sample's h5 in an order
+python -m guidesig --format tsv --h5-uri s3://bucket/proj/order lib.tsv
+
+# ...and report the guidescan exact-match rate
+python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
+  --guidescan --species mouse lib.tsv
 ```
 
-Output is always `<signature>\t<path>`, tab-separated regardless of the input format.
+Output is always `<signature>\t<path>` on stdout, tab-separated regardless of the input
+format. Notes, warnings, the guidescan report and errors go to stderr.
 
 Library API:
 
 ```python
-from guidesig import signature, protospacer_set
+from guidesig import (
+    header_warnings,
+    protospacer_set,
+    protospacers_and_guide_ids,
+    signature,
+    signature_of,
+)
 
 sig = signature("lib.tsv", file_format="tsv")
 seqs = protospacer_set("lib.csv", file_format="csv")
+seqs, guide_ids = protospacers_and_guide_ids("lib.tsv", file_format="tsv")
+sig = signature_of(seqs)  # same value as signature(), without re-reading the file
+warnings = header_warnings("lib.tsv", file_format="tsv")
 ```
 
 Regression fixtures and golden digests live in `tests/fixtures/lib_*.tsv` and
 `tests/fixtures/lib_two_layout_a.csv`, and are covered by `tests/test_guidesig.py` and
 `tests/test_guidesig_csv.py`. The CSV fixture is a conversion of the layout A TSV and is
-pinned to the same digest, which is what proves the two readers agree.
+pinned to the same digest, which is what proves the two readers agree. The content checks
+are covered by `tests/test_guidesig_checks.py`, the h5 check by `tests/test_guidesig_h5.py`
+and the guidescan check by `tests/test_guidesig_guidescan.py`; the last two stub out S3 and
+guidescan, so they need neither credentials nor the binary.
 
 ## Contributing
 

@@ -10,6 +10,12 @@ import pytest
 from guidesig import GuideSigError, protospacer_set, signature
 from tests.guidesig_helpers import FIXTURES, write_delimited
 
+# The two role/target columns guidesig requires, and the cells a targeting
+# guide carries in them, so rows pass the role/target check unless a test is
+# about that check.
+ROLE_COLS = ["guide_role", "guide_target_gene_id"]
+TARGETING = ["Targeting a Gene", "ENSGFAKE0000001"]
+
 GOLDEN = {
     "lib_one.tsv": "gsig1:set:n=60:62d08f4954bf50b7249c6277e2808b16",
     "lib_one_prepended_g.tsv": "gsig1:set:n=60:8a3af4c57186c0766609fd1841136e7c",
@@ -24,18 +30,18 @@ def _write_tsv(path: Path, rows: list[list[str]], *, bom: bool = True) -> Path:
 
 
 def test_row_order_permuted_identical(tmp_path: Path) -> None:
-    header = ["property", "guide_id", "guide_protospacer"]
+    header = ["property", "guide_id", "guide_protospacer", *ROLE_COLS]
     rows_a = [
         header,
-        ["", "g1", "AAAA"],
-        ["", "g2", "CCCC"],
-        ["", "g3", "GGGG"],
+        ["", "g1", "AAAA", *TARGETING],
+        ["", "g2", "CCCC", *TARGETING],
+        ["", "g3", "GGGG", *TARGETING],
     ]
     rows_b = [
         header,
-        ["", "g3", "GGGG"],
-        ["", "g1", "AAAA"],
-        ["", "g2", "CCCC"],
+        ["", "g3", "GGGG", *TARGETING],
+        ["", "g1", "AAAA", *TARGETING],
+        ["", "g2", "CCCC", *TARGETING],
     ]
     a = _write_tsv(tmp_path / "a.tsv", rows_a)
     b = _write_tsv(tmp_path / "b.tsv", rows_b)
@@ -46,17 +52,17 @@ def test_non_protospacer_columns_irrelevant(tmp_path: Path) -> None:
     a = _write_tsv(
         tmp_path / "a.tsv",
         [
-            ["property", "guide_id", "guide_protospacer", "gene"],
-            ["", "g1", "AAAA", "GENE1"],
-            ["", "g2", "CCCC", "GENE2"],
+            ["property", "guide_id", "guide_protospacer", "gene", *ROLE_COLS],
+            ["", "g1", "AAAA", "GENE1", *TARGETING],
+            ["", "g2", "CCCC", "GENE2", *TARGETING],
         ],
     )
     b = _write_tsv(
         tmp_path / "b.tsv",
         [
-            ["property", "guide_id", "guide_protospacer", "gene", "pam"],
-            ["", "other1", "AAAA", "OTHER", "NGG"],
-            ["", "other2", "CCCC", "DIFFERENT", "NGG"],
+            ["property", "guide_id", "guide_protospacer", "gene", "pam", *ROLE_COLS],
+            ["", "other1", "AAAA", "OTHER", "NGG", *TARGETING],
+            ["", "other2", "CCCC", "DIFFERENT", "NGG", *TARGETING],
         ],
     )
     assert signature(a, file_format="tsv") == signature(b, file_format="tsv")
@@ -66,17 +72,17 @@ def test_column_reorder_and_add_remove_identical(tmp_path: Path) -> None:
     a = _write_tsv(
         tmp_path / "a.tsv",
         [
-            ["property", "guide_protospacer", "guide_id"],
-            ["", "AAAA", "g1"],
-            ["", "CCCC", "g2"],
+            ["property", "guide_protospacer", "guide_id", *ROLE_COLS],
+            ["", "AAAA", "g1", *TARGETING],
+            ["", "CCCC", "g2", *TARGETING],
         ],
     )
     b = _write_tsv(
         tmp_path / "b.tsv",
         [
-            ["guide_id", "extra", "guide_protospacer", "property"],
-            ["g1", "x", "AAAA", ""],
-            ["g2", "y", "CCCC", ""],
+            ["guide_id", "extra", "guide_protospacer", "property", *ROLE_COLS],
+            ["g1", "x", "AAAA", "", *TARGETING],
+            ["g2", "y", "CCCC", "", *TARGETING],
         ],
     )
     assert signature(a, file_format="tsv") == signature(b, file_format="tsv")
@@ -86,20 +92,20 @@ def test_duplicates_collapse_to_set(tmp_path: Path) -> None:
     once = _write_tsv(
         tmp_path / "once.tsv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAA"],
-            ["", "CCCC"],
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
         ],
     )
     many = _write_tsv(
         tmp_path / "many.tsv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAA"],
-            ["", "AAAA"],
-            ["", "CCCC"],
-            ["", "CCCC"],
-            ["", "CCCC"],
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+            ["", "CCCC", *TARGETING],
+            ["", "CCCC", *TARGETING],
         ],
     )
     assert signature(once, file_format="tsv") == signature(many, file_format="tsv")
@@ -109,11 +115,19 @@ def test_duplicates_collapse_to_set(tmp_path: Path) -> None:
 def test_lowercase_identical_to_uppercase(tmp_path: Path) -> None:
     upper = _write_tsv(
         tmp_path / "upper.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     lower = _write_tsv(
         tmp_path / "lower.tsv",
-        [["property", "guide_protospacer"], ["", "aaaa"], ["", "cccc"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "aaaa", *TARGETING],
+            ["", "cccc", *TARGETING],
+        ],
     )
     assert signature(upper, file_format="tsv") == signature(lower, file_format="tsv")
 
@@ -121,12 +135,18 @@ def test_lowercase_identical_to_uppercase(tmp_path: Path) -> None:
 def test_whitespace_and_stray_cr_stripped(tmp_path: Path) -> None:
     clean = _write_tsv(
         tmp_path / "clean.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     # Quote the field so the embedded CR is data, not a line terminator.
     padded = tmp_path / "padded.tsv"
     padded.write_bytes(
-        b'\xef\xbb\xbfproperty\tguide_protospacer\r\n\t  AAAA  \r\n\t"CCCC\r"\r\n'
+        b"\xef\xbb\xbfproperty\tguide_protospacer\tguide_role\tguide_target_gene_id\r\n"
+        b"\t  AAAA  \tTargeting a Gene\tENSGFAKE0000001\r\n"
+        b'\t"CCCC\r"\tTargeting a Gene\tENSGFAKE0000001\r\n'
     )
     assert signature(clean, file_format="tsv") == signature(padded, file_format="tsv")
 
@@ -134,7 +154,11 @@ def test_whitespace_and_stray_cr_stripped(tmp_path: Path) -> None:
 def test_signature_stable_across_calls_and_reread(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "stable.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     first = signature(path, file_format="tsv")
     second = signature(path, file_format="tsv")
@@ -145,11 +169,19 @@ def test_signature_stable_across_calls_and_reread(tmp_path: Path) -> None:
 def test_one_sequence_changed_different(tmp_path: Path) -> None:
     a = _write_tsv(
         tmp_path / "a.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     b = _write_tsv(
         tmp_path / "b.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "TTTT"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "TTTT", *TARGETING],
+        ],
     )
     assert signature(a, file_format="tsv") != signature(b, file_format="tsv")
 
@@ -157,15 +189,19 @@ def test_one_sequence_changed_different(tmp_path: Path) -> None:
 def test_one_sequence_added_increments_n(tmp_path: Path) -> None:
     a = _write_tsv(
         tmp_path / "a.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     b = _write_tsv(
         tmp_path / "b.tsv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAA"],
-            ["", "CCCC"],
-            ["", "GGGG"],
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+            ["", "GGGG", *TARGETING],
         ],
     )
     sig_a = signature(a, file_format="tsv")
@@ -178,11 +214,19 @@ def test_one_sequence_added_increments_n(tmp_path: Path) -> None:
 def test_prepended_g_different_signature(tmp_path: Path) -> None:
     a = _write_tsv(
         tmp_path / "a.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     b = _write_tsv(
         tmp_path / "b.tsv",
-        [["property", "guide_protospacer"], ["", "GAAAA"], ["", "GCCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "GAAAA", *TARGETING],
+            ["", "GCCCC", *TARGETING],
+        ],
     )
     assert signature(a, file_format="tsv") != signature(b, file_format="tsv")
     assert ":n=2:" in signature(a, file_format="tsv")
@@ -193,9 +237,9 @@ def test_sequence_and_reverse_complement_both_retained(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "rc.tsv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAC"],
-            ["", "GTTT"],  # reverse complement of AAAC
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAC", *TARGETING],
+            ["", "GTTT", *TARGETING],  # reverse complement of AAAC
         ],
     )
     sequences = protospacer_set(path, file_format="tsv")
@@ -207,10 +251,10 @@ def test_comment_and_example_rows_filtered(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "comments.tsv",
         [
-            ["property", "guide_protospacer"],
+            ["property", "guide_protospacer", *ROLE_COLS],
             ["#comment", "TTTTTTTTTTTTTTTTTTT"],
             ["#example", "GGGGGGGGGGGGGGGGGGG"],
-            ["", "AAAA"],
+            ["", "AAAA", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA"}
@@ -220,7 +264,7 @@ def test_only_example_row_raises_empty_set(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "only_example.tsv",
         [
-            ["property", "guide_protospacer"],
+            ["property", "guide_protospacer", *ROLE_COLS],
             ["#example", "GGGGGGGGGGGGGGGGGGG"],
         ],
     )
@@ -232,9 +276,9 @@ def test_hash_space_after_hash_still_filtered(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "hash_space.tsv",
         [
-            ["property", "guide_protospacer"],
+            ["property", "guide_protospacer", *ROLE_COLS],
             ["# example", "TTTTTTTTTTTTTTTTTTT"],
-            ["", "AAAA"],
+            ["", "AAAA", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA"}
@@ -245,9 +289,10 @@ def test_hash_outside_first_column_is_data(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "hash_later_column.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA"],
-            ["", "#2 in plate", "CCCC"],  # a `#` here annotates, it does not comment
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "g1", "AAAA", *TARGETING],
+            # a `#` here annotates, it does not comment
+            ["", "#2 in plate", "CCCC", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
@@ -257,9 +302,9 @@ def test_empty_first_column_retained(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "empty_first.tsv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAA"],
-            ["", "CCCC"],
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
@@ -269,7 +314,9 @@ def test_blank_lines_skipped(tmp_path: Path) -> None:
     """Trailing/intervening blank lines must not raise or affect the set."""
     path = tmp_path / "blank_lines.tsv"
     path.write_bytes(
-        b"\xef\xbb\xbfproperty\tguide_protospacer\r\n\tAAAA\r\n\r\n\tCCCC\r\n\r\n"
+        b"\xef\xbb\xbfproperty\tguide_protospacer\tguide_role\tguide_target_gene_id\r\n"
+        b"\tAAAA\tTargeting a Gene\tENSGFAKE0000001\r\n\r\n"
+        b"\tCCCC\tTargeting a Gene\tENSGFAKE0000001\r\n\r\n"
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
     assert signature(path, file_format="tsv").startswith("gsig1:set:n=2:")
@@ -278,7 +325,7 @@ def test_blank_lines_skipped(tmp_path: Path) -> None:
 def test_bom_and_header_lookup(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "bom.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"]],
+        [["property", "guide_protospacer", *ROLE_COLS], ["", "AAAA", *TARGETING]],
         bom=True,
     )
     assert path.read_bytes().startswith(b"\xef\xbb\xbf")
@@ -288,7 +335,11 @@ def test_bom_and_header_lookup(tmp_path: Path) -> None:
 def test_crlf_does_not_leave_cr_in_set(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "crlf.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     assert path.read_bytes().count(b"\r\n") >= 2
     assert all("\r" not in seq for seq in protospacer_set(path, file_format="tsv"))
@@ -298,10 +349,10 @@ def test_empty_protospacer_skipped(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "empty_cell.tsv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAA"],
-            ["", ""],
-            ["", "CCCC"],
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "", *TARGETING],
+            ["", "CCCC", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
@@ -311,8 +362,8 @@ def test_ragged_row_raises_with_row_number(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "ragged.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA"],
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "g1", "AAAA", *TARGETING],
             ["", "g2"],  # missing protospacer cell
         ],
     )
@@ -325,8 +376,8 @@ def test_ragged_row_with_protospacer_still_raises(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "ragged_trailing_columns.tsv",
         [
-            ["property", "guide_protospacer", "guide_id", "gene", "pam"],
-            ["", "AAAA", "g1", "GENE1", "NGG"],
+            ["property", "guide_protospacer", "guide_id", "gene", "pam", *ROLE_COLS],
+            ["", "AAAA", "g1", "GENE1", "NGG", *TARGETING],
             ["", "CCCC"],  # protospacer present, trailing columns were dropped
         ],
     )
@@ -339,9 +390,11 @@ def test_trailing_empty_field_beyond_header_accepted(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "trailing_delimiter.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA", ""],  # trailing tab left one surplus empty field
-            ["", "g2", "CCCC", "  "],  # surplus field holding only whitespace
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            # trailing tab left one surplus empty field
+            ["", "g1", "AAAA", *TARGETING, ""],
+            # surplus field holding only whitespace
+            ["", "g2", "CCCC", *TARGETING, "  "],
         ],
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
@@ -352,9 +405,10 @@ def test_row_with_data_beyond_header_raises_with_row_number(tmp_path: Path) -> N
     path = _write_tsv(
         tmp_path / "surplus_data.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA"],
-            ["", "g2", "CCCC", "NGG"],  # header never declared a fourth column
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "g1", "AAAA", *TARGETING],
+            # header never declared a sixth column
+            ["", "g2", "CCCC", *TARGETING, "NGG"],
         ],
     )
     with pytest.raises(GuideSigError, match="row 3"):
@@ -366,9 +420,10 @@ def test_data_beyond_header_raises_before_empty_value_skip(tmp_path: Path) -> No
     path = _write_tsv(
         tmp_path / "surplus_data_empty_value.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "g1", "AAAA"],
-            ["", "g2", "", "CCCC"],  # sequence shifted into an undeclared column
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "g1", "AAAA", *TARGETING],
+            # sequence shifted into an undeclared column
+            ["", "g2", "", *TARGETING, "CCCC"],
         ],
     )
     with pytest.raises(GuideSigError, match="row 3"):
@@ -380,9 +435,9 @@ def test_multiline_quoted_cell_parses(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "multiline.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "pasted from\na spreadsheet", "AAAA"],
-            ["", "g2", "CCCC"],
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "pasted from\na spreadsheet", "AAAA", *TARGETING],
+            ["", "g2", "CCCC", *TARGETING],
         ],
     )
     assert protospacer_set(path, file_format="tsv") == {"AAAA", "CCCC"}
@@ -397,8 +452,8 @@ def test_multiline_quoted_cell_keeps_row_numbers_physical(tmp_path: Path) -> Non
     path = _write_tsv(
         tmp_path / "multiline_ragged.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "pasted from\na spreadsheet", "AAAA"],
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "pasted from\na spreadsheet", "AAAA", *TARGETING],
             ["", "g2"],  # missing protospacer cell, on physical line 4
         ],
     )
@@ -415,9 +470,9 @@ def test_multiline_offending_row_reports_its_first_line(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "multiline_bad.tsv",
         [
-            ["property", "guide_id", "guide_protospacer"],
-            ["", "pasted from\na spreadsheet", "AAAA"],
-            ["", "also pasted\nfrom a spreadsheet", "AAAN"],
+            ["property", "guide_id", "guide_protospacer", *ROLE_COLS],
+            ["", "pasted from\na spreadsheet", "AAAA", *TARGETING],
+            ["", "also pasted\nfrom a spreadsheet", "AAAN", *TARGETING],
         ],
     )
     assert path.read_bytes().count(b"\n") == 5
@@ -430,9 +485,9 @@ def test_non_acgt_raises_with_row_number(tmp_path: Path, bad: str) -> None:
     path = _write_tsv(
         tmp_path / "bad.tsv",
         [
-            ["property", "guide_protospacer"],
-            ["", "AAAA"],
-            ["", f"AAA{bad}"],
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", f"AAA{bad}", *TARGETING],
         ],
     )
     with pytest.raises(GuideSigError, match="row 3"):
@@ -460,7 +515,11 @@ def test_non_utf8_file_raises_guidesig_error(tmp_path: Path) -> None:
 def test_serialization_pinning_join_and_no_trailing_newline(tmp_path: Path) -> None:
     path = _write_tsv(
         tmp_path / "pin.tsv",
-        [["property", "guide_protospacer"], ["", "AAAA"], ["", "CCCC"]],
+        [
+            ["property", "guide_protospacer", *ROLE_COLS],
+            ["", "AAAA", *TARGETING],
+            ["", "CCCC", *TARGETING],
+        ],
     )
     expected_digest = hashlib.sha256(b"AAAA\nCCCC").hexdigest()[:32]
     assert signature(path, file_format="tsv") == f"gsig1:set:n=2:{expected_digest}"
