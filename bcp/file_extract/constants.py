@@ -144,6 +144,27 @@ H5_METRICS_COLUMNS = [
     "metrics_cells_match",
 ]
 
+# Column order of GEO's "PROCESSED DATA FILES" checksum table, verbatim, so the
+# CSV pastes into the GEO metadata template without renaming.
+GEO_MD5_COLUMNS = [
+    "file name",
+    "file checksum",
+]
+
+# The column every file_extract info TSV and the Lattice file sheets share, and
+# so the default place geo_md5 looks for the object to hash.
+GEO_MD5_URI_COLUMN = "s3_uri"
+
+# Read size for streaming an object through md5. Large enough that a multi-GB
+# matrix is a few hundred requests' worth of reads, small enough that eight
+# workers hold well under 100 MB between them.
+GEO_MD5_CHUNK_BYTES = 8 * 1024 * 1024
+
+# Thread count, and the S3 connection-pool size those threads share. Every
+# worker holds one streaming GET open for the whole file, so this is also the
+# number of concurrent downloads.
+GEO_MD5_DEFAULT_WORKERS = 8
+
 TRANSIENT_ERROR_CODES = frozenset(
     {
         "Throttling",

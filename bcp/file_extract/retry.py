@@ -9,7 +9,9 @@ from botocore.exceptions import (
     ConnectTimeoutError,
     ConnectionClosedError,
     EndpointConnectionError,
+    IncompleteReadError,
     ReadTimeoutError,
+    ResponseStreamingError,
 )
 
 from .constants import TRANSIENT_ERROR_CODES, TRANSIENT_HTTP_STATUSES
@@ -28,6 +30,10 @@ def is_transient(exc: BaseException) -> bool:
         if status in TRANSIENT_HTTP_STATUSES:
             return True
         return False
+    # The last two are how a connection dropped mid-body surfaces from a
+    # streaming read, which geo_md5 holds open for a whole file. A short
+    # body is a network fault, not a property of the object, so a fresh GET
+    # is the right response.
     if isinstance(
         exc,
         (
@@ -35,6 +41,8 @@ def is_transient(exc: BaseException) -> bool:
             ConnectTimeoutError,
             ReadTimeoutError,
             ConnectionClosedError,
+            IncompleteReadError,
+            ResponseStreamingError,
         ),
     ):
         return True

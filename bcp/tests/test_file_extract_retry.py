@@ -36,6 +36,13 @@ def test_is_transient_runtime_error() -> None:
     assert not is_transient(RuntimeError("missing checksum"))
 
 
+def test_is_transient_broken_stream() -> None:
+    from botocore.exceptions import IncompleteReadError, ResponseStreamingError
+
+    assert is_transient(IncompleteReadError(actual_bytes=10, expected_bytes=20))
+    assert is_transient(ResponseStreamingError(error=OSError("reset")))
+
+
 @patch("file_extract.retry.time.sleep")
 def test_retry_succeeds_first_try(_sleep: MagicMock) -> None:
     result, err = retry_with_backoff(lambda x: x + 1, 1)

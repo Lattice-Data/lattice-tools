@@ -1,6 +1,6 @@
 ## File extract
 
-Extract S3 metadata for **FASTQ.gz**, **CRAM**, **Cell Ranger h5**, and **Scale h5ad** matrices. Part of BCP tooling under `bcp/file_extract`.
+Extract S3 metadata for **FASTQ.gz**, **CRAM**, **Cell Ranger h5**, and **Scale h5ad** matrices, and write the **GEO md5 CSV** for processed files. Part of BCP tooling under `bcp/file_extract`.
 
 Requires AWS credentials with read access to the target bucket (standard `boto3` credential chain).
 
@@ -17,6 +17,7 @@ python -m file_extract fastq --help
 python -m file_extract cram --help
 python -m file_extract h5 --help
 python -m file_extract scale_h5ad --help
+python -m file_extract geo_md5 --help
 ```
 
 ### FASTQ mode
@@ -211,6 +212,47 @@ Run with `-v` to log which prefix supplied the CRAMs — useful when a delivery'
 ```bash
 pip install h5py fsspec s3fs
 ```
+
+### GEO md5 mode
+
+GEO wants an MD5 beside every processed file it receives. Nothing upstream holds one: DB2 files carry `crc64nvme_base64` only, and the modes above fetch that same CRC from S3 object attributes without reading file content. So this mode streams each object in full and hashes it. That is the one expensive operation in the package, which is why it is its own subcommand rather than a flag on `h5` or `scale_h5ad`. Run it where S3 bandwidth is good.
+
+Point it at any TSV or CSV with an `s3_uri` column: the `*_h5_info.tsv` or `*_scale_h5ad_info.tsv` the other modes write, or the RawMatrixFile submission sheet exported from the workbook.
+
+```bash
+python -m file_extract geo_md5 <order>_RawMatrixFile.tsv --name-column aliases
+python -m file_extract geo_md5 <run_date>_scale_h5ad_info.tsv
+```
+
+| Flag | Description |
+|------|-------------|
+| `table` | **Required.** TSV or CSV with an `s3_uri` column. The delimiter follows the suffix; an Excel byte-order mark is tolerated |
+| `--uri-column` | Column holding the object URI (default: `s3_uri`) |
+| `--name-column` | Column holding the GEO file name, e.g. `aliases` (default: the S3 basename) |
+| `-o`, `--output` | Output CSV (default: `<table stem>_geo_md5.csv` in the current directory, like the other modes) |
+| `--workers` | Positive thread count (default: 8). Also the S3 connection pool size; each worker holds one streaming GET open |
+| `--retries` | Max attempts per transient S3 error (default: 5) |
+| `--strict` | Exit 1 if any md5 fails |
+| `-v`, `--verbose` | Debug logging |
+| `-q`, `--quiet` | Disable progress bars |
+
+**Output:** one CSV, header exactly `file name,file checksum` (GEO's "PROCESSED DATA FILES" columns), rows in table order. A failed read leaves the checksum cell empty and lists the object on stdout; `--strict` turns that into exit 1.
+
+**Which name GEO sees.** Every Cell Ranger matrix is `sample_filtered_feature_bc_matrix.h5`, so the S3 basename cannot name a GEO file. The name GEO sees is the RawMatrixFile alias: db2-flattener writes it into the GEO.csv `processed data file` column with the `lab:` namespace stripped, and the upload step renames each download to it. `--name-column` reads that name from the table. A cell may be a bare name, `lab:name`, or the sheet's `["lab:name"]` alias array; everything after the first `:` is kept, exactly as db2-flattener does, so the two GEO files agree by construction. Without `--name-column` the basename is used, which is right for Scale h5ads and wrong for Cell Ranger h5s, and the duplicate-name guard says so.
+
+**Guardrails, all before any download:**
+
+- A GEO file name that repeats exits 1 (GEO rejects duplicate file names). When the names came from basenames, the message points at `--name-column`.
+- The same object listed twice exits 1.
+- A name containing `/` or `\` exits 1; GEO takes bare file names.
+- An empty or malformed `s3_uri` exits 1 naming the row. A row is never skipped: a GEO file that cannot be fetched is exactly what this CSV exists to prevent.
+- An alias cell listing more than one alias exits 1; one file, one name.
+- A name whose extension differs from the object's is a **warning**, not an error. An alias without `.h5` is a legitimate submitter choice, but it deserves a second look before upload.
+- A name with whitespace or punctuation beyond `.`, `_` and `-` is also a **warning**: the FTP upload loop and the GEO template handle such names unevenly.
+
+**Download integrity.** Each object is read in 8 MiB chunks and the byte count is checked against `ContentLength`, so a connection dropped mid-stream fails rather than hashing cleanly into a confident md5 of a truncated file. The request also sets `ChecksumMode=ENABLED`, which makes botocore verify the stream against S3's stored CRC64NVME. That verification needs `awscrt` (in `requirements.txt`); without it botocore lacks the algorithm and skips the check silently.
+
+**Not covered:** FASTQ and CRAM (those go to SRA), a tarred ScalePlex matrix directory (its md5 belongs at tar time), and looking aliases up in DB2 directly (the sheet is the interface).
 
 ---
 

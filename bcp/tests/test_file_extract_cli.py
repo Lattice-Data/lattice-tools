@@ -52,6 +52,7 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "cram" in out
     assert "h5" in out
     assert "scale_h5ad" in out
+    assert "geo_md5" in out
 
 
 def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -909,3 +910,156 @@ def test_cli_scale_h5ad_strict_on_empty_raw_subdir_with_no_targets(
     # prefix with no rows and one mistyped entry starts failing pipelines.
     assert main(args) == 0
     assert main([*args, "--strict"]) == 1
+
+
+# --- geo_md5 -----------------------------------------------------------------
+
+CR_BASENAME = "sample_filtered_feature_bc_matrix.h5"
+GEO_H5_A = f"proj/libA/processed/outs/per_sample_outs/s1/{CR_BASENAME}"
+GEO_H5_B = f"proj/libB/processed/outs/per_sample_outs/s2/{CR_BASENAME}"
+GEO_H5AD_A = "proj/order/processed/run_date/samples/sampleA.QSR-1_anndata.h5ad"
+GEO_H5AD_B = "proj/order/processed/run_date/samples/sampleB.QSR-2_anndata.h5ad"
+
+
+def _geo_table(path: Path, header: list[str], rows: list[list[str]]) -> Path:
+    import csv
+
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh, delimiter="\t")
+        writer.writerow(header)
+        writer.writerows(rows)
+    return path
+
+
+def _read_csv(path: Path) -> list[list[str]]:
+    import csv
+
+    with path.open(newline="", encoding="utf-8") as fh:
+        return list(csv.reader(fh))
+
+
+def test_cli_geo_md5_help(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["geo_md5", "--help"])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "--name-column" in out
+    assert "--uri-column" in out
+    assert "aliases" in out
+    assert "'file name' and 'file checksum'" in out
+    assert "db2-flattener" in out
+    assert "--strict" in out
+    assert "--lab" not in out
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_geo_md5_writes_csv_named_from_the_sheet(
+    mock_boto: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+
+    # The default output lands in the current directory, like the other modes.
+    monkeypatch.chdir(tmp_path)
+    client = MockS3Client(object_bodies={GEO_H5_A: b"alpha", GEO_H5_B: b"beta"})
+    mock_boto.return_value = client
+    table = _geo_table(
+        tmp_path / "order_RawMatrixFile.tsv",
+        ["#response", "uuid", "aliases", "s3_uri"],
+        [
+            ["", "", '["example-lab:libA-s1.h5"]', f"s3://{BUCKET}/{GEO_H5_A}"],
+            ["", "", '["example-lab:libB-s2"]', f"s3://{BUCKET}/{GEO_H5_B}"],
+        ],
+    )
+
+    code = main(["geo_md5", table.name, "--name-column", "aliases", "--quiet"])
+
+    assert code == 0
+    out_csv = tmp_path / "order_RawMatrixFile_geo_md5.csv"
+    assert _read_csv(out_csv) == [
+        ["file name", "file checksum"],
+        ["libA-s1.h5", hashlib.md5(b"alpha").hexdigest()],
+        ["libB-s2", hashlib.md5(b"beta").hexdigest()],
+    ]
+    assert all(call["ChecksumMode"] == "ENABLED" for call in client.get_object_calls)
+    _assert_s3_pool(mock_boto, 8)
+    out = capsys.readouterr().out
+    assert "md5 OK: 2" in out
+    assert "WARNING: row 2: GEO file name 'libB-s2' ends in no extension" in out
+    assert out_csv.name in out
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_geo_md5_duplicate_basenames_stop_before_any_download(
+    mock_boto: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    table = _geo_table(
+        tmp_path / "order_h5_info.tsv",
+        ["library", "s3_uri"],
+        [["libA", f"s3://{BUCKET}/{GEO_H5_A}"], ["libB", f"s3://{BUCKET}/{GEO_H5_B}"]],
+    )
+
+    code = main(["geo_md5", str(table), "--quiet"])
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "GEO rejects duplicate file names" in err
+    assert "--name-column" in err
+    mock_boto.assert_not_called()
+    assert not (tmp_path / "order_h5_info_geo_md5.csv").exists()
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_geo_md5_strict_exits_1_on_a_missing_object(
+    mock_boto: MagicMock, tmp_path: Path
+) -> None:
+    mock_boto.return_value = MockS3Client(object_bodies={GEO_H5AD_A: b"alpha"})
+    table = _geo_table(
+        tmp_path / "run_date_scale_h5ad_info.tsv",
+        ["s3_uri"],
+        [[f"s3://{BUCKET}/{GEO_H5AD_A}"], [f"s3://{BUCKET}/{GEO_H5AD_B}"]],
+    )
+    out_csv = tmp_path / "custom.csv"
+
+    assert main(["geo_md5", str(table), "-o", str(out_csv), "--quiet"]) == 0
+    rows = _read_csv(out_csv)
+    assert rows[1][0] == "sampleA.QSR-1_anndata.h5ad" and rows[1][1]
+    assert rows[2] == ["sampleB.QSR-2_anndata.h5ad", ""]
+
+    assert main(["geo_md5", str(table), "-o", str(out_csv), "--quiet", "--strict"]) == 1
+
+
+def test_cli_geo_md5_missing_table(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = main(["geo_md5", str(tmp_path / "nope.tsv")])
+    assert code == 1
+    assert "table not found" in capsys.readouterr().err
+
+
+def test_cli_geo_md5_workers_sizes_the_pool_and_rejects_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    table = _geo_table(
+        tmp_path / "t.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main(["geo_md5", str(table), "--workers", "0"])
+    assert exc_info.value.code == 2
+    assert "positive integer" in capsys.readouterr().err
+
+    with patch("file_extract.cli.boto3.client") as mock_boto:
+        mock_boto.return_value = MockS3Client(object_bodies={GEO_H5AD_A: b"x"})
+        out_csv = tmp_path / "pool.csv"
+        code = main(
+            ["geo_md5", str(table), "--workers", "3", "--quiet", "-o", str(out_csv)]
+        )
+        assert code == 0
+        assert out_csv.exists()
+        _assert_s3_pool(mock_boto, 3)

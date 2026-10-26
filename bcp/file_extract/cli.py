@@ -9,7 +9,12 @@ from typing import NoReturn
 import boto3
 from botocore.config import Config
 
-from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
+from .constants import (
+    CRAM_SLOT_COLUMNS,
+    DEFAULT_H5_TARGET_FILENAME,
+    GEO_MD5_DEFAULT_WORKERS,
+    GEO_MD5_URI_COLUMN,
+)
 from .cram import (
     default_cram_output_name,
     extract_cram,
@@ -21,6 +26,14 @@ from .fastq import (
     default_fastq_output_name,
     extract_fastq,
     r1_r2_mismatch_warning,
+)
+from .geo_md5 import (
+    GeoMd5Error,
+    default_geo_md5_output_name,
+    extract_geo_md5,
+    name_warnings,
+    plan_geo_files,
+    read_table,
 )
 from .h5 import default_h5_output_name, extract_h5, h5_worker_ceiling
 from .h5_introspect import check_introspection_deps
@@ -379,6 +392,51 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_geo_md5(args: argparse.Namespace) -> int:
+    table = Path(args.table)
+    if not table.is_file():
+        raise GeoMd5Error(f"table not found: {table}")
+    output = args.output or default_geo_md5_output_name(table)
+    workers = args.workers or GEO_MD5_DEFAULT_WORKERS
+
+    # Every table problem surfaces here, before the S3 client exists: a name
+    # that repeats or an object listed twice is not worth a single download.
+    rows = read_table(table)
+    files = plan_geo_files(
+        rows, uri_column=args.uri_column, name_column=args.name_column
+    )
+
+    print(f"Table: {table}")
+    print(
+        f"Rows: {len(files)} | URI column: {args.uri_column} | name column: "
+        f"{args.name_column or '(S3 basename)'}"
+    )
+    print(f"Workers: {workers}")
+    _print_warnings(name_warnings(files))
+    print("Hashing objects ...")
+
+    s3_client = boto3.client("s3", config=Config(max_pool_connections=workers))
+    summary = extract_geo_md5(
+        s3_client,
+        files,
+        output,
+        workers=workers,
+        retries=args.retries,
+        show_progress=not args.quiet,
+    )
+
+    print(
+        f"\nDone. Total: {summary.total} | md5 OK: {summary.md5_ok} | "
+        f"failed: {summary.total - summary.md5_ok}"
+    )
+    print(f"  Bytes hashed: {summary.bytes_total:,}")
+    print(f"  Output: {output}")
+    _print_failures(summary.failures)
+    if args.strict and summary.has_failures:
+        return 1
+    return 0
+
+
 def _invalid_uri_exit(message: str) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(2)
@@ -438,7 +496,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract S3 metadata for FASTQ.gz, CRAM, Cell Ranger h5, "
-            "and Scale h5ad deliverables."
+            "and Scale h5ad deliverables, and write the GEO md5 CSV for "
+            "processed files."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -668,6 +727,71 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    geo_md5 = subparsers.add_parser(
+        "geo_md5",
+        help="Write the GEO md5 CSV for the processed files listed in a table.",
+        description=(
+            "Read a TSV or CSV with an s3_uri column, stream every object to\n"
+            "compute its MD5, and write <table stem>_geo_md5.csv with the GEO\n"
+            "columns 'file name' and 'file checksum'.\n\n"
+            "file name is the S3 basename, or with --name-column the cell of\n"
+            'that column: a bare name, lab:name, or a ["lab:name"] alias\n'
+            "array, with the lab namespace stripped the way db2-flattener\n"
+            "names the GEO.csv 'processed data file'. Pass the RawMatrixFile\n"
+            "sheet with --name-column aliases and the two GEO files agree.\n\n"
+            "Duplicate names, an object listed twice, a name containing '/',\n"
+            "or an empty URI stop the run before any download. Every object is\n"
+            "read in full, so run this where S3 bandwidth is good."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[parent],
+    )
+    geo_md5.add_argument(
+        "table",
+        help=(
+            "TSV or CSV with an s3_uri column, e.g. <order>_h5_info.tsv or the "
+            "RawMatrixFile sheet"
+        ),
+    )
+    geo_md5.add_argument(
+        "--uri-column",
+        default=GEO_MD5_URI_COLUMN,
+        help=f"Column holding the S3 object URI (default: {GEO_MD5_URI_COLUMN})",
+    )
+    geo_md5.add_argument(
+        "--name-column",
+        default=None,
+        help=(
+            "Column holding the GEO file name, e.g. aliases (default: the S3 basename)"
+        ),
+    )
+    geo_md5.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output CSV (default: <table stem>_geo_md5.csv in the current directory)",
+    )
+    geo_md5.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=None,
+        help=(
+            f"Positive thread count (default: {GEO_MD5_DEFAULT_WORKERS}); "
+            "also the S3 connection pool size"
+        ),
+    )
+    geo_md5.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        help="Max attempts per transient operation (default: 5)",
+    )
+    geo_md5.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 if any md5 fails",
+    )
+
     return parser
 
 
@@ -676,10 +800,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)
 
-    try:
-        parse_s3_uri(args.s3_uri)
-    except ValueError as exc:
-        _invalid_uri_exit(str(exc))
+    # geo_md5 takes a table, not a prefix; every other command names S3 first.
+    s3_uri = getattr(args, "s3_uri", None)
+    if s3_uri is not None:
+        try:
+            parse_s3_uri(s3_uri)
+        except ValueError as exc:
+            _invalid_uri_exit(str(exc))
 
     try:
         if args.command == "fastq":
@@ -690,10 +817,9 @@ def main(argv: list[str] | None = None) -> int:
             return _run_h5(args)
         if args.command == "scale_h5ad":
             return _run_scale_h5ad(args)
-    except SheetBuildError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    except ScaleExtractError as exc:
+        if args.command == "geo_md5":
+            return _run_geo_md5(args)
+    except (SheetBuildError, ScaleExtractError, GeoMd5Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"Unknown command: {args.command}")
