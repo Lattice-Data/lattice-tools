@@ -9,6 +9,7 @@ from botocore.exceptions import (
     ConnectTimeoutError,
     ConnectionClosedError,
     EndpointConnectionError,
+    FlexibleChecksumError,
     IncompleteReadError,
     ReadTimeoutError,
     ResponseStreamingError,
@@ -30,10 +31,10 @@ def is_transient(exc: BaseException) -> bool:
         if status in TRANSIENT_HTTP_STATUSES:
             return True
         return False
-    # The last two are how a connection dropped mid-body surfaces from a
-    # streaming read, which geo_md5 holds open for a whole file. A short
-    # body is a network fault, not a property of the object, so a fresh GET
-    # is the right response.
+    # The last three surface from a streaming read, which geo_md5 holds open
+    # for a whole file: a body cut short, a stream that broke, or a body that
+    # arrived whole but failed S3's stored checksum. None is a property of
+    # the object, so a fresh GET is the right response, bounded by --retries.
     if isinstance(
         exc,
         (
@@ -43,6 +44,7 @@ def is_transient(exc: BaseException) -> bool:
             ConnectionClosedError,
             IncompleteReadError,
             ResponseStreamingError,
+            FlexibleChecksumError,
         ),
     ):
         return True

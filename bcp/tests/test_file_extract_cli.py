@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import botocore.httpchecksum
 import pytest
 
 from file_extract.cli import (
@@ -1017,7 +1018,7 @@ def test_cli_geo_md5_duplicate_basenames_stop_before_any_download(
 
 @patch("file_extract.cli.boto3.client")
 def test_cli_geo_md5_strict_exits_1_on_a_missing_object(
-    mock_boto: MagicMock, tmp_path: Path
+    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     mock_boto.return_value = MockS3Client(object_bodies={GEO_H5AD_A: b"alpha"})
     table = _geo_table(
@@ -1031,6 +1032,13 @@ def test_cli_geo_md5_strict_exits_1_on_a_missing_object(
     rows = _read_csv(out_csv)
     assert rows[1][0] == "sampleA.QSR-1_anndata.h5ad" and rows[1][1]
     assert rows[2] == ["sampleB.QSR-2_anndata.h5ad", ""]
+    # The blank cell alone would be easy to miss; the run must say which
+    # object failed and why.
+    out = capsys.readouterr().out
+    assert "Done. Total: 2 | md5 OK: 1 | failed: 1" in out
+    assert f"Failures (first {PRINT_LIMIT}):" in out
+    assert f"  - s3://{BUCKET}/{GEO_H5AD_B}" in out
+    assert "md5: " in out and "NoSuchKey" in out
 
     assert main(["geo_md5", str(table), "-o", str(out_csv), "--quiet", "--strict"]) == 1
 
@@ -1063,3 +1071,78 @@ def test_cli_geo_md5_workers_sizes_the_pool_and_rejects_zero(
         assert code == 0
         assert out_csv.exists()
         _assert_s3_pool(mock_boto, 3)
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_geo_md5_refuses_output_equal_to_table(
+    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    table = _geo_table(
+        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
+    )
+    before = table.read_bytes()
+    assert main(["geo_md5", str(table), "-o", str(table)]) == 1
+    assert "is the input table" in capsys.readouterr().err
+    assert table.read_bytes() == before
+    mock_boto.assert_not_called()
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_geo_md5_unwritable_output_fails_before_any_download(
+    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    client = MockS3Client(object_bodies={GEO_H5AD_A: b"alpha"})
+    mock_boto.return_value = client
+    table = _geo_table(
+        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
+    )
+    out_csv = tmp_path / "missing" / "out.csv"
+    assert main(["geo_md5", str(table), "-o", str(out_csv), "--quiet"]) == 1
+    assert "cannot write" in capsys.readouterr().err
+    assert client.get_object_calls == []
+
+
+def test_cli_geo_md5_retries_must_be_positive(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Zero attempts would write a CSV of blank checksums and exit 0.
+    table = _geo_table(
+        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main(["geo_md5", str(table), "--retries", "0"])
+    assert exc_info.value.code == 2
+    assert "positive integer" in capsys.readouterr().err
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_geo_md5_warns_when_crc64nvme_cannot_be_verified(
+    mock_boto: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_boto.return_value = MockS3Client(object_bodies={GEO_H5AD_A: b"alpha"})
+    table = _geo_table(
+        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
+    )
+    out_csv = tmp_path / "out.csv"
+    args = ["geo_md5", str(table), "-o", str(out_csv), "--quiet"]
+
+    monkeypatch.setattr(
+        botocore.httpchecksum,
+        "_SUPPORTED_CHECKSUM_ALGORITHMS",
+        ["crc32", "sha256"],
+        raising=False,
+    )
+    assert main(args) == 0
+    assert "WARNING: botocore cannot verify CRC64NVME" in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        botocore.httpchecksum,
+        "_SUPPORTED_CHECKSUM_ALGORITHMS",
+        ["crc32", "crc64nvme"],
+        raising=False,
+    )
+    assert main(args) == 0
+    assert "CRC64NVME" not in capsys.readouterr().out

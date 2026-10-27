@@ -100,12 +100,31 @@ def read_table(path: str | Path) -> list[dict[str, str]]:
             reader = csv.DictReader(fh, delimiter=delimiter)
             if reader.fieldnames is None:
                 raise GeoMd5Error(f"{table} is empty; expected a header row")
-            return [dict(row) for row in reader]
+            named = [name for name in reader.fieldnames if name]
+            repeated = sorted(n for n, count in Counter(named).items() if count > 1)
+            if repeated:
+                raise GeoMd5Error(
+                    f"{table} repeats column names: "
+                    + ", ".join(repr(name) for name in repeated)
+                )
+            # A row of nothing but delimiters, which a spreadsheet export often
+            # leaves at the end, is not a data row. A row with any content is
+            # kept, and plan_geo_files says what it lacks.
+            return [dict(row) for row in reader if _has_content(row)]
     except UnicodeDecodeError as exc:
         raise GeoMd5Error(
             f"{table} is not UTF-8 text ({exc.reason}); export the sheet as a "
             "UTF-8 CSV or TSV"
         ) from exc
+
+
+def _has_content(row: dict[str | None, Any]) -> bool:
+    for value in row.values():
+        # csv.DictReader parks cells beyond the header under None, as a list.
+        values = value if isinstance(value, list) else [value]
+        if any((item or "").strip() for item in values):
+            return True
+    return False
 
 
 def geo_file_name(cell: str) -> str:
@@ -134,6 +153,8 @@ def geo_file_name(cell: str) -> str:
         value = value.split(":", 1)[1].strip()
     if not value:
         raise GeoMd5Error("name cell is empty")
+    if set(value) == {"."}:
+        raise GeoMd5Error(f"name cell {cell.strip()!r} is not a file name")
     return value
 
 
@@ -162,7 +183,8 @@ def plan_geo_files(
     for column in (uri_column, name_column):
         if column is not None and column not in columns:
             raise GeoMd5Error(
-                f"column {column!r} not in table; columns are: {', '.join(columns)}"
+                f"column {column!r} not in table; columns are: "
+                + ", ".join(repr(name) for name in columns)
             )
 
     files: list[GeoFile] = []
@@ -233,6 +255,29 @@ def character_warning(file: GeoFile) -> str | None:
     )
 
 
+def case_warnings(files: Sequence[GeoFile]) -> list[str]:
+    """Warnings for names that differ only in case.
+
+    GEO's FTP host keeps such names apart, so this is not a duplicate for
+    GEO. But the renaming step runs on the submitter's machine, and the
+    macOS and Windows default filesystems fold case: the second file would
+    overwrite the first before the upload, leaving two names for one file.
+    """
+    groups: dict[str, list[GeoFile]] = {}
+    for file in files:
+        groups.setdefault(file.name.casefold(), []).append(file)
+    warnings: list[str] = []
+    for group in groups.values():
+        if len(group) > 1:
+            rows = ", ".join(str(file.row) for file in group)
+            names = ", ".join(repr(file.name) for file in group)
+            warnings.append(
+                f"rows {rows}: GEO file names {names} differ only in case; a "
+                "case-insensitive filesystem merges them during the renaming step"
+            )
+    return warnings
+
+
 def name_warnings(files: Sequence[GeoFile]) -> list[str]:
     """Every advisory warning about the names, in table order."""
     warnings: list[str] = []
@@ -240,6 +285,7 @@ def name_warnings(files: Sequence[GeoFile]) -> list[str]:
         for warning in (extension_warning(file), character_warning(file)):
             if warning:
                 warnings.append(warning)
+    warnings.extend(case_warnings(files))
     return warnings
 
 
@@ -268,6 +314,11 @@ def extract_geo_md5(
     results: dict[int, tuple[str | None, int, str]] = {}
     max_workers = min(workers or GEO_MD5_DEFAULT_WORKERS, max(len(files), 1))
 
+    # Header first, so an output path that cannot be written fails before the
+    # first byte is streamed rather than after the last. The other modes open
+    # their TSV before their pool for the same reason.
+    write_geo_md5_csv(output_path, [])
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
@@ -283,14 +334,22 @@ def extract_geo_md5(
         iterator = as_completed(futures)
         if show_progress:
             iterator = tqdm(iterator, total=len(files), desc="Hashing")
-        for fut in iterator:
-            file = futures[fut]
-            value, err = fut.result()
-            if err or value is None:
-                results[file.row] = (None, 0, err or "no result")
-            else:
-                md5, nbytes = value
-                results[file.row] = (md5, nbytes, "")
+        try:
+            for fut in iterator:
+                file = futures[fut]
+                value, err = fut.result()
+                if err or value is None:
+                    results[file.row] = (None, 0, err or "no result")
+                else:
+                    md5, nbytes = value
+                    results[file.row] = (md5, nbytes, "")
+        except BaseException:
+            # Ctrl-C must not drain the queue. The executor's __exit__ waits
+            # for every queued download to run to completion and the hashes
+            # are then discarded; cancelling first means only the streams
+            # already in flight finish, since a thread cannot be interrupted.
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
 
     rows: list[tuple[str, str]] = []
     for file in files:

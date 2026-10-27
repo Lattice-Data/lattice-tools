@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import boto3
+import botocore.httpchecksum
 from botocore.config import Config
 
 from .constants import (
@@ -66,7 +67,9 @@ PRINT_LIMIT = 50
 
 
 def _print_failures(
-    failures: list[tuple[str, str, str]], limit: int = PRINT_LIMIT
+    failures: list[tuple[str, str, str]],
+    limit: int = PRINT_LIMIT,
+    label: str = "crc",
 ) -> None:
     if not failures:
         return
@@ -74,7 +77,7 @@ def _print_failures(
     for key, err1, err2 in failures[:limit]:
         print(f"  - {key}")
         if err1:
-            print(f"      crc: {err1}")
+            print(f"      {label}: {err1}")
         if err2:
             print(f"      detail: {err2}")
     if len(failures) > limit:
@@ -89,7 +92,7 @@ def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
 
 
 def _positive_int(value: str) -> int:
-    """argparse type for a thread count of at least 1."""
+    """argparse type for a count of at least 1: threads, attempts."""
     try:
         parsed = int(value)
     except ValueError as exc:
@@ -396,7 +399,9 @@ def _run_geo_md5(args: argparse.Namespace) -> int:
     table = Path(args.table)
     if not table.is_file():
         raise GeoMd5Error(f"table not found: {table}")
-    output = args.output or default_geo_md5_output_name(table)
+    output = Path(args.output or default_geo_md5_output_name(table))
+    if output.resolve() == table.resolve():
+        raise GeoMd5Error(f"output {output} is the input table; pass another -o")
     workers = args.workers or GEO_MD5_DEFAULT_WORKERS
 
     # Every table problem surfaces here, before the S3 client exists: a name
@@ -412,18 +417,25 @@ def _run_geo_md5(args: argparse.Namespace) -> int:
         f"{args.name_column or '(S3 basename)'}"
     )
     print(f"Workers: {workers}")
-    _print_warnings(name_warnings(files))
+    warnings = name_warnings(files)
+    checksum_warning = _checksum_support_warning()
+    if checksum_warning:
+        warnings.append(checksum_warning)
+    _print_warnings(warnings)
     print("Hashing objects ...")
 
     s3_client = boto3.client("s3", config=Config(max_pool_connections=workers))
-    summary = extract_geo_md5(
-        s3_client,
-        files,
-        output,
-        workers=workers,
-        retries=args.retries,
-        show_progress=not args.quiet,
-    )
+    try:
+        summary = extract_geo_md5(
+            s3_client,
+            files,
+            output,
+            workers=workers,
+            retries=args.retries,
+            show_progress=not args.quiet,
+        )
+    except OSError as exc:
+        raise GeoMd5Error(f"cannot write {output}: {exc.strerror or exc}") from exc
 
     print(
         f"\nDone. Total: {summary.total} | md5 OK: {summary.md5_ok} | "
@@ -431,10 +443,26 @@ def _run_geo_md5(args: argparse.Namespace) -> int:
     )
     print(f"  Bytes hashed: {summary.bytes_total:,}")
     print(f"  Output: {output}")
-    _print_failures(summary.failures)
+    _print_failures(summary.failures, label="md5")
     if args.strict and summary.has_failures:
         return 1
     return 0
+
+
+def _checksum_support_warning() -> str | None:
+    """A warning when botocore cannot verify CRC64NVME, S3's default checksum.
+
+    botocore registers that algorithm only with awscrt 0.23.4+ installed and
+    otherwise skips the verification silently, so the operator is told that
+    each download is checked by length alone.
+    """
+    supported = getattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", None)
+    if supported is None or "crc64nvme" in supported:
+        return None
+    return (
+        "botocore cannot verify CRC64NVME here (awscrt>=0.23.4 is not "
+        "installed); each download is checked by length only"
+    )
 
 
 def _invalid_uri_exit(message: str) -> NoReturn:
@@ -526,7 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     fastq.add_argument("--workers", type=int, default=None, help="Process count")
     fastq.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -558,7 +586,7 @@ def build_parser() -> argparse.ArgumentParser:
     cram.add_argument("--workers", type=int, default=None, help="Process count")
     cram.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -635,7 +663,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     h5.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -714,7 +742,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scale_h5ad.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -782,9 +810,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     geo_md5.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
-        help="Max attempts per transient operation (default: 5)",
+        help="Attempts per object, the first included; at least 1 (default: 5)",
     )
     geo_md5.add_argument(
         "--strict",

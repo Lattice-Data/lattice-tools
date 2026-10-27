@@ -4,6 +4,8 @@ import hashlib
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+from botocore.exceptions import IncompleteReadError
+
 from .constants import GEO_MD5_CHUNK_BYTES
 from .models import ListedObject, S3Location
 from .retry import retry_with_backoff
@@ -96,6 +98,10 @@ def parse_s3_object_uri(uri: str) -> tuple[str, str]:
         raise ValueError(f"S3 URI does not name an object: {uri}")
     if key.endswith("/"):
         raise ValueError(f"S3 URI names a prefix, not an object: {uri}")
+    if key.startswith("/"):
+        raise ValueError(f"S3 key starts with '/': {uri}")
+    if "\n" in key or "\r" in key:
+        raise ValueError(f"S3 URI holds a line break: {uri!r}")
     return bucket, key
 
 
@@ -108,12 +114,15 @@ def stream_md5(
 ) -> tuple[str, int]:
     """MD5 hex digest of a whole object, and the byte count it covers.
 
-    The body is read in chunks so a multi-GB matrix never sits in memory. The
-    count is then checked against ``ContentLength``: a connection dropped
-    mid-stream would otherwise hash cleanly and hand GEO a confident md5 of a
-    truncated file. ``ChecksumMode=ENABLED`` asks S3 to send its stored
-    checksum so botocore verifies the stream against it as well, where it has
-    the algorithm (CRC64NVME needs ``awscrt``; see ``requirements.txt``).
+    The body is read in chunks so a multi-GB matrix never sits in memory.
+    botocore's ``StreamingBody`` checks the byte count against
+    ``ContentLength`` on the final read, and ``ChecksumMode=ENABLED`` asks S3
+    for its stored checksum so botocore verifies the stream against that too,
+    where it has the algorithm (CRC64NVME needs ``awscrt``; see
+    ``requirements.txt``). The count is checked here as well, so a body that
+    skips that step still cannot hand GEO a confident md5 of a truncated
+    file. A short read and a checksum mismatch both surface as botocore
+    exceptions that ``retry.is_transient`` retries.
     """
     resp = s3_client.get_object(Bucket=bucket, Key=key, ChecksumMode="ENABLED")
     expected = resp.get("ContentLength")
@@ -127,5 +136,6 @@ def stream_md5(
         digest.update(chunk)
         total += len(chunk)
     if expected is not None and total != expected:
-        raise RuntimeError(f"read {total} bytes but ContentLength is {expected}")
+        # The same type botocore raises, so the retry decision is the same.
+        raise IncompleteReadError(actual_bytes=total, expected_bytes=expected)
     return digest.hexdigest(), total

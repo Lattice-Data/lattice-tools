@@ -37,10 +37,17 @@ def test_is_transient_runtime_error() -> None:
 
 
 def test_is_transient_broken_stream() -> None:
-    from botocore.exceptions import IncompleteReadError, ResponseStreamingError
+    from botocore.exceptions import (
+        FlexibleChecksumError,
+        IncompleteReadError,
+        ResponseStreamingError,
+    )
 
     assert is_transient(IncompleteReadError(actual_bytes=10, expected_bytes=20))
     assert is_transient(ResponseStreamingError(error=OSError("reset")))
+    # A body that arrived whole but failed S3's stored checksum: a fresh GET
+    # is the only remedy, bounded by --retries.
+    assert is_transient(FlexibleChecksumError(error_msg="Expected checksum X"))
 
 
 @patch("file_extract.retry.time.sleep")

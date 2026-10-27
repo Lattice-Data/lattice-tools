@@ -217,11 +217,11 @@ pip install h5py fsspec s3fs
 
 GEO wants an MD5 beside every processed file it receives. Nothing upstream holds one: DB2 files carry `crc64nvme_base64` only, and the modes above fetch that same CRC from S3 object attributes without reading file content. So this mode streams each object in full and hashes it. That is the one expensive operation in the package, which is why it is its own subcommand rather than a flag on `h5` or `scale_h5ad`. Run it where S3 bandwidth is good.
 
-Point it at any TSV or CSV with an `s3_uri` column: the `*_h5_info.tsv` or `*_scale_h5ad_info.tsv` the other modes write, or the RawMatrixFile submission sheet exported from the workbook.
+Point it at the RawMatrixFile submission sheet exported from the workbook, with `--name-column aliases`. That is the input for Cell Ranger and Scale alike, and the only table whose names are the ones GEO sees. Any TSV or CSV with an `s3_uri` column works, with two cautions: the `*_h5_info.tsv` is no use on its own, since every Cell Ranger basename is the same; and the `*_scale_h5ad_info.tsv` also lists each ScalePlex `matrix.mtx.gz`, which GEO receives inside a tar, so drop those rows first or two of them trip the duplicate-name stop.
 
 ```bash
 python -m file_extract geo_md5 <order>_RawMatrixFile.tsv --name-column aliases
-python -m file_extract geo_md5 <run_date>_scale_h5ad_info.tsv
+python -m file_extract geo_md5 <run_date>_scale_h5ad_info.tsv   # .h5ad rows only
 ```
 
 | Flag | Description |
@@ -229,9 +229,9 @@ python -m file_extract geo_md5 <run_date>_scale_h5ad_info.tsv
 | `table` | **Required.** TSV or CSV with an `s3_uri` column. The delimiter follows the suffix; an Excel byte-order mark is tolerated |
 | `--uri-column` | Column holding the object URI (default: `s3_uri`) |
 | `--name-column` | Column holding the GEO file name, e.g. `aliases` (default: the S3 basename) |
-| `-o`, `--output` | Output CSV (default: `<table stem>_geo_md5.csv` in the current directory, like the other modes) |
+| `-o`, `--output` | Output CSV (default: `<table stem>_geo_md5.csv` in the current directory, like the other modes). Must not be the input table. Its header is written before the first download, so a path that cannot be written fails at once |
 | `--workers` | Positive thread count (default: 8). Also the S3 connection pool size; each worker holds one streaming GET open |
-| `--retries` | Max attempts per transient S3 error (default: 5) |
+| `--retries` | Attempts per object, the first included; at least 1 (default: 5) |
 | `--strict` | Exit 1 if any md5 fails |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
@@ -242,15 +242,20 @@ python -m file_extract geo_md5 <run_date>_scale_h5ad_info.tsv
 
 **Guardrails, all before any download:**
 
+- An output path equal to the input table exits 1, and one that cannot be written exits 1 before any download.
+- A table that repeats a column name exits 1; `csv` would otherwise keep only the last one, silently.
 - A GEO file name that repeats exits 1 (GEO rejects duplicate file names). When the names came from basenames, the message points at `--name-column`.
 - The same object listed twice exits 1.
 - A name containing `/` or `\` exits 1; GEO takes bare file names.
-- An empty or malformed `s3_uri` exits 1 naming the row. A row is never skipped: a GEO file that cannot be fetched is exactly what this CSV exists to prevent.
+- An empty or malformed `s3_uri` exits 1 naming the row. A row with any content is never skipped: a GEO file that cannot be fetched is exactly what this CSV exists to prevent. Only a row of nothing but delimiters, which spreadsheet exports often leave at the end, is ignored.
 - An alias cell listing more than one alias exits 1; one file, one name.
 - A name whose extension differs from the object's is a **warning**, not an error. An alias without `.h5` is a legitimate submitter choice, but it deserves a second look before upload.
 - A name with whitespace or punctuation beyond `.`, `_` and `-` is also a **warning**: the FTP upload loop and the GEO template handle such names unevenly.
+- Two names that differ only in case are a **warning** too. GEO's FTP host keeps them apart, but the renaming step runs on the submitter's machine, where the macOS and Windows default filesystems would merge them into one file.
 
-**Download integrity.** Each object is read in 8 MiB chunks and the byte count is checked against `ContentLength`, so a connection dropped mid-stream fails rather than hashing cleanly into a confident md5 of a truncated file. The request also sets `ChecksumMode=ENABLED`, which makes botocore verify the stream against S3's stored CRC64NVME. That verification needs `awscrt` (in `requirements.txt`); without it botocore lacks the algorithm and skips the check silently.
+**Download integrity.** Each object is read in 8 MiB chunks. botocore checks the byte count against `ContentLength` on the final read, and the request sets `ChecksumMode=ENABLED` so botocore also verifies the stream against S3's stored CRC64NVME; the module checks the count once more itself. A short read, a broken stream or a checksum mismatch is retried with a fresh GET, up to `--retries` times in all, and then fails the row rather than hashing into a confident md5 of a corrupted file. The CRC64NVME verification needs `awscrt` 0.23.4 or later (in `requirements.txt`): botocore registers the algorithm only from that version and otherwise skips the check silently, so the run prints a warning when it is missing, and each download is then checked by length alone.
+
+**Ctrl-C** cancels the downloads not yet started. The streams already in flight finish, since a thread cannot be interrupted, and the CSV is left holding its header only.
 
 **Not covered:** FASTQ and CRAM (those go to SRA), a tarred ScalePlex matrix directory (its md5 belongs at tar time), and looking aliases up in DB2 directly (the sheet is the interface).
 

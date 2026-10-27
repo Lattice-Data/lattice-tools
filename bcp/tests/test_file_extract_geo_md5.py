@@ -5,10 +5,13 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
 import pytest
+from botocore.exceptions import IncompleteReadError
 
 from file_extract.geo_md5 import (
     GeoFile,
@@ -88,6 +91,8 @@ def test_parse_s3_object_uri_keeps_query_and_fragment_characters() -> None:
         (f"s3://{BUCKET}", "does not name an object"),
         (f"s3://{BUCKET}/", "does not name an object"),
         (f"s3://{BUCKET}/proj/", "names a prefix"),
+        (f"s3://{BUCKET}//proj/a.h5", "starts with '/'"),
+        (f"s3://{BUCKET}/proj/a\nb.h5", "line break"),
     ],
 )
 def test_parse_s3_object_uri_rejects(uri: str, message: str) -> None:
@@ -124,6 +129,8 @@ def test_geo_file_name(cell: str, expected: str) -> None:
         ("", "empty"),
         ("   ", "empty"),
         ("example-lab:", "empty"),
+        (".", "not a file name"),
+        ('["example-lab:.."]', "not a file name"),
     ],
 )
 def test_geo_file_name_rejects(cell: str, message: str) -> None:
@@ -163,7 +170,7 @@ def test_plan_honours_uri_column() -> None:
 
 def test_plan_missing_columns_name_the_columns_present() -> None:
     rows = [{"#response": "", "uri": _uri(H5AD_A), "": "extra"}]
-    with pytest.raises(GeoMd5Error, match=r"'s3_uri' not in table.*#response, uri"):
+    with pytest.raises(GeoMd5Error, match=r"'s3_uri' not in table.*'#response', 'uri'"):
         plan_geo_files(rows)
     with pytest.raises(GeoMd5Error, match=r"'aliases' not in table"):
         plan_geo_files(rows, uri_column="uri", name_column="aliases")
@@ -255,6 +262,18 @@ def test_extension_warning_different_extension() -> None:
     assert "ends in .h5 but the S3 object ends in .h5ad" in warning
     # A dotted alias has an "extension" too, which is the point of the warning.
     assert extension_warning(_file(1, H5_A, "lib-003.sampleA")) is not None
+
+
+def test_extension_warning_sees_past_a_compression_suffix() -> None:
+    # .tsv.gz and .mtx.gz both end in .gz; the comparison must pair the
+    # compression suffix with the one before it or it cannot tell them apart.
+    mtx = "proj/scaleplex/s.QSR-1.filtered.matrix/matrix.mtx.gz"
+    warning = extension_warning(_file(1, mtx, "s.QSR-1.features.tsv.gz"))
+    assert warning is not None
+    assert "ends in .tsv.gz but the S3 object ends in .mtx.gz" in warning
+    warning = extension_warning(_file(2, mtx, "s.QSR-1.matrix.mtx"))
+    assert warning is not None
+    assert "ends in .mtx but the S3 object ends in .mtx.gz" in warning
 
 
 def test_character_warning() -> None:
@@ -350,10 +369,22 @@ def test_stream_md5_short_read_is_an_error() -> None:
             return {"Body": io.BytesIO(BODY_A[:-3]), "ContentLength": len(BODY_A)}
 
     client = TruncatingClient(object_bodies={H5_A: BODY_A})
+    # botocore's own type, so retry_with_backoff treats it as transient too.
     with pytest.raises(
-        RuntimeError, match=r"read 1001 bytes but ContentLength is 1004"
+        IncompleteReadError, match=r"1001 read, but total bytes expected is 1004"
     ):
         stream_md5(client, BUCKET, H5_A)
+
+
+def test_stream_md5_over_long_read_is_an_error() -> None:
+    class PaddingClient(MockS3Client):
+        def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
+            return {"Body": io.BytesIO(BODY_A + b"xyz"), "ContentLength": len(BODY_A)}
+
+    with pytest.raises(
+        IncompleteReadError, match=r"1007 read, but total bytes expected is 1004"
+    ):
+        stream_md5(PaddingClient(), BUCKET, H5_A)
 
 
 def test_stream_md5_without_content_length_trusts_the_stream() -> None:
@@ -439,10 +470,157 @@ def test_extract_quotes_a_name_holding_a_comma(tmp_path: Path) -> None:
     assert out.read_text(encoding="utf-8").splitlines()[1].startswith('"a,b.h5",')
 
 
-def test_extract_worker_cap_never_exceeds_file_count(tmp_path: Path) -> None:
-    client = MockS3Client(object_bodies={H5_A: BODY_A})
+def test_extract_pool_size_is_min_of_workers_and_file_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import file_extract.geo_md5 as geo_md5_module
+
+    seen: list[int | None] = []
+
+    class RecordingExecutor(ThreadPoolExecutor):
+        def __init__(self, max_workers: int | None = None, **kwargs: Any) -> None:
+            seen.append(max_workers)
+            super().__init__(max_workers=max_workers, **kwargs)
+
+    monkeypatch.setattr(geo_md5_module, "ThreadPoolExecutor", RecordingExecutor)
+    client = MockS3Client(object_bodies={H5_A: BODY_A, H5_B: BODY_B, H5AD_A: b"x"})
+    one = [_file(1, H5_A)]
+    three = [_file(1, H5_A), _file(2, H5_B), _file(3, H5AD_A)]
     out = tmp_path / "geo_md5.csv"
-    summary = extract_geo_md5(
-        client, [_file(1, H5_A)], out, workers=64, show_progress=False
+
+    assert (
+        extract_geo_md5(client, one, out, workers=64, show_progress=False).md5_ok == 1
     )
-    assert summary.md5_ok == 1
+    assert (
+        extract_geo_md5(client, three, out, workers=2, show_progress=False).md5_ok == 3
+    )
+    assert extract_geo_md5(client, three, out, show_progress=False).md5_ok == 3
+    assert seen == [1, 2, 3]
+
+
+def test_extract_retries_a_transient_get(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from botocore.exceptions import ClientError
+
+    class FlakyClient(MockS3Client):
+        """Fails the first GET of every key with a throttle, then serves it."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.throttled: set[str] = set()
+
+        def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
+            if Key not in self.throttled:
+                self.throttled.add(Key)
+                raise ClientError(
+                    {"Error": {"Code": "SlowDown", "Message": "slow"}}, "GetObject"
+                )
+            return super().get_object(Bucket=Bucket, Key=Key, **kwargs)
+
+    monkeypatch.setattr("file_extract.retry.time.sleep", lambda _seconds: None)
+    out = tmp_path / "geo_md5.csv"
+
+    summary = extract_geo_md5(
+        FlakyClient(object_bodies={H5_A: BODY_A}),
+        [_file(1, H5_A)],
+        out,
+        retries=2,
+        show_progress=False,
+    )
+    assert summary.md5_ok == 1 and not summary.failures
+    assert _read_csv(out)[1] == [CR_BASENAME, _md5(BODY_A)]
+
+    summary = extract_geo_md5(
+        FlakyClient(object_bodies={H5_A: BODY_A}),
+        [_file(1, H5_A)],
+        out,
+        retries=1,
+        show_progress=False,
+    )
+    assert summary.md5_ok == 0
+    assert len(summary.failures) == 1 and "SlowDown" in summary.failures[0][1]
+    assert _read_csv(out)[1] == [CR_BASENAME, ""]
+
+
+# --- review follow-ups --------------------------------------------------------
+
+
+def test_case_warnings_flag_names_that_differ_only_in_case() -> None:
+    rows = [
+        {"s3_uri": _uri(H5_A), "aliases": "example-lab:Sample1.h5"},
+        {"s3_uri": _uri(H5AD_A), "aliases": "example-lab:other.h5ad"},
+        {"s3_uri": _uri(H5_B), "aliases": "example-lab:sample1.h5"},
+    ]
+    # Not a duplicate for GEO, so the plan goes through; the warning is advisory.
+    files = plan_geo_files(rows, name_column="aliases")
+    assert len(files) == 3
+    assert name_warnings(files) == [
+        "rows 1, 3: GEO file names 'Sample1.h5', 'sample1.h5' differ only in "
+        "case; a case-insensitive filesystem merges them during the renaming step"
+    ]
+
+
+def test_read_table_skips_rows_of_only_delimiters(tmp_path: Path) -> None:
+    table = tmp_path / "t.tsv"
+    table.write_text(
+        f"s3_uri\tnote\n{_uri(H5AD_A)}\tx\n\t\n{_uri(H5AD_B)}\t\n\t\t\n",
+        encoding="utf-8",
+    )
+    assert [row["s3_uri"] for row in read_table(table)] == [_uri(H5AD_A), _uri(H5AD_B)]
+
+    # A row with any content is still a row, and a missing URI still an error.
+    table.write_text(f"s3_uri\tnote\n{_uri(H5AD_A)}\tx\n\tkept\n", encoding="utf-8")
+    with pytest.raises(GeoMd5Error, match="row 2: empty 's3_uri'"):
+        plan_geo_files(read_table(table))
+
+
+def test_read_table_rejects_repeated_column_names(tmp_path: Path) -> None:
+    # Trailing empty header cells are tolerated; a repeated real name is not,
+    # because csv.DictReader would silently keep only the last one.
+    table = _write_table(
+        tmp_path / "t.tsv",
+        ["s3_uri", "x", "s3_uri", "", ""],
+        [[_uri(H5AD_A), "a", _uri(H5AD_B), "", ""]],
+    )
+    with pytest.raises(GeoMd5Error, match="repeats column names: 's3_uri'"):
+        read_table(table)
+
+
+def test_extract_fails_before_any_download_when_output_cannot_be_written(
+    tmp_path: Path,
+) -> None:
+    client = MockS3Client(object_bodies={H5_A: BODY_A})
+    with pytest.raises(OSError):
+        extract_geo_md5(
+            client,
+            [_file(1, H5_A)],
+            tmp_path / "missing" / "out.csv",
+            show_progress=False,
+        )
+    assert client.get_object_calls == []
+
+
+def test_extract_interrupt_cancels_queued_downloads(tmp_path: Path) -> None:
+    class InterruptingClient(MockS3Client):
+        """The first GET is interrupted; later ones are slow enough to observe."""
+
+        def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
+            first = not self.get_object_calls
+            result = super().get_object(Bucket=Bucket, Key=Key, **kwargs)
+            if first:
+                raise KeyboardInterrupt
+            time.sleep(0.2)
+            return result
+
+    keys = [f"proj/lib{i}/matrix.h5" for i in range(6)]
+    client = InterruptingClient(object_bodies={key: BODY_A for key in keys})
+    files = [_file(i + 1, key, f"s{i}.h5") for i, key in enumerate(keys)]
+    out = tmp_path / "geo_md5.csv"
+    with pytest.raises(KeyboardInterrupt):
+        extract_geo_md5(client, files, out, workers=1, show_progress=False)
+    # The interrupted stream, plus at most the one the worker had already
+    # picked up; the rest were cancelled before they started. Without the
+    # cancel, all six run to completion first.
+    assert len(client.get_object_calls) <= 2
+    assert _read_csv(out) == [["file name", "file checksum"]]
