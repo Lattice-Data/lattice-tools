@@ -237,6 +237,28 @@ def test_plan_rejects_path_separators(name: str) -> None:
         plan_geo_files(rows, name_column="aliases")
 
 
+@pytest.mark.parametrize("name", ["a\nb.h5", "a\rb.h5", "a\tb.h5"])
+def test_plan_rejects_control_characters_in_names(name: str) -> None:
+    rows = [{"aliases": f"example-lab:{name}", "s3_uri": _uri(H5_A)}]
+    with pytest.raises(GeoMd5Error, match="line break or control character"):
+        plan_geo_files(rows, name_column="aliases")
+
+
+def test_quoted_csv_cell_with_a_line_break_is_refused(tmp_path: Path) -> None:
+    # csv quotes the cell, so the line break survives read_table and must be
+    # stopped in the plan, as it was for keys.
+    table = _write_table(
+        tmp_path / "t.csv",
+        ["s3_uri", "aliases"],
+        [[_uri(H5_A), "example-lab:line\nbreak.h5"]],
+        delimiter=",",
+    )
+    rows = read_table(table)
+    assert rows[0]["aliases"] == "example-lab:line\nbreak.h5"
+    with pytest.raises(GeoMd5Error, match="row 1: .*line break"):
+        plan_geo_files(rows, name_column="aliases")
+
+
 # --- extension_warning -------------------------------------------------------
 
 

@@ -1129,20 +1129,22 @@ def test_cli_geo_md5_warns_when_crc64nvme_cannot_be_verified(
     out_csv = tmp_path / "out.csv"
     args = ["geo_md5", str(table), "-o", str(out_csv), "--quiet"]
 
+    # The guard reads a private botocore name; a rename must fail here, not
+    # switch the warning off quietly.
+    assert hasattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS")
+
     monkeypatch.setattr(
-        botocore.httpchecksum,
-        "_SUPPORTED_CHECKSUM_ALGORITHMS",
-        ["crc32", "sha256"],
-        raising=False,
+        botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", ["crc32", "sha256"]
     )
     assert main(args) == 0
     assert "WARNING: botocore cannot verify CRC64NVME" in capsys.readouterr().out
 
     monkeypatch.setattr(
-        botocore.httpchecksum,
-        "_SUPPORTED_CHECKSUM_ALGORITHMS",
-        ["crc32", "crc64nvme"],
-        raising=False,
+        botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", ["crc32", "crc64nvme"]
     )
     assert main(args) == 0
     assert "CRC64NVME" not in capsys.readouterr().out
+
+    monkeypatch.delattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS")
+    assert main(args) == 0
+    assert "CRC64NVME verification cannot be confirmed" in capsys.readouterr().out

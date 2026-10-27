@@ -457,7 +457,15 @@ def _checksum_support_warning() -> str | None:
     each download is checked by length alone.
     """
     supported = getattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", None)
-    if supported is None or "crc64nvme" in supported:
+    if supported is None:
+        # The name is botocore's private one. If a release drops it, fail
+        # toward the warning rather than toward silence.
+        return (
+            "botocore no longer lists its checksum algorithms, so CRC64NVME "
+            "verification cannot be confirmed; each download may be checked by "
+            "length only"
+        )
+    if "crc64nvme" in supported:
         return None
     return (
         "botocore cannot verify CRC64NVME here (awscrt>=0.23.4 is not "
@@ -777,8 +785,8 @@ def build_parser() -> argparse.ArgumentParser:
     geo_md5.add_argument(
         "table",
         help=(
-            "TSV or CSV with an s3_uri column, e.g. <order>_h5_info.tsv or the "
-            "RawMatrixFile sheet"
+            "TSV or CSV with an s3_uri column: the RawMatrixFile sheet, with "
+            "--name-column aliases (an *_h5_info.tsv alone repeats every name)"
         ),
     )
     geo_md5.add_argument(

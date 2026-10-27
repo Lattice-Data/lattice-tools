@@ -207,6 +207,13 @@ def plan_geo_files(
             raise GeoMd5Error(
                 f"row {row_number}: GEO file name {name!r} contains a path separator"
             )
+        if any(ord(char) < 32 for char in name):
+            # A quoted CSV cell can carry a line break; written back out it
+            # would make a multi-line GEO cell. Keys refuse these too.
+            raise GeoMd5Error(
+                f"row {row_number}: GEO file name {name!r} contains a line break "
+                "or control character"
+            )
         files.append(GeoFile(row=row_number, bucket=bucket, key=key, name=name))
 
     uri_counts = Counter(file.s3_uri for file in files)

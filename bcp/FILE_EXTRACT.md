@@ -246,7 +246,7 @@ python -m file_extract geo_md5 <run_date>_scale_h5ad_info.tsv   # .h5ad rows onl
 - A table that repeats a column name exits 1; `csv` would otherwise keep only the last one, silently.
 - A GEO file name that repeats exits 1 (GEO rejects duplicate file names). When the names came from basenames, the message points at `--name-column`.
 - The same object listed twice exits 1.
-- A name containing `/` or `\` exits 1; GEO takes bare file names.
+- A name containing `/` or `\` exits 1; GEO takes bare file names. So does a name holding a line break or another control character, which a quoted CSV cell can carry.
 - An empty or malformed `s3_uri` exits 1 naming the row. A row with any content is never skipped: a GEO file that cannot be fetched is exactly what this CSV exists to prevent. Only a row of nothing but delimiters, which spreadsheet exports often leave at the end, is ignored.
 - An alias cell listing more than one alias exits 1; one file, one name.
 - A name whose extension differs from the object's is a **warning**, not an error. An alias without `.h5` is a legitimate submitter choice, but it deserves a second look before upload.
