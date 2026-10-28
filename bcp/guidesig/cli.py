@@ -26,6 +26,9 @@ H5_SCOPE_BOTH = "both"
 H5_SCOPES = (H5_SCOPE_MULTI, H5_SCOPE_PER_SAMPLE, H5_SCOPE_BOTH)
 H5_MULTI_FILENAME_HELP_DEFAULT = "raw_feature_bc_matrix.h5"
 H5_PER_SAMPLE_FILENAME_HELP_DEFAULT = "sample_filtered_feature_bc_matrix.h5"
+# Mirror h5check's per-scope worker defaults, for the help text only.
+H5_MULTI_WORKERS_HELP_DEFAULT = 24
+H5_PER_SAMPLE_WORKERS_HELP_DEFAULT = 8
 DEFAULT_RETRIES = 5
 
 
@@ -163,7 +166,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--workers",
         type=_positive_int,
-        help="Threads for reading h5 files (default: 8)",
+        help=(
+            "Threads for reading h5 files, and the S3 connection pool they "
+            f"share (default: {H5_MULTI_WORKERS_HELP_DEFAULT} for --h5-scope "
+            f"{H5_SCOPE_MULTI}, which opens one h5 per library; "
+            f"{H5_PER_SAMPLE_WORKERS_HELP_DEFAULT} for "
+            f"{H5_SCOPE_PER_SAMPLE} and {H5_SCOPE_BOTH}, which open one per "
+            "sample)"
+        ),
     )
     parser.add_argument(
         "--retries",

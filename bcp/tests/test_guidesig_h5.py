@@ -959,3 +959,130 @@ def test_flat_layout_missing_guides_name_the_run(tmp_path: Path) -> None:
         f"library LIB1 (run Run_1) (s3://{BUCKET}/{FLAT_KEY}): 1 of 2 guide_ids "
         "missing from h5; examples: g2"
     ]
+
+
+# --- per-scope worker defaults ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "scope, expected",
+    [
+        ("multi", h5check.MULTI_SCOPE_WORKERS),
+        ("per-sample", h5check.PER_SAMPLE_SCOPE_WORKERS),
+        ("both", h5check.PER_SAMPLE_SCOPE_WORKERS),
+    ],
+)
+def test_default_workers_for_scope(scope: str, expected: int) -> None:
+    assert h5check.default_workers_for(scope) == expected
+
+
+def test_multi_scope_opens_more_threads_than_per_sample() -> None:
+    """The point of the split: multi opens one h5 per library, so it can widen."""
+    assert h5check.MULTI_SCOPE_WORKERS > h5check.PER_SAMPLE_SCOPE_WORKERS
+
+
+def test_cli_worker_help_defaults_match_h5check() -> None:
+    """cli spells the defaults out for help text; keep the two in step."""
+    from guidesig import cli
+
+    assert cli.H5_MULTI_WORKERS_HELP_DEFAULT == h5check.MULTI_SCOPE_WORKERS
+    assert cli.H5_PER_SAMPLE_WORKERS_HELP_DEFAULT == h5check.PER_SAMPLE_SCOPE_WORKERS
+
+
+@pytest.mark.parametrize("scope", ["multi", "per-sample", "both"])
+def test_explicit_workers_overrides_the_scope_default(
+    tmp_path: Path, monkeypatch, scope: str
+) -> None:
+    seen: list[int] = []
+    monkeypatch.setattr(
+        h5check,
+        "h5_worker_ceiling",
+        lambda *, do_introspect, workers: seen.append(workers) or workers,
+    )
+    files = {MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1"))}
+    check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        scope=scope,
+        workers=3,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert seen == [3]
+
+
+@pytest.mark.parametrize(
+    "scope, expected",
+    [
+        ("multi", 24),
+        ("per-sample", 8),
+        ("both", 8),
+    ],
+)
+def test_unset_workers_uses_the_scope_default(
+    tmp_path: Path, monkeypatch, scope: str, expected: int
+) -> None:
+    seen: list[int] = []
+    monkeypatch.setattr(
+        h5check,
+        "h5_worker_ceiling",
+        lambda *, do_introspect, workers: seen.append(workers) or workers,
+    )
+    files = {MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1"))}
+    check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        scope=scope,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert seen == [expected]
+
+
+# --- S3 block size for the features read --------------------------------------
+
+
+def test_features_block_size_is_well_below_the_s3fs_default() -> None:
+    """The whole point of setting it: s3fs would otherwise fetch 50 MiB a seek."""
+    assert h5check.FEATURES_BLOCK_SIZE == 1 * 2**20
+    assert h5check.FEATURES_BLOCK_SIZE < 50 * 2**20
+
+
+def test_read_s3_h5_guide_ids_passes_block_size_to_fs_open(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Pin the block size, and the call shape that actually delivers it.
+
+    fsspec.open forwards keywords as storage options to the filesystem
+    constructor, where S3FileSystem takes default_block_size and not
+    block_size, so that form cannot deliver one. A refactor back to it, or
+    dropping the argument, would restore 50 MiB blocks and 25-second reads
+    while leaving every other test green, so this asserts the kwarg reaches
+    fs.open with the value we measured.
+    """
+    fsspec = pytest.importorskip("fsspec")
+    local_h5 = _write_h5(tmp_path / "m.h5", _guides("g1", "g2"))
+    captured: dict[str, object] = {}
+
+    class FakeFS:
+        def open(self, path, mode, *, block_size):
+            captured.update(path=path, mode=mode, block_size=block_size)
+            return open(local_h5, "rb")
+
+    def fake_filesystem(protocol, **storage_options):
+        captured.update(protocol=protocol, storage_options=storage_options)
+        return FakeFS()
+
+    monkeypatch.setattr(fsspec, "filesystem", fake_filesystem)
+
+    guides = h5check.read_s3_h5_guide_ids(BUCKET, "lib/m.h5", pool_size=24)
+
+    assert guides == {"g1", "g2"}
+    assert captured["block_size"] == h5check.FEATURES_BLOCK_SIZE
+    assert captured["protocol"] == "s3"
+    assert captured["path"] == f"s3://{BUCKET}/lib/m.h5"
+    assert captured["mode"] == "rb"
+    # pool_size still reaches the client config, as file_extract passes it.
+    assert captured["storage_options"] == {
+        "config_kwargs": {"max_pool_connections": 24}
+    }

@@ -764,9 +764,17 @@ only the per-sample sweep, so the run-level check continues to cover every libra
 - Every h5 is read before anything is reported, so one run lists every failing file; the
   signature is printed only if all pass
 - `--h5-filename NAME` overrides the active scope's default basename
-- `--workers N` (default 8) sets parallel h5 reads; `--retries N` (default 5) sets attempts
-  per transient S3 error. These, `--h5-scope`, `--h5-filename` and `--h5-samples-file`
-  require `--h5-uri`
+- `--workers N` sets parallel h5 reads and the S3 connection pool they share. The default
+  depends on how many files the scope opens at once, since opening one h5 costs many range
+  reads: **24** for `multi`, which opens one per library, and **8** for `per-sample` and
+  `both`, which open one per sample and are the high-fanout case `file_extract`'s shared
+  ceiling was tuned for
+- `--retries N` (default 5) sets attempts per transient S3 error. `--workers`, `--retries`,
+  `--h5-scope`, `--h5-filename` and `--h5-samples-file` require `--h5-uri`
+- Each h5 is opened with a 1 MiB S3 block size (`h5check.FEATURES_BLOCK_SIZE`), not s3fs's
+  50 MiB default. Reading the features table takes only ~8 seeks, so large blocks fetched
+  ~226 MiB per file to return a few MB; 1 MiB fetches ~7 MiB and is ~14x faster. Not a
+  flag, and no reason to go lower: 256 KiB fetches less but is slower
 - S3 listing, retries and sample/library naming are reused from `file_extract`
 
 ### Guidescan exact-match rate (`--guidescan --species`)

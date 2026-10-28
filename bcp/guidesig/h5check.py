@@ -66,6 +66,29 @@ RUN_LEVEL_LOCATIONS = f"{FLAT_OUTS_SEGMENT} and {MULTI_COUNT_SEGMENT}"
 CRISPR_FEATURE_TYPE = "CRISPR Guide Capture"
 EXAMPLE_LIMIT = 10
 
+# Default thread/pool sizes, by scope; see default_workers_for. These are
+# guidesig's own, so file_extract's shared ceiling keeps its tuned value for
+# the high-fanout introspection it still does.
+MULTI_SCOPE_WORKERS = 24
+PER_SAMPLE_SCOPE_WORKERS = 8
+
+# Bytes s3fs fetches per range request. Reading the features table takes only
+# about eight seeks, but s3fs defaults to 50 MiB blocks, so on a multi-GB
+# run-level matrix each of those seeks dragged down a whole 50 MiB block.
+# Measured against one real 4.3 GiB raw_feature_bc_matrix.h5, reading the same
+# features table at each block size:
+#
+#     block size   requests   fetched   elapsed
+#       50 MiB            7   226.5 MiB   25.04s   <- s3fs default
+#        8 MiB            8    56.0 MiB    2.77s
+#        1 MiB            8     7.0 MiB    1.74s
+#      256 KiB           10     2.3 MiB    1.95s
+#
+# Request count barely moves, so the cost was over-fetching rather than round
+# trips. 256 KiB fetches less but is slower, being where the extra requests
+# start to show; 1 MiB is the floor worth using.
+FEATURES_BLOCK_SIZE = 1 * 2**20
+
 # reader(bucket, key) -> CRISPR feature IDs in that h5.
 H5Reader = Callable[[str, str], "set[str]"]
 
@@ -79,6 +102,21 @@ def default_filename_for(scope: str) -> str:
     if scope == SCOPE_MULTI:
         return DEFAULT_MULTI_H5_FILENAME
     return DEFAULT_PER_SAMPLE_H5_FILENAME
+
+
+def default_workers_for(scope: str) -> int:
+    """Threads, and S3 pool size, a scope uses when ``--workers`` is unset.
+
+    Opening an h5 costs many range reads, so the ceiling is about how many
+    files a scope opens at once rather than how fast one of them is. ``multi``
+    opens one per library, which is few enough to widen; the per-sample sweep
+    opens one per sample, which is the high-fanout case the shared
+    ``file_extract`` ceiling of 8 was tuned for. ``both`` runs that sweep too,
+    so it keeps the lower number.
+    """
+    if scope == SCOPE_MULTI:
+        return MULTI_SCOPE_WORKERS
+    return PER_SAMPLE_SCOPE_WORKERS
 
 
 @dataclass(frozen=True)
@@ -157,17 +195,22 @@ def guide_ids_from_h5(h5: Any) -> set[str]:
 def read_s3_h5_guide_ids(bucket: str, key: str, *, pool_size: int) -> set[str]:
     """Open an h5 over S3 and return its CRISPR feature IDs.
 
-    Only the features table is read, never the count matrix. ``pool_size`` is
-    passed the same way ``file_extract`` does, so s3fs reuses one filesystem.
+    Only the features table is read, never the count matrix, so the block size
+    is set explicitly; see ``FEATURES_BLOCK_SIZE``. ``pool_size`` is passed the
+    same way ``file_extract`` does, so s3fs reuses one filesystem.
+
+    The block size has to go to ``fs.open``, not to ``fsspec.open``:
+    ``fsspec.open`` forwards its keywords as *storage options* to the
+    filesystem constructor, which takes ``default_block_size`` rather than
+    ``block_size``, so a ``block_size`` passed there reaches the botocore
+    session and raises ``TypeError``. ``fastq_chunker.s3io`` opens the same
+    way for the same reason.
     """
     import fsspec
     import h5py
 
-    with fsspec.open(
-        f"s3://{bucket}/{key}",
-        "rb",
-        config_kwargs={"max_pool_connections": pool_size},
-    ) as fobj:
+    fs = fsspec.filesystem("s3", config_kwargs={"max_pool_connections": pool_size})
+    with fs.open(f"s3://{bucket}/{key}", "rb", block_size=FEATURES_BLOCK_SIZE) as fobj:
         with h5py.File(fobj, "r") as h5:
             return guide_ids_from_h5(h5)
 
@@ -574,7 +617,9 @@ def check_guide_ids_against_h5(
     except ValueError as exc:
         raise H5CheckError(str(exc)) from exc
 
-    pool_size = h5_worker_ceiling(do_introspect=True, workers=workers)
+    pool_size = h5_worker_ceiling(
+        do_introspect=True, workers=workers or default_workers_for(scope)
+    )
     if s3_client is None or reader is None:
         check_dependencies()
     if s3_client is None:
