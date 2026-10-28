@@ -18,8 +18,10 @@ from guidesig.cli import main  # noqa: E402
 from guidesig.h5check import (  # noqa: E402
     H5CheckError,
     check_guide_ids_against_h5,
-    find_h5_layout,
+    find_multi_layout,
+    find_per_sample_layout,
     guide_ids_from_h5,
+    is_run_level_h5,
     read_sample_names,
 )
 from tests.file_extract_helpers import MockS3Client  # noqa: E402
@@ -33,6 +35,20 @@ KEY_S1 = f"{OUTS}/S1/count/{H5_NAME}"
 KEY_S2 = f"{OUTS}/S2/count/{H5_NAME}"
 CRISPR = "CRISPR Guide Capture"
 GEX = "Gene Expression"
+
+# Run-level layout: one outs/multi/count/ per library, under a run folder.
+MULTI_NAME = "raw_feature_bc_matrix.h5"
+LIB1 = "proj/order/LIB1/"
+LIB2 = "proj/order/LIB2/"
+RUN1 = f"{LIB1}processed/cellranger/Run_1/outs"
+RUN2 = f"{LIB1}processed/cellranger/Run_2/outs"
+LIB2_RUN1 = f"{LIB2}processed/cellranger/Run_1/outs"
+MULTI_KEY = f"{RUN1}/multi/count/{MULTI_NAME}"
+MULTI_KEY_RUN2 = f"{RUN2}/multi/count/{MULTI_NAME}"
+MULTI_KEY_LIB2 = f"{LIB2_RUN1}/multi/count/{MULTI_NAME}"
+# Cell Ranger 10.x writes the same basename flat at the top of outs/.
+FLAT_KEY = f"{RUN1}/{MULTI_NAME}"
+FLAT_KEY_LIB2 = f"{LIB2_RUN1}/{MULTI_NAME}"
 
 
 def _write_h5(path: Path, features: list[tuple[str, str]]) -> Path:
@@ -112,8 +128,12 @@ def test_guide_ids_from_h5_requires_feature_ids(tmp_path: Path) -> None:
 # --- finding h5 files and folders that lack one ------------------------------
 
 
-def test_find_h5_layout_flags_sample_and_library_folders_without_h5() -> None:
-    """LIB2 has processed output but no per_sample_outs/ and no h5: reported."""
+def test_find_per_sample_layout_flags_sample_and_library_folders_without_h5() -> None:
+    """LIB2 has processed output but no per_sample_outs/ at all: reported.
+
+    Whether a library holds a run-level h5 is find_multi_layout's question, so
+    this layout reports only the missing per_sample_outs/.
+    """
     keys = [
         KEY_S1,
         f"{OUTS}/S1/metrics_summary.csv",
@@ -122,15 +142,15 @@ def test_find_h5_layout_flags_sample_and_library_folders_without_h5() -> None:
         "proj/order/LIB2/processed/run1/outs/web_summary.html",  # LIB2 has no h5
         "proj/order/LIB2/raw/y_R1_001.fastq.gz",
     ]
-    layout = find_h5_layout(keys, H5_NAME)
+    layout = find_per_sample_layout(keys, H5_NAME)
     assert layout.h5_keys == [KEY_S1]
     assert layout.sample_dirs_without_h5 == [f"{OUTS}/S2/"]
-    assert layout.library_dirs_without_h5 == ["proj/order/LIB2/"]
+    assert layout.library_dirs_without_per_sample_outs == ["proj/order/LIB2/"]
 
 
-def test_find_h5_layout_matches_basename_exactly() -> None:
+def test_find_per_sample_layout_matches_basename_exactly() -> None:
     keys = [f"{OUTS}/S1/count/raw_{H5_NAME}", KEY_S2]
-    layout = find_h5_layout(keys, H5_NAME)
+    layout = find_per_sample_layout(keys, H5_NAME)
     assert layout.h5_keys == [KEY_S2]
     assert layout.sample_dirs_without_h5 == [f"{OUTS}/S1/"]
 
@@ -146,6 +166,7 @@ def test_all_samples_pass_and_extras_are_notes(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1", "g2"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=list(files)),
         reader=_local_reader(files),
     )
@@ -165,6 +186,7 @@ def test_every_failing_sample_is_reported(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1", "g2", "g3"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=list(files)),
         reader=_local_reader(files),
     )
@@ -190,6 +212,7 @@ def test_unreadable_h5_fails_that_sample_only(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=[KEY_S1, KEY_S2]),
         reader=reader,
     )
@@ -205,6 +228,7 @@ def test_h5_without_crispr_features_fails(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=list(files)),
         reader=_local_reader(files),
     )
@@ -220,6 +244,7 @@ def test_missing_folders_are_failures(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=keys),
         reader=_local_reader(files),
     )
@@ -233,6 +258,7 @@ def test_no_h5_found_is_a_failure() -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=["proj/order/LIB1/raw/x_R1_001.fastq.gz"]),
         reader=lambda bucket, key: set(),
     )
@@ -302,7 +328,17 @@ def test_cli_pass_prints_signature_and_notes(tmp_path: Path, fake_s3, capsys) ->
     files, _state = fake_s3
     files[KEY_S1] = _write_h5(tmp_path / "s1.h5", _guides("g1", "g2", "g9"))
     sheet = _sheet(tmp_path, ["g1", "g2"])
-    main(["--format", "tsv", "--h5-uri", URI, str(sheet)])
+    main(
+        [
+            "--format",
+            "tsv",
+            "--h5-uri",
+            URI,
+            "--h5-scope",
+            "per-sample",
+            str(sheet),
+        ]
+    )
     captured = capsys.readouterr()
     sig, path = captured.out.strip().split("\t")
     assert sig.startswith("gsig1:set:n=2:")
@@ -317,7 +353,17 @@ def test_cli_failure_lists_every_problem(tmp_path: Path, fake_s3, capsys) -> Non
     files[KEY_S2] = _write_h5(tmp_path / "s2.h5", _guides("g2"))
     sheet = _sheet(tmp_path, ["g1", "g2"])
     with pytest.raises(SystemExit) as exc:
-        main(["--format", "tsv", "--h5-uri", URI, str(sheet)])
+        main(
+            [
+                "--format",
+                "tsv",
+                "--h5-uri",
+                URI,
+                "--h5-scope",
+                "per-sample",
+                str(sheet),
+            ]
+        )
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -360,6 +406,7 @@ def test_cli_h5_usage_errors(capsys, extra_args: list[str], message: str) -> Non
         ("--retries", "2"),
         ("--h5-filename", "x"),
         ("--h5-samples-file", "samples.tsv"),
+        ("--h5-scope", "per-sample"),
     ],
 )
 def test_cli_h5_flags_require_h5_uri(capsys, flag: str, value: str) -> None:
@@ -430,6 +477,7 @@ def test_sample_list_reads_only_listed_h5(tmp_path: Path) -> None:
         URI,
         samples=["tb7k_q2"],
         samples_label="samples.tsv",
+        scope="per-sample",
         s3_client=MockS3Client(keys=list(files)),
         reader=reader,
     )
@@ -447,6 +495,7 @@ def test_listed_sample_without_h5_fails(tmp_path: Path) -> None:
         URI,
         samples=["tb7k_q2", "tb7k_q9"],
         samples_label="samples.tsv",
+        scope="per-sample",
         s3_client=MockS3Client(keys=list(files)),
         reader=_local_reader(files),
     )
@@ -462,6 +511,7 @@ def test_sample_list_matching_nothing_reports_each_name() -> None:
         URI,
         samples=["tb7k_q2"],
         samples_label="samples.tsv",
+        scope="per-sample",
         s3_client=MockS3Client(keys=[KEY_B]),
         reader=lambda bucket, key: set(),
     )
@@ -485,6 +535,7 @@ def test_missing_folder_checks_respect_sample_list(tmp_path: Path) -> None:
         {"g1"},
         URI,
         samples=["tb7k_q2"],
+        scope="per-sample",
         s3_client=MockS3Client(keys=keys),
         reader=_local_reader(files),
     )
@@ -504,6 +555,8 @@ def test_cli_h5_samples_file(tmp_path: Path, fake_s3, capsys) -> None:
             "tsv",
             "--h5-uri",
             URI,
+            "--h5-scope",
+            "per-sample",
             "--h5-samples-file",
             str(samples),
             str(sheet),
@@ -529,6 +582,8 @@ def test_cli_bad_samples_file_fails_before_s3(tmp_path: Path, fake_s3, capsys) -
                 "tsv",
                 "--h5-uri",
                 URI,
+                "--h5-scope",
+                "per-sample",
                 "--h5-samples-file",
                 str(samples),
                 str(sheet),
@@ -548,6 +603,7 @@ def test_listed_sample_with_empty_folder_reported_once(tmp_path: Path) -> None:
         URI,
         samples=["tb7k_q2", "tb7k_q5"],
         samples_label="samples.tsv",
+        scope="per-sample",
         s3_client=MockS3Client(keys=keys),
         reader=_local_reader(files),
     )
@@ -567,6 +623,7 @@ def test_missing_h5_in_same_named_library_reported_once(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=keys),
         reader=_local_reader(files),
     )
@@ -578,8 +635,8 @@ def test_missing_h5_in_same_named_library_reported_once(tmp_path: Path) -> None:
 def test_library_with_sample_folders_not_reported() -> None:
     """LIB1 has sample folders (one with, one without an h5): only S2 is reported."""
     keys = [KEY_S1, f"{OUTS}/S2/metrics_summary.csv"]
-    layout = find_h5_layout(keys, H5_NAME)
-    assert layout.library_dirs_without_h5 == []
+    layout = find_per_sample_layout(keys, H5_NAME)
+    assert layout.library_dirs_without_per_sample_outs == []
     assert layout.sample_dirs_without_h5 == [f"{OUTS}/S2/"]
 
 
@@ -589,13 +646,11 @@ def test_library_without_per_sample_outs_fails_the_run(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
+        scope="per-sample",
         s3_client=MockS3Client(keys=keys),
         reader=_local_reader(files),
     )
-    expected = (
-        f"library folder s3://{BUCKET}/proj/order/LIB2/ has no {H5_NAME} "
-        "and no per_sample_outs/"
-    )
+    expected = f"library folder s3://{BUCKET}/proj/order/LIB2/ has no per_sample_outs/"
     assert report.failures == [expected]
 
 
@@ -607,11 +662,298 @@ def test_listed_sample_matching_library_failure_reported_once(tmp_path: Path) ->
         URI,
         samples=["tb7k_q2", "pm3x_v8"],
         samples_label="samples.tsv",
+        scope="per-sample",
         s3_client=MockS3Client(keys=keys),
         reader=_local_reader(files),
     )
     expected = (
-        f"library folder s3://{BUCKET}/proj/order/pm3x_v8/ has no {H5_NAME} "
-        "and no per_sample_outs/"
+        f"library folder s3://{BUCKET}/proj/order/pm3x_v8/ has no per_sample_outs/"
     )
     assert report.failures == [expected]
+
+
+# --- multi scope: one run-level h5 per library --------------------------------
+
+
+def test_find_multi_layout_groups_one_h5_per_library() -> None:
+    keys = [
+        MULTI_KEY,
+        MULTI_KEY_LIB2,
+        f"{RUN1}/multi/count/feature_reference.csv",
+        f"{RUN1}/per_sample_outs/S1/count/{H5_NAME}",
+    ]
+    layout = find_multi_layout(keys, MULTI_NAME)
+    assert layout.h5_keys == sorted([MULTI_KEY, MULTI_KEY_LIB2])
+    assert layout.libraries_without_h5 == []
+    assert layout.ambiguous_libraries == []
+
+
+def test_find_multi_layout_ignores_per_sample_h5() -> None:
+    """A per-sample h5 is not under outs/multi/count/, so multi scope skips it."""
+    layout = find_multi_layout([KEY_S1, KEY_S2], MULTI_NAME)
+    assert layout.h5_keys == []
+    assert layout.libraries_without_h5 == [LIB1]
+
+
+def test_find_multi_layout_reports_library_without_h5() -> None:
+    keys = [MULTI_KEY, f"{LIB2_RUN1}/web_summary.html"]
+    layout = find_multi_layout(keys, MULTI_NAME)
+    assert layout.h5_keys == [MULTI_KEY]
+    assert layout.libraries_without_h5 == [LIB2]
+
+
+def test_find_multi_layout_reports_two_run_folders_as_ambiguous() -> None:
+    """Reprocessing left two run folders: which describes the delivery is undecidable."""
+    layout = find_multi_layout([MULTI_KEY, MULTI_KEY_RUN2], MULTI_NAME)
+    assert layout.h5_keys == []
+    assert layout.libraries_without_h5 == []
+    assert layout.ambiguous_libraries == [(LIB1, sorted([MULTI_KEY, MULTI_KEY_RUN2]))]
+
+
+def test_multi_scope_is_the_default_and_labels_the_run(tmp_path: Path) -> None:
+    files = {MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1", "g2", "g9"))}
+    report = check_guide_ids_against_h5(
+        {"g1", "g2"},
+        URI,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.ok
+    assert (report.h5_total, report.h5_failed) == (1, 0)
+    assert report.notes == [
+        f"library LIB1 (run Run_1) (s3://{BUCKET}/{MULTI_KEY}): 1 guide(s) in h5 "
+        "not in metadata; examples: g9"
+    ]
+
+
+def test_multi_scope_reads_one_h5_per_library(tmp_path: Path) -> None:
+    """Two libraries, one read each; the per-sample h5s alongside are not read."""
+    files = {
+        MULTI_KEY: _write_h5(tmp_path / "m1.h5", _guides("g1")),
+        MULTI_KEY_LIB2: _write_h5(tmp_path / "m2.h5", _guides("g1")),
+    }
+    read: list[str] = []
+    local = _local_reader(files)
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return local(bucket, key)
+
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        s3_client=MockS3Client(keys=[*files, KEY_S1, KEY_S2]),
+        reader=reader,
+    )
+    assert report.ok
+    assert sorted(read) == sorted([MULTI_KEY, MULTI_KEY_LIB2])
+    assert report.h5_total == 2
+
+
+def test_multi_scope_missing_guides_fail(tmp_path: Path) -> None:
+    files = {MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1"))}
+    report = check_guide_ids_against_h5(
+        {"g1", "g2"},
+        URI,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"library LIB1 (run Run_1) (s3://{BUCKET}/{MULTI_KEY}): 1 of 2 guide_ids "
+        "missing from h5; examples: g2"
+    ]
+
+
+def test_multi_scope_library_without_h5_fails(tmp_path: Path) -> None:
+    files = {MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1"))}
+    keys = [*files, f"{LIB2_RUN1}/web_summary.html"]
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        s3_client=MockS3Client(keys=keys),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"library folder s3://{BUCKET}/{LIB2} has no run-level {MULTI_NAME} "
+        "under outs/ and outs/multi/count/"
+    ]
+    assert report.h5_total == 1
+
+
+def test_multi_scope_ambiguous_library_is_not_read(tmp_path: Path) -> None:
+    files = {
+        MULTI_KEY: _write_h5(tmp_path / "m1.h5", _guides("g1")),
+        MULTI_KEY_RUN2: _write_h5(tmp_path / "m2.h5", _guides("g1")),
+    }
+    read: list[str] = []
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return {"g1"}
+
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=reader,
+    )
+    assert read == []
+    assert report.h5_total == 0
+    assert len(report.failures) == 1
+    failure = report.failures[0]
+    assert (
+        f"library folder s3://{BUCKET}/{LIB1} has 2 run-level {MULTI_NAME} files"
+        in failure
+    )
+    assert "expected exactly one, so none were read" in failure
+    assert f"s3://{BUCKET}/{MULTI_KEY}" in failure
+    assert f"s3://{BUCKET}/{MULTI_KEY_RUN2}" in failure
+
+
+def test_multi_scope_with_no_multi_output_suggests_per_sample() -> None:
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        s3_client=MockS3Client(keys=["proj/order/LIB1/raw/x_R1_001.fastq.gz"]),
+        reader=lambda bucket, key: set(),
+    )
+    assert report.failures == [
+        f"no run-level {MULTI_NAME} found under {URI} (looked under outs/ and "
+        "outs/multi/count/); if this order has no cellranger multi output, use "
+        "--h5-scope per-sample"
+    ]
+
+
+def test_scope_both_runs_each_scope(tmp_path: Path) -> None:
+    files = {
+        MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1")),
+        f"{RUN1}/per_sample_outs/S1/count/{H5_NAME}": _write_h5(
+            tmp_path / "s1.h5", _guides("g1")
+        ),
+    }
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        scope="both",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.ok
+    assert report.h5_total == 2
+
+
+@pytest.mark.parametrize(
+    "kwargs, message",
+    [
+        ({"scope": "sample"}, "unknown scope 'sample'"),
+        ({"scope": "both", "filename": "x.h5"}, "cannot apply to scope 'both'"),
+        ({"samples": ["S1"]}, "does not apply to scope 'multi'"),
+    ],
+)
+def test_scope_argument_errors(kwargs: dict, message: str) -> None:
+    with pytest.raises(H5CheckError, match=message):
+        check_guide_ids_against_h5(
+            {"g1"}, URI, s3_client=MockS3Client(), reader=lambda b, k: set(), **kwargs
+        )
+
+
+def test_cli_multi_scope_is_the_default(tmp_path: Path, fake_s3, capsys) -> None:
+    files, _state = fake_s3
+    files[MULTI_KEY] = _write_h5(tmp_path / "m.h5", _guides("g1", "g2"))
+    sheet = _sheet(tmp_path, ["g1", "g2"])
+    main(["--format", "tsv", "--h5-uri", URI, str(sheet)])
+    captured = capsys.readouterr()
+    assert captured.out.startswith("gsig1:set:n=2:")
+    assert "error:" not in captured.err
+
+
+@pytest.mark.parametrize(
+    "extra_args, message",
+    [
+        (
+            ["--h5-samples-file", "samples.tsv"],
+            "--h5-samples-file narrows the per-sample sweep",
+        ),
+        (
+            ["--h5-scope", "both", "--h5-filename", "x.h5"],
+            "--h5-filename is not allowed with --h5-scope both",
+        ),
+    ],
+)
+def test_cli_scope_usage_errors(capsys, extra_args: list[str], message: str) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--format", "tsv", "--h5-uri", URI, *extra_args, "a.tsv"])
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+# --- both Cell Ranger layouts -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key, expected",
+    [
+        (MULTI_KEY, True),  # 9.0.1 nested
+        (FLAT_KEY, True),  # 10.x flat
+        (KEY_S1, False),  # per-sample, different basename
+        (f"{RUN1}/per_sample_outs/{MULTI_NAME}", False),  # per_sample_outs is not outs
+        (f"{RUN1}/multi/{MULTI_NAME}", False),  # multi/ without count/
+        (f"{RUN1}/analysis/{MULTI_NAME}", False),  # some other outs/ subfolder
+    ],
+)
+def test_is_run_level_h5_matches_segments_not_suffixes(key: str, expected: bool) -> None:
+    assert is_run_level_h5(key, MULTI_NAME) is expected
+
+
+def test_find_multi_layout_accepts_the_flat_layout() -> None:
+    """Cell Ranger 10.x writes no multi/count/ subtree at all."""
+    keys = [
+        FLAT_KEY,
+        f"{RUN1}/filtered_feature_bc_matrix.h5",
+        f"{RUN1}/feature_reference.csv",
+        f"{RUN1}/per_sample_outs/S1/count/{H5_NAME}",
+    ]
+    layout = find_multi_layout(keys, MULTI_NAME)
+    assert layout.h5_keys == [FLAT_KEY]
+    assert layout.libraries_without_h5 == []
+    assert layout.ambiguous_libraries == []
+
+
+def test_find_multi_layout_mixes_layouts_across_libraries() -> None:
+    """One order may hold a 9.0.1 library and a 10.x library side by side."""
+    layout = find_multi_layout([MULTI_KEY, FLAT_KEY_LIB2], MULTI_NAME)
+    assert layout.h5_keys == sorted([MULTI_KEY, FLAT_KEY_LIB2])
+    assert layout.libraries_without_h5 == []
+
+
+def test_find_multi_layout_both_layouts_in_one_library_is_ambiguous() -> None:
+    """Reprocessing across versions leaves two run-level h5s under one library."""
+    layout = find_multi_layout([MULTI_KEY, FLAT_KEY], MULTI_NAME)
+    assert layout.h5_keys == []
+    assert layout.ambiguous_libraries == [(LIB1, sorted([MULTI_KEY, FLAT_KEY]))]
+
+
+def test_flat_layout_is_read_and_labelled(tmp_path: Path) -> None:
+    files = {FLAT_KEY: _write_h5(tmp_path / "flat.h5", _guides("g1"))}
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.ok
+    assert report.h5_total == 1
+
+
+def test_flat_layout_missing_guides_name_the_run(tmp_path: Path) -> None:
+    files = {FLAT_KEY: _write_h5(tmp_path / "flat.h5", _guides("g1"))}
+    report = check_guide_ids_against_h5(
+        {"g1", "g2"},
+        URI,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"library LIB1 (run Run_1) (s3://{BUCKET}/{FLAT_KEY}): 1 of 2 guide_ids "
+        "missing from h5; examples: g2"
+    ]

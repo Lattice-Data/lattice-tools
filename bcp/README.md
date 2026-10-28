@@ -699,29 +699,74 @@ what the user sees when they open the file.
 ### h5 guide_id check (`--h5-uri`)
 
 `--h5-uri s3://bucket/proj/order` additionally checks that every `guide_id` in the sheet
-appears among the `CRISPR Guide Capture` feature IDs (`matrix/features/id`) of each
-sample's Cell Ranger h5 under that prefix. It takes exactly one FILE and is not allowed
-with `--compare`; the sheet must have a `guide_id` column.
+appears among the `CRISPR Guide Capture` feature IDs (`matrix/features/id`) of the Cell
+Ranger h5 files under that prefix. It takes exactly one FILE and is not allowed with
+`--compare`; the sheet must have a `guide_id` column.
 
-- One S3 listing finds every `--h5-filename` (default
-  `sample_filtered_feature_bc_matrix.h5`); only the features table of each h5 is read
-- **Failures:** a sheet `guide_id` missing from a sample's h5; an h5 that cannot be read
-  or has no CRISPR features; a `per_sample_outs/<sample>/` folder with no target h5; a
-  library folder (the folder before `processed/`) with no target h5 and no
-  `per_sample_outs/`, as a failed or half-uploaded run leaves; no target h5 at all
-- **Notes:** guides present in an h5 but absent from the sheet
-- Every sample is checked before anything is reported, so one run lists every failing
-  sample; the signature is printed only if all pass
-- `--h5-samples-file PATH` limits the check to the samples named in PATH: one exact,
+`--h5-scope` decides which h5 files those are. One S3 listing serves every scope, and
+only the features table of each h5 is read, never the count matrix.
+
+#### `--h5-scope multi` (default)
+
+Reads the run-level `raw_feature_bc_matrix.h5`, **one per library**. Within a single
+`cellranger multi` run the feature reference is per-run, not per-sample, so every
+per-sample h5 carries an identical features table; reading the run-level file once per
+library is the whole guide_id check.
+
+Both Cell Ranger layouts are accepted, matched on path segments rather than a string
+suffix, so `per_sample_outs` never counts as `outs`:
+
+| version | run-level location |
+|---|---|
+| `cellranger-9.0.1` | `outs/multi/count/raw_feature_bc_matrix.h5` |
+| `cellranger-10.0.0`, `10.1.0` | `outs/raw_feature_bc_matrix.h5` (flat, no `multi/count/` subtree) |
+
+A single order may mix the two across libraries. Two run-level h5s under *one* library,
+whether from reprocessing or from a version change, is the ambiguity failure below.
+
+- **Failures:** a sheet `guide_id` missing from a library's h5; an h5 that cannot be read
+  or has no CRISPR features; a library folder (the folder before `processed/`) with no
+  run-level h5 in either location; a library holding **more than one**, which makes the
+  delivery undecidable, so none of them are read; no run-level h5 anywhere under the
+  prefix
+- h5 files are labelled `library <library> (run <run folder>)`, since one library may hold
+  several run folders
+
+#### `--h5-scope per-sample`
+
+Sweeps every `per_sample_outs/<sample>/count/sample_filtered_feature_bc_matrix.h5`.
+Because those all carry the same features table, this is a **file integrity check** over
+an order's per-sample outputs, not a guide check: it catches missing, truncated and
+unreadable per-sample files.
+
+- **Failures:** the same h5 read and guide_id failures as above, plus a
+  `per_sample_outs/<sample>/` folder with no target h5, a library folder with no
+  `per_sample_outs/` at all (as a failed or half-uploaded run leaves), and no target h5
+  at all
+- `--h5-samples-file PATH` limits the sweep to the samples named in PATH: one exact,
   case-sensitive name per line, no header; blank lines and `#` lines are skipped and
   repeats are ignored; a line holding a tab is an error. Names are matched against the
   `per_sample_outs/<sample>/` folder (else the library folder), so `tb7k_q2` never matches
   `Wtb7k_q2`. Unlisted samples are ignored entirely, including by the missing-folder
   checks; a listed sample with no h5 is a failure; a note reports how many h5 files were
-  checked
+  checked. It narrows the per-sample sweep only, so it requires `--h5-scope per-sample`
+  or `both`
+
+#### `--h5-scope both`
+
+Runs each of the two scopes against the same listing. `--h5-samples-file` still narrows
+only the per-sample sweep, so the run-level check continues to cover every library.
+`--h5-filename` is **not allowed** with `both`, which looks for two different basenames.
+
+#### Shared behaviour
+
+- **Notes:** guides present in an h5 but absent from the sheet
+- Every h5 is read before anything is reported, so one run lists every failing file; the
+  signature is printed only if all pass
+- `--h5-filename NAME` overrides the active scope's default basename
 - `--workers N` (default 8) sets parallel h5 reads; `--retries N` (default 5) sets attempts
-  per transient S3 error. These, `--h5-filename` and `--h5-samples-file` require
-  `--h5-uri`
+  per transient S3 error. These, `--h5-scope`, `--h5-filename` and `--h5-samples-file`
+  require `--h5-uri`
 - S3 listing, retries and sample/library naming are reused from `file_extract`
 
 ### Guidescan exact-match rate (`--guidescan --species`)
@@ -818,8 +863,16 @@ python -m guidesig --format tsv --compare lib_a.tsv lib_b.tsv
 # Alternate column
 python -m guidesig --format tsv lib.tsv --column guide_rc_sequence
 
-# Check guide_ids against every sample's h5 in an order
+# Check guide_ids against each library's run-level h5 in an order
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order lib.tsv
+
+# File integrity sweep over the per-sample h5s instead
+python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
+  --h5-scope per-sample lib.tsv
+
+# Both, limiting the per-sample sweep to named samples
+python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
+  --h5-scope both --h5-samples-file samples.txt lib.tsv
 
 # ...and report the guidescan exact-match rate
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \

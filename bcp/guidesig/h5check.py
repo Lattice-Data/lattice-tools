@@ -1,9 +1,27 @@
 """Check a guide metadata sheet's guide_ids against Cell Ranger h5 matrices.
 
 Every ``guide_id`` in the sheet must appear among the ``CRISPR Guide Capture``
-feature IDs of each sample's h5 under an S3 order prefix. Guides present in an
-h5 but absent from the sheet are reported as notes, not failures. A sample
-list (``read_sample_names``) can limit the check to named samples.
+feature IDs of the h5 files found under an S3 order prefix. Guides present in
+an h5 but absent from the sheet are reported as notes, not failures.
+
+Two scopes decide which h5 files those are:
+
+``multi`` (the default)
+    The run-level ``raw_feature_bc_matrix.h5``, one per library, found under
+    either ``outs/`` (Cell Ranger 10.x flat layout) or ``outs/multi/count/``
+    (9.0.1 nested layout). Within a single ``cellranger multi`` run the feature
+    reference is per-run, not per-sample, so every per-sample h5 carries an
+    identical features table; reading the run-level file once per library is
+    the whole guide_id check. A library with no such h5 fails, and a library
+    with more than one fails as an ambiguity rather than being read.
+
+``per-sample``
+    Every ``per_sample_outs/<sample>/count/sample_filtered_feature_bc_matrix.h5``.
+    Because the features table is identical across them, this is a file
+    integrity sweep over an order's per-sample outputs, not a guide check: it
+    catches missing, truncated or unreadable per-sample files. The sample
+    folder checks and ``samples``/``read_sample_names`` filtering belong to
+    this scope only.
 
 S3 listing, retry and sample/library naming are reused from ``file_extract`` so
 the two tools agree on which files an order holds and what they are called.
@@ -26,7 +44,25 @@ from file_extract.s3_utils import list_objects_with_size, parse_s3_uri, s3_uri_f
 
 from .core import GuideSigError
 
-DEFAULT_H5_FILENAME = DEFAULT_H5_TARGET_FILENAME
+SCOPE_MULTI = "multi"
+SCOPE_PER_SAMPLE = "per-sample"
+SCOPE_BOTH = "both"
+SCOPES = (SCOPE_MULTI, SCOPE_PER_SAMPLE, SCOPE_BOTH)
+
+#: Run-level matrix written by ``cellranger multi``, under ``outs/multi/count/``.
+DEFAULT_MULTI_H5_FILENAME = "raw_feature_bc_matrix.h5"
+#: Per-sample matrix, under ``outs/per_sample_outs/<sample>/count/``.
+DEFAULT_PER_SAMPLE_H5_FILENAME = DEFAULT_H5_TARGET_FILENAME
+
+# Where a run-level matrix sits depends on the Cell Ranger layout, both of
+# which this repo supports (see qa_constants.CELLRANGER_FLAT_LAYOUT):
+# 9.0.1 nests it under outs/multi/count/, while 10.0.0 and 10.1.0 write it
+# flat at the top of outs/ with no multi/count/ subtree at all. The basename
+# is the same either way, so both are accepted and the per-library cardinality
+# rule decides the rest.
+MULTI_COUNT_SEGMENT = "outs/multi/count/"
+FLAT_OUTS_SEGMENT = "outs/"
+RUN_LEVEL_LOCATIONS = f"{FLAT_OUTS_SEGMENT} and {MULTI_COUNT_SEGMENT}"
 CRISPR_FEATURE_TYPE = "CRISPR Guide Capture"
 EXAMPLE_LIMIT = 10
 
@@ -38,18 +74,39 @@ class H5CheckError(GuideSigError):
     """Raised when the h5 check cannot run at all (bad URI, listing failed)."""
 
 
+def default_filename_for(scope: str) -> str:
+    """The h5 basename a scope looks for when none is given."""
+    if scope == SCOPE_MULTI:
+        return DEFAULT_MULTI_H5_FILENAME
+    return DEFAULT_PER_SAMPLE_H5_FILENAME
+
+
 @dataclass(frozen=True)
-class H5Layout:
-    """What one listing of an order prefix says about its h5 files."""
+class MultiLayout:
+    """What one listing says about an order's run-level ``multi/count`` h5s.
+
+    One library must hold exactly one. ``h5_keys`` are the libraries that do;
+    ``libraries_without_h5`` and ``ambiguous_libraries`` are the two ways a
+    library can fail instead.
+    """
+
+    h5_keys: list[str]
+    libraries_without_h5: list[str]
+    ambiguous_libraries: list[tuple[str, list[str]]]
+
+
+@dataclass(frozen=True)
+class PerSampleLayout:
+    """What one listing says about an order's ``per_sample_outs`` h5s."""
 
     h5_keys: list[str]
     sample_dirs_without_h5: list[str]
-    library_dirs_without_h5: list[str]
+    library_dirs_without_per_sample_outs: list[str]
 
 
 @dataclass
 class H5CheckReport:
-    """Outcome of checking one sheet's guide_ids against every h5 in an order."""
+    """Outcome of checking one sheet's guide_ids against an order's h5 files."""
 
     h5_total: int = 0
     h5_failed: int = 0
@@ -115,17 +172,81 @@ def read_s3_h5_guide_ids(bucket: str, key: str, *, pool_size: int) -> set[str]:
             return guide_ids_from_h5(h5)
 
 
-def find_h5_layout(keys: list[str], filename: str) -> H5Layout:
-    """Find the target h5 keys, and the folders that should hold one but do not.
+def _library_dir(key: str) -> str:
+    """The library folder a key sits under: the path before ``processed/``."""
+    parts = key.split("/")
+    if "processed" in parts:
+        idx = parts.index("processed")
+        if idx > 0:
+            return "/".join(parts[:idx]) + "/"
+    return ""
+
+
+def _multi_group(key: str) -> str:
+    """The library a run-level h5 counts towards.
+
+    Normally the library folder. A key with no ``processed/`` segment still has
+    to land in some group, so it falls back to whatever precedes ``outs/``;
+    that keeps one h5 from being silently dropped.
+    """
+    library = _library_dir(key)
+    if library:
+        return library
+    head, marker, _tail = key.partition(FLAT_OUTS_SEGMENT)
+    return head if marker else key
+
+
+def is_run_level_h5(key: str, filename: str) -> bool:
+    """Whether ``key`` is a run-level ``filename`` in either Cell Ranger layout.
+
+    Matched on path segments, not a string suffix, so ``per_sample_outs`` never
+    counts as ``outs`` on a basename collision.
+    """
+    parts = key.split("/")
+    if parts[-1] != filename:
+        return False
+    folders = parts[:-1]
+    return folders[-1:] == ["outs"] or folders[-3:] == ["outs", "multi", "count"]
+
+
+def find_multi_layout(keys: list[str], filename: str) -> MultiLayout:
+    """Group the run-level ``filename`` keys by library, in either layout.
+
+    Every library seen in the listing must hold exactly one. Libraries holding
+    none, and libraries holding several (reprocessing left more than one run
+    folder, so which one describes the delivery is undecidable), are returned
+    for the caller to fail on rather than guessed at.
+    """
+    h5_keys = sorted(k for k in keys if is_run_level_h5(k, filename))
+
+    library_dirs = {d for k in keys if (d := _library_dir(k))}
+    by_library: dict[str, list[str]] = {}
+    for key in h5_keys:
+        by_library.setdefault(_multi_group(key), []).append(key)
+
+    return MultiLayout(
+        h5_keys=sorted(
+            found[0] for found in by_library.values() if len(found) == 1
+        ),
+        libraries_without_h5=sorted(library_dirs - set(by_library)),
+        ambiguous_libraries=sorted(
+            (library, sorted(found))
+            for library, found in by_library.items()
+            if len(found) > 1
+        ),
+    )
+
+
+def find_per_sample_layout(keys: list[str], filename: str) -> PerSampleLayout:
+    """Find per-sample h5 keys, and the folders that should hold one but do not.
 
     A sample folder is any ``.../per_sample_outs/<sample>/`` seen in the
     listing; one with no ``filename`` beneath it is reported, since it would
     otherwise be silently skipped. A library folder (the path before a
-    ``processed`` segment, as in ``file_extract``) is reported only when it
-    holds no ``filename`` *and* no sample folder: that is a failed or
-    half-uploaded run, which no sample-folder check can see. A library that
-    has sample folders is left to their check, so one missing h5 is reported
-    once.
+    ``processed`` segment, as in ``file_extract``) is reported when it holds no
+    ``per_sample_outs/`` at all, which is a failed or half-uploaded run that no
+    sample-folder check can see. Whether a library holds a run-level h5 is a
+    separate question, answered by ``find_multi_layout``.
     """
     h5_keys = sorted(k for k in keys if k.rsplit("/", 1)[-1] == filename)
 
@@ -137,23 +258,19 @@ def find_h5_layout(keys: list[str], filename: str) -> H5Layout:
             sample, slash, _rest = tail.partition("/")
             if sample and slash:
                 sample_dirs.add(f"{head}per_sample_outs/{sample}/")
-        parts = key.split("/")
-        if "processed" in parts:
-            idx = parts.index("processed")
-            if idx > 0:
-                library_dirs.add("/".join(parts[:idx]) + "/")
+        if library := _library_dir(key):
+            library_dirs.add(library)
 
-    def without_h5(dirs: set[str]) -> list[str]:
-        return sorted(d for d in dirs if not any(k.startswith(d) for k in h5_keys))
-
-    return H5Layout(
+    return PerSampleLayout(
         h5_keys=h5_keys,
-        sample_dirs_without_h5=without_h5(sample_dirs),
-        library_dirs_without_h5=[
+        sample_dirs_without_h5=sorted(
+            d for d in sample_dirs if not any(k.startswith(d) for k in h5_keys)
+        ),
+        library_dirs_without_per_sample_outs=sorted(
             lib
-            for lib in without_h5(library_dirs)
+            for lib in library_dirs
             if not any(d.startswith(lib) for d in sample_dirs)
-        ],
+        ),
     )
 
 
@@ -194,13 +311,36 @@ def _scope_name(key: str) -> str:
     return extract_sample_name(key) or extract_library(key)
 
 
-def _label(key: str) -> str:
-    """Name an h5 by its sample, falling back to library, then the key."""
+def _run_folder(key: str) -> str:
+    """The run folder holding ``outs/``, as in ``.../cellranger/<run>/outs/``."""
+    parts = key.split("/")
+    if "outs" in parts:
+        idx = parts.index("outs")
+        if idx > 0:
+            return parts[idx - 1]
+    return ""
+
+
+def _per_sample_label(key: str) -> str:
+    """Name a per-sample h5 by its sample, falling back to library, then key."""
     sample = extract_sample_name(key)
     library = extract_library(key)
     if sample and library:
-        return f"{sample} (library {library})"
-    return sample or library or key
+        return f"sample {sample} (library {library})"
+    return f"sample {sample or library or key}"
+
+
+def _multi_label(key: str) -> str:
+    """Name a run-level h5 by library and run folder.
+
+    The run folder is included because one library may hold several run
+    folders; without it two h5s under one library read as the same thing.
+    """
+    library = extract_library(key)
+    run = _run_folder(key)
+    if library and run:
+        return f"library {library} (run {run})"
+    return f"library {library}" if library else key
 
 
 def _examples(values: set[str]) -> str:
@@ -214,11 +354,184 @@ def _make_s3_client(pool_size: int) -> Any:
     return boto3.client("s3", config=Config(max_pool_connections=pool_size))
 
 
+def _compare_h5_files(
+    keys: list[str],
+    *,
+    bucket: str,
+    guide_ids: set[str],
+    reader: H5Reader,
+    retries: int,
+    pool_size: int,
+    label: Callable[[str], str],
+    report: H5CheckReport,
+) -> None:
+    """Read every key and record missing/extra guides against ``report``.
+
+    Every h5 is read before anything is recorded, so one run shows every
+    failing file rather than stopping at the first.
+    """
+    if not keys:
+        return
+    report.h5_total += len(keys)
+
+    def fetch(key: str) -> tuple[set[str] | None, str | None]:
+        return retry_with_backoff(reader, bucket, key, retries=retries)
+
+    with ThreadPoolExecutor(max_workers=min(pool_size, len(keys))) as pool:
+        results = list(pool.map(fetch, keys))
+
+    for key, (h5_ids, err) in zip(keys, results):
+        where = f"{label(key)} ({s3_uri_for(bucket, key)})"
+        if err:
+            report.h5_failed += 1
+            report.failures.append(f"{where}: could not read h5: {err}")
+            continue
+        if not h5_ids:
+            report.h5_failed += 1
+            report.failures.append(
+                f"{where}: no {CRISPR_FEATURE_TYPE!r} features in h5"
+            )
+            continue
+        missing = guide_ids - h5_ids
+        extra = h5_ids - guide_ids
+        if missing:
+            report.h5_failed += 1
+            report.failures.append(
+                f"{where}: {len(missing)} of {len(guide_ids)} guide_ids missing "
+                f"from h5; examples: {_examples(missing)}"
+            )
+        if extra:
+            report.notes.append(
+                f"{where}: {len(extra)} guide(s) in h5 not in metadata; "
+                f"examples: {_examples(extra)}"
+            )
+
+
+def _check_multi_scope(
+    guide_ids: set[str],
+    keys: list[str],
+    *,
+    bucket: str,
+    h5_uri: str,
+    filename: str,
+    reader: H5Reader,
+    retries: int,
+    pool_size: int,
+    report: H5CheckReport,
+) -> None:
+    """Check one run-level h5 per library."""
+    layout = find_multi_layout(keys, filename)
+
+    for library in layout.libraries_without_h5:
+        report.failures.append(
+            f"library folder {s3_uri_for(bucket, library)} has no run-level "
+            f"{filename} under {RUN_LEVEL_LOCATIONS}"
+        )
+    for library, found in layout.ambiguous_libraries:
+        locations = ", ".join(s3_uri_for(bucket, k) for k in found)
+        report.failures.append(
+            f"library folder {s3_uri_for(bucket, library)} has {len(found)} "
+            f"run-level {filename} files; expected exactly one, so none were "
+            f"read: {locations}"
+        )
+    if (
+        not layout.h5_keys
+        and not layout.libraries_without_h5
+        and not layout.ambiguous_libraries
+    ):
+        report.failures.append(
+            f"no run-level {filename} found under {h5_uri} "
+            f"(looked under {RUN_LEVEL_LOCATIONS}); if this order has no "
+            f"cellranger multi output, use --h5-scope {SCOPE_PER_SAMPLE}"
+        )
+        return
+
+    _compare_h5_files(
+        layout.h5_keys,
+        bucket=bucket,
+        guide_ids=guide_ids,
+        reader=reader,
+        retries=retries,
+        pool_size=pool_size,
+        label=_multi_label,
+        report=report,
+    )
+
+
+def _check_per_sample_scope(
+    guide_ids: set[str],
+    keys: list[str],
+    *,
+    bucket: str,
+    h5_uri: str,
+    filename: str,
+    reader: H5Reader,
+    retries: int,
+    pool_size: int,
+    samples: Collection[str] | None,
+    samples_label: str,
+    all_h5: int,
+    report: H5CheckReport,
+) -> None:
+    """Sweep every per-sample h5; a file integrity check, not a guide check."""
+    if samples is not None:
+        wanted = set(samples)
+        keys = [k for k in keys if _scope_name(k) in wanted]
+    layout = find_per_sample_layout(keys, filename)
+
+    for folder in layout.library_dirs_without_per_sample_outs:
+        report.failures.append(
+            f"library folder {s3_uri_for(bucket, folder)} has no per_sample_outs/"
+        )
+    for folder in layout.sample_dirs_without_h5:
+        report.failures.append(
+            f"sample folder {s3_uri_for(bucket, folder)} has no {filename}"
+        )
+    if samples is not None:
+        report.notes.append(
+            f"checked {len(layout.h5_keys)} of {all_h5} {filename} file(s); "
+            f"samples from {samples_label}"
+        )
+        found = {_scope_name(k) for k in layout.h5_keys}
+        # A folder failure above already names a sample whose folder exists
+        # but holds no h5, so the listed-sample message is kept for names with
+        # no folder at all.
+        covered = {
+            folder.rstrip("/").rsplit("/", 1)[-1]
+            for folder in (
+                layout.sample_dirs_without_h5
+                + layout.library_dirs_without_per_sample_outs
+            )
+        }
+        for name in samples:
+            if name not in found and name not in covered:
+                report.failures.append(
+                    f"sample {name!r} listed in {samples_label} has no {filename} "
+                    f"under {h5_uri}"
+                )
+    if not layout.h5_keys:
+        if samples is None:
+            report.failures.append(f"no {filename} found under {h5_uri}")
+        return
+
+    _compare_h5_files(
+        layout.h5_keys,
+        bucket=bucket,
+        guide_ids=guide_ids,
+        reader=reader,
+        retries=retries,
+        pool_size=pool_size,
+        label=_per_sample_label,
+        report=report,
+    )
+
+
 def check_guide_ids_against_h5(
     guide_ids: set[str],
     h5_uri: str,
     *,
-    filename: str = DEFAULT_H5_FILENAME,
+    scope: str = SCOPE_MULTI,
+    filename: str | None = None,
     workers: int | None = None,
     retries: int = 5,
     samples: Collection[str] | None = None,
@@ -226,19 +539,38 @@ def check_guide_ids_against_h5(
     s3_client: Any = None,
     reader: H5Reader | None = None,
 ) -> H5CheckReport:
-    """Check ``guide_ids`` against every ``filename`` under ``h5_uri``.
+    """Check ``guide_ids`` against the h5 files under ``h5_uri``.
 
-    Every h5 is checked before anything is reported, so one run shows every
-    failing sample. ``samples``, when given, limits every part of the check
-    (h5 reads and missing-folder reports) to those exact names, matched against
-    the ``per_sample_outs/<sample>/`` folder (else the library folder); a
-    listed name with no h5 is a failure. ``samples_label`` names the list in
-    messages. ``s3_client`` and ``reader`` exist for tests; by default a boto3
-    client lists the prefix and each h5 is opened over S3.
+    One S3 listing serves every scope. ``scope`` selects which h5 files are
+    read; see the module docstring. ``filename`` overrides that scope's default
+    basename and is rejected under ``both``, where two different defaults are
+    in play. ``samples`` limits the per-sample sweep (h5 reads and
+    missing-folder reports) to those exact names, matched against the
+    ``per_sample_outs/<sample>/`` folder (else the library folder); a listed
+    name with no h5 is a failure. It never narrows the ``multi`` scope, whose
+    unit is the library, so under ``both`` the run-level check still covers
+    every library. ``samples_label`` names the list in messages. ``s3_client``
+    and ``reader`` exist for tests; by default a boto3 client lists the prefix
+    and each h5 is opened over S3.
 
     Raises:
-        H5CheckError: If the URI is invalid or the prefix cannot be listed.
+        H5CheckError: If the scope is unknown, the URI is invalid, the prefix
+            cannot be listed, or an argument does not apply to the scope.
     """
+    if scope not in SCOPES:
+        raise H5CheckError(
+            f"unknown scope {scope!r}; expected one of {', '.join(SCOPES)}"
+        )
+    if filename is not None and scope == SCOPE_BOTH:
+        raise H5CheckError(
+            f"a filename override cannot apply to scope {SCOPE_BOTH!r}, which "
+            "looks for two different h5 basenames"
+        )
+    if samples is not None and scope == SCOPE_MULTI:
+        raise H5CheckError(
+            f"a sample list does not apply to scope {SCOPE_MULTI!r}, whose unit "
+            f"is the library; use --h5-scope {SCOPE_PER_SAMPLE} or {SCOPE_BOTH}"
+        )
     try:
         location = parse_s3_uri(h5_uri)
     except ValueError as exc:
@@ -266,78 +598,34 @@ def check_guide_ids_against_h5(
 
     bucket = location.bucket
     keys = [obj.key for obj in listed or []]
-    all_h5 = sum(1 for k in keys if k.rsplit("/", 1)[-1] == filename)
-    if samples is not None:
-        wanted = set(samples)
-        keys = [k for k in keys if _scope_name(k) in wanted]
-    layout = find_h5_layout(keys, filename)
-    report = H5CheckReport(h5_total=len(layout.h5_keys))
+    report = H5CheckReport()
+    shared = {
+        "bucket": bucket,
+        "h5_uri": h5_uri,
+        "reader": reader,
+        "retries": retries,
+        "pool_size": pool_size,
+        "report": report,
+    }
 
-    for folder in layout.library_dirs_without_h5:
-        report.failures.append(
-            f"library folder {s3_uri_for(bucket, folder)} has no {filename} "
-            "and no per_sample_outs/"
+    if scope in (SCOPE_MULTI, SCOPE_BOTH):
+        _check_multi_scope(
+            guide_ids,
+            keys,
+            filename=filename or DEFAULT_MULTI_H5_FILENAME,
+            **shared,
         )
-    for folder in layout.sample_dirs_without_h5:
-        report.failures.append(
-            f"sample folder {s3_uri_for(bucket, folder)} has no {filename}"
+    if scope in (SCOPE_PER_SAMPLE, SCOPE_BOTH):
+        per_sample_filename = filename or DEFAULT_PER_SAMPLE_H5_FILENAME
+        _check_per_sample_scope(
+            guide_ids,
+            keys,
+            filename=per_sample_filename,
+            samples=samples,
+            samples_label=samples_label,
+            all_h5=sum(
+                1 for k in keys if k.rsplit("/", 1)[-1] == per_sample_filename
+            ),
+            **shared,
         )
-    if samples is not None:
-        report.notes.append(
-            f"checked {len(layout.h5_keys)} of {all_h5} {filename} file(s); "
-            f"samples from {samples_label}"
-        )
-        found = {_scope_name(k) for k in layout.h5_keys}
-        # A folder failure above already names a sample whose folder exists
-        # but holds no h5, so the listed-sample message is kept for names with
-        # no folder at all.
-        covered = {
-            folder.rstrip("/").rsplit("/", 1)[-1]
-            for folder in (
-                layout.sample_dirs_without_h5 + layout.library_dirs_without_h5
-            )
-        }
-        for name in samples:
-            if name not in found and name not in covered:
-                report.failures.append(
-                    f"sample {name!r} listed in {samples_label} has no {filename} "
-                    f"under {h5_uri}"
-                )
-    if not layout.h5_keys:
-        if samples is None:
-            report.failures.append(f"no {filename} found under {h5_uri}")
-        return report
-
-    def fetch(key: str) -> tuple[set[str] | None, str | None]:
-        return retry_with_backoff(reader, bucket, key, retries=retries)
-
-    with ThreadPoolExecutor(max_workers=min(pool_size, len(layout.h5_keys))) as pool:
-        results = list(pool.map(fetch, layout.h5_keys))
-
-    for key, (h5_ids, err) in zip(layout.h5_keys, results):
-        where = f"sample {_label(key)} ({s3_uri_for(bucket, key)})"
-        if err:
-            report.h5_failed += 1
-            report.failures.append(f"{where}: could not read h5: {err}")
-            continue
-        if not h5_ids:
-            report.h5_failed += 1
-            report.failures.append(
-                f"{where}: no {CRISPR_FEATURE_TYPE!r} features in h5"
-            )
-            continue
-        missing = guide_ids - h5_ids
-        extra = h5_ids - guide_ids
-        if missing:
-            report.h5_failed += 1
-            report.failures.append(
-                f"{where}: {len(missing)} of {len(guide_ids)} guide_ids missing "
-                f"from h5; examples: {_examples(missing)}"
-            )
-        if extra:
-            report.notes.append(
-                f"{where}: {len(extra)} guide(s) in h5 not in metadata; "
-                f"examples: {_examples(extra)}"
-            )
-
     return report
