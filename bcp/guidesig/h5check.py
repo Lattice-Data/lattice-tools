@@ -225,9 +225,7 @@ def find_multi_layout(keys: list[str], filename: str) -> MultiLayout:
         by_library.setdefault(_multi_group(key), []).append(key)
 
     return MultiLayout(
-        h5_keys=sorted(
-            found[0] for found in by_library.values() if len(found) == 1
-        ),
+        h5_keys=sorted(found[0] for found in by_library.values() if len(found) == 1),
         libraries_without_h5=sorted(library_dirs - set(by_library)),
         ambiguous_libraries=sorted(
             (library, sorted(found))
@@ -623,9 +621,7 @@ def check_guide_ids_against_h5(
             filename=per_sample_filename,
             samples=samples,
             samples_label=samples_label,
-            all_h5=sum(
-                1 for k in keys if k.rsplit("/", 1)[-1] == per_sample_filename
-            ),
+            all_h5=sum(1 for k in keys if k.rsplit("/", 1)[-1] == per_sample_filename),
             **shared,
         )
     return report

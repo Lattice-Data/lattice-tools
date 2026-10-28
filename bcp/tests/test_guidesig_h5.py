@@ -901,7 +901,9 @@ def test_cli_scope_usage_errors(capsys, extra_args: list[str], message: str) -> 
         (f"{RUN1}/analysis/{MULTI_NAME}", False),  # some other outs/ subfolder
     ],
 )
-def test_is_run_level_h5_matches_segments_not_suffixes(key: str, expected: bool) -> None:
+def test_is_run_level_h5_matches_segments_not_suffixes(
+    key: str, expected: bool
+) -> None:
     assert is_run_level_h5(key, MULTI_NAME) is expected
 
 
