@@ -48,6 +48,7 @@ from mapping_validation import (
     validate_sif_completeness_seahub,
     validate_uniqueness,
 )
+from mapping_validation.sif_io import _normalize_sif_assay_token
 
 
 def _write_temp_mapping(tmp_path: Path, contents: str) -> Path:
@@ -1599,14 +1600,14 @@ def test_get_assays_returns_base_set_for_10x() -> None:
     """get_assays('10x') should return the family base without provider extras."""
     assays = get_assays("10x")
     assert assays == ASSAYS_10X
-    assert assays == {"GEX", "CRI", "ATAC"}
+    assert assays == {"GEX", "CRI", "ATAC", "ADT", "HTO", "ADT_HTO"}
 
 
 def test_get_assays_extends_with_provider_extras() -> None:
     """get_assays('10x', 'psomagen') should include viral_ORF."""
     assays = get_assays("10x", "psomagen")
     assert "viral_ORF" in assays
-    assert assays == {"GEX", "CRI", "ATAC", "viral_ORF"}
+    assert assays == {"GEX", "CRI", "ATAC", "ADT", "HTO", "ADT_HTO", "viral_ORF"}
 
 
 def test_get_assays_novogene_equals_base_10x() -> None:
@@ -3481,3 +3482,151 @@ def test_validate_10x_raw_fastq_completeness_unexpected_suffix_caught() -> None:
         e["type"] == "unexpected_sample_file" and "_codes.csv" in e.get("detail", "")
         for e in res["errors"]
     )
+
+
+# ---------------------------------------------------------------------------
+# CITE-seq assays (ADT, HTO, ADT_HTO)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "provider,bucket,order",
+    [
+        ("psomagen", "czi-psomagen", "AN00000001"),
+        ("novogene", "czi-novogene", "NVUS0000000000-29"),
+    ],
+)
+@pytest.mark.parametrize("assay", ["ADT", "HTO", "ADT_HTO"])
+def test_validate_s3_10x_raw_accepts_cite_seq_assays(
+    provider: str, bucket: str, order: str, assay: str
+) -> None:
+    """CITE-seq tokens are SOP assays for both 10x vendors, not vendor extras."""
+    row = MappingRow(
+        f"s3://{bucket}/project-alpha/{order}/G1/raw/"
+        f"453047-G1_{assay}-Z0258-CAACAGCTCTCTGAT_S1_L001_R1_001.fastq.gz",
+        "/local/path",
+        2,
+    )
+
+    result = validate_s3_10x_raw(provider, [row])
+
+    assert result["matched"] == 1
+    assert result["errors"] == []
+    assert result["group_assays"] == {"G1": {assay}}
+
+
+def test_validate_s3_10x_raw_adt_hto_is_not_split_into_adt() -> None:
+    """``ADT_HTO`` must parse whole; a lazy stem could otherwise stop at ``ADT``."""
+    row = MappingRow(
+        "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/"
+        "453047-G1_ADT_HTO-Z0258-CAACAGCTCTCTGAT.csv",
+        "/local/path",
+        2,
+    )
+
+    result = validate_s3_10x_raw("psomagen", [row])
+
+    assert result["group_assays"] == {"G1": {"ADT_HTO"}}
+
+
+def test_validate_s3_10x_raw_still_rejects_cite_spelling() -> None:
+    """``CITE`` is the library-prep name, not an SOP token; it stays unparsed."""
+    row = MappingRow(
+        "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/"
+        "453047-G1_CITE-Z0258-CAACAGCTCTCTGAT.csv",
+        "/local/path",
+        2,
+    )
+
+    result = validate_s3_10x_raw("psomagen", [row])
+
+    assert result["matched"] == 0
+    assert {w["type"] for w in result["warnings"]} == {"parse_miss"}
+
+
+def test_validate_10x_raw_fastq_read_mates_adt_needs_r1_and_r2() -> None:
+    """ADT follows the non-ATAC rule: R1 and R2, so a lone R1 is flagged."""
+    row = MappingRow(
+        "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/"
+        "453047-G1_ADT-Z0258-CAACAGCTCTCTGAT_S1_L001_R1_001.fastq.gz",
+        "/local/path",
+        2,
+    )
+
+    result = validate_10x_raw_fastq_read_mates("psomagen", [row])
+
+    assert result["errors"]
+
+
+def test_validate_s3_10x_illumina_raw_accepts_adt() -> None:
+    """10x_illumina shares the 10x assay family, so ADT FASTQs parse there too."""
+    rows = [
+        MappingRow(r.s3_path.replace("_GEX_", "_ADT_"), r.local_path, r.line_num)
+        for r in _illumina_complete_rows()
+    ]
+
+    res = validate_s3_10x_illumina_raw("psomagen", rows)
+
+    assert res["matched"] == 4
+    assert not res["errors"]
+    assert res["group_assays"] == {"CZI25093002": {"ADT"}}
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("CITE-seq", "adt"),
+        ("CITE seq", "adt"),
+        ("citeseq", "adt"),
+        ("CITE", "adt"),
+        ("ADT", "adt"),
+        ("Cell Surface Protein", "adt"),
+        ("HTO", "hto"),
+        ("Hashtag", "hto"),
+        ("Hashtag oligo", "hto"),
+        ("Cell Hashing", "hto"),
+        ("ADT_HTO", "adt_hto"),
+        ("ADT + HTO", "adt_hto"),
+        ("CITE-seq + Hashtag", "adt_hto"),
+        # Unchanged neighbours.
+        ("Gene Expression", "gex"),
+        ("CRISPR", "cri"),
+        ("Feature Barcode", "cri"),
+    ],
+)
+@pytest.mark.parametrize("provider", ["psomagen", "novogene"])
+def test_normalize_sif_assay_token_cite_seq_for_10x_vendors(
+    provider: str, text: str, expected: str
+) -> None:
+    """10x Analysis Target text maps onto the ADT/HTO/ADT_HTO SOP tokens."""
+    assert _normalize_sif_assay_token(text, provider) == expected
+
+
+@pytest.mark.parametrize("text", ["photo", "excite", "hto2", "adtx"])
+def test_normalize_sif_assay_token_cite_seq_needs_whole_words(text: str) -> None:
+    """Substrings of other words must not be read as ADT or HTO."""
+    assert _normalize_sif_assay_token(text, "psomagen") not in {"adt", "hto", "adt_hto"}
+
+
+def test_normalize_sif_assay_token_scale_keeps_hash_oligo() -> None:
+    """Scale/sci SIFs load without a vendor; their hash-oligo spelling is unchanged."""
+    assert _normalize_sif_assay_token("Hashtag oligo") == "hash_oligo"
+    assert _normalize_sif_assay_token("Hashtag oligo", "scale") == "hash_oligo"
+
+
+def test_load_sif_group_assays_psomagen_cite_seq_analysis_target(
+    tmp_path: Path,
+) -> None:
+    """A Psomagen order form's ``CITE-seq`` Analysis Target loads as ``adt``."""
+    sif_path = tmp_path / "psomagen_cite.csv"
+    sif_path.write_text(
+        "Sample ID,Group ID^,Analysis Target / Feature Barcode / Supplemental libraries*\n"
+        "G1_GEX,G1,Gene Expression\n"
+        "G1_CRISPR,G1,CRISPR\n"
+        "G1_CITE,G1,CITE-seq\n",
+        encoding="utf-8",
+    )
+
+    assert load_sif_group_assays(sif_path, provider="psomagen") == {
+        "G1": {"gex", "cri", "adt"},
+    }

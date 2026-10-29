@@ -986,3 +986,68 @@ def test_cli_10x_illumina_missing_run_meta_fails(
     assert "missing manifest" in captured.out.lower() or "manifest" in captured.out
     assert "logs" in captured.out.lower()
     assert "VERDICT: FAIL" in captured.out
+
+
+_CITE_CLI_PREFIX = "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/453047-G1"
+_CITE_CLI_SIF = (
+    "Sample ID,Group ID^,Analysis Target / Feature Barcode / Supplemental libraries*\n"
+    "G1_GEX,G1,Gene Expression\n"
+    "G1_CITE,G1,CITE-seq\n"
+)
+
+
+def _run_cite_cli(tmp_path: Path, monkeypatch, mapping_text: str) -> int:
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    sif_path = tmp_path / "cite_sif.csv"
+    sif_path.write_text(_CITE_CLI_SIF)
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "psomagen",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+    return excinfo.value.code
+
+
+def test_cli_psomagen_10x_raw_cite_seq_sif_passes(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A SIF ``CITE-seq`` library is satisfied by an ``ADT`` S3 library."""
+    mapping_text = _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_GEX-Z0249-CATGTAATATCAGAT", assay_token="GEX"
+    ) + _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_ADT-Z0258-CAACAGCTCTCTGAT", assay_token="ADT"
+    )
+
+    code = _run_cite_cli(tmp_path, monkeypatch, mapping_text)
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "SIF assay combinations: ADT + GEX" in out
+    assert "10x raw FASTQ completeness: matched 30 suffix rows, 2 prefixes" in out
+    assert "VERDICT: PASS" in out
+
+
+def test_cli_psomagen_10x_raw_cite_seq_sif_flags_missing_adt(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Without the ADT library, the CITE-seq SIF row is reported as missing ``adt``."""
+    mapping_text = _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_GEX-Z0249-CATGTAATATCAGAT", assay_token="GEX"
+    )
+
+    code = _run_cite_cli(tmp_path, monkeypatch, mapping_text)
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "G1: missing ['adt']" in out

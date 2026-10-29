@@ -156,6 +156,10 @@ def _normalize_sif_assay_token(raw: str, provider: str | None = None) -> str:
     p = (provider or "").strip().lower()
     if s in CANONICAL_ASSAY:
         return CANONICAL_ASSAY[s].lower()
+    if p in _TENX_VENDORS:
+        cite = _cite_seq_token(s)
+        if cite:
+            return cite
     if "hash" in s and "oligo" in s:
         return "hash_oligo"
     if "gex" in s and "hash" in s:
@@ -174,10 +178,36 @@ def _normalize_sif_assay_token(raw: str, provider: str | None = None) -> str:
         "feature" in s and "barcode" in s and p not in {"scale", "sci"}
     ):
         return "cri"
-    if "cell surface" in s and "protein" in s:
-        return "cri"
     if len(s) <= 24:
         return s
+    return ""
+
+
+# 10x SIFs are loaded with the vendor as ``provider``; Scale and sci SIFs are
+# loaded without one, so gating on the vendor keeps their ``hash_oligo``
+# spellings out of the CITE-seq rules below.
+_TENX_VENDORS: frozenset[str] = frozenset({"psomagen", "novogene"})
+
+
+def _cite_seq_token(s: str) -> str:
+    """Return ``adt``, ``hto`` or ``adt_hto`` for CITE-seq Analysis Target text.
+
+    ``s`` is already stripped and lower-cased.  Protein tags arrive as
+    ``CITE-seq``, ``ADT`` or "cell surface protein"; hashtags as ``HTO``,
+    "Hashtag" or "Cell Hashing".  Text naming both kinds is one library that
+    carries both, ``adt_hto``.  Returns ``""`` when neither kind is named.
+    """
+    adt = bool(
+        re.search(r"\b(?:cite|citeseq|adt)\b", s)
+        or ("cell surface" in s and "protein" in s)
+    )
+    hto = bool(re.search(r"\bhto\b", s) or "hashtag" in s or "cell hashing" in s)
+    if adt and hto:
+        return "adt_hto"
+    if adt:
+        return "adt"
+    if hto:
+        return "hto"
     return ""
 
 
