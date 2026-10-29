@@ -13,6 +13,7 @@ import sys
 import pytest
 
 import mapping_validation
+import pandas as pd
 
 
 def _write_temp_mapping(tmp_path: Path, contents: str) -> Path:
@@ -986,3 +987,134 @@ def test_cli_10x_illumina_missing_run_meta_fails(
     assert "missing manifest" in captured.out.lower() or "manifest" in captured.out
     assert "logs" in captured.out.lower()
     assert "VERDICT: FAIL" in captured.out
+
+
+_CITE_CLI_PREFIX = "s3://czi-psomagen/project-alpha/AN00000001/G1/raw/453047-G1"
+_CITE_CLI_SIF = (
+    "Sample ID,Group ID^,Analysis Target / Feature Barcode / Supplemental libraries*\n"
+    "G1_GEX,G1,Gene Expression\n"
+    "G1_CITE,G1,CITE-seq\n"
+)
+
+
+def _run_cite_cli(tmp_path: Path, monkeypatch, mapping_text: str) -> int:
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    sif_path = tmp_path / "cite_sif.csv"
+    sif_path.write_text(_CITE_CLI_SIF)
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "psomagen",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+    return excinfo.value.code
+
+
+def test_cli_psomagen_10x_raw_cite_seq_sif_passes(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A SIF ``CITE-seq`` library is satisfied by an ``ADT`` S3 library."""
+    mapping_text = _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_GEX-Z0249-CATGTAATATCAGAT", assay_token="GEX"
+    ) + _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_ADT-Z0258-CAACAGCTCTCTGAT", assay_token="ADT"
+    )
+
+    code = _run_cite_cli(tmp_path, monkeypatch, mapping_text)
+
+    out = capsys.readouterr().out
+    assert code == 0, out
+    assert "SIF assay combinations: ADT + GEX" in out
+    assert "10x raw FASTQ completeness: matched 30 suffix rows, 2 prefixes" in out
+    assert "VERDICT: PASS" in out
+
+
+def test_cli_psomagen_10x_raw_cite_seq_sif_flags_missing_adt(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Without the ADT library, the CITE-seq SIF row is reported as missing ``adt``."""
+    mapping_text = _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_GEX-Z0249-CATGTAATATCAGAT", assay_token="GEX"
+    )
+
+    code = _run_cite_cli(tmp_path, monkeypatch, mapping_text)
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "G1: missing ['adt']" in out
+
+
+@pytest.mark.parametrize("sif_suffix", [".csv", ".xlsx"])
+@pytest.mark.parametrize(
+    "sif_assay,s3_assay,expect_pass,expected_text",
+    [
+        ("ADT/HTO", "ADT_HTO", True, "0 assay mismatches"),
+        ("Hashtag", "ADT", False, "(SIF expects HTO) but S3 assay is ADT"),
+        ("ADT_HTO", "ADT", False, "(SIF expects ADT_HTO) but S3 assay is ADT"),
+    ],
+)
+def test_cli_10x_raw_cite_seq_library_consistency(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    sif_suffix: str,
+    sif_assay: str,
+    s3_assay: str,
+    expect_pass: bool,
+    expected_text: str,
+) -> None:
+    """Library-level checks read CITE-seq SIF text through the vendor's rules.
+
+    CSV and Excel SIFs take separate loader branches, so both are exercised.
+    """
+    # The helper builds local paths from ``assay_token``; embedding ``-LIBA-``
+    # there is what links each row to its SIF library.
+    mapping_text = _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_{s3_assay}-Z0258-CAACAGCTCTCTGAT",
+        assay_token="raw/453047-LIBA-",
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    sif_path = tmp_path / f"cite_lib_sif{sif_suffix}"
+    sif = pd.DataFrame(
+        {
+            "Library name": ["LIBA"],
+            "Group Identifier": ["G1"],
+            "Assay Type": [sif_assay],
+        }
+    )
+    if sif_suffix == ".csv":
+        sif.to_csv(sif_path, index=False)
+    else:
+        sif.to_excel(sif_path, index=False)
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "psomagen",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    out = capsys.readouterr().out
+    assert "Library consistency: checked 15 paths" in out
+    assert expected_text in out
+    assert (excinfo.value.code == 0) == expect_pass, out

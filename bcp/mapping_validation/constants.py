@@ -8,7 +8,9 @@ from typing import Final
 # Assay types per assay family (provider-agnostic)
 # ---------------------------------------------------------------------------
 
-ASSAYS_10X: Final[set[str]] = {"GEX", "CRI", "ATAC"}
+# ADT, HTO and ADT_HTO are the CITE-seq tokens: antibody-derived tags (surface
+# protein), hashtag oligos (sample multiplexing), and a library carrying both.
+ASSAYS_10X: Final[set[str]] = {"GEX", "CRI", "ATAC", "ADT", "HTO", "ADT_HTO"}
 ASSAYS_SCALE: Final[set[str]] = {"GEX", "hash_oligo", "GEX_hash_oligo"}
 ASSAYS_SCI: Final[set[str]] = {"GEX", "hash_oligo", "GEX_hash_oligo"}
 
@@ -36,6 +38,9 @@ CANONICAL_ASSAY: Final[dict[str, str]] = {
     "gex": "GEX",
     "cri": "CRI",
     "atac": "ATAC",
+    "adt": "ADT",
+    "hto": "HTO",
+    "adt_hto": "ADT_HTO",
     "hash_oligo": "hash_oligo",
     "gex_hash_oligo": "GEX_hash_oligo",
     "viral_orf": "viral_ORF",

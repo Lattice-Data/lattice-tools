@@ -166,7 +166,7 @@ Checks run:
   - Validates:
     - Bucket / provider (`czi-novogene` or `czi-psomagen`).
     - Order pattern (e.g. `NVUS...` for Novogene, `AN...` for Psomagen).
-    - Assay name is allowed for that provider.
+    - Assay name is allowed for that provider: `GEX`, `CRI`, `ATAC`, `ADT`, `HTO`, `ADT_HTO`, plus `viral_ORF` for Psomagen.
     - Barcodes consist only of `A/C/G/T`.
     - GroupID in the directory matches the filename prefix.
     - Project name casing / underscores (emits **warnings**, not hard errors).
@@ -196,7 +196,7 @@ Checks run:
   - **GroupID vs assay completeness (`compare_groupid_assays`)**
     - Uses SIF to build expected GroupID → set of assays.
     - The Group column is detected from the spreadsheet headers: Novogene-style **Group Identifier**, Psomagen-style **Group ID** (including headers with a trailing footnote marker such as `^`). The CLI passes **`--provider`** into the loader so Psomagen forms are matched reliably. For Excel, **every worksheet** is tried; the loader previews the first ~600 rows without a header, finds rows that look like a SIF header (Group + Library/Assay labels), then reads the sheet using that row index (e.g. Psomagen forms with banners through **row ~26**).
-    - The **assay** column may be named **Assay Type**, **Application**, **Analysis Target / Feature Barcode / Supplemental libraries\*** (Psomagen), **Library type**, etc.; cell values such as *Gene Expression* / *CRISPR* are normalised to **gex** / **cri** to match S3. Merged assay cells in Excel are forward-filled per column before reading.
+    - The **assay** column may be named **Assay Type**, **Application**, **Analysis Target / Feature Barcode / Supplemental libraries\*** (Psomagen), **Library type**, etc.; cell values such as *Gene Expression* / *CRISPR* are normalised to **gex** / **cri** to match S3. For 10x SIFs, CITE-seq text is normalised too: *CITE-seq*, *ADT* or *cell surface protein* → **adt**; *HTO*, *Hashtag* or *Cell Hashing* → **hto**; text naming both → **adt_hto**. Text that also names another assay (e.g. *Gene Expression + CITE-seq*) is not read as CITE-seq and keeps its earlier token, so it never drops the other library's expectation. Merged assay cells in Excel are forward-filled per column before reading.
     - Normalizes SIF GroupIDs (e.g. `A + AF` → `A_AF`) and assay names to lower case.
     - Compares with actual S3 GroupID → assay mapping.
     - **Fails the run** when:
@@ -298,7 +298,7 @@ Checks run:
 - **S3 + FASTQ validation (`validate_s3_10x_illumina_raw`)**
   - Expected layout under `s3://czi-{provider}/{project}/{order}/{GroupID}/raw/`:
     - `{FlowCellID}_{GroupID}_{Assay}_S{N}_L{NNN}_{R1|R2|I1|I2}_{NNN}.fastq.gz`
-  - Assays: `GEX`, `CRI`, or `ATAC` (from order template “Analysis Target”).
+  - Assays: `GEX`, `CRI`, `ATAC`, `ADT`, `HTO`, or `ADT_HTO` (from order template “Analysis Target”).
   - GroupID in the filename must match the directory GroupID.
   - Per `(FlowCellID, GroupID, Assay, SampleNumber, Lane)` require all four reads: **R1, R2, I1, I2**.
 
