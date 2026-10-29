@@ -13,6 +13,7 @@ import sys
 import pytest
 
 import mapping_validation
+import pandas as pd
 
 
 def _write_temp_mapping(tmp_path: Path, contents: str) -> Path:
@@ -1051,3 +1052,69 @@ def test_cli_psomagen_10x_raw_cite_seq_sif_flags_missing_adt(
     out = capsys.readouterr().out
     assert code == 1
     assert "G1: missing ['adt']" in out
+
+
+@pytest.mark.parametrize("sif_suffix", [".csv", ".xlsx"])
+@pytest.mark.parametrize(
+    "sif_assay,s3_assay,expect_pass,expected_text",
+    [
+        ("ADT/HTO", "ADT_HTO", True, "0 assay mismatches"),
+        ("Hashtag", "ADT", False, "(SIF expects HTO) but S3 assay is ADT"),
+        ("ADT_HTO", "ADT", False, "(SIF expects ADT_HTO) but S3 assay is ADT"),
+    ],
+)
+def test_cli_10x_raw_cite_seq_library_consistency(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+    sif_suffix: str,
+    sif_assay: str,
+    s3_assay: str,
+    expect_pass: bool,
+    expected_text: str,
+) -> None:
+    """Library-level checks read CITE-seq SIF text through the vendor's rules.
+
+    CSV and Excel SIFs take separate loader branches, so both are exercised.
+    """
+    # The helper builds local paths from ``assay_token``; embedding ``-LIBA-``
+    # there is what links each row to its SIF library.
+    mapping_text = _tenx_fastq_cli_mapping(
+        s3_prefix=f"{_CITE_CLI_PREFIX}_{s3_assay}-Z0258-CAACAGCTCTCTGAT",
+        assay_token="raw/453047-LIBA-",
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    sif_path = tmp_path / f"cite_lib_sif{sif_suffix}"
+    sif = pd.DataFrame(
+        {
+            "Library name": ["LIBA"],
+            "Group Identifier": ["G1"],
+            "Assay Type": [sif_assay],
+        }
+    )
+    if sif_suffix == ".csv":
+        sif.to_csv(sif_path, index=False)
+    else:
+        sif.to_excel(sif_path, index=False)
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "psomagen",
+        "--data",
+        "raw",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    out = capsys.readouterr().out
+    assert "Library consistency: checked 15 paths" in out
+    assert expected_text in out
+    assert (excinfo.value.code == 0) == expect_pass, out

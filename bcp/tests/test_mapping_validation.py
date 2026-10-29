@@ -3630,3 +3630,45 @@ def test_load_sif_group_assays_psomagen_cite_seq_analysis_target(
     assert load_sif_group_assays(sif_path, provider="psomagen") == {
         "G1": {"gex", "cri", "adt"},
     }
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Gene Expression + CITE-seq", "gex"),
+        ("GEX + ADT", "gex"),
+        ("Gene Expression with Cell Hashing", "gex"),
+        ("ATAC + HTO", "atac"),
+        ("CRISPR + CITE-seq", "cri"),
+        ("Cell surface protein + CRISPR", "cri"),
+        ("Viral ORF + ADT", "viral_orf"),
+    ],
+)
+def test_normalize_sif_assay_token_combined_text_keeps_other_assay(
+    text: str, expected: str
+) -> None:
+    """Text naming another assay too must not collapse to its CITE-seq part.
+
+    One token per row can only describe one library; letting ADT/HTO win
+    would drop the GEX/ATAC/CRI expectation and let a missing library pass.
+    """
+    assert _normalize_sif_assay_token(text, "psomagen") == expected
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("CITE_seq", "adt"),
+        ("HTO_ADT", "adt_hto"),
+    ],
+)
+def test_normalize_sif_assay_token_underscore_spellings(
+    text: str, expected: str
+) -> None:
+    """Underscore-joined spellings are read like their spaced forms."""
+    assert _normalize_sif_assay_token(text, "psomagen") == expected
+
+
+def test_normalize_sif_assay_token_cell_surface_protein_without_vendor() -> None:
+    """Without a 10x vendor, "cell surface protein" keeps its earlier ``cri``."""
+    assert _normalize_sif_assay_token("Cell Surface Protein") == "cri"
