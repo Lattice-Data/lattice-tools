@@ -847,7 +847,6 @@ def test_scope_both_runs_each_scope(tmp_path: Path) -> None:
     [
         ({"scope": "sample"}, "unknown scope 'sample'"),
         ({"scope": "both", "filename": "x.h5"}, "cannot apply to scope 'both'"),
-        ({"samples": ["S1"]}, "does not apply to scope 'multi'"),
     ],
 )
 def test_scope_argument_errors(kwargs: dict, message: str) -> None:
@@ -870,10 +869,6 @@ def test_cli_multi_scope_is_the_default(tmp_path: Path, fake_s3, capsys) -> None
 @pytest.mark.parametrize(
     "extra_args, message",
     [
-        (
-            ["--h5-samples-file", "samples.tsv"],
-            "--h5-samples-file narrows the per-sample sweep",
-        ),
         (
             ["--h5-scope", "both", "--h5-filename", "x.h5"],
             "--h5-filename is not allowed with --h5-scope both",
@@ -1086,3 +1081,186 @@ def test_read_s3_h5_guide_ids_passes_block_size_to_fs_open(
     assert captured["storage_options"] == {
         "config_kwargs": {"max_pool_connections": 24}
     }
+
+
+# --- narrowing the run-level check to listed libraries ------------------------
+
+# One library folder per sample, named for it, as a per-sample-library order is
+# laid out: <order>/<name>/processed/cellranger/<run>/outs/multi/count/.
+ORDER = "proj/order"
+
+
+def _library_h5(name: str, run: str = "Run_1") -> str:
+    return f"{ORDER}/{name}/processed/cellranger/{run}/outs/multi/count/{MULTI_NAME}"
+
+
+KEEP_A = _library_h5("keep_a1")
+KEEP_B = _library_h5("keep_b2")
+OTHER = _library_h5("other_c3")
+
+
+def test_listed_libraries_are_the_only_ones_read(tmp_path: Path) -> None:
+    """A library built from a different guide set is excluded, not failed."""
+    files = {
+        KEEP_A: _write_h5(tmp_path / "a.h5", _guides("g1", "g2")),
+        KEEP_B: _write_h5(tmp_path / "b.h5", _guides("g1", "g2")),
+        OTHER: _write_h5(tmp_path / "c.h5", _guides("z9")),
+    }
+    read: list[str] = []
+    local = _local_reader(files)
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return local(bucket, key)
+
+    report = check_guide_ids_against_h5(
+        {"g1", "g2"},
+        URI,
+        samples=["keep_a1", "keep_b2"],
+        samples_label="samples.csv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=reader,
+    )
+    assert report.ok, report.failures
+    assert sorted(read) == sorted([KEEP_A, KEEP_B])
+    assert report.notes == [
+        f"checked 2 of 3 run-level {MULTI_NAME} file(s); libraries from samples.csv"
+    ]
+
+
+def test_sheet_may_cover_only_part_of_a_libraries_guides(tmp_path: Path) -> None:
+    """Surplus guides in the h5 are a note; only absent ones fail."""
+    files = {KEEP_A: _write_h5(tmp_path / "a.h5", _guides("g1", "g2", "g3", "g4"))}
+    report = check_guide_ids_against_h5(
+        {"g1", "g2"},
+        URI,
+        samples=["keep_a1"],
+        samples_label="samples.csv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.ok
+    assert any("2 guide(s) in h5 not in metadata" in n for n in report.notes)
+
+
+def test_unlisted_library_without_an_h5_is_not_reported(tmp_path: Path) -> None:
+    """The excluded library must not convert into a missing-h5 failure."""
+    files = {KEEP_A: _write_h5(tmp_path / "a.h5", _guides("g1"))}
+    keys = [
+        *files,
+        f"{ORDER}/other_c3/processed/cellranger/Run_1/outs/web_summary.html",
+    ]
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["keep_a1"],
+        samples_label="samples.csv",
+        s3_client=MockS3Client(keys=keys),
+        reader=_local_reader(files),
+    )
+    assert report.ok, report.failures
+
+
+def test_listed_library_with_no_h5_fails(tmp_path: Path) -> None:
+    """A typo in the list is reported, not quietly narrowed away."""
+    files = {KEEP_A: _write_h5(tmp_path / "a.h5", _guides("g1"))}
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["keep_a1", "keep_b9"],
+        samples_label="samples.csv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"library 'keep_b9' listed in samples.csv has no run-level {MULTI_NAME} "
+        f"under {URI}"
+    ]
+
+
+def test_listed_library_name_is_matched_exactly(tmp_path: Path) -> None:
+    """'keep_a1' must not pull in a library whose name contains it."""
+    longer = _library_h5("Xkeep_a1")
+    files = {
+        KEEP_A: _write_h5(tmp_path / "a.h5", _guides("g1")),
+        longer: _write_h5(tmp_path / "x.h5", _guides("z9")),
+    }
+    read: list[str] = []
+    local = _local_reader(files)
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return local(bucket, key)
+
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["keep_a1"],
+        s3_client=MockS3Client(keys=list(files)),
+        reader=reader,
+    )
+    assert read == [KEEP_A]
+    assert report.ok, report.failures
+
+
+def _per_sample_h5(name: str, run: str = "Run_1") -> str:
+    return (
+        f"{ORDER}/{name}/processed/cellranger/{run}/outs/per_sample_outs/"
+        f"{name}/count/{H5_NAME}"
+    )
+
+
+def test_scope_both_narrows_both_passes(tmp_path: Path) -> None:
+    """Each library holds both files; only the listed library is read, in both."""
+    files = {
+        KEEP_A: _write_h5(tmp_path / "a.h5", _guides("g1")),
+        _per_sample_h5("keep_a1"): _write_h5(tmp_path / "a_ps.h5", _guides("g1")),
+        OTHER: _write_h5(tmp_path / "c.h5", _guides("z9")),
+        _per_sample_h5("other_c3"): _write_h5(tmp_path / "c_ps.h5", _guides("z9")),
+    }
+    read: list[str] = []
+    local = _local_reader(files)
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return local(bucket, key)
+
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        scope="both",
+        samples=["keep_a1"],
+        samples_label="samples.csv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=reader,
+    )
+    assert report.ok, report.failures
+    # Both passes ran, and neither touched the unlisted library.
+    assert sorted(read) == sorted([KEEP_A, _per_sample_h5("keep_a1")])
+    assert report.h5_total == 2
+
+
+def test_cli_samples_file_works_with_default_multi_scope(
+    tmp_path: Path, fake_s3, capsys
+) -> None:
+    files, _state = fake_s3
+    files[KEEP_A] = _write_h5(tmp_path / "a.h5", _guides("g1", "g2"))
+    files[OTHER] = _write_h5(tmp_path / "c.h5", _guides("z9"))
+    sheet = _sheet(tmp_path, ["g1", "g2"])
+    samples = tmp_path / "samples.csv"
+    samples.write_text("keep_a1\n")
+    main(
+        [
+            "--format",
+            "tsv",
+            "--h5-uri",
+            URI,
+            "--h5-samples-file",
+            str(samples),
+            str(sheet),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert captured.out.startswith("gsig1:set:n=2:")
+    assert f"note: checked 1 of 2 run-level {MULTI_NAME} file(s)" in captured.err
+    assert "error:" not in captured.err

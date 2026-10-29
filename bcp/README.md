@@ -743,20 +743,44 @@ unreadable per-sample files.
   `per_sample_outs/<sample>/` folder with no target h5, a library folder with no
   `per_sample_outs/` at all (as a failed or half-uploaded run leaves), and no target h5
   at all
-- `--h5-samples-file PATH` limits the sweep to the samples named in PATH: one exact,
-  case-sensitive name per line, no header; blank lines and `#` lines are skipped and
-  repeats are ignored; a line holding a tab is an error. Names are matched against the
-  `per_sample_outs/<sample>/` folder (else the library folder), so `tb7k_q2` never matches
-  `Wtb7k_q2`. Unlisted samples are ignored entirely, including by the missing-folder
-  checks; a listed sample with no h5 is a failure; a note reports how many h5 files were
-  checked. It narrows the per-sample sweep only, so it requires `--h5-scope per-sample`
-  or `both`
+- `--h5-samples-file PATH` limits the sweep to the names in PATH. See
+  [Narrowing to some libraries](#narrowing-to-some-libraries-h5-samples-file), which
+  applies to every scope
 
 #### `--h5-scope both`
 
-Runs each of the two scopes against the same listing. `--h5-samples-file` still narrows
-only the per-sample sweep, so the run-level check continues to cover every library.
-`--h5-filename` is **not allowed** with `both`, which looks for two different basenames.
+Runs each of the two scopes against the same listing. `--h5-samples-file` narrows both
+passes. `--h5-filename` is **not allowed** with `both`, which looks for two different
+basenames.
+
+#### Narrowing to some libraries (`--h5-samples-file`)
+
+A sheet often describes only part of an order. Where libraries were built from different
+guide sets, checking the sheet against all of them fails on the ones it was never meant to
+cover, because those guides genuinely are absent. `--h5-samples-file PATH` scopes the check
+to the libraries the sheet describes.
+
+This is about correctness, not cost: without it, an order holding both `NES_*` and `ES_*`
+libraries cannot be checked with an `NES` sheet at all.
+
+- One exact, case-sensitive name per line, no header. Blank lines and `#` lines are
+  skipped, repeats ignored, and a line holding a tab is an error. Matching is exact, so
+  `keep_a1` never matches `Xkeep_a1`
+- **Under `multi`, names are library folders** — the folder before `processed/`, as in
+  `<order>/NES_m1_1/processed/cellranger/<run>/outs/...`. Run-level keys have no
+  `per_sample_outs/` segment, so there is no sample name to match
+- Under `per-sample`, names match `per_sample_outs/<sample>/`, falling back to the library
+  folder. In orders where the two differ (library `Treg_L01` holding sample `TregPilot`),
+  a list that works for one scope will not work for the other
+- It narrows **every scope that runs**, so under `both` it applies to both passes
+- Unlisted libraries are excluded entirely, including from the missing-h5 and
+  missing-folder reports, so an excluded library cannot fail for lacking a file either
+- A listed name with no h5 **is** a failure, so a typo is reported rather than quietly
+  narrowing the check to nothing
+- A note reports how many of the order's h5 files were checked
+
+Because the check only fails on guides the sheet declares and the h5 lacks, surplus guides
+in the h5 come back as a note. A sheet covering part of a library's guides passes.
 
 #### Shared behaviour
 
@@ -878,9 +902,9 @@ python -m guidesig --format tsv --h5-uri s3://bucket/proj/order lib.tsv
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
   --h5-scope per-sample lib.tsv
 
-# Both, limiting the per-sample sweep to named samples
+# Check only the libraries this sheet describes (names are library folders)
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
-  --h5-scope both --h5-samples-file samples.txt lib.tsv
+  --h5-samples-file NES_libraries.csv lib.tsv
 
 # ...and report the guidescan exact-match rate
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \

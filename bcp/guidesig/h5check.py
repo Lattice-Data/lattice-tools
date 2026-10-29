@@ -458,9 +458,22 @@ def _check_multi_scope(
     reader: H5Reader,
     retries: int,
     pool_size: int,
+    samples: Collection[str] | None,
+    samples_label: str,
+    all_h5: int,
     report: H5CheckReport,
 ) -> None:
-    """Check one run-level h5 per library."""
+    """Check one run-level h5 per library.
+
+    ``samples`` limits the check to those libraries. Filtering the keys before
+    the layout is built does two jobs: only the named libraries are read, and
+    the others stop being reported as missing a run-level h5. That second part
+    is the point of the flag, since a library the sheet does not describe would
+    otherwise fail either for lacking the sheet's guides or for lacking an h5.
+    """
+    if samples is not None:
+        wanted = set(samples)
+        keys = [k for k in keys if _scope_name(k) in wanted]
     layout = find_multi_layout(keys, filename)
 
     for library in layout.libraries_without_h5:
@@ -475,7 +488,28 @@ def _check_multi_scope(
             f"run-level {filename} files; expected exactly one, so none were "
             f"read: {locations}"
         )
-    if (
+    if samples is not None:
+        report.notes.append(
+            f"checked {len(layout.h5_keys)} of {all_h5} run-level {filename} "
+            f"file(s); libraries from {samples_label}"
+        )
+        found_names = {_scope_name(k) for k in layout.h5_keys}
+        # A failure above already names a library whose folder was listed but
+        # holds no usable h5, so this is kept for names with no folder at all.
+        covered = {
+            library.rstrip("/").rsplit("/", 1)[-1]
+            for library in (
+                layout.libraries_without_h5
+                + [lib for lib, _found in layout.ambiguous_libraries]
+            )
+        }
+        for name in samples:
+            if name not in found_names and name not in covered:
+                report.failures.append(
+                    f"library {name!r} listed in {samples_label} has no "
+                    f"run-level {filename} under {h5_uri}"
+                )
+    elif (
         not layout.h5_keys
         and not layout.libraries_without_h5
         and not layout.ambiguous_libraries
@@ -585,14 +619,22 @@ def check_guide_ids_against_h5(
     One S3 listing serves every scope. ``scope`` selects which h5 files are
     read; see the module docstring. ``filename`` overrides that scope's default
     basename and is rejected under ``both``, where two different defaults are
-    in play. ``samples`` limits the per-sample sweep (h5 reads and
-    missing-folder reports) to those exact names, matched against the
-    ``per_sample_outs/<sample>/`` folder (else the library folder); a listed
-    name with no h5 is a failure. It never narrows the ``multi`` scope, whose
-    unit is the library, so under ``both`` the run-level check still covers
-    every library. ``samples_label`` names the list in messages. ``s3_client``
-    and ``reader`` exist for tests; by default a boto3 client lists the prefix
-    and each h5 is opened over S3.
+    in play.
+
+    ``samples`` limits every scope that runs to those exact names, so under
+    ``both`` it narrows both passes. A name is matched against the
+    ``per_sample_outs/<sample>/`` folder when there is one, else the library
+    folder (the folder before ``processed/``); run-level keys have no
+    ``per_sample_outs/`` segment, so under ``multi`` the names are library
+    folders. A listed name with no h5 is a failure, so a typo is reported
+    rather than quietly narrowing the check to nothing. Names not listed are
+    excluded entirely, including from the missing-h5 reports: a library the
+    sheet does not describe, such as one built from a different guide set,
+    should drop out rather than fail. ``samples_label`` names the list in
+    messages.
+
+    ``s3_client`` and ``reader`` exist for tests; by default a boto3 client
+    lists the prefix and each h5 is opened over S3.
 
     Raises:
         H5CheckError: If the scope is unknown, the URI is invalid, the prefix
@@ -606,11 +648,6 @@ def check_guide_ids_against_h5(
         raise H5CheckError(
             f"a filename override cannot apply to scope {SCOPE_BOTH!r}, which "
             "looks for two different h5 basenames"
-        )
-    if samples is not None and scope == SCOPE_MULTI:
-        raise H5CheckError(
-            f"a sample list does not apply to scope {SCOPE_MULTI!r}, whose unit "
-            f"is the library; use --h5-scope {SCOPE_PER_SAMPLE} or {SCOPE_BOTH}"
         )
     try:
         location = parse_s3_uri(h5_uri)
@@ -652,10 +689,14 @@ def check_guide_ids_against_h5(
     }
 
     if scope in (SCOPE_MULTI, SCOPE_BOTH):
+        multi_filename = filename or DEFAULT_MULTI_H5_FILENAME
         _check_multi_scope(
             guide_ids,
             keys,
-            filename=filename or DEFAULT_MULTI_H5_FILENAME,
+            filename=multi_filename,
+            samples=samples,
+            samples_label=samples_label,
+            all_h5=sum(1 for k in keys if is_run_level_h5(k, multi_filename)),
             **shared,
         )
     if scope in (SCOPE_PER_SAMPLE, SCOPE_BOTH):

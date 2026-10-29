@@ -157,10 +157,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help=(
-            "Only sweep the samples named in PATH (one exact name per line, no "
-            "header); a listed sample with no h5 fails. Narrows the per-sample "
-            f"sweep only, so it needs --h5-scope {H5_SCOPE_PER_SAMPLE} or "
-            f"{H5_SCOPE_BOTH}"
+            "Only check the names in PATH (one exact name per line, no "
+            "header), narrowing every scope that runs. Use it when the sheet "
+            "describes only some of the order's libraries, so the rest are "
+            "excluded instead of failing for guides they were never built "
+            f"with. Under --h5-scope {H5_SCOPE_MULTI} the names are library "
+            "folders (the folder before processed/); under "
+            f"{H5_SCOPE_PER_SAMPLE} they match per_sample_outs/<sample>/, "
+            "falling back to the library folder. A listed name with no h5 fails"
         ),
     )
     parser.add_argument(
@@ -332,11 +336,6 @@ def main(argv: list[str] | None = None) -> None:
         parser.error(
             f"--h5-filename is not allowed with --h5-scope {H5_SCOPE_BOTH}, "
             "which looks for two different h5 basenames"
-        )
-    if scope == H5_SCOPE_MULTI and args.h5_samples_file is not None:
-        parser.error(
-            "--h5-samples-file narrows the per-sample sweep, so it requires "
-            f"--h5-scope {H5_SCOPE_PER_SAMPLE} or {H5_SCOPE_BOTH}"
         )
     if args.guidescan and args.species is None:
         parser.error("--guidescan requires --species")
