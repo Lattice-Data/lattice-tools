@@ -756,15 +756,17 @@ guide sets, checking the sheet against all of them fails on the ones it was neve
 cover, because those guides genuinely are absent. `--h5-samples-file PATH` scopes the check
 to the libraries the sheet describes.
 
-This is about correctness, not cost: without it, an order holding both `NES_*` and `ES_*`
-libraries cannot be checked with an `NES` sheet at all.
+This is about correctness, not cost: where an order holds two groups of libraries built
+from different guide sets, say `panelA_*` and `panelB_*`, a `panelA` sheet cannot be
+checked against that order at all without narrowing to the libraries it describes.
 
 - One exact, case-sensitive name per line, no header. Blank lines and `#` lines are
   skipped, repeats ignored, and a line holding a tab is an error. Matching is exact, so
   `keep_a1` never matches `Xkeep_a1`
-- **Under `multi`, names are library folders**: the folder before `processed/`, as in
-  `<order>/NES_m1_1/processed/cellranger/<run>/outs/...`. Run-level keys have no
-  `per_sample_outs/` segment, so there is no sample name to match
+- **Under `multi`, names are matched against the library folder only**: the folder before
+  `processed/`, as in `<order>/panelA_s1/processed/cellranger/<run>/outs/...`. A sample
+  name is never matched under this scope, even one that happens to equal a library name,
+  so a per-sample names file selects nothing here rather than selecting the wrong thing
 - Under `per-sample`, names match `per_sample_outs/<sample>/`, falling back to the library
   folder. In orders where the two differ (library `Treg_L01` holding sample `TregPilot`),
   a list that works for one scope will not work for the other
@@ -780,7 +782,7 @@ in the h5 come back as a note. A sheet covering part of a library's guides passe
 #### Shared behaviour
 
 - **Notes:** guides present in an h5 but absent from the sheet; and, when every file read
-  held every sheet guide, a confirmation line: `all 25795 guide_ids present in each of 24
+  held every sheet guide, a confirmation line: `all 1200 guide_ids present in each of 12
   run-level raw_feature_bc_matrix.h5 file(s)`. It is always printed, so a passing run can
   never be mistaken for one that matched no files. It is suppressed when any file in that
   batch failed, or when none were read, so it never contradicts an error
@@ -810,8 +812,9 @@ runs after the h5 check when both are given; a failed h5 check stops the run fir
 The threshold verdict is always stated, either way: `exact match rate of targeting guides
 99.9% is at or above the 90% threshold`, or a warning below it. It reads "at or above" because the test is
 `percent <`, so exactly 90.0% passes. The rate is truncated rather than rounded, so only a
-genuine sweep reads `100.0%`: 20506 of 20508 reads `99.9%`, and a single matched guide out
-of thousands reads `0.1%` rather than `0.0%`.
+genuine sweep reads `100.0%`: 9999 of 10000 reads `99.9%`. A nonzero rate below a tenth
+of a percent reads `<0.1%`, distinguishable from no matches at all without claiming a
+figure it has not reached.
 
 - **Species cross-check (error):** the sheet's `guide_target_gene_id` values must not
   contradict `--species` (`ENSMUSG<digits>` is mouse, `ENSG<digits>` human, optionally
@@ -909,7 +912,7 @@ python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
 
 # Check only the libraries this sheet describes (names are library folders)
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
-  --h5-samples-file NES_libraries.csv lib.tsv
+  --h5-samples-file panelA_libraries.csv lib.tsv
 
 # ...and report the guidescan exact-match rate
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \

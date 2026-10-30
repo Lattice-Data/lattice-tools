@@ -97,18 +97,26 @@ class GuidescanReport:
     def percent_text(self) -> str:
         """``percent`` for display, never rounded past a boundary it has not met.
 
-        ``.1f`` rounds 20506 of 20508 (99.990%) up to ``100.0``, reporting a
-        clean sweep for a sheet with two unmatched guides, which is the one
-        thing this check exists to surface. The figure is truncated instead of
+        ``.1f`` rounds 9999 of 10000 (99.99%) up to ``100.0``, reporting a clean
+        sweep for a sheet with an unmatched guide, which is the one thing
+        this check exists to surface. The figure is truncated instead of
         rounded, so only a genuine 100% prints as ``100.0``, and a nonzero rate
         never prints as ``0.0``.
+
+        A rate below a tenth of a percent prints as ``<0.1`` rather than being
+        raised to ``0.1``: it is still distinguishable from no matches at all,
+        without claiming a figure it has not reached.
         """
         if not self.total or not self.matched:
             return "0.0"
         if self.matched == self.total:
             return "100.0"
+        # Truncation keeps this under 100.0 whenever a guide is unmatched, so
+        # no upper clamp is needed.
         truncated = math.floor(self.percent * 10) / 10
-        return f"{min(max(truncated, 0.1), 99.9):.1f}"
+        if truncated < 0.1:
+            return "<0.1"
+        return f"{truncated:.1f}"
 
     @property
     def below_threshold(self) -> bool:

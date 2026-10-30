@@ -523,14 +523,17 @@ def test_pipeline_logger_state_is_restored() -> None:
 @pytest.mark.parametrize(
     "matched, total, expected",
     [
-        # The case from a real run: two unmatched guides read as a clean sweep.
-        (20506, 20508, "99.9"),
+        # A single unmatched guide would otherwise read as a clean sweep.
+        (9999, 10000, "99.9"),
         (999999, 1000000, "99.9"),
         # Only a genuine sweep prints 100.0.
-        (20508, 20508, "100.0"),
+        (10000, 10000, "100.0"),
         (2, 2, "100.0"),
-        # ... and a nonzero rate never prints as 0.0.
-        (1, 2500, "0.1"),
+        # ... and a nonzero rate never prints as 0.0, nor claims a tenth of a
+        # percent it has not reached.
+        (1, 1000, "0.1"),
+        (1, 2500, "<0.1"),
+        (1, 10000, "<0.1"),
         (0, 10, "0.0"),
         # Exact values are unchanged.
         (9, 10, "90.0"),
@@ -546,11 +549,11 @@ def test_percent_text_never_overstates(matched: int, total: int, expected: str) 
 
 def test_a_single_unmatched_guide_is_visible_in_the_report() -> None:
     """The report line must not claim 100% while naming unmatched guides."""
-    report = guidescancheck.GuidescanReport(matched=20506, total=20508)
+    report = guidescancheck.GuidescanReport(matched=9999, total=10000)
     line = next(
         line for line in guidescancheck.format_report(report) if "exact match" in line
     )
-    assert "20506 of 20508" in line
+    assert "9999 of 10000" in line
     assert "(99.9%)" in line
     assert "100.0" not in line
 
@@ -566,7 +569,7 @@ def test_rate_just_under_the_threshold_does_not_print_as_the_threshold() -> None
 
 def test_threshold_verdict_is_always_stated() -> None:
     """Either side of the threshold produces a line; neither is silent."""
-    passing = format_report(GuidescanReport(total=20508, matched=20506))
+    passing = format_report(GuidescanReport(total=10000, matched=9999))
     failing = format_report(GuidescanReport(total=100, matched=88))
     assert any(
         "exact match rate of targeting guides 99.9% is at or above the 90% threshold"
@@ -585,3 +588,12 @@ def test_no_threshold_verdict_when_guidescan_did_not_run() -> None:
     """With no targeting guides there is no rate, so no verdict to state."""
     report = GuidescanReport(total=0, matched=0, notes=["no targeting guides"])
     assert format_report(report) == ["note: no targeting guides"]
+
+
+def test_a_rate_under_a_tenth_of_a_percent_is_not_rounded_up() -> None:
+    """'0.1%' would claim a figure 1 of 10,000 has not reached."""
+    report = GuidescanReport(total=10000, matched=1)
+    assert report.percent_text == "<0.1"
+    line = next(line for line in format_report(report) if "exact match" in line)
+    assert "(<0.1%)" in line
+    assert "0.1%)" != line[-6:]

@@ -71,21 +71,20 @@ EXAMPLE_LIMIT = 10
 MULTI_SCOPE_WORKERS = 24
 PER_SAMPLE_SCOPE_WORKERS = 8
 
-# Bytes s3fs fetches per range request. Reading the features table takes only
-# about eight seeks, but s3fs defaults to 50 MiB blocks, so on a multi-GB
-# run-level matrix each of those seeks dragged down a whole 50 MiB block.
-# Measured against one real 4.3 GiB raw_feature_bc_matrix.h5, reading the same
-# features table at each block size:
+# Bytes s3fs fetches per range request. Reading the features table out of a
+# multi-GB run-level matrix takes only a handful of seeks, but s3fs defaults to
+# 50 MiB blocks (``S3FileSystem.default_block_size``), so each of those seeks
+# pulled a whole block: two orders of magnitude more bytes than the features
+# table holds, and the dominant cost of the check.
 #
-#     block size   requests   fetched   elapsed
-#       50 MiB            7   226.5 MiB   25.04s   <- s3fs default
-#        8 MiB            8    56.0 MiB    2.77s
-#        1 MiB            8     7.0 MiB    1.74s
-#      256 KiB           10     2.3 MiB    1.95s
+# Measuring one matrix across block sizes showed the request count barely
+# moving while the bytes fetched fell with the block size, so the cost was
+# over-fetching rather than round trips. Below roughly this size that reverses:
+# the extra requests cost more than the bytes saved, and the read gets slower
+# again. 1 MiB is the floor worth using.
 #
-# Request count barely moves, so the cost was over-fetching rather than round
-# trips. 256 KiB fetches less but is slower, being where the extra requests
-# start to show; 1 MiB is the floor worth using.
+# To re-measure after an s3fs change, wrap ``s3fs.S3File._fetch_range`` to count
+# calls and bytes, then read ``matrix/features`` at several block sizes.
 FEATURES_BLOCK_SIZE = 1 * 2**20
 
 # reader(bucket, key) -> CRISPR feature IDs in that h5.
@@ -488,10 +487,18 @@ def _check_multi_scope(
     the others stop being reported as missing a run-level h5. That second part
     is the point of the flag, since a library the sheet does not describe would
     otherwise fail either for lacking the sheet's guides or for lacking an h5.
+
+    Names are matched against the library folder alone, never ``_scope_name``,
+    which prefers the ``per_sample_outs/<sample>/`` name. Matching that too let
+    a per-sample key from an *unlisted* library survive the filter, putting its
+    library folder into the layout while its run-level h5 was filtered out, so
+    the library was reported as missing a file it has. That hit whenever a
+    sample shared a name with another library, and whenever a per-sample names
+    file was reused under this scope.
     """
     if samples is not None:
         wanted = set(samples)
-        keys = [k for k in keys if _scope_name(k) in wanted]
+        keys = [k for k in keys if extract_library(k) in wanted]
     layout = find_multi_layout(keys, filename)
 
     for library in layout.libraries_without_h5:
@@ -511,7 +518,7 @@ def _check_multi_scope(
             f"checked {len(layout.h5_keys)} of {all_h5} run-level {filename} "
             f"file(s); libraries from {samples_label}"
         )
-        found_names = {_scope_name(k) for k in layout.h5_keys}
+        found_names = {extract_library(k) for k in layout.h5_keys}
         # A failure above already names a library whose folder was listed but
         # holds no usable h5, so this is kept for names with no folder at all.
         covered = {
@@ -667,8 +674,11 @@ def check_guide_ids_against_h5(
     except ValueError as exc:
         raise H5CheckError(str(exc)) from exc
 
+    # ``is not None`` rather than ``or``: 0 is falsy, and silently swapping it
+    # for the default would hide a caller error that h5_worker_ceiling rejects.
     pool_size = h5_worker_ceiling(
-        do_introspect=True, workers=workers or default_workers_for(scope)
+        do_introspect=True,
+        workers=workers if workers is not None else default_workers_for(scope),
     )
     if s3_client is None or reader is None:
         check_dependencies()

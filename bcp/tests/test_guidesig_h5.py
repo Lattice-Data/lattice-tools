@@ -1353,3 +1353,94 @@ def test_no_all_present_note_when_nothing_was_read() -> None:
     )
     assert not report.ok
     assert not any("present in each" in n for n in report.notes)
+
+
+# --- multi scope matches library folders, never sample names ------------------
+
+
+def test_sample_named_like_another_library_does_not_fail_that_library(
+    tmp_path: Path,
+) -> None:
+    """LIB1 holds a sample called 'LIB2'; a list naming LIB2 must not touch LIB1.
+
+    _scope_name prefers the per_sample_outs name, so matching on it let LIB1's
+    per-sample key through while LIB1's own run-level h5 was filtered out. The
+    orphaned library folder was then reported as missing a file it has.
+    """
+    lib1_multi = (
+        f"{ORDER}/LIB1/processed/cellranger/Run_1/outs/multi/count/{MULTI_NAME}"
+    )
+    lib1_sample_named_lib2 = (
+        f"{ORDER}/LIB1/processed/cellranger/Run_1/outs/per_sample_outs/LIB2/"
+        f"count/{H5_NAME}"
+    )
+    lib2_multi = (
+        f"{ORDER}/LIB2/processed/cellranger/Run_1/outs/multi/count/{MULTI_NAME}"
+    )
+    files = {
+        lib1_multi: _write_h5(tmp_path / "l1.h5", _guides("g1")),
+        lib1_sample_named_lib2: _write_h5(tmp_path / "l1s.h5", _guides("g1")),
+        lib2_multi: _write_h5(tmp_path / "l2.h5", _guides("g1")),
+    }
+    read: list[str] = []
+    local = _local_reader(files)
+
+    def reader(bucket: str, key: str) -> set[str]:
+        read.append(key)
+        return local(bucket, key)
+
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["LIB2"],
+        samples_label="samples.csv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=reader,
+    )
+    assert report.ok, report.failures
+    assert read == [lib2_multi]
+
+
+def test_per_sample_names_file_under_multi_reports_only_the_real_problem(
+    tmp_path: Path,
+) -> None:
+    """A reused per-sample list names nothing under multi, and says so once.
+
+    It previously also claimed the sample's library had no run-level h5, which
+    was false and pointed at the wrong cause.
+    """
+    lib1_multi = (
+        f"{ORDER}/LIB1/processed/cellranger/Run_1/outs/multi/count/{MULTI_NAME}"
+    )
+    sample_key = (
+        f"{ORDER}/LIB1/processed/cellranger/Run_1/outs/per_sample_outs/S1/"
+        f"count/{H5_NAME}"
+    )
+    files = {
+        lib1_multi: _write_h5(tmp_path / "l1.h5", _guides("g1")),
+        sample_key: _write_h5(tmp_path / "s1.h5", _guides("g1")),
+    }
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        samples=["S1"],
+        samples_label="old_samples.csv",
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert report.failures == [
+        f"library 'S1' listed in old_samples.csv has no run-level {MULTI_NAME} "
+        f"under {URI}"
+    ]
+
+
+def test_check_rejects_workers_zero() -> None:
+    """0 must not be read as 'unset'; h5_worker_ceiling rejects it."""
+    with pytest.raises(ValueError, match="positive integer"):
+        check_guide_ids_against_h5(
+            {"g1"},
+            URI,
+            workers=0,
+            s3_client=MockS3Client(),
+            reader=lambda b, k: set(),
+        )
