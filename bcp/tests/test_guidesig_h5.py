@@ -172,9 +172,12 @@ def test_all_samples_pass_and_extras_are_notes(tmp_path: Path) -> None:
     )
     assert report.ok
     assert (report.h5_total, report.h5_failed) == (2, 0)
-    assert len(report.notes) == 1
+    assert len(report.notes) == 2
     assert "sample S1 (library LIB1)" in report.notes[0]
     assert "1 guide(s) in h5 not in metadata; examples: g9" in report.notes[0]
+    assert report.notes[1] == (
+        f"all 2 guide_ids present in each of 2 per-sample {H5_NAME} file(s)"
+    )
 
 
 def test_every_failing_sample_is_reported(tmp_path: Path) -> None:
@@ -484,7 +487,8 @@ def test_sample_list_reads_only_listed_h5(tmp_path: Path) -> None:
     assert report.ok
     assert read == [KEY_A]
     assert report.notes == [
-        f"checked 1 of 2 {H5_NAME} file(s); samples from samples.tsv"
+        f"checked 1 of 2 {H5_NAME} file(s); samples from samples.tsv",
+        f"all 1 guide_ids present in each of 1 per-sample {H5_NAME} file(s)",
     ]
 
 
@@ -753,7 +757,8 @@ def test_multi_scope_is_the_default_and_labels_the_run(tmp_path: Path) -> None:
     assert (report.h5_total, report.h5_failed) == (1, 0)
     assert report.notes == [
         f"library LIB1 (run Run_1) (s3://{BUCKET}/{MULTI_KEY}): 1 guide(s) in h5 "
-        "not in metadata; examples: g9"
+        "not in metadata; examples: g9",
+        f"all 2 guide_ids present in each of 1 run-level {MULTI_NAME} file(s)",
     ]
 
 
@@ -1149,7 +1154,8 @@ def test_listed_libraries_are_the_only_ones_read(tmp_path: Path) -> None:
     assert report.ok, report.failures
     assert sorted(read) == sorted([KEEP_A, KEEP_B])
     assert report.notes == [
-        f"checked 2 of 3 run-level {MULTI_NAME} file(s); libraries from samples.csv"
+        f"checked 2 of 3 run-level {MULTI_NAME} file(s); libraries from samples.csv",
+        f"all 2 guide_ids present in each of 2 run-level {MULTI_NAME} file(s)",
     ]
 
 
@@ -1294,3 +1300,56 @@ def test_cli_samples_file_works_with_default_multi_scope(
     assert captured.out.startswith("gsig1:set:n=2:")
     assert f"note: checked 1 of 2 run-level {MULTI_NAME} file(s)" in captured.err
     assert "error:" not in captured.err
+
+
+# --- confirmation that the h5s were read --------------------------------------
+
+
+def test_a_clean_run_still_says_what_it_checked(
+    tmp_path: Path, fake_s3, capsys
+) -> None:
+    """No sample list, no surplus guides: the run must not be silent.
+
+    Without this note a passing check prints only the signature, so a run that
+    matched the h5s and a run that matched nothing look identical.
+    """
+    files, _state = fake_s3
+    files[MULTI_KEY] = _write_h5(tmp_path / "m.h5", _guides("g1", "g2"))
+    sheet = _sheet(tmp_path, ["g1", "g2"])
+    main(["--format", "tsv", "--h5-uri", URI, str(sheet)])
+    captured = capsys.readouterr()
+    assert (
+        f"note: all 2 guide_ids present in each of 1 run-level {MULTI_NAME} file(s)"
+        in captured.err
+    )
+    # stdout stays signature-only, so piping is unaffected.
+    assert captured.out.strip().endswith(str(sheet))
+    assert "note:" not in captured.out
+
+
+def test_no_all_present_note_when_a_file_failed(tmp_path: Path) -> None:
+    """The positive summary must not contradict a failure in the same batch."""
+    files = {
+        MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1")),
+        MULTI_KEY_LIB2: _write_h5(tmp_path / "m2.h5", _guides("g1", "g2")),
+    }
+    report = check_guide_ids_against_h5(
+        {"g1", "g2"},
+        URI,
+        s3_client=MockS3Client(keys=list(files)),
+        reader=_local_reader(files),
+    )
+    assert not report.ok
+    assert not any("all 2 guide_ids present" in n for n in report.notes)
+
+
+def test_no_all_present_note_when_nothing_was_read() -> None:
+    """An order with no run-level h5 must not claim everything was present."""
+    report = check_guide_ids_against_h5(
+        {"g1"},
+        URI,
+        s3_client=MockS3Client(keys=["proj/order/LIB1/raw/x_R1_001.fastq.gz"]),
+        reader=lambda bucket, key: set(),
+    )
+    assert not report.ok
+    assert not any("present in each" in n for n in report.notes)

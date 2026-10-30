@@ -409,16 +409,23 @@ def _compare_h5_files(
     retries: int,
     pool_size: int,
     label: Callable[[str], str],
+    description: str,
     report: H5CheckReport,
 ) -> None:
     """Read every key and record missing/extra guides against ``report``.
 
     Every h5 is read before anything is recorded, so one run shows every
     failing file rather than stopping at the first.
+
+    When nothing here failed, a note says so. Without it a clean run prints no
+    evidence the h5s were read at all, so a check that silently matched zero
+    files would look exactly like a check that passed. ``description`` names
+    what was read, as in ``run-level raw_feature_bc_matrix.h5``.
     """
     if not keys:
         return
     report.h5_total += len(keys)
+    failures_before = len(report.failures)
 
     def fetch(key: str) -> tuple[set[str] | None, str | None]:
         return retry_with_backoff(reader, bucket, key, retries=retries)
@@ -451,6 +458,12 @@ def _compare_h5_files(
                 f"{where}: {len(extra)} guide(s) in h5 not in metadata; "
                 f"examples: {_examples(extra)}"
             )
+
+    if len(report.failures) == failures_before:
+        report.notes.append(
+            f"all {len(guide_ids)} guide_ids present in each of {len(keys)} "
+            f"{description} file(s)"
+        )
 
 
 def _check_multi_scope(
@@ -534,6 +547,7 @@ def _check_multi_scope(
         retries=retries,
         pool_size=pool_size,
         label=_multi_label,
+        description=f"run-level {filename}",
         report=report,
     )
 
@@ -602,6 +616,7 @@ def _check_per_sample_scope(
         retries=retries,
         pool_size=pool_size,
         label=_per_sample_label,
+        description=f"per-sample {filename}",
         report=report,
     )
 

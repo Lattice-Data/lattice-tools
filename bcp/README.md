@@ -779,7 +779,11 @@ in the h5 come back as a note. A sheet covering part of a library's guides passe
 
 #### Shared behaviour
 
-- **Notes:** guides present in an h5 but absent from the sheet
+- **Notes:** guides present in an h5 but absent from the sheet; and, when every file read
+  held every sheet guide, a confirmation line — `all 25795 guide_ids present in each of 24
+  run-level raw_feature_bc_matrix.h5 file(s)`. It is always printed, so a passing run can
+  never be mistaken for one that matched no files. It is suppressed when any file in that
+  batch failed, or when none were read, so it never contradicts an error
 - Every h5 is read before anything is reported, so one run lists every failing file; the
   signature is printed only if all pass
 - `--h5-filename NAME` overrides the active scope's default basename
