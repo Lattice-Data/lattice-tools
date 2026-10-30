@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import math
 import re
 import sys
 import tempfile
@@ -91,6 +92,23 @@ class GuidescanReport:
     @property
     def percent(self) -> float:
         return 100.0 * self.matched / self.total if self.total else 0.0
+
+    @property
+    def percent_text(self) -> str:
+        """``percent`` for display, never rounded past a boundary it has not met.
+
+        ``.1f`` rounds 20506 of 20508 (99.990%) up to ``100.0``, reporting a
+        clean sweep for a sheet with two unmatched guides, which is the one
+        thing this check exists to surface. The figure is truncated instead of
+        rounded, so only a genuine 100% prints as ``100.0``, and a nonzero rate
+        never prints as ``0.0``.
+        """
+        if not self.total or not self.matched:
+            return "0.0"
+        if self.matched == self.total:
+            return "100.0"
+        truncated = math.floor(self.percent * 10) / 10
+        return f"{min(max(truncated, 0.1), 99.9):.1f}"
 
     @property
     def below_threshold(self) -> bool:
@@ -423,7 +441,7 @@ def format_report(report: GuidescanReport) -> list[str]:
         return lines
     lines.append(
         f"guidescan: {report.matched} of {report.total} targeting guides "
-        f"({report.percent:.1f}%) have an exact match"
+        f"({report.percent_text}%) have an exact match"
     )
     if report.unmatched:
         examples = ", ".join(report.unmatched[:EXAMPLE_LIMIT])
@@ -432,7 +450,7 @@ def format_report(report: GuidescanReport) -> list[str]:
         lines.append(f"warning: guidescan pipeline: {warning}")
     if report.below_threshold:
         lines.append(
-            f"warning: guidescan exact-match rate {report.percent:.1f}% is below "
+            f"warning: guidescan exact-match rate {report.percent_text}% is below "
             f"{WARN_BELOW_PERCENT:.0f}%"
         )
     return lines

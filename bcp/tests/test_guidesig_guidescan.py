@@ -507,3 +507,50 @@ def test_pipeline_logger_state_is_restored() -> None:
         list(pipeline_logger.handlers),
     )
     assert after == before
+
+
+# --- the displayed rate must not round past a boundary it has not met ---------
+
+
+@pytest.mark.parametrize(
+    "matched, total, expected",
+    [
+        # The case from a real run: two unmatched guides read as a clean sweep.
+        (20506, 20508, "99.9"),
+        (999999, 1000000, "99.9"),
+        # Only a genuine sweep prints 100.0.
+        (20508, 20508, "100.0"),
+        (2, 2, "100.0"),
+        # ... and a nonzero rate never prints as 0.0.
+        (1, 2500, "0.1"),
+        (0, 10, "0.0"),
+        # Exact values are unchanged.
+        (9, 10, "90.0"),
+        (88, 100, "88.0"),
+        (1, 2, "50.0"),
+        (0, 0, "0.0"),
+    ],
+)
+def test_percent_text_never_overstates(matched: int, total: int, expected: str) -> None:
+    report = guidescancheck.GuidescanReport(matched=matched, total=total)
+    assert report.percent_text == expected
+
+
+def test_a_single_unmatched_guide_is_visible_in_the_report() -> None:
+    """The report line must not claim 100% while naming unmatched guides."""
+    report = guidescancheck.GuidescanReport(matched=20506, total=20508)
+    line = next(
+        line for line in guidescancheck.format_report(report) if "exact match" in line
+    )
+    assert "20506 of 20508" in line
+    assert "(99.9%)" in line
+    assert "100.0" not in line
+
+
+def test_rate_just_under_the_threshold_does_not_print_as_the_threshold() -> None:
+    """89.99% warned that '90.0% is below 90%', which read as a contradiction."""
+    report = guidescancheck.GuidescanReport(matched=8999, total=10000)
+    assert report.below_threshold
+    lines = guidescancheck.format_report(report)
+    assert any("89.9% is below 90%" in line for line in lines)
+    assert not any("90.0% is below" in line for line in lines)
