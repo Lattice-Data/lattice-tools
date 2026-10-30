@@ -646,17 +646,19 @@ def check_guide_ids_against_h5(
     ``scope`` selects which h5 files are read; see the module docstring.
     ``filename`` overrides that scope's default basename.
 
-    ``samples`` limits the check to those exact names. A name is matched
-    against the
-    ``per_sample_outs/<sample>/`` folder when there is one, else the library
-    folder (the folder before ``processed/``); run-level keys have no
-    ``per_sample_outs/`` segment, so under ``multi`` the names are library
-    folders. A listed name with no h5 is a failure, so a typo is reported
-    rather than quietly narrowing the check to nothing. Names not listed are
-    excluded entirely, including from the missing-h5 reports: a library the
-    sheet does not describe, such as one built from a different guide set,
-    should drop out rather than fail. ``samples_label`` names the list in
-    messages.
+    ``samples`` limits the check to those exact names, matched differently by
+    scope. ``multi`` matches the library folder alone (the folder before
+    ``processed/``), never a sample name, including on the per-sample keys of
+    the same library. ``per-sample`` matches the ``per_sample_outs/<sample>/``
+    folder, falling back to the library folder when a key has no such segment.
+    So on an order where a library and a sample are named differently, a list
+    that selects under one scope selects nothing under the other.
+
+    A listed name with no h5 is a failure, so a typo is reported rather than
+    quietly narrowing the check to nothing. Names not listed are excluded
+    entirely, including from the missing-h5 reports: a library the sheet does
+    not describe, such as one built from a different guide set, should drop
+    out rather than fail. ``samples_label`` names the list in messages.
 
     ``s3_client`` and ``reader`` exist for tests; by default a boto3 client
     lists the prefix and each h5 is opened over S3.

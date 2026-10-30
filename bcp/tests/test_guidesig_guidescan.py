@@ -596,4 +596,3 @@ def test_a_rate_under_a_tenth_of_a_percent_is_not_rounded_up() -> None:
     assert report.percent_text == "<0.1"
     line = next(line for line in format_report(report) if "exact match" in line)
     assert "(<0.1%)" in line
-    assert "0.1%)" != line[-6:]
