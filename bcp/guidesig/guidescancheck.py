@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import math
 import re
 import sys
 import tempfile
@@ -91,6 +92,31 @@ class GuidescanReport:
     @property
     def percent(self) -> float:
         return 100.0 * self.matched / self.total if self.total else 0.0
+
+    @property
+    def percent_text(self) -> str:
+        """``percent`` for display, never rounded past a boundary it has not met.
+
+        ``.1f`` rounds 9999 of 10000 (99.99%) up to ``100.0``, reporting a clean
+        sweep for a sheet with an unmatched guide, which is the one thing
+        this check exists to surface. The figure is truncated instead of
+        rounded, so only a genuine 100% prints as ``100.0``, and a nonzero rate
+        never prints as ``0.0``.
+
+        A rate below a tenth of a percent prints as ``<0.1`` rather than being
+        raised to ``0.1``: it is still distinguishable from no matches at all,
+        without claiming a figure it has not reached.
+        """
+        if not self.total or not self.matched:
+            return "0.0"
+        if self.matched == self.total:
+            return "100.0"
+        # Truncation keeps this under 100.0 whenever a guide is unmatched, so
+        # no upper clamp is needed.
+        truncated = math.floor(self.percent * 10) / 10
+        if truncated < 0.1:
+            return "<0.1"
+        return f"{truncated:.1f}"
 
     @property
     def below_threshold(self) -> bool:
@@ -417,13 +443,18 @@ def stderr_log(message: str) -> None:
 
 
 def format_report(report: GuidescanReport) -> list[str]:
-    """Lines for stderr: the rate, unmatched examples, and any warning."""
+    """Lines for stderr: the rate, unmatched examples, and the threshold verdict.
+
+    The threshold is always stated, either way. Reporting only the failing side
+    left a passing rate implicit, so a run with a few unmatched guides looked
+    the same as one the threshold had never been applied to.
+    """
     lines = [f"note: {note}" for note in report.notes]
     if report.total == 0:
         return lines
     lines.append(
         f"guidescan: {report.matched} of {report.total} targeting guides "
-        f"({report.percent:.1f}%) have an exact match"
+        f"({report.percent_text}%) have an exact match"
     )
     if report.unmatched:
         examples = ", ".join(report.unmatched[:EXAMPLE_LIMIT])
@@ -432,7 +463,15 @@ def format_report(report: GuidescanReport) -> list[str]:
         lines.append(f"warning: guidescan pipeline: {warning}")
     if report.below_threshold:
         lines.append(
-            f"warning: guidescan exact-match rate {report.percent:.1f}% is below "
-            f"{WARN_BELOW_PERCENT:.0f}%"
+            f"warning: guidescan exact match rate of targeting guides "
+            f"{report.percent_text}% is below {WARN_BELOW_PERCENT:.0f}%"
+        )
+    else:
+        # "at or above" because the threshold test is ``percent <``, so a rate
+        # of exactly 90.0% passes; "above 90%" would be false in that case.
+        lines.append(
+            f"guidescan: exact match rate of targeting guides "
+            f"{report.percent_text}% is at or above the "
+            f"{WARN_BELOW_PERCENT:.0f}% threshold"
         )
     return lines

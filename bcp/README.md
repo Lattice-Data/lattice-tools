@@ -699,29 +699,107 @@ what the user sees when they open the file.
 ### h5 guide_id check (`--h5-uri`)
 
 `--h5-uri s3://bucket/proj/order` additionally checks that every `guide_id` in the sheet
-appears among the `CRISPR Guide Capture` feature IDs (`matrix/features/id`) of each
-sample's Cell Ranger h5 under that prefix. It takes exactly one FILE and is not allowed
-with `--compare`; the sheet must have a `guide_id` column.
+appears among the `CRISPR Guide Capture` feature IDs (`matrix/features/id`) of the Cell
+Ranger h5 files under that prefix. It takes exactly one FILE and is not allowed with
+`--compare`; the sheet must have a `guide_id` column.
 
-- One S3 listing finds every `--h5-filename` (default
-  `sample_filtered_feature_bc_matrix.h5`); only the features table of each h5 is read
-- **Failures:** a sheet `guide_id` missing from a sample's h5; an h5 that cannot be read
-  or has no CRISPR features; a `per_sample_outs/<sample>/` folder with no target h5; a
-  library folder (the folder before `processed/`) with no target h5 and no
-  `per_sample_outs/`, as a failed or half-uploaded run leaves; no target h5 at all
-- **Notes:** guides present in an h5 but absent from the sheet
-- Every sample is checked before anything is reported, so one run lists every failing
-  sample; the signature is printed only if all pass
-- `--h5-samples-file PATH` limits the check to the samples named in PATH: one exact,
-  case-sensitive name per line, no header; blank lines and `#` lines are skipped and
-  repeats are ignored; a line holding a tab is an error. Names are matched against the
-  `per_sample_outs/<sample>/` folder (else the library folder), so `tb7k_q2` never matches
-  `Wtb7k_q2`. Unlisted samples are ignored entirely, including by the missing-folder
-  checks; a listed sample with no h5 is a failure; a note reports how many h5 files were
-  checked
-- `--workers N` (default 8) sets parallel h5 reads; `--retries N` (default 5) sets attempts
-  per transient S3 error. These, `--h5-filename` and `--h5-samples-file` require
-  `--h5-uri`
+`--h5-scope` decides which h5 files those are. One S3 listing serves every scope, and
+only the features table of each h5 is read, never the count matrix.
+
+#### `--h5-scope multi` (default)
+
+Reads the run-level `raw_feature_bc_matrix.h5`, **one per library**. Within a single
+`cellranger multi` run the feature reference is per-run, not per-sample, so every
+per-sample h5 carries an identical features table; reading the run-level file once per
+library is the whole guide_id check.
+
+Both Cell Ranger layouts are accepted, matched on path segments rather than a string
+suffix, so `per_sample_outs` never counts as `outs`:
+
+| version | run-level location |
+|---|---|
+| `cellranger-9.0.1` | `outs/multi/count/raw_feature_bc_matrix.h5` |
+| `cellranger-10.0.0`, `10.1.0` | `outs/raw_feature_bc_matrix.h5` (flat, no `multi/count/` subtree) |
+
+A single order may mix the two across libraries. Two run-level h5s under *one* library,
+whether from reprocessing or from a version change, is the ambiguity failure below.
+
+- **Failures:** a sheet `guide_id` missing from a library's h5; an h5 that cannot be read
+  or has no CRISPR features; a library folder (the folder before `processed/`) with no
+  run-level h5 in either location; a library holding **more than one**, which makes the
+  delivery undecidable, so none of them are read; no run-level h5 anywhere under the
+  prefix
+- h5 files are labelled `library <library> (run <run folder>)`, since one library may hold
+  several run folders
+
+#### `--h5-scope per-sample`
+
+Sweeps every `per_sample_outs/<sample>/count/sample_filtered_feature_bc_matrix.h5`.
+Because those all carry the same features table, this is a **file integrity check** over
+an order's per-sample outputs, not a guide check: it catches missing, truncated and
+unreadable per-sample files.
+
+- **Failures:** the same h5 read and guide_id failures as above, plus a
+  `per_sample_outs/<sample>/` folder with no target h5, a library folder with no
+  `per_sample_outs/` at all (as a failed or half-uploaded run leaves), and no target h5
+  at all
+- `--h5-samples-file PATH` limits the sweep to the names in PATH. See
+  [Narrowing to some libraries](#narrowing-to-some-libraries-h5-samples-file), which
+  applies to whichever scope is running
+
+There is no combined scope: one run checks one scope. To cover both, run the command twice.
+
+#### Narrowing to some libraries (`--h5-samples-file`)
+
+A sheet often describes only part of an order. Where libraries were built from different
+guide sets, checking the sheet against all of them fails on the ones it was never meant to
+cover, because those guides genuinely are absent. `--h5-samples-file PATH` scopes the check
+to the libraries the sheet describes.
+
+This is about correctness, not cost: where an order holds two groups of libraries built
+from different guide sets, say `panelA_*` and `panelB_*`, a `panelA` sheet cannot be
+checked against that order at all without narrowing to the libraries it describes.
+
+- One exact, case-sensitive name per line, no header. Blank lines and `#` lines are
+  skipped, repeats ignored, and a line holding a tab is an error. Matching is exact, so
+  `keep_a1` never matches `Xkeep_a1`
+- **Under `multi`, names are matched against the library folder only**: the folder before
+  `processed/`, as in `<order>/panelA_s1/processed/cellranger/<run>/outs/...`. A sample
+  name is never matched under this scope, even one that happens to equal a library name,
+  so a per-sample names file selects nothing here rather than selecting the wrong thing
+- Under `per-sample`, names match `per_sample_outs/<sample>/`, falling back to the library
+  folder. In orders where the two differ (library `Treg_L01` holding sample `TregPilot`),
+  a list that works for one scope will not work for the other
+- Unlisted libraries are excluded entirely, including from the missing-h5 and
+  missing-folder reports, so an excluded library cannot fail for lacking a file either
+- A listed name with no h5 **is** a failure, so a typo is reported rather than quietly
+  narrowing the check to nothing
+- A note reports how many of the order's h5 files were checked
+
+Because the check only fails on guides the sheet declares and the h5 lacks, surplus guides
+in the h5 come back as a note. A sheet covering part of a library's guides passes.
+
+#### Shared behaviour
+
+- **Notes:** guides present in an h5 but absent from the sheet; and, when every file read
+  held every sheet guide, a confirmation line: `all 1200 guide_ids present in each of 12
+  run-level raw_feature_bc_matrix.h5 file(s)`. It is always printed, so a passing run can
+  never be mistaken for one that matched no files. It is suppressed when any file in that
+  batch failed, or when none were read, so it never contradicts an error
+- Every h5 is read before anything is reported, so one run lists every failing file; the
+  signature is printed only if all pass
+- `--h5-filename NAME` overrides the active scope's default basename
+- `--workers N` sets parallel h5 reads and the S3 connection pool they share. The default
+  depends on how many files the scope opens at once, since opening one h5 costs many range
+  reads: **24** for `multi`, which opens one per library, and **8** for `per-sample` and
+  `per-sample`, which opens one per sample and is the high-fanout case `file_extract`'s
+  shared ceiling was tuned for
+- `--retries N` (default 5) sets attempts per transient S3 error. `--workers`, `--retries`,
+  `--h5-scope`, `--h5-filename` and `--h5-samples-file` require `--h5-uri`
+- Each h5 is opened with a 1 MiB S3 block size (`h5check.FEATURES_BLOCK_SIZE`), not s3fs's
+  50 MiB default. Reading the features table takes only ~8 seeks, so large blocks fetched
+  ~226 MiB per file to return a few MB; 1 MiB fetches ~7 MiB and is ~14x faster. Not a
+  flag, and no reason to go lower: 256 KiB fetches less but is slower
 - S3 listing, retries and sample/library naming are reused from `file_extract`
 
 ### Guidescan exact-match rate (`--guidescan --species`)
@@ -730,6 +808,13 @@ with `--compare`; the sheet must have a `guide_id` column.
 on the sheet's targeting guides (every role except `control`) and reports how many have
 an exact genome match. It takes exactly one FILE, is not allowed with `--compare`, and
 runs after the h5 check when both are given; a failed h5 check stops the run first.
+
+The threshold verdict is always stated, either way: `exact match rate of targeting guides
+99.9% is at or above the 90% threshold`, or a warning below it. It reads "at or above" because the test is
+`percent <`, so exactly 90.0% passes. The rate is truncated rather than rounded, so only a
+genuine sweep reads `100.0%`: 9999 of 10000 reads `99.9%`. A nonzero rate below a tenth
+of a percent reads `<0.1%`, distinguishable from no matches at all without claiming a
+figure it has not reached.
 
 - **Species cross-check (error):** the sheet's `guide_target_gene_id` values must not
   contradict `--species` (`ENSMUSG<digits>` is mouse, `ENSG<digits>` human, optionally
@@ -818,8 +903,16 @@ python -m guidesig --format tsv --compare lib_a.tsv lib_b.tsv
 # Alternate column
 python -m guidesig --format tsv lib.tsv --column guide_rc_sequence
 
-# Check guide_ids against every sample's h5 in an order
+# Check guide_ids against each library's run-level h5 in an order
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order lib.tsv
+
+# File integrity sweep over the per-sample h5s instead
+python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
+  --h5-scope per-sample lib.tsv
+
+# Check only the libraries this sheet describes (names are library folders)
+python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
+  --h5-samples-file panelA_libraries.csv lib.tsv
 
 # ...and report the guidescan exact-match rate
 python -m guidesig --format tsv --h5-uri s3://bucket/proj/order \
