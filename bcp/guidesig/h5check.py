@@ -46,8 +46,7 @@ from .core import GuideSigError
 
 SCOPE_MULTI = "multi"
 SCOPE_PER_SAMPLE = "per-sample"
-SCOPE_BOTH = "both"
-SCOPES = (SCOPE_MULTI, SCOPE_PER_SAMPLE, SCOPE_BOTH)
+SCOPES = (SCOPE_MULTI, SCOPE_PER_SAMPLE)
 
 #: Run-level matrix written by ``cellranger multi``, under ``outs/multi/count/``.
 DEFAULT_MULTI_H5_FILENAME = "raw_feature_bc_matrix.h5"
@@ -111,8 +110,7 @@ def default_workers_for(scope: str) -> int:
     files a scope opens at once rather than how fast one of them is. ``multi``
     opens one per library, which is few enough to widen; the per-sample sweep
     opens one per sample, which is the high-fanout case the shared
-    ``file_extract`` ceiling of 8 was tuned for. ``both`` runs that sweep too,
-    so it keeps the lower number.
+    ``file_extract`` ceiling of 8 was tuned for.
     """
     if scope == SCOPE_MULTI:
         return MULTI_SCOPE_WORKERS
@@ -269,7 +267,14 @@ def find_multi_layout(keys: list[str], filename: str) -> MultiLayout:
 
     return MultiLayout(
         h5_keys=sorted(found[0] for found in by_library.values() if len(found) == 1),
-        libraries_without_h5=sorted(library_dirs - set(by_library)),
+        # Containment, not exact membership: a key with a ``processed/`` segment
+        # directly under the order prefix makes _library_dir derive the order
+        # itself, which is an ancestor of every real library. Exact matching
+        # reports that ancestor as holding no h5 even though all of them sit
+        # beneath it.
+        libraries_without_h5=sorted(
+            d for d in library_dirs if not any(k.startswith(d) for k in by_library)
+        ),
         ambiguous_libraries=sorted(
             (library, sorted(found))
             for library, found in by_library.items()
@@ -616,13 +621,11 @@ def check_guide_ids_against_h5(
 ) -> H5CheckReport:
     """Check ``guide_ids`` against the h5 files under ``h5_uri``.
 
-    One S3 listing serves every scope. ``scope`` selects which h5 files are
-    read; see the module docstring. ``filename`` overrides that scope's default
-    basename and is rejected under ``both``, where two different defaults are
-    in play.
+    ``scope`` selects which h5 files are read; see the module docstring.
+    ``filename`` overrides that scope's default basename.
 
-    ``samples`` limits every scope that runs to those exact names, so under
-    ``both`` it narrows both passes. A name is matched against the
+    ``samples`` limits the check to those exact names. A name is matched
+    against the
     ``per_sample_outs/<sample>/`` folder when there is one, else the library
     folder (the folder before ``processed/``); run-level keys have no
     ``per_sample_outs/`` segment, so under ``multi`` the names are library
@@ -637,17 +640,12 @@ def check_guide_ids_against_h5(
     lists the prefix and each h5 is opened over S3.
 
     Raises:
-        H5CheckError: If the scope is unknown, the URI is invalid, the prefix
-            cannot be listed, or an argument does not apply to the scope.
+        H5CheckError: If the scope is unknown, the URI is invalid, or the
+            prefix cannot be listed.
     """
     if scope not in SCOPES:
         raise H5CheckError(
             f"unknown scope {scope!r}; expected one of {', '.join(SCOPES)}"
-        )
-    if filename is not None and scope == SCOPE_BOTH:
-        raise H5CheckError(
-            f"a filename override cannot apply to scope {SCOPE_BOTH!r}, which "
-            "looks for two different h5 basenames"
         )
     try:
         location = parse_s3_uri(h5_uri)
@@ -688,7 +686,7 @@ def check_guide_ids_against_h5(
         "report": report,
     }
 
-    if scope in (SCOPE_MULTI, SCOPE_BOTH):
+    if scope == SCOPE_MULTI:
         multi_filename = filename or DEFAULT_MULTI_H5_FILENAME
         _check_multi_scope(
             guide_ids,
@@ -699,7 +697,7 @@ def check_guide_ids_against_h5(
             all_h5=sum(1 for k in keys if is_run_level_h5(k, multi_filename)),
             **shared,
         )
-    if scope in (SCOPE_PER_SAMPLE, SCOPE_BOTH):
+    if scope == SCOPE_PER_SAMPLE:
         per_sample_filename = filename or DEFAULT_PER_SAMPLE_H5_FILENAME
         _check_per_sample_scope(
             guide_ids,

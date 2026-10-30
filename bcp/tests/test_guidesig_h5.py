@@ -695,6 +695,37 @@ def test_find_multi_layout_ignores_per_sample_h5() -> None:
     assert layout.libraries_without_h5 == [LIB1]
 
 
+def test_find_multi_layout_ignores_an_ancestor_of_the_h5_keys() -> None:
+    """A 'processed/' segment directly under the order prefix is not a library.
+
+    _library_dir derives the order itself from such a key, and that folder is
+    an ancestor of every real library, so it must be cleared by containment.
+    Matching library folders exactly against the ones holding an h5 reported
+    the whole order as missing one while all of them sat beneath it.
+    """
+    real = [
+        f"{ORDER}/LIB{i}/processed/cellranger/Run_1/outs/multi/count/{MULTI_NAME}"
+        for i in (1, 2, 3)
+    ]
+    stray = f"{ORDER}/processed/aggregate/notes.txt"
+    layout = find_multi_layout([*real, stray], MULTI_NAME)
+    assert layout.h5_keys == sorted(real)
+    assert layout.libraries_without_h5 == []
+
+
+def test_ancestor_folder_does_not_mask_a_real_missing_h5() -> None:
+    """The containment fix must not swallow a genuine empty library."""
+    real = f"{ORDER}/LIB1/processed/cellranger/Run_1/outs/multi/count/{MULTI_NAME}"
+    keys = [
+        real,
+        f"{ORDER}/processed/aggregate/notes.txt",
+        f"{ORDER}/LIB2/processed/cellranger/Run_1/outs/web_summary.html",
+    ]
+    layout = find_multi_layout(keys, MULTI_NAME)
+    assert layout.h5_keys == [real]
+    assert layout.libraries_without_h5 == [f"{ORDER}/LIB2/"]
+
+
 def test_find_multi_layout_reports_library_without_h5() -> None:
     keys = [MULTI_KEY, f"{LIB2_RUN1}/web_summary.html"]
     layout = find_multi_layout(keys, MULTI_NAME)
@@ -824,35 +855,16 @@ def test_multi_scope_with_no_multi_output_suggests_per_sample() -> None:
     ]
 
 
-def test_scope_both_runs_each_scope(tmp_path: Path) -> None:
-    files = {
-        MULTI_KEY: _write_h5(tmp_path / "m.h5", _guides("g1")),
-        f"{RUN1}/per_sample_outs/S1/count/{H5_NAME}": _write_h5(
-            tmp_path / "s1.h5", _guides("g1")
-        ),
-    }
-    report = check_guide_ids_against_h5(
-        {"g1"},
-        URI,
-        scope="both",
-        s3_client=MockS3Client(keys=list(files)),
-        reader=_local_reader(files),
-    )
-    assert report.ok
-    assert report.h5_total == 2
-
-
-@pytest.mark.parametrize(
-    "kwargs, message",
-    [
-        ({"scope": "sample"}, "unknown scope 'sample'"),
-        ({"scope": "both", "filename": "x.h5"}, "cannot apply to scope 'both'"),
-    ],
-)
-def test_scope_argument_errors(kwargs: dict, message: str) -> None:
-    with pytest.raises(H5CheckError, match=message):
+@pytest.mark.parametrize("scope", ["both", "sample", ""])
+def test_unknown_scope_is_rejected(scope: str) -> None:
+    """'both' was removed; run the two scopes separately instead."""
+    with pytest.raises(H5CheckError, match=f"unknown scope {scope!r}"):
         check_guide_ids_against_h5(
-            {"g1"}, URI, s3_client=MockS3Client(), reader=lambda b, k: set(), **kwargs
+            {"g1"},
+            URI,
+            scope=scope,
+            s3_client=MockS3Client(),
+            reader=lambda b, k: set(),
         )
 
 
@@ -866,20 +878,35 @@ def test_cli_multi_scope_is_the_default(tmp_path: Path, fake_s3, capsys) -> None
     assert "error:" not in captured.err
 
 
-@pytest.mark.parametrize(
-    "extra_args, message",
-    [
-        (
-            ["--h5-scope", "both", "--h5-filename", "x.h5"],
-            "--h5-filename is not allowed with --h5-scope both",
-        ),
-    ],
-)
-def test_cli_scope_usage_errors(capsys, extra_args: list[str], message: str) -> None:
+def test_cli_rejects_the_removed_both_scope(capsys) -> None:
     with pytest.raises(SystemExit) as exc:
-        main(["--format", "tsv", "--h5-uri", URI, *extra_args, "a.tsv"])
+        main(["--format", "tsv", "--h5-uri", URI, "--h5-scope", "both", "a.tsv"])
     assert exc.value.code == 2
-    assert message in capsys.readouterr().err
+    assert "invalid choice: 'both'" in capsys.readouterr().err
+
+
+def test_cli_filename_override_needs_no_scope_now(
+    tmp_path: Path, fake_s3, capsys
+) -> None:
+    """With one scope per run, --h5-filename is never ambiguous."""
+    files, _state = fake_s3
+    custom = f"{RUN1}/multi/count/custom.h5"
+    files[custom] = _write_h5(tmp_path / "c.h5", _guides("g1", "g2"))
+    sheet = _sheet(tmp_path, ["g1", "g2"])
+    main(
+        [
+            "--format",
+            "tsv",
+            "--h5-uri",
+            URI,
+            "--h5-filename",
+            "custom.h5",
+            str(sheet),
+        ]
+    )
+    captured = capsys.readouterr()
+    assert captured.out.startswith("gsig1:set:n=2:")
+    assert "error:" not in captured.err
 
 
 # --- both Cell Ranger layouts -------------------------------------------------
@@ -964,7 +991,6 @@ def test_flat_layout_missing_guides_name_the_run(tmp_path: Path) -> None:
     [
         ("multi", h5check.MULTI_SCOPE_WORKERS),
         ("per-sample", h5check.PER_SAMPLE_SCOPE_WORKERS),
-        ("both", h5check.PER_SAMPLE_SCOPE_WORKERS),
     ],
 )
 def test_default_workers_for_scope(scope: str, expected: int) -> None:
@@ -984,7 +1010,7 @@ def test_cli_worker_help_defaults_match_h5check() -> None:
     assert cli.H5_PER_SAMPLE_WORKERS_HELP_DEFAULT == h5check.PER_SAMPLE_SCOPE_WORKERS
 
 
-@pytest.mark.parametrize("scope", ["multi", "per-sample", "both"])
+@pytest.mark.parametrize("scope", ["multi", "per-sample"])
 def test_explicit_workers_overrides_the_scope_default(
     tmp_path: Path, monkeypatch, scope: str
 ) -> None:
@@ -1011,7 +1037,6 @@ def test_explicit_workers_overrides_the_scope_default(
     [
         ("multi", 24),
         ("per-sample", 8),
-        ("both", 8),
     ],
 )
 def test_unset_workers_uses_the_scope_default(
@@ -1210,8 +1235,14 @@ def _per_sample_h5(name: str, run: str = "Run_1") -> str:
     )
 
 
-def test_scope_both_narrows_both_passes(tmp_path: Path) -> None:
-    """Each library holds both files; only the listed library is read, in both."""
+@pytest.mark.parametrize(
+    "scope, expected_key",
+    [("multi", KEEP_A), ("per-sample", _per_sample_h5("keep_a1"))],
+)
+def test_each_scope_narrows_to_listed_libraries(
+    tmp_path: Path, scope: str, expected_key: str
+) -> None:
+    """Each scope honours the list; covering both means two runs, one per scope."""
     files = {
         KEEP_A: _write_h5(tmp_path / "a.h5", _guides("g1")),
         _per_sample_h5("keep_a1"): _write_h5(tmp_path / "a_ps.h5", _guides("g1")),
@@ -1228,16 +1259,15 @@ def test_scope_both_narrows_both_passes(tmp_path: Path) -> None:
     report = check_guide_ids_against_h5(
         {"g1"},
         URI,
-        scope="both",
+        scope=scope,
         samples=["keep_a1"],
         samples_label="samples.csv",
         s3_client=MockS3Client(keys=list(files)),
         reader=reader,
     )
     assert report.ok, report.failures
-    # Both passes ran, and neither touched the unlisted library.
-    assert sorted(read) == sorted([KEEP_A, _per_sample_h5("keep_a1")])
-    assert report.h5_total == 2
+    assert read == [expected_key]
+    assert report.h5_total == 1
 
 
 def test_cli_samples_file_works_with_default_multi_scope(

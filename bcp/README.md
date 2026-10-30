@@ -745,13 +745,9 @@ unreadable per-sample files.
   at all
 - `--h5-samples-file PATH` limits the sweep to the names in PATH. See
   [Narrowing to some libraries](#narrowing-to-some-libraries-h5-samples-file), which
-  applies to every scope
+  applies to whichever scope is running
 
-#### `--h5-scope both`
-
-Runs each of the two scopes against the same listing. `--h5-samples-file` narrows both
-passes. `--h5-filename` is **not allowed** with `both`, which looks for two different
-basenames.
+There is no combined scope: one run checks one scope. To cover both, run the command twice.
 
 #### Narrowing to some libraries (`--h5-samples-file`)
 
@@ -772,7 +768,6 @@ libraries cannot be checked with an `NES` sheet at all.
 - Under `per-sample`, names match `per_sample_outs/<sample>/`, falling back to the library
   folder. In orders where the two differ (library `Treg_L01` holding sample `TregPilot`),
   a list that works for one scope will not work for the other
-- It narrows **every scope that runs**, so under `both` it applies to both passes
 - Unlisted libraries are excluded entirely, including from the missing-h5 and
   missing-folder reports, so an excluded library cannot fail for lacking a file either
 - A listed name with no h5 **is** a failure, so a typo is reported rather than quietly
@@ -791,8 +786,8 @@ in the h5 come back as a note. A sheet covering part of a library's guides passe
 - `--workers N` sets parallel h5 reads and the S3 connection pool they share. The default
   depends on how many files the scope opens at once, since opening one h5 costs many range
   reads: **24** for `multi`, which opens one per library, and **8** for `per-sample` and
-  `both`, which open one per sample and are the high-fanout case `file_extract`'s shared
-  ceiling was tuned for
+  `per-sample`, which opens one per sample and is the high-fanout case `file_extract`'s
+  shared ceiling was tuned for
 - `--retries N` (default 5) sets attempts per transient S3 error. `--workers`, `--retries`,
   `--h5-scope`, `--h5-filename` and `--h5-samples-file` require `--h5-uri`
 - Each h5 is opened with a 1 MiB S3 block size (`h5check.FEATURES_BLOCK_SIZE`), not s3fs's

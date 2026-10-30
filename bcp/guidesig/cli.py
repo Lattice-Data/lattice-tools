@@ -22,8 +22,7 @@ from .core import (
 # imports the S3/h5 stack.
 H5_SCOPE_MULTI = "multi"
 H5_SCOPE_PER_SAMPLE = "per-sample"
-H5_SCOPE_BOTH = "both"
-H5_SCOPES = (H5_SCOPE_MULTI, H5_SCOPE_PER_SAMPLE, H5_SCOPE_BOTH)
+H5_SCOPES = (H5_SCOPE_MULTI, H5_SCOPE_PER_SAMPLE)
 H5_MULTI_FILENAME_HELP_DEFAULT = "raw_feature_bc_matrix.h5"
 H5_PER_SAMPLE_FILENAME_HELP_DEFAULT = "sample_filtered_feature_bc_matrix.h5"
 # Mirror h5check's per-scope worker defaults, for the help text only.
@@ -137,8 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"per_sample_outs/<sample>/count/"
             f"{H5_PER_SAMPLE_FILENAME_HELP_DEFAULT}: since those all carry the "
             "same features table, it is a file integrity check (missing, "
-            "truncated or unreadable per-sample files), not a guide check. "
-            f"{H5_SCOPE_BOTH!r} runs each of them"
+            "truncated or unreadable per-sample files), not a guide check"
         ),
     )
     parser.add_argument(
@@ -148,8 +146,7 @@ def build_parser() -> argparse.ArgumentParser:
             "h5 basename to check, overriding the scope default "
             f"({H5_MULTI_FILENAME_HELP_DEFAULT} for --h5-scope "
             f"{H5_SCOPE_MULTI}, {H5_PER_SAMPLE_FILENAME_HELP_DEFAULT} for "
-            f"--h5-scope {H5_SCOPE_PER_SAMPLE}); not allowed with --h5-scope "
-            f"{H5_SCOPE_BOTH}, which looks for two different basenames"
+            f"--h5-scope {H5_SCOPE_PER_SAMPLE})"
         ),
     )
     parser.add_argument(
@@ -158,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Only check the names in PATH (one exact name per line, no "
-            "header), narrowing every scope that runs. Use it when the sheet "
+            "header). Use it when the sheet "
             "describes only some of the order's libraries, so the rest are "
             "excluded instead of failing for guides they were never built "
             f"with. Under --h5-scope {H5_SCOPE_MULTI} the names are library "
@@ -175,8 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
             f"share (default: {H5_MULTI_WORKERS_HELP_DEFAULT} for --h5-scope "
             f"{H5_SCOPE_MULTI}, which opens one h5 per library; "
             f"{H5_PER_SAMPLE_WORKERS_HELP_DEFAULT} for "
-            f"{H5_SCOPE_PER_SAMPLE} and {H5_SCOPE_BOTH}, which open one per "
-            "sample)"
+            f"{H5_SCOPE_PER_SAMPLE}, which opens one per sample)"
         ),
     )
     parser.add_argument(
@@ -331,12 +327,6 @@ def main(argv: list[str] | None = None) -> None:
     if args.h5_uri is None and h5_only:
         parser.error(f"{', '.join(h5_only)} require --h5-uri")
 
-    scope = args.h5_scope or H5_SCOPE_MULTI
-    if args.h5_filename is not None and scope == H5_SCOPE_BOTH:
-        parser.error(
-            f"--h5-filename is not allowed with --h5-scope {H5_SCOPE_BOTH}, "
-            "which looks for two different h5 basenames"
-        )
     if args.guidescan and args.species is None:
         parser.error("--guidescan requires --species")
     if args.species is not None and not args.guidescan:
