@@ -331,11 +331,14 @@ def test_run_with_no_guides_skips_guidescan() -> None:
     assert format_report(report) == ["note: no targeting guides; guidescan not run"]
 
 
-def test_report_line_and_no_warning_at_threshold() -> None:
+def test_report_states_the_threshold_was_met_and_does_not_warn() -> None:
+    """Exactly 90.0% passes, so it reads 'at or above', never 'above'."""
     report = GuidescanReport(total=10, matched=9, unmatched=["g7"])
     assert format_report(report) == [
         "guidescan: 9 of 10 targeting guides (90.0%) have an exact match",
         "guidescan: no exact match: g7",
+        "guidescan: exact match rate of targeting guides 90.0% is at or above "
+        "the 90% threshold",
     ]
 
 
@@ -347,7 +350,9 @@ def test_warning_below_threshold_and_examples_capped() -> None:
         "guidescan: 88 of 100 targeting guides (88.0%) have an exact match"
     )
     assert lines[1] == "guidescan: no exact match: " + ", ".join(unmatched[:10])
-    assert lines[2] == "warning: guidescan exact-match rate 88.0% is below 90%"
+    assert lines[2] == (
+        "warning: guidescan exact match rate of targeting guides 88.0% is below 90%"
+    )
 
 
 # --- CLI -----------------------------------------------------------------------
@@ -407,7 +412,10 @@ def test_cli_low_rate_warns_but_still_prints_signature(
     assert captured.out.startswith("gsig1:set:n=3:")
     assert "guidescan: 1 of 2 targeting guides (50.0%)" in captured.err
     assert "guidescan: no exact match: g2" in captured.err
-    assert "warning: guidescan exact-match rate 50.0% is below 90%" in captured.err
+    assert (
+        "warning: guidescan exact match rate of targeting guides 50.0% is below 90%"
+        in captured.err
+    )
 
 
 def test_cli_species_mismatch_fails_before_download(
@@ -554,3 +562,26 @@ def test_rate_just_under_the_threshold_does_not_print_as_the_threshold() -> None
     lines = guidescancheck.format_report(report)
     assert any("89.9% is below 90%" in line for line in lines)
     assert not any("90.0% is below" in line for line in lines)
+
+
+def test_threshold_verdict_is_always_stated() -> None:
+    """Either side of the threshold produces a line; neither is silent."""
+    passing = format_report(GuidescanReport(total=20508, matched=20506))
+    failing = format_report(GuidescanReport(total=100, matched=88))
+    assert any(
+        "exact match rate of targeting guides 99.9% is at or above the 90% threshold"
+        in line
+        for line in passing
+    )
+    assert not any("below" in line for line in passing)
+    assert any(
+        "exact match rate of targeting guides 88.0% is below 90%" in line
+        for line in failing
+    )
+    assert not any("at or above" in line for line in failing)
+
+
+def test_no_threshold_verdict_when_guidescan_did_not_run() -> None:
+    """With no targeting guides there is no rate, so no verdict to state."""
+    report = GuidescanReport(total=0, matched=0, notes=["no targeting guides"])
+    assert format_report(report) == ["note: no targeting guides"]

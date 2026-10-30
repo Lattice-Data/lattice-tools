@@ -762,7 +762,7 @@ libraries cannot be checked with an `NES` sheet at all.
 - One exact, case-sensitive name per line, no header. Blank lines and `#` lines are
   skipped, repeats ignored, and a line holding a tab is an error. Matching is exact, so
   `keep_a1` never matches `Xkeep_a1`
-- **Under `multi`, names are library folders** — the folder before `processed/`, as in
+- **Under `multi`, names are library folders**: the folder before `processed/`, as in
   `<order>/NES_m1_1/processed/cellranger/<run>/outs/...`. Run-level keys have no
   `per_sample_outs/` segment, so there is no sample name to match
 - Under `per-sample`, names match `per_sample_outs/<sample>/`, falling back to the library
@@ -780,7 +780,7 @@ in the h5 come back as a note. A sheet covering part of a library's guides passe
 #### Shared behaviour
 
 - **Notes:** guides present in an h5 but absent from the sheet; and, when every file read
-  held every sheet guide, a confirmation line — `all 25795 guide_ids present in each of 24
+  held every sheet guide, a confirmation line: `all 25795 guide_ids present in each of 24
   run-level raw_feature_bc_matrix.h5 file(s)`. It is always printed, so a passing run can
   never be mistaken for one that matched no files. It is suppressed when any file in that
   batch failed, or when none were read, so it never contradicts an error
@@ -806,6 +806,12 @@ in the h5 come back as a note. A sheet covering part of a library's guides passe
 on the sheet's targeting guides (every role except `control`) and reports how many have
 an exact genome match. It takes exactly one FILE, is not allowed with `--compare`, and
 runs after the h5 check when both are given; a failed h5 check stops the run first.
+
+The threshold verdict is always stated, either way: `exact match rate of targeting guides
+99.9% is at or above the 90% threshold`, or a warning below it. It reads "at or above" because the test is
+`percent <`, so exactly 90.0% passes. The rate is truncated rather than rounded, so only a
+genuine sweep reads `100.0%`: 20506 of 20508 reads `99.9%`, and a single matched guide out
+of thousands reads `0.1%` rather than `0.0%`.
 
 - **Species cross-check (error):** the sheet's `guide_target_gene_id` values must not
   contradict `--species` (`ENSMUSG<digits>` is mouse, `ENSG<digits>` human, optionally

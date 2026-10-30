@@ -185,7 +185,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "Also run guidescan_pipeline on the one FILE's targeting guides and "
-            "report the exact-match rate (warning below 90%%); runs after "
+            "report the exact match rate of targeting guides (warning below "
+            "90%%); runs after "
             "--h5-uri; needs --species; not allowed with --compare"
         ),
     )
