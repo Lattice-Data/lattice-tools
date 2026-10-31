@@ -7,9 +7,15 @@ from pathlib import Path
 from typing import NoReturn
 
 import boto3
+import botocore.httpchecksum
 from botocore.config import Config
 
-from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
+from .constants import (
+    CRAM_SLOT_COLUMNS,
+    DEFAULT_H5_TARGET_FILENAME,
+    GEO_MD5_DEFAULT_WORKERS,
+    GEO_MD5_URI_COLUMN,
+)
 from .cram import (
     default_cram_output_name,
     extract_cram,
@@ -21,6 +27,14 @@ from .fastq import (
     default_fastq_output_name,
     extract_fastq,
     r1_r2_mismatch_warning,
+)
+from .geo_md5 import (
+    GeoMd5Error,
+    default_geo_md5_output_name,
+    extract_geo_md5,
+    name_warnings,
+    plan_geo_files,
+    read_table,
 )
 from .h5 import default_h5_output_name, extract_h5, h5_worker_ceiling
 from .h5_introspect import check_introspection_deps
@@ -53,7 +67,9 @@ PRINT_LIMIT = 50
 
 
 def _print_failures(
-    failures: list[tuple[str, str, str]], limit: int = PRINT_LIMIT
+    failures: list[tuple[str, str, str]],
+    limit: int = PRINT_LIMIT,
+    label: str = "crc",
 ) -> None:
     if not failures:
         return
@@ -61,7 +77,7 @@ def _print_failures(
     for key, err1, err2 in failures[:limit]:
         print(f"  - {key}")
         if err1:
-            print(f"      crc: {err1}")
+            print(f"      {label}: {err1}")
         if err2:
             print(f"      detail: {err2}")
     if len(failures) > limit:
@@ -76,7 +92,7 @@ def _print_warnings(warnings: list[str], limit: int = PRINT_LIMIT) -> None:
 
 
 def _positive_int(value: str) -> int:
-    """argparse type for a thread count of at least 1."""
+    """argparse type for a count of at least 1: threads, attempts."""
     try:
         parsed = int(value)
     except ValueError as exc:
@@ -379,6 +395,84 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_geo_md5(args: argparse.Namespace) -> int:
+    table = Path(args.table)
+    if not table.is_file():
+        raise GeoMd5Error(f"table not found: {table}")
+    output = Path(args.output or default_geo_md5_output_name(table))
+    if output.resolve() == table.resolve():
+        raise GeoMd5Error(f"output {output} is the input table; pass another -o")
+    workers = args.workers or GEO_MD5_DEFAULT_WORKERS
+
+    # Every table problem surfaces here, before the S3 client exists: a name
+    # that repeats or an object listed twice is not worth a single download.
+    rows = read_table(table)
+    files = plan_geo_files(
+        rows, uri_column=args.uri_column, name_column=args.name_column
+    )
+
+    print(f"Table: {table}")
+    print(
+        f"Rows: {len(files)} | URI column: {args.uri_column} | name column: "
+        f"{args.name_column or '(S3 basename)'}"
+    )
+    print(f"Workers: {workers}")
+    warnings = name_warnings(files)
+    checksum_warning = _checksum_support_warning()
+    if checksum_warning:
+        warnings.append(checksum_warning)
+    _print_warnings(warnings)
+    print("Hashing objects ...")
+
+    s3_client = boto3.client("s3", config=Config(max_pool_connections=workers))
+    try:
+        summary = extract_geo_md5(
+            s3_client,
+            files,
+            output,
+            workers=workers,
+            retries=args.retries,
+            show_progress=not args.quiet,
+        )
+    except OSError as exc:
+        raise GeoMd5Error(f"cannot write {output}: {exc.strerror or exc}") from exc
+
+    print(
+        f"\nDone. Total: {summary.total} | md5 OK: {summary.md5_ok} | "
+        f"failed: {summary.total - summary.md5_ok}"
+    )
+    print(f"  Bytes hashed: {summary.bytes_total:,}")
+    print(f"  Output: {output}")
+    _print_failures(summary.failures, label="md5")
+    if args.strict and summary.has_failures:
+        return 1
+    return 0
+
+
+def _checksum_support_warning() -> str | None:
+    """A warning when botocore cannot verify CRC64NVME, S3's default checksum.
+
+    botocore registers that algorithm only with awscrt 0.23.4+ installed and
+    otherwise skips the verification silently, so the operator is told that
+    each download is checked by length alone.
+    """
+    supported = getattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", None)
+    if supported is None:
+        # The name is botocore's private one. If a release drops it, fail
+        # toward the warning rather than toward silence.
+        return (
+            "botocore no longer lists its checksum algorithms, so CRC64NVME "
+            "verification cannot be confirmed; each download may be checked by "
+            "length only"
+        )
+    if "crc64nvme" in supported:
+        return None
+    return (
+        "botocore cannot verify CRC64NVME here (awscrt>=0.23.4 is not "
+        "installed); each download is checked by length only"
+    )
+
+
 def _invalid_uri_exit(message: str) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(2)
@@ -438,7 +532,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract S3 metadata for FASTQ.gz, CRAM, Cell Ranger h5, "
-            "and Scale h5ad deliverables."
+            "and Scale h5ad deliverables, and write the GEO md5 CSV for "
+            "processed files."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -467,7 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
     fastq.add_argument("--workers", type=int, default=None, help="Process count")
     fastq.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -499,7 +594,7 @@ def build_parser() -> argparse.ArgumentParser:
     cram.add_argument("--workers", type=int, default=None, help="Process count")
     cram.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -576,7 +671,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     h5.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -655,7 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scale_h5ad.add_argument(
         "--retries",
-        type=int,
+        type=_positive_int,
         default=5,
         help="Max attempts per transient operation (default: 5)",
     )
@@ -668,6 +763,71 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    geo_md5 = subparsers.add_parser(
+        "geo_md5",
+        help="Write the GEO md5 CSV for the processed files listed in a table.",
+        description=(
+            "Read a TSV or CSV with an s3_uri column, stream every object to\n"
+            "compute its MD5, and write <table stem>_geo_md5.csv with the GEO\n"
+            "columns 'file name' and 'file checksum'.\n\n"
+            "file name is the S3 basename, or with --name-column the cell of\n"
+            'that column: a bare name, lab:name, or a ["lab:name"] alias\n'
+            "array, with the lab namespace stripped the way db2-flattener\n"
+            "names the GEO.csv 'processed data file'. Pass the RawMatrixFile\n"
+            "sheet with --name-column aliases and the two GEO files agree.\n\n"
+            "Duplicate names, an object listed twice, a name containing '/',\n"
+            "or an empty URI stop the run before any download. Every object is\n"
+            "read in full, so run this where S3 bandwidth is good."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[parent],
+    )
+    geo_md5.add_argument(
+        "table",
+        help=(
+            "TSV or CSV with an s3_uri column: the RawMatrixFile sheet, with "
+            "--name-column aliases (an *_h5_info.tsv alone repeats every name)"
+        ),
+    )
+    geo_md5.add_argument(
+        "--uri-column",
+        default=GEO_MD5_URI_COLUMN,
+        help=f"Column holding the S3 object URI (default: {GEO_MD5_URI_COLUMN})",
+    )
+    geo_md5.add_argument(
+        "--name-column",
+        default=None,
+        help=(
+            "Column holding the GEO file name, e.g. aliases (default: the S3 basename)"
+        ),
+    )
+    geo_md5.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output CSV (default: <table stem>_geo_md5.csv in the current directory)",
+    )
+    geo_md5.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=None,
+        help=(
+            f"Positive thread count (default: {GEO_MD5_DEFAULT_WORKERS}); "
+            "also the S3 connection pool size"
+        ),
+    )
+    geo_md5.add_argument(
+        "--retries",
+        type=_positive_int,
+        default=5,
+        help="Attempts per object, the first included; at least 1 (default: 5)",
+    )
+    geo_md5.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 if any md5 fails",
+    )
+
     return parser
 
 
@@ -676,10 +836,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)
 
-    try:
-        parse_s3_uri(args.s3_uri)
-    except ValueError as exc:
-        _invalid_uri_exit(str(exc))
+    # geo_md5 takes a table, not a prefix; every other command names S3 first.
+    s3_uri = getattr(args, "s3_uri", None)
+    if s3_uri is not None:
+        try:
+            parse_s3_uri(s3_uri)
+        except ValueError as exc:
+            _invalid_uri_exit(str(exc))
 
     try:
         if args.command == "fastq":
@@ -690,10 +853,9 @@ def main(argv: list[str] | None = None) -> int:
             return _run_h5(args)
         if args.command == "scale_h5ad":
             return _run_scale_h5ad(args)
-    except SheetBuildError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
-    except ScaleExtractError as exc:
+        if args.command == "geo_md5":
+            return _run_geo_md5(args)
+    except (SheetBuildError, ScaleExtractError, GeoMd5Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"Unknown command: {args.command}")

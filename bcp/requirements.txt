@@ -6,8 +6,16 @@ pathlib2>=2.3.0; python_version < "3.4"
 # Bioframe dependency for gene annotation
 bioframe>=0.4.0
 
-# Dependencies for qa_mods (used by test_manifest_loading and other bcp tooling)
-boto3>=1.20.0
+# Dependencies for qa_mods (used by test_manifest_loading and other bcp tooling).
+# file_extract geo_md5 streams whole objects with ChecksumMode=ENABLED so that
+# botocore verifies each download against S3's stored CRC64NVME. That needs
+# botocore 1.36+ and awscrt 0.23.4+: botocore registers CRC64NVME only from
+# that awscrt version (httpchecksum.has_minimum_crt_version), and without it
+# the algorithm is simply absent (measured on botocore 1.42: crc32/sha only)
+# and the check is skipped silently, so a corrupted stream would hash to a
+# confident wrong md5. geo_md5 warns at run time when that is the case.
+boto3>=1.36.0
+awscrt>=0.23.4
 beautifulsoup4>=4.9.0
 fsspec>=2023.1.0
 s3fs>=2023.1.0

@@ -31,6 +31,8 @@ class RunSummary:
     set_count: int = 0
     warnings: list[str] = field(default_factory=list)
     empty_raw_subdirs: list[str] = field(default_factory=list)
+    md5_ok: int = 0
+    bytes_total: int = 0
 
     @property
     def has_failures(self) -> bool:
