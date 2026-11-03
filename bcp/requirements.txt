@@ -9,11 +9,12 @@ bioframe>=0.4.0
 # Dependencies for qa_mods (used by test_manifest_loading and other bcp tooling).
 # file_extract h5 and scale_h5ad stream whole objects for md5sum with
 # ChecksumMode=ENABLED so that botocore verifies each download against S3's
-# stored CRC64NVME. That needs botocore 1.36+ and awscrt 0.23.4+: botocore registers CRC64NVME only from
-# that awscrt version (httpchecksum.has_minimum_crt_version), and without it
-# the algorithm is simply absent (measured on botocore 1.42: crc32/sha only)
-# and the check is skipped silently, so a corrupted stream would hash to a
-# confident wrong md5. Both modes warn at run time when that is the case.
+# stored CRC64NVME. That needs botocore 1.36+ and awscrt 0.23.4+: botocore
+# registers CRC64NVME only from that awscrt version
+# (httpchecksum.has_minimum_crt_version), and without it the algorithm is
+# simply absent (measured on botocore 1.42: crc32/sha only) and the check is
+# skipped silently, so a corrupted stream would hash to a confident wrong
+# md5. Both modes warn at run time when that is the case.
 boto3>=1.36.0
 awscrt>=0.23.4
 beautifulsoup4>=4.9.0
