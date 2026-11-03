@@ -101,12 +101,17 @@ RUN_CARDINALITY_SINGLE = "single-end"
 STATUS_CURRENT = "current"
 NO_FILE_AVAILABLE_FALSE = "FALSE"
 
+# Lowercase hex, as DB2's RawMatrixFile and ProcessedMatrixFile take it. Both
+# matrix modes fill it by default; --no-md5 drops the column.
+MD5_COLUMN = "md5sum"
+
 H5_BASE_COLUMNS = [
     "library",
     "sample",
     "s3_uri",
     "size_bytes",
     "crc64nvme_base64",
+    "md5sum",
     "derived_from",
 ]
 
@@ -114,6 +119,7 @@ SCALE_H5AD_COLUMNS = [
     "filename",
     "s3_uri",
     "crc64nvme_base64",
+    "md5sum",
     "sample",
     "samples",
     "file_size",
@@ -144,26 +150,10 @@ H5_METRICS_COLUMNS = [
     "metrics_cells_match",
 ]
 
-# Column order of GEO's "PROCESSED DATA FILES" checksum table, verbatim, so the
-# CSV pastes into the GEO metadata template without renaming.
-GEO_MD5_COLUMNS = [
-    "file name",
-    "file checksum",
-]
-
-# The column every file_extract info TSV and the Lattice file sheets share, and
-# so the default place geo_md5 looks for the object to hash.
-GEO_MD5_URI_COLUMN = "s3_uri"
-
 # Read size for streaming an object through md5. Large enough that a multi-GB
 # matrix is a few hundred requests' worth of reads, small enough that eight
 # workers hold well under 100 MB between them.
-GEO_MD5_CHUNK_BYTES = 8 * 1024 * 1024
-
-# Thread count, and the S3 connection-pool size those threads share. Every
-# worker holds one streaming GET open for the whole file, so this is also the
-# number of concurrent downloads.
-GEO_MD5_DEFAULT_WORKERS = 8
+MD5_CHUNK_BYTES = 8 * 1024 * 1024
 
 TRANSIENT_ERROR_CODES = frozenset(
     {

@@ -1,6 +1,6 @@
 ## File extract
 
-Extract S3 metadata for **FASTQ.gz**, **CRAM**, **Cell Ranger h5**, and **Scale h5ad** matrices, and write the **GEO md5 CSV** for processed files. Part of BCP tooling under `bcp/file_extract`.
+Extract S3 metadata for **FASTQ.gz**, **CRAM**, **Cell Ranger h5**, and **Scale h5ad** matrices. Part of BCP tooling under `bcp/file_extract`.
 
 Requires AWS credentials with read access to the target bucket (standard `boto3` credential chain).
 
@@ -17,7 +17,6 @@ python -m file_extract fastq --help
 python -m file_extract cram --help
 python -m file_extract h5 --help
 python -m file_extract scale_h5ad --help
-python -m file_extract geo_md5 --help
 ```
 
 ### FASTQ mode
@@ -131,7 +130,7 @@ One set per (sample directory, read stem), so separate lanes become separate set
 
 ### H5 mode
 
-Point at an order or library prefix, such as `s3://example-bucket/proj/AN00000001`. By default matches `sample_filtered_feature_bc_matrix.h5`, fetches CRC64NVME, and introspects matrix shape (cell count, feature types). The output file is named from the last prefix segment, so that URI writes `AN00000001_h5_info.tsv`.
+Point at an order or library prefix, such as `s3://example-bucket/proj/AN00000001`. By default matches `sample_filtered_feature_bc_matrix.h5`, fetches CRC64NVME, hashes each h5 into `md5sum` (see **Matrix md5sum** below), and introspects matrix shape (cell count, feature types). The output file is named from the last prefix segment, so that URI writes `AN00000001_h5_info.tsv`.
 
 `sample` is the directory immediately under `per_sample_outs/` in the object key, so it stays correct when the prefix is the order or library directory. `library` remains the folder immediately before `processed/`.
 
@@ -140,6 +139,7 @@ Point at an order or library prefix, such as `s3://example-bucket/proj/AN0000000
 ```bash
 python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab
 python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab --no-introspect
+python -m file_extract h5 s3://example-bucket/proj/AN00000001 --lab example-lab --no-introspect --no-md5   # CRC and listing only
 python -m file_extract h5 s3://example-bucket/proj/AN00000001/cohort1_batch1_1 --lab example-lab --genome --metrics
 ```
 
@@ -148,14 +148,17 @@ python -m file_extract h5 s3://example-bucket/proj/AN00000001/cohort1_batch1_1 -
 | `--lab` | **Required.** `example-lab` or `/labs/example-lab/`. Prefixes FASTQ aliases in `derived_from` as `<lab>:<filename>` |
 | `-o`, `--output` | Output TSV (default: `<last-segment>_h5_info.tsv`) |
 | `--target-filename` | h5 basename to match (default: `sample_filtered_feature_bc_matrix.h5`) |
-| `--no-introspect` | Checksums and listing only |
+| `--no-introspect` | Skip opening the h5: no counts. The CRC and `md5sum` are still written |
+| `--no-md5` | Skip `md5sum`, which reads every h5 in full. Drops the `md5sum` and `md5_error` columns |
 | `--genome` | Add `gene_counts_by_genome` JSON column |
 | `--metrics` | Cross-check against sibling `metrics_summary.csv` |
-| `--workers` | Positive thread count (default: 8 with introspection, 64 without). The S3 connection pool is sized to this count |
-| `--retries` | Max attempts per transient S3 error (default: 5) |
-| `--strict` | Exit 1 if any per-file enrichment fails |
+| `--workers` | Positive thread count (default: 8; 64 with `--no-introspect --no-md5`, when each file is one small request). The S3 connection pool is sized to this count |
+| `--retries` | Attempts per transient S3 error, the first included; at least 1 (default: 5) |
+| `--strict` | Exit 1 if any per-file enrichment fails, the `md5sum` read included |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
+
+**TSV columns:** `library` · `sample` · `s3_uri` · `size_bytes` · `crc64nvme_base64` · `md5sum` · `derived_from`, then the introspection, `--genome` and `--metrics` columns when on, then one error column per step: `crc_error` · `md5_error` · `h5_error` · `metrics_error`.
 
 **Optional introspection dependencies** (only needed without `--no-introspect`):
 
@@ -184,15 +187,16 @@ python -m file_extract scale_h5ad \
 | `--metadata-experiment` | **Required.** Keep only `sample template` rows whose `experiment_name` equals this value |
 | `--raw-subdirs` | **Required.** Comma-separated directories holding the deliverable CRAMs — either a group directory whose `raw/{numeric}/` folders hold them, or the numeric run folder itself. A bare numeric name such as `426971` is the `raw/` sibling of the rundate; an `s3://` URI must name a directory, not a bucket alone. See **derived_from search** below |
 | `-o`, `--output` | Output TSV (default: `<run_date>_scale_h5ad_info.tsv`) |
-| `--workers` | Thread count (default: min(16, n_files)) |
-| `--retries` | Max attempts per transient S3 error (default: 5) |
-| `--strict` | Exit 1 if any per-file CRC or observation-count fetch fails, or if a `--raw-subdirs` entry matched no CRAMs |
+| `--no-md5` | Skip `md5sum`, which reads every file in full. Drops the column |
+| `--workers` | Positive thread count (default: min(16, n_files)). The S3 connection pool is sized to this count |
+| `--retries` | Attempts per transient S3 error, the first included; at least 1 (default: 5) |
+| `--strict` | Exit 1 if any per-file CRC, `md5sum` or observation-count fetch fails, or if a `--raw-subdirs` entry matched no CRAMs |
 | `-v`, `--verbose` | Debug logging |
 | `-q`, `--quiet` | Disable progress bars |
 
 **Pairing:** Only `sample template` rows whose `experiment_name` equals `--metadata-experiment` are used. `RT_index` values such as `SCALEQUANT-A11` are stripped and flipped to `11A`. `samples.csv` `barcodes` such as `1A-2C` expand in column-wise 96-well order. A `samples.csv` row with no matching sheet well is a control: it is printed as a warning and its h5ad and ScalePlex mtx files are omitted.
 
-**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of `{lab}:{cram_filename}` values from `--raw-subdirs`)
+**TSV columns:** `filename` · `s3_uri` · `crc64nvme_base64` · `md5sum` (see **Matrix md5sum** below; also filled for each ScalePlex `matrix.mtx.gz`) · `sample` (first filename segment split on `.`) · `samples` (JSON list of correlating `sample template` `sample_name` values, each prefixed with `{lab}:`) · `file_size` (S3 object size) · `observation_count` (`n_obs` from the h5ad `obs` table, or barcode count for ScalePlex mtx) · `feature_counts` (JSON list of `{feature_type, feature_count}`: QSR h5ad is `gene` / AnnData `n_vars`; ScalePlex mtx is `hash oligo` / sibling `features.tsv(.gz)` line count, else the MTX header first dimension) · `derived_from` (JSON list of `{lab}:{cram_filename}` values from `--raw-subdirs`)
 
 **derived_from search:** Each `--raw-subdirs` value resolves to a prefix, and then:
 
@@ -213,51 +217,16 @@ Run with `-v` to log which prefix supplied the CRAMs — useful when a delivery'
 pip install h5py fsspec s3fs
 ```
 
-### GEO md5 mode
+### Matrix md5sum
 
-GEO wants an MD5 beside every processed file it receives. Nothing upstream holds one: DB2 files carry `crc64nvme_base64` only, and the modes above fetch that same CRC from S3 object attributes without reading file content. So this mode streams each object in full and hashes it. That is the one expensive operation in the package, which is why it is its own subcommand rather than a flag on `h5` or `scale_h5ad`. Run it where S3 bandwidth is good.
+DB2's RawMatrixFile and ProcessedMatrixFile take an `md5sum`, and raise a `missing md5sum` ERROR audit on any matrix file with an `s3_uri` but no `md5sum`. GEO asks for an MD5 beside every processed file as well, so registering it once in DB2 serves both. S3 holds no MD5 to look up, so both matrix modes stream each object in full and hash it. That makes `md5sum` the one column that reads file content: a run's time and S3 egress grow with the size of the files, not their number. Run it where S3 bandwidth is good, or pass `--no-md5` for a quick look that is not meant for registration.
 
-Point it at the RawMatrixFile submission sheet exported from the workbook, with `--name-column aliases`. That is the input for Cell Ranger and Scale alike, and the only table whose names are the ones GEO sees. Any TSV or CSV with an `s3_uri` column works, with two cautions: the `*_h5_info.tsv` is no use on its own, since every Cell Ranger basename is the same; and the `*_scale_h5ad_info.tsv` also lists each ScalePlex `matrix.mtx.gz`, which GEO receives inside a tar, so drop those rows first or two of them trip the duplicate-name stop.
-
-```bash
-python -m file_extract geo_md5 <order>_RawMatrixFile.tsv --name-column aliases
-python -m file_extract geo_md5 <run_date>_scale_h5ad_info.tsv   # .h5ad rows only
-```
-
-| Flag | Description |
-|------|-------------|
-| `table` | **Required.** TSV or CSV with an `s3_uri` column. The delimiter follows the suffix; an Excel byte-order mark is tolerated |
-| `--uri-column` | Column holding the object URI (default: `s3_uri`) |
-| `--name-column` | Column holding the GEO file name, e.g. `aliases` (default: the S3 basename) |
-| `-o`, `--output` | Output CSV (default: `<table stem>_geo_md5.csv` in the current directory, like the other modes). Must not be the input table. Its header is written before the first download, so a path that cannot be written fails at once |
-| `--workers` | Positive thread count (default: 8). Also the S3 connection pool size; each worker holds one streaming GET open |
-| `--retries` | Attempts per object, the first included; at least 1 (default: 5) |
-| `--strict` | Exit 1 if any md5 fails |
-| `-v`, `--verbose` | Debug logging |
-| `-q`, `--quiet` | Disable progress bars |
-
-**Output:** one CSV, header exactly `file name,file checksum` (GEO's "PROCESSED DATA FILES" columns), rows in table order. A failed read leaves the checksum cell empty and lists the object on stdout; `--strict` turns that into exit 1.
-
-**Which name GEO sees.** Every Cell Ranger matrix is `sample_filtered_feature_bc_matrix.h5`, so the S3 basename cannot name a GEO file. The name GEO sees is the RawMatrixFile alias: db2-flattener writes it into the GEO.csv `processed data file` column with the `lab:` namespace stripped, and the upload step renames each download to it. `--name-column` reads that name from the table. A cell may be a bare name, `lab:name`, or the sheet's `["lab:name"]` alias array; everything after the first `:` is kept, exactly as db2-flattener does, so the two GEO files agree by construction. Without `--name-column` the basename is used, which is right for Scale h5ads and wrong for Cell Ranger h5s, and the duplicate-name guard says so.
-
-**Guardrails, all before any download:**
-
-- An output path equal to the input table exits 1, and one that cannot be written exits 1 before any download.
-- A table that repeats a column name exits 1; `csv` would otherwise keep only the last one, silently.
-- A GEO file name that repeats exits 1 (GEO rejects duplicate file names). When the names came from basenames, the message points at `--name-column`.
-- The same object listed twice exits 1.
-- A name containing `/` or `\` exits 1; GEO takes bare file names. So does a name holding a line break or another control character, which a quoted CSV cell can carry.
-- An empty or malformed `s3_uri` exits 1 naming the row. A row with any content is never skipped: a GEO file that cannot be fetched is exactly what this CSV exists to prevent. Only a row of nothing but delimiters, which spreadsheet exports often leave at the end, is ignored.
-- An alias cell listing more than one alias exits 1; one file, one name.
-- A name whose extension differs from the object's is a **warning**, not an error. An alias without `.h5` is a legitimate submitter choice, but it deserves a second look before upload.
-- A name with whitespace or punctuation beyond `.`, `_` and `-` is also a **warning**: the FTP upload loop and the GEO template handle such names unevenly.
-- Two names that differ only in case are a **warning** too. GEO's FTP host keeps them apart, but the renaming step runs on the submitter's machine, where the macOS and Windows default filesystems would merge them into one file.
-
-**Download integrity.** Each object is read in 8 MiB chunks. botocore checks the byte count against `ContentLength` on the final read, and the request sets `ChecksumMode=ENABLED` so botocore also verifies the stream against S3's stored CRC64NVME; the module checks the count once more itself. A short read, a broken stream or a checksum mismatch is retried with a fresh GET, up to `--retries` times in all, and then fails the row rather than hashing into a confident md5 of a corrupted file. The CRC64NVME verification needs `awscrt` 0.23.4 or later (in `requirements.txt`): botocore registers the algorithm only from that version and otherwise skips the check silently, so the run prints a warning when it is missing, and each download is then checked by length alone.
-
-**Ctrl-C** cancels the downloads not yet started. The streams already in flight finish, since a thread cannot be interrupted, and the CSV is left holding its header only.
-
-**Not covered:** FASTQ and CRAM (those go to SRA), a tarred ScalePlex matrix directory (its md5 belongs at tar time), and looking aliases up in DB2 directly (the sheet is the interface).
+- **Value:** 32 lowercase hex characters, the form DB2 accepts.
+- **Failure:** after `--retries` attempts the cell is left empty, never filled with a partial or guessed digest, and the object is listed under `Failures` with an `md5:` detail line. `--strict` turns that into exit 1. The `h5` TSV also carries the error in `md5_error`; the `scale_h5ad` TSV has no error columns, so the run output is the record there.
+- **Download integrity:** each object is read in 8 MiB chunks. botocore checks the byte count against `ContentLength` on the final read, and the request sets `ChecksumMode=ENABLED` so botocore also verifies the stream against S3's stored CRC64NVME, the same checksum the `crc64nvme_base64` column records. The module checks the count once more itself. A short read, a broken stream or a checksum mismatch is retried with a fresh GET, and then fails the row rather than hashing into a confident md5 of a corrupted file. The CRC64NVME verification needs `awscrt` 0.23.4 or later (in `requirements.txt`): botocore registers the algorithm only from that version and otherwise skips the check silently, so the run prints a warning when it is missing, and each download is then checked by length alone.
+- **Concurrency:** each worker holds one streaming GET open for a whole file, so the S3 connection pool is sized to `--workers` in both modes.
+- **Ctrl-C** cancels the files not yet started. The streams already in flight finish, since a thread cannot be interrupted.
+- **Before DB2 releases the property:** the info TSV carries `md5sum` whether or not the workbook's matrix-file tab has the column yet. Leave it out of the sheet until the RawMatrixFile and ProcessedMatrixFile schemas accept it.
 
 ---
 

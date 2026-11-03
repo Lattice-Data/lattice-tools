@@ -32,8 +32,19 @@ class RunSummary:
     warnings: list[str] = field(default_factory=list)
     empty_raw_subdirs: list[str] = field(default_factory=list)
     md5_ok: int = 0
-    bytes_total: int = 0
 
     @property
     def has_failures(self) -> bool:
         return bool(self.failures)
+
+
+# An exception whose str() is empty still failed; the row must say so.
+NO_ERROR_MESSAGE = "failed without an error message"
+
+
+def failure_detail(other_err: str, md5_err: str) -> str:
+    """A failure's detail: the other step's error, then the md5 one, labelled."""
+    parts = [other_err] if other_err else []
+    if md5_err:
+        parts.append(f"md5: {md5_err}")
+    return "; ".join(parts)

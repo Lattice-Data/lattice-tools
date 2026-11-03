@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -53,7 +54,6 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "cram" in out
     assert "h5" in out
     assert "scale_h5ad" in out
-    assert "geo_md5" in out
 
 
 def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -81,6 +81,8 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "{lab}:{cram_filename}" in out
     assert "hash oligo" in out
     assert "scaleplex" in out
+    assert "crc64nvme_base64, md5sum, sample" in out
+    assert "--no-md5" in out
 
 
 def test_cli_h5_rejects_nonpositive_workers(
@@ -211,6 +213,36 @@ def test_cli_h5_checksum_only(
     )
     assert code == 0
     assert mock_extract.call_args.kwargs["lab"] == "example-lab"
+    assert mock_extract.call_args.kwargs["do_md5"] is True
+    # Still 8: every worker streams a whole h5 through md5.
+    _assert_s3_pool(mock_boto, 8)
+
+
+@patch("file_extract.cli.extract_h5")
+@patch("file_extract.cli.boto3.client")
+def test_cli_h5_no_md5_restores_the_crc_only_fan_out(
+    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1)
+
+    code = main(
+        [
+            "h5",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(tmp_path / "h5.tsv"),
+            "--lab",
+            "example-lab",
+            "--no-introspect",
+            "--no-md5",
+            "--quiet",
+        ]
+    )
+    assert code == 0
+    assert mock_extract.call_args.kwargs["do_md5"] is False
     _assert_s3_pool(mock_boto, 64)
 
 
@@ -913,221 +945,133 @@ def test_cli_scale_h5ad_strict_on_empty_raw_subdir_with_no_targets(
     assert main([*args, "--strict"]) == 1
 
 
-# --- geo_md5 -----------------------------------------------------------------
+# --- md5sum ------------------------------------------------------------------
 
-CR_BASENAME = "sample_filtered_feature_bc_matrix.h5"
-GEO_H5_A = f"proj/libA/processed/outs/per_sample_outs/s1/{CR_BASENAME}"
-GEO_H5_B = f"proj/libB/processed/outs/per_sample_outs/s2/{CR_BASENAME}"
-GEO_H5AD_A = "proj/order/processed/run_date/samples/sampleA.QSR-1_anndata.h5ad"
-GEO_H5AD_B = "proj/order/processed/run_date/samples/sampleB.QSR-2_anndata.h5ad"
+H5_KEY = f"{H5_PREFIX}sampleA/sample_filtered_feature_bc_matrix.h5"
+H5_KEY_B = f"{H5_PREFIX}sampleB/sample_filtered_feature_bc_matrix.h5"
 
 
-def _geo_table(path: Path, header: list[str], rows: list[list[str]]) -> Path:
-    import csv
-
-    with path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh, delimiter="\t")
-        writer.writerow(header)
-        writer.writerows(rows)
-    return path
-
-
-def _read_csv(path: Path) -> list[list[str]]:
-    import csv
-
-    with path.open(newline="", encoding="utf-8") as fh:
-        return list(csv.reader(fh))
+def _h5_args(out: Path, *extra: str) -> list[str]:
+    return [
+        "h5",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(out),
+        "--lab",
+        "example-lab",
+        "--no-introspect",
+        "--quiet",
+        *extra,
+    ]
 
 
-def test_cli_geo_md5_help(capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_h5_help_names_md5sum(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
-        main(["geo_md5", "--help"])
+        main(["h5", "--help"])
     assert exc_info.value.code == 0
     out = capsys.readouterr().out
-    assert "--name-column" in out
-    assert "--uri-column" in out
-    assert "aliases" in out
-    assert "'file name' and 'file checksum'" in out
-    assert "db2-flattener" in out
-    assert "--strict" in out
-    assert "--lab" not in out
+    assert "md5sum" in out
+    assert "--no-md5" in out
+
+
+@pytest.mark.parametrize("command", ["fastq", "cram", "h5", "scale_h5ad"])
+def test_cli_retries_must_be_positive(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Zero attempts would leave every checksum blank and exit 0.
+    with pytest.raises(SystemExit) as exc_info:
+        main([command, f"s3://{BUCKET}/{PREFIX}", "--retries", "0"])
+    assert exc_info.value.code == 2
+    assert "positive integer" in capsys.readouterr().err
 
 
 @patch("file_extract.cli.boto3.client")
-def test_cli_geo_md5_writes_csv_named_from_the_sheet(
+def test_cli_h5_md5_failure_is_listed_and_strict_exits_1(
+    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mock_boto.return_value = MockS3Client(
+        keys=[H5_KEY, H5_KEY_B],
+        crc_by_key={H5_KEY: "crc-a", H5_KEY_B: "crc-b"},
+        object_bodies={H5_KEY: b"alpha"},
+    )
+    out = tmp_path / "h5.tsv"
+
+    assert main(_h5_args(out)) == 0
+    text = out.read_text(encoding="utf-8")
+    assert hashlib.md5(b"alpha").hexdigest() in text
+    printed = capsys.readouterr().out
+    assert "md5: True" in printed
+    assert "checksum OK: 2 | md5 OK: 1" in printed
+    assert f"  - {H5_KEY_B}" in printed
+    assert "detail: md5: " in printed and "NoSuchKey" in printed
+
+    assert main(_h5_args(out, "--strict")) == 1
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_pool_matches_workers(
+    _mock_deps: MagicMock,
     mock_boto: MagicMock,
+    mock_extract: MagicMock,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import hashlib
+    from file_extract.models import RunSummary
 
-    # The default output lands in the current directory, like the other modes.
-    monkeypatch.chdir(tmp_path)
-    client = MockS3Client(object_bodies={GEO_H5_A: b"alpha", GEO_H5_B: b"beta"})
-    mock_boto.return_value = client
-    table = _geo_table(
-        tmp_path / "order_RawMatrixFile.tsv",
-        ["#response", "uuid", "aliases", "s3_uri"],
-        [
-            ["", "", '["example-lab:libA-s1.h5"]', f"s3://{BUCKET}/{GEO_H5_A}"],
-            ["", "", '["example-lab:libB-s2"]', f"s3://{BUCKET}/{GEO_H5_B}"],
-        ],
-    )
-
-    code = main(["geo_md5", table.name, "--name-column", "aliases", "--quiet"])
-
-    assert code == 0
-    out_csv = tmp_path / "order_RawMatrixFile_geo_md5.csv"
-    assert _read_csv(out_csv) == [
-        ["file name", "file checksum"],
-        ["libA-s1.h5", hashlib.md5(b"alpha").hexdigest()],
-        ["libB-s2", hashlib.md5(b"beta").hexdigest()],
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=2, crc_ok=2, md5_ok=2)
+    base = [
+        "scale_h5ad",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(tmp_path / "scale.tsv"),
+        "--quiet",
+        *SCALE_H5AD_ARGS,
     ]
-    assert all(call["ChecksumMode"] == "ENABLED" for call in client.get_object_calls)
-    _assert_s3_pool(mock_boto, 8)
-    out = capsys.readouterr().out
-    assert "md5 OK: 2" in out
-    assert "WARNING: row 2: GEO file name 'libB-s2' ends in no extension" in out
-    assert out_csv.name in out
+
+    assert main(base) == 0
+    _assert_s3_pool(mock_boto, 16)
+    assert mock_extract.call_args.kwargs["workers"] == 16
+    assert mock_extract.call_args.kwargs["do_md5"] is True
+    assert "checksum OK: 2 | md5 OK: 2 | introspect OK" in capsys.readouterr().out
+
+    assert main([*base, "--workers", "3", "--no-md5"]) == 0
+    _assert_s3_pool(mock_boto, 3)
+    assert mock_extract.call_args.kwargs["workers"] == 3
+    assert mock_extract.call_args.kwargs["do_md5"] is False
+    assert "md5 OK" not in capsys.readouterr().out
 
 
-@patch("file_extract.cli.boto3.client")
-def test_cli_geo_md5_duplicate_basenames_stop_before_any_download(
-    mock_boto: MagicMock,
-    tmp_path: Path,
+def test_cli_scale_h5ad_rejects_nonpositive_workers(
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(tmp_path)
-    table = _geo_table(
-        tmp_path / "order_h5_info.tsv",
-        ["library", "s3_uri"],
-        [["libA", f"s3://{BUCKET}/{GEO_H5_A}"], ["libB", f"s3://{BUCKET}/{GEO_H5_B}"]],
-    )
-
-    code = main(["geo_md5", str(table), "--quiet"])
-
-    assert code == 1
-    err = capsys.readouterr().err
-    assert "GEO rejects duplicate file names" in err
-    assert "--name-column" in err
-    mock_boto.assert_not_called()
-    assert not (tmp_path / "order_h5_info_geo_md5.csv").exists()
-
-
-@patch("file_extract.cli.boto3.client")
-def test_cli_geo_md5_strict_exits_1_on_a_missing_object(
-    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    mock_boto.return_value = MockS3Client(object_bodies={GEO_H5AD_A: b"alpha"})
-    table = _geo_table(
-        tmp_path / "run_date_scale_h5ad_info.tsv",
-        ["s3_uri"],
-        [[f"s3://{BUCKET}/{GEO_H5AD_A}"], [f"s3://{BUCKET}/{GEO_H5AD_B}"]],
-    )
-    out_csv = tmp_path / "custom.csv"
-
-    assert main(["geo_md5", str(table), "-o", str(out_csv), "--quiet"]) == 0
-    rows = _read_csv(out_csv)
-    assert rows[1][0] == "sampleA.QSR-1_anndata.h5ad" and rows[1][1]
-    assert rows[2] == ["sampleB.QSR-2_anndata.h5ad", ""]
-    # The blank cell alone would be easy to miss; the run must say which
-    # object failed and why.
-    out = capsys.readouterr().out
-    assert "Done. Total: 2 | md5 OK: 1 | failed: 1" in out
-    assert f"Failures (first {PRINT_LIMIT}):" in out
-    assert f"  - s3://{BUCKET}/{GEO_H5AD_B}" in out
-    assert "md5: " in out and "NoSuchKey" in out
-
-    assert main(["geo_md5", str(table), "-o", str(out_csv), "--quiet", "--strict"]) == 1
-
-
-def test_cli_geo_md5_missing_table(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    code = main(["geo_md5", str(tmp_path / "nope.tsv")])
-    assert code == 1
-    assert "table not found" in capsys.readouterr().err
-
-
-def test_cli_geo_md5_workers_sizes_the_pool_and_rejects_zero(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    table = _geo_table(
-        tmp_path / "t.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
-    )
     with pytest.raises(SystemExit) as exc_info:
-        main(["geo_md5", str(table), "--workers", "0"])
-    assert exc_info.value.code == 2
-    assert "positive integer" in capsys.readouterr().err
-
-    with patch("file_extract.cli.boto3.client") as mock_boto:
-        mock_boto.return_value = MockS3Client(object_bodies={GEO_H5AD_A: b"x"})
-        out_csv = tmp_path / "pool.csv"
-        code = main(
-            ["geo_md5", str(table), "--workers", "3", "--quiet", "-o", str(out_csv)]
+        main(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                *SCALE_H5AD_ARGS,
+                "--workers",
+                "0",
+            ]
         )
-        assert code == 0
-        assert out_csv.exists()
-        _assert_s3_pool(mock_boto, 3)
-
-
-@patch("file_extract.cli.boto3.client")
-def test_cli_geo_md5_refuses_output_equal_to_table(
-    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    table = _geo_table(
-        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
-    )
-    before = table.read_bytes()
-    assert main(["geo_md5", str(table), "-o", str(table)]) == 1
-    assert "is the input table" in capsys.readouterr().err
-    assert table.read_bytes() == before
-    mock_boto.assert_not_called()
-
-
-@patch("file_extract.cli.boto3.client")
-def test_cli_geo_md5_unwritable_output_fails_before_any_download(
-    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    client = MockS3Client(object_bodies={GEO_H5AD_A: b"alpha"})
-    mock_boto.return_value = client
-    table = _geo_table(
-        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
-    )
-    out_csv = tmp_path / "missing" / "out.csv"
-    assert main(["geo_md5", str(table), "-o", str(out_csv), "--quiet"]) == 1
-    assert "cannot write" in capsys.readouterr().err
-    assert client.get_object_calls == []
-
-
-def test_cli_geo_md5_retries_must_be_positive(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    # Zero attempts would write a CSV of blank checksums and exit 0.
-    table = _geo_table(
-        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
-    )
-    with pytest.raises(SystemExit) as exc_info:
-        main(["geo_md5", str(table), "--retries", "0"])
     assert exc_info.value.code == 2
     assert "positive integer" in capsys.readouterr().err
 
 
 @patch("file_extract.cli.boto3.client")
-def test_cli_geo_md5_warns_when_crc64nvme_cannot_be_verified(
+def test_cli_h5_warns_when_crc64nvme_cannot_be_verified(
     mock_boto: MagicMock,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mock_boto.return_value = MockS3Client(object_bodies={GEO_H5AD_A: b"alpha"})
-    table = _geo_table(
-        tmp_path / "in.tsv", ["s3_uri"], [[f"s3://{BUCKET}/{GEO_H5AD_A}"]]
+    mock_boto.return_value = MockS3Client(
+        keys=[H5_KEY], crc_by_key={H5_KEY: "crc-a"}, object_bodies={H5_KEY: b"x"}
     )
-    out_csv = tmp_path / "out.csv"
-    args = ["geo_md5", str(table), "-o", str(out_csv), "--quiet"]
+    args = _h5_args(tmp_path / "h5.tsv")
 
     # The guard reads a private botocore name; a rename must fail here, not
     # switch the warning off quietly.
@@ -1138,6 +1082,9 @@ def test_cli_geo_md5_warns_when_crc64nvme_cannot_be_verified(
     )
     assert main(args) == 0
     assert "WARNING: botocore cannot verify CRC64NVME" in capsys.readouterr().out
+    # Without md5 nothing streams, so there is nothing to warn about.
+    assert main([*args, "--no-md5"]) == 0
+    assert "CRC64NVME" not in capsys.readouterr().out
 
     monkeypatch.setattr(
         botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", ["crc32", "crc64nvme"]

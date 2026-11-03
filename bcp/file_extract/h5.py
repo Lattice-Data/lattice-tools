@@ -15,16 +15,18 @@ from .constants import (
     H5_GENOME_COLUMN,
     H5_INTROSPECT_COLUMNS,
     H5_METRICS_COLUMNS,
+    MD5_COLUMN,
 )
 from .fastq import is_target_file
 from .h5_introspect import introspect_h5
-from .models import RunSummary
+from .models import NO_ERROR_MESSAGE, RunSummary, failure_detail
 from .retry import retry_with_backoff
 from .s3_utils import (
     fetch_crc64nvme,
     get_object_text,
     list_objects_with_size,
     s3_uri_for,
+    stream_md5,
 )
 from .sheets import LabIdentity
 from .tsv_writer import TsvWriter
@@ -128,17 +130,20 @@ def map_feature_counts(
     return lattice_fc, unmapped
 
 
-def h5_worker_ceiling(*, do_introspect: bool, workers: int | None = None) -> int:
+def h5_worker_ceiling(
+    *, do_introspect: bool, do_md5: bool, workers: int | None = None
+) -> int:
     """Thread count, also the S3 connection-pool size those threads share.
 
-    Introspection opens each h5 with many range reads, so 8 stays inside one
-    pool without flooding S3. Checksum-only is one small request per file.
+    Introspection opens each h5 with many range reads, and md5 holds one
+    streaming GET open for the whole file, so either keeps to 8. The CRC alone
+    is one small request per file.
     """
     if workers is not None:
         if workers < 1:
             raise ValueError("workers must be a positive integer")
         return workers
-    return 8 if do_introspect else 64
+    return 8 if do_introspect or do_md5 else 64
 
 
 def process_one_h5(
@@ -149,13 +154,16 @@ def process_one_h5(
     do_introspect: bool,
     do_metrics: bool,
     do_genome: bool,
+    do_md5: bool,
     retries: int,
     pool_size: int,
 ) -> dict[str, object]:
-    """Enrich a single h5 key with CRC, optional introspection and metrics."""
+    """Enrich a single h5 key with CRC, optional md5, introspection and metrics."""
     result: dict[str, object] = {
         "crc": None,
         "crc_error": "",
+        "md5": None,
+        "md5_error": "",
         "observation_count": "",
         "feature_counts": "",
         "feature_count_total": "",
@@ -172,6 +180,16 @@ def process_one_h5(
     )
     result["crc"] = crc
     result["crc_error"] = crc_err or ""
+
+    if do_md5:
+        hashed, md5_err = retry_with_backoff(
+            stream_md5, s3_client, bucket, key, retries=retries
+        )
+        # A failed read leaves the cell empty, never a partial digest.
+        if hashed is None:
+            result["md5_error"] = md5_err or NO_ERROR_MESSAGE
+        else:
+            result["md5"] = hashed[0]
 
     if do_introspect:
         intro, h5_err = retry_with_backoff(
@@ -285,8 +303,9 @@ def h5_columns(
     do_introspect: bool,
     do_genome: bool,
     do_metrics: bool,
+    do_md5: bool,
 ) -> list[str]:
-    cols = list(H5_BASE_COLUMNS)
+    cols = [col for col in H5_BASE_COLUMNS if do_md5 or col != MD5_COLUMN]
     if do_introspect:
         cols.extend(H5_INTROSPECT_COLUMNS)
         if do_genome:
@@ -294,6 +313,8 @@ def h5_columns(
     if do_metrics:
         cols.extend(H5_METRICS_COLUMNS)
     cols.append("crc_error")
+    if do_md5:
+        cols.append("md5_error")
     if do_introspect:
         cols.append("h5_error")
     if do_metrics:
@@ -317,6 +338,7 @@ def extract_h5(
     do_introspect: bool = True,
     do_genome: bool = False,
     do_metrics: bool = False,
+    do_md5: bool = True,
     workers: int | None = None,
     retries: int = 5,
     show_progress: bool = True,
@@ -344,10 +366,13 @@ def extract_h5(
         do_introspect=do_introspect,
         do_genome=do_genome,
         do_metrics=do_metrics,
+        do_md5=do_md5,
     )
     writer = TsvWriter(output_path, columns)
     size_by_key = {obj.key: obj.size_bytes for obj in targets}
-    pool_size = h5_worker_ceiling(do_introspect=do_introspect, workers=workers)
+    pool_size = h5_worker_ceiling(
+        do_introspect=do_introspect, do_md5=do_md5, workers=workers
+    )
     max_workers = min(pool_size, len(targets))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -360,6 +385,7 @@ def extract_h5(
                 do_introspect=do_introspect,
                 do_metrics=do_metrics,
                 do_genome=do_genome,
+                do_md5=do_md5,
                 retries=retries,
                 pool_size=pool_size,
             ): obj.key
@@ -369,45 +395,61 @@ def extract_h5(
         if show_progress:
             iterator = tqdm(iterator, total=len(targets), desc="Processing")
 
-        for fut in iterator:
-            key = futures[fut]
-            r = fut.result()
-            row: list[object] = [
-                extract_library(key),
-                extract_sample_name(key),
-                s3_uri_for(bucket, key),
-                size_by_key[key],
-                r["crc"] if r["crc"] is not None else "",
-                derived[key],
-            ]
-            if do_introspect:
-                row.extend(
-                    [
-                        r["observation_count"],
-                        r["feature_counts"],
-                        r["feature_count_total"],
-                        r["unmapped_feature_types"],
-                    ]
-                )
-                if do_genome:
-                    row.append(r["gene_counts_by_genome"])
-            if do_metrics:
-                row.extend([r["metrics_cells"], r["metrics_cells_match"]])
-            row.append(r["crc_error"])
-            if do_introspect:
-                row.append(r["h5_error"])
-            if do_metrics:
-                row.append(r["metrics_error"])
+        try:
+            for fut in iterator:
+                key = futures[fut]
+                r = fut.result()
+                row: list[object] = [
+                    extract_library(key),
+                    extract_sample_name(key),
+                    s3_uri_for(bucket, key),
+                    size_by_key[key],
+                    r["crc"] if r["crc"] is not None else "",
+                ]
+                if do_md5:
+                    row.append(r["md5"] if r["md5"] is not None else "")
+                row.append(derived[key])
+                if do_introspect:
+                    row.extend(
+                        [
+                            r["observation_count"],
+                            r["feature_counts"],
+                            r["feature_count_total"],
+                            r["unmapped_feature_types"],
+                        ]
+                    )
+                    if do_genome:
+                        row.append(r["gene_counts_by_genome"])
+                if do_metrics:
+                    row.extend([r["metrics_cells"], r["metrics_cells_match"]])
+                row.append(r["crc_error"])
+                if do_md5:
+                    row.append(r["md5_error"])
+                if do_introspect:
+                    row.append(r["h5_error"])
+                if do_metrics:
+                    row.append(r["metrics_error"])
 
-            writer.append_row(row)
+                writer.append_row(row)
 
-            crc_err = str(r["crc_error"])
-            h5_err = str(r["h5_error"]) if do_introspect else ""
-            if not crc_err:
-                summary.crc_ok += 1
-            if do_introspect and not h5_err and not crc_err:
-                summary.enrichment_ok += 1
-            if crc_err or (do_introspect and h5_err):
-                summary.failures.append((key, crc_err, h5_err))
+                crc_err = str(r["crc_error"])
+                h5_err = str(r["h5_error"]) if do_introspect else ""
+                md5_err = str(r["md5_error"]) if do_md5 else ""
+                if not crc_err:
+                    summary.crc_ok += 1
+                if do_md5 and not md5_err:
+                    summary.md5_ok += 1
+                if do_introspect and not h5_err and not crc_err:
+                    summary.enrichment_ok += 1
+                if crc_err or h5_err or md5_err:
+                    summary.failures.append(
+                        (key, crc_err, failure_detail(h5_err, md5_err))
+                    )
+        except BaseException:
+            # Ctrl-C must not drain the queue: the executor's __exit__ would
+            # run every queued file, md5 streams included, to completion. Only
+            # the files already in flight finish; a thread cannot be stopped.
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise
 
     return summary

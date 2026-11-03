@@ -10,12 +10,7 @@ import boto3
 import botocore.httpchecksum
 from botocore.config import Config
 
-from .constants import (
-    CRAM_SLOT_COLUMNS,
-    DEFAULT_H5_TARGET_FILENAME,
-    GEO_MD5_DEFAULT_WORKERS,
-    GEO_MD5_URI_COLUMN,
-)
+from .constants import CRAM_SLOT_COLUMNS, DEFAULT_H5_TARGET_FILENAME
 from .cram import (
     default_cram_output_name,
     extract_cram,
@@ -28,18 +23,11 @@ from .fastq import (
     extract_fastq,
     r1_r2_mismatch_warning,
 )
-from .geo_md5 import (
-    GeoMd5Error,
-    default_geo_md5_output_name,
-    extract_geo_md5,
-    name_warnings,
-    plan_geo_files,
-    read_table,
-)
 from .h5 import default_h5_output_name, extract_h5, h5_worker_ceiling
 from .h5_introspect import check_introspection_deps
 from .s3_utils import parse_s3_uri
 from .scale_flags import validate_raw_subdirs
+from .scale_h5ad import DEFAULT_WORKERS as SCALE_DEFAULT_WORKERS
 from .scale_h5ad import default_scale_h5ad_output_name, extract_scale_h5ad
 from .scale_wells import ScaleExtractError
 from .sheets import (
@@ -67,9 +55,7 @@ PRINT_LIMIT = 50
 
 
 def _print_failures(
-    failures: list[tuple[str, str, str]],
-    limit: int = PRINT_LIMIT,
-    label: str = "crc",
+    failures: list[tuple[str, str, str]], limit: int = PRINT_LIMIT
 ) -> None:
     if not failures:
         return
@@ -77,7 +63,7 @@ def _print_failures(
     for key, err1, err2 in failures[:limit]:
         print(f"  - {key}")
         if err1:
-            print(f"      {label}: {err1}")
+            print(f"      crc: {err1}")
         if err2:
             print(f"      detail: {err2}")
     if len(failures) > limit:
@@ -293,6 +279,7 @@ def _run_h5(args: argparse.Namespace) -> int:
     location = parse_s3_uri(args.s3_uri)
     output = args.output or default_h5_output_name(location.prefix)
     do_introspect = not args.no_introspect
+    do_md5 = not args.no_md5
 
     if do_introspect:
         check_introspection_deps()
@@ -304,11 +291,15 @@ def _run_h5(args: argparse.Namespace) -> int:
     print(f"Lab: {lab.name}")
     print(f"Target filename: {args.target_filename}")
     print(
-        f"Introspect: {do_introspect} | genome: {args.genome} | metrics: {args.metrics}"
+        f"Introspect: {do_introspect} | genome: {args.genome} | "
+        f"metrics: {args.metrics} | md5: {do_md5}"
     )
+    _print_md5_warning(do_md5)
     print("Listing matching h5 files ...")
 
-    pool_size = h5_worker_ceiling(do_introspect=do_introspect, workers=args.workers)
+    pool_size = h5_worker_ceiling(
+        do_introspect=do_introspect, do_md5=do_md5, workers=args.workers
+    )
     s3_client = boto3.client("s3", config=Config(max_pool_connections=pool_size))
     summary = extract_h5(
         s3_client,
@@ -320,6 +311,7 @@ def _run_h5(args: argparse.Namespace) -> int:
         do_introspect=do_introspect,
         do_genome=args.genome,
         do_metrics=args.metrics,
+        do_md5=do_md5,
         workers=args.workers,
         retries=args.retries,
         show_progress=not args.quiet,
@@ -331,6 +323,8 @@ def _run_h5(args: argparse.Namespace) -> int:
         return 0
 
     print(f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}", end="")
+    if do_md5:
+        print(f" | md5 OK: {summary.md5_ok}", end="")
     if do_introspect:
         print(f" | introspect OK: {summary.enrichment_ok}", end="")
     print(f"\nOutput: {output}")
@@ -353,6 +347,8 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     if not metadata_experiment:
         raise ScaleExtractError("--metadata-experiment must not be empty")
     lab = LabIdentity.parse(args.lab)
+    do_md5 = not args.no_md5
+    workers = args.workers or SCALE_DEFAULT_WORKERS
 
     print(f"Bucket: {location.bucket}")
     print(f"Prefix: {location.prefix}")
@@ -360,10 +356,14 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     print(f"Metadata sheet: {metadata_gid}")
     print(f"Metadata experiment: {metadata_experiment}")
     print(f"Raw subdirs: {', '.join(raw_subdirs)}")
+    print(f"md5: {do_md5}")
+    _print_md5_warning(do_md5)
     check_introspection_deps()
     print("Listing samples/*.h5ad, scaleplex/*.mtx, and raw *.cram ...")
 
-    s3_client = boto3.client("s3")
+    # Each worker holds one S3 connection at a time, the md5 stream for a whole
+    # file, so the pool matches the thread count.
+    s3_client = boto3.client("s3", config=Config(max_pool_connections=workers))
     summary = extract_scale_h5ad(
         s3_client,
         location.bucket,
@@ -373,7 +373,8 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
         metadata_experiment=metadata_experiment,
         lab=lab.name,
         raw_subdirs=raw_subdirs,
-        workers=args.workers,
+        do_md5=do_md5,
+        workers=workers,
         retries=args.retries,
         show_progress=not args.quiet,
     )
@@ -384,9 +385,10 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
         print("Nothing to do.")
         return 1 if args.strict and summary.empty_raw_subdirs else 0
 
+    md5_part = f" | md5 OK: {summary.md5_ok}" if do_md5 else ""
     print(
         f"\nDone. Total: {summary.total} | checksum OK: {summary.crc_ok}"
-        f" | introspect OK: {summary.enrichment_ok}"
+        f"{md5_part} | introspect OK: {summary.enrichment_ok}"
     )
     print(f"Output: {output}")
     _print_failures(summary.failures)
@@ -395,58 +397,11 @@ def _run_scale_h5ad(args: argparse.Namespace) -> int:
     return 0
 
 
-def _run_geo_md5(args: argparse.Namespace) -> int:
-    table = Path(args.table)
-    if not table.is_file():
-        raise GeoMd5Error(f"table not found: {table}")
-    output = Path(args.output or default_geo_md5_output_name(table))
-    if output.resolve() == table.resolve():
-        raise GeoMd5Error(f"output {output} is the input table; pass another -o")
-    workers = args.workers or GEO_MD5_DEFAULT_WORKERS
-
-    # Every table problem surfaces here, before the S3 client exists: a name
-    # that repeats or an object listed twice is not worth a single download.
-    rows = read_table(table)
-    files = plan_geo_files(
-        rows, uri_column=args.uri_column, name_column=args.name_column
-    )
-
-    print(f"Table: {table}")
-    print(
-        f"Rows: {len(files)} | URI column: {args.uri_column} | name column: "
-        f"{args.name_column or '(S3 basename)'}"
-    )
-    print(f"Workers: {workers}")
-    warnings = name_warnings(files)
-    checksum_warning = _checksum_support_warning()
-    if checksum_warning:
-        warnings.append(checksum_warning)
-    _print_warnings(warnings)
-    print("Hashing objects ...")
-
-    s3_client = boto3.client("s3", config=Config(max_pool_connections=workers))
-    try:
-        summary = extract_geo_md5(
-            s3_client,
-            files,
-            output,
-            workers=workers,
-            retries=args.retries,
-            show_progress=not args.quiet,
-        )
-    except OSError as exc:
-        raise GeoMd5Error(f"cannot write {output}: {exc.strerror or exc}") from exc
-
-    print(
-        f"\nDone. Total: {summary.total} | md5 OK: {summary.md5_ok} | "
-        f"failed: {summary.total - summary.md5_ok}"
-    )
-    print(f"  Bytes hashed: {summary.bytes_total:,}")
-    print(f"  Output: {output}")
-    _print_failures(summary.failures, label="md5")
-    if args.strict and summary.has_failures:
-        return 1
-    return 0
+def _print_md5_warning(do_md5: bool) -> None:
+    """Say before a long hashing run that downloads are checked by length only."""
+    warning = _checksum_support_warning() if do_md5 else None
+    if warning:
+        _print_warnings([warning])
 
 
 def _checksum_support_warning() -> str | None:
@@ -532,8 +487,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
             "Extract S3 metadata for FASTQ.gz, CRAM, Cell Ranger h5, "
-            "and Scale h5ad deliverables, and write the GEO md5 CSV for "
-            "processed files."
+            "and Scale h5ad deliverables."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -620,7 +574,9 @@ def build_parser() -> argparse.ArgumentParser:
             "derived_from is a JSON list of {lab}:{fastq_filename} aliases\n"
             "for the selected FASTQs in the sibling raw/ of each h5's\n"
             "processed/ parent. Every h5 under one library directory shares\n"
-            "that list."
+            "that list.\n"
+            "md5sum is the lowercase-hex MD5 of each h5, read in full from S3;\n"
+            "--no-md5 skips it and drops the column."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[parent],
@@ -651,7 +607,12 @@ def build_parser() -> argparse.ArgumentParser:
     h5.add_argument(
         "--no-introspect",
         action="store_true",
-        help="Skip opening the h5; emit checksums/size only",
+        help="Skip opening the h5 for counts; checksums are still written",
+    )
+    h5.add_argument(
+        "--no-md5",
+        action="store_true",
+        help="Skip md5sum, which reads every h5 in full; drops the column",
     )
     h5.add_argument(
         "--genome",
@@ -667,7 +628,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--workers",
         type=_positive_int,
         default=None,
-        help="Positive thread count (default: 8 with introspection, 64 without)",
+        help=(
+            "Positive thread count, also the S3 connection pool size "
+            "(default: 8; 64 with --no-introspect --no-md5)"
+        ),
     )
     h5.add_argument(
         "--retries",
@@ -689,8 +653,10 @@ def build_parser() -> argparse.ArgumentParser:
             "matrix.mtx.gz under {rundate}/scaleplex/, then write a TSV.\n"
             "Pairs samples.csv barcodes to the Google Sheet 'sample template'\n"
             "RT_index wells. Control samples with no pairing are omitted.\n\n"
-            "TSV columns: filename, s3_uri, crc64nvme_base64, sample, samples,\n"
-            "file_size, observation_count, feature_counts, derived_from.\n"
+            "TSV columns: filename, s3_uri, crc64nvme_base64, md5sum, sample,\n"
+            "samples, file_size, observation_count, feature_counts, derived_from.\n"
+            "md5sum is the lowercase-hex MD5 of each file, read in full from\n"
+            "S3; --no-md5 skips it and drops the column.\n"
             "samples is a JSON list of correlating sample_name values, each\n"
             "prefixed with {lab}: from --lab. file_size is the S3 object size.\n"
             "observation_count is n_obs from the h5ad obs table, or barcodes\n"
@@ -743,10 +709,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output TSV (default: <run_date>_scale_h5ad_info.tsv)",
     )
     scale_h5ad.add_argument(
+        "--no-md5",
+        action="store_true",
+        help="Skip md5sum, which reads every file in full; drops the column",
+    )
+    scale_h5ad.add_argument(
         "--workers",
-        type=int,
+        type=_positive_int,
         default=None,
-        help="Thread count (default: min(16, n_files))",
+        help=(
+            f"Positive thread count, also the S3 connection pool size "
+            f"(default: min({SCALE_DEFAULT_WORKERS}, n_files))"
+        ),
     )
     scale_h5ad.add_argument(
         "--retries",
@@ -763,71 +737,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    geo_md5 = subparsers.add_parser(
-        "geo_md5",
-        help="Write the GEO md5 CSV for the processed files listed in a table.",
-        description=(
-            "Read a TSV or CSV with an s3_uri column, stream every object to\n"
-            "compute its MD5, and write <table stem>_geo_md5.csv with the GEO\n"
-            "columns 'file name' and 'file checksum'.\n\n"
-            "file name is the S3 basename, or with --name-column the cell of\n"
-            'that column: a bare name, lab:name, or a ["lab:name"] alias\n'
-            "array, with the lab namespace stripped the way db2-flattener\n"
-            "names the GEO.csv 'processed data file'. Pass the RawMatrixFile\n"
-            "sheet with --name-column aliases and the two GEO files agree.\n\n"
-            "Duplicate names, an object listed twice, a name containing '/',\n"
-            "or an empty URI stop the run before any download. Every object is\n"
-            "read in full, so run this where S3 bandwidth is good."
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        parents=[parent],
-    )
-    geo_md5.add_argument(
-        "table",
-        help=(
-            "TSV or CSV with an s3_uri column: the RawMatrixFile sheet, with "
-            "--name-column aliases (an *_h5_info.tsv alone repeats every name)"
-        ),
-    )
-    geo_md5.add_argument(
-        "--uri-column",
-        default=GEO_MD5_URI_COLUMN,
-        help=f"Column holding the S3 object URI (default: {GEO_MD5_URI_COLUMN})",
-    )
-    geo_md5.add_argument(
-        "--name-column",
-        default=None,
-        help=(
-            "Column holding the GEO file name, e.g. aliases (default: the S3 basename)"
-        ),
-    )
-    geo_md5.add_argument(
-        "-o",
-        "--output",
-        default=None,
-        help="Output CSV (default: <table stem>_geo_md5.csv in the current directory)",
-    )
-    geo_md5.add_argument(
-        "--workers",
-        type=_positive_int,
-        default=None,
-        help=(
-            f"Positive thread count (default: {GEO_MD5_DEFAULT_WORKERS}); "
-            "also the S3 connection pool size"
-        ),
-    )
-    geo_md5.add_argument(
-        "--retries",
-        type=_positive_int,
-        default=5,
-        help="Attempts per object, the first included; at least 1 (default: 5)",
-    )
-    geo_md5.add_argument(
-        "--strict",
-        action="store_true",
-        help="Exit 1 if any md5 fails",
-    )
-
     return parser
 
 
@@ -836,13 +745,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)
 
-    # geo_md5 takes a table, not a prefix; every other command names S3 first.
-    s3_uri = getattr(args, "s3_uri", None)
-    if s3_uri is not None:
-        try:
-            parse_s3_uri(s3_uri)
-        except ValueError as exc:
-            _invalid_uri_exit(str(exc))
+    try:
+        parse_s3_uri(args.s3_uri)
+    except ValueError as exc:
+        _invalid_uri_exit(str(exc))
 
     try:
         if args.command == "fastq":
@@ -853,9 +759,10 @@ def main(argv: list[str] | None = None) -> int:
             return _run_h5(args)
         if args.command == "scale_h5ad":
             return _run_scale_h5ad(args)
-        if args.command == "geo_md5":
-            return _run_geo_md5(args)
-    except (SheetBuildError, ScaleExtractError, GeoMd5Error) as exc:
+    except SheetBuildError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ScaleExtractError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     parser.error(f"Unknown command: {args.command}")
