@@ -44,6 +44,8 @@ class MockS3Client:
         self._paginated_pages = paginated_pages or {}
         # Lets tests assert how many times a prefix was walked.
         self.paginate_calls = 0
+        # Every get_object call's arguments, so tests can assert what was asked.
+        self.get_object_calls: list[dict[str, Any]] = []
 
     def get_paginator(self, operation: str) -> MockPaginator:
         assert operation == "list_objects_v2"
@@ -71,6 +73,7 @@ class MockS3Client:
         return {"Checksum": {"ChecksumCRC64NVME": self._crc_by_key[Key]}}
 
     def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
+        self.get_object_calls.append({"Bucket": Bucket, "Key": Key, **kwargs})
         if Key not in self._object_bodies:
             from botocore.exceptions import ClientError
 
@@ -88,4 +91,4 @@ class MockS3Client:
             start = int(start_s or 0)
             end = int(end_s) + 1 if end_s else len(body)
             body = body[start:end]
-        return {"Body": io.BytesIO(body)}
+        return {"Body": io.BytesIO(body), "ContentLength": len(body)}

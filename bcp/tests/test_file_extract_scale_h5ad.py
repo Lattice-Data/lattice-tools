@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import logging
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
+from file_extract.constants import SCALE_H5AD_COLUMNS
 from file_extract.metadata_sheet import parse_sample_template
 from file_extract.scale_flags import validate_raw_subdirs
 from file_extract.scale_h5ad import (
+    FileResult,
     ScaleCram,
     _introspect_counts,
     _process_one,
@@ -38,6 +42,7 @@ from file_extract.scale_h5ad import (
     raw_cram_search_prefixes,
     resolve_raw_subdir,
     sample_from_filename,
+    scale_h5ad_columns,
     tsv_filename,
     well_to_sample_map,
 )
@@ -75,6 +80,17 @@ CRAM_OTHER_QSR = f"{RAW}426971-RNA3-098C_GEX_QSR-2_1A.cram"
 SAMP01_BARCODES = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/barcodes.tsv.gz"
 NESTED_MTX = f"{RUNDATE}scaleplex/{SAMP01_MTX_DIR}/extra/matrix.mtx.gz"
 OTHER_MTX = f"{RUNDATE}scaleplex/SAMP-01.noplex.filtered.matrix/matrix.mtx.gz"
+# Distinct contents per matrix, so a digest landing on the wrong row shows.
+MATRIX_BODIES = {
+    SAMP01_QSR: b"h5ad-1" * 100,
+    SAMP02_QSR: b"h5ad-2" * 50,
+    SAMP01_MTX: b"mtx-1",
+    SAMP02_MTX: bytes(range(256)),
+}
+
+
+def _md5(data: bytes) -> str:
+    return hashlib.md5(data).hexdigest()
 
 
 def _sheet_text() -> str:
@@ -615,7 +631,10 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
             SAMP02_MTX: 2002,
             CTRL_MTX: 33,
         },
-        object_bodies={f"{RUNDATE}samples.csv": _samples_text()},
+        object_bodies={
+            f"{RUNDATE}samples.csv": _samples_text(),
+            **MATRIX_BODIES,
+        },
         crc_by_key={
             SAMP01_MERGED: "crc-merged",
             SAMP01_QSR: "crc-qsr1",
@@ -646,7 +665,9 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
 
     assert summary.total == 4
     assert summary.crc_ok == 4
+    assert summary.md5_ok == 4
     assert summary.enrichment_ok == 4
+    assert summary.failures == []
     assert any("CTRL-01" in warning for warning in summary.warnings)
     leftover = [w for w in summary.warnings if w.startswith("cram s3://")]
     leftover_uris = " ".join(leftover)
@@ -655,6 +676,17 @@ def test_extract_scale_h5ad_writes_non_control_rows(tmp_path: Path) -> None:
     assert CRAM_UNMATCHED not in leftover_uris
     assert CRAM_SAMP01_GEX not in leftover_uris
     rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    assert list(rows[0]) == SCALE_H5AD_COLUMNS
+    # ScalePlex matrix.mtx.gz rows are RawMatrixFiles with an s3_uri too.
+    assert [row["md5sum"] for row in rows] == [
+        _md5(MATRIX_BODIES[key])
+        for key in (SAMP01_QSR, SAMP02_QSR, SAMP01_MTX, SAMP02_MTX)
+    ]
+    hashed = [call for call in client.get_object_calls if call["Key"] in MATRIX_BODIES]
+    assert sorted(call["Key"] for call in hashed) == sorted(
+        [SAMP01_QSR, SAMP02_QSR, SAMP01_MTX, SAMP02_MTX]
+    )
+    assert all(call["ChecksumMode"] == "ENABLED" for call in hashed)
     assert [row["filename"] for row in rows] == [
         "SAMP-01.QSR-1_anndata.h5ad",
         "SAMP-02.QSR-1_anndata.h5ad",
@@ -876,26 +908,39 @@ def test_format_feature_counts() -> None:
     ]
 
 
-def test_process_one_gathers_crc_and_obs_for_h5ad_and_mtx() -> None:
-    client = MockS3Client(crc_by_key={SAMP01_QSR: "crc-h5ad", SAMP01_MTX: "crc-mtx"})
+def test_process_one_gathers_crc_md5_and_obs_for_h5ad_and_mtx() -> None:
+    client = MockS3Client(
+        crc_by_key={SAMP01_QSR: "crc-h5ad", SAMP01_MTX: "crc-mtx"},
+        object_bodies=MATRIX_BODIES,
+    )
     with (
         patch("file_extract.scale_h5ad.count_h5ad_dims", return_value=(11, 18129)),
         patch("file_extract.scale_h5ad.count_mtx_dims", return_value=(101, 8)),
     ):
-        h5ad_crc, h5ad_crc_err, h5ad_obs, h5ad_fc, h5ad_err = _process_one(
-            client, BUCKET, SAMP01_QSR, retries=1
-        )
-        mtx_crc, mtx_crc_err, mtx_obs, mtx_fc, mtx_err = _process_one(
-            client, BUCKET, SAMP01_MTX, retries=1
-        )
-    assert (h5ad_crc, h5ad_crc_err, h5ad_obs, h5ad_err) == ("crc-h5ad", "", 11, "")
-    assert json.loads(h5ad_fc or "") == [
+        h5ad = _process_one(client, BUCKET, SAMP01_QSR, do_md5=True, retries=1)
+        mtx = _process_one(client, BUCKET, SAMP01_MTX, do_md5=True, retries=1)
+        skipped = _process_one(client, BUCKET, SAMP01_QSR, do_md5=False, retries=1)
+    assert h5ad == FileResult(
+        crc="crc-h5ad",
+        crc_error="",
+        md5=_md5(MATRIX_BODIES[SAMP01_QSR]),
+        md5_error="",
+        observation_count=11,
+        feature_counts=h5ad.feature_counts,
+        introspect_error="",
+    )
+    assert json.loads(h5ad.feature_counts or "") == [
         {"feature_type": "gene", "feature_count": 18129}
     ]
-    assert (mtx_crc, mtx_crc_err, mtx_obs, mtx_err) == ("crc-mtx", "", 101, "")
-    assert json.loads(mtx_fc or "") == [
+    assert (mtx.crc, mtx.md5, mtx.observation_count) == (
+        "crc-mtx",
+        _md5(MATRIX_BODIES[SAMP01_MTX]),
+        101,
+    )
+    assert json.loads(mtx.feature_counts or "") == [
         {"feature_type": "hash oligo", "feature_count": 8}
     ]
+    assert (skipped.md5, skipped.md5_error) == (None, "")
     with pytest.raises(RuntimeError, match="observation counter"):
         _introspect_counts(client, BUCKET, f"{RUNDATE}samples/notes.txt")
 
@@ -1016,6 +1061,7 @@ def test_extract_scale_h5ad_obs_failure_leaves_count_empty(tmp_path: Path) -> No
             metadata_experiment="RNA3_098",
             lab="example-lab",
             raw_subdirs=["426971"],
+            do_md5=False,
             show_progress=False,
             sheet_csv=_sheet_text(),
         )
@@ -1057,3 +1103,194 @@ def test_extract_scale_h5ad_missing_samples_csv() -> None:
 def test_metadata_sheet_parse_requires_rt_index() -> None:
     with pytest.raises(ScaleExtractError, match="RT_index"):
         parse_sample_template("sample_name\nfoo\n")
+
+
+# --- md5sum ------------------------------------------------------------------
+
+
+def _md5_run(
+    tmp_path: Path, client: MockS3Client, **kwargs: Any
+) -> tuple[Any, list[dict[str, str]]]:
+    """Run extract over SAMP01_QSR and SAMP02_QSR; return the summary and rows."""
+    out = tmp_path / "md5.tsv"
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", return_value=(11, 900)):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(out),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["426971"],
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+            **kwargs,
+        )
+    rows = list(csv.DictReader(out.open(encoding="utf-8"), delimiter="\t"))
+    return summary, rows
+
+
+def _md5_client(bodies: dict[str, bytes], cls: type = MockS3Client) -> Any:
+    return cls(
+        keys=[f"{RUNDATE}samples.csv", SAMP01_QSR, SAMP02_QSR],
+        object_bodies={f"{RUNDATE}samples.csv": _samples_text(), **bodies},
+        crc_by_key={SAMP01_QSR: "crc-qsr1", SAMP02_QSR: "crc-qsr2"},
+    )
+
+
+def test_scale_h5ad_columns_place_md5sum_after_the_crc() -> None:
+    with_md5 = scale_h5ad_columns(do_md5=True)
+    assert with_md5 == SCALE_H5AD_COLUMNS
+    assert with_md5.index("md5sum") == with_md5.index("crc64nvme_base64") + 1
+    assert "md5sum" not in scale_h5ad_columns(do_md5=False)
+
+
+def test_extract_scale_h5ad_failed_md5_leaves_cell_empty_and_is_listed(
+    tmp_path: Path,
+) -> None:
+    client = _md5_client({SAMP02_QSR: MATRIX_BODIES[SAMP02_QSR]})
+    summary, rows = _md5_run(tmp_path, client, retries=1)
+
+    by_name = {row["filename"]: row for row in rows}
+    assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["md5sum"] == ""
+    assert by_name["SAMP-02.QSR-1_anndata.h5ad"]["md5sum"] == _md5(
+        MATRIX_BODIES[SAMP02_QSR]
+    )
+    # The CRC and the counts do not depend on the md5 read.
+    assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["crc64nvme_base64"] == "crc-qsr1"
+    assert by_name["SAMP-01.QSR-1_anndata.h5ad"]["observation_count"] == "11"
+    assert summary.crc_ok == 2
+    assert summary.enrichment_ok == 2
+    assert summary.md5_ok == 1
+    assert summary.has_failures
+    assert [(key, crc) for key, crc, _detail in summary.failures] == [(SAMP01_QSR, "")]
+    assert summary.failures[0][2].startswith("md5: ")
+    assert "NoSuchKey" in summary.failures[0][2]
+
+
+def test_extract_scale_h5ad_failure_detail_keeps_both_errors(tmp_path: Path) -> None:
+    client = _md5_client({SAMP02_QSR: MATRIX_BODIES[SAMP02_QSR]})
+
+    def count_dims(bucket: str, key: str) -> tuple[int, int]:
+        if key == SAMP01_QSR:
+            raise RuntimeError("not an AnnData h5ad")
+        return 22, 900
+
+    with patch("file_extract.scale_h5ad.count_h5ad_dims", side_effect=count_dims):
+        summary = extract_scale_h5ad(
+            client,
+            BUCKET,
+            RUNDATE,
+            str(tmp_path / "both.tsv"),
+            metadata_gid="sheet-uuid",
+            metadata_experiment="RNA3_098",
+            lab="example-lab",
+            raw_subdirs=["426971"],
+            retries=1,
+            show_progress=False,
+            sheet_csv=_sheet_text(),
+        )
+    (detail,) = [detail for _key, _crc, detail in summary.failures]
+    assert detail.startswith("not an AnnData h5ad; md5: ")
+
+
+def test_extract_scale_h5ad_no_md5_drops_the_column_and_reads_nothing(
+    tmp_path: Path,
+) -> None:
+    client = _md5_client(MATRIX_BODIES)
+    summary, rows = _md5_run(tmp_path, client, do_md5=False)
+
+    assert list(rows[0]) == scale_h5ad_columns(do_md5=False)
+    assert summary.md5_ok == 0
+    assert not summary.failures
+    assert all(call["Key"] not in MATRIX_BODIES for call in client.get_object_calls)
+
+
+def test_extract_scale_h5ad_retries_a_transient_md5_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class TruncatingOnceClient(MockS3Client):
+        """Cuts the first GET of each matrix short, then serves it whole."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.cut: set[str] = set()
+
+        def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
+            resp = super().get_object(Bucket=Bucket, Key=Key, **kwargs)
+            if Key in MATRIX_BODIES and Key not in self.cut:
+                self.cut.add(Key)
+                resp["Body"].read(1)
+            return resp
+
+    monkeypatch.setattr("file_extract.retry.time.sleep", lambda _seconds: None)
+
+    summary, rows = _md5_run(
+        tmp_path, _md5_client(MATRIX_BODIES, TruncatingOnceClient), retries=2
+    )
+    assert summary.md5_ok == 2 and not summary.failures
+    assert [row["md5sum"] for row in rows] == [
+        _md5(MATRIX_BODIES[SAMP01_QSR]),
+        _md5(MATRIX_BODIES[SAMP02_QSR]),
+    ]
+
+    # One attempt only: the short read is never hashed into a digest.
+    summary, rows = _md5_run(
+        tmp_path, _md5_client(MATRIX_BODIES, TruncatingOnceClient), retries=1
+    )
+    assert summary.md5_ok == 0
+    assert [row["md5sum"] for row in rows] == ["", ""]
+    assert all("total bytes expected" in d for _k, _c, d in summary.failures)
+
+
+def test_extract_scale_h5ad_md5_error_without_a_message_is_still_listed(
+    tmp_path: Path,
+) -> None:
+    class SilentResetClient(MockS3Client):
+        def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
+            if Key in MATRIX_BODIES:
+                raise ConnectionResetError()
+            return super().get_object(Bucket=Bucket, Key=Key, **kwargs)
+
+    summary, rows = _md5_run(
+        tmp_path, _md5_client(MATRIX_BODIES, SilentResetClient), retries=1
+    )
+    assert [row["md5sum"] for row in rows] == ["", ""]
+    assert summary.md5_ok == 0
+    assert [detail for _k, _c, detail in summary.failures] == [
+        "md5: failed without an error message"
+    ] * 2
+
+
+def test_extract_scale_h5ad_interrupt_cancels_queued_files(tmp_path: Path) -> None:
+    import time
+
+    class InterruptingClient(MockS3Client):
+        """The first matrix GET is interrupted; later ones are slow."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.matrix_gets = 0
+
+        def get_object(self, Bucket: str = "", Key: str = "", **kwargs: Any) -> dict:
+            result = super().get_object(Bucket=Bucket, Key=Key, **kwargs)
+            if Key.endswith(".h5ad"):
+                self.matrix_gets += 1
+                if self.matrix_gets == 1:
+                    raise KeyboardInterrupt
+                time.sleep(0.2)
+            return result
+
+    keys = [f"{RUNDATE}samples/SAMP-01.QSR-{i}_anndata.h5ad" for i in range(1, 7)]
+    client = InterruptingClient(
+        keys=[f"{RUNDATE}samples.csv", *keys],
+        object_bodies={
+            f"{RUNDATE}samples.csv": _samples_text(),
+            **{key: b"x" for key in keys},
+        },
+        crc_by_key={key: "crc" for key in keys},
+    )
+    with pytest.raises(KeyboardInterrupt):
+        _md5_run(tmp_path, client, workers=1)
+    assert client.matrix_gets <= 2

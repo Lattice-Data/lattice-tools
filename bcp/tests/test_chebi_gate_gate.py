@@ -37,9 +37,26 @@ from tests.chebi_gate_helpers import (
     salt_record,
     sdf_bytes,
 )
+from tests.git_helpers import git_free_env
 
 CLEAN_CAS = "557-66-4"
 OTHER_CAS = "64-17-5"
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_git_location(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the git variables the pre-commit hook exports.
+
+    From a linked worktree the hook exports an absolute ``GIT_DIR``, so every
+    git call below -- the throwaway repo's and the gate's own -- would answer
+    about the real repository instead of the one it was pointed at. ``git
+    init`` under that ``GIT_DIR`` rewrote the shared config to
+    ``core.bare = true`` and broke every checkout. See
+    ``tests.git_helpers.git_free_env``.
+    """
+    for name in list(os.environ):
+        if name.startswith("GIT_"):
+            monkeypatch.delenv(name)
 
 
 @pytest.fixture
@@ -841,8 +858,10 @@ def _repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "code.py").write_text("SEVERITY = 'high'\n")
+    # git_free_env as well as the autouse fixture: this builder runs git init,
+    # the one call that writes to whatever repository the environment names.
     env = {
-        **os.environ,
+        **git_free_env(),
         "GIT_AUTHOR_NAME": "T",
         "GIT_AUTHOR_EMAIL": "t@example.invalid",
         "GIT_COMMITTER_NAME": "T",
@@ -851,6 +870,30 @@ def _repo(tmp_path: Path) -> Path:
     for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "one"]):
         subprocess.run(["git", *args], cwd=repo, env=env, check=True)
     return repo
+
+
+def test_the_repo_builder_ignores_an_inherited_git_dir(tmp_path, monkeypatch):
+    """A hook's GIT_DIR must not turn the builder's git init on that repository."""
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=decoy, env=git_free_env(), check=True)
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(decoy / ".git" / "index"))
+
+    repo = _repo(tmp_path)
+
+    config = (decoy / ".git" / "config").read_text()
+    assert "bare = false" in config
+    assert "bare = true" not in config
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        env=git_free_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert len(head.stdout.strip()) == 40
 
 
 def test_the_manifest_says_whether_the_work_tree_matched_the_commit(tmp_path):

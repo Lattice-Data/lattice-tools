@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import botocore.httpchecksum
 import pytest
 
 from file_extract.cli import (
@@ -79,6 +81,8 @@ def test_cli_scale_h5ad_help(capsys: pytest.CaptureFixture[str]) -> None:
     assert "{lab}:{cram_filename}" in out
     assert "hash oligo" in out
     assert "scaleplex" in out
+    assert "crc64nvme_base64, md5sum, sample" in out
+    assert "--no-md5" in out
 
 
 def test_cli_h5_rejects_nonpositive_workers(
@@ -209,6 +213,36 @@ def test_cli_h5_checksum_only(
     )
     assert code == 0
     assert mock_extract.call_args.kwargs["lab"] == "example-lab"
+    assert mock_extract.call_args.kwargs["do_md5"] is True
+    # Still 8: every worker streams a whole h5 through md5.
+    _assert_s3_pool(mock_boto, 8)
+
+
+@patch("file_extract.cli.extract_h5")
+@patch("file_extract.cli.boto3.client")
+def test_cli_h5_no_md5_restores_the_crc_only_fan_out(
+    mock_boto: MagicMock, mock_extract: MagicMock, tmp_path: Path
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=1, crc_ok=1)
+
+    code = main(
+        [
+            "h5",
+            f"s3://{BUCKET}/{H5_PREFIX}",
+            "-o",
+            str(tmp_path / "h5.tsv"),
+            "--lab",
+            "example-lab",
+            "--no-introspect",
+            "--no-md5",
+            "--quiet",
+        ]
+    )
+    assert code == 0
+    assert mock_extract.call_args.kwargs["do_md5"] is False
     _assert_s3_pool(mock_boto, 64)
 
 
@@ -909,3 +943,155 @@ def test_cli_scale_h5ad_strict_on_empty_raw_subdir_with_no_targets(
     # prefix with no rows and one mistyped entry starts failing pipelines.
     assert main(args) == 0
     assert main([*args, "--strict"]) == 1
+
+
+# --- md5sum ------------------------------------------------------------------
+
+H5_KEY = f"{H5_PREFIX}sampleA/sample_filtered_feature_bc_matrix.h5"
+H5_KEY_B = f"{H5_PREFIX}sampleB/sample_filtered_feature_bc_matrix.h5"
+
+
+def _h5_args(out: Path, *extra: str) -> list[str]:
+    return [
+        "h5",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(out),
+        "--lab",
+        "example-lab",
+        "--no-introspect",
+        "--quiet",
+        *extra,
+    ]
+
+
+def test_cli_h5_help_names_md5sum(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["h5", "--help"])
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "md5sum" in out
+    assert "--no-md5" in out
+
+
+@pytest.mark.parametrize("command", ["fastq", "cram", "h5", "scale_h5ad"])
+def test_cli_retries_must_be_positive(
+    command: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Zero attempts would leave every checksum blank and exit 0.
+    with pytest.raises(SystemExit) as exc_info:
+        main([command, f"s3://{BUCKET}/{PREFIX}", "--retries", "0"])
+    assert exc_info.value.code == 2
+    assert "positive integer" in capsys.readouterr().err
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_h5_md5_failure_is_listed_and_strict_exits_1(
+    mock_boto: MagicMock, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mock_boto.return_value = MockS3Client(
+        keys=[H5_KEY, H5_KEY_B],
+        crc_by_key={H5_KEY: "crc-a", H5_KEY_B: "crc-b"},
+        object_bodies={H5_KEY: b"alpha"},
+    )
+    out = tmp_path / "h5.tsv"
+
+    assert main(_h5_args(out)) == 0
+    text = out.read_text(encoding="utf-8")
+    assert hashlib.md5(b"alpha").hexdigest() in text
+    printed = capsys.readouterr().out
+    assert "md5: True" in printed
+    assert "checksum OK: 2 | md5 OK: 1" in printed
+    assert f"  - {H5_KEY_B}" in printed
+    assert "detail: md5: " in printed and "NoSuchKey" in printed
+
+    assert main(_h5_args(out, "--strict")) == 1
+
+
+@patch("file_extract.cli.extract_scale_h5ad")
+@patch("file_extract.cli.boto3.client")
+@patch("file_extract.cli.check_introspection_deps")
+def test_cli_scale_h5ad_pool_matches_workers(
+    _mock_deps: MagicMock,
+    mock_boto: MagicMock,
+    mock_extract: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from file_extract.models import RunSummary
+
+    mock_boto.return_value = MockS3Client()
+    mock_extract.return_value = RunSummary(total=2, crc_ok=2, md5_ok=2)
+    base = [
+        "scale_h5ad",
+        f"s3://{BUCKET}/{H5_PREFIX}",
+        "-o",
+        str(tmp_path / "scale.tsv"),
+        "--quiet",
+        *SCALE_H5AD_ARGS,
+    ]
+
+    assert main(base) == 0
+    _assert_s3_pool(mock_boto, 16)
+    assert mock_extract.call_args.kwargs["workers"] == 16
+    assert mock_extract.call_args.kwargs["do_md5"] is True
+    assert "checksum OK: 2 | md5 OK: 2 | introspect OK" in capsys.readouterr().out
+
+    assert main([*base, "--workers", "3", "--no-md5"]) == 0
+    _assert_s3_pool(mock_boto, 3)
+    assert mock_extract.call_args.kwargs["workers"] == 3
+    assert mock_extract.call_args.kwargs["do_md5"] is False
+    assert "md5 OK" not in capsys.readouterr().out
+
+
+def test_cli_scale_h5ad_rejects_nonpositive_workers(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(
+            [
+                "scale_h5ad",
+                f"s3://{BUCKET}/{H5_PREFIX}",
+                *SCALE_H5AD_ARGS,
+                "--workers",
+                "0",
+            ]
+        )
+    assert exc_info.value.code == 2
+    assert "positive integer" in capsys.readouterr().err
+
+
+@patch("file_extract.cli.boto3.client")
+def test_cli_h5_warns_when_crc64nvme_cannot_be_verified(
+    mock_boto: MagicMock,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_boto.return_value = MockS3Client(
+        keys=[H5_KEY], crc_by_key={H5_KEY: "crc-a"}, object_bodies={H5_KEY: b"x"}
+    )
+    args = _h5_args(tmp_path / "h5.tsv")
+
+    # The guard reads a private botocore name; a rename must fail here, not
+    # switch the warning off quietly.
+    assert hasattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS")
+
+    monkeypatch.setattr(
+        botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", ["crc32", "sha256"]
+    )
+    assert main(args) == 0
+    assert "WARNING: botocore cannot verify CRC64NVME" in capsys.readouterr().out
+    # Without md5 nothing streams, so there is nothing to warn about.
+    assert main([*args, "--no-md5"]) == 0
+    assert "CRC64NVME" not in capsys.readouterr().out
+
+    monkeypatch.setattr(
+        botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS", ["crc32", "crc64nvme"]
+    )
+    assert main(args) == 0
+    assert "CRC64NVME" not in capsys.readouterr().out
+
+    monkeypatch.delattr(botocore.httpchecksum, "_SUPPORTED_CHECKSUM_ALGORITHMS")
+    assert main(args) == 0
+    assert "CRC64NVME verification cannot be confirmed" in capsys.readouterr().out
