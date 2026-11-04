@@ -901,9 +901,11 @@ s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_run_*.txt
 ```
 
 - Rename every per-library file by inserting `_{assay}` after the GroupID, where `{assay}` is that
-  library's sublibrary type from the SIF (`GEX` for the usual gene-expression library; `CRI`,
-  `ATAC`, `ADT`, `HTO` where the order has them). Ultima's own names carry no type token, so this
-  is the one place it is set, and QA takes the type from it.
+  library's sublibrary type from the SIF: `GEX` for the usual gene-expression library, `CRI` or
+  `ATAC` where the order has them (the types `qa_constants.valid_assays` accepts for 10x; the
+  CITE-seq `ADT`/`HTO` tokens exist only in mapping validation, so a library renamed with one of
+  those would be reported as `WRONG ASSAY`). Ultima's own names carry no type token, so this is the
+  one place it is set, and QA takes the type from it.
 - Prefix every run-level file (`merged_trimmer-*.csv`, `LibraryInfo.xml`, `SequencingInfo.json`,
   `UploadCompleted.json`, `run_*.txt`) with `{run}_` and keep it in the run folder, beside the
   `{GroupID}/` folders, so the merged trimmer files are picked up as that wafer's.
