@@ -921,7 +921,7 @@ def _validate_10x_processed(
         )
 
     # S3/local consistency
-    cons_res = validate_s3_local_consistency_10x_processed(provider, mappings)
+    cons_res = validate_s3_local_consistency_10x_processed(provider, mappings, sif_path)
     normalized_groupid_count = _count_issue_type(
         cons_res["warnings"], "group_id_normalized_match"
     )
@@ -934,6 +934,15 @@ def _validate_10x_processed(
             "  NOTE: "
             f"{normalized_groupid_count} GroupID warning(s) matched after '-'/'_' "
             "normalization."
+        )
+    alias_groupid_count = _count_issue_type(
+        cons_res["warnings"], "group_id_sif_alias_match"
+    )
+    if alias_groupid_count:
+        print(
+            "  NOTE: "
+            f"{alias_groupid_count} GroupID warning(s) matched a SIF library-name "
+            "alias in the local path (the provider names local folders by library)."
         )
     _print_issue_examples(
         "10x processed S3/local consistency", cons_res["errors"], "errors"

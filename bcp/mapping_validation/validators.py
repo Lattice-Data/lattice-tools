@@ -18,7 +18,7 @@ from .constants import (
     get_order_pattern,
 )
 from .parsing import MappingRow
-from .sif_io import load_sif_group_assays
+from .sif_io import load_sif_group_assays, load_sif_library_groups
 from .sop_artifacts import (
     TENX_CRAM_CORE_SAMPLE_ARTIFACTS,
     TENX_CRAM_REQUIRED_SAMPLE_ARTIFACTS,
@@ -2343,18 +2343,70 @@ def _group_id_hyphen_underscore_variants(group_id: str) -> set[str]:
     return {group_id, group_id.replace("-", "_"), group_id.replace("_", "-")}
 
 
+# A local path component shorter than this never counts as a SIF alias.
+_SIF_ALIAS_MIN_LEN = 8
+
+
+def _sif_group_aliases(
+    sif_path: str | Path, provider: str
+) -> dict[str, tuple[frozenset[str], str]]:
+    """GroupID -> (member library names, their common stem), read from the SIF.
+
+    S3 directories are named by GroupID, but a provider's local processing
+    folders may be named by library instead: Novogene runs Cell Ranger under
+    ``GISHB001GEM1`` for the libraries ``GISHB001GEM1IA1`` .. ``IA4`` of
+    GroupID ``GIS_MEC_Hyb_B001_GEM1``.  :func:`_sif_alias_in_local` matches a
+    local path component against these.  Both SIF spellings of a GroupID are
+    keys, as :func:`load_sif_library_groups` keeps both.
+    """
+    libraries_by_group: dict[str, set[str]] = defaultdict(set)
+    for lib, gids in load_sif_library_groups(sif_path, provider=provider).items():
+        for gid in gids:
+            libraries_by_group[gid].add(lib)
+    return {
+        gid: (frozenset(libs), os.path.commonprefix(sorted(libs)))
+        for gid, libs in libraries_by_group.items()
+    }
+
+
+def _sif_alias_in_local(
+    local: str, entry: tuple[frozenset[str], str] | None
+) -> str | None:
+    """The longest component of ``local`` that names the group by SIF alias.
+
+    A component counts when it is one of the group's library names or a prefix
+    of their common stem (``GISHB001GEM1`` for the stem ``GISHB001GEM1IA``).
+    Components shorter than :data:`_SIF_ALIAS_MIN_LEN` never count: a
+    two-letter library name would be found in almost any local path.
+    """
+    if entry is None:
+        return None
+    libs, stem = entry
+    hits = [
+        part
+        for part in local.split("/")
+        if len(part) >= _SIF_ALIAS_MIN_LEN and (part in libs or stem.startswith(part))
+    ]
+    return max(hits, key=len) if hits else None
+
+
 def validate_s3_local_consistency_10x_processed(
-    provider: str, mappings: Iterable[MappingRow]
+    provider: str, mappings: Iterable[MappingRow], sif_path: str | Path | None = None
 ) -> dict:
     """Cross-check processed S3 and local paths for consistency.
 
     Checks:
     1. The GroupID from the S3 path appears in the local path.
     2. The file path after ``outs/`` matches between S3 and local.
+
+    With ``sif_path``, a local path that lacks the GroupID but has a component
+    naming the group's libraries (see :func:`_sif_alias_in_local`) is a
+    warning of type ``group_id_sif_alias_match`` rather than an error.
     """
     provider = _validate_provider(provider)
     order_pattern = get_order_pattern(provider)
     s3_regex = _build_10x_processed_s3_regex(provider, order_pattern)
+    aliases = _sif_group_aliases(sif_path, provider) if sif_path else {}
 
     errors: List[dict] = []
     warnings: List[dict] = []
@@ -2388,6 +2440,29 @@ def validate_s3_local_consistency_10x_processed(
                         "detail": (
                             f"GroupID '{group_id}' from S3 is not an exact local match; "
                             "a '-'/'_' normalized variant was found"
+                        ),
+                    }
+                )
+            elif hit := _sif_alias_in_local(local, aliases.get(group_id)):
+                # one id per other group whose stem this component also prefixes
+                others = sorted(
+                    {
+                        v: g
+                        for g, v in aliases.items()
+                        if v != aliases[group_id] and v[1].startswith(hit)
+                    }.values()
+                )
+                note = f" (also a prefix of {', '.join(others)})" if others else ""
+                warnings.append(
+                    {
+                        "type": "group_id_sif_alias_match",
+                        "line": row.line_num,
+                        "s3_path": s3,
+                        "local_path": local,
+                        "detail": (
+                            f"GroupID '{group_id}' from S3 not in local path; "
+                            f"its component '{hit}' names the group's SIF "
+                            f"libraries{note}"
                         ),
                     }
                 )

@@ -406,6 +406,51 @@ def test_cli_10x_processed_reports_normalized_groupid_warning(
     assert "VERDICT: PASS" in captured.out
 
 
+def test_cli_10x_processed_reports_sif_alias_groupid_warning(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """A local folder named by the SIF library stem passes, with a counted NOTE."""
+    mapping_text = (
+        "s3://czi-novogene/test-project/NVUS0000000000-23/"
+        "GIS_MEC_Hyb_B001_GEM1/processed/cellranger/Run_2000-04-11/outs/"
+        "filtered_feature_bc_matrix.h5,"
+        "/local/user_003/10xFlex/X000SC00000000-Z00-F000_10xFlex_Cellranger_20000101/"
+        "Flex_cellranger/GISHB001GEM1/outs/filtered_feature_bc_matrix.h5\n"
+    )
+    mapping_path = _write_temp_mapping(tmp_path, mapping_text)
+    sif_text = (
+        "Library name,Group Identifier,Assay Type\n"
+        "GISHB001GEM1IA1,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+        "GISHB001GEM1IA2,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+    )
+    sif_path = tmp_path / "tenx_proc_sif_alias.csv"
+    sif_path.write_text(sif_text)
+
+    argv = [
+        "mapping_validation",
+        "--mapping",
+        str(mapping_path),
+        "--sif",
+        str(sif_path),
+        "--provider",
+        "novogene",
+        "--data",
+        "processed",
+        "--assay",
+        "10x",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as excinfo:
+        mapping_validation.main()
+
+    assert excinfo.value.code == 0
+    captured = capsys.readouterr()
+    assert "group_id_sif_alias_match: 1" in captured.out
+    assert "matched a SIF library-name alias" in captured.out
+    assert "VERDICT: PASS" in captured.out
+
+
 def test_cli_psomagen_10x_raw_passes(tmp_path: Path, monkeypatch, capsys) -> None:
     """CLI should pass for a SOP-complete 10x Psomagen raw mapping (viral_ORF assay)."""
     mapping_text = _tenx_fastq_cli_mapping(

@@ -2233,6 +2233,123 @@ def test_s3_local_consistency_10x_processed_group_id_normalized_match() -> None:
     assert any(w["type"] == "group_id_normalized_match" for w in res["warnings"])
 
 
+_PROC_S3_FLEX = (
+    "s3://czi-novogene/test-project/NVUS0000000000-23/"
+    "GIS_MEC_Hyb_B001_GEM1/processed/cellranger/Run_2000-04-11/outs/"
+)
+_PROC_LOCAL_FLEX = (
+    "/local/user_003/10xFlex/X000SC00000000-Z00-F000_10xFlex_Cellranger_20000101/"
+    "Flex_cellranger/GISHB001GEM1/outs/"
+)
+_FLEX_SIF = (
+    "Library name,Group Identifier,Assay Type\n"
+    "GISHB001GEM1IA1,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+    "GISHB001GEM1IA2,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+    "GISHB001GEM1IA3,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+    "GISHB001GEM1IA4,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+)
+
+
+def _flex_row(local_dir: str) -> list[MappingRow]:
+    return [
+        MappingRow(
+            s3_path=_PROC_S3_FLEX + "filtered_feature_bc_matrix.h5",
+            local_path=local_dir + "filtered_feature_bc_matrix.h5",
+            line_num=1,
+        )
+    ]
+
+
+def test_s3_local_consistency_10x_processed_sif_library_stem_alias(
+    tmp_path: Path,
+) -> None:
+    """A local folder named by the libraries' common stem is a warning with a SIF."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF, encoding="utf-8")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX), sif
+    )
+    assert res["matched"] == 1
+    assert res["errors"] == []
+    (warning,) = res["warnings"]
+    assert warning["type"] == "group_id_sif_alias_match"
+    assert "'GISHB001GEM1'" in warning["detail"]
+
+
+def test_s3_local_consistency_10x_processed_sif_library_name_alias(
+    tmp_path: Path,
+) -> None:
+    """A local folder named by one member library is an alias too."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF, encoding="utf-8")
+    local_dir = _PROC_LOCAL_FLEX.replace("GISHB001GEM1/", "GISHB001GEM1IA3/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert res["errors"] == []
+    assert [w["type"] for w in res["warnings"]] == ["group_id_sif_alias_match"]
+    assert "'GISHB001GEM1IA3'" in res["warnings"][0]["detail"]
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_absent_is_error(
+    tmp_path: Path,
+) -> None:
+    """With a SIF but no alias in the local path, the error stands."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF, encoding="utf-8")
+    local_dir = _PROC_LOCAL_FLEX.replace("GISHB001GEM1/", "sample_7/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+    assert res["warnings"] == []
+
+
+def test_s3_local_consistency_10x_processed_without_sif_unchanged() -> None:
+    """Without a SIF the stem is unknown, so the local folder is still an error."""
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX)
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_notes_shared_prefix(
+    tmp_path: Path,
+) -> None:
+    """A folder that is a prefix of two groups' stems is accepted, with a note."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(
+        _FLEX_SIF
+        + "GISHB001GEM10IA1,GIS_MEC_Hyb_B001_GEM10,GEX\n"
+        + "GISHB001GEM10IA2,GIS_MEC_Hyb_B001_GEM10,GEX\n",
+        encoding="utf-8",
+    )
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX), sif
+    )
+    assert res["errors"] == []
+    (warning,) = res["warnings"]
+    assert "also a prefix of GIS_MEC_Hyb_B001_GEM10" in warning["detail"]
+
+
+def test_s3_local_consistency_10x_processed_short_sif_alias_ignored(
+    tmp_path: Path,
+) -> None:
+    """Library names shorter than eight characters never serve as aliases."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(
+        "Library name,Group Identifier,Assay Type\n"
+        "L1,GIS_MEC_Hyb_B001_GEM1,GEX\n"
+        "L2,GIS_MEC_Hyb_B001_GEM1,GEX\n",
+        encoding="utf-8",
+    )
+    local_dir = _PROC_LOCAL_FLEX.replace("GISHB001GEM1/", "L1/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+
+
 def test_s3_local_consistency_10x_processed_file_path_mismatch() -> None:
     """Different file paths after outs/ should produce an error."""
     rows = [
