@@ -891,14 +891,22 @@ into the SOP layout inside the same bucket (server-side `aws s3 cp`, no deletes)
 the copy with `raw_assay='10x'`:
 
 ```
-s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{GroupID}/raw/{run}-{GroupID}_GEX-{UG}-{barcode}_*
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{GroupID}/raw/{run}-{GroupID}_{assay}-{UG}-{barcode}_*
 s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_merged_trimmer-failure_codes.csv
 s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_merged_trimmer-stats.csv
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_LibraryInfo.xml
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_SequencingInfo.json
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_UploadCompleted.json
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_run_*.txt
 ```
 
-- Rename every per-library file by inserting `_GEX` after the GroupID, and prefix the run-level
-  files (`merged_trimmer-*.csv`, `LibraryInfo.xml`, `SequencingInfo.json`, `UploadCompleted.json`,
-  `run_*.txt`) with `{run}_` so the merged trimmer files are picked up as that wafer's.
+- Rename every per-library file by inserting `_{assay}` after the GroupID, where `{assay}` is that
+  library's sublibrary type from the SIF (`GEX` for the usual gene-expression library; `CRI`,
+  `ATAC`, `ADT`, `HTO` where the order has them). Ultima's own names carry no type token, so this
+  is the one place it is set, and QA takes the type from it.
+- Prefix every run-level file (`merged_trimmer-*.csv`, `LibraryInfo.xml`, `SequencingInfo.json`,
+  `UploadCompleted.json`, `run_*.txt`) with `{run}_` and keep it in the run folder, beside the
+  `{GroupID}/` folders, so the merged trimmer files are picked up as that wafer's.
 - Copy the `-metadata.json` sidecars: the R1/R2 read-count check reads them.
 - Do not copy `{run}-TT-TT/` (Ultima's control library), `{run}-UNKN/` (unassigned reads) or the
   `{run}-UGAv3-*/` per-index bins; they are run-wide outputs, not sample data. The per-library
