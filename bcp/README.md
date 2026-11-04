@@ -881,6 +881,33 @@ Collaborator lab trimmed uploads (`czi-{lab}`, `{lab}-seahub-bcp`) are QA'd in
 checks, the output files and how to re-derive a report without S3 access are documented in
 **[SEAHUB_QA.md](SEAHUB_QA.md)**.
 
+### Ultima direct deliveries (`czi-ultima`)
+
+Ultima delivers 10x runs straight into `s3://czi-ultima/` in the sequencer's own layout
+(`{order}/{run}-{stamp}/{run}-{GroupID}-{UG}-{barcode}/`, no `raw/`, no sublibrary-type token
+in the filenames, plus run-wide `TT-TT`, `UNKN` and per-index `UGAv3` bins). That layout does
+not follow the SOP and `qa.ipynb` does not read it. Instead, copy the order's sample libraries
+into the SOP layout inside the same bucket (server-side `aws s3 cp`, no deletes) and run QA on
+the copy with `raw_assay='10x'`:
+
+```
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{GroupID}/raw/{run}-{GroupID}_GEX-{UG}-{barcode}_*
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_merged_trimmer-failure_codes.csv
+s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_merged_trimmer-stats.csv
+```
+
+- Rename every per-library file by inserting `_GEX` after the GroupID, and prefix the run-level
+  files (`merged_trimmer-*.csv`, `LibraryInfo.xml`, `SequencingInfo.json`, `UploadCompleted.json`,
+  `run_*.txt`) with `{run}_` so the merged trimmer files are picked up as that wafer's.
+- Copy the `-metadata.json` sidecars: the R1/R2 read-count check reads them.
+- Do not copy `{run}-TT-TT/` (Ultima's control library), `{run}-UNKN/` (unassigned reads) or the
+  `{run}-UGAv3-*/` per-index bins; they are run-wide outputs, not sample data. The per-library
+  `{UG}-CBC_pattern_*.csv` QC file is optional; nothing in QA reads it.
+- `processed/ MISSING` is expected until processed data is uploaded.
+
+`s3_path` is then `s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/` (or
+`provider='ultima'`, `proj`, `order` = the run folder), and the ordinary SOP checks apply.
+
 ## Version
 
 Current version: 1.0.0
