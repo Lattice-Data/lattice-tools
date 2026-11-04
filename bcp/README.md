@@ -911,9 +911,12 @@ s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/{run}_run_*.txt
   `{GroupID}/` folders, so the merged trimmer files are picked up as that wafer's.
 - Do not copy the `-metadata.json` sidecars: Biohub generates them for every object that lands in
   the bucket, so the copies get their own. The R1/R2 read-count check reads those.
-- Do not copy `{run}-TT-TT/` (Ultima's control library), `{run}-UNKN/` (unassigned reads) or the
-  `{run}-UGAv3-*/` per-index bins; they are run-wide outputs, not sample data. The per-library
-  `{UG}-CBC_pattern_*.csv` QC file is optional; nothing in QA reads it.
+- From `{run}-TT-TT/` (Ultima's control library) copy only its three stats files, to the run folder
+  with the same `{run}_` prefix (`{run}_TT-TT.csv`, `{run}_TT-TT_trimmer-failure_codes.csv`,
+  `{run}_TT-TT_trimmer-stats.csv`); QA ignores them there, they are kept for the record. Leave its
+  CRAM, index, coverage tracks and metrics where they are. Do not copy `{run}-UNKN/` (unassigned
+  reads) or the `{run}-UGAv3-*/` per-index bins; they are run-wide outputs, not sample data. The
+  per-library `{UG}-CBC_pattern_*.csv` QC file is optional; nothing in QA reads it.
 - `processed/ MISSING` is expected until processed data is uploaded.
 
 `s3_path` is then `s3://czi-ultima/{lastname}-{projectname}/{run}-{stamp}/` (or
