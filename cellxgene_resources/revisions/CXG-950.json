@@ -1,0 +1,14 @@
+{
+  "collection_id": "9c8808ce-1138-4dbe-818c-171cff10e650",
+  "ticket": "CXG-950",
+  "paper": "10.3389/fcvm.2020.00052",
+  "note": "5% oxazolone in acetone and olive oil applied to BALB/c skin; lymph nodes collected 48 h later. Human dataset and the untreated mouse strains are not perturbed.",
+  "datasets": {
+    "26ae14da-9e5f-4d18-abae-18a5a328feef": {
+      "source_column": "sample_strain",
+      "terms": {
+        "BALB/c_OXA_48h": ["CHEBI:53076"]
+      }
+    }
+  }
+}
