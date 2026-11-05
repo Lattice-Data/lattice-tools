@@ -476,7 +476,7 @@ Checks run:
     - Relative path after `/outs/` matches between S3 and local.
   - Emits errors when mismatches are found; warnings when `/outs/` is not present in the local path.
   - When the GroupID string differs only by `-` vs `_`, the CLI may still match and emit a **NOTE** counting warnings matched after normalization.
-  - With `--sif`, a local path that lacks the GroupID but has a path component that is one of the group's **library names** from the SIF, or a prefix of the stem those names share (`GISHB001GEM1` for `GISHB001GEM1IA1`..`IA4`), is a warning (`group_id_sif_alias_match`) rather than an error, and the CLI emits a **NOTE** with the count. Components shorter than 8 characters never count; a component that also prefixes another group's stem is accepted with that group named in the warning. Novogene names its local Cell Ranger folders by library stem, not by GroupID (TOOLS-379).
+  - With `--sif`, a local path that lacks the GroupID but has a path component that is one of the group's **library names** from the SIF, or a prefix of the stem those names share (`GISHB001GEM1` for `GISHB001GEM1IA1`..`IA4`), is a warning (`group_id_sif_alias_match`) rather than an error, and the CLI emits a **NOTE** with the count. Components shorter than 8 characters never count, nor does a component that names another group too, such as a batch-level parent folder above the per-group folders; a prefix that cuts a number in two (`GISHB001GEM1` against a `GEM10` stem) does not name that group. Novogene names its local Cell Ranger folders by library stem, not by GroupID (TOOLS-379).
 
 - **Without SIF (`--sif` omitted)**
   - S3 SOP and S3/local consistency checks still run.

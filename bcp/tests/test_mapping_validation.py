@@ -2250,10 +2250,20 @@ _FLEX_SIF = (
 )
 
 
-def _flex_row(local_dir: str) -> list[MappingRow]:
+_FLEX_SIF_GEM2 = (
+    "GISHB001GEM2IA5,GIS_MEC_Hyb_B001_GEM2,GEX\n"
+    "GISHB001GEM2IA6,GIS_MEC_Hyb_B001_GEM2,GEX\n"
+)
+_FLEX_SIF_GEM10 = (
+    "GISHB001GEM10IA1,GIS_MEC_Hyb_B001_GEM10,GEX\n"
+    "GISHB001GEM10IA2,GIS_MEC_Hyb_B001_GEM10,GEX\n"
+)
+
+
+def _flex_row(local_dir: str, s3_dir: str = _PROC_S3_FLEX) -> list[MappingRow]:
     return [
         MappingRow(
-            s3_path=_PROC_S3_FLEX + "filtered_feature_bc_matrix.h5",
+            s3_path=s3_dir + "filtered_feature_bc_matrix.h5",
             local_path=local_dir + "filtered_feature_bc_matrix.h5",
             line_num=1,
         )
@@ -2313,23 +2323,52 @@ def test_s3_local_consistency_10x_processed_without_sif_unchanged() -> None:
     assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
 
 
-def test_s3_local_consistency_10x_processed_sif_alias_notes_shared_prefix(
+def test_s3_local_consistency_10x_processed_sif_alias_survives_a_gem10_sibling(
     tmp_path: Path,
 ) -> None:
-    """A folder that is a prefix of two groups' stems is accepted, with a note."""
+    """GEM1's folder still names GEM1 when a GEM10 group shares the prefix."""
     sif = tmp_path / "sif.csv"
-    sif.write_text(
-        _FLEX_SIF
-        + "GISHB001GEM10IA1,GIS_MEC_Hyb_B001_GEM10,GEX\n"
-        + "GISHB001GEM10IA2,GIS_MEC_Hyb_B001_GEM10,GEX\n",
-        encoding="utf-8",
-    )
+    sif.write_text(_FLEX_SIF + _FLEX_SIF_GEM10, encoding="utf-8")
     res = validate_s3_local_consistency_10x_processed(
         "novogene", _flex_row(_PROC_LOCAL_FLEX), sif
     )
     assert res["errors"] == []
-    (warning,) = res["warnings"]
-    assert "also a prefix of GIS_MEC_Hyb_B001_GEM10" in warning["detail"]
+    assert [w["type"] for w in res["warnings"]] == ["group_id_sif_alias_match"]
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_rejects_gem10_in_gem1_folder(
+    tmp_path: Path,
+) -> None:
+    """GEM10 data under the GEM1 folder is an error: the prefix cuts the number."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF + _FLEX_SIF_GEM10, encoding="utf-8")
+    s3_dir = _PROC_S3_FLEX.replace("_GEM1/", "_GEM10/")
+    res = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(_PROC_LOCAL_FLEX, s3_dir), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in res["errors"])
+    assert res["warnings"] == []
+
+
+def test_s3_local_consistency_10x_processed_sif_alias_ignores_batch_parent_folder(
+    tmp_path: Path,
+) -> None:
+    """A parent folder naming the whole batch counts for no group."""
+    sif = tmp_path / "sif.csv"
+    sif.write_text(_FLEX_SIF + _FLEX_SIF_GEM2, encoding="utf-8")
+    local_dir = _PROC_LOCAL_FLEX.replace(
+        "/Flex_cellranger/", "/Flex_cellranger/GISHB001/"
+    )
+    gem2 = _PROC_S3_FLEX.replace("_GEM1/", "_GEM2/")
+    swapped = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir, gem2), sif
+    )
+    assert any(e["type"] == "group_id_missing_local" for e in swapped["errors"])
+    right = validate_s3_local_consistency_10x_processed(
+        "novogene", _flex_row(local_dir), sif
+    )
+    assert right["errors"] == []
+    assert [w["type"] for w in right["warnings"]] == ["group_id_sif_alias_match"]
 
 
 def test_s3_local_consistency_10x_processed_short_sif_alias_ignored(
