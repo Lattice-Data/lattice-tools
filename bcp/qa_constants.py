@@ -343,14 +343,14 @@ ILLUMINA_FLOWCELL_FILE_SUFFIXES = (
     "_RunCompletionStatus.xml",
     "_RunInfo.xml",
     "_RunParameters.xml",
-    "_Logs.gzip",
+    "_Logs.zip",
 )
 
 # The flowcell file carrying <PlannedReads>, which says which reads to expect.
 ILLUMINA_RUN_PARAMETERS_SUFFIX = "_RunParameters.xml"
 
 # A flowcell ID carries no separator (e.g. 22YKTVLT4). Required so a stray
-# "FOO-BAR_Logs.gzip" is not read as a flowcell named "FOO-BAR".
+# "FOO-BAR_Logs.zip" is not read as a flowcell named "FOO-BAR".
 ILLUMINA_FLOWCELL_ID_RE = re.compile(r"^[A-Za-z0-9]+$")
 
 # {FlowcellID}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz

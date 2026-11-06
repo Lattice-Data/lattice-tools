@@ -27,6 +27,7 @@ from qa_checks import (
     check_expected_raw_files,
     format_read_count,
     check_extra_raw_files,
+    count_files_by_type,
     summarize_illumina_flowcells,
     total_reads_by_flowcell,
     validate_fastq_counts,
@@ -303,10 +304,10 @@ class TestIlluminaExpectedFiles:
         assert len(rows) == 1
         assert rows[0]["_RTAExited.txt"] == f"{RAW}/{FC}_RTAExited.txt"
 
-    def test_missing_logs_gzip_is_reported(self):
-        keys = flowcell_files(omit=("_Logs.gzip",)) + fastqs()
+    def test_missing_logs_zip_is_reported(self):
+        keys = flowcell_files(omit=("_Logs.zip",)) + fastqs()
         _, raw_lost, _ = self._check(keys, planned={FC: ["R1", "R2"]})
-        assert any(r.get("_Logs.gzip") == f"{RAW}/{FC}_Logs.gzip" for r in raw_lost)
+        assert any(r.get("_Logs.zip") == f"{RAW}/{FC}_Logs.zip" for r in raw_lost)
 
     def test_read_missing_on_one_lane_only(self):
         keys = flowcell_files() + fastqs(lanes=("001", "002"), omit=(("R2", "002"),))
@@ -928,3 +929,23 @@ class TestTotalReadsByFlowcell:
 
     def test_empty_table(self):
         assert total_reads_by_flowcell([]) == []
+
+
+class TestCountFilesByType:
+    def test_counts_by_full_extension_most_common_first(self):
+        paths = [
+            f"{RAW}/{FC}_G1_GEX_S1_L001_R1_001.fastq.gz",
+            f"{RAW}/{FC}_G1_GEX_S1_L001_R1_001.fastq.gz-metadata.json",
+            f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz",
+            f"{RAW}/leftover.bam",
+            f"{RAW}/README",
+        ]
+        assert count_files_by_type(paths) == [
+            (".fastq.gz", 2),
+            ("(no extension)", 1),
+            (".bam", 1),
+            (".fastq.gz-metadata.json", 1),
+        ]
+
+    def test_empty(self):
+        assert count_files_by_type([]) == []

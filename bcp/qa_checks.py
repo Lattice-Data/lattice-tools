@@ -609,7 +609,7 @@ def _check_expected_illumina_raw_files(
     kinds of thing:
 
     * **Per flowcell** -- the eight run files
-      (``{FC}_CopyComplete.txt`` ... ``{FC}_Logs.gzip``). One set per flowcell,
+      (``{FC}_CopyComplete.txt`` ... ``{FC}_Logs.zip``). One set per flowcell,
       not one per library, so these cannot be expressed as endings on a
       library "beginning" the way the Ultima tables are.
     * **Per library and lane** -- one fastq for each planned read, plus that
@@ -654,7 +654,7 @@ def _check_expected_illumina_raw_files(
                 candidate = basename[: -len(suffix)]
                 # A flowcell ID is alphanumeric, which is what lets the fastq
                 # regex split it off at the first underscore. Without this
-                # guard a stray "FOO-BAR_Logs.gzip" would register flowcell
+                # guard a stray "FOO-BAR_Logs.zip" would register flowcell
                 # "FOO-BAR" and invent seven missing artifacts for it; it
                 # belongs in the extra-files list instead.
                 if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
@@ -1087,6 +1087,21 @@ def _is_known_scale_raw_file(
     if SCALE_WAFER_MISC_RE.match(filename):
         return True
     return False
+
+
+def count_files_by_type(paths: list[str]) -> list[tuple[str, int]]:
+    """Count files by type, most common first (ties alphabetical).
+
+    A file's type is everything from the first "." of its name, so
+    ``x_R1_001.fastq.gz`` is ``.fastq.gz`` and its sidecar is
+    ``.fastq.gz-metadata.json``. A name with no "." is ``(no extension)``.
+    """
+    counts: dict[str, int] = {}
+    for path in paths:
+        name = path.split("/")[-1]
+        kind = name[name.index(".") :] if "." in name else "(no extension)"
+        counts[kind] = counts.get(kind, 0) + 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
 def check_extra_raw_files(

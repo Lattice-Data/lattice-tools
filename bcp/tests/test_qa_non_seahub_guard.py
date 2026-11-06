@@ -267,7 +267,7 @@ class TestNonSeahubAssayBaseline:
             "_RunCompletionStatus.xml",
             "_RunInfo.xml",
             "_RunParameters.xml",
-            "_Logs.gzip",
+            "_Logs.zip",
         )
 
     def test_illumina_leaves_the_ultima_tables_alone(self):

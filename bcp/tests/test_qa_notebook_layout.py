@@ -345,7 +345,7 @@ class TestSequencingType:
 
     def test_the_raw_file_checks_receive_it(self, cells):
         expected = _source(cells[_index_of(cells, "### Checking for expected files")])
-        extra = _source(cells[_index_of(cells, "### checking for extra fastq files")])
+        extra = _source(cells[_index_of(cells, "### Extra raw files:")])
 
         assert "sequencing_type=sequencing_type" in expected
         assert "planned_reads=illumina_planned_reads" in expected

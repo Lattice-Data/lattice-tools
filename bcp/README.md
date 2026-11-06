@@ -890,7 +890,7 @@ Expected layout, flat in one directory (`{proj}/{Order#}/{GroupID}/raw/`):
 - Eight per-flowcell run files, `{FC}` being the Flowcell ID — `{FC}_CopyComplete.txt`,
   `{FC}_Manifest.tsv`, `{FC}_RTAComplete.txt`, `{FC}_RTAExited.txt`,
   `{FC}_RunCompletionStatus.xml`, `{FC}_RunInfo.xml`, `{FC}_RunParameters.xml` and
-  `{FC}_Logs.gzip`.
+  `{FC}_Logs.zip`.
 - Fastqs `{FC}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz` (e.g.
   `B23YTVYLT4_BCP_1_U3_GEX_S3_L002_R1_001.fastq.gz`), each with its
   `*.fastq.gz-metadata.json` sidecar. A group may span several flowcells; each is checked
