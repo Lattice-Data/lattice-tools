@@ -625,6 +625,91 @@ class TestIlluminaFastqCounts:
         assert "MISMATCH FQ COUNTS" in errors[0]
 
 
+class TestReadCountsAgreeAcrossReadTypes:
+    """R1, R2, I1 and I2 of one library-lane set must carry the same count."""
+
+    @staticmethod
+    def _meta(counts, lane="001"):
+        return {
+            f"{RAW}/{FC}_G1_GEX_S1_L{lane}_{r}_001.fastq.gz": {"read_count": n}
+            for r, n in counts.items()
+        }
+
+    @staticmethod
+    def _count_errors(errors):
+        return [e for e in errors if e.startswith("READ COUNT ERROR:")]
+
+    def test_all_four_equal_is_clean(self):
+        meta = self._meta(
+            {"R1": 5_000_000, "R2": 5_000_000, "I1": 5_000_000, "I2": 5_000_000}
+        )
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        assert self._count_errors(errors) == []
+
+    def test_an_index_read_that_disagrees_with_r1_is_reported(self):
+        meta = self._meta(
+            {"R1": 5_000_000, "R2": 5_000_000, "I1": 5_000_000, "I2": 4_900_000}
+        )
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        [err] = self._count_errors(errors)
+        assert "_R1_001.fastq.gz-5000000," in err
+        assert "_I2_001.fastq.gz-4900000" in err
+
+    def test_each_disagreeing_read_is_reported_once(self):
+        meta = self._meta(
+            {"R1": 5_000_000, "R2": 4_000_000, "I1": 3_000_000, "I2": 2_000_000}
+        )
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        errs = self._count_errors(errors)
+        # R1 vs R2, R1 vs I1, R1 vs I2 -- not also I1 vs I2.
+        assert len(errs) == 3
+        assert sum("_I2_" in e for e in errs) == 1
+
+    def test_index_reads_fall_back_to_r2_without_r1(self):
+        meta = self._meta({"R2": 5_000_000, "I1": 4_000_000})
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        [err] = self._count_errors(errors)
+        assert "_R2_001.fastq.gz-5000000" in err and "_I1_001.fastq.gz-4000000" in err
+
+    def test_i2_falls_back_to_i1_with_no_r1_or_r2(self):
+        meta = self._meta({"I1": 5_000_000, "I2": 4_000_000})
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        [err] = self._count_errors(errors)
+        assert "_I1_001.fastq.gz-5000000" in err and "_I2_001.fastq.gz-4000000" in err
+
+    def test_lanes_are_compared_separately(self):
+        meta = {
+            **self._meta({"R1": 5_000_000, "I1": 5_000_000}, lane="001"),
+            **self._meta({"R1": 7_000_000, "I1": 7_000_000}, lane="002"),
+        }
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        assert self._count_errors(errors) == []
+
+    def test_an_errored_reference_is_not_compared(self):
+        meta = self._meta({"R1": 5_000_000, "I1": 4_000_000})
+        meta[f"{RAW}/{FC}_G1_GEX_S1_L001_R1_001.fastq.gz"]["errors"] = ["truncated"]
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        assert self._count_errors(errors) == []
+
+    def test_a_missing_index_file_is_not_a_count_error(self):
+        meta = self._meta({"R1": 5_000_000, "R2": 5_000_000, "I1": 5_000_000})
+        _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
+        assert self._count_errors(errors) == []
+
+    def test_summary_line_reports_index_comparisons(self, capsys):
+        meta = self._meta(
+            {"R1": 5_000_000, "R2": 5_000_000, "I1": 5_000_000, "I2": 4_000_000}
+        )
+        validate_read_metadata(
+            meta, "10x", sequencing_type="Illumina", print_success=True
+        )
+        out = capsys.readouterr().out
+        r1r2 = next(ln for ln in out.splitlines() if "R1 count == R2 count" in ln)
+        idx = next(ln for ln in out.splitlines() if "I1/I2 count == R1 (or R2)" in ln)
+        assert r1r2.split()[-3:] == ["1", "1", "0"]
+        assert idx.split()[-3:] == ["2", "1", "1"]
+
+
 class TestIndexReadsAreNotLibraryReads:
     """An index read is a sequencing artifact, not a library read."""
 

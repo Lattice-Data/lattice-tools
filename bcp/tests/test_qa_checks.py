@@ -23,6 +23,15 @@ from qa_checks import (
 )
 
 
+def _summary_row(out: str, check: str) -> tuple[int, int, int]:
+    """(checked, pass, fail) for one row of validate_read_metadata's summary."""
+    for line in out.splitlines():
+        if line.strip().startswith(check):
+            nums = line.strip()[len(check) :].split()
+            return tuple(int(n.replace(",", "")) for n in nums)  # type: ignore[return-value]
+    raise AssertionError(f"no summary row for {check!r} in:\n{out}")
+
+
 class TestValidatePctQ30:
     """Tests for validate_pct_q30."""
 
@@ -351,20 +360,12 @@ class TestValidateReadMetadata:
             success_print_limit=5,
         )
         out = capsys.readouterr().out
-        assert "validate_read_metadata(10x):" in out
-        assert "r1_r2_pairs_compared=1" in out
-        assert "matched=1" in out
-        assert "mismatched=0" in out
-        assert "r2_missing_r1_metadata=0" in out
-        assert "Checked metadata read counts (2):" in out
-        assert (
-            "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz: "
-            "read_count=1M (1,000,000)" in out
-        )
-        assert (
-            "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz: "
-            "read_count=1M (1,000,000)" in out
-        )
+        assert "validate_read_metadata(10x): 2 metadata files" in out
+        assert _summary_row(out, "read_count >= 1,000,000") == (2, 2, 0)
+        assert _summary_row(out, "R1 count == R2 count") == (1, 1, 0)
+        assert _summary_row(out, "R2 has R1 metadata") == (1, 1, 0)
+        # The per-file read-count listing is gone; the summary replaces it.
+        assert "read_count=1M" not in out
         assert "MATCH:" in out
 
     def test_read_count_equal_to_minimum_passes_without_low_read_error(self):
@@ -526,7 +527,7 @@ class TestValidateReadMetadata:
         }
         validate_read_metadata(read_metadata, "10x", print_success=True)
         out = capsys.readouterr().out
-        assert "metadata_filename_mismatch_warnings=1" in out
+        assert _summary_row(out, "filename matches its S3 object") == (2, 1, 1)
 
     def test_10x_cram_skips_r1_r2_pairing_and_summary(self, capsys):
         cram = "442488-LeS1867W11_ATAC-Z0027-CACTGTCAGCCAGAT.cram"
@@ -537,11 +538,10 @@ class TestValidateReadMetadata:
             read_metadata, "10x_cram", print_success=True
         )
         out = capsys.readouterr().out
-        assert "validate_read_metadata(10x_cram):" in out
+        assert "validate_read_metadata(10x_cram): 1 metadata files" in out
         assert "CRAM-only layout" in out
-        assert "r1_r2_pairs_compared" not in out
-        assert "Checked metadata read counts (1):" in out
-        assert f"{cram}: read_count=1M (1,000,000)" in out
+        assert "R1 count == R2 count" not in out
+        assert _summary_row(out, "read_count >= 1,000,000") == (1, 1, 0)
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []
@@ -556,10 +556,9 @@ class TestValidateReadMetadata:
             read_metadata, "sci_plex", print_success=True
         )
         out = capsys.readouterr().out
-        assert "validate_read_metadata(sci_plex):" in out
-        assert "r1_r2_pairs_compared=0" in out
-        assert "Checked metadata read counts (1):" in out
-        assert f"{cram}: read_count=1M (1,000,000)" in out
+        assert "validate_read_metadata(sci_plex): 1 metadata files" in out
+        assert _summary_row(out, "R1 count == R2 count") == (0, 0, 0)
+        assert _summary_row(out, "read_count >= 1,000,000") == (1, 1, 0)
         assert errors == []
         assert pairing["r1_without_r2_metadata"] == []
         assert pairing["r2_without_r1_metadata"] == []

@@ -349,7 +349,6 @@ def validate_read_metadata(
     print_success: bool = False,
     success_print_limit: int = 5,
     pairing_paths_print_limit: int = 100,
-    checked_read_counts_print_limit: int = 100,
 ) -> tuple[dict[str, dict[str, int]], list[str], dict[str, list[str]]]:
     """
     Build group read counts from metadata and check R1/R2 consistency.
@@ -367,6 +366,13 @@ def validate_read_metadata(
     R1/R2 classification uses ``extract_read_indicator()`` which matches the
     Illumina read indicator at the *end* of the filename (e.g. ``_R1_001.fastq.gz``),
     so ``_R1_`` / ``_R2_`` embedded in a group ID (e.g. ``q_pcf_R2``) is ignored.
+
+    Index reads (I1, I2) are compared too. Every read in one library-lane set
+    should carry the same count, so each index read is compared against that
+    set's R1, or its R2 when there is no R1; an I2 with neither is compared
+    against its I1. A mismatch is a ``READ COUNT ERROR`` in the same format as
+    an R1/R2 one. A missing index file is not reported here -- which reads
+    should exist is the expected-files check's job.
     """
     errors: list[str] = []
     group_read_counts: dict[str, dict[str, int]] = {}
@@ -382,12 +388,19 @@ def validate_read_metadata(
     r2_metadata_error = 0
     r1_without_r2_metadata: list[str] = []
     filename_mismatch_warnings = 0
-    checked_read_counts: list[tuple[str, Any]] = []
+    # Per-check tallies for the printed summary.
+    filename_checked = 0
+    errored_files = 0
+    no_read_count = 0
+    min_checked = 0
+    min_failed = 0
 
     for f, meta in read_metadata.items():
         reported_filename = str(
             meta.get("__reported_filename", meta.get("filename", ""))
         )
+        if reported_filename:
+            filename_checked += 1
         if reported_filename and reported_filename != f:
             filename_mismatch_warnings += 1
             errors.append(
@@ -396,15 +409,18 @@ def validate_read_metadata(
                 f"reported={reported_filename} actual={f}"
             )
         if meta.get("errors"):
+            errored_files += 1
             errors.append(
                 f"METADATA.JSON ERROR: {f} has error in metadata.json:{meta['errors']}"
             )
             continue
         reads = meta.get("read_count")
         if reads is None:
+            no_read_count += 1
             continue
-        checked_read_counts.append((f, reads))
+        min_checked += 1
         if reads < MIN_METADATA_READ_COUNT:
+            min_failed += 1
             errors.append(
                 f"READ COUNT ERROR: {f} read_count {reads} is below minimum "
                 f"{MIN_METADATA_READ_COUNT}"
@@ -458,13 +474,44 @@ def validate_read_metadata(
                 r1_without_r2_metadata.append(f)
 
     r2_without_r1_metadata: list[str] = []
+    r2_checked = 0
     if not skip_r1_r2_pairing:
         for f in read_metadata:
             if extract_read_indicator(f) != "R2":
                 continue
+            r2_checked += 1
             r1file = make_read_partner(f, "R2", "R1")
             if r1file not in read_metadata:
                 r2_without_r1_metadata.append(f)
+
+    def _usable_count(meta: Any) -> Any:
+        if not isinstance(meta, dict) or meta.get("errors"):
+            return None
+        return meta.get("read_count")
+
+    index_compared = 0
+    index_mismatched = 0
+    if not skip_r1_r2_pairing:
+        for f, meta in read_metadata.items():
+            indicator = extract_read_indicator(f)
+            if indicator not in INDEX_READ_INDICATORS:
+                continue
+            reads = _usable_count(meta)
+            if reads is None:
+                continue
+            references = ("R1", "R2") + (("I1",) if indicator == "I2" else ())
+            for ref_indicator in references:
+                ref_file = make_read_partner(f, indicator, ref_indicator)
+                ref_reads = _usable_count(read_metadata.get(ref_file))
+                if ref_reads is None:
+                    continue
+                index_compared += 1
+                if reads != ref_reads:
+                    index_mismatched += 1
+                    errors.append(
+                        f"READ COUNT ERROR:{ref_file}-{ref_reads},{f}-{reads}"
+                    )
+                break
 
     for path in r1_without_r2_metadata:
         errors.append(f"READ METADATA PAIRING: R1 present, no R2 metadata key: {path}")
@@ -477,24 +524,34 @@ def validate_read_metadata(
     }
 
     if print_success:
+        rows = [
+            ("metadata.json has no errors", len(read_metadata), errored_files),
+            ("read_count present", len(read_metadata) - errored_files, no_read_count),
+            (f"read_count >= {MIN_METADATA_READ_COUNT:,}", min_checked, min_failed),
+            (
+                "filename matches its S3 object",
+                filename_checked,
+                filename_mismatch_warnings,
+            ),
+        ]
         if not skip_r1_r2_pairing:
+            rows += [
+                (
+                    "R1 has R2 metadata",
+                    compared_pairs + r2_metadata_error + skipped_no_r2,
+                    skipped_no_r2,
+                ),
+                ("R2 has R1 metadata", r2_checked, len(r2_without_r1_metadata)),
+                ("R1 count == R2 count", compared_pairs, mismatched_pairs),
+                ("I1/I2 count == R1 (or R2)", index_compared, index_mismatched),
+            ]
+        _print_read_metadata_summary(raw_assay, len(read_metadata), rows)
+        if skip_r1_r2_pairing:
             print(
-                f"validate_read_metadata({raw_assay}): "
-                f"r1_r2_pairs_compared={compared_pairs} "
-                f"(matched={matched_pairs}, mismatched={mismatched_pairs}); "
-                f"r1_missing_r2_metadata={skipped_no_r2}, "
-                f"r2_missing_r1_metadata={len(r2_without_r1_metadata)}, "
-                f"r2_metadata_errors={r2_metadata_error}, "
-                f"metadata_filename_mismatch_warnings={filename_mismatch_warnings}"
+                "  R1/R2 and index read comparisons: not applicable (CRAM-only layout)"
             )
-            for line in matched_examples:
-                print(line)
-        else:
-            print(
-                f"validate_read_metadata({raw_assay}): "
-                "CRAM-only layout; R1/R2 metadata pairing not applicable."
-            )
-        _print_checked_read_counts(checked_read_counts, checked_read_counts_print_limit)
+        for line in matched_examples:
+            print(line)
         if not skip_r1_r2_pairing:
             _print_pairing_path_lists(
                 r1_without_r2_metadata,
@@ -525,48 +582,19 @@ def _print_pairing_path_lists(
             print(f"  ... and {len(r2_missing_r1) - limit} more")
 
 
-def _format_read_count_human_unsigned(n: int) -> str:
-    """Return a compact unsigned label using K / M / B (up to 2 fractional digits)."""
-    if n < 1000:
-        return str(n)
-    if n >= 1_000_000_000:
-        scaled = n / 1_000_000_000
-        suffix = "B"
-    elif n >= 1_000_000:
-        scaled = n / 1_000_000
-        suffix = "M"
-    else:
-        scaled = n / 1_000
-        suffix = "K"
-    text = f"{scaled:.2f}".rstrip("0").rstrip(".")
-    return f"{text}{suffix}"
-
-
-def _format_read_count_for_display(count: Any) -> str:
-    """Human-readable read count plus exact integer with thousands separators."""
-    try:
-        n = int(count)
-    except (TypeError, ValueError):
-        return str(count)
-    human_u = _format_read_count_human_unsigned(abs(n))
-    if human_u == str(abs(n)):
-        return f"{n:,}"
-    human = f"-{human_u}" if n < 0 else human_u
-    return f"{human} ({n:,})"
-
-
-def _print_checked_read_counts(
-    checked_read_counts: list[tuple[str, Any]], limit: int
+def _print_read_metadata_summary(
+    raw_assay: str, total_files: int, rows: list[tuple[str, int, int]]
 ) -> None:
-    """Print per-file read_count values used for metadata validation."""
-    if not checked_read_counts:
-        print("Checked metadata read counts: none")
-        return
-    print(f"Checked metadata read counts ({len(checked_read_counts)}):")
-    for path, count in checked_read_counts[:limit]:
-        print(f"  {path}: read_count={_format_read_count_for_display(count)}")
-    if len(checked_read_counts) > limit:
-        print(f"  ... and {len(checked_read_counts) - limit} more")
+    """Print one line per read-metadata check: files checked, passed, failed.
+
+    Which files failed is in the error lines (``READ COUNT ERROR``,
+    ``METADATA.JSON ERROR``, ...), not here.
+    """
+    print(f"validate_read_metadata({raw_assay}): {total_files} metadata files")
+    width = max(len(name) for name, _, _ in rows)
+    print(f"  {'Check':<{width}}  {'Checked':>7}  {'Pass':>7}  {'Fail':>7}")
+    for name, checked, failed in rows:
+        print(f"  {name:<{width}}  {checked:>7,}  {checked - failed:>7,}  {failed:>7,}")
 
 
 def _check_expected_illumina_raw_files(
