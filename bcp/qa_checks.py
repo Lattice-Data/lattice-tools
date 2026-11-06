@@ -234,32 +234,21 @@ _MODALITY_DISPLAY_ORDER = (
 
 def libraries_by_modality(
     fastq_log: dict[str, dict[str, list[str]]],
-    *,
-    sequencing_type: str = "Ultima",
 ) -> list[dict[str, Any]]:
-    """Number of libraries per GroupID, one column per modality.
+    """Which modalities each GroupID has: one row per GroupID, one column each.
 
-    A library is counted once however many files it has:
-
-    * Illumina -- a distinct ``(flowcell, GroupID, modality, S-number)``, so its
-      R1/R2/I1/I2 files on every lane count as one.
-    * Otherwise (Ultima) -- a library is unique to its GroupID and modality, so
-      every file of that modality in the group counts as one library, whatever
-      wafer (RunID), UG or barcode it came from. Each count is therefore 0 or 1.
+    A library is unique to its GroupID and modality, so every file of that
+    modality in the group -- every wafer, flowcell, lane, S-number, UG or
+    barcode -- counts as one library. Each count is therefore 0 or 1, the same
+    for Ultima and Illumina.
 
     Every GroupID in ``fastq_log`` gets a row, including one with no files, and
     every modality seen anywhere gets a column (0 where a group has none).
     """
-    counts: dict[str, dict[str, int]] = {}
-    for group, by_modality in fastq_log.items():
-        counts[group] = {}
-        for modality, files in by_modality.items():
-            if sequencing_type == "Illumina":
-                n = len(_illumina_library_keys(files))
-            else:
-                # One library per (GroupID, modality), not one per wafer.
-                n = 1 if files else 0
-            counts[group][modality] = n
+    counts: dict[str, dict[str, int]] = {
+        group: {modality: 1 if files else 0 for modality, files in by_modality.items()}
+        for group, by_modality in fastq_log.items()
+    }
 
     seen = {modality for row in counts.values() for modality in row}
     columns = [m for m in _MODALITY_DISPLAY_ORDER if m in seen] + sorted(
@@ -893,7 +882,6 @@ def summarize_illumina_flowcells(
     all_raw_files: list[str],
     planned_reads: dict[str, list[str]] | None = None,
     read_metadata: dict[str, Any] | None = None,
-    read_lengths: dict[str, dict[str, int]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     One row per (GroupID, flowcell): what the RunParameters.xml planned, and
@@ -907,7 +895,7 @@ def summarize_illumina_flowcells(
     ``modality`` is the distinct modalities (GEX, CRI, ADT_HTO, ...) named in
     the row's fastq filenames, in ILLUMINA_MODALITIES order.
 
-    ``read_types_found`` lists every read type (R1, R2, I1, I2) that has at
+    ``observed_read_types`` lists every read type (R1, R2, I1, I2) that has at
     least one fastq for the row. ``missing_read_type`` is the one check in the
     table: each library-lane set that arrived -- every distinct
     ``{FC}_{GroupID}_{Assay}_S{n}_L00#`` stem -- should have a fastq for each
@@ -916,16 +904,11 @@ def summarize_illumina_flowcells(
     every planned read, since none arrived. Which files are missing is in
     ``{order}_raw_missing.csv``.
 
-    ``expected_read_length`` is each read's ``Cycles`` from RunParameters.xml
-    (``read_lengths``). ``observed_read_length`` is the longest read in each
-    fastq, from its sidecar's ``read_lengths`` histogram -- one value per read
-    type when every file agrees, all distinct values ("I1=8/10") when not.
-    ``read_length_mismatch`` names each read type with a file whose longest
-    read differs from the expected length, or "none"; "UNKNOWN" when there is
-    no expected length to compare against.
+    ``observed_read_length`` is the longest read in each fastq, from its
+    sidecar's ``read_lengths`` histogram -- one value per read type when every
+    file agrees, all distinct values ("I1=8/10") when not.
     """
     planned_reads = planned_reads or {}
-    read_lengths = read_lengths or {}
     r1_reads = _illumina_r1_read_counts(read_metadata)
     observed_lengths = _illumina_observed_read_lengths(read_metadata)
     lanes: dict[tuple[str, str], set[str]] = {}
@@ -971,33 +954,12 @@ def summarize_illumina_flowcells(
     def _ordered(types: set[str]) -> str:
         return ", ".join(t for t in ILLUMINA_READ_TYPE_ORDER if t in types)
 
-    def _lengths_text(by_type: dict[str, Any]) -> str:
-        parts = []
-        for t in ILLUMINA_READ_TYPE_ORDER:
-            if t not in by_type:
-                continue
-            v = by_type[t]
-            parts.append(
-                f"{t}={'/'.join(str(n) for n in sorted(v))}"
-                if isinstance(v, set)
-                else f"{t}={v}"
-            )
-        return ", ".join(parts)
-
-    def _length_mismatch(
-        expected: dict[str, int], observed: dict[str, set[int]]
-    ) -> str:
-        if not expected:
-            return "UNKNOWN"
-        problems = []
-        for t in ILLUMINA_READ_TYPE_ORDER:
-            if t not in expected or t not in observed:
-                continue
-            wrong = sorted(n for n in observed[t] if n != expected[t])
-            if wrong:
-                found = "/".join(str(n) for n in wrong)
-                problems.append(f"{t} (expected {expected[t]}, found {found})")
-        return ", ".join(problems) or "none"
+    def _lengths_text(by_type: dict[str, set[int]]) -> str:
+        return ", ".join(
+            f"{t}={'/'.join(str(n) for n in sorted(by_type[t]))}"
+            for t in ILLUMINA_READ_TYPE_ORDER
+            if t in by_type
+        )
 
     def _missing_read_types(key: tuple[str, str], reads: list[str]) -> set[str]:
         sets = lane_sets.get(key, set())
@@ -1027,7 +989,7 @@ def summarize_illumina_flowcells(
                     for mod in ILLUMINA_MODALITIES
                     if mod in modalities.get(key, set())
                 ),
-                "planned_reads": (
+                "expected_read_types": (
                     ", ".join(reads)
                     if reads
                     else f"UNKNOWN (no readable {flowcell}"
@@ -1035,13 +997,8 @@ def summarize_illumina_flowcells(
                     + ", ".join(ILLUMINA_DEFAULT_PLANNED_READS)
                     + ")"
                 ),
-                "expected_read_length": _lengths_text(read_lengths.get(flowcell, {}))
-                or "UNKNOWN",
                 "observed_read_length": _lengths_text(observed_lengths.get(key, {})),
-                "read_length_mismatch": _length_mismatch(
-                    read_lengths.get(flowcell, {}), observed_lengths.get(key, {})
-                ),
-                "read_types_found": _ordered(found_types.get(key, set())),
+                "observed_read_types": _ordered(found_types.get(key, set())),
                 # Falls back to R1/R2 when the XML is unusable, the same
                 # requirement the expected-files check applies.
                 "missing_read_type": _ordered(

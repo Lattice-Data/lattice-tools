@@ -415,7 +415,7 @@ class TestIlluminaFlowcellSummary:
         rows = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})
         assert len(rows) == 1
         assert rows[0]["flowcell"] == FC
-        assert rows[0]["planned_reads"] == "R1, R2"
+        assert rows[0]["expected_read_types"] == "R1, R2"
         assert rows[0]["lanes"] == "L001, L002, L003, L004"
         assert rows[0]["library_count"] == 2
 
@@ -428,11 +428,9 @@ class TestIlluminaFlowcellSummary:
             "group_id",
             "flowcell",
             "modality",
-            "planned_reads",
-            "expected_read_length",
+            "expected_read_types",
             "observed_read_length",
-            "read_length_mismatch",
-            "read_types_found",
+            "observed_read_types",
             "missing_read_type",
             "lanes",
             "library_count",
@@ -522,7 +520,7 @@ class TestIlluminaFlowcellSummary:
         )
         row = summarize_illumina_flowcells(keys, {FC: self.FOUR})[0]
         # Library reads first, then index reads, whatever order the XML used.
-        assert row["read_types_found"] == "R1, R2, I1, I2"
+        assert row["observed_read_types"] == "R1, R2, I1, I2"
         assert row["missing_read_type"] == "none"
 
     def test_one_missing_read_in_one_lane_set_is_named(self):
@@ -532,7 +530,7 @@ class TestIlluminaFlowcellSummary:
             reads=self.FOUR, lanes=("001", "002"), sample="3", omit=(("I2", "002"),)
         )
         row = summarize_illumina_flowcells(keys, {FC: self.FOUR})[0]
-        assert row["read_types_found"] == "R1, R2, I1, I2"
+        assert row["observed_read_types"] == "R1, R2, I1, I2"
         assert row["missing_read_type"] == "I2"
 
     def test_several_missing_types_are_all_listed(self):
@@ -547,7 +545,7 @@ class TestIlluminaFlowcellSummary:
     def test_reads_not_planned_are_not_missing(self):
         keys = flowcell_files() + fastqs(reads=("R1", "R2"))
         row = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})[0]
-        assert row["read_types_found"] == "R1, R2"
+        assert row["observed_read_types"] == "R1, R2"
         assert row["missing_read_type"] == "none"
         row = summarize_illumina_flowcells(keys, {FC: self.FOUR})[0]
         assert row["missing_read_type"] == "I1, I2"
@@ -555,19 +553,19 @@ class TestIlluminaFlowcellSummary:
     def test_an_unplanned_read_is_found_but_not_missing(self):
         keys = flowcell_files() + fastqs(reads=("R1", "I1", "R2"))
         row = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})[0]
-        assert row["read_types_found"] == "R1, R2, I1"
+        assert row["observed_read_types"] == "R1, R2, I1"
         assert row["missing_read_type"] == "none"
 
     def test_a_sidecar_does_not_stand_in_for_its_fastq(self):
         keys = flowcell_files() + fastqs(reads=("R1", "R2"))
         keys.remove(f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz")
         row = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})[0]
-        assert row["read_types_found"] == "R1"
+        assert row["observed_read_types"] == "R1"
         assert row["missing_read_type"] == "R2"
 
     def test_a_flowcell_with_no_fastqs_misses_every_planned_read(self):
         row = summarize_illumina_flowcells(flowcell_files(), {FC: self.FOUR})[0]
-        assert row["read_types_found"] == ""
+        assert row["observed_read_types"] == ""
         assert row["missing_read_type"] == "R1, R2, I1, I2"
 
     def test_unknown_planned_reads_fall_back_to_r1_r2(self):
@@ -591,7 +589,7 @@ class TestIlluminaFlowcellSummary:
 
     def test_unknown_planned_reads_are_named_as_such(self):
         rows = summarize_illumina_flowcells(flowcell_files() + fastqs(), {})
-        assert rows[0]["planned_reads"].startswith("UNKNOWN")
+        assert rows[0]["expected_read_types"].startswith("UNKNOWN")
 
 
 class TestIlluminaFastqCounts:
@@ -1033,23 +1031,24 @@ class TestCountFilesByType:
 
 
 class TestLibrariesByModality:
-    def test_illumina_counts_libraries_not_files(self):
-        def files(mod, sample, lanes):
+    def test_illumina_counts_one_library_per_group_and_modality(self):
+        def files(fc, mod, sample, lanes):
             return [
-                f"{FC}_G1_{mod}_S{sample}_L{lane}_{r}_001.fastq.gz"
+                f"{fc}_G1_{mod}_S{sample}_L{lane}_{r}_001.fastq.gz"
                 for lane in lanes
                 for r in ("R1", "R2", "I1", "I2")
             ]
 
         log = {
             "G1": {
-                "GEX": files("GEX", "1", ("001", "002")) + files("GEX", "2", ("001",)),
-                "TCR": files("TCR", "3", ("001", "002", "003")),
+                # Two S-numbers and two flowcells: still one GEX library for G1.
+                "GEX": files(FC, "GEX", "1", ("001", "002"))
+                + files(FC, "GEX", "2", ("001",))
+                + files("22ABCDEF9", "GEX", "1", ("001",)),
+                "TCR": files(FC, "TCR", "3", ("001", "002", "003")),
             }
         }
-        assert libraries_by_modality(log, sequencing_type="Illumina") == [
-            {"group_id": "G1", "GEX": 2, "TCR": 1}
-        ]
+        assert libraries_by_modality(log) == [{"group_id": "G1", "GEX": 1, "TCR": 1}]
 
     def test_ultima_counts_one_library_per_group_and_modality(self):
         log = {
@@ -1129,8 +1128,6 @@ class TestParsePlannedReadLengths:
 
 
 class TestReadLengthColumns:
-    EXPECTED = {FC: {"R1": 151, "I1": 10, "I2": 10, "R2": 151}}
-
     @staticmethod
     def _meta(entries, raw_dir=RAW, group="G1"):
         """entries: {(lane, read): histogram}"""
@@ -1145,28 +1142,15 @@ class TestReadLengthColumns:
             }
         return out
 
-    def _row(self, meta, expected=None, keys=None):
-        keys = keys or flowcell_files() + fastqs(
+    def _row(self, meta):
+        keys = flowcell_files() + fastqs(
             reads=("R1", "I1", "I2", "R2"), lanes=("001", "002")
         )
-        rows = summarize_illumina_flowcells(
-            keys,
-            {FC: ["R1", "I1", "I2", "R2"]},
-            meta,
-            read_lengths=self.EXPECTED if expected is None else expected,
-        )
-        return rows[0]
+        return summarize_illumina_flowcells(keys, {FC: ["R1", "I1", "I2", "R2"]}, meta)[
+            0
+        ]
 
-    def test_expected_is_listed_r1_r2_then_index(self):
-        row = self._row({})
-        assert row["expected_read_length"] == "R1=151, R2=151, I1=10, I2=10"
-
-    def test_expected_unknown_without_the_xml(self):
-        row = self._row({}, expected={})
-        assert row["expected_read_length"] == "UNKNOWN"
-        assert row["read_length_mismatch"] == "UNKNOWN"
-
-    def test_matching_lengths(self):
+    def test_listed_r1_r2_then_index(self):
         meta = self._meta(
             {
                 (lane, r): {str(n): 5_000_000}
@@ -1174,26 +1158,17 @@ class TestReadLengthColumns:
                 for r, n in (("R1", 151), ("R2", 151), ("I1", 10), ("I2", 10))
             }
         )
-        row = self._row(meta)
-        assert row["observed_read_length"] == "R1=151, R2=151, I1=10, I2=10"
-        assert row["read_length_mismatch"] == "none"
+        assert self._row(meta)["observed_read_length"] == "R1=151, R2=151, I1=10, I2=10"
 
-    def test_trimmed_reads_match_on_their_longest_read(self):
+    def test_trimmed_reads_report_their_longest_read(self):
         meta = self._meta({("001", "R1"): {"151": 4_000_000, "98": 1_000_000, "20": 5}})
-        row = self._row(meta)
-        assert row["observed_read_length"] == "R1=151"
-        assert row["read_length_mismatch"] == "none"
+        assert self._row(meta)["observed_read_length"] == "R1=151"
 
     def test_one_short_file_is_not_hidden_by_its_siblings(self):
         meta = self._meta(
-            {
-                ("001", "I1"): {"10": 5_000_000},
-                ("002", "I1"): {"8": 5_000_000},
-            }
+            {("001", "I1"): {"10": 5_000_000}, ("002", "I1"): {"8": 5_000_000}}
         )
-        row = self._row(meta)
-        assert row["observed_read_length"] == "I1=8/10"
-        assert row["read_length_mismatch"] == "I1 (expected 10, found 8)"
+        assert self._row(meta)["observed_read_length"] == "I1=8/10"
 
     def test_errored_and_length_less_sidecars_are_skipped(self):
         meta = self._meta({("001", "R1"): {"100": 5}, ("002", "R1"): {"151": 5}})
@@ -1203,9 +1178,10 @@ class TestReadLengthColumns:
             "errors": [],
             "__source_key": f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz-metadata.json",
         }
-        row = self._row(meta)
-        assert row["observed_read_length"] == "R1=151"
-        assert row["read_length_mismatch"] == "none"
+        assert self._row(meta)["observed_read_length"] == "R1=151"
+
+    def test_empty_without_metadata(self):
+        assert self._row({})["observed_read_length"] == ""
 
     def test_rows_stay_separate_per_group(self):
         other = "testproj/ORD01/G2/raw"
@@ -1221,9 +1197,7 @@ class TestReadLengthColumns:
         }
         rows = {
             r["group_id"]: r
-            for r in summarize_illumina_flowcells(
-                keys, {FC: ["R1", "R2"]}, meta, read_lengths=self.EXPECTED
-            )
+            for r in summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]}, meta)
         }
-        assert rows["G1"]["read_length_mismatch"] == "none"
-        assert rows["G2"]["read_length_mismatch"] == "R1 (expected 151, found 150)"
+        assert rows["G1"]["observed_read_length"] == "R1=151"
+        assert rows["G2"]["observed_read_length"] == "R1=150"
