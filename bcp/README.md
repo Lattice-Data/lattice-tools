@@ -901,13 +901,14 @@ Expected layout, flat in one directory (`{proj}/{Order#}/{GroupID}/raw/`):
 **Which reads are required is read from `{FC}_RunParameters.xml`**, not assumed: its `<PlannedReads>`
 block maps `Read1→R1`, `Read2→R2`, `Index1→I1`, `Index2→I2`, so a run with no index reads requires
 two fastqs per lane and a dual-indexed run requires four. If that file is missing or unparseable, QA
-warns and falls back to requiring R1/R2.
+warns and expects all four read types (R1, R2, I1, I2).
 
 **Lanes are reported, never enforced.** A library may arrive on any number of lanes. The cell that
-shows the wafer table under Ultima shows a per-GroupID, per-flowcell table instead — planned
+shows the wafer table under Ultima shows a table with one row per GroupID instead (a GroupID on
+several flowcells lists them and sums its counts) — planned
 reads, the longest read in each fastq's `metadata.json` `read_lengths`
 (`observed_read_length`), the read types found (`observed_read_types`), any planned read type missing from a
-library-lane set (`missing_read_type`, or `none`), lanes, library count, modalities, and total R1 `read_count` summed from the fastq `metadata.json` sidecars — and writes `{order}_illumina_flowcells.csv`. A second table totals the R1
+library-lane set (`missing_read_type`, or `none`), lanes, library count, modalities, and total R1 `read_count` summed from the fastq `metadata.json` sidecars. A second table totals the R1
 `read_count` per flowcell across all its GroupIDs.
 
 Checks that do not run under Illumina, each printing why rather than passing silently:

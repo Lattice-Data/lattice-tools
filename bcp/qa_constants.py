@@ -419,9 +419,10 @@ ILLUMINA_PLANNED_READ_MAP = {
     "Index2": "I2",
 }
 
-# Used when RunParameters.xml is missing or unreadable, so completeness still
-# runs against the paired reads every delivery has.
-ILLUMINA_DEFAULT_PLANNED_READS = ("R1", "R2")
+# Expected read types when a flowcell's RunParameters.xml is missing or
+# unreadable: all four, so a missing index read is reported rather than
+# assumed absent.
+ILLUMINA_DEFAULT_PLANNED_READS = ("R1", "R2", "I1", "I2")
 
 # ---------------------------------------------------------------------------
 # SeaHub lab raw upload patterns ({lab}-seahub-bcp buckets)

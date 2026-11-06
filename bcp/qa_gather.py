@@ -49,6 +49,7 @@ from qa_mods import (
     valid_assays,
 )
 from qa_constants import (
+    ILLUMINA_DEFAULT_PLANNED_READS,
     ILLUMINA_FASTQ_RE,
     ILLUMINA_MODALITIES,
     ILLUMINA_RUN_PARAMETERS_SUFFIX,
@@ -555,11 +556,11 @@ class QADataGatherer:
                 if lengths is not None:
                     self._data.illumina_read_lengths[flowcell] = lengths
             if reads is None:
-                # Not an error: completeness falls back to R1/R2 and says so,
-                # which is more useful than failing the whole order.
+                # Not an error: completeness falls back to the default read
+                # types and says so, more useful than failing the whole order.
                 self._data.gathering_warnings.append(
                     f"RUN PARAMETERS UNREADABLE: {rf} — planned reads unknown, "
-                    "falling back to R1/R2 for completeness"
+                    f"expecting {'/'.join(ILLUMINA_DEFAULT_PLANNED_READS)} for completeness"
                 )
                 continue
             self._data.illumina_planned_reads[flowcell] = reads
@@ -571,7 +572,8 @@ class QADataGatherer:
                 self._data.gathering_warnings.append(
                     f"RUN PARAMETERS MISSING: no readable "
                     f"{flowcell}{ILLUMINA_RUN_PARAMETERS_SUFFIX} for flowcell "
-                    f"{flowcell} — falling back to R1/R2 for completeness"
+                    f"{flowcell} — expecting "
+                    f"{'/'.join(ILLUMINA_DEFAULT_PLANNED_READS)} for completeness"
                 )
 
     def _read_illumina_run_parameters(self, rf: str) -> str | None:

@@ -27,6 +27,7 @@ from qa_checks import (
     check_expected_raw_files,
     format_read_count,
     libraries_by_modality,
+    split_missing_raw_files,
     check_extra_raw_files,
     count_files_by_type,
     summarize_fastq_count_validation,
@@ -341,11 +342,27 @@ class TestIlluminaExpectedFiles:
         keys_reported = {k for row in raw_lost for k in row if k != "path"}
         assert keys_reported == {"R2"}
 
-    def test_unreadable_xml_falls_back_to_paired_reads(self):
-        keys = flowcell_files() + fastqs(reads=("R1", "R2"))
+    def test_missing_xml_expects_all_four_read_types(self):
+        keys = flowcell_files() + fastqs(reads=("R1", "R2", "I1", "I2"))
         all_good, raw_lost, _ = self._check(keys, planned={})
         assert raw_lost == []
         assert all_good == 2
+
+    def test_missing_xml_reports_absent_index_reads(self):
+        keys = flowcell_files() + fastqs(reads=("R1", "R2"))
+        _, raw_lost, _ = self._check(keys, planned={})
+        missing = {k for row in raw_lost for k in row if k != "path"}
+        assert missing == {"I1", "I2"}
+
+    def test_missing_xml_does_not_flag_index_reads_as_extra(self):
+        # The reported case: an I1 fastq listed as extra because, with no
+        # usable RunParameters.xml, only R1/R2 were expected.
+        keys = flowcell_files() + fastqs(reads=("R1", "R2", "I1"))
+        _, _, raw_found = self._check(keys, planned={})
+        extra = check_extra_raw_files(
+            keys, raw_found, "10x", sequencing_type="Illumina"
+        )
+        assert extra == []
 
     def test_two_flowcells_are_checked_against_their_own_planned_reads(self):
         other = "22ABCDEF9"
@@ -568,9 +585,12 @@ class TestIlluminaFlowcellSummary:
         assert row["observed_read_types"] == ""
         assert row["missing_read_type"] == "R1, R2, I1, I2"
 
-    def test_unknown_planned_reads_fall_back_to_r1_r2(self):
+    def test_unknown_planned_reads_expect_all_four(self):
         keys = flowcell_files() + fastqs(reads=("R1",))
-        assert summarize_illumina_flowcells(keys, {})[0]["missing_read_type"] == "R2"
+        assert (
+            summarize_illumina_flowcells(keys, {})[0]["missing_read_type"]
+            == "R2, I1, I2"
+        )
 
     def test_modality_lists_each_distinct_modality_once(self):
         keys = (
@@ -971,43 +991,127 @@ class TestFormatReadCount:
 
 
 class TestTotalReadsByFlowcell:
-    def test_sums_every_group_on_a_flowcell(self):
-        rows = [
-            {"group_id": "G1", "flowcell": "FC_B", "read_count": 4_000_000},
-            {"group_id": "G2", "flowcell": "FC_B", "read_count": 6_000_000},
-            {"group_id": "G1", "flowcell": "FC_A", "read_count": 1_000_000},
-        ]
-        assert total_reads_by_flowcell(rows) == [
-            {"flowcell": "FC_A", "read_count": 1_000_000},
-            {"flowcell": "FC_B", "read_count": 10_000_000},
-        ]
+    @staticmethod
+    def _r1(raw_dir, fc, group, n):
+        name = f"{fc}_{group}_GEX_S1_L001_R1_001.fastq.gz"
+        return name, {
+            "read_count": n,
+            "errors": [],
+            "__source_key": f"{raw_dir}/{name}-metadata.json",
+        }
 
-    def test_built_from_the_per_group_table(self):
-        other_dir = "testproj/ORD01/G2/raw"
+    def test_sums_every_group_on_a_flowcell(self):
+        g2 = "testproj/ORD01/G2/raw"
         keys = (
             flowcell_files()
             + fastqs()
-            + flowcell_files(raw_dir=other_dir)
-            + fastqs(raw_dir=other_dir, group="G2")
+            + flowcell_files(raw_dir=g2)
+            + fastqs(raw_dir=g2, group="G2")
+            + flowcell_files(flowcell="FCAAAAAA1")
         )
-        meta = {
-            name: {
-                "read_count": n,
-                "errors": [],
-                "__source_key": f"{d}/{name}-metadata.json",
-            }
-            for d, name, n in (
-                (RAW, f"{FC}_G1_GEX_S1_L001_R1_001.fastq.gz", 3_000_000),
-                (other_dir, f"{FC}_G2_GEX_S1_L001_R1_001.fastq.gz", 5_000_000),
-            )
-        }
-        rows = summarize_illumina_flowcells(keys, {}, meta)
-        assert total_reads_by_flowcell(rows) == [
-            {"flowcell": FC, "read_count": 8_000_000}
+        meta = dict(
+            [
+                self._r1(RAW, FC, "G1", 3_000_000),
+                self._r1(g2, FC, "G2", 5_000_000),
+            ]
+        )
+        assert total_reads_by_flowcell(keys, meta) == [
+            {"flowcell": FC, "read_count": 8_000_000},
+            # Named only by run files, so listed with 0 rather than dropped.
+            {"flowcell": "FCAAAAAA1", "read_count": 0},
         ]
 
-    def test_empty_table(self):
+    def test_r2_and_index_reads_are_not_added(self):
+        keys = flowcell_files() + fastqs(reads=("R1", "R2", "I1"))
+        meta = {
+            f"{FC}_G1_GEX_S1_L001_{r}_001.fastq.gz": {
+                "read_count": 4_000_000,
+                "errors": [],
+                "__source_key": f"{RAW}/{FC}_G1_GEX_S1_L001_{r}_001.fastq.gz-metadata.json",
+            }
+            for r in ("R1", "R2", "I1")
+        }
+        assert total_reads_by_flowcell(keys, meta) == [
+            {"flowcell": FC, "read_count": 4_000_000}
+        ]
+
+    def test_empty(self):
         assert total_reads_by_flowcell([]) == []
+
+
+class TestOneRowPerGroupID:
+    """A GroupID on several flowcells is one row: listed, uniqued or summed."""
+
+    OTHER = "FCBBBBBB2"
+
+    def _two_flowcell_group(self, omit_other=()):
+        keys = (
+            flowcell_files()
+            + fastqs(reads=("R1", "R2", "I1", "I2"), lanes=("001",), sample="1")
+            + flowcell_files(flowcell=self.OTHER)
+            + fastqs(
+                reads=("R1", "R2"),
+                lanes=("002", "003"),
+                assay="TCR",
+                sample="2",
+                flowcell=self.OTHER,
+                omit=omit_other,
+            )
+        )
+        meta = {
+            f"{RAW}/{fc}_G1_{mod}_S{n}_L{lane}_R1_001.fastq.gz": {
+                "read_count": reads,
+                "read_lengths": {str(length): reads},
+                "errors": [],
+                "__source_key": f"{RAW}/{fc}_G1_{mod}_S{n}_L{lane}_R1_001.fastq.gz-metadata.json",
+            }
+            for fc, mod, n, lane, reads, length in (
+                (FC, "GEX", "1", "001", 6_000_000, 151),
+                (self.OTHER, "TCR", "2", "002", 2_000_000, 150),
+                (self.OTHER, "TCR", "2", "003", 1_000_000, 150),
+            )
+        }
+        planned = {FC: ["R1", "I1", "I2", "R2"], self.OTHER: ["R1", "R2"]}
+        return summarize_illumina_flowcells(keys, planned, meta)
+
+    def test_one_row_lists_both_flowcells(self):
+        rows = self._two_flowcell_group()
+        assert len(rows) == 1
+        assert rows[0]["group_id"] == "G1"
+        assert rows[0]["flowcell"] == f"{FC}, {self.OTHER}"
+
+    def test_lists_are_uniqued(self):
+        row = self._two_flowcell_group()[0]
+        assert row["modality"] == "GEX, TCR"
+        assert row["expected_read_types"] == "R1, R2, I1, I2"
+        assert row["observed_read_types"] == "R1, R2, I1, I2"
+        assert row["observed_read_length"] == "R1=150/151"
+        assert row["lanes"] == "L001, L002, L003"
+
+    def test_counts_are_summed(self):
+        row = self._two_flowcell_group()[0]
+        assert row["library_count"] == 2
+        assert row["read_count"] == 9_000_000
+
+    def test_missing_reads_are_checked_per_flowcell(self):
+        # OTHER plans only R1/R2, so its missing I1/I2 are not a gap ...
+        assert self._two_flowcell_group()[0]["missing_read_type"] == "none"
+        # ... but its own missing R2 on one lane is.
+        row = self._two_flowcell_group(omit_other=(("R2", "003"),))[0]
+        assert row["missing_read_type"] == "R2"
+
+    def test_one_unreadable_xml_is_named_alongside_the_known_reads(self):
+        keys = (
+            flowcell_files()
+            + fastqs()
+            + flowcell_files(flowcell=self.OTHER)
+            + fastqs(flowcell=self.OTHER, sample="2")
+        )
+        row = summarize_illumina_flowcells(keys, {FC: ["R1", "I1", "R2"]})[0]
+        assert row["expected_read_types"] == (
+            f"R1, R2, I1; UNKNOWN (no readable RunParameters.xml for {self.OTHER}; "
+            "assumed R1, R2, I1, I2)"
+        )
 
 
 class TestCountFilesByType:
@@ -1201,3 +1305,27 @@ class TestReadLengthColumns:
         }
         assert rows["G1"]["observed_read_length"] == "R1=151"
         assert rows["G2"]["observed_read_length"] == "R1=150"
+
+
+class TestSplitMissingRawFiles:
+    def test_sequence_files_and_logs_are_separated(self):
+        raw_lost = [
+            {
+                "path": "p/G1/raw/439047-G1_GEX-Z0273-BC01",
+                "_S1_L001_R2_001.fastq.gz": "p/G1/raw/x_R2_001.fastq.gz",
+                "_S1_L001_R2_001.fastq.gz-metadata.json": "p/G1/raw/x_R2_001.fastq.gz-metadata.json",
+                "_trimmer-stats.csv": "p/G1/raw/x_trimmer-stats.csv",
+                "_unmatched.cram": "p/G1/raw/x_unmatched.cram",
+            },
+            {"path": f"{RAW}/{FC}", "_Logs.zip": f"{RAW}/{FC}_Logs.zip"},
+        ]
+        sequence, logs = split_missing_raw_files(raw_lost)
+        assert sequence == ["p/G1/raw/x_R2_001.fastq.gz", "p/G1/raw/x_unmatched.cram"]
+        assert logs == [
+            "p/G1/raw/x_R2_001.fastq.gz-metadata.json",
+            "p/G1/raw/x_trimmer-stats.csv",
+            f"{RAW}/{FC}_Logs.zip",
+        ]
+
+    def test_nothing_missing(self):
+        assert split_missing_raw_files([]) == ([], [])

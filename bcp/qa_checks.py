@@ -884,8 +884,14 @@ def summarize_illumina_flowcells(
     read_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
-    One row per (GroupID, flowcell): what the RunParameters.xml planned, and
-    what actually arrived.
+    One row per GroupID: what the RunParameters.xml planned, and what actually
+    arrived.
+
+    A GroupID sequenced on several flowcells gets one row: ``flowcell`` lists
+    them, ``library_count`` and ``read_count`` are summed, and every other
+    column is the unique values across them. ``missing_read_type`` is still
+    checked per flowcell, against that flowcell's own planned reads, before
+    being combined.
 
     This is the Illumina counterpart of the Ultima wafer table -- the
     per-delivery summary an operator reads before looking at any error file.
@@ -973,59 +979,127 @@ def summarize_illumina_flowcells(
             if f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz" not in present
         }
 
+    # One row per GroupID folder; a group sequenced on several flowcells has
+    # each flowcell's values combined -- listed, uniqued or summed.
+    by_dir: dict[str, list[str]] = {}
+    for raw_dir, flowcell in seen:
+        by_dir.setdefault(raw_dir, []).append(flowcell)
+
     rows: list[dict[str, Any]] = []
-    for raw_dir, flowcell in sorted(seen):
-        key = (raw_dir, flowcell)
-        reads = planned_reads.get(flowcell)
+    for raw_dir in sorted(by_dir):
+        flowcells = sorted(by_dir[raw_dir])
+        keys = [(raw_dir, fc) for fc in flowcells]
         # {proj}/{Order#}/{GroupID}/raw -> GroupID.
         parts = raw_dir.split("/")
         group_id = parts[-2] if len(parts) >= 2 and parts[-1] == "raw" else ""
+
+        def _union(table: dict, keys=keys) -> set:
+            return set().union(*(table.get(k, set()) for k in keys))
+
+        # Each flowcell is checked against its own planned reads (all four
+        # read types when its RunParameters.xml is unusable, as in the
+        # expected-files check).
+        missing: set[str] = set()
+        for key in keys:
+            reads = planned_reads.get(key[1]) or ILLUMINA_DEFAULT_PLANNED_READS
+            missing |= _missing_read_types(key, list(reads))
+
+        expected = set().union(*(planned_reads.get(fc) or () for fc in flowcells))
+        unknown = [fc for fc in flowcells if not planned_reads.get(fc)]
+        if not unknown:
+            expected_text = _ordered(expected)
+        else:
+            note = (
+                f"no readable {ILLUMINA_RUN_PARAMETERS_SUFFIX.lstrip('_')} for "
+                f"{', '.join(unknown)}; assumed "
+                + ", ".join(ILLUMINA_DEFAULT_PLANNED_READS)
+            )
+            expected_text = (
+                f"{_ordered(expected)}; UNKNOWN ({note})"
+                if expected
+                else f"UNKNOWN ({note})"
+            )
+
+        observed: dict[str, set[int]] = {}
+        for key in keys:
+            for read_type, values in observed_lengths.get(key, {}).items():
+                observed.setdefault(read_type, set()).update(values)
+
+        group_modalities = _union(modalities)
         rows.append(
             {
                 "group_id": group_id,
-                "flowcell": flowcell,
+                "flowcell": ", ".join(flowcells),
                 "modality": ", ".join(
-                    mod
-                    for mod in ILLUMINA_MODALITIES
-                    if mod in modalities.get(key, set())
+                    mod for mod in ILLUMINA_MODALITIES if mod in group_modalities
                 ),
-                "expected_read_types": (
-                    ", ".join(reads)
-                    if reads
-                    else f"UNKNOWN (no readable {flowcell}"
-                    f"{ILLUMINA_RUN_PARAMETERS_SUFFIX}; assumed "
-                    + ", ".join(ILLUMINA_DEFAULT_PLANNED_READS)
-                    + ")"
-                ),
-                "observed_read_length": _lengths_text(observed_lengths.get(key, {})),
-                "observed_read_types": _ordered(found_types.get(key, set())),
-                # Falls back to R1/R2 when the XML is unusable, the same
-                # requirement the expected-files check applies.
-                "missing_read_type": _ordered(
-                    _missing_read_types(
-                        key, list(reads or ILLUMINA_DEFAULT_PLANNED_READS)
-                    )
-                )
-                or "none",
-                "lanes": ", ".join(sorted(lanes.get(key, set()))),
-                "library_count": len(libraries.get(key, set())),
-                "read_count": r1_reads.get(key, 0),
+                "expected_read_types": expected_text,
+                "observed_read_length": _lengths_text(observed),
+                "observed_read_types": _ordered(_union(found_types)),
+                "missing_read_type": _ordered(missing) or "none",
+                "lanes": ", ".join(sorted(_union(lanes))),
+                "library_count": sum(len(libraries.get(k, set())) for k in keys),
+                "read_count": sum(r1_reads.get(k, 0) for k in keys),
             }
         )
     return rows
 
 
-def total_reads_by_flowcell(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def total_reads_by_flowcell(
+    all_raw_files: list[str],
+    read_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Total R1 read count per flowcell, across every GroupID on it.
 
-    Takes the rows from ``summarize_illumina_flowcells`` and adds up their
-    ``read_count`` by flowcell, so a flowcell shared by several GroupIDs gets
-    one total. Sorted by flowcell ID.
+    Sums the R1 ``read_count`` of every fastq ``metadata.json`` by flowcell, so
+    a flowcell shared by several GroupIDs gets one total. A flowcell named by a
+    fastq or a run file but with no readable R1 count is listed with 0. Sorted
+    by flowcell ID.
     """
     totals: dict[str, int] = {}
-    for row in rows:
-        totals[row["flowcell"]] = totals.get(row["flowcell"], 0) + row["read_count"]
+    for fullpath in all_raw_files:
+        basename = fullpath.split("/")[-1]
+        m = ILLUMINA_FASTQ_RE.match(basename)
+        if m is not None:
+            totals.setdefault(m.group("flowcell"), 0)
+            continue
+        for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+            if basename.endswith(suffix):
+                candidate = basename[: -len(suffix)]
+                if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
+                    totals.setdefault(candidate, 0)
+                break
+    for (_raw_dir, flowcell), n in _illumina_r1_read_counts(read_metadata).items():
+        totals[flowcell] = totals.get(flowcell, 0) + n
     return [{"flowcell": fc, "read_count": n} for fc, n in sorted(totals.items())]
+
+
+# Missing raw files with these endings are sequence data; everything else a
+# delivery is expected to carry (metadata.json sidecars, trimmer stats, run
+# logs and flowcell files, ...) is reported as a log file.
+RAW_SEQUENCE_SUFFIXES = (".fastq.gz", ".cram")
+
+
+def split_missing_raw_files(
+    raw_lost: list[dict[str, Any]],
+) -> tuple[list[str], list[str]]:
+    """Split the missing paths in ``raw_lost`` into (sequence files, log files).
+
+    A sequence file ends in ``.fastq.gz`` or ``.cram``; a ``-metadata.json``
+    sidecar of one is a log file. Each row of ``raw_lost`` is
+    ``{"path": <beginning>, <ending>: <full missing path>, ...}`` from
+    ``check_expected_raw_files``.
+    """
+    sequence: list[str] = []
+    logs: list[str] = []
+    for row in raw_lost:
+        for key, path in row.items():
+            if key == "path":
+                continue
+            (sequence if str(path).endswith(RAW_SEQUENCE_SUFFIXES) else logs).append(
+                path
+            )
+    return sequence, logs
 
 
 def check_expected_raw_files(

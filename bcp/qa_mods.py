@@ -331,8 +331,9 @@ def parse_planned_reads(xml_text: str) -> list[str] | None:
     delivery.
 
     Returns ``None`` when the XML will not parse or carries no ``PlannedReads``,
-    so the caller can record a warning and fall back to the paired reads every
-    delivery has, instead of crashing a whole run over one unreadable sidecar.
+    so the caller can record a warning and fall back to
+    ``ILLUMINA_DEFAULT_PLANNED_READS`` (all four read types), instead of
+    crashing a whole run over one unreadable sidecar.
     """
     try:
         root = ET.fromstring(xml_text)
