@@ -49,6 +49,7 @@ from qa_mods import (
 )
 from qa_constants import (
     ILLUMINA_FASTQ_RE,
+    ILLUMINA_MODALITIES,
     ILLUMINA_RUN_PARAMETERS_SUFFIX,
     SEAHUB_FAIL_SUFFIXES,
     SEAHUB_PLATE_SIZES,
@@ -585,6 +586,10 @@ class QADataGatherer:
             if self.raw_assay == "seahub_sci":
                 allowed_assays: tuple[str, ...] | list[str] = SEAHUB_SUBLIBRARY_TYPES
                 assay_is_wrong = assay is not None and assay not in allowed_assays
+            elif self.sequencing_type == "Illumina":
+                # Illumina carries its own modality list (ADT, HTO, BCR, TCR...),
+                # which valid_assays does not.
+                assay_is_wrong = assay not in ILLUMINA_MODALITIES
             else:
                 assay_is_wrong = assay not in valid_assays
             if assay_is_wrong:

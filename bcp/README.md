@@ -895,6 +895,8 @@ Expected layout, flat in one directory (`{proj}/{Order#}/{GroupID}/raw/`):
   `B23YTVYLT4_BCP_1_U3_GEX_S3_L002_R1_001.fastq.gz`), each with its
   `*.fastq.gz-metadata.json` sidecar. A group may span several flowcells; each is checked
   independently.
+  `{Assay}` is one of GEX, CRI, ATAC, viral_ORF, ADT, HTO, ADT_HTO, BCR or TCR — Illumina's own
+  list, separate from the Ultima assay list.
 
 **Which reads are required is read from `{FC}_RunParameters.xml`**, not assumed: its `<PlannedReads>`
 block maps `Read1→R1`, `Read2→R2`, `Index1→I1`, `Index2→I2`, so a run with no index reads requires
@@ -903,8 +905,8 @@ warns and falls back to requiring R1/R2.
 
 **Lanes are reported, never enforced.** A library may arrive on any number of lanes. The cell that
 shows the wafer table under Ultima shows a per-GroupID, per-flowcell table instead — planned
-reads, whether every library-lane set has all of them (`planned_reads_found`), lanes, library
-count, and total R1 `read_count` summed from the fastq `metadata.json` sidecars — and writes `{order}_illumina_flowcells.csv`.
+reads, the read types found (`read_types_found`), any planned read type missing from a
+library-lane set (`missing_read_type`, or `none`), lanes, library count, modalities, and total R1 `read_count` summed from the fastq `metadata.json` sidecars — and writes `{order}_illumina_flowcells.csv`.
 
 Checks that do not run under Illumina, each printing why rather than passing silently:
 

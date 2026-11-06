@@ -17,6 +17,7 @@ from qa_constants import (
     ILLUMINA_FASTQ_RE,
     ILLUMINA_FLOWCELL_FILE_SUFFIXES,
     ILLUMINA_FLOWCELL_ID_RE,
+    ILLUMINA_MODALITIES,
     ILLUMINA_RUN_PARAMETERS_SUFFIX,
     CELLRANGER_SUPPORTED_VERSIONS,
     CELLRANGER_VERSION_ALIASES,
@@ -716,6 +717,38 @@ def _illumina_r1_read_counts(
     return totals
 
 
+def format_read_count(value: Any) -> str | None:
+    """Human-readable read count for the flowcell table.
+
+    Below 100,000 the exact number is kept. From 100,000 up it is rounded to
+    three significant figures and shown in millions (M) or billions (B):
+    12,345,678 -> "12.3M", 250,000 -> "0.250M", 1,234,567,890 -> "1.23B".
+    Rounding happens before the unit is chosen, so 999,999,999 becomes
+    "1.00B" rather than "1000M". None (or NaN) stays None.
+    """
+    if value is None:
+        return None
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if x != x:  # NaN
+        return None
+    if abs(x) < 100_000:
+        return str(int(x))
+    rounded = float(f"{x:.3g}")
+    unit, suffix = (1e9, "B") if abs(rounded) >= 1e9 else (1e6, "M")
+    v = rounded / unit
+    mag = abs(v)
+    decimals = 0 if mag >= 100 else 1 if mag >= 10 else 2 if mag >= 1 else 3
+    return f"{v:.{decimals}f}{suffix}"
+
+
+# Display order for read types in the flowcell table: the library reads, then
+# the index reads.
+ILLUMINA_READ_TYPE_ORDER = ("R1", "R2", "R3", "I1", "I2")
+
+
 def summarize_illumina_flowcells(
     all_raw_files: list[str],
     planned_reads: dict[str, list[str]] | None = None,
@@ -730,11 +763,17 @@ def summarize_illumina_flowcells(
     Lanes are REPORTED, never enforced: a library may legitimately arrive on
     any number of lanes, so the set is information rather than a check.
 
-    ``planned_reads_found`` is the one check in the table: True only when every
-    library-lane set that arrived -- every distinct
-    ``{FC}_{GroupID}_{Assay}_S{n}_L00#`` stem -- has a fastq for each planned
-    read. False when any set is short one, or when the flowcell has no fastqs
-    at all. Which files are missing is in ``{order}_raw_missing.csv``.
+    ``modality`` is the distinct modalities (GEX, CRI, ADT_HTO, ...) named in
+    the row's fastq filenames, in ILLUMINA_MODALITIES order.
+
+    ``read_types_found`` lists every read type (R1, R2, I1, I2) that has at
+    least one fastq for the row. ``missing_read_type`` is the one check in the
+    table: each library-lane set that arrived -- every distinct
+    ``{FC}_{GroupID}_{Assay}_S{n}_L00#`` stem -- should have a fastq for each
+    planned read, and any planned read type absent from any set is listed.
+    "none" when every set is complete. A flowcell with no fastqs at all lists
+    every planned read, since none arrived. Which files are missing is in
+    ``{order}_raw_missing.csv``.
     """
     planned_reads = planned_reads or {}
     r1_reads = _illumina_r1_read_counts(read_metadata)
@@ -742,6 +781,10 @@ def summarize_illumina_flowcells(
     libraries: dict[tuple[str, str], set[tuple[str, str, str]]] = {}
     # (raw_dir, flowcell) -> {(stem, chunk)}: the library-lane sets that arrived
     lane_sets: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    # (raw_dir, flowcell) -> read types with at least one fastq
+    found_types: dict[tuple[str, str], set[str]] = {}
+    # (raw_dir, flowcell) -> modalities named in the fastq filenames
+    modalities: dict[tuple[str, str], set[str]] = {}
     present: set[str] = set()
     seen: set[tuple[str, str]] = set()
 
@@ -762,6 +805,8 @@ def summarize_illumina_flowcells(
                 f"_S{m.group('sample')}_L{m.group('lane')}"
             )
             lane_sets.setdefault(key, set()).add((stem, m.group("chunk")))
+            found_types.setdefault(key, set()).add(m.group("read"))
+            modalities.setdefault(key, set()).add(m.group("assay"))
             present.add(f"{raw_dir}/{basename}")
             continue
 
@@ -772,16 +817,20 @@ def summarize_illumina_flowcells(
                     seen.add((raw_dir, candidate))
                 break
 
-    def _all_planned_reads_found(key: tuple[str, str], reads: list[str]) -> bool:
+    def _ordered(types: set[str]) -> str:
+        return ", ".join(t for t in ILLUMINA_READ_TYPE_ORDER if t in types)
+
+    def _missing_read_types(key: tuple[str, str], reads: list[str]) -> set[str]:
         sets = lane_sets.get(key, set())
         if not sets:
-            return False
+            return set(reads)
         raw_dir = key[0]
-        return all(
-            f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz" in present
+        return {
+            read
             for stem, chunk in sets
             for read in reads
-        )
+            if f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz" not in present
+        }
 
     rows: list[dict[str, Any]] = []
     for raw_dir, flowcell in sorted(seen):
@@ -797,6 +846,11 @@ def summarize_illumina_flowcells(
                 "group_id": group_id,
                 "raw_dir": raw_dir,
                 "flowcell": flowcell,
+                "modality": ", ".join(
+                    mod
+                    for mod in ILLUMINA_MODALITIES
+                    if mod in modalities.get(key, set())
+                ),
                 "planned_reads": (
                     ", ".join(reads)
                     if reads
@@ -805,11 +859,15 @@ def summarize_illumina_flowcells(
                     + ", ".join(ILLUMINA_DEFAULT_PLANNED_READS)
                     + ")"
                 ),
+                "read_types_found": _ordered(found_types.get(key, set())),
                 # Falls back to R1/R2 when the XML is unusable, the same
                 # requirement the expected-files check applies.
-                "planned_reads_found": _all_planned_reads_found(
-                    key, list(reads or ILLUMINA_DEFAULT_PLANNED_READS)
-                ),
+                "missing_read_type": _ordered(
+                    _missing_read_types(
+                        key, list(reads or ILLUMINA_DEFAULT_PLANNED_READS)
+                    )
+                )
+                or "none",
                 "lanes": ", ".join(sorted(lanes.get(key, set()))),
                 "library_count": len(libraries.get(key, set())),
                 "read_count": r1_reads.get(key, 0),

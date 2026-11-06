@@ -16,14 +16,6 @@ chemistries = {
 
 valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo"]
 
-# Longest-first alternation over ``valid_assays`` for embedding in filename
-# regexes, so ``GEX_hash_oligo`` is preferred over ``GEX`` / ``hash_oligo``.
-# Built once here rather than inline at each use site, so the two parsers that
-# need it cannot drift apart.
-ASSAY_ALTERNATION = "|".join(
-    sorted(map(re.escape, valid_assays), key=len, reverse=True)
-)
-
 # Raw pipeline types supported by qa.ipynb / qa_checks (normalize casing via qa_mods.normalize_raw_assay)
 ALLOWED_RAW_ASSAYS = frozenset(
     (
@@ -372,8 +364,28 @@ ILLUMINA_FLOWCELL_ID_RE = re.compile(r"^[A-Za-z0-9]+$")
 # shaped word inside a GroupID from being taken as the assay.  A flowcell ID
 # containing a non-alphanumeric character would not parse; this regex is the
 # single place to widen if that ever shows up in a real delivery.
+# The modalities an Illumina fastq name may carry, in the order the flowcell
+# table lists them. Separate from ``valid_assays``, which describes Ultima
+# deliveries and has no ADT/HTO/BCR/TCR: an Illumina fastq for one of those
+# would otherwise match nothing and drop out of every check.
+ILLUMINA_MODALITIES = (
+    "GEX",
+    "CRI",
+    "ATAC",
+    "viral_ORF",
+    "ADT",
+    "HTO",
+    "ADT_HTO",
+    "BCR",
+    "TCR",
+)
+# Longest-first, so ADT_HTO is preferred over ADT / HTO.
+_ILLUMINA_MODALITY_ALTERNATION = "|".join(
+    sorted(map(re.escape, ILLUMINA_MODALITIES), key=len, reverse=True)
+)
+
 ILLUMINA_FASTQ_RE = re.compile(
-    rf"^(?P<flowcell>[A-Za-z0-9]+)_(?P<group>.+?)_(?P<assay>{ASSAY_ALTERNATION})"
+    rf"^(?P<flowcell>[A-Za-z0-9]+)_(?P<group>.+?)_(?P<assay>{_ILLUMINA_MODALITY_ALTERNATION})"
     r"_S(?P<sample>\d+)_L(?P<lane>\d{3})_(?P<read>R[123]|I[12])_(?P<chunk>\d+)"
     r"\.fastq\.gz$"
 )

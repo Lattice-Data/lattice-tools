@@ -25,12 +25,17 @@ import pytest
 
 from qa_checks import (
     check_expected_raw_files,
+    format_read_count,
     check_extra_raw_files,
     summarize_illumina_flowcells,
     validate_fastq_counts,
     validate_read_metadata,
 )
-from qa_constants import ALLOWED_RAW_ASSAYS, ILLUMINA_FLOWCELL_FILE_SUFFIXES
+from qa_constants import (
+    ALLOWED_RAW_ASSAYS,
+    ILLUMINA_FLOWCELL_FILE_SUFFIXES,
+    ILLUMINA_MODALITIES,
+)
 from qa_mods import (
     normalize_sequencing_type,
     parse_planned_reads,
@@ -220,11 +225,26 @@ class TestParseRawFilenameIllumina:
         name = f"{RAW}/{FC}-G1_GEX_S1_L001_R1_001.fastq.gz"
         assert parse_raw_filename(name, "10x", sequencing_type="Illumina") is None
 
-    def test_combined_assay_token_is_not_split(self):
-        name = f"{RAW}/{FC}_G1_GEX_hash_oligo_S1_L001_R1_001.fastq.gz"
-        assert parse_raw_filename(name, "10x", sequencing_type="Illumina")[2] == (
-            "GEX_hash_oligo"
+    def test_combined_modality_token_is_not_split(self):
+        name = f"{RAW}/{FC}_G1_ADT_HTO_S1_L001_R1_001.fastq.gz"
+        _, group, assay, _, _ = parse_raw_filename(
+            name, "10x", sequencing_type="Illumina"
         )
+        # Not group "G1_ADT" + modality "HTO".
+        assert (group, assay) == ("G1", "ADT_HTO")
+
+    @pytest.mark.parametrize("modality", ILLUMINA_MODALITIES)
+    def test_every_illumina_modality_parses(self, modality):
+        name = f"{RAW}/{FC}_BCP_1_U3_{modality}_S3_L002_R1_001.fastq.gz"
+        _, group, assay, _, _ = parse_raw_filename(
+            name, "10x", sequencing_type="Illumina"
+        )
+        assert (group, assay) == ("BCP_1_U3", modality)
+
+    def test_an_unlisted_modality_does_not_parse(self):
+        # GEX_hash_oligo is an Ultima sublibrary type, not an Illumina modality.
+        name = f"{RAW}/{FC}_G1_GEX_hash_oligo_S1_L001_R1_001.fastq.gz"
+        assert parse_raw_filename(name, "10x", sequencing_type="Illumina") is None
 
     def test_flowcell_run_file_is_not_a_library(self):
         assert (
@@ -403,8 +423,10 @@ class TestIlluminaFlowcellSummary:
             "group_id",
             "raw_dir",
             "flowcell",
+            "modality",
             "planned_reads",
-            "planned_reads_found",
+            "read_types_found",
+            "missing_read_type",
             "lanes",
             "library_count",
             "read_count",
@@ -485,43 +507,80 @@ class TestIlluminaFlowcellSummary:
 
     FOUR = ["R1", "I1", "I2", "R2"]
 
-    def test_planned_reads_found_when_every_lane_set_is_complete(self):
+    def test_complete_delivery_lists_every_type_and_nothing_missing(self):
         keys = (
             flowcell_files()
             + fastqs(reads=self.FOUR, lanes=("001", "002"))
             + fastqs(reads=self.FOUR, lanes=("002",), assay="CRI", sample="3")
         )
-        rows = summarize_illumina_flowcells(keys, {FC: self.FOUR})
-        assert rows[0]["planned_reads_found"] is True
+        row = summarize_illumina_flowcells(keys, {FC: self.FOUR})[0]
+        # Library reads first, then index reads, whatever order the XML used.
+        assert row["read_types_found"] == "R1, R2, I1, I2"
+        assert row["missing_read_type"] == "none"
 
-    def test_one_missing_read_in_one_lane_set_fails_the_row(self):
-        # The user's example: an ..._S3_L002 set without its I2 fastq.
+    def test_one_missing_read_in_one_lane_set_is_named(self):
+        # The user's example: an ..._S3_L002 set without its I2 fastq. I2 is
+        # still found on L001, so it is both found and missing.
         keys = flowcell_files() + fastqs(
             reads=self.FOUR, lanes=("001", "002"), sample="3", omit=(("I2", "002"),)
         )
-        rows = summarize_illumina_flowcells(keys, {FC: self.FOUR})
-        assert rows[0]["planned_reads_found"] is False
+        row = summarize_illumina_flowcells(keys, {FC: self.FOUR})[0]
+        assert row["read_types_found"] == "R1, R2, I1, I2"
+        assert row["missing_read_type"] == "I2"
 
-    def test_reads_not_planned_are_not_required(self):
+    def test_several_missing_types_are_all_listed(self):
+        keys = flowcell_files() + fastqs(
+            reads=self.FOUR,
+            lanes=("001", "002"),
+            omit=(("R2", "001"), ("I1", "002"), ("I2", "002")),
+        )
+        row = summarize_illumina_flowcells(keys, {FC: self.FOUR})[0]
+        assert row["missing_read_type"] == "R2, I1, I2"
+
+    def test_reads_not_planned_are_not_missing(self):
         keys = flowcell_files() + fastqs(reads=("R1", "R2"))
-        rows = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})
-        assert rows[0]["planned_reads_found"] is True
-        rows = summarize_illumina_flowcells(keys, {FC: self.FOUR})
-        assert rows[0]["planned_reads_found"] is False
+        row = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})[0]
+        assert row["read_types_found"] == "R1, R2"
+        assert row["missing_read_type"] == "none"
+        row = summarize_illumina_flowcells(keys, {FC: self.FOUR})[0]
+        assert row["missing_read_type"] == "I1, I2"
+
+    def test_an_unplanned_read_is_found_but_not_missing(self):
+        keys = flowcell_files() + fastqs(reads=("R1", "I1", "R2"))
+        row = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})[0]
+        assert row["read_types_found"] == "R1, R2, I1"
+        assert row["missing_read_type"] == "none"
 
     def test_a_sidecar_does_not_stand_in_for_its_fastq(self):
         keys = flowcell_files() + fastqs(reads=("R1", "R2"))
         keys.remove(f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz")
-        rows = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})
-        assert rows[0]["planned_reads_found"] is False
+        row = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})[0]
+        assert row["read_types_found"] == "R1"
+        assert row["missing_read_type"] == "R2"
 
-    def test_a_flowcell_with_no_fastqs_is_not_found(self):
-        rows = summarize_illumina_flowcells(flowcell_files(), {FC: ["R1", "R2"]})
-        assert rows[0]["planned_reads_found"] is False
+    def test_a_flowcell_with_no_fastqs_misses_every_planned_read(self):
+        row = summarize_illumina_flowcells(flowcell_files(), {FC: self.FOUR})[0]
+        assert row["read_types_found"] == ""
+        assert row["missing_read_type"] == "R1, R2, I1, I2"
 
     def test_unknown_planned_reads_fall_back_to_r1_r2(self):
-        keys = flowcell_files() + fastqs(reads=("R1", "R2"))
-        assert summarize_illumina_flowcells(keys, {})[0]["planned_reads_found"] is True
+        keys = flowcell_files() + fastqs(reads=("R1",))
+        assert summarize_illumina_flowcells(keys, {})[0]["missing_read_type"] == "R2"
+
+    def test_modality_lists_each_distinct_modality_once(self):
+        keys = (
+            flowcell_files()
+            + fastqs(lanes=("001", "002"), assay="ADT_HTO", sample="2")
+            + fastqs(lanes=("001", "002"), assay="GEX", sample="1")
+            + fastqs(lanes=("001",), assay="TCR", sample="3")
+            + fastqs(lanes=("001",), assay="GEX", sample="4")
+        )
+        row = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})[0]
+        # Unique, in the documented modality order, not file order.
+        assert row["modality"] == "GEX, ADT_HTO, TCR"
+
+    def test_modality_is_empty_without_fastqs(self):
+        assert summarize_illumina_flowcells(flowcell_files(), {})[0]["modality"] == ""
 
     def test_unknown_planned_reads_are_named_as_such(self):
         rows = summarize_illumina_flowcells(flowcell_files() + fastqs(), {})
@@ -703,9 +762,44 @@ class TestIlluminaGather:
         assert data.gathering_errors == []
         assert len(data.fastq_log["BCP_1_U3"]["GEX"]) == 4
 
+    def test_non_ultima_modalities_raise_no_wrong_assay(self):
+        keys = flowcell_files() + [
+            k
+            for mod, n in (("ADT", "1"), ("HTO", "2"), ("BCR", "3"), ("TCR", "4"))
+            for k in fastqs(assay=mod, sample=n, sidecars=False)
+        ]
+        data = self._gather(keys, {f"{RAW}/{FC}_RunParameters.xml": NO_INDEX_XML})
+        assert data.gathering_errors == []
+        assert set(data.fastq_log["G1"]) == {"ADT", "HTO", "BCR", "TCR"}
+
     def test_q30_is_skipped_but_not_silently(self):
         data = self._gather(*self._delivery())
         assert data.pct_q30_values == {}
         # Cell 2 writes warnings into {order}_errors.txt; a skipped check that
         # leaves a clean log is exactly what that rule exists to prevent.
         assert any("Q30 SKIPPED" in w for w in data.gathering_warnings)
+
+
+class TestFormatReadCount:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            (0, "0"),
+            (99_999, "99999"),
+            (100_000, "0.100M"),
+            (250_000, "0.250M"),
+            (1_234_567, "1.23M"),
+            (12_345_678, "12.3M"),
+            (123_456_789, "123M"),
+            (999_999_999, "1.00B"),  # rounds up across the unit boundary
+            (999_500, "1.00M"),
+            (1_234_567_890, "1.23B"),
+            (45_678_901_234, "45.7B"),
+        ],
+    )
+    def test_formats(self, value, expected):
+        assert format_read_count(value) == expected
+
+    def test_none_and_nan_stay_none(self):
+        assert format_read_count(None) is None
+        assert format_read_count(float("nan")) is None
