@@ -28,6 +28,7 @@ from qa_checks import (
     format_read_count,
     check_extra_raw_files,
     summarize_illumina_flowcells,
+    total_reads_by_flowcell,
     validate_fastq_counts,
     validate_read_metadata,
 )
@@ -421,7 +422,6 @@ class TestIlluminaFlowcellSummary:
         )
         assert list(rows[0]) == [
             "group_id",
-            "raw_dir",
             "flowcell",
             "modality",
             "planned_reads",
@@ -803,3 +803,43 @@ class TestFormatReadCount:
     def test_none_and_nan_stay_none(self):
         assert format_read_count(None) is None
         assert format_read_count(float("nan")) is None
+
+
+class TestTotalReadsByFlowcell:
+    def test_sums_every_group_on_a_flowcell(self):
+        rows = [
+            {"group_id": "G1", "flowcell": "FC_B", "read_count": 4_000_000},
+            {"group_id": "G2", "flowcell": "FC_B", "read_count": 6_000_000},
+            {"group_id": "G1", "flowcell": "FC_A", "read_count": 1_000_000},
+        ]
+        assert total_reads_by_flowcell(rows) == [
+            {"flowcell": "FC_A", "read_count": 1_000_000},
+            {"flowcell": "FC_B", "read_count": 10_000_000},
+        ]
+
+    def test_built_from_the_per_group_table(self):
+        other_dir = "testproj/ORD01/G2/raw"
+        keys = (
+            flowcell_files()
+            + fastqs()
+            + flowcell_files(raw_dir=other_dir)
+            + fastqs(raw_dir=other_dir, group="G2")
+        )
+        meta = {
+            name: {
+                "read_count": n,
+                "errors": [],
+                "__source_key": f"{d}/{name}-metadata.json",
+            }
+            for d, name, n in (
+                (RAW, f"{FC}_G1_GEX_S1_L001_R1_001.fastq.gz", 3_000_000),
+                (other_dir, f"{FC}_G2_GEX_S1_L001_R1_001.fastq.gz", 5_000_000),
+            )
+        }
+        rows = summarize_illumina_flowcells(keys, {}, meta)
+        assert total_reads_by_flowcell(rows) == [
+            {"flowcell": FC, "read_count": 8_000_000}
+        ]
+
+    def test_empty_table(self):
+        assert total_reads_by_flowcell([]) == []

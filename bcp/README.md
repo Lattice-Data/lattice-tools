@@ -906,7 +906,8 @@ warns and falls back to requiring R1/R2.
 **Lanes are reported, never enforced.** A library may arrive on any number of lanes. The cell that
 shows the wafer table under Ultima shows a per-GroupID, per-flowcell table instead — planned
 reads, the read types found (`read_types_found`), any planned read type missing from a
-library-lane set (`missing_read_type`, or `none`), lanes, library count, modalities, and total R1 `read_count` summed from the fastq `metadata.json` sidecars — and writes `{order}_illumina_flowcells.csv`.
+library-lane set (`missing_read_type`, or `none`), lanes, library count, modalities, and total R1 `read_count` summed from the fastq `metadata.json` sidecars — and writes `{order}_illumina_flowcells.csv`. A second table totals the R1
+`read_count` per flowcell across all its GroupIDs.
 
 Checks that do not run under Illumina, each printing why rather than passing silently:
 

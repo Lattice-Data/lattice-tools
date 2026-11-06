@@ -755,7 +755,7 @@ def summarize_illumina_flowcells(
     read_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
-    One row per (raw_dir, flowcell): what the RunParameters.xml planned, and
+    One row per (GroupID, flowcell): what the RunParameters.xml planned, and
     what actually arrived.
 
     This is the Illumina counterpart of the Ultima wafer table -- the
@@ -836,15 +836,12 @@ def summarize_illumina_flowcells(
     for raw_dir, flowcell in sorted(seen):
         key = (raw_dir, flowcell)
         reads = planned_reads.get(flowcell)
-        # {proj}/{Order#}/{GroupID}/raw -> GroupID. Carried as its own column
-        # because the table is read per GroupID; raw_dir stays alongside it so
-        # a row is still traceable to the exact prefix it was built from.
+        # {proj}/{Order#}/{GroupID}/raw -> GroupID.
         parts = raw_dir.split("/")
         group_id = parts[-2] if len(parts) >= 2 and parts[-1] == "raw" else ""
         rows.append(
             {
                 "group_id": group_id,
-                "raw_dir": raw_dir,
                 "flowcell": flowcell,
                 "modality": ", ".join(
                     mod
@@ -874,6 +871,19 @@ def summarize_illumina_flowcells(
             }
         )
     return rows
+
+
+def total_reads_by_flowcell(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Total R1 read count per flowcell, across every GroupID on it.
+
+    Takes the rows from ``summarize_illumina_flowcells`` and adds up their
+    ``read_count`` by flowcell, so a flowcell shared by several GroupIDs gets
+    one total. Sorted by flowcell ID.
+    """
+    totals: dict[str, int] = {}
+    for row in rows:
+        totals[row["flowcell"]] = totals.get(row["flowcell"], 0) + row["read_count"]
+    return [{"flowcell": fc, "read_count": n} for fc, n in sorted(totals.items())]
 
 
 def check_expected_raw_files(
