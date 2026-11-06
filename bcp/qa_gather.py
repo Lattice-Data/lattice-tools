@@ -41,6 +41,7 @@ from qa_mods import (
     is_valid_cellranger_run_dir_name,
     load_files_from_manifest,
     parse_pct_pf_q30_from_lines,
+    parse_planned_read_lengths,
     parse_planned_reads,
     parse_raw_filename,
     parse_scale_samples_csv,
@@ -123,6 +124,9 @@ class QAGatheredData:
     # Illumina-only: lanes seen per flowcell, e.g. {"22YKTVLT4": {"L001","L002"}}.
     # Reported, not enforced -- lanes are accepted as they arrive.
     illumina_lanes: dict[str, set[str]] = field(default_factory=dict)
+    # Illumina-only: expected length (Cycles) of each planned read per flowcell,
+    # from the same RunParameters.xml, e.g. {"22YKTVLT4": {"R1": 151, "I1": 10}}.
+    illumina_read_lengths: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 class QADataGatherer:
@@ -531,9 +535,11 @@ class QADataGatherer:
         RunParameters.xml rather than from a shared assumption, because a run
         with no index reads plans two and a dual-indexed run plans four.
         """
+        group_flowcells: set[str] = set()
         for rf in raw_files:
             m = ILLUMINA_FASTQ_RE.match(rf.split("/")[-1])
             if m is not None:
+                group_flowcells.add(m.group("flowcell"))
                 self._data.illumina_lanes.setdefault(m.group("flowcell"), set()).add(
                     f"L{m.group('lane')}"
                 )
@@ -542,7 +548,12 @@ class QADataGatherer:
             if not rf.endswith(ILLUMINA_RUN_PARAMETERS_SUFFIX):
                 continue
             flowcell = rf.split("/")[-1][: -len(ILLUMINA_RUN_PARAMETERS_SUFFIX)]
-            reads = self._read_illumina_planned_reads(rf)
+            xml_text = self._read_illumina_run_parameters(rf)
+            reads = parse_planned_reads(xml_text) if xml_text is not None else None
+            if xml_text is not None:
+                lengths = parse_planned_read_lengths(xml_text)
+                if lengths is not None:
+                    self._data.illumina_read_lengths[flowcell] = lengths
             if reads is None:
                 # Not an error: completeness falls back to R1/R2 and says so,
                 # which is more useful than failing the whole order.
@@ -553,7 +564,9 @@ class QADataGatherer:
                 continue
             self._data.illumina_planned_reads[flowcell] = reads
 
-        for flowcell in sorted(self._data.illumina_lanes):
+        # This group's flowcells only: this runs once per GroupID, and checking
+        # every flowcell seen so far repeated the same warning for each group.
+        for flowcell in sorted(group_flowcells):
             if flowcell not in self._data.illumina_planned_reads:
                 self._data.gathering_warnings.append(
                     f"RUN PARAMETERS MISSING: no readable "
@@ -561,14 +574,18 @@ class QADataGatherer:
                     f"{flowcell} — falling back to R1/R2 for completeness"
                 )
 
-    def _read_illumina_planned_reads(self, rf: str) -> list[str] | None:
-        """Download and parse one RunParameters.xml. Returns None if unusable."""
+    def _read_illumina_run_parameters(self, rf: str) -> str | None:
+        """Download one RunParameters.xml and return its text, or None if unreadable.
+
+        Returned as text so the planned reads and their lengths are both parsed
+        from a single download.
+        """
         with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".xml") as tf:
             local = tf.name
         try:
             self.s3.download_file(self.bucket, rf, local)
             with open(local, encoding="utf-8") as fh:
-                return parse_planned_reads(fh.read())
+                return fh.read()
         except Exception:  # noqa: BLE001 - unreadable is unreadable
             return None
         finally:

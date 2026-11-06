@@ -42,6 +42,7 @@ from qa_constants import (
 )
 from qa_mods import (
     normalize_sequencing_type,
+    parse_planned_read_lengths,
     parse_planned_reads,
     parse_raw_filename,
     resolve_qa_run_context,
@@ -428,6 +429,9 @@ class TestIlluminaFlowcellSummary:
             "flowcell",
             "modality",
             "planned_reads",
+            "expected_read_length",
+            "observed_read_length",
+            "read_length_mismatch",
             "read_types_found",
             "missing_read_type",
             "lanes",
@@ -874,6 +878,30 @@ class TestIlluminaGather:
         assert data.illumina_planned_reads == {}
         assert any("RUN PARAMETERS UNREADABLE" in w for w in data.gathering_warnings)
 
+    def test_read_lengths_are_gathered_from_the_same_xml(self):
+        data = self._gather(*self._delivery())
+        assert data.illumina_read_lengths == {
+            FC: {"R1": 151, "I1": 10, "I2": 10, "R2": 151}
+        }
+
+    def test_missing_xml_is_warned_once_not_once_per_group(self):
+        # A different flowcell per group, none with its XML: the old loop
+        # re-checked every flowcell seen so far, warning 1 + 2 + 3 = 6 times.
+        keys = []
+        for group, fc in (
+            ("G1", "FCAAAAAA1"),
+            ("G2", "FCBBBBBB2"),
+            ("G3", "FCCCCCCC3"),
+        ):
+            raw = f"testproj/ORD01/{group}/raw"
+            keys += flowcell_files(flowcell=fc, raw_dir=raw) + fastqs(
+                raw_dir=raw, group=group, flowcell=fc, sidecars=False
+            )
+            keys.remove(f"{raw}/{fc}_RunParameters.xml")
+        data = self._gather(keys, {})
+        warnings = [w for w in data.gathering_warnings if "RUN PARAMETERS MISSING" in w]
+        assert len(warnings) == 3
+
     def test_two_flowcells_each_get_an_entry(self):
         other = "22ABCDEF9"
         keys, contents = self._delivery(flowcells=(FC, other))
@@ -1023,7 +1051,7 @@ class TestLibrariesByModality:
             {"group_id": "G1", "GEX": 2, "TCR": 1}
         ]
 
-    def test_ultima_r1_and_r2_are_one_library(self):
+    def test_ultima_counts_one_library_per_group_and_modality(self):
         log = {
             "G1": {
                 "GEX": [
@@ -1038,9 +1066,22 @@ class TestLibrariesByModality:
                 ],
             }
         }
+        # Two GEX barcodes, R1 + R2 each, are still one GEX library for G1.
         assert libraries_by_modality(log) == [
-            {"group_id": "G1", "GEX": 2, "ADT_HTO": 1}
+            {"group_id": "G1", "GEX": 1, "ADT_HTO": 1}
         ]
+
+    def test_ultima_wafers_are_not_separate_libraries(self):
+        log = {
+            "G1": {
+                "GEX": [
+                    f"{wafer}-G1_GEX-Z0273-BC01_S1_L001_{r}_001.fastq.gz"
+                    for wafer in ("439047", "439048", "439049")
+                    for r in ("R1", "R2")
+                ]
+            }
+        }
+        assert libraries_by_modality(log) == [{"group_id": "G1", "GEX": 1}]
 
     def test_every_group_gets_every_column(self):
         log = {
@@ -1054,9 +1095,135 @@ class TestLibrariesByModality:
             {"group_id": "G3", "GEX": 0, "CRI": 0},
         ]
 
-    def test_a_cram_with_no_read_indicator_is_its_own_library(self):
+    def test_crams_of_one_modality_are_one_library(self):
         log = {"E1": {"GEX": ["a-E1_GEX-x_1A.cram", "a-E1_GEX-x_2A.cram"]}}
-        assert libraries_by_modality(log) == [{"group_id": "E1", "GEX": 2}]
+        assert libraries_by_modality(log) == [{"group_id": "E1", "GEX": 1}]
 
     def test_empty(self):
         assert libraries_by_modality({}) == []
+
+
+class TestParsePlannedReadLengths:
+    def test_dual_index_run(self):
+        assert parse_planned_read_lengths(DUAL_INDEX_XML) == {
+            "R1": 151,
+            "I1": 10,
+            "I2": 10,
+            "R2": 151,
+        }
+
+    def test_two_read_run(self):
+        assert parse_planned_read_lengths(NO_INDEX_XML) == {"R1": 151, "R2": 151}
+
+    def test_missing_or_garbled_cycles_are_dropped(self):
+        xml = (
+            "<R><PlannedReads><Read ReadName='Read1' Cycles='151'/>"
+            "<Read ReadName='Index1' Cycles='ten'/><Read ReadName='Read2'/>"
+            "</PlannedReads></R>"
+        )
+        assert parse_planned_read_lengths(xml) == {"R1": 151}
+
+    def test_malformed_xml(self):
+        assert parse_planned_read_lengths("<broken") is None
+        assert parse_planned_read_lengths("<R/>") is None
+
+
+class TestReadLengthColumns:
+    EXPECTED = {FC: {"R1": 151, "I1": 10, "I2": 10, "R2": 151}}
+
+    @staticmethod
+    def _meta(entries, raw_dir=RAW, group="G1"):
+        """entries: {(lane, read): histogram}"""
+        out = {}
+        for (lane, read), hist in entries.items():
+            name = f"{FC}_{group}_GEX_S1_L{lane}_{read}_001.fastq.gz"
+            out[f"{raw_dir}/{name}"] = {
+                "read_count": sum(hist.values()) if hist else 0,
+                "read_lengths": hist,
+                "errors": [],
+                "__source_key": f"{raw_dir}/{name}-metadata.json",
+            }
+        return out
+
+    def _row(self, meta, expected=None, keys=None):
+        keys = keys or flowcell_files() + fastqs(
+            reads=("R1", "I1", "I2", "R2"), lanes=("001", "002")
+        )
+        rows = summarize_illumina_flowcells(
+            keys,
+            {FC: ["R1", "I1", "I2", "R2"]},
+            meta,
+            read_lengths=self.EXPECTED if expected is None else expected,
+        )
+        return rows[0]
+
+    def test_expected_is_listed_r1_r2_then_index(self):
+        row = self._row({})
+        assert row["expected_read_length"] == "R1=151, R2=151, I1=10, I2=10"
+
+    def test_expected_unknown_without_the_xml(self):
+        row = self._row({}, expected={})
+        assert row["expected_read_length"] == "UNKNOWN"
+        assert row["read_length_mismatch"] == "UNKNOWN"
+
+    def test_matching_lengths(self):
+        meta = self._meta(
+            {
+                (lane, r): {str(n): 5_000_000}
+                for lane in ("001", "002")
+                for r, n in (("R1", 151), ("R2", 151), ("I1", 10), ("I2", 10))
+            }
+        )
+        row = self._row(meta)
+        assert row["observed_read_length"] == "R1=151, R2=151, I1=10, I2=10"
+        assert row["read_length_mismatch"] == "none"
+
+    def test_trimmed_reads_match_on_their_longest_read(self):
+        meta = self._meta({("001", "R1"): {"151": 4_000_000, "98": 1_000_000, "20": 5}})
+        row = self._row(meta)
+        assert row["observed_read_length"] == "R1=151"
+        assert row["read_length_mismatch"] == "none"
+
+    def test_one_short_file_is_not_hidden_by_its_siblings(self):
+        meta = self._meta(
+            {
+                ("001", "I1"): {"10": 5_000_000},
+                ("002", "I1"): {"8": 5_000_000},
+            }
+        )
+        row = self._row(meta)
+        assert row["observed_read_length"] == "I1=8/10"
+        assert row["read_length_mismatch"] == "I1 (expected 10, found 8)"
+
+    def test_errored_and_length_less_sidecars_are_skipped(self):
+        meta = self._meta({("001", "R1"): {"100": 5}, ("002", "R1"): {"151": 5}})
+        meta[f"{RAW}/{FC}_G1_GEX_S1_L001_R1_001.fastq.gz"]["errors"] = ["truncated"]
+        meta[f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz"] = {
+            "read_count": 5,
+            "errors": [],
+            "__source_key": f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz-metadata.json",
+        }
+        row = self._row(meta)
+        assert row["observed_read_length"] == "R1=151"
+        assert row["read_length_mismatch"] == "none"
+
+    def test_rows_stay_separate_per_group(self):
+        other = "testproj/ORD01/G2/raw"
+        keys = (
+            flowcell_files()
+            + fastqs()
+            + flowcell_files(raw_dir=other)
+            + fastqs(raw_dir=other, group="G2")
+        )
+        meta = {
+            **self._meta({("001", "R1"): {"151": 5}}),
+            **self._meta({("001", "R1"): {"150": 5}}, raw_dir=other, group="G2"),
+        }
+        rows = {
+            r["group_id"]: r
+            for r in summarize_illumina_flowcells(
+                keys, {FC: ["R1", "R2"]}, meta, read_lengths=self.EXPECTED
+            )
+        }
+        assert rows["G1"]["read_length_mismatch"] == "none"
+        assert rows["G2"]["read_length_mismatch"] == "R1 (expected 151, found 150)"
