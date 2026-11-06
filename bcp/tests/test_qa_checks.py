@@ -4,6 +4,8 @@ Tests for qa_checks validation functions.
 
 import logging
 
+import pytest
+
 from qa_checks import (
     MIN_METADATA_READ_COUNT,
     MIN_PCT_Q30_THRESHOLD,
@@ -197,6 +199,54 @@ class TestValidateFastqCounts:
         assert (
             "not validating" in caplog.text.lower() or "legacy" in caplog.text.lower()
         )
+
+
+class TestGexPairedModalities:
+    """Ultima 10x: CRI, ATAC, ADT, HTO and ADT_HTO are each compared with GEX."""
+
+    @pytest.mark.parametrize("modality", ["CRI", "ATAC", "ADT", "HTO", "ADT_HTO"])
+    def test_each_ultima_modality_is_compared(self, modality):
+        fastq_log = {"G1": {"GEX": ["a", "b"], modality: ["c", "d", "e", "f"]}}
+        assert validate_fastq_counts(fastq_log, "10x") == [
+            f"MISMATCH FQ COUNTS: G1: 2 GEX, 4 {modality}"
+        ]
+
+    @pytest.mark.parametrize("modality", ["TCR", "BCR"])
+    def test_tcr_bcr_are_not_compared_on_ultima(self, modality):
+        fastq_log = {"G1": {"GEX": ["a", "b"], modality: ["c", "d", "e", "f"]}}
+        assert validate_fastq_counts(fastq_log, "10x") == []
+
+    def test_every_paired_modality_is_reported_separately(self):
+        fastq_log = {"G1": {"GEX": ["a", "b"], "ADT": ["c"], "HTO": ["d", "e"]}}
+        assert validate_fastq_counts(fastq_log, "10x") == [
+            "MISMATCH FQ COUNTS: G1: 2 GEX, 1 ADT"
+        ]
+
+    def test_summary_breaks_down_only_the_pairs_that_occurred(self):
+        fastq_log = {
+            "G1": {"GEX": ["a", "b"], "ADT_HTO": ["c", "d"]},
+            "G2": {"GEX": ["x", "y"], "CRI": ["z", "w"]},
+        }
+        errors = validate_fastq_counts(fastq_log, "10x")
+        summary = summarize_fastq_count_validation(fastq_log, "10x", errors)
+        assert "checked 2 (GEX<->CRI: 1, GEX<->ADT_HTO: 1)" in summary
+        assert "GEX<->ATAC" not in summary
+        assert "All matched." in summary
+
+    def test_a_gex_plus_adt_delivery_is_not_called_gex_only(self):
+        fastq_log = {"G1": {"GEX": ["a", "b"], "ADT": ["c", "d"]}}
+        summary = summarize_fastq_count_validation(
+            fastq_log, "10x", validate_fastq_counts(fastq_log, "10x")
+        )
+        assert "Only GEX present" not in summary
+        assert "All matched." in summary
+
+    def test_ultima_adt_hto_parses_as_one_modality(self):
+        from qa_mods import parse_raw_filename
+
+        name = "p/O/G1/raw/439047-G1_ADT_HTO-Z0273-BC01_S1_L001_R1_001.fastq.gz"
+        _, group, assay, _, _ = parse_raw_filename(name, "10x")
+        assert (group, assay) == ("G1", "ADT_HTO")
 
 
 class TestSummarizeFastqCountValidation:

@@ -26,8 +26,10 @@ import pytest
 from qa_checks import (
     check_expected_raw_files,
     format_read_count,
+    libraries_by_modality,
     check_extra_raw_files,
     count_files_by_type,
+    summarize_fastq_count_validation,
     summarize_illumina_flowcells,
     total_reads_by_flowcell,
     validate_fastq_counts,
@@ -711,6 +713,57 @@ class TestReadCountsAgreeAcrossReadTypes:
         assert idx.split()[-3:] == ["2", "1", "1"]
 
 
+class TestIlluminaGexPairedModalities:
+    """Illumina adds TCR and BCR to the modalities compared with GEX."""
+
+    @staticmethod
+    def _files(modality, sample, lanes):
+        return [
+            f"{FC}_G1_{modality}_S{sample}_L{lane}_{r}_001.fastq.gz"
+            for lane in lanes
+            for r in ("R1", "R2")
+        ]
+
+    @pytest.mark.parametrize(
+        "modality", ["CRI", "ATAC", "ADT", "HTO", "ADT_HTO", "TCR", "BCR"]
+    )
+    def test_each_illumina_modality_is_compared_by_library(self, modality):
+        log = {
+            "G1": {
+                "GEX": self._files("GEX", "1", ("001",)),
+                modality: self._files(modality, "2", ("001",))
+                + self._files(modality, "3", ("001",)),
+            }
+        }
+        assert validate_fastq_counts(log, "10x", sequencing_type="Illumina") == [
+            f"MISMATCH FQ COUNTS: G1: 1 GEX, 2 {modality}"
+        ]
+
+    def test_lane_counts_still_do_not_matter_for_tcr(self):
+        log = {
+            "G1": {
+                "GEX": self._files("GEX", "1", ("001", "002", "003", "004")),
+                "TCR": self._files("TCR", "2", ("001",)),
+            }
+        }
+        assert validate_fastq_counts(log, "10x", sequencing_type="Illumina") == []
+
+    def test_summary_counts_tcr_and_bcr_pairs(self):
+        log = {
+            "G1": {
+                "GEX": self._files("GEX", "1", ("001",)),
+                "TCR": self._files("TCR", "2", ("001",)),
+                "BCR": self._files("BCR", "3", ("001",)),
+            }
+        }
+        errors = validate_fastq_counts(log, "10x", sequencing_type="Illumina")
+        summary = summarize_fastq_count_validation(
+            log, "10x", errors, sequencing_type="Illumina"
+        )
+        assert "checked 2 (GEX<->TCR: 1, GEX<->BCR: 1)" in summary
+        assert "All matched." in summary
+
+
 class TestIndexReadsAreNotLibraryReads:
     """An index read is a sequencing artifact, not a library read."""
 
@@ -949,3 +1002,61 @@ class TestCountFilesByType:
 
     def test_empty(self):
         assert count_files_by_type([]) == []
+
+
+class TestLibrariesByModality:
+    def test_illumina_counts_libraries_not_files(self):
+        def files(mod, sample, lanes):
+            return [
+                f"{FC}_G1_{mod}_S{sample}_L{lane}_{r}_001.fastq.gz"
+                for lane in lanes
+                for r in ("R1", "R2", "I1", "I2")
+            ]
+
+        log = {
+            "G1": {
+                "GEX": files("GEX", "1", ("001", "002")) + files("GEX", "2", ("001",)),
+                "TCR": files("TCR", "3", ("001", "002", "003")),
+            }
+        }
+        assert libraries_by_modality(log, sequencing_type="Illumina") == [
+            {"group_id": "G1", "GEX": 2, "TCR": 1}
+        ]
+
+    def test_ultima_r1_and_r2_are_one_library(self):
+        log = {
+            "G1": {
+                "GEX": [
+                    "439047-G1_GEX-Z0273-BC01_S1_L001_R1_001.fastq.gz",
+                    "439047-G1_GEX-Z0273-BC01_S1_L001_R2_001.fastq.gz",
+                    "439047-G1_GEX-Z0274-BC02_S1_L001_R1_001.fastq.gz",
+                    "439047-G1_GEX-Z0274-BC02_S1_L001_R2_001.fastq.gz",
+                ],
+                "ADT_HTO": [
+                    "439047-G1_ADT_HTO-Z0275-BC03_S1_L001_R1_001.fastq.gz",
+                    "439047-G1_ADT_HTO-Z0275-BC03_S1_L001_R2_001.fastq.gz",
+                ],
+            }
+        }
+        assert libraries_by_modality(log) == [
+            {"group_id": "G1", "GEX": 2, "ADT_HTO": 1}
+        ]
+
+    def test_every_group_gets_every_column(self):
+        log = {
+            "G2": {"CRI": ["439047-G2_CRI-Z1-BC1_S1_L001_R1_001.fastq.gz"]},
+            "G1": {"GEX": ["439047-G1_GEX-Z1-BC1_S1_L001_R1_001.fastq.gz"]},
+            "G3": {},
+        }
+        assert libraries_by_modality(log) == [
+            {"group_id": "G1", "GEX": 1, "CRI": 0},
+            {"group_id": "G2", "GEX": 0, "CRI": 1},
+            {"group_id": "G3", "GEX": 0, "CRI": 0},
+        ]
+
+    def test_a_cram_with_no_read_indicator_is_its_own_library(self):
+        log = {"E1": {"GEX": ["a-E1_GEX-x_1A.cram", "a-E1_GEX-x_2A.cram"]}}
+        assert libraries_by_modality(log) == [{"group_id": "E1", "GEX": 2}]
+
+    def test_empty(self):
+        assert libraries_by_modality({}) == []

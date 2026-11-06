@@ -14,7 +14,26 @@ chemistries = {
     "GEM-X Flex v2": "flex",
 }
 
-valid_assays = ["CRI", "GEX", "ATAC", "viral_ORF", "GEX_hash_oligo", "hash_oligo"]
+valid_assays = [
+    "CRI",
+    "GEX",
+    "ATAC",
+    "viral_ORF",
+    "GEX_hash_oligo",
+    "hash_oligo",
+    "ADT",
+    "HTO",
+    "ADT_HTO",
+]
+
+# Modalities whose library count is compared against GEX in each 10x GroupID
+# (validate_fastq_counts): every library of one of these should have a GEX
+# library beside it. Per sequencing platform, because Illumina deliveries also
+# carry TCR/BCR.
+GEX_PAIRED_MODALITIES = {
+    "Ultima": ("CRI", "ATAC", "ADT", "HTO", "ADT_HTO"),
+    "Illumina": ("CRI", "ATAC", "ADT", "HTO", "ADT_HTO", "TCR", "BCR"),
+}
 
 # Raw pipeline types supported by qa.ipynb / qa_checks (normalize casing via qa_mods.normalize_raw_assay)
 ALLOWED_RAW_ASSAYS = frozenset(
