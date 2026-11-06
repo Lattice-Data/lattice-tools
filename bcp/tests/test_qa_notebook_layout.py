@@ -307,3 +307,57 @@ class TestTheGatherCellLogsWhatItSkipped:
         block = gather[gather.index("for msg in data.gathering_warnings:") :]
         head = block[: block.index("for e in data.gathering_errors:")]
         assert "file.write" in head, "warnings are printed but never written"
+
+
+class TestSequencingType:
+    """The Illumina switch must reach every cell whose check is Ultima-only.
+
+    A parameter that is declared but never read is worse than no parameter:
+    an operator who sets sequencing_type='Illumina' would be told the delivery
+    was validated against Illumina expectations when it was not.
+    """
+
+    def test_the_parameter_is_declared_and_defaults_to_ultima(self, cells):
+        params = _source(cells[_index_of(cells, "# Choose data source:")])
+
+        assert "sequencing_type = " in params
+        assert "Ultima" in params
+
+    def test_the_parameter_reaches_the_run_context(self, cells):
+        params = _source(cells[_index_of(cells, "# Choose data source:")])
+
+        # Passed in, so it is validated, and read back off ctx, so the cells
+        # below see the normalized value rather than the raw keystrokes.
+        assert "sequencing_type=sequencing_type," in params
+        assert "sequencing_type = ctx.sequencing_type" in params
+
+    @pytest.mark.parametrize(
+        "needle",
+        [
+            "### Plots distribution of sequencing and trimming fail rates",
+            "### Validate sublibrary Q30",
+            "### Wafer-level summary:",
+        ],
+    )
+    def test_the_ultima_only_cells_gate_on_it(self, cells, needle):
+        """Trimmer stats, Q30 and the wafer table do not exist on Illumina."""
+        assert "sequencing_type" in _source(cells[_index_of(cells, needle)])
+
+    def test_the_raw_file_checks_receive_it(self, cells):
+        expected = _source(cells[_index_of(cells, "### Checking for expected files")])
+        extra = _source(cells[_index_of(cells, "### checking for extra fastq files")])
+
+        assert "sequencing_type=sequencing_type" in expected
+        assert "planned_reads=illumina_planned_reads" in expected
+        assert "sequencing_type=sequencing_type" in extra
+
+    def test_the_flowcell_report_shares_the_wafer_summary_cell(self, cells):
+        """Deliberate placement, pinned so a later split is a choice.
+
+        The flowcell table is the Illumina counterpart of the wafer table --
+        same role, same slot. Giving it a cell of its own would renumber every
+        cell below it, which is the failure this module's docstring records.
+        """
+        wafer_cell = _index_of(cells, "### Wafer-level summary:")
+
+        assert _index_of(cells, "summarize_illumina_flowcells(") == wafer_cell

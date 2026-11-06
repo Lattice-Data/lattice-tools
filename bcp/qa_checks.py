@@ -13,6 +13,11 @@ from typing import Any
 
 from qa_constants import (
     CELLRANGER_FLAT_LAYOUT,
+    ILLUMINA_DEFAULT_PLANNED_READS,
+    ILLUMINA_FASTQ_RE,
+    ILLUMINA_FLOWCELL_FILE_SUFFIXES,
+    ILLUMINA_FLOWCELL_ID_RE,
+    ILLUMINA_RUN_PARAMETERS_SUFFIX,
     CELLRANGER_SUPPORTED_VERSIONS,
     CELLRANGER_VERSION_ALIASES,
     SCALE_AGGREGATE_FILE_RE,
@@ -48,6 +53,10 @@ VALID_PROBES = [
 MIN_METADATA_READ_COUNT = 1_000_000
 MIN_PCT_Q30_THRESHOLD = 65.0
 
+# Read indicators that identify a sample index rather than a library read.
+# Excluded from group read totals; see validate_read_metadata.
+INDEX_READ_INDICATORS = frozenset({"I1", "I2"})
+
 
 def validate_pct_q30(
     pct_q30_values: dict[str, float],
@@ -78,8 +87,37 @@ def _fastq_count_mode(raw_assay: str) -> str:
     return "unknown"
 
 
+def _illumina_library_keys(names: list[str]) -> set[tuple[str, str, str, str]]:
+    """Distinct libraries behind a list of Illumina fastq basenames.
+
+    An Illumina library contributes one fastq per planned read per lane, so the
+    raw file count is ``reads x lanes x libraries``. Comparing those counts
+    across modalities reports a mismatch whenever GEX and CRI ran on a
+    different number of lanes -- which is normal, since lanes are accepted as
+    they arrive. Collapsing to ``(flowcell, group, assay, S-number)`` restores
+    what the comparison has always meant under Ultima, where every library
+    contributes exactly two files: the same number of libraries per modality.
+    """
+    keys: set[tuple[str, str, str, str]] = set()
+    for name in names:
+        m = ILLUMINA_FASTQ_RE.match(name)
+        if m is not None:
+            keys.add(
+                (
+                    m.group("flowcell"),
+                    m.group("group"),
+                    m.group("assay"),
+                    m.group("sample"),
+                )
+            )
+    return keys
+
+
 def validate_fastq_counts(
-    fastq_log: dict[str, dict[str, list[str]]], raw_assay: str
+    fastq_log: dict[str, dict[str, list[str]]],
+    raw_assay: str,
+    *,
+    sequencing_type: str = "Ultima",
 ) -> list[str]:
     """
     Check for mismatching number of files across modalities per sample.
@@ -145,6 +183,11 @@ def validate_fastq_counts(
             cri_list = v.get("CRI", [])
             atac_list = v.get("ATAC", [])
             gex_list = v.get("GEX", [])
+            if sequencing_type == "Illumina":
+                # Compare libraries, not files -- see _illumina_library_keys.
+                cri_list = sorted(_illumina_library_keys(cri_list))
+                atac_list = sorted(_illumina_library_keys(atac_list))
+                gex_list = sorted(_illumina_library_keys(gex_list))
             if cri_list and atac_list:
                 logger.warning(
                     "Unexpected: CRI+ATAC present for sample %s; "
@@ -301,6 +344,7 @@ def validate_read_metadata(
     read_metadata: dict[str, Any],
     raw_assay: str,
     *,
+    sequencing_type: str = "Ultima",
     print_success: bool = False,
     success_print_limit: int = 5,
     pairing_paths_print_limit: int = 100,
@@ -364,9 +408,20 @@ def validate_read_metadata(
                 f"READ COUNT ERROR: {f} read_count {reads} is below minimum "
                 f"{MIN_METADATA_READ_COUNT}"
             )
-        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R2":
+        indicator = extract_read_indicator(f)
+        # An index read is a sequencing artifact, not a library read. Summing
+        # I1 and I2 into the group total inflates raw reads about threefold on
+        # a dual-indexed Illumina delivery and makes every group fail the
+        # raw-vs-CellRanger comparison in validate_processed_group. Not gated
+        # on pairing mode: no layout has a reason to count one, and no Ultima
+        # assay ships index sidecars, so this is a no-op for every delivery QA
+        # has seen. R3 is deliberately left alone -- ATAC's third read is a
+        # library read and is counted today.
+        if indicator in INDEX_READ_INDICATORS:
             continue
-        parsed = parse_raw_filename(f, raw_assay)
+        if not skip_r1_r2_pairing and indicator == "R2":
+            continue
+        parsed = parse_raw_filename(f, raw_assay, sequencing_type=sequencing_type)
         if parsed is not None:
             _run, group, assay, _ug, _barcode = parsed
             if group not in group_read_counts:
@@ -375,7 +430,7 @@ def validate_read_metadata(
                 group_read_counts[group][assay] = reads
             else:
                 group_read_counts[group][assay] += reads
-        if not skip_r1_r2_pairing and extract_read_indicator(f) == "R1":
+        if not skip_r1_r2_pairing and indicator == "R1":
             r2file = make_read_partner(f, "R1", "R2")
             if r2file in read_metadata:
                 r2meta = read_metadata[r2file]
@@ -513,11 +568,191 @@ def _print_checked_read_counts(
         print(f"  ... and {len(checked_read_counts) - limit} more")
 
 
+def _check_expected_illumina_raw_files(
+    all_raw_files: list[str],
+    planned_reads: dict[str, list[str]] | None,
+) -> tuple[int, list[dict[str, Any]], list[str]]:
+    """
+    Completeness for an Illumina delivery. Same contract as its Ultima sibling:
+    ``(all_good_count, raw_lost, raw_found)``.
+
+    An Illumina ``raw/`` directory is checked on two axes, because it holds two
+    kinds of thing:
+
+    * **Per flowcell** -- the eight run files
+      (``{FC}_CopyComplete.txt`` ... ``{FC}-Logs.gzip``). One set per flowcell,
+      not one per library, so these cannot be expressed as endings on a
+      library "beginning" the way the Ultima tables are.
+    * **Per library and lane** -- one fastq for each planned read, plus that
+      fastq's ``-metadata.json`` sidecar. A library here is a distinct
+      ``(flowcell, group, assay, S-number)``; the lanes it arrived on are
+      whatever is present, since lanes are reported rather than enforced.
+
+    Which reads are required comes from ``planned_reads`` (parsed from each
+    flowcell's RunParameters.xml), NOT from a fixed R1/R2 assumption: a
+    single-index run plans three reads and a dual-indexed one plans four. A
+    flowcell missing from ``planned_reads`` falls back to
+    ``ILLUMINA_DEFAULT_PLANNED_READS``; the gather step has already warned.
+    """
+    planned_reads = planned_reads or {}
+    raw_found_set = set(all_raw_files)
+
+    # raw_dir -> flowcell -> {(group, assay, sample, lane, chunk)}
+    flowcells: dict[str, set[str]] = {}
+    libraries: dict[tuple[str, str], set[tuple[str, str, str, str, str]]] = {}
+
+    for fullpath in all_raw_files:
+        raw_dir = "/".join(fullpath.split("/")[:-1])
+        basename = fullpath.split("/")[-1]
+
+        m = ILLUMINA_FASTQ_RE.match(basename)
+        if m is not None:
+            fc = m.group("flowcell")
+            flowcells.setdefault(raw_dir, set()).add(fc)
+            libraries.setdefault((raw_dir, fc), set()).add(
+                (
+                    m.group("group"),
+                    m.group("assay"),
+                    m.group("sample"),
+                    m.group("lane"),
+                    m.group("chunk"),
+                )
+            )
+            continue
+
+        for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+            if basename.endswith(suffix):
+                candidate = basename[: -len(suffix)]
+                # A flowcell ID carries no separator, which is what lets the
+                # fastq regex split it off at the first hyphen. Without this
+                # guard a stray "FOO-BAR-Logs.gzip" would register flowcell
+                # "FOO-BAR" and invent seven missing artifacts for it; it
+                # belongs in the extra-files list instead.
+                if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
+                    flowcells.setdefault(raw_dir, set()).add(candidate)
+                break
+
+    all_good = 0
+    raw_lost: list[dict[str, Any]] = []
+    raw_found: list[str] = []
+
+    def _close(row: dict[str, Any]) -> None:
+        nonlocal all_good
+        if len(row) > 1:
+            raw_lost.append(row)
+        else:
+            all_good += 1
+
+    for raw_dir in sorted(flowcells):
+        for fc in sorted(flowcells[raw_dir]):
+            row: dict[str, Any] = {"path": f"{raw_dir}/{fc}"}
+            for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+                f = f"{raw_dir}/{fc}{suffix}"
+                if f in raw_found_set:
+                    raw_found.append(f)
+                else:
+                    row[suffix] = f
+            _close(row)
+
+            reads = list(planned_reads.get(fc) or ILLUMINA_DEFAULT_PLANNED_READS)
+            # One row per library+lane: a lane that lost a read is the unit an
+            # operator has to go back to the vendor about.
+            seen = libraries.get((raw_dir, fc), set())
+            units = sorted({(g, a, s, lane, chunk) for g, a, s, lane, chunk in seen})
+            for group, assay, sample, lane, chunk in units:
+                stem = f"{fc}-{group}_{assay}_S{sample}_L{lane}"
+                lib_row: dict[str, Any] = {"path": f"{raw_dir}/{stem}"}
+                for read in reads:
+                    fastq = f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz"
+                    sidecar = f"{fastq}-metadata.json"
+                    if fastq in raw_found_set:
+                        raw_found.append(fastq)
+                        # Only chase the sidecar when its fastq arrived;
+                        # otherwise one absent read is reported twice.
+                        if sidecar in raw_found_set:
+                            raw_found.append(sidecar)
+                        else:
+                            lib_row[f"{read}-metadata.json"] = sidecar
+                    else:
+                        lib_row[read] = fastq
+                _close(lib_row)
+
+    return all_good, raw_lost, raw_found
+
+
+def summarize_illumina_flowcells(
+    all_raw_files: list[str],
+    planned_reads: dict[str, list[str]] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    One row per (raw_dir, flowcell): what the RunParameters.xml planned, and
+    what actually arrived.
+
+    This is the Illumina counterpart of the Ultima wafer table -- the
+    per-delivery summary an operator reads before looking at any error file.
+    Lane counts are REPORTED, never enforced: a library may legitimately arrive
+    on any number of lanes, so the count is information rather than a check.
+    """
+    planned_reads = planned_reads or {}
+    lanes: dict[tuple[str, str], set[str]] = {}
+    libraries: dict[tuple[str, str], set[tuple[str, str, str]]] = {}
+    fastqs: dict[tuple[str, str], int] = {}
+    seen: set[tuple[str, str]] = set()
+
+    for fullpath in all_raw_files:
+        raw_dir = "/".join(fullpath.split("/")[:-1])
+        basename = fullpath.split("/")[-1]
+
+        m = ILLUMINA_FASTQ_RE.match(basename)
+        if m is not None:
+            key = (raw_dir, m.group("flowcell"))
+            seen.add(key)
+            lanes.setdefault(key, set()).add(f"L{m.group('lane')}")
+            libraries.setdefault(key, set()).add(
+                (m.group("group"), m.group("assay"), m.group("sample"))
+            )
+            fastqs[key] = fastqs.get(key, 0) + 1
+            continue
+
+        for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
+            if basename.endswith(suffix):
+                candidate = basename[: -len(suffix)]
+                if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
+                    seen.add((raw_dir, candidate))
+                break
+
+    rows: list[dict[str, Any]] = []
+    for raw_dir, flowcell in sorted(seen):
+        key = (raw_dir, flowcell)
+        reads = planned_reads.get(flowcell)
+        rows.append(
+            {
+                "raw_dir": raw_dir,
+                "flowcell": flowcell,
+                "planned_reads": (
+                    ", ".join(reads)
+                    if reads
+                    else f"UNKNOWN (no readable {flowcell}"
+                    f"{ILLUMINA_RUN_PARAMETERS_SUFFIX}; assumed "
+                    + ", ".join(ILLUMINA_DEFAULT_PLANNED_READS)
+                    + ")"
+                ),
+                "lane_count": len(lanes.get(key, set())),
+                "lanes": ", ".join(sorted(lanes.get(key, set()))),
+                "library_count": len(libraries.get(key, set())),
+                "fastq_count": fastqs.get(key, 0),
+            }
+        )
+    return rows
+
+
 def check_expected_raw_files(
     all_raw_files: list[str],
     raw_assay: str,
     *,
     allow_truncated_stats_name: bool = False,
+    sequencing_type: str = "Ultima",
+    planned_reads: dict[str, list[str]] | None = None,
 ) -> tuple[int, list[dict[str, Any]], list[str]]:
     """
     Check that expected raw file endings are present for each "beginning".
@@ -527,7 +762,15 @@ def check_expected_raw_files(
     ``<beginning>_trimmer-stats.csv`` is treated as fulfilled if the sibling
     ``<beginning>_stats.csv`` is present in ``all_raw_files``; that sibling
     is then added to ``raw_found`` so it is not double-flagged as extra.
+
+    ``sequencing_type="Illumina"`` delegates to
+    ``_check_expected_illumina_raw_files``: an Illumina delivery is not shaped
+    like a set of endings hung off a library beginning, so it gets its own
+    traversal rather than an entry in ``raw_expected``.
     """
+    if sequencing_type == "Illumina":
+        return _check_expected_illumina_raw_files(all_raw_files, planned_reads)
+
     # Keyed by (raw_dir, beginning) for seahub_sci, and by the beginning alone
     # for everything else.
     #
@@ -684,6 +927,7 @@ def check_extra_raw_files(
     raw_assay: str,
     *,
     allow_truncated_stats_name: bool = False,
+    sequencing_type: str = "Ultima",
 ) -> list[str]:
     """
     Identify raw files that are not in the expected set (optionals allowed).
@@ -697,6 +941,23 @@ def check_extra_raw_files(
     """
     raw_found_set = set(raw_found)
     all_raw_set = set(all_raw_files)
+
+    if sequencing_type == "Illumina":
+        # There are no optional Illumina endings to reconstruct: the Illumina
+        # completeness pass already put every flowcell file, fastq and sidecar
+        # it matched into raw_found, so whatever is left really is unexpected.
+        # The sidecar rule still applies, for the same reason it does below --
+        # a sidecar beside a file we know about is not itself a stray.
+        return [
+            f
+            for f in all_raw_files
+            if f not in raw_found_set
+            and not (
+                f.endswith("-metadata.json")
+                and f.replace("-metadata.json", "") in all_raw_set
+            )
+        ]
+
     optional_endings = raw_optional.get(raw_assay, [])
     if raw_assay == "10x_viral_ORF":
         optional_endings = raw_optional.get("10x", [])

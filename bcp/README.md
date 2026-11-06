@@ -874,6 +874,53 @@ For `bcp/qa.ipynb` and `qa_gather` raw-file validation, 10x group comparisons no
 
 This avoids false-positive group errors when providers use different separators between folder names and file names.
 
+### Illumina deliveries (`sequencing_type='Illumina'`)
+
+`bcp/qa.ipynb` assumes **Ultima** (UG100) by default: wafers, the Ultima trimmer
+(`_trimmer-stats.csv`, `_trimmer-failure_codes.csv`), RSQ reads, and fastqs the trimmer emits under
+the single literal name `_S1_L001_R1_001.fastq.gz`.
+
+Set the cell-1 parameter `sequencing_type = "Illumina"` to QA an Illumina delivery instead. It is
+supported for **`raw_assay='10x'` only** — every other assay is a CRAM/trimmer pipeline with no
+flowcell concept, and `resolve_qa_run_context` raises on the combination rather than quietly
+checking the wrong thing.
+
+Expected layout, flat in one directory (`{proj}/{Order#}/{GroupID}/raw/`):
+
+- Eight per-flowcell run files, `{FC}` being the Flowcell ID — `{FC}_CopyComplete.txt`,
+  `{FC}_Manifest.tsv`, `{FC}_RTAComplete.txt`, `{FC}_RTAExited.txt`,
+  `{FC}_RunCompletionStatus.xml`, `{FC}_RunInfo.xml`, `{FC}_RunParameters.xml` and
+  `{FC}-Logs.gzip` (the only hyphen-separated one).
+- Fastqs `{FC}-{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz`, each with its
+  `*.fastq.gz-metadata.json` sidecar. A group may span several flowcells; each is checked
+  independently.
+
+**Which reads are required is read from `{FC}_RunParameters.xml`**, not assumed: its `<PlannedReads>`
+block maps `Read1→R1`, `Read2→R2`, `Index1→I1`, `Index2→I2`, so a run with no index reads requires
+two fastqs per lane and a dual-indexed run requires four. If that file is missing or unparseable, QA
+warns and falls back to requiring R1/R2.
+
+**Lanes are reported, never enforced.** A library may arrive on any number of lanes. The cell that
+shows the wafer table under Ultima shows a per-flowcell table instead — planned reads, lane count,
+library count — and writes `{order}_illumina_flowcells.csv`.
+
+Checks that do not run under Illumina, each printing why rather than passing silently:
+
+| Check | Reason |
+| --- | --- |
+| Sublibrary Q30 | `PCT_PF_Q30_bases` lives in the Ultima trimmer's aggregate stats CSV, which is not delivered |
+| Trimmer / RSQ fail-rate plots | no `trimmer-failure_codes.csv` in an Illumina delivery |
+| Wafer-level summary | no wafers; replaced by the flowcell table |
+
+Two shared behaviours also change, in ways that are no-ops for Ultima:
+
+- **Index reads are excluded from group read totals.** `I1`/`I2` sidecars carry a `read_count` equal
+  to the library's, so summing them inflated raw reads about threefold and broke the
+  raw-vs-CellRanger comparison. No Ultima assay ships index sidecars. ATAC's `R3` is still counted.
+- **Fastq-count validation compares libraries, not files.** An Illumina library contributes
+  `reads x lanes` files, so comparing GEX against CRI file counts reported a mismatch whenever the
+  two modalities ran on a different number of lanes.
+
 ### SeaHub lab raw QA (`raw_assay='seahub_sci'`)
 
 Collaborator lab trimmed uploads (`czi-{lab}`, `{lab}-seahub-bcp`) are QA'd in

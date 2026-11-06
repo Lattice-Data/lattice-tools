@@ -35,7 +35,11 @@ from qa_checks import (
     check_extra_raw_files,
     validate_read_metadata,
 )
-from qa_constants import raw_expected, raw_optional
+from qa_constants import (
+    ILLUMINA_FLOWCELL_FILE_SUFFIXES,
+    raw_expected,
+    raw_optional,
+)
 from qa_mods import parse_raw_filename
 
 # A well-formed 10x beginning: parse_raw_filename's regex matches it, so the
@@ -247,6 +251,35 @@ class TestNonSeahubAssayBaseline:
         assert raw_optional["10x_cram"] == ["_extract_stats.h5"]
         assert raw_expected["scale"] == []
         assert raw_optional["scale"] == []
+
+    def test_illumina_flowcell_file_set_is_frozen(self):
+        """The eight per-flowcell run files, in the delivery's own order.
+
+        Same policy as the sets above: a baseline, not a mirror of the
+        constant. A change here is a deliberate statement that the delivery
+        shape changed, and belongs in the commit message. The last entry is
+        hyphen-separated while the other seven use an underscore -- that
+        asymmetry is in the vendor's naming, not a typo.
+        """
+        assert ILLUMINA_FLOWCELL_FILE_SUFFIXES == (
+            "_CopyComplete.txt",
+            "_Manifest.tsv",
+            "_RTAComplete.txt",
+            "_RTAExited.txt",
+            "_RunCompletionStatus.xml",
+            "_RunInfo.xml",
+            "_RunParameters.xml",
+            "-Logs.gzip",
+        )
+
+    def test_illumina_leaves_the_ultima_tables_alone(self):
+        """Illumina is its own traversal, not a raw_expected key.
+
+        Adding one would silently change what every Ultima 10x delivery is
+        checked against -- the regression the frozen lists above exist for.
+        """
+        assert "illumina" not in {k.lower() for k in raw_expected}
+        assert "illumina" not in {k.lower() for k in raw_optional}
 
 
 class TestScaleBaseline:
