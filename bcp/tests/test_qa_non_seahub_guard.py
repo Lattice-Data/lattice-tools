@@ -257,9 +257,7 @@ class TestNonSeahubAssayBaseline:
 
         Same policy as the sets above: a baseline, not a mirror of the
         constant. A change here is a deliberate statement that the delivery
-        shape changed, and belongs in the commit message. The last entry is
-        hyphen-separated while the other seven use an underscore -- that
-        asymmetry is in the vendor's naming, not a typo.
+        shape changed, and belongs in the commit message.
         """
         assert ILLUMINA_FLOWCELL_FILE_SUFFIXES == (
             "_CopyComplete.txt",
@@ -269,7 +267,7 @@ class TestNonSeahubAssayBaseline:
             "_RunCompletionStatus.xml",
             "_RunInfo.xml",
             "_RunParameters.xml",
-            "-Logs.gzip",
+            "_Logs.gzip",
         )
 
     def test_illumina_leaves_the_ultima_tables_alone(self):

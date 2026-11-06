@@ -322,7 +322,7 @@ raw_optional = {
 #   {proj}/{Order#}/{GroupID}/raw/
 #       {FlowcellID}_CopyComplete.txt           <- eight flowcell-level files
 #       ...
-#       {FlowcellID}-{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
+#       {FlowcellID}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
 #       ...and a *-metadata.json sidecar beside each fastq.
 #
 # This does not fit the "beginning + endings" model the Ultima tables above
@@ -340,9 +340,9 @@ ALLOWED_SEQUENCING_TYPES = frozenset(("Ultima", "Illumina"))
 # Assays an Illumina delivery is supported for.
 ILLUMINA_RAW_ASSAYS = frozenset(("10x",))
 
-# The eight files expected once per flowcell.  ``-Logs.gzip`` is the one
-# hyphen-separated member; the separator is part of the suffix so a single
-# concatenation against the flowcell ID builds every expected name.
+# The eight files expected once per flowcell.  The separator is part of each
+# suffix so a single concatenation against the flowcell ID builds every
+# expected name.
 ILLUMINA_FLOWCELL_FILE_SUFFIXES = (
     "_CopyComplete.txt",
     "_Manifest.tsv",
@@ -351,24 +351,29 @@ ILLUMINA_FLOWCELL_FILE_SUFFIXES = (
     "_RunCompletionStatus.xml",
     "_RunInfo.xml",
     "_RunParameters.xml",
-    "-Logs.gzip",
+    "_Logs.gzip",
 )
 
 # The flowcell file carrying <PlannedReads>, which says which reads to expect.
 ILLUMINA_RUN_PARAMETERS_SUFFIX = "_RunParameters.xml"
 
 # A flowcell ID carries no separator (e.g. 22YKTVLT4). Required so a stray
-# "FOO-BAR-Logs.gzip" is not read as a flowcell named "FOO-BAR".
+# "FOO-BAR_Logs.gzip" is not read as a flowcell named "FOO-BAR".
 ILLUMINA_FLOWCELL_ID_RE = re.compile(r"^[A-Za-z0-9]+$")
 
-# {FlowcellID}-{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
+# {FlowcellID}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
+# e.g. B23YTVYLT4_BCP_1_U3_GEX_S3_L002_R1_001.fastq.gz
 #
-# ``flowcell`` is anchored as [^-]+ before the first hyphen and ``group`` is
-# non-greedy, so a GroupID containing hyphens still parses.  A flowcell ID
-# containing a hyphen would not; this regex is the single place to widen if
-# that ever shows up in a real delivery.
+# Every separator is an underscore, and a GroupID may contain more of them
+# (``BCP_1_U3``), so the flowcell is found by its shape rather than by a unique
+# delimiter: it is alphanumeric -- the same rule as ILLUMINA_FLOWCELL_ID_RE -- so
+# it ends at the first underscore.  ``group`` is non-greedy and ends where the
+# assay token is followed by ``_S{n}_L{lane}``, which is what keeps an assay-
+# shaped word inside a GroupID from being taken as the assay.  A flowcell ID
+# containing a non-alphanumeric character would not parse; this regex is the
+# single place to widen if that ever shows up in a real delivery.
 ILLUMINA_FASTQ_RE = re.compile(
-    rf"^(?P<flowcell>[^-]+)-(?P<group>.+?)_(?P<assay>{ASSAY_ALTERNATION})"
+    rf"^(?P<flowcell>[A-Za-z0-9]+)_(?P<group>.+?)_(?P<assay>{ASSAY_ALTERNATION})"
     r"_S(?P<sample>\d+)_L(?P<lane>\d{3})_(?P<read>R[123]|I[12])_(?P<chunk>\d+)"
     r"\.fastq\.gz$"
 )

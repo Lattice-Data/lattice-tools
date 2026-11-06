@@ -1184,7 +1184,7 @@ def parse_raw_filename(f, raw_assay, *, sequencing_type: str = "Ultima"):
     Otherwise, parse 10x/sci filenames from the right so group IDs can include hyphens.
 
     Under ``sequencing_type="Illumina"`` the name is a bcl-convert fastq,
-    ``{FlowcellID}-{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz``, which has
+    ``{FlowcellID}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz``, which has
     no UG index or barcode. The five-tuple is kept so every caller
     (``_process_raw_file``'s group/assay checks, ``fastq_log``,
     ``validate_read_metadata``) works unchanged, with ``run`` carrying the

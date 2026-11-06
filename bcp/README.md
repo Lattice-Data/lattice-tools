@@ -890,8 +890,9 @@ Expected layout, flat in one directory (`{proj}/{Order#}/{GroupID}/raw/`):
 - Eight per-flowcell run files, `{FC}` being the Flowcell ID — `{FC}_CopyComplete.txt`,
   `{FC}_Manifest.tsv`, `{FC}_RTAComplete.txt`, `{FC}_RTAExited.txt`,
   `{FC}_RunCompletionStatus.xml`, `{FC}_RunInfo.xml`, `{FC}_RunParameters.xml` and
-  `{FC}-Logs.gzip` (the only hyphen-separated one).
-- Fastqs `{FC}-{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz`, each with its
+  `{FC}_Logs.gzip`.
+- Fastqs `{FC}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz` (e.g.
+  `B23YTVYLT4_BCP_1_U3_GEX_S3_L002_R1_001.fastq.gz`), each with its
   `*.fastq.gz-metadata.json` sidecar. A group may span several flowcells; each is checked
   independently.
 
@@ -901,8 +902,9 @@ two fastqs per lane and a dual-indexed run requires four. If that file is missin
 warns and falls back to requiring R1/R2.
 
 **Lanes are reported, never enforced.** A library may arrive on any number of lanes. The cell that
-shows the wafer table under Ultima shows a per-flowcell table instead — planned reads, lane count,
-library count — and writes `{order}_illumina_flowcells.csv`.
+shows the wafer table under Ultima shows a per-GroupID, per-flowcell table instead — planned
+reads, whether every library-lane set has all of them (`planned_reads_found`), lanes, library
+count, and total R1 `read_count` summed from the fastq `metadata.json` sidecars — and writes `{order}_illumina_flowcells.csv`.
 
 Checks that do not run under Illumina, each printing why rather than passing silently:
 

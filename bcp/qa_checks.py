@@ -580,7 +580,7 @@ def _check_expected_illumina_raw_files(
     kinds of thing:
 
     * **Per flowcell** -- the eight run files
-      (``{FC}_CopyComplete.txt`` ... ``{FC}-Logs.gzip``). One set per flowcell,
+      (``{FC}_CopyComplete.txt`` ... ``{FC}_Logs.gzip``). One set per flowcell,
       not one per library, so these cannot be expressed as endings on a
       library "beginning" the way the Ultima tables are.
     * **Per library and lane** -- one fastq for each planned read, plus that
@@ -623,9 +623,9 @@ def _check_expected_illumina_raw_files(
         for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
             if basename.endswith(suffix):
                 candidate = basename[: -len(suffix)]
-                # A flowcell ID carries no separator, which is what lets the
-                # fastq regex split it off at the first hyphen. Without this
-                # guard a stray "FOO-BAR-Logs.gzip" would register flowcell
+                # A flowcell ID is alphanumeric, which is what lets the fastq
+                # regex split it off at the first underscore. Without this
+                # guard a stray "FOO-BAR_Logs.gzip" would register flowcell
                 # "FOO-BAR" and invent seven missing artifacts for it; it
                 # belongs in the extra-files list instead.
                 if ILLUMINA_FLOWCELL_ID_RE.match(candidate):
@@ -660,7 +660,7 @@ def _check_expected_illumina_raw_files(
             seen = libraries.get((raw_dir, fc), set())
             units = sorted({(g, a, s, lane, chunk) for g, a, s, lane, chunk in seen})
             for group, assay, sample, lane, chunk in units:
-                stem = f"{fc}-{group}_{assay}_S{sample}_L{lane}"
+                stem = f"{fc}_{group}_{assay}_S{sample}_L{lane}"
                 lib_row: dict[str, Any] = {"path": f"{raw_dir}/{stem}"}
                 for read in reads:
                     fastq = f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz"
@@ -680,9 +680,46 @@ def _check_expected_illumina_raw_files(
     return all_good, raw_lost, raw_found
 
 
+def _illumina_r1_read_counts(
+    read_metadata: dict[str, Any] | None,
+) -> dict[tuple[str, str], int]:
+    """Sum metadata.json ``read_count`` over every R1 fastq, by (raw_dir, flowcell).
+
+    R1 only: each library-lane has exactly one R1, and its count is the number
+    of reads in that library-lane. Adding R2 or the index reads would count the
+    same reads again.
+
+    Each entry is located by ``__source_key``, the sidecar's full S3 key set by
+    the gather step -- the dict key itself is a basename or an s3:// URI
+    depending on the payload, so it cannot be relied on for the directory.
+    Entries with errors or no ``read_count`` are skipped, as in
+    validate_read_metadata.
+    """
+    totals: dict[tuple[str, str], int] = {}
+    for key, meta in (read_metadata or {}).items():
+        if not isinstance(meta, dict) or meta.get("errors"):
+            continue
+        reads = meta.get("read_count")
+        if not isinstance(reads, int) or isinstance(reads, bool):
+            continue
+        source = str(meta.get("__source_key") or key)
+        if source.startswith("s3://"):
+            source = source.split("/", 3)[-1]
+        if source.endswith("-metadata.json"):
+            source = source[: -len("-metadata.json")]
+        m = ILLUMINA_FASTQ_RE.match(source.split("/")[-1])
+        if m is None or m.group("read") != "R1":
+            continue
+        raw_dir = "/".join(source.split("/")[:-1])
+        k = (raw_dir, m.group("flowcell"))
+        totals[k] = totals.get(k, 0) + reads
+    return totals
+
+
 def summarize_illumina_flowcells(
     all_raw_files: list[str],
     planned_reads: dict[str, list[str]] | None = None,
+    read_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     One row per (raw_dir, flowcell): what the RunParameters.xml planned, and
@@ -690,13 +727,22 @@ def summarize_illumina_flowcells(
 
     This is the Illumina counterpart of the Ultima wafer table -- the
     per-delivery summary an operator reads before looking at any error file.
-    Lane counts are REPORTED, never enforced: a library may legitimately arrive
-    on any number of lanes, so the count is information rather than a check.
+    Lanes are REPORTED, never enforced: a library may legitimately arrive on
+    any number of lanes, so the set is information rather than a check.
+
+    ``planned_reads_found`` is the one check in the table: True only when every
+    library-lane set that arrived -- every distinct
+    ``{FC}_{GroupID}_{Assay}_S{n}_L00#`` stem -- has a fastq for each planned
+    read. False when any set is short one, or when the flowcell has no fastqs
+    at all. Which files are missing is in ``{order}_raw_missing.csv``.
     """
     planned_reads = planned_reads or {}
+    r1_reads = _illumina_r1_read_counts(read_metadata)
     lanes: dict[tuple[str, str], set[str]] = {}
     libraries: dict[tuple[str, str], set[tuple[str, str, str]]] = {}
-    fastqs: dict[tuple[str, str], int] = {}
+    # (raw_dir, flowcell) -> {(stem, chunk)}: the library-lane sets that arrived
+    lane_sets: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    present: set[str] = set()
     seen: set[tuple[str, str]] = set()
 
     for fullpath in all_raw_files:
@@ -711,7 +757,12 @@ def summarize_illumina_flowcells(
             libraries.setdefault(key, set()).add(
                 (m.group("group"), m.group("assay"), m.group("sample"))
             )
-            fastqs[key] = fastqs.get(key, 0) + 1
+            stem = (
+                f"{m.group('flowcell')}_{m.group('group')}_{m.group('assay')}"
+                f"_S{m.group('sample')}_L{m.group('lane')}"
+            )
+            lane_sets.setdefault(key, set()).add((stem, m.group("chunk")))
+            present.add(f"{raw_dir}/{basename}")
             continue
 
         for suffix in ILLUMINA_FLOWCELL_FILE_SUFFIXES:
@@ -721,12 +772,29 @@ def summarize_illumina_flowcells(
                     seen.add((raw_dir, candidate))
                 break
 
+    def _all_planned_reads_found(key: tuple[str, str], reads: list[str]) -> bool:
+        sets = lane_sets.get(key, set())
+        if not sets:
+            return False
+        raw_dir = key[0]
+        return all(
+            f"{raw_dir}/{stem}_{read}_{chunk}.fastq.gz" in present
+            for stem, chunk in sets
+            for read in reads
+        )
+
     rows: list[dict[str, Any]] = []
     for raw_dir, flowcell in sorted(seen):
         key = (raw_dir, flowcell)
         reads = planned_reads.get(flowcell)
+        # {proj}/{Order#}/{GroupID}/raw -> GroupID. Carried as its own column
+        # because the table is read per GroupID; raw_dir stays alongside it so
+        # a row is still traceable to the exact prefix it was built from.
+        parts = raw_dir.split("/")
+        group_id = parts[-2] if len(parts) >= 2 and parts[-1] == "raw" else ""
         rows.append(
             {
+                "group_id": group_id,
                 "raw_dir": raw_dir,
                 "flowcell": flowcell,
                 "planned_reads": (
@@ -737,10 +805,14 @@ def summarize_illumina_flowcells(
                     + ", ".join(ILLUMINA_DEFAULT_PLANNED_READS)
                     + ")"
                 ),
-                "lane_count": len(lanes.get(key, set())),
+                # Falls back to R1/R2 when the XML is unusable, the same
+                # requirement the expected-files check applies.
+                "planned_reads_found": _all_planned_reads_found(
+                    key, list(reads or ILLUMINA_DEFAULT_PLANNED_READS)
+                ),
                 "lanes": ", ".join(sorted(lanes.get(key, set()))),
                 "library_count": len(libraries.get(key, set())),
-                "fastq_count": fastqs.get(key, 0),
+                "read_count": r1_reads.get(key, 0),
             }
         )
     return rows

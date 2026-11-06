@@ -9,7 +9,7 @@ An Illumina delivery is a different shape, and this module pins it:
         {FC}_CopyComplete.txt             -- eight per-flowcell run files
         ...
         {FC}_RunParameters.xml            -- says which reads to expect
-        {FC}-{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
+        {FC}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz
         ...each with a -metadata.json sidecar
 
 Two properties are load-bearing and are asserted here rather than assumed:
@@ -84,7 +84,7 @@ def fastqs(
     out = []
     for lane in lanes:
         for read in reads:
-            f = f"{raw_dir}/{flowcell}-{group}_{assay}_S{sample}_L{lane}_{read}_001.fastq.gz"
+            f = f"{raw_dir}/{flowcell}_{group}_{assay}_S{sample}_L{lane}_{read}_001.fastq.gz"
             if (read, lane) in omit:
                 continue
             out.append(f)
@@ -176,7 +176,7 @@ class TestParsePlannedReads:
 
 
 class TestParseRawFilenameIllumina:
-    NAME = f"{RAW}/{FC}-G1_GEX_S3_L002_R1_001.fastq.gz"
+    NAME = f"{RAW}/{FC}_G1_GEX_S3_L002_R1_001.fastq.gz"
 
     def test_parses_into_the_five_tuple(self):
         assert parse_raw_filename(self.NAME, "10x", sequencing_type="Illumina") == (
@@ -188,7 +188,7 @@ class TestParseRawFilenameIllumina:
         )
 
     def test_group_id_containing_a_hyphen(self):
-        name = f"{RAW}/{FC}-LAT-123_GEX_S1_L001_R2_001.fastq.gz"
+        name = f"{RAW}/{FC}_LAT-123_GEX_S1_L001_R2_001.fastq.gz"
         run, group, assay, _, _ = parse_raw_filename(
             name, "10x", sequencing_type="Illumina"
         )
@@ -196,8 +196,32 @@ class TestParseRawFilenameIllumina:
         # the folder name and raises WRONG GROUP on a mismatch.
         assert (run, group, assay) == (FC, "LAT-123", "GEX")
 
+    def test_the_delivery_spec_example(self):
+        # A GroupID made of underscore-separated parts, as real deliveries are.
+        name = f"{RAW}/B23YTVYLT4_BCP_1_U3_GEX_S3_L002_R1_001.fastq.gz"
+        assert parse_raw_filename(name, "10x", sequencing_type="Illumina") == (
+            "B23YTVYLT4",
+            "BCP_1_U3",
+            "GEX",
+            "S3",
+            "L002",
+        )
+
+    def test_an_assay_shaped_word_inside_the_group_id(self):
+        # "CRI" is an assay token, but it is not followed by _S{n}_L{lane}, so
+        # the group runs through it and GEX is the assay.
+        name = f"{RAW}/{FC}_CRI_POOL_GEX_S2_L001_R1_001.fastq.gz"
+        _, group, assay, _, _ = parse_raw_filename(
+            name, "10x", sequencing_type="Illumina"
+        )
+        assert (group, assay) == ("CRI_POOL", "GEX")
+
+    def test_the_hyphenated_form_is_not_illumina(self):
+        name = f"{RAW}/{FC}-G1_GEX_S1_L001_R1_001.fastq.gz"
+        assert parse_raw_filename(name, "10x", sequencing_type="Illumina") is None
+
     def test_combined_assay_token_is_not_split(self):
-        name = f"{RAW}/{FC}-G1_GEX_hash_oligo_S1_L001_R1_001.fastq.gz"
+        name = f"{RAW}/{FC}_G1_GEX_hash_oligo_S1_L001_R1_001.fastq.gz"
         assert parse_raw_filename(name, "10x", sequencing_type="Illumina")[2] == (
             "GEX_hash_oligo"
         )
@@ -210,14 +234,16 @@ class TestParseRawFilenameIllumina:
             is None
         )
 
-    def test_no_ultima_fallback_under_illumina(self):
-        # The Ultima fallback splitter would read a hyphenated name as a
-        # library and invent an assay token, firing WRONG ASSAY on every
-        # flowcell file in the delivery.
+    @pytest.mark.parametrize("suffix", ILLUMINA_FLOWCELL_FILE_SUFFIXES)
+    def test_no_run_file_parses_as_a_library(self, suffix):
+        """None of the eight may reach the Ultima fallback splitter.
+
+        That splitter cannot tell group from assay, so it invents an assay
+        token for whatever it is handed -- which would fire WRONG ASSAY on
+        every flowcell run file in the delivery.
+        """
         assert (
-            parse_raw_filename(
-                f"{RAW}/{FC}-Logs.gzip", "10x", sequencing_type="Illumina"
-            )
+            parse_raw_filename(f"{RAW}/{FC}{suffix}", "10x", sequencing_type="Illumina")
             is None
         )
 
@@ -257,10 +283,9 @@ class TestIlluminaExpectedFiles:
         assert rows[0]["_RTAExited.txt"] == f"{RAW}/{FC}_RTAExited.txt"
 
     def test_missing_logs_gzip_is_reported(self):
-        # The one hyphen-separated run file, so it gets its own case.
-        keys = flowcell_files(omit=("-Logs.gzip",)) + fastqs()
+        keys = flowcell_files(omit=("_Logs.gzip",)) + fastqs()
         _, raw_lost, _ = self._check(keys, planned={FC: ["R1", "R2"]})
-        assert any(r.get("-Logs.gzip") == f"{RAW}/{FC}-Logs.gzip" for r in raw_lost)
+        assert any(r.get("_Logs.gzip") == f"{RAW}/{FC}_Logs.gzip" for r in raw_lost)
 
     def test_read_missing_on_one_lane_only(self):
         keys = flowcell_files() + fastqs(lanes=("001", "002"), omit=(("R2", "002"),))
@@ -280,7 +305,7 @@ class TestIlluminaExpectedFiles:
 
     def test_missing_sidecar_is_reported(self):
         keys = flowcell_files() + fastqs(reads=("R1", "R2"))
-        keys.remove(f"{RAW}/{FC}-G1_GEX_S1_L001_R2_001.fastq.gz-metadata.json")
+        keys.remove(f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz-metadata.json")
         _, raw_lost, _ = self._check(keys, planned={FC: ["R1", "R2"]})
         rows = [r for r in raw_lost if "R2-metadata.json" in r]
         assert len(rows) == 1
@@ -341,7 +366,7 @@ class TestIlluminaExtraFiles:
 
     def test_a_stray_file_is_flagged(self):
         stray = f"{RAW}/leftover.bam"
-        ultima_stray = f"{RAW}/{FC}-G1_GEX_S1_L001_trimmer-stats.csv"
+        ultima_stray = f"{RAW}/{FC}_G1_GEX_S1_L001_trimmer-stats.csv"
         keys = flowcell_files() + fastqs() + [stray, ultima_stray]
         _, _, raw_found = check_expected_raw_files(
             keys,
@@ -366,9 +391,137 @@ class TestIlluminaFlowcellSummary:
         assert len(rows) == 1
         assert rows[0]["flowcell"] == FC
         assert rows[0]["planned_reads"] == "R1, R2"
-        assert rows[0]["lane_count"] == 4
         assert rows[0]["lanes"] == "L001, L002, L003, L004"
         assert rows[0]["library_count"] == 2
+
+    def test_columns_lead_with_group_id(self):
+        """The table is read per GroupID, so that column comes first."""
+        rows = summarize_illumina_flowcells(
+            flowcell_files() + fastqs(), {FC: ["R1", "R2"]}
+        )
+        assert list(rows[0]) == [
+            "group_id",
+            "raw_dir",
+            "flowcell",
+            "planned_reads",
+            "planned_reads_found",
+            "lanes",
+            "library_count",
+            "read_count",
+        ]
+        assert rows[0]["group_id"] == "G1"
+
+    @staticmethod
+    def _meta(reads_by_name, raw_dir=RAW):
+        """read_metadata as the gather step builds it, keyed by basename."""
+        return {
+            name: {
+                "read_count": n,
+                "errors": [],
+                "__source_key": f"{raw_dir}/{name}-metadata.json",
+            }
+            for name, n in reads_by_name.items()
+        }
+
+    def test_read_count_sums_r1_only_across_libraries_and_lanes(self):
+        keys = (
+            flowcell_files()
+            + fastqs(reads=("R1", "I1", "R2"), lanes=("001", "002"))
+            + fastqs(reads=("R1", "I1", "R2"), lanes=("001",), assay="CRI", sample="2")
+        )
+        meta = self._meta(
+            {
+                f"{FC}_G1_GEX_S1_L001_R1_001.fastq.gz": 10_000_000,
+                f"{FC}_G1_GEX_S1_L002_R1_001.fastq.gz": 12_000_000,
+                f"{FC}_G1_CRI_S2_L001_R1_001.fastq.gz": 3_000_000,
+                # Same reads again -- must not be added.
+                f"{FC}_G1_GEX_S1_L001_R2_001.fastq.gz": 10_000_000,
+                f"{FC}_G1_GEX_S1_L001_I1_001.fastq.gz": 10_000_000,
+            }
+        )
+        rows = summarize_illumina_flowcells(keys, {FC: ["R1", "I1", "R2"]}, meta)
+        assert rows[0]["read_count"] == 25_000_000
+
+    def test_read_count_is_per_group_and_flowcell(self):
+        other_dir = "testproj/ORD01/G2/raw"
+        keys = (
+            flowcell_files()
+            + fastqs()
+            + flowcell_files(raw_dir=other_dir)
+            + fastqs(raw_dir=other_dir, group="G2")
+        )
+        meta = {
+            **self._meta({f"{FC}_G1_GEX_S1_L001_R1_001.fastq.gz": 4_000_000}),
+            # Same basename shape in a different folder: must land in G2's row.
+            "s3://czi-novogene/x/G2-r1": {
+                "read_count": 6_000_000,
+                "errors": [],
+                "__source_key": f"{other_dir}/{FC}_G2_GEX_S1_L001_R1_001.fastq.gz-metadata.json",
+            },
+        }
+        rows = {r["group_id"]: r for r in summarize_illumina_flowcells(keys, {}, meta)}
+        assert rows["G1"]["read_count"] == 4_000_000
+        assert rows["G2"]["read_count"] == 6_000_000
+
+    def test_errored_or_countless_sidecars_are_skipped(self):
+        keys = flowcell_files() + fastqs(lanes=("001", "002", "003"))
+        meta = self._meta(
+            {
+                f"{FC}_G1_GEX_S1_L001_R1_001.fastq.gz": 5_000_000,
+                f"{FC}_G1_GEX_S1_L002_R1_001.fastq.gz": 7_000_000,
+            }
+        )
+        meta[f"{FC}_G1_GEX_S1_L002_R1_001.fastq.gz"]["errors"] = ["truncated"]
+        meta[f"{FC}_G1_GEX_S1_L003_R1_001.fastq.gz"] = {
+            "errors": [],
+            "__source_key": f"{RAW}/{FC}_G1_GEX_S1_L003_R1_001.fastq.gz-metadata.json",
+        }
+        rows = summarize_illumina_flowcells(keys, {}, meta)
+        assert rows[0]["read_count"] == 5_000_000
+
+    def test_read_count_is_zero_without_metadata(self):
+        rows = summarize_illumina_flowcells(flowcell_files() + fastqs(), {})
+        assert rows[0]["read_count"] == 0
+
+    FOUR = ["R1", "I1", "I2", "R2"]
+
+    def test_planned_reads_found_when_every_lane_set_is_complete(self):
+        keys = (
+            flowcell_files()
+            + fastqs(reads=self.FOUR, lanes=("001", "002"))
+            + fastqs(reads=self.FOUR, lanes=("002",), assay="CRI", sample="3")
+        )
+        rows = summarize_illumina_flowcells(keys, {FC: self.FOUR})
+        assert rows[0]["planned_reads_found"] is True
+
+    def test_one_missing_read_in_one_lane_set_fails_the_row(self):
+        # The user's example: an ..._S3_L002 set without its I2 fastq.
+        keys = flowcell_files() + fastqs(
+            reads=self.FOUR, lanes=("001", "002"), sample="3", omit=(("I2", "002"),)
+        )
+        rows = summarize_illumina_flowcells(keys, {FC: self.FOUR})
+        assert rows[0]["planned_reads_found"] is False
+
+    def test_reads_not_planned_are_not_required(self):
+        keys = flowcell_files() + fastqs(reads=("R1", "R2"))
+        rows = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})
+        assert rows[0]["planned_reads_found"] is True
+        rows = summarize_illumina_flowcells(keys, {FC: self.FOUR})
+        assert rows[0]["planned_reads_found"] is False
+
+    def test_a_sidecar_does_not_stand_in_for_its_fastq(self):
+        keys = flowcell_files() + fastqs(reads=("R1", "R2"))
+        keys.remove(f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz")
+        rows = summarize_illumina_flowcells(keys, {FC: ["R1", "R2"]})
+        assert rows[0]["planned_reads_found"] is False
+
+    def test_a_flowcell_with_no_fastqs_is_not_found(self):
+        rows = summarize_illumina_flowcells(flowcell_files(), {FC: ["R1", "R2"]})
+        assert rows[0]["planned_reads_found"] is False
+
+    def test_unknown_planned_reads_fall_back_to_r1_r2(self):
+        keys = flowcell_files() + fastqs(reads=("R1", "R2"))
+        assert summarize_illumina_flowcells(keys, {})[0]["planned_reads_found"] is True
 
     def test_unknown_planned_reads_are_named_as_such(self):
         rows = summarize_illumina_flowcells(flowcell_files() + fastqs(), {})
@@ -382,12 +535,12 @@ class TestIlluminaFastqCounts:
         return {
             "G1": {
                 "GEX": [
-                    f"{FC}-G1_GEX_S1_L{lane}_{r}_001.fastq.gz"
+                    f"{FC}_G1_GEX_S1_L{lane}_{r}_001.fastq.gz"
                     for lane in gex_lanes
                     for r in ("R1", "I1", "I2", "R2")
                 ],
                 "CRI": [
-                    f"{FC}-G1_CRI_S2_L{lane}_{r}_001.fastq.gz"
+                    f"{FC}_G1_CRI_S2_L{lane}_{r}_001.fastq.gz"
                     for lane in cri_lanes
                     for r in ("R1", "I1", "I2", "R2")
                 ],
@@ -406,7 +559,7 @@ class TestIlluminaFastqCounts:
     def test_a_genuinely_absent_modality_library_is_still_reported(self):
         log = self._log(("001",), ("001",))
         log["G1"]["GEX"] += [
-            f"{FC}-G1_GEX_S9_L001_{r}_001.fastq.gz" for r in ("R1", "R2")
+            f"{FC}_G1_GEX_S9_L001_{r}_001.fastq.gz" for r in ("R1", "R2")
         ]
         errors = validate_fastq_counts(log, "10x", sequencing_type="Illumina")
         assert len(errors) == 1
@@ -418,7 +571,7 @@ class TestIndexReadsAreNotLibraryReads:
 
     def _metadata(self, reads):
         return {
-            f"{RAW}/{FC}-G1_GEX_S1_L001_{r}_001.fastq.gz": {"read_count": 5_000_000}
+            f"{RAW}/{FC}_G1_GEX_S1_L001_{r}_001.fastq.gz": {"read_count": 5_000_000}
             for r in reads
         }
 
@@ -433,7 +586,7 @@ class TestIndexReadsAreNotLibraryReads:
 
     def test_the_r1_r2_pair_is_still_compared(self):
         meta = self._metadata(("R1", "I1", "I2", "R2"))
-        meta[f"{RAW}/{FC}-G1_GEX_S1_L001_R2_001.fastq.gz"]["read_count"] = 4_999_999
+        meta[f"{RAW}/{FC}_G1_GEX_S1_L001_R2_001.fastq.gz"]["read_count"] = 4_999_999
         _, errors, _ = validate_read_metadata(meta, "10x", sequencing_type="Illumina")
         assert any("READ COUNT ERROR" in e for e in errors)
 
@@ -532,6 +685,23 @@ class TestIlluminaGather:
             FC: ["R1", "I1", "I2", "R2"],
             other: ["R1", "R2"],
         }
+
+    def test_a_multi_part_group_id_raises_no_wrong_group(self):
+        """The folder name and the filename's GroupID must agree end to end."""
+        raw = "testproj/ORD01/BCP_1_U3/raw"
+        fc = "B23YTVYLT4"
+        keys = flowcell_files(flowcell=fc, raw_dir=raw) + fastqs(
+            reads=("R1", "R2"),
+            lanes=("001", "002"),
+            group="BCP_1_U3",
+            sample="3",
+            flowcell=fc,
+            raw_dir=raw,
+            sidecars=False,
+        )
+        data = self._gather(keys, {f"{raw}/{fc}_RunParameters.xml": NO_INDEX_XML})
+        assert data.gathering_errors == []
+        assert len(data.fastq_log["BCP_1_U3"]["GEX"]) == 4
 
     def test_q30_is_skipped_but_not_silently(self):
         data = self._gather(*self._delivery())
