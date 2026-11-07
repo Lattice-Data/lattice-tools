@@ -43,7 +43,6 @@ from qa_constants import (
 )
 from qa_mods import (
     normalize_sequencing_type,
-    parse_planned_read_lengths,
     parse_planned_reads,
     parse_raw_filename,
     resolve_qa_run_context,
@@ -870,10 +869,6 @@ class TestIlluminaGather:
         data = self._gather(*self._delivery())
         assert data.illumina_planned_reads == {FC: ["R1", "I1", "I2", "R2"]}
 
-    def test_lanes_are_collected_per_flowcell(self):
-        data = self._gather(*self._delivery())
-        assert data.illumina_lanes == {FC: {"L001", "L002"}}
-
     def test_a_well_formed_delivery_raises_no_assay_or_group_errors(self):
         # The regression guard for the suppressed Ultima fallback: without it
         # every flowcell run file parses as a library with an invented assay.
@@ -895,12 +890,6 @@ class TestIlluminaGather:
         data = self._gather(keys, contents)
         assert data.illumina_planned_reads == {}
         assert any("RUN PARAMETERS UNREADABLE" in w for w in data.gathering_warnings)
-
-    def test_read_lengths_are_gathered_from_the_same_xml(self):
-        data = self._gather(*self._delivery())
-        assert data.illumina_read_lengths == {
-            FC: {"R1": 151, "I1": 10, "I2": 10, "R2": 151}
-        }
 
     def test_missing_xml_is_warned_once_not_once_per_group(self):
         # A different flowcell per group, none with its XML: the old loop
@@ -1204,31 +1193,6 @@ class TestLibrariesByModality:
 
     def test_empty(self):
         assert libraries_by_modality({}) == []
-
-
-class TestParsePlannedReadLengths:
-    def test_dual_index_run(self):
-        assert parse_planned_read_lengths(DUAL_INDEX_XML) == {
-            "R1": 151,
-            "I1": 10,
-            "I2": 10,
-            "R2": 151,
-        }
-
-    def test_two_read_run(self):
-        assert parse_planned_read_lengths(NO_INDEX_XML) == {"R1": 151, "R2": 151}
-
-    def test_missing_or_garbled_cycles_are_dropped(self):
-        xml = (
-            "<R><PlannedReads><Read ReadName='Read1' Cycles='151'/>"
-            "<Read ReadName='Index1' Cycles='ten'/><Read ReadName='Read2'/>"
-            "</PlannedReads></R>"
-        )
-        assert parse_planned_read_lengths(xml) == {"R1": 151}
-
-    def test_malformed_xml(self):
-        assert parse_planned_read_lengths("<broken") is None
-        assert parse_planned_read_lengths("<R/>") is None
 
 
 class TestReadLengthColumns:

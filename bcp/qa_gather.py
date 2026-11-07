@@ -41,7 +41,6 @@ from qa_mods import (
     is_valid_cellranger_run_dir_name,
     load_files_from_manifest,
     parse_pct_pf_q30_from_lines,
-    parse_planned_read_lengths,
     parse_planned_reads,
     parse_raw_filename,
     parse_scale_samples_csv,
@@ -122,12 +121,6 @@ class QAGatheredData:
     # A flowcell whose XML was missing or unreadable is absent, which is how the
     # completeness check knows to fall back rather than assume two reads.
     illumina_planned_reads: dict[str, list[str]] = field(default_factory=dict)
-    # Illumina-only: lanes seen per flowcell, e.g. {"22YKTVLT4": {"L001","L002"}}.
-    # Reported, not enforced -- lanes are accepted as they arrive.
-    illumina_lanes: dict[str, set[str]] = field(default_factory=dict)
-    # Illumina-only: expected length (Cycles) of each planned read per flowcell,
-    # from the same RunParameters.xml, e.g. {"22YKTVLT4": {"R1": 151, "I1": 10}}.
-    illumina_read_lengths: dict[str, dict[str, int]] = field(default_factory=dict)
 
 
 class QADataGatherer:
@@ -541,9 +534,6 @@ class QADataGatherer:
             m = ILLUMINA_FASTQ_RE.match(rf.split("/")[-1])
             if m is not None:
                 group_flowcells.add(m.group("flowcell"))
-                self._data.illumina_lanes.setdefault(m.group("flowcell"), set()).add(
-                    f"L{m.group('lane')}"
-                )
 
         for rf in raw_files:
             if not rf.endswith(ILLUMINA_RUN_PARAMETERS_SUFFIX):
@@ -551,10 +541,6 @@ class QADataGatherer:
             flowcell = rf.split("/")[-1][: -len(ILLUMINA_RUN_PARAMETERS_SUFFIX)]
             xml_text = self._read_illumina_run_parameters(rf)
             reads = parse_planned_reads(xml_text) if xml_text is not None else None
-            if xml_text is not None:
-                lengths = parse_planned_read_lengths(xml_text)
-                if lengths is not None:
-                    self._data.illumina_read_lengths[flowcell] = lengths
             if reads is None:
                 # Not an error: completeness falls back to the default read
                 # types and says so, more useful than failing the whole order.

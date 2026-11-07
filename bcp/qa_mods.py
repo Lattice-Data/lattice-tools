@@ -53,7 +53,6 @@ __all__ = [
     "is_valid_cellranger_run_dir_name",
     "normalize_raw_assay",
     "normalize_sequencing_type",
-    "parse_planned_read_lengths",
     "parse_planned_reads",
     "raw_expected",
     "raw_optional",
@@ -351,36 +350,6 @@ def parse_planned_reads(xml_text: str) -> list[str] | None:
         if token is not None and token not in reads:
             reads.append(token)
     return reads or None
-
-
-def parse_planned_read_lengths(xml_text: str) -> dict[str, int] | None:
-    """Expected length of each planned read, from ``RunParameters.xml``.
-
-    ``<Read ReadName="Read1" Cycles="151" />`` means every R1 read should be
-    151 bases. Returns e.g. ``{"R1": 151, "I1": 10, "I2": 10, "R2": 151}``,
-    using the same ReadName -> token map as ``parse_planned_reads``. A read with
-    a missing or non-integer ``Cycles`` is left out. Returns ``None`` when the
-    XML will not parse, has no ``PlannedReads``, or no read carries a usable
-    ``Cycles``.
-    """
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        return None
-    planned = root.find(".//PlannedReads")
-    if planned is None:
-        return None
-
-    lengths: dict[str, int] = {}
-    for read in planned.findall("Read"):
-        token = ILLUMINA_PLANNED_READ_MAP.get(read.get("ReadName", ""))
-        if token is None or token in lengths:
-            continue
-        try:
-            lengths[token] = int(read.get("Cycles", ""))
-        except ValueError:
-            continue
-    return lengths or None
 
 
 def resolve_qa_run_context(
