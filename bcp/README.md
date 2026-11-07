@@ -925,7 +925,8 @@ raw-vs-CellRanger comparison. No Ultima assay ships index sidecars. ATAC's `R3` 
 
 **GroupID by modality summary** (both platforms). One row per GroupID, one 0/1 column per modality:
 a library is unique to its GroupID and modality, however many wafers, flowcells or lanes it spans.
-After the table, a `MODALITY WARNING` names each modality that some GroupIDs lack. This replaces the
+After the table, a `MODALITY WARNING` names each modality that some GroupIDs lack; each warning is
+printed and appended to `{order}_errors.txt`. This replaces the
 old fastq-count comparison (`MISMATCH FQ COUNTS`), which no longer runs for either platform.
 
 ### SeaHub lab raw QA (`raw_assay='seahub_sci'`)
