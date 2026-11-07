@@ -919,14 +919,14 @@ Checks that do not run under Illumina, each printing why rather than passing sil
 | Trimmer / RSQ fail-rate plots | no `trimmer-failure_codes.csv` in an Illumina delivery |
 | Wafer-level summary | no wafers; replaced by the flowcell table |
 
-Two shared behaviours also change, in ways that are no-ops for Ultima:
+**Index reads are excluded from group read totals**, a no-op for Ultima. `I1`/`I2` sidecars carry a
+`read_count` equal to the library's, so summing them inflated raw reads about threefold and broke the
+raw-vs-CellRanger comparison. No Ultima assay ships index sidecars. ATAC's `R3` is still counted.
 
-- **Index reads are excluded from group read totals.** `I1`/`I2` sidecars carry a `read_count` equal
-  to the library's, so summing them inflated raw reads about threefold and broke the
-  raw-vs-CellRanger comparison. No Ultima assay ships index sidecars. ATAC's `R3` is still counted.
-- **Fastq-count validation compares libraries, not files.** An Illumina library contributes
-  `reads x lanes` files, so comparing GEX against CRI file counts reported a mismatch whenever the
-  two modalities ran on a different number of lanes.
+**GroupID by modality summary** (both platforms). One row per GroupID, one 0/1 column per modality:
+a library is unique to its GroupID and modality, however many wafers, flowcells or lanes it spans.
+After the table, a `MODALITY WARNING` names each modality that some GroupIDs lack. This replaces the
+old fastq-count comparison (`MISMATCH FQ COUNTS`), which no longer runs for either platform.
 
 ### SeaHub lab raw QA (`raw_assay='seahub_sci'`)
 

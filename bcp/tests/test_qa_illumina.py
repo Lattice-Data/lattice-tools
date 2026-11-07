@@ -27,13 +27,12 @@ from qa_checks import (
     check_expected_raw_files,
     format_read_count,
     libraries_by_modality,
+    missing_modality_warnings,
     split_missing_raw_files,
     check_extra_raw_files,
     count_files_by_type,
-    summarize_fastq_count_validation,
     summarize_illumina_flowcells,
     total_reads_by_flowcell,
-    validate_fastq_counts,
     validate_read_metadata,
 )
 from qa_constants import (
@@ -611,44 +610,6 @@ class TestIlluminaFlowcellSummary:
         assert rows[0]["expected_read_types"].startswith("UNKNOWN")
 
 
-class TestIlluminaFastqCounts:
-    """Lane counts differ legitimately between modalities; that is not a defect."""
-
-    def _log(self, gex_lanes, cri_lanes):
-        return {
-            "G1": {
-                "GEX": [
-                    f"{FC}_G1_GEX_S1_L{lane}_{r}_001.fastq.gz"
-                    for lane in gex_lanes
-                    for r in ("R1", "I1", "I2", "R2")
-                ],
-                "CRI": [
-                    f"{FC}_G1_CRI_S2_L{lane}_{r}_001.fastq.gz"
-                    for lane in cri_lanes
-                    for r in ("R1", "I1", "I2", "R2")
-                ],
-            }
-        }
-
-    def test_unequal_lane_counts_are_not_a_mismatch(self):
-        log = self._log(("001", "002", "003", "004"), ("001", "002"))
-        assert validate_fastq_counts(log, "10x", sequencing_type="Illumina") == []
-
-    def test_raw_file_counts_would_have_reported_a_mismatch(self):
-        # Guards the fix: under the Ultima comparison the same delivery fails.
-        log = self._log(("001", "002", "003", "004"), ("001", "002"))
-        assert validate_fastq_counts(log, "10x") != []
-
-    def test_a_genuinely_absent_modality_library_is_still_reported(self):
-        log = self._log(("001",), ("001",))
-        log["G1"]["GEX"] += [
-            f"{FC}_G1_GEX_S9_L001_{r}_001.fastq.gz" for r in ("R1", "R2")
-        ]
-        errors = validate_fastq_counts(log, "10x", sequencing_type="Illumina")
-        assert len(errors) == 1
-        assert "MISMATCH FQ COUNTS" in errors[0]
-
-
 class TestReadCountsAgreeAcrossReadTypes:
     """R1, R2, I1 and I2 of one library-lane set must carry the same count."""
 
@@ -732,57 +693,6 @@ class TestReadCountsAgreeAcrossReadTypes:
         idx = next(ln for ln in out.splitlines() if "I1/I2 count == R1 (or R2)" in ln)
         assert r1r2.split()[-3:] == ["1", "1", "0"]
         assert idx.split()[-3:] == ["2", "1", "1"]
-
-
-class TestIlluminaGexPairedModalities:
-    """Illumina adds TCR and BCR to the modalities compared with GEX."""
-
-    @staticmethod
-    def _files(modality, sample, lanes):
-        return [
-            f"{FC}_G1_{modality}_S{sample}_L{lane}_{r}_001.fastq.gz"
-            for lane in lanes
-            for r in ("R1", "R2")
-        ]
-
-    @pytest.mark.parametrize(
-        "modality", ["CRI", "ATAC", "ADT", "HTO", "ADT_HTO", "TCR", "BCR"]
-    )
-    def test_each_illumina_modality_is_compared_by_library(self, modality):
-        log = {
-            "G1": {
-                "GEX": self._files("GEX", "1", ("001",)),
-                modality: self._files(modality, "2", ("001",))
-                + self._files(modality, "3", ("001",)),
-            }
-        }
-        assert validate_fastq_counts(log, "10x", sequencing_type="Illumina") == [
-            f"MISMATCH FQ COUNTS: G1: 1 GEX, 2 {modality}"
-        ]
-
-    def test_lane_counts_still_do_not_matter_for_tcr(self):
-        log = {
-            "G1": {
-                "GEX": self._files("GEX", "1", ("001", "002", "003", "004")),
-                "TCR": self._files("TCR", "2", ("001",)),
-            }
-        }
-        assert validate_fastq_counts(log, "10x", sequencing_type="Illumina") == []
-
-    def test_summary_counts_tcr_and_bcr_pairs(self):
-        log = {
-            "G1": {
-                "GEX": self._files("GEX", "1", ("001",)),
-                "TCR": self._files("TCR", "2", ("001",)),
-                "BCR": self._files("BCR", "3", ("001",)),
-            }
-        }
-        errors = validate_fastq_counts(log, "10x", sequencing_type="Illumina")
-        summary = summarize_fastq_count_validation(
-            log, "10x", errors, sequencing_type="Illumina"
-        )
-        assert "checked 2 (GEX<->TCR: 1, GEX<->BCR: 1)" in summary
-        assert "All matched." in summary
 
 
 class TestIndexReadsAreNotLibraryReads:
@@ -1193,6 +1103,39 @@ class TestLibrariesByModality:
 
     def test_empty(self):
         assert libraries_by_modality({}) == []
+
+
+class TestMissingModalityWarnings:
+    def test_complete_table_has_no_warnings(self):
+        rows = [
+            {"group_id": "G1", "GEX": 1, "CRI": 1},
+            {"group_id": "G2", "GEX": 1, "CRI": 1},
+        ]
+        assert missing_modality_warnings(rows) == []
+
+    def test_one_warning_per_incomplete_modality(self):
+        rows = [
+            {"group_id": "G1", "GEX": 1, "CRI": 0, "ATAC": 0},
+            {"group_id": "G2", "GEX": 1, "CRI": 1, "ATAC": 0},
+            {"group_id": "G3", "GEX": 0, "CRI": 0, "ATAC": 1},
+        ]
+        assert missing_modality_warnings(rows) == [
+            "MODALITY WARNING: GEX missing in 1 of 3 GroupIDs: G3",
+            "MODALITY WARNING: CRI missing in 2 of 3 GroupIDs: G1, G3",
+            "MODALITY WARNING: ATAC missing in 2 of 3 GroupIDs: G1, G2",
+        ]
+
+    def test_works_on_the_library_table(self):
+        log = {
+            "G1": {"GEX": ["a.cram"], "CRI": ["b.cram"]},
+            "G2": {"GEX": ["c.cram"]},
+        }
+        assert missing_modality_warnings(libraries_by_modality(log)) == [
+            "MODALITY WARNING: CRI missing in 1 of 2 GroupIDs: G2"
+        ]
+
+    def test_empty(self):
+        assert missing_modality_warnings([]) == []
 
 
 class TestReadLengthColumns:

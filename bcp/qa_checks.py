@@ -6,14 +6,12 @@ structured results (errors, missing/extra file lists, etc.).
 
 from __future__ import annotations
 
-import logging
 import os
 import re
 from typing import Any
 
 from qa_constants import (
     CELLRANGER_FLAT_LAYOUT,
-    GEX_PAIRED_MODALITIES,
     ILLUMINA_DEFAULT_PLANNED_READS,
     ILLUMINA_FASTQ_RE,
     ILLUMINA_FLOWCELL_FILE_SUFFIXES,
@@ -78,143 +76,6 @@ def validate_pct_q30(
     return errors
 
 
-def _fastq_count_mode(raw_assay: str) -> str:
-    """Internal: assay policy for fastq count validation and summaries."""
-    if raw_assay in ("sci_jumbo", "10x_viral_ORF", "10x_cram", "seahub_sci"):
-        return "skip"
-    if raw_assay in ("scale", "sci_plex"):
-        return "gex_hash"
-    if raw_assay == "10x":
-        return "10x"
-    return "unknown"
-
-
-def _illumina_library_keys(names: list[str]) -> set[tuple[str, str, str, str]]:
-    """Distinct libraries behind a list of Illumina fastq basenames.
-
-    An Illumina library contributes one fastq per planned read per lane, so the
-    raw file count is ``reads x lanes x libraries``. Comparing those counts
-    across modalities reports a mismatch whenever GEX and CRI ran on a
-    different number of lanes -- which is normal, since lanes are accepted as
-    they arrive. Collapsing to ``(flowcell, group, assay, S-number)`` restores
-    what the comparison has always meant under Ultima, where every library
-    contributes exactly two files: the same number of libraries per modality.
-    """
-    keys: set[tuple[str, str, str, str]] = set()
-    for name in names:
-        m = ILLUMINA_FASTQ_RE.match(name)
-        if m is not None:
-            keys.add(
-                (
-                    m.group("flowcell"),
-                    m.group("group"),
-                    m.group("assay"),
-                    m.group("sample"),
-                )
-            )
-    return keys
-
-
-def validate_fastq_counts(
-    fastq_log: dict[str, dict[str, list[str]]],
-    raw_assay: str,
-    *,
-    sequencing_type: str = "Ultima",
-) -> list[str]:
-    """
-    Check for mismatching number of files across modalities per sample.
-
-    - scale: GEX vs hash_oligo must have equal counts when both present.
-    - sci_plex: GEX vs hash_oligo when both present; GEX_hash_oligo only → no check.
-    - sci_jumbo: No validation; logs that sci_jumbo is not validated.
-    - 10x: every modality in ``GEX_PAIRED_MODALITIES[sequencing_type]`` --
-      CRI, ATAC, ADT, HTO, ADT_HTO, plus TCR and BCR on Illumina -- must have
-      as many libraries as GEX in the same group, when both are present.
-      GEX-only, or a paired modality without GEX, is not checked. Ultima counts
-      files (each library is exactly one R1 + one R2); Illumina counts distinct
-      libraries, since a library has one file per read per lane. Logs when
-      CRI+ATAC are both present (future QA).
-    - 10x_viral_ORF: No validation (legacy); logs that it is not validated.
-    - seahub_sci: No validation. A SeaHub sublibrary carries one combined
-      GEX_hash_oligo type token rather than separate GEX/hash_oligo files, so
-      there is nothing to compare; logs that it is not validated.
-
-    Returns list of error messages.
-    """
-    logger = logging.getLogger(__name__)
-    errors: list[str] = []
-
-    mode = _fastq_count_mode(raw_assay)
-    if mode == "skip":
-        if raw_assay == "sci_jumbo":
-            logger.warning("Not validating fastq counts for sci_jumbo at the moment.")
-        elif raw_assay == "10x_cram":
-            logger.warning(
-                "Not validating fastq counts for 10x_cram (CRAM-only raw layout)."
-            )
-        elif raw_assay == "seahub_sci":
-            # A SeaHub sublibrary carries one combined GEX_hash_oligo type token,
-            # never separate GEX and hash_oligo files, so this check's premise --
-            # two modalities to compare -- never holds. Grouping it with scale and
-            # sci_plex's gex_hash mode made every clean upload report "checked 0,
-            # no comparable pairs", which reads as a defect on a compliant upload.
-            logger.warning(
-                "Not validating fastq counts for seahub_sci (sublibraries carry a "
-                "single combined type token, not separate GEX/hash_oligo files)."
-            )
-        else:
-            logger.warning(
-                "Not validating fastq counts for 10x_viral_ORF (legacy/outlier)."
-            )
-        return errors
-
-    for sample, v in fastq_log.items():
-        if raw_assay == "scale":
-            gex_list = v.get("GEX", [])
-            hash_list = v.get("hash_oligo", [])
-            if gex_list and hash_list and len(gex_list) != len(hash_list):
-                errors.append(
-                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
-                    f"{len(hash_list)} hash_oligo"
-                )
-        elif raw_assay == "sci_plex":
-            gex_list = v.get("GEX", [])
-            hash_list = v.get("hash_oligo", [])
-            if gex_list and hash_list and len(gex_list) != len(hash_list):
-                errors.append(
-                    f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
-                    f"{len(hash_list)} hash_oligo"
-                )
-            # GEX_hash_oligo only or single modality → no comparison
-        elif raw_assay == "10x":
-
-            def _units(modality: str) -> list:
-                files = v.get(modality, [])
-                if sequencing_type == "Illumina":
-                    # Compare libraries, not files -- see _illumina_library_keys.
-                    return sorted(_illumina_library_keys(files))
-                return files
-
-            gex_list = _units("GEX")
-            if v.get("CRI") and v.get("ATAC"):
-                logger.warning(
-                    "Unexpected: CRI+ATAC present for sample %s; "
-                    "QA expansion needed in the future.",
-                    sample,
-                )
-            # Only compare when both have at least one file: GEX-only, or a
-            # paired modality without GEX, has nothing to compare against.
-            for modality in GEX_PAIRED_MODALITIES[sequencing_type]:
-                other = _units(modality)
-                if gex_list and other and len(gex_list) != len(other):
-                    errors.append(
-                        f"MISMATCH FQ COUNTS: {sample}: {len(gex_list)} GEX, "
-                        f"{len(other)} {modality}"
-                    )
-
-    return errors
-
-
 # Column order for the libraries-by-modality table; anything else follows,
 # alphabetically.
 _MODALITY_DISPLAY_ORDER = (
@@ -260,144 +121,25 @@ def libraries_by_modality(
     ]
 
 
-def summarize_fastq_count_validation(
-    fastq_log: dict[str, dict[str, list[str]]],
-    raw_assay: str,
-    errors: list[str],
-    *,
-    sequencing_type: str = "Ultima",
-) -> str:
+def missing_modality_warnings(library_rows: list[dict[str, Any]]) -> list[str]:
+    """One warning per modality that is not 1 for every GroupID.
+
+    Takes the rows of ``libraries_by_modality``. A modality column with any 0
+    means some GroupIDs have no library of it, which is worth a look: a
+    modality that was sequenced for some groups was usually meant for all.
     """
-    Create a short, single-line report for fastq count validation.
-
-    This is intentionally summary-only (no per-file lists). It reports both:
-    - whether any mismatches were found (via `errors`)
-    - whether comparisons were actually applicable (via `fastq_log`)
-    """
-
-    mismatches = len(errors)
-    mode = _fastq_count_mode(raw_assay)
-
-    if mode == "skip":
-        if raw_assay == "10x_cram":
-            return (
-                "Fastq count validation (10x_cram): not applicable for CRAM-only raw "
-                f"inputs; mismatches: {mismatches}. No comparisons performed."
+    if not library_rows:
+        return []
+    modalities = [key for key in library_rows[0] if key != "group_id"]
+    warnings: list[str] = []
+    for modality in modalities:
+        missing = [row["group_id"] for row in library_rows if row.get(modality) != 1]
+        if missing:
+            warnings.append(
+                f"MODALITY WARNING: {modality} missing in {len(missing)} of "
+                f"{len(library_rows)} GroupIDs: {', '.join(missing)}"
             )
-        if raw_assay == "seahub_sci":
-            return (
-                "Fastq count validation (seahub_sci): not applicable -- SeaHub "
-                "sublibraries carry a single combined GEX_hash_oligo type token, "
-                f"not separate GEX/hash_oligo files; mismatches: {mismatches}. "
-                "No comparisons performed."
-            )
-        return (
-            f"Fastq count validation ({raw_assay}): not validated by design; "
-            f"mismatches: {mismatches}. No comparisons performed."
-        )
-
-    if not fastq_log:
-        return (
-            f"Fastq count validation ({raw_assay}): checked 0; mismatches: "
-            f"{mismatches}. No fastq_log data (nothing to compare)."
-        )
-
-    if raw_assay in ("scale", "sci_plex"):
-        checked = sum(
-            1
-            for _sample, v in fastq_log.items()
-            if v.get("GEX") and v.get("hash_oligo")
-        )
-        gex_only = sum(
-            1
-            for _sample, v in fastq_log.items()
-            if v.get("GEX") and not v.get("hash_oligo")
-        )
-        hash_only = sum(
-            1
-            for _sample, v in fastq_log.items()
-            if v.get("hash_oligo") and not v.get("GEX")
-        )
-
-        if checked > 0 and mismatches == 0:
-            result = "All matched."
-        elif checked == 0 and mismatches == 0:
-            if gex_only > 0 and hash_only == 0:
-                result = "Only GEX present (missing hash_oligo)."
-            elif hash_only > 0 and gex_only == 0:
-                result = "Only hash_oligo present (missing GEX)."
-            else:
-                result = "No comparable pairs (missing modality pairs)."
-        elif mismatches > 0:
-            result = (
-                "Mismatches found (see preceding MISMATCH FQ COUNTS lines in stdout "
-                "and the errors log)."
-            )
-        else:
-            result = "No comparisons performed."
-
-        return (
-            f"Fastq count validation ({raw_assay}): checked {checked} "
-            f"(GEX<->hash_oligo); mismatches: {mismatches}. {result}"
-        )
-
-    if raw_assay == "10x":
-        paired = GEX_PAIRED_MODALITIES[sequencing_type]
-        checked_by_modality = {
-            modality: sum(
-                1
-                for _sample, v in fastq_log.items()
-                if v.get("GEX") and v.get(modality)
-            )
-            for modality in paired
-        }
-        checked_total = sum(checked_by_modality.values())
-
-        if checked_total > 0 and mismatches == 0:
-            result = "All matched."
-        elif checked_total == 0 and mismatches == 0:
-            gex_present = sum(1 for _sample, v in fastq_log.items() if v.get("GEX"))
-            paired_present = sum(
-                1
-                for _sample, v in fastq_log.items()
-                if any(v.get(modality) for modality in paired)
-            )
-            if gex_present > 0 and paired_present == 0:
-                result = "Only GEX present (no paired modality to compare)."
-            elif gex_present == 0 and paired_present > 0:
-                result = (
-                    "Missing GEX (paired modalities present, nothing to compare to)."
-                )
-            elif gex_present > 0 and paired_present > 0:
-                result = (
-                    "No comparable pairs (GEX groups differ from the groups with "
-                    "paired modalities)."
-                )
-            else:
-                result = "No comparable pairs (missing modality pairs)."
-        elif mismatches > 0:
-            result = (
-                "Mismatches found (see preceding MISMATCH FQ COUNTS lines in stdout "
-                "and the errors log)."
-            )
-        else:
-            result = "No comparisons performed."
-
-        # Only the pairs that actually occurred, so an 8-modality Illumina
-        # list does not print seven zeros.
-        breakdown = ", ".join(
-            f"GEX<->{modality}: {n}" for modality, n in checked_by_modality.items() if n
-        )
-        return (
-            f"Fastq count validation (10x): checked {checked_total}"
-            + (f" ({breakdown})" if breakdown else "")
-            + f"; mismatches: {mismatches}. {result}"
-        )
-
-    return (
-        f"Fastq count validation ({raw_assay}): checked 0; mismatches: "
-        f"{mismatches}. Unsupported assay."
-    )
+    return warnings
 
 
 def validate_read_metadata(

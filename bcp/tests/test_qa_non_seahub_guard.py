@@ -30,7 +30,6 @@ import pytest
 
 from qa_checks import (
     MIN_METADATA_READ_COUNT,
-    _fastq_count_mode,
     check_expected_raw_files,
     check_extra_raw_files,
     validate_read_metadata,
@@ -147,21 +146,6 @@ BASELINES = {
     ),
 }
 
-EXPECTED_FASTQ_COUNT_MODES = {
-    "10x": "10x",
-    "10x_cram": "skip",
-    "10x_viral_ORF": "skip",
-    "sci_plex": "gex_hash",
-    "sci_jumbo": "skip",
-    "scale": "gex_hash",
-    # Not one of the six this guard exists to freeze -- seahub_sci's own value,
-    # updated when it moved from "gex_hash" to "skip": a SeaHub sublibrary
-    # carries one combined GEX_hash_oligo token, never separate GEX/hash_oligo
-    # files, so "gex_hash" mode reported "checked 0, no comparable pairs" on
-    # every clean upload.
-    "seahub_sci": "skip",
-}
-
 
 class TestNonSeahubAssayBaseline:
     """Frozen behavior for every assay that is not seahub_sci."""
@@ -204,12 +188,6 @@ class TestNonSeahubAssayBaseline:
         )
 
         assert check_extra_raw_files(keys + [junk], raw_found, raw_assay) == [junk]
-
-    @pytest.mark.parametrize(
-        "raw_assay,expected_mode", sorted(EXPECTED_FASTQ_COUNT_MODES.items())
-    )
-    def test_fastq_count_mode_is_frozen(self, raw_assay, expected_mode):
-        assert _fastq_count_mode(raw_assay) == expected_mode
 
     def test_expected_and_optional_ending_sets_are_frozen(self):
         """Catches an ending being added or removed as a side effect.
