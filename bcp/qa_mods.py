@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -17,6 +18,10 @@ from bs4 import BeautifulSoup
 
 from qa_constants import (
     ALLOWED_RAW_ASSAYS,
+    ALLOWED_SEQUENCING_TYPES,
+    ILLUMINA_FASTQ_RE,
+    ILLUMINA_PLANNED_READ_MAP,
+    ILLUMINA_RAW_ASSAYS,
     METRICS_SUMMARY_LIBRARY_TYPES,
     METRICS_SUMMARY_READ_METRICS,
     METRICS_SUMMARY_READS_ANALYZED,
@@ -37,6 +42,7 @@ from qa_constants import (
 
 __all__ = [
     "ALLOWED_RAW_ASSAYS",
+    "ALLOWED_SEQUENCING_TYPES",
     "QARunContext",
     "cellranger_expected",
     "cellranger_ignore",
@@ -46,6 +52,8 @@ __all__ = [
     "is_trimmer_stats_basename",
     "is_valid_cellranger_run_dir_name",
     "normalize_raw_assay",
+    "normalize_sequencing_type",
+    "parse_planned_reads",
     "raw_expected",
     "raw_optional",
     "resolve_qa_run_context",
@@ -266,6 +274,82 @@ class QARunContext:
     # have been named *_trimmer-stats.csv. Off by default; see
     # ``is_trimmer_stats_basename`` for the matching rule.
     allow_truncated_stats_name: bool = False
+    # Sequencing platform the delivery came off. "Ultima" is every assay's
+    # historical shape; "Illumina" is 10x-only and changes which raw files are
+    # expected (see the ILLUMINA_* constants in qa_constants).
+    sequencing_type: str = "Ultima"
+
+
+def normalize_sequencing_type(value: str | None) -> str:
+    """
+    Strip whitespace, fix casing, and validate against ALLOWED_SEQUENCING_TYPES.
+
+    Mirrors ``normalize_raw_assay``: the sequencing platform is a notebook
+    parameter typed by hand, so a typo must fail loudly at context resolution
+    rather than silently selecting the Ultima path.
+
+    Raises:
+        ValueError: if missing or not a supported sequencing type.
+    """
+    if value is None or not str(value).strip():
+        raise ValueError(
+            "ERROR: sequencing_type is not specified. "
+            "Set it to one of: 'Ultima', 'Illumina'."
+        )
+    s = str(value).strip()
+    lower = s.lower()
+    if lower == "ultima":
+        s = "Ultima"
+    elif lower == "illumina":
+        s = "Illumina"
+    if s not in ALLOWED_SEQUENCING_TYPES:
+        raise ValueError(
+            f"HUGE ERROR: sequencing_type='{s}' is not recognized. "
+            "Update the parameter to one of: 'Ultima', 'Illumina'."
+        )
+    return s
+
+
+def parse_planned_reads(xml_text: str) -> list[str] | None:
+    """
+    Read the planned read tokens out of an Illumina ``RunParameters.xml``.
+
+    The file carries, e.g.::
+
+        <PlannedReads>
+          <Read ReadName="Read1" Cycles="151" />
+          <Read ReadName="Index1" Cycles="10" />
+          <Read ReadName="Index2" Cycles="10" />
+          <Read ReadName="Read2" Cycles="151" />
+        </PlannedReads>
+
+    Returns the fastq-filename tokens in document order (``["R1", "I1", "I2",
+    "R2"]`` above), which is what says how many fastqs each library should
+    have. A ``ReadName`` outside ``ILLUMINA_PLANNED_READ_MAP`` is skipped
+    rather than rejected: an unfamiliar planned read is not a reason to fail a
+    delivery.
+
+    Returns ``None`` when the XML will not parse or carries no ``PlannedReads``,
+    so the caller can record a warning and fall back to
+    ``ILLUMINA_DEFAULT_PLANNED_READS`` (all four read types), instead of
+    crashing a whole run over one unreadable sidecar.
+    """
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return None
+
+    # Not always at a fixed depth, so search rather than index.
+    planned = root.find(".//PlannedReads")
+    if planned is None:
+        return None
+
+    reads: list[str] = []
+    for read in planned.findall("Read"):
+        token = ILLUMINA_PLANNED_READ_MAP.get(read.get("ReadName", ""))
+        if token is not None and token not in reads:
+            reads.append(token)
+    return reads or None
 
 
 def resolve_qa_run_context(
@@ -282,6 +366,7 @@ def resolve_qa_run_context(
     manifest_s3_column: int = 0,
     manifest_has_header: bool = False,
     allow_truncated_stats_name: bool = False,
+    sequencing_type: str = "Ultima",
 ) -> QARunContext:
     """
     Validate notebook parameters and return a single context for gathering and output paths.
@@ -307,6 +392,13 @@ def resolve_qa_run_context(
         )
 
     assay = normalize_raw_assay(raw_assay)
+    seq_type = normalize_sequencing_type(sequencing_type)
+    if seq_type == "Illumina" and assay not in ILLUMINA_RAW_ASSAYS:
+        raise ValueError(
+            f"sequencing_type='Illumina' is only supported for raw_assay in "
+            f"{sorted(ILLUMINA_RAW_ASSAYS)}, got {assay!r}. Every other assay's "
+            "expected-file set describes an Ultima delivery."
+        )
 
     if ds == "manifest":
         mp = str(manifest_path).strip()
@@ -353,6 +445,7 @@ def resolve_qa_run_context(
             manifest_s3_column=manifest_s3_column,
             manifest_has_header=manifest_has_header,
             allow_truncated_stats_name=bool(allow_truncated_stats_name),
+            sequencing_type=seq_type,
         )
 
     # --- s3 ---
@@ -394,6 +487,7 @@ def resolve_qa_run_context(
         output_label=out,
         listing_prefix=listing,
         allow_truncated_stats_name=bool(allow_truncated_stats_name),
+        sequencing_type=seq_type,
     )
 
 
@@ -1084,13 +1178,39 @@ def apply_seahub_trim_fail_blocks(
             }
 
 
-def parse_raw_filename(f, raw_assay):
+def parse_raw_filename(f, raw_assay, *, sequencing_type: str = "Ultima"):
     """
     For scale data, use regex for determining assay, and "group" is replaced by "experiment", and there is no "barcode". This is because
     for scale data, all cram files within a single experiment will be used as input for a single run of SeqSuite.
     Otherwise, parse 10x/sci filenames from the right so group IDs can include hyphens.
+
+    Under ``sequencing_type="Illumina"`` the name is a bcl-convert fastq,
+    ``{FlowcellID}_{GroupID}_{Assay}_S{n}_L00#_{READ}_001.fastq.gz``, which has
+    no UG index or barcode. The five-tuple is kept so every caller
+    (``_process_raw_file``'s group/assay checks, ``fastq_log``,
+    ``validate_read_metadata``) works unchanged, with ``run`` carrying the
+    flowcell ID and the last two slots carrying the S-number and lane --
+    the pair that makes an Illumina fastq unique within a library.
+
+    Those last two slots are therefore NOT a UG index and barcode here, and the
+    string ``f"{run}-{group}_{assay}-{ug}-{barcode}"`` that the Ultima callers
+    rebuild is not a filename prefix for an Illumina delivery. Nothing rebuilds
+    it on the Illumina path: ``check_expected_raw_files`` branches to its own
+    checker before that code is reached.
     """
     filename = f.split("/")[-1]
+
+    if sequencing_type == "Illumina":
+        m = ILLUMINA_FASTQ_RE.match(filename)
+        if m is None:
+            return None
+        return (
+            m.group("flowcell"),
+            m.group("group"),
+            m.group("assay"),
+            f"S{m.group('sample')}",
+            f"L{m.group('lane')}",
+        )
 
     if raw_assay == "seahub_sci":
         path_info = parse_seahub_raw_path(f)

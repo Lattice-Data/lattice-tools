@@ -41,12 +41,17 @@ from qa_mods import (
     is_valid_cellranger_run_dir_name,
     load_files_from_manifest,
     parse_pct_pf_q30_from_lines,
+    parse_planned_reads,
     parse_raw_filename,
     parse_scale_samples_csv,
     parse_scale_workflow_info,
     valid_assays,
 )
 from qa_constants import (
+    ILLUMINA_DEFAULT_PLANNED_READS,
+    ILLUMINA_FASTQ_RE,
+    ILLUMINA_MODALITIES,
+    ILLUMINA_RUN_PARAMETERS_SUFFIX,
     SEAHUB_FAIL_SUFFIXES,
     SEAHUB_PLATE_SIZES,
     SEAHUB_SUBLIBRARY_TYPES,
@@ -111,6 +116,11 @@ class QAGatheredData:
     # size check.  Empty in manifest mode, where the manifest supplies only URIs;
     # a missing size reads as "unknown" and the check stays silent.
     raw_file_sizes: dict[str, int] = field(default_factory=dict)
+    # Illumina-only: planned read tokens per flowcell, read out of that
+    # flowcell's RunParameters.xml (e.g. {"22YKTVLT4": ["R1", "I1", "I2", "R2"]}).
+    # A flowcell whose XML was missing or unreadable is absent, which is how the
+    # completeness check knows to fall back rather than assume two reads.
+    illumina_planned_reads: dict[str, list[str]] = field(default_factory=dict)
 
 
 class QADataGatherer:
@@ -128,6 +138,7 @@ class QADataGatherer:
         self.paginator = s3_client.get_paginator("list_objects")
         self.bucket = ctx.bucket
         self.raw_assay = ctx.raw_assay
+        self.sequencing_type = ctx.sequencing_type
         self._data = QAGatheredData()
         self._metadata_lock = Lock()
         self._pct_q30_lock = Lock()
@@ -221,7 +232,12 @@ class QADataGatherer:
             else:
                 self._gather_group_processed(g, group_name)
 
-        if self.raw_assay in ("10x", "10x_cram", "10x_viral_ORF"):
+        if (
+            self.raw_assay in ("10x", "10x_cram", "10x_viral_ORF")
+            and self.sequencing_type != "Illumina"
+        ):
+            # Merged trimmer CSVs are Ultima trimmer output; under Illumina this
+            # is a full-order listing that can only ever find nothing.
             self._gather_order_level_merged_trimmers()
 
     def _gather_from_s3_seahub(self) -> None:
@@ -493,6 +509,9 @@ class QADataGatherer:
         self._data.has_raw = True
         self._data.all_raw_files.extend(raw_files)
 
+        if self.sequencing_type == "Illumina":
+            self._gather_illumina_run_info(raw_files)
+
         metadata_files: list[str] = []
         for rf in raw_files:
             if self._should_download_metadata_json(rf):
@@ -501,8 +520,69 @@ class QADataGatherer:
             self._process_raw_file(rf, group_name, is_10x)
         self._download_metadata_json_batch(metadata_files)
 
+    def _gather_illumina_run_info(self, raw_files: list[str]) -> None:
+        """Record planned reads and observed lanes for each flowcell in this group.
+
+        An Illumina ``raw/`` directory holds one set of flowcell files per
+        flowcell, so a group that was sequenced across two flowcells yields two
+        entries here. The planned reads come from each flowcell's own
+        RunParameters.xml rather than from a shared assumption, because a run
+        with no index reads plans two and a dual-indexed run plans four.
+        """
+        group_flowcells: set[str] = set()
+        for rf in raw_files:
+            m = ILLUMINA_FASTQ_RE.match(rf.split("/")[-1])
+            if m is not None:
+                group_flowcells.add(m.group("flowcell"))
+
+        for rf in raw_files:
+            if not rf.endswith(ILLUMINA_RUN_PARAMETERS_SUFFIX):
+                continue
+            flowcell = rf.split("/")[-1][: -len(ILLUMINA_RUN_PARAMETERS_SUFFIX)]
+            xml_text = self._read_illumina_run_parameters(rf)
+            reads = parse_planned_reads(xml_text) if xml_text is not None else None
+            if reads is None:
+                # Not an error: completeness falls back to the default read
+                # types and says so, more useful than failing the whole order.
+                self._data.gathering_warnings.append(
+                    f"RUN PARAMETERS UNREADABLE: {rf} — planned reads unknown, "
+                    f"expecting {'/'.join(ILLUMINA_DEFAULT_PLANNED_READS)} for completeness"
+                )
+                continue
+            self._data.illumina_planned_reads[flowcell] = reads
+
+        # This group's flowcells only: this runs once per GroupID, and checking
+        # every flowcell seen so far repeated the same warning for each group.
+        for flowcell in sorted(group_flowcells):
+            if flowcell not in self._data.illumina_planned_reads:
+                self._data.gathering_warnings.append(
+                    f"RUN PARAMETERS MISSING: no readable "
+                    f"{flowcell}{ILLUMINA_RUN_PARAMETERS_SUFFIX} for flowcell "
+                    f"{flowcell} — expecting "
+                    f"{'/'.join(ILLUMINA_DEFAULT_PLANNED_READS)} for completeness"
+                )
+
+    def _read_illumina_run_parameters(self, rf: str) -> str | None:
+        """Download one RunParameters.xml and return its text, or None if unreadable.
+
+        Returned as text so the planned reads and their lengths are both parsed
+        from a single download.
+        """
+        with tempfile.NamedTemporaryFile(mode="w+b", delete=False, suffix=".xml") as tf:
+            local = tf.name
+        try:
+            self.s3.download_file(self.bucket, rf, local)
+            with open(local, encoding="utf-8") as fh:
+                return fh.read()
+        except Exception:  # noqa: BLE001 - unreadable is unreadable
+            return None
+        finally:
+            Path(local).unlink(missing_ok=True)
+
     def _process_raw_file(self, rf: str, group_name: str, is_10x: bool) -> None:
-        parsed = parse_raw_filename(rf, self.raw_assay)
+        parsed = parse_raw_filename(
+            rf, self.raw_assay, sequencing_type=self.sequencing_type
+        )
         if parsed is not None:
             _run, group, assay, _ug, _barcode = parsed
             # SeaHub allows a narrower vocabulary than valid_assays, and a
@@ -511,6 +591,10 @@ class QADataGatherer:
             if self.raw_assay == "seahub_sci":
                 allowed_assays: tuple[str, ...] | list[str] = SEAHUB_SUBLIBRARY_TYPES
                 assay_is_wrong = assay is not None and assay not in allowed_assays
+            elif self.sequencing_type == "Illumina":
+                # Illumina carries its own modality list (ADT, HTO, BCR, TCR...),
+                # which valid_assays does not.
+                assay_is_wrong = assay not in ILLUMINA_MODALITIES
             else:
                 assay_is_wrong = assay not in valid_assays
             if assay_is_wrong:
@@ -837,6 +921,16 @@ class QADataGatherer:
 
     def _gather_pct_q30(self) -> None:
         """Stream sublibrary stats CSVs from S3 and populate pct_q30_values."""
+        if self.sequencing_type == "Illumina":
+            # PCT_PF_Q30_bases lives in the Ultima trimmer's aggregate stats CSV,
+            # which an Illumina delivery does not ship. Warn rather than return
+            # silently: cell 2 writes warnings into {order}_errors.txt, and a
+            # run that skipped a check must not leave a clean error log.
+            self._data.gathering_warnings.append(
+                "Q30 SKIPPED: Illumina deliveries carry no aggregate stats CSV "
+                "(PCT_PF_Q30_bases); sublibrary Q30 validation did not run"
+            )
+            return
         keys = [
             key
             for key in self._data.all_raw_files
