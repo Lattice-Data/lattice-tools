@@ -1,13 +1,15 @@
-"""Command line entry point: plan | run | verify | batch | test-data."""
+"""Command line entry point: resolve | plan | run | verify | check-submission | batch | test-data."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 from . import batch as batch_mod
-from . import portal, s3io, testdata, verify
+from . import db2, portal, s3io, sra, submission, testdata, verify
 from .plan import (
     GB,
     LIMIT_BYTES,
@@ -39,6 +41,37 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
+
+    s = sub.add_parser(
+        "resolve",
+        help="fetch the sets named by db2_flattener's SRA sheets from DB2 and "
+        "write sets.json/files.json for `plan`; read-only",
+    )
+    s.add_argument(
+        "--sra-sheet",
+        required=True,
+        type=Path,
+        help="the flattener's SRA file sheet, e.g. sra_file_set1.csv",
+    )
+    s.add_argument(
+        "--set-sheet",
+        required=True,
+        type=Path,
+        help="library_ID,sequence_file_set_uuid, e.g. sra_sequence_fileset_set1.csv",
+    )
+    s.add_argument(
+        "--mode",
+        default="db2_prod",
+        help="DB2 instance; reads <MODE>_KEY, <MODE>_SECRET, <MODE>_SERVER",
+    )
+    s.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path("."),
+        help="where sets.json and files.json go",
+    )
+    s.add_argument("--batch-limit-gb", type=float, default=sra.BATCH_LIMIT_BYTES / GB)
+    s.set_defaults(func=cmd_resolve)
 
     p = sub.add_parser(
         "plan",
@@ -104,6 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="server-side copy files that need no splitting into --dst as well",
     )
     r.add_argument(
+        "--copy-workers",
+        type=int,
+        default=8,
+        help="server-side copies at once (--copy-singletons)",
+    )
+    r.add_argument(
         "--log-dir", type=Path, default=Path("logs"), help="one <stem>.log per file"
     )
     r.add_argument(
@@ -153,6 +192,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     v.add_argument("--pigz", help="path to pigz (full level only)")
     v.set_defaults(func=cmd_verify)
+
+    c = sub.add_parser(
+        "check-submission",
+        help="check that the destination holds exactly what the SRA sheet names; "
+        "read-only",
+    )
+    c.add_argument("--plan", required=True, type=Path, help="plan.json from `plan`")
+    c.add_argument(
+        "--sra-sheet",
+        required=True,
+        type=Path,
+        help="the SRA file sheet the plan is for",
+    )
+    c.add_argument(
+        "--verify-report",
+        type=Path,
+        help="verify_report.tsv from `verify --level full`; required when the "
+        "plan splits anything",
+    )
+    c.add_argument("--batch-limit-gb", type=float, default=sra.BATCH_LIMIT_BYTES / GB)
+    c.add_argument("--out", type=Path, default=Path("submission_report.tsv"))
+    c.set_defaults(func=cmd_check_submission)
 
     b = sub.add_parser(
         "batch", help="pack sets into submission batches under a size limit"
@@ -204,6 +265,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         for members in portal.build_groups(sets, files)
     ]
     plan = make_plan(groups, args.dst, target, limit, args.round_to)
+    sra.name_contract(plan, files)
     write_plan(plan, args.out)
     if args.names_only:
         for g in plan.groups:
@@ -212,6 +274,31 @@ def cmd_plan(args: argparse.Namespace) -> int:
                     print(c.name)
         return 0
     print_plan_summary(plan, args.out, sys.stdout)
+    return 0
+
+
+def cmd_resolve(args: argparse.Namespace, client: db2.Client | None = None) -> int:
+    sheet = sra.read_sra_sheet(args.sra_sheet)
+    rows = sra.read_fileset_sheet(args.set_sheet)
+    client = client or db2.Client(args.mode)
+    sets_by_uuid = db2.fetch_by_uuid(
+        client.search, "SequenceFileSet", [u for _, u in rows]
+    )
+    file_uuids = [f for s in sets_by_uuid.values() for _, f in sra.slot_refs(s)]
+    files_by_uuid = db2.fetch_by_uuid(client.search, "SequenceFile", file_uuids)
+    resolved = sra.resolve(
+        sheet, rows, sets_by_uuid, files_by_uuid, int(args.batch_limit_gb * GB)
+    )
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    sets_path = args.out_dir / "sets.json"
+    files_path = args.out_dir / "files.json"
+    sets_path.write_text(json.dumps(resolved.sets, indent=2) + "\n")
+    files_path.write_text(json.dumps(resolved.files, indent=2) + "\n")
+    print(
+        f"{resolved.n_libraries} libraries, {len(resolved.sets)} sets, "
+        f"{len(resolved.files)} files, {resolved.total_bytes / GB:.0f} GB; the SRA "
+        f"sheet matches DB2's sra_file_names. Wrote {sets_path} and {files_path}"
+    )
     return 0
 
 
@@ -250,13 +337,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         force=args.force,
         dry_run=args.dry_run,
         copy_singletons=args.copy_singletons,
+        copy_workers=args.copy_workers,
         log_dir=args.log_dir,
         manifest=args.manifest,
         decompressor=args.decompressor,
         read_concurrency=args.read_concurrency,
         upload_concurrency=args.upload_concurrency,
     )
-    tools = find_tools(args.pigz, args.split, args.decompressor, args.rapidgzip)
+    tools = None
+    if plan.split_files():
+        tools = find_tools(args.pigz, args.split, args.decompressor, args.rapidgzip)
     return run_plan(plan, opts, tools=tools)
 
 
@@ -277,6 +367,31 @@ def cmd_verify(args: argparse.Namespace) -> int:
     print(
         f"{'PASS' if ok else 'FAIL'}: {len(checks)} checks, {len(fails)} failed, "
         f"{len(warns)} warnings; report written to {args.out}"
+    )
+    return 0 if ok else 1
+
+
+def cmd_check_submission(args: argparse.Namespace) -> int:
+    plan = load_plan(args.plan)
+    sheet = sra.read_sra_sheet(args.sra_sheet)
+    fs = s3io.make_fs(plan.dst)
+    client = s3io.make_s3_client(8) if s3io.is_s3(fs) else None
+    rows = submission.check(
+        plan, sheet, fs, args.verify_report, int(args.batch_limit_gb * GB), client
+    )
+    ok = submission.write_report(args.out, rows)
+    fails = [r for r in rows if r.status == "FAIL"]
+    for r in fails[:50]:
+        print(f"FAIL {r.name} {r.check}: {r.detail}")
+    if len(fails) > 50:
+        print(f"... {len(fails) - 50} more in {args.out}")
+    checked = Counter(
+        r.detail for r in rows if r.check == "copy" and r.status == "PASS"
+    )
+    print(
+        f"{'PASS' if ok else 'FAIL'}: {len(rows)} checks, {len(fails)} failed; "
+        f"copies checked by {dict(checked) or 'none'}; {rows[-1].detail}; "
+        f"report written to {args.out}"
     )
     return 0 if ok else 1
 

@@ -130,6 +130,17 @@ def make_s3_client(concurrency: int):
     )
 
 
+def head_crc64nvme(client, url: str) -> tuple[str | None, str | None]:
+    """(ChecksumCRC64NVME, ChecksumType) S3 stores for an object, or Nones.
+
+    Only a FULL_OBJECT checksum is comparable with a whole-file CRC such as
+    DB2's crc64nvme_base64; a COMPOSITE one is a checksum of part checksums.
+    """
+    bucket, key = split_s3_url(url)
+    r = client.head_object(Bucket=bucket, Key=key, ChecksumMode="ENABLED")
+    return r.get("ChecksumCRC64NVME"), r.get("ChecksumType")
+
+
 class S3MultipartWriter:
     """Multipart upload with up to ``concurrency`` parts in flight.
 

@@ -77,8 +77,15 @@ its partial chunks removed and the run continues; the exit code is non-zero and
 the `--only ...` command to rerun is printed. If `split` produces a different
 number of chunks than the plan names, which is what a wrong portal `read_count`
 causes, the file is treated the same way. `--copy-singletons` server-side
-copies files that need no splitting into `--dst` as well (no sidecar, since
-nothing reads their bytes). Run under `tmux` or `nohup`, and export
+copies files that need no splitting into `--dst` as well, `--copy-workers`
+(default 8) at a time, and preflight then checks their sources too. Each copy
+is checked after it lands: its size must match the plan, and when S3 holds a
+full-object CRC64NVME for it and DB2 recorded one (`crc64nvme_base64`), the two
+must be equal. The manifest's `checked` column says which was compared
+(`size` or `size+crc64nvme`). A copy that fails is removed and reported, the
+other copies go on, and a rerun copies only what is missing or wrong. A copy
+gets no sidecar, since nothing reads its bytes. A plan with nothing to split
+only copies, and needs neither `pigz` nor `split`. Run under `tmux` or `nohup`, and export
 `AWS_MAX_ATTEMPTS=10 AWS_RETRY_MODE=adaptive` for long jobs. A pipeline that is
 killed outright (not one that fails) can leave an incomplete multipart upload
 behind, which S3 bills for and does not list; give the destination bucket a
@@ -97,6 +104,63 @@ read IDs agree across mates and do not repeat across chunk boundaries. Any
 `batch` is organisational only: it packs whole sets, in plan order, into
 submission batches under `--batch-limit-gb` (default 5000), using actual chunk
 sizes from the run manifest when given.
+
+## From db2_flattener's SRA sheets
+
+db2_flattener writes a submittable SRA file sheet per batch
+(`sra_file_set{N}.csv`) whose `filename…` cells hold DB2's predicted names
+(`sra_file_names` on SequenceFile: a file's own name, or its chunk names once
+its set reaches the limit), plus `sra_sequence_fileset_set{N}.csv`
+(`library_ID,sequence_file_set_uuid`, one row per SequenceFileSet). The
+destination then holds exactly what the sheet names: chunks for a file that is
+split (never the original), the original for a file that is not.
+
+```
+# where DB2 credentials are (DB2_PROD_KEY, DB2_PROD_SECRET, DB2_PROD_SERVER)
+python -m fastq_chunker resolve --sra-sheet sra_file_set1.csv \
+    --set-sheet sra_sequence_fileset_set1.csv --out-dir set1/
+python -m fastq_chunker plan --file-sets set1/sets.json --files set1/files.json \
+    --dst s3://dst-bucket/batch1/ --out set1/plan.json
+
+# where S3 access is (the pod); plan.json carries every s3_uri
+python -m fastq_chunker run --plan plan.json --copy-singletons --decompressor rapidgzip
+python -m fastq_chunker verify --plan plan.json --level full
+python -m fastq_chunker check-submission --plan plan.json \
+    --sra-sheet sra_file_set1.csv --verify-report verify_report.tsv
+```
+
+`resolve` is read-only. It fetches the listed sets by uuid, and the files in
+their read slots, and writes the `sets.json`/`files.json` that `plan` already
+reads. It refuses, listing every problem at once, when:
+
+- a uuid does not resolve, or a set or file is deleted;
+- a set is listed twice, or a file belongs to two listed sets;
+- DB2 gives a file no `sra_file_names` (which it does when it would refuse the
+  set);
+- a library's `sra_file_names`, across all its sets, differ from that row's
+  `filename…` cells (order within a row is not compared);
+- the batch is over `--batch-limit-gb` (default 5000).
+
+Credentials follow the repo's `--mode` convention (default `db2_prod`).
+
+`plan` enforces the name contract whenever the file objects carry
+`sra_file_names`. Its own names, the chunk names or an unsplit file's
+name, must equal DB2's, in order, or nothing is written. So the chunker
+produces exactly the predicted names or refuses. A different `--target-gb` is
+accepted only where it yields the same names.
+
+`check-submission` is the gate before upload. It is read-only and reads the
+destination itself, not the manifest. It requires that:
+
+- the sheet's names are exactly the plan's;
+- the destination holds exactly those objects, plus `.md5` sidecars of chunks
+  and nothing else (no pre-split original, no probe, no sub-prefix);
+- every copy passes the copy check above;
+- every chunk is below the limit, has its sidecar, and passed
+  `verify --level full` (read count and md5) with no FAIL;
+- the batch in actual bytes is within the limit.
+
+It writes `submission_report.tsv` and exits non-zero on any FAIL.
 
 ## Performance
 
@@ -142,7 +206,9 @@ first pilot), and quick and full verify passed on each.
 ## Outputs
 
 - `<stem>.partNNN.fastq.gz` and `<stem>.partNNN.fastq.gz.md5` under `--dst`
-- `plan.json`, `run_manifest.tsv`, `verify_report.tsv`, `batches.tsv`, `logs/<stem>.log`
+- copies of unsplit files under their own names, with `--copy-singletons`
+- `sets.json`, `files.json` (from `resolve`), `plan.json`, `run_manifest.tsv`,
+  `verify_report.tsv`, `submission_report.tsv`, `batches.tsv`, `logs/<stem>.log`
 
 ## Requirements
 
